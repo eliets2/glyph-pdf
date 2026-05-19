@@ -1,0 +1,46 @@
+#pragma once
+#include <QWidget>
+#include <QHash>
+
+class QVBoxLayout;
+class QScrollArea;
+class QScrollBar;
+class QLabel;
+class QSpacerItem;
+class PdfViewerWidget;
+class ThumbItem;
+
+class ThumbnailSidebar : public QWidget {
+    Q_OBJECT
+public:
+    explicit ThumbnailSidebar(QWidget* parent = nullptr);
+    void setViewer(PdfViewerWidget* viewer);
+    void setCurrentPage(int page);
+    void rebuild();
+
+signals:
+    void pageClicked(int page);
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
+
+private:
+    QWidget* createThumbWidget(int pageIndex);
+    void updateVisibleThumbnails();
+
+    static constexpr int ThumbItemHeight = 260; // estimated height per thumb widget
+    static constexpr int VisibleBuffer   = 2;   // extra widgets above/below viewport
+
+    QScrollArea*         m_scroll;
+    QWidget*             m_container;
+    QVBoxLayout*         m_layout;
+    QLabel*              m_pageCountLabel;
+    PdfViewerWidget*     m_viewer      = nullptr;
+    int                  m_currentPage = 0;
+    int                  m_totalPages  = 0;
+
+    // Virtualization (Fix 4): sparse map of live widgets keyed by page index
+    QHash<int, QWidget*> m_liveWidgets;
+    QSpacerItem*         m_topSpacer   = nullptr;
+    QSpacerItem*         m_bottomSpacer = nullptr;
+};

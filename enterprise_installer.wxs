@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Product Id="*" Name="PDF Workstation Pro" Language="1033" Version="0.1.0.0" Manufacturer="Antigravity Systems" UpgradeCode="fb1fbe00-e1af-449c-8a58-2d2e308b9127">
+        <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" />
+
+        <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+        <MediaTemplate EmbedCab="yes" />
+
+        <Feature Id="ProductFeature" Title="PDF Workstation Pro" Level="1">
+            <ComponentGroupRef Id="ProductComponents" />
+            <ComponentGroupRef Id="QtRuntimeComponents" />
+            <ComponentGroupRef Id="MinGWComponents" />
+        </Feature>
+    </Product>
+
+    <Fragment>
+        <Directory Id="TARGETDIR" Name="SourceDir">
+            <Directory Id="ProgramFiles64Folder">
+                <Directory Id="INSTALLFOLDER" Name="PDF Workstation Pro">
+                    <Directory Id="PLATFORMSFOLDER" Name="platforms" />
+                    <Directory Id="STYLEREFOLDER" Name="styles" />
+                    <Directory Id="ICONREFOLDER" Name="iconengines" />
+                    <Directory Id="IMAGEFORMATSFOLDER" Name="imageformats" />
+                </Directory>
+            </Directory>
+        </Directory>
+    </Fragment>
+
+    <Fragment>
+        <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+            <Component Id="MainExecutable" Guid="*">
+                <File Id="PdfWorkstationEXE" Source="build/PdfWorkstation.exe" KeyPath="yes" Checksum="yes" />
+                <Shortcut Id="ApplicationStartMenuShortcut" Directory="ProgramMenuFolder" Name="PDF Workstation Pro" WorkingDirectory="INSTALLFOLDER" Icon="icon.ico" IconIndex="0" Advertise="yes" />
+            </Component>
+            <Component Id="PoDoFoDLL" Guid="*">
+                <File Id="PoDoFoDLL" Source="build/podofo.dll" />
+            </Component>
+            <Component Id="OpenSSL_Crypto" Guid="*">
+                <File Id="libcrypto_dll" Source="build/libcrypto-3-x64.dll" />
+            </Component>
+            <Component Id="OpenSSL_SSL" Guid="*">
+                <File Id="libssl_dll" Source="build/libssl-3-x64.dll" />
+            </Component>
+        </ComponentGroup>
+
+        <ComponentGroup Id="QtRuntimeComponents" Directory="INSTALLFOLDER">
+            <Component Id="Qt6Core" Guid="*"><File Source="build/Qt6Core.dll" /></Component>
+            <Component Id="Qt6Gui" Guid="*"><File Source="build/Qt6Gui.dll" /></Component>
+            <Component Id="Qt6Widgets" Guid="*"><File Source="build/Qt6Widgets.dll" /></Component>
+            <Component Id="Qt6Pdf" Guid="*"><File Source="build/Qt6Pdf.dll" /></Component>
+            <Component Id="Qt6PdfWidgets" Guid="*"><File Source="build/Qt6PdfWidgets.dll" /></Component>
+            <Component Id="Qt6Network" Guid="*"><File Source="build/Qt6Network.dll" /></Component>
+            <Component Id="Qt6Svg" Guid="*"><File Source="build/Qt6Svg.dll" /></Component>
+            <Component Id="Qt6PrintSupport" Guid="*"><File Source="build/Qt6PrintSupport.dll" /></Component>
+            
+            <!-- Plugins -->
+            <Component Id="QWindowsPlugin" Directory="PLATFORMSFOLDER" Guid="*">
+                <File Id="qwindows_dll" Source="build/platforms/qwindows.dll" />
+            </Component>
+        </ComponentGroup>
+
+        <ComponentGroup Id="MinGWComponents" Directory="INSTALLFOLDER">
+            <Component Id="libgcc" Guid="*"><File Source="build/libgcc_s_seh-1.dll" /></Component>
+            <Component Id="libstdc" Guid="*"><File Source="build/libstdc++-6.dll" /></Component>
+            <Component Id="libwinpthread" Guid="*"><File Source="build/libwinpthread-1.dll" /></Component>
+        </ComponentGroup>
+    </Fragment>
+</Wix>

@@ -1,0 +1,13 @@
+{
+  "name": "pdf-workstation-pro",
+  "version": "0.2.0",
+  "dependencies": [
+    "podofo",
+    "openssl",
+    "tesseract",
+    "leptonica",
+    "qpdf",
+    "openxlsx",
+    "duckx"
+  ]
+}
