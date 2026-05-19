@@ -17,26 +17,29 @@ namespace gp {
 PagesController::PagesController(const AppContext* ctx, MainWindow* mainWindow, QObject* parent)
     : QObject(parent), _ctx(ctx), _mainWindow(mainWindow) {}
 
-bool PagesController::handles(const QString& toolId) const {
-    return toolId == "rotate" || toolId == "rotR" || toolId == "rotate-cw" ||
-           toolId == "rotL" || toolId == "rotate-ccw" ||
-           toolId == "deletePage" || toolId == "delete-page" ||
-           toolId == "insertPage" || toolId == "insert-page" ||
-           toolId == "extract" || toolId == "split" || toolId == "reorder";
+QList<ToolId> PagesController::handledTools() const {
+    return {
+        ToolId::RotateCW, ToolId::RotateCCW,
+        ToolId::DeletePage, ToolId::InsertPage,
+        ToolId::Extract, ToolId::Split, ToolId::Reorder
+    };
 }
 
-void PagesController::activate(const QString& toolId) {
+void PagesController::activate(ToolId id) {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer) {
         _mainWindow->statusBar()->showMessage(tr("No document is open."), 3000);
         return;
     }
 
-    if (toolId == "rotate" || toolId == "rotR" || toolId == "rotate-cw") {
+    switch (id) {
+    case ToolId::RotateCW:
         rotateRight();
-    } else if (toolId == "rotL" || toolId == "rotate-ccw") {
+        break;
+    case ToolId::RotateCCW:
         rotateLeft();
-    } else if (toolId == "deletePage" || toolId == "delete-page") {
+        break;
+    case ToolId::DeletePage:
         if (_ctx && _ctx->undoStack && viewer->pageCount() > 1) {
             _ctx->document->setPath(viewer->filePath());
             _ctx->undoStack->push(new DeletePageCommand(_ctx->pdfEditor.get(), _ctx->document.get(), viewer->currentPage()));
@@ -44,17 +47,24 @@ void PagesController::activate(const QString& toolId) {
         } else {
             _mainWindow->statusBar()->showMessage(tr("Cannot delete the last page of the document."), 3000);
         }
-    } else if (toolId == "insertPage" || toolId == "insert-page") {
+        break;
+    case ToolId::InsertPage:
         if (_ctx && _ctx->undoStack) {
             _ctx->document->setPath(viewer->filePath());
             _ctx->undoStack->push(new InsertPageCommand(_ctx->pdfEditor.get(), _ctx->document.get(), viewer->currentPage() + 1));
             _mainWindow->statusBar()->showMessage(tr("Inserted blank page."), 3000);
         }
-    } else if (toolId == "extract") {
+        break;
+    case ToolId::Extract:
         showPageManagement();
-    } else if (toolId == "split" || toolId == "reorder") {
+        break;
+    case ToolId::Split:
+    case ToolId::Reorder:
         QMessageBox::information(_mainWindow, tr("Page Organizer"),
             tr("Splitting and advanced reordering require the multi-page page arranger scheduled for the upcoming engine update."));
+        break;
+    default:
+        break;
     }
 }
 

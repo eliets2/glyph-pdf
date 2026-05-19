@@ -3,6 +3,8 @@
 #include <QObject>
 #include <QString>
 #include <QRectF>
+#include "core/ToolId.h"
+#include "core/interfaces/IToolController.h"
 
 struct AppContext;
 
@@ -10,13 +12,14 @@ namespace gp {
 
 class MainWindow;
 
-class EditController : public QObject {
+class EditController : public QObject, public IToolController {
     Q_OBJECT
 public:
     EditController(const AppContext* ctx, MainWindow* mainWindow, QObject* parent = nullptr);
 
-    bool handles(const QString& toolId) const;
-    void activate(const QString& toolId);
+    // IToolController
+    QList<ToolId> handledTools() const override;
+    void activate(ToolId id) override;
 
     void onSearchRequested(const QString &text, bool forward, bool matchCase, bool wholeWords);
     void onRedactAllRequested(const QString &text, bool matchCase, bool wholeWords);

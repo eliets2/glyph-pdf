@@ -2,6 +2,8 @@
 
 #include <QObject>
 #include <QString>
+#include "core/ToolId.h"
+#include "core/interfaces/IToolController.h"
 
 struct AppContext;
 
@@ -9,13 +11,14 @@ namespace gp {
 
 class MainWindow;
 
-class ViewController : public QObject {
+class ViewController : public QObject, public IToolController {
     Q_OBJECT
 public:
     ViewController(const AppContext* ctx, MainWindow* mainWindow, QObject* parent = nullptr);
 
-    bool handles(const QString& toolId) const;
-    void activate(const QString& toolId);
+    // IToolController
+    QList<ToolId> handledTools() const override;
+    void activate(ToolId id) override;
 
 private:
     void toggleFullScreen();

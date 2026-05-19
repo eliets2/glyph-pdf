@@ -34,46 +34,60 @@ namespace gp {
 SecurityController::SecurityController(const AppContext* ctx, MainWindow* mainWindow, QObject* parent)
     : QObject(parent), _ctx(ctx), _mainWindow(mainWindow) {}
 
-bool SecurityController::handles(const QString& toolId) const {
-    return toolId == "encrypt" || toolId == "password" ||
-           toolId == "sign" ||
-           toolId == "validateSig" || toolId == "validate" ||
-           toolId == "sanitize" ||
-           toolId == "applyRedact" ||
-           toolId == "exportAnno" ||
-           toolId == "importAnno" ||
-           toolId == "cloud" ||
-           toolId == "permissions" || toolId == "removeSec" ||
-           toolId == "certify" || toolId == "timestamp" ||
-           toolId == "patternRedact" || toolId == "regexRedact";
+QList<ToolId> SecurityController::handledTools() const {
+    return {
+        ToolId::Encrypt, ToolId::Password, ToolId::Sign,
+        ToolId::ValidateSig, ToolId::Sanitize, ToolId::ApplyRedact,
+        ToolId::ExportAnno, ToolId::ImportAnno, ToolId::Cloud,
+        ToolId::Permissions, ToolId::RemoveSecurity, ToolId::Certify,
+        ToolId::Timestamp, ToolId::PatternRedact, ToolId::RegexRedact
+    };
 }
 
-void SecurityController::activate(const QString& toolId) {
+void SecurityController::activate(ToolId id) {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer) {
         _mainWindow->statusBar()->showMessage(tr("No document is open."), 3000);
         return;
     }
 
-    if (toolId == "encrypt" || toolId == "password") {
+    switch (id) {
+    case ToolId::Encrypt:
+    case ToolId::Password:
         encryptDocument();
-    } else if (toolId == "sign") {
+        break;
+    case ToolId::Sign:
         signDocument();
-    } else if (toolId == "validateSig" || toolId == "validate") {
+        break;
+    case ToolId::ValidateSig:
         verifySignatures();
-    } else if (toolId == "sanitize") {
+        break;
+    case ToolId::Sanitize:
         sanitizeDocument();
-    } else if (toolId == "applyRedact") {
+        break;
+    case ToolId::ApplyRedact:
         applyRedactions();
-    } else if (toolId == "exportAnno") {
+        break;
+    case ToolId::ExportAnno:
         exportAnnotationPackage();
-    } else if (toolId == "importAnno") {
+        break;
+    case ToolId::ImportAnno:
         importAnnotationPackage();
-    } else if (toolId == "cloud") {
+        break;
+    case ToolId::Cloud:
         cloudSyncSync();
-    } else if (toolId == "permissions" || toolId == "removeSec" || toolId == "certify" || toolId == "timestamp" || toolId == "patternRedact" || toolId == "regexRedact") {
+        break;
+    case ToolId::Permissions:
+    case ToolId::RemoveSecurity:
+    case ToolId::Certify:
+    case ToolId::Timestamp:
+    case ToolId::PatternRedact:
+    case ToolId::RegexRedact:
         QMessageBox::information(_mainWindow, tr("Document Security"),
             tr("Advanced permission controls and security tools are scheduled for the next engine update."));
+        break;
+    default:
+        break;
     }
 }
 
@@ -282,7 +296,6 @@ void SecurityController::cloudSyncSync() {
 
     _mainWindow->statusBar()->showMessage(tr("Initiating Document Weaver Cloud Sync..."));
 
-    // MEDIUM-3: Replace insecure hardcoded temporary file with QTemporaryFile
     QTemporaryFile tempFile(QDir::tempPath() + "/collab_XXXXXX.json");
     tempFile.setAutoRemove(false);
     if (!tempFile.open()) {

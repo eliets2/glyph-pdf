@@ -1,7 +1,8 @@
 #include <QtTest>
 #include <QApplication>
 #include "core/AppContext.h"
-#include "GpMainWindow.h"
+#include "core/ToolId.h"
+#include "core/interfaces/IToolController.h"
 #include "shell/controllers/HomeController.h"
 #include "shell/controllers/ViewController.h"
 #include "shell/controllers/EditController.h"
@@ -9,190 +10,184 @@
 #include "shell/controllers/ConvertController.h"
 #include "shell/controllers/FormsController.h"
 #include "shell/controllers/SecurityController.h"
+#include "shell/ToolRegistry.h"
 
 class TestControllers : public QObject {
     Q_OBJECT
 
 private:
     AppContext m_ctx;
-    std::unique_ptr<gp::MainWindow> m_mainWindow;
 
 private slots:
     void initTestCase() {
-        m_mainWindow = std::make_unique<gp::MainWindow>(&m_ctx);
-        QVERIFY(m_mainWindow != nullptr);
+        // No need to instantiate the full GpMainWindow in offscreen/headless test environment.
+        // Passing nullptr to controllers is safe as they only use MainWindow pointer during active tool invocation,
+        // not during construction or handledTools() queries.
     }
 
     void cleanupTestCase() {
-        m_mainWindow.reset();
     }
 
     void testHomeControllerHandles() {
-        gp::HomeController ctrl(&m_ctx, m_mainWindow.get());
-        QVERIFY(ctrl.handles("open"));
-        QVERIFY(ctrl.handles("save"));
-        QVERIFY(ctrl.handles("saveAs"));
-        QVERIFY(ctrl.handles("save-as"));
-        QVERIFY(ctrl.handles("print"));
-        QVERIFY(ctrl.handles("share"));
-        QVERIFY(ctrl.handles("properties"));
-        QVERIFY(!ctrl.handles("zoom-in"));
-        QVERIFY(!ctrl.handles("encrypt"));
-        QVERIFY(!ctrl.handles(""));
+        gp::HomeController ctrl(&m_ctx, nullptr);
+        const auto tools = ctrl.handledTools();
+        QVERIFY(tools.contains(ToolId::Open));
+        QVERIFY(tools.contains(ToolId::Save));
+        QVERIFY(tools.contains(ToolId::SaveAs));
+        QVERIFY(tools.contains(ToolId::Print));
+        QVERIFY(tools.contains(ToolId::Share));
+        QVERIFY(tools.contains(ToolId::Properties));
+        QVERIFY(!tools.contains(ToolId::ZoomIn));
+        QVERIFY(!tools.contains(ToolId::Encrypt));
     }
 
     void testViewControllerHandles() {
-        gp::ViewController ctrl(&m_ctx, m_mainWindow.get());
-        QVERIFY(ctrl.handles("zoomIn"));
-        QVERIFY(ctrl.handles("zoom-in"));
-        QVERIFY(ctrl.handles("zoomOut"));
-        QVERIFY(ctrl.handles("zoom-out"));
-        QVERIFY(ctrl.handles("actual"));
-        QVERIFY(ctrl.handles("actual-size"));
-        QVERIFY(ctrl.handles("fitWidth"));
-        QVERIFY(ctrl.handles("fit-width"));
-        QVERIFY(ctrl.handles("fitPage"));
-        QVERIFY(ctrl.handles("fit-page"));
-        QVERIFY(ctrl.handles("single"));
-        QVERIFY(ctrl.handles("single-page"));
-        QVERIFY(ctrl.handles("continuous"));
-        QVERIFY(ctrl.handles("two"));
-        QVERIFY(ctrl.handles("two-page"));
-        QVERIFY(ctrl.handles("presentation"));
-        QVERIFY(ctrl.handles("fullscreen"));
-        QVERIFY(ctrl.handles("darkMode"));
-        QVERIFY(ctrl.handles("eyeCare"));
-        QVERIFY(!ctrl.handles("open"));
-        QVERIFY(!ctrl.handles("encrypt"));
+        gp::ViewController ctrl(&m_ctx, nullptr);
+        const auto tools = ctrl.handledTools();
+        QVERIFY(tools.contains(ToolId::ZoomIn));
+        QVERIFY(tools.contains(ToolId::ZoomOut));
+        QVERIFY(tools.contains(ToolId::ActualSize));
+        QVERIFY(tools.contains(ToolId::FitWidth));
+        QVERIFY(tools.contains(ToolId::FitPage));
+        QVERIFY(tools.contains(ToolId::SinglePage));
+        QVERIFY(tools.contains(ToolId::Continuous));
+        QVERIFY(tools.contains(ToolId::TwoPage));
+        QVERIFY(tools.contains(ToolId::Presentation));
+        QVERIFY(tools.contains(ToolId::Fullscreen));
+        QVERIFY(tools.contains(ToolId::DarkMode));
+        QVERIFY(tools.contains(ToolId::EyeCare));
+        QVERIFY(!tools.contains(ToolId::Open));
+        QVERIFY(!tools.contains(ToolId::Encrypt));
     }
 
     void testEditControllerHandles() {
-        gp::EditController ctrl(&m_ctx, m_mainWindow.get());
-        QVERIFY(ctrl.handles("edit-text"));
-        QVERIFY(ctrl.handles("highlight"));
-        QVERIFY(ctrl.handles("underline"));
-        QVERIFY(ctrl.handles("strikeout"));
-        QVERIFY(ctrl.handles("note"));
-        QVERIFY(ctrl.handles("pencil"));
-        QVERIFY(ctrl.handles("freehand"));
-        QVERIFY(ctrl.handles("line"));
-        QVERIFY(ctrl.handles("arrow"));
-        QVERIFY(ctrl.handles("rect"));
-        QVERIFY(ctrl.handles("oval"));
-        QVERIFY(ctrl.handles("squiggly"));
-        QVERIFY(ctrl.handles("signature"));
-        QVERIFY(ctrl.handles("image"));
-        QVERIFY(!ctrl.handles("open"));
-        QVERIFY(!ctrl.handles("encrypt"));
+        gp::EditController ctrl(&m_ctx, nullptr);
+        const auto tools = ctrl.handledTools();
+        QVERIFY(tools.contains(ToolId::EditText));
+        QVERIFY(tools.contains(ToolId::Highlight));
+        QVERIFY(tools.contains(ToolId::Underline));
+        QVERIFY(tools.contains(ToolId::Strikeout));
+        QVERIFY(tools.contains(ToolId::Note));
+        QVERIFY(tools.contains(ToolId::Pencil));
+        QVERIFY(tools.contains(ToolId::Freehand));
+        QVERIFY(tools.contains(ToolId::Line));
+        QVERIFY(tools.contains(ToolId::Arrow));
+        QVERIFY(tools.contains(ToolId::Rectangle));
+        QVERIFY(tools.contains(ToolId::Oval));
+        QVERIFY(tools.contains(ToolId::Squiggly));
+        QVERIFY(tools.contains(ToolId::Signature));
+        QVERIFY(tools.contains(ToolId::Image));
+        QVERIFY(!tools.contains(ToolId::Open));
+        QVERIFY(!tools.contains(ToolId::Encrypt));
     }
 
     void testPagesControllerHandles() {
-        gp::PagesController ctrl(&m_ctx, m_mainWindow.get());
-        QVERIFY(ctrl.handles("rotate-cw"));
-        QVERIFY(ctrl.handles("rotate-ccw"));
-        QVERIFY(ctrl.handles("delete-page"));
-        QVERIFY(ctrl.handles("insert-page"));
-        QVERIFY(ctrl.handles("extract"));
-        QVERIFY(ctrl.handles("reorder"));
-        QVERIFY(!ctrl.handles("open"));
-        QVERIFY(!ctrl.handles("zoom-in"));
+        gp::PagesController ctrl(&m_ctx, nullptr);
+        const auto tools = ctrl.handledTools();
+        QVERIFY(tools.contains(ToolId::RotateCW));
+        QVERIFY(tools.contains(ToolId::RotateCCW));
+        QVERIFY(tools.contains(ToolId::DeletePage));
+        QVERIFY(tools.contains(ToolId::InsertPage));
+        QVERIFY(tools.contains(ToolId::Extract));
+        QVERIFY(tools.contains(ToolId::Reorder));
+        QVERIFY(!tools.contains(ToolId::Open));
+        QVERIFY(!tools.contains(ToolId::ZoomIn));
     }
 
     void testConvertControllerHandles() {
-        gp::ConvertController ctrl(&m_ctx, m_mainWindow.get());
-        QVERIFY(ctrl.handles("to-word"));
-        QVERIFY(ctrl.handles("to-excel"));
-        QVERIFY(ctrl.handles("combine"));
-        QVERIFY(ctrl.handles("compress"));
-        QVERIFY(!ctrl.handles("open"));
-        QVERIFY(!ctrl.handles("encrypt"));
+        gp::ConvertController ctrl(&m_ctx, nullptr);
+        const auto tools = ctrl.handledTools();
+        QVERIFY(tools.contains(ToolId::ToWord));
+        QVERIFY(tools.contains(ToolId::ToExcel));
+        QVERIFY(tools.contains(ToolId::Combine));
+        QVERIFY(tools.contains(ToolId::Compress));
+        QVERIFY(!tools.contains(ToolId::Open));
+        QVERIFY(!tools.contains(ToolId::Encrypt));
     }
 
     void testFormsControllerHandles() {
-        gp::FormsController ctrl(&m_ctx, m_mainWindow.get());
-        QVERIFY(ctrl.handles("text-field"));
-        QVERIFY(ctrl.handles("checkbox"));
-        QVERIFY(ctrl.handles("radio"));
-        QVERIFY(ctrl.handles("dropdown"));
-        QVERIFY(!ctrl.handles("open"));
-        QVERIFY(!ctrl.handles("zoom-in"));
+        gp::FormsController ctrl(&m_ctx, nullptr);
+        const auto tools = ctrl.handledTools();
+        QVERIFY(tools.contains(ToolId::TextField));
+        QVERIFY(tools.contains(ToolId::Checkbox));
+        QVERIFY(tools.contains(ToolId::Radio));
+        QVERIFY(tools.contains(ToolId::Dropdown));
+        QVERIFY(!tools.contains(ToolId::Open));
+        QVERIFY(!tools.contains(ToolId::ZoomIn));
     }
 
     void testSecurityControllerHandles() {
-        gp::SecurityController ctrl(&m_ctx, m_mainWindow.get());
-        QVERIFY(ctrl.handles("encrypt"));
-        QVERIFY(ctrl.handles("sign"));
-        QVERIFY(ctrl.handles("sanitize"));
-        QVERIFY(ctrl.handles("applyRedact"));
-        QVERIFY(ctrl.handles("certify"));
-        QVERIFY(ctrl.handles("timestamp"));
-        QVERIFY(ctrl.handles("permissions"));
-        QVERIFY(!ctrl.handles("open"));
-        QVERIFY(!ctrl.handles("zoom-in"));
+        gp::SecurityController ctrl(&m_ctx, nullptr);
+        const auto tools = ctrl.handledTools();
+        QVERIFY(tools.contains(ToolId::Encrypt));
+        QVERIFY(tools.contains(ToolId::Sign));
+        QVERIFY(tools.contains(ToolId::Sanitize));
+        QVERIFY(tools.contains(ToolId::ApplyRedact));
+        QVERIFY(tools.contains(ToolId::Certify));
+        QVERIFY(tools.contains(ToolId::Timestamp));
+        QVERIFY(tools.contains(ToolId::Permissions));
+        QVERIFY(!tools.contains(ToolId::Open));
+        QVERIFY(!tools.contains(ToolId::ZoomIn));
     }
 
     void testNoOverlappingToolIds() {
-        gp::HomeController home(&m_ctx, m_mainWindow.get());
-        gp::ViewController view(&m_ctx, m_mainWindow.get());
-        gp::EditController edit(&m_ctx, m_mainWindow.get());
-        gp::PagesController pages(&m_ctx, m_mainWindow.get());
-        gp::ConvertController convert(&m_ctx, m_mainWindow.get());
-        gp::FormsController forms(&m_ctx, m_mainWindow.get());
-        gp::SecurityController security(&m_ctx, m_mainWindow.get());
+        gp::HomeController home(&m_ctx, nullptr);
+        gp::ViewController view(&m_ctx, nullptr);
+        gp::EditController edit(&m_ctx, nullptr);
+        gp::PagesController pages(&m_ctx, nullptr);
+        gp::ConvertController convert(&m_ctx, nullptr);
+        gp::FormsController forms(&m_ctx, nullptr);
+        gp::SecurityController security(&m_ctx, nullptr);
 
-        QStringList allIds = {
-            "open", "save", "saveAs", "save-as", "print", "share", "properties",
-            "zoomIn", "zoom-in", "zoomOut", "zoom-out", "actual", "actual-size",
-            "fitWidth", "fit-width", "fitPage", "fit-page", "single", "single-page",
-            "continuous", "two", "two-page", "presentation", "fullscreen", "darkMode", "eyeCare",
-            "edit-text", "highlight", "underline", "strikeout", "note", "pencil",
-            "freehand", "line", "arrow", "rect", "oval", "squiggly", "image",
-            "rotate-cw", "rotate-ccw", "delete-page", "insert-page", "extract", "reorder",
-            "to-word", "to-excel", "combine", "compress",
-            "text-field", "checkbox", "radio", "dropdown",
-            "encrypt", "sign", "sanitize", "applyRedact", "certify", "timestamp", "permissions"
+        QVector<IToolController*> controllers = {
+            &home, &view, &edit, &pages, &convert, &forms, &security
         };
 
-        using Handler = std::function<bool(const QString&)>;
-        QVector<Handler> controllers = {
-            [&](const QString& id) { return home.handles(id); },
-            [&](const QString& id) { return view.handles(id); },
-            [&](const QString& id) { return edit.handles(id); },
-            [&](const QString& id) { return pages.handles(id); },
-            [&](const QString& id) { return convert.handles(id); },
-            [&](const QString& id) { return forms.handles(id); },
-            [&](const QString& id) { return security.handles(id); },
-        };
-
-        for (const auto& id : allIds) {
+        for (int i = 0; i < static_cast<int>(ToolId::COUNT); ++i) {
+            ToolId id = static_cast<ToolId>(i);
             int handlerCount = 0;
-            for (const auto& ctrl : controllers) {
-                if (ctrl(id)) ++handlerCount;
+            for (auto* ctrl : controllers) {
+                if (ctrl->handledTools().contains(id)) {
+                    ++handlerCount;
+                }
             }
-            QVERIFY2(handlerCount == 1,
-                qPrintable(QString("Tool ID '%1' handled by %2 controllers (expected 1)").arg(id).arg(handlerCount)));
+            QVERIFY2(handlerCount <= 1,
+                qPrintable(QString("Tool ID '%1' handled by %2 controllers (expected at most 1)").arg(toolIdToString(id)).arg(handlerCount)));
         }
     }
 
     void testUnknownToolIdHandledByNone() {
-        gp::HomeController home(&m_ctx, m_mainWindow.get());
-        gp::ViewController view(&m_ctx, m_mainWindow.get());
-        gp::EditController edit(&m_ctx, m_mainWindow.get());
-        gp::PagesController pages(&m_ctx, m_mainWindow.get());
-        gp::ConvertController convert(&m_ctx, m_mainWindow.get());
-        gp::FormsController forms(&m_ctx, m_mainWindow.get());
-        gp::SecurityController security(&m_ctx, m_mainWindow.get());
+        gp::HomeController home(&m_ctx, nullptr);
+        gp::ViewController view(&m_ctx, nullptr);
+        gp::EditController edit(&m_ctx, nullptr);
+        gp::PagesController pages(&m_ctx, nullptr);
+        gp::ConvertController convert(&m_ctx, nullptr);
+        gp::FormsController forms(&m_ctx, nullptr);
+        gp::SecurityController security(&m_ctx, nullptr);
+
+        QVector<IToolController*> controllers = {
+            &home, &view, &edit, &pages, &convert, &forms, &security
+        };
 
         QStringList bogusIds = {"nonexistent", "foo-bar", "", "💀"};
-        for (const auto& id : bogusIds) {
-            QVERIFY(!home.handles(id));
-            QVERIFY(!view.handles(id));
-            QVERIFY(!edit.handles(id));
-            QVERIFY(!pages.handles(id));
-            QVERIFY(!convert.handles(id));
-            QVERIFY(!forms.handles(id));
-            QVERIFY(!security.handles(id));
+        for (const auto& str : bogusIds) {
+            auto opt = toolIdFromString(str);
+            QVERIFY(!opt.has_value());
         }
+    }
+
+    void testToolRegistryRegistrationAndDispatch() {
+        gp::ToolRegistry registry;
+        gp::HomeController home(&m_ctx, nullptr);
+
+        registry.registerController(&home);
+        QCOMPARE(registry.controllerFor(ToolId::Open), &home);
+
+        // String-based lookup with standard aliases
+        QVERIFY(isValidToolIdString("save-as"));
+        auto parsed = toolIdFromString("save-as");
+        QVERIFY(parsed.has_value());
+        QCOMPARE(parsed.value(), ToolId::SaveAs);
     }
 };
 

@@ -23,6 +23,7 @@
 #include "shell/controllers/SecurityController.h"
 
 #include "ui/PdfViewerWidget.h"
+#include "shell/ToolRegistry.h"
 #include "ui/FindBar.h"
 #include "engines/DocumentSession.h"
 #include "util/GpTheme.h"
@@ -98,6 +99,15 @@ MainWindow::MainWindow(const AppContext* ctx, QWidget* parent) : QMainWindow(par
     _convert = new ConvertController(ctx, this, this);
     _forms = new FormsController(ctx, this, this);
     _security = new SecurityController(ctx, this, this);
+
+    _toolRegistry = new ToolRegistry(this);
+    _toolRegistry->registerController(_home);
+    _toolRegistry->registerController(_view);
+    _toolRegistry->registerController(_edit);
+    _toolRegistry->registerController(_pages);
+    _toolRegistry->registerController(_convert);
+    _toolRegistry->registerController(_forms);
+    _toolRegistry->registerController(_security);
 
     _modeStrip->init(ctx);
 
@@ -198,13 +208,7 @@ void MainWindow::setFullScreenMode(bool fullscreen) {
 
 void MainWindow::onToolActivated(const QString& id) {
     _status->setTool(id);
-    if (_home->handles(id))         _home->activate(id);
-    else if (_view->handles(id))    _view->activate(id);
-    else if (_edit->handles(id))    _edit->activate(id);
-    else if (_pages->handles(id))   _pages->activate(id);
-    else if (_convert->handles(id)) _convert->activate(id);
-    else if (_forms->handles(id))   _forms->activate(id);
-    else if (_security->handles(id))_security->activate(id);
+    _toolRegistry->activateFromString(id);
 }
 
 void MainWindow::onTabChanged(const QString& tab) {

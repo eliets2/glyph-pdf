@@ -15,37 +15,49 @@ namespace gp {
 FormsController::FormsController(const AppContext* ctx, MainWindow* mainWindow, QObject* parent)
     : QObject(parent), _ctx(ctx), _mainWindow(mainWindow) {}
 
-bool FormsController::handles(const QString& toolId) const {
-    return toolId == "textField" || toolId == "text-field" ||
-           toolId == "checkbox" ||
-           toolId == "radio" ||
-           toolId == "dropdown" ||
-           toolId == "createForm" ||
-           toolId == "listbox" || toolId == "button" ||
-           toolId == "dateField" || toolId == "numField" || toolId == "sigField" ||
-           toolId == "autoDetect" || toolId == "tabs";
+QList<ToolId> FormsController::handledTools() const {
+    return {
+        ToolId::TextField, ToolId::Checkbox, ToolId::Radio, ToolId::Dropdown,
+        ToolId::CreateForm, ToolId::ListBox, ToolId::Button, ToolId::DateField,
+        ToolId::NumField, ToolId::SigField, ToolId::AutoDetect, ToolId::Tabs
+    };
 }
 
-void FormsController::activate(const QString& toolId) {
+void FormsController::activate(ToolId id) {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer) {
         _mainWindow->statusBar()->showMessage(tr("No document is open."), 3000);
         return;
     }
 
-    if (toolId == "createForm") {
+    switch (id) {
+    case ToolId::CreateForm:
         manageForms();
-    } else if (toolId == "textField" || toolId == "text-field") {
+        break;
+    case ToolId::TextField:
         addFormTextField();
-    } else if (toolId == "checkbox") {
+        break;
+    case ToolId::Checkbox:
         addFormCheckbox();
-    } else if (toolId == "radio") {
+        break;
+    case ToolId::Radio:
         addFormRadioButton();
-    } else if (toolId == "dropdown") {
+        break;
+    case ToolId::Dropdown:
         addFormDropdown();
-    } else if (toolId == "listbox" || toolId == "button" || toolId == "dateField" || toolId == "numField" || toolId == "sigField" || toolId == "autoDetect" || toolId == "tabs") {
+        break;
+    case ToolId::ListBox:
+    case ToolId::Button:
+    case ToolId::DateField:
+    case ToolId::NumField:
+    case ToolId::SigField:
+    case ToolId::AutoDetect:
+    case ToolId::Tabs:
         QMessageBox::information(_mainWindow, tr("Interactive Forms"),
             tr("Advanced interactive fields and automated form detection are scheduled for the next engine update."));
+        break;
+    default:
+        break;
     }
 }
 

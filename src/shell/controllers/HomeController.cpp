@@ -18,29 +18,41 @@ namespace gp {
 HomeController::HomeController(const AppContext* ctx, MainWindow* mainWindow, QObject* parent)
     : QObject(parent), _ctx(ctx), _mainWindow(mainWindow) {}
 
-bool HomeController::handles(const QString& toolId) const {
-    return toolId == "open" || toolId == "save" || toolId == "saveAs" || toolId == "save-as" ||
-           toolId == "print" || toolId == "share" || toolId == "properties";
+QList<ToolId> HomeController::handledTools() const {
+    return {
+        ToolId::Open, ToolId::Save, ToolId::SaveAs,
+        ToolId::Print, ToolId::Share, ToolId::Properties
+    };
 }
 
-void HomeController::activate(const QString& toolId) {
-    if (toolId == "open") {
+void HomeController::activate(ToolId id) {
+    switch (id) {
+    case ToolId::Open: {
         QString fileName = QFileDialog::getOpenFileName(
             _mainWindow, tr("Open PDF Document"), QString(),
             tr("PDF Files (*.pdf);;All Files (*)"));
         if (!fileName.isEmpty()) {
             _mainWindow->openDocument(fileName);
         }
-    } else if (toolId == "save") {
+        break;
+    }
+    case ToolId::Save:
         onSave();
-    } else if (toolId == "saveAs" || toolId == "save-as") {
+        break;
+    case ToolId::SaveAs:
         onSaveAs();
-    } else if (toolId == "print") {
+        break;
+    case ToolId::Print:
         onPrint();
-    } else if (toolId == "share") {
+        break;
+    case ToolId::Share:
         onShare();
-    } else if (toolId == "properties") {
+        break;
+    case ToolId::Properties:
         showProperties();
+        break;
+    default:
+        break;
     }
 }
 

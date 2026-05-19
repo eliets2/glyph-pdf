@@ -5,6 +5,8 @@
 #include "engines/PdfEditorEngine.h"
 #include "engines/ConversionManager.h"
 #include "engines/SignatureManager.h"
+#include "engines/qpdf/QpdfBackend.h"
+#include <QSettings>
 
 class SmokeTest : public QObject
 {
@@ -21,6 +23,9 @@ private:
 private slots:
     void initTestCase()
     {
+        QCoreApplication::setOrganizationName("GlyphPDF");
+        QCoreApplication::setApplicationName("SmokeTest");
+
         QVERIFY2(m_tmpDir.isValid(), "Failed to create temporary directory");
 
         m_testPdf = tmpPath("smoke_test.pdf");
@@ -162,6 +167,95 @@ private slots:
         auto sigs = sm.validateSignatures(m_testPdf);
         // A freshly created PDF has no signatures
         QCOMPARE(sigs.size(), 0);
+    }
+
+    void testSaveWithLinearization()
+    {
+#ifndef HAS_QPDF
+        QSKIP("qpdf not compiled in");
+#endif
+        PdfEditorEngine editor;
+        QVERIFY(editor.loadDocumentForEditing(m_testPdf));
+        
+        QSettings settings;
+        settings.setValue("export/linearizeOnSave", true);
+
+        QString output = tmpPath("saved_linearized.pdf");
+        QVERIFY(editor.saveDocument(output));
+        QVERIFY(QFile::exists(output));
+
+        // Verify the saved document is linearized
+        QVERIFY(QpdfBackend::isLinearized(output));
+
+        // Restore setting
+        settings.remove("export/linearizeOnSave");
+    }
+
+    void testRepairOnLoad()
+    {
+#ifndef HAS_QPDF
+        QSKIP("qpdf not compiled in");
+#endif
+        // Create a corrupted PDF by replacing "xref" with "xxxx"
+        QString corruptedPdf = tmpPath("corrupted.pdf");
+        QFile file(m_testPdf);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QByteArray content = file.readAll();
+        file.close();
+
+        // Corrupt the xref table keyword
+        int idx = content.indexOf("xref");
+        QVERIFY(idx != -1);
+        content.replace(idx, 4, "xxxx");
+
+        QFile outFile(corruptedPdf);
+        QVERIFY(outFile.open(QIODevice::WriteOnly));
+        outFile.write(content);
+        outFile.close();
+
+        // Load the corrupted document. It should be repaired automatically during load.
+        PdfEditorEngine editor;
+        QVERIFY(editor.loadDocumentForEditing(corruptedPdf));
+        
+        // Save the repaired document
+        QString repairedSave = tmpPath("repaired_save.pdf");
+        QVERIFY(editor.saveDocument(repairedSave));
+        QVERIFY(QFile::exists(repairedSave));
+    }
+
+    void testSignedSaveSkipping()
+    {
+#ifndef HAS_QPDF
+        QSKIP("qpdf not compiled in");
+#endif
+        // Create a PDF with an unsigned signature field using PoDoFo
+        QString signedPdf = tmpPath("signed_unsigned_field.pdf");
+        try {
+            PoDoFo::PdfMemDocument doc;
+            auto& page = doc.GetPages().CreatePage(
+                PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            page.CreateField<PoDoFo::PdfSignature>("SignatureField1", PoDoFo::Rect(50, 50, 200, 100));
+            doc.Save(signedPdf.toUtf8().constData());
+        } catch (const std::exception &e) {
+            QFAIL(qPrintable(QString("Failed to create signed test PDF: %1").arg(e.what())));
+        }
+
+        PdfEditorEngine editor;
+        QVERIFY(editor.loadDocumentForEditing(signedPdf));
+
+        QSettings settings;
+        settings.setValue("export/linearizeOnSave", true);
+
+        QString output = tmpPath("saved_signed.pdf");
+        QVERIFY(editor.saveDocument(output));
+        QVERIFY(QFile::exists(output));
+
+        // Since it contains a signature field, it should skip QPDF post-processing
+        // and NOT be linearized, even though "export/linearizeOnSave" was requested.
+        QVERIFY(!QpdfBackend::isLinearized(output));
+
+        // Restore setting
+        settings.remove("export/linearizeOnSave");
     }
 
     void cleanupTestCase()

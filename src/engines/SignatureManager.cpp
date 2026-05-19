@@ -246,23 +246,45 @@ QList<SignatureInfo> SignatureManager::validateSignatures(const QString &filePat
 
                     // Extract ByteRange
                     auto* byteRangeObj = sigObj.FindKey(PdfName("ByteRange"));
-                    if (!byteRangeObj || !byteRangeObj->IsArray()) continue;
+                    if (!byteRangeObj || !byteRangeObj->IsArray()) {
+                        info.trustStatus = "Unsigned";
+                        results.append(info);
+                        continue;
+                    }
                     auto& byteRangeArray = byteRangeObj->GetArray();
-                    if (byteRangeArray.size() != 4) continue;
+                    if (byteRangeArray.size() != 4) {
+                        info.trustStatus = "Malformed";
+                        results.append(info);
+                        continue;
+                    }
 
                     int64_t offset1 = byteRangeArray[0].GetNumber();
                     int64_t length1 = byteRangeArray[1].GetNumber();
                     int64_t offset2 = byteRangeArray[2].GetNumber();
                     int64_t length2 = byteRangeArray[3].GetNumber();
 
-                    if (offset1 < 0 || length1 < 0 || offset2 < 0 || length2 < 0) continue;
-                    if (offset1 > fileData.size() || length1 > fileData.size() - offset1) continue;
-                    if (offset2 > fileData.size() || length2 > fileData.size() - offset2) continue;
+                    if (offset1 < 0 || length1 < 0 || offset2 < 0 || length2 < 0) {
+                        info.trustStatus = "Malformed";
+                        results.append(info);
+                        continue;
+                    }
+                    if (offset1 > fileData.size() || length1 > fileData.size() - offset1) {
+                        info.trustStatus = "Malformed";
+                        results.append(info);
+                        continue;
+                    }
+                    if (offset2 > fileData.size() || length2 > fileData.size() - offset2) {
+                        info.trustStatus = "Malformed";
+                        results.append(info);
+                        continue;
+                    }
 
                     // HIGH-1: Block PDF Shadow Attacks by ensuring the entire file data is protected
                     if (offset1 != 0 || (offset2 + length2) != fileData.size()) {
                         qWarning() << "SECURITY: Signature ByteRange does not cover the complete file boundaries. "
                                       "Possible PDF Shadow Attack detected!";
+                        info.trustStatus = "ByteRangeMismatch";
+                        results.append(info);
                         continue;
                     }
 
@@ -274,6 +296,8 @@ QList<SignatureInfo> SignatureManager::validateSignatures(const QString &filePat
                         (length1 + length2) > std::numeric_limits<int>::max()) 
                     {
                         qWarning() << "SECURITY: Integer bounds exceeded in signature parsing (>2GB limits).";
+                        info.trustStatus = "Malformed";
+                        results.append(info);
                         continue;
                     }
 
@@ -284,7 +308,11 @@ QList<SignatureInfo> SignatureManager::validateSignatures(const QString &filePat
 
                     // Extract CMS signature (/Contents)
                     auto* contentsObj = sigObj.FindKey(PdfName("Contents"));
-                    if (!contentsObj || !contentsObj->IsString()) continue;
+                    if (!contentsObj || !contentsObj->IsString()) {
+                        info.trustStatus = "Unsigned";
+                        results.append(info);
+                        continue;
+                    }
                     
                     // PoDoFo 1.1 handles hex strings as PdfString
                     std::string contentsHex{ contentsObj->GetString().GetString() };

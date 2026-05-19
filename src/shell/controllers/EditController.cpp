@@ -31,68 +31,73 @@ namespace gp {
 EditController::EditController(const AppContext* ctx, MainWindow* mainWindow, QObject* parent)
     : QObject(parent), _ctx(ctx), _mainWindow(mainWindow) {}
 
-bool EditController::handles(const QString& toolId) const {
-    return toolId == "search" || toolId == "find" ||
-           toolId == "ocr" ||
-           toolId == "editText" || toolId == "edit-text" ||
-           toolId == "hand" || toolId == "select" ||
-           toolId == "selectObj" || toolId == "editObject" ||
-           toolId == "highlight" || toolId == "underline" ||
-           toolId == "pencil" || toolId == "freehand" ||
-           toolId == "textbox" || toolId == "addText" ||
-           toolId == "note" || toolId == "comment" ||
-           toolId == "markRedact" || toolId == "signature" ||
-           toolId == "rect" || toolId == "rectangle" ||
-           toolId == "oval" || toolId == "ellipse" ||
-           toolId == "line" || toolId == "arrow" ||
-           toolId == "image" || toolId == "editImage" ||
-           toolId == "squiggly" || toolId == "strike" || toolId == "strikeout";
+QList<ToolId> EditController::handledTools() const {
+    return {
+        ToolId::Search, ToolId::Ocr,
+        ToolId::EditText, ToolId::Hand, ToolId::Select,
+        ToolId::SelectObject, ToolId::EditObject,
+        ToolId::Highlight, ToolId::Underline, ToolId::Strikeout, ToolId::Squiggly,
+        ToolId::Pencil, ToolId::Freehand,
+        ToolId::TextBox, ToolId::AddText,
+        ToolId::Note, ToolId::Comment,
+        ToolId::MarkRedact, ToolId::Signature,
+        ToolId::Rectangle, ToolId::Oval,
+        ToolId::Line, ToolId::Arrow,
+        ToolId::Image, ToolId::EditImage
+    };
 }
 
-void EditController::activate(const QString& toolId) {
+void EditController::activate(ToolId id) {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer) {
         _mainWindow->statusBar()->showMessage(tr("No document is open."), 3000);
         return;
     }
 
-    const QHash<QString, ToolMode> toolModes = {
-        {"hand", ToolMode::HandTool},
-        {"select", ToolMode::SelectText},
-        {"selectObj", ToolMode::EditObject},
-        {"editObject", ToolMode::EditObject},
-        {"highlight", ToolMode::Highlight},
-        {"underline", ToolMode::Underline},
-        {"squiggly", ToolMode::Underline},
-        {"strike", ToolMode::Underline},
-        {"strikeout", ToolMode::Underline},
-        {"pencil", ToolMode::DrawFreehand},
-        {"freehand", ToolMode::DrawFreehand},
-        {"textbox", ToolMode::AddTextBox},
-        {"addText", ToolMode::AddTextBox},
-        {"note", ToolMode::AddComment},
-        {"comment", ToolMode::AddComment},
-        {"markRedact", ToolMode::Redact},
-        {"signature", ToolMode::AddSignature},
-        {"rect", ToolMode::DrawRectangle},
-        {"rectangle", ToolMode::DrawRectangle},
-        {"oval", ToolMode::DrawEllipse},
-        {"ellipse", ToolMode::DrawEllipse},
-        {"line", ToolMode::DrawLine},
-        {"arrow", ToolMode::DrawArrow},
+    // Map ToolIds that simply set a tool mode
+    static const QHash<ToolId, ToolMode> toolModes = {
+        { ToolId::Hand,          ToolMode::HandTool },
+        { ToolId::Select,        ToolMode::SelectText },
+        { ToolId::SelectObject,  ToolMode::EditObject },
+        { ToolId::EditObject,    ToolMode::EditObject },
+        { ToolId::Highlight,     ToolMode::Highlight },
+        { ToolId::Underline,     ToolMode::Underline },
+        { ToolId::Squiggly,      ToolMode::Underline },
+        { ToolId::Strikeout,     ToolMode::Underline },
+        { ToolId::Pencil,        ToolMode::DrawFreehand },
+        { ToolId::Freehand,      ToolMode::DrawFreehand },
+        { ToolId::TextBox,       ToolMode::AddTextBox },
+        { ToolId::AddText,       ToolMode::AddTextBox },
+        { ToolId::Note,          ToolMode::AddComment },
+        { ToolId::Comment,       ToolMode::AddComment },
+        { ToolId::MarkRedact,    ToolMode::Redact },
+        { ToolId::Signature,     ToolMode::AddSignature },
+        { ToolId::Rectangle,     ToolMode::DrawRectangle },
+        { ToolId::Oval,          ToolMode::DrawEllipse },
+        { ToolId::Line,          ToolMode::DrawLine },
+        { ToolId::Arrow,         ToolMode::DrawArrow },
     };
 
-    if (toolId == "search" || toolId == "find") {
+    switch (id) {
+    case ToolId::Search:
         _mainWindow->toggleFindBar();
-    } else if (toolId == "ocr") {
+        break;
+    case ToolId::Ocr:
         runOcr();
-    } else if (toolId == "editText" || toolId == "edit-text") {
+        break;
+    case ToolId::EditText:
         editPdfText();
-    } else if (toolId == "image" || toolId == "editImage") {
+        break;
+    case ToolId::Image:
+    case ToolId::EditImage:
         enterImageEditMode();
-    } else if (toolModes.contains(toolId)) {
-        viewer->setToolMode(toolModes.value(toolId));
-        _mainWindow->statusBar()->showMessage(tr("Tool active: %1").arg(toolId), 2500);
+        break;
+    default:
+        if (toolModes.contains(id)) {
+            viewer->setToolMode(toolModes.value(id));
+            _mainWindow->statusBar()->showMessage(tr("Tool active: %1").arg(toolIdToString(id)), 2500);
+        }
+        break;
     }
 }
 

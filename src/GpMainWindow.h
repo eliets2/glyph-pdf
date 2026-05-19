@@ -25,6 +25,7 @@ class PagesController;
 class ConvertController;
 class FormsController;
 class SecurityController;
+class ToolRegistry;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -59,6 +60,7 @@ private:
     ConvertController*  _convert = nullptr;
     FormsController*    _forms = nullptr;
     SecurityController* _security = nullptr;
+    ToolRegistry*       _toolRegistry = nullptr;
 
     MenuBar*        _menu        = nullptr;
     Ribbon*         _ribbon      = nullptr;

@@ -23,40 +23,48 @@ namespace gp {
 ConvertController::ConvertController(const AppContext* ctx, MainWindow* mainWindow, QObject* parent)
     : QObject(parent), _ctx(ctx), _mainWindow(mainWindow) {}
 
-bool ConvertController::handles(const QString& toolId) const {
-    return toolId == "combine" || toolId == "combinePDF" ||
-           toolId == "toWord" || toolId == "to-word" ||
-           toolId == "toExcel" || toolId == "to-excel" ||
-           toolId == "toCSV" || toolId == "exportCSV" ||
-           toolId == "toHTML" || toolId == "to-h-t-m-l" ||
-           toolId == "toText" || toolId == "to-text" ||
-           toolId == "compress" ||
-           toolId == "linearize" ||
-           toolId == "pdfA";
+QList<ToolId> ConvertController::handledTools() const {
+    return {
+        ToolId::Combine, ToolId::ToWord, ToolId::ToExcel, ToolId::ToCsv,
+        ToolId::ToHtml, ToolId::ToText, ToolId::Compress,
+        ToolId::Linearize, ToolId::PdfA
+    };
 }
 
-void ConvertController::activate(const QString& toolId) {
+void ConvertController::activate(ToolId id) {
     auto* viewer = _mainWindow->pdfViewer();
-    if (!viewer && toolId != "combine" && toolId != "combinePDF") {
+    if (!viewer && id != ToolId::Combine) {
         _mainWindow->statusBar()->showMessage(tr("No document is open."), 3000);
         return;
     }
 
-    if (toolId == "combine" || toolId == "combinePDF") {
+    switch (id) {
+    case ToolId::Combine:
         mergePdfs();
-    } else if (toolId == "toWord" || toolId == "to-word") {
+        break;
+    case ToolId::ToWord:
         exportToWord();
-    } else if (toolId == "toExcel" || toolId == "to-excel") {
+        break;
+    case ToolId::ToExcel:
         exportToExcel();
-    } else if (toolId == "toCSV" || toolId == "exportCSV") {
+        break;
+    case ToolId::ToCsv:
         exportToCsv();
-    } else if (toolId == "toHTML" || toolId == "to-h-t-m-l" || toolId == "toText" || toolId == "to-text" || toolId == "compress") {
+        break;
+    case ToolId::ToHtml:
+    case ToolId::ToText:
+    case ToolId::Compress:
         QMessageBox::information(_mainWindow, tr("Conversion Engine"),
             tr("Advanced conversion and optimization tools are scheduled for the next engine update."));
-    } else if (toolId == "linearize") {
+        break;
+    case ToolId::Linearize:
         linearizeDocument();
-    } else if (toolId == "pdfA") {
+        break;
+    case ToolId::PdfA:
         exportAsPdfA();
+        break;
+    default:
+        break;
     }
 }
 

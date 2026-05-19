@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
+set(VCPKG_TARGET_TRIPLET "x64-mingw-dynamic")
 project(PdfWorkstation VERSION 0.2 LANGUAGES CXX)
 
+list(APPEND CMAKE_PREFIX_PATH "C:/vcpkg/installed/x64-mingw-dynamic")
 enable_testing()
 include(CTest)
 
@@ -21,6 +23,14 @@ find_package(duckx CONFIG QUIET)
 find_package(Tesseract QUIET)
 find_package(Leptonica QUIET)
 find_package(qpdf QUIET)
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+find_package(Pdfium QUIET)
+
+# FORBIDDEN: MuPDF is AGPL-3.0 — linking it forces GlyphPDF into AGPL.
+# Use PDFium (BSD-3) for rendering instead.
+if(TARGET mupdf OR TARGET libmupdf)
+    message(FATAL_ERROR "MuPDF/libmupdf detected. AGPL-3.0 license is incompatible with this project. Remove it and use PDFium.")
+endif()
 
 # ── pdfws_core (INTERFACE — header-only) ──────────────────────────────────
 add_library(pdfws_core INTERFACE)
@@ -42,25 +52,50 @@ add_library(pdfws_engines STATIC
     src/engines/ConversionManager.h  src/engines/ConversionManager.cpp
     src/engines/CollaborationManager.h src/engines/CollaborationManager.cpp
     src/engines/DocumentSession.h    src/engines/DocumentSession.cpp
+    src/engines/BackendRouter.h      src/engines/BackendRouter.cpp
+    src/engines/podofo/PoDoFoBackend.h src/engines/podofo/PoDoFoBackend.cpp
+    src/engines/pdfium/PdfiumBackend.h src/engines/pdfium/PdfiumBackend.cpp
+    src/engines/qpdf/QpdfBackend.h     src/engines/qpdf/QpdfBackend.cpp
+    src/engines/RenderCache.h          src/engines/RenderCache.cpp
+    src/core/interfaces/IPdfDocument.h
+    src/core/interfaces/IPdfPage.h
+    src/core/interfaces/IPdfRenderer.h
+    src/core/interfaces/IPdfWriter.h
+    src/core/interfaces/IPdfSearcher.h
 )
 target_include_directories(pdfws_engines PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 target_link_libraries(pdfws_engines
     PUBLIC  pdfws_core
-    PRIVATE podofo::podofo OpenSSL::SSL OpenSSL::Crypto Qt6::Network Qt6::Widgets
+    PRIVATE podofo::podofo OpenSSL::SSL OpenSSL::Crypto Qt6::Network Qt6::Widgets Qt6::Concurrent
 )
 if(Tesseract_FOUND AND Leptonica_FOUND)
-    target_link_libraries(pdfws_engines PRIVATE Tesseract::libtesseract Leptonica::leptonica)
-    target_compile_definitions(pdfws_engines PRIVATE HAS_TESSERACT)
+    target_link_libraries(pdfws_engines PUBLIC Tesseract::libtesseract Leptonica::leptonica)
+    target_compile_definitions(pdfws_engines PUBLIC HAS_TESSERACT)
 else()
     message(STATUS "Tesseract/Leptonica not found — OCR disabled")
 endif()
-if(qpdf_FOUND AND TARGET qpdf::qpdf)
-    target_link_libraries(pdfws_engines PRIVATE qpdf::qpdf)
-    target_compile_definitions(pdfws_engines PRIVATE HAS_QPDF)
+if(qpdf_FOUND AND (TARGET qpdf::qpdf OR TARGET qpdf::libqpdf))
+    if(MINGW AND EXISTS "C:/vcpkg/installed/x64-mingw-dynamic/lib/libqpdf.dll.a")
+        target_link_libraries(pdfws_engines PUBLIC "C:/vcpkg/installed/x64-mingw-dynamic/lib/libqpdf.dll.a")
+    else()
+        if(TARGET qpdf::qpdf)
+            target_link_libraries(pdfws_engines PUBLIC qpdf::qpdf)
+        else()
+            target_link_libraries(pdfws_engines PUBLIC qpdf::libqpdf)
+        endif()
+    endif()
+    target_compile_definitions(pdfws_engines PUBLIC HAS_QPDF)
 else()
     message(STATUS "qpdf not found — linearization disabled")
+endif()
+
+if(Pdfium_FOUND AND TARGET Pdfium::Pdfium)
+    target_link_libraries(pdfws_engines PUBLIC Pdfium::Pdfium)
+    target_compile_definitions(pdfws_engines PUBLIC HAS_PDFIUM)
+else()
+    message(STATUS "PDFium not found — PdfiumBackend disabled")
 endif()
 if(OpenXLSX_FOUND)
     target_link_libraries(pdfws_engines PRIVATE OpenXLSX::OpenXLSX)
@@ -115,6 +150,10 @@ add_library(pdfws_ui STATIC
     src/ui/MetadataDialog.h          src/ui/MetadataDialog.cpp
     src/ui/AnnotationLayer.h         src/ui/AnnotationLayer.cpp
     src/ui/ThumbnailSidebar.h        src/ui/ThumbnailSidebar.cpp
+
+    src/core/ToolId.h                       src/core/ToolId.cpp
+    src/shell/ToolRegistry.h                src/shell/ToolRegistry.cpp
+    src/core/interfaces/IToolController.h
 
     # ── New Glyph Design UI (gp:: namespace) ──
     src/GpMainWindow.h                      src/GpMainWindow.cpp
