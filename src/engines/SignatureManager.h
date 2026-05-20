@@ -21,6 +21,7 @@ public:
      * @return true if successful.
      */
     void setTsaUrl(const QString &url) override;
+    void setSignatureLevel(PAdESLevel level) override;
 
     bool signDocument(const QString &inputPath,
                       const QString &outputPath,

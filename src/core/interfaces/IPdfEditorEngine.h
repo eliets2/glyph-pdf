@@ -25,6 +25,15 @@ public:
     virtual bool exportPdfA(const QString &outputPath, int conformanceLevel) = 0;
     virtual bool encryptDocument(const QString &userPassword, const QString &ownerPassword,
                                   bool canPrint, bool canCopy, bool canModify) = 0;
+
+    /// Certificate-based encryption (PDF /PubSec, AES-256, RSA-wrapped per recipient).
+    /// @param inputPath   Source PDF (may be the currently loaded document).
+    /// @param outputPath  Destination encrypted PDF.
+    /// @param certPaths   DER or PEM X.509 recipient certificates (one per user).
+    /// @return true on success.
+    virtual bool encryptWithCertificate(const QString &inputPath,
+                                        const QString &outputPath,
+                                        const QStringList &certPaths) = 0;
     virtual bool sanitizeDocument(const QString &outputPath) = 0;
     virtual bool getMetadata(PdfMetadata &outMetadata) = 0;
     virtual bool setMetadata(const PdfMetadata &metadata) = 0;

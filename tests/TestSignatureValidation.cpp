@@ -239,6 +239,108 @@ private slots:
         QCOMPARE(mock.m_validateCalls, 3);
         QCOMPARE(mock.m_lastInputPath, QString("c.pdf"));
     }
+
+    // -- PAdES level selection --
+
+    void testSetSignatureLevelDefaultIsB_T()
+    {
+        MockSignatureManager mock;
+        QCOMPARE(mock.m_level, PAdESLevel::B_T);
+    }
+
+    void testSetSignatureLevelB_LT()
+    {
+        MockSignatureManager mock;
+        mock.setSignatureLevel(PAdESLevel::B_LT);
+        QCOMPARE(mock.m_level, PAdESLevel::B_LT);
+    }
+
+    void testSetSignatureLevelB_LTA()
+    {
+        MockSignatureManager mock;
+        mock.setSignatureLevel(PAdESLevel::B_LTA);
+        QCOMPARE(mock.m_level, PAdESLevel::B_LTA);
+    }
+
+    void testSetSignatureLevelB_B()
+    {
+        MockSignatureManager mock;
+        mock.setSignatureLevel(PAdESLevel::B_B);
+        QCOMPARE(mock.m_level, PAdESLevel::B_B);
+    }
+
+    // -- DSS / B-LT structure in SignatureInfo --
+
+    void testValidationReportsHasDssWhenPresent()
+    {
+        MockSignatureManager mock;
+
+        SignatureInfo sig;
+        sig.fieldName = "Sig1";
+        sig.signerName = "PKI Signer";
+        sig.isValid = true;
+        sig.trustStatus = "ValidWithDSS";
+        sig.hasDss = true;         // B-LT: DSS dictionary present
+        sig.hasDocTimestamp = false;
+        mock.m_signatures.append(sig);
+
+        auto result = mock.validateSignatures("b_lt.pdf");
+        QCOMPARE(result.size(), 1);
+        QVERIFY(result[0].isValid);
+        QVERIFY(result[0].hasDss);
+        QVERIFY(!result[0].hasDocTimestamp);
+        QCOMPARE(result[0].trustStatus, QString("ValidWithDSS"));
+    }
+
+    void testValidationReportsDocTimestampForB_LTA()
+    {
+        MockSignatureManager mock;
+
+        SignatureInfo sig;
+        sig.fieldName = "Sig1";
+        sig.signerName = "Archival Signer";
+        sig.isValid = true;
+        sig.trustStatus = "ValidWithDSS";
+        sig.hasDss = true;
+        sig.hasDocTimestamp = true; // B-LTA: DocTimeStamp present
+        mock.m_signatures.append(sig);
+
+        auto result = mock.validateSignatures("b_lta.pdf");
+        QCOMPARE(result.size(), 1);
+        QVERIFY(result[0].hasDss);
+        QVERIFY(result[0].hasDocTimestamp);
+    }
+
+    void testBasicSignatureHasNoDss()
+    {
+        MockSignatureManager mock;
+
+        SignatureInfo sig;
+        sig.fieldName = "Sig1";
+        sig.isValid = true;
+        sig.trustStatus = "Valid";
+        sig.hasDss = false;
+        sig.hasDocTimestamp = false;
+        mock.m_signatures.append(sig);
+
+        auto result = mock.validateSignatures("b_b.pdf");
+        QCOMPARE(result.size(), 1);
+        QVERIFY(!result[0].hasDss);
+        QVERIFY(!result[0].hasDocTimestamp);
+    }
+
+    void testSignLevelPassedCorrectly()
+    {
+        MockSignatureManager mock;
+        mock.setSignatureLevel(PAdESLevel::B_LTA);
+        mock.m_signResult = true;
+
+        bool ok = mock.signDocument("in.pdf", "out.pdf", "cert.p12", "pw", "", "");
+        QVERIFY(ok);
+        // Level set independently — sign does not reset it
+        QCOMPARE(mock.m_level, PAdESLevel::B_LTA);
+        QCOMPARE(mock.m_signCalls, 1);
+    }
 };
 
 QTEST_GUILESS_MAIN(TestSignatureValidation)

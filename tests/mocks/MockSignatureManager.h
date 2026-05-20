@@ -5,15 +5,17 @@ class MockSignatureManager : public ISignatureManager {
 public:
     void setTsaUrl(const QString &url) override { m_tsaUrl = url; }
 
+    void setSignatureLevel(PAdESLevel level) override { m_level = level; }
+
     bool signDocument(const QString &inputPath, const QString &outputPath,
                       const QString &certPath, const QString &password,
                       const QString &reason, const QString &location) override {
-        m_lastInputPath = inputPath;
+        m_lastInputPath  = inputPath;
         m_lastOutputPath = outputPath;
-        m_lastCertPath = certPath;
-        m_lastPassword = password;
-        m_lastReason = reason;
-        m_lastLocation = location;
+        m_lastCertPath   = certPath;
+        m_lastPassword   = password;
+        m_lastReason     = reason;
+        m_lastLocation   = location;
         ++m_signCalls;
         return m_signResult;
     }
@@ -24,12 +26,13 @@ public:
         return m_signatures;
     }
 
-    // Test helpers -- configurable return values
+    // ── configurable return values ──────────────────────────────────────────
     bool m_signResult = true;
     QList<SignatureInfo> m_signatures;
+    PAdESLevel m_level = PAdESLevel::B_T;
 
-    // Test helpers -- call tracking
-    int m_signCalls = 0;
+    // ── call tracking ───────────────────────────────────────────────────────
+    int m_signCalls     = 0;
     int m_validateCalls = 0;
     QString m_lastInputPath;
     QString m_lastOutputPath;

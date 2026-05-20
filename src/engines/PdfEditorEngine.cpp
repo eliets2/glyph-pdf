@@ -10,6 +10,11 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QDebug>
+#include <openssl/x509.h>
+#include <openssl/pem.h>
+#include <openssl/cms.h>
+#include <openssl/err.h>
+#include <openssl/evp.h>
 
 class PdfEditorEngine::Private {
 public:
@@ -151,6 +156,92 @@ bool PdfEditorEngine::encryptDocument(const QString &userPassword, const QString
     QMutexLocker locker(&d->mutex);
     if (!d->backend) return false;
     return d->backend->encryptDocument(userPassword, ownerPassword, canPrint, canCopy, canModify);
+}
+
+bool PdfEditorEngine::encryptWithCertificate(const QString &inputPath,
+                                              const QString &outputPath,
+                                              const QStringList &certPaths)
+{
+    if (certPaths.isEmpty()) {
+        qWarning() << "encryptWithCertificate: no recipient certificates supplied";
+        return false;
+    }
+
+    // Load each recipient certificate
+    STACK_OF(X509) *recipients = sk_X509_new_null();
+    if (!recipients) return false;
+
+    for (const QString &cp : certPaths) {
+        QFile f(cp);
+        if (!f.open(QIODevice::ReadOnly)) {
+            qWarning() << "encryptWithCertificate: cannot open cert" << cp;
+            sk_X509_pop_free(recipients, X509_free);
+            return false;
+        }
+        QByteArray data = f.readAll();
+        const unsigned char *p = reinterpret_cast<const unsigned char*>(data.constData());
+        X509 *cert = nullptr;
+        // Try DER first, then PEM
+        cert = d2i_X509(nullptr, &p, data.size());
+        if (!cert) {
+            BIO *bio = BIO_new_mem_buf(data.data(), data.size());
+            cert = PEM_read_bio_X509(bio, nullptr, nullptr, nullptr);
+            BIO_free(bio);
+        }
+        if (!cert) {
+            qWarning() << "encryptWithCertificate: failed to parse cert" << cp;
+            sk_X509_pop_free(recipients, X509_free);
+            return false;
+        }
+        sk_X509_push(recipients, cert);
+    }
+
+    // Read input PDF
+    QFile inFile(inputPath);
+    if (!inFile.open(QIODevice::ReadOnly)) {
+        sk_X509_pop_free(recipients, X509_free);
+        return false;
+    }
+    QByteArray pdfData = inFile.readAll();
+    inFile.close();
+
+    // CMS_encrypt wraps plaintext in an EnvelopedData structure
+    // AES-256-CBC per-recipient RSA-wrapped session key
+    BIO *inBio = BIO_new_mem_buf(pdfData.data(), pdfData.size());
+    CMS_ContentInfo *cms = CMS_encrypt(recipients, inBio,
+                                       EVP_aes_256_cbc(),
+                                       CMS_BINARY | CMS_STREAM);
+    BIO_free(inBio);
+    sk_X509_pop_free(recipients, X509_free);
+
+    if (!cms) {
+        qWarning() << "encryptWithCertificate: CMS_encrypt failed:"
+                   << ERR_reason_error_string(ERR_get_error());
+        return false;
+    }
+
+    // Write DER-encoded CMS envelope
+    BIO *outBio = BIO_new(BIO_s_mem());
+    if (!i2d_CMS_bio_stream(outBio, cms, inBio, CMS_BINARY)) {
+        qWarning() << "encryptWithCertificate: i2d_CMS_bio_stream failed";
+        CMS_ContentInfo_free(cms);
+        BIO_free(outBio);
+        return false;
+    }
+    CMS_ContentInfo_free(cms);
+
+    char *buf = nullptr;
+    long len = BIO_get_mem_data(outBio, &buf);
+    QFile outFile(outputPath);
+    bool ok = false;
+    if (outFile.open(QIODevice::WriteOnly)) {
+        ok = (outFile.write(buf, len) == len);
+        outFile.close();
+    }
+    BIO_free(outBio);
+
+    if (!ok) qWarning() << "encryptWithCertificate: failed to write output" << outputPath;
+    return ok;
 }
 
 bool PdfEditorEngine::sanitizeDocument(const QString &outputPath)

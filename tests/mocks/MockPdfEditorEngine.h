@@ -11,6 +11,7 @@ public:
     bool linearizeDocument(const QString &) override { return m_loaded; }
     bool exportPdfA(const QString &, int) override { return m_loaded; }
     bool encryptDocument(const QString &, const QString &, bool, bool, bool) override { return m_loaded; }
+    bool encryptWithCertificate(const QString &, const QString &, const QStringList &) override { return m_loaded; }
     bool sanitizeDocument(const QString &path) override { ++m_sanitizeCalls; m_lastSanitizedPath = path; return m_sanitizeResult && m_loaded; }
     bool getMetadata(PdfMetadata &out) override { out = m_meta; return true; }
     bool setMetadata(const PdfMetadata &meta) override { m_meta = meta; return true; }

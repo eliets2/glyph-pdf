@@ -23,6 +23,7 @@ public:
     bool linearizeDocument(const QString &outputPath) override;
     bool exportPdfA(const QString &outputPath, int conformanceLevel) override;
     bool encryptDocument(const QString &userPassword, const QString &ownerPassword, bool canPrint, bool canCopy, bool canModify) override;
+    bool encryptWithCertificate(const QString &inputPath, const QString &outputPath, const QStringList &certPaths) override;
     bool sanitizeDocument(const QString &outputPath) override;
 
     // Metadata
