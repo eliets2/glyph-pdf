@@ -61,6 +61,12 @@ QString toolIdToString(ToolId id) {
         { ToolId::Extract,        QStringLiteral("extract") },
         { ToolId::Split,          QStringLiteral("split") },
         { ToolId::Reorder,        QStringLiteral("reorder") },
+        { ToolId::Crop,           QStringLiteral("crop") },
+        { ToolId::Resize,         QStringLiteral("resize") },
+        { ToolId::AddHeader,      QStringLiteral("addHeader") },
+        { ToolId::AddFooter,      QStringLiteral("addFooter") },
+        { ToolId::AddPageNumbers, QStringLiteral("addPageNumbers") },
+        { ToolId::BatesNumber,    QStringLiteral("batesNumber") },
         // Convert
         { ToolId::Combine,        QStringLiteral("combine") },
         { ToolId::ToWord,         QStringLiteral("toWord") },
@@ -84,6 +90,8 @@ QString toolIdToString(ToolId id) {
         { ToolId::SigField,       QStringLiteral("sigField") },
         { ToolId::AutoDetect,     QStringLiteral("autoDetect") },
         { ToolId::Tabs,           QStringLiteral("tabs") },
+        { ToolId::ImportData,     QStringLiteral("importData") },
+        { ToolId::ExportData,     QStringLiteral("exportData") },
         // Security
         { ToolId::Encrypt,        QStringLiteral("encrypt") },
         { ToolId::Password,       QStringLiteral("password") },
@@ -174,6 +182,12 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         add(ToolId::Extract,        {"extract"});
         add(ToolId::Split,          {"split"});
         add(ToolId::Reorder,        {"reorder"});
+        add(ToolId::Crop,           {"crop"});
+        add(ToolId::Resize,         {"resize"});
+        add(ToolId::AddHeader,      {"addHeader", "addheader", "header"});
+        add(ToolId::AddFooter,      {"addFooter", "addfooter", "footer"});
+        add(ToolId::AddPageNumbers, {"addPageNumbers", "addpagenumbers", "page-numbers"});
+        add(ToolId::BatesNumber,    {"batesNumber", "batesnumber", "bates"});
 
         // ── Convert ──
         add(ToolId::Combine,        {"combine", "combinePDF", "combinepdf"});
@@ -198,7 +212,9 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         add(ToolId::NumField,       {"numField", "numfield"});
         add(ToolId::SigField,       {"sigField", "sigfield"});
         add(ToolId::AutoDetect,     {"autoDetect", "autodetect"});
-        add(ToolId::Tabs,           {"tabs"});
+        add(ToolId::Tabs,           {"tabs", "tab-order", "taborder"});
+        add(ToolId::ImportData,     {"importData", "importdata", "import-data"});
+        add(ToolId::ExportData,     {"exportData", "exportdata", "export-data"});
 
         // ── Security ──
         add(ToolId::Encrypt,        {"encrypt"});

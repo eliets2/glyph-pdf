@@ -7,6 +7,7 @@
 #include "core/interfaces/IToolController.h"
 
 struct AppContext;
+class EditToolBar;
 
 namespace gp {
 
@@ -28,6 +29,8 @@ private slots:
     void onImageSelected(const QString &name, const QRectF &placement);
     void onImageMoved(const QString &name, double dx, double dy);
     void onImageResized(const QString &name, double newW, double newH);
+    void onTextEditRequested(int pageIndex, QPointF pos);
+    void onTextFormatChanged(const QString &fontFamily, int fontSize, const QColor &color, bool bold, bool italic, int alignment);
 
 private:
     void runOcr();
@@ -39,6 +42,15 @@ private:
     bool _ocrRunning = false;
     QString _selectedImageName;
     int _imageEditPage = -1;
+    EditToolBar* _textToolBar = nullptr;
+    
+    // Text formatting state
+    QString _fontFamily = "Helvetica";
+    int _fontSize = 12;
+    QColor _fontColor = Qt::black;
+    bool _fontBold = false;
+    bool _fontItalic = false;
+    int _fontAlignment = 0;
 };
 
 } // namespace gp

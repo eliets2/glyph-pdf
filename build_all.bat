@@ -3,7 +3,8 @@ set "QT_DIR=C:\Qt\6.10.2\mingw_64"
 set "CMAKE_EXE=C:\Qt\Tools\CMake_64\bin\cmake.exe"
 set "MINGW_DIR=C:\Qt\Tools\mingw1310_64\bin"
 
-set "PATH=%QT_DIR%\bin;%MINGW_DIR%;C:\Qt\Tools\CMake_64\bin;%PATH%"
+set "PATH=%QT_DIR%\bin;%MINGW_DIR%;C:\Qt\Tools\CMake_64\bin;C:\Users\User\msys64\mingw64\bin;%PATH%"
+set "PKG_CONFIG_PATH=C:\Users\User\msys64\mingw64\lib\pkgconfig;%PKG_CONFIG_PATH%"
 set "VCPKG_DEFAULT_TRIPLET=x64-mingw-dynamic"
 set "VCPKG_TARGET_TRIPLET=x64-mingw-dynamic"
 

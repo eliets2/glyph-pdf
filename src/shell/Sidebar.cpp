@@ -154,7 +154,7 @@ void Sidebar::init(const AppContext* ctx, PdfViewerWidget* viewer)
             Q_UNUSED(item);
             int index = m_viewer->annotationLayer()->selectedIndex();
             if (index >= 0 && index < m_viewer->annotations().size()) {
-                const auto& annot = m_viewer->annotations().at(index);
+                auto annot = m_viewer->annotations().at(index);
                 m_viewer->goToPage(annot.pageIndex);
             }
         });
@@ -257,7 +257,7 @@ void Sidebar::updateCommentsTab()
 
     int index = m_viewer->annotationLayer()->selectedIndex();
     if (index >= 0 && index < m_viewer->annotations().size()) {
-        const auto& annot = m_viewer->annotations().at(index);
+        auto annot = m_viewer->annotations().at(index);
         
         auto* headerItem = new QListWidgetItem(m_commentThreadList);
         headerItem->setText(QString("ANNOTATION: %1").arg(annot.text));

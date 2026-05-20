@@ -26,6 +26,12 @@ private:
     void addFormCheckbox();
     void addFormRadioButton();
     void addFormDropdown();
+    void addFormListBox();
+    void addFormDateField();
+    void addFormNumField();
+
+    void onImportDataRequested();
+    void onExportDataRequested();
 
     const AppContext* _ctx = nullptr;
     MainWindow* _mainWindow = nullptr;

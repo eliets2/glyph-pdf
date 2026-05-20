@@ -16,6 +16,18 @@ QJsonDocument AnnotationSerializer::toJson(const QList<AnnotationItem>& items)
         obj["text"] = anno.text;
         obj["thickness"] = anno.thickness;
         
+        obj["id"] = anno.id;
+        obj["parentId"] = anno.parentId;
+        obj["author"] = anno.author;
+        obj["creationDate"] = anno.creationDate;
+        obj["reviewState"] = static_cast<int>(anno.reviewState);
+        
+        QJsonArray repliesArray;
+        for (const QString &reply : anno.replies) {
+            repliesArray.append(reply);
+        }
+        obj["replies"] = repliesArray;
+        
         QJsonArray points;
         for (const auto &p : anno.points) {
             QJsonObject pt;
@@ -55,6 +67,17 @@ QList<AnnotationItem> AnnotationSerializer::fromJson(const QJsonDocument& doc)
         item.color = QColor(obj["color"].toString());
         item.text = obj["text"].toString();
         item.thickness = obj["thickness"].toInt();
+        
+        item.id = obj["id"].toString();
+        item.parentId = obj["parentId"].toString();
+        item.author = obj["author"].toString();
+        item.creationDate = obj["creationDate"].toString();
+        item.reviewState = static_cast<ReviewState>(obj["reviewState"].toInt());
+
+        QJsonArray repliesArray = obj["replies"].toArray();
+        for (int j = 0; j < repliesArray.size(); ++j) {
+            item.replies.append(repliesArray[j].toString());
+        }
 
         QJsonArray points = obj["points"].toArray();
         for (int j = 0; j < points.size(); ++j) {

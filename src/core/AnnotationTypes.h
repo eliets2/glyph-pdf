@@ -7,6 +7,15 @@
 #include <QRectF>
 #include <QString>
 
+enum class ReviewState {
+    None,
+    Open,
+    Accepted,
+    Rejected,
+    Cancelled,
+    Completed
+};
+
 struct AnnotationItem {
     int pageIndex = 0;
     ToolMode mode = ToolMode::HandTool;
@@ -15,4 +24,12 @@ struct AnnotationItem {
     int thickness = 2;
     QString text;
     QRectF rect;
+    
+    // Comment threading & metadata
+    QString id;
+    QString parentId;
+    QList<QString> replies;
+    QString author;
+    QString creationDate;
+    ReviewState reviewState = ReviewState::None;
 };

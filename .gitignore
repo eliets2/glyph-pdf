@@ -34,3 +34,18 @@ autosave/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Vendor SDKs (large binaries — obtain via CMake FetchContent or vcpkg)
+onnxruntime-win-x64-*/
+onnxruntime-osx-*/
+onnxruntime-linux-*/
+
+# ML model weights (binary, managed separately)
+models/
+
+# Test output logs
+test_out*.log
+test_err*.log
+test_output.txt
+test_results.txt
+Testing/

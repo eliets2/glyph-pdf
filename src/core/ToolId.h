@@ -65,6 +65,12 @@ enum class ToolId {
     Extract,
     Split,
     Reorder,
+    Crop,
+    Resize,
+    AddHeader,
+    AddFooter,
+    AddPageNumbers,
+    BatesNumber,
 
     // ── Convert ──
     Combine,
@@ -90,6 +96,8 @@ enum class ToolId {
     SigField,
     AutoDetect,
     Tabs,
+    ImportData,
+    ExportData,
 
     // ── Security / Protect ──
     Encrypt,

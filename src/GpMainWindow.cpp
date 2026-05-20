@@ -23,6 +23,7 @@
 #include "shell/controllers/SecurityController.h"
 
 #include "ui/PdfViewerWidget.h"
+#include "ui/ThumbnailSidebar.h"
 #include "shell/ToolRegistry.h"
 #include "ui/FindBar.h"
 #include "engines/DocumentSession.h"
@@ -145,6 +146,12 @@ MainWindow::MainWindow(const AppContext* ctx, QWidget* parent) : QMainWindow(par
             _status->updateFromDocument(_ctx->pdfEditor.get(), viewer->filePath());
         }
     });
+
+    // Page operations wiring
+    connect(_modes->viewer(), &PdfViewerWidget::cropRequested, _pages, &PagesController::onCropRequested);
+    if (auto* thumbSidebar = _left->findChild<ThumbnailSidebar*>()) {
+        connect(thumbSidebar, &ThumbnailSidebar::pageReordered, _pages, &PagesController::onPageReordered);
+    }
 
     applyTheme();
 }

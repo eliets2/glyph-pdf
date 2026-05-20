@@ -5,7 +5,7 @@
 
 class AddFormFieldCommand : public QUndoCommand {
 public:
-    enum class FieldType { Text, Checkbox, Radio, Dropdown };
+    enum class FieldType { Text, Checkbox, Radio, Dropdown, ListBox, Date, Numeric };
 
     AddFormFieldCommand(IFormManager* engine, DocumentSession* doc, FieldType type,
                         int pageIndex, const QRectF& rect, const QString& name, const QStringList& options = {})
@@ -19,6 +19,9 @@ public:
             case FieldType::Checkbox: m_engine->addCheckBox(m_doc->path(), m_page, m_rect, m_name, m_doc->path()); break;
             case FieldType::Radio: m_engine->addRadioButton(m_doc->path(), m_page, m_rect, m_name, m_doc->path()); break;
             case FieldType::Dropdown: m_engine->addDropdown(m_doc->path(), m_page, m_rect, m_name, m_options, m_doc->path()); break;
+            case FieldType::ListBox: m_engine->addListBox(m_doc->path(), m_page, m_rect, m_name, m_options, true, m_doc->path()); break;
+            case FieldType::Date: m_engine->addDateField(m_doc->path(), m_page, m_rect, m_name, m_doc->path()); break;
+            case FieldType::Numeric: m_engine->addNumericField(m_doc->path(), m_page, m_rect, m_name, m_doc->path()); break;
         }
         m_doc->markReload();
     }

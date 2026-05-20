@@ -16,7 +16,10 @@
 QT_BEGIN_NAMESPACE
 class QSpinBox;
 class QLabel;
+class QRubberBand;
+class QMouseEvent;
 QT_END_NAMESPACE
+
 
 class PdfViewerWidget : public QWidget
 {
@@ -56,6 +59,7 @@ public:
     void rotateClockwise();
     void rotateCounterClockwise();
     void setPageMode(QPdfView::PageMode mode);
+    void setOverlayImage(const QImage &img);
 
     // Export
     QImage renderPage(int page, qreal scaleFactor = 2.0) const;
@@ -81,6 +85,7 @@ signals:
     void annotationsChanged();
     void textEditRequested(int pageIndex, QPointF pos);
     void pageOperationFinished();
+    void cropRequested(int pageIndex, QRectF cropRect);
 
 public slots:
     void zoomIn();
@@ -88,6 +93,9 @@ public slots:
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
 
     void onPageChanged();
     void updateRotation();
@@ -106,6 +114,12 @@ private:
     ToolMode m_toolMode;
     QString m_filePath;
     int m_rotation;
+    QImage m_overlayImage;
+
+    // Crop selection
+    QRubberBand *m_rubberBand = nullptr;
+    QPoint m_rubberBandOrigin;
+    bool m_isSelectingCrop = false;
 
     // Render cache (Fix 5)
     struct CachedPage {

@@ -25,6 +25,8 @@
 #include <QProgressDialog>
 #include <QTemporaryFile>
 #include <QTimer>
+#include <QRubberBand>
+#include <QMouseEvent>
 #include <podofo/podofo.h>
 #include <sstream>
 #include <vector>
@@ -200,6 +202,7 @@ void PdfViewerWidget::setToolMode(ToolMode mode)
             break;
         case ToolMode::DrawFreehand:
         case ToolMode::DrawShape:
+        case ToolMode::Crop:
             m_pdfView->setCursor(Qt::CrossCursor);
             break;
         default:
@@ -339,6 +342,64 @@ void PdfViewerWidget::resizeEvent(QResizeEvent *event)
 void PdfViewerWidget::setPageMode(QPdfView::PageMode mode)
 {
     m_pdfView->setPageMode(mode);
+}
+
+void PdfViewerWidget::mousePressEvent(QMouseEvent *event)
+{
+    if (m_toolMode == ToolMode::Crop && event->button() == Qt::LeftButton) {
+        m_rubberBandOrigin = event->pos();
+        if (!m_rubberBand) {
+            m_rubberBand = new QRubberBand(QRubberBand::Rectangle, this);
+        }
+        m_rubberBand->setGeometry(QRect(m_rubberBandOrigin, QSize()));
+        m_rubberBand->show();
+        m_isSelectingCrop = true;
+        event->accept();
+    } else {
+        QWidget::mousePressEvent(event);
+    }
+}
+
+void PdfViewerWidget::mouseMoveEvent(QMouseEvent *event)
+{
+    if (m_isSelectingCrop && m_rubberBand) {
+        m_rubberBand->setGeometry(QRect(m_rubberBandOrigin, event->pos()).normalized());
+        event->accept();
+    } else {
+        QWidget::mouseMoveEvent(event);
+    }
+}
+
+void PdfViewerWidget::mouseReleaseEvent(QMouseEvent *event)
+{
+    if (m_isSelectingCrop && event->button() == Qt::LeftButton) {
+        m_isSelectingCrop = false;
+        if (m_rubberBand) {
+            m_rubberBand->hide();
+            QRect selection = m_rubberBand->geometry();
+            if (selection.width() > 10 && selection.height() > 10) {
+                // Determine page from pos
+                // QPdfView handles the layout. We approximate or assume single page mode
+                // For a robust implementation we would map from view to scene to page.
+                // For now, we use the current page and pass the rect.
+                int page = currentPage();
+                
+                // Map widget coordinates to PDF coordinates
+                // Since this is a simple approximation:
+                // We'll pass the unmapped rect and let the controller handle it or map it here.
+                // Assuming scaling factor m_zoomFactor:
+                QRectF pdfRect(selection.x() / m_zoomFactor, 
+                               selection.y() / m_zoomFactor, 
+                               selection.width() / m_zoomFactor, 
+                               selection.height() / m_zoomFactor);
+                               
+                emit cropRequested(page, pdfRect);
+            }
+        }
+        event->accept();
+    } else {
+        QWidget::mouseReleaseEvent(event);
+    }
 }
 
 // ---- Export / Print ----
@@ -1006,4 +1067,9 @@ void PdfViewerWidget::printDocument()
 }
 
 void PdfViewerWidget::setOcrResults(const QList<OcrResult> &results) { if (m_annotationLayer) m_annotationLayer->setOcrResults(results); }
+
+void PdfViewerWidget::setOverlayImage(const QImage &img) {
+    m_overlayImage = img;
+    update();
+}
 

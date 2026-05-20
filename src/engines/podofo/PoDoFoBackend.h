@@ -38,9 +38,24 @@ public:
     bool insertBlankPage(const QString &path, int atIndex);
 
     // Content editing
-    bool editTextInline(int pageIndex, const QRectF &rect, const QString &newText);
+    bool editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
+                        const QString &fontFamily = "", int fontSize = 0,
+                        const QColor &color = Qt::black, bool bold = false,
+                        bool italic = false, int alignment = 0);
     bool deleteObjectAt(int pageIndex, const QPointF &pos);
     bool applyRedactions(int pageIndex, const QList<QRectF> &rects);
+
+    // Page Geometry & Operations
+    bool cropPage(const QString &path, int pageIndex, const QRectF &cropRect);
+    bool resizePage(const QString &path, int pageIndex, const QSizeF &size);
+    bool reorderPages(const QString &path, int fromIndex, int toIndex);
+
+    // Content Injection
+    bool addHeaderFooter(const QString &path, const HeaderFooterOptions &options);
+    bool applyBatesNumbering(const QString &path, const BatesNumberingOptions &options);
+
+    // Annotation Export
+    bool embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations);
 
     // Specialized conversion/security operations
     bool linearizeDocument(const QString &outputPath);

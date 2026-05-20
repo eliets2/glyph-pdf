@@ -9,6 +9,9 @@
 #include <QScrollArea>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <QtConcurrent/QtConcurrent>
+#include <QThread>
+#include <QCoreApplication>
 
 namespace gp {
 
@@ -80,7 +83,24 @@ BatchMode::BatchMode(QWidget* parent) : QWidget(parent) {
     auto* run = new QToolButton; run->setText("▶  RUN NOW"); run->setProperty("variant","accent"); run->setFixedHeight(38);
     auto* runHolder = new QFrame; auto* rh = new QHBoxLayout(runHolder); rh->setContentsMargins(20,8,20,8); rh->addWidget(run);
     cLay->addWidget(runHolder);
+
+    // Add progress bars and log view
+    m_overallProgress = new QProgressBar; m_overallProgress->setRange(0, 100); m_overallProgress->setValue(0);
+    m_fileProgress = new QProgressBar; m_fileProgress->setRange(0, 100); m_fileProgress->setValue(0);
+    m_logView = new QTextEdit; m_logView->setReadOnly(true); m_logView->setFixedHeight(100);
+    m_logView->setStyleSheet("font-family: monospace; background: #1e1e1e; color: #d4d4d4;");
+    
+    cLay->addWidget(new QLabel("Overall Progress:"));
+    cLay->addWidget(m_overallProgress);
+    cLay->addWidget(new QLabel("Current File Progress:"));
+    cLay->addWidget(m_fileProgress);
+    cLay->addWidget(m_logView);
+
     row->addWidget(center, 1);
+
+    connect(run, &QToolButton::clicked, this, &BatchMode::onRunClicked);
+    connect(&m_watcher, &QFutureWatcher<void>::progressValueChanged, this, &BatchMode::onBatchProgress);
+    connect(&m_watcher, &QFutureWatcher<void>::finished, this, &BatchMode::onBatchFinished);
 
     // RIGHT — configure
     auto* right = new QFrame; right->setFixedWidth(260);
@@ -90,6 +110,41 @@ BatchMode::BatchMode(QWidget* parent) : QWidget(parent) {
     cfg->setProperty("mono", true); cfg->setMargin(14);
     rLay->addWidget(cfg); rLay->addStretch(1);
     row->addWidget(right);
+}
+
+void BatchMode::onRunClicked() {
+    m_filesToProcess = {"doc1.pdf", "doc2.pdf", "doc3.pdf", "doc4.pdf", "doc5.pdf"};
+    m_overallProgress->setRange(0, m_filesToProcess.size());
+    m_overallProgress->setValue(0);
+    m_logView->clear();
+    m_logView->append("Starting batch processing...");
+
+    // Process files in parallel
+    QFuture<void> future = QtConcurrent::map(m_filesToProcess, [this](const QString& file) {
+        // Simulate work that doesn't block UI
+        for (int i = 0; i < 5; ++i) { // 5 steps per file
+            QThread::msleep(200); // Simulate processing time
+        }
+        
+        // Use QMetaObject::invokeMethod to safely update UI from worker thread
+        QMetaObject::invokeMethod(this, [this, file]() {
+            m_logView->append("Successfully processed: " + file);
+        }, Qt::QueuedConnection);
+    });
+
+    m_watcher.setFuture(future);
+}
+
+void BatchMode::onBatchProgress(int value) {
+    m_overallProgress->setValue(value);
+    // Dummy file progress
+    m_fileProgress->setValue((value * 100) % 100); 
+}
+
+void BatchMode::onBatchFinished() {
+    m_overallProgress->setValue(m_overallProgress->maximum());
+    m_fileProgress->setValue(100);
+    m_logView->append("Batch processing completed.");
 }
 
 } // namespace gp

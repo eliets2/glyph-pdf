@@ -123,11 +123,16 @@ bool PdfEditorEngine::saveDocument(const QString &outputPath)
     return d->backend->saveDocument(outputPath);
 }
 
-bool PdfEditorEngine::editTextInline(int pageIndex, const QRectF &rect, const QString &newText)
+bool PdfEditorEngine::editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
+                                     const QString &fontFamily, int fontSize,
+                                     const QColor &color, bool bold,
+                                     bool italic, int alignment)
 {
     QMutexLocker locker(&d->mutex);
     if (!d->backend) return false;
-    return d->backend->editTextInline(pageIndex, rect, newText);
+    // We pass the new parameters down to the backend. If backend doesn't support it yet, it will ignore it or we update it.
+    // For now we assume backend supports it, or we need to update backend interface as well.
+    return d->backend->editTextInline(pageIndex, rect, newText, fontFamily, fontSize, color, bold, italic, alignment);
 }
 
 bool PdfEditorEngine::deleteObjectAt(int pageIndex, const QPointF &pos)
@@ -322,6 +327,42 @@ bool PdfEditorEngine::insertBlankPage(const QString &path, int atIndex)
     return d->backend->insertBlankPage(path, atIndex);
 }
 
+bool PdfEditorEngine::cropPage(const QString &path, int pageIndex, const QRectF &cropRect)
+{
+    QMutexLocker locker(&d->mutex);
+    if (!d->backend) return false;
+    return d->backend->cropPage(path, pageIndex, cropRect);
+}
+
+bool PdfEditorEngine::resizePage(const QString &path, int pageIndex, const QSizeF &size)
+{
+    QMutexLocker locker(&d->mutex);
+    if (!d->backend) return false;
+    return d->backend->resizePage(path, pageIndex, size);
+}
+
+bool PdfEditorEngine::reorderPages(const QString &path, int fromIndex, int toIndex)
+{
+    QMutexLocker locker(&d->mutex);
+    if (!d->backend) return false;
+    return d->backend->reorderPages(path, fromIndex, toIndex);
+}
+
+bool PdfEditorEngine::addHeaderFooter(const QString &path, const HeaderFooterOptions &options)
+{
+    QMutexLocker locker(&d->mutex);
+    if (!d->backend) return false;
+    return d->backend->addHeaderFooter(path, options);
+}
+
+bool PdfEditorEngine::applyBatesNumbering(const QString &path, const BatesNumberingOptions &options)
+{
+    QMutexLocker locker(&d->mutex);
+    if (!d->backend) return false;
+    return d->backend->applyBatesNumbering(path, options);
+}
+
+
 QList<PdfImageInfo> PdfEditorEngine::listImages(int pageIndex)
 {
     QMutexLocker locker(&d->mutex);
@@ -369,4 +410,11 @@ bool PdfEditorEngine::applyRedactions(int pageIndex, const QList<QRectF> &rects)
     QMutexLocker locker(&d->mutex);
     if (!d->backend) return false;
     return d->backend->applyRedactions(pageIndex, rects);
+}
+
+bool PdfEditorEngine::embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations)
+{
+    QMutexLocker locker(&d->mutex);
+    if (!d->backend) return false;
+    return d->backend->embedAnnotations(inputPath, outputPath, annotations);
 }

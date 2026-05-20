@@ -20,6 +20,10 @@ public:
     QList<ToolId> handledTools() const override;
     void activate(ToolId id) override;
 
+public slots:
+    void onPageReordered(int from, int to);
+    void onCropRequested(int pageIndex, QRectF rect);
+
 private:
     void rotateLeft();
     void rotateRight();

@@ -20,9 +20,15 @@ public:
 
 signals:
     void pageClicked(int page);
+    void pageReordered(int sourceIndex, int targetIndex);
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
+    
+    // Drag & Drop
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dragMoveEvent(QDragMoveEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
 
 private:
     QWidget* createThumbWidget(int pageIndex);
@@ -38,6 +44,9 @@ private:
     PdfViewerWidget*     m_viewer      = nullptr;
     int                  m_currentPage = 0;
     int                  m_totalPages  = 0;
+    
+    QPoint               m_dragStartPos;
+    int                  m_dropIndicatorIndex = -1;
 
     // Virtualization (Fix 4): sparse map of live widgets keyed by page index
     QHash<int, QWidget*> m_liveWidgets;

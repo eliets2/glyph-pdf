@@ -13,6 +13,14 @@
 #include <sstream>
 #include <algorithm>
 #include <QMap>
+#include <set>
+#include <QDateTime>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QCryptographicHash>
+#include <QRandomGenerator>
+
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -348,7 +356,10 @@ bool PoDoFoBackend::insertBlankPage(const QString &path, int atIndex) {
     }
 }
 
-bool PoDoFoBackend::editTextInline(int pageIndex, const QRectF &rect, const QString &newText) {
+bool PoDoFoBackend::editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
+                                   const QString &fontFamily, int fontSize,
+                                   const QColor &color, bool bold,
+                                   bool italic, int alignment) {
     QMutexLocker locker(&d->mutex);
     if (!d->document || pageIndex < 0 || (unsigned)pageIndex >= d->document->GetPages().GetCount()) return false;
     
@@ -400,7 +411,12 @@ bool PoDoFoBackend::editTextInline(int pageIndex, const QRectF &rect, const QStr
             extractedFontSize = 12.0;
         }
         if (extractedFontName.empty()) extractedFontName = "Helvetica";
-        if (extractedFontSize <= 0.0) extractedFontSize = 12.0;
+        if (!fontFamily.isEmpty()) {
+            extractedFontName = fontFamily.toStdString();
+        }
+        if (fontSize > 0) {
+            extractedFontSize = fontSize;
+        }
 
         PoDoFo::PdfPainter painter;
         painter.SetCanvas(page);
@@ -410,20 +426,49 @@ bool PoDoFoBackend::editTextInline(int pageIndex, const QRectF &rect, const QStr
         double pdfY = pageRect.Height - (rect.y() + rect.height());
         painter.DrawRectangle(rect.x(), pdfY, rect.width(), rect.height(), PoDoFo::PdfPathDrawMode::Fill);
         
-        painter.GraphicsState.SetNonStrokingColor(PoDoFo::PdfColor(0.0, 0.0, 0.0));
-        auto font = d->document->GetFonts().SearchFont(extractedFontName);
+        painter.GraphicsState.SetNonStrokingColor(PoDoFo::PdfColor(color.redF(), color.greenF(), color.blueF()));
+        
+        // Find standard font corresponding to bold/italic if it's a standard one
+        const PoDoFo::PdfFont* font = nullptr;
+        if (extractedFontName == "Helvetica" || extractedFontName == "Arial" || fontFamily.isEmpty()) {
+            if (bold && italic) font = &d->document->GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::HelveticaBoldOblique);
+            else if (bold) font = &d->document->GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::HelveticaBold);
+            else if (italic) font = &d->document->GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::HelveticaOblique);
+            else font = &d->document->GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::Helvetica);
+        } else if (extractedFontName == "Times" || extractedFontName == "Times New Roman") {
+            if (bold && italic) font = &d->document->GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::TimesBoldItalic);
+            else if (bold) font = &d->document->GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::TimesBold);
+            else if (italic) font = &d->document->GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::TimesItalic);
+            else font = &d->document->GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::TimesRoman);
+        } else if (extractedFontName == "Courier") {
+            if (bold && italic) font = &d->document->GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::CourierBoldOblique);
+            else if (bold) font = &d->document->GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::CourierBold);
+            else if (italic) font = &d->document->GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::CourierOblique);
+            else font = &d->document->GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::Courier);
+        }
+
+        if (!font) font = d->document->GetFonts().SearchFont(extractedFontName);
         if (!font) font = &d->document->GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::Helvetica);
+        
         painter.TextState.SetFont(*font, extractedFontSize);
         
         QStringList lines = newText.split('\n');
-        if (lines.size() == 1) {
-            painter.DrawText(lines[0].toUtf8().constData(), rect.x(), pdfY + 2.0);
-        } else {
-            double currentY = pdfY + rect.height() - extractedFontSize;
-            for (const QString& line : lines) {
-                painter.DrawText(line.toUtf8().constData(), rect.x(), currentY);
-                currentY -= (extractedFontSize * 1.2);
+        double currentY = pdfY + rect.height() - extractedFontSize;
+        for (const QString& line : lines) {
+            double x = rect.x();
+            if (alignment == 1 || alignment == 2) { // Center or Right
+                PoDoFo::PdfTextState textState;
+                textState.Font = font;
+                textState.FontSize = extractedFontSize;
+                double textWidth = font->GetStringLength(line.toUtf8().constData(), textState);
+                if (alignment == 1) { // Center
+                    x += (rect.width() - textWidth) / 2.0;
+                } else if (alignment == 2) { // Right
+                    x += rect.width() - textWidth;
+                }
             }
+            painter.DrawText(line.toUtf8().constData(), x, currentY);
+            currentY -= (extractedFontSize * 1.2);
         }
         painter.FinishDrawing();
         
@@ -457,10 +502,345 @@ bool PoDoFoBackend::deleteObjectAt(int pageIndex, const QPointF &pos) {
 
 namespace {
 
+double getEncodedStringWidth(const PoDoFo::PdfFont* font, const PoDoFo::PdfString& str, const PoDoFo::PdfTextState& state) {
+    if (str.IsStringEvaluated()) {
+        return font->GetStringLength(str.GetString(), state);
+    }
+    try {
+        double len = 0.0;
+        if (font->TryGetEncodedStringLength(str, state, len)) {
+            return len;
+        }
+    } catch (...) {
+        // Fallback
+    }
+    return font->GetStringLength(str.GetString(), state);
+}
+
+void cleanStructElement(PoDoFo::PdfObject* elem, 
+                        PoDoFo::PdfReference pageRef, 
+                        const std::set<int64_t>& redactedMcids, 
+                        PoDoFo::PdfMemDocument* doc) {
+    if (!elem) return;
+    if (elem->IsReference()) {
+        elem = &doc->GetObjects().MustGetObject(elem->GetReference());
+    }
+    if (!elem->IsDictionary()) return;
+    
+    auto& dict = elem->GetDictionary();
+    bool belongsToPage = false;
+    auto* pgKey = dict.FindKey("Pg");
+    if (pgKey && pgKey->IsReference() && pgKey->GetReference() == pageRef) {
+        belongsToPage = true;
+    }
+    
+    bool childRedacted = false;
+    auto* kKey = dict.FindKey("K");
+    if (kKey) {
+        if (kKey->IsArray()) {
+            auto& arr = kKey->GetArray();
+            for (unsigned i = 0; i < arr.GetSize(); ) {
+                bool removeKid = false;
+                auto& kid = arr[i];
+                
+                if (kid.IsNumber()) {
+                    int64_t mcid = kid.GetNumber();
+                    if (belongsToPage && redactedMcids.count(mcid)) {
+                        removeKid = true;
+                        childRedacted = true;
+                    }
+                } else if (kid.IsDictionary() || kid.IsReference()) {
+                    PoDoFo::PdfObject* kidObj = &kid;
+                    if (kid.IsReference()) {
+                        kidObj = &doc->GetObjects().MustGetObject(kid.GetReference());
+                    }
+                    if (kidObj->IsDictionary()) {
+                        auto& kidDict = kidObj->GetDictionary();
+                        auto* typeKey = kidDict.FindKey("Type");
+                        if (typeKey && typeKey->IsName() && typeKey->GetName().GetString() == "MCR") {
+                            auto* mcrPg = kidDict.FindKey("Pg");
+                            auto* mcrMcid = kidDict.FindKey("MCID");
+                            if (mcrPg && mcrPg->IsReference() && mcrPg->GetReference() == pageRef &&
+                                mcrMcid && mcrMcid->IsNumber() && redactedMcids.count(mcrMcid->GetNumber())) {
+                                removeKid = true;
+                                childRedacted = true;
+                            }
+                        } else {
+                            cleanStructElement(kidObj, pageRef, redactedMcids, doc);
+                            auto* subK = kidDict.FindKey("K");
+                            if (subK && subK->IsArray() && subK->GetArray().GetSize() == 0) {
+                                removeKid = true;
+                                childRedacted = true;
+                            }
+                        }
+                    }
+                }
+                
+                if (removeKid) {
+                    arr.RemoveAt(i);
+                } else {
+                    ++i;
+                }
+            }
+        } else if (kKey->IsNumber()) {
+            int64_t mcid = kKey->GetNumber();
+            if (belongsToPage && redactedMcids.count(mcid)) {
+                dict.RemoveKey("K");
+                childRedacted = true;
+            }
+        } else if (kKey->IsDictionary() || kKey->IsReference()) {
+            PoDoFo::PdfObject* kidObj = kKey;
+            if (kKey->IsReference()) {
+                kidObj = &doc->GetObjects().MustGetObject(kKey->GetReference());
+            }
+            if (kidObj->IsDictionary()) {
+                auto& kidDict = kidObj->GetDictionary();
+                auto* typeKey = kidDict.FindKey("Type");
+                if (typeKey && typeKey->IsName() && typeKey->GetName().GetString() == "MCR") {
+                    auto* mcrPg = kidDict.FindKey("Pg");
+                    auto* mcrMcid = kidDict.FindKey("MCID");
+                    if (mcrPg && mcrPg->IsReference() && mcrPg->GetReference() == pageRef &&
+                        mcrMcid && mcrMcid->IsNumber() && redactedMcids.count(mcrMcid->GetNumber())) {
+                        dict.RemoveKey("K");
+                        childRedacted = true;
+                    }
+                } else {
+                    cleanStructElement(kidObj, pageRef, redactedMcids, doc);
+                    auto* subK = kidDict.FindKey("K");
+                    if (subK && subK->IsArray() && subK->GetArray().GetSize() == 0) {
+                        dict.RemoveKey("K");
+                        childRedacted = true;
+                    }
+                }
+            }
+        }
+    }
+    
+    bool hasRedactedContent = childRedacted || (belongsToPage && !redactedMcids.empty());
+    if (hasRedactedContent) {
+        if (dict.HasKey("ActualText")) dict.RemoveKey("ActualText");
+        if (dict.HasKey("Alt")) dict.RemoveKey("Alt");
+        if (dict.HasKey("E")) dict.RemoveKey("E");
+    }
+}
+
+} // anonymous namespace
+
+bool PoDoFoBackend::cropPage(const QString &path, int pageIndex, const QRectF &cropRect) {
+    QMutexLocker locker(&d->mutex);
+    try {
+        auto& doc = d->resolveDocument(path);
+        auto& pages = doc.GetPages();
+        if (pageIndex < 0 || static_cast<size_t>(pageIndex) >= pages.GetCount()) return false;
+        
+        auto& page = pages.GetPageAt(pageIndex);
+        PoDoFo::Rect podofoRect(cropRect.x(), cropRect.y(), cropRect.width(), cropRect.height());
+        page.GetDictionary().AddKey("CropBox", podofoRect.ToArray());
+        
+        doc.Save(path.toUtf8().constData());
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool PoDoFoBackend::resizePage(const QString &path, int pageIndex, const QSizeF &size) {
+    QMutexLocker locker(&d->mutex);
+    try {
+        auto& doc = d->resolveDocument(path);
+        auto& pages = doc.GetPages();
+        if (pageIndex < 0 || static_cast<size_t>(pageIndex) >= pages.GetCount()) return false;
+        
+        auto& page = pages.GetPageAt(pageIndex);
+        PoDoFo::Rect oldMedia = page.GetMediaBox();
+        PoDoFo::Rect newMedia(oldMedia.X, oldMedia.Y, size.width(), size.height());
+        page.GetDictionary().AddKey("MediaBox", newMedia.ToArray());
+        
+        doc.Save(path.toUtf8().constData());
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool PoDoFoBackend::reorderPages(const QString &path, int fromIndex, int toIndex) {
+    QMutexLocker locker(&d->mutex);
+    try {
+        auto& doc = d->resolveDocument(path);
+        auto& pages = doc.GetPages();
+        if (fromIndex < 0 || static_cast<size_t>(fromIndex) >= pages.GetCount()) return false;
+        if (toIndex < 0 || static_cast<size_t>(toIndex) >= pages.GetCount()) return false;
+        if (fromIndex == toIndex) return true;
+        
+        // Use a temporary document to extract and reinsert the page
+        PoDoFo::PdfMemDocument tempDoc;
+        tempDoc.GetPages().InsertDocumentPageAt(0, doc, fromIndex);
+        
+        pages.RemovePageAt(fromIndex);
+        
+        // Adjust toIndex after removal if necessary
+        if (fromIndex < toIndex) {
+            toIndex--;
+        }
+        
+        pages.InsertDocumentPageAt(toIndex, tempDoc, 0);
+        
+        doc.Save(path.toUtf8().constData());
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool PoDoFoBackend::addHeaderFooter(const QString &path, const HeaderFooterOptions &options) {
+    QMutexLocker locker(&d->mutex);
+    try {
+        auto& doc = d->resolveDocument(path);
+        auto& pages = doc.GetPages();
+        int totalPages = static_cast<int>(pages.GetCount());
+        
+        std::string fontName = options.fontFamily.isEmpty() ? "Helvetica" : options.fontFamily.toStdString();
+        const PoDoFo::PdfFont* font = doc.GetFonts().SearchFont(fontName);
+        if (!font) {
+            font = &doc.GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::Helvetica);
+        }
+        
+        for (int i = 0; i < totalPages; ++i) {
+            auto& page = pages.GetPageAt(i);
+            QString text = options.textTemplate;
+            text.replace("{page}", QString::number(i + 1));
+            text.replace("{total}", QString::number(totalPages));
+            
+            PoDoFo::PdfPainter painter;
+            painter.SetCanvas(page);
+            painter.TextState.SetFont(*font, options.fontSize);
+            
+            PoDoFo::PdfTextState textState;
+            textState.Font = font;
+            textState.FontSize = options.fontSize;
+            double textWidth = font->GetStringLength(text.toUtf8().constData(), textState);
+            
+            PoDoFo::Rect mediaBox = page.GetMediaBox();
+            double x = 0, y = 0;
+            double margin = 36.0; // 0.5 inch margin
+            
+            switch (options.position) {
+                case HeaderFooterOptions::Position::TopLeft:
+                    x = mediaBox.X + margin;
+                    y = mediaBox.Y + mediaBox.Height - margin - options.fontSize;
+                    break;
+                case HeaderFooterOptions::Position::TopCenter:
+                    x = mediaBox.X + (mediaBox.Width - textWidth) / 2.0;
+                    y = mediaBox.Y + mediaBox.Height - margin - options.fontSize;
+                    break;
+                case HeaderFooterOptions::Position::TopRight:
+                    x = mediaBox.X + mediaBox.Width - margin - textWidth;
+                    y = mediaBox.Y + mediaBox.Height - margin - options.fontSize;
+                    break;
+                case HeaderFooterOptions::Position::BottomLeft:
+                    x = mediaBox.X + margin;
+                    y = mediaBox.Y + margin;
+                    break;
+                case HeaderFooterOptions::Position::BottomCenter:
+                    x = mediaBox.X + (mediaBox.Width - textWidth) / 2.0;
+                    y = mediaBox.Y + margin;
+                    break;
+                case HeaderFooterOptions::Position::BottomRight:
+                    x = mediaBox.X + mediaBox.Width - margin - textWidth;
+                    y = mediaBox.Y + margin;
+                    break;
+            }
+            
+            painter.DrawText(text.toUtf8().constData(), x, y);
+            painter.FinishDrawing();
+        }
+        
+        doc.Save(path.toUtf8().constData());
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool PoDoFoBackend::applyBatesNumbering(const QString &path, const BatesNumberingOptions &options) {
+    QMutexLocker locker(&d->mutex);
+    try {
+        auto& doc = d->resolveDocument(path);
+        auto& pages = doc.GetPages();
+        int totalPages = static_cast<int>(pages.GetCount());
+        
+        std::string fontName = options.fontFamily.isEmpty() ? "Helvetica" : options.fontFamily.toStdString();
+        const PoDoFo::PdfFont* font = doc.GetFonts().SearchFont(fontName);
+        if (!font) {
+            font = &doc.GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::Helvetica);
+        }
+        
+        int currentNumber = options.startNumber;
+        for (int i = 0; i < totalPages; ++i) {
+            auto& page = pages.GetPageAt(i);
+            
+            QString numStr = QString::number(currentNumber).rightJustified(options.digitCount, '0');
+            QString text = options.prefix + numStr + options.suffix;
+            
+            PoDoFo::PdfPainter painter;
+            painter.SetCanvas(page);
+            painter.TextState.SetFont(*font, options.fontSize);
+            
+            PoDoFo::PdfTextState textState;
+            textState.Font = font;
+            textState.FontSize = options.fontSize;
+            double textWidth = font->GetStringLength(text.toUtf8().constData(), textState);
+            
+            PoDoFo::Rect mediaBox = page.GetMediaBox();
+            double x = 0, y = 0;
+            double margin = 36.0;
+            
+            switch (options.position) {
+                case HeaderFooterOptions::Position::TopLeft:
+                    x = mediaBox.X + margin;
+                    y = mediaBox.Y + mediaBox.Height - margin - options.fontSize;
+                    break;
+                case HeaderFooterOptions::Position::TopCenter:
+                    x = mediaBox.X + (mediaBox.Width - textWidth) / 2.0;
+                    y = mediaBox.Y + mediaBox.Height - margin - options.fontSize;
+                    break;
+                case HeaderFooterOptions::Position::TopRight:
+                    x = mediaBox.X + mediaBox.Width - margin - textWidth;
+                    y = mediaBox.Y + mediaBox.Height - margin - options.fontSize;
+                    break;
+                case HeaderFooterOptions::Position::BottomLeft:
+                    x = mediaBox.X + margin;
+                    y = mediaBox.Y + margin;
+                    break;
+                case HeaderFooterOptions::Position::BottomCenter:
+                    x = mediaBox.X + (mediaBox.Width - textWidth) / 2.0;
+                    y = mediaBox.Y + margin;
+                    break;
+                case HeaderFooterOptions::Position::BottomRight:
+                    x = mediaBox.X + mediaBox.Width - margin - textWidth;
+                    y = mediaBox.Y + margin;
+                    break;
+            }
+            
+            painter.DrawText(text.toUtf8().constData(), x, y);
+            painter.FinishDrawing();
+            
+            currentNumber++;
+        }
+        
+        doc.Save(path.toUtf8().constData());
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+
 void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj, 
                              const std::vector<PoDoFo::Rect>& pdfRects, 
                              PoDoFo::PdfPage& page, 
-                             PoDoFo::PdfMemDocument* document) 
+                             PoDoFo::PdfMemDocument* document,
+                             std::set<int64_t>& redactedMcids) 
 {
     using namespace PoDoFo;
     
@@ -489,11 +869,23 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
     double textX = 0.0, textY = 0.0;
     bool inTextBlock = false;
     double leading = 0.0;
+    
+    // Text state parameters
+    double currentFontSize = 12.0;
+    double currentCharSpacing = 0.0;
+    double currentWordSpacing = 0.0;
+    double currentFontScale = 1.0;
+    std::string currentFontName = "Helvetica";
+    int currentRenderingMode = 0; // Tr
+    
+    int64_t currentMcid = -1;
 
-    auto isIntersecting = [&](double x, double y) -> bool {
+    auto isIntersectingSpan = [&](double xStart, double xEnd, double y) -> bool {
         for (const auto& r : pdfRects) {
-            if (x >= r.X && x <= (r.X + r.Width) && y >= r.Y && y <= (r.Y + r.Height))
-                return true;
+            if (y >= r.Y && y <= (r.Y + r.Height)) {
+                if (xEnd >= r.X && xStart <= (r.X + r.Width))
+                    return true;
+            }
         }
         return false;
     };
@@ -532,15 +924,160 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                 }
             }
             
-            if (inTextBlock && isIntersecting(textX, textY)) {
-                if (kw == "Tj" || kw == "TJ" || kw == "'" || kw == "\"") {
+            // Track Text State Parameters
+            if (kw == "Tf" && stack.size() >= 2) {
+                if (stack[0].IsName()) {
+                    currentFontName = stack[0].GetName().GetString();
+                }
+                if (stack[1].IsNumberOrReal()) {
+                    currentFontSize = stack[1].GetReal();
+                }
+            } else if (kw == "Tc" && stack.size() >= 1) {
+                if (stack[0].IsNumberOrReal()) currentCharSpacing = stack[0].GetReal();
+            } else if (kw == "Tw" && stack.size() >= 1) {
+                if (stack[0].IsNumberOrReal()) currentWordSpacing = stack[0].GetReal();
+            } else if (kw == "Tz" && stack.size() >= 1) {
+                if (stack[0].IsNumberOrReal()) currentFontScale = stack[0].GetReal() / 100.0;
+            } else if (kw == "Tr" && stack.size() >= 1) {
+                if (stack[0].IsNumberOrReal()) currentRenderingMode = static_cast<int>(stack[0].GetReal());
+            }
+            
+            // Track MCID
+            if (kw == "BDC" && stack.size() >= 2) {
+                const auto& prop = stack[1];
+                if (prop.IsDictionary()) {
+                    auto* mcidObj = prop.GetDictionary().FindKey("MCID");
+                    if (mcidObj && mcidObj->IsNumber()) {
+                        currentMcid = mcidObj->GetNumber();
+                    }
+                } else if (prop.IsName()) {
+                    auto resources = page.GetResources();
+                    auto* propDictObj = resources.GetDictionary().FindKey("Properties");
+                    if (propDictObj && propDictObj->IsDictionary()) {
+                        auto* subDictObj = propDictObj->GetDictionary().FindKey(prop.GetName());
+                        if (subDictObj) {
+                            if (subDictObj->IsReference())
+                                subDictObj = &document->GetObjects().MustGetObject(subDictObj->GetReference());
+                            if (subDictObj->IsDictionary()) {
+                                auto* mcidObj = subDictObj->GetDictionary().FindKey("MCID");
+                                if (mcidObj && mcidObj->IsNumber()) {
+                                    currentMcid = mcidObj->GetNumber();
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if (kw == "EMC") {
+                currentMcid = -1;
+            }
+            
+            bool isTextOp = (kw == "Tj" || kw == "TJ" || kw == "'" || kw == "\"");
+            if (isTextOp) {
+                // Resolve font
+                const PdfFont* resolvedFont = nullptr;
+                auto resources = page.GetResources();
+                auto* fontDict = resources.GetDictionary().FindKey("Font");
+                if (fontDict && fontDict->IsDictionary()) {
+                    auto* fontObj = fontDict->GetDictionary().FindKey(currentFontName);
+                    if (fontObj) {
+                        if (fontObj->IsReference())
+                            fontObj = &document->GetObjects().MustGetObject(fontObj->GetReference());
+                        if (fontObj->IsDictionary()) {
+                            auto* baseFont = fontObj->GetDictionary().FindKey("BaseFont");
+                            if (baseFont && baseFont->IsName()) {
+                                std::string baseFontName = std::string(baseFont->GetName().GetString());
+                                size_t plusPos = baseFontName.find('+');
+                                if (plusPos != std::string::npos) baseFontName = baseFontName.substr(plusPos + 1);
+                                if (!baseFontName.empty() && baseFontName[0] == '/') baseFontName = baseFontName.substr(1);
+                                size_t commaPos = baseFontName.find(',');
+                                if (commaPos != std::string::npos) baseFontName = baseFontName.substr(0, commaPos);
+                                size_t dashPos = baseFontName.find('-');
+                                if (dashPos != std::string::npos) baseFontName = baseFontName.substr(0, dashPos);
+                                resolvedFont = document->GetFonts().SearchFont(baseFontName);
+                            }
+                        }
+                    }
+                }
+                if (!resolvedFont) {
+                    resolvedFont = &document->GetFonts().GetStandard14Font(PdfStandard14FontType::Helvetica);
+                }
+                
+                PdfTextState textState;
+                textState.Font = resolvedFont;
+                textState.FontSize = currentFontSize;
+                textState.FontScale = currentFontScale;
+                textState.CharSpacing = currentCharSpacing;
+                textState.WordSpacing = currentWordSpacing;
+                
+                double totalAdvance = 0.0;
+                if (kw == "Tj" && stack.size() >= 1) {
+                    if (stack[0].IsString()) {
+                        totalAdvance = getEncodedStringWidth(resolvedFont, stack[0].GetString(), textState);
+                    }
+                } else if (kw == "TJ" && stack.size() >= 1) {
+                    if (stack[0].IsArray()) {
+                        for (const auto& item : stack[0].GetArray()) {
+                            if (item.IsString()) {
+                                totalAdvance += getEncodedStringWidth(resolvedFont, item.GetString(), textState);
+                            } else if (item.IsNumberOrReal()) {
+                                totalAdvance -= (item.GetReal() / 1000.0) * currentFontSize * currentFontScale;
+                            }
+                        }
+                    }
+                } else if (kw == "'" && stack.size() >= 1) {
+                    if (stack[0].IsString()) {
+                        totalAdvance = getEncodedStringWidth(resolvedFont, stack[0].GetString(), textState);
+                    }
+                } else if (kw == "\"" && stack.size() >= 3) {
+                    if (stack[0].IsNumberOrReal()) currentWordSpacing = stack[0].GetReal();
+                    if (stack[1].IsNumberOrReal()) currentCharSpacing = stack[1].GetReal();
+                    textState.CharSpacing = currentCharSpacing;
+                    textState.WordSpacing = currentWordSpacing;
+                    if (stack[2].IsString()) {
+                        totalAdvance = getEncodedStringWidth(resolvedFont, stack[2].GetString(), textState);
+                    }
+                }
+                
+                if (kw == "'" || kw == "\"") {
+                    textY -= leading;
+                }
+                
+                if (inTextBlock && isIntersectingSpan(textX, textX + totalAdvance, textY)) {
+                    // Record redacted MCID if active
+                    if (currentMcid != -1) {
+                        redactedMcids.insert(currentMcid);
+                    }
+                    
+                    // D1: Normalize glyph advances: replace with single space glyph and custom adj
+                    double spaceWidth = resolvedFont->GetSpaceCharLength(textState);
+                    double scale = currentFontSize * currentFontScale;
+                    double adj = 0.0;
+                    if (std::abs(scale) > 1e-5) {
+                        adj = 1000.0 * (spaceWidth - totalAdvance) / scale;
+                    }
+                    
+                    if (kw == "'") {
+                        newStream << "T*\n";
+                    } else if (kw == "\"") {
+                        newStream << stack[0].GetReal() << " Tw\n";
+                        newStream << stack[1].GetReal() << " Tc\n";
+                        newStream << "T*\n";
+                    }
+                    
+                    newStream << "[ ( ) " << adj << " ] TJ\n";
+                    textX += totalAdvance;
                     continue;
                 }
+                
+                textX += totalAdvance;
             }
             
             if (kw == "Do" && stack.size() > 0 && stack[0].IsName()) {
                 std::string xobjName(stack[0].GetName().GetString());
-                if (isIntersecting(textX, textY)) {
+                if (isIntersectingSpan(textX, textX, textY)) { // Simple check for image position
+                    if (currentMcid != -1) {
+                        redactedMcids.insert(currentMcid);
+                    }
                     continue;
                 }
                 
@@ -557,7 +1094,7 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                             auto& dict = xobj->GetDictionary();
                             auto* subtype = dict.FindKey("Subtype");
                             if (subtype && subtype->GetName().GetString() == "Form") {
-                                redactCanvasRecursively(*xobj, pdfRects, page, document);
+                                redactCanvasRecursively(*xobj, pdfRects, page, document, redactedMcids);
                             }
                         }
                     }
@@ -591,13 +1128,20 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
     }
 }
 
-} // anonymous namespace
-
 bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
     QMutexLocker locker(&d->mutex);
     if (!d->document || pageIndex < 0 || (unsigned)pageIndex >= d->document->GetPages().GetCount()) return false;
 
     try {
+        QByteArray beforeHash;
+        if (!d->currentFile.isEmpty() && QFile::exists(d->currentFile)) {
+            QFile file(d->currentFile);
+            if (file.open(QIODevice::ReadOnly)) {
+                beforeHash = QCryptographicHash::hash(file.readAll(), QCryptographicHash::Sha256).toHex();
+                file.close();
+            }
+        }
+
         PoDoFo::PdfPage& page = d->document->GetPages().GetPageAt(pageIndex);
         double pageHeight = page.GetMediaBox().Height;
 
@@ -606,6 +1150,7 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
             pdfRects.push_back(PoDoFo::Rect(r.x(), pageHeight - r.y() - r.height(), r.width(), r.height()));
         }
 
+        std::set<int64_t> redactedMcids;
         auto* contentsObj = page.GetContents();
         bool streamFilterApplied = false;
         if (contentsObj) {
@@ -628,7 +1173,7 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
                            << pageIndex << "— skipping content surgery, applying visual overlay only.";
 #endif
             } else {
-                redactCanvasRecursively(page.GetObject(), pdfRects, page, d->document.get());
+                redactCanvasRecursively(page.GetObject(), pdfRects, page, d->document.get(), redactedMcids);
                 streamFilterApplied = true;
             }
         }
@@ -638,6 +1183,29 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
                         << "failed to apply content stream surgery due to unparseable or binary content."
                            " Aborting operation to prevent insecure visual-only overlay.";
             return false;
+        }
+
+        // D3: Tagged PDF structure tree sanitization
+        auto& catalog = d->document->GetCatalog();
+        auto* structTreeRootObj = catalog.GetDictionary().FindKey("StructTreeRoot");
+        if (structTreeRootObj && !redactedMcids.empty()) {
+            if (structTreeRootObj->IsReference()) {
+                structTreeRootObj = &d->document->GetObjects().MustGetObject(structTreeRootObj->GetReference());
+            }
+            if (structTreeRootObj->IsDictionary()) {
+                auto& rootDict = structTreeRootObj->GetDictionary();
+                auto* kKey = rootDict.FindKey("K");
+                if (kKey) {
+                    PoDoFo::PdfReference pageRef = page.GetObject().GetReference();
+                    if (kKey->IsArray()) {
+                        for (auto& kid : kKey->GetArray()) {
+                            cleanStructElement(&kid, pageRef, redactedMcids, d->document.get());
+                        }
+                    } else {
+                        cleanStructElement(kKey, pageRef, redactedMcids, d->document.get());
+                    }
+                }
+            }
         }
 
         PoDoFo::PdfPainter painter;
@@ -663,6 +1231,58 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
         }
         for (auto it = toRemove.rbegin(); it != toRemove.rend(); ++it) {
             annos.RemoveAnnotAt(*it);
+        }
+
+        // D4: Generate JSON sidecar audit log
+        if (!d->currentFile.isEmpty()) {
+            std::vector<char> afterBuffer;
+            PoDoFo::VectorStreamDevice afterDevice(afterBuffer);
+            d->document->Save(afterDevice);
+            QByteArray afterHash = QCryptographicHash::hash(
+                QByteArray(afterBuffer.data(), static_cast<int>(afterBuffer.size())), 
+                QCryptographicHash::Sha256).toHex();
+
+            QString logPath = d->currentFile + ".redaction-log.json";
+            QJsonArray logArray;
+            QFile logFile(logPath);
+            if (logFile.exists() && logFile.open(QIODevice::ReadOnly)) {
+                QJsonDocument doc = QJsonDocument::fromJson(logFile.readAll());
+                if (doc.isArray()) {
+                    logArray = doc.array();
+                }
+                logFile.close();
+            }
+
+            QJsonObject entry;
+            entry["timestamp"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+            entry["page"] = pageIndex;
+
+            QJsonArray regionsJson;
+            for (const auto& r : rects) {
+                QJsonObject regObj;
+                regObj["x"] = r.x();
+                regObj["y"] = r.y();
+                regObj["width"] = r.width();
+                regObj["height"] = r.height();
+                regionsJson.append(regObj);
+            }
+            entry["regions"] = regionsJson;
+
+            QJsonArray ops;
+            ops.append("excised_text_operators");
+            if (!redactedMcids.empty()) {
+                ops.append("scrubbed_structure_elements");
+            }
+            entry["operations"] = ops;
+            entry["before_sha256"] = QString(beforeHash);
+            entry["after_sha256"] = QString(afterHash);
+
+            logArray.append(entry);
+
+            if (logFile.open(QIODevice::WriteOnly)) {
+                logFile.write(QJsonDocument(logArray).toJson(QJsonDocument::Indented));
+                logFile.close();
+            }
         }
 
         return true;
@@ -830,6 +1450,51 @@ bool PoDoFoBackend::sanitizeDocument(const QString &outputPath) {
             catalog.GetDictionary().RemoveKey(PdfName("AA"));
         }
 
+        // D5: Extended sanitization passes
+        // 16. Structure Tree Root sanitization: recursively walk and remove Alt, ActualText, E from all elements
+        auto* structTreeRootObj = catalog.GetDictionary().FindKey("StructTreeRoot");
+        if (structTreeRootObj) {
+            std::function<void(PoDoFo::PdfObject*)> sanitizeAllStructElements = [&](PoDoFo::PdfObject* elem) {
+                if (!elem) return;
+                if (elem->IsReference()) {
+                    elem = &d->document->GetObjects().MustGetObject(elem->GetReference());
+                }
+                if (!elem->IsDictionary()) return;
+                
+                auto& dict = elem->GetDictionary();
+                if (dict.HasKey("ActualText")) dict.RemoveKey("ActualText");
+                if (dict.HasKey("Alt")) dict.RemoveKey("Alt");
+                if (dict.HasKey("E")) dict.RemoveKey("E");
+                
+                auto* kKey = dict.FindKey("K");
+                if (kKey) {
+                    if (kKey->IsArray()) {
+                        for (auto& kid : kKey->GetArray()) {
+                            sanitizeAllStructElements(&kid);
+                        }
+                    } else {
+                        sanitizeAllStructElements(kKey);
+                    }
+                }
+            };
+            sanitizeAllStructElements(structTreeRootObj);
+        }
+
+        // 17. Flatten optional content layers by removing OCProperties
+        if (catalog.GetDictionary().HasKey(PdfName("OCProperties"))) {
+            catalog.GetDictionary().RemoveKey(PdfName("OCProperties"));
+        }
+
+        // 18. Remove Outlines (bookmarks)
+        if (catalog.GetDictionary().HasKey(PdfName("Outlines"))) {
+            catalog.GetDictionary().RemoveKey(PdfName("Outlines"));
+        }
+
+        // 20. Remove Collection portfolio
+        if (catalog.GetDictionary().HasKey(PdfName("Collection"))) {
+            catalog.GetDictionary().RemoveKey(PdfName("Collection"));
+        }
+
         auto& pages = d->document->GetPages();
         for (unsigned pi = 0; pi < pages.GetCount(); ++pi) {
             auto& pg = pages.GetPageAt(pi);
@@ -848,11 +1513,49 @@ bool PoDoFoBackend::sanitizeDocument(const QString &outputPath) {
             if (pg.GetDictionary().HasKey(PdfName("Metadata"))) {
                 pg.GetDictionary().RemoveKey(PdfName("Metadata"));
             }
+
+            // Sanitize page annotations
+            auto& annos = pg.GetAnnotations();
+            std::vector<unsigned> toRemoveAnnos;
+            for (unsigned ai = 0; ai < annos.GetCount(); ++ai) {
+                auto& anno = annos.GetAnnotAt(ai);
+                auto& dict = anno.GetDictionary();
+                // 23. Remove annotation contents & rich text
+                if (dict.HasKey("Contents")) dict.RemoveKey("Contents");
+                if (dict.HasKey("RC")) dict.RemoveKey("RC");
+
+                // 19. Remove RichMedia, Movie, Screen annotations
+                auto* subtypeObj = dict.FindKey("Subtype");
+                if (subtypeObj && subtypeObj->IsName()) {
+                    std::string subtypeName = std::string(subtypeObj->GetName().GetString());
+                    if (subtypeName == "RichMedia" || subtypeName == "Screen" || subtypeName == "Movie") {
+                        toRemoveAnnos.push_back(ai);
+                    }
+                }
+            }
+            for (auto it = toRemoveAnnos.rbegin(); it != toRemoveAnnos.rend(); ++it) {
+                annos.RemoveAnnotAt(*it);
+            }
         }
 
-        auto* acroForm = d->document->GetAcroForm();
-        if (acroForm && acroForm->GetDictionary().HasKey(PdfName("XFA"))) {
-            acroForm->GetDictionary().RemoveKey(PdfName("XFA"));
+        // 22. Clear AcroForm field values
+        for (auto field : d->document->GetFieldsIterator()) {
+            auto& fieldDict = field->GetDictionary();
+            if (fieldDict.HasKey("V")) fieldDict.RemoveKey("V");
+            if (fieldDict.HasKey("DV")) fieldDict.RemoveKey("DV");
+        }
+
+        // 21. Trailer ID second element randomization
+        if (trailer.GetDictionary().HasKey("ID")) {
+            auto* idObj = trailer.GetDictionary().FindKey("ID");
+            if (idObj && idObj->IsArray()) {
+                auto& idArr = idObj->GetArray();
+                if (idArr.GetSize() >= 2) {
+                    std::vector<char> randomBytes(16);
+                    QRandomGenerator::system()->fillRange(reinterpret_cast<quint32*>(randomBytes.data()), 4);
+                    idArr[1] = PdfObject(PdfString(std::string(randomBytes.data(), 16)));
+                }
+            }
         }
         
         const QString outputDir = outputInfo.absoluteDir().absolutePath();
@@ -1325,5 +2028,149 @@ bool PoDoFoBackend::linearizeDocument(const QString &outputPath)
 #endif
     return false;
 #endif
+}
+
+bool PoDoFoBackend::embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(inputPath.toUtf8().constData());
+        
+        QMap<QString, PoDoFo::PdfObject*> idToObjectMap;
+        QList<AnnotationItem> commentsToLink;
+        
+        // Group by page
+        QMap<int, QList<AnnotationItem>> pageAnnos;
+        for (const auto& anno : annotations) {
+            pageAnnos[anno.pageIndex].append(anno);
+        }
+        
+        for (auto it = pageAnnos.constBegin(); it != pageAnnos.constEnd(); ++it) {
+            int pageIdx = it.key();
+            if (pageIdx < 0 || static_cast<unsigned>(pageIdx) >= doc.GetPages().GetCount()) continue;
+            
+            auto& page = doc.GetPages().GetPageAt(pageIdx);
+            double pageHeight = page.GetMediaBox().Height;
+            
+            for (const auto& anno : it.value()) {
+                // Determine bounds
+                QRectF bounds = anno.rect;
+                if (anno.mode == ToolMode::DrawFreehand || anno.mode == ToolMode::AddSignature) {
+                    if (!anno.points.isEmpty()) {
+                        bounds = QRectF(anno.points.first(), anno.points.first());
+                        for (const auto& p : anno.points) bounds = bounds.united(QRectF(p, p));
+                    }
+                }
+                PoDoFo::Rect pdfRect(bounds.x(), pageHeight - bounds.y() - bounds.height(), bounds.width(), bounds.height());
+                
+                auto& annot = page.GetAnnotations().CreateAnnot(PoDoFo::PdfAnnotationType::Text, pdfRect);
+                PoDoFo::PdfDictionary& dict = annot.GetDictionary();
+                
+                if (anno.mode == ToolMode::Strikeout) dict.AddKey("Subtype", PoDoFo::PdfName("StrikeOut"));
+                else if (anno.mode == ToolMode::Squiggly) dict.AddKey("Subtype", PoDoFo::PdfName("Squiggly"));
+                else if (anno.mode == ToolMode::Underline) dict.AddKey("Subtype", PoDoFo::PdfName("Underline"));
+                else if (anno.mode == ToolMode::Highlight) dict.AddKey("Subtype", PoDoFo::PdfName("Highlight"));
+                else if (anno.mode == ToolMode::Stamp) dict.AddKey("Subtype", PoDoFo::PdfName("Stamp"));
+                else if (anno.mode == ToolMode::Callout) dict.AddKey("Subtype", PoDoFo::PdfName("FreeText"));
+                
+                // Common properties
+                if (!anno.text.isEmpty()) {
+                    dict.AddKey("Contents", PoDoFo::PdfString(anno.text.toStdString()));
+                }
+                if (!anno.author.isEmpty()) {
+                    dict.AddKey("T", PoDoFo::PdfString(anno.author.toStdString()));
+                }
+                if (!anno.creationDate.isEmpty()) {
+                    // Approximate Date format
+                    QString dateStr = "D:" + anno.creationDate; // simplify
+                    dict.AddKey("CreationDate", PoDoFo::PdfString(dateStr.toStdString()));
+                }
+                
+                // Color array
+                PoDoFo::PdfArray colorArr;
+                colorArr.Add(anno.color.redF());
+                colorArr.Add(anno.color.greenF());
+                colorArr.Add(anno.color.blueF());
+                dict.AddKey("C", colorArr);
+                
+                // Review state logic & Linking
+                if (!anno.id.isEmpty()) {
+                    dict.AddKey("NM", PoDoFo::PdfString(anno.id.toStdString()));
+                    idToObjectMap[anno.id] = &annot.GetObject();
+                    if (!anno.parentId.isEmpty()) {
+                        commentsToLink.append(anno);
+                    }
+                    if (anno.reviewState != ReviewState::None && anno.reviewState != ReviewState::Open) {
+                        dict.AddKey("Subj", PoDoFo::PdfString("State")); // Standard for state change
+                    }
+                }
+                
+                // Appearance Streams for specific types (simplified generation)
+                if (anno.mode == ToolMode::Stamp || anno.mode == ToolMode::Callout || anno.mode == ToolMode::Strikeout || anno.mode == ToolMode::Squiggly) {
+                    auto& apDict = doc.GetObjects().CreateDictionaryObject();
+                    
+                    auto& streamObj = doc.GetObjects().CreateDictionaryObject();
+                    streamObj.GetDictionary().AddKey("Type", PoDoFo::PdfName("XObject"));
+                    streamObj.GetDictionary().AddKey("Subtype", PoDoFo::PdfName("Form"));
+                    
+                    PoDoFo::PdfArray bboxArray;
+                    bboxArray.Add(PoDoFo::PdfObject(static_cast<int64_t>(0)));
+                    bboxArray.Add(PoDoFo::PdfObject(static_cast<int64_t>(0)));
+                    bboxArray.Add(PoDoFo::PdfObject(static_cast<int64_t>(bounds.width())));
+                    bboxArray.Add(PoDoFo::PdfObject(static_cast<int64_t>(bounds.height())));
+                    streamObj.GetDictionary().AddKey("BBox", bboxArray);
+                    
+                    std::string streamContent;
+                    
+                    if (anno.mode == ToolMode::Strikeout) {
+                        double midY = bounds.height() / 2.0;
+                        streamContent = std::to_string(anno.color.redF()) + " " + std::to_string(anno.color.greenF()) + " " + std::to_string(anno.color.blueF()) + " RG\n";
+                        streamContent += "1 w\n0 " + std::to_string(midY) + " m\n" + std::to_string(bounds.width()) + " " + std::to_string(midY) + " l\nS\n";
+                    } else if (anno.mode == ToolMode::Squiggly) {
+                        streamContent = std::to_string(anno.color.redF()) + " " + std::to_string(anno.color.greenF()) + " " + std::to_string(anno.color.blueF()) + " RG\n";
+                        streamContent += "1 w\n0 2 m\n";
+                        for (double x = 2; x < bounds.width(); x += 2) {
+                            streamContent += std::to_string(x) + " " + (std::fmod(x, 4) == 0 ? "0" : "4") + " l\n";
+                        }
+                        streamContent += "S\n";
+                    } else {
+                        streamContent = "0.8 0.8 0.8 rg\n0 0 " + std::to_string(bounds.width()) + " " + std::to_string(bounds.height()) + " re\nf\n";
+                        if (!anno.text.isEmpty()) {
+                            streamContent += "0 0 0 rg\nBT\n/Helv 12 Tf\n2 " + std::to_string(bounds.height() - 14) + " Td\n(" + anno.text.toStdString() + ") Tj\nET\n";
+                        }
+                    }
+                    
+                    streamObj.GetOrCreateStream().SetData(PoDoFo::bufferview(streamContent.data(), streamContent.size()));
+                    
+                    apDict.GetDictionary().AddKey("N", streamObj.GetReference());
+                    dict.AddKey("AP", apDict.GetReference());
+                }
+            }
+        }
+        
+        // IRT (In Reply To) Linking
+        for (const auto& anno : commentsToLink) {
+            if (idToObjectMap.contains(anno.id) && idToObjectMap.contains(anno.parentId)) {
+                PoDoFo::PdfObject* childObj = idToObjectMap[anno.id];
+                PoDoFo::PdfObject* parentObj = idToObjectMap[anno.parentId];
+                childObj->GetDictionary().AddKey("IRT", parentObj->GetReference());
+                // For replies to be part of the thread correctly in standard PDF, RT is often set to 'R' (Reply) or 'Group'
+                childObj->GetDictionary().AddKey("RT", PoDoFo::PdfName("R"));
+                
+                // State updates (Accepted/Rejected/etc) in PDF are technically replies to the original annotation 
+                // with StateModel=Review and State=Accepted
+                if (anno.reviewState == ReviewState::Accepted) childObj->GetDictionary().AddKey("State", PoDoFo::PdfString("Accepted"));
+                else if (anno.reviewState == ReviewState::Rejected) childObj->GetDictionary().AddKey("State", PoDoFo::PdfString("Rejected"));
+                else if (anno.reviewState == ReviewState::Completed) childObj->GetDictionary().AddKey("State", PoDoFo::PdfString("Completed"));
+                else if (anno.reviewState == ReviewState::Cancelled) childObj->GetDictionary().AddKey("State", PoDoFo::PdfString("Cancelled"));
+            }
+        }
+        
+        doc.Save(outputPath.toUtf8().constData());
+        return true;
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "Error embedding annotations:" << e.what();
+        return false;
+    }
 }
 

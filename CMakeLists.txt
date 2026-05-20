@@ -20,11 +20,22 @@ find_package(podofo CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(OpenXLSX CONFIG QUIET)
 find_package(duckx CONFIG QUIET)
-find_package(Tesseract QUIET)
-find_package(Leptonica QUIET)
+find_package(CURL QUIET)
+find_package(CURL QUIET)
 find_package(qpdf QUIET)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 find_package(Pdfium QUIET)
+
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(PKG_TESSERACT QUIET tesseract)
+    pkg_check_modules(PKG_LEPTONICA QUIET lept)
+endif()
+
+find_package(onnxruntime QUIET)
+if(NOT onnxruntime_FOUND AND PkgConfig_FOUND)
+    pkg_check_modules(PKG_ONNXRUNTIME QUIET libonnxruntime)
+endif()
 
 # FORBIDDEN: MuPDF is AGPL-3.0 — linking it forces GlyphPDF into AGPL.
 # Use PDFium (BSD-3) for rendering instead.
@@ -57,6 +68,7 @@ add_library(pdfws_engines STATIC
     src/engines/pdfium/PdfiumBackend.h src/engines/pdfium/PdfiumBackend.cpp
     src/engines/qpdf/QpdfBackend.h     src/engines/qpdf/QpdfBackend.cpp
     src/engines/RenderCache.h          src/engines/RenderCache.cpp
+    src/engines/DiffEngine.h           src/engines/DiffEngine.cpp
     src/core/interfaces/IPdfDocument.h
     src/core/interfaces/IPdfPage.h
     src/core/interfaces/IPdfRenderer.h
@@ -71,10 +83,38 @@ target_link_libraries(pdfws_engines
     PRIVATE podofo::podofo OpenSSL::SSL OpenSSL::Crypto Qt6::Network Qt6::Widgets Qt6::Concurrent
 )
 if(Tesseract_FOUND AND Leptonica_FOUND)
-    target_link_libraries(pdfws_engines PUBLIC Tesseract::libtesseract Leptonica::leptonica)
+    find_package(OpenMP REQUIRED)
+    target_link_libraries(pdfws_engines PUBLIC Tesseract::libtesseract leptonica OpenMP::OpenMP_CXX)
+    target_compile_definitions(pdfws_engines PUBLIC HAS_TESSERACT)
+elseif(PKG_TESSERACT_FOUND AND PKG_LEPTONICA_FOUND)
+    target_include_directories(pdfws_engines PUBLIC ${PKG_TESSERACT_INCLUDE_DIRS} ${PKG_LEPTONICA_INCLUDE_DIRS})
+    target_link_directories(pdfws_engines PUBLIC ${PKG_TESSERACT_LIBRARY_DIRS} ${PKG_LEPTONICA_LIBRARY_DIRS})
+    target_link_libraries(pdfws_engines PUBLIC ${PKG_TESSERACT_LIBRARIES} ${PKG_LEPTONICA_LIBRARIES})
     target_compile_definitions(pdfws_engines PUBLIC HAS_TESSERACT)
 else()
     message(STATUS "Tesseract/Leptonica not found — OCR disabled")
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime-win-x64-1.17.3")
+    add_library(onnxruntime SHARED IMPORTED)
+    set_target_properties(onnxruntime PROPERTIES
+        IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime-win-x64-1.17.3/lib/onnxruntime.dll"
+        IMPORTED_IMPLIB "${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime-win-x64-1.17.3/lib/onnxruntime.lib"
+        INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime-win-x64-1.17.3/include"
+    )
+    set(onnxruntime_FOUND TRUE)
+endif()
+
+if(onnxruntime_FOUND OR TARGET onnxruntime)
+    target_link_libraries(pdfws_engines PUBLIC onnxruntime)
+    target_compile_definitions(pdfws_engines PUBLIC HAS_RAPIDOCR)
+elseif(PKG_ONNXRUNTIME_FOUND)
+    target_include_directories(pdfws_engines PUBLIC ${PKG_ONNXRUNTIME_INCLUDE_DIRS})
+    target_link_directories(pdfws_engines PUBLIC ${PKG_ONNXRUNTIME_LIBRARY_DIRS})
+    target_link_libraries(pdfws_engines PUBLIC ${PKG_ONNXRUNTIME_LIBRARIES})
+    target_compile_definitions(pdfws_engines PUBLIC HAS_RAPIDOCR)
+else()
+    message(STATUS "onnxruntime not found — RapidOCR PP-OCRv5 disabled")
 endif()
 if(qpdf_FOUND AND (TARGET qpdf::qpdf OR TARGET qpdf::libqpdf))
     if(MINGW AND EXISTS "C:/vcpkg/installed/x64-mingw-dynamic/lib/libqpdf.dll.a")
@@ -123,6 +163,10 @@ add_library(pdfws_commands STATIC
     src/commands/RotateImageCommand.h
     src/commands/ReplaceImageCommand.h
     src/commands/DeleteImageCommand.h
+    src/commands/ReorderPageCommand.h
+    src/commands/ReorderPageCommand.cpp
+    src/commands/CropPageCommand.h
+    src/commands/CropPageCommand.cpp
 )
 target_include_directories(pdfws_commands PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -165,6 +209,9 @@ add_library(pdfws_ui STATIC
     src/shell/controllers/FormsController.h  src/shell/controllers/FormsController.cpp
     src/shell/controllers/SecurityController.h src/shell/controllers/SecurityController.cpp
     src/util/GpTheme.h
+    src/engines/ocr/RapidOcrEngine.h         src/engines/ocr/RapidOcrEngine.cpp
+    src/engines/ocr/OcrPreprocessor.h        src/engines/ocr/OcrPreprocessor.cpp
+    src/engines/ocr/OcrPipeline.h            src/engines/ocr/OcrPipeline.cpp
 
     src/util/Icons.h                        src/util/Icons.cpp
     src/util/Badge.h                        src/util/Badge.cpp
@@ -305,7 +352,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSanitization.cpp")
     )
     target_include_directories(TestSanitization PRIVATE src tests)
     target_link_libraries(TestSanitization PRIVATE
-        pdfws_core pdfws_commands
+        pdfws_engines pdfws_core pdfws_commands podofo::podofo
         Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
     )
     add_test(NAME TestSanitization COMMAND TestSanitization)

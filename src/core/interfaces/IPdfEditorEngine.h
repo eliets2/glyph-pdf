@@ -1,5 +1,6 @@
 #pragma once
 #include "core/ImageTypes.h"
+#include "core/AnnotationTypes.h"
 #include <QString>
 #include <QStringList>
 #include <QRectF>
@@ -14,12 +15,33 @@ struct PdfMetadata {
     QString producer;
 };
 
+struct HeaderFooterOptions {
+    QString textTemplate;
+    QString fontFamily;
+    int fontSize = 12;
+    enum class Position { TopLeft, TopCenter, TopRight, BottomLeft, BottomCenter, BottomRight };
+    Position position = Position::BottomCenter;
+};
+
+struct BatesNumberingOptions {
+    QString prefix;
+    QString suffix;
+    int startNumber = 1;
+    int digitCount = 6;
+    QString fontFamily;
+    int fontSize = 12;
+    HeaderFooterOptions::Position position = HeaderFooterOptions::Position::BottomRight;
+};
+
 class IPdfEditorEngine {
 public:
     virtual ~IPdfEditorEngine() = default;
     virtual bool loadDocumentForEditing(const QString &filePath) = 0;
     virtual bool saveDocument(const QString &outputPath) = 0;
-    virtual bool editTextInline(int pageIndex, const QRectF &rect, const QString &newText) = 0;
+    virtual bool editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
+                                const QString &fontFamily = "", int fontSize = 0,
+                                const QColor &color = Qt::black, bool bold = false,
+                                bool italic = false, int alignment = 0) = 0;
     virtual bool deleteObjectAt(int pageIndex, const QPointF &pos) = 0;
     virtual bool linearizeDocument(const QString &outputPath) = 0;
     virtual bool exportPdfA(const QString &outputPath, int conformanceLevel) = 0;
@@ -54,6 +76,18 @@ public:
     virtual bool replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath) = 0;
     virtual bool deleteImage(int pageIndex, const QString &xobjectName) = 0;
     virtual bool applyRedactions(int pageIndex, const QList<QRectF> &rects) = 0;
+    
+    // Page Geometry & Operations
+    virtual bool cropPage(const QString &path, int pageIndex, const QRectF &cropRect) = 0;
+    virtual bool resizePage(const QString &path, int pageIndex, const QSizeF &size) = 0;
+    virtual bool reorderPages(const QString &path, int fromIndex, int toIndex) = 0;
+    
+    // Content Injection
+    virtual bool addHeaderFooter(const QString &path, const HeaderFooterOptions &options) = 0;
+    virtual bool applyBatesNumbering(const QString &path, const BatesNumberingOptions &options) = 0;
+    
+    // Annotation Export
+    virtual bool embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations) = 0;
 protected:
     IPdfEditorEngine() = default;
     IPdfEditorEngine(const IPdfEditorEngine&) = delete;

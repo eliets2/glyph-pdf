@@ -12,10 +12,13 @@
 #include "commands/RotateImageCommand.h"
 #include "commands/ReplaceImageCommand.h"
 #include "commands/DeleteImageCommand.h"
+#include "commands/EditTextInlineCommand.h"
 #include "ui/AnnotationLayer.h"
 #include "ui/FindBar.h"
+#include "ui/EditToolBar.h"
 
 #include <QFileDialog>
+#include <QInputDialog>
 #include <QMessageBox>
 #include <QThread>
 #include <QPointer>
@@ -191,6 +194,38 @@ void EditController::editPdfText() {
             _ctx->pdfEditor->loadDocumentForEditing(viewer->filePath());
         }
         _mainWindow->statusBar()->showMessage(tr("Direct Text Editing Mode. Click a text block to modify its contents."), 5000);
+        
+        if (!_textToolBar) {
+            _textToolBar = new EditToolBar(tr("Text Edit"), _mainWindow);
+            _mainWindow->addToolBar(Qt::TopToolBarArea, _textToolBar);
+            connect(_textToolBar, &EditToolBar::textFormatChanged, this, &EditController::onTextFormatChanged);
+            connect(viewer, &PdfViewerWidget::textEditRequested, this, &EditController::onTextEditRequested, Qt::UniqueConnection);
+        }
+        _textToolBar->show();
+    }
+}
+
+void EditController::onTextFormatChanged(const QString &fontFamily, int fontSize, const QColor &color, bool bold, bool italic, int alignment) {
+    _fontFamily = fontFamily;
+    _fontSize = fontSize;
+    _fontColor = color;
+    _fontBold = bold;
+    _fontItalic = italic;
+    _fontAlignment = alignment;
+}
+
+void EditController::onTextEditRequested(int pageIndex, QPointF pos) {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->pdfEditor || !_ctx->document) return;
+
+    bool ok;
+    QString newText = QInputDialog::getMultiLineText(_mainWindow, tr("Edit Text Inline"),
+                                                     tr("Enter new text:"), "", &ok);
+    if (ok && !newText.isEmpty()) {
+        QRectF rect(pos.x(), pos.y(), 200, 50); // Default placeholder size
+        _ctx->document->setPath(viewer->filePath());
+        _ctx->undoStack->push(new EditTextInlineCommand(_ctx->pdfEditor.get(), _ctx->document.get(), pageIndex, rect, newText,
+                                                        _fontFamily, _fontSize, _fontColor, _fontBold, _fontItalic, _fontAlignment));
     }
 }
 

@@ -5,6 +5,8 @@
 #include "commands/RotatePageCommand.h"
 #include "commands/DeletePageCommand.h"
 #include "commands/InsertPageCommand.h"
+#include "commands/CropPageCommand.h"
+#include "commands/ReorderPageCommand.h"
 #include "ui/PageManagementDialog.h"
 
 #include <QFileDialog>
@@ -21,7 +23,9 @@ QList<ToolId> PagesController::handledTools() const {
     return {
         ToolId::RotateCW, ToolId::RotateCCW,
         ToolId::DeletePage, ToolId::InsertPage,
-        ToolId::Extract, ToolId::Split, ToolId::Reorder
+        ToolId::Extract, ToolId::Split, ToolId::Reorder,
+        ToolId::Crop, ToolId::Resize, ToolId::AddHeader, ToolId::AddFooter,
+        ToolId::AddPageNumbers, ToolId::BatesNumber
     };
 }
 
@@ -62,6 +66,18 @@ void PagesController::activate(ToolId id) {
     case ToolId::Reorder:
         QMessageBox::information(_mainWindow, tr("Page Organizer"),
             tr("Splitting and advanced reordering require the multi-page page arranger scheduled for the upcoming engine update."));
+        break;
+    case ToolId::Crop:
+        viewer->setToolMode(ToolMode::Crop);
+        _mainWindow->statusBar()->showMessage(tr("Crop Tool: Drag a rectangle on the page to crop."), 5000);
+        break;
+    case ToolId::Resize:
+    case ToolId::AddHeader:
+    case ToolId::AddFooter:
+    case ToolId::AddPageNumbers:
+    case ToolId::BatesNumber:
+        QMessageBox::information(_mainWindow, tr("Page Operations"),
+            tr("Advanced page formatting options (Resize, Headers, Footers, Bates) will be available in the detailed dialogs being finalized for the next phase."));
         break;
     default:
         break;
@@ -115,6 +131,22 @@ void PagesController::showPageManagement() {
             }
             _ctx->undoStack->endMacro();
         }
+    }
+}
+
+void PagesController::onPageReordered(int from, int to) {
+    if (_ctx && _ctx->undoStack && _mainWindow->pdfViewer()) {
+        _ctx->document->setPath(_mainWindow->pdfViewer()->filePath());
+        _ctx->undoStack->push(new ReorderPageCommand(_ctx->pdfEditor.get(), _ctx->document.get(), from, to));
+        _mainWindow->statusBar()->showMessage(tr("Reordered page %1 to %2.").arg(from + 1).arg(to + 1), 3000);
+    }
+}
+
+void PagesController::onCropRequested(int pageIndex, QRectF rect) {
+    if (_ctx && _ctx->undoStack && _mainWindow->pdfViewer()) {
+        _ctx->document->setPath(_mainWindow->pdfViewer()->filePath());
+        _ctx->undoStack->push(new CropPageCommand(_ctx->pdfEditor.get(), _ctx->document.get(), pageIndex, rect));
+        _mainWindow->statusBar()->showMessage(tr("Cropped page %1.").arg(pageIndex + 1), 3000);
     }
 }
 

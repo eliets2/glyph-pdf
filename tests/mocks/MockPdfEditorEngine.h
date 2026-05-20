@@ -6,7 +6,9 @@ class MockPdfEditorEngine : public IPdfEditorEngine {
 public:
     bool loadDocumentForEditing(const QString &) override { m_loaded = true; return true; }
     bool saveDocument(const QString &path) override { ++m_saveCalls; m_lastSavedPath = path; return m_loaded; }
-    bool editTextInline(int, const QRectF &, const QString &) override { return m_loaded; }
+    bool editTextInline(int, const QRectF &, const QString &,
+                        const QString & = {}, int = 0, const QColor & = Qt::black,
+                        bool = false, bool = false, int = 0) override { return m_loaded; }
     bool deleteObjectAt(int, const QPointF &) override { return m_loaded; }
     bool linearizeDocument(const QString &) override { return m_loaded; }
     bool exportPdfA(const QString &, int) override { return m_loaded; }
@@ -32,6 +34,14 @@ public:
     bool replaceImage(int, const QString &, const QString &) override { return true; }
     bool deleteImage(int, const QString &) override { return true; }
     bool applyRedactions(int, const QList<QRectF> &) override { return m_loaded; }
+    bool embedAnnotations(const QString &, const QString &, const QList<AnnotationItem> &) override { return m_loaded; }
+
+    // Page geometry & content injection
+    bool cropPage(const QString &, int, const QRectF &) override { return m_loaded; }
+    bool resizePage(const QString &, int, const QSizeF &) override { return m_loaded; }
+    bool reorderPages(const QString &, int, int) override { return m_loaded; }
+    bool addHeaderFooter(const QString &, const HeaderFooterOptions &) override { return m_loaded; }
+    bool applyBatesNumbering(const QString &, const BatesNumberingOptions &) override { return m_loaded; }
 
     // Test helpers
     bool m_loaded = false;

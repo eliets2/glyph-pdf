@@ -11,6 +11,12 @@
 #include <QMouseEvent>
 #include <QSpacerItem>
 #include <QStyle>
+#include <QDrag>
+#include <QMimeData>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QApplication>
+#include <QPainter>
 
 // ---------------------------------------------------------------------------
 // Constructor
@@ -20,6 +26,7 @@ ThumbnailSidebar::ThumbnailSidebar(QWidget* parent)
     : QWidget(parent)
 {
     setObjectName("thumbnailSidebar");
+    setAcceptDrops(true);
 
     auto* mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);
@@ -337,7 +344,40 @@ void ThumbnailSidebar::setCurrentPage(int page)
 
 bool ThumbnailSidebar::eventFilter(QObject* watched, QEvent* event)
 {
-    if (event->type() == QEvent::MouseButtonRelease) {
+    if (event->type() == QEvent::MouseButtonPress) {
+        auto* widget = qobject_cast<QWidget*>(watched);
+        if (widget) {
+            auto* me = static_cast<QMouseEvent*>(event);
+            if (me->button() == Qt::LeftButton) {
+                m_dragStartPos = me->pos();
+            }
+        }
+    } else if (event->type() == QEvent::MouseMove) {
+        auto* widget = qobject_cast<QWidget*>(watched);
+        if (widget) {
+            auto* me = static_cast<QMouseEvent*>(event);
+            if (me->buttons() & Qt::LeftButton) {
+                if ((me->pos() - m_dragStartPos).manhattanLength() >= QApplication::startDragDistance()) {
+                    bool ok = false;
+                    int pageIndex = widget->property("pageIndex").toInt(&ok);
+                    if (ok) {
+                        QDrag *drag = new QDrag(this);
+                        QMimeData *mimeData = new QMimeData;
+                        mimeData->setText(QString::number(pageIndex));
+                        drag->setMimeData(mimeData);
+                        
+                        // Create pixmap for drag
+                        QPixmap pixmap = widget->grab();
+                        drag->setPixmap(pixmap);
+                        drag->setHotSpot(me->pos());
+                        
+                        drag->exec(Qt::MoveAction);
+                        return true;
+                    }
+                }
+            }
+        }
+    } else if (event->type() == QEvent::MouseButtonRelease) {
         auto* widget = qobject_cast<QWidget*>(watched);
         if (widget) {
             bool ok = false;
@@ -350,3 +390,43 @@ bool ThumbnailSidebar::eventFilter(QObject* watched, QEvent* event)
     }
     return QWidget::eventFilter(watched, event);
 }
+
+// ---------------------------------------------------------------------------
+// Drag & Drop
+// ---------------------------------------------------------------------------
+
+void ThumbnailSidebar::dragEnterEvent(QDragEnterEvent* event)
+{
+    if (event->mimeData()->hasText()) {
+        event->acceptProposedAction();
+    }
+}
+
+void ThumbnailSidebar::dragMoveEvent(QDragMoveEvent* event)
+{
+    if (event->mimeData()->hasText()) {
+        event->acceptProposedAction();
+        
+        // Visual indicator could be drawn by overriding paintEvent or inserting a spacer.
+        // For simplicity, we just accept the move.
+        // A full implementation would highlight the drop target gap.
+    }
+}
+
+void ThumbnailSidebar::dropEvent(QDropEvent* event)
+{
+    if (event->mimeData()->hasText()) {
+        int sourceIndex = event->mimeData()->text().toInt();
+        
+        // Find target index based on drop position in the scroll area
+        QPoint pos = m_scroll->widget()->mapFrom(this, event->pos());
+        int targetIndex = qMax(0, qMin(m_totalPages - 1, pos.y() / ThumbItemHeight));
+        
+        if (sourceIndex != targetIndex) {
+            emit pageReordered(sourceIndex, targetIndex);
+        }
+        
+        event->acceptProposedAction();
+    }
+}
+

@@ -23,16 +23,25 @@
 
 | Package | Guard | Feature | Status |
 |---------|-------|---------|--------|
-| Tesseract + Leptonica | `HAS_TESSERACT` | OCR text recognition | Not installed (vcpkg needs VS) |
+| Tesseract + Leptonica | `HAS_TESSERACT` | OCR text recognition | Available via MSYS2 |
+| RapidOCR (ONNXRuntime) | `HAS_RAPIDOCR` | Secondary OCR engine | Available via MSYS2 |
 | qpdf | `HAS_QPDF` | PDF linearization | Not installed |
 | OpenXLSX | `HAS_OPENXLSX` | Excel export | Available |
 | duckx | `HAS_DUCKX` | Word export | Available |
 
 ## Build Commands
 
+### MSYS2 Dependencies (OCR)
+If compiling with OCR support, ensure you have the MSYS2 Mingw-w64 packages installed:
+```bat
+pacman -S mingw-w64-x86_64-tesseract-ocr mingw-w64-x86_64-leptonica mingw-w64-x86_64-onnxruntime
+```
+*Note: Make sure MSYS2 `mingw64/bin` and `mingw64/lib/pkgconfig` are accessible in your environment or `CMAKE_PREFIX_PATH`.*
+
 ### Configure (first time)
 ```bat
-set PATH=C:\Qt\Tools\CMake_64\bin;C:\Qt\Tools\mingw1310_64\bin;C:\Qt\6.10.2\mingw_64\bin;%PATH%
+set PATH=C:\Qt\Tools\CMake_64\bin;C:\Qt\Tools\mingw1310_64\bin;C:\Qt\6.10.2\mingw_64\bin;C:\Users\User\msys64\mingw64\bin;%PATH%
+set PKG_CONFIG_PATH=C:\Users\User\msys64\mingw64\lib\pkgconfig;%PKG_CONFIG_PATH%
 
 cmake -S . -B build -G "MinGW Makefiles" ^
   -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake ^
@@ -69,7 +78,7 @@ All 5 tests pass. `SmokeTest::testLinearize` gracefully skips when qpdf is not c
 
 ## Known Environment Notes
 
-- No Visual Studio installed - vcpkg can't build x64-windows host tools
+
 - Tesseract/Leptonica/qpdf made optional via `find_package(... QUIET)` + conditional guards
 - Qt 6.9.3 also installed but project uses 6.10.2
 - `vcpkg_installed/` at project root contains pre-built dependencies (103 MB, keep to avoid rebuild)

@@ -176,7 +176,7 @@ private slots:
         QString pdf = createTestPdfWithText("unextract.pdf", "SECRET_DATA");
         PdfEditorEngine engine;
         QVERIFY(engine.loadDocumentForEditing(pdf));
-        QVERIFY(engine.applyRedactions(0, {QRectF(90, 90, 200, 30)}));
+        QVERIFY(engine.applyRedactions(0, {QRectF(90, 120, 200, 30)}));
         
         QString output = tmpPath("unextract_redacted.pdf");
         engine.saveDocument(output);
@@ -186,7 +186,7 @@ private slots:
         QByteArray data = file.readAll();
         QVERIFY2(!data.contains("SECRET_DATA"), "Redacted text should not be extractable from the output PDF");
     }
-
+    
     void testRedactionFormXObject() {
         QString pdf = tmpPath("formxobject.pdf");
         {
@@ -212,7 +212,7 @@ private slots:
         PdfEditorEngine engine;
         QVERIFY(engine.loadDocumentForEditing(pdf));
         
-        bool ok = engine.applyRedactions(0, {QRectF(90, 590, 200, 60)});
+        bool ok = engine.applyRedactions(0, {QRectF(90, 220, 200, 60)});
         QVERIFY2(ok, "Redaction of Form XObject should succeed");
         
         QString output = tmpPath("formxobject_redacted.pdf");
@@ -222,6 +222,79 @@ private slots:
         QVERIFY(file.open(QIODevice::ReadOnly));
         QByteArray data = file.readAll();
         QVERIFY2(!data.contains("SECRET_FORM"), "Form XObject text should be redacted");
+    }
+    
+    void testGlyphAdvanceNormalization() {
+        QString pdf = createTestPdfWithText("glyph.pdf", "SECRET DATA");
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+        QVERIFY(engine.applyRedactions(0, {QRectF(690, 720, 200, 30)}));
+        
+        QString output = tmpPath("glyph_redacted.pdf");
+        engine.saveDocument(output);
+        
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(output.toUtf8().constData());
+        auto& page = doc.GetPages().GetPageAt(0);
+        auto* contentsObj = page.GetContents();
+        QVERIFY(contentsObj != nullptr);
+        
+        PoDoFo::charbuff buf;
+        contentsObj->CopyTo(buf);
+        std::string streamStr(buf.data(), buf.size());
+        
+        qDebug() << "DECODED STREAM FOR GLYPH TEST:" << QString::fromStdString(streamStr);
+        
+        QVERIFY2(streamStr.find(" ] TJ") != std::string::npos, "Should contain normalized TJ operator in the decoded content stream");
+    }
+
+    void testAuditLogSidecar() {
+        QString pdf = createTestPdfWithText("audit.pdf", "SECRET");
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+        QVERIFY(engine.applyRedactions(0, {QRectF(90, 90, 200, 30)}));
+        
+        QString sidecar = pdf + ".redaction-log.json";
+        QVERIFY2(QFile::exists(sidecar), "Audit log sidecar should exist");
+        
+        QFile file(sidecar);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QByteArray data = file.readAll();
+        QJsonDocument json = QJsonDocument::fromJson(data);
+        QVERIFY2(json.isArray(), "Audit log should be a JSON array");
+        auto arr = json.array();
+        QVERIFY2(!arr.isEmpty(), "Audit log array should not be empty");
+        auto entry = arr.first().toObject();
+        QVERIFY(entry.contains("before_sha256"));
+        QVERIFY(entry.contains("after_sha256"));
+        QVERIFY(entry.contains("timestamp"));
+    }
+
+    void testOCRScrubbing() {
+        QString pdf = tmpPath("ocr.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            auto& page = doc.GetPages().CreatePage(PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            PoDoFo::PdfPainter painter;
+            painter.SetCanvas(page);
+            auto& font = doc.GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::Helvetica);
+            painter.TextState.SetFont(font, 12.0);
+            painter.TextState.SetRenderingMode(PoDoFo::PdfTextRenderingMode::Invisible);
+            painter.DrawText("SECRET", 100, 700);
+            painter.FinishDrawing();
+            doc.Save(pdf.toUtf8().constData());
+        }
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+        QVERIFY(engine.applyRedactions(0, {QRectF(90, 90, 200, 30)}));
+        
+        QString output = tmpPath("ocr_redacted.pdf");
+        engine.saveDocument(output);
+        
+        QFile file(output);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QByteArray data = file.readAll();
+        QVERIFY2(!data.contains("SECRET"), "OCR invisible text should be scrubbed");
     }
 };
 

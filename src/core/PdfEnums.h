@@ -7,6 +7,8 @@ enum class ToolMode {
     EditObject,
     Highlight,
     Underline,
+    Strikeout,
+    Squiggly,
     DrawShape,
     DrawFreehand,
     AddTextBox,
@@ -19,5 +21,8 @@ enum class ToolMode {
     DrawArrow,
     AddTextField,
     AddCheckbox,
-    EditImage
+    EditImage,
+    Stamp,
+    Callout,
+    Crop
 };

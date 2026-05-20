@@ -1,7 +1,10 @@
 #include <QtTest/QtTest>
+#include <QTemporaryDir>
+#include <podofo/podofo.h>
 #include "commands/SanitizeDocumentHelper.h"
 #include "engines/DocumentSession.h"
 #include "mocks/MockPdfEditorEngine.h"
+#include "engines/PdfEditorEngine.h"
 
 class TestSanitization : public QObject {
     Q_OBJECT
@@ -127,6 +130,58 @@ private slots:
 
         QCOMPARE(mock.m_sanitizeCalls, 3);
         QCOMPARE(mock.m_lastSanitizedPath, QString("third.pdf"));
+    }
+
+    void testIntegrationSanitization()
+    {
+        QTemporaryDir m_tmpDir;
+        QVERIFY(m_tmpDir.isValid());
+        QString pdf = m_tmpDir.filePath("sanitizetest.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            auto& page = doc.GetPages().CreatePage(PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            
+            auto& catalog = doc.GetCatalog();
+            auto& outlines = doc.GetObjects().CreateDictionaryObject();
+            catalog.GetDictionary().AddKey(PoDoFo::PdfName("Outlines"), outlines.GetIndirectReference());
+            
+            auto& collection = doc.GetObjects().CreateDictionaryObject();
+            catalog.GetDictionary().AddKey(PoDoFo::PdfName("Collection"), collection.GetIndirectReference());
+            
+            auto& field = page.CreateField<PoDoFo::PdfTextBox>("FieldName", PoDoFo::Rect(100, 100, 100, 20));
+            field.SetText(PoDoFo::PdfString("FieldValue"));
+
+            doc.Save(pdf.toUtf8().constData());
+        }
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+        
+        QString outPdf = m_tmpDir.filePath("sanitizetest_out.pdf");
+        QVERIFY(engine.sanitizeDocument(outPdf));
+
+        PoDoFo::PdfMemDocument outDoc;
+        outDoc.Load(outPdf.toUtf8().constData());
+        
+        auto& catalog = outDoc.GetCatalog();
+        QVERIFY(!catalog.GetDictionary().HasKey("Outlines"));
+        QVERIFY(!catalog.GetDictionary().HasKey("Collection"));
+        
+        if (catalog.GetDictionary().HasKey("AcroForm")) {
+            auto* acroForm = catalog.GetDictionary().GetKey("AcroForm");
+            if (acroForm && acroForm->IsDictionary() && acroForm->GetDictionary().HasKey("Fields")) {
+                auto* fields = acroForm->GetDictionary().GetKey("Fields");
+                if (fields && fields->IsArray() && fields->GetArray().GetSize() > 0) {
+                    auto fieldRef = fields->GetArray()[0];
+                    if (fieldRef.IsReference()) {
+                        auto& fieldDict = outDoc.GetObjects().MustGetObject(fieldRef.GetReference());
+                        if (fieldDict.IsDictionary()) {
+                            QVERIFY2(!fieldDict.GetDictionary().HasKey("V"), "Form field V should be removed");
+                        }
+                    }
+                }
+            }
+        }
     }
 };
 

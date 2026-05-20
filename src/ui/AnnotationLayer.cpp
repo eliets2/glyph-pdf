@@ -1,6 +1,8 @@
 #include "ui/AnnotationLayer.h"
 #include <QPainter>
+#include <QPainterPath>
 #include <QMouseEvent>
+#include <QDebug>
 #include <QtMath>
 #include <cmath>
 
@@ -217,6 +219,42 @@ void AnnotationLayer::paintEvent(QPaintEvent *event)
             QColor highColor = anno.color;
             highColor.setAlpha(100);
             painter.fillRect(anno.rect, highColor);
+        } else if (anno.mode == ToolMode::Underline) {
+            painter.setPen(QPen(anno.color, anno.thickness));
+            painter.drawLine(anno.rect.bottomLeft(), anno.rect.bottomRight());
+        } else if (anno.mode == ToolMode::Strikeout) {
+            painter.setPen(QPen(anno.color, anno.thickness));
+            QPointF midLeft(anno.rect.left(), anno.rect.center().y());
+            QPointF midRight(anno.rect.right(), anno.rect.center().y());
+            painter.drawLine(midLeft, midRight);
+        } else if (anno.mode == ToolMode::Squiggly) {
+            painter.setPen(QPen(anno.color, anno.thickness));
+            QPainterPath path;
+            path.moveTo(anno.rect.bottomLeft());
+            int waves = qMax(1, static_cast<int>(anno.rect.width() / 4));
+            qreal step = anno.rect.width() / waves;
+            for (int w = 0; w < waves; ++w) {
+                qreal x = anno.rect.left() + w * step;
+                qreal y = anno.rect.bottom();
+                path.quadTo(x + step / 4, y - 2, x + step / 2, y);
+                path.quadTo(x + 3 * step / 4, y + 2, x + step, y);
+            }
+            painter.drawPath(path);
+        } else if (anno.mode == ToolMode::Stamp) {
+            painter.setPen(QPen(anno.color, 3, Qt::SolidLine));
+            painter.drawRect(anno.rect);
+            painter.setFont(QFont("Arial", 16, QFont::Bold));
+            painter.drawText(anno.rect, Qt::AlignCenter, anno.text.isEmpty() ? "STAMP" : anno.text);
+        } else if (anno.mode == ToolMode::Callout) {
+            painter.setPen(QPen(anno.color, anno.thickness));
+            // For Callout, rect is the text box, points[0] is the leader line end (pointing to something)
+            painter.drawRect(anno.rect);
+            painter.drawText(anno.rect, Qt::AlignLeft | Qt::AlignTop, anno.text);
+            if (!anno.points.isEmpty()) {
+                QPointF start = anno.rect.center();
+                QPointF end = anno.points.first();
+                painter.drawLine(start, end);
+            }
         } else if (anno.mode == ToolMode::AddComment) {
             // Draw a sticky note icon
             painter.setBrush(anno.color);
