@@ -457,6 +457,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestControllers.cpp")
         pdfws_ui pdfws_engines pdfws_commands pdfws_core
         Qt6::Test Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets
     )
+    # TestControllers uses QTEST_MAIN (QApplication), so it needs the offscreen
+    # platform plugin at runtime. Deploy it next to the test executable.
+    add_custom_command(TARGET TestControllers POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestControllers>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${Qt6_DIR}/../../../plugins/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestControllers>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestControllers"
+    )
     add_test(NAME TestControllers COMMAND TestControllers)
     set_tests_properties(TestControllers PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
