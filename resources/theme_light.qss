@@ -3,6 +3,32 @@
    Mirror of dark with light tokens. Keep selectors identical.
    ============================================================ */
 
+/* === FOCUS INDICATORS (WCAG 2.1 AA) === */
+QToolButton:focus, QPushButton:focus {
+    outline: 2px solid #c25a18;
+    outline-offset: 1px;
+}
+QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {
+    border: 2px solid #c25a18;
+}
+QComboBox:focus {
+    border: 2px solid #c25a18;
+}
+QTabBar::tab:focus {
+    outline: 2px solid #c25a18;
+    outline-offset: -2px;
+}
+QCheckBox:focus, QRadioButton:focus {
+    outline: 2px solid #c25a18;
+    outline-offset: 2px;
+}
+QSpinBox:focus {
+    border: 2px solid #c25a18;
+}
+QListWidget:focus, QTreeView:focus {
+    border: 2px solid #c25a18;
+}
+
 QWidget {
     background-color: #e9e6dd;
     color: #1a1b1e;

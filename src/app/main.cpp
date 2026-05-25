@@ -10,6 +10,10 @@
 #include <QPalette>
 #include <QCommandLineParser>
 #include <QFileInfo>
+#include <QLocale>
+#include <QSettings>
+#include <QTranslator>
+#include <QLibraryInfo>
 
 // New Glyph design UI
 #include "GpMainWindow.h"
@@ -18,12 +22,13 @@
 // Engine bootstrapping
 #include "app/Bootstrapper.h"
 #include "core/AppContext.h"
+#include "core/TempFileManager.h"
 
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
 
     QCoreApplication::setApplicationName("GlyphPDF");
-    QCoreApplication::setApplicationVersion("0.2.0");
+    QCoreApplication::setApplicationVersion("1.0.0");
     QCoreApplication::setOrganizationName("Glyph");
 
     QCommandLineParser parser;
@@ -37,6 +42,30 @@ int main(int argc, char *argv[]) {
     // Fusion base style — QSS overlays everything else
     app.setStyle(QStyleFactory::create("Fusion"));
 
+    // === Localization: Load translations ===
+    QSettings settings;
+    QString uiLang = settings.value("ui/language", "en").toString();
+    QLocale locale(uiLang);
+    QLocale::setDefault(locale);
+
+    // Load Qt's own translations (standard dialogs, etc.)
+    QTranslator qtTranslator;
+    if (qtTranslator.load(locale, "qt", "_",
+                          QLibraryInfo::path(QLibraryInfo::TranslationsPath))) {
+        app.installTranslator(&qtTranslator);
+    }
+
+    // Load GlyphPDF translations
+    QTranslator appTranslator;
+    if (appTranslator.load(locale, "glyphpdf", "_", ":/translations")) {
+        app.installTranslator(&appTranslator);
+    }
+
+    // === RTL layout support ===
+    if (locale.textDirection() == Qt::RightToLeft) {
+        app.setLayoutDirection(Qt::RightToLeft);
+    }
+
     // Try to load bundled fonts (if present in resources/fonts/)
     for (const QString& f : {":/fonts/Manrope-Regular.ttf",
                              ":/fonts/Manrope-Bold.ttf",
@@ -45,11 +74,33 @@ int main(int argc, char *argv[]) {
         if (QFile::exists(f)) QFontDatabase::addApplicationFont(f);
     }
 
-    // Apply the Glyph dark theme QSS
-    QFile sheet(gp::Theme::darkSheet());
+    // === Theme selection ===
+    QString themePref = settings.value("ui/theme", "dark").toString();
+    gp::Theme::Mode themeMode = gp::Theme::Dark;
+
+    if (themePref == "system") {
+        if (gp::Theme::isSystemHighContrast()) {
+            themeMode = gp::Theme::HighContrast;
+        } else {
+            // Detect system dark/light preference via palette
+            QPalette sysPal = app.palette();
+            themeMode = (sysPal.color(QPalette::Window).lightness() < 128)
+                        ? gp::Theme::Dark : gp::Theme::Light;
+        }
+    } else if (themePref == "light") {
+        themeMode = gp::Theme::Light;
+    } else if (themePref == "highcontrast") {
+        themeMode = gp::Theme::HighContrast;
+    }
+
+    gp::Theme::setMode(themeMode);
+    QFile sheet(gp::Theme::sheetForMode(themeMode));
     if (sheet.open(QFile::ReadOnly)) {
         app.setStyleSheet(QString::fromUtf8(sheet.readAll()));
     }
+
+    // D6: Install temp file cleanup — atexit handler + stale cleanup
+    TempFileManager::install();
 
     // Initialize engine infrastructure via Bootstrapper
     auto ctx = Bootstrapper::createContext();

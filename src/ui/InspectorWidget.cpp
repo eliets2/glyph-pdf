@@ -172,6 +172,8 @@ InspectorWidget::InspectorWidget(QWidget* parent)
 {
     setFixedWidth(288);
     setStyleSheet(QStringLiteral("background: %1;").arg(BG_1));
+    setAccessibleName(tr("Inspector"));
+    setAccessibleDescription(tr("View and edit properties of the selected annotation or document"));
 
     auto* mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);

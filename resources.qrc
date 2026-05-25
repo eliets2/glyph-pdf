@@ -167,5 +167,6 @@
         <file>resources/icons/delete-text.svg</file>
         <file>resources/theme_dark.qss</file>
         <file>resources/theme_light.qss</file>
+        <file>resources/theme_highcontrast.qss</file>
     </qresource>
 </RCC>

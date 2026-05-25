@@ -39,7 +39,9 @@ private slots:
         QFile file(output);
         QVERIFY(file.open(QIODevice::ReadOnly));
         QByteArray data = file.readAll();
-        QVERIFY(data.contains("/Encrypt"));
+        QVERIFY2(data.contains("/Encrypt"), "Saved PDF must have an /Encrypt dictionary");
+        QVERIFY2(data.contains("/V 5"), "Encryption must use V=5 (AES-256)");
+        QVERIFY2(data.contains("/R 6"), "Encryption revision must be R=6 (AES-256 R6)");
     }
 
     void testEmptyPasswordHandling() {
@@ -60,6 +62,13 @@ private slots:
         QString output = tmpPath("empty_pass_encrypted.pdf");
         engine.saveDocument(output);
         QVERIFY(QFile::exists(output));
+
+        QFile file(output);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QByteArray data = file.readAll();
+        QVERIFY2(data.contains("/Encrypt"), "Saved PDF must have an /Encrypt dictionary");
+        QVERIFY2(data.contains("/V 5"), "Encryption must use V=5 (AES-256)");
+        QVERIFY2(data.contains("/R 6"), "Encryption revision must be R=6 (AES-256 R6)");
     }
 };
 

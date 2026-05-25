@@ -291,6 +291,16 @@ void SecurityController::importAnnotationPackage() {
 }
 
 void SecurityController::cloudSyncSync() {
+    // v1.0.0: Cloud Sync backend is a stub (see CollaborationManager::pushToCloud
+    // "Cloud Sync Stub (Simulation)"). Do NOT pretend it works — inform the user
+    // and bail out before any work is done. The stub flow below is preserved
+    // (compiled out) so it can be reinstated when a real backend lands in v1.1+.
+    QMessageBox::information(
+        _mainWindow,
+        tr("Cloud Sync"),
+        tr("Cloud Sync is not available in v1.0.0. This feature is scheduled for a later release."));
+
+#if 0
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->collab) return;
 
@@ -307,7 +317,7 @@ void SecurityController::cloudSyncSync() {
 
     if (_ctx->collab->exportAnnotationPackage(viewer->annotations(), tempPath)) {
         QSettings settings;
-        QString cloudEndpoint = settings.value("cloud/sync_endpoint", 
+        QString cloudEndpoint = settings.value("cloud/sync_endpoint",
                                                AppContext::DefaultCloudSyncEndpoint).toString();
         if (_ctx->collab->pushToCloud(tempPath, cloudEndpoint)) {
             _mainWindow->statusBar()->showMessage(tr("Cloud Sync Successful. Annotations shared."), 5000);
@@ -316,6 +326,7 @@ void SecurityController::cloudSyncSync() {
         }
         QFile::remove(tempPath);
     }
+#endif
 }
 
 void SecurityController::applyRedactions() {

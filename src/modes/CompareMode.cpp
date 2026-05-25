@@ -25,23 +25,32 @@ CompareMode::CompareMode(QWidget* parent) : QWidget(parent) {
     auto* tr = new QHBoxLayout(tb);
     tr->setContentsMargins(10,0,10,0); tr->setSpacing(6);
     auto mono = [](const QString& s){ auto* l = new QLabel(s); l->setProperty("mono",true); return l; };
-    tr->addWidget(mono("COMPARE"));
-    tr->addWidget(mono("Q4-Report-v1.pdf   ↔   Q4-Report-v2.pdf"));
-    auto* prev = new QToolButton; prev->setText("← PREV"); prev->setProperty("variant","ghost"); tr->addWidget(prev);
-    auto* next = new QToolButton; next->setText("NEXT →"); next->setProperty("variant","ghost"); tr->addWidget(next);
-    m_statusLabel = mono("CHANGE 0 OF 0");
+    tr->addWidget(mono(CompareMode::tr("COMPARE")));
+    tr->addWidget(mono(CompareMode::tr("Q4-Report-v1.pdf   ↔   Q4-Report-v2.pdf")));
+    auto* prev = new QToolButton; prev->setText(CompareMode::tr("← PREV")); prev->setProperty("variant","ghost");
+    prev->setEnabled(false);
+    prev->setToolTip(CompareMode::tr("Coming in v1.1"));
+    tr->addWidget(prev);
+    auto* next = new QToolButton; next->setText(CompareMode::tr("NEXT →")); next->setProperty("variant","ghost");
+    next->setEnabled(false);
+    next->setToolTip(CompareMode::tr("Coming in v1.1"));
+    tr->addWidget(next);
+    m_statusLabel = mono(CompareMode::tr("CHANGE 0 OF 0"));
     tr->addWidget(m_statusLabel);
     tr->addStretch(1);
-    
-    auto* toggleDiff = new QToolButton; 
-    toggleDiff->setText("Toggle Overlay"); 
+
+    auto* toggleDiff = new QToolButton;
+    toggleDiff->setText(CompareMode::tr("Toggle Overlay"));
     toggleDiff->setCheckable(true);
     connect(toggleDiff, &QToolButton::toggled, [this](bool checked) {
         m_compareWidget->setShowPixelDiff(checked);
     });
     tr->addWidget(toggleDiff);
-    
-    auto* close = new QToolButton; close->setText("Close Compare"); close->setProperty("variant","ghost"); tr->addWidget(close);
+
+    auto* close = new QToolButton; close->setText(CompareMode::tr("Close Compare")); close->setProperty("variant","ghost");
+    close->setEnabled(false);
+    close->setToolTip(CompareMode::tr("Coming in v1.1"));
+    tr->addWidget(close);
     col->addWidget(tb);
 
     m_compareWidget = new CompareWidget(this);
@@ -53,11 +62,11 @@ CompareMode::CompareMode(QWidget* parent) : QWidget(parent) {
     auto* cl = new QVBoxLayout(changes); cl->setContentsMargins(0,0,0,0); cl->setSpacing(0);
     auto* ch = new QFrame; ch->setProperty("role","modeToolbar"); ch->setFixedHeight(26);
     auto* chr = new QHBoxLayout(ch); chr->setContentsMargins(12,0,12,0);
-    auto* chl = new QLabel("CHANGES"); chl->setProperty("mono",true); chr->addWidget(chl); chr->addStretch(1);
+    auto* chl = new QLabel(CompareMode::tr("CHANGES")); chl->setProperty("mono",true); chr->addWidget(chl); chr->addStretch(1);
     cl->addWidget(ch);
 
     m_tree = new QTreeWidget;
-    m_tree->setHeaderLabels({"#","Page","Description"});
+    m_tree->setHeaderLabels({CompareMode::tr("#"), CompareMode::tr("Page"), CompareMode::tr("Description")});
     m_tree->setRootIsDecorated(false);
     cl->addWidget(m_tree, 1);
     col->addWidget(changes);
@@ -67,7 +76,7 @@ CompareMode::CompareMode(QWidget* parent) : QWidget(parent) {
 
 void CompareMode::compareFiles(const QString& file1, const QString& file2) {
     m_compareWidget->loadDocuments(file1, file2);
-    m_statusLabel->setText("COMPARING...");
+    m_statusLabel->setText(tr("COMPARING..."));
     m_tree->clear();
 
     QFuture<DiffResult> future = QtConcurrent::run([file1, file2]() {
@@ -82,7 +91,7 @@ void CompareMode::onDiffFinished() {
     m_compareWidget->setDiffResult(m_lastResult);
 
     if (m_lastResult.isIdentical) {
-        m_statusLabel->setText("FILES ARE IDENTICAL");
+        m_statusLabel->setText(tr("FILES ARE IDENTICAL"));
         return;
     }
 
@@ -92,7 +101,7 @@ void CompareMode::onDiffFinished() {
         int changes = page.textAdded.size() + page.textRemoved.size() + (page.pixelDiffCount > 0 ? 1 : 0);
         if (changes > 0) {
             totalChanges += changes;
-            QString desc = QString("Added: %1 words, Removed: %2 words, Pixels changed: %3")
+            QString desc = tr("Added: %1 words, Removed: %2 words, Pixels changed: %3")
                                .arg(page.textAdded.size())
                                .arg(page.textRemoved.size())
                                .arg(page.pixelDiffCount);
@@ -100,7 +109,7 @@ void CompareMode::onDiffFinished() {
         }
     }
 
-    m_statusLabel->setText(QString("%1 CHANGES").arg(totalChanges));
+    m_statusLabel->setText(tr("%1 CHANGES").arg(totalChanges));
 }
 
 } // namespace gp

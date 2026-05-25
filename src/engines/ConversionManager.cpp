@@ -163,7 +163,11 @@ QList<ConversionManager::TextElement> ConversionManager::Private::extractTextFro
                 }
             }
         }
-    } catch (...) {}
+    } catch (const std::exception& e) {
+        qWarning() << __func__ << "swallowed exception:" << e.what();
+    } catch (...) {
+        qWarning() << __func__ << "swallowed unknown exception";
+    }
     return elements;
 }
 

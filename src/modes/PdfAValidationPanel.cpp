@@ -22,7 +22,7 @@ static QWidget* issueRow(const QString& rule, const QString& descr, bool err) {
     auto* lbl = new QLabel(QString("<b style='color:#dfe1e5;font-family:JetBrains Mono;font-size:10px;'>%1</b> · %2").arg(rule, descr));
     lbl->setTextFormat(Qt::RichText);
     lbl->setWordWrap(true);
-    auto* jump = new QPushButton("JUMP");
+    auto* jump = new QPushButton(QObject::tr("JUMP"));
     jump->setStyleSheet("font-family:JetBrains Mono; font-size:9.5px; color:#ff8c42; border:1px solid rgba(255,140,66,0.33); padding:1px 6px;");
     h->addWidget(dot);
     h->addWidget(lbl, 1);
@@ -39,7 +39,7 @@ PdfAValidationPanel::PdfAValidationPanel(QWidget* parent) : QFrame(parent) {
 
     auto* head = new QFrame; head->setProperty("role","modeToolbar"); head->setFixedHeight(32);
     auto* hr = new QHBoxLayout(head); hr->setContentsMargins(10,0,10,0);
-    auto* t = new QLabel("PDF/A · VALIDATION"); t->setStyleSheet("font-weight:600;letter-spacing:1.2px;");
+    auto* t = new QLabel(tr("PDF/A · VALIDATION")); t->setStyleSheet("font-weight:600;letter-spacing:1.2px;");
     hr->addWidget(t); hr->addStretch(1);
     outer->addWidget(head);
 
@@ -53,31 +53,31 @@ PdfAValidationPanel::PdfAValidationPanel(QWidget* parent) : QFrame(parent) {
     sum->setStyleSheet("background:#1a1b1e; border:1px solid #393b40; padding:12px;");
     auto* sumLay = new QVBoxLayout(sum);
     auto* sumRow = new QHBoxLayout;
-    auto* sumTitle = new QLabel("PDF/A-2B VALIDATION");
+    auto* sumTitle = new QLabel(tr("PDF/A-2B VALIDATION"));
     sumTitle->setStyleSheet("font-weight:600;letter-spacing:0.8px;");
     sumRow->addWidget(sumTitle);
     sumRow->addStretch(1);
-    sumRow->addWidget(new Badge("WARNINGS", Badge::Warn));
+    sumRow->addWidget(new Badge(tr("WARNINGS"), Badge::Warn));
     sumLay->addLayout(sumRow);
-    auto* sumMeta = new QLabel("47 RULES · 2 FAILURES · 3 WARNINGS\nCONFORMANCE: PDF/A-2b (ISO 19005-2)");
+    auto* sumMeta = new QLabel(tr("47 RULES · 2 FAILURES · 3 WARNINGS\nCONFORMANCE: PDF/A-2b (ISO 19005-2)"));
     sumMeta->setProperty("mono", true);
     sumLay->addWidget(sumMeta);
     col->addWidget(sum);
 
-    auto* head2 = new QLabel("ISSUES · 5");
+    auto* head2 = new QLabel(tr("ISSUES · 5"));
     head2->setProperty("mono", true);
     col->addWidget(head2);
 
-    col->addWidget(issueRow("Rule 6.2.3.3-1", "Embedded fonts required · Page 3", true));
-    col->addWidget(issueRow("Rule 6.2.8-1",  "Non-embedded font: Arial · Page 7", true));
-    col->addWidget(issueRow("Rule 7.1-1",    "Optional content (layers) detected", false));
-    col->addWidget(issueRow("Rule 6.3.3-1",  "Annotation appearance stream missing", false));
-    col->addWidget(issueRow("Rule 6.2.10-1", "Device-dependent color space in image", false));
+    col->addWidget(issueRow(tr("Rule 6.2.3.3-1"), tr("Embedded fonts required · Page 3"), true));
+    col->addWidget(issueRow(tr("Rule 6.2.8-1"),  tr("Non-embedded font: Arial · Page 7"), true));
+    col->addWidget(issueRow(tr("Rule 7.1-1"),    tr("Optional content (layers) detected"), false));
+    col->addWidget(issueRow(tr("Rule 6.3.3-1"),  tr("Annotation appearance stream missing"), false));
+    col->addWidget(issueRow(tr("Rule 6.2.10-1"), tr("Device-dependent color space in image"), false));
 
-    auto* fix = new QPushButton("Fix Automatically (3)");
-    auto* conv = new QPushButton("Convert to PDF/A-2B");
+    auto* fix = new QPushButton(tr("Fix Automatically (3)"));
+    auto* conv = new QPushButton(tr("Convert to PDF/A-2B"));
     conv->setStyleSheet("background:#ff8c42;color:#1a1b1e;border:1px solid #ff8c42;font-weight:600;padding:8px 12px;");
-    auto* exp = new QPushButton("Export Report");
+    auto* exp = new QPushButton(tr("Export Report"));
     col->addWidget(fix);
     col->addWidget(conv);
     col->addWidget(exp);

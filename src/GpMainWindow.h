@@ -4,9 +4,11 @@
 
 class PdfViewerWidget;
 class FindBar;
+class QFrame;
 
 namespace gp {
 
+class UpdateChecker;
 class MenuBar;
 class Ribbon;
 class ModeStrip;
@@ -39,6 +41,7 @@ public:
     void toggleFindBar();
     void setFullScreenMode(bool fullscreen);
     void updateTitle();
+    MenuBar* menuBarWidget() const { return _menu; }
 
 public slots:
     void onScreenSelected(const QString& id);
@@ -49,6 +52,10 @@ private slots:
     void onTabChanged(const QString& tab);
     void onModeChanged(const QString& m);
     void toggleAi();
+
+protected:
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
 
 private:
     const AppContext* _ctx  = nullptr;
@@ -74,11 +81,14 @@ private:
     AIChatPanel*    _ai          = nullptr;
     SignaturesPanel* _sigPanel   = nullptr;
     PdfAValidationPanel* _pdfaPanel = nullptr;
+    UpdateChecker*  _updater     = nullptr;
+    QFrame*         _updateBar   = nullptr;
     bool            _aiVisible   = false;
     bool            _isDark      = true;
 
     void applyTheme();
     void replaceRight(QWidget* w);
+    void initUpdateChecker();
 };
 
 } // namespace gp

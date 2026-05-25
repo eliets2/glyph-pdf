@@ -4,8 +4,30 @@
    The amber accent appears ONLY on the active/selected state.
    ============================================================ */
 
-* {
-    outline: 0;
+/* === FOCUS INDICATORS (WCAG 2.1 AA) === */
+QToolButton:focus, QPushButton:focus {
+    outline: 2px solid #ff8c42;
+    outline-offset: 1px;
+}
+QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {
+    border: 2px solid #ff8c42;
+}
+QComboBox:focus {
+    border: 2px solid #ff8c42;
+}
+QTabBar::tab:focus {
+    outline: 2px solid #ff8c42;
+    outline-offset: -2px;
+}
+QCheckBox:focus, QRadioButton:focus {
+    outline: 2px solid #ff8c42;
+    outline-offset: 2px;
+}
+QSpinBox:focus {
+    border: 2px solid #ff8c42;
+}
+QListWidget:focus, QTreeView:focus {
+    border: 2px solid #ff8c42;
 }
 
 /* === BASE === */

@@ -21,25 +21,26 @@ private slots:
     void testMaxPageCountEnforcement() {
         // Create a PDF with many pages or simulate loading one.
         // Assuming the engine limits pages (e.g., 10000 max).
-        // Since we cannot easily generate 100,000 pages in the test, 
+        // Since we cannot easily generate 100,000 pages in the test,
         // we'll rely on a theoretical check if the engine exposes it,
         // or just verify that adding a page respects limits.
         PdfEditorEngine engine;
-        
-        // This is a placeholder assertion for the logic you will integrate
-        QVERIFY(true);
+        Q_UNUSED(engine);
+        QSKIP("Resource limit enforcement not yet implemented — placeholder test, see ROADMAP.md");
     }
 
     void testMaxStreamSizeEnforcement() {
         PdfEditorEngine engine;
+        Q_UNUSED(engine);
         // Verify large stream handling logic doesn't crash or properly rejects > limit
-        QVERIFY(true);
+        QSKIP("Resource limit enforcement not yet implemented — placeholder test, see ROADMAP.md");
     }
 
     void testMaxImageDimensionEnforcement() {
         PdfEditorEngine engine;
+        Q_UNUSED(engine);
         // Verify extremely large images are rejected
-        QVERIFY(true);
+        QSKIP("Resource limit enforcement not yet implemented — placeholder test, see ROADMAP.md");
     }
 };
 

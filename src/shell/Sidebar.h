@@ -9,6 +9,7 @@ class QListWidget;
 class ThumbnailSidebar;
 class CommentsWidget;
 class InspectorWidget;
+class BookmarkPanel;
 class PdfViewerWidget;
 struct AppContext;
 
@@ -41,7 +42,7 @@ private:
 
     // Left Sidebar widgets
     ThumbnailSidebar* m_thumbSidebar = nullptr;
-    QTreeView* m_bookmarksView = nullptr;
+    BookmarkPanel* m_bookmarkPanel = nullptr;
     CommentsWidget* m_commentsWidget = nullptr;
     QListWidget* m_filesList = nullptr;
 

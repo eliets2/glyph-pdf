@@ -9,6 +9,7 @@
 #include "ui/ThumbnailSidebar.h"
 #include "ui/CommentsWidget.h"
 #include "ui/InspectorWidget.h"
+#include "ui/BookmarkPanel.h"
 
 #include <QTabBar>
 #include <QFileDialog>
@@ -30,6 +31,10 @@ Sidebar::Sidebar(Side s, QWidget* parent)
 {
     setObjectName(s == Left ? "leftSidebar" : "rightSidebar");
     setFixedWidth(s == Left ? Theme::LeftPaneW : Theme::RightPaneW);
+    setAccessibleName(s == Left ? tr("Left sidebar") : tr("Right sidebar"));
+    setAccessibleDescription(s == Left
+        ? tr("Contains page thumbnails, bookmarks, comments, and file attachments")
+        : tr("Contains document properties, comment threads, and layers"));
 
     auto* col = new QVBoxLayout(this);
     col->setContentsMargins(0, 0, 0, 0);
@@ -37,15 +42,17 @@ Sidebar::Sidebar(Side s, QWidget* parent)
 
     m_tabs = new QTabBar(this);
     m_tabs->setProperty("role", "sideTabs");
+    m_tabs->setFocusPolicy(Qt::TabFocus);
+    m_tabs->setAccessibleName(s == Left ? tr("Left sidebar tabs") : tr("Right sidebar tabs"));
     if (s == Left) {
-        m_tabs->addTab("Pages");
-        m_tabs->addTab("Bookmarks");
-        m_tabs->addTab("Comments");
-        m_tabs->addTab("Files");
+        m_tabs->addTab(tr("Pages"));
+        m_tabs->addTab(tr("Bookmarks"));
+        m_tabs->addTab(tr("Comments"));
+        m_tabs->addTab(tr("Files"));
     } else {
-        m_tabs->addTab("Properties");
-        m_tabs->addTab("Comments");
-        m_tabs->addTab("Layers");
+        m_tabs->addTab(tr("Properties"));
+        m_tabs->addTab(tr("Comments"));
+        m_tabs->addTab(tr("Layers"));
     }
     col->addWidget(m_tabs);
 
@@ -70,19 +77,10 @@ void Sidebar::init(const AppContext* ctx, PdfViewerWidget* viewer)
         m_thumbSidebar->setViewer(m_viewer);
         m_stack->addWidget(m_thumbSidebar);
 
-        // 2. Bookmarks tab: QTreeView
-        m_bookmarksView = new QTreeView(this);
-        m_bookmarksView->setModel(m_viewer->bookmarkModel());
-        m_bookmarksView->setHeaderHidden(true);
-        m_bookmarksView->setProperty("role", "sidebarList");
-        m_stack->addWidget(m_bookmarksView);
-
-        connect(m_bookmarksView, &QTreeView::clicked, this, [this](const QModelIndex& idx) {
-            int page = idx.data(static_cast<int>(QPdfBookmarkModel::Role::Page)).toInt();
-            if (page >= 0) {
-                m_viewer->goToPage(page);
-            }
-        });
+        // 2. Bookmarks tab: BookmarkPanel
+        m_bookmarkPanel = new BookmarkPanel(this);
+        m_bookmarkPanel->setViewer(m_viewer);
+        m_stack->addWidget(m_bookmarkPanel);
 
         // 3. Comments tab: CommentsWidget
         m_commentsWidget = new CommentsWidget(this);
@@ -171,7 +169,8 @@ void Sidebar::init(const AppContext* ctx, PdfViewerWidget* viewer)
             
             auto* mainWindow = qobject_cast<MainWindow*>(parentWidget() ? parentWidget()->parentWidget() : nullptr);
             if (mainWindow && mainWindow->statusBar()) {
-                mainWindow->statusBar()->showMessage(QString("Layer '%1' is now %2").arg(layerName).arg(visible ? "visible" : "hidden"), 3000);
+                mainWindow->statusBar()->showMessage(
+                    tr("Layer '%1' is now %2").arg(layerName).arg(visible ? tr("visible") : tr("hidden")), 3000);
             }
         });
 
@@ -218,7 +217,7 @@ void Sidebar::updateFilesList()
     QStringList files = m_ctx->pdfEditor->getEmbeddedFiles();
     if (files.isEmpty()) {
         auto* emptyItem = new QListWidgetItem(m_filesList);
-        emptyItem->setText("No attachments found.");
+        emptyItem->setText(tr("No attachments found."));
         emptyItem->setFont(QFont("Manrope", 10, QFont::StyleItalic));
     } else {
         for (const QString& f : files) {
@@ -238,7 +237,7 @@ void Sidebar::updateLayersList()
     QStringList layers = m_ctx->pdfEditor->getLayers();
     if (layers.isEmpty()) {
         auto* emptyItem = new QListWidgetItem(m_layersList);
-        emptyItem->setText("No layers found.");
+        emptyItem->setText(tr("No layers found."));
         emptyItem->setFont(QFont("Manrope", 10, QFont::StyleItalic));
     } else {
         for (const QString& layer : layers) {
@@ -260,33 +259,33 @@ void Sidebar::updateCommentsTab()
         auto annot = m_viewer->annotations().at(index);
         
         auto* headerItem = new QListWidgetItem(m_commentThreadList);
-        headerItem->setText(QString("ANNOTATION: %1").arg(annot.text));
+        headerItem->setText(tr("ANNOTATION: %1").arg(annot.text));
         headerItem->setFont(QFont("Manrope", 10, QFont::Bold));
         
         auto* typeItem = new QListWidgetItem(m_commentThreadList);
-        QString modeStr = "Unknown";
-        if (annot.mode == ToolMode::Highlight) modeStr = "Highlight";
-        else if (annot.mode == ToolMode::Underline) modeStr = "Underline";
-        else if (annot.mode == ToolMode::DrawFreehand) modeStr = "Freehand";
-        else if (annot.mode == ToolMode::AddTextBox) modeStr = "Text Box";
-        else if (annot.mode == ToolMode::AddComment) modeStr = "Comment";
-        typeItem->setText(QString("Type: %1").arg(modeStr));
+        QString modeStr = tr("Unknown");
+        if (annot.mode == ToolMode::Highlight) modeStr = tr("Highlight");
+        else if (annot.mode == ToolMode::Underline) modeStr = tr("Underline");
+        else if (annot.mode == ToolMode::DrawFreehand) modeStr = tr("Freehand");
+        else if (annot.mode == ToolMode::AddTextBox) modeStr = tr("Text Box");
+        else if (annot.mode == ToolMode::AddComment) modeStr = tr("Comment");
+        typeItem->setText(tr("Type: %1").arg(modeStr));
         typeItem->setFont(QFont("Manrope", 9));
         
         auto* pageItem = new QListWidgetItem(m_commentThreadList);
-        pageItem->setText(QString("Page: %1").arg(annot.pageIndex + 1));
+        pageItem->setText(tr("Page: %1").arg(annot.pageIndex + 1));
         pageItem->setFont(QFont("Manrope", 9));
 
         auto* repliesHeader = new QListWidgetItem(m_commentThreadList);
-        repliesHeader->setText("\nREPLIES:");
+        repliesHeader->setText(tr("\nREPLIES:"));
         repliesHeader->setFont(QFont("Manrope", 9, QFont::Bold));
 
         auto* emptyItem = new QListWidgetItem(m_commentThreadList);
-        emptyItem->setText("No replies yet. Type in the inspector's Reply Thread to add comments.");
+        emptyItem->setText(tr("No replies yet. Type in the inspector's Reply Thread to add comments."));
         emptyItem->setFont(QFont("Manrope", 9, QFont::StyleItalic));
     } else {
         auto* emptyItem = new QListWidgetItem(m_commentThreadList);
-        emptyItem->setText("No annotation selected.\nSelect an annotation to view its comment thread.");
+        emptyItem->setText(tr("No annotation selected.\nSelect an annotation to view its comment thread."));
         emptyItem->setFont(QFont("Manrope", 10, QFont::StyleItalic));
         emptyItem->setTextAlignment(Qt::AlignCenter);
     }

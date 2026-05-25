@@ -16,12 +16,14 @@ namespace gp {
 ModeStrip::ModeStrip(QWidget* parent) : QFrame(parent) {
     setObjectName("modeStrip");
     setFixedHeight(Theme::ModeStripH);
+    setAccessibleName(tr("Mode strip"));
+    setAccessibleDescription(tr("Switch between View, Edit, Comment, Form, and Protect modes"));
 
     auto* row = new QHBoxLayout(this);
     row->setContentsMargins(10, 0, 10, 0);
     row->setSpacing(8);
 
-    auto* label = new QLabel("MODE");
+    auto* label = new QLabel(tr("MODE"));
     label->setProperty("role", "modeStripLabel");
     row->addWidget(label);
 
@@ -33,8 +35,11 @@ ModeStrip::ModeStrip(QWidget* parent) : QFrame(parent) {
     pillRow->setSpacing(2);
 
     const QVector<QPair<QString,QString>> modes = {
-        {"view","View"}, {"edit","Edit"}, {"comment","Comment"},
-        {"form","Form"}, {"protect","Protect"}
+        {"view",    tr("View")},
+        {"edit",    tr("Edit")},
+        {"comment", tr("Comment")},
+        {"form",    tr("Form")},
+        {"protect", tr("Protect")}
     };
     for (const auto& [id, lab] : modes) {
         auto* btn = new QToolButton;
@@ -42,6 +47,8 @@ ModeStrip::ModeStrip(QWidget* parent) : QFrame(parent) {
         btn->setProperty("variant", "pill");
         btn->setCheckable(true);
         btn->setAutoExclusive(true);
+        btn->setFocusPolicy(Qt::TabFocus);
+        btn->setAccessibleName(tr("%1 mode").arg(lab));
         connect(btn, &QToolButton::clicked, this, [this, id]() {
             setMode(id);
             emit modeChanged(id);
@@ -52,30 +59,34 @@ ModeStrip::ModeStrip(QWidget* parent) : QFrame(parent) {
     row->addWidget(pillsHost);
 
     auto* aiBtn = new QToolButton;
-    aiBtn->setText("AI");
+    aiBtn->setText(tr("AI"));
     aiBtn->setProperty("variant", "pill");
     aiBtn->setCheckable(true);
+    aiBtn->setAccessibleName(tr("Toggle AI assistant panel"));
     connect(aiBtn, &QToolButton::clicked, this, &ModeStrip::aiToggleRequested);
     row->addWidget(aiBtn);
 
     row->addStretch(1);
 
-    // Status meta labels
-    _autosaveLabel = new QLabel("● AUTOSAVED · --:--:--");
+    _autosaveLabel = new QLabel(tr("● AUTOSAVED · --:--:--"));
     _autosaveLabel->setProperty("mono", true);
+    _autosaveLabel->setAccessibleName(tr("Autosave status"));
     row->addWidget(_autosaveLabel);
 
-    _syncLabel = new QLabel("⤺ SYNCED · v.0");
+    _syncLabel = new QLabel(tr("⤺ SYNCED · v.0"));
     _syncLabel->setProperty("mono", true);
+    _syncLabel->setAccessibleName(tr("Sync status"));
     row->addWidget(_syncLabel);
 
-    _signLabel = new QLabel("✓ SIGNED · 0 OF 0");
+    _signLabel = new QLabel(tr("✓ SIGNED · 0 OF 0"));
     _signLabel->setProperty("mono", true);
+    _signLabel->setAccessibleName(tr("Digital signature status"));
     row->addWidget(_signLabel);
 
     auto* themeBtn = new QToolButton;
-    themeBtn->setText("DARK");
+    themeBtn->setText(tr("DARK"));
     themeBtn->setProperty("variant", "ghost");
+    themeBtn->setAccessibleName(tr("Toggle color theme"));
     connect(themeBtn, &QToolButton::clicked, this, &ModeStrip::themeToggleRequested);
     row->addWidget(themeBtn);
 
@@ -109,12 +120,12 @@ void ModeStrip::updateLabels() {
     // 1. Autosave Status
     if (_ctx->document) {
         if (_ctx->document->isDirty()) {
-            _autosaveLabel->setText("● UNSAVED");
+            _autosaveLabel->setText(tr("● UNSAVED"));
             _autosaveLabel->setProperty("state", "unsaved");
             _autosaveLabel->style()->unpolish(_autosaveLabel);
             _autosaveLabel->style()->polish(_autosaveLabel);
         } else {
-            _autosaveLabel->setText(QString("● AUTOSAVED · %1").arg(_lastSavedTime.toString("hh:mm:ss")));
+            _autosaveLabel->setText(tr("● AUTOSAVED · %1").arg(_lastSavedTime.toString("hh:mm:ss")));
             _autosaveLabel->setProperty("state", "");
             _autosaveLabel->style()->unpolish(_autosaveLabel);
             _autosaveLabel->style()->polish(_autosaveLabel);
@@ -125,20 +136,20 @@ void ModeStrip::updateLabels() {
     if (_ctx->document) {
         QString path = _ctx->document->path();
         if (path.isEmpty()) {
-            _syncLabel->setText("⤺ NOT SYNCED");
+            _syncLabel->setText(tr("⤺ NOT SYNCED"));
         } else {
             if (_ctx->collab) {
                 // Generate a stable mock version based on file name hash
                 unsigned int hash = 0;
                 for (QChar c : path) hash = hash * 31 + c.unicode();
                 int ver = (hash % 50) + 1;
-                _syncLabel->setText(QString("⤺ SYNCED · v.%1").arg(ver));
+                _syncLabel->setText(tr("⤺ SYNCED · v.%1").arg(ver));
             } else {
-                _syncLabel->setText("⤺ NOT SYNCED");
+                _syncLabel->setText(tr("⤺ NOT SYNCED"));
             }
         }
     } else {
-        _syncLabel->setText("⤺ NOT SYNCED");
+        _syncLabel->setText(tr("⤺ NOT SYNCED"));
     }
 
     // 3. Signatures Status
@@ -155,18 +166,18 @@ void ModeStrip::updateLabels() {
         }
         
         if (_cachedTotalSigs > 0) {
-            _signLabel->setText(QString("✓ SIGNED · %1 OF %2").arg(_cachedValidSigs).arg(_cachedTotalSigs));
+            _signLabel->setText(tr("✓ SIGNED · %1 OF %2").arg(_cachedValidSigs).arg(_cachedTotalSigs));
             _signLabel->setProperty("state", "valid");
             _signLabel->style()->unpolish(_signLabel);
             _signLabel->style()->polish(_signLabel);
         } else {
-            _signLabel->setText("✓ SIGNED · 0 OF 0");
+            _signLabel->setText(tr("✓ SIGNED · 0 OF 0"));
             _signLabel->setProperty("state", "");
             _signLabel->style()->unpolish(_signLabel);
             _signLabel->style()->polish(_signLabel);
         }
     } else {
-        _signLabel->setText("✓ SIGNED · 0 OF 0");
+        _signLabel->setText(tr("✓ SIGNED · 0 OF 0"));
         _signLabel->setProperty("state", "");
         _signLabel->style()->unpolish(_signLabel);
         _signLabel->style()->polish(_signLabel);
@@ -185,7 +196,7 @@ void ModeStrip::setTheme(int) { /* style is updated via QSS swap at app level */
 void ModeStrip::setAutosaveTime(const QDateTime& time) {
     _lastSavedTime = time.time();
     if (_ctx && _ctx->document && !_ctx->document->isDirty()) {
-        _autosaveLabel->setText(QString("● AUTOSAVED · %1").arg(_lastSavedTime.toString("hh:mm:ss")));
+        _autosaveLabel->setText(tr("● AUTOSAVED · %1").arg(_lastSavedTime.toString("hh:mm:ss")));
         _autosaveLabel->setProperty("state", "");
         _autosaveLabel->style()->unpolish(_autosaveLabel);
         _autosaveLabel->style()->polish(_autosaveLabel);
@@ -200,12 +211,12 @@ void ModeStrip::setSignatureStatus(int signedCount, int totalCount) {
     _cachedValidSigs = signedCount;
     _cachedTotalSigs = totalCount;
     if (totalCount > 0) {
-        _signLabel->setText(QString("✓ SIGNED · %1 OF %2").arg(signedCount).arg(totalCount));
+        _signLabel->setText(tr("✓ SIGNED · %1 OF %2").arg(signedCount).arg(totalCount));
         _signLabel->setProperty("state", "valid");
         _signLabel->style()->unpolish(_signLabel);
         _signLabel->style()->polish(_signLabel);
     } else {
-        _signLabel->setText("✓ SIGNED · 0 OF 0");
+        _signLabel->setText(tr("✓ SIGNED · 0 OF 0"));
         _signLabel->setProperty("state", "");
         _signLabel->style()->unpolish(_signLabel);
         _signLabel->style()->polish(_signLabel);

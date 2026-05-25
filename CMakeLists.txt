@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 set(VCPKG_TARGET_TRIPLET "x64-mingw-dynamic")
-project(PdfWorkstation VERSION 0.2 LANGUAGES CXX)
+project(PdfWorkstation VERSION 1.0.0 LANGUAGES CXX)
 
 list(APPEND CMAKE_PREFIX_PATH "C:/vcpkg/installed/x64-mingw-dynamic")
 enable_testing()
@@ -16,6 +16,7 @@ add_compile_options(-Wall -Wextra -Wno-unused-parameter)
 
 # ── Dependencies ──────────────────────────────────────────────────────────
 find_package(Qt6 COMPONENTS Core Gui Widgets Pdf PdfWidgets PrintSupport Svg Network Test Concurrent REQUIRED)
+find_package(Qt6 COMPONENTS LinguistTools QUIET)
 find_package(podofo CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(OpenXLSX CONFIG QUIET)
@@ -56,6 +57,9 @@ target_link_libraries(pdfws_core INTERFACE
 # ── pdfws_engines (STATIC) ───────────────────────────────────────────────
 add_library(pdfws_engines STATIC
     src/core/AnnotationSerializer.h  src/core/AnnotationSerializer.cpp
+    src/core/ErrorInfo.h             src/core/ErrorInfo.cpp
+    src/core/TempFileManager.h       src/core/TempFileManager.cpp
+    src/core/CredentialManager.h     src/core/CredentialManager.cpp
     src/engines/OcrEngine.h          src/engines/OcrEngine.cpp
     src/engines/PdfEditorEngine.h    src/engines/PdfEditorEngine.cpp
     src/engines/FormManager.h        src/engines/FormManager.cpp
@@ -82,6 +86,9 @@ target_link_libraries(pdfws_engines
     PUBLIC  pdfws_core
     PRIVATE podofo::podofo OpenSSL::SSL OpenSSL::Crypto Qt6::Network Qt6::Widgets Qt6::Concurrent
 )
+if(WIN32)
+    target_link_libraries(pdfws_engines PUBLIC Credui Advapi32)
+endif()
 if(Tesseract_FOUND AND Leptonica_FOUND)
     find_package(OpenMP REQUIRED)
     target_link_libraries(pdfws_engines PUBLIC Tesseract::libtesseract leptonica OpenMP::OpenMP_CXX)
@@ -185,6 +192,7 @@ add_library(pdfws_ui STATIC
     src/ui/EditToolBar.h             src/ui/EditToolBar.cpp
     src/ui/InspectorWidget.h         src/ui/InspectorWidget.cpp
     src/ui/CompareWidget.h           src/ui/CompareWidget.cpp
+    src/ui/BookmarkPanel.h           src/ui/BookmarkPanel.cpp
     src/ui/CommentsWidget.h          src/ui/CommentsWidget.cpp
     src/ui/DocumentPropertiesWidget.h src/ui/DocumentPropertiesWidget.cpp
     src/ui/SignaturesWidget.h        src/ui/SignaturesWidget.cpp
@@ -194,6 +202,13 @@ add_library(pdfws_ui STATIC
     src/ui/MetadataDialog.h          src/ui/MetadataDialog.cpp
     src/ui/AnnotationLayer.h         src/ui/AnnotationLayer.cpp
     src/ui/ThumbnailSidebar.h        src/ui/ThumbnailSidebar.cpp
+    src/ui/ShortcutHelpDialog.h      src/ui/ShortcutHelpDialog.cpp
+    src/ui/PreferencesDialog.h       src/ui/PreferencesDialog.cpp
+    src/ui/ErrorDialog.h             src/ui/ErrorDialog.cpp
+    src/ui/PageSetupDialog.h         src/ui/PageSetupDialog.cpp
+    src/ui/ExportPresetsPanel.h      src/ui/ExportPresetsPanel.cpp
+
+    src/core/UpdateChecker.h         src/core/UpdateChecker.cpp
 
     src/core/ToolId.h                       src/core/ToolId.cpp
     src/shell/ToolRegistry.h                src/shell/ToolRegistry.cpp
@@ -241,7 +256,7 @@ target_include_directories(pdfws_ui PUBLIC
 )
 target_link_libraries(pdfws_ui
     PUBLIC  pdfws_core pdfws_commands
-    PRIVATE Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets Qt6::PrintSupport Qt6::Svg podofo::podofo
+    PRIVATE Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets Qt6::PrintSupport Qt6::Svg Qt6::Network podofo::podofo
 )
 target_compile_definitions(pdfws_ui PRIVATE GLYPH_HAS_SVG=1)
 
@@ -473,6 +488,58 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestControllers.cpp")
         TIMEOUT 120
         LABELS "unit;controllers;ui;qt;headless"
     )
+endif()
+
+# ── Integration tests (Session 20) ───────────────────────────────────────
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestIntegration.cpp")
+    add_executable(TestIntegration
+        tests/TestIntegration.cpp
+    )
+    target_include_directories(TestIntegration PRIVATE src tests)
+    target_link_libraries(TestIntegration PRIVATE
+        pdfws_engines pdfws_core
+        Qt6::Test Qt6::Widgets podofo::podofo
+    )
+    add_test(NAME TestIntegration COMMAND TestIntegration)
+    set_tests_properties(TestIntegration PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "integration;e2e;qt;headless"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPerformance.cpp")
+    add_executable(TestPerformance
+        tests/TestPerformance.cpp
+    )
+    target_include_directories(TestPerformance PRIVATE src tests)
+    target_link_libraries(TestPerformance PRIVATE
+        pdfws_engines pdfws_core
+        Qt6::Test Qt6::Widgets podofo::podofo
+    )
+    add_test(NAME TestPerformance COMMAND TestPerformance)
+    set_tests_properties(TestPerformance PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 300
+        LABELS "performance;benchmark;qt;headless"
+    )
+endif()
+
+# ── Translations (Qt Linguist) ───────────────────────────────────────────
+if(Qt6LinguistTools_FOUND)
+    set(TS_FILES
+        translations/glyphpdf_ar.ts
+        translations/glyphpdf_fr.ts
+        translations/glyphpdf_de.ts
+    )
+    # Generate .qm files from .ts files at build time
+    qt_add_translations(PdfWorkstation
+        TS_FILES ${TS_FILES}
+        QM_FILES_OUTPUT_VARIABLE QM_FILES
+    )
+    message(STATUS "Qt LinguistTools found — translation targets enabled")
+else()
+    message(STATUS "Qt LinguistTools not found — translation targets disabled")
 endif()
 
 # Deployment

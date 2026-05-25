@@ -10,4 +10,7 @@ void RedactCommand::redo() {
     if (after > before) {
         m_doc->markReload();
     }
+    // Redaction is correctly non-reversible; mark the command obsolete so it
+    // does not sit in QUndoStack with a no-op undo (audit 2026-05-23).
+    setObsolete(true);
 }

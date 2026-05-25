@@ -2,6 +2,7 @@
 #include "GpMainWindow.h"
 #include "shell/StatusBar.h"
 #include "core/AnnotationSerializer.h"
+#include <QDebug>
 #include <QMessageBox>
 #include <QPdfDocument>
 #include <QPdfView>
@@ -311,8 +312,53 @@ void PdfViewerWidget::redactAllMatches(const QString &text, bool matchCase, bool
 void PdfViewerWidget::goToPage(int page)
 {
     if (page >= 0 && page < m_document->pageCount()) {
+        if (!m_navigatingHistory) {
+            // Trim forward history when navigating to a new page
+            if (m_historyIndex >= 0 && m_historyIndex < m_pageHistory.size() - 1) {
+                m_pageHistory = m_pageHistory.mid(0, m_historyIndex + 1);
+            }
+            // Don't duplicate the same page
+            if (m_pageHistory.isEmpty() || m_pageHistory.last() != page) {
+                m_pageHistory.append(page);
+                // Cap history at 100 entries
+                if (m_pageHistory.size() > 100)
+                    m_pageHistory.removeFirst();
+            }
+            m_historyIndex = m_pageHistory.size() - 1;
+            emit navigationChanged(canGoBack(), canGoForward());
+        }
         m_pageNavigator->jump(page, QPointF());
     }
+}
+
+void PdfViewerWidget::goBack()
+{
+    if (!canGoBack()) return;
+    m_navigatingHistory = true;
+    m_historyIndex--;
+    m_pageNavigator->jump(m_pageHistory.at(m_historyIndex), QPointF());
+    m_navigatingHistory = false;
+    emit navigationChanged(canGoBack(), canGoForward());
+}
+
+void PdfViewerWidget::goForward()
+{
+    if (!canGoForward()) return;
+    m_navigatingHistory = true;
+    m_historyIndex++;
+    m_pageNavigator->jump(m_pageHistory.at(m_historyIndex), QPointF());
+    m_navigatingHistory = false;
+    emit navigationChanged(canGoBack(), canGoForward());
+}
+
+bool PdfViewerWidget::canGoBack() const
+{
+    return m_historyIndex > 0;
+}
+
+bool PdfViewerWidget::canGoForward() const
+{
+    return m_historyIndex >= 0 && m_historyIndex < m_pageHistory.size() - 1;
 }
 
 int PdfViewerWidget::currentPage() const
@@ -680,9 +726,12 @@ void PdfViewerWidget::rotatePages(int from, int to, int angle, const QString &ou
     worker->start();
 }
 
-void PdfViewerWidget::saveDocumentAs(const QString &outputFile)
+bool PdfViewerWidget::saveDocumentAs(const QString &outputFile)
 {
-    if (m_filePath.isEmpty() || outputFile.isEmpty()) return;
+    if (m_filePath.isEmpty() || outputFile.isEmpty()) {
+        qWarning() << "saveDocumentAs: empty source or destination path";
+        return false;
+    }
 
     QFileInfo srcInfo(m_filePath);
     QFileInfo dstInfo(outputFile);
@@ -691,33 +740,57 @@ void PdfViewerWidget::saveDocumentAs(const QString &outputFile)
         // Saving to the same file: copy via secure temp then rename (Fix 2)
         QTemporaryFile tempFile(dstInfo.absolutePath() + QStringLiteral("/XXXXXX.pdf.tmp"));
         tempFile.setAutoRemove(false);
-        if (!tempFile.open())
-            return;
+        if (!tempFile.open()) {
+            qWarning() << "saveDocumentAs: failed to open temp file in" << dstInfo.absolutePath();
+            return false;
+        }
         QString tempPath = tempFile.fileName();
         tempFile.close();
 
         if (!QFile::copy(m_filePath, tempPath)) {
+            qWarning() << "saveDocumentAs: QFile::copy to temp failed:" << m_filePath << "->" << tempPath;
             QFile::remove(tempPath);
-            return;
+            return false;
         }
         m_document->close();
-        QFile::remove(outputFile);
-        QFile::rename(tempPath, outputFile);
+        if (QFile::exists(outputFile) && !QFile::remove(outputFile)) {
+            qWarning() << "saveDocumentAs: could not remove existing output before rename:" << outputFile;
+            QFile::remove(tempPath);
+            m_document->load(m_filePath);
+            return false;
+        }
+        if (!QFile::rename(tempPath, outputFile)) {
+            qWarning() << "saveDocumentAs: rename temp -> output failed:" << tempPath << "->" << outputFile;
+            QFile::remove(tempPath);
+            m_document->load(m_filePath);
+            return false;
+        }
         m_document->load(outputFile);
     } else {
-        if (QFile::exists(outputFile))
-            QFile::remove(outputFile);
-        QFile::copy(m_filePath, outputFile);
+        if (QFile::exists(outputFile) && !QFile::remove(outputFile)) {
+            qWarning() << "saveDocumentAs: could not remove existing output:" << outputFile;
+            return false;
+        }
+        if (!QFile::copy(m_filePath, outputFile)) {
+            qWarning() << "saveDocumentAs: QFile::copy failed:" << m_filePath << "->" << outputFile;
+            return false;
+        }
     }
 
     // Copy the annotation sidecar file alongside the saved PDF
     QString srcAnn = m_filePath + QStringLiteral(".ann");
     QString dstAnn = outputFile + QStringLiteral(".ann");
     if (QFile::exists(srcAnn) && srcAnn != dstAnn) {
-        if (QFile::exists(dstAnn))
-            QFile::remove(dstAnn);
-        QFile::copy(srcAnn, dstAnn);
+        if (QFile::exists(dstAnn) && !QFile::remove(dstAnn)) {
+            qWarning() << "saveDocumentAs: could not remove existing annotation sidecar:" << dstAnn;
+            // sidecar copy is best-effort — primary file is already written, so don't fail the save
+        } else if (!QFile::copy(srcAnn, dstAnn)) {
+            qWarning() << "saveDocumentAs: annotation sidecar copy failed:" << srcAnn << "->" << dstAnn;
+            // sidecar copy is best-effort — do not propagate as failure
+        }
     }
+
+    return true;
 }
 
 void PdfViewerWidget::applyRedactions(const QString &outputFile)
@@ -815,7 +888,11 @@ void PdfViewerWidget::applyRedactions(const QString &outputFile)
                         try {
                             textX = std::stod(operandStack[operandStack.size() - 2]);
                             textY = std::stod(operandStack[operandStack.size() - 1]);
-                        } catch (...) {}
+                        } catch (const std::exception& e) {
+                            qWarning() << __func__ << "swallowed exception:" << e.what();
+                        } catch (...) {
+                            qWarning() << __func__ << "swallowed unknown exception";
+                        }
 
                         bool redacted = false;
                         QPointF pos(textX, textY);
@@ -842,7 +919,11 @@ void PdfViewerWidget::applyRedactions(const QString &outputFile)
                         try {
                             textX += std::stod(operandStack[operandStack.size() - 2]);
                             textY += std::stod(operandStack[operandStack.size() - 1]);
-                        } catch (...) {}
+                        } catch (const std::exception& e) {
+                            qWarning() << __func__ << "swallowed exception:" << e.what();
+                        } catch (...) {
+                            qWarning() << __func__ << "swallowed unknown exception";
+                        }
 
                         for (const auto& op : operandStack) oss << op << " ";
                         oss << token << " ";

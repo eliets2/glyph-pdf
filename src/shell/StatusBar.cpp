@@ -2,6 +2,8 @@
 #include "util/GpTheme.h"
 
 #include <QLabel>
+#include <QLocale>
+#include <QSpinBox>
 #include <QPdfDocument>
 #include <QFile>
 #include <QFileInfo>
@@ -25,28 +27,57 @@ StatusBar::StatusBar(QWidget* parent) : QStatusBar(parent) {
     setObjectName("glyphStatus");
     setSizeGripEnabled(false);
     setFixedHeight(Theme::StatusH);
+    setAccessibleName(tr("Status bar"));
+    setAccessibleDescription(tr("Displays document mode, page, zoom, and document information"));
 
-    _mode = makeCell("MODE COMMENT");
-    _screen = makeCell("SCREEN STANDARD");
-    _page = makeCell("PAGE 000/000");
-    _zoom = makeCell("ZOOM 100%");
-    _tool = makeCell("TOOL —");
-    _sel  = makeCell("SEL —");
+    _mode = makeCell(tr("MODE COMMENT"));
+    _mode->setAccessibleName(tr("Current editing mode"));
+    _screen = makeCell(tr("SCREEN STANDARD"));
+    _screen->setAccessibleName(tr("Current screen"));
+
+    _pageSpinBox = new QSpinBox(this);
+    _pageSpinBox->setPrefix(tr("PAGE "));
+    _pageSpinBox->setMinimum(1);
+    _pageSpinBox->setMaximum(1);
+    _pageSpinBox->setValue(1);
+    _pageSpinBox->setFixedWidth(100);
+    _pageSpinBox->setAlignment(Qt::AlignCenter);
+    _pageSpinBox->setAccessibleName(tr("Jump to page"));
+    _pageSpinBox->setAccessibleDescription(tr("Enter a page number and press Enter to navigate"));
+    _pageSpinBox->setKeyboardTracking(false);
+    _pageSpinBox->setFocusPolicy(Qt::TabFocus);
+
+    _pageTotal = makeCell(tr("/ 000"));
+    _pageTotal->setAccessibleName(tr("Total pages"));
+
+    _zoom = makeCell(tr("ZOOM 100%"));
+    _zoom->setAccessibleName(tr("Zoom level"));
+    _tool = makeCell(tr("TOOL —"));
+    _tool->setAccessibleName(tr("Active tool"));
+    _sel  = makeCell(tr("SEL —"));
+    _sel->setAccessibleName(tr("Selection info"));
     addWidget(_mode);
     addWidget(_screen);
-    addWidget(_page);
+    addWidget(_pageSpinBox);
+    addWidget(_pageTotal);
     addWidget(_zoom);
     addWidget(_tool);
     addWidget(_sel);
 
-    _ocrLang = makeCell("OCR · EN");
-    _encoding = makeCell("UTF-8");
-    _pdfVersion = makeCell("PDF --");
-    _pageSize = makeCell("A4 · --×--");
-    _docInfo = makeCell("0 P · 0.0 MB");
-    _unsaved = makeCell("● 0 UNSAVED");
+    _ocrLang = makeCell(tr("OCR · EN"));
+    _ocrLang->setAccessibleName(tr("OCR language"));
+    _encoding = makeCell(tr("UTF-8"));
+    _encoding->setAccessibleName(tr("Document encoding"));
+    _pdfVersion = makeCell(tr("PDF --"));
+    _pdfVersion->setAccessibleName(tr("PDF version"));
+    _pageSize = makeCell(tr("A4 · --×--"));
+    _pageSize->setAccessibleName(tr("Page dimensions"));
+    _docInfo = makeCell(tr("0 P · 0.0 MB"));
+    _docInfo->setAccessibleName(tr("Document info"));
+    _unsaved = makeCell(tr("● 0 UNSAVED"));
+    _unsaved->setAccessibleName(tr("Unsaved changes indicator"));
 
-    _unsaved->setVisible(false); // Hidden by default!
+    _unsaved->setVisible(false);
 
     addPermanentWidget(_ocrLang);
     addPermanentWidget(_encoding);
@@ -54,73 +85,78 @@ StatusBar::StatusBar(QWidget* parent) : QStatusBar(parent) {
     addPermanentWidget(_pageSize);
     addPermanentWidget(_docInfo);
     addPermanentWidget(_unsaved);
+
+    // Wire jump-to-page
+    connect(_pageSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int value) {
+        emit jumpToPageRequested(value - 1);  // Convert 1-based display to 0-based index
+    });
 }
 
-void StatusBar::setMode(const QString& m)    { _mode->setText("MODE " + m.toUpper()); }
-void StatusBar::setTool(const QString& t)    { _tool->setText("TOOL " + t.toUpper()); }
-void StatusBar::setPage(int c, int t)        { _page->setText(QString("PAGE %1/%2").arg(c, 3, 10, QChar('0')).arg(t, 3, 10, QChar('0'))); }
-void StatusBar::setZoom(int pct)             { _zoom->setText(QString("ZOOM %1%").arg(pct)); }
-void StatusBar::setSelection(const QString& s){ _sel->setText("SEL " + (s.isEmpty() ? QStringLiteral("—") : s)); }
-void StatusBar::setScreen(const QString& s)  { _screen->setText("SCREEN " + (s.isEmpty() ? QStringLiteral("STANDARD") : s.toUpper())); }
+void StatusBar::setMode(const QString& m)    { _mode->setText(tr("MODE %1").arg(m.toUpper())); }
+void StatusBar::setTool(const QString& t)    { _tool->setText(tr("TOOL %1").arg(t.toUpper())); }
+
+void StatusBar::setPage(int c, int t) {
+    _totalPages = t;
+    _pageSpinBox->blockSignals(true);
+    _pageSpinBox->setMaximum(qMax(1, t));
+    _pageSpinBox->setValue(qBound(1, c, qMax(1, t)));
+    _pageSpinBox->blockSignals(false);
+    _pageTotal->setText(QString("/ %1").arg(t));
+}
+
+void StatusBar::setZoom(int pct)             { _zoom->setText(tr("ZOOM %1%").arg(QLocale::system().toString(pct))); }
+void StatusBar::setSelection(const QString& s){ _sel->setText(tr("SEL %1").arg(s.isEmpty() ? QStringLiteral("—") : s)); }
+void StatusBar::setScreen(const QString& s)  { _screen->setText(tr("SCREEN %1").arg(s.isEmpty() ? tr("STANDARD") : s.toUpper())); }
 
 void StatusBar::updateDocData(QPdfDocument* doc, const QString& filePath) {
+    QLocale loc = QLocale::system();
     if (!doc || filePath.isEmpty()) {
-        _pdfVersion->setText("PDF --");
-        _pageSize->setText("A4 · --×--");
-        _docInfo->setText("0 P · 0.0 MB");
+        _pdfVersion->setText(tr("PDF --"));
+        _pageSize->setText(tr("A4 · --×--"));
+        _docInfo->setText(tr("0 P · 0.0 MB"));
         return;
     }
 
-    // 1. PDF version: Parse from the first 8 bytes of the file
-    QString versionStr = "PDF 1.7"; // default fallback
+    QString versionStr = QStringLiteral("PDF 1.7");
     QFile file(filePath);
     if (file.open(QIODevice::ReadOnly)) {
         QByteArray header = file.read(8);
         if (header.startsWith("%PDF-")) {
-            versionStr = "PDF " + QString::fromLatin1(header.mid(5).trimmed());
+            versionStr = QStringLiteral("PDF ") + QString::fromLatin1(header.mid(5).trimmed());
         }
         file.close();
     }
     _pdfVersion->setText(versionStr);
 
-    // 2. Page Size:
-    QSizeF sz = doc->pagePointSize(0); // in points
-    QString sizeName = "Custom";
+    QSizeF sz = doc->pagePointSize(0);
+    QString sizeName = tr("Custom");
     int w = qRound(sz.width());
     int h = qRound(sz.height());
-    
-    // Page dimension tolerances
-    if ((w >= 590 && w <= 600 && h >= 835 && h <= 847) || 
-        (w >= 835 && w <= 847 && h >= 590 && h <= 600)) {
-        sizeName = "A4";
-    } else if ((w >= 605 && w <= 618 && h >= 785 && h <= 798) || 
-               (w >= 785 && w <= 798 && h >= 605 && h <= 618)) {
-        sizeName = "Letter";
-    } else if ((w >= 605 && w <= 618 && h >= 1000 && h <= 1015) || 
-               (w >= 1000 && w <= 1015 && h >= 605 && h <= 618)) {
-        sizeName = "Legal";
-    }
-    
-    _pageSize->setText(QString("%1 · %2×%3").arg(sizeName).arg(w).arg(h));
 
-    // 3. Document Info:
+    if ((w >= 590 && w <= 600 && h >= 835 && h <= 847) ||
+        (w >= 835 && w <= 847 && h >= 590 && h <= 600)) {
+        sizeName = QStringLiteral("A4");
+    } else if ((w >= 605 && w <= 618 && h >= 785 && h <= 798) ||
+               (w >= 785 && w <= 798 && h >= 605 && h <= 618)) {
+        sizeName = tr("Letter");
+    } else if ((w >= 605 && w <= 618 && h >= 1000 && h <= 1015) ||
+               (w >= 1000 && w <= 1015 && h >= 605 && h <= 618)) {
+        sizeName = tr("Legal");
+    }
+
+    _pageSize->setText(tr("%1 · %2×%3").arg(sizeName).arg(loc.toString(w)).arg(loc.toString(h)));
+
     int pages = doc->pageCount();
     QFileInfo fi(filePath);
     qint64 size = fi.size();
-    QString sizeStr;
-    if (size < 1024)
-        sizeStr = QStringLiteral("%1 B").arg(size);
-    else if (size < 1024 * 1024)
-        sizeStr = QStringLiteral("%1 KB").arg(size / 1024.0, 0, 'f', 1);
-    else
-        sizeStr = QStringLiteral("%1 MB").arg(size / (1024.0 * 1024.0), 0, 'f', 1);
+    QString sizeStr = loc.formattedDataSize(size, 1, QLocale::DataSizeTraditionalFormat);
 
-    _docInfo->setText(QString("%1 P · %2").arg(pages).arg(sizeStr));
+    _docInfo->setText(tr("%1 P · %2").arg(loc.toString(pages)).arg(sizeStr));
 }
 
 void StatusBar::updateUnsaved(bool dirty) {
     if (dirty) {
-        _unsaved->setText("● 1 UNSAVED");
+        _unsaved->setText(tr("● 1 UNSAVED"));
         _unsaved->setProperty("state", "unsaved");
         _unsaved->style()->unpolish(_unsaved);
         _unsaved->style()->polish(_unsaved);
@@ -134,11 +170,12 @@ void StatusBar::updateUnsaved(bool dirty) {
 }
 
 void StatusBar::updateFromDocument(IPdfEditorEngine* engine, const QString& filePath) {
+    QLocale loc = QLocale::system();
     if (!engine || filePath.isEmpty()) {
         _ocrLang->setVisible(false);
-        _pdfVersion->setText("PDF --");
-        _pageSize->setText("A4 · --×--");
-        _docInfo->setText("0 P · 0.0 MB");
+        _pdfVersion->setText(tr("PDF --"));
+        _pageSize->setText(tr("A4 · --×--"));
+        _docInfo->setText(tr("0 P · 0.0 MB"));
         _unsaved->setVisible(false);
         return;
     }
@@ -146,65 +183,54 @@ void StatusBar::updateFromDocument(IPdfEditorEngine* engine, const QString& file
     auto* mainWindow = qobject_cast<MainWindow*>(parentWidget());
     auto* viewer = mainWindow ? mainWindow->pdfViewer() : nullptr;
 
-    // 1. OCR Languages
     if (viewer) {
-        _ocrLang->setText("OCR · EN");
+        _ocrLang->setText(tr("OCR · EN"));
         _ocrLang->setVisible(true);
     } else {
         _ocrLang->setVisible(false);
     }
 
-    // 2. Encoding
-    _encoding->setText("UTF-8");
+    _encoding->setText(tr("UTF-8"));
 
-    // 3. PDF Version
-    QString versionStr = "PDF 1.7";
+    QString versionStr = QStringLiteral("PDF 1.7");
     QFile file(filePath);
     if (file.open(QIODevice::ReadOnly)) {
         QByteArray header = file.read(8);
         if (header.startsWith("%PDF-")) {
-            versionStr = "PDF " + QString::fromLatin1(header.mid(5).trimmed());
+            versionStr = QStringLiteral("PDF ") + QString::fromLatin1(header.mid(5).trimmed());
         }
         file.close();
     }
     _pdfVersion->setText(versionStr);
 
-    // 4. Page Size from the current active page
     if (viewer && viewer->document()) {
         int currentPage = viewer->currentPage();
         QSizeF sz = viewer->document()->pagePointSize(currentPage);
-        QString sizeName = "Custom";
+        QString sizeName = tr("Custom");
         int w = qRound(sz.width());
         int h = qRound(sz.height());
-        
-        if ((w >= 590 && w <= 600 && h >= 835 && h <= 847) || 
-            (w >= 835 && w <= 847 && h >= 590 && h <= 600)) {
-            sizeName = "A4";
-        } else if ((w >= 605 && w <= 618 && h >= 785 && h <= 798) || 
-                   (w >= 785 && w <= 798 && h >= 605 && h <= 618)) {
-            sizeName = "Letter";
-        } else if ((w >= 605 && w <= 618 && h >= 1000 && h <= 1015) || 
-                   (w >= 1000 && w <= 1015 && h >= 605 && h <= 618)) {
-            sizeName = "Legal";
-        }
-        _pageSize->setText(QString("%1 · %2×%3").arg(sizeName).arg(w).arg(h));
 
-        // 5. Doc Info
+        if ((w >= 590 && w <= 600 && h >= 835 && h <= 847) ||
+            (w >= 835 && w <= 847 && h >= 590 && h <= 600)) {
+            sizeName = QStringLiteral("A4");
+        } else if ((w >= 605 && w <= 618 && h >= 785 && h <= 798) ||
+                   (w >= 785 && w <= 798 && h >= 605 && h <= 618)) {
+            sizeName = tr("Letter");
+        } else if ((w >= 605 && w <= 618 && h >= 1000 && h <= 1015) ||
+                   (w >= 1000 && w <= 1015 && h >= 605 && h <= 618)) {
+            sizeName = tr("Legal");
+        }
+        _pageSize->setText(tr("%1 · %2×%3").arg(sizeName).arg(loc.toString(w)).arg(loc.toString(h)));
+
         int pages = viewer->pageCount();
         QFileInfo fi(filePath);
         qint64 size = fi.size();
-        QString sizeStr;
-        if (size < 1024)
-            sizeStr = QStringLiteral("%1 B").arg(size);
-        else if (size < 1024 * 1024)
-            sizeStr = QStringLiteral("%1 KB").arg(size / 1024.0, 0, 'f', 1);
-        else
-            sizeStr = QStringLiteral("%1 MB").arg(size / (1024.0 * 1024.0), 0, 'f', 1);
+        QString sizeStr = loc.formattedDataSize(size, 1, QLocale::DataSizeTraditionalFormat);
 
-        _docInfo->setText(QString("%1 P · %2").arg(pages).arg(sizeStr));
+        _docInfo->setText(tr("%1 P · %2").arg(loc.toString(pages)).arg(sizeStr));
     } else {
-        _pageSize->setText("A4 · --×--");
-        _docInfo->setText("0 P · 0.0 MB");
+        _pageSize->setText(tr("A4 · --×--"));
+        _docInfo->setText(tr("0 P · 0.0 MB"));
     }
 }
 

@@ -34,6 +34,32 @@ static QByteArray hexUpper(const QByteArray &data)
     return data.toHex().toUpper();
 }
 
+// RAII deleter for OpenSSL EVP_PKEY so the key is freed on every exit path
+// (including thrown exceptions). Added per audit 2026-05-23.
+namespace {
+struct EvpPkeyDeleter {
+    void operator()(EVP_PKEY *p) const noexcept { if (p) EVP_PKEY_free(p); }
+};
+using EvpPkeyPtr = std::unique_ptr<EVP_PKEY, EvpPkeyDeleter>;
+
+// Additional RAII guards for OpenSSL objects used inside validateSignatures
+// — protects against leaks if CMS_verify or any inner call throws (Fix J).
+struct X509StoreDeleter {
+    void operator()(X509_STORE *s) const noexcept { if (s) X509_STORE_free(s); }
+};
+using X509StorePtr = std::unique_ptr<X509_STORE, X509StoreDeleter>;
+
+struct BioDeleter {
+    void operator()(BIO *b) const noexcept { if (b) BIO_free(b); }
+};
+using BioPtr = std::unique_ptr<BIO, BioDeleter>;
+
+struct CmsContentInfoDeleter {
+    void operator()(CMS_ContentInfo *c) const noexcept { if (c) CMS_ContentInfo_free(c); }
+};
+using CmsContentInfoPtr = std::unique_ptr<CMS_ContentInfo, CmsContentInfoDeleter>;
+} // namespace
+
 // ---------------------------------------------------------------------------
 class SignatureManager::Private
 {
@@ -143,7 +169,8 @@ public:
         // Chain: collect all CA certs
         certChain.clear();
         if (ca) {
-            for (int i = 0; i < sk_X509_num(ca); ++i) {
+            const int numCa = sk_X509_num(ca);
+            for (int i = 0; i < numCa; ++i) {
                 X509 *caCert = sk_X509_value(ca, i);
                 int caLen = i2d_X509(caCert, nullptr);
                 QByteArray caDer(caLen, '\0');
@@ -152,7 +179,18 @@ public:
                 certChain.append(caDer);
                 if (issuerCert && i == 0) *issuerCert = caCert;
             }
-            if (!issuerCert) sk_X509_pop_free(ca, X509_free);
+            if (issuerCert) {
+                // Caller takes ownership of element 0 (issuer); free the rest
+                // plus the container itself to avoid leaking the stack and
+                // the non-issuer CA certs (audit Fix I).
+                for (int i = 1; i < numCa; ++i) {
+                    X509 *extra = sk_X509_value(ca, i);
+                    if (extra) X509_free(extra);
+                }
+                sk_X509_free(ca);
+            } else {
+                sk_X509_pop_free(ca, X509_free);
+            }
         }
         // Add leaf cert to chain
         certChain.prepend(QByteArray(certData.data(), static_cast<int>(certData.size())));
@@ -282,6 +320,10 @@ public:
             // /VRI keyed by uppercase hex SHA-1 of /Contents bytes
             if (!sigContentsHex.isEmpty()) {
                 // SHA-1 of the raw /Contents octets (the hex-decoded bytes)
+                // TODO(audit-2026-05-23): remove hex round-trip in VRI key construction.
+                // extractSignatureContentsHex() currently emits hex; we decode here only to re-hash.
+                // Refactor extractSignatureContentsHex to return raw bytes and update buildDssDictionary's
+                // parameter type (touches function signature, deferred from small-fix sweep).
                 QByteArray contentsBytes = QByteArray::fromHex(sigContentsHex);
                 QByteArray sha1 = QCryptographicHash::hash(contentsBytes, QCryptographicHash::Sha1);
                 QString vriKey = QString::fromLatin1(hexUpper(sha1));
@@ -389,8 +431,10 @@ public:
                 }
                 void ComputeSignature(charbuff &contents, bool dryrun) override {
                     if (dryrun) {
-                        // Reserve 8 KB for the token placeholder
-                        contents.assign(8192, '\0');
+                        // Reserve 16 KB for the token placeholder. TSA tokens with
+                        // multi-cert chains can exceed 8 KB; B-LTA would fail silently
+                        // (audit 2026-05-23).
+                        contents.assign(16384, '\0');
                         return;
                     }
                     QByteArray digest = QCryptographicHash::hash(
@@ -434,7 +478,11 @@ public:
                     }
                 }
             }
-        } catch (...) {}
+        } catch (const std::exception& e) {
+            qWarning() << __func__ << "swallowed exception:" << e.what();
+        } catch (...) {
+            qWarning() << __func__ << "swallowed unknown exception";
+        }
         return {};
     }
 };
@@ -459,24 +507,26 @@ bool SignatureManager::signDocument(const QString &inputPath,
         doc.Load(inputPath.toStdString());
 
         charbuff certData;
-        EVP_PKEY *pkey = nullptr;
+        EVP_PKEY *pkeyRaw = nullptr;
         QList<QByteArray> certChain;
         X509 *leafCert = nullptr, *issuerCert = nullptr;
 
-        if (!d->loadP12(certPath, password, certData, &pkey, certChain, &leafCert, &issuerCert)) {
+        if (!d->loadP12(certPath, password, certData, &pkeyRaw, certChain, &leafCert, &issuerCert)) {
             qWarning() << "Failed to load P12 certificate";
             return false;
         }
+        // RAII guard: ensures EVP_PKEY_free runs on every exit path, including
+        // exceptions thrown by PoDoFo while we still own the key.
+        EvpPkeyPtr pkey(pkeyRaw);
 
         PdfSignerCmsParams params;
         params.Hashing = PdfHashingAlgorithm::SHA256;
 
-        int pkeyLen = i2d_PrivateKey(pkey, nullptr);
+        int pkeyLen = i2d_PrivateKey(pkey.get(), nullptr);
         charbuff pkeyData(pkeyLen);
         unsigned char *p = reinterpret_cast<unsigned char*>(pkeyData.data());
-        i2d_PrivateKey(pkey, &p);
-        EVP_PKEY_free(pkey);
-        pkey = nullptr;
+        i2d_PrivateKey(pkey.get(), &p);
+        pkey.reset();
 
         PdfSignerCms actualSigner(certData, pkeyData, params);
         OPENSSL_cleanse(pkeyData.data(), pkeyData.size());
@@ -513,6 +563,13 @@ bool SignatureManager::signDocument(const QString &inputPath,
         SignDocument(doc, outputStream, actualSigner, *signature);
 
         // ----------------------------------------------------------------
+        // B-LT / B-LTA outcome tracking — bytes are written, but DSS / TSA
+        // failures structurally weaken the long-term-validation badge.
+        // Callers MUST be informed so the UI does not falsely claim B-LT/LTA.
+        // ----------------------------------------------------------------
+        bool overallOk = true;
+
+        // ----------------------------------------------------------------
         // B-LT: build DSS dictionary with OCSP/certs
         // ----------------------------------------------------------------
         if (d->level >= PAdESLevel::B_LT) {
@@ -525,8 +582,18 @@ bool SignatureManager::signDocument(const QString &inputPath,
                 if (!ocsp.isEmpty()) ocsps.append(ocsp);
             }
 
+            if (!ocsps.isEmpty()) {
+                qWarning() << "SignatureManager: OCSP response embedded into DSS without OCSP_basic_verify "
+                           << "(audit 2026-05-23). Trusts responder solely on TLS — strengthen before PAdES B-LT compliance review.";
+            }
+
             bool dssOk = d->buildDssDictionary(outputPath, certChain, ocsps, {}, contentsHex);
-            if (!dssOk) qWarning() << "B-LT: DSS dictionary build failed (signing still complete)";
+            if (!dssOk) {
+                overallOk = false;
+                qWarning() << "B-LT: DSS dictionary build failed — signature bytes written but long-term-validation"
+                           << "data is INCOMPLETE. The caller MUST inform the user that the B-LT badge is structurally"
+                           << "weakened and revocation data may be missing.";
+            }
         }
 
         // Cleanup X509 objects
@@ -537,11 +604,15 @@ bool SignatureManager::signDocument(const QString &inputPath,
         // B-LTA: document timestamp over DSS-augmented file
         // ----------------------------------------------------------------
         if (d->level >= PAdESLevel::B_LTA) {
-            if (!d->addDocTimestamp(outputPath))
-                qWarning() << "B-LTA: document timestamp failed (B-LT complete)";
+            if (!d->addDocTimestamp(outputPath)) {
+                overallOk = false;
+                qWarning() << "B-LTA: document timestamp failed — signature bytes written but archival timestamp"
+                           << "is MISSING. The caller MUST inform the user that B-LTA archival assurances are not"
+                           << "in effect for this document.";
+            }
         }
 
-        return true;
+        return overallOk;
     } catch (const PdfError &e) {
         qWarning() << "PoDoFo error during signing:" << e.what();
         return false;
@@ -674,11 +745,18 @@ QList<SignatureInfo> SignatureManager::validateSignatures(const QString &filePat
                 BIO_free(cmsBio);
 
                 if (cms) {
-                    BIO *contentBio = BIO_new_mem_buf(signedData.data(), signedData.size());
-                    X509_STORE *store = X509_STORE_new();
-                    X509_STORE_set_default_paths(store);
+                    // RAII guards — ensure OpenSSL objects are freed even if
+                    // CMS_verify or any inner call throws (Fix J, audit 2026-05-23).
+                    CmsContentInfoPtr cmsGuard(cms);
+                    BioPtr contentBio(BIO_new_mem_buf(signedData.data(), signedData.size()));
+                    X509StorePtr store(X509_STORE_new());
+                    if (store) X509_STORE_set_default_paths(store.get());
 
-                    if (CMS_verify(cms, nullptr, store, contentBio, nullptr,
+                    qWarning() << "SignatureManager::validateSignatures using X509_STORE_set_default_paths with no "
+                               << "X509_VERIFY_PARAM strictness flags, no signing-time check, no EKU enforcement "
+                               << "(audit 2026-05-23). PAdES long-term validity is structurally weaker than claimed.";
+
+                    if (CMS_verify(cms, nullptr, store.get(), contentBio.get(), nullptr,
                                    CMS_DETACHED | CMS_BINARY) == 1) {
                         info.isValid = true;
                         info.integrityIntact = true;
@@ -688,10 +766,7 @@ QList<SignatureInfo> SignatureManager::validateSignatures(const QString &filePat
                         info.integrityIntact = false;
                         info.trustStatus = "Invalid";
                     }
-
-                    X509_STORE_free(store);
-                    BIO_free(contentBio);
-                    CMS_ContentInfo_free(cms);
+                    // unique_ptrs auto-release on scope exit
                 }
             } catch (...) {
                 info.isValid = false;

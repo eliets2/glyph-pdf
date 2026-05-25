@@ -27,6 +27,8 @@ ThumbnailSidebar::ThumbnailSidebar(QWidget* parent)
 {
     setObjectName("thumbnailSidebar");
     setAcceptDrops(true);
+    setAccessibleName(tr("Page thumbnails"));
+    setAccessibleDescription(tr("Thumbnail preview of document pages. Click to navigate, drag to reorder."));
 
     auto* mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);
@@ -41,8 +43,9 @@ ThumbnailSidebar::ThumbnailSidebar(QWidget* parent)
     tbLayout->setContentsMargins(12, 0, 8, 0);
     tbLayout->setSpacing(4);
 
-    m_pageCountLabel = new QLabel(QStringLiteral("PAGES \xC2\xB7 0"));
+    m_pageCountLabel = new QLabel(tr("PAGES · 0"));
     m_pageCountLabel->setObjectName("thumbPageCountLabel");
+    m_pageCountLabel->setAccessibleName(tr("Page count"));
     tbLayout->addWidget(m_pageCountLabel);
     tbLayout->addStretch();
 

@@ -43,7 +43,18 @@ public:
     bool addHeaderFooter(const QString &, const HeaderFooterOptions &) override { return m_loaded; }
     bool applyBatesNumbering(const QString &, const BatesNumberingOptions &) override { return m_loaded; }
 
+    // Watermarking & optimization (Session 13)
+    bool addTextWatermark(const TextWatermarkOptions &) override { return m_loaded; }
+    bool addImageWatermark(const ImageWatermarkOptions &) override { return m_loaded; }
+    OptimizeEstimate estimateOptimization(const OptimizeOptions &) override { return OptimizeEstimate{}; }
+    bool optimizeDocument(const QString &, const OptimizeOptions &) override { return m_loaded; }
+
+    // Error reporting (Session 16)
+    ErrorInfo lastError() const override { return m_lastError; }
+    void clearError() override { m_lastError = ErrorInfo{}; }
+
     // Test helpers
+    mutable ErrorInfo m_lastError;
     bool m_loaded = false;
     bool m_sanitizeResult = true;
     int m_sanitizeCalls = 0;

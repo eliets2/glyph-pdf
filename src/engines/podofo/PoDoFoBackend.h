@@ -72,6 +72,14 @@ public:
     bool replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath);
     bool deleteImage(int pageIndex, const QString &xobjectName);
 
+    // Watermarking (Session 13)
+    bool addTextWatermark(const TextWatermarkOptions &options);
+    bool addImageWatermark(const ImageWatermarkOptions &options);
+
+    // Optimization (Session 13)
+    OptimizeEstimate estimateOptimization(const OptimizeOptions &options);
+    bool optimizeDocument(const QString &outputPath, const OptimizeOptions &options);
+
 private:
     class Private;
     std::unique_ptr<Private> d;

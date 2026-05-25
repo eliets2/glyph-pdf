@@ -23,7 +23,7 @@ SignaturesPanel::SignaturesPanel(QWidget* parent) : QFrame(parent) {
 
     auto* head = new QFrame; head->setProperty("role","modeToolbar"); head->setFixedHeight(32);
     auto* hr = new QHBoxLayout(head); hr->setContentsMargins(10,0,10,0);
-    auto* t = new QLabel("SIGN DOCUMENT"); t->setStyleSheet("font-weight:600;letter-spacing:1.2px;");
+    auto* t = new QLabel(tr("SIGN DOCUMENT")); t->setStyleSheet("font-weight:600;letter-spacing:1.2px;");
     hr->addWidget(t); hr->addStretch(1);
     outer->addWidget(head);
 
@@ -40,15 +40,15 @@ SignaturesPanel::SignaturesPanel(QWidget* parent) : QFrame(parent) {
     idLay->setLabelAlignment(Qt::AlignRight);
     auto monoVal = [](const QString& v) { auto* l = new QLabel(v); l->setProperty("mono", true); return l; };
     auto monoKey = [](const QString& k) { auto* l = new QLabel(k); l->setProperty("mono", true); l->setStyleSheet("color:#71747a;"); return l; };
-    idLay->addRow(monoKey("SUBJECT"),    monoVal("Elie Matta"));
-    idLay->addRow(monoKey("ISSUER"),     monoVal("GlobalSign CA"));
-    idLay->addRow(monoKey("EXPIRES"),    monoVal("2027-03-14"));
-    idLay->addRow(monoKey("ALGORITHM"),  monoVal("RSA-2048"));
-    idLay->addRow(monoKey("FINGERPRINT"),monoVal("A8:F2:31:8E:…"));
+    idLay->addRow(monoKey(tr("SUBJECT")),    monoVal("Elie Matta"));
+    idLay->addRow(monoKey(tr("ISSUER")),     monoVal("GlobalSign CA"));
+    idLay->addRow(monoKey(tr("EXPIRES")),    monoVal("2027-03-14"));
+    idLay->addRow(monoKey(tr("ALGORITHM")),  monoVal("RSA-2048"));
+    idLay->addRow(monoKey(tr("FINGERPRINT")),monoVal("A8:F2:31:8E:…"));
     auto* badgeRow = new QHBoxLayout;
     badgeRow->addWidget(new Badge("✓ VALID", Badge::Ok));
     badgeRow->addStretch(1);
-    auto* chainLab = new QLabel("CHAIN OK · TRUSTED");
+    auto* chainLab = new QLabel(tr("CHAIN OK · TRUSTED"));
     chainLab->setProperty("mono", true);
     badgeRow->addWidget(chainLab);
     idLay->addRow(badgeRow);
@@ -79,18 +79,18 @@ SignaturesPanel::SignaturesPanel(QWidget* parent) : QFrame(parent) {
     appLay->addWidget(preview);
 
     auto* layoutRow = new QHBoxLayout;
-    layoutRow->addWidget(new QRadioButton("Name + Details"));
-    layoutRow->addWidget(new QRadioButton("Name Only"));
+    layoutRow->addWidget(new QRadioButton(tr("Name + Details")));
+    layoutRow->addWidget(new QRadioButton(tr("Name Only")));
     appLay->addLayout(layoutRow);
 
     auto* form = new QFormLayout;
-    form->addRow("Reason",   new QLineEdit("Approved for distribution"));
-    form->addRow("Location", new QLineEdit("Berlin, DE"));
-    form->addRow("Contact",  new QLineEdit("em@glyph.example"));
+    form->addRow(tr("Reason"),   new QLineEdit(tr("Approved for distribution")));
+    form->addRow(tr("Location"), new QLineEdit(tr("Berlin, DE")));
+    form->addRow(tr("Contact"),  new QLineEdit("em@glyph.example"));
     appLay->addLayout(form);
     col->addWidget(appCard);
 
-    auto* place = new QPushButton("Place Signature →");
+    auto* place = new QPushButton(tr("Place Signature →"));
     place->setStyleSheet(
         "QPushButton{background:#ff8c42;color:#1a1b1e;border:1px solid #ff8c42;"
         "font-weight:700;letter-spacing:0.6px;padding:10px 14px;}"

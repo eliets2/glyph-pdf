@@ -1,6 +1,11 @@
 #include "engines/RenderCache.h"
 #include <QtConcurrent>
 #include <QFuture>
+#include <QDebug>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
 
 #ifdef HAS_PDFIUM
 #include "engines/pdfium/PdfiumBackend.h"
@@ -87,6 +92,25 @@ int RenderCache::pageCount() const {
 }
 
 QImage RenderCache::getOrRender(int page, qreal scale, IPdfRenderer* renderer) {
+    // Memory guard: check pressure periodically
+    checkMemoryPressure();
+
+    // Auto-tile guard: if the page would exceed 50 MP, fall back to tiled
+    if (renderer && shouldAutoTile(page, scale, renderer)) {
+        qWarning() << "RenderCache: page" << page << "exceeds"
+                   << MemoryGuard::LargePageMegapixels << "MP at scale" << scale
+                   << "— rendering center tile only";
+        QSizeF pSize = pageSize(page, renderer);
+        double dpi = scale * 72.0;
+        double pxW = pSize.width() * dpi / 72.0;
+        double pxH = pSize.height() * dpi / 72.0;
+        // Render center tile
+        double tileW = qMin(static_cast<double>(MemoryGuard::TileSize), pxW);
+        double tileH = qMin(static_cast<double>(MemoryGuard::TileSize), pxH);
+        QRectF centerRect((pxW - tileW) / 2.0, (pxH - tileH) / 2.0, tileW, tileH);
+        return getOrRenderTile(page, scale, centerRect, renderer);
+    }
+
     RenderCacheKey key{page, scale, false, QRectF()};
 
     // 1. Try to read
@@ -301,4 +325,56 @@ void RenderCache::evictIfNeeded() {
 qint64 RenderCache::imageSizeInBytes(const QImage &image) const {
     if (image.isNull()) return 0;
     return image.sizeInBytes();
+}
+
+// ── Memory guards (Session 16 D5) ────────────────────────────────────────
+
+qint64 RenderCache::availableSystemMemory() {
+#ifdef Q_OS_WIN
+    MEMORYSTATUSEX statex;
+    statex.dwLength = sizeof(statex);
+    if (GlobalMemoryStatusEx(&statex))
+        return static_cast<qint64>(statex.ullAvailPhys);
+#endif
+    return -1; // Unknown
+}
+
+bool RenderCache::isSystemMemoryLow() const {
+    qint64 avail = availableSystemMemory();
+    if (avail < 0) return false; // Can't determine — assume OK
+    return avail < MemoryGuard::LowMemoryThreshold;
+}
+
+bool RenderCache::shouldAutoTile(int page, qreal scale, IPdfRenderer* renderer) {
+    QSizeF pSize = pageSize(page, renderer);
+    if (!pSize.isValid()) return false;
+
+    // Compute rendered pixel dimensions at the given scale
+    double dpi = scale * 72.0;
+    double pxW = pSize.width() * dpi / 72.0;
+    double pxH = pSize.height() * dpi / 72.0;
+    double megapixels = (pxW * pxH) / 1'000'000.0;
+
+    return megapixels > MemoryGuard::LargePageMegapixels;
+}
+
+void RenderCache::checkMemoryPressure() {
+    if (!isSystemMemoryLow()) return;
+
+    qWarning() << "RenderCache: system memory low (<"
+               << (MemoryGuard::LowMemoryThreshold / (1024*1024)) << "MB free)"
+               << "— aggressive eviction";
+
+    m_lock.lockForWrite();
+
+    // Aggressive eviction: shrink to AggressiveCacheLimit
+    while (m_totalBytes > MemoryGuard::AggressiveCacheLimit && !m_lruList.isEmpty()) {
+        RenderCacheKey oldestKey = m_lruList.takeLast();
+        if (m_renderedPages.contains(oldestKey)) {
+            m_totalBytes -= m_renderedPages.value(oldestKey).bytes;
+            m_renderedPages.remove(oldestKey);
+        }
+    }
+
+    m_lock.unlock();
 }

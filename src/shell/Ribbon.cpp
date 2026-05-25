@@ -18,6 +18,9 @@
 namespace gp {
 
 Ribbon::Ribbon(QWidget* parent) : QWidget(parent) {
+    setAccessibleName(tr("Ribbon toolbar"));
+    setAccessibleDescription(tr("Main toolbar with tool groups organized in tabs"));
+
     auto* outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(0);
@@ -26,6 +29,8 @@ Ribbon::Ribbon(QWidget* parent) : QWidget(parent) {
     _tabs->setObjectName("ribbonTabs");
     _tabs->setExpanding(false);
     _tabs->setDrawBase(false);
+    _tabs->setFocusPolicy(Qt::TabFocus);
+    _tabs->setAccessibleName(tr("Ribbon tabs"));
     for (const auto& def : RibbonModel::tabs()) {
         _tabs->addTab(def.name);
     }
@@ -69,7 +74,17 @@ QToolButton* Ribbon::makeTool(const QString& id, const QString& label,
     btn->setProperty("size",   big ? "big" : "row");
     btn->setProperty("toolId", id);
     btn->setAutoRaise(true);
-    btn->setCheckable(false); // we handle active via the "active" property + repaint
+    btn->setCheckable(false);
+    btn->setFocusPolicy(Qt::TabFocus);
+    btn->setAccessibleName(label);
+    btn->setAccessibleDescription(tr("Activate %1 tool").arg(label));
+
+    // v1.0.0: Cloud Sync backend is a stub. Disable the ribbon entry so users
+    // cannot trigger the no-op flow. See SecurityController::cloudSyncSync.
+    if (id == QLatin1String("cloud")) {
+        btn->setEnabled(false);
+        btn->setToolTip(tr("Coming in a future release"));
+    }
     return btn;
 }
 

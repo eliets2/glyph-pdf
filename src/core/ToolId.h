@@ -13,6 +13,9 @@ enum class ToolId {
     Save,
     SaveAs,
     Print,
+    PrintPreview,
+    PageSetup,
+    ExportPresets,
     Share,
     Properties,
 

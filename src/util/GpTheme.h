@@ -1,12 +1,14 @@
 #pragma once
 #include <QColor>
 #include <QString>
+#include <QApplication>
+#include <QPalette>
 
 namespace gp {
 
 // Design tokens — single source of truth. Match HTML CSS vars exactly.
 struct Theme {
-    enum Mode { Dark, Light };
+    enum Mode { Dark, Light, HighContrast };
 
     // Spacing / metrics
     static constexpr int MenuBarH    = 26;
@@ -25,19 +27,18 @@ struct Theme {
     static constexpr int IconMd      = 16;
     static constexpr int IconLg      = 22;
 
-    // Dark tokens
-    static QColor bg0()         { return current() == Dark ? QColor("#1a1b1e") : QColor("#bdb8ad"); }
-    static QColor bg1()         { return current() == Dark ? QColor("#1e1f22") : QColor("#e9e6dd"); }
-    static QColor bg2()         { return current() == Dark ? QColor("#2b2d30") : QColor("#d8d5cb"); }
-    static QColor bg3()         { return current() == Dark ? QColor("#34363b") : QColor("#cac6bb"); }
-    static QColor bg4()         { return current() == Dark ? QColor("#3d4046") : QColor("#b8b4a8"); }
-    static QColor line()        { return current() == Dark ? QColor("#393b40") : QColor("#b0aca0"); }
-    static QColor lineStrong()  { return current() == Dark ? QColor("#4a4d52") : QColor("#8a8678"); }
-    static QColor fg0()         { return current() == Dark ? QColor("#dfe1e5") : QColor("#1a1b1e"); }
-    static QColor fg1()         { return current() == Dark ? QColor("#a8abb0") : QColor("#454650"); }
-    static QColor fg2()         { return current() == Dark ? QColor("#71747a") : QColor("#6e6f78"); }
-    static QColor fg3()         { return current() == Dark ? QColor("#52555a") : QColor("#9c9a90"); }
-    static QColor accent()      { return current() == Dark ? QColor("#ff8c42") : QColor("#c25a18"); }
+    static QColor bg0()         { return current() == HighContrast ? QColor("#000000") : current() == Dark ? QColor("#1a1b1e") : QColor("#bdb8ad"); }
+    static QColor bg1()         { return current() == HighContrast ? QColor("#000000") : current() == Dark ? QColor("#1e1f22") : QColor("#e9e6dd"); }
+    static QColor bg2()         { return current() == HighContrast ? QColor("#1a1a1a") : current() == Dark ? QColor("#2b2d30") : QColor("#d8d5cb"); }
+    static QColor bg3()         { return current() == HighContrast ? QColor("#2a2a2a") : current() == Dark ? QColor("#34363b") : QColor("#cac6bb"); }
+    static QColor bg4()         { return current() == HighContrast ? QColor("#3a3a3a") : current() == Dark ? QColor("#3d4046") : QColor("#b8b4a8"); }
+    static QColor line()        { return current() == HighContrast ? QColor("#ffffff") : current() == Dark ? QColor("#393b40") : QColor("#b0aca0"); }
+    static QColor lineStrong()  { return current() == HighContrast ? QColor("#ffffff") : current() == Dark ? QColor("#4a4d52") : QColor("#8a8678"); }
+    static QColor fg0()         { return current() == HighContrast ? QColor("#ffffff") : current() == Dark ? QColor("#dfe1e5") : QColor("#1a1b1e"); }
+    static QColor fg1()         { return current() == HighContrast ? QColor("#ffffff") : current() == Dark ? QColor("#a8abb0") : QColor("#454650"); }
+    static QColor fg2()         { return current() == HighContrast ? QColor("#e0e0e0") : current() == Dark ? QColor("#71747a") : QColor("#6e6f78"); }
+    static QColor fg3()         { return current() == HighContrast ? QColor("#c0c0c0") : current() == Dark ? QColor("#52555a") : QColor("#9c9a90"); }
+    static QColor accent()      { return current() == HighContrast ? QColor("#ffff00") : current() == Dark ? QColor("#ff8c42") : QColor("#c25a18"); }
     static QColor accentDim()   { auto c = accent(); c.setAlpha(0x22); return c; }
     static QColor highlight()   { return QColor("#f4d03f"); }
     static QColor note()        { return QColor("#ff6b8a"); }
@@ -54,8 +55,21 @@ struct Theme {
     static Mode  current()      { return mode(); }
 
     // QSS resource paths
-    static QString darkSheet()  { return QStringLiteral(":/resources/theme_dark.qss"); }
-    static QString lightSheet() { return QStringLiteral(":/resources/theme_light.qss"); }
+    static QString darkSheet()         { return QStringLiteral(":/resources/theme_dark.qss"); }
+    static QString lightSheet()        { return QStringLiteral(":/resources/theme_light.qss"); }
+    static QString highContrastSheet() { return QStringLiteral(":/resources/theme_highcontrast.qss"); }
+
+    static bool isSystemHighContrast() {
+        QPalette p = QApplication::palette();
+        int bgLum = p.color(QPalette::Window).lightness();
+        int fgLum = p.color(QPalette::WindowText).lightness();
+        return qAbs(fgLum - bgLum) > 200;
+    }
+
+    static QString sheetForMode(Mode m) {
+        if (m == HighContrast) return highContrastSheet();
+        return m == Dark ? darkSheet() : lightSheet();
+    }
 
 private:
     static Mode& mode() { static Mode m = Dark; return m; }

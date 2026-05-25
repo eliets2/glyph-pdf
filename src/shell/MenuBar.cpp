@@ -1,11 +1,14 @@
 #include "MenuBar.h"
 #include "GpMainWindow.h"
 #include "ui/PdfViewerWidget.h"
+#include "ui/ShortcutHelpDialog.h"
+#include "ui/PreferencesDialog.h"
 #include <QAction>
 #include <QMenu>
 #include <QMessageBox>
 #include <QApplication>
 #include <QFileInfo>
+#include <QSettings>
 
 namespace gp {
 
@@ -57,21 +60,11 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
                        "<p>Powered by C++17, Qt 6.10.2, and PoDoFo.</p>"
                        "<p>&copy; 2026 Glyph Inc. All rights reserved.</p>"));
             } else if (toolId == "shortcuts") {
-                QMessageBox::information(mainWindow, tr("Keyboard Shortcuts"), 
-                    tr("<b>Ctrl+O</b>: Open Document<br>"
-                       "<b>Ctrl+S</b>: Save Document<br>"
-                       "<b>Ctrl+Shift+S</b>: Save As<br>"
-                       "<b>Ctrl+W</b>: Close Document<br>"
-                       "<b>Ctrl+P</b>: Print Document<br>"
-                       "<b>Ctrl+F</b>: Find<br>"
-                       "<b>Ctrl+H</b>: Find & Replace<br>"
-                       "<b>Ctrl+Z</b>: Undo<br>"
-                       "<b>Ctrl+Y</b>: Redo<br>"
-                       "<b>Ctrl+=</b>: Zoom In<br>"
-                       "<b>Ctrl+-</b>: Zoom Out<br>"
-                       "<b>Ctrl+0</b>: Actual Size<br>"
-                       "<b>F11</b>: Full Screen<br>"
-                       "<b>Ctrl+/</b>: Keyboard Shortcuts"));
+                ShortcutHelpDialog dlg(mainWindow);
+                dlg.exec();
+            } else if (toolId == "preferences") {
+                PreferencesDialog dlg(mainWindow);
+                dlg.exec();
             } else {
                 mainWindow->onToolActivated(toolId);
             }
@@ -86,17 +79,20 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
     addActionToMenu(fileMenu, tr("&New Window"), "new-window");
     addActionToMenu(fileMenu, tr("&Open…"), "open", QKeySequence::Open);
     
-    auto* recentMenu = fileMenu->addMenu(tr("Open &Recent"));
-    auto* noRecentAct = recentMenu->addAction(tr("No Recent Documents"));
-    noRecentAct->setEnabled(false);
-    
+    m_recentMenu = fileMenu->addMenu(tr("Open &Recent"));
+    refreshRecentFiles();
+
     addActionToMenu(fileMenu, tr("&Close"), "close", QKeySequence::Close);
     fileMenu->addSeparator();
     addActionToMenu(fileMenu, tr("&Save"), "save", QKeySequence::Save);
     addActionToMenu(fileMenu, tr("Save &As…"), "saveAs", QKeySequence::SaveAs);
     addActionToMenu(fileMenu, tr("Save a &Copy…"), "save-copy");
     fileMenu->addSeparator();
+    addActionToMenu(fileMenu, tr("Print Pre&view…"), "printPreview");
+    addActionToMenu(fileMenu, tr("Page Set&up…"), "pageSetup");
     addActionToMenu(fileMenu, tr("&Print…"), "print", QKeySequence::Print);
+    fileMenu->addSeparator();
+    addActionToMenu(fileMenu, tr("E&xport Presets…"), "exportPresets");
     addActionToMenu(fileMenu, tr("&Share…"), "share");
     addActionToMenu(fileMenu, tr("Document &Properties…"), "properties");
     fileMenu->addSeparator();
@@ -253,6 +249,45 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
     addActionToMenu(helpMenu, tr("Check for &Updates…"), "updates");
     helpMenu->addSeparator();
     addActionToMenu(helpMenu, tr("&About Glyph PDF"), "about");
+}
+
+void MenuBar::refreshRecentFiles() {
+    if (!m_recentMenu) return;
+    m_recentMenu->clear();
+
+    auto* mainWindow = qobject_cast<MainWindow*>(parentWidget());
+    QSettings settings;
+    QStringList recent = settings.value("recentFiles").toStringList();
+
+    if (recent.isEmpty()) {
+        auto* act = m_recentMenu->addAction(tr("No Recent Documents"));
+        act->setEnabled(false);
+        return;
+    }
+
+    for (const QString& path : recent) {
+        QFileInfo fi(path);
+        QString label = fi.fileName();
+        if (label.isEmpty()) label = path;
+
+        auto* act = m_recentMenu->addAction(label);
+        act->setToolTip(path);
+        act->setStatusTip(path);
+        if (!fi.exists())
+            act->setEnabled(false);
+
+        connect(act, &QAction::triggered, mainWindow, [mainWindow, path]() {
+            if (mainWindow) mainWindow->openDocument(path);
+        });
+    }
+
+    m_recentMenu->addSeparator();
+    auto* clearAct = m_recentMenu->addAction(tr("Clear Recent Files"));
+    connect(clearAct, &QAction::triggered, this, [this]() {
+        QSettings s;
+        s.remove("recentFiles");
+        refreshRecentFiles();
+    });
 }
 
 } // namespace gp

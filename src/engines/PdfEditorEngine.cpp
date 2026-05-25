@@ -3,6 +3,8 @@
 #include "engines/podofo/PoDoFoBackend.h"
 #include "engines/qpdf/QpdfBackend.h"
 #include "engines/SignatureManager.h"
+#include "core/ErrorInfo.h"
+#include "core/TempFileManager.h"
 #include <QMutexLocker>
 #include <QRecursiveMutex>
 #include <QSettings>
@@ -16,10 +18,41 @@
 #include <openssl/err.h>
 #include <openssl/evp.h>
 
+// Collect the full OpenSSL error stack into a human-readable string.
+static QString opensslErrorString() {
+    QString result;
+    unsigned long err;
+    while ((err = ERR_get_error()) != 0) {
+        if (!result.isEmpty()) result += QLatin1String("; ");
+        result += QString::fromLatin1(ERR_reason_error_string(err));
+    }
+    return result.isEmpty() ? QStringLiteral("Unknown OpenSSL error") : result;
+}
+
 class PdfEditorEngine::Private {
 public:
     std::unique_ptr<PoDoFoBackend> backend;
     mutable QRecursiveMutex mutex;
+    mutable ErrorInfo lastErr;
+
+    void clearErr() const { lastErr = ErrorInfo{}; }
+
+    void setErr(ErrorInfo::Severity sev, const QString& msg,
+                const QString& tech = {}, ErrorInfo::SuggestedActions acts = ErrorInfo::None) const
+    {
+        lastErr.severity = sev;
+        lastErr.userMessage = msg;
+        lastErr.technicalDetails = tech;
+        lastErr.suggestedActions = acts;
+        lastErr.timestamp = QDateTime::currentDateTime();
+    }
+
+    bool noBackend(const char* method) const {
+        setErr(ErrorInfo::Error,
+               QObject::tr("No document is open for editing."),
+               QStringLiteral("Method: %1 — backend is null.").arg(QLatin1String(method)));
+        return false;
+    }
 };
 
 PdfEditorEngine::PdfEditorEngine() : d(std::make_unique<Private>()) {}
@@ -29,98 +62,147 @@ PdfEditorEngine::~PdfEditorEngine() = default;
 bool PdfEditorEngine::loadDocumentForEditing(const QString &filePath)
 {
     QMutexLocker locker(&d->mutex);
+    d->clearErr();
+
+    // D5: Warn for PDFs > 500 MB
+    QFileInfo fi(filePath);
+    if (fi.exists() && fi.size() > 500LL * 1024 * 1024) {
+        qWarning() << "PdfEditorEngine: large file" << fi.size() / (1024*1024) << "MB:" << filePath;
+        d->setErr(ErrorInfo::Warning,
+                  QObject::tr("This is a very large file (%1 MB). Loading and editing may be slow "
+                              "and use significant memory. Consider splitting the document first.")
+                      .arg(fi.size() / (1024 * 1024)),
+                  QStringLiteral("File size: %1 bytes").arg(fi.size()));
+        // Continue loading — this is just a warning
+    }
+
     auto* docBackend = BackendRouter::documentBackendFor(filePath);
-    if (!docBackend) return false;
+    if (!docBackend) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Could not find a suitable backend for this file."),
+                  QStringLiteral("BackendRouter::documentBackendFor returned null for: %1").arg(filePath),
+                  ErrorInfo::Retry);
+        return false;
+    }
 
     auto podofoBackend = std::unique_ptr<PoDoFoBackend>(dynamic_cast<PoDoFoBackend*>(docBackend));
-    if (!podofoBackend) return false;
+    if (!podofoBackend) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("The editing backend is not available."),
+                  QStringLiteral("dynamic_cast<PoDoFoBackend*> failed for: %1").arg(filePath));
+        return false;
+    }
 
     if (podofoBackend->loadDocument(filePath)) {
         d->backend = std::move(podofoBackend);
         return true;
     }
 
-    // PoDoFo load failed, attempt repair-on-open using QpdfBackend
+    // PoDoFo load failed — attempt structural repair via qpdf
     qWarning() << "PoDoFo failed to load" << filePath << "- attempting structural repair using qpdf...";
-    
-    QString tempPath;
-    {
-        QTemporaryFile tempFile;
-        tempFile.setAutoRemove(false);
-        if (tempFile.open()) {
-            tempPath = tempFile.fileName();
-        }
-    }
+
+    QString tempPath = TempFileManager::instance().createTempFile(".pdf");
 
     if (!tempPath.isEmpty()) {
         if (QpdfBackend::repair(filePath, tempPath)) {
             qWarning() << "qpdf successfully repaired" << filePath << "- loading repaired copy...";
-            
-            // Retry loading repaired copy in PoDoFo
+
             if (podofoBackend->loadDocument(tempPath)) {
-                podofoBackend->setCurrentFile(filePath); // Restore active session path to original
+                podofoBackend->setCurrentFile(filePath);
                 d->backend = std::move(podofoBackend);
+                TempFileManager::instance().untrack(tempPath);
                 QFile::remove(tempPath);
-                
-                // Warn the user through standard log levels
-                qWarning() << "WARNING: The document was damaged and has been repaired on load.";
+
+                d->setErr(ErrorInfo::Warning,
+                          QObject::tr("This document was damaged and has been automatically repaired. "
+                                      "Some content may have been lost. Save to a new file to preserve the repair."),
+                          QStringLiteral("qpdf --replace-input succeeded; PoDoFo loaded repaired copy."));
                 return true;
             }
         }
+        TempFileManager::instance().untrack(tempPath);
         QFile::remove(tempPath);
     }
 
+    d->setErr(ErrorInfo::Error,
+              QObject::tr("Unable to open this PDF. The file may be corrupted, password-protected, "
+                          "or not a valid PDF document."),
+              QStringLiteral("PoDoFo load failed, qpdf repair also failed for: %1").arg(filePath),
+              ErrorInfo::Retry);
+    d->lastErr.sourceFile = filePath;
     return false;
 }
 
 bool PdfEditorEngine::saveDocument(const QString &outputPath)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return false;
+    d->clearErr();
+    if (!d->backend) return d->noBackend("saveDocument");
 
     QSettings settings;
     bool linearizeRequested = settings.value("export/linearizeOnSave", false).toBool();
 
     if (linearizeRequested) {
-        QString tempPath;
-        {
-            QTemporaryFile tempFile;
-            tempFile.setAutoRemove(false);
-            if (tempFile.open()) {
-                tempPath = tempFile.fileName();
-            }
-        }
+        QString tempPath = TempFileManager::instance().createTempFile(".pdf");
 
-        if (tempPath.isEmpty()) return false;
-
-        // Save PoDoFo's work to the temp file first
-        if (!d->backend->saveDocument(tempPath)) {
-            QFile::remove(tempPath);
+        if (tempPath.isEmpty()) {
+            d->setErr(ErrorInfo::Error,
+                      QObject::tr("Could not create a temporary file for saving."),
+                      QStringLiteral("TempFileManager::createTempFile failed"),
+                      ErrorInfo::Retry);
             return false;
         }
 
-        // Validate signatures on the saved temp document
+        if (!d->backend->saveDocument(tempPath)) {
+            TempFileManager::instance().untrack(tempPath);
+            QFile::remove(tempPath);
+            d->setErr(ErrorInfo::Error,
+                      QObject::tr("Failed to save the document. The file may be read-only or the disk may be full."),
+                      QStringLiteral("PoDoFoBackend::saveDocument failed for temp path"),
+                      ErrorInfo::Retry);
+            return false;
+        }
+
         SignatureManager sigMgr;
         auto sigs = sigMgr.validateSignatures(tempPath);
         bool hasSignatures = !sigs.isEmpty();
 
         bool success = false;
         if (!hasSignatures) {
-            // Document has no digital signatures, safe to post-process/linearize
             success = QpdfBackend::linearize(tempPath, outputPath);
-        } else {
-            // Digital signatures present: skip QPDF post-processing, use direct copy
-            if (QFile::exists(outputPath)) {
-                QFile::remove(outputPath);
+            if (!success) {
+                d->setErr(ErrorInfo::Warning,
+                          QObject::tr("The document was saved but linearization failed. "
+                                      "The PDF will work but may load more slowly in web viewers."),
+                          QStringLiteral("QpdfBackend::linearize failed; fallback to direct copy."));
+                // Fallback: copy unlinearized
+                if (QFile::exists(outputPath)) QFile::remove(outputPath);
+                success = QFile::copy(tempPath, outputPath);
             }
+        } else {
+            if (QFile::exists(outputPath)) QFile::remove(outputPath);
             success = QFile::copy(tempPath, outputPath);
         }
 
+        TempFileManager::instance().untrack(tempPath);
         QFile::remove(tempPath);
+        if (!success) {
+            d->setErr(ErrorInfo::Error,
+                      QObject::tr("Failed to write the output file. Check that the destination is writable."),
+                      QStringLiteral("Output path: %1").arg(outputPath),
+                      ErrorInfo::Retry);
+        }
         return success;
     }
 
-    return d->backend->saveDocument(outputPath);
+    bool ok = d->backend->saveDocument(outputPath);
+    if (!ok) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to save the document. The file may be read-only or the disk may be full."),
+                  QStringLiteral("PoDoFoBackend::saveDocument failed for: %1").arg(outputPath),
+                  ErrorInfo::Retry);
+    }
+    return ok;
 }
 
 bool PdfEditorEngine::editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
@@ -129,89 +211,137 @@ bool PdfEditorEngine::editTextInline(int pageIndex, const QRectF &rect, const QS
                                      bool italic, int alignment)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return false;
-    // We pass the new parameters down to the backend. If backend doesn't support it yet, it will ignore it or we update it.
-    // For now we assume backend supports it, or we need to update backend interface as well.
-    return d->backend->editTextInline(pageIndex, rect, newText, fontFamily, fontSize, color, bold, italic, alignment);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("editTextInline");
+    bool ok = d->backend->editTextInline(pageIndex, rect, newText, fontFamily, fontSize, color, bold, italic, alignment);
+    if (!ok) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to edit text on page %1. The text region may be part of an image or scanned content.").arg(pageIndex + 1),
+                  QStringLiteral("editTextInline failed — page %1").arg(pageIndex));
+        d->lastErr.sourcePage = pageIndex;
+    }
+    return ok;
 }
 
 bool PdfEditorEngine::deleteObjectAt(int pageIndex, const QPointF &pos)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return false;
-    return d->backend->deleteObjectAt(pageIndex, pos);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("deleteObjectAt");
+    bool ok = d->backend->deleteObjectAt(pageIndex, pos);
+    if (!ok) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Could not delete the object at the specified position on page %1.").arg(pageIndex + 1),
+                  QStringLiteral("deleteObjectAt page %1, pos (%2, %3)").arg(pageIndex).arg(pos.x()).arg(pos.y()));
+        d->lastErr.sourcePage = pageIndex;
+    }
+    return ok;
 }
 
 bool PdfEditorEngine::linearizeDocument(const QString &outputPath)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return false;
-    return d->backend->linearizeDocument(outputPath);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("linearizeDocument");
+    bool ok = d->backend->linearizeDocument(outputPath);
+    if (!ok)
+        d->setErr(ErrorInfo::Warning,
+                  QObject::tr("Linearization (web optimization) failed. The document was saved without it."),
+                  QStringLiteral("linearizeDocument failed for: %1").arg(outputPath));
+    return ok;
 }
 
 bool PdfEditorEngine::exportPdfA(const QString &outputPath, int conformanceLevel)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return false;
-    return d->backend->exportPdfA(outputPath, conformanceLevel);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("exportPdfA");
+    bool ok = d->backend->exportPdfA(outputPath, conformanceLevel);
+    if (!ok)
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("PDF/A export failed. The document may contain features incompatible with the selected conformance level."),
+                  QStringLiteral("exportPdfA level=%1, path=%2").arg(conformanceLevel).arg(outputPath),
+                  ErrorInfo::Retry);
+    return ok;
 }
 
 bool PdfEditorEngine::encryptDocument(const QString &userPassword, const QString &ownerPassword, bool canPrint, bool canCopy, bool canModify)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return false;
-    return d->backend->encryptDocument(userPassword, ownerPassword, canPrint, canCopy, canModify);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("encryptDocument");
+    bool ok = d->backend->encryptDocument(userPassword, ownerPassword, canPrint, canCopy, canModify);
+    if (!ok)
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Encryption failed. The document may already be encrypted or contain signatures that prevent modification."),
+                  QStringLiteral("encryptDocument failed"),
+                  ErrorInfo::Retry);
+    return ok;
 }
 
 bool PdfEditorEngine::encryptWithCertificate(const QString &inputPath,
                                               const QString &outputPath,
                                               const QStringList &certPaths)
 {
+    d->clearErr();
+
     if (certPaths.isEmpty()) {
-        qWarning() << "encryptWithCertificate: no recipient certificates supplied";
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("No recipient certificates were provided for encryption."),
+                  QStringLiteral("certPaths is empty"));
         return false;
     }
 
-    // Load each recipient certificate
     STACK_OF(X509) *recipients = sk_X509_new_null();
-    if (!recipients) return false;
+    if (!recipients) {
+        d->setErr(ErrorInfo::Critical,
+                  QObject::tr("Failed to initialize the encryption subsystem."),
+                  QStringLiteral("sk_X509_new_null returned null — OpenSSL: %1").arg(opensslErrorString()),
+                  ErrorInfo::ExportLog);
+        return false;
+    }
 
     for (const QString &cp : certPaths) {
         QFile f(cp);
         if (!f.open(QIODevice::ReadOnly)) {
-            qWarning() << "encryptWithCertificate: cannot open cert" << cp;
+            d->setErr(ErrorInfo::Error,
+                      QObject::tr("Cannot read certificate file: %1").arg(QFileInfo(cp).fileName()),
+                      QStringLiteral("QFile::open failed for: %1").arg(cp),
+                      ErrorInfo::Retry);
             sk_X509_pop_free(recipients, X509_free);
             return false;
         }
         QByteArray data = f.readAll();
         const unsigned char *p = reinterpret_cast<const unsigned char*>(data.constData());
-        X509 *cert = nullptr;
-        // Try DER first, then PEM
-        cert = d2i_X509(nullptr, &p, data.size());
+        X509 *cert = d2i_X509(nullptr, &p, data.size());
         if (!cert) {
             BIO *bio = BIO_new_mem_buf(data.data(), data.size());
             cert = PEM_read_bio_X509(bio, nullptr, nullptr, nullptr);
             BIO_free(bio);
         }
         if (!cert) {
-            qWarning() << "encryptWithCertificate: failed to parse cert" << cp;
+            d->setErr(ErrorInfo::Error,
+                      QObject::tr("Invalid certificate: %1. The file must be a valid X.509 certificate in PEM or DER format.").arg(QFileInfo(cp).fileName()),
+                      QStringLiteral("d2i_X509 and PEM_read_bio_X509 both failed for: %1 — OpenSSL: %2").arg(cp, opensslErrorString()),
+                      ErrorInfo::Retry);
             sk_X509_pop_free(recipients, X509_free);
             return false;
         }
         sk_X509_push(recipients, cert);
     }
 
-    // Read input PDF
     QFile inFile(inputPath);
     if (!inFile.open(QIODevice::ReadOnly)) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Cannot read the input PDF for encryption."),
+                  QStringLiteral("QFile::open failed for: %1").arg(inputPath),
+                  ErrorInfo::Retry);
         sk_X509_pop_free(recipients, X509_free);
         return false;
     }
     QByteArray pdfData = inFile.readAll();
     inFile.close();
 
-    // CMS_encrypt wraps plaintext in an EnvelopedData structure
-    // AES-256-CBC per-recipient RSA-wrapped session key
     BIO *inBio = BIO_new_mem_buf(pdfData.data(), pdfData.size());
     CMS_ContentInfo *cms = CMS_encrypt(recipients, inBio,
                                        EVP_aes_256_cbc(),
@@ -220,17 +350,22 @@ bool PdfEditorEngine::encryptWithCertificate(const QString &inputPath,
     sk_X509_pop_free(recipients, X509_free);
 
     if (!cms) {
-        qWarning() << "encryptWithCertificate: CMS_encrypt failed:"
-                   << ERR_reason_error_string(ERR_get_error());
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Certificate-based encryption failed. The certificate may be expired, revoked, or incompatible."),
+                  QStringLiteral("CMS_encrypt failed — OpenSSL: %1").arg(opensslErrorString()),
+                  ErrorInfo::Retry | ErrorInfo::ExportLog);
         return false;
     }
 
-    // Write DER-encoded CMS envelope
     BIO *outBio = BIO_new(BIO_s_mem());
     if (!i2d_CMS_bio_stream(outBio, cms, inBio, CMS_BINARY)) {
-        qWarning() << "encryptWithCertificate: i2d_CMS_bio_stream failed";
+        QString sslErr = opensslErrorString();
         CMS_ContentInfo_free(cms);
         BIO_free(outBio);
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to encode the encrypted output."),
+                  QStringLiteral("i2d_CMS_bio_stream failed — OpenSSL: %1").arg(sslErr),
+                  ErrorInfo::ExportLog);
         return false;
     }
     CMS_ContentInfo_free(cms);
@@ -245,21 +380,33 @@ bool PdfEditorEngine::encryptWithCertificate(const QString &inputPath,
     }
     BIO_free(outBio);
 
-    if (!ok) qWarning() << "encryptWithCertificate: failed to write output" << outputPath;
+    if (!ok) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to write the encrypted file to disk."),
+                  QStringLiteral("Write failed for: %1").arg(outputPath),
+                  ErrorInfo::Retry);
+    }
     return ok;
 }
 
 bool PdfEditorEngine::sanitizeDocument(const QString &outputPath)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return false;
-    return d->backend->sanitizeDocument(outputPath);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("sanitizeDocument");
+    bool ok = d->backend->sanitizeDocument(outputPath);
+    if (!ok)
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Document sanitization failed."),
+                  QStringLiteral("sanitizeDocument path=%1").arg(outputPath), ErrorInfo::Retry);
+    return ok;
 }
 
 bool PdfEditorEngine::getMetadata(PdfMetadata &outMetadata)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return false;
+    d->clearErr();
+    if (!d->backend) return d->noBackend("getMetadata");
     outMetadata = d->backend->metadata();
     return true;
 }
@@ -267,8 +414,14 @@ bool PdfEditorEngine::getMetadata(PdfMetadata &outMetadata)
 bool PdfEditorEngine::setMetadata(const PdfMetadata &metadata)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return false;
-    return d->backend->setMetadata(metadata);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("setMetadata");
+    bool ok = d->backend->setMetadata(metadata);
+    if (!ok)
+        d->setErr(ErrorInfo::Warning,
+                  QObject::tr("Could not update the document metadata."),
+                  QStringLiteral("setMetadata failed"));
+    return ok;
 }
 
 QString PdfEditorEngine::currentFile() const
@@ -281,140 +434,336 @@ QString PdfEditorEngine::currentFile() const
 QStringList PdfEditorEngine::getEmbeddedFiles()
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return QStringList();
+    d->clearErr();
+    if (!d->backend) { d->noBackend("getEmbeddedFiles"); return {}; }
     return d->backend->getEmbeddedFiles();
 }
 
 QStringList PdfEditorEngine::getLayers()
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return QStringList();
+    d->clearErr();
+    if (!d->backend) { d->noBackend("getLayers"); return {}; }
     return d->backend->getLayers();
 }
 
 bool PdfEditorEngine::rotatePage(const QString &path, int pageIndex, int degrees)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return false;
-    return d->backend->rotatePage(path, pageIndex, degrees);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("rotatePage");
+    bool ok = d->backend->rotatePage(path, pageIndex, degrees);
+    if (!ok) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to rotate page %1.").arg(pageIndex + 1),
+                  QStringLiteral("rotatePage page=%1, degrees=%2").arg(pageIndex).arg(degrees));
+        d->lastErr.sourcePage = pageIndex;
+    }
+    return ok;
 }
 
 QByteArray PdfEditorEngine::extractPageAsBytes(const QString &path, int pageIndex)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return QByteArray();
-    return d->backend->extractPageAsBytes(path, pageIndex);
+    d->clearErr();
+    if (!d->backend) { d->noBackend("extractPageAsBytes"); return {}; }
+    QByteArray result = d->backend->extractPageAsBytes(path, pageIndex);
+    if (result.isEmpty()) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to extract page %1.").arg(pageIndex + 1),
+                  QStringLiteral("extractPageAsBytes returned empty — page=%1").arg(pageIndex));
+        d->lastErr.sourcePage = pageIndex;
+    }
+    return result;
 }
 
 bool PdfEditorEngine::insertPageFromBytes(const QString &path, int atIndex, const QByteArray &pageData)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return false;
-    return d->backend->insertPageFromBytes(path, atIndex, pageData);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("insertPageFromBytes");
+    bool ok = d->backend->insertPageFromBytes(path, atIndex, pageData);
+    if (!ok)
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to insert page at position %1.").arg(atIndex + 1),
+                  QStringLiteral("insertPageFromBytes at=%1").arg(atIndex));
+    return ok;
 }
 
 bool PdfEditorEngine::deletePage(const QString &path, int pageIndex)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return false;
-    return d->backend->deletePage(path, pageIndex);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("deletePage");
+    bool ok = d->backend->deletePage(path, pageIndex);
+    if (!ok) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to delete page %1.").arg(pageIndex + 1),
+                  QStringLiteral("deletePage page=%1").arg(pageIndex));
+        d->lastErr.sourcePage = pageIndex;
+    }
+    return ok;
 }
 
 bool PdfEditorEngine::insertBlankPage(const QString &path, int atIndex)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return false;
-    return d->backend->insertBlankPage(path, atIndex);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("insertBlankPage");
+    bool ok = d->backend->insertBlankPage(path, atIndex);
+    if (!ok)
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to insert a blank page at position %1.").arg(atIndex + 1),
+                  QStringLiteral("insertBlankPage at=%1").arg(atIndex));
+    return ok;
 }
 
 bool PdfEditorEngine::cropPage(const QString &path, int pageIndex, const QRectF &cropRect)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return false;
-    return d->backend->cropPage(path, pageIndex, cropRect);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("cropPage");
+    bool ok = d->backend->cropPage(path, pageIndex, cropRect);
+    if (!ok) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to crop page %1.").arg(pageIndex + 1),
+                  QStringLiteral("cropPage page=%1").arg(pageIndex));
+        d->lastErr.sourcePage = pageIndex;
+    }
+    return ok;
 }
 
 bool PdfEditorEngine::resizePage(const QString &path, int pageIndex, const QSizeF &size)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return false;
-    return d->backend->resizePage(path, pageIndex, size);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("resizePage");
+    bool ok = d->backend->resizePage(path, pageIndex, size);
+    if (!ok) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to resize page %1.").arg(pageIndex + 1),
+                  QStringLiteral("resizePage page=%1, w=%2, h=%3").arg(pageIndex).arg(size.width()).arg(size.height()));
+        d->lastErr.sourcePage = pageIndex;
+    }
+    return ok;
 }
 
 bool PdfEditorEngine::reorderPages(const QString &path, int fromIndex, int toIndex)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return false;
-    return d->backend->reorderPages(path, fromIndex, toIndex);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("reorderPages");
+    bool ok = d->backend->reorderPages(path, fromIndex, toIndex);
+    if (!ok)
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to reorder pages."),
+                  QStringLiteral("reorderPages from=%1, to=%2").arg(fromIndex).arg(toIndex));
+    return ok;
 }
 
 bool PdfEditorEngine::addHeaderFooter(const QString &path, const HeaderFooterOptions &options)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return false;
-    return d->backend->addHeaderFooter(path, options);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("addHeaderFooter");
+    bool ok = d->backend->addHeaderFooter(path, options);
+    if (!ok)
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to add headers/footers."),
+                  QStringLiteral("addHeaderFooter failed"));
+    return ok;
 }
 
 bool PdfEditorEngine::applyBatesNumbering(const QString &path, const BatesNumberingOptions &options)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return false;
-    return d->backend->applyBatesNumbering(path, options);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("applyBatesNumbering");
+    bool ok = d->backend->applyBatesNumbering(path, options);
+    if (!ok)
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to apply Bates numbering."),
+                  QStringLiteral("applyBatesNumbering failed"));
+    return ok;
 }
 
 
 QList<PdfImageInfo> PdfEditorEngine::listImages(int pageIndex)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return QList<PdfImageInfo>();
+    d->clearErr();
+    if (!d->backend) { d->noBackend("listImages"); return {}; }
     return d->backend->listImages(pageIndex);
 }
 
 bool PdfEditorEngine::moveImage(int pageIndex, const QString &xobjectName, double dx, double dy)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return false;
-    return d->backend->moveImage(pageIndex, xobjectName, dx, dy);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("moveImage");
+    bool ok = d->backend->moveImage(pageIndex, xobjectName, dx, dy);
+    if (!ok) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to move the image on page %1.").arg(pageIndex + 1),
+                  QStringLiteral("moveImage page=%1, obj=%2").arg(pageIndex).arg(xobjectName));
+        d->lastErr.sourcePage = pageIndex;
+    }
+    return ok;
 }
 
 bool PdfEditorEngine::resizeImage(int pageIndex, const QString &xobjectName, double newWidth, double newHeight)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return false;
-    return d->backend->resizeImage(pageIndex, xobjectName, newWidth, newHeight);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("resizeImage");
+    bool ok = d->backend->resizeImage(pageIndex, xobjectName, newWidth, newHeight);
+    if (!ok) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to resize the image on page %1.").arg(pageIndex + 1),
+                  QStringLiteral("resizeImage page=%1, obj=%2").arg(pageIndex).arg(xobjectName));
+        d->lastErr.sourcePage = pageIndex;
+    }
+    return ok;
 }
 
 bool PdfEditorEngine::rotateImage(int pageIndex, const QString &xobjectName, double degrees)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return false;
-    return d->backend->rotateImage(pageIndex, xobjectName, degrees);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("rotateImage");
+    bool ok = d->backend->rotateImage(pageIndex, xobjectName, degrees);
+    if (!ok) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to rotate the image on page %1.").arg(pageIndex + 1),
+                  QStringLiteral("rotateImage page=%1, obj=%2").arg(pageIndex).arg(xobjectName));
+        d->lastErr.sourcePage = pageIndex;
+    }
+    return ok;
 }
 
 bool PdfEditorEngine::replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return false;
-    return d->backend->replaceImage(pageIndex, xobjectName, newImagePath);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("replaceImage");
+    bool ok = d->backend->replaceImage(pageIndex, xobjectName, newImagePath);
+    if (!ok) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to replace the image on page %1.").arg(pageIndex + 1),
+                  QStringLiteral("replaceImage page=%1, obj=%2, newPath=%3").arg(pageIndex).arg(xobjectName, newImagePath));
+        d->lastErr.sourcePage = pageIndex;
+    }
+    return ok;
 }
 
 bool PdfEditorEngine::deleteImage(int pageIndex, const QString &xobjectName)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return false;
-    return d->backend->deleteImage(pageIndex, xobjectName);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("deleteImage");
+    bool ok = d->backend->deleteImage(pageIndex, xobjectName);
+    if (!ok) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to delete the image on page %1.").arg(pageIndex + 1),
+                  QStringLiteral("deleteImage page=%1, obj=%2").arg(pageIndex).arg(xobjectName));
+        d->lastErr.sourcePage = pageIndex;
+    }
+    return ok;
 }
 
 bool PdfEditorEngine::applyRedactions(int pageIndex, const QList<QRectF> &rects)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return false;
-    return d->backend->applyRedactions(pageIndex, rects);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("applyRedactions");
+    bool ok = d->backend->applyRedactions(pageIndex, rects);
+    if (!ok) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to apply redactions on page %1.").arg(pageIndex + 1),
+                  QStringLiteral("applyRedactions page=%1, rects=%2").arg(pageIndex).arg(rects.size()));
+        d->lastErr.sourcePage = pageIndex;
+    }
+    return ok;
 }
 
 bool PdfEditorEngine::embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations)
 {
     QMutexLocker locker(&d->mutex);
-    if (!d->backend) return false;
-    return d->backend->embedAnnotations(inputPath, outputPath, annotations);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("embedAnnotations");
+    bool ok = d->backend->embedAnnotations(inputPath, outputPath, annotations);
+    if (!ok)
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to embed annotations into the document."),
+                  QStringLiteral("embedAnnotations in=%1, out=%2, count=%3").arg(inputPath, outputPath).arg(annotations.size()),
+                  ErrorInfo::Retry);
+    return ok;
+}
+
+// ── Watermarking (Session 13) ─────────────────────────────────────────────
+
+bool PdfEditorEngine::addTextWatermark(const TextWatermarkOptions &options)
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("addTextWatermark");
+    bool ok = d->backend->addTextWatermark(options);
+    if (!ok)
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to apply the text watermark. The document may be read-only or corrupted."),
+                  QStringLiteral("addTextWatermark text=\"%1\"").arg(options.text),
+                  ErrorInfo::Retry);
+    return ok;
+}
+
+bool PdfEditorEngine::addImageWatermark(const ImageWatermarkOptions &options)
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("addImageWatermark");
+    bool ok = d->backend->addImageWatermark(options);
+    if (!ok)
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to apply the image watermark. Check that the image file exists and is a supported format."),
+                  QStringLiteral("addImageWatermark path=\"%1\"").arg(options.imagePath),
+                  ErrorInfo::Retry);
+    return ok;
+}
+
+// ── Optimization (Session 13) ─────────────────────────────────────────────
+
+OptimizeEstimate PdfEditorEngine::estimateOptimization(const OptimizeOptions &options)
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+    if (!d->backend) { d->noBackend("estimateOptimization"); return {}; }
+    return d->backend->estimateOptimization(options);
+}
+
+bool PdfEditorEngine::optimizeDocument(const QString &outputPath, const OptimizeOptions &options)
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("optimizeDocument");
+    bool ok = d->backend->optimizeDocument(outputPath, options);
+    if (!ok)
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Document optimization failed."),
+                  QStringLiteral("optimizeDocument path=%1").arg(outputPath),
+                  ErrorInfo::Retry);
+    return ok;
+}
+
+// ── Error reporting (Session 16) ──────────────────────────────────────────
+
+ErrorInfo PdfEditorEngine::lastError() const
+{
+    QMutexLocker locker(&d->mutex);
+    return d->lastErr;
+}
+
+void PdfEditorEngine::clearError()
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
 }

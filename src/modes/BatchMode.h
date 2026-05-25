@@ -1,10 +1,16 @@
 #pragma once
-#include <QWidget>
+#include "core/ErrorInfo.h"
 
+#include <QWidget>
 #include <QFutureWatcher>
 #include <QProgressBar>
 #include <QTextEdit>
 #include <QStringList>
+
+class QLabel;
+class QListWidget;
+class QPushButton;
+class QListWidgetItem;
 
 namespace gp {
 
@@ -17,13 +23,23 @@ private slots:
     void onRunClicked();
     void onBatchProgress(int value);
     void onBatchFinished();
+    void onExportLog();
 
 private:
-    QProgressBar* m_overallProgress;
-    QProgressBar* m_fileProgress;
-    QTextEdit* m_logView;
+    void appendLog(const QString& text, const QString& color = {});
+    void appendFileResult(const QString& file, bool success, const QString& detail = {});
+    void showSummary();
+
+    QProgressBar*   m_overallProgress = nullptr;
+    QProgressBar*   m_fileProgress    = nullptr;
+    QTextEdit*      m_logView         = nullptr;
+    QLabel*         m_statusLabel     = nullptr;
+    QPushButton*    m_exportLogBtn    = nullptr;
     QFutureWatcher<void> m_watcher;
-    QStringList m_filesToProcess;
+    QStringList     m_filesToProcess;
+    ErrorLog        m_errorLog;
+    int             m_successCount = 0;
+    int             m_failCount    = 0;
 };
 
 } // namespace gp

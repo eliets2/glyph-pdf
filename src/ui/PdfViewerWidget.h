@@ -46,6 +46,10 @@ public:
 
     // Page navigation
     void goToPage(int page);
+    void goBack();
+    void goForward();
+    bool canGoBack() const;
+    bool canGoForward() const;
     int currentPage() const;
     int pageCount() const;
 
@@ -68,7 +72,7 @@ public:
     void insertBlankPage(int index, const QString &outputFile);
     void rotatePages(int from, int to, int angle, const QString &outputFile);
     void applyRedactions(const QString &outputFile);
-    void saveDocumentAs(const QString &outputFile);
+    bool saveDocumentAs(const QString &outputFile);
     static void mergeDocuments(const QStringList &files, const QString &outputFile);
     void printDocument();
 
@@ -82,10 +86,12 @@ public:
 
 signals:
     void pageChanged(int currentPage, int totalPages);
+    void navigationChanged(bool canBack, bool canForward);
     void annotationsChanged();
     void textEditRequested(int pageIndex, QPointF pos);
     void pageOperationFinished();
     void cropRequested(int pageIndex, QRectF cropRect);
+    void textSelected(const QString& selectedText);
 
 public slots:
     void zoomIn();
@@ -136,4 +142,9 @@ private:
 
     // Page change coalescing (Fix 13)
     QTimer *m_pageChangeTimer = nullptr;
+
+    // Page history (D5)
+    QList<int> m_pageHistory;
+    int m_historyIndex = -1;
+    bool m_navigatingHistory = false;
 };

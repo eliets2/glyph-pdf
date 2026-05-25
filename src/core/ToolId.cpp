@@ -12,6 +12,9 @@ QString toolIdToString(ToolId id) {
         { ToolId::Save,           QStringLiteral("save") },
         { ToolId::SaveAs,         QStringLiteral("saveAs") },
         { ToolId::Print,          QStringLiteral("print") },
+        { ToolId::PrintPreview,   QStringLiteral("printPreview") },
+        { ToolId::PageSetup,      QStringLiteral("pageSetup") },
+        { ToolId::ExportPresets,  QStringLiteral("exportPresets") },
         { ToolId::Share,          QStringLiteral("share") },
         { ToolId::Properties,     QStringLiteral("properties") },
         // View
@@ -130,6 +133,9 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         add(ToolId::Save,           {"save"});
         add(ToolId::SaveAs,         {"saveAs", "save-as", "saveas"});
         add(ToolId::Print,          {"print"});
+        add(ToolId::PrintPreview,   {"printPreview", "print-preview", "printpreview"});
+        add(ToolId::PageSetup,      {"pageSetup", "page-setup", "pagesetup"});
+        add(ToolId::ExportPresets,  {"exportPresets", "export-presets", "exportpresets"});
         add(ToolId::Share,          {"share"});
         add(ToolId::Properties,     {"properties"});
 

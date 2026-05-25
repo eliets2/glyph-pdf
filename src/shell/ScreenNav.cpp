@@ -10,28 +10,30 @@ namespace gp {
 ScreenNav::ScreenNav(QWidget* parent) : QFrame(parent) {
     setObjectName("screenNav");
     setFixedHeight(Theme::ScreenNavH);
+    setAccessibleName(tr("Screen navigation"));
+    setAccessibleDescription(tr("Switch between specialized screens like OCR, Redaction, Signatures, and more"));
 
     auto* row = new QHBoxLayout(this);
     row->setContentsMargins(0, 0, 0, 0);
     row->setSpacing(0);
 
-    auto* label = new QLabel("SCREENS");
+    auto* label = new QLabel(tr("SCREENS"));
     label->setProperty("role", "screenNavLabel");
     row->addWidget(label);
 
     const QVector<QPair<QPair<QString,QString>, QString>> items = {
-        {{"",          "Standard"},      "00"},
-        {{"ocr",       "OCR Verify"},    "01"},
-        {{"redact",    "Redaction"},     "02"},
-        {{"signature", "Signatures"},    "03"},
-        {{"compare",   "Compare"},       "04"},
-        {{"pages",     "Pages"},         "05"},
-        {{"batch",     "Batch"},         "06"},
-        {{"ai",        "AI Chat"},       "07"},
-        {{"form",      "Form Builder"},  "08"},
-        {{"compress",  "Compress"},      "09"},
-        {{"pdfa",      "PDF/A"},         "10"},
-        {{"watermark", "Watermark"},     "11"},
+        {{"",          tr("Standard")},      "00"},
+        {{"ocr",       tr("OCR Verify")},    "01"},
+        {{"redact",    tr("Redaction")},      "02"},
+        {{"signature", tr("Signatures")},     "03"},
+        {{"compare",   tr("Compare")},        "04"},
+        {{"pages",     tr("Pages")},          "05"},
+        {{"batch",     tr("Batch")},          "06"},
+        {{"ai",        tr("AI Chat")},        "07"},
+        {{"form",      tr("Form Builder")},   "08"},
+        {{"compress",  tr("Compress")},       "09"},
+        {{"pdfa",      tr("PDF/A")},          "10"},
+        {{"watermark", tr("Watermark")},      "11"},
     };
     for (const auto& itm : items) {
         const QString id  = itm.first.first;
@@ -42,6 +44,8 @@ ScreenNav::ScreenNav(QWidget* parent) : QFrame(parent) {
         b->setProperty("variant", "screenNav");
         b->setCheckable(true);
         b->setAutoExclusive(true);
+        b->setFocusPolicy(Qt::TabFocus);
+        b->setAccessibleName(tr("Screen: %1").arg(lbl));
         if (id.isEmpty()) b->setChecked(true);
         connect(b, &QToolButton::clicked, this, [this, id]() {
             _active = id;

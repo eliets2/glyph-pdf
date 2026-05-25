@@ -21,11 +21,17 @@ public:
     QList<ToolId> handledTools() const override;
     void activate(ToolId id) override;
 
+    void addRecentFile(const QString& filePath);
+    QStringList recentFiles() const;
+
 private:
     void onSave();
     void onSaveAs();
     void onShare();
     void onPrint();
+    void onPrintPreview();
+    void onPageSetup();
+    void onExportPresets();
     void showProperties();
 
     const AppContext* _ctx = nullptr;

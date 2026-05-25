@@ -1,4 +1,5 @@
 #pragma once
+#include <QDebug>
 #include <QUndoCommand>
 #include "core/interfaces/IFormManager.h"
 #include "engines/DocumentSession.h"
@@ -24,10 +25,15 @@ public:
             case FieldType::Numeric: m_engine->addNumericField(m_doc->path(), m_page, m_rect, m_name, m_doc->path()); break;
         }
         m_doc->markReload();
+        // Keep the undo entry visible in the stack even though undo() is a no-op
+        // so the user knows something happened. v1.1 will implement true field
+        // removal once IFormManager exposes removeFieldById.
+        setObsolete(false);
     }
 
     void undo() override {
-        // Implementation omitted for brevity, but it would remove the added field
+        qWarning() << "AddFormFieldCommand: undo not yet implemented — field will remain. See ROADMAP.";
+        // To implement: call IFormManager::removeFieldById(m_fieldId, m_pageIndex)
     }
 
     int id() const override { return 0x104; }

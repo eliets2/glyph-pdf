@@ -45,7 +45,8 @@ DiffResult DiffEngine::compare(const QString &file1, const QString &file2, int d
         pd.pageIndex = i;
         pd.pixelDiffCount = 0;
 
-        // Text diff (simple per-word set diff for now as placeholder for Myers)
+        // Text diff: per-word set-difference algorithm. NOTE: not LCS/Myers — order changes are
+        // not detected as moves. See ROADMAP "Document comparison" for the Myers upgrade plan.
         QString text1 = backend1.extractText(i);
         QString text2 = backend2.extractText(i);
 

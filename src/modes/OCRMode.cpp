@@ -57,7 +57,7 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     row->setContentsMargins(10, 0, 10, 0);
     row->setSpacing(6);
 
-    row->addWidget(monoLab("OCR"));
+    row->addWidget(monoLab(tr("OCR")));
 
     // ── Language selector ───────────────────────────────────────────────
     m_langCombo = new QComboBox;
@@ -82,9 +82,9 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     // ── Strategy selector ───────────────────────────────────────────────
     m_strategyCombo = new QComboBox;
     m_strategyCombo->setObjectName("ocrStrategyCombo");
-    m_strategyCombo->addItem("Primary Only");
-    m_strategyCombo->addItem("Confidence Weighted");
-    m_strategyCombo->addItem("ROVER Vote");
+    m_strategyCombo->addItem(tr("Primary Only"));
+    m_strategyCombo->addItem(tr("Confidence Weighted"));
+    m_strategyCombo->addItem(tr("ROVER Vote"));
     m_strategyCombo->setProperty("variant", "ghost");
     row->addWidget(m_strategyCombo);
 
@@ -93,19 +93,19 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     sep1->setFixedWidth(1); sep1->setStyleSheet("color:#ffffff20;");
     row->addWidget(sep1);
 
-    m_chkDeskew = new QCheckBox("Deskew");
+    m_chkDeskew = new QCheckBox(tr("Deskew"));
     m_chkDeskew->setObjectName("ocrChkDeskew");
     m_chkDeskew->setChecked(true);
     m_chkDeskew->setStyleSheet("color:#c0c0c0; spacing:4px;");
     row->addWidget(m_chkDeskew);
 
-    m_chkBinarize = new QCheckBox("Binarize");
+    m_chkBinarize = new QCheckBox(tr("Binarize"));
     m_chkBinarize->setObjectName("ocrChkBinarize");
     m_chkBinarize->setChecked(true);
     m_chkBinarize->setStyleSheet("color:#c0c0c0; spacing:4px;");
     row->addWidget(m_chkBinarize);
 
-    m_chkDenoise = new QCheckBox("Denoise");
+    m_chkDenoise = new QCheckBox(tr("Denoise"));
     m_chkDenoise->setObjectName("ocrChkDenoise");
     m_chkDenoise->setChecked(false);
     m_chkDenoise->setStyleSheet("color:#c0c0c0; spacing:4px;");
@@ -116,14 +116,14 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     // ── Run / Review actions ────────────────────────────────────────────
     m_btnRun = new QToolButton;
     m_btnRun->setObjectName("ocrBtnRun");
-    m_btnRun->setText("Run OCR");
+    m_btnRun->setText(tr("Run OCR"));
     m_btnRun->setProperty("variant", "accent");
     connect(m_btnRun, &QToolButton::clicked, this, &OCRMode::onRunOcr);
     row->addWidget(m_btnRun);
 
     m_btnAccept = new QToolButton;
     m_btnAccept->setObjectName("ocrBtnAccept");
-    m_btnAccept->setText("✓ Accept");
+    m_btnAccept->setText(tr("✓ Accept"));
     m_btnAccept->setProperty("variant", "ghost");
     m_btnAccept->setEnabled(false);
     connect(m_btnAccept, &QToolButton::clicked, this, &OCRMode::onAcceptResults);
@@ -131,7 +131,7 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
 
     m_btnReject = new QToolButton;
     m_btnReject->setObjectName("ocrBtnReject");
-    m_btnReject->setText("✗ Reject");
+    m_btnReject->setText(tr("✗ Reject"));
     m_btnReject->setProperty("variant", "ghost");
     m_btnReject->setEnabled(false);
     connect(m_btnReject, &QToolButton::clicked, this, &OCRMode::reviewRejected);
@@ -142,8 +142,15 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     row->addWidget(sep2);
 
     auto* exit = new QToolButton;
-    exit->setText("Exit OCR");
+    exit->setText(tr("Exit OCR"));
     exit->setProperty("variant", "ghost");
+    connect(exit, &QToolButton::clicked, this, [this]() {
+        // Walk up to the top-level window and request close. The host shell
+        // intercepts this and returns to the previous mode page in v1.0.0.
+        QWidget* w = this;
+        while (w && w->parentWidget()) w = w->parentWidget();
+        if (w) w->close();
+    });
     row->addWidget(exit);
 
     col->addWidget(tb);
@@ -158,10 +165,10 @@ void OCRMode::buildInfoStrip(QVBoxLayout* col)
     row->setContentsMargins(12, 0, 12, 0);
     row->setSpacing(14);
 
-    m_lblPage    = infoLab("PAGE 01 OF 12");
-    m_lblAvgConf = infoLab("AVG CONFIDENCE —");
-    m_lblLowWords= infoLab("LOW-CONFIDENCE WORDS —");
-    m_lblEngine  = infoLab("ENGINE: Tesseract 5");
+    m_lblPage    = infoLab(tr("PAGE 01 OF 12"));
+    m_lblAvgConf = infoLab(tr("AVG CONFIDENCE —"));
+    m_lblLowWords= infoLab(tr("LOW-CONFIDENCE WORDS —"));
+    m_lblEngine  = infoLab(tr("ENGINE: Tesseract 5"));
 
     row->addWidget(m_lblPage);
     row->addWidget(m_lblAvgConf);
@@ -195,9 +202,9 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     auto* impHead = makeStrip("modeToolbar", 24);
     auto* impHeadRow = new QHBoxLayout(impHead);
     impHeadRow->setContentsMargins(12,0,12,0);
-    impHeadRow->addWidget(monoLab("IMAGE · SCAN"));
+    impHeadRow->addWidget(monoLab(tr("IMAGE · SCAN")));
     impHeadRow->addStretch(1);
-    impHeadRow->addWidget(monoLab("4× PIXELS"));
+    impHeadRow->addWidget(monoLab(tr("4× PIXELS")));
     impLay->addWidget(impHead);
 
     auto* scanArea = new QFrame;
@@ -252,9 +259,9 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     auto* txtHead = makeStrip("modeToolbar", 24);
     auto* txtHeadRow = new QHBoxLayout(txtHead);
     txtHeadRow->setContentsMargins(12,0,12,0);
-    txtHeadRow->addWidget(monoLab("RECOGNIZED · EDITABLE"));
+    txtHeadRow->addWidget(monoLab(tr("RECOGNIZED · EDITABLE")));
     txtHeadRow->addStretch(1);
-    txtHeadRow->addWidget(monoLab("UTF-8"));
+    txtHeadRow->addWidget(monoLab(tr("UTF-8")));
     txtLay->addWidget(txtHead);
 
     m_textEdit = new QPlainTextEdit;
@@ -276,7 +283,7 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     auto* zHead = makeStrip("modeToolbar", 24);
     auto* zHeadRow = new QHBoxLayout(zHead);
     zHeadRow->setContentsMargins(12,0,12,0);
-    zHeadRow->addWidget(monoLab("ZOOM · 4×"));
+    zHeadRow->addWidget(monoLab(tr("ZOOM · 4×")));
     zHeadRow->addStretch(1);
     zLay->addWidget(zHead);
 
@@ -301,7 +308,7 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     legendLay->setContentsMargins(12, 8, 12, 8);
     legendLay->setSpacing(4);
 
-    legendLay->addWidget(monoLab("CONFIDENCE"));
+    legendLay->addWidget(monoLab(tr("CONFIDENCE")));
 
     auto makeLegendRow = [&](const QString &color, const QString &label) {
         auto* row = new QHBoxLayout;
@@ -314,9 +321,9 @@ void OCRMode::buildPanes(QVBoxLayout* col)
         legendLay->addLayout(row);
     };
 
-    makeLegendRow("#22c55e", "HIGH (≥ 80%)");
-    makeLegendRow("#eab308", "MEDIUM (50-79%)");
-    makeLegendRow("#ef4444", "LOW (< 50%)");
+    makeLegendRow("#22c55e", tr("HIGH (≥ 80%)"));
+    makeLegendRow("#eab308", tr("MEDIUM (50-79%)"));
+    makeLegendRow("#ef4444", tr("LOW (< 50%)"));
 
     zLay->addWidget(legend);
     zLay->addStretch(1);
@@ -338,11 +345,14 @@ void OCRMode::onRunOcr()
     m_btnReject->setEnabled(true);
 
     // Update info strip from selected controls
-    m_lblEngine->setText(QString("ENGINE: %1 · %2")
+    m_lblEngine->setText(tr("ENGINE: %1 · %2")
         .arg(m_engineCombo->currentText(),
              m_strategyCombo->currentText()));
-    m_lblAvgConf->setText("AVG CONFIDENCE 87.3%");
-    m_lblLowWords->setText("14 LOW-CONFIDENCE WORDS");
+    // v1.0.0: no per-word confidence telemetry wired yet — display em-dash
+    // placeholder rather than fabricated values. v1.1 will populate from
+    // MergedOcrWord results emitted by the engine.
+    m_lblAvgConf->setText(tr("AVG CONFIDENCE —"));
+    m_lblLowWords->setText(tr("LOW-CONFIDENCE WORDS —"));
 
     emit ocrRequested();
 }
@@ -356,6 +366,7 @@ void OCRMode::onAcceptResults()
 
 void OCRMode::updateConfidenceOverlay()
 {
+    // Will populate from OCR engine results in v1.1; placeholder UI shows em-dash until then.
     // In a real implementation this would iterate MergedOcrWord results
     // and paint colored rectangles over the image pane at each bounding box.
     // Green ≥80, Yellow 50-79, Red <50.

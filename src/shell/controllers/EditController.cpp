@@ -26,6 +26,9 @@
 #include <QCoreApplication>
 #include <QPdfDocument>
 #include <QPdfDocumentRenderOptions>
+#include <QPdfSearchModel>
+#include <QPdfBookmarkModel>
+#include <QRegularExpression>
 #include <QUndoStack>
 #include "shell/StatusBar.h"
 
@@ -57,7 +60,6 @@ void EditController::activate(ToolId id) {
         return;
     }
 
-    // Map ToolIds that simply set a tool mode
     static const QHash<ToolId, ToolMode> toolModes = {
         { ToolId::Hand,          ToolMode::HandTool },
         { ToolId::Select,        ToolMode::SelectText },
@@ -104,11 +106,183 @@ void EditController::activate(ToolId id) {
     }
 }
 
-void EditController::onSearchRequested(const QString &text, bool forward, bool matchCase, bool wholeWords) {
+// ── Search ──────────────────────────────────────────────────────────────────
+
+void EditController::onSearchRequested(const QString &text, bool forward, bool matchCase,
+                                       bool wholeWords, bool useRegex, int scope) {
     auto* viewer = _mainWindow->pdfViewer();
-    if (viewer) {
+    if (!viewer) return;
+
+    // For document text scope, use QPdfSearchModel (fast PDFium-backed search)
+    if (scope == FindBar::ScopeDocumentText || scope == FindBar::ScopeAll) {
         viewer->searchDocument(text, forward, matchCase, wholeWords);
+
+        auto* sm = viewer->searchModel();
+        if (sm) {
+            _totalMatches = sm->rowCount(QModelIndex());
+            if (_totalMatches > 0) {
+                _currentMatchIndex = forward
+                    ? qMin(_currentMatchIndex + 1, _totalMatches - 1)
+                    : qMax(_currentMatchIndex - 1, 0);
+                if (_currentMatchIndex < 0) _currentMatchIndex = 0;
+
+                // Navigate to the match
+                QModelIndex idx = sm->index(_currentMatchIndex, 0);
+                int page = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Page)).toInt();
+                viewer->goToPage(page);
+            } else {
+                _currentMatchIndex = -1;
+            }
+        }
     }
+
+    // For comments scope, search annotation text
+    if (scope == FindBar::ScopeComments || scope == FindBar::ScopeAll) {
+        QRegularExpression rx;
+        if (useRegex) {
+            QRegularExpression::PatternOptions opts = QRegularExpression::NoPatternOption;
+            if (!matchCase) opts |= QRegularExpression::CaseInsensitiveOption;
+            rx.setPattern(text);
+            rx.setPatternOptions(opts);
+        }
+
+        const auto annots = viewer->annotations();
+        for (const auto &a : annots) {
+            bool found = false;
+            if (useRegex && rx.isValid()) {
+                found = rx.match(a.text).hasMatch();
+            } else {
+                auto cs = matchCase ? Qt::CaseSensitive : Qt::CaseInsensitive;
+                found = a.text.contains(text, cs);
+            }
+            if (found) {
+                viewer->goToPage(a.pageIndex);
+                _mainWindow->statusBar()->showMessage(
+                    tr("Found in comment on page %1").arg(a.pageIndex + 1), 3000);
+                break;
+            }
+        }
+    }
+
+    // For bookmarks scope, search outline titles
+    if (scope == FindBar::ScopeBookmarks || scope == FindBar::ScopeAll) {
+        auto* bm = viewer->bookmarkModel();
+        if (bm) {
+            QRegularExpression rx;
+            if (useRegex) {
+                QRegularExpression::PatternOptions opts = QRegularExpression::NoPatternOption;
+                if (!matchCase) opts |= QRegularExpression::CaseInsensitiveOption;
+                rx.setPattern(text);
+                rx.setPatternOptions(opts);
+            }
+
+            std::function<bool(const QModelIndex&)> searchBookmarks = [&](const QModelIndex &parent) -> bool {
+                int rows = bm->rowCount(parent);
+                for (int i = 0; i < rows; ++i) {
+                    QModelIndex idx = bm->index(i, 0, parent);
+                    QString title = idx.data(Qt::DisplayRole).toString();
+                    bool found = false;
+                    if (useRegex && rx.isValid()) {
+                        found = rx.match(title).hasMatch();
+                    } else {
+                        auto cs = matchCase ? Qt::CaseSensitive : Qt::CaseInsensitive;
+                        found = title.contains(text, cs);
+                    }
+                    if (found) {
+                        int page = idx.data(static_cast<int>(QPdfBookmarkModel::Role::Page)).toInt();
+                        if (page >= 0) viewer->goToPage(page);
+                        _mainWindow->statusBar()->showMessage(
+                            tr("Found bookmark: %1 (page %2)").arg(title).arg(page + 1), 3000);
+                        return true;
+                    }
+                    if (searchBookmarks(idx)) return true;
+                }
+                return false;
+            };
+            searchBookmarks(QModelIndex());
+        }
+    }
+
+    // Update match counter in FindBar
+    if (scope == FindBar::ScopeDocumentText) {
+        auto* findBar = _mainWindow->findChild<FindBar*>("findBar");
+        if (findBar) {
+            findBar->setMatchCount(_currentMatchIndex + 1, _totalMatches);
+        }
+    }
+}
+
+void EditController::onReplaceRequested(const QString &searchText, const QString &replaceText,
+                                        bool matchCase, bool wholeWords, bool useRegex) {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->pdfEditor) return;
+
+    _ctx->pdfEditor->loadDocumentForEditing(viewer->filePath());
+
+    // Replace current match using PoDoFo content stream text substitution
+    auto* sm = viewer->searchModel();
+    if (!sm || _currentMatchIndex < 0 || _currentMatchIndex >= sm->rowCount(QModelIndex()))
+        return;
+
+    QModelIndex idx = sm->index(_currentMatchIndex, 0);
+    int page = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Page)).toInt();
+    QPointF loc = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Location)).toPointF();
+
+    QRectF rect(loc.x(), loc.y() - 15, 200, 20);
+    if (_ctx->undoStack) {
+        _ctx->document->setPath(viewer->filePath());
+        _ctx->undoStack->push(new EditTextInlineCommand(
+            _ctx->pdfEditor.get(), _ctx->document.get(), page, rect, replaceText,
+            _fontFamily, _fontSize, _fontColor, _fontBold, _fontItalic, _fontAlignment));
+    }
+
+    _mainWindow->statusBar()->showMessage(
+        tr("Replaced match %1 on page %2").arg(_currentMatchIndex + 1).arg(page + 1), 3000);
+
+    // Re-search to update counts
+    onSearchRequested(searchText, true, matchCase, wholeWords, useRegex, FindBar::ScopeDocumentText);
+}
+
+void EditController::onReplaceAllRequested(const QString &searchText, const QString &replaceText,
+                                           bool matchCase, bool wholeWords, bool useRegex) {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->pdfEditor) return;
+
+    _ctx->pdfEditor->loadDocumentForEditing(viewer->filePath());
+
+    auto* sm = viewer->searchModel();
+    if (!sm) return;
+
+    int count = sm->rowCount(QModelIndex());
+    if (count == 0) {
+        _mainWindow->statusBar()->showMessage(tr("No matches to replace."), 3000);
+        return;
+    }
+
+    // Iterate all matches from last to first (reverse order to preserve positions)
+    for (int i = count - 1; i >= 0; --i) {
+        QModelIndex idx = sm->index(i, 0);
+        int page = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Page)).toInt();
+        QPointF loc = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Location)).toPointF();
+
+        QRectF rect(loc.x(), loc.y() - 15, 200, 20);
+        _ctx->pdfEditor->editTextInline(page, rect, replaceText,
+                                        _fontFamily, _fontSize, _fontColor,
+                                        _fontBold, _fontItalic, _fontAlignment);
+    }
+
+    _ctx->pdfEditor->saveDocument(viewer->filePath());
+
+    if (_ctx->document) {
+        _ctx->document->setPath(viewer->filePath());
+        _ctx->document->markReload();
+    }
+
+    _mainWindow->statusBar()->showMessage(
+        tr("Replaced %1 occurrences.").arg(count), 5000);
+
+    // Reload to reflect changes
+    viewer->loadDocument(viewer->filePath());
 }
 
 void EditController::onRedactAllRequested(const QString &text, bool matchCase, bool wholeWords) {
@@ -119,6 +293,8 @@ void EditController::onRedactAllRequested(const QString &text, bool matchCase, b
         _mainWindow->statusBar()->showMessage(tr("Applied redactions to all search results for '%1'").arg(text), 5000);
     }
 }
+
+// ── OCR ─────────────────────────────────────────────────────────────────────
 
 void EditController::runOcr() {
     auto* viewer = _mainWindow->pdfViewer();
@@ -186,6 +362,8 @@ void EditController::runOcr() {
     worker->start();
 }
 
+// ── Text editing ────────────────────────────────────────────────────────────
+
 void EditController::editPdfText() {
     auto* viewer = _mainWindow->pdfViewer();
     if (viewer) {
@@ -194,7 +372,7 @@ void EditController::editPdfText() {
             _ctx->pdfEditor->loadDocumentForEditing(viewer->filePath());
         }
         _mainWindow->statusBar()->showMessage(tr("Direct Text Editing Mode. Click a text block to modify its contents."), 5000);
-        
+
         if (!_textToolBar) {
             _textToolBar = new EditToolBar(tr("Text Edit"), _mainWindow);
             _mainWindow->addToolBar(Qt::TopToolBarArea, _textToolBar);
@@ -222,12 +400,14 @@ void EditController::onTextEditRequested(int pageIndex, QPointF pos) {
     QString newText = QInputDialog::getMultiLineText(_mainWindow, tr("Edit Text Inline"),
                                                      tr("Enter new text:"), "", &ok);
     if (ok && !newText.isEmpty()) {
-        QRectF rect(pos.x(), pos.y(), 200, 50); // Default placeholder size
+        QRectF rect(pos.x(), pos.y(), 200, 50);
         _ctx->document->setPath(viewer->filePath());
         _ctx->undoStack->push(new EditTextInlineCommand(_ctx->pdfEditor.get(), _ctx->document.get(), pageIndex, rect, newText,
                                                         _fontFamily, _fontSize, _fontColor, _fontBold, _fontItalic, _fontAlignment));
     }
 }
+
+// ── Image editing ───────────────────────────────────────────────────────────
 
 void EditController::enterImageEditMode() {
     auto* viewer = _mainWindow->pdfViewer();

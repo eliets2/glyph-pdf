@@ -5,6 +5,7 @@
 #include "core/interfaces/IConversionEngine.h"
 #include "core/interfaces/IPdfEditorEngine.h"
 
+#include <QFile>
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QInputDialog>
@@ -179,7 +180,7 @@ void ConvertController::exportToCsv() {
     auto result = std::make_shared<std::atomic<bool>>(false);
 
     QThread* worker = QThread::create([conv, inputPath, outputPath, result]() {
-        bool ok = conv->convertTo(inputPath, outputPath, IConversionEngine::TargetFormat::Excel);
+        bool ok = conv->convertTo(inputPath, outputPath, IConversionEngine::TargetFormat::Csv);
         result->store(ok);
     });
 
@@ -246,6 +247,16 @@ void ConvertController::linearizeDocument() {
     IPdfEditorEngine* engine = _ctx->pdfEditor.get();
     QPointer<ConvertController> self(this);
 
+    // Fix L: delete any pre-existing file at the target path so QFileInfo::exists
+    // is a real success signal, not a leftover-file false positive.
+    if (QFileInfo::exists(outputPath) && !QFile::remove(outputPath)) {
+        progress->close();
+        progress->deleteLater();
+        QMessageBox::critical(_mainWindow, tr("Error"),
+            tr("Could not overwrite existing file at: %1").arg(outputPath));
+        return;
+    }
+
     QThread* worker = QThread::create([engine, inputPath, outputPath]() {
         if (engine->currentFile() != inputPath)
             engine->loadDocumentForEditing(inputPath);
@@ -297,6 +308,16 @@ void ConvertController::exportAsPdfA() {
     const QString inputPath = viewer->filePath();
     IPdfEditorEngine* engine = _ctx->pdfEditor.get();
     QPointer<ConvertController> self(this);
+
+    // Fix L: delete any pre-existing file at the target path so QFileInfo::exists
+    // is a real success signal, not a leftover-file false positive.
+    if (QFileInfo::exists(outputPath) && !QFile::remove(outputPath)) {
+        progress->close();
+        progress->deleteLater();
+        QMessageBox::critical(_mainWindow, tr("Error"),
+            tr("Could not overwrite existing file at: %1").arg(outputPath));
+        return;
+    }
 
     QThread* worker = QThread::create([engine, inputPath, outputPath, level]() {
         engine->loadDocumentForEditing(inputPath);

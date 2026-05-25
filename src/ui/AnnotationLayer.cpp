@@ -24,6 +24,8 @@ AnnotationLayer::AnnotationLayer(QWidget *parent)
 {
     setAttribute(Qt::WA_TransparentForMouseEvents, false);
     setMouseTracking(true);
+    setAccessibleName(tr("Annotation canvas"));
+    setAccessibleDescription(tr("Draw highlights, underlines, text boxes, and other annotations on the document"));
 }
 
 void AnnotationLayer::setRotation(int rotation)

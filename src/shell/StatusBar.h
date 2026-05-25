@@ -2,6 +2,7 @@
 #include <QStatusBar>
 
 class QLabel;
+class QSpinBox;
 class QPdfDocument;
 class IPdfEditorEngine;
 
@@ -22,11 +23,15 @@ public:
     void updateUnsaved(bool dirty);
     void updateFromDocument(IPdfEditorEngine* engine, const QString& filePath);
 
+signals:
+    void jumpToPageRequested(int page);  // 0-based page index
+
 private:
     QLabel* makeCell(const QString& text);
     QLabel* _mode = nullptr;
     QLabel* _screen = nullptr;
-    QLabel* _page = nullptr;
+    QSpinBox* _pageSpinBox = nullptr;
+    QLabel* _pageTotal = nullptr;
     QLabel* _zoom = nullptr;
     QLabel* _tool = nullptr;
     QLabel* _sel  = nullptr;
@@ -38,6 +43,8 @@ private:
     QLabel* _pageSize = nullptr;
     QLabel* _docInfo = nullptr;
     QLabel* _unsaved = nullptr;
+
+    int _totalPages = 0;
 };
 
 } // namespace gp

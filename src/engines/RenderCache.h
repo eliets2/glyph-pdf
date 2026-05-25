@@ -10,6 +10,15 @@
 #include <QAtomicInt>
 #include "core/interfaces/IPdfRenderer.h"
 
+// Memory-guard thresholds (Session 16 D5)
+namespace MemoryGuard {
+    constexpr qint64 LargeFileSizeBytes   = 500LL * 1024 * 1024; // 500 MB
+    constexpr qint64 LowMemoryThreshold   = 500LL * 1024 * 1024; // 500 MB free
+    constexpr qint64 AggressiveCacheLimit = 64LL * 1024 * 1024;   // 64 MB when low
+    constexpr double LargePageMegapixels  = 50.0;                // 50 MP
+    constexpr int    TileSize             = 2048;                // tile px
+}
+
 struct RenderCacheKey {
     int page;
     qreal scale;
@@ -70,6 +79,12 @@ public:
 
     // Viewport Prefetch
     void prefetchViewport(int centerPage, qreal scale, IPdfRenderer* renderer);
+
+    // Memory guards (Session 16 D5)
+    static qint64 availableSystemMemory();
+    bool isSystemMemoryLow() const;
+    bool shouldAutoTile(int page, qreal scale, IPdfRenderer* renderer);
+    void checkMemoryPressure();
 
     // Tier 3: Text Layer (always resident after first parse)
     QString getOrExtractText(int page, IPdfRenderer* renderer);

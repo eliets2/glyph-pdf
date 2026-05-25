@@ -63,6 +63,18 @@ public:
     bool applyRedactions(int pageIndex, const QList<QRectF> &rects) override;
     bool embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations) override;
 
+    // Watermarking (Session 13)
+    bool addTextWatermark(const TextWatermarkOptions &options) override;
+    bool addImageWatermark(const ImageWatermarkOptions &options) override;
+
+    // Optimization (Session 13)
+    OptimizeEstimate estimateOptimization(const OptimizeOptions &options) override;
+    bool optimizeDocument(const QString &outputPath, const OptimizeOptions &options) override;
+
+    // Error reporting (Session 16)
+    ErrorInfo lastError() const override;
+    void clearError() override;
+
 private:
     class Private;
     std::unique_ptr<Private> d;

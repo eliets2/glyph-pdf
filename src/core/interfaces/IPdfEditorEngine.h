@@ -1,10 +1,12 @@
 #pragma once
 #include "core/ImageTypes.h"
 #include "core/AnnotationTypes.h"
+#include "core/ErrorInfo.h"
 #include <QString>
 #include <QStringList>
 #include <QRectF>
 #include <QPointF>
+#include <QColor>
 
 struct PdfMetadata {
     QString title;
@@ -33,6 +35,57 @@ struct BatesNumberingOptions {
     HeaderFooterOptions::Position position = HeaderFooterOptions::Position::BottomRight;
 };
 
+// ── Watermark options ──────────────────────────────────────────────────────
+
+struct TextWatermarkOptions {
+    QString text = "CONFIDENTIAL";
+    QString fontFamily = "Helvetica";
+    int fontSize = 48;
+    QColor color = QColor(128, 128, 128);
+    double opacity = 0.3;          // 0.0–1.0
+    double rotationDeg = -45.0;    // degrees counter-clockwise
+    enum Position { Center, Diagonal, TopLeft, TopRight, BottomLeft, BottomRight };
+    Position position = Diagonal;
+    int pageFrom = -1;             // -1 = all pages
+    int pageTo = -1;
+    bool skipSigned = true;
+};
+
+struct ImageWatermarkOptions {
+    QString imagePath;
+    double opacity = 0.3;
+    double scale = 0.5;           // fraction of page width
+    enum Position { Center, TopLeft, TopRight, BottomLeft, BottomRight, Tile };
+    Position position = Center;
+    int pageFrom = -1;
+    int pageTo = -1;
+    bool skipSigned = true;
+};
+
+// ── Optimization options ───────────────────────────────────────────────────
+
+struct OptimizeOptions {
+    bool downsampleImages = true;
+    int targetDpi = 150;
+    int jpegQuality = 75;          // 0–100
+    bool deduplicateImages = true;
+    bool subsetFonts = true;
+    bool removeUnusedObjects = true;
+    bool stripMetadata = false;
+};
+
+struct OptimizeEstimate {
+    qint64 originalBytes = 0;
+    qint64 estimatedBytes = 0;
+    int imageCount = 0;
+    qint64 imageTotalBytes = 0;
+    int fontCount = 0;
+    int duplicateImages = 0;
+    double reductionPercent = 0.0;
+};
+
+// ── Interface ──────────────────────────────────────────────────────────────
+
 class IPdfEditorEngine {
 public:
     virtual ~IPdfEditorEngine() = default;
@@ -47,12 +100,6 @@ public:
     virtual bool exportPdfA(const QString &outputPath, int conformanceLevel) = 0;
     virtual bool encryptDocument(const QString &userPassword, const QString &ownerPassword,
                                   bool canPrint, bool canCopy, bool canModify) = 0;
-
-    /// Certificate-based encryption (PDF /PubSec, AES-256, RSA-wrapped per recipient).
-    /// @param inputPath   Source PDF (may be the currently loaded document).
-    /// @param outputPath  Destination encrypted PDF.
-    /// @param certPaths   DER or PEM X.509 recipient certificates (one per user).
-    /// @return true on success.
     virtual bool encryptWithCertificate(const QString &inputPath,
                                         const QString &outputPath,
                                         const QStringList &certPaths) = 0;
@@ -76,18 +123,31 @@ public:
     virtual bool replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath) = 0;
     virtual bool deleteImage(int pageIndex, const QString &xobjectName) = 0;
     virtual bool applyRedactions(int pageIndex, const QList<QRectF> &rects) = 0;
-    
+
     // Page Geometry & Operations
     virtual bool cropPage(const QString &path, int pageIndex, const QRectF &cropRect) = 0;
     virtual bool resizePage(const QString &path, int pageIndex, const QSizeF &size) = 0;
     virtual bool reorderPages(const QString &path, int fromIndex, int toIndex) = 0;
-    
+
     // Content Injection
     virtual bool addHeaderFooter(const QString &path, const HeaderFooterOptions &options) = 0;
     virtual bool applyBatesNumbering(const QString &path, const BatesNumberingOptions &options) = 0;
-    
+
     // Annotation Export
     virtual bool embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations) = 0;
+
+    // Watermarking (Session 13)
+    virtual bool addTextWatermark(const TextWatermarkOptions &options) = 0;
+    virtual bool addImageWatermark(const ImageWatermarkOptions &options) = 0;
+
+    // Optimization (Session 13)
+    virtual OptimizeEstimate estimateOptimization(const OptimizeOptions &options) = 0;
+    virtual bool optimizeDocument(const QString &outputPath, const OptimizeOptions &options) = 0;
+
+    // Error reporting (Session 16)
+    virtual ErrorInfo lastError() const = 0;
+    virtual void clearError() = 0;
+
 protected:
     IPdfEditorEngine() = default;
     IPdfEditorEngine(const IPdfEditorEngine&) = delete;

@@ -2,12 +2,18 @@
 #include "core/AppContext.h"
 #include "GpMainWindow.h"
 #include "ui/PdfViewerWidget.h"
+#include "ui/PageSetupDialog.h"
+#include "ui/ExportPresetsPanel.h"
 
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QDesktopServices>
 #include <QUrl>
 #include <QFileInfo>
+#include <QSettings>
+#include <QPrintPreviewDialog>
+#include <QPrinter>
+#include <QPainter>
 #include "shell/StatusBar.h"
 #include "core/interfaces/IPdfEditorEngine.h"
 #include <QUndoStack>
@@ -21,7 +27,8 @@ HomeController::HomeController(const AppContext* ctx, MainWindow* mainWindow, QO
 QList<ToolId> HomeController::handledTools() const {
     return {
         ToolId::Open, ToolId::Save, ToolId::SaveAs,
-        ToolId::Print, ToolId::Share, ToolId::Properties
+        ToolId::Print, ToolId::PrintPreview, ToolId::PageSetup,
+        ToolId::ExportPresets, ToolId::Share, ToolId::Properties
     };
 }
 
@@ -44,6 +51,15 @@ void HomeController::activate(ToolId id) {
         break;
     case ToolId::Print:
         onPrint();
+        break;
+    case ToolId::PrintPreview:
+        onPrintPreview();
+        break;
+    case ToolId::PageSetup:
+        onPageSetup();
+        break;
+    case ToolId::ExportPresets:
+        onExportPresets();
         break;
     case ToolId::Share:
         onShare();
@@ -89,8 +105,15 @@ void HomeController::onSaveAs() {
         tr("Save Document As"), QFileInfo(viewer->filePath()).fileName(),
         tr("PDF Files (*.pdf);;All Files (*)"));
     if (fileName.isEmpty()) return;
-    viewer->saveDocumentAs(fileName);
-    _mainWindow->statusBar()->showMessage(tr("Document saved to %1").arg(fileName), 5000);
+    if (viewer->saveDocumentAs(fileName)) {
+        _mainWindow->statusBar()->showMessage(tr("Document saved to %1").arg(fileName), 5000);
+    } else {
+        QMessageBox::warning(
+            _mainWindow,
+            tr("Save Failed"),
+            tr("Could not save the document to '%1'. See application log for details.").arg(fileName));
+        _mainWindow->statusBar()->showMessage(tr("Save failed: %1").arg(fileName), 5000);
+    }
 }
 
 void HomeController::onShare() {
@@ -139,6 +162,84 @@ void HomeController::showProperties() {
                       .arg(doc->pageCount());
 
     QMessageBox::information(_mainWindow, tr("Document Properties"), info);
+}
+
+void HomeController::onPrintPreview() {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !viewer->document()) {
+        _mainWindow->statusBar()->showMessage(tr("No document is open."), 3000);
+        return;
+    }
+
+    QPrinter printer(QPrinter::HighResolution);
+    QString filePath = viewer->filePath();
+    auto ps = PageSetupDialog::loadForDocument(filePath);
+    printer.setPageSize(QPageSize(ps.pageSize));
+    printer.setPageOrientation(ps.orientation == QPageLayout::Landscape
+                                   ? QPageLayout::Landscape : QPageLayout::Portrait);
+    printer.setPageMargins(QMarginsF(ps.marginLeft, ps.marginTop,
+                                     ps.marginRight, ps.marginBottom), QPageLayout::Millimeter);
+    Q_UNUSED(ps);  // Settings applied to printer above; render uses fixed 150 DPI
+
+    QPrintPreviewDialog preview(&printer, _mainWindow);
+    preview.setWindowTitle(tr("Print Preview"));
+
+    QPdfDocument* doc = viewer->document();
+    connect(&preview, &QPrintPreviewDialog::paintRequested, _mainWindow,
+        [doc](QPrinter* p) {
+            if (!doc || doc->pageCount() == 0) return;
+
+            QPainter painter(p);
+            QRectF printable = p->pageRect(QPrinter::DevicePixel);
+            constexpr int renderDpi = 150;
+
+            for (int i = 0; i < doc->pageCount(); ++i) {
+                if (i > 0) p->newPage();
+
+                QSizeF pageSize = doc->pagePointSize(i);
+                QImage img = doc->render(i, (pageSize * renderDpi / 72.0).toSize());
+                if (img.isNull()) continue;
+
+                // Scale to fit printable area
+                QSizeF scaled = img.size().scaled(printable.size().toSize(), Qt::KeepAspectRatio);
+                double x = (printable.width()  - scaled.width())  / 2.0;
+                double y = (printable.height() - scaled.height()) / 2.0;
+                painter.drawImage(QRectF(x, y, scaled.width(), scaled.height()), img);
+            }
+            painter.end();
+        });
+
+    preview.exec();
+}
+
+void HomeController::onPageSetup() {
+    auto* viewer = _mainWindow->pdfViewer();
+    QString path = viewer ? viewer->filePath() : QString();
+    PageSetupDialog dlg(path, _mainWindow);
+    dlg.exec();
+}
+
+void HomeController::onExportPresets() {
+    ExportPresetsPanel panel(_mainWindow);
+    panel.exec();
+}
+
+// ── Recent files ────────────────────────────────────────────────────────
+
+void HomeController::addRecentFile(const QString& filePath) {
+    if (filePath.isEmpty()) return;
+    QSettings settings;
+    QStringList recent = settings.value("recentFiles").toStringList();
+    recent.removeAll(filePath);
+    recent.prepend(filePath);
+    while (recent.size() > 20)
+        recent.removeLast();
+    settings.setValue("recentFiles", recent);
+}
+
+QStringList HomeController::recentFiles() const {
+    QSettings settings;
+    return settings.value("recentFiles").toStringList();
 }
 
 } // namespace gp
