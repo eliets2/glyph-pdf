@@ -33,11 +33,14 @@ class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
     explicit MainWindow(const AppContext* ctx, QWidget* parent = nullptr);
+    ~MainWindow() override;
 
     PdfViewerWidget* pdfViewer() const;
     StatusBar* statusBar() const { return _status; }
 
     void openDocument(const QString& filePath);
+    void recoverDocument(const QString& originalPath);
+    const AppContext* appContext() const { return _ctx; }
     void toggleFindBar();
     void setFullScreenMode(bool fullscreen);
     void updateTitle();

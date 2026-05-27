@@ -5,6 +5,8 @@
 #include "engines/DocumentSession.h"
 #include "mocks/MockPdfEditorEngine.h"
 #include "engines/PdfEditorEngine.h"
+#include "engines/podofo/PdfStringEscape.h"
+#include "engines/podofo/PoDoFoBackend.h"
 
 class TestSanitization : public QObject {
     Q_OBJECT
@@ -132,6 +134,50 @@ private slots:
         QCOMPARE(mock.m_lastSanitizedPath, QString("third.pdf"));
     }
 
+    void testSanitizeGeneratesUniqueTrailerID()
+    {
+        QTemporaryDir m_tmpDir;
+        QVERIFY(m_tmpDir.isValid());
+        QString pdf = m_tmpDir.filePath("sanitizetest_id.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            doc.GetPages().CreatePage(PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            doc.Save(pdf.toUtf8().constData());
+        }
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+
+        QString outPdf1 = m_tmpDir.filePath("sanitizetest_id_out1.pdf");
+        QString outPdf2 = m_tmpDir.filePath("sanitizetest_id_out2.pdf");
+
+        QVERIFY(engine.sanitizeDocument(outPdf1));
+        QVERIFY(engine.sanitizeDocument(outPdf2));
+
+        PoDoFo::PdfMemDocument outDoc1;
+        outDoc1.Load(outPdf1.toUtf8().constData());
+        
+        PoDoFo::PdfMemDocument outDoc2;
+        outDoc2.Load(outPdf2.toUtf8().constData());
+        
+        auto getTrailerId1 = [](PoDoFo::PdfMemDocument& d) -> std::string {
+            if (d.GetTrailer().GetDictionary().HasKey("ID")) {
+                auto* idObj = d.GetTrailer().GetDictionary().FindKey("ID");
+                if (idObj && idObj->IsArray() && idObj->GetArray().GetSize() >= 2) {
+                    return std::string(idObj->GetArray()[1].GetString().GetString());
+                }
+            }
+            return "";
+        };
+
+        std::string id1 = getTrailerId1(outDoc1);
+        std::string id2 = getTrailerId1(outDoc2);
+
+        QVERIFY(!id1.empty());
+        QVERIFY(!id2.empty());
+        QVERIFY(id1 != id2);
+    }
+
     void testIntegrationSanitization()
     {
         QTemporaryDir m_tmpDir;
@@ -182,6 +228,185 @@ private slots:
                 }
             }
         }
+    }
+
+    void testPdfEscapeLiteralStringInvariants()
+    {
+        // Basic escaping
+        QCOMPARE(pdfEscapeLiteralString(std::string("test")), std::string("test"));
+        QCOMPARE(pdfEscapeLiteralString(std::string("te(s)t\\")), std::string("te\\(s\\)t\\\\"));
+        
+        // Idempotency: double escaping should equal single escaping
+        std::string once = pdfEscapeLiteralString(std::string("te(s)t\\"));
+        std::string twice = pdfEscapeLiteralString(once);
+        QCOMPARE(once, twice);
+        
+        // Escaping control characters
+        QCOMPARE(pdfEscapeLiteralString(std::string("\n\r")), std::string("\\n\\r"));
+    }
+
+    void testWatermarkInjectionIsPrevented()
+    {
+        QTemporaryDir m_tmpDir;
+        QVERIFY(m_tmpDir.isValid());
+        QString pdf = m_tmpDir.filePath("watermark_injection.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            doc.GetPages().CreatePage(PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            doc.Save(pdf.toUtf8().constData());
+        }
+
+        PoDoFoBackend backend;
+        backend.loadDocument(pdf);
+        
+        TextWatermarkOptions opts;
+        opts.text = "Foo) Tj 1 0 0 1 100 200 cm (";
+        opts.fontSize = 12;
+        opts.color = QColor(0,0,0);
+        
+        QVERIFY(backend.addTextWatermark(opts));
+        QString outPdf = m_tmpDir.filePath("watermark_injection_out.pdf");
+        QVERIFY(backend.saveDocument(outPdf));
+        
+        PoDoFo::PdfMemDocument outDoc;
+        outDoc.Load(outPdf.toUtf8().constData());
+        auto& page = outDoc.GetPages().GetPageAt(0);
+        auto* contentsObj = page.GetContents();
+        QVERIFY(contentsObj);
+        
+        PoDoFo::charbuff buf;
+        contentsObj->CopyTo(buf);
+        std::string streamStr(buf.data(), buf.size());
+        
+        // Ensure the injected string is escaped and doesn't break out of the literal
+        std::string expectedEscaped = "Foo\\) Tj 1 0 0 1 100 200 cm \\(";
+        QVERIFY(streamStr.find(expectedEscaped) != std::string::npos);
+        QVERIFY(streamStr.find(opts.text.toStdString()) == std::string::npos); // Should not find the raw unescaped string
+    }
+
+    void testAnnotationInjectionIsPrevented()
+    {
+        QTemporaryDir m_tmpDir;
+        QVERIFY(m_tmpDir.isValid());
+        QString pdf = m_tmpDir.filePath("anno_injection.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            doc.GetPages().CreatePage(PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            doc.Save(pdf.toUtf8().constData());
+        }
+
+        PoDoFoBackend backend;
+        backend.loadDocument(pdf);
+        
+        AnnotationItem anno;
+        anno.pageIndex = 0;
+        anno.rect = QRectF(100, 100, 100, 50);
+        anno.text = "Here is \\, ( and )";
+        anno.mode = ToolMode::Callout;
+        
+        QVERIFY(backend.embedAnnotations(pdf, m_tmpDir.filePath("anno_out.pdf"), {anno}));
+        PoDoFo::PdfMemDocument outDoc;
+        outDoc.Load(m_tmpDir.filePath("anno_out.pdf").toUtf8().constData());
+        auto& page = outDoc.GetPages().GetPageAt(0);
+        
+        auto& annots = page.GetAnnotations();
+        QCOMPARE(annots.GetCount(), 1u);
+        auto& annot = annots.GetAnnotAt(0);
+        auto* apDict = annot.GetDictionary().FindKey("AP");
+        QVERIFY(apDict);
+        auto& apDictRef = apDict->GetDictionary();
+        auto* nStreamRef = apDictRef.FindKey("N");
+        QVERIFY(nStreamRef);
+        
+        const PoDoFo::PdfObject* actualStreamObj = nStreamRef;
+        if (nStreamRef->IsReference()) {
+            actualStreamObj = &outDoc.GetObjects().MustGetObject(nStreamRef->GetReference());
+        }
+        
+        if (!actualStreamObj->HasStream()) {
+            QFAIL("Object does not have a stream!");
+        }
+        
+        PoDoFo::charbuff buf;
+        actualStreamObj->GetStream()->CopyTo(buf);
+        std::string streamStr;
+        if (buf.data() && buf.size() > 0) {
+            streamStr.assign(buf.data(), buf.size());
+        }
+        
+        std::string expectedEscaped = "Here is \\\\, \\( and \\)";
+        QVERIFY(streamStr.find(expectedEscaped) != std::string::npos);
+    }
+    
+    void testHeaderFooterInjectionIsPrevented()
+    {
+        QTemporaryDir m_tmpDir;
+        QVERIFY(m_tmpDir.isValid());
+        QString pdf = m_tmpDir.filePath("hf_injection.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            doc.GetPages().CreatePage(PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            doc.Save(pdf.toUtf8().constData());
+        }
+
+        PoDoFoBackend backend;
+        
+        HeaderFooterOptions opts;
+        opts.textTemplate = "File: file(.pdf";
+        opts.position = HeaderFooterOptions::Position::TopCenter;
+        opts.fontSize = 12;
+        
+        QVERIFY(backend.addHeaderFooter(pdf, opts));
+        
+        PoDoFo::PdfMemDocument outDoc;
+        outDoc.Load(pdf.toUtf8().constData());
+        auto& page = outDoc.GetPages().GetPageAt(0);
+        auto* contentsObj = page.GetContents();
+        QVERIFY(contentsObj);
+        
+        PoDoFo::charbuff buf;
+        contentsObj->CopyTo(buf);
+        std::string streamStr(buf.data(), buf.size());
+        
+        std::string expectedEscaped = "File: file\\(.pdf";
+        QVERIFY(streamStr.find(expectedEscaped) != std::string::npos);
+    }
+
+    void testBatesInjectionIsPrevented()
+    {
+        QTemporaryDir m_tmpDir;
+        QVERIFY(m_tmpDir.isValid());
+        QString pdf = m_tmpDir.filePath("bates_injection.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            doc.GetPages().CreatePage(PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            doc.Save(pdf.toUtf8().constData());
+        }
+
+        PoDoFoBackend backend;
+
+        BatesNumberingOptions opts;
+        opts.prefix = "CASE) Tj (";
+        opts.suffix = "-END(";
+        opts.startNumber = 7;
+        opts.digitCount = 3;
+        opts.position = HeaderFooterOptions::Position::BottomRight;
+        opts.fontSize = 12;
+
+        QVERIFY(backend.applyBatesNumbering(pdf, opts));
+
+        PoDoFo::PdfMemDocument outDoc;
+        outDoc.Load(pdf.toUtf8().constData());
+        auto& page = outDoc.GetPages().GetPageAt(0);
+        auto* contentsObj = page.GetContents();
+        QVERIFY(contentsObj);
+
+        PoDoFo::charbuff buf;
+        contentsObj->CopyTo(buf);
+        std::string streamStr(buf.data(), buf.size());
+
+        std::string expectedEscaped = "CASE\\) Tj \\(007-END\\(";
+        QVERIFY(streamStr.find(expectedEscaped) != std::string::npos);
     }
 };
 

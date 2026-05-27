@@ -11,6 +11,23 @@
 #include "engines/pdfium/PdfiumBackend.h"
 #endif
 
+namespace {
+    thread_local bool t_writeLocked = false;
+
+    class WriteLockGuard {
+        QReadWriteLock& m_lock;
+    public:
+        explicit WriteLockGuard(QReadWriteLock& lock) : m_lock(lock) {
+            m_lock.lockForWrite();
+            t_writeLocked = true;
+        }
+        ~WriteLockGuard() {
+            t_writeLocked = false;
+            m_lock.unlock();
+        }
+    };
+}
+
 RenderCache::RenderCache() {}
 
 RenderCache::~RenderCache() {
@@ -18,10 +35,9 @@ RenderCache::~RenderCache() {
 }
 
 void RenderCache::setMaxCacheSize(qint64 bytes) {
-    m_lock.lockForWrite();
+    WriteLockGuard guard(m_lock);
     m_maxCacheSize = bytes;
     evictIfNeeded();
-    m_lock.unlock();
 }
 
 qint64 RenderCache::maxCacheSize() const {
@@ -32,14 +48,13 @@ qint64 RenderCache::maxCacheSize() const {
 }
 
 void RenderCache::clear() {
-    m_lock.lockForWrite();
+    WriteLockGuard guard(m_lock);
     m_renderedPages.clear();
     m_lruList.clear();
     m_totalBytes = 0;
     m_pageSizes.clear();
     m_textLayer.clear();
     m_pageCount = 0;
-    m_lock.unlock();
 }
 
 void RenderCache::resetStats() {
@@ -48,40 +63,57 @@ void RenderCache::resetStats() {
 }
 
 void RenderCache::setPageSize(int page, const QSizeF &size) {
-    m_lock.lockForWrite();
-    m_pageSizes.insert(page, size);
-    m_lock.unlock();
+    WriteLockGuard guard(m_lock);
+    std::promise<QSizeF> p;
+    p.set_value(size);
+    m_pageSizes.insert(page, p.get_future());
 }
 
 QSizeF RenderCache::pageSize(int page, IPdfRenderer* renderer) {
     m_lock.lockForRead();
     if (m_pageSizes.contains(page)) {
-        QSizeF size = m_pageSizes.value(page);
+        auto fut = m_pageSizes.value(page);
         m_lock.unlock();
-        return size;
+        return fut.get();
     }
     m_lock.unlock();
 
     if (!renderer) return QSizeF();
 
-#ifdef HAS_PDFIUM
-    auto* pdfium = dynamic_cast<PdfiumBackend*>(renderer);
-    if (pdfium) {
-        QSizeF size = pdfium->pageSize(page);
-        if (size.isValid()) {
-            setPageSize(page, size);
-            return size;
+    std::shared_ptr<std::promise<QSizeF>> promisePtr;
+    std::shared_future<QSizeF> fut;
+
+    {
+        WriteLockGuard guard(m_lock);
+        if (m_pageSizes.contains(page)) {
+            fut = m_pageSizes.value(page);
+        } else {
+            promisePtr = std::make_shared<std::promise<QSizeF>>();
+            fut = promisePtr->get_future();
+            m_pageSizes.insert(page, fut);
         }
     }
-#endif
 
-    return QSizeF(595.276, 841.890); // Default A4 size
+    if (promisePtr) {
+        QSizeF size;
+#ifdef HAS_PDFIUM
+        auto* pdfium = dynamic_cast<PdfiumBackend*>(renderer);
+        if (pdfium) {
+            size = pdfium->pageSize(page);
+        }
+#endif
+        if (!size.isValid()) {
+            size = QSizeF(595.276, 841.890); // Default A4 size
+        }
+        promisePtr->set_value(size);
+    }
+
+    return fut.get();
 }
 
 void RenderCache::setPageCount(int count) {
-    m_lock.lockForWrite();
+    WriteLockGuard guard(m_lock);
     m_pageCount = count;
-    m_lock.unlock();
 }
 
 int RenderCache::pageCount() const {
@@ -113,22 +145,17 @@ QImage RenderCache::getOrRender(int page, qreal scale, IPdfRenderer* renderer) {
 
     RenderCacheKey key{page, scale, false, QRectF()};
 
-    // 1. Try to read
-    m_lock.lockForRead();
-    if (m_renderedPages.contains(key)) {
-        m_hits.fetchAndAddRelaxed(1);
-        QImage img = m_renderedPages.value(key).image;
-        m_lock.unlock();
-
-        // Update LRU
-        m_lock.lockForWrite();
-        m_lruList.removeOne(key);
-        m_lruList.prepend(key);
-        m_lock.unlock();
-
-        return img;
+    // 1. Try to read and update LRU together (TOCTOU fix)
+    {
+        WriteLockGuard guard(m_lock);
+        if (m_renderedPages.contains(key)) {
+            m_hits.fetchAndAddRelaxed(1);
+            QImage img = m_renderedPages.value(key).image;
+            m_lruList.removeOne(key);
+            m_lruList.prepend(key);
+            return img;
+        }
     }
-    m_lock.unlock();
 
     // 2. Miss: render outside lock
     m_misses.fetchAndAddRelaxed(1);
@@ -139,20 +166,19 @@ QImage RenderCache::getOrRender(int page, qreal scale, IPdfRenderer* renderer) {
     if (rendered.isNull()) return QImage();
 
     // 3. Insert and evict
-    m_lock.lockForWrite();
-    if (m_renderedPages.contains(key)) {
-        QImage img = m_renderedPages.value(key).image;
-        m_lock.unlock();
-        return img;
-    }
+    {
+        WriteLockGuard guard(m_lock);
+        if (m_renderedPages.contains(key)) {
+            return m_renderedPages.value(key).image;
+        }
 
-    qint64 bytes = imageSizeInBytes(rendered);
-    m_renderedPages.insert(key, {rendered, bytes});
-    m_lruList.removeOne(key);
-    m_lruList.prepend(key);
-    m_totalBytes += bytes;
-    evictIfNeeded();
-    m_lock.unlock();
+        qint64 bytes = imageSizeInBytes(rendered);
+        m_renderedPages.insert(key, {rendered, bytes});
+        m_lruList.removeOne(key);
+        m_lruList.prepend(key);
+        m_totalBytes += bytes;
+        evictIfNeeded();
+    }
 
     return rendered;
 }
@@ -160,22 +186,17 @@ QImage RenderCache::getOrRender(int page, qreal scale, IPdfRenderer* renderer) {
 QImage RenderCache::getOrRenderTile(int page, qreal scale, const QRectF &subRect, IPdfRenderer* renderer) {
     RenderCacheKey key{page, scale, true, subRect};
 
-    // 1. Try to read
-    m_lock.lockForRead();
-    if (m_renderedPages.contains(key)) {
-        m_hits.fetchAndAddRelaxed(1);
-        QImage img = m_renderedPages.value(key).image;
-        m_lock.unlock();
-
-        // Update LRU
-        m_lock.lockForWrite();
-        m_lruList.removeOne(key);
-        m_lruList.prepend(key);
-        m_lock.unlock();
-
-        return img;
+    // 1. Try to read and update LRU together (TOCTOU fix)
+    {
+        WriteLockGuard guard(m_lock);
+        if (m_renderedPages.contains(key)) {
+            m_hits.fetchAndAddRelaxed(1);
+            QImage img = m_renderedPages.value(key).image;
+            m_lruList.removeOne(key);
+            m_lruList.prepend(key);
+            return img;
+        }
     }
-    m_lock.unlock();
 
     // 2. Miss: render outside lock
     m_misses.fetchAndAddRelaxed(1);
@@ -186,26 +207,25 @@ QImage RenderCache::getOrRenderTile(int page, qreal scale, const QRectF &subRect
     if (tileImg.isNull()) return QImage();
 
     // 3. Insert and evict
-    m_lock.lockForWrite();
-    if (m_renderedPages.contains(key)) {
-        QImage img = m_renderedPages.value(key).image;
-        m_lock.unlock();
-        return img;
-    }
+    {
+        WriteLockGuard guard(m_lock);
+        if (m_renderedPages.contains(key)) {
+            return m_renderedPages.value(key).image;
+        }
 
-    qint64 bytes = imageSizeInBytes(tileImg);
-    m_renderedPages.insert(key, {tileImg, bytes});
-    m_lruList.removeOne(key);
-    m_lruList.prepend(key);
-    m_totalBytes += bytes;
-    evictIfNeeded();
-    m_lock.unlock();
+        qint64 bytes = imageSizeInBytes(tileImg);
+        m_renderedPages.insert(key, {tileImg, bytes});
+        m_lruList.removeOne(key);
+        m_lruList.prepend(key);
+        m_totalBytes += bytes;
+        evictIfNeeded();
+    }
 
     return tileImg;
 }
 
 void RenderCache::insertPage(int page, qreal scale, const QImage &image) {
-    m_lock.lockForWrite();
+    WriteLockGuard guard(m_lock);
     RenderCacheKey key{page, scale, false, QRectF()};
     qint64 bytes = imageSizeInBytes(image);
     m_renderedPages.insert(key, {image, bytes});
@@ -213,11 +233,10 @@ void RenderCache::insertPage(int page, qreal scale, const QImage &image) {
     m_lruList.prepend(key);
     m_totalBytes += bytes;
     evictIfNeeded();
-    m_lock.unlock();
 }
 
 void RenderCache::insertTile(int page, qreal scale, const QRectF &subRect, const QImage &image) {
-    m_lock.lockForWrite();
+    WriteLockGuard guard(m_lock);
     RenderCacheKey key{page, scale, true, subRect};
     qint64 bytes = imageSizeInBytes(image);
     m_renderedPages.insert(key, {image, bytes});
@@ -225,7 +244,6 @@ void RenderCache::insertTile(int page, qreal scale, const QRectF &subRect, const
     m_lruList.prepend(key);
     m_totalBytes += bytes;
     evictIfNeeded();
-    m_lock.unlock();
 }
 
 void RenderCache::prefetchViewport(int centerPage, qreal scale, IPdfRenderer* renderer) {
@@ -247,33 +265,42 @@ void RenderCache::prefetchViewport(int centerPage, qreal scale, IPdfRenderer* re
         if (next < totalPages) pagesToPrefetch.append(next);
         if (prev >= 0) pagesToPrefetch.append(prev);
     }
+    std::weak_ptr<RenderCache> weakThis = weak_from_this();
 
-    QtConcurrent::run([this, pagesToPrefetch, scale, renderer, currentToken]() {
+    QtConcurrent::run([weakThis, pagesToPrefetch, scale, renderer, currentToken]() {
+        auto self = weakThis.lock();
+        if (!self) return;
+
         for (int p : pagesToPrefetch) {
             // Check cancellation token before rendering each page
-            if (m_prefetchCancelToken.loadRelaxed() != currentToken) {
+            if (self->m_prefetchCancelToken.loadRelaxed() != currentToken) {
                 return;
             }
 
             RenderCacheKey key{p, scale, false, QRectF()};
-            m_lock.lockForRead();
-            bool cached = m_renderedPages.contains(key);
-            m_lock.unlock();
+            self->m_lock.lockForRead();
+            bool cached = self->m_renderedPages.contains(key);
+            self->m_lock.unlock();
 
             if (!cached) {
                 int dpi = static_cast<int>(scale * 72.0);
                 QImage rendered = renderer->renderPage(p, dpi);
+                
+                // cancellation token check between lookup and write
+                if (self->m_prefetchCancelToken.loadRelaxed() != currentToken) {
+                    return;
+                }
+
                 if (!rendered.isNull()) {
-                    m_lock.lockForWrite();
-                    if (!m_renderedPages.contains(key)) {
-                        qint64 bytes = imageSizeInBytes(rendered);
-                        m_renderedPages.insert(key, {rendered, bytes});
-                        m_lruList.removeOne(key);
-                        m_lruList.prepend(key);
-                        m_totalBytes += bytes;
-                        evictIfNeeded();
+                    WriteLockGuard guard(self->m_lock);
+                    if (!self->m_renderedPages.contains(key)) {
+                        qint64 bytes = self->imageSizeInBytes(rendered);
+                        self->m_renderedPages.insert(key, {rendered, bytes});
+                        self->m_lruList.removeOne(key);
+                        self->m_lruList.prepend(key);
+                        self->m_totalBytes += bytes;
+                        self->evictIfNeeded();
                     }
-                    m_lock.unlock();
                 }
             }
         }
@@ -295,9 +322,8 @@ QString RenderCache::getOrExtractText(int page, IPdfRenderer* renderer) {
     auto* pdfium = dynamic_cast<PdfiumBackend*>(renderer);
     if (pdfium) {
         QString extracted = pdfium->extractText(page);
-        m_lock.lockForWrite();
+        WriteLockGuard guard(m_lock);
         m_textLayer.insert(page, extracted);
-        m_lock.unlock();
         return extracted;
     }
 #endif
@@ -306,13 +332,13 @@ QString RenderCache::getOrExtractText(int page, IPdfRenderer* renderer) {
 }
 
 void RenderCache::insertText(int page, const QString &text) {
-    m_lock.lockForWrite();
+    WriteLockGuard guard(m_lock);
     m_textLayer.insert(page, text);
-    m_lock.unlock();
 }
 
 void RenderCache::evictIfNeeded() {
     // Note: Assumes write lock is already held
+    Q_ASSERT(t_writeLocked);
     while (m_totalBytes > m_maxCacheSize && !m_lruList.isEmpty()) {
         RenderCacheKey oldestKey = m_lruList.takeLast();
         if (m_renderedPages.contains(oldestKey)) {
@@ -320,6 +346,14 @@ void RenderCache::evictIfNeeded() {
             m_renderedPages.remove(oldestKey);
         }
     }
+
+#ifndef QT_NO_DEBUG
+    qint64 actualBytes = 0;
+    for (auto it = m_renderedPages.constBegin(); it != m_renderedPages.constEnd(); ++it) {
+        actualBytes += it.value().bytes;
+    }
+    Q_ASSERT_X(m_totalBytes == actualBytes, "RenderCache", "m_totalBytes invariant violated");
+#endif
 }
 
 qint64 RenderCache::imageSizeInBytes(const QImage &image) const {
@@ -365,7 +399,7 @@ void RenderCache::checkMemoryPressure() {
                << (MemoryGuard::LowMemoryThreshold / (1024*1024)) << "MB free)"
                << "— aggressive eviction";
 
-    m_lock.lockForWrite();
+    WriteLockGuard guard(m_lock);
 
     // Aggressive eviction: shrink to AggressiveCacheLimit
     while (m_totalBytes > MemoryGuard::AggressiveCacheLimit && !m_lruList.isEmpty()) {
@@ -375,6 +409,4 @@ void RenderCache::checkMemoryPressure() {
             m_renderedPages.remove(oldestKey);
         }
     }
-
-    m_lock.unlock();
 }

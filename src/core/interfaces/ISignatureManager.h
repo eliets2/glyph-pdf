@@ -12,6 +12,7 @@ struct SignatureInfo {
     bool integrityIntact = false;
     bool isValid = false;
     QString trustStatus;
+    QString trustStoreUsed;
     // PAdES-level fields
     bool hasDss = false;        // B-LT: DSS dictionary present
     bool hasDocTimestamp = false; // B-LTA: document timestamp present

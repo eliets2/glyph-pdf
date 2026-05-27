@@ -157,6 +157,26 @@ make Markdown unsuitable as an interchange format in a security-critical documen
 - `/PubSec` certificate encryption (`CMS_encrypt`, AES-256, RSA-wrapped per recipient)
 - Mock + tests updated
 
+**Session 6 — Security Hardening (v1.0.0-PROMPT-2 audit)** ✅
+
+- ✅ **VRI key spec-conformance** (B3 closed): VRI key is now SHA-1 of raw `/Contents` bytes
+  (not hex-decoded bytes); removed `TODO(audit-2026-05-23)` hex round-trip
+- ✅ **Real CMS trust policy** (B4 closed): `validateSignatures` now uses Windows system
+  trust store via `CertOpenSystemStoreA` (or custom `signing/trustStorePath` QSettings key);
+  adds `X509_VERIFY_PARAM` with CRL-check and SMIME-sign purpose; signing-time check;
+  EKU enforcement; `UntrustedChain` trustStatus; removes self-admission `qWarning`
+- ✅ **OCSP response verification** (B5 closed): `OCSP_basic_verify` called before embedding
+  any OCSP response in DSS; malformed/unverified responses rejected with `qWarning`;
+  signature degrades to B-T rather than embedding unverified revocation data
+- ✅ **ByteRange overlap rejection**: overlapping ranges detected before shadow-attack check;
+  `ByteRangeOverlap` trustStatus set
+- ✅ **TSA token buffer**: 16 KB → 32 KB to accommodate multi-cert TSA chains
+- ✅ **Exception propagation**: `extractSignatureContentsRaw` no longer swallows all exceptions
+- ✅ **Size-validation hardening**: `i2d_X509`, `i2d_PrivateKey`, `BIO_new_mem_buf` return
+  values checked; early returns with logged OpenSSL error strings on failure
+- ✅ **New test**: `TestSignatureRealCrypto.cpp` linked against real engine (not mock);
+  QSKIP if fixtures absent
+
 **Session 7 — Redaction Hardening + Extended Sanitization** (pending)
 
 - **D1: Glyph-advance normalization** — Edact-Ray (USENIX Security '22) defense.

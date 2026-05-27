@@ -1,6 +1,9 @@
 #include "PreferencesDialog.h"
 #include "core/UpdateChecker.h"
 #include "core/CredentialManager.h"
+#include "GpMainWindow.h"
+#include "core/AppContext.h"
+#include "engines/AutosaveManager.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -14,6 +17,7 @@
 #include <QSettings>
 #include <QTabWidget>
 #include <QVBoxLayout>
+#include <QSpinBox>
 
 namespace gp {
 
@@ -73,6 +77,14 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
         }
     }
     form->addRow(tr("Theme:"), _themeCombo);
+
+    _autosaveIntervalSpin = new QSpinBox(this);
+    _autosaveIntervalSpin->setRange(1, 30);
+    _autosaveIntervalSpin->setSuffix(tr(" minutes"));
+    int currentInterval = settings.value("autosave/intervalSeconds", 300).toInt() / 60;
+    _autosaveIntervalSpin->setValue(currentInterval);
+    form->addRow(tr("Autosave Interval:"), _autosaveIntervalSpin);
+
     col->addWidget(genGroup);
 
     // Updates group
@@ -214,6 +226,17 @@ void PreferencesDialog::saveSettings()
     settings.setValue("ui/theme", _themeCombo->currentData().toString());
     settings.setValue("update/checkOnStartup", _autoUpdate->isChecked());
     settings.setValue("update/channel", _updateChannel->currentData().toString());
+
+    int intervalMinutes = _autosaveIntervalSpin->value();
+    int intervalSeconds = intervalMinutes * 60;
+    settings.setValue("autosave/intervalSeconds", intervalSeconds);
+
+    // Live apply to AutosaveManager
+    MainWindow* mainWin = qobject_cast<MainWindow*>(parentWidget());
+    if (mainWin && mainWin->appContext() && mainWin->appContext()->autosave) {
+        mainWin->appContext()->autosave->stop();
+        mainWin->appContext()->autosave->start(intervalSeconds);
+    }
 
     QMessageBox::information(this, tr("Preferences Saved"),
         tr("Some changes require a restart to take effect."));

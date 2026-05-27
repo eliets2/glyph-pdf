@@ -12,6 +12,7 @@
 #include <QSplitter>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <QStandardItemModel>
 
 namespace gp {
 
@@ -75,7 +76,16 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     m_engineCombo->addItem("Tesseract 5");
 #ifdef HAS_RAPIDOCR
     m_engineCombo->addItem("RapidOCR (PP-OCRv5)");
+    auto* model = qobject_cast<QStandardItemModel*>(m_engineCombo->model());
+    if (model) {
+        auto* item = model->item(1);
+        if (item) {
+            item->setEnabled(false);
+            item->setToolTip(tr("Available in v1.1.0"));
+        }
+    }
 #endif
+    m_engineCombo->setCurrentIndex(0); // Default to first non-mock engine (Tesseract)
     m_engineCombo->setProperty("variant", "ghost");
     row->addWidget(m_engineCombo);
 

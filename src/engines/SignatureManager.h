@@ -6,11 +6,16 @@
 #include <memory>
 #include "core/interfaces/ISignatureManager.h"
 
+struct x509_store_st;
+typedef struct x509_store_st X509_STORE;
+
 class SignatureManager final : public ISignatureManager
 {
 public:
     SignatureManager();
     ~SignatureManager() override;
+
+    void setTrustStoreForTest(X509_STORE *store);
 
     /**
      * @brief Sign a PDF document using an X.509 certificate (P12/PFX).

@@ -1,5 +1,6 @@
 #include "engines/podofo/PoDoFoBackend.h"
 #include <memory>
+#include "PdfStringEscape.h"
 #include <QDebug>
 #include <QTemporaryFile>
 #include <QFileInfo>
@@ -12,6 +13,7 @@
 #include <cmath>
 #include <sstream>
 #include <algorithm>
+#include <utility>
 #include <QMap>
 #include <set>
 #include <QDateTime>
@@ -29,6 +31,118 @@
 #ifdef HAS_QPDF
 #include <qpdf/qpdf-c.h>
 #endif
+
+namespace {
+
+PoDoFo::PdfObject* ensurePageResources(PoDoFo::PdfPage& page)
+{
+    auto* resDict = page.GetDictionary().FindKey("Resources");
+    if (!resDict) {
+        page.GetDictionary().AddKey("Resources", PoDoFo::PdfDictionary());
+        resDict = page.GetDictionary().FindKey("Resources");
+    }
+    return resDict;
+}
+
+void ensureStandardFontResource(PoDoFo::PdfMemDocument& doc,
+                                PoDoFo::PdfPage& page,
+                                const std::string& resourceName,
+                                const std::string& baseFontName)
+{
+    auto* resDict = ensurePageResources(page);
+    auto* fontDict = resDict->GetDictionary().FindKey("Font");
+    if (!fontDict) {
+        resDict->GetDictionary().AddKey("Font", PoDoFo::PdfDictionary());
+        fontDict = resDict->GetDictionary().FindKey("Font");
+    }
+    if (fontDict->GetDictionary().HasKey(resourceName))
+        return;
+
+    auto& fontObj = doc.GetObjects().CreateDictionaryObject();
+    fontObj.GetDictionary().AddKey("Type", PoDoFo::PdfName("Font"));
+    fontObj.GetDictionary().AddKey("Subtype", PoDoFo::PdfName("Type1"));
+    fontObj.GetDictionary().AddKey("BaseFont", PoDoFo::PdfName(baseFontName));
+    fontDict->GetDictionary().AddKeyIndirect(resourceName, fontObj);
+}
+
+void appendPageContent(PoDoFo::PdfMemDocument& doc, PoDoFo::PdfPage& page, const std::string& content)
+{
+    Q_UNUSED(doc)
+    auto& contents = page.GetOrCreateContents();
+    auto& stream = contents.CreateStreamForAppending();
+    stream.SetData(PoDoFo::bufferview(content.data(), content.size()));
+}
+
+std::pair<double, double> textPositionFor(const PoDoFo::Rect& mediaBox,
+                                          HeaderFooterOptions::Position position,
+                                          double textWidth,
+                                          int fontSize)
+{
+    double x = 0;
+    double y = 0;
+    constexpr double margin = 36.0;
+
+    switch (position) {
+        case HeaderFooterOptions::Position::TopLeft:
+            x = mediaBox.X + margin;
+            y = mediaBox.Y + mediaBox.Height - margin - fontSize;
+            break;
+        case HeaderFooterOptions::Position::TopCenter:
+            x = mediaBox.X + (mediaBox.Width - textWidth) / 2.0;
+            y = mediaBox.Y + mediaBox.Height - margin - fontSize;
+            break;
+        case HeaderFooterOptions::Position::TopRight:
+            x = mediaBox.X + mediaBox.Width - margin - textWidth;
+            y = mediaBox.Y + mediaBox.Height - margin - fontSize;
+            break;
+        case HeaderFooterOptions::Position::BottomLeft:
+            x = mediaBox.X + margin;
+            y = mediaBox.Y + margin;
+            break;
+        case HeaderFooterOptions::Position::BottomCenter:
+            x = mediaBox.X + (mediaBox.Width - textWidth) / 2.0;
+            y = mediaBox.Y + margin;
+            break;
+        case HeaderFooterOptions::Position::BottomRight:
+            x = mediaBox.X + mediaBox.Width - margin - textWidth;
+            y = mediaBox.Y + margin;
+            break;
+    }
+
+    return {x, y};
+}
+
+void appendEscapedText(PoDoFo::PdfMemDocument& doc,
+                       PoDoFo::PdfPage& page,
+                       const QString& text,
+                       HeaderFooterOptions::Position position,
+                       int fontSize,
+                       const std::string& baseFontName)
+{
+    constexpr const char* resourceName = "PDFWS_HF";
+    ensureStandardFontResource(doc, page, resourceName, baseFontName);
+
+    const PoDoFo::PdfFont* font = doc.GetFonts().SearchFont(baseFontName);
+    if (!font) {
+        font = &doc.GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::Helvetica);
+    }
+
+    PoDoFo::PdfTextState textState;
+    textState.Font = font;
+    textState.FontSize = fontSize;
+    const QByteArray utf8 = text.toUtf8();
+    double textWidth = font->GetStringLength(utf8.constData(), textState);
+    const auto [x, y] = textPositionFor(page.GetMediaBox(), position, textWidth, fontSize);
+
+    std::ostringstream stream;
+    stream << "q\nBT\n/" << resourceName << " " << fontSize << " Tf\n";
+    stream << "1 0 0 1 " << x << " " << y << " Tm\n";
+    stream << "(" << pdfEscapeLiteralString(text) << ") Tj\n";
+    stream << "ET\nQ\n";
+    appendPageContent(doc, page, stream.str());
+}
+
+} // namespace
 
 class PoDoFoBackend::Private {
 public:
@@ -705,6 +819,7 @@ bool PoDoFoBackend::addHeaderFooter(const QString &path, const HeaderFooterOptio
         std::string fontName = options.fontFamily.isEmpty() ? "Helvetica" : options.fontFamily.toStdString();
         const PoDoFo::PdfFont* font = doc.GetFonts().SearchFont(fontName);
         if (!font) {
+            fontName = "Helvetica";
             font = &doc.GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::Helvetica);
         }
         
@@ -713,49 +828,7 @@ bool PoDoFoBackend::addHeaderFooter(const QString &path, const HeaderFooterOptio
             QString text = options.textTemplate;
             text.replace("{page}", QString::number(i + 1));
             text.replace("{total}", QString::number(totalPages));
-            
-            PoDoFo::PdfPainter painter;
-            painter.SetCanvas(page);
-            painter.TextState.SetFont(*font, options.fontSize);
-            
-            PoDoFo::PdfTextState textState;
-            textState.Font = font;
-            textState.FontSize = options.fontSize;
-            double textWidth = font->GetStringLength(text.toUtf8().constData(), textState);
-            
-            PoDoFo::Rect mediaBox = page.GetMediaBox();
-            double x = 0, y = 0;
-            double margin = 36.0; // 0.5 inch margin
-            
-            switch (options.position) {
-                case HeaderFooterOptions::Position::TopLeft:
-                    x = mediaBox.X + margin;
-                    y = mediaBox.Y + mediaBox.Height - margin - options.fontSize;
-                    break;
-                case HeaderFooterOptions::Position::TopCenter:
-                    x = mediaBox.X + (mediaBox.Width - textWidth) / 2.0;
-                    y = mediaBox.Y + mediaBox.Height - margin - options.fontSize;
-                    break;
-                case HeaderFooterOptions::Position::TopRight:
-                    x = mediaBox.X + mediaBox.Width - margin - textWidth;
-                    y = mediaBox.Y + mediaBox.Height - margin - options.fontSize;
-                    break;
-                case HeaderFooterOptions::Position::BottomLeft:
-                    x = mediaBox.X + margin;
-                    y = mediaBox.Y + margin;
-                    break;
-                case HeaderFooterOptions::Position::BottomCenter:
-                    x = mediaBox.X + (mediaBox.Width - textWidth) / 2.0;
-                    y = mediaBox.Y + margin;
-                    break;
-                case HeaderFooterOptions::Position::BottomRight:
-                    x = mediaBox.X + mediaBox.Width - margin - textWidth;
-                    y = mediaBox.Y + margin;
-                    break;
-            }
-            
-            painter.DrawText(text.toUtf8().constData(), x, y);
-            painter.FinishDrawing();
+            appendEscapedText(doc, page, text, options.position, options.fontSize, fontName);
         }
         
         doc.Save(path.toUtf8().constData());
@@ -775,6 +848,7 @@ bool PoDoFoBackend::applyBatesNumbering(const QString &path, const BatesNumberin
         std::string fontName = options.fontFamily.isEmpty() ? "Helvetica" : options.fontFamily.toStdString();
         const PoDoFo::PdfFont* font = doc.GetFonts().SearchFont(fontName);
         if (!font) {
+            fontName = "Helvetica";
             font = &doc.GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::Helvetica);
         }
         
@@ -784,49 +858,7 @@ bool PoDoFoBackend::applyBatesNumbering(const QString &path, const BatesNumberin
             
             QString numStr = QString::number(currentNumber).rightJustified(options.digitCount, '0');
             QString text = options.prefix + numStr + options.suffix;
-            
-            PoDoFo::PdfPainter painter;
-            painter.SetCanvas(page);
-            painter.TextState.SetFont(*font, options.fontSize);
-            
-            PoDoFo::PdfTextState textState;
-            textState.Font = font;
-            textState.FontSize = options.fontSize;
-            double textWidth = font->GetStringLength(text.toUtf8().constData(), textState);
-            
-            PoDoFo::Rect mediaBox = page.GetMediaBox();
-            double x = 0, y = 0;
-            double margin = 36.0;
-            
-            switch (options.position) {
-                case HeaderFooterOptions::Position::TopLeft:
-                    x = mediaBox.X + margin;
-                    y = mediaBox.Y + mediaBox.Height - margin - options.fontSize;
-                    break;
-                case HeaderFooterOptions::Position::TopCenter:
-                    x = mediaBox.X + (mediaBox.Width - textWidth) / 2.0;
-                    y = mediaBox.Y + mediaBox.Height - margin - options.fontSize;
-                    break;
-                case HeaderFooterOptions::Position::TopRight:
-                    x = mediaBox.X + mediaBox.Width - margin - textWidth;
-                    y = mediaBox.Y + mediaBox.Height - margin - options.fontSize;
-                    break;
-                case HeaderFooterOptions::Position::BottomLeft:
-                    x = mediaBox.X + margin;
-                    y = mediaBox.Y + margin;
-                    break;
-                case HeaderFooterOptions::Position::BottomCenter:
-                    x = mediaBox.X + (mediaBox.Width - textWidth) / 2.0;
-                    y = mediaBox.Y + margin;
-                    break;
-                case HeaderFooterOptions::Position::BottomRight:
-                    x = mediaBox.X + mediaBox.Width - margin - textWidth;
-                    y = mediaBox.Y + margin;
-                    break;
-            }
-            
-            painter.DrawText(text.toUtf8().constData(), x, y);
-            painter.FinishDrawing();
+            appendEscapedText(doc, page, text, options.position, options.fontSize, fontName);
             
             currentNumber++;
         }
@@ -1582,7 +1614,6 @@ bool PoDoFoBackend::sanitizeDocument(const QString &outputPath) {
             qpdf_data pdf = qpdf_init();
             if (qpdf_read(pdf, tempPath.toUtf8().constData(), nullptr) == 0 &&
                 qpdf_init_write(pdf, outputPath.toUtf8().constData()) == 0) {
-                qpdf_set_static_ID(pdf, 1);
                 qpdf_set_stream_data_mode(pdf, qpdf_s_compress);
                 if (qpdf_write(pdf) == 0) {
                     QFile::remove(tempPath);
@@ -2066,15 +2097,16 @@ bool PoDoFoBackend::embedAnnotations(const QString &inputPath, const QString &ou
                 }
                 PoDoFo::Rect pdfRect(bounds.x(), pageHeight - bounds.y() - bounds.height(), bounds.width(), bounds.height());
                 
-                auto& annot = page.GetAnnotations().CreateAnnot(PoDoFo::PdfAnnotationType::Text, pdfRect);
-                PoDoFo::PdfDictionary& dict = annot.GetDictionary();
+                PoDoFo::PdfAnnotationType annotType = PoDoFo::PdfAnnotationType::Text;
+                if (anno.mode == ToolMode::Strikeout) annotType = PoDoFo::PdfAnnotationType::StrikeOut;
+                else if (anno.mode == ToolMode::Squiggly) annotType = PoDoFo::PdfAnnotationType::Squiggly;
+                else if (anno.mode == ToolMode::Underline) annotType = PoDoFo::PdfAnnotationType::Underline;
+                else if (anno.mode == ToolMode::Highlight) annotType = PoDoFo::PdfAnnotationType::Highlight;
+                else if (anno.mode == ToolMode::Stamp) annotType = PoDoFo::PdfAnnotationType::Stamp;
+                else if (anno.mode == ToolMode::Callout) annotType = PoDoFo::PdfAnnotationType::FreeText;
                 
-                if (anno.mode == ToolMode::Strikeout) dict.AddKey("Subtype", PoDoFo::PdfName("StrikeOut"));
-                else if (anno.mode == ToolMode::Squiggly) dict.AddKey("Subtype", PoDoFo::PdfName("Squiggly"));
-                else if (anno.mode == ToolMode::Underline) dict.AddKey("Subtype", PoDoFo::PdfName("Underline"));
-                else if (anno.mode == ToolMode::Highlight) dict.AddKey("Subtype", PoDoFo::PdfName("Highlight"));
-                else if (anno.mode == ToolMode::Stamp) dict.AddKey("Subtype", PoDoFo::PdfName("Stamp"));
-                else if (anno.mode == ToolMode::Callout) dict.AddKey("Subtype", PoDoFo::PdfName("FreeText"));
+                auto& annot = page.GetAnnotations().CreateAnnot(annotType, pdfRect);
+                PoDoFo::PdfDictionary& dict = annot.GetDictionary();
                 
                 // Common properties
                 if (!anno.text.isEmpty()) {
@@ -2110,8 +2142,7 @@ bool PoDoFoBackend::embedAnnotations(const QString &inputPath, const QString &ou
                 
                 // Appearance Streams for specific types (simplified generation)
                 if (anno.mode == ToolMode::Stamp || anno.mode == ToolMode::Callout || anno.mode == ToolMode::Strikeout || anno.mode == ToolMode::Squiggly) {
-                    auto& apDict = doc.GetObjects().CreateDictionaryObject();
-                    
+                    // Create the form XObject stream as an indirect object
                     auto& streamObj = doc.GetObjects().CreateDictionaryObject();
                     streamObj.GetDictionary().AddKey("Type", PoDoFo::PdfName("XObject"));
                     streamObj.GetDictionary().AddKey("Subtype", PoDoFo::PdfName("Form"));
@@ -2139,25 +2170,27 @@ bool PoDoFoBackend::embedAnnotations(const QString &inputPath, const QString &ou
                     } else {
                         streamContent = "0.8 0.8 0.8 rg\n0 0 " + std::to_string(bounds.width()) + " " + std::to_string(bounds.height()) + " re\nf\n";
                         if (!anno.text.isEmpty()) {
-                            streamContent += "0 0 0 rg\nBT\n/Helv 12 Tf\n2 " + std::to_string(bounds.height() - 14) + " Td\n(" + anno.text.toStdString() + ") Tj\nET\n";
+                            streamContent += "0 0 0 rg\nBT\n/Helv 12 Tf\n2 " + std::to_string(bounds.height() - 14) + " Td\n(" + pdfEscapeLiteralString(anno.text) + ") Tj\nET\n";
                         }
                     }
                     
                     streamObj.GetOrCreateStream().SetData(PoDoFo::bufferview(streamContent.data(), streamContent.size()));
                     
-                    apDict.GetDictionary().AddKey("N", streamObj.GetReference());
-                    dict.AddKey("AP", apDict.GetReference());
+                    // Build AP as a direct dictionary with N pointing to the stream object via indirect reference
+                    dict.AddKey("AP", PoDoFo::PdfDictionary());
+                    auto* apDict = dict.FindKey("AP");
+                    apDict->GetDictionary().AddKey("N", streamObj.GetIndirectReference());
                 }
             }
         }
-        
+
         // IRT (In Reply To) Linking
         for (const auto& anno : commentsToLink) {
             if (idToObjectMap.contains(anno.id) && idToObjectMap.contains(anno.parentId)) {
                 PoDoFo::PdfObject* childObj = idToObjectMap[anno.id];
                 PoDoFo::PdfObject* parentObj = idToObjectMap[anno.parentId];
-                childObj->GetDictionary().AddKey("IRT", parentObj->GetReference());
-                // For replies to be part of the thread correctly in standard PDF, RT is often set to 'R' (Reply) or 'Group'
+                
+                childObj->GetDictionary().AddKeyIndirect("IRT", *parentObj);
                 childObj->GetDictionary().AddKey("RT", PoDoFo::PdfName("R"));
                 
                 // State updates (Accepted/Rejected/etc) in PDF are technically replies to the original annotation 
@@ -2229,15 +2262,6 @@ bool PoDoFoBackend::addTextWatermark(const TextWatermarkOptions &options)
             // We need to inject raw operators since PdfPainter doesn't expose ExtGState directly
             painter.FinishDrawing();
 
-            // Inject raw content stream operators for the watermark
-            auto* contentsObj = page.GetDictionary().FindKey("Contents");
-            std::string existingStream;
-            if (contentsObj && contentsObj->HasStream()) {
-                PoDoFo::charbuff buf;
-                contentsObj->GetOrCreateStream().CopyTo(buf);
-                existingStream.assign(buf.data(), buf.size());
-            }
-
             double cx = pw / 2.0;
             double cy = ph / 2.0;
             double radians = options.rotationDeg * M_PI / 180.0;
@@ -2256,7 +2280,7 @@ bool PoDoFoBackend::addTextWatermark(const TextWatermarkOptions &options)
             // Center the text roughly
             double estimatedWidth = text.size() * options.fontSize * 0.5;
             wm << -(estimatedWidth / 2.0) << " " << -(options.fontSize / 2.0) << " Td\n";
-            wm << "(" << text << ") Tj\n";
+            wm << "(" << pdfEscapeLiteralString(text) << ") Tj\n";
             wm << "ET\n";
             wm << "Q\n";
 
@@ -2275,12 +2299,7 @@ bool PoDoFoBackend::addTextWatermark(const TextWatermarkOptions &options)
                 fontDict->GetDictionary().AddKeyIndirect("Helvetica", fontObj);
             }
 
-            // Append watermark to existing content stream
-            std::string newStream = existingStream + "\n" + wm.str();
-            if (contentsObj && contentsObj->HasStream()) {
-                PoDoFo::charbuff newBuf(newStream.data(), newStream.size());
-                contentsObj->GetOrCreateStream().SetData(newBuf);
-            }
+            appendPageContent(doc, page, wm.str());
         }
 
         return true;
@@ -2413,18 +2432,36 @@ bool PoDoFoBackend::addImageWatermark(const ImageWatermarkOptions &options)
             ops << "Q\n";
 
             // Append to existing content stream
-            auto* contentsObj = page.GetDictionary().FindKey("Contents");
+            auto* contentsObj = page.GetContents();
+            if (!contentsObj) {
+                auto& newContents = doc.GetObjects().CreateDictionaryObject();
+                page.GetDictionary().AddKeyIndirect("Contents", newContents);
+                contentsObj = page.GetContents();
+            }
+
             std::string existingStream;
-            if (contentsObj && contentsObj->HasStream()) {
+            if (contentsObj->GetObject().IsArray()) {
+                auto& arr = contentsObj->GetObject().GetArray();
+                for (size_t i = 0; i < arr.GetSize(); ++i) {
+                    auto& ref = arr[i];
+                    if (ref.IsReference()) {
+                        auto& partObj = doc.GetObjects().MustGetObject(ref.GetReference());
+                        if (partObj.IsDictionary() && partObj.HasStream()) {
+                            PoDoFo::charbuff buf;
+                            partObj.GetOrCreateStream().CopyTo(buf);
+                            existingStream.append(buf.data(), buf.size());
+                            existingStream.append("\n");
+                        }
+                    }
+                }
+            } else if (contentsObj->GetObject().IsDictionary() && contentsObj->GetObject().HasStream()) {
                 PoDoFo::charbuff buf;
-                contentsObj->GetOrCreateStream().CopyTo(buf);
+                contentsObj->GetObject().GetOrCreateStream().CopyTo(buf);
                 existingStream.assign(buf.data(), buf.size());
             }
             std::string newStream = existingStream + "\n" + ops.str();
-            if (contentsObj) {
-                PoDoFo::charbuff newBuf(newStream.data(), newStream.size());
-                contentsObj->GetOrCreateStream().SetData(newBuf);
-            }
+            PoDoFo::charbuff newBuf(newStream.data(), newStream.size());
+            contentsObj->GetObject().GetOrCreateStream().SetData(newBuf);
         }
 
         return true;

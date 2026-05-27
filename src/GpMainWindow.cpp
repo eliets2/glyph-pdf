@@ -44,6 +44,8 @@
 
 #include "ui/ShortcutHelpDialog.h"
 #include "ui/PreferencesDialog.h"
+#include "ui/RecoveryDialog.h"
+#include "engines/AutosaveManager.h"
 #include "ui/ErrorDialog.h"
 #include "core/ErrorInfo.h"
 #include "core/interfaces/IPdfEditorEngine.h"
@@ -268,6 +270,58 @@ MainWindow::MainWindow(const AppContext* ctx, QWidget* parent) : QMainWindow(par
     initUpdateChecker();
 
     applyTheme();
+
+    if (_ctx && _ctx->autosave) {
+        _ctx->autosave->start();
+    }
+
+    if (_ctx && _ctx->document && _home) {
+        QTimer::singleShot(0, this, [this]() {
+            QStringList recent = _home->recentFiles();
+            QStringList orphans = DocumentSession::findOrphanedAutosaves(recent);
+            if (!orphans.isEmpty()) {
+                RecoveryDialog dlg(orphans, this);
+                int res = dlg.exec();
+                if (res == RecoveryDialog::Recover) {
+                    QStringList selected = dlg.selectedFiles();
+                    for (const auto &file : selected) {
+                        recoverDocument(file);
+                    }
+                } else if (res == RecoveryDialog::Discard) {
+                    for (const auto &file : orphans) {
+                        QFile::remove(file + ".autosave.pdf");
+                    }
+                }
+            }
+        });
+    }
+}
+
+MainWindow::~MainWindow() {
+    if (_ctx && _ctx->autosave) {
+        _ctx->autosave->stop();
+    }
+}
+
+void MainWindow::recoverDocument(const QString& originalPath) {
+    QString autosavePath = originalPath + ".autosave.pdf";
+    auto* viewer = pdfViewer();
+    if (!viewer) return;
+
+    if (viewer->loadDocument(autosavePath)) {
+        if (_ctx && _ctx->document) {
+            _ctx->document->setPath(originalPath);
+            _ctx->document->markDirty();
+        }
+        _home->addRecentFile(originalPath);
+        _menu->refreshRecentFiles();
+
+        updateTitle();
+        _status->setPage(viewer->currentPage() + 1, viewer->pageCount());
+        _status->updateFromDocument(_ctx->pdfEditor.get(), originalPath);
+        _status->updateUnsaved(true);
+        statusBar()->showMessage(tr("Recovered from autosave. Please Save to restore permanently."));
+    }
 }
 
 PdfViewerWidget* MainWindow::pdfViewer() const {

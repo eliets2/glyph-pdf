@@ -9,6 +9,7 @@ public:
     virtual bool initialize(const QString &language = "eng", const QString &dataPath = "") = 0;
     virtual QList<OcrResult> processImage(const QImage &image) = 0;
     virtual QString getRawText(const QImage &image) = 0;
+    virtual bool isMockImplementation() const { return false; }
 protected:
     IOcrEngine() = default;
     IOcrEngine(const IOcrEngine&) = delete;

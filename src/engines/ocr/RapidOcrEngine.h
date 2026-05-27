@@ -23,6 +23,8 @@ public:
     // Get raw text (concat of recognized words)
     QString getRawText(const QImage &image) override;
 
+    bool isMockImplementation() const override;
+
 private:
     class Private;
     std::unique_ptr<Private> d;

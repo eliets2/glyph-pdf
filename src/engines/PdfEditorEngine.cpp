@@ -279,6 +279,102 @@ bool PdfEditorEngine::encryptDocument(const QString &userPassword, const QString
     return ok;
 }
 
+// OpenSSL RAII Deleters
+struct BIO_Deleter { void operator()(BIO* b) const { BIO_free(b); } };
+struct CMS_Deleter { void operator()(CMS_ContentInfo* c) const { CMS_ContentInfo_free(c); } };
+struct X509_Deleter { void operator()(X509* c) const { X509_free(c); } };
+struct STACK_X509_Deleter { void operator()(STACK_OF(X509)* s) const { sk_X509_pop_free(s, X509_free); } };
+
+using BioPtr = std::unique_ptr<BIO, BIO_Deleter>;
+using CmsPtr = std::unique_ptr<CMS_ContentInfo, CMS_Deleter>;
+using X509Ptr = std::unique_ptr<X509, X509_Deleter>;
+using SkX509Ptr = std::unique_ptr<STACK_OF(X509), STACK_X509_Deleter>;
+
+// PoDoFo Hack to support PubSec
+#define private public
+#define protected public
+#include <podofo/podofo.h>
+#undef private
+#undef protected
+#include <podofo/main/PdfMemDocument.h>
+#include <podofo/main/PdfEncryptSession.h>
+#include <openssl/rand.h>
+
+class PdfEncryptPubSec : public PoDoFo::PdfEncrypt {
+    std::unique_ptr<PoDoFo::PdfEncrypt> m_delegate;
+    std::vector<unsigned char> m_fek;
+    std::vector<QByteArray> m_recipientsCMS;
+
+public:
+    PdfEncryptPubSec(const unsigned char* fek, const std::vector<QByteArray>& recipients) 
+        : PoDoFo::PdfEncrypt()
+    {
+        m_delegate = PoDoFo::PdfEncrypt::Create("dummy", "dummy", PoDoFo::PdfPermissions::Default, PoDoFo::PdfEncryptionAlgorithm::AESV3R6);
+        
+        m_fek.assign(fek, fek + 32);
+        m_recipientsCMS = recipients;
+
+        m_Algorithm = PoDoFo::PdfEncryptionAlgorithm::AESV3R6;
+        m_KeyLength = PoDoFo::PdfKeyLength::L256;
+        m_pValue = PoDoFo::PdfPermissions::Default;
+        m_rValue = 6;
+        m_EncryptMetadata = true;
+        m_initialized = false;
+    }
+
+    void GenerateEncryptionKey(const std::string_view&, PoDoFo::PdfAuthResult, PODOFO_CRYPT_CTX*,
+        unsigned char[48], unsigned char[48], unsigned char encryptionKey[32]) override 
+    {
+        memcpy(encryptionKey, m_fek.data(), 32);
+    }
+
+    void CreateEncryptionDictionary(PoDoFo::PdfDictionary& dict) const override {
+        dict.AddKey(PoDoFo::PdfName("Filter"), PoDoFo::PdfName("PubSec"));
+        dict.AddKey(PoDoFo::PdfName("SubFilter"), PoDoFo::PdfName("adbe.pkcs7.s5"));
+        dict.AddKey(PoDoFo::PdfName("V"), static_cast<int64_t>(5));
+        dict.AddKey(PoDoFo::PdfName("Length"), static_cast<int64_t>(256));
+        
+        PoDoFo::PdfArray recips;
+        for (const auto& r : m_recipientsCMS) {
+            recips.Add(PoDoFo::PdfString::FromRaw(std::string_view(r.constData(), r.size()), true));
+        }
+        dict.AddKey(PoDoFo::PdfName("Recipients"), recips);
+    }
+
+    void Encrypt(const char* inStr, size_t inLen, PoDoFo::PdfEncryptContext& context,
+        const PoDoFo::PdfReference& objref, char* outStr, size_t outLen) const override {
+        m_delegate->Encrypt(inStr, inLen, context, objref, outStr, outLen);
+    }
+    
+    void Decrypt(const char* inStr, size_t inLen, PoDoFo::PdfEncryptContext& context,
+        const PoDoFo::PdfReference& objref, char* outStr, size_t& outLen) const override {
+        m_delegate->Decrypt(inStr, inLen, context, objref, outStr, outLen);
+    }
+
+    std::unique_ptr<PoDoFo::InputStream> CreateEncryptionInputStream(PoDoFo::InputStream& inputStream, size_t inputLen,
+        PoDoFo::PdfEncryptContext& context, const PoDoFo::PdfReference& objref) const override {
+        return m_delegate->CreateEncryptionInputStream(inputStream, inputLen, context, objref);
+    }
+
+    std::unique_ptr<PoDoFo::OutputStream> CreateEncryptionOutputStream(PoDoFo::OutputStream& outputStream,
+        PoDoFo::PdfEncryptContext& context, const PoDoFo::PdfReference& objref) const override {
+        return m_delegate->CreateEncryptionOutputStream(outputStream, context, objref);
+    }
+
+    size_t CalculateStreamLength(size_t length) const override {
+        return m_delegate->CalculateStreamLength(length);
+    }
+
+    size_t CalculateStreamOffset() const override {
+        return m_delegate->CalculateStreamOffset();
+    }
+    
+    PoDoFo::PdfAuthResult Authenticate(const std::string_view&, const std::string_view&,
+        PODOFO_CRYPT_CTX*, unsigned char[32]) const override {
+        return PoDoFo::PdfAuthResult::Owner; 
+    }
+};
+
 bool PdfEditorEngine::encryptWithCertificate(const QString &inputPath,
                                               const QString &outputPath,
                                               const QStringList &certPaths)
@@ -292,11 +388,11 @@ bool PdfEditorEngine::encryptWithCertificate(const QString &inputPath,
         return false;
     }
 
-    STACK_OF(X509) *recipients = sk_X509_new_null();
+    SkX509Ptr recipients(sk_X509_new_null());
     if (!recipients) {
         d->setErr(ErrorInfo::Critical,
                   QObject::tr("Failed to initialize the encryption subsystem."),
-                  QStringLiteral("sk_X509_new_null returned null — OpenSSL: %1").arg(opensslErrorString()),
+                  QStringLiteral("sk_X509_new_null returned null - OpenSSL: %1").arg(opensslErrorString()),
                   ErrorInfo::ExportLog);
         return false;
     }
@@ -308,85 +404,91 @@ bool PdfEditorEngine::encryptWithCertificate(const QString &inputPath,
                       QObject::tr("Cannot read certificate file: %1").arg(QFileInfo(cp).fileName()),
                       QStringLiteral("QFile::open failed for: %1").arg(cp),
                       ErrorInfo::Retry);
-            sk_X509_pop_free(recipients, X509_free);
             return false;
         }
         QByteArray data = f.readAll();
         const unsigned char *p = reinterpret_cast<const unsigned char*>(data.constData());
         X509 *cert = d2i_X509(nullptr, &p, data.size());
         if (!cert) {
-            BIO *bio = BIO_new_mem_buf(data.data(), data.size());
-            cert = PEM_read_bio_X509(bio, nullptr, nullptr, nullptr);
-            BIO_free(bio);
+            BioPtr bio(BIO_new_mem_buf(data.data(), data.size()));
+            cert = PEM_read_bio_X509(bio.get(), nullptr, nullptr, nullptr);
         }
         if (!cert) {
             d->setErr(ErrorInfo::Error,
                       QObject::tr("Invalid certificate: %1. The file must be a valid X.509 certificate in PEM or DER format.").arg(QFileInfo(cp).fileName()),
-                      QStringLiteral("d2i_X509 and PEM_read_bio_X509 both failed for: %1 — OpenSSL: %2").arg(cp, opensslErrorString()),
+                      QStringLiteral("d2i_X509 and PEM_read_bio_X509 both failed for: %1 - OpenSSL: %2").arg(cp, opensslErrorString()),
                       ErrorInfo::Retry);
-            sk_X509_pop_free(recipients, X509_free);
             return false;
         }
-        sk_X509_push(recipients, cert);
+        sk_X509_push(recipients.get(), cert);
     }
 
-    QFile inFile(inputPath);
-    if (!inFile.open(QIODevice::ReadOnly)) {
-        d->setErr(ErrorInfo::Error,
-                  QObject::tr("Cannot read the input PDF for encryption."),
-                  QStringLiteral("QFile::open failed for: %1").arg(inputPath),
-                  ErrorInfo::Retry);
-        sk_X509_pop_free(recipients, X509_free);
-        return false;
-    }
-    QByteArray pdfData = inFile.readAll();
-    inFile.close();
-
-    BIO *inBio = BIO_new_mem_buf(pdfData.data(), pdfData.size());
-    CMS_ContentInfo *cms = CMS_encrypt(recipients, inBio,
-                                       EVP_aes_256_cbc(),
-                                       CMS_BINARY | CMS_STREAM);
-    BIO_free(inBio);
-    sk_X509_pop_free(recipients, X509_free);
-
-    if (!cms) {
-        d->setErr(ErrorInfo::Error,
-                  QObject::tr("Certificate-based encryption failed. The certificate may be expired, revoked, or incompatible."),
-                  QStringLiteral("CMS_encrypt failed — OpenSSL: %1").arg(opensslErrorString()),
-                  ErrorInfo::Retry | ErrorInfo::ExportLog);
-        return false;
-    }
-
-    BIO *outBio = BIO_new(BIO_s_mem());
-    if (!i2d_CMS_bio_stream(outBio, cms, inBio, CMS_BINARY)) {
-        QString sslErr = opensslErrorString();
-        CMS_ContentInfo_free(cms);
-        BIO_free(outBio);
-        d->setErr(ErrorInfo::Error,
-                  QObject::tr("Failed to encode the encrypted output."),
-                  QStringLiteral("i2d_CMS_bio_stream failed — OpenSSL: %1").arg(sslErr),
+    unsigned char sessionKey[24];
+    if (RAND_bytes(sessionKey, 20) != 1) {
+        d->setErr(ErrorInfo::Critical,
+                  QObject::tr("Failed to generate secure random seed."),
+                  QStringLiteral("RAND_bytes failed - OpenSSL: %1").arg(opensslErrorString()),
                   ErrorInfo::ExportLog);
         return false;
     }
-    CMS_ContentInfo_free(cms);
 
-    char *buf = nullptr;
-    long len = BIO_get_mem_data(outBio, &buf);
-    QFile outFile(outputPath);
-    bool ok = false;
-    if (outFile.open(QIODevice::WriteOnly)) {
-        ok = (outFile.write(buf, len) == len);
-        outFile.close();
+    uint32_t perms = static_cast<uint32_t>(PoDoFo::PdfPermissions::Default);
+    sessionKey[20] = (unsigned char)(perms & 0xFF);
+    sessionKey[21] = (unsigned char)((perms >> 8) & 0xFF);
+    sessionKey[22] = (unsigned char)((perms >> 16) & 0xFF);
+    sessionKey[23] = (unsigned char)((perms >> 24) & 0xFF);
+
+    unsigned char fek[32];
+    SHA256(sessionKey, 24, fek);
+
+    std::vector<QByteArray> envelopes;
+    for (int i = 0; i < sk_X509_num(recipients.get()); ++i) {
+        X509* cert = sk_X509_value(recipients.get(), i);
+        STACK_OF(X509)* singleRecip = sk_X509_new_null();
+        sk_X509_push(singleRecip, cert);
+        
+        BioPtr inBio(BIO_new_mem_buf(sessionKey, 24));
+        CmsPtr cms(CMS_encrypt(singleRecip, inBio.get(), EVP_aes_256_cbc(), CMS_BINARY));
+        
+        if (!cms) {
+            sk_X509_free(singleRecip);
+            d->setErr(ErrorInfo::Error,
+                      QObject::tr("Certificate-based encryption failed. The certificate may be expired, revoked, or incompatible."),
+                      QStringLiteral("CMS_encrypt failed - OpenSSL: %1").arg(opensslErrorString()),
+                      ErrorInfo::Retry | ErrorInfo::ExportLog);
+            return false;
+        }
+        
+        BioPtr outBio(BIO_new(BIO_s_mem()));
+        if (!i2d_CMS_bio(outBio.get(), cms.get())) {
+            sk_X509_free(singleRecip);
+            d->setErr(ErrorInfo::Error,
+                      QObject::tr("Failed to encode the encrypted output."),
+                      QStringLiteral("i2d_CMS_bio failed - OpenSSL: %1").arg(opensslErrorString()),
+                      ErrorInfo::ExportLog);
+            return false;
+        }
+        
+        char *buf = nullptr;
+        long len = BIO_get_mem_data(outBio.get(), &buf);
+        envelopes.push_back(QByteArray(buf, static_cast<int>(len)));
+        
+        sk_X509_free(singleRecip);
     }
-    BIO_free(outBio);
 
-    if (!ok) {
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(inputPath.toUtf8().constData(), "");
+        doc.SetEncrypt(std::make_unique<PdfEncryptPubSec>(fek, envelopes));
+        doc.Save(outputPath.toUtf8().constData(), PoDoFo::PdfSaveOptions::None);
+    } catch (const PoDoFo::PdfError &e) {
         d->setErr(ErrorInfo::Error,
-                  QObject::tr("Failed to write the encrypted file to disk."),
-                  QStringLiteral("Write failed for: %1").arg(outputPath),
-                  ErrorInfo::Retry);
+                  QObject::tr("Failed to apply public-key encryption to the PDF."),
+                  QStringLiteral("PoDoFo exception: %1").arg(e.what()),
+                  ErrorInfo::ExportLog);
+        return false;
     }
-    return ok;
+    return true;
 }
 
 bool PdfEditorEngine::sanitizeDocument(const QString &outputPath)

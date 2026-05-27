@@ -33,6 +33,9 @@ public:
     std::shared_ptr<IOcrEngine> secondary;
     OcrStrategy strategy = OcrStrategy::PrimaryOnly;
     OcrPreprocessOptions preprocessOpts;
+    
+    // OcrPreprocessor is stateless; OcrPipeline::run may be called concurrently. 
+    // If preprocessor ever becomes stateful, add explicit synchronization.
     OcrPreprocessor preprocessor;
 };
 

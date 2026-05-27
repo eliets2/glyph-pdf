@@ -38,10 +38,31 @@ if(NOT onnxruntime_FOUND AND PkgConfig_FOUND)
     pkg_check_modules(PKG_ONNXRUNTIME QUIET libonnxruntime)
 endif()
 
-# FORBIDDEN: MuPDF is AGPL-3.0 — linking it forces GlyphPDF into AGPL.
-# Use PDFium (BSD-3) for rendering instead.
-if(TARGET mupdf OR TARGET libmupdf)
-    message(FATAL_ERROR "MuPDF/libmupdf detected. AGPL-3.0 license is incompatible with this project. Remove it and use PDFium.")
+# MuPDF + Poppler FATAL_ERROR guards (license: AGPL-3.0 + GPL-2.0+ incompatible)
+if(TARGET mupdf OR TARGET libmupdf OR TARGET mupdf-pkg)
+    message(FATAL_ERROR "MuPDF detected (AGPL-3.0). Use PDFium for rendering.")
+endif()
+if(TARGET poppler OR TARGET poppler-cpp OR TARGET libpoppler)
+    message(FATAL_ERROR "Poppler detected (GPL-2.0+). Use PDFium for rendering.")
+endif()
+
+find_package(MuPDF QUIET)
+if(MuPDF_FOUND)
+    message(FATAL_ERROR "MuPDF found via find_package (AGPL-3.0). Remove.")
+endif()
+find_package(Poppler QUIET)
+if(Poppler_FOUND)
+    message(FATAL_ERROR "Poppler found via find_package (GPL-2.0+). Remove.")
+endif()
+
+include(FindPkgConfig)
+pkg_check_modules(MUPDF QUIET mupdf)
+if(MUPDF_FOUND)
+    message(FATAL_ERROR "MuPDF found via pkg-config (AGPL-3.0). Remove.")
+endif()
+pkg_check_modules(POPPLER QUIET poppler)
+if(POPPLER_FOUND)
+    message(FATAL_ERROR "Poppler found via pkg-config (GPL-2.0+). Remove.")
 endif()
 
 # ── pdfws_core (INTERFACE — header-only) ──────────────────────────────────
@@ -67,7 +88,9 @@ add_library(pdfws_engines STATIC
     src/engines/ConversionManager.h  src/engines/ConversionManager.cpp
     src/engines/CollaborationManager.h src/engines/CollaborationManager.cpp
     src/engines/DocumentSession.h    src/engines/DocumentSession.cpp
+    src/engines/AutosaveManager.h    src/engines/AutosaveManager.cpp
     src/engines/BackendRouter.h      src/engines/BackendRouter.cpp
+    src/engines/podofo/PdfStringEscape.h src/engines/podofo/PdfStringEscape.cpp
     src/engines/podofo/PoDoFoBackend.h src/engines/podofo/PoDoFoBackend.cpp
     src/engines/pdfium/PdfiumBackend.h src/engines/pdfium/PdfiumBackend.cpp
     src/engines/qpdf/QpdfBackend.h     src/engines/qpdf/QpdfBackend.cpp
@@ -87,7 +110,7 @@ target_link_libraries(pdfws_engines
     PRIVATE podofo::podofo OpenSSL::SSL OpenSSL::Crypto Qt6::Network Qt6::Widgets Qt6::Concurrent
 )
 if(WIN32)
-    target_link_libraries(pdfws_engines PUBLIC Credui Advapi32)
+    target_link_libraries(pdfws_engines PUBLIC Credui Advapi32 Crypt32)
 endif()
 if(Tesseract_FOUND AND Leptonica_FOUND)
     find_package(OpenMP REQUIRED)
@@ -204,6 +227,7 @@ add_library(pdfws_ui STATIC
     src/ui/ThumbnailSidebar.h        src/ui/ThumbnailSidebar.cpp
     src/ui/ShortcutHelpDialog.h      src/ui/ShortcutHelpDialog.cpp
     src/ui/PreferencesDialog.h       src/ui/PreferencesDialog.cpp
+    src/ui/RecoveryDialog.h          src/ui/RecoveryDialog.cpp
     src/ui/ErrorDialog.h             src/ui/ErrorDialog.cpp
     src/ui/PageSetupDialog.h         src/ui/PageSetupDialog.cpp
     src/ui/ExportPresetsPanel.h      src/ui/ExportPresetsPanel.cpp
@@ -378,6 +402,23 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSanitization.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAutosave.cpp")
+    add_executable(TestAutosave
+        tests/TestAutosave.cpp
+    )
+    target_include_directories(TestAutosave PRIVATE src tests)
+    target_link_libraries(TestAutosave PRIVATE
+        pdfws_engines pdfws_core pdfws_commands podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+    )
+    add_test(NAME TestAutosave COMMAND TestAutosave)
+    set_tests_properties(TestAutosave PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;autosave;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignatureValidation.cpp")
     add_executable(TestSignatureValidation
         tests/TestSignatureValidation.cpp
@@ -392,6 +433,27 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignatureValidation.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 60
         LABELS "unit;security;signatures;qt;headless"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignatureRealCrypto.cpp")
+    add_executable(TestSignatureRealCrypto
+        tests/TestSignatureRealCrypto.cpp
+    )
+    target_include_directories(TestSignatureRealCrypto PRIVATE src tests)
+    target_link_libraries(TestSignatureRealCrypto PRIVATE
+        pdfws_engines pdfws_core
+        OpenSSL::SSL OpenSSL::Crypto
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets podofo::podofo
+    )
+    if(WIN32)
+        target_link_libraries(TestSignatureRealCrypto PRIVATE Crypt32)
+    endif()
+    add_test(NAME TestSignatureRealCrypto COMMAND TestSignatureRealCrypto)
+    set_tests_properties(TestSignatureRealCrypto PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "integration;security;signatures;crypto;qt;headless"
     )
 endif()
 

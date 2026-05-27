@@ -135,3 +135,8 @@ QString RapidOcrEngine::getRawText(const QImage &image)
     }
     return texts.join(" ");
 }
+
+bool RapidOcrEngine::isMockImplementation() const
+{
+    return true;
+}

@@ -8,6 +8,7 @@
 #include "engines/ConversionManager.h"
 #include "engines/CollaborationManager.h"
 #include "engines/DocumentSession.h"
+#include "engines/AutosaveManager.h"
 
 #include <QUndoStack>
 #include <memory>
@@ -24,6 +25,7 @@ AppContext Bootstrapper::createContext() {
     ctx.undoStack  = std::make_shared<QUndoStack>();
     ctx.undoStack->setUndoLimit(200);
     ctx.document   = std::make_shared<DocumentSession>();
+    ctx.autosave   = std::make_shared<AutosaveManager>(ctx.pdfEditor, ctx.document);
 
     return ctx;
 }

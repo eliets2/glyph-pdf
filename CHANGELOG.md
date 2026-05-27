@@ -18,12 +18,27 @@ All notable changes to GlyphPDF are documented in this file.
 - Error reporting via lastError()/clearError() pattern on IPdfEditorEngine
 
 ### Security
+- Fixed content-stream literal-string injection vulnerability in watermark, annotation, header/footer, and Bates numbering code paths (`pdfEscapeLiteralString`).
 - PAdES B-LT/B-LTA digital signatures with DSS/VRI embedding
 - OCSP client for certificate validation
 - Certificate-based encryption (multi-recipient)
 - SHA-256 only for signature hashing (no MD5/SHA-1)
 - Redaction with content stream excision (never black rectangles)
 - 15+ sanitization vectors (metadata, JavaScript, embedded files, etc.)
+- **Hardened PAdES B-LT/B-LTA (v1.0.0 security audit):**
+  - VRI key now computed as SHA-1 of raw `/Contents` bytes per ETSI EN 319 132 (fixes spec non-conformance; B3)
+  - `validateSignatures` now performs real trust-chain verification against the Windows system
+    root store (`CertOpenSystemStoreA`) or a custom `signing/trustStorePath`; adds
+    `X509_VERIFY_PARAM` with CRL check and SMIME-sign purpose; returns `UntrustedChain` for
+    self-signed or untrusted certificates (B4)
+  - OCSP responses are verified with `OCSP_basic_verify` before DSS embedding; unverified
+    responses are rejected with a `qWarning` and the signature degrades to B-T (B5)
+  - ByteRange overlap detection (`ByteRangeOverlap` trustStatus) closes PDF shadow attack
+    vector not previously caught
+  - TSA token buffer increased from 16 KB to 32 KB for multi-cert TSA chains
+  - `i2d_X509`, `i2d_PrivateKey`, and `BIO_new_mem_buf` return values are validated;
+    OpenSSL error strings emitted on failure
+  - `extractSignatureContentsRaw` no longer swallows exceptions silently
 
 ### Content
 - Forms: text fields, checkboxes, radio buttons, combo boxes, list boxes
@@ -74,6 +89,14 @@ All notable changes to GlyphPDF are documented in this file.
 - Memory guards: 500 MB file warning, system RAM monitoring, auto-tiling
 - Temp file cleanup with atexit handler
 
+### Reliability
+- Real interval autosave with configurable timer (default 5 minutes, range 1–30 minutes)
+- `AutosaveManager` writes `.autosave.pdf` via PoDoFo full-save on worker thread with atomic rename
+- Crash recovery dialog on startup scans for orphaned `.autosave.pdf` files
+- Autosave interval configurable in Preferences (live-applied)
+- ModeStrip label shows true autosave/save state: `● AUTOSAVED`, `● UNSAVED`, `● SAVED`
+- Sync indicator replaced with `LOCAL ONLY` (Cloud Sync deferred to v2.0)
+
 ### Installer & Packaging
 - windeployqt bundling script
 - WiX v4 MSI installer with MajorUpgrade support
@@ -111,7 +134,7 @@ All notable changes to GlyphPDF are documented in this file.
 - Keyboard shortcuts dialog
 
 ### Testing
-- 12 test targets: UnitTests, TestInterfaces, SmokeTest, TestSanitization, TestSignatureValidation, TestRedaction, TestThreadSafety, TestEncryption, TestResourceLimits, TestControllers, TestIntegration, TestPerformance
+- 13 test targets: UnitTests, TestInterfaces, SmokeTest, TestSanitization, TestSignatureValidation, TestRedaction, TestThreadSafety, TestEncryption, TestResourceLimits, TestControllers, TestIntegration, TestPerformance, TestAutosave
 - Headless testing via qoffscreen platform plugin
 - Thread safety tests with QRecursiveMutex verification
 - Performance benchmarks with timing targets
@@ -122,12 +145,10 @@ All notable changes to GlyphPDF are documented in this file.
 - MRC compression inside PDF/A not yet implemented
 - Some Session 7-11 features may be interface stubs pending full implementation verification
 - Translations: glyphpdf_{ar,fr,de}.ts are empty shells. Run `lupdate src/ -ts translations/glyphpdf_*.ts` then commission translators before claiming multilingual support.
-- Autosave: ModeStrip displays an "AUTOSAVED · hh:mm:ss" label that is updated only when a Save action runs, not by a background timer. PRD §13 requires real interval autosave + crash recovery — not yet implemented.
 - DiffEngine uses per-word set-difference rather than LCS/Myers — order changes appear as add+delete pairs, not moves. Affects legal/compliance comparison persona.
 - Pattern redaction (email/phone/ID regex) not implemented. Only literal-string search-and-redact is available.
 - Office→PDF import not implemented (only PDF→Office conversion paths exist).
 - Send-for-signing workflow (remote signing order, reminders, audit trails) not implemented — only local certificate-based signing exists.
 - CollaborationManager.cpp marks itself "Cloud Sync Stub (Simulation)"; ICollaboration interface exists with no real network backend.
-- RapidOcrEngine.cpp line 112 marks PP-OCRv5 tensor pre/post processing as STUB.
-- TestSignatureValidation links only pdfws_core + Qt6::Test — uses MockSignatureManager, does NOT exercise real OpenSSL/PoDoFo signing pipeline. Real-crypto E2E coverage gap.
+- RapidOcrEngine: PP-OCRv5 tensor pre/post processing is a stub. The engine is runtime-disabled in the OCR mode selector (greyed out with "Available in v1.1.0" tooltip) so users cannot select it.
 - enterprise_installer.wxs at repo root (legacy WiX v3 with different product name) — superseded by packaging/GlyphPDF.wxs (WiX v4) and removed in this audit.

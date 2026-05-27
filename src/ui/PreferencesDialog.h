@@ -7,6 +7,7 @@ class QComboBox;
 class QPushButton;
 class QLabel;
 class QLineEdit;
+class QSpinBox;
 class CredentialManager;
 
 namespace gp {
@@ -33,6 +34,7 @@ private slots:
 private:
     QComboBox*   _langCombo   = nullptr;
     QComboBox*   _themeCombo  = nullptr;
+    QSpinBox*    _autosaveIntervalSpin = nullptr;
     QCheckBox*   _autoUpdate  = nullptr;
     QComboBox*   _updateChannel = nullptr;
     QPushButton* _checkNowBtn = nullptr;

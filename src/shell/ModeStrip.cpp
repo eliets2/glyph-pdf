@@ -104,6 +104,12 @@ void ModeStrip::init(const AppContext* ctx) {
             }
             updateLabels();
         });
+        connect(_ctx->document.get(), &DocumentSession::lastAutosaveChanged, this, [this](const QDateTime &time) {
+            if (time.isValid()) {
+                _lastSavedTime = time.time();
+            }
+            updateLabels();
+        });
     }
 
     // Periodically update the labels (e.g. every 2 seconds) to keep time and signatures updated
@@ -119,38 +125,28 @@ void ModeStrip::updateLabels() {
 
     // 1. Autosave Status
     if (_ctx->document) {
-        if (_ctx->document->isDirty()) {
-            _autosaveLabel->setText(tr("● UNSAVED"));
-            _autosaveLabel->setProperty("state", "unsaved");
-            _autosaveLabel->style()->unpolish(_autosaveLabel);
-            _autosaveLabel->style()->polish(_autosaveLabel);
+        bool dirty = _ctx->document->isDirty();
+        QDateTime lastAutosave = _ctx->document->lastAutosave();
+
+        if (dirty) {
+            if (lastAutosave.isValid()) {
+                _autosaveLabel->setText(tr("● AUTOSAVED · %1").arg(lastAutosave.time().toString("hh:mm:ss")));
+                _autosaveLabel->setProperty("state", "autosaved");
+            } else {
+                _autosaveLabel->setText(tr("● UNSAVED"));
+                _autosaveLabel->setProperty("state", "unsaved");
+            }
         } else {
-            _autosaveLabel->setText(tr("● AUTOSAVED · %1").arg(_lastSavedTime.toString("hh:mm:ss")));
-            _autosaveLabel->setProperty("state", "");
-            _autosaveLabel->style()->unpolish(_autosaveLabel);
-            _autosaveLabel->style()->polish(_autosaveLabel);
+            QString saveTimeStr = _lastSavedTime.isValid() ? _lastSavedTime.toString("hh:mm:ss") : QTime::currentTime().toString("hh:mm:ss");
+            _autosaveLabel->setText(tr("● SAVED · %1").arg(saveTimeStr));
+            _autosaveLabel->setProperty("state", "saved");
         }
+        _autosaveLabel->style()->unpolish(_autosaveLabel);
+        _autosaveLabel->style()->polish(_autosaveLabel);
     }
 
     // 2. Sync Status
-    if (_ctx->document) {
-        QString path = _ctx->document->path();
-        if (path.isEmpty()) {
-            _syncLabel->setText(tr("⤺ NOT SYNCED"));
-        } else {
-            if (_ctx->collab) {
-                // Generate a stable mock version based on file name hash
-                unsigned int hash = 0;
-                for (QChar c : path) hash = hash * 31 + c.unicode();
-                int ver = (hash % 50) + 1;
-                _syncLabel->setText(tr("⤺ SYNCED · v.%1").arg(ver));
-            } else {
-                _syncLabel->setText(tr("⤺ NOT SYNCED"));
-            }
-        }
-    } else {
-        _syncLabel->setText(tr("⤺ NOT SYNCED"));
-    }
+    _syncLabel->setText(tr("⤺ LOCAL ONLY"));
 
     // 3. Signatures Status
     if (_ctx->document && _ctx->signing) {
@@ -194,13 +190,10 @@ void ModeStrip::setMode(const QString& id) {
 void ModeStrip::setTheme(int) { /* style is updated via QSS swap at app level */ }
 
 void ModeStrip::setAutosaveTime(const QDateTime& time) {
-    _lastSavedTime = time.time();
-    if (_ctx && _ctx->document && !_ctx->document->isDirty()) {
-        _autosaveLabel->setText(tr("● AUTOSAVED · %1").arg(_lastSavedTime.toString("hh:mm:ss")));
-        _autosaveLabel->setProperty("state", "");
-        _autosaveLabel->style()->unpolish(_autosaveLabel);
-        _autosaveLabel->style()->polish(_autosaveLabel);
+    if (time.isValid()) {
+        _lastSavedTime = time.time();
     }
+    updateLabels();
 }
 
 void ModeStrip::setSyncStatus(const QString& status) {

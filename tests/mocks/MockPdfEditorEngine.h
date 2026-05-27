@@ -2,10 +2,24 @@
 #include "core/interfaces/IPdfEditorEngine.h"
 #include <QMap>
 
+#include <QFile>
+
 class MockPdfEditorEngine : public IPdfEditorEngine {
 public:
     bool loadDocumentForEditing(const QString &) override { m_loaded = true; return true; }
-    bool saveDocument(const QString &path) override { ++m_saveCalls; m_lastSavedPath = path; return m_loaded; }
+    bool saveDocument(const QString &path) override {
+        ++m_saveCalls;
+        m_lastSavedPath = path;
+        if (m_loaded) {
+            QFile f(path);
+            if (f.open(QIODevice::WriteOnly)) {
+                f.write("mock");
+                f.close();
+            }
+            return true;
+        }
+        return false;
+    }
     bool editTextInline(int, const QRectF &, const QString &,
                         const QString & = {}, int = 0, const QColor & = Qt::black,
                         bool = false, bool = false, int = 0) override { return m_loaded; }

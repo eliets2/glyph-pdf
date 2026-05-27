@@ -10,6 +10,7 @@ class IConversionEngine;
 class ICollaboration;
 class QUndoStack;
 class DocumentSession;
+class AutosaveManager;
 
 struct AppContext {
     std::shared_ptr<IPdfEditorEngine>   pdfEditor;
@@ -20,6 +21,7 @@ struct AppContext {
     std::shared_ptr<ICollaboration>     collab;
     std::shared_ptr<QUndoStack>         undoStack;
     std::shared_ptr<DocumentSession>    document;
+    std::shared_ptr<AutosaveManager>    autosave;
 
     static constexpr const char* DefaultCloudSyncEndpoint = "https://weaver.enterprise.internal/v1/sync";
 };

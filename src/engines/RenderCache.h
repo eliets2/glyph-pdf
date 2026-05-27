@@ -8,6 +8,8 @@
 #include <QRectF>
 #include <QString>
 #include <QAtomicInt>
+#include <memory>
+#include <future>
 #include "core/interfaces/IPdfRenderer.h"
 
 // Memory-guard thresholds (Session 16 D5)
@@ -50,7 +52,7 @@ inline size_t qHash(const RenderCacheKey &key, size_t seed = 0) {
     return hash;
 }
 
-class RenderCache {
+class RenderCache : public std::enable_shared_from_this<RenderCache> {
 public:
     RenderCache();
     ~RenderCache();
@@ -108,7 +110,7 @@ private:
 
     // Tier 1: Metadata
     int m_pageCount = 0;
-    QHash<int, QSizeF> m_pageSizes;
+    QHash<int, std::shared_future<QSizeF>> m_pageSizes;
 
     // Tier 2: Rendered Pages
     struct CacheValue {
