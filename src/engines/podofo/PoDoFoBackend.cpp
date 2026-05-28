@@ -1,6 +1,7 @@
 #include "engines/podofo/PoDoFoBackend.h"
 #include <memory>
 #include "PdfStringEscape.h"
+#include "GlyphAdvanceCalculator.h"
 #include <QDebug>
 #include <QTemporaryFile>
 #include <QFileInfo>
@@ -1083,14 +1084,13 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                         redactedMcids.insert(currentMcid);
                     }
                     
-                    // D1: Normalize glyph advances: replace with single space glyph and custom adj
-                    double spaceWidth = resolvedFont->GetSpaceCharLength(textState);
+                    // Edact-Ray defense (PETS 2023, Bland et al.): emit numeric-only TJ gap.
+                    // [N] TJ moves cursor by -(N/1000)*fontSize*fontScale text-space units.
+                    // N = -totalAdvance * 1000 / scale gives exact sum-of-advances, no glyph emitted.
+                    // An attacker can measure the total gap width but cannot reconstruct individual
+                    // character widths from it, blocking the glyph-advance side-channel attack.
                     double scale = currentFontSize * currentFontScale;
-                    double adj = 0.0;
-                    if (std::abs(scale) > 1e-5) {
-                        adj = 1000.0 * (spaceWidth - totalAdvance) / scale;
-                    }
-                    
+
                     if (kw == "'") {
                         newStream << "T*\n";
                     } else if (kw == "\"") {
@@ -1098,8 +1098,12 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                         newStream << stack[1].GetReal() << " Tc\n";
                         newStream << "T*\n";
                     }
-                    
-                    newStream << "[ ( ) " << adj << " ] TJ\n";
+
+                    if (std::abs(totalAdvance) > 1e-10 && std::abs(scale) > 1e-5) {
+                        double N = -totalAdvance * 1000.0 / scale;
+                        newStream << "[ " << N << " ] TJ\n";
+                    }
+                    // totalAdvance ≈ 0 or scale ≈ 0: emit nothing (safe — no glyph, no cursor shift).
                     textX += totalAdvance;
                     continue;
                 }

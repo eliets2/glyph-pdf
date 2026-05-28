@@ -131,6 +131,7 @@ add_library(pdfws_engines STATIC
     src/engines/AutosaveManager.h    src/engines/AutosaveManager.cpp
     src/engines/BackendRouter.h      src/engines/BackendRouter.cpp
     src/engines/podofo/PdfStringEscape.h src/engines/podofo/PdfStringEscape.cpp
+    src/engines/podofo/GlyphAdvanceCalculator.h src/engines/podofo/GlyphAdvanceCalculator.cpp
     src/engines/podofo/PoDoFoBackend.h src/engines/podofo/PoDoFoBackend.cpp
     src/engines/pdfium/PdfiumBackend.h src/engines/pdfium/PdfiumBackend.cpp
     src/engines/qpdf/QpdfBackend.h     src/engines/qpdf/QpdfBackend.cpp
