@@ -1,8 +1,17 @@
 cmake_minimum_required(VERSION 3.16)
-set(VCPKG_TARGET_TRIPLET "x64-mingw-dynamic")
 project(PdfWorkstation VERSION 1.0.0 LANGUAGES CXX)
 
-list(APPEND CMAKE_PREFIX_PATH "C:/vcpkg/installed/x64-mingw-dynamic")
+# MSYS2 ucrt64 — single coherent toolchain + Qt6 + all deps via pacman.
+# Explicit prefix paths so CMake resolves packages regardless of calling shell.
+if(NOT DEFINED MSYS2_ROOT)
+    set(MSYS2_ROOT "C:/msys64/ucrt64")
+endif()
+list(APPEND CMAKE_PREFIX_PATH "${MSYS2_ROOT}")
+list(APPEND CMAKE_PREFIX_PATH "${MSYS2_ROOT}/share")
+list(APPEND CMAKE_MODULE_PATH "${MSYS2_ROOT}/lib/cmake")
+# Restrict pkg-config to ucrt64 only so mingw64 headers don't leak in.
+set(ENV{PKG_CONFIG_PATH} "${MSYS2_ROOT}/lib/pkgconfig:${MSYS2_ROOT}/share/pkgconfig")
+set(ENV{PKG_CONFIG_LIBDIR} "${MSYS2_ROOT}/lib/pkgconfig:${MSYS2_ROOT}/share/pkgconfig")
 enable_testing()
 include(CTest)
 
@@ -17,11 +26,42 @@ add_compile_options(-Wall -Wextra -Wno-unused-parameter)
 # ── Dependencies ──────────────────────────────────────────────────────────
 find_package(Qt6 COMPONENTS Core Gui Widgets Pdf PdfWidgets PrintSupport Svg Network Test Concurrent REQUIRED)
 find_package(Qt6 COMPONENTS LinguistTools QUIET)
+
+# Query the actual Qt6 plugins dir — MSYS2 places them at share/qt6/plugins,
+# not lib/../plugins as the Qt installer layout does.
+get_target_property(_qt6_qmake Qt6::qmake IMPORTED_LOCATION)
+if(_qt6_qmake)
+    execute_process(
+        COMMAND "${_qt6_qmake}" -query QT_INSTALL_PLUGINS
+        OUTPUT_VARIABLE QT6_PLUGINS_DIR
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+endif()
+if(NOT QT6_PLUGINS_DIR)
+    set(QT6_PLUGINS_DIR "${Qt6_DIR}/../../../plugins")
+    cmake_path(NORMAL_PATH QT6_PLUGINS_DIR)
+endif()
+message(STATUS "Qt6 plugins dir: ${QT6_PLUGINS_DIR}")
+
+# Vendored podofo 1.1.0 (built from source with ucrt64 toolchain).
+# Prepend to CMAKE_PREFIX_PATH so it is found before MSYS2 ucrt64's 0.10.4.
+set(_podofo_vendor "${CMAKE_CURRENT_SOURCE_DIR}/third_party/podofo/install")
+if(EXISTS "${_podofo_vendor}/lib/cmake/podofo/podofo-config.cmake")
+    list(PREPEND CMAKE_PREFIX_PATH "${_podofo_vendor}")
+    message(STATUS "Using vendored podofo 1.1.0 from ${_podofo_vendor}")
+endif()
+
 find_package(podofo CONFIG REQUIRED)
+# podofo 1.1.0 exports 'podofo::podofo_shared' (namespaced).
+# MSYS2 ucrt64 0.10.4 exports bare 'podofo_shared'.
+# Alias whichever is present to the canonical 'podofo::podofo'.
+if(TARGET podofo::podofo_shared AND NOT TARGET podofo::podofo)
+    add_library(podofo::podofo ALIAS podofo::podofo_shared)
+elseif(TARGET podofo_shared AND NOT TARGET podofo::podofo)
+    add_library(podofo::podofo ALIAS podofo_shared)
+endif()
 find_package(OpenSSL REQUIRED)
 find_package(OpenXLSX CONFIG QUIET)
 find_package(duckx CONFIG QUIET)
-find_package(CURL QUIET)
 find_package(CURL QUIET)
 find_package(qpdf QUIET)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -147,14 +187,10 @@ else()
     message(STATUS "onnxruntime not found — RapidOCR PP-OCRv5 disabled")
 endif()
 if(qpdf_FOUND AND (TARGET qpdf::qpdf OR TARGET qpdf::libqpdf))
-    if(MINGW AND EXISTS "C:/vcpkg/installed/x64-mingw-dynamic/lib/libqpdf.dll.a")
-        target_link_libraries(pdfws_engines PUBLIC "C:/vcpkg/installed/x64-mingw-dynamic/lib/libqpdf.dll.a")
+    if(TARGET qpdf::qpdf)
+        target_link_libraries(pdfws_engines PUBLIC qpdf::qpdf)
     else()
-        if(TARGET qpdf::qpdf)
-            target_link_libraries(pdfws_engines PUBLIC qpdf::qpdf)
-        else()
-            target_link_libraries(pdfws_engines PUBLIC qpdf::libqpdf)
-        endif()
+        target_link_libraries(pdfws_engines PUBLIC qpdf::libqpdf)
     endif()
     target_compile_definitions(pdfws_engines PUBLIC HAS_QPDF)
 else()
@@ -540,7 +576,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestControllers.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestControllers>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${Qt6_DIR}/../../../plugins/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
             "$<TARGET_FILE_DIR:TestControllers>/platforms/qoffscreen.dll"
         COMMENT "Deploying qoffscreen platform plugin for TestControllers"
     )

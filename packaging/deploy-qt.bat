@@ -1,16 +1,14 @@
 @echo off
 REM ────────────────────────────────────────────────────────────────────────
-REM  GlyphPDF — windeployqt bundling script (Session 17 D1)
-REM  Copies PdfWorkstation.exe + all Qt/MinGW/vcpkg DLLs into deploy/
+REM  GlyphPDF — windeployqt bundling script (MSYS2 ucrt64 native)
+REM  Copies PdfWorkstation.exe + all Qt/MSYS2/dep DLLs into deploy/
 REM ────────────────────────────────────────────────────────────────────────
 setlocal enabledelayedexpansion
 
 set "PROJECT_ROOT=%~dp0.."
 set "BUILD_DIR=%PROJECT_ROOT%\build"
 set "DEPLOY_DIR=%PROJECT_ROOT%\deploy"
-set "QT_DIR=C:\Qt\6.10.2\mingw_64"
-set "MINGW_DIR=C:\Qt\Tools\mingw1310_64"
-set "VCPKG_DIR=C:\vcpkg\installed\x64-mingw-dynamic"
+set "MSYS2_BIN=C:\msys64\ucrt64\bin"
 
 echo [1/6] Cleaning deploy directory...
 if exist "%DEPLOY_DIR%" rmdir /s /q "%DEPLOY_DIR%"
@@ -24,8 +22,8 @@ if not exist "%BUILD_DIR%\PdfWorkstation.exe" (
 )
 copy /y "%BUILD_DIR%\PdfWorkstation.exe" "%DEPLOY_DIR%\"
 
-echo [3/6] Running windeployqt...
-"%QT_DIR%\bin\windeployqt.exe" ^
+echo [3/6] Running windeployqt6...
+"%MSYS2_BIN%\windeployqt6.exe" ^
     --release ^
     --no-translations ^
     --no-system-d3d-compiler ^
@@ -34,45 +32,46 @@ echo [3/6] Running windeployqt...
     "%DEPLOY_DIR%\PdfWorkstation.exe"
 
 if errorlevel 1 (
-    echo ERROR: windeployqt failed
+    echo ERROR: windeployqt6 failed
     exit /b 1
 )
 
-echo [4/6] Copying vcpkg runtime DLLs...
+echo [4/6] Copying MSYS2 ucrt64 runtime DLLs...
 for %%F in (
-    podofo.dll
+    libpodofo.dll
     libcrypto-3-x64.dll
     libssl-3-x64.dll
-    qpdf29.dll
+    libqpdf30.dll
     zlib1.dll
     libjpeg-62.dll
-    freetype.dll
-    libpng16.dll
-    liblzma.dll
-    libbz2.dll
+    libfreetype-6.dll
+    libpng16-16.dll
+    liblzma-5.dll
+    libbz2-1.dll
     libbrotlidec.dll
     libbrotlicommon.dll
-    libxml2.dll
-    libiconv.dll
-    libcharset.dll
-    libintl.dll
+    libxml2-2.dll
+    libiconv-2.dll
+    libintl-8.dll
+    libtesseract-5.5.dll
+    libleptonica-6.dll
 ) do (
-    if exist "%VCPKG_DIR%\bin\%%F" (
-        copy /y "%VCPKG_DIR%\bin\%%F" "%DEPLOY_DIR%\" >nul
+    if exist "%MSYS2_BIN%\%%F" (
+        copy /y "%MSYS2_BIN%\%%F" "%DEPLOY_DIR%\" >nul
     ) else if exist "%BUILD_DIR%\%%F" (
         copy /y "%BUILD_DIR%\%%F" "%DEPLOY_DIR%\" >nul
     )
 )
 
-echo [5/6] Copying MinGW runtime DLLs...
+echo [5/6] Copying MSYS2 MinGW runtime DLLs...
 for %%F in (
     libgcc_s_seh-1.dll
     libstdc++-6.dll
     libwinpthread-1.dll
     libgomp-1.dll
 ) do (
-    if exist "%MINGW_DIR%\bin\%%F" (
-        copy /y "%MINGW_DIR%\bin\%%F" "%DEPLOY_DIR%\" >nul
+    if exist "%MSYS2_BIN%\%%F" (
+        copy /y "%MSYS2_BIN%\%%F" "%DEPLOY_DIR%\" >nul
     ) else if exist "%BUILD_DIR%\%%F" (
         copy /y "%BUILD_DIR%\%%F" "%DEPLOY_DIR%\" >nul
     )
@@ -97,14 +96,5 @@ echo.
 echo ========================================
 echo  Deploy complete: %DEPLOY_DIR%
 echo ========================================
-
-REM Quick DLL dependency check
-echo.
-echo Checking for missing DLLs...
-pushd "%DEPLOY_DIR%"
-for /f "tokens=*" %%L in ('"%DEPLOY_DIR%\PdfWorkstation.exe" --version 2^>^&1') do (
-    echo   %%L
-)
-popd
 
 endlocal

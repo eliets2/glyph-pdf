@@ -1,6 +1,6 @@
 @echo off
 REM ────────────────────────────────────────────────────────────────────────
-REM  GlyphPDF — Runtime dependency checker (Session 17 D3)
+REM  GlyphPDF — Runtime dependency checker (MSYS2 ucrt64 native)
 REM  Verifies all required DLLs are present in deploy/ before MSI build.
 REM ────────────────────────────────────────────────────────────────────────
 setlocal enabledelayedexpansion
@@ -57,9 +57,9 @@ for %%F in (
     )
 )
 
-REM ── Required: MinGW Runtime ──
+REM ── Required: MSYS2 ucrt64 Runtime ──
 echo.
-echo --- MinGW Runtime ---
+echo --- MSYS2 ucrt64 Runtime ---
 for %%F in (
     libgcc_s_seh-1.dll
     libstdc++-6.dll
@@ -78,7 +78,7 @@ REM ── Required: PoDoFo + OpenSSL ──
 echo.
 echo --- PoDoFo + OpenSSL ---
 for %%F in (
-    podofo.dll
+    libpodofo.dll
     libcrypto-3-x64.dll
     libssl-3-x64.dll
 ) do (
@@ -97,7 +97,7 @@ echo --- Optional ---
 for %%F in (
     pdfium.dll
     onnxruntime.dll
-    qpdf29.dll
+    libqpdf30.dll
 ) do (
     if exist "%DEPLOY_DIR%\%%F" (
         set /a FOUND+=1

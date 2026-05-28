@@ -1,41 +1,27 @@
-# FindPdfium.cmake
-# Find PDFium headers and library
+# FindPdfium.cmake — locates the PDFium prebuilt headers + import lib.
+# PDFium has no MSYS2 package; headers and import library are vendored
+# under third_party/pdfium/ (copied from the prebuilt build).
 #
-# Output variables:
-#   Pdfium_FOUND: Whether the library was found
-#   Pdfium_INCLUDE_DIRS: Include directories
-#   Pdfium_LIBRARIES: Libraries to link against
+# Sets: Pdfium_FOUND, Pdfium::Pdfium IMPORTED target
 
-find_path(Pdfium_INCLUDE_DIR
-    NAMES fpdfview.h
-    PATHS
-        ${CMAKE_PREFIX_PATH}
-        "C:/vcpkg/installed/x64-mingw-dynamic"
-    PATH_SUFFIXES include
-)
+set(_pdfium_root "${CMAKE_SOURCE_DIR}/third_party/pdfium")
 
-find_library(Pdfium_LIBRARY
-    NAMES pdfium libpdfium.dll.a pdfium.dll.lib
-    PATHS
-        ${CMAKE_PREFIX_PATH}
-        "C:/vcpkg/installed/x64-mingw-dynamic"
-    PATH_SUFFIXES lib
-)
+find_path(Pdfium_INCLUDE_DIR fpdfview.h
+    PATHS "${_pdfium_root}/include"
+    NO_DEFAULT_PATH)
+
+find_library(Pdfium_LIBRARY NAMES pdfium libpdfium
+    PATHS "${_pdfium_root}/lib"
+    NO_DEFAULT_PATH)
 
 include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(Pdfium
-    REQUIRED_VARS Pdfium_LIBRARY Pdfium_INCLUDE_DIR
-)
+find_package_handle_standard_args(Pdfium DEFAULT_MSG Pdfium_LIBRARY Pdfium_INCLUDE_DIR)
 
-if(Pdfium_FOUND)
-    set(Pdfium_INCLUDE_DIRS ${Pdfium_INCLUDE_DIR})
-    set(Pdfium_LIBRARIES ${Pdfium_LIBRARY})
-
-    if(NOT TARGET Pdfium::Pdfium)
-        add_library(Pdfium::Pdfium UNKNOWN IMPORTED)
-        set_target_properties(Pdfium::Pdfium PROPERTIES
-            INTERFACE_INCLUDE_DIRECTORIES "${Pdfium_INCLUDE_DIRS}"
-            IMPORTED_LOCATION "${Pdfium_LIBRARY}"
-        )
-    endif()
+if(Pdfium_FOUND AND NOT TARGET Pdfium::Pdfium)
+    add_library(Pdfium::Pdfium UNKNOWN IMPORTED)
+    set_target_properties(Pdfium::Pdfium PROPERTIES
+        IMPORTED_LOCATION "${Pdfium_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${Pdfium_INCLUDE_DIR}")
 endif()
+
+mark_as_advanced(Pdfium_INCLUDE_DIR Pdfium_LIBRARY)
