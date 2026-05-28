@@ -13,6 +13,17 @@ Real public v1.0.0 ships when all M2-M8 work in `GLYPH-PDF-MONTHS-2-8-PROMPTS.md
 
 **Other v1.0.0 work in M2-M8:** Edact-Ray glyph-advance defense in redaction, OCR text-layer scrub in redaction rectangles, veraPDF subprocess for PDF/A validation, real-crypto E2E test coverage, 5 mode-page completions, 23 ribbon tools wired, Office→PDF import + PDF→PPT export, DiffEngine LCS/Myers upgrade, ar/fr/de translations populated, AI backend (Anthropic/OpenAI/Gemini/Ollama), third-party security audit, performance tuning + bug bash, OSS governance files (LICENSE/CONTRIBUTING/SECURITY), GitHub repo + CI workflows, marketing prep, MSI signing, package-manager submissions, launch announcement.
 
+### Security (M2-PROMPT-1 — 2026-05-29)
+
+- **Edact-Ray glyph-advance normalization** (D1/D2): new `GlyphAdvanceCalculator` helper class
+  computes total glyph advance widths via three encoding paths — `TryGetEncodedStringLength`
+  (Simple + CID Identity-H), decoded-string `GetStringLength`, and CID per-glyph fallback using
+  2-byte CID codes. Redaction content-stream surgery now emits a numeric-only `[N] TJ` gap
+  (exact sum-of-advances) instead of the old `[ ( ) adj ] TJ` space-glyph form, closing the
+  Edact-Ray side-channel attack (Bland et al., PETS 2023 / arXiv 2206.02285). Three regression
+  tests added: `testGlyphAdvancesAreNormalized`, `testCJKFontHandling`,
+  `testRedactionFailsAfterFontResolutionFailure` (16 total; 0 failures).
+
 ---
 
 ## [1.0.0-internal] - 2026-05-23 [INTERNAL-BUILD — NOT FOR PUBLIC DISTRIBUTION]

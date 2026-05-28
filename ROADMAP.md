@@ -187,11 +187,14 @@ make Markdown unsuitable as an interchange format in a security-critical documen
 - ✅ **New test**: `TestSignatureRealCrypto.cpp` linked against real engine (not mock);
   QSKIP if fixtures absent
 
-**Session 7 — Redaction Hardening + Extended Sanitization** (pending)
+**Session 7 — Redaction Hardening + Extended Sanitization** (in progress — M2-PROMPT-1 complete)
 
-- **D1: Glyph-advance normalization** — Edact-Ray (USENIX Security '22) defense.
-  After excising text operators, replace the gap with a space glyph whose x-advance equals
-  the sum of removed advances. Attacker cannot reconstruct removed characters from gap widths.
+- **D1: Glyph-advance normalization** ✅ DONE (M2-P1, 2026-05-29) — Edact-Ray (Bland et al.,
+  PETS 2023 / arXiv 2206.02285) defense. `GlyphAdvanceCalculator` computes sum-of-advances via
+  three encoding paths; redaction surgery emits numeric-only `[N] TJ` gap (exact advance sum)
+  — NO space glyph, so attacker cannot reconstruct removed characters from gap widths.
+  D2 (PoDoFoBackend numeric-only TJ) + D3 (3 regression tests) also complete. Total: 16/16
+  TestRedaction cases passing.
 - **D2: OCR text-layer scrub** — invisible text from prior OCR operations falling within
   redaction rectangles removed from the invisible text stream
 - **D3: Structure-tree scrub** — walk `/StructTreeRoot`; clear `/ActualText`, `/Alt`, `/E`
@@ -526,7 +529,7 @@ implementing ad-hoc concurrency.
 | # | Risk | Severity | Mitigation |
 |---|------|----------|------------|
 | R1 | qpdf flattens xref, invalidating signatures | HIGH | Save pipeline guard: check `SignatureManager::hasSignatures()` before routing through qpdf; test with signed fixture |
-| R2 | Edact-Ray glyph-advance side channel in redaction | HIGH | Session 7 D1: sum-of-advances normalization; unit test with crafted width sequence |
+| R2 | Edact-Ray glyph-advance side channel in redaction | ✅ MITIGATED | M2-P1 D1/D2: numeric-only `[N] TJ` gap (no space glyph); 3 regression tests added |
 | R3 | PAdES B-LTA archive timestamp drift (TSA clock skew) | MEDIUM | Validate TSA response `genTime` against system clock ±5 min; log skew |
 | R4 | ONNXRuntime session not warm → latency spike on first page | HIGH | `LaneScheduler` initializes GPU lane worker at application startup; model files loaded once |
 | R5 | Layout ensemble IoU < 0.5 on complex pages (mixed RTL/LTR) | MEDIUM | Fallback: use higher-confidence detector's output alone; surface low-confidence flag to UI |
