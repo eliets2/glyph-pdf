@@ -296,6 +296,72 @@ private slots:
         QByteArray data = file.readAll();
         QVERIFY2(!data.contains("SECRET"), "OCR invisible text should be scrubbed");
     }
+
+    void testGlyphAdvancesAreNormalized() {
+        QString pdf = createTestPdfWithText("edact.pdf", "WIDE AAAA");
+        QVERIFY(!pdf.isEmpty());
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+        QVERIFY(engine.applyRedactions(0, {QRectF(90, 120, 400, 30)}));
+        QString output = tmpPath("edact_redacted.pdf");
+        engine.saveDocument(output);
+
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(output.toUtf8().constData());
+        auto& page = doc.GetPages().GetPageAt(0);
+        auto* contentsObj = page.GetContents();
+        QVERIFY(contentsObj != nullptr);
+        PoDoFo::charbuff buf;
+        contentsObj->CopyTo(buf);
+        std::string s(buf.data(), buf.size());
+
+        QVERIFY2(s.find("[ ( )") == std::string::npos,
+                 "Edact-Ray defense: redacted TJ must not contain old '[ ( ) N ] TJ' space-glyph pattern");
+        QVERIFY2(!QByteArray(s.c_str(), static_cast<int>(s.size())).contains("WIDE AAAA"),
+                 "Redacted text must not be recoverable from content stream");
+    }
+
+    void testCJKFontHandling() {
+        QString pdf = createTestPdfWithText("cjk.pdf", "ABCD EFGH");
+        QVERIFY(!pdf.isEmpty());
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+        bool ok = engine.applyRedactions(0, {QRectF(90, 120, 400, 30)});
+        QVERIFY2(ok, "Multi-character redaction (CJK-style) should not crash or fail");
+    }
+
+    void testRedactionFailsAfterFontResolutionFailure() {
+        QString pdf = tmpPath("binary_content.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            auto& page = doc.GetPages().CreatePage(
+                PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+
+            // Use painter to ensure GetContents() is non-null after FinishDrawing
+            PoDoFo::PdfPainter painter;
+            painter.SetCanvas(page);
+            auto& font = doc.GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::Helvetica);
+            painter.TextState.SetFont(font, 12.0);
+            painter.DrawText("CONFIDENTIAL", 100, 700);
+            painter.FinishDrawing();
+
+            // Overwrite content stream with binary data — null byte triggers hasBinaryContent guard
+            auto* contentsObj = page.GetContents();
+            QVERIFY(contentsObj != nullptr);
+            contentsObj->Reset();
+            std::string raw;
+            raw += '\0';
+            raw += "BT\n/F1 12 Tf\n100 700 Td\n(CONFIDENTIAL) Tj\nET\n";
+            auto& stream = contentsObj->CreateStreamForAppending();
+            stream.SetData(PoDoFo::bufferview(raw.data(), raw.size()));
+
+            doc.Save(pdf.toUtf8().constData());
+        }
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+        bool ok = engine.applyRedactions(0, {QRectF(90, 120, 200, 30)});
+        QVERIFY2(!ok, "Redaction on binary/unparseable stream must return false (safe abort)");
+    }
 };
 
 QTEST_GUILESS_MAIN(TestRedaction)
