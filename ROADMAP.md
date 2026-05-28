@@ -46,7 +46,17 @@ FORBIDDEN:
 
 ---
 
-## Progress: Sessions 1–6 — Committed
+## 🔒 Branch C SCOPE LOCK (decided 2026-05-26)
+
+> **Team decision:** Real public v1.0.0 does not ship until every claim in PRD + this roadmap + the marketing copy is implemented. Estimated timeline: **~8-9 months** from M2 start (Sept 2026 target launch).
+>
+> All WS1 + WS2 + WS3 work below is **v1.0.0 scope** (not deferred to v1.1+). The current `dist\GlyphPDF-1.0.0-x64.msi` is **private/internal only** — NOT publishable to any public channel (GitHub Releases, winget, chocolatey, scoop, website) until M8 launch.
+>
+> Full execution plan: 34 prompts in `C:\Users\User\Desktop\GLYPH-PDF-MONTHS-2-8-PROMPTS.md` organized into 7 sprints (M2-M8). See `GLYPH-PDF-AUDIT-v1.0.0.md` SCOPE LOCK section for the realistic month-by-month schedule.
+
+---
+
+## Progress: Sessions 1–11 + M1 — Committed (commit a6ea6aa)
 
 | Session | Phase | Description | Status |
 |---------|-------|-------------|--------|

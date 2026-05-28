@@ -2,7 +2,27 @@
 
 All notable changes to GlyphPDF are documented in this file.
 
-## [1.0.0] - 2026-05-23
+## [Unreleased] — v1.0.0 Branch C SCOPE LOCK execution (M2-M8)
+
+Real public v1.0.0 ships when all M2-M8 work in `GLYPH-PDF-MONTHS-2-8-PROMPTS.md` (Desktop) completes. **Timeline: ~8-9 months from M2 start.** The `[1.0.0-internal]` build below is private and NOT for public distribution.
+
+**Workstreams scheduled in M2-M8 (per ROADMAP Phase 1.5 + Sessions 9, 13):**
+- **WS1 — Parallel Layout + OCR Ensemble** (M2 LaneScheduler infrastructure → M5 layout detector ensemble + cross-page pipelining): PP-DocLayoutV2 layout detector (+ Surya if license permits), per-region Tesseract+RapidOCR fanout via LaneScheduler, word-level ROVER fusion, per-region redo + confidence overlay.
+- **WS2 — Djot Full Document Interchange** (M4 foundation Phase 1.5 → M5 OCR mapping → M6 annotation rich text): dual-model architecture (Structural PDF object graph ↔ Semantic `docmodel::SemanticDocument`); ProvenanceGuard refuses Djot save-back for born-PDF signed documents; vendored Lua 5.4 reference parser (MIT). Three roles: OCR output mapping, authoring input, annotation/comment rich text with /RC XHTML + /Contents plain text + /PieceInfo Djot sidecar.
+- **WS3 — MRC Layered Compression in PDF/A** (M7): JBIG2 foreground + JPEG2000 background + invisible OCR sandwich text from WS1 word boxes; 5-10× compression for scanned content; PDF/A-2b conformant. No DjVu output (excluded); optional DjVu importer.
+
+**Other v1.0.0 work in M2-M8:** Edact-Ray glyph-advance defense in redaction, OCR text-layer scrub in redaction rectangles, veraPDF subprocess for PDF/A validation, real-crypto E2E test coverage, 5 mode-page completions, 23 ribbon tools wired, Office→PDF import + PDF→PPT export, DiffEngine LCS/Myers upgrade, ar/fr/de translations populated, AI backend (Anthropic/OpenAI/Gemini/Ollama), third-party security audit, performance tuning + bug bash, OSS governance files (LICENSE/CONTRIBUTING/SECURITY), GitHub repo + CI workflows, marketing prep, MSI signing, package-manager submissions, launch announcement.
+
+---
+
+## [1.0.0-internal] - 2026-05-23 [INTERNAL-BUILD — NOT FOR PUBLIC DISTRIBUTION]
+
+> **⚠ Scope-lock note:** Per Branch C SCOPE LOCK in `GLYPH-PDF-AUDIT-v1.0.0.md`, this build is private/internal during the 6-9 month execution sprint. **Real public v1.0.0** ships only when every claim in this changelog is implemented (no stubs, no preview banners, no mock OCR, no canned AI reply, no empty translations). The MSI at `dist\GlyphPDF-1.0.0-x64.msi` MUST NOT be published to any public channel (GitHub Releases, winget, chocolatey, scoop, website, social media) until the Branch C work completes.
+
+### Build Environment (v1.0.0 internal)
+- **Migrated from Qt-installer + vcpkg to MSYS2 ucrt64 native build.** Eliminates libstdc++/libwinpthread ABI mismatch (was causing 0xc0000139 in UnitTests + TestControllers). All toolchain + Qt6 + deps installed via pacman for single coherent runtime. Compiler: MSYS2 ucrt64 GCC 16.1.0 (was Qt-bundled MinGW 13.1.0). Qt: MSYS2 mingw-w64-ucrt-x86_64-qt6-base 6.11.0 + qt6-pdf (was Qt installer 6.10.2). Deps: pacman packages for PoDoFo 0.10.4, qpdf 12.3.2, OpenSSL, Tesseract 5.5.2, Leptonica 1.87.0, libxml2, freetype, zlib, curl, libpng, libjpeg-turbo, libtiff. Prebuilt for PDFium + ONNX Runtime. See README.md "Build Instructions" for full pacman package list. Note: ucrt64 selected over mingw64 because qt6-pdf is not packaged for mingw64 in MSYS2.
+
+
 
 ### Architecture
 - Dependency injection via `AppContext` with shared_ptr ownership

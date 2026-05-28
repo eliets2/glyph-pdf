@@ -35,6 +35,10 @@ autosave/
 Thumbs.db
 desktop.ini
 
+# Vendor import libraries (MinGW .dll.a stubs) — small and needed for linking
+!third_party/**/*.dll.a
+!third_party/**/*.lib
+
 # Vendor SDKs (large binaries — obtain via CMake FetchContent or vcpkg)
 onnxruntime-win-x64-*/
 onnxruntime-osx-*/

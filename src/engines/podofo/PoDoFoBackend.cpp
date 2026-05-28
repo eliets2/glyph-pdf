@@ -390,7 +390,7 @@ bool PoDoFoBackend::rotatePage(const QString &path, int pageIndex, int degrees) 
         if (pageIndex < 0 || static_cast<size_t>(pageIndex) >= pages.GetCount()) return false;
 
         auto& page = pages.GetPageAt(pageIndex);
-        int current = page.GetRotation();
+        int current = static_cast<int>(page.GetRotation());
         page.SetRotation((current + degrees) % 360);
         doc.Save(path.toUtf8().constData());
         return true;
@@ -2345,7 +2345,7 @@ bool PoDoFoBackend::addImageWatermark(const ImageWatermarkOptions &options)
             const uchar *line = img.constScanLine(y);
             rawData.append(reinterpret_cast<const char*>(line), img.width() * 3);
         }
-        PoDoFo::charbuff imgBuf(rawData.constData(), rawData.size());
+        PoDoFo::charbuff imgBuf(std::string_view(rawData.constData(), rawData.size()));
         imgObj.GetOrCreateStream().SetData(imgBuf);
 
         // Create ExtGState for opacity
@@ -2460,7 +2460,7 @@ bool PoDoFoBackend::addImageWatermark(const ImageWatermarkOptions &options)
                 existingStream.assign(buf.data(), buf.size());
             }
             std::string newStream = existingStream + "\n" + ops.str();
-            PoDoFo::charbuff newBuf(newStream.data(), newStream.size());
+            PoDoFo::charbuff newBuf(newStream);
             contentsObj->GetObject().GetOrCreateStream().SetData(newBuf);
         }
 
@@ -2623,7 +2623,7 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
                         newData.append(reinterpret_cast<const char*>(line), scaled.width() * 3);
                     }
 
-                    PoDoFo::charbuff newBuf(newData.data(), newData.size());
+                    PoDoFo::charbuff newBuf(std::string_view(newData.constData(), newData.size()));
                     obj->GetOrCreateStream().SetData(newBuf);
                     dict.AddKey("Width", static_cast<int64_t>(newW));
                     dict.AddKey("Height", static_cast<int64_t>(newH));

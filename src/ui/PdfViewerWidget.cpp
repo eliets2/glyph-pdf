@@ -694,7 +694,7 @@ void PdfViewerWidget::rotatePages(int from, int to, int angle, const QString &ou
             
             for (int i = from; i <= to; ++i) {
                 PoDoFo::PdfPage& page = doc.GetPages().GetPageAt(i);
-                int currentRot = page.GetRotation();
+                int currentRot = static_cast<int>(page.GetRotation());
                 page.SetRotation((currentRot + angle) % 360);
             }
             
@@ -978,7 +978,7 @@ void PdfViewerWidget::applyRedactions(const QString &outputFile)
                 for (const auto& op : operandStack) oss << op << " ";
 
                 std::string filteredStream = oss.str();
-                PoDoFo::charbuff newBuf(filteredStream.data(), filteredStream.size());
+                PoDoFo::charbuff newBuf(filteredStream);
                 contentsObj->GetOrCreateStream().SetData(newBuf);
             }
 
