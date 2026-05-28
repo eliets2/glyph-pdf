@@ -1,0 +1,12 @@
+prefix=C:/Users/User/Projects/pdf/third_party/podofo/install
+exec_prefix=${prefix}
+libdir=C:/Users/User/Projects/pdf/third_party/podofo/install/lib
+includedir=C:/Users/User/Projects/pdf/third_party/podofo/install/include
+
+Name: PoDoFo
+Description: A C++ library to work with the PDF file format
+Version: 1.1.0
+Requires.private:  libssl fontconfig freetype2 libxml-2.0 libpng libtiff-4 libjpeg zlib libutf8proc
+Libs: -L${libdir} -lpodofo
+Libs.private: 
+Cflags: -I${includedir}
