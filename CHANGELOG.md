@@ -13,6 +13,19 @@ Real public v1.0.0 ships when all M2-M8 work in `GLYPH-PDF-MONTHS-2-8-PROMPTS.md
 
 **Other v1.0.0 work in M2-M8:** Edact-Ray glyph-advance defense in redaction, OCR text-layer scrub in redaction rectangles, veraPDF subprocess for PDF/A validation, real-crypto E2E test coverage, 5 mode-page completions, 23 ribbon tools wired, Office→PDF import + PDF→PPT export, DiffEngine LCS/Myers upgrade, ar/fr/de translations populated, AI backend (Anthropic/OpenAI/Gemini/Ollama), third-party security audit, performance tuning + bug bash, OSS governance files (LICENSE/CONTRIBUTING/SECURITY), GitHub repo + CI workflows, marketing prep, MSI signing, package-manager submissions, launch announcement.
 
+### Pages Mode (M3-PROMPT-3 — 2026-05-29)
+
+#### Added
+- PagesMode wired: real page list with lazy thumbnails (gray placeholder + page number; real PDFium render deferred until IPdfRenderBackend is exposed via AppContext), split form (by-page / by-N-pages / by-range expression), reorder UI. Preview banner removed.
+- Split form: QSpinBox (split at page N), QSpinBox (split every N pages), QLineEdit (range expression "1-3,5,7-9" parser), output naming pattern with `{stem}`/`{n}` tokens, output folder Browse button, filename-preview QListWidget, QProgressDialog for large splits, overwrite confirmation via QMessageBox.
+- Split implementation: `extractPageAsBytes` + `insertPageFromBytes` loop per output part; no `splitDocument()` engine method required. Each output starts from a minimal stub PDF; stub page deleted after real pages inserted.
+- Reorder panel: drag-drop QListWidget, Apply button calls `IPdfEditorEngine::reorderPages` via sequential-move algorithm, Reset button restores original order.
+- `PagesMode::parsePageRange(expr, pageCount)` — static parser for comma-separated range expressions; returns sorted, deduplicated 0-based index list.
+- `PagesMode::executeSplit(sourcePath, groups, outputDir, stemPattern)` — public test-seam; returns paths of produced files.
+- `PagesMode::writeMinimalPdf(path)` — static helper; writes a minimal valid 1-page PDF stub used as the split output bootstrap.
+- ModeController now injects AppContext into PagesMode (same pattern as BatchMode).
+- TestPagesMode (4 headless tests): testPageRangeParser, testSplitAtPage (5-page → 2 parts), testSplitEveryNPages (6-page → 3 parts), testReorderPages (4-page [3,0,1,2] order).
+
 ### Batch Processing (M3-PROMPT-2 — 2026-05-29)
 
 #### Added

@@ -717,6 +717,32 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormBuilder.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPagesMode.cpp")
+    add_executable(TestPagesMode
+        tests/TestPagesMode.cpp
+    )
+    target_include_directories(TestPagesMode PRIVATE src tests)
+    target_link_libraries(TestPagesMode PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestPagesMode POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestPagesMode>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestPagesMode>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestPagesMode"
+    )
+    add_test(NAME TestPagesMode COMMAND TestPagesMode)
+    set_tests_properties(TestPagesMode PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;modes;pages;ui;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchMode.cpp")
     add_executable(TestBatchMode
         tests/TestBatchMode.cpp

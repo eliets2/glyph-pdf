@@ -73,6 +73,7 @@ FORBIDDEN:
 | M2-P5 | 5 | LaneScheduler infrastructure (GPU+CPU lanes) | ✅ |
 | M3-P1 | 4 | FormBuilderMode wired: drag-place 9 types + props panel + tab order | ✅ |
 | M3-P2 | 4 | BatchMode wired: file list + 7 ops (5 real) + QtConcurrent + error log | ✅ |
+| M3-P3 | 4 | PagesMode wired: real page list + split form (by-page/N/range) + reorder UI | ✅ |
 
 **Remediation note (May 2026):** A 7-session cleanup phase resolved all accumulated technical debt
 before this roadmap was formalized: MainWindow modularization, `gp::` namespace migration, thread
