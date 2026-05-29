@@ -13,6 +13,10 @@ Real public v1.0.0 ships when all M2-M8 work in `GLYPH-PDF-MONTHS-2-8-PROMPTS.md
 
 **Other v1.0.0 work in M2-M8:** Edact-Ray glyph-advance defense in redaction, OCR text-layer scrub in redaction rectangles, veraPDF subprocess for PDF/A validation, real-crypto E2E test coverage, 5 mode-page completions, 23 ribbon tools wired, Office→PDF import + PDF→PPT export, DiffEngine LCS/Myers upgrade, ar/fr/de translations populated, AI backend (Anthropic/OpenAI/Gemini/Ollama), third-party security audit, performance tuning + bug bash, OSS governance files (LICENSE/CONTRIBUTING/SECURITY), GitHub repo + CI workflows, marketing prep, MSI signing, package-manager submissions, launch announcement.
 
+### PDF/A Validation (M2-PROMPT-3 — 2026-05-29)
+
+- **Real PDF/A conformance validation via veraPDF CLI subprocess** (D1-D3): new `VeraPdfValidator` class invokes veraPDF CLI (`--format json --flavour <level>`) via `QProcess`, parses JSON output, returns structured `PdfAValidationReport` with `RuleViolation` list. AGPL-3.0 subprocess posture maintained — veraPDF is never linked in-process. `PdfAValidationPanel` now shows live validation results when veraPDF is configured, or "validator unavailable" status with build instruction when not. CMake option `-DVERAPDF_CLI_PATH=<path>` enables integration. "Fix Automatically" button deferred to v1.1.0; "Convert to PDF/A-2B" and "Export Report" wired.
+
 ### Security (M2-PROMPT-2 — 2026-05-29)
 
 - **Invisible OCR text layer scrub** (D1): `redactCanvasRecursively` now tracks text rendering

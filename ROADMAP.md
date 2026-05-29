@@ -472,7 +472,7 @@ Workstream 3. DjVu output is explicitly excluded; MRC runs inside PDF/A.
 
 **Session 19 — Print + Export Polish + Final UI Refinements**
 - Print pipeline: `QPrinter` with per-page range, duplex, fit-to-page; print preview
-- Export polish: PDF/A validation dialog; export progress for large documents
+- Export polish: PDF/A validation dialog; export progress for large documents ✅ DONE (M2-P3, 2026-05-29)
 - Final UI: pixel-perfect icon audit; missing tooltips; keyboard shortcut gaps; theme
   consistency review; About dialog with third-party license viewer (reads `LICENSE-3RD-PARTY.md`)
 
@@ -539,7 +539,7 @@ implementing ad-hoc concurrency.
 | R5 | Layout ensemble IoU < 0.5 on complex pages (mixed RTL/LTR) | MEDIUM | Fallback: use higher-confidence detector's output alone; surface low-confidence flag to UI |
 | R6 | JBIG2 encoder chosen has GPL/AGPL license | HIGH | Audit before integration; acceptable options: jbig2enc fork (Apache-2.0 fork exists) or libjbig2 (BSD-like); update license matrix before merging WS3 |
 | R7 | Djot→PDF save-back corrupts signed documents | HIGH | `ProvenanceGuard` blocks this path at the API level; integration test with signed born-PDF |
-| R8 | MRC PDF/A output fails conformance validation | MEDIUM | Run veraPDF (AGPL; subprocess-only) in CI; never link it in-process |
+| R8 | MRC PDF/A output fails conformance validation | MEDIUM | Run veraPDF (AGPL; subprocess-only) in CI; never link it in-process [CLOSED M2-P3, 2026-05-29] |
 | R9 | PP-OCRv5 model weights license not Apache-2.0 for commercial use | MEDIUM | Verify PaddleOCR model license at model download time; add to license matrix |
 | R10 | Cross-page pipeline `layout(P+1) ║ ocr(P)` produces out-of-order results on error | MEDIUM | `LaneScheduler` result queue is ordered by page index; missing pages produce a sentinel error result, not a gap |
 | R11 | Lua interpreter surface area in `pdfws_djot` (arbitrary code via Djot input) | MEDIUM | Lua sandbox: disable `io`, `os`, `loadfile`, `require` before running user-supplied Djot; no network |

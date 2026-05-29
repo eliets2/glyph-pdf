@@ -119,6 +119,16 @@ cmake -B build -G "Ninja"
 cmake --build build --parallel 8
 ```
 
+### Optional: PDF/A Validation (veraPDF)
+
+Download [veraPDF](https://verapdf.org/home/#download) (AGPL-3.0 — invoked as subprocess only) and configure:
+
+```bash
+cmake -B build -DVERAPDF_CLI_PATH=/path/to/verapdf
+```
+
+Without this, `PdfAValidationPanel` shows "validator unavailable" — all other features work normally.
+
 ### Why MSYS2 ucrt64?
 GlyphPDF migrated from a hybrid Qt-installer + vcpkg setup to fully MSYS2-native in v1.0.0 development. This eliminates the libstdc++/libwinpthread ABI mismatch that previously required carefully-chosen DLL mixes in the build directory. Single coherent toolchain (GCC 16.x + Qt 6.11 + all deps from pacman), single source of truth for dependency versions, easier maintenance via `pacman -Syu`.
 
