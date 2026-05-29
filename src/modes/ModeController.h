@@ -3,6 +3,7 @@
 #include <QHash>
 
 class PdfViewerWidget;
+struct AppContext;
 
 namespace gp {
 
@@ -25,6 +26,9 @@ public:
 
     PdfViewerWidget* viewer() const { return _viewer; }
 
+    // Must be called before setScreen("form") is triggered.
+    void setAppContext(const AppContext* ctx) { _ctx = ctx; }
+
 signals:
     void screenChanged(const QString& id);
 
@@ -32,6 +36,7 @@ private:
     QHash<QString, QWidget*> _byId;
     QString     _currentScreen;
     PdfViewerWidget* _viewer = nullptr;
+    const AppContext* _ctx = nullptr;
 };
 
 } // namespace gp

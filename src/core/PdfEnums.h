@@ -24,5 +24,15 @@ enum class ToolMode {
     EditImage,
     Stamp,
     Callout,
-    Crop
+    Crop,
+    // Form builder field placement modes (M3-PROMPT-1)
+    FormAddText,
+    FormAddCheckbox,
+    FormAddRadio,
+    FormAddDropdown,
+    FormAddListBox,
+    FormAddDate,
+    FormAddNumeric,
+    FormAddSignature,
+    FormAddButton
 };

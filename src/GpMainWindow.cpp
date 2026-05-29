@@ -97,6 +97,7 @@ MainWindow::MainWindow(const AppContext* ctx, QWidget* parent) : QMainWindow(par
     _left = new Sidebar(Sidebar::Left, this);
     _right = new Sidebar(Sidebar::Right, this);
     _modes = new ModeController(this);
+    _modes->setAppContext(ctx);
 
     _left->init(ctx, _modes->viewer());
     _right->init(ctx, _modes->viewer());
