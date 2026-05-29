@@ -25,6 +25,11 @@ struct AnnotationItem {
     QString text;
     QRectF rect;
     
+    // Appearance
+    double opacity = 1.0;
+    QString blendMode = "Normal";
+    bool locked = false;
+
     // Comment threading & metadata
     QString id;
     QString parentId;
@@ -33,7 +38,4 @@ struct AnnotationItem {
     QString creationDate;
     QString modificationDate;
     ReviewState reviewState = ReviewState::None;
-    bool locked = false;
-    QString blendMode = "Normal";
-    double opacity = 1.0;
 };

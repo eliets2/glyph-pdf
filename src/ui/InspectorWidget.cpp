@@ -1,5 +1,8 @@
 #include "InspectorWidget.h"
 #include "core/AnnotationTypes.h"
+#include "core/AppContext.h"
+#include "ui/PdfViewerWidget.h"
+#include "commands/EditAnnotationCommand.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -15,6 +18,15 @@
 #include <QFileInfo>
 #include <QDateTime>
 #include <QLocale>
+#include <QDoubleSpinBox>
+#include <QSlider>
+#include <QComboBox>
+#include <QSpinBox>
+#include <QListWidget>
+#include <QColorDialog>
+#include <QKeyEvent>
+#include <QUndoStack>
+#include <QUuid>
 
 namespace {
     const char* BG_0  = "#1a1b1e";
@@ -23,14 +35,12 @@ namespace {
     const char* BG_3  = "#34363b";
     const char* BG_4  = "#3d4046";
     const char* LINE  = "#393b40";
-    const char* LINE_STRONG = "#4a4d52";
     const char* FG_0  = "#dfe1e5";
     const char* FG_1  = "#a8abb0";
     const char* FG_2  = "#71747a";
     const char* FG_3  = "#52555a";
     const char* ACCENT      = "#ff8c42";
     const char* ACCENT_DIM  = "rgba(255,140,66,0.15)";
-    const char* ACCENT_LINE = "#ff8c4255";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -123,28 +133,73 @@ static QString fieldValueSheet() {
     ).arg(FG_0);
 }
 
+static QString spinBoxSheet() {
+    return QStringLiteral(
+        "QDoubleSpinBox, QSpinBox {"
+        "  background: %1;"
+        "  border: 1px solid %2;"
+        "  border-radius: 3px;"
+        "  color: %3;"
+        "  font-family: 'Consolas', monospace;"
+        "  font-size: 10px;"
+        "  padding: 2px 4px;"
+        "}"
+        "QDoubleSpinBox:focus, QSpinBox:focus {"
+        "  border-color: %4;"
+        "}"
+        "QDoubleSpinBox::up-button, QDoubleSpinBox::down-button,"
+        "QSpinBox::up-button, QSpinBox::down-button {"
+        "  width: 12px; background: %5; border: none;"
+        "}"
+    ).arg(BG_0, LINE, FG_0, ACCENT, BG_3);
+}
+
+static QString comboSheet() {
+    return QStringLiteral(
+        "QComboBox {"
+        "  background: %1; border: 1px solid %2; border-radius: 3px;"
+        "  color: %3; font-family: 'Consolas', monospace; font-size: 10px;"
+        "  padding: 2px 6px;"
+        "}"
+        "QComboBox:focus { border-color: %4; }"
+        "QComboBox QAbstractItemView { background: %5; color: %3; border: 1px solid %2; }"
+    ).arg(BG_0, LINE, FG_0, ACCENT, BG_2);
+}
+
+static QString sliderSheet() {
+    return QStringLiteral(
+        "QSlider::groove:horizontal { height: 4px; background: %1; border-radius: 2px; }"
+        "QSlider::handle:horizontal {"
+        "  background: %2; border: none; width: 10px; height: 10px;"
+        "  margin: -3px 0; border-radius: 5px;"
+        "}"
+        "QSlider::sub-page:horizontal { background: %2; border-radius: 2px; }"
+    ).arg(BG_4, ACCENT);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Helper: field row (label + value)
+// Helper: read-only field row (label + QLabel value)
 // ─────────────────────────────────────────────────────────────────────────────
 
-static QWidget* createFieldRow(const QString& labelText, const QString& valueText)
+static QWidget* makeFieldRow(const QString& labelText, QLabel** outVal = nullptr)
 {
     auto* row = new QWidget;
-    auto* layout = new QHBoxLayout(row);
-    layout->setContentsMargins(12, 3, 12, 3);
-    layout->setSpacing(8);
+    auto* hbox = new QHBoxLayout(row);
+    hbox->setContentsMargins(12, 3, 12, 3);
+    hbox->setSpacing(8);
 
-    auto* label = new QLabel(labelText);
-    label->setFixedWidth(78);
-    label->setStyleSheet(fieldLabelSheet());
-    label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    layout->addWidget(label);
+    auto* lbl = new QLabel(labelText);
+    lbl->setFixedWidth(78);
+    lbl->setStyleSheet(fieldLabelSheet());
+    lbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    hbox->addWidget(lbl);
 
-    auto* value = new QLabel(valueText);
-    value->setStyleSheet(fieldValueSheet());
-    value->setWordWrap(true);
-    layout->addWidget(value, 1);
+    auto* val = new QLabel(QStringLiteral("--"));
+    val->setStyleSheet(fieldValueSheet());
+    val->setWordWrap(true);
+    hbox->addWidget(val, 1);
 
+    if (outVal) *outVal = val;
     return row;
 }
 
@@ -185,18 +240,57 @@ InspectorWidget::InspectorWidget(QWidget* parent)
     m_contentStack = new QStackedWidget;
     m_contentStack->setStyleSheet(QStringLiteral("QStackedWidget { background: %1; }").arg(BG_1));
 
-    // Page 0: empty state
-    m_contentStack->addWidget(createEmptyState());
-
-    // Page 1: annotation properties view
-    m_contentStack->addWidget(createPropertiesView());
-
-    // Page 2: document info view
-    m_contentStack->addWidget(createDocInfoView());
+    m_contentStack->addWidget(createEmptyState());      // 0: empty
+    m_contentStack->addWidget(createPropertiesView());  // 1: annotation props
+    m_contentStack->addWidget(createDocInfoView());     // 2: doc info
 
     mainLayout->addWidget(m_contentStack, 1);
-
     m_contentStack->setCurrentIndex(0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// init — called by Sidebar after construction to wire up viewer + ctx
+// ─────────────────────────────────────────────────────────────────────────────
+
+void InspectorWidget::init(const AppContext* ctx, PdfViewerWidget* viewer)
+{
+    m_ctx    = ctx;
+    m_viewer = viewer;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// pushEditCommand — wraps annotation change in an undoable command
+// ─────────────────────────────────────────────────────────────────────────────
+
+void InspectorWidget::pushEditCommand(const AnnotationItem& newAnn)
+{
+    if (!m_viewer || !m_ctx || !m_ctx->undoStack) return;
+
+    // Build old list / new list with the modified annotation
+    QList<AnnotationItem> oldList = m_viewer->annotations();
+    QList<AnnotationItem> newList = oldList;
+
+    // Find by id
+    bool found = false;
+    for (int i = 0; i < newList.size(); ++i) {
+        if (newList[i].id == newAnn.id) {
+            newList[i] = newAnn;
+            found = true;
+            break;
+        }
+    }
+    if (!found) return;
+
+    // Get DocumentSession* from ctx (may be null — EditAnnotationCommand handles QPointer)
+    DocumentSession* docSession = m_ctx->document ? m_ctx->document.get() : nullptr;
+
+    m_ctx->undoStack->push(
+        new EditAnnotationCommand(m_viewer, docSession, oldList, newList)
+    );
+
+    // Keep local pointer in sync (annotation list was just replaced by the command)
+    // Sidebar will re-call setAnnotation via selectionChanged after annotationsChanged fires
+    emit annotationModified();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -235,8 +329,7 @@ void InspectorWidget::createTabs()
 
     layout->addStretch();
 
-    // More button
-    auto* moreBtn = new QPushButton(QChar(0x22EE)); // ⋮
+    auto* moreBtn = new QPushButton(QChar(0x22EE));
     moreBtn->setFixedSize(24, 24);
     moreBtn->setStyleSheet(iconBtnSheet());
     moreBtn->setToolTip(QStringLiteral("More options"));
@@ -254,36 +347,25 @@ QWidget* InspectorWidget::createEmptyState()
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setAlignment(Qt::AlignCenter);
 
-    // Diamond glyph
-    auto* glyph = new QLabel(QStringLiteral("◇"));
+    auto* glyph = new QLabel(QStringLiteral("\u25C7"));
     glyph->setAlignment(Qt::AlignCenter);
-    glyph->setStyleSheet(QStringLiteral(
-        "color: %1; font-size: 32px;"
-    ).arg(FG_3));
+    glyph->setStyleSheet(QStringLiteral("color: %1; font-size: 32px;").arg(FG_3));
     layout->addWidget(glyph);
 
-    // Title
     auto* title = new QLabel(QStringLiteral("No selection"));
     title->setAlignment(Qt::AlignCenter);
     title->setStyleSheet(QStringLiteral(
         "color: %1;"
         "font-family: 'Manrope', sans-serif;"
-        "font-size: 11px;"
-        "font-weight: 600;"
-        "text-transform: uppercase;"
-        "letter-spacing: 0.5px;"
-        "margin-top: 8px;"
+        "font-size: 11px; font-weight: 600;"
+        "text-transform: uppercase; letter-spacing: 0.5px; margin-top: 8px;"
     ).arg(FG_1));
     layout->addWidget(title);
 
-    // Subtitle
     auto* subtitle = new QLabel(QStringLiteral("Select an annotation to\ninspect its properties"));
     subtitle->setAlignment(Qt::AlignCenter);
     subtitle->setStyleSheet(QStringLiteral(
-        "color: %1;"
-        "font-family: 'Consolas', monospace;"
-        "font-size: 10.5px;"
-        "margin-top: 4px;"
+        "color: %1; font-family: 'Consolas', monospace; font-size: 10.5px; margin-top: 4px;"
     ).arg(FG_2));
     layout->addWidget(subtitle);
 
@@ -291,7 +373,7 @@ QWidget* InspectorWidget::createEmptyState()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Properties view
+// Properties view (D1–D5 fully bound)
 // ─────────────────────────────────────────────────────────────────────────────
 
 QWidget* InspectorWidget::createPropertiesView()
@@ -316,7 +398,6 @@ QWidget* InspectorWidget::createPropertiesView()
     headerLayout->setContentsMargins(12, 10, 12, 10);
     headerLayout->setSpacing(4);
 
-    // Top row: dot + type + ID
     auto* headerTop = new QHBoxLayout;
     headerTop->setSpacing(6);
 
@@ -328,7 +409,7 @@ QWidget* InspectorWidget::createPropertiesView()
     ).arg(ACCENT));
     headerTop->addWidget(headerDot);
 
-    auto* typeName = new QLabel(QStringLiteral("HIGHLIGHT"));
+    auto* typeName = new QLabel(QStringLiteral("ANNOTATION"));
     typeName->setObjectName("typeName");
     typeName->setStyleSheet(QStringLiteral(
         "color: %1; font-family: 'Manrope', sans-serif;"
@@ -336,40 +417,39 @@ QWidget* InspectorWidget::createPropertiesView()
     ).arg(FG_0));
     headerTop->addWidget(typeName);
 
-    auto* annotId = new QLabel(QStringLiteral("#001"));
-    annotId->setObjectName("annotId");
-    annotId->setStyleSheet(QStringLiteral(
+    // D1: annotation ID label (member so refreshProperties can update it)
+    m_valAnnotId = new QLabel(QStringLiteral("--"));
+    m_valAnnotId->setObjectName("annotId");
+    m_valAnnotId->setStyleSheet(QStringLiteral(
         "color: %1; font-family: 'Consolas', monospace; font-size: 10px;"
     ).arg(FG_2));
-    headerTop->addWidget(annotId);
+    headerTop->addWidget(m_valAnnotId);
     headerTop->addStretch();
 
     headerLayout->addLayout(headerTop);
 
-    // Sub-header: page / layer / locked
     auto* subHeader = new QLabel(QStringLiteral("Page 1 \xC2\xB7 Default Layer \xC2\xB7 Unlocked"));
     subHeader->setObjectName("subHeader");
     subHeader->setStyleSheet(QStringLiteral(
         "color: %1; font-family: 'Consolas', monospace; font-size: 9.5px;"
     ).arg(FG_2));
     headerLayout->addWidget(subHeader);
-
     propsLayout->addWidget(m_headerWidget);
 
-    // ── Section 1: Identity ─────────────────────────────────────────────────
+    // ── Section 1: Identity (D1) ─────────────────────────────────────────
     auto* identityContent = new QWidget;
     auto* identityLayout = new QVBoxLayout(identityContent);
     identityLayout->setContentsMargins(0, 4, 0, 4);
     identityLayout->setSpacing(0);
 
-    identityLayout->addWidget(createFieldRow("Author", "Unknown"));
-    identityLayout->addWidget(createFieldRow("Created", "--"));
-    identityLayout->addWidget(createFieldRow("Modified", "--"));
-    identityLayout->addWidget(createFieldRow("Subject", "--"));
+    identityLayout->addWidget(makeFieldRow(tr("Author"),   &m_valAuthor));
+    identityLayout->addWidget(makeFieldRow(tr("Created"),  &m_valCreated));
+    identityLayout->addWidget(makeFieldRow(tr("Modified"), &m_valModified));
+    identityLayout->addWidget(makeFieldRow(tr("Subject"),  &m_valSubject));
 
-    propsLayout->addWidget(createCollapsibleSection("Identity", identityContent));
+    propsLayout->addWidget(createCollapsibleSection(tr("Identity"), identityContent));
 
-    // ── Section 2: Appearance ───────────────────────────────────────────────
+    // ── Section 2: Appearance (D3) ─────────────────────────────────────────
     auto* appearContent = new QWidget;
     auto* appearLayout = new QVBoxLayout(appearContent);
     appearLayout->setContentsMargins(12, 6, 12, 6);
@@ -385,36 +465,134 @@ QWidget* InspectorWidget::createPropertiesView()
     swatchLabel->setStyleSheet(fieldLabelSheet());
     swatchRow->addWidget(swatchLabel);
 
-    const QStringList colors = {"#f5c542", "#42a5f5", "#ef5350", "#66bb6a", "#ab47bc", "#ff8c42"};
-    for (const auto& c : colors) {
-        swatchRow->addWidget(createColorSwatch(c));
+    const QStringList swatchColors = {"#f5c542", "#42a5f5", "#ef5350", "#66bb6a", "#ab47bc", "#ff8c42"};
+    for (const auto& c : swatchColors) {
+        auto* sw = createColorSwatch(c);
+        QColor col(c);
+        // D3: clicking a swatch sets annotation.color + pushes EditAnnotationCommand
+        QObject::connect(sw, &QWidget::destroyed, []{}); // placeholder — real click via button overlay
+        auto* overlayBtn = new QPushButton(sw);
+        overlayBtn->setGeometry(0, 0, 22, 18);
+        overlayBtn->setStyleSheet("QPushButton { background: transparent; border: none; }");
+        overlayBtn->setCursor(Qt::PointingHandCursor);
+        QObject::connect(overlayBtn, &QPushButton::clicked, this, [this, col]() {
+            if (!m_currentAnnotation) return;
+            AnnotationItem modified = *m_currentAnnotation;
+            modified.color = col;
+            pushEditCommand(modified);
+        });
+        swatchRow->addWidget(sw);
     }
+
+    // "more..." custom color
+    auto* moreColor = new QPushButton(QStringLiteral("\u2026"));
+    moreColor->setFixedSize(22, 18);
+    moreColor->setToolTip(tr("Custom color"));
+    moreColor->setStyleSheet(QStringLiteral(
+        "QPushButton { background: %1; border: 1px solid %2; border-radius: 3px; color: %3; font-size: 10px; }"
+        "QPushButton:hover { background: %4; }"
+    ).arg(BG_2, LINE, FG_1, BG_3));
+    QObject::connect(moreColor, &QPushButton::clicked, this, [this]() {
+        if (!m_currentAnnotation) return;
+        QColor chosen = QColorDialog::getColor(m_currentAnnotation->color, this, tr("Choose annotation color"));
+        if (chosen.isValid()) {
+            AnnotationItem modified = *m_currentAnnotation;
+            modified.color = chosen;
+            pushEditCommand(modified);
+        }
+    });
+    swatchRow->addWidget(moreColor);
     swatchRow->addStretch();
     appearLayout->addLayout(swatchRow);
 
-    // Opacity
-    auto* opacityRow = createFieldRow("Opacity", "100%");
-    appearLayout->addWidget(opacityRow);
+    // Opacity row: QSlider 0–100
+    auto* opacRow = new QHBoxLayout;
+    opacRow->setSpacing(8);
+    auto* opacLabel = new QLabel(QStringLiteral("Opacity"));
+    opacLabel->setFixedWidth(78);
+    opacLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    opacLabel->setStyleSheet(fieldLabelSheet());
+    opacRow->addWidget(opacLabel);
 
-    // Blend mode
-    auto* blendRow = createFieldRow("Blend", "Normal");
-    appearLayout->addWidget(blendRow);
+    m_opacitySlider = new QSlider(Qt::Horizontal);
+    m_opacitySlider->setRange(0, 100);
+    m_opacitySlider->setValue(100);
+    m_opacitySlider->setStyleSheet(sliderSheet());
+    opacRow->addWidget(m_opacitySlider, 1);
 
-    // Border width
-    auto* borderRow = createFieldRow("Border", "2px");
-    appearLayout->addWidget(borderRow);
+    m_opacityLabel = new QLabel(QStringLiteral("100%"));
+    m_opacityLabel->setStyleSheet(fieldValueSheet());
+    m_opacityLabel->setFixedWidth(32);
+    opacRow->addWidget(m_opacityLabel);
+    appearLayout->addLayout(opacRow);
 
-    propsLayout->addWidget(createCollapsibleSection("Appearance", appearContent));
+    QObject::connect(m_opacitySlider, &QSlider::valueChanged, this, [this](int val) {
+        m_opacityLabel->setText(QStringLiteral("%1%").arg(val));
+        if (m_refreshing || !m_currentAnnotation) return;
+        AnnotationItem modified = *m_currentAnnotation;
+        modified.opacity = val / 100.0;
+        pushEditCommand(modified);
+    });
 
-    // ── Section 3: Position ─────────────────────────────────────────────────
+    // Blend mode combo
+    auto* blendRow = new QHBoxLayout;
+    blendRow->setSpacing(8);
+    auto* blendLabel = new QLabel(QStringLiteral("Blend"));
+    blendLabel->setFixedWidth(78);
+    blendLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    blendLabel->setStyleSheet(fieldLabelSheet());
+    blendRow->addWidget(blendLabel);
+
+    m_blendCombo = new QComboBox;
+    m_blendCombo->setStyleSheet(comboSheet());
+    m_blendCombo->addItems({"Normal", "Multiply", "Screen", "Overlay", "Darken", "Lighten"});
+    blendRow->addWidget(m_blendCombo, 1);
+    appearLayout->addLayout(blendRow);
+
+    QObject::connect(m_blendCombo, &QComboBox::currentTextChanged, this, [this](const QString& mode) {
+        if (m_refreshing || !m_currentAnnotation) return;
+        AnnotationItem modified = *m_currentAnnotation;
+        modified.blendMode = mode;
+        pushEditCommand(modified);
+    });
+
+    // Border width spinbox
+    auto* borderRow = new QHBoxLayout;
+    borderRow->setSpacing(8);
+    auto* borderLabel = new QLabel(QStringLiteral("Border"));
+    borderLabel->setFixedWidth(78);
+    borderLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    borderLabel->setStyleSheet(fieldLabelSheet());
+    borderRow->addWidget(borderLabel);
+
+    m_borderSpin = new QSpinBox;
+    m_borderSpin->setRange(0, 20);
+    m_borderSpin->setValue(2);
+    m_borderSpin->setSuffix(QStringLiteral("px"));
+    m_borderSpin->setStyleSheet(spinBoxSheet());
+    borderRow->addWidget(m_borderSpin);
+    borderRow->addStretch();
+    appearLayout->addLayout(borderRow);
+
+    QObject::connect(m_borderSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int val) {
+        if (m_refreshing || !m_currentAnnotation) return;
+        AnnotationItem modified = *m_currentAnnotation;
+        modified.thickness = val;
+        pushEditCommand(modified);
+    });
+
+    propsLayout->addWidget(createCollapsibleSection(tr("Appearance"), appearContent));
+
+    // ── Section 3: Position (D2) ────────────────────────────────────────────
     auto* posContent = new QWidget;
     auto* posLayout = new QVBoxLayout(posContent);
     posLayout->setContentsMargins(12, 6, 12, 6);
     posLayout->setSpacing(6);
 
-    // 2-column grid: X/Y/W/H
     auto* posGrid = new QGridLayout;
-    posGrid->setSpacing(6);
+    posGrid->setSpacing(4);
+    posGrid->setColumnStretch(1, 1);
+    posGrid->setColumnStretch(3, 1);
 
     auto makeGridLabel = [](const QString& text) {
         auto* lbl = new QLabel(text);
@@ -422,39 +600,54 @@ QWidget* InspectorWidget::createPropertiesView()
         lbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         return lbl;
     };
-    auto makeGridValue = [](const QString& text) {
-        auto* lbl = new QLabel(text);
-        lbl->setStyleSheet(fieldValueSheet());
-        return lbl;
+
+    auto makeGeomSpin = [this]() {
+        auto* sp = new QDoubleSpinBox;
+        sp->setRange(-9999.0, 9999.0);
+        sp->setDecimals(2);
+        sp->setSingleStep(1.0);
+        sp->setStyleSheet(spinBoxSheet());
+        return sp;
     };
 
-    posGrid->addWidget(makeGridLabel("X"), 0, 0);
-    posGrid->addWidget(makeGridValue("0.00"), 0, 1);
-    posGrid->addWidget(makeGridLabel("Y"), 0, 2);
-    posGrid->addWidget(makeGridValue("0.00"), 0, 3);
-    posGrid->addWidget(makeGridLabel("W"), 1, 0);
-    posGrid->addWidget(makeGridValue("0.00"), 1, 1);
-    posGrid->addWidget(makeGridLabel("H"), 1, 2);
-    posGrid->addWidget(makeGridValue("0.00"), 1, 3);
+    m_spinX = makeGeomSpin();
+    m_spinY = makeGeomSpin();
+    m_spinW = makeGeomSpin();
+    m_spinH = makeGeomSpin();
 
+    posGrid->addWidget(makeGridLabel("X"), 0, 0);
+    posGrid->addWidget(m_spinX, 0, 1);
+    posGrid->addWidget(makeGridLabel("Y"), 0, 2);
+    posGrid->addWidget(m_spinY, 0, 3);
+    posGrid->addWidget(makeGridLabel("W"), 1, 0);
+    posGrid->addWidget(m_spinW, 1, 1);
+    posGrid->addWidget(makeGridLabel("H"), 1, 2);
+    posGrid->addWidget(m_spinH, 1, 3);
     posLayout->addLayout(posGrid);
 
-    // Align/Distribute buttons row
+    // Wire geometry spinboxes
+    auto wireGeomSpin = [this](QDoubleSpinBox* sp) {
+        QObject::connect(sp, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+                         this, [this](double) {
+            if (m_refreshing || !m_currentAnnotation) return;
+            AnnotationItem modified = *m_currentAnnotation;
+            modified.rect = QRectF(m_spinX->value(), m_spinY->value(),
+                                   m_spinW->value(), m_spinH->value());
+            pushEditCommand(modified);
+        });
+    };
+    wireGeomSpin(m_spinX);
+    wireGeomSpin(m_spinY);
+    wireGeomSpin(m_spinW);
+    wireGeomSpin(m_spinH);
+
+    // Align buttons row
     auto* alignRow = new QHBoxLayout;
     alignRow->setSpacing(2);
 
-    const QStringList alignIcons = {
-        QStringLiteral("┃"), // ┃ align-left
-        QStringLiteral("│"), // │ align-center
-        QStringLiteral("┃"), // ┃ align-right
-        QStringLiteral("━"), // ━ align-top
-        QStringLiteral("─"), // ─ align-middle
-        QStringLiteral("━"), // ━ align-bottom
-    };
-    const QStringList alignTips = {
-        "Align Left", "Align Center", "Align Right",
-        "Align Top", "Align Middle", "Align Bottom"
-    };
+    const QStringList alignIcons = {"\u2523", "\u2502", "\u252B", "\u2501", "\u2500", "\u2501"};
+    const QStringList alignTips  = {"Align Left", "Align Center", "Align Right",
+                                    "Align Top",  "Align Middle", "Align Bottom"};
 
     for (int i = 0; i < alignIcons.size(); ++i) {
         auto* btn = new QPushButton(alignIcons[i]);
@@ -472,88 +665,211 @@ QWidget* InspectorWidget::createPropertiesView()
     alignRow->addStretch();
     posLayout->addLayout(alignRow);
 
-    propsLayout->addWidget(createCollapsibleSection("Position", posContent));
+    propsLayout->addWidget(createCollapsibleSection(tr("Position"), posContent));
 
-    // ── Section 4: Contents ─────────────────────────────────────────────────
+    // ── Section 4: Contents (D4) ────────────────────────────────────────────
     auto* contentsWidget = new QWidget;
     auto* contentsLayout = new QVBoxLayout(contentsWidget);
     contentsLayout->setContentsMargins(12, 6, 12, 6);
     contentsLayout->setSpacing(4);
 
-    auto* editor = new QTextEdit;
-    editor->setFixedHeight(80);
-    editor->setPlaceholderText(QStringLiteral("Annotation text content..."));
-    editor->setStyleSheet(QStringLiteral(
+    m_contentsEditor = new QTextEdit;
+    m_contentsEditor->setFixedHeight(80);
+    m_contentsEditor->setPlaceholderText(QStringLiteral("Annotation text content..."));
+    m_contentsEditor->setStyleSheet(QStringLiteral(
         "QTextEdit {"
-        "  background: %1;"
-        "  border: 1px solid %2;"
-        "  border-radius: 4px;"
-        "  color: %3;"
-        "  font-family: 'Consolas', monospace;"
-        "  font-size: 10.5px;"
-        "  padding: 6px;"
+        "  background: %1; border: 1px solid %2; border-radius: 4px;"
+        "  color: %3; font-family: 'Consolas', monospace; font-size: 10.5px; padding: 6px;"
         "}"
-        "QTextEdit:focus {"
-        "  border-color: %4;"
-        "}"
+        "QTextEdit:focus { border-color: %4; }"
     ).arg(BG_0, LINE, FG_0, ACCENT));
-    contentsLayout->addWidget(editor);
+    contentsLayout->addWidget(m_contentsEditor);
 
-    auto* charCount = new QLabel(QStringLiteral("0 chars \xC2\xB7 UTF-8"));
-    charCount->setObjectName("charCount");
-    charCount->setAlignment(Qt::AlignRight);
-    charCount->setStyleSheet(QStringLiteral(
+    m_charCountLabel = new QLabel(QStringLiteral("0 chars \xC2\xB7 UTF-8"));
+    m_charCountLabel->setObjectName("charCount");
+    m_charCountLabel->setAlignment(Qt::AlignRight);
+    m_charCountLabel->setStyleSheet(QStringLiteral(
         "color: %1; font-family: 'Consolas', monospace; font-size: 9.5px;"
     ).arg(FG_3));
-    contentsLayout->addWidget(charCount);
+    contentsLayout->addWidget(m_charCountLabel);
 
-    propsLayout->addWidget(createCollapsibleSection("Contents", contentsWidget));
+    // Live char count
+    QObject::connect(m_contentsEditor, &QTextEdit::textChanged, this, [this]() {
+        int count = m_contentsEditor->toPlainText().length();
+        m_charCountLabel->setText(QStringLiteral("%1 chars \xC2\xB7 UTF-8").arg(count));
+    });
 
-    // ── Section 5: Reply Thread (closed by default) ─────────────────────────
+    // Save on focus loss (install event filter on the editor)
+    m_contentsEditor->installEventFilter(this);
+
+    propsLayout->addWidget(createCollapsibleSection(tr("Contents"), contentsWidget));
+
+    // ── Section 5: Reply Thread (D5) ────────────────────────────────────────
     auto* replyContent = new QWidget;
     auto* replyLayout = new QVBoxLayout(replyContent);
-    replyLayout->setContentsMargins(12, 6, 12, 6);
-    replyLayout->setSpacing(6);
+    replyLayout->setContentsMargins(8, 6, 8, 6);
+    replyLayout->setSpacing(4);
 
-    // Empty state for replies
-    auto* noReplies = new QLabel(QStringLiteral("No replies yet"));
-    noReplies->setAlignment(Qt::AlignCenter);
-    noReplies->setStyleSheet(QStringLiteral(
-        "color: %1; font-family: 'Consolas', monospace; font-size: 10px; padding: 12px;"
-    ).arg(FG_3));
-    replyLayout->addWidget(noReplies);
+    m_replyList = new QListWidget;
+    m_replyList->setMaximumHeight(120);
+    m_replyList->setStyleSheet(QStringLiteral(
+        "QListWidget { background: %1; border: 1px solid %2; border-radius: 4px; color: %3;"
+        "  font-family: 'Consolas', monospace; font-size: 10px; }"
+        "QListWidget::item { padding: 4px 6px; border-bottom: 1px solid %4; }"
+        "QListWidget::item:selected { background: %5; }"
+    ).arg(BG_0, LINE, FG_1, BG_2, ACCENT_DIM));
+    replyLayout->addWidget(m_replyList);
 
-    // Add reply button
+    // Inline reply editor (hidden by default)
+    m_replyEditorWidget = new QWidget;
+    m_replyEditorWidget->hide();
+    auto* replyEdLayout = new QVBoxLayout(m_replyEditorWidget);
+    replyEdLayout->setContentsMargins(0, 4, 0, 0);
+    replyEdLayout->setSpacing(4);
+
+    m_replyEditor = new QTextEdit;
+    m_replyEditor->setFixedHeight(56);
+    m_replyEditor->setPlaceholderText(tr("Type reply..."));
+    m_replyEditor->setStyleSheet(QStringLiteral(
+        "QTextEdit { background: %1; border: 1px solid %2; border-radius: 4px;"
+        "  color: %3; font-family: 'Consolas', monospace; font-size: 10px; padding: 4px; }"
+        "QTextEdit:focus { border-color: %4; }"
+    ).arg(BG_0, LINE, FG_0, ACCENT));
+    replyEdLayout->addWidget(m_replyEditor);
+
+    auto* replyBtnRow = new QHBoxLayout;
+    replyBtnRow->addStretch();
+    m_replySubmit = new QPushButton(tr("Post Reply"));
+    m_replySubmit->setCursor(Qt::PointingHandCursor);
+    m_replySubmit->setStyleSheet(QStringLiteral(
+        "QPushButton { background: %1; border: 1px solid %2; border-radius: 4px;"
+        "  color: %2; font-family: 'Manrope', sans-serif; font-size: 10.5px; padding: 4px 10px; }"
+        "QPushButton:hover { background: %3; }"
+    ).arg(ACCENT_DIM, ACCENT, BG_3));
+    replyBtnRow->addWidget(m_replySubmit);
+
+    auto* cancelBtn = new QPushButton(tr("Cancel"));
+    cancelBtn->setCursor(Qt::PointingHandCursor);
+    cancelBtn->setStyleSheet(QStringLiteral(
+        "QPushButton { background: transparent; border: 1px solid %1; border-radius: 4px;"
+        "  color: %1; font-family: 'Manrope', sans-serif; font-size: 10.5px; padding: 4px 10px; }"
+        "QPushButton:hover { background: %2; }"
+    ).arg(FG_2, BG_2));
+    replyBtnRow->addWidget(cancelBtn);
+    replyEdLayout->addLayout(replyBtnRow);
+    replyLayout->addWidget(m_replyEditorWidget);
+
+    // "Add Reply" button
     auto* addReplyBtn = new QPushButton(QStringLiteral("+ Add reply"));
     addReplyBtn->setCursor(Qt::PointingHandCursor);
     addReplyBtn->setStyleSheet(QStringLiteral(
-        "QPushButton {"
-        "  background: %1;"
-        "  border: 1px solid %2;"
-        "  border-radius: 4px;"
-        "  color: %3;"
-        "  font-family: 'Manrope', sans-serif;"
-        "  font-size: 10.5px;"
-        "  padding: 5px 12px;"
-        "}"
-        "QPushButton:hover {"
-        "  background: %4;"
-        "  border-color: %5;"
-        "  color: %5;"
-        "}"
+        "QPushButton { background: %1; border: 1px solid %2; border-radius: 4px;"
+        "  color: %3; font-family: 'Manrope', sans-serif; font-size: 10.5px; padding: 5px 12px; }"
+        "QPushButton:hover { background: %4; border-color: %5; color: %5; }"
     ).arg(BG_2, LINE, FG_1, ACCENT_DIM, ACCENT));
     replyLayout->addWidget(addReplyBtn);
 
-    auto* replySection = createCollapsibleSection("Reply Thread", replyContent);
-    // Default closed: hide the content
+    // Wire Add reply to show inline editor
+    QObject::connect(addReplyBtn, &QPushButton::clicked, this, [this]() {
+        m_replyEditorWidget->setVisible(true);
+        m_replyEditor->setFocus();
+    });
+
+    QObject::connect(cancelBtn, &QPushButton::clicked, this, [this]() {
+        m_replyEditorWidget->hide();
+        m_replyEditor->clear();
+    });
+
+    // Wire Post Reply — creates a child AnnotationItem with parentId
+    QObject::connect(m_replySubmit, &QPushButton::clicked, this, [this]() {
+        if (!m_currentAnnotation || !m_viewer) return;
+        QString replyText = m_replyEditor->toPlainText().trimmed();
+        if (replyText.isEmpty()) return;
+
+        AnnotationItem reply;
+        reply.id           = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        reply.parentId     = m_currentAnnotation->id;
+        reply.mode         = ToolMode::AddComment;
+        reply.pageIndex    = m_currentAnnotation->pageIndex;
+        reply.text         = replyText;
+        reply.creationDate = QDateTime::currentDateTime().toString(Qt::ISODate);
+        reply.color        = m_currentAnnotation->color;
+
+        // Add reply.id to parent.replies + append reply annotation
+        QList<AnnotationItem> oldList = m_viewer->annotations();
+        QList<AnnotationItem> newList = oldList;
+        for (auto& ann : newList) {
+            if (ann.id == m_currentAnnotation->id) {
+                ann.replies.append(reply.id);
+                break;
+            }
+        }
+        newList.append(reply);
+
+        DocumentSession* docSession = m_ctx ? (m_ctx->document ? m_ctx->document.get() : nullptr) : nullptr;
+        if (m_ctx && m_ctx->undoStack) {
+            m_ctx->undoStack->push(new EditAnnotationCommand(m_viewer, docSession, oldList, newList));
+        } else {
+            m_viewer->setAnnotations(newList);
+        }
+
+        m_replyEditor->clear();
+        m_replyEditorWidget->hide();
+
+        // Refresh the reply list immediately
+        // The selectionChanged → setAnnotation path will also fire, but refresh directly too
+        if (m_currentAnnotation) {
+            const auto& updated = newList;
+            for (const auto& ann : updated) {
+                if (ann.id == m_currentAnnotation->id) {
+                    // Rebuild display
+                    m_replyList->clear();
+                    const auto& allAnns = newList;
+                    for (const QString& rid : ann.replies) {
+                        for (const auto& r : allAnns) {
+                            if (r.id == rid) {
+                                auto* item = new QListWidgetItem(
+                                    QStringLiteral("    %1\n    %2").arg(r.text, r.creationDate));
+                                m_replyList->addItem(item);
+                                break;
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        emit annotationModified();
+    });
+
+    // Default closed
     replyContent->setMaximumHeight(0);
     replyContent->setVisible(false);
-    propsLayout->addWidget(replySection);
+    propsLayout->addWidget(createCollapsibleSection(tr("Reply Thread"), replyContent));
 
     propsLayout->addStretch();
     m_propsScroll->setWidget(m_propsContent);
-
     return m_propsScroll;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// eventFilter — save Contents on focus-out (D4)
+// ─────────────────────────────────────────────────────────────────────────────
+
+bool InspectorWidget::eventFilter(QObject* obj, QEvent* event)
+{
+    if (obj == m_contentsEditor && event->type() == QEvent::FocusOut) {
+        if (m_currentAnnotation && !m_refreshing) {
+            QString newText = m_contentsEditor->toPlainText();
+            if (newText != m_currentAnnotation->text) {
+                AnnotationItem modified = *m_currentAnnotation;
+                modified.text = newText;
+                pushEditCommand(modified);
+            }
+        }
+    }
+    return QWidget::eventFilter(obj, event);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -567,7 +883,6 @@ QWidget* InspectorWidget::createCollapsibleSection(const QString& title, QWidget
     sectionLayout->setContentsMargins(0, 0, 0, 0);
     sectionLayout->setSpacing(0);
 
-    // Header bar
     auto* header = new QWidget;
     header->setObjectName("sectionHeader");
     header->setFixedHeight(24);
@@ -578,7 +893,7 @@ QWidget* InspectorWidget::createCollapsibleSection(const QString& title, QWidget
     headerLayout->setContentsMargins(12, 0, 12, 0);
     headerLayout->setSpacing(6);
 
-    auto* chevron = new QLabel(QStringLiteral("▾")); // ▾
+    auto* chevron = new QLabel(QStringLiteral("\u25BE"));
     chevron->setObjectName("chevron");
     chevron->setFixedWidth(10);
     chevron->setStyleSheet(QStringLiteral("color: %1; font-size: 9px;").arg(FG_3));
@@ -586,45 +901,25 @@ QWidget* InspectorWidget::createCollapsibleSection(const QString& title, QWidget
 
     auto* titleLabel = new QLabel(title.toUpper());
     titleLabel->setStyleSheet(QStringLiteral(
-        "color: %1;"
-        "font-family: 'Manrope', sans-serif;"
-        "font-size: 10.5px;"
-        "font-weight: 600;"
-        "letter-spacing: 1.4px;"
+        "color: %1; font-family: 'Manrope', sans-serif;"
+        "font-size: 10.5px; font-weight: 600; letter-spacing: 1.4px;"
     ).arg(FG_2));
     headerLayout->addWidget(titleLabel);
     headerLayout->addStretch();
 
     sectionLayout->addWidget(header);
 
-    // Separator below header
     auto* sep = new QWidget;
     sep->setFixedHeight(1);
     sep->setStyleSheet(QStringLiteral("background: %1;").arg(LINE));
     sectionLayout->addWidget(sep);
 
-    // Content area
     content->setObjectName("sectionContent");
     sectionLayout->addWidget(content);
 
-    // Toggle on click
-    header->installEventFilter(this);
-    QObject::connect(header, &QObject::destroyed, []{}); // prevent warning
+    section->setProperty("collapsed",
+        !content->isVisible() || content->maximumHeight() == 0);
 
-    // Use a lambda connected to a button click workaround via event filter on header
-    // We use the section's property to track state
-    section->setProperty("collapsed", !content->isVisible() || content->maximumHeight() == 0);
-
-    // Install click handler via mouse release on header
-    auto* clickFilter = new QObject(header);
-    header->installEventFilter(clickFilter);
-    QObject::connect(clickFilter, &QObject::destroyed, []{}); // prevent warning
-
-    // Simple toggle approach using dynamic property
-    QObject::connect(header, &QWidget::customContextMenuRequested, [](const QPoint&){});
-
-    // Instead, use a QPushButton overlay approach for the header
-    // Re-implement: make header a QPushButton styled as widget
     auto* toggleBtn = new QPushButton(header);
     toggleBtn->setGeometry(0, 0, 288, 24);
     toggleBtn->setStyleSheet("QPushButton { background: transparent; border: none; }");
@@ -634,7 +929,7 @@ QWidget* InspectorWidget::createCollapsibleSection(const QString& title, QWidget
         bool isVisible = content->isVisible();
         content->setVisible(!isVisible);
         content->setMaximumHeight(isVisible ? 0 : 16777215);
-        chevron->setText(isVisible ? QStringLiteral("▸") : QStringLiteral("▾"));
+        chevron->setText(isVisible ? QStringLiteral("\u25B8") : QStringLiteral("\u25BE"));
     });
 
     return section;
@@ -651,7 +946,6 @@ void InspectorWidget::setAnnotation(const AnnotationItem* item)
         clearAnnotation();
         return;
     }
-
     m_contentStack->setCurrentIndex(1);
     refreshProperties();
 }
@@ -665,43 +959,118 @@ void InspectorWidget::clearAnnotation()
 void InspectorWidget::refreshProperties()
 {
     if (!m_currentAnnotation) return;
+    m_refreshing = true;  // block re-entrant signal→pushEditCommand loops
 
-    // Update header dot color
-    auto* headerDot = m_headerWidget->findChild<QLabel*>("headerDot");
-    if (headerDot) {
-        headerDot->setStyleSheet(QStringLiteral(
+    const AnnotationItem& ann = *m_currentAnnotation;
+
+    // ── Header dot color ──────────────────────────────────────────────────
+    if (auto* dot = m_headerWidget->findChild<QLabel*>("headerDot"))
+        dot->setStyleSheet(QStringLiteral(
             "background: %1; border-radius: 5px; min-width: 10px; min-height: 10px;"
-        ).arg(m_currentAnnotation->color.name()));
-    }
+        ).arg(ann.color.name()));
 
-    // Update type name based on tool mode
-    auto* typeName = m_headerWidget->findChild<QLabel*>("typeName");
-    if (typeName) {
+    // ── Type name ─────────────────────────────────────────────────────────
+    if (auto* typeName = m_headerWidget->findChild<QLabel*>("typeName")) {
         QString name;
-        switch (m_currentAnnotation->mode) {
-            case ToolMode::Highlight:    name = "HIGHLIGHT"; break;
-            case ToolMode::Underline:    name = "UNDERLINE"; break;
-            case ToolMode::DrawFreehand: name = "FREEHAND"; break;
-            case ToolMode::DrawShape:    name = "SHAPE"; break;
-            case ToolMode::DrawRectangle:name = "RECTANGLE"; break;
-            case ToolMode::DrawEllipse:  name = "ELLIPSE"; break;
-            case ToolMode::DrawLine:     name = "LINE"; break;
-            case ToolMode::DrawArrow:    name = "ARROW"; break;
-            case ToolMode::AddTextBox:   name = "TEXT BOX"; break;
-            case ToolMode::AddComment:   name = "COMMENT"; break;
-            case ToolMode::Redact:       name = "REDACTION"; break;
-            case ToolMode::AddSignature: name = "SIGNATURE"; break;
-            default:                     name = "ANNOTATION"; break;
+        switch (ann.mode) {
+            case ToolMode::Highlight:     name = "HIGHLIGHT";  break;
+            case ToolMode::Underline:     name = "UNDERLINE";  break;
+            case ToolMode::DrawFreehand:  name = "FREEHAND";   break;
+            case ToolMode::DrawShape:     name = "SHAPE";      break;
+            case ToolMode::DrawRectangle: name = "RECTANGLE";  break;
+            case ToolMode::DrawEllipse:   name = "ELLIPSE";    break;
+            case ToolMode::DrawLine:      name = "LINE";        break;
+            case ToolMode::DrawArrow:     name = "ARROW";      break;
+            case ToolMode::AddTextBox:    name = "TEXT BOX";   break;
+            case ToolMode::AddComment:    name = "COMMENT";    break;
+            case ToolMode::Redact:        name = "REDACTION";  break;
+            case ToolMode::AddSignature:  name = "SIGNATURE";  break;
+            default:                      name = "ANNOTATION"; break;
         }
         typeName->setText(name);
     }
 
-    // Update subheader
-    auto* subHeader = m_headerWidget->findChild<QLabel*>("subHeader");
-    if (subHeader) {
-        subHeader->setText(QStringLiteral("Page %1 \xC2\xB7 Default Layer \xC2\xB7 Unlocked")
-            .arg(m_currentAnnotation->pageIndex + 1));
+    // ── D1: Identity fields ───────────────────────────────────────────────
+    // Annotation ID (short form)
+    if (m_valAnnotId)
+        m_valAnnotId->setText(ann.id.isEmpty() ? QStringLiteral("--")
+                                               : QStringLiteral("#%1").arg(ann.id.left(8)));
+
+    if (m_valAuthor)
+        m_valAuthor->setText(ann.author.isEmpty() ? QStringLiteral("Unknown") : ann.author);
+
+    if (m_valCreated)
+        m_valCreated->setText(ann.creationDate.isEmpty() ? QStringLiteral("--") : ann.creationDate);
+
+    if (m_valModified)
+        m_valModified->setText(ann.modificationDate.isEmpty() ? QStringLiteral("--")
+                                                               : ann.modificationDate);
+
+    if (m_valSubject)
+        m_valSubject->setText(QStringLiteral("--"));  // Not yet in AnnotationItem spec
+
+    // ── Sub-header: page / layer / lock ──────────────────────────────────
+    if (auto* subHeader = m_headerWidget->findChild<QLabel*>("subHeader"))
+        subHeader->setText(QStringLiteral("Page %1 \xC2\xB7 Default Layer \xC2\xB7 %2")
+            .arg(ann.pageIndex + 1)
+            .arg(ann.locked ? tr("Locked") : tr("Unlocked")));
+
+    // ── D2: Geometry spinboxes ────────────────────────────────────────────
+    if (m_spinX) m_spinX->setValue(ann.rect.x());
+    if (m_spinY) m_spinY->setValue(ann.rect.y());
+    if (m_spinW) m_spinW->setValue(ann.rect.width());
+    if (m_spinH) m_spinH->setValue(ann.rect.height());
+
+    // ── D3: Appearance controls ───────────────────────────────────────────
+    if (m_opacitySlider) {
+        int pct = qRound(ann.opacity * 100.0);
+        m_opacitySlider->setValue(pct);
+        if (m_opacityLabel) m_opacityLabel->setText(QStringLiteral("%1%").arg(pct));
     }
+
+    if (m_blendCombo) {
+        int idx = m_blendCombo->findText(ann.blendMode);
+        m_blendCombo->setCurrentIndex(idx >= 0 ? idx : 0);
+    }
+
+    if (m_borderSpin) m_borderSpin->setValue(ann.thickness);
+
+    // ── D4: Contents editor ───────────────────────────────────────────────
+    if (m_contentsEditor) {
+        m_contentsEditor->blockSignals(true);
+        m_contentsEditor->setPlainText(ann.text);
+        m_contentsEditor->blockSignals(false);
+        if (m_charCountLabel)
+            m_charCountLabel->setText(QStringLiteral("%1 chars \xC2\xB7 UTF-8").arg(ann.text.length()));
+    }
+
+    // ── D5: Reply thread ──────────────────────────────────────────────────
+    if (m_replyList) {
+        m_replyList->clear();
+        const QList<AnnotationItem> allAnns = m_viewer ? m_viewer->annotations()
+                                                       : QList<AnnotationItem>{};
+        if (ann.replies.isEmpty()) {
+            auto* placeholder = new QListWidgetItem(tr("No replies yet"));
+            placeholder->setForeground(QColor(FG_3));
+            m_replyList->addItem(placeholder);
+        } else {
+            for (const QString& rid : ann.replies) {
+                for (const auto& r : allAnns) {
+                    if (r.id == rid) {
+                        QString display = QStringLiteral("[%1]  %2").arg(
+                            r.creationDate.isEmpty() ? QStringLiteral("--") : r.creationDate,
+                            r.text);
+                        auto* item = new QListWidgetItem(display);
+                        item->setForeground(QColor(FG_1));
+                        m_replyList->addItem(item);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    m_refreshing = false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -755,7 +1124,6 @@ QWidget* InspectorWidget::createDocInfoView()
         "color: %1; font-family: 'Consolas', monospace; font-size: 9.5px;"
     ).arg(FG_2));
     headerLayout->addWidget(subLabel);
-
     layout->addWidget(header);
 
     // Properties section
@@ -765,18 +1133,14 @@ QWidget* InspectorWidget::createDocInfoView()
     propsLayout->setContentsMargins(0, 4, 0, 4);
     propsLayout->setSpacing(0);
 
-    propsLayout->addWidget(createFieldRow("Title", "--"));
-    propsLayout->addWidget(createFieldRow("Author", "--"));
-    propsLayout->addWidget(createFieldRow("Subject", "--"));
-    propsLayout->addWidget(createFieldRow("Creator", "--"));
-    propsLayout->addWidget(createFieldRow("Producer", "--"));
-    propsLayout->addWidget(createFieldRow("Created", "--"));
-    propsLayout->addWidget(createFieldRow("Modified", "--"));
-    propsLayout->addWidget(createFieldRow("Pages", "--"));
-    propsLayout->addWidget(createFieldRow("File Size", "--"));
-    propsLayout->addWidget(createFieldRow("PDF Ver.", "--"));
+    // Use makeFieldRow with dummy QLabel* capture (we'll findChild by label text in refreshDocInfo)
+    const QStringList fields = {"Title", "Author", "Subject", "Creator",
+                                "Producer", "Created", "Modified", "Pages",
+                                "File Size", "PDF Ver."};
+    for (const QString& f : fields)
+        propsLayout->addWidget(makeFieldRow(f));
 
-    layout->addWidget(createCollapsibleSection("Properties", propsContent));
+    layout->addWidget(createCollapsibleSection(tr("Properties"), propsContent));
 
     // Signatures section
     auto* sigContent = new QWidget;
@@ -793,8 +1157,7 @@ QWidget* InspectorWidget::createDocInfoView()
     ).arg(FG_3));
     sigLayout->addWidget(noSigs);
 
-    layout->addWidget(createCollapsibleSection("Signatures", sigContent));
-
+    layout->addWidget(createCollapsibleSection(tr("Signatures"), sigContent));
     layout->addStretch();
     scroll->setWidget(m_docInfoContent);
     return scroll;
@@ -862,12 +1225,11 @@ void InspectorWidget::refreshDocInfo()
     setValue("Creator",   m_pdfDocument->metaData(QPdfDocument::MetaDataField::Creator).toString());
     setValue("Producer",  m_pdfDocument->metaData(QPdfDocument::MetaDataField::Producer).toString());
 
-    QDateTime created = m_pdfDocument->metaData(QPdfDocument::MetaDataField::CreationDate).toDateTime();
+    QDateTime created  = m_pdfDocument->metaData(QPdfDocument::MetaDataField::CreationDate).toDateTime();
     QDateTime modified = m_pdfDocument->metaData(QPdfDocument::MetaDataField::ModificationDate).toDateTime();
-    setValue("Created",   created.isValid()  ? created.toString("yyyy-MM-dd hh:mm")  : QStringLiteral("--"));
-    setValue("Modified",  modified.isValid() ? modified.toString("yyyy-MM-dd hh:mm") : QStringLiteral("--"));
-
-    setValue("Pages",     QString::number(m_pdfDocument->pageCount()));
+    setValue("Created",  created.isValid()  ? created.toString("yyyy-MM-dd hh:mm")  : QStringLiteral("--"));
+    setValue("Modified", modified.isValid() ? modified.toString("yyyy-MM-dd hh:mm") : QStringLiteral("--"));
+    setValue("Pages",    QString::number(m_pdfDocument->pageCount()));
 
     qint64 size = fi.size();
     QString sizeStr;
@@ -878,6 +1240,4 @@ void InspectorWidget::refreshDocInfo()
     else
         sizeStr = QStringLiteral("%1 MB").arg(size / (1024.0 * 1024.0), 0, 'f', 2);
     setValue("File Size", sizeStr);
-
-    // QPdfDocument doesn't expose PDF version directly; leave as --
 }

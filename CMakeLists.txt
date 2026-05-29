@@ -771,6 +771,32 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchMode.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestInspector.cpp")
+    add_executable(TestInspector
+        tests/TestInspector.cpp
+    )
+    target_include_directories(TestInspector PRIVATE src tests)
+    target_link_libraries(TestInspector PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestInspector POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestInspector>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestInspector>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestInspector"
+    )
+    add_test(NAME TestInspector COMMAND TestInspector)
+    set_tests_properties(TestInspector PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;inspector;properties;ui;qt;headless"
+    )
+endif()
+
 # ── Translations (Qt Linguist) ───────────────────────────────────────────
 if(Qt6LinguistTools_FOUND)
     set(TS_FILES

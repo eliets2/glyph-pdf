@@ -48,6 +48,7 @@ public:
     bool replaceImage(int, const QString &, const QString &) override { return true; }
     bool deleteImage(int, const QString &) override { return true; }
     bool applyRedactions(int, const QList<QRectF> &) override { return m_loaded; }
+    bool applyPatternRedactions(const QRegularExpression&, int, int) override { return m_loaded; }
     bool embedAnnotations(const QString &, const QString &, const QList<AnnotationItem> &) override { return m_loaded; }
 
     // Page geometry & content injection
