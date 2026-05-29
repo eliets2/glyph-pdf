@@ -39,7 +39,11 @@ void ModeController::setScreen(const QString& id) {
     if (_byId.contains(id) && _byId[id] == nullptr) {
         QWidget* target = nullptr;
         if (id == "ocr")          target = new OCRMode(this);
-        else if (id == "redact")  target = new RedactMode(this);
+        else if (id == "redact") {
+            auto* rm = new RedactMode(this);
+            rm->setAppContext(_ctx);
+            target = rm;
+        }
         else if (id == "compare") target = new CompareMode(this);
         else if (id == "pages") {
             auto* pm = new PagesMode(this);
