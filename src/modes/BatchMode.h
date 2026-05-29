@@ -39,6 +39,22 @@ public:
 
     void setAppContext(const AppContext* ctx);
 
+    // Test seams — public so tests can drive BatchMode headlessly without subclassing.
+    void addFilesForTest(const QStringList& paths) { addFilePaths(paths); }
+    int  fileCount()     const { return m_filesToProcess.size(); }
+    bool isBatchRunning() const { return m_watcher.isRunning(); }
+    int  successCount()  const { return m_successCount; }
+    int  failCount()     const { return m_failCount; }
+    int  errorLogCount() const { return m_errorLog.count(); }
+
+    // Programmatic run/cancel triggers (bypass UI state guards for tests)
+    void onRunBatch()    { onRunClicked(); }
+    void onCancelBatch() { onCancelClicked(); }
+
+signals:
+    // Emitted from onBatchFinished so tests can spy on completion.
+    void batchFinished();
+
 protected:
     void dragEnterEvent(QDragEnterEvent* e) override;
     void dropEvent(QDropEvent* e) override;

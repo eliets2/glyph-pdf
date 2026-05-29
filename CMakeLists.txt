@@ -717,6 +717,33 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormBuilder.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchMode.cpp")
+    add_executable(TestBatchMode
+        tests/TestBatchMode.cpp
+    )
+    target_include_directories(TestBatchMode PRIVATE src tests)
+    target_link_libraries(TestBatchMode PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    # Deploy qoffscreen platform plugin next to the test executable
+    add_custom_command(TARGET TestBatchMode POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestBatchMode>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestBatchMode>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestBatchMode"
+    )
+    add_test(NAME TestBatchMode COMMAND TestBatchMode)
+    set_tests_properties(TestBatchMode PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;modes;batch;ui;qt;headless"
+    )
+endif()
+
 # ── Translations (Qt Linguist) ───────────────────────────────────────────
 if(Qt6LinguistTools_FOUND)
     set(TS_FILES

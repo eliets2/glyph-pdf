@@ -874,6 +874,7 @@ void BatchMode::onBatchFinished() {
                this, nullptr);
 
     showSummary();
+    emit batchFinished();
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
