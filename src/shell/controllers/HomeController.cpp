@@ -5,6 +5,11 @@
 #include "ui/PageSetupDialog.h"
 #include "ui/ExportPresetsPanel.h"
 
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <mapi.h>
+#endif
+
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QDesktopServices>
@@ -119,8 +124,43 @@ void HomeController::onSaveAs() {
 void HomeController::onShare() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer) return;
-    QString subject = tr("PDF Document: %1").arg(QFileInfo(viewer->filePath()).fileName());
+    
+    QString filePath = viewer->filePath();
+    QString fileName = QFileInfo(filePath).fileName();
+    QString subject = tr("PDF Document: %1").arg(fileName);
     QString body = tr("Please find the attached PDF document.");
+
+#ifdef Q_OS_WIN
+    HMODULE hMapi = LoadLibraryA("mapi32.dll");
+    if (hMapi) {
+        LPMAPISENDMAIL pfnSendMail = (LPMAPISENDMAIL)GetProcAddress(hMapi, "MAPISendMail");
+        if (pfnSendMail) {
+            MapiFileDesc fileDesc;
+            memset(&fileDesc, 0, sizeof(MapiFileDesc));
+            fileDesc.nPosition = (ULONG)-1;
+            
+            QByteArray pathStr = QDir::toNativeSeparators(filePath).toLocal8Bit();
+            QByteArray nameStr = fileName.toLocal8Bit();
+            fileDesc.lpszPathName = pathStr.data();
+            fileDesc.lpszFileName = nameStr.data();
+
+            MapiMessage message;
+            memset(&message, 0, sizeof(MapiMessage));
+            
+            QByteArray subjStr = subject.toLocal8Bit();
+            QByteArray bodyStr = body.toLocal8Bit();
+            message.lpszSubject = subjStr.data();
+            message.lpszNoteText = bodyStr.data();
+            message.nFileCount = 1;
+            message.lpFiles = &fileDesc;
+
+            pfnSendMail(0, reinterpret_cast<ULONG_PTR>(_mainWindow->winId()), &message, MAPI_DIALOG, 0);
+        }
+        FreeLibrary(hMapi);
+        return;
+    }
+#endif
+
     QString url = QString("mailto:?subject=%1&body=%2").arg(subject).arg(body);
     QDesktopServices::openUrl(QUrl(url, QUrl::TolerantMode));
 }

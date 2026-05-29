@@ -266,16 +266,28 @@ bool PdfEditorEngine::exportPdfA(const QString &outputPath, int conformanceLevel
     return ok;
 }
 
-bool PdfEditorEngine::encryptDocument(const QString &userPassword, const QString &ownerPassword, bool canPrint, bool canCopy, bool canModify)
-{
+bool PdfEditorEngine::encryptDocument(const QString &userPassword, const QString &ownerPassword, const DocumentPermissions& perms) {
     QMutexLocker locker(&d->mutex);
     d->clearErr();
     if (!d->backend) return d->noBackend("encryptDocument");
-    bool ok = d->backend->encryptDocument(userPassword, ownerPassword, canPrint, canCopy, canModify);
+    bool ok = d->backend->encryptDocument(userPassword, ownerPassword, perms);
     if (!ok)
         d->setErr(ErrorInfo::Error,
                   QObject::tr("Encryption failed. The document may already be encrypted or contain signatures that prevent modification."),
                   QStringLiteral("encryptDocument failed"),
+                  ErrorInfo::Retry);
+    return ok;
+}
+
+bool PdfEditorEngine::removeEncryption(const QString &ownerPassword) {
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("removeEncryption");
+    bool ok = d->backend->removeEncryption(ownerPassword);
+    if (!ok)
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to remove encryption (incorrect password?)"),
+                  QStringLiteral("removeEncryption failed"),
                   ErrorInfo::Retry);
     return ok;
 }

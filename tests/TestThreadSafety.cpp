@@ -116,7 +116,8 @@ private slots:
         QVERIFY(engine.loadDocumentForEditing(pdf));
 
         auto future = std::async(std::launch::async, [&]() {
-            return engine.encryptDocument("secret", "secret", true, true, true);
+            DocumentPermissions perms;
+            return engine.encryptDocument("secret", "secret", perms);
         });
 
         engine.currentFile();

@@ -8,11 +8,13 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QListWidgetItem>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QScrollArea>
 #include <QPainter>
 #include <QPaintEvent>
+#include <QSettings>
 
 // =============================================================================
 // Color constants (spec palette)
@@ -111,7 +113,7 @@ void WelcomeWidget::setupUi()
     layout->setSpacing(0);
     layout->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
 
-    // ── Container (max-width 600px) ─────────────────────────────────────────
+    // -- Container (max-width 600px) --
     auto* container = new QWidget(content);
     container->setMaximumWidth(600);
     container->setStyleSheet("background: transparent;");
@@ -120,7 +122,7 @@ void WelcomeWidget::setupUi()
     innerLayout->setSpacing(0);
     innerLayout->setAlignment(Qt::AlignTop | Qt::AlignHCenter);
 
-    // ── Logo ────────────────────────────────────────────────────────────────
+    // -- Logo --
     auto* logoRow = new QHBoxLayout();
     logoRow->setAlignment(Qt::AlignCenter);
     logoRow->setSpacing(12);
@@ -140,7 +142,7 @@ void WelcomeWidget::setupUi()
     innerLayout->addLayout(logoRow);
     innerLayout->addSpacing(8);
 
-    // ── Subtitle ────────────────────────────────────────────────────────────
+    // -- Subtitle --
     auto* subtitle = new QLabel("Professional PDF Workstation", container);
     subtitle->setAlignment(Qt::AlignCenter);
     subtitle->setStyleSheet(QString(
@@ -148,7 +150,7 @@ void WelcomeWidget::setupUi()
     innerLayout->addWidget(subtitle);
     innerLayout->addSpacing(36);
 
-    // ── Action cards row ────────────────────────────────────────────────────
+    // -- Action cards row --
     auto* cardsRow = new QHBoxLayout();
     cardsRow->setSpacing(12);
     cardsRow->setAlignment(Qt::AlignCenter);
@@ -183,7 +185,7 @@ void WelcomeWidget::setupUi()
     innerLayout->addLayout(cardsRow);
     innerLayout->addSpacing(40);
 
-    // ── Recent files section ────────────────────────────────────────────────
+    // -- Recent files section --
     auto* recentHeader = new QLabel("RECENT FILES", container);
     recentHeader->setStyleSheet(QString(
         "font-size: 10px; font-weight: 700; color: %1; "
@@ -213,7 +215,10 @@ void WelcomeWidget::setupUi()
     connect(recentList, &QListWidget::itemClicked, this, [this](QListWidgetItem* item) {
         if (!item) return;
         const QString path = item->data(Qt::UserRole).toString();
-        if (!path.isEmpty()) emit recentFileRequested(path);
+        if (!path.isEmpty()) {
+            bool exists = QFileInfo::exists(path);
+            onRecentItemClicked(path, exists);
+        }
     });
 
     innerLayout->addWidget(recentList);
@@ -274,4 +279,35 @@ QString WelcomeWidget::displayName(const QString& path) const
 {
     QFileInfo fi(path);
     return fi.fileName().isEmpty() ? path : fi.fileName();
+}
+
+void WelcomeWidget::onRecentItemClicked(const QString& path, bool exists)
+{
+    if (exists) {
+        emit recentFileRequested(path);
+        return;
+    }
+
+    // File is missing -- prompt to remove from recents
+    auto result = QMessageBox::question(
+        this,
+        tr("File Not Found"),
+        tr("The file \"%1\" no longer exists.\n\nRemove it from the recent files list?")
+            .arg(QFileInfo(path).fileName()),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::Yes);
+
+    if (result == QMessageBox::Yes) {
+        // Remove from internal list and refresh
+        m_recentFiles.removeAll(path);
+        refreshRecentList();
+
+        // Also remove from QSettings
+        QSettings settings;
+        QStringList recent = settings.value("recentFiles").toStringList();
+        recent.removeAll(path);
+        settings.setValue("recentFiles", recent);
+
+        emit removeRecentFileRequested(path);
+    }
 }

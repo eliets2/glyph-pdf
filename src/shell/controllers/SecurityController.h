@@ -29,6 +29,10 @@ private:
     void exportAnnotationPackage();
     void importAnnotationPackage();
     void cloudSyncSync();
+    void permissionsDocument();
+    void removeSecurity();
+    void certifyDocument();
+    void timestampDocument();
 
     const AppContext* _ctx = nullptr;
     MainWindow* _mainWindow = nullptr;

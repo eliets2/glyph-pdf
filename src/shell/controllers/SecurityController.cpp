@@ -4,6 +4,7 @@
 #include "modes/RedactMode.h"
 #include "ui/PdfViewerWidget.h"
 #include "ui/EncryptionDialog.h"
+#include "ui/PermissionsDialog.h"
 #include "ui/SignatureDialog.h"
 #include "ui/MetadataDialog.h"
 #include "core/interfaces/IPdfEditorEngine.h"
@@ -21,6 +22,7 @@
 #include <QPointer>
 #include <QMetaObject>
 #include <QCoreApplication>
+#include <QInputDialog>
 #include <QFileInfo>
 #include <QDir>
 #include <QUndoStack>
@@ -79,11 +81,16 @@ void SecurityController::activate(ToolId id) {
         cloudSyncSync();
         break;
     case ToolId::Permissions:
+        permissionsDocument();
+        break;
     case ToolId::RemoveSecurity:
+        removeSecurity();
+        break;
     case ToolId::Certify:
+        certifyDocument();
+        break;
     case ToolId::Timestamp:
-        QMessageBox::information(_mainWindow, tr("Document Security"),
-            tr("Advanced permission controls and security tools are scheduled for the next engine update."));
+        timestampDocument();
         break;
     case ToolId::PatternRedact:
         // Switch to Redact mode — the RedactMode panel provides full pattern UI
@@ -124,13 +131,15 @@ void SecurityController::encryptDocument() {
         DocumentSession* doc = _ctx->document.get();
         const QString userPwd = dlg.userPassword();
         const QString ownerPwd = dlg.ownerPassword();
-        const bool canPrint = dlg.canPrint();
-        const bool canCopy = dlg.canCopy();
-        const bool canModify = dlg.canModify();
+        DocumentPermissions perms;
+        perms.print = dlg.canPrint();
+        perms.copy = dlg.canCopy();
+        perms.modify = dlg.canModify();
+        
         QPointer<SecurityController> self(this);
 
-        QThread* worker = QThread::create([engine, doc, userPwd, ownerPwd, canPrint, canCopy, canModify]() {
-            EncryptDocumentHelper::execute(engine, doc, userPwd, ownerPwd, canPrint, canCopy, canModify);
+        QThread* worker = QThread::create([engine, doc, userPwd, ownerPwd, perms]() {
+            EncryptDocumentHelper::execute(engine, doc, userPwd, ownerPwd, perms);
         });
 
         connect(worker, &QThread::finished, _mainWindow, [self, progress]() {
@@ -415,6 +424,173 @@ void SecurityController::applyRedactions() {
                    "unsupported text operators, or complex binary streams that prevent underlying "
                    "data deletion. The operation was aborted to prevent a visual-only overlay."));
             self->_mainWindow->statusBar()->showMessage(tr("Redaction failed."), 5000);
+        }
+    });
+
+    connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+    worker->start();
+}
+
+void SecurityController::permissionsDocument() {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->pdfEditor) return;
+
+    PermissionsDialog dlg(_mainWindow);
+    if (dlg.exec() == QDialog::Accepted) {
+        _ctx->undoStack->clear();
+        _ctx->document->setPath(viewer->filePath());
+
+        auto* progress = new QProgressDialog(tr("Encrypting document..."), QString(), 0, 0, _mainWindow);
+        progress->setWindowModality(Qt::WindowModal);
+        progress->setMinimumDuration(0);
+
+        IPdfEditorEngine* engine = _ctx->pdfEditor.get();
+        DocumentSession* doc = _ctx->document.get();
+        const QString userPwd = dlg.userPassword();
+        const QString ownerPwd = dlg.ownerPassword();
+        const DocumentPermissions perms = dlg.permissions();
+        
+        QPointer<SecurityController> self(this);
+
+        QThread* worker = QThread::create([engine, doc, userPwd, ownerPwd, perms]() {
+            EncryptDocumentHelper::execute(engine, doc, userPwd, ownerPwd, perms);
+        });
+
+        connect(worker, &QThread::finished, _mainWindow, [self, progress]() {
+            progress->close();
+            progress->deleteLater();
+            if (!self) return;
+            self->_mainWindow->statusBar()->showMessage(QObject::tr("Document permissions updated"), 5000);
+        });
+        connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+        worker->start();
+    }
+}
+
+void SecurityController::removeSecurity() {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->pdfEditor) return;
+
+    bool ok;
+    QString pwd = QInputDialog::getText(_mainWindow, tr("Remove Security"),
+                                        tr("Enter owner password to remove security:"),
+                                        QLineEdit::Password,
+                                        "", &ok);
+    if (!ok) return;
+
+    IPdfEditorEngine* engine = _ctx->pdfEditor.get();
+    if (!engine->loadDocumentForEditing(viewer->filePath())) {
+        QMessageBox::warning(_mainWindow, tr("Remove Security"), tr("Failed to open the document for editing."));
+        return;
+    }
+    if (engine->removeEncryption(pwd)) {
+        engine->saveDocument(viewer->filePath());
+        viewer->reload();
+        _mainWindow->statusBar()->showMessage(tr("Document security removed."), 5000);
+    } else {
+        QMessageBox::warning(_mainWindow, tr("Remove Security"), tr("Failed to remove security. Incorrect password?"));
+    }
+}
+
+void SecurityController::certifyDocument() {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->signing) return;
+
+    SignatureDialog dlg(_mainWindow);
+    dlg.setWindowTitle(tr("Certify Document"));
+    if (dlg.exec() == QDialog::Accepted) {
+        if (dlg.certificatePath().isEmpty() || dlg.password().isEmpty()) {
+            QMessageBox::warning(_mainWindow, tr("Error"), tr("Certificate path and password are required."));
+            return;
+        }
+
+        QString outputPath = QFileDialog::getSaveFileName(_mainWindow, tr("Save Certified Document"), "", tr("PDF Files (*.pdf)"));
+        if (outputPath.isEmpty()) return;
+
+        _ctx->undoStack->clear();
+        _ctx->document->setPath(viewer->filePath());
+
+        auto* progress = new QProgressDialog(tr("Certifying document..."), QString(), 0, 0, _mainWindow);
+        progress->setWindowModality(Qt::WindowModal);
+        progress->setMinimumDuration(0);
+        progress->show();
+
+        ISignatureManager* signing = _ctx->signing.get();
+        DocumentSession* doc = _ctx->document.get();
+        const QString certPath = dlg.certificatePath();
+        const QString pwd = dlg.password();
+        const QString reason = dlg.reason();
+        const QString location = dlg.location();
+        // Just hardcode level 1 (no changes allowed) for now since UI doesn't expose it
+        int certLevel = 1;
+
+        QPointer<SecurityController> self(this);
+        auto result = std::make_shared<std::atomic<bool>>(false);
+
+        QThread* worker = QThread::create([signing, doc, outputPath, certPath, pwd, certLevel, reason, location, result]() {
+            bool ok = signing->certifyDocument(doc->path(), outputPath, certPath, pwd, certLevel, reason, location);
+            if (ok) doc->markReload();
+            result->store(ok);
+        });
+
+        connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result]() {
+            progress->close();
+            progress->deleteLater();
+            if (!self) return;
+            bool ok = result->load();
+            if (ok) {
+                self->_mainWindow->statusBar()->showMessage(tr("Document certified and saved to %1").arg(outputPath), 5000);
+                if (QMessageBox::question(self->_mainWindow, tr("Open Certified PDF"), tr("Certification complete. Would you like to open the certified file?")) == QMessageBox::Yes) {
+                    self->_mainWindow->openDocument(outputPath);
+                }
+            } else {
+                QMessageBox::critical(self->_mainWindow, tr("Certification Error"), tr("Failed to certify document."));
+                self->_mainWindow->statusBar()->showMessage(tr("Certification failed."), 5000);
+            }
+        });
+
+        connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+        worker->start();
+    }
+}
+
+void SecurityController::timestampDocument() {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->signing) return;
+
+    QString outputPath = QFileDialog::getSaveFileName(_mainWindow, tr("Save Timestamped Document"), "", tr("PDF Files (*.pdf)"));
+    if (outputPath.isEmpty()) return;
+
+    auto* progress = new QProgressDialog(tr("Timestamping document..."), QString(), 0, 0, _mainWindow);
+    progress->setWindowModality(Qt::WindowModal);
+    progress->setMinimumDuration(0);
+    progress->show();
+
+    ISignatureManager* signing = _ctx->signing.get();
+    DocumentSession* doc = _ctx->document.get();
+
+    QPointer<SecurityController> self(this);
+    auto result = std::make_shared<std::atomic<bool>>(false);
+
+    QThread* worker = QThread::create([signing, doc, outputPath, result]() {
+        bool ok = signing->addDocTimeStamp(doc->path(), outputPath);
+        if (ok) doc->markReload();
+        result->store(ok);
+    });
+
+    connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result]() {
+        progress->close();
+        progress->deleteLater();
+        if (!self) return;
+        bool ok = result->load();
+        if (ok) {
+            self->_mainWindow->statusBar()->showMessage(tr("Document timestamped and saved to %1").arg(outputPath), 5000);
+            if (QMessageBox::question(self->_mainWindow, tr("Open Timestamped PDF"), tr("Timestamping complete. Would you like to open the file?")) == QMessageBox::Yes) {
+                self->_mainWindow->openDocument(outputPath);
+            }
+        } else {
+            QMessageBox::critical(self->_mainWindow, tr("Timestamp Error"), tr("Failed to add document timestamp."));
+            self->_mainWindow->statusBar()->showMessage(tr("Timestamp failed."), 5000);
         }
     });
 

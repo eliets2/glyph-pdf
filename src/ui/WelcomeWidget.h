@@ -1,5 +1,6 @@
 #pragma once
 #include <QWidget>
+#include <QMessageBox>
 
 class WelcomeWidget : public QWidget {
     Q_OBJECT
@@ -16,6 +17,7 @@ signals:
     void convertRequested();
     void protectRequested();
     void recentFileRequested(const QString& filePath);
+    void removeRecentFileRequested(const QString& filePath);
 
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -26,4 +28,6 @@ private:
     QString displayName(const QString& path) const;
 
     QStringList m_recentFiles;
+
+    void onRecentItemClicked(const QString& path, bool exists);
 };

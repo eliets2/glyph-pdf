@@ -21,9 +21,10 @@ private slots:
 
     void testEncryptRequiresLoad() {
         MockPdfEditorEngine mock;
-        QVERIFY(!mock.encryptDocument("user", "owner", true, true, true)); // not loaded
-        mock.m_loaded = true;
-        QVERIFY(mock.encryptDocument("user", "owner", true, true, true));  // loaded
+        DocumentPermissions perms;
+        QVERIFY(!mock.encryptDocument("user", "owner", perms)); // not loaded
+        mock.loadDocumentForEditing("test.pdf");
+        QVERIFY(mock.encryptDocument("user", "owner", perms));  // loaded
     }
 
     void testSanitizeCommandSavesOutputWhenSanitizeSucceeds() {

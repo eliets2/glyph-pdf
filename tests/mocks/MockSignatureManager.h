@@ -20,6 +20,26 @@ public:
         return m_signResult;
     }
 
+    bool certifyDocument(const QString &inputPath, const QString &outputPath,
+                         const QString &certPath, const QString &password,
+                         int certificationLevel,
+                         const QString &reason, const QString &location) override {
+        m_lastInputPath  = inputPath;
+        m_lastOutputPath = outputPath;
+        m_lastCertPath   = certPath;
+        m_lastPassword   = password;
+        m_lastReason     = reason;
+        m_lastLocation   = location;
+        ++m_signCalls; // count as a sign call
+        return m_signResult;
+    }
+
+    bool addDocTimeStamp(const QString &inputPath, const QString &outputPath) override {
+        m_lastInputPath = inputPath;
+        m_lastOutputPath = outputPath;
+        return m_signResult;
+    }
+
     QList<SignatureInfo> validateSignatures(const QString &filePath) override {
         m_lastInputPath = filePath;
         ++m_validateCalls;

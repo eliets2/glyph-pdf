@@ -327,7 +327,9 @@ void AnnotationLayer::paintEvent(QPaintEvent *event)
             painter.drawRect(m_currentNote.rect);
         } else if (m_currentMode == ToolMode::DrawEllipse) {
             painter.drawEllipse(m_currentNote.rect);
-        } else if (m_currentMode == ToolMode::DrawLine || m_currentMode == ToolMode::DrawArrow) {
+        } else if (m_currentMode == ToolMode::DrawLine || m_currentMode == ToolMode::DrawArrow || 
+                   m_currentMode == ToolMode::Underline || m_currentMode == ToolMode::Strikeout || 
+                   m_currentMode == ToolMode::Squiggly) {
             painter.drawLine(m_currentNote.rect.topLeft(), m_currentNote.rect.bottomRight());
         }
     }
@@ -478,7 +480,9 @@ void AnnotationLayer::mousePressEvent(QMouseEvent *event)
         m_currentMode == ToolMode::AddTextBox || m_currentMode == ToolMode::AddComment ||
         m_currentMode == ToolMode::Redact || m_currentMode == ToolMode::AddSignature ||
         m_currentMode == ToolMode::DrawRectangle || m_currentMode == ToolMode::DrawEllipse ||
-        m_currentMode == ToolMode::DrawLine || m_currentMode == ToolMode::DrawArrow) {
+        m_currentMode == ToolMode::DrawLine || m_currentMode == ToolMode::DrawArrow ||
+        m_currentMode == ToolMode::Underline || m_currentMode == ToolMode::Strikeout ||
+        m_currentMode == ToolMode::Squiggly) {
         m_isDrawing = true;
         m_currentNote.mode = m_currentMode;
         if (m_pageAtCallback) {
