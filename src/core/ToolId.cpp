@@ -77,6 +77,7 @@ QString toolIdToString(ToolId id) {
         { ToolId::ToCsv,          QStringLiteral("toCSV") },
         { ToolId::ToHtml,         QStringLiteral("toHTML") },
         { ToolId::ToText,         QStringLiteral("toText") },
+        { ToolId::ToPPT,          QStringLiteral("toPPT") },
         { ToolId::Compress,       QStringLiteral("compress") },
         { ToolId::Linearize,      QStringLiteral("linearize") },
         { ToolId::PdfA,           QStringLiteral("pdfA") },
@@ -202,6 +203,7 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         add(ToolId::ToCsv,          {"toCSV", "exportCSV", "tocsv", "exportcsv"});
         add(ToolId::ToHtml,         {"toHTML", "to-h-t-m-l", "tohtml"});
         add(ToolId::ToText,         {"toText", "to-text", "totext"});
+        add(ToolId::ToPPT,          {"toPPT", "to-ppt", "toppt", "powerpoint"});
         add(ToolId::Compress,       {"compress"});
         add(ToolId::Linearize,      {"linearize"});
         add(ToolId::PdfA,           {"pdfA", "pdfa"});

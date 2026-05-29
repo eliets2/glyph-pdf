@@ -18,6 +18,7 @@
 #include <QCoreApplication>
 #include <QFileInfo>
 #include "shell/StatusBar.h"
+#include "modes/CompressDialog.h"
 
 namespace gp {
 
@@ -28,7 +29,7 @@ QList<ToolId> ConvertController::handledTools() const {
     return {
         ToolId::Combine, ToolId::ToWord, ToolId::ToExcel, ToolId::ToCsv,
         ToolId::ToHtml, ToolId::ToText, ToolId::Compress,
-        ToolId::Linearize, ToolId::PdfA
+        ToolId::ToPPT, ToolId::Linearize, ToolId::PdfA
     };
 }
 
@@ -53,10 +54,16 @@ void ConvertController::activate(ToolId id) {
         exportToCsv();
         break;
     case ToolId::ToHtml:
+        exportToHtml();
+        break;
     case ToolId::ToText:
+        exportToText();
+        break;
+    case ToolId::ToPPT:
+        exportToPowerPoint();
+        break;
     case ToolId::Compress:
-        QMessageBox::information(_mainWindow, tr("Conversion Engine"),
-            tr("Advanced conversion and optimization tools are scheduled for the next engine update."));
+        openCompressDialog();
         break;
     case ToolId::Linearize:
         linearizeDocument();
@@ -341,6 +348,150 @@ void ConvertController::exportAsPdfA() {
     });
     connect(worker, &QThread::finished, worker, &QObject::deleteLater);
     worker->start();
+}
+
+
+void ConvertController::exportToHtml() {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->conversion) return;
+    QString outputPath = QFileDialog::getSaveFileName(_mainWindow, tr("Export to HTML"),
+        QFileInfo(viewer->filePath()).path() + "/" + QFileInfo(viewer->filePath()).baseName() + ".html",
+        tr("HTML Files (*.html)"));
+    if (outputPath.isEmpty()) return;
+
+    _mainWindow->statusBar()->showMessage(tr("Converting to HTML..."));
+
+    auto* progress = new QProgressDialog(tr("Converting to HTML..."), QString(), 0, 0, _mainWindow);
+    progress->setWindowModality(Qt::WindowModal);
+    progress->setMinimumDuration(0);
+    progress->show();
+
+    IConversionEngine* conv = _ctx->conversion.get();
+    const QString inputPath = viewer->filePath();
+    QPointer<ConvertController> self(this);
+    auto result = std::make_shared<std::atomic<bool>>(false);
+
+    QThread* worker = QThread::create([conv, inputPath, outputPath, result]() {
+        bool ok = conv->convertTo(inputPath, outputPath, IConversionEngine::TargetFormat::Html);
+        result->store(ok);
+    });
+
+    connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result]() {
+        progress->close();
+        progress->deleteLater();
+        if (!self) return;
+        bool ok = result->load();
+        if (ok) {
+            self->_mainWindow->statusBar()->showMessage(tr("Export complete: %1").arg(outputPath), 5000);
+            if (QMessageBox::question(self->_mainWindow, tr("Export Success"), tr("Export to HTML complete. Open file?")) == QMessageBox::Yes) {
+                QDesktopServices::openUrl(QUrl::fromLocalFile(outputPath));
+            }
+        } else {
+            QMessageBox::critical(self->_mainWindow, tr("Export Error"), tr("Failed to convert document to HTML."));
+            self->_mainWindow->statusBar()->showMessage(tr("Export failed."));
+        }
+    });
+
+    connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+    worker->start();
+}
+
+void ConvertController::exportToText() {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->conversion) return;
+    QString outputPath = QFileDialog::getSaveFileName(_mainWindow, tr("Export to Text"),
+        QFileInfo(viewer->filePath()).path() + "/" + QFileInfo(viewer->filePath()).baseName() + ".txt",
+        tr("Text Files (*.txt)"));
+    if (outputPath.isEmpty()) return;
+
+    _mainWindow->statusBar()->showMessage(tr("Converting to Text..."));
+
+    auto* progress = new QProgressDialog(tr("Converting to Text..."), QString(), 0, 0, _mainWindow);
+    progress->setWindowModality(Qt::WindowModal);
+    progress->setMinimumDuration(0);
+    progress->show();
+
+    IConversionEngine* conv = _ctx->conversion.get();
+    const QString inputPath = viewer->filePath();
+    QPointer<ConvertController> self(this);
+    auto result = std::make_shared<std::atomic<bool>>(false);
+
+    QThread* worker = QThread::create([conv, inputPath, outputPath, result]() {
+        bool ok = conv->convertTo(inputPath, outputPath, IConversionEngine::TargetFormat::Text);
+        result->store(ok);
+    });
+
+    connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result]() {
+        progress->close();
+        progress->deleteLater();
+        if (!self) return;
+        bool ok = result->load();
+        if (ok) {
+            self->_mainWindow->statusBar()->showMessage(tr("Export complete: %1").arg(outputPath), 5000);
+            if (QMessageBox::question(self->_mainWindow, tr("Export Success"), tr("Export to Text complete. Open file?")) == QMessageBox::Yes) {
+                QDesktopServices::openUrl(QUrl::fromLocalFile(outputPath));
+            }
+        } else {
+            QMessageBox::critical(self->_mainWindow, tr("Export Error"), tr("Failed to convert document to Text."));
+            self->_mainWindow->statusBar()->showMessage(tr("Export failed."));
+        }
+    });
+
+    connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+    worker->start();
+}
+
+void ConvertController::exportToPowerPoint() {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->conversion) return;
+    QString outputPath = QFileDialog::getSaveFileName(_mainWindow, tr("Export to PowerPoint"),
+        QFileInfo(viewer->filePath()).path() + "/" + QFileInfo(viewer->filePath()).baseName() + ".pptx",
+        tr("PowerPoint Presentations (*.pptx)"));
+    if (outputPath.isEmpty()) return;
+
+    _mainWindow->statusBar()->showMessage(tr("Converting to PowerPoint..."));
+
+    auto* progress = new QProgressDialog(tr("Converting to PowerPoint..."), QString(), 0, 0, _mainWindow);
+    progress->setWindowModality(Qt::WindowModal);
+    progress->setMinimumDuration(0);
+    progress->show();
+
+    IConversionEngine* conv = _ctx->conversion.get();
+    const QString inputPath = viewer->filePath();
+    QPointer<ConvertController> self(this);
+    auto result = std::make_shared<std::atomic<bool>>(false);
+
+    QThread* worker = QThread::create([conv, inputPath, outputPath, result]() {
+        bool ok = conv->convertTo(inputPath, outputPath, IConversionEngine::TargetFormat::PowerPoint);
+        result->store(ok);
+    });
+
+    connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result]() {
+        progress->close();
+        progress->deleteLater();
+        if (!self) return;
+        bool ok = result->load();
+        if (ok) {
+            self->_mainWindow->statusBar()->showMessage(tr("Export complete: %1").arg(outputPath), 5000);
+            if (QMessageBox::question(self->_mainWindow, tr("Export Success"), tr("Export to PowerPoint complete. Open file?")) == QMessageBox::Yes) {
+                QDesktopServices::openUrl(QUrl::fromLocalFile(outputPath));
+            }
+        } else {
+            QMessageBox::critical(self->_mainWindow, tr("Export Error"), tr("Failed to convert document to PowerPoint."));
+            self->_mainWindow->statusBar()->showMessage(tr("Export failed."));
+        }
+    });
+
+    connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+    worker->start();
+}
+
+void ConvertController::openCompressDialog() {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->pdfEditor) return;
+    
+    CompressDialog dialog(_ctx, _mainWindow);
+    dialog.exec();
 }
 
 } // namespace gp

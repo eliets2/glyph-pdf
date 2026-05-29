@@ -24,6 +24,10 @@ private:
     void exportToWord();
     void exportToExcel();
     void exportToCsv();
+    void exportToHtml();
+    void exportToText();
+    void exportToPowerPoint();
+    void openCompressDialog();
     void mergePdfs();
     void linearizeDocument();
     void exportAsPdfA();
