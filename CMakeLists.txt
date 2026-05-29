@@ -281,6 +281,7 @@ add_library(pdfws_ui STATIC
     src/ui/SignaturesWidget.h        src/ui/SignaturesWidget.cpp
     src/ui/PageManagementDialog.h    src/ui/PageManagementDialog.cpp
     src/ui/EncryptionDialog.h        src/ui/EncryptionDialog.cpp
+    src/ui/PermissionsDialog.h       src/ui/PermissionsDialog.cpp
     src/ui/SignatureDialog.h         src/ui/SignatureDialog.cpp
     src/ui/MetadataDialog.h          src/ui/MetadataDialog.cpp
     src/ui/AnnotationLayer.h         src/ui/AnnotationLayer.cpp

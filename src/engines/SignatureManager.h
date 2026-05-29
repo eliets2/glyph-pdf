@@ -35,6 +35,17 @@ public:
                       const QString &reason = QString(),
                       const QString &location = QString()) override;
 
+    bool certifyDocument(const QString &inputPath,
+                         const QString &outputPath,
+                         const QString &certPath,
+                         const QString &password,
+                         int certificationLevel = 1,
+                         const QString &reason = QString(),
+                         const QString &location = QString()) override;
+
+    bool addDocTimeStamp(const QString &inputPath,
+                         const QString &outputPath) override;
+
     /**
      * @brief Validate all digital signatures in a PDF.
      * @param filePath Path to the PDF file.

@@ -34,7 +34,8 @@ private slots:
         PdfEditorEngine engine;
         QVERIFY(engine.loadDocumentForEditing(pdf));
         
-        QVERIFY(engine.encryptDocument("user", "owner", true, true, true));
+        DocumentPermissions perms;
+        QVERIFY(engine.encryptDocument("user", "owner", perms));
         
         QString output = tmpPath("encrypted.pdf");
         engine.saveDocument(output);
@@ -59,7 +60,8 @@ private slots:
         QVERIFY(engine.loadDocumentForEditing(pdf));
         
         // Empty password should be gracefully handled, typically by applying standard security with empty password
-        bool ok = engine.encryptDocument("", "", true, true, true);
+        DocumentPermissions perms;
+        bool ok = engine.encryptDocument("", "", perms);
         QVERIFY(ok);
         
         QString output = tmpPath("empty_pass_encrypted.pdf");

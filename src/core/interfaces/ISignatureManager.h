@@ -40,6 +40,13 @@ public:
                                const QString &certPath, const QString &password,
                                const QString &reason = QString(), const QString &location = QString()) = 0;
 
+    virtual bool certifyDocument(const QString &inputPath, const QString &outputPath,
+                                 const QString &certPath, const QString &password,
+                                 int certificationLevel = 1,
+                                 const QString &reason = QString(), const QString &location = QString()) = 0;
+
+    virtual bool addDocTimeStamp(const QString &inputPath, const QString &outputPath) = 0;
+
     virtual QList<SignatureInfo> validateSignatures(const QString &filePath) = 0;
 
 protected:
