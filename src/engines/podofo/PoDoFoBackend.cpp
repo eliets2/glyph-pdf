@@ -1083,7 +1083,26 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                     if (currentMcid != -1) {
                         redactedMcids.insert(currentMcid);
                     }
-                    
+
+                    // Tr==3 (invisible text): operator is scrubbed without any cursor-advance
+                    // substitution. Invisible glyphs produce no visual output, so there is no
+                    // visible gap to preserve. Dropping the operator entirely is safe — the
+                    // OCR text layer is removed and no glyph-advance side-channel is emitted.
+                    if (currentRenderingMode == 3) {
+                        // For ' and " operators that advance the line, we still need the
+                        // text-position side-effect (T* equivalent) so downstream text stays
+                        // correctly positioned, but we suppress any glyph string output.
+                        if (kw == "'") {
+                            newStream << "T*\n";
+                        } else if (kw == "\"") {
+                            newStream << stack[0].GetReal() << " Tw\n";
+                            newStream << stack[1].GetReal() << " Tc\n";
+                            newStream << "T*\n";
+                        }
+                        textX += totalAdvance;
+                        continue;
+                    }
+
                     // Edact-Ray defense (PETS 2023, Bland et al.): emit numeric-only TJ gap.
                     // [N] TJ moves cursor by -(N/1000)*fontSize*fontScale text-space units.
                     // N = -totalAdvance * 1000 / scale gives exact sum-of-advances, no glyph emitted.
