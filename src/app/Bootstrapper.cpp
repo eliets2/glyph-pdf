@@ -11,8 +11,13 @@
 #include "engines/DocumentSession.h"
 #include "engines/AutosaveManager.h"
 
+#include "pdfws_djot/ProvenanceGuard.h"
+#include "pdfws_djot/LuaDjotCodec.h"
+#include "pdfws_djot/PdfStructureMapper.h"
+
 #include <QThread>
 #include <QUndoStack>
+#include <QCoreApplication>
 #include <memory>
 
 AppContext Bootstrapper::createContext() {
@@ -35,5 +40,12 @@ AppContext Bootstrapper::createContext() {
     ctx.document   = std::make_shared<DocumentSession>();
     ctx.autosave   = std::make_shared<AutosaveManager>(ctx.pdfEditor, ctx.document);
 
+    // Djot foundation (M4-PROMPT-7)
+    std::string djotPath = (QCoreApplication::applicationDirPath() + "/../third_party/djot").toStdString();
+    ctx.djotCodec       = std::make_shared<pdfws::LuaDjotCodec>(djotPath);
+    ctx.djotMapper      = std::make_shared<pdfws::PdfStructureMapper>();
+    ctx.provenanceGuard = std::make_shared<pdfws::ProvenanceGuard>();
+
     return ctx;
 }
+
