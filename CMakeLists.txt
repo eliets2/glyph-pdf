@@ -234,6 +234,10 @@ add_library(pdfws_commands STATIC
     src/commands/InsertPageCommand.h
     src/commands/SetMetadataCommand.h
     src/commands/AddFormFieldCommand.h
+    src/commands/EditFormFieldCommand.h
+    src/commands/DeleteFormFieldCommand.h
+    src/commands/MoveFormFieldCommand.h
+    src/commands/ResizeFormFieldCommand.h
     src/commands/EditAnnotationCommand.h
     src/commands/EncryptDocumentHelper.h
     src/commands/SignDocumentHelper.h
@@ -320,6 +324,7 @@ add_library(pdfws_ui STATIC
     src/modes/PagesMode.h                   src/modes/PagesMode.cpp
     src/modes/BatchMode.h                   src/modes/BatchMode.cpp
     src/modes/FormBuilderMode.h             src/modes/FormBuilderMode.cpp
+    src/modes/FormFieldPropertiesPanel.h    src/modes/FormFieldPropertiesPanel.cpp
     src/modes/AIChatPanel.h                 src/modes/AIChatPanel.cpp
     src/modes/SignaturesPanel.h             src/modes/SignaturesPanel.cpp
     src/modes/PdfAValidationPanel.h         src/modes/PdfAValidationPanel.cpp
@@ -690,6 +695,24 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestLaneScheduler.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
         LABELS "unit;concurrency;scheduling;lane-scheduler;qt"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormBuilder.cpp")
+    add_executable(TestFormBuilder
+        tests/TestFormBuilder.cpp
+        src/engines/DocumentSession.cpp
+    )
+    target_include_directories(TestFormBuilder PRIVATE src tests)
+    target_link_libraries(TestFormBuilder PRIVATE
+        pdfws_engines pdfws_core pdfws_commands podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_test(NAME TestFormBuilder COMMAND TestFormBuilder)
+    set_tests_properties(TestFormBuilder PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;forms;form-fields;builder;qt;headless"
     )
 endif()
 
