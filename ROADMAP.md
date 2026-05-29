@@ -328,15 +328,15 @@ Page image
   on remaining disagreements
 - Output: `QList<LayoutRegion>` with type enum + bbox + reading-order index
 
-**D5: Lane Scheduler**
-- `src/engines/ocr/LaneScheduler.h/.cpp`
+**D5: Lane Scheduler** — ✅ DONE (M2-P5, 2026-05-29)
+- `src/engines/scheduling/LaneScheduler.h/.cpp` (moved to scheduling/ for reusability)
 - GPU lane: `QSemaphore`-bounded queue (default: 2 concurrent ONNX inferences); persistent
-  worker thread holds warm `OrtSession` + warm `ONNXRuntime` environment
-- CPU lane: `QtConcurrent::mapped` with `QThreadPool` sized to `QThread::idealThreadCount()`
-- Task tagging: `enum class Lane { GPU, CPU, Any }`
-- Bounded scheduler: max-in-flight cap per lane to prevent OOM on large documents
-- Cross-page pipelining: scheduler issues `layout(P+1)` while `ocr(P)` is running and
-  `fusion(P-1)` is writing; implemented as a 3-stage pipeline with `QFuture` chaining
+  warm worker thread (anti-spawn-per-page); `QPromise<ScheduledValue<T>>` result protocol
+- CPU lane: own `QThreadPool` (never global) sized to `QThread::idealThreadCount()`; `QThreadPool::start()` dispatch
+- Task tagging: `enum class Lane { GPU, CPU, Any }`; `ScheduledValue<T>` C++17 result wrapper
+- Bounded scheduler: `QSemaphore` cap per GPU lane; `cancelAll()` via `QAtomicInt` token
+- Cross-page pipelining: `CrossPagePipeline<S1,S2,S3>` with `QFuture::then()` chaining + backpressure semaphore
+- `OrderedResultQueue<T>`: results in page-index order; missing pages emit sentinel `SchedulerError{Timeout}` (R10 closed)
 - **Architecture note:** This scheduler is a Phase 1/2 infrastructure dependency, not OCR-only.
   Reused for WS3 (MRC per-page compression) and any future GPU-accelerated workload.
 
@@ -541,7 +541,7 @@ implementing ad-hoc concurrency.
 | R7 | Djot→PDF save-back corrupts signed documents | HIGH | `ProvenanceGuard` blocks this path at the API level; integration test with signed born-PDF |
 | R8 | MRC PDF/A output fails conformance validation | MEDIUM | Run veraPDF (AGPL; subprocess-only) in CI; never link it in-process [CLOSED M2-P3, 2026-05-29] |
 | R9 | PP-OCRv5 model weights license not Apache-2.0 for commercial use | MEDIUM | Verify PaddleOCR model license at model download time; add to license matrix |
-| R10 | Cross-page pipeline `layout(P+1) ║ ocr(P)` produces out-of-order results on error | MEDIUM | `LaneScheduler` result queue is ordered by page index; missing pages produce a sentinel error result, not a gap |
+| R10 | Cross-page pipeline `layout(P+1) ║ ocr(P)` produces out-of-order results on error | MEDIUM | `LaneScheduler` result queue is ordered by page index; missing pages produce a sentinel error result, not a gap [CLOSED M2-P5, 2026-05-29] |
 | R11 | Lua interpreter surface area in `pdfws_djot` (arbitrary code via Djot input) | MEDIUM | Lua sandbox: disable `io`, `os`, `loadfile`, `require` before running user-supplied Djot; no network |
 | R12 | Large documents exhaust `RenderCache` (256 MB default) at 2× DPI | MEDIUM | Cache is LRU-by-bytes with configurable cap; expose `QSettings` key `RenderCacheMB` |
 
