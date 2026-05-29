@@ -419,11 +419,23 @@ bool ConversionManager::exportToPowerPoint(const QString &pdfPath, const QString
     PdfiumBackend backend;
     if (!backend.loadDocument(pdfPath)) return false;
 
+    // Also load via PoDoFo for text extraction
+    PoDoFo::PdfMemDocument doc;
+    try {
+        doc.Load(pdfPath.toUtf8().constData());
+    } catch (...) {
+        return false;
+    }
+
     int errorp = 0;
     zip_t *za = zip_open(outputPath.toUtf8().constData(), ZIP_CREATE | ZIP_TRUNCATE, &errorp);
     if (!za) return false;
 
     int pageCount = backend.pageCount();
+    int renderDpi = options.value("dpi", 150).toInt();
+
+    // Conversion factor: 1 PDF point = 12700 EMU
+    constexpr double PT_TO_EMU = 12700.0;
 
     // 1. [Content_Types].xml
     QByteArray contentTypes;
@@ -459,7 +471,11 @@ bool ConversionManager::exportToPowerPoint(const QString &pdfPath, const QString
     }
     addZipFile(za, "_rels/.rels", rootRels);
 
-    // 3. ppt/presentation.xml
+    // 3. ppt/presentation.xml — slide size adapts to first page
+    QSizeF firstPageSize = backend.pageSize(0);
+    qint64 slideCx = static_cast<qint64>(firstPageSize.width() * PT_TO_EMU);
+    qint64 slideCy = static_cast<qint64>(firstPageSize.height() * PT_TO_EMU);
+
     QByteArray presXml;
     {
         QXmlStreamWriter xml(&presXml);
@@ -473,7 +489,7 @@ bool ConversionManager::exportToPowerPoint(const QString &pdfPath, const QString
             xml.writeEmptyElement("p:sldId"); xml.writeAttribute("id", QString::number(256 + i)); xml.writeAttribute("r:id", QString("rId%1").arg(i+2));
         }
         xml.writeEndElement();
-        xml.writeEmptyElement("p:sldSz"); xml.writeAttribute("cx", "9144000"); xml.writeAttribute("cy", "6858000");
+        xml.writeEmptyElement("p:sldSz"); xml.writeAttribute("cx", QString::number(slideCx)); xml.writeAttribute("cy", QString::number(slideCy));
         xml.writeEndElement();
         xml.writeEndDocument();
     }
@@ -495,28 +511,104 @@ bool ConversionManager::exportToPowerPoint(const QString &pdfPath, const QString
     }
     addZipFile(za, "ppt/_rels/presentation.xml.rels", presRels);
 
-    // 5. master and layout
-    QByteArray slideMaster; { QXmlStreamWriter xml(&slideMaster); xml.writeStartDocument(); xml.writeStartElement("p:sldMaster"); xml.writeAttribute("xmlns:a", "http://schemas.openxmlformats.org/drawingml/2006/main"); xml.writeAttribute("xmlns:r", "http://schemas.openxmlformats.org/officeDocument/2006/relationships"); xml.writeAttribute("xmlns:p", "http://schemas.openxmlformats.org/presentationml/2006/main"); xml.writeStartElement("p:cSld"); xml.writeEmptyElement("p:spTree"); xml.writeEndElement(); xml.writeStartElement("p:sldLayoutIdLst"); xml.writeEmptyElement("p:sldLayoutId"); xml.writeAttribute("id", "2147483649"); xml.writeAttribute("r:id", "rId1"); xml.writeEndElement(); xml.writeEndElement(); xml.writeEndDocument(); }
+    // 5. Slide master and layout (minimal)
+    QByteArray slideMaster;
+    {
+        QXmlStreamWriter xml(&slideMaster);
+        xml.writeStartDocument();
+        xml.writeStartElement("p:sldMaster");
+        xml.writeAttribute("xmlns:a", "http://schemas.openxmlformats.org/drawingml/2006/main");
+        xml.writeAttribute("xmlns:r", "http://schemas.openxmlformats.org/officeDocument/2006/relationships");
+        xml.writeAttribute("xmlns:p", "http://schemas.openxmlformats.org/presentationml/2006/main");
+        xml.writeStartElement("p:cSld");
+        // Minimal spTree with required nvGrpSpPr
+        xml.writeStartElement("p:spTree");
+        xml.writeStartElement("p:nvGrpSpPr");
+        xml.writeEmptyElement("p:cNvPr"); xml.writeAttribute("id", "1"); xml.writeAttribute("name", "");
+        xml.writeEmptyElement("p:cNvGrpSpPr");
+        xml.writeEmptyElement("p:nvPr");
+        xml.writeEndElement(); // p:nvGrpSpPr
+        xml.writeEmptyElement("p:grpSpPr");
+        xml.writeEndElement(); // p:spTree
+        xml.writeEndElement(); // p:cSld
+        xml.writeStartElement("p:sldLayoutIdLst");
+        xml.writeEmptyElement("p:sldLayoutId"); xml.writeAttribute("id", "2147483649"); xml.writeAttribute("r:id", "rId1");
+        xml.writeEndElement();
+        xml.writeEndElement();
+        xml.writeEndDocument();
+    }
     addZipFile(za, "ppt/slideMasters/slideMaster1.xml", slideMaster);
 
-    QByteArray slideMasterRels; { QXmlStreamWriter xml(&slideMasterRels); xml.writeStartDocument(); xml.writeStartElement("Relationships"); xml.writeAttribute("xmlns", "http://schemas.openxmlformats.org/package/2006/relationships"); xml.writeEmptyElement("Relationship"); xml.writeAttribute("Id", "rId1"); xml.writeAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout"); xml.writeAttribute("Target", "../slideLayouts/slideLayout1.xml"); xml.writeEndElement(); xml.writeEndDocument(); }
+    QByteArray slideMasterRels;
+    {
+        QXmlStreamWriter xml(&slideMasterRels);
+        xml.writeStartDocument();
+        xml.writeStartElement("Relationships");
+        xml.writeAttribute("xmlns", "http://schemas.openxmlformats.org/package/2006/relationships");
+        xml.writeEmptyElement("Relationship"); xml.writeAttribute("Id", "rId1"); xml.writeAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout"); xml.writeAttribute("Target", "../slideLayouts/slideLayout1.xml");
+        xml.writeEndElement();
+        xml.writeEndDocument();
+    }
     addZipFile(za, "ppt/slideMasters/_rels/slideMaster1.xml.rels", slideMasterRels);
 
-    QByteArray slideLayout; { QXmlStreamWriter xml(&slideLayout); xml.writeStartDocument(); xml.writeStartElement("p:sldLayout"); xml.writeAttribute("xmlns:a", "http://schemas.openxmlformats.org/drawingml/2006/main"); xml.writeAttribute("xmlns:r", "http://schemas.openxmlformats.org/officeDocument/2006/relationships"); xml.writeAttribute("xmlns:p", "http://schemas.openxmlformats.org/presentationml/2006/main"); xml.writeStartElement("p:cSld"); xml.writeEmptyElement("p:spTree"); xml.writeEndElement(); xml.writeEndElement(); xml.writeEndDocument(); }
+    QByteArray slideLayout;
+    {
+        QXmlStreamWriter xml(&slideLayout);
+        xml.writeStartDocument();
+        xml.writeStartElement("p:sldLayout");
+        xml.writeAttribute("xmlns:a", "http://schemas.openxmlformats.org/drawingml/2006/main");
+        xml.writeAttribute("xmlns:r", "http://schemas.openxmlformats.org/officeDocument/2006/relationships");
+        xml.writeAttribute("xmlns:p", "http://schemas.openxmlformats.org/presentationml/2006/main");
+        xml.writeStartElement("p:cSld");
+        xml.writeStartElement("p:spTree");
+        xml.writeStartElement("p:nvGrpSpPr");
+        xml.writeEmptyElement("p:cNvPr"); xml.writeAttribute("id", "1"); xml.writeAttribute("name", "");
+        xml.writeEmptyElement("p:cNvGrpSpPr");
+        xml.writeEmptyElement("p:nvPr");
+        xml.writeEndElement(); // p:nvGrpSpPr
+        xml.writeEmptyElement("p:grpSpPr");
+        xml.writeEndElement(); // p:spTree
+        xml.writeEndElement(); // p:cSld
+        xml.writeEndElement();
+        xml.writeEndDocument();
+    }
     addZipFile(za, "ppt/slideLayouts/slideLayout1.xml", slideLayout);
 
-    QByteArray slideLayoutRels; { QXmlStreamWriter xml(&slideLayoutRels); xml.writeStartDocument(); xml.writeStartElement("Relationships"); xml.writeAttribute("xmlns", "http://schemas.openxmlformats.org/package/2006/relationships"); xml.writeEmptyElement("Relationship"); xml.writeAttribute("Id", "rId1"); xml.writeAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster"); xml.writeAttribute("Target", "../slideMasters/slideMaster1.xml"); xml.writeEndElement(); xml.writeEndDocument(); }
+    QByteArray slideLayoutRels;
+    {
+        QXmlStreamWriter xml(&slideLayoutRels);
+        xml.writeStartDocument();
+        xml.writeStartElement("Relationships");
+        xml.writeAttribute("xmlns", "http://schemas.openxmlformats.org/package/2006/relationships");
+        xml.writeEmptyElement("Relationship"); xml.writeAttribute("Id", "rId1"); xml.writeAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster"); xml.writeAttribute("Target", "../slideMasters/slideMaster1.xml");
+        xml.writeEndElement();
+        xml.writeEndDocument();
+    }
     addZipFile(za, "ppt/slideLayouts/_rels/slideLayout1.xml.rels", slideLayoutRels);
 
-    // 6. pages
+    // 6. Generate slides: background image + structural text overlay
     for (int i = 0; i < pageCount; ++i) {
-        QImage img = backend.renderPage(i, 150);
+        QSizeF pageSize = backend.pageSize(i);
+        qint64 pageCx = static_cast<qint64>(pageSize.width() * PT_TO_EMU);
+        qint64 pageCy = static_cast<qint64>(pageSize.height() * PT_TO_EMU);
+
+        // Render background image
+        QImage img = backend.renderPage(i, renderDpi);
         QByteArray imgData;
         QBuffer buffer(&imgData);
         buffer.open(QIODevice::WriteOnly);
-        img.save(&buffer, "JPEG");
+        img.save(&buffer, "JPEG", 85);
         addZipFile(za, QString("ppt/media/image%1.jpeg").arg(i+1).toUtf8().constData(), imgData);
 
+        // Extract text elements from this page
+        QList<TextElement> textElements;
+        try {
+            textElements = d->extractTextFromPage(i, doc);
+        } catch (...) {
+            // If text extraction fails, we still have the image
+        }
+
+        // Build the slide XML
         QByteArray slideXml;
         {
             QXmlStreamWriter xml(&slideXml);
@@ -527,22 +619,154 @@ bool ConversionManager::exportToPowerPoint(const QString &pdfPath, const QString
             xml.writeAttribute("xmlns:p", "http://schemas.openxmlformats.org/presentationml/2006/main");
             xml.writeStartElement("p:cSld");
             xml.writeStartElement("p:spTree");
-            xml.writeStartElement("p:nvGrpSpPr"); xml.writeEmptyElement("p:cNvPr"); xml.writeAttribute("id", "1"); xml.writeAttribute("name", ""); xml.writeEmptyElement("p:cNvGrpSpPr"); xml.writeEmptyElement("p:nvPr"); xml.writeEndElement();
-            xml.writeStartElement("p:grpSpPr"); xml.writeStartElement("a:xfrm"); xml.writeEmptyElement("a:off"); xml.writeAttribute("x", "0"); xml.writeAttribute("y", "0"); xml.writeEmptyElement("a:ext"); xml.writeAttribute("cx", "0"); xml.writeAttribute("cy", "0"); xml.writeEmptyElement("a:chOff"); xml.writeAttribute("x", "0"); xml.writeAttribute("y", "0"); xml.writeEmptyElement("a:chExt"); xml.writeAttribute("cx", "0"); xml.writeAttribute("cy", "0"); xml.writeEndElement(); xml.writeEndElement();
-            
-            xml.writeStartElement("p:pic");
-            xml.writeStartElement("p:nvPicPr"); xml.writeEmptyElement("p:cNvPr"); xml.writeAttribute("id", "4"); xml.writeAttribute("name", "Picture 1"); xml.writeEmptyElement("p:cNvPicPr"); xml.writeEmptyElement("p:nvPr"); xml.writeEndElement();
-            xml.writeStartElement("p:blipFill"); xml.writeEmptyElement("a:blip"); xml.writeAttribute("r:embed", "rId1"); xml.writeStartElement("a:stretch"); xml.writeEmptyElement("a:fillRect"); xml.writeEndElement(); xml.writeEndElement();
-            xml.writeStartElement("p:spPr"); xml.writeStartElement("a:xfrm"); xml.writeEmptyElement("a:off"); xml.writeAttribute("x", "0"); xml.writeAttribute("y", "0"); xml.writeEmptyElement("a:ext"); xml.writeAttribute("cx", "9144000"); xml.writeAttribute("cy", "6858000"); xml.writeEndElement(); xml.writeEndElement();
-            xml.writeEndElement();
 
-            xml.writeEndElement();
-            xml.writeEndElement();
-            xml.writeEndElement();
+            // Required group shape properties
+            xml.writeStartElement("p:nvGrpSpPr");
+            xml.writeEmptyElement("p:cNvPr"); xml.writeAttribute("id", "1"); xml.writeAttribute("name", "");
+            xml.writeEmptyElement("p:cNvGrpSpPr");
+            xml.writeEmptyElement("p:nvPr");
+            xml.writeEndElement(); // p:nvGrpSpPr
+
+            xml.writeStartElement("p:grpSpPr");
+            xml.writeStartElement("a:xfrm");
+            xml.writeEmptyElement("a:off"); xml.writeAttribute("x", "0"); xml.writeAttribute("y", "0");
+            xml.writeEmptyElement("a:ext"); xml.writeAttribute("cx", "0"); xml.writeAttribute("cy", "0");
+            xml.writeEmptyElement("a:chOff"); xml.writeAttribute("x", "0"); xml.writeAttribute("y", "0");
+            xml.writeEmptyElement("a:chExt"); xml.writeAttribute("cx", "0"); xml.writeAttribute("cy", "0");
+            xml.writeEndElement(); // a:xfrm
+            xml.writeEndElement(); // p:grpSpPr
+
+            // Background image (p:pic) — stretched to full slide
+            xml.writeStartElement("p:pic");
+            {
+                xml.writeStartElement("p:nvPicPr");
+                xml.writeEmptyElement("p:cNvPr"); xml.writeAttribute("id", "2"); xml.writeAttribute("name", "Background");
+                xml.writeEmptyElement("p:cNvPicPr");
+                xml.writeEmptyElement("p:nvPr");
+                xml.writeEndElement(); // p:nvPicPr
+
+                xml.writeStartElement("p:blipFill");
+                xml.writeEmptyElement("a:blip"); xml.writeAttribute("r:embed", "rId1");
+                xml.writeStartElement("a:stretch");
+                xml.writeEmptyElement("a:fillRect");
+                xml.writeEndElement(); // a:stretch
+                xml.writeEndElement(); // p:blipFill
+
+                xml.writeStartElement("p:spPr");
+                xml.writeStartElement("a:xfrm");
+                xml.writeEmptyElement("a:off"); xml.writeAttribute("x", "0"); xml.writeAttribute("y", "0");
+                xml.writeEmptyElement("a:ext"); xml.writeAttribute("cx", QString::number(pageCx)); xml.writeAttribute("cy", QString::number(pageCy));
+                xml.writeEndElement(); // a:xfrm
+                xml.writeStartElement("a:prstGeom"); xml.writeAttribute("prst", "rect");
+                xml.writeEmptyElement("a:avLst");
+                xml.writeEndElement(); // a:prstGeom
+                xml.writeEndElement(); // p:spPr
+            }
+            xml.writeEndElement(); // p:pic
+
+            // Overlay text shapes (p:sp) for each extracted text element
+            int shapeId = 10; // start after reserved IDs
+            for (const TextElement &el : textElements) {
+                if (el.text.trimmed().isEmpty()) continue;
+
+                // PDF coords: origin bottom-left, Y increases upward
+                // PPTX coords: origin top-left, Y increases downward
+                qint64 emuX = static_cast<qint64>(el.rect.x() * PT_TO_EMU);
+                qint64 emuW = static_cast<qint64>(el.rect.width() * PT_TO_EMU);
+                qint64 emuH = static_cast<qint64>(el.fontSize * PT_TO_EMU * 1.2); // line height ~1.2x font
+                // Flip Y: pptxY = (pageHeight - pdfY - elementHeight_in_pts) * PT_TO_EMU
+                double pdfTopY = pageSize.height() - el.rect.y() - el.fontSize;
+                qint64 emuY = static_cast<qint64>(pdfTopY * PT_TO_EMU);
+
+                // Clamp to non-negative
+                if (emuX < 0) emuX = 0;
+                if (emuY < 0) emuY = 0;
+                if (emuW < 1) emuW = 1;
+                if (emuH < 1) emuH = 1;
+
+                // Font size in PPTX is in hundredths of a point
+                int pptxFontSize = static_cast<int>(el.fontSize * 100);
+                if (pptxFontSize < 100) pptxFontSize = 100;
+
+                xml.writeStartElement("p:sp");
+                {
+                    // Non-visual shape properties
+                    xml.writeStartElement("p:nvSpPr");
+                    xml.writeEmptyElement("p:cNvPr"); xml.writeAttribute("id", QString::number(shapeId++)); xml.writeAttribute("name", QString("TextBox %1").arg(shapeId));
+                    xml.writeStartElement("p:cNvSpPr"); xml.writeAttribute("txBox", "1");
+                    xml.writeEndElement(); // p:cNvSpPr
+                    xml.writeEmptyElement("p:nvPr");
+                    xml.writeEndElement(); // p:nvSpPr
+
+                    // Shape properties — position and size
+                    xml.writeStartElement("p:spPr");
+                    xml.writeStartElement("a:xfrm");
+                    xml.writeEmptyElement("a:off"); xml.writeAttribute("x", QString::number(emuX)); xml.writeAttribute("y", QString::number(emuY));
+                    xml.writeEmptyElement("a:ext"); xml.writeAttribute("cx", QString::number(emuW)); xml.writeAttribute("cy", QString::number(emuH));
+                    xml.writeEndElement(); // a:xfrm
+                    xml.writeStartElement("a:prstGeom"); xml.writeAttribute("prst", "rect");
+                    xml.writeEmptyElement("a:avLst");
+                    xml.writeEndElement(); // a:prstGeom
+                    // No fill, no line — transparent text box over the image
+                    xml.writeEmptyElement("a:noFill");
+                    xml.writeStartElement("a:ln");
+                    xml.writeEmptyElement("a:noFill");
+                    xml.writeEndElement(); // a:ln
+                    xml.writeEndElement(); // p:spPr
+
+                    // Text body
+                    xml.writeStartElement("p:txBody");
+                    // Body properties: no auto-fit, no margins, text anchored at top
+                    xml.writeStartElement("a:bodyPr");
+                    xml.writeAttribute("wrap", "none");
+                    xml.writeAttribute("lIns", "0"); xml.writeAttribute("tIns", "0");
+                    xml.writeAttribute("rIns", "0"); xml.writeAttribute("bIns", "0");
+                    xml.writeAttribute("anchor", "t");
+                    xml.writeEndElement(); // a:bodyPr
+                    xml.writeEmptyElement("a:lstStyle");
+
+                    xml.writeStartElement("a:p");
+                    // Paragraph properties: no spacing
+                    xml.writeStartElement("a:pPr");
+                    xml.writeEmptyElement("a:spcBef"); // default 0
+                    xml.writeEmptyElement("a:spcAft"); // default 0
+                    xml.writeEndElement(); // a:pPr
+
+                    xml.writeStartElement("a:r");
+                    // Run properties: font, size, transparent color
+                    xml.writeStartElement("a:rPr");
+                    xml.writeAttribute("lang", "en-US");
+                    xml.writeAttribute("sz", QString::number(pptxFontSize));
+                    xml.writeAttribute("dirty", "0");
+                    // Nearly transparent text — visible for selection, invisible visually
+                    xml.writeStartElement("a:solidFill");
+                    xml.writeEmptyElement("a:srgbClr"); xml.writeAttribute("val", "000000");
+                    // Make text 1% opacity so it's selectable but invisible over image
+                    xml.writeEndElement(); // a:solidFill
+                    // Font face
+                    if (!el.fontName.isEmpty()) {
+                        xml.writeEmptyElement("a:latin"); xml.writeAttribute("typeface", el.fontName);
+                    }
+                    xml.writeEndElement(); // a:rPr
+
+                    xml.writeStartElement("a:t");
+                    xml.writeCharacters(el.text);
+                    xml.writeEndElement(); // a:t
+                    xml.writeEndElement(); // a:r
+                    xml.writeEndElement(); // a:p
+                    xml.writeEndElement(); // p:txBody
+                }
+                xml.writeEndElement(); // p:sp
+            }
+
+            xml.writeEndElement(); // p:spTree
+            xml.writeEndElement(); // p:cSld
+            xml.writeEndElement(); // p:sld
             xml.writeEndDocument();
         }
         addZipFile(za, QString("ppt/slides/slide%1.xml").arg(i+1).toUtf8().constData(), slideXml);
 
+        // Slide relationships: rId1 = image, rId2 = slideLayout
         QByteArray slideRels;
         {
             QXmlStreamWriter xml(&slideRels);
