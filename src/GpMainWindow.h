@@ -41,6 +41,9 @@ public:
     void openDocument(const QString& filePath);
     void recoverDocument(const QString& originalPath);
     const AppContext* appContext() const { return _ctx; }
+    // Navigate to a named screen (delegates to onScreenSelected).
+    // Usable by controllers that hold a MainWindow* but not ModeController*.
+    void activateScreen(const QString& id);
     void toggleFindBar();
     void setFullScreenMode(bool fullscreen);
     void updateTitle();

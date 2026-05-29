@@ -329,6 +329,10 @@ PdfViewerWidget* MainWindow::pdfViewer() const {
     return _modes ? _modes->viewer() : nullptr;
 }
 
+void MainWindow::activateScreen(const QString& id) {
+    onScreenSelected(id);
+}
+
 void MainWindow::updateTitle() {
     auto* viewer = pdfViewer();
     if (!viewer || viewer->filePath().isEmpty()) {

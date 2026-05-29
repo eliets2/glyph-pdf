@@ -1,6 +1,7 @@
 #include "SecurityController.h"
 #include "core/AppContext.h"
 #include "GpMainWindow.h"
+#include "modes/RedactMode.h"
 #include "ui/PdfViewerWidget.h"
 #include "ui/EncryptionDialog.h"
 #include "ui/SignatureDialog.h"
@@ -81,10 +82,20 @@ void SecurityController::activate(ToolId id) {
     case ToolId::RemoveSecurity:
     case ToolId::Certify:
     case ToolId::Timestamp:
-    case ToolId::PatternRedact:
-    case ToolId::RegexRedact:
         QMessageBox::information(_mainWindow, tr("Document Security"),
             tr("Advanced permission controls and security tools are scheduled for the next engine update."));
+        break;
+    case ToolId::PatternRedact:
+        // Switch to Redact mode — the RedactMode panel provides full pattern UI
+        _mainWindow->activateScreen(QStringLiteral("redact"));
+        break;
+    case ToolId::RegexRedact:
+        // Switch to Redact mode pre-selecting the Custom regex option
+        _mainWindow->activateScreen(QStringLiteral("redact"));
+        // After the mode is activated, find the live RedactMode and pre-select Custom
+        if (auto* redactWidget = _mainWindow->findChild<gp::RedactMode*>()) {
+            redactWidget->activateCustomRegex();
+        }
         break;
     default:
         break;
