@@ -7,6 +7,7 @@
 #include <QRectF>
 #include <QPointF>
 #include <QColor>
+#include <QRegularExpression>
 
 struct PdfMetadata {
     QString title;
@@ -123,6 +124,12 @@ public:
     virtual bool replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath) = 0;
     virtual bool deleteImage(int pageIndex, const QString &xobjectName) = 0;
     virtual bool applyRedactions(int pageIndex, const QList<QRectF> &rects) = 0;
+
+    // Pattern-based redaction: find all regex matches across [startPage, endPage] (0-based,
+    // inclusive) and excise them from the content stream.
+    // Pass startPage = -1 / endPage = -1 to redact all pages.
+    virtual bool applyPatternRedactions(const QRegularExpression& pattern,
+                                        int startPage, int endPage) = 0;
 
     // Page Geometry & Operations
     virtual bool cropPage(const QString &path, int pageIndex, const QRectF &cropRect) = 0;

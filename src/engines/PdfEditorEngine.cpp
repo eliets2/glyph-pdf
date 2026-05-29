@@ -1,5 +1,6 @@
 #include "engines/PdfEditorEngine.h"
 #include "engines/BackendRouter.h"
+#include "engines/PatternRedactor.h"
 #include "engines/podofo/PoDoFoBackend.h"
 #include "engines/qpdf/QpdfBackend.h"
 #include "engines/SignatureManager.h"
@@ -786,6 +787,66 @@ bool PdfEditorEngine::applyRedactions(int pageIndex, const QList<QRectF> &rects)
         d->lastErr.sourcePage = pageIndex;
     }
     return ok;
+}
+
+bool PdfEditorEngine::applyPatternRedactions(const QRegularExpression& pattern,
+                                              int startPage, int endPage)
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("applyPatternRedactions");
+
+    if (!pattern.isValid()) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("The pattern regular expression is invalid."),
+                  pattern.errorString());
+        return false;
+    }
+
+    const QString pdfPath = d->backend->currentFile();
+    if (pdfPath.isEmpty()) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("No document is loaded."),
+                  QStringLiteral("applyPatternRedactions: currentFile() is empty"));
+        return false;
+    }
+
+    // Determine page range
+    const int totalPages = static_cast<int>(d->backend->pageCount());
+    int firstPage = (startPage < 0) ? 0 : startPage;
+    int lastPage  = (endPage   < 0) ? totalPages - 1 : endPage;
+    firstPage = qBound(0, firstPage, totalPages - 1);
+    lastPage  = qBound(0, lastPage,  totalPages - 1);
+
+    bool anySuccess = false;
+    bool anyFailure = false;
+
+    for (int pg = firstPage; pg <= lastPage; ++pg) {
+        const QList<QRectF> matches = PatternRedactor::findMatches(pdfPath, pg, pattern);
+        if (matches.isEmpty()) continue;
+
+        // Delegate to the existing applyRedactions path which carries the
+        // Edact-Ray glyph-advance defense (wired in M2-P1).
+        const bool ok = d->backend->applyRedactions(pg, matches);
+        if (ok) {
+            anySuccess = true;
+        } else {
+            anyFailure = true;
+            qWarning() << "PatternRedactor: applyRedactions failed on page" << pg;
+        }
+    }
+
+    if (anyFailure) {
+        d->setErr(ErrorInfo::Warning,
+                  QObject::tr("Pattern redaction partially failed on one or more pages."),
+                  QStringLiteral("applyPatternRedactions: pattern=%1 pages=%2-%3")
+                      .arg(pattern.pattern()).arg(firstPage).arg(lastPage));
+        return false;
+    }
+
+    // If no pages had matches at all, that is still success (no-op)
+    Q_UNUSED(anySuccess);
+    return true;
 }
 
 bool PdfEditorEngine::embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations)

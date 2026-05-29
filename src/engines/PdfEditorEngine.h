@@ -3,6 +3,7 @@
 #include <QString>
 #include <QList>
 #include <memory>
+#include <QRegularExpression>
 #include "core/interfaces/IPdfEditorEngine.h"
 
 class PdfEditorEngine final : public IPdfEditorEngine
@@ -61,6 +62,8 @@ public:
     bool replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath) override;
     bool deleteImage(int pageIndex, const QString &xobjectName) override;
     bool applyRedactions(int pageIndex, const QList<QRectF> &rects) override;
+    bool applyPatternRedactions(const QRegularExpression& pattern,
+                                int startPage, int endPage) override;
     bool embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations) override;
 
     // Watermarking (Session 13)
