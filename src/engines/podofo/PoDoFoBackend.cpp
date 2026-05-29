@@ -949,12 +949,15 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                 textY -= leading;
             }
             if (kw == "Tm" && stack.size() >= 6) {
-                if (stack[4].IsNumberOrReal()) textX = stack[4].GetReal();
-                if (stack[5].IsNumberOrReal()) textY = stack[5].GetReal();
+                // PdfVariantStack index 0 = top of stack = last pushed operand.
+                // "a b c d e f Tm" pushes in order a..f, so stack[0]=f (textY), stack[1]=e (textX).
+                if (stack[1].IsNumberOrReal()) textX = stack[1].GetReal();
+                if (stack[0].IsNumberOrReal()) textY = stack[0].GetReal();
             } else if ((kw == "Td" || kw == "TD") && stack.size() >= 2) {
-                if (stack[0].IsNumberOrReal()) textX += stack[0].GetReal();
-                if (stack[1].IsNumberOrReal()) {
-                    double dy = stack[1].GetReal();
+                // "tx ty Td" pushes tx first, ty second, so stack[0]=ty (textY), stack[1]=tx (textX).
+                if (stack[1].IsNumberOrReal()) textX += stack[1].GetReal();
+                if (stack[0].IsNumberOrReal()) {
+                    double dy = stack[0].GetReal();
                     textY += dy;
                     if (kw == "TD") leading = -dy;
                 }

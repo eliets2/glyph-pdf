@@ -228,7 +228,10 @@ private slots:
         QString pdf = createTestPdfWithText("glyph.pdf", "SECRET DATA");
         PdfEditorEngine engine;
         QVERIFY(engine.loadDocumentForEditing(pdf));
-        QVERIFY(engine.applyRedactions(0, {QRectF(690, 720, 200, 30)}));
+        // DrawText(100, 700) → "100 700 Td". PdfVariantStack: stack[0]=top=last-pushed=700(ty→textY),
+        // stack[1]=100(tx→textX). Correct tracking: textX=100, textY=700.
+        // QRectF(90, 130, 200, 30) → pdfRect(90, 681.89, 200, 30): textX=100∈[90,290] and textY=700∈[681.89,711.89].
+        QVERIFY(engine.applyRedactions(0, {QRectF(90, 130, 200, 30)}));
         
         QString output = tmpPath("glyph_redacted.pdf");
         engine.saveDocument(output);
@@ -274,11 +277,11 @@ private slots:
         // D1: invisible text (Tr==3) inside a redaction rect must be scrubbed WITHOUT
         // emitting an Edact-Ray numeric TJ gap (no visible position to preserve).
         //
-        // The redactCanvasRecursively function tracks textX/textY using the operand-stack
-        // index convention of PdfVariantStack (index 0 = top of stack = last pushed operand).
-        // For "100 700 Td", stack[0]=700 is applied to textX and stack[1]=100 to textY.
-        // Redaction rect QRectF(690, 720, 200, 30) → pdfRect (690, 92, 200, 30):
-        //   textX=700 ∈ [690, 890] and textY=100 ∈ [92, 122] → intersection confirmed.
+        // PdfVariantStack index convention: index 0 = top of stack = last pushed operand.
+        // For "100 700 Td", operands push in order 100 then 700, so stack[0]=700(ty→textY)
+        // and stack[1]=100(tx→textX). Correct tracking: textX=100, textY=700.
+        // QRectF(90, 130, 200, 30) → pdfRect(90, 681.89, 200, 30):
+        //   textX=100 ∈ [90, 290] and textY=700 ∈ [681.89, 711.89] → intersection confirmed.
         //
         // D1 distinction: for invisible (Tr==3) scrubs, NO "[ N ] TJ" gap is emitted.
         // For visible text scrubs, the Edact-Ray gap IS emitted. This test verifies that
@@ -303,8 +306,8 @@ private slots:
 
         PdfEditorEngine engine;
         QVERIFY(engine.loadDocumentForEditing(pdf));
-        // Rect targeting the tracked (textX=700, textY=100) position for DrawText(100, 700).
-        QVERIFY(engine.applyRedactions(0, {QRectF(690, 720, 200, 30)}));
+        // Rect targeting the correct (textX=100, textY=700) position for DrawText(100, 700).
+        QVERIFY(engine.applyRedactions(0, {QRectF(90, 130, 200, 30)}));
 
         QString output = tmpPath("ocr_redacted.pdf");
         QVERIFY(engine.saveDocument(output));
