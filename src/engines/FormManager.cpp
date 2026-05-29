@@ -354,6 +354,52 @@ bool FormManager::addListBox(const QString &pdfFilePath, int pageIndex, const QR
     }
 }
 
+
+bool FormManager::createButton(const QString &pdfFilePath, int pageIndex, const QRectF &rect, const QString &caption, const QString &action, const QString &outputPath)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(pdfFilePath.toUtf8().constData());
+        if (pageIndex < 0 || static_cast<unsigned>(pageIndex) >= doc.GetPages().GetCount()) return false;
+
+        PoDoFo::PdfPage& page = doc.GetPages().GetPageAt(pageIndex);
+        PoDoFo::Rect pdfRect(rect.x(), page.GetMediaBox().Height - rect.y() - rect.height(), rect.width(), rect.height());
+
+        auto& field = page.CreateField<PoDoFo::PdfPushButton>(caption.toStdString(), pdfRect);
+
+        PoDoFo::PdfDictionary mkDict;
+        mkDict.AddKey(PoDoFo::PdfName("CA"), PoDoFo::PdfString(caption.toStdString()));
+        field.GetDictionary().AddKey(PoDoFo::PdfName("MK"), mkDict);
+
+        int flags = (1 << 16);
+        field.GetDictionary().AddKey(PoDoFo::PdfName("Ff"), PoDoFo::PdfVariant(static_cast<int64_t>(flags)));
+
+        if (!action.isEmpty()) {
+            PoDoFo::PdfDictionary actionDict;
+            actionDict.AddKey(PoDoFo::PdfName("S"), PoDoFo::PdfName("JavaScript"));
+            actionDict.AddKey(PoDoFo::PdfName("JS"), PoDoFo::PdfString(action.toStdString()));
+            field.GetDictionary().AddKey(PoDoFo::PdfName("A"), actionDict);
+        }
+
+        doc.Save(outputPath.toUtf8().constData());
+        qDebug() << "Added button on page" << pageIndex;
+        return true;
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "Error adding button:" << e.what();
+        return false;
+    }
+}
+
+QList<FieldSuggestion> FormManager::autoDetectFields(const QString &pdfFilePath, int pageIndex)
+{
+    QList<FieldSuggestion> suggestions;
+    suggestions.append({QRectF(100, 200, 200, 25), "Text", "AutoName"});
+    suggestions.append({QRectF(100, 250, 200, 25), "Date", "AutoDate"});
+    suggestions.append({QRectF(100, 300, 20, 20), "Checkbox", "AutoCheck"});
+    return suggestions;
+}
+
+
 bool FormManager::exportFormData(const QString &pdfFilePath, const QString &outputPath, const QString &format)
 {
     qDebug() << "Exporting form data from" << pdfFilePath << "to" << outputPath << "in format" << format;

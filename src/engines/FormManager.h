@@ -30,6 +30,9 @@ public:
     bool addDropdown(const QString &pdfFilePath, int pageIndex, const QRectF &rect, const QString &fieldName, const QStringList &options, const QString &outputPath) override;
     bool addListBox(const QString &pdfFilePath, int pageIndex, const QRectF &rect, const QString &fieldName, const QStringList &options, bool multiSelect, const QString &outputPath) override;
 
+    bool createButton(const QString &pdfFilePath, int pageIndex, const QRectF &rect, const QString &caption, const QString &action, const QString &outputPath) override;
+    QList<FieldSuggestion> autoDetectFields(const QString &pdfFilePath, int pageIndex) override;
+
     bool exportFormData(const QString &pdfFilePath, const QString &outputPath, const QString &format) override;
     bool importFormData(const QString &pdfFilePath, const QString &dataFilePath, const QString &outputPath) override;
     bool flattenForm(const QString &pdfFilePath, const QString &outputPath) override;
