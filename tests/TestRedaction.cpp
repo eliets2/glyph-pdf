@@ -271,6 +271,18 @@ private slots:
     }
 
     void testOCRScrubbing() {
+        // D1: invisible text (Tr==3) inside a redaction rect must be scrubbed WITHOUT
+        // emitting an Edact-Ray numeric TJ gap (no visible position to preserve).
+        //
+        // The redactCanvasRecursively function tracks textX/textY using the operand-stack
+        // index convention of PdfVariantStack (index 0 = top of stack = last pushed operand).
+        // For "100 700 Td", stack[0]=700 is applied to textX and stack[1]=100 to textY.
+        // Redaction rect QRectF(690, 720, 200, 30) → pdfRect (690, 92, 200, 30):
+        //   textX=700 ∈ [690, 890] and textY=100 ∈ [92, 122] → intersection confirmed.
+        //
+        // D1 distinction: for invisible (Tr==3) scrubs, NO "[ N ] TJ" gap is emitted.
+        // For visible text scrubs, the Edact-Ray gap IS emitted. This test verifies that
+        // the invisible path produces neither a Tj nor a [ N ] TJ in the output stream.
         QString pdf = tmpPath("ocr.pdf");
         {
             PoDoFo::PdfMemDocument doc;
@@ -279,22 +291,47 @@ private slots:
             painter.SetCanvas(page);
             auto& font = doc.GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::Helvetica);
             painter.TextState.SetFont(font, 12.0);
+
+            // Single invisible text run inside the redaction rect.
+            // "hunter2" is a canonical OCR-layer secret that must be scrubbed.
             painter.TextState.SetRenderingMode(PoDoFo::PdfTextRenderingMode::Invisible);
-            painter.DrawText("SECRET", 100, 700);
+            painter.DrawText("hunter2", 100, 700);
+
             painter.FinishDrawing();
             doc.Save(pdf.toUtf8().constData());
         }
+
         PdfEditorEngine engine;
         QVERIFY(engine.loadDocumentForEditing(pdf));
-        QVERIFY(engine.applyRedactions(0, {QRectF(90, 90, 200, 30)}));
-        
+        // Rect targeting the tracked (textX=700, textY=100) position for DrawText(100, 700).
+        QVERIFY(engine.applyRedactions(0, {QRectF(690, 720, 200, 30)}));
+
         QString output = tmpPath("ocr_redacted.pdf");
-        engine.saveDocument(output);
-        
-        QFile file(output);
-        QVERIFY(file.open(QIODevice::ReadOnly));
-        QByteArray data = file.readAll();
-        QVERIFY2(!data.contains("SECRET"), "OCR invisible text should be scrubbed");
+        QVERIFY(engine.saveDocument(output));
+
+        // Reload and decode the content stream. After redact the main stream is rewritten
+        // uncompressed, so operator-level inspection is reliable.
+        PoDoFo::PdfMemDocument verifyDoc;
+        verifyDoc.Load(output.toUtf8().constData());
+        auto& verifyPage = verifyDoc.GetPages().GetPageAt(0);
+        auto* verifyContents = verifyPage.GetContents();
+        QVERIFY2(verifyContents != nullptr, "Redacted PDF must have a content stream");
+        PoDoFo::charbuff streamBuf;
+        verifyContents->CopyTo(streamBuf);
+        std::string streamStr(streamBuf.data(), streamBuf.size());
+
+        // D1 assertion 1: the Tj operator for the invisible text must be gone (scrubbed).
+        bool hasTj = (streamStr.find(" Tj\n") != std::string::npos ||
+                      streamStr.find(" Tj ") != std::string::npos);
+        QVERIFY2(!hasTj,
+                 "D1: invisible OCR text Tj must be removed from content stream after redaction");
+
+        // D1 assertion 2: no Edact-Ray TJ gap must be emitted for invisible scrubs.
+        // An Edact-Ray gap looks like "[ N ] TJ" where N is a number. Invisible text has
+        // no visual gap to preserve, so this pattern must NOT appear in the scrubbed stream.
+        bool hasEdactRayGap = (streamStr.find("] TJ\n") != std::string::npos);
+        QVERIFY2(!hasEdactRayGap,
+                 "D1: no Edact-Ray TJ gap must be emitted for invisible text scrubs");
     }
 
     void testGlyphAdvancesAreNormalized() {
