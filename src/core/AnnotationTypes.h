@@ -31,5 +31,9 @@ struct AnnotationItem {
     QList<QString> replies;
     QString author;
     QString creationDate;
+    QString modificationDate;
     ReviewState reviewState = ReviewState::None;
+    bool locked = false;
+    QString blendMode = "Normal";
+    double opacity = 1.0;
 };
