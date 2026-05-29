@@ -137,6 +137,7 @@ add_library(pdfws_engines STATIC
     src/engines/qpdf/QpdfBackend.h     src/engines/qpdf/QpdfBackend.cpp
     src/engines/RenderCache.h          src/engines/RenderCache.cpp
     src/engines/DiffEngine.h           src/engines/DiffEngine.cpp
+    src/engines/VeraPdfValidator.h     src/engines/VeraPdfValidator.cpp
     src/core/interfaces/IPdfDocument.h
     src/core/interfaces/IPdfPage.h
     src/core/interfaces/IPdfRenderer.h
@@ -211,6 +212,16 @@ endif()
 if(duckx_FOUND)
     target_link_libraries(pdfws_engines PRIVATE duckx::duckx)
     target_compile_definitions(pdfws_engines PRIVATE HAS_DUCKX)
+endif()
+
+# veraPDF CLI — AGPL-3.0 subprocess only; never link in-process
+set(VERAPDF_CLI_PATH "" CACHE FILEPATH "Path to veraPDF CLI executable (AGPL-3.0; subprocess only)")
+if(VERAPDF_CLI_PATH)
+    target_compile_definitions(pdfws_engines PRIVATE
+        VERAPDF_CLI_PATH="${VERAPDF_CLI_PATH}")
+    message(STATUS "veraPDF CLI: ${VERAPDF_CLI_PATH}")
+else()
+    message(STATUS "veraPDF CLI not configured. PdfAValidationPanel will show 'validator unavailable'.")
 endif()
 
 # ── pdfws_commands (STATIC — mostly header-only but needs moc for some) ──
@@ -621,6 +632,21 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPerformance.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 300
         LABELS "performance;benchmark;qt;headless"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestVeraPdf.cpp")
+    add_executable(TestVeraPdf tests/TestVeraPdf.cpp)
+    target_include_directories(TestVeraPdf PRIVATE src tests)
+    target_link_libraries(TestVeraPdf PRIVATE
+        pdfws_engines pdfws_core
+        Qt6::Test Qt6::Widgets podofo::podofo
+    )
+    add_test(NAME TestVeraPdf COMMAND TestVeraPdf)
+    set_tests_properties(TestVeraPdf PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;integration;pdfa;verapdf;subprocess"
     )
 endif()
 
