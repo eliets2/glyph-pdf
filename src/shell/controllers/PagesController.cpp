@@ -8,6 +8,9 @@
 #include "commands/CropPageCommand.h"
 #include "commands/ReorderPageCommand.h"
 #include "ui/PageManagementDialog.h"
+#include "ui/ResizeDialog.h"
+#include "ui/HeaderFooterDialog.h"
+#include "ui/BatesNumberingDialog.h"
 
 #include <QFileDialog>
 #include <QMessageBox>
@@ -64,21 +67,52 @@ void PagesController::activate(ToolId id) {
         break;
     case ToolId::Split:
     case ToolId::Reorder:
-        QMessageBox::information(_mainWindow, tr("Page Organizer"),
-            tr("Splitting and advanced reordering require the multi-page page arranger scheduled for the upcoming engine update."));
+        _mainWindow->activateScreen("pages");
         break;
     case ToolId::Crop:
         viewer->setToolMode(ToolMode::Crop);
         _mainWindow->statusBar()->showMessage(tr("Crop Tool: Drag a rectangle on the page to crop."), 5000);
         break;
-    case ToolId::Resize:
+    case ToolId::Resize: {
+        ResizeDialog dlg(_mainWindow);
+        if (dlg.exec() == QDialog::Accepted) {
+            QSizeF sz = dlg.selectedSize();
+            if (sz.width() > 0 && sz.height() > 0) {
+                if (_ctx && _ctx->pdfEditor) {
+                    _ctx->pdfEditor->resizePage(viewer->filePath(), viewer->currentPage(), sz);
+                    viewer->reload();
+                    _mainWindow->statusBar()->showMessage(tr("Page resized."), 3000);
+                }
+            }
+        }
+        break;
+    }
     case ToolId::AddHeader:
     case ToolId::AddFooter:
-    case ToolId::AddPageNumbers:
-    case ToolId::BatesNumber:
-        QMessageBox::information(_mainWindow, tr("Page Operations"),
-            tr("Advanced page formatting options (Resize, Headers, Footers, Bates) will be available in the detailed dialogs being finalized for the next phase."));
+    case ToolId::AddPageNumbers: {
+        HeaderFooterDialog dlg(_mainWindow);
+        if (dlg.exec() == QDialog::Accepted) {
+            HeaderFooterOptions opt = dlg.options();
+            if (_ctx && _ctx->pdfEditor) {
+                _ctx->pdfEditor->addHeaderFooter(viewer->filePath(), opt);
+                viewer->reload();
+                _mainWindow->statusBar()->showMessage(tr("Header/Footer added."), 3000);
+            }
+        }
         break;
+    }
+    case ToolId::BatesNumber: {
+        BatesNumberingDialog dlg(_mainWindow);
+        if (dlg.exec() == QDialog::Accepted) {
+            BatesNumberingOptions opt = dlg.options();
+            if (_ctx && _ctx->pdfEditor) {
+                _ctx->pdfEditor->applyBatesNumbering(viewer->filePath(), opt);
+                viewer->reload();
+                _mainWindow->statusBar()->showMessage(tr("Bates Numbering applied."), 3000);
+            }
+        }
+        break;
+    }
     default:
         break;
     }
@@ -151,3 +185,4 @@ void PagesController::onCropRequested(int pageIndex, QRectF rect) {
 }
 
 } // namespace gp
+

@@ -268,6 +268,9 @@ add_library(pdfws_ui STATIC
     src/ui/WelcomeWidget.h           src/ui/WelcomeWidget.cpp
     src/ui/FindBar.h                 src/ui/FindBar.cpp
     src/ui/AnnotationToolBar.h       src/ui/AnnotationToolBar.cpp
+    src/ui/ResizeDialog.h            src/ui/ResizeDialog.cpp
+    src/ui/HeaderFooterDialog.h      src/ui/HeaderFooterDialog.cpp
+    src/ui/BatesNumberingDialog.h    src/ui/BatesNumberingDialog.cpp
     src/ui/EditToolBar.h             src/ui/EditToolBar.cpp
     src/ui/InspectorWidget.h         src/ui/InspectorWidget.cpp
     src/ui/CompareWidget.h           src/ui/CompareWidget.cpp
@@ -824,3 +827,4 @@ if(QT_VERSION VERSION_GREATER_EQUAL "6.5")
     )
     install(SCRIPT ${deploy_script})
 endif()
+
