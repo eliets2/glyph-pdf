@@ -31,6 +31,7 @@ public:
 
     bool loadDocument(const QString &fileName);
     bool isLoaded() const;
+    void reload();
     ToolMode toolMode() const { return m_toolMode; }
     void setToolMode(ToolMode mode);
     void setAnnotationColor(const QColor &color);
@@ -63,6 +64,8 @@ public:
     void rotateClockwise();
     void rotateCounterClockwise();
     void setPageMode(QPdfView::PageMode mode);
+    void setTwoPageMode(bool enabled);
+    void toggleEyeCareMode();
     void setOverlayImage(const QImage &img);
 
     // Export
@@ -127,6 +130,15 @@ private:
     QRubberBand *m_rubberBand = nullptr;
     QPoint m_rubberBandOrigin;
     bool m_isSelectingCrop = false;
+
+    // View Modes
+    bool m_twoPageMode = false;
+    bool m_eyeCareMode = false;
+    class QGraphicsColorizeEffect *m_eyeCareEffect = nullptr;
+    class QScrollArea *m_twoPageScrollArea = nullptr;
+    class QLabel *m_leftPageLabel = nullptr;
+    class QLabel *m_rightPageLabel = nullptr;
+    void updateTwoPageView();
 
     // Form-builder field placement (M3-PROMPT-1)
     QRubberBand *m_formRubberBand = nullptr;

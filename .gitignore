@@ -53,3 +53,22 @@ test_err*.log
 test_output.txt
 test_results.txt
 Testing/
+
+# Agent scratch files (Pattern 3 in agent-execution-anti-patterns)
+scratch_*
+scratch/
+*.tmp.md
+
+# Autosave artifacts (from AutosaveManager M1)
+*.autosave.pdf
+*.autosave.pdf.tmp
+
+# Signing fixtures generated binaries (script regenerates)
+tests/fixtures/signing/*.p12
+tests/fixtures/signing/*.key
+tests/fixtures/signing/*.crt
+tests/fixtures/signing/*.csr
+tests/fixtures/signing/*.srl
+
+# Vendored PoDoFo 1.1.0 build artifact (install tree is tracked separately)
+third_party/podofo_build/

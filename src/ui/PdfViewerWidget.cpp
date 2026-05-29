@@ -32,6 +32,9 @@
 #include <sstream>
 #include <vector>
 #include <QMap>
+#include <QGraphicsColorizeEffect>
+#include <QScrollArea>
+#include <QLabel>
 
 PdfViewerWidget::PdfViewerWidget(QWidget *parent)
     : QWidget(parent)
@@ -100,6 +103,19 @@ PdfViewerWidget::PdfViewerWidget(QWidget *parent)
     m_pdfView->setParent(container);
     m_annotationLayer->setParent(container);
 
+    // Setup TwoPage view
+    m_twoPageScrollArea = new QScrollArea(container);
+    m_twoPageScrollArea->setAlignment(Qt::AlignCenter);
+    QWidget *twoPageWidget = new QWidget();
+    QHBoxLayout *twoPageLayout = new QHBoxLayout(twoPageWidget);
+    m_leftPageLabel = new QLabel();
+    m_rightPageLabel = new QLabel();
+    twoPageLayout->addWidget(m_leftPageLabel);
+    twoPageLayout->addWidget(m_rightPageLabel);
+    m_twoPageScrollArea->setWidget(twoPageWidget);
+    m_twoPageScrollArea->setWidgetResizable(true);
+    m_twoPageScrollArea->hide();
+
     // We'll manage sizes manually in resizeEvent for true overlap
     layout->addWidget(container);
 }
@@ -120,6 +136,13 @@ bool PdfViewerWidget::loadDocument(const QString &fileName)
     m_document->load(fileName);
     if (isLoaded()) loadAnnotations();
     return isLoaded();
+}
+
+void PdfViewerWidget::reload()
+{
+    if (!m_filePath.isEmpty()) {
+        loadDocument(m_filePath);
+    }
 }
 
 bool PdfViewerWidget::isLoaded() const
@@ -403,6 +426,9 @@ int PdfViewerWidget::pageCount() const
 void PdfViewerWidget::onPageChanged()
 {
     m_pageChangeTimer->start();
+    if (m_twoPageMode) {
+        updateTwoPageView();
+    }
 }
 
 void PdfViewerWidget::resizeEvent(QResizeEvent *event)
@@ -411,12 +437,80 @@ void PdfViewerWidget::resizeEvent(QResizeEvent *event)
     if (m_pdfView && m_annotationLayer) {
         m_pdfView->resize(size());
         m_annotationLayer->resize(size());
+        if (m_twoPageScrollArea) {
+            m_twoPageScrollArea->resize(size());
+        }
     }
 }
 
 void PdfViewerWidget::setPageMode(QPdfView::PageMode mode)
 {
+    if (m_twoPageMode) setTwoPageMode(false);
     m_pdfView->setPageMode(mode);
+}
+
+void PdfViewerWidget::setTwoPageMode(bool enabled)
+{
+    m_twoPageMode = enabled;
+    if (enabled) {
+        m_pdfView->hide();
+        m_annotationLayer->hide();
+        m_twoPageScrollArea->show();
+        updateTwoPageView();
+    } else {
+        m_twoPageScrollArea->hide();
+        m_pdfView->show();
+        m_annotationLayer->show();
+    }
+}
+
+void PdfViewerWidget::updateTwoPageView()
+{
+    if (!m_twoPageMode || !m_document || m_document->pageCount() == 0) return;
+    
+    int current = currentPage();
+    int leftPage = (current % 2 == 0) ? current : current - 1;
+    if (leftPage < 0) leftPage = 0;
+    int rightPage = leftPage + 1;
+    
+    QImage leftImg = renderPage(leftPage, m_zoomFactor * 2.0);
+    if (!leftImg.isNull()) {
+        m_leftPageLabel->setPixmap(QPixmap::fromImage(leftImg));
+        m_leftPageLabel->show();
+    } else {
+        m_leftPageLabel->hide();
+    }
+    
+    if (rightPage < pageCount()) {
+        QImage rightImg = renderPage(rightPage, m_zoomFactor * 2.0);
+        if (!rightImg.isNull()) {
+            m_rightPageLabel->setPixmap(QPixmap::fromImage(rightImg));
+            m_rightPageLabel->show();
+        } else {
+            m_rightPageLabel->hide();
+        }
+    } else {
+        m_rightPageLabel->hide();
+    }
+}
+
+void PdfViewerWidget::toggleEyeCareMode()
+{
+    m_eyeCareMode = !m_eyeCareMode;
+    if (m_eyeCareMode) {
+        if (!m_eyeCareEffect) {
+            m_eyeCareEffect = new QGraphicsColorizeEffect(this);
+            m_eyeCareEffect->setColor(QColor(245, 222, 179)); // Warm Sepia
+            m_eyeCareEffect->setStrength(0.5);
+        }
+        m_pdfView->setGraphicsEffect(m_eyeCareEffect);
+        m_twoPageScrollArea->setGraphicsEffect(new QGraphicsColorizeEffect(this));
+        static_cast<QGraphicsColorizeEffect*>(m_twoPageScrollArea->graphicsEffect())->setColor(QColor(245, 222, 179));
+        static_cast<QGraphicsColorizeEffect*>(m_twoPageScrollArea->graphicsEffect())->setStrength(0.5);
+    } else {
+        m_pdfView->setGraphicsEffect(nullptr);
+        m_twoPageScrollArea->setGraphicsEffect(nullptr);
+    }
 }
 
 void PdfViewerWidget::mousePressEvent(QMouseEvent *event)

@@ -6,11 +6,18 @@
 #include <QMessageBox>
 #include "shell/StatusBar.h"
 #include <QPdfView>
+#include <QTimer>
+#include <QEvent>
+#include <QKeyEvent>
+#include <QMouseEvent>
+#include <QApplication>
 
 namespace gp {
 
 ViewController::ViewController(const AppContext* ctx, MainWindow* mainWindow, QObject* parent)
-    : QObject(parent), _ctx(ctx), _mainWindow(mainWindow) {}
+    : QObject(parent), _ctx(ctx), _mainWindow(mainWindow), _presentationTimer(new QTimer(this)) {
+    connect(_presentationTimer, &QTimer::timeout, this, &ViewController::advancePresentation);
+}
 
 QList<ToolId> ViewController::handledTools() const {
     return {
@@ -56,10 +63,12 @@ void ViewController::activate(ToolId id) {
         _mainWindow->statusBar()->showMessage(tr("Continuous Scroll mode active."), 3000);
         break;
     case ToolId::TwoPage:
-        QMessageBox::information(_mainWindow, tr("View Mode"),
-            tr("Two-Page view mode requires a custom QGraphicsView renderer and is scheduled for a future engine update."));
+        viewer->setTwoPageMode(true);
+        _mainWindow->statusBar()->showMessage(tr("Two-Page view mode active."), 3000);
         break;
     case ToolId::Presentation:
+        togglePresentationMode();
+        break;
     case ToolId::Fullscreen:
         toggleFullScreen();
         break;
@@ -67,7 +76,8 @@ void ViewController::activate(ToolId id) {
         _mainWindow->toggleTheme();
         break;
     case ToolId::EyeCare:
-        _mainWindow->statusBar()->showMessage(tr("Eye Strain (Sepia) mode is scheduled for a future update."), 3000);
+        viewer->toggleEyeCareMode();
+        _mainWindow->statusBar()->showMessage(tr("Eye Care mode toggled."), 3000);
         break;
     default:
         break;
@@ -76,13 +86,92 @@ void ViewController::activate(ToolId id) {
 
 void ViewController::toggleFullScreen() {
     _isFullScreen = !_isFullScreen;
-    if (_isFullScreen) {
-        if (auto* viewer = _mainWindow->pdfViewer()) {
+    if (auto* viewer = _mainWindow->pdfViewer()) {
+        if (_isFullScreen) {
             viewer->setPageMode(QPdfView::PageMode::SinglePage);
             viewer->zoomFitPage();
+        } else {
+            viewer->setPageMode(QPdfView::PageMode::MultiPage);
         }
     }
     _mainWindow->setFullScreenMode(_isFullScreen);
+}
+
+void ViewController::togglePresentationMode() {
+    _isPresentationMode = !_isPresentationMode;
+    auto* viewer = _mainWindow->pdfViewer();
+    
+    if (_isPresentationMode) {
+        if (!_isFullScreen) toggleFullScreen();
+        
+        qApp->installEventFilter(this);
+        _presentationTimer->start(5000); // Auto advance every 5 seconds
+        if (viewer) viewer->setPageMode(QPdfView::PageMode::SinglePage);
+        _mainWindow->statusBar()->showMessage(tr("Presentation mode started. ESC to exit."), 3000);
+    } else {
+        exitPresentationMode();
+    }
+}
+
+void ViewController::exitPresentationMode() {
+    if (!_isPresentationMode) return;
+    
+    _isPresentationMode = false;
+    _presentationTimer->stop();
+    qApp->removeEventFilter(this);
+    
+    if (_isFullScreen) toggleFullScreen();
+    _mainWindow->statusBar()->showMessage(tr("Presentation mode ended."), 3000);
+}
+
+void ViewController::advancePresentation() {
+    if (auto* viewer = _mainWindow->pdfViewer()) {
+        if (viewer->currentPage() < viewer->pageCount() - 1) {
+            viewer->goToPage(viewer->currentPage() + 1);
+        } else {
+            exitPresentationMode();
+        }
+    }
+}
+
+bool ViewController::eventFilter(QObject *watched, QEvent *event) {
+    if (_isPresentationMode) {
+        if (event->type() == QEvent::KeyPress) {
+            QKeyEvent *ke = static_cast<QKeyEvent *>(event);
+            if (ke->key() == Qt::Key_Escape) {
+                exitPresentationMode();
+                return true;
+            } else if (ke->key() == Qt::Key_Space || ke->key() == Qt::Key_Right || ke->key() == Qt::Key_Down) {
+                _presentationTimer->start(5000); // Reset timer
+                advancePresentation();
+                return true;
+            } else if (ke->key() == Qt::Key_Left || ke->key() == Qt::Key_Up) {
+                _presentationTimer->start(5000); // Reset timer
+                if (auto* viewer = _mainWindow->pdfViewer()) {
+                    if (viewer->currentPage() > 0) {
+                        viewer->goToPage(viewer->currentPage() - 1);
+                    }
+                }
+                return true;
+            }
+        } else if (event->type() == QEvent::MouseButtonPress) {
+            QMouseEvent *me = static_cast<QMouseEvent *>(event);
+            if (me->button() == Qt::LeftButton) {
+                _presentationTimer->start(5000); // Reset timer
+                advancePresentation();
+                return true;
+            } else if (me->button() == Qt::RightButton) {
+                _presentationTimer->start(5000); // Reset timer
+                if (auto* viewer = _mainWindow->pdfViewer()) {
+                    if (viewer->currentPage() > 0) {
+                        viewer->goToPage(viewer->currentPage() - 1);
+                    }
+                }
+                return true;
+            }
+        }
+    }
+    return QObject::eventFilter(watched, event);
 }
 
 } // namespace gp

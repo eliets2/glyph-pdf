@@ -62,6 +62,23 @@ Sprint cadence per audit SCOPE LOCK:
 
 ---
 
+## Vault memory workflow (read BEFORE starting any prompt)
+
+The STANDARD EXECUTION PROTOCOL in `docs/planning/MONTHS-2-8-PROMPTS.md` has **PHASE 0 — READ VAULT MEMORY** + **PHASE 6 — UPDATE VAULT** steps. Each individual prompt (M2-PROMPT-1 through M8-PROMPT-3) also has an inline `🔒 PHASE 0 + PHASE 6 mandatory` reminder right after its title — so even if you paste only one prompt into a fresh session, the agent sees the requirement.
+
+Before executing any M2-M8 prompt, read these vault notes (saves ~5-10K tokens vs re-derivation):
+
+1. `C:\Users\User\.claude\memory\knowledge\agent-execution-anti-patterns.md` — 17 cross-project failure patterns
+2. `C:\Users\User\.claude\memory\projects\glyphpdf\08-lessons-learned.md` — GlyphPDF specific
+3. `C:\Users\User\.claude\memory\projects\glyphpdf\06-non-negotiables.md` — architectural constraints
+4. `C:\Users\User\.claude\memory\projects\glyphpdf\01-current-state.md` — current state (don't assume stale)
+5. `C:\Users\User\.claude\memory\projects\glyphpdf\05-prompts-index.md` — dependency-aware order
+6. `C:\Users\User\.claude\memory\infrastructure\system-environment.md` — installed tools + MSYS2 packages + filesystem layout (don't re-query `pacman -Q`/`where`/`pip list`)
+
+The project `CLAUDE.md` auto-loads; the 6 vault notes don't (live in `~/.claude/memory/`). They're cross-linked from every other project note in the vault (enchanted-style, fi2-website, racheh-w-kamcheh, eliebot, edusphere-v2, rebellys, supabase-mcp, company, agent-system, enchanted-server) — so future work on ANY project benefits from the same lessons + system inventory.
+
+After completing a prompt: PHASE 6 in the protocol requires updating the vault with new lessons + session log entry + current-state delta + (if new architectural constraint discovered) non-negotiables entry.
+
 ## How to start the next session
 
 1. **First — execute MSYS2 migration** (Phase A). Open a fresh Claude Code session rooted at `C:\Users\User\Projects\pdf`. Paste `C:\Users\User\Desktop\GLYPH-PDF-MSYS2-MIGRATION.md`. Wait 6-10 hours (mostly pacman downloads + clean rebuild).

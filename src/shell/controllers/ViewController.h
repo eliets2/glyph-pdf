@@ -21,11 +21,21 @@ public:
     void activate(ToolId id) override;
 
 private:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
+private slots:
+    void advancePresentation();
+
+private:
     void toggleFullScreen();
+    void togglePresentationMode();
+    void exitPresentationMode();
 
     const AppContext* _ctx = nullptr;
     MainWindow* _mainWindow = nullptr;
     bool _isFullScreen = false;
+    bool _isPresentationMode = false;
+    class QTimer* _presentationTimer = nullptr;
 };
 
 } // namespace gp

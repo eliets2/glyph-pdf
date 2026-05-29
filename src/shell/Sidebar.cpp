@@ -137,6 +137,7 @@ void Sidebar::init(const AppContext* ctx, PdfViewerWidget* viewer)
         // Right Sidebar
         // 1. Properties tab: InspectorWidget
         m_inspectorWidget = new InspectorWidget(this);
+        m_inspectorWidget->init(m_ctx, m_viewer);
         // Hide its internal tab bar to avoid double tabs!
         if (auto* internalTabBar = m_inspectorWidget->findChild<QWidget*>("inspTabBar")) {
             internalTabBar->setVisible(false);
