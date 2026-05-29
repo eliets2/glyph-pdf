@@ -22,6 +22,8 @@ public:
 
 private:
     void manageForms();
+    void autoDetectFields();
+    void editTabOrder();
 
     void onImportDataRequested();
     void onExportDataRequested();

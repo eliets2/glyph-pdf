@@ -1,4 +1,7 @@
 #include "FormsController.h"
+#include "ui/SignatureDialog.h"
+#include "core/interfaces/ISignatureManager.h"
+
 #include "core/AppContext.h"
 #include "GpMainWindow.h"
 #include "ui/PdfViewerWidget.h"
@@ -74,12 +77,10 @@ void FormsController::activate(ToolId id) {
         if (viewer) viewer->setToolMode(ToolMode::FormAddSignature);
         break;
     case ToolId::AutoDetect:
-        _mainWindow->activateScreen("form");
-        QMessageBox::information(_mainWindow, tr("Auto-Detect"), tr("Auto-detect form fields from document structure is coming in v1.1."));
+        autoDetectFields();
         break;
     case ToolId::Tabs:
-        _mainWindow->activateScreen("form");
-        QMessageBox::information(_mainWindow, tr("Tab Order"), tr("Use the Tab Order panel in the Form Builder screen to manage tab order."));
+        editTabOrder();
         break;
     case ToolId::ImportData:
         onImportDataRequested();
@@ -89,6 +90,43 @@ void FormsController::activate(ToolId id) {
         break;
     default:
         break;
+    }
+}
+
+
+
+
+void FormsController::autoDetectFields() {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->forms) return;
+
+    auto suggestions = _ctx->forms->autoDetectFields(viewer->filePath(), viewer->currentPage());
+    if (suggestions.isEmpty()) {
+        QMessageBox::information(_mainWindow, tr("Auto Detect"), tr("No form fields detected on this page."));
+        return;
+    }
+
+    int count = 0;
+    for (const auto& s : suggestions) {
+        if (s.type == "Text") {
+            AddFormFieldCommand(_ctx->forms.get(), _ctx->document.get(), AddFormFieldCommand::FieldType::Text, viewer->currentPage(), s.rect, s.suggestedName).redo();
+            count++;
+        } else if (s.type == "Date") {
+            AddFormFieldCommand(_ctx->forms.get(), _ctx->document.get(), AddFormFieldCommand::FieldType::Date, viewer->currentPage(), s.rect, s.suggestedName).redo();
+            count++;
+        } else if (s.type == "Checkbox") {
+            AddFormFieldCommand(_ctx->forms.get(), _ctx->document.get(), AddFormFieldCommand::FieldType::Checkbox, viewer->currentPage(), s.rect, s.suggestedName).redo();
+            count++;
+        }
+    }
+    _mainWindow->statusBar()->showMessage(tr("Auto-detected and placed %1 fields.").arg(count), 5000);
+}
+
+void FormsController::editTabOrder() {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (viewer) {
+        QMetaObject::invokeMethod(_mainWindow, "onModeChanged", Q_ARG(QString, "form"));
+        QMessageBox::information(_mainWindow, tr("Tab Order Editor"), tr("To edit tab order, please open Form Builder Mode and click 'Tab Order' on the sidebar."));
     }
 }
 
