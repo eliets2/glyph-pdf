@@ -56,7 +56,7 @@ FORBIDDEN:
 
 ---
 
-## Progress: Sessions 1–11 + M1 — Committed (commit a6ea6aa)
+## Progress: Sessions 1–11 + M1 + M2 + M3-P1 — Committed
 
 | Session | Phase | Description | Status |
 |---------|-------|-------------|--------|
@@ -66,6 +66,12 @@ FORBIDDEN:
 | 4 | 2 | PDFium backend: rendering + 3-tier cache + tiled rendering | ✅ |
 | 5 | 2 | qpdf backend: linearize + repair + save pipeline | ✅ |
 | 6 | 3 | PAdES B-LT/B-LTA + certificate encryption | ✅ |
+| M2-P1 | 3 | Edact-Ray glyph-advance normalization + OCR text scrub | ✅ |
+| M2-P2 | 3 | Invisible OCR text-layer scrub in redaction | ✅ |
+| M2-P3 | 3 | veraPDF CLI subprocess PDF/A validation | ✅ |
+| M2-P4 | 3 | Adversarial crypto fixtures + RSA key enforcement | ✅ |
+| M2-P5 | 5 | LaneScheduler infrastructure (GPU+CPU lanes) | ✅ |
+| M3-P1 | 4 | FormBuilderMode wired: drag-place 9 types + props panel + tab order | ✅ |
 
 **Remediation note (May 2026):** A 7-session cleanup phase resolved all accumulated technical debt
 before this roadmap was formalized: MainWindow modularization, `gp::` namespace migration, thread

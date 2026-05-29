@@ -13,6 +13,18 @@ Real public v1.0.0 ships when all M2-M8 work in `GLYPH-PDF-MONTHS-2-8-PROMPTS.md
 
 **Other v1.0.0 work in M2-M8:** Edact-Ray glyph-advance defense in redaction, OCR text-layer scrub in redaction rectangles, veraPDF subprocess for PDF/A validation, real-crypto E2E test coverage, 5 mode-page completions, 23 ribbon tools wired, Office→PDF import + PDF→PPT export, DiffEngine LCS/Myers upgrade, ar/fr/de translations populated, AI backend (Anthropic/OpenAI/Gemini/Ollama), third-party security audit, performance tuning + bug bash, OSS governance files (LICENSE/CONTRIBUTING/SECURITY), GitHub repo + CI workflows, marketing prep, MSI signing, package-manager submissions, launch announcement.
 
+### Form Builder (M3-PROMPT-1 — 2026-05-29)
+
+#### Added
+- FormBuilderMode wired end-to-end: drag-place 9 field types (Text/Checkbox/Radio/Dropdown/ListBox/Date/Numeric/Signature/Button) via rubber-band mouse gesture on canvas; move/resize/delete commands; tab-order editor; FormFieldPropertiesPanel. Preview banner removed.
+- Nine new `ToolMode` enum values (`FormAddText`…`FormAddButton`) in `PdfEnums.h`; `PdfViewerWidget` routes all nine to CrossCursor + `fieldPlacementRequested` signal (same rubber-band pattern as Crop mode)
+- `FormFieldPropertiesPanel`: right-sidebar QWidget with name/tooltip/required/default/placeholder/regex fields; live validation (red border); Apply pushes `EditFormFieldCommand`
+- `EditFormFieldCommand` (id 0x105): undo/redo for field property changes via `IFormManager::fillForm`
+- `DeleteFormFieldCommand` (id 0x106): removes field from UI list; engine-side removal deferred to v1.1
+- `MoveFormFieldCommand` (id 0x107) + `ResizeFormFieldCommand` (id 0x108): record geometry changes; engine-side rect update deferred to v1.1 (blocked on `IFormManager::updateFieldRect`)
+- `ModeController::setAppContext()`: passes `AppContext*` + shared `PdfViewerWidget*` to `FormBuilderMode` at lazy-init
+- `TestFormBuilder` (18/18 ctest — 5 headless tests): place/edit/delete/tab-order coverage
+
 ### Scheduling Infrastructure (M2-PROMPT-5 — 2026-05-29)
 
 - **LaneScheduler infrastructure** (D1-D5): GPU lane — single persistent QThread warm worker bounded by QSemaphore (default capacity 2; anti-spawn-per-page); CPU lane — own QThreadPool sized to `QThread::idealThreadCount()` (isolated from global pool). `SchedulerResult<T> = QFuture<ScheduledValue<T>>` (C++17-compatible wrapper; `std::expected` deferred to C++23 bump). `OrderedResultQueue<T>` delivers results in page-index order; missing indices emit sentinel `SchedulerError{Timeout}`. `CrossPagePipeline` overlaps `stage1(P+1) || stage2(P) || stage3(P-1)` with backpressure semaphore. Wired into `AppContext` + `Bootstrapper`. 6 concurrency tests pass 5 repetitions (flakiness regression). Consumed by M5 OCR ensemble + M7 MRC pipeline.
