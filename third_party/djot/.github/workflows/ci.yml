@@ -1,0 +1,92 @@
+name: CI tests
+
+on: [push, pull_request]
+
+jobs:
+  linux:
+
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        luaVersion:
+          - '5.1'
+          - '5.2'
+          - '5.3'
+          - '5.4'
+          - 'luajit'
+    steps:
+    - uses: actions/checkout@v1
+    - uses: leafo/gh-actions-lua@v11
+      with:
+        luaVersion: ${{ matrix.luaVersion }}
+    - uses: leafo/gh-actions-luarocks@v5
+    - uses: mymindstorm/setup-emsdk@v14
+    - uses: r-lib/actions/setup-pandoc@v1
+      with:
+        pandoc-version: '2.19.2'
+    - name: Install luaposix for fuzz test
+      # The full luarocks.org manifest exceeds LuaJIT's 65536-constants-per-
+      # function bytecode limit, so on luajit we install via per-maintainer
+      # manifests, which are small enough to load. luaposix is gvvaughan's;
+      # its bit32 dep (Lua 5.1 / LuaJIT only) is siffiejoe's.
+      run: |
+          if [ "${{ matrix.luaVersion }}" = "luajit" ]; then
+            luarocks install --only-server=https://luarocks.org/manifests/siffiejoe bit32
+            luarocks install --only-server=https://luarocks.org/manifests/gvvaughan luaposix
+          else
+            luarocks install luaposix
+          fi
+    - name: Build and test
+      run: |
+          make ci
+
+  windows:
+
+    runs-on: windows-2019
+    strategy:
+      fail-fast: false
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install mingw
+      run: |
+          choco install mingw
+    - name: Build and test executable
+      run: |
+          cd clib
+          make
+    - name: Test lua script
+      run: |
+          ./clib/lua-src/lua test.lua
+
+  macos:
+
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        luaVersion:
+          - '5.4'
+          - 'luajit'
+    steps:
+    - uses: actions/checkout@v4
+    - uses: r-lib/actions/setup-pandoc@v1
+      with:
+        pandoc-version: '2.19.2'
+    - uses: leafo/gh-actions-lua@v11
+      with:
+        luaVersion: ${{ matrix.luaVersion }}
+    - uses: leafo/gh-actions-luarocks@v5
+    - uses: mymindstorm/setup-emsdk@v14
+    - name: Install luaposix for fuzz test
+      # See note in the linux job — bypass the oversized full manifest.
+      run: |
+          if [ "${{ matrix.luaVersion }}" = "luajit" ]; then
+            luarocks install --only-server=https://luarocks.org/manifests/siffiejoe bit32
+            luarocks install --only-server=https://luarocks.org/manifests/gvvaughan luaposix
+          else
+            luarocks install luaposix
+          fi
+    - name: Build and test
+      run: |
+          make ci
