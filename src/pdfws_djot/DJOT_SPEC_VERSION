@@ -1,0 +1,7 @@
+Lua version: 5.4.7
+Lua source:  https://www.lua.org/ftp/lua-5.4.7.tar.gz
+Lua license: MIT
+
+Djot source: https://github.com/jgm/djot
+Djot commit: HEAD (cloned 2026-05-30)
+Djot license: MIT
