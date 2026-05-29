@@ -1,8 +1,16 @@
 #pragma once
 #include <QString>
 #include <QStringList>
+#include <QStringList>
 #include <QVariantMap>
 #include <QRectF>
+#include <QList>
+
+struct FieldSuggestion {
+    QRectF rect;
+    QString type;
+    QString suggestedName;
+};
 
 class IFormManager {
 public:
@@ -24,6 +32,11 @@ public:
                               const QString &fieldName, const QStringList &options, const QString &outputPath) = 0;
     virtual bool addListBox(const QString &pdfFilePath, int pageIndex, const QRectF &rect,
                              const QString &fieldName, const QStringList &options, bool multiSelect, const QString &outputPath) = 0;
+
+    virtual bool createButton(const QString &pdfFilePath, int pageIndex, const QRectF &rect,
+                              const QString &caption, const QString &action, const QString &outputPath) = 0;
+
+    virtual QList<FieldSuggestion> autoDetectFields(const QString &pdfFilePath, int pageIndex) = 0;
 
     // Import / Export / Flatten
     virtual bool exportFormData(const QString &pdfFilePath, const QString &outputPath, const QString &format) = 0; // format: "FDF" or "CSV"

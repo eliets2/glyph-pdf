@@ -29,6 +29,10 @@ private:
     void addFormListBox();
     void addFormDateField();
     void addFormNumField();
+    void addFormButton();
+    void addFormSignature();
+    void autoDetectFields();
+    void editTabOrder();
 
     void onImportDataRequested();
     void onExportDataRequested();

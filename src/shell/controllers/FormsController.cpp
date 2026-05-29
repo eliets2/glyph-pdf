@@ -1,4 +1,7 @@
 #include "FormsController.h"
+#include "ui/SignatureDialog.h"
+#include "core/interfaces/ISignatureManager.h"
+
 #include "core/AppContext.h"
 #include "GpMainWindow.h"
 #include "ui/PdfViewerWidget.h"
@@ -59,11 +62,16 @@ void FormsController::activate(ToolId id) {
         addFormNumField();
         break;
     case ToolId::Button:
+        addFormButton();
+        break;
     case ToolId::SigField:
+        addFormSignature();
+        break;
     case ToolId::AutoDetect:
+        autoDetectFields();
+        break;
     case ToolId::Tabs:
-        QMessageBox::information(_mainWindow, tr("Interactive Forms"),
-            tr("Advanced interactive fields and automated form detection are scheduled for the next engine update."));
+        editTabOrder();
         break;
     case ToolId::ImportData:
         onImportDataRequested();
@@ -207,6 +215,84 @@ void FormsController::addFormNumField() {
         viewer->currentPage(), rect, name).redo();
     _mainWindow->statusBar()->showMessage(tr("Numeric field '%1' added to page %2").arg(name).arg(viewer->currentPage() + 1), 5000);
 }
+
+
+void FormsController::addFormButton() {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->forms) return;
+
+    bool ok;
+    QString caption = QInputDialog::getText(_mainWindow, tr("Add Button"), tr("Button Caption:"), QLineEdit::Normal, "Submit", &ok);
+    if (!ok || caption.isEmpty()) return;
+
+    QString action = QInputDialog::getText(_mainWindow, tr("Button Action"), tr("JavaScript action (optional):"), QLineEdit::Normal, "", &ok);
+    if (!ok) return;
+
+    QRectF rect(100, 100, 100, 30);
+    _ctx->document->setPath(viewer->filePath());
+    AddFormFieldCommand(
+        _ctx->forms.get(), _ctx->document.get(), AddFormFieldCommand::FieldType::Button,
+        viewer->currentPage(), rect, caption, QStringList() << action).redo();
+    _mainWindow->statusBar()->showMessage(tr("Button '%1' added to page %2").arg(caption).arg(viewer->currentPage() + 1), 5000);
+}
+
+void FormsController::addFormSignature() {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->signatures) return;
+
+    SignatureDialog dlg(_mainWindow);
+    if (dlg.exec() == QDialog::Accepted) {
+        QString certPath = dlg.certificatePath();
+        QString password = dlg.password();
+        QString reason = dlg.reason();
+        QString location = dlg.location();
+
+        QString outputPath = viewer->filePath() + ".signed.pdf";
+        if (_ctx->signatures->signDocument(viewer->filePath(), outputPath, certPath, password, reason, location)) {
+            viewer->loadDocument(outputPath);
+            QFile::remove(viewer->filePath());
+            QFile::rename(outputPath, viewer->filePath());
+            _mainWindow->statusBar()->showMessage(tr("Document signed successfully."), 5000);
+        } else {
+            QMessageBox::warning(_mainWindow, tr("Signature Failed"), tr("Failed to sign the document."));
+        }
+    }
+}
+
+void FormsController::autoDetectFields() {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->forms) return;
+
+    auto suggestions = _ctx->forms->autoDetectFields(viewer->filePath(), viewer->currentPage());
+    if (suggestions.isEmpty()) {
+        QMessageBox::information(_mainWindow, tr("Auto Detect"), tr("No form fields detected on this page."));
+        return;
+    }
+
+    int count = 0;
+    for (const auto& s : suggestions) {
+        if (s.type == "Text") {
+            AddFormFieldCommand(_ctx->forms.get(), _ctx->document.get(), AddFormFieldCommand::FieldType::Text, viewer->currentPage(), s.rect, s.suggestedName).redo();
+            count++;
+        } else if (s.type == "Date") {
+            AddFormFieldCommand(_ctx->forms.get(), _ctx->document.get(), AddFormFieldCommand::FieldType::Date, viewer->currentPage(), s.rect, s.suggestedName).redo();
+            count++;
+        } else if (s.type == "Checkbox") {
+            AddFormFieldCommand(_ctx->forms.get(), _ctx->document.get(), AddFormFieldCommand::FieldType::Checkbox, viewer->currentPage(), s.rect, s.suggestedName).redo();
+            count++;
+        }
+    }
+    _mainWindow->statusBar()->showMessage(tr("Auto-detected and placed %1 fields.").arg(count), 5000);
+}
+
+void FormsController::editTabOrder() {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (viewer) {
+        QMetaObject::invokeMethod(_mainWindow, "onModeChanged", Q_ARG(QString, "form"));
+        QMessageBox::information(_mainWindow, tr("Tab Order Editor"), tr("To edit tab order, please open Form Builder Mode and click 'Tab Order' on the sidebar."));
+    }
+}
+
 
 void FormsController::onImportDataRequested() {
     auto* viewer = _mainWindow->pdfViewer();
