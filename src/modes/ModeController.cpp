@@ -41,7 +41,11 @@ void ModeController::setScreen(const QString& id) {
         if (id == "ocr")          target = new OCRMode(this);
         else if (id == "redact")  target = new RedactMode(this);
         else if (id == "compare") target = new CompareMode(this);
-        else if (id == "pages")   target = new PagesMode(this);
+        else if (id == "pages") {
+            auto* pm = new PagesMode(this);
+            pm->setAppContext(_ctx);
+            target = pm;
+        }
         else if (id == "batch") {
             auto* bm = new BatchMode(this);
             bm->setAppContext(_ctx);
