@@ -6,7 +6,7 @@
 
 class AddFormFieldCommand : public QUndoCommand {
 public:
-    enum class FieldType { Text, Checkbox, Radio, Dropdown, ListBox, Date, Numeric };
+    enum class FieldType { Text, Checkbox, Radio, Dropdown, ListBox, Date, Numeric, Button };
 
     AddFormFieldCommand(IFormManager* engine, DocumentSession* doc, FieldType type,
                         int pageIndex, const QRectF& rect, const QString& name, const QStringList& options = {})
@@ -23,6 +23,7 @@ public:
             case FieldType::ListBox: m_engine->addListBox(m_doc->path(), m_page, m_rect, m_name, m_options, true, m_doc->path()); break;
             case FieldType::Date: m_engine->addDateField(m_doc->path(), m_page, m_rect, m_name, m_doc->path()); break;
             case FieldType::Numeric: m_engine->addNumericField(m_doc->path(), m_page, m_rect, m_name, m_doc->path()); break;
+            case FieldType::Button: m_engine->createButton(m_doc->path(), m_page, m_rect, m_name, m_options.isEmpty() ? "" : m_options.first(), m_doc->path()); break;
         }
         m_doc->markReload();
         // Keep the undo entry visible in the stack even though undo() is a no-op

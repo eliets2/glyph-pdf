@@ -3,6 +3,8 @@
 All notable changes to GlyphPDF are documented in this file.
 
 ## [Unreleased] — v1.0.0 Branch C SCOPE LOCK execution (M2-M8)
+### Added
+- Forms tools: Button field, signature field placement, auto-detect form fields, tab order editor - all wired.
 
 Real public v1.0.0 ships when all M2-M8 work in `GLYPH-PDF-MONTHS-2-8-PROMPTS.md` (Desktop) completes. **Timeline: ~8-9 months from M2 start.** The `[1.0.0-internal]` build below is private and NOT for public distribution.
 
