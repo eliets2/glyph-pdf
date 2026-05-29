@@ -206,9 +206,38 @@ void PdfViewerWidget::setToolMode(ToolMode mode)
         case ToolMode::Crop:
             m_pdfView->setCursor(Qt::CrossCursor);
             break;
+        case ToolMode::FormAddText:
+        case ToolMode::FormAddCheckbox:
+        case ToolMode::FormAddRadio:
+        case ToolMode::FormAddDropdown:
+        case ToolMode::FormAddListBox:
+        case ToolMode::FormAddDate:
+        case ToolMode::FormAddNumeric:
+        case ToolMode::FormAddSignature:
+        case ToolMode::FormAddButton:
+            m_pdfView->setCursor(Qt::CrossCursor);
+            break;
         default:
             m_pdfView->setCursor(Qt::ArrowCursor);
             break;
+    }
+}
+
+// static helper — must be defined before first use in this TU
+bool PdfViewerWidget::isFormBuilderMode(ToolMode mode) {
+    switch (mode) {
+        case ToolMode::FormAddText:
+        case ToolMode::FormAddCheckbox:
+        case ToolMode::FormAddRadio:
+        case ToolMode::FormAddDropdown:
+        case ToolMode::FormAddListBox:
+        case ToolMode::FormAddDate:
+        case ToolMode::FormAddNumeric:
+        case ToolMode::FormAddSignature:
+        case ToolMode::FormAddButton:
+            return true;
+        default:
+            return false;
     }
 }
 
@@ -401,6 +430,15 @@ void PdfViewerWidget::mousePressEvent(QMouseEvent *event)
         m_rubberBand->show();
         m_isSelectingCrop = true;
         event->accept();
+    } else if (isFormBuilderMode(m_toolMode) && event->button() == Qt::LeftButton) {
+        m_formRubberBandOrigin = event->pos();
+        if (!m_formRubberBand) {
+            m_formRubberBand = new QRubberBand(QRubberBand::Rectangle, this);
+        }
+        m_formRubberBand->setGeometry(QRect(m_formRubberBandOrigin, QSize()));
+        m_formRubberBand->show();
+        m_isPlacingField = true;
+        event->accept();
     } else {
         QWidget::mousePressEvent(event);
     }
@@ -410,6 +448,9 @@ void PdfViewerWidget::mouseMoveEvent(QMouseEvent *event)
 {
     if (m_isSelectingCrop && m_rubberBand) {
         m_rubberBand->setGeometry(QRect(m_rubberBandOrigin, event->pos()).normalized());
+        event->accept();
+    } else if (m_isPlacingField && m_formRubberBand) {
+        m_formRubberBand->setGeometry(QRect(m_formRubberBandOrigin, event->pos()).normalized());
         event->accept();
     } else {
         QWidget::mouseMoveEvent(event);
@@ -429,17 +470,32 @@ void PdfViewerWidget::mouseReleaseEvent(QMouseEvent *event)
                 // For a robust implementation we would map from view to scene to page.
                 // For now, we use the current page and pass the rect.
                 int page = currentPage();
-                
+
                 // Map widget coordinates to PDF coordinates
                 // Since this is a simple approximation:
                 // We'll pass the unmapped rect and let the controller handle it or map it here.
                 // Assuming scaling factor m_zoomFactor:
-                QRectF pdfRect(selection.x() / m_zoomFactor, 
-                               selection.y() / m_zoomFactor, 
-                               selection.width() / m_zoomFactor, 
+                QRectF pdfRect(selection.x() / m_zoomFactor,
+                               selection.y() / m_zoomFactor,
+                               selection.width() / m_zoomFactor,
                                selection.height() / m_zoomFactor);
-                               
+
                 emit cropRequested(page, pdfRect);
+            }
+        }
+        event->accept();
+    } else if (m_isPlacingField && event->button() == Qt::LeftButton) {
+        m_isPlacingField = false;
+        if (m_formRubberBand) {
+            m_formRubberBand->hide();
+            QRect selection = m_formRubberBand->geometry();
+            if (selection.width() > 10 && selection.height() > 10) {
+                int page = currentPage();
+                QRectF pdfRect(selection.x() / m_zoomFactor,
+                               selection.y() / m_zoomFactor,
+                               selection.width() / m_zoomFactor,
+                               selection.height() / m_zoomFactor);
+                emit fieldPlacementRequested(page, pdfRect, m_toolMode);
             }
         }
         event->accept();

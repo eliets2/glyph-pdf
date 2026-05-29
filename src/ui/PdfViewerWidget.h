@@ -92,6 +92,7 @@ signals:
     void pageOperationFinished();
     void cropRequested(int pageIndex, QRectF cropRect);
     void textSelected(const QString& selectedText);
+    void fieldPlacementRequested(int pageIndex, QRectF pdfRect, ToolMode mode);
 
 public slots:
     void zoomIn();
@@ -126,6 +127,13 @@ private:
     QRubberBand *m_rubberBand = nullptr;
     QPoint m_rubberBandOrigin;
     bool m_isSelectingCrop = false;
+
+    // Form-builder field placement (M3-PROMPT-1)
+    QRubberBand *m_formRubberBand = nullptr;
+    QPoint m_formRubberBandOrigin;
+    bool m_isPlacingField = false;
+
+    static bool isFormBuilderMode(ToolMode mode);
 
     // Render cache (Fix 5)
     struct CachedPage {
