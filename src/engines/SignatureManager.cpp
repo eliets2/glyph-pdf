@@ -534,6 +534,40 @@ public:
     }
 
     // -----------------------------------------------------------------------
+    // M2-P4: Extract embedded OCSP DER bytes from the DSS /OCSPs array for
+    // a specific signature field. Returns empty QByteArray if not found.
+    // Full DSS-to-field-name correlation is wired in M5 when the VRI dict
+    // links /OCSPs entries to individual signatures; for now returns the
+    // first available OCSP DER or empty (stub).
+    // -----------------------------------------------------------------------
+    QByteArray extractOcspFromDss(const PdfMemDocument &doc, const QString &/*sigFieldName*/)
+    {
+        try {
+            const auto &catalog = doc.GetCatalog().GetDictionary();
+            const PdfObject *dssObj = catalog.FindKey(PdfName("DSS"));
+            if (!dssObj || !dssObj->IsDictionary()) return {};
+
+            const auto &dssDictRef = dssObj->GetDictionary();
+            const PdfObject *ocspsObj = dssDictRef.FindKey(PdfName("OCSPs"));
+            if (!ocspsObj || !ocspsObj->IsArray()) return {};
+
+            const auto &ocspsArr = ocspsObj->GetArray();
+            if (ocspsArr.IsEmpty()) return {};
+
+            // Return the first OCSP stream's content (M5 will correlate by VRI key)
+            const PdfObject &firstRef = ocspsArr[0];
+            const PdfObject *streamObj = doc.GetObjects().GetObject(firstRef.GetReference());
+            if (!streamObj || !streamObj->HasStream()) return {};
+
+            charbuff buf;
+            streamObj->GetStream()->CopyTo(buf);
+            return QByteArray(buf.data(), static_cast<int>(buf.size()));
+        } catch (...) {
+            return {};
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Extract /Contents raw and hex from signed PDF for VRI key computation
     // -----------------------------------------------------------------------
     std::pair<QByteArray, QByteArray> extractSignatureContentsRaw(const QString &filePath)
@@ -588,6 +622,22 @@ bool SignatureManager::signDocument(const QString &inputPath,
         // exceptions thrown by PoDoFo while we still own the key.
         EvpPkeyPtr pkey(pkeyRaw);
 
+        // Reject weak RSA keys (< 2048 bits) before performing any signing.
+        // EVP_PKEY_RSA check: if the public key in the leaf cert is RSA < 2048 bits,
+        // refuse to sign. This mirrors the M2-P4 pre-decided design choice #1.
+        if (leafCert) {
+            EVP_PKEY *pubKey = X509_get0_pubkey(leafCert);
+            if (pubKey && EVP_PKEY_id(pubKey) == EVP_PKEY_RSA) {
+                if (EVP_PKEY_bits(pubKey) < 2048) {
+                    qWarning() << "SignatureManager: Signing rejected — RSA key size"
+                               << EVP_PKEY_bits(pubKey) << "bits < 2048 bits (weak key)";
+                    if (issuerCert) X509_free(issuerCert);
+                    X509_free(leafCert);
+                    return false;
+                }
+            }
+        }
+
         PdfSignerCmsParams params;
         params.Hashing = PdfHashingAlgorithm::SHA256;
 
@@ -633,8 +683,14 @@ bool SignatureManager::signDocument(const QString &inputPath,
                 qWarning() << "B-T: TSA request failed — signature will use local time only";
         }
 
+        // PdfSaveOptions::SaveOnSigning: perform a full save (not incremental update)
+        // so the output PDF contains the complete document (header, catalog, all objects).
+        // Without this flag, PoDoFo with FileMode::Create writes only changed objects,
+        // producing a file that starts at object 1 with no PDF header — unloadable by
+        // any PDF reader including PoDoFo itself (M2-P4 fix).
         FileStreamDevice outputStream(outputPath.toStdString(), FileMode::Create);
-        SignDocument(doc, outputStream, actualSigner, *signature);
+        SignDocument(doc, outputStream, actualSigner, *signature,
+                     PdfSaveOptions::SaveOnSigning);
 
         // ----------------------------------------------------------------
         // B-LT / B-LTA outcome tracking — bytes are written, but DSS / TSA
@@ -901,12 +957,33 @@ QList<SignatureInfo> SignatureManager::validateSignatures(const QString &filePat
                                    CMS_DETACHED | CMS_BINARY) == 1) {
                         // D2: EKU check — reject certs with only OCSPSigning EKU
                         bool ekuOk = true;
+                        bool weakKey = false;
+                        bool certExpired = false;
                         STACK_OF(CMS_SignerInfo) *sis = CMS_get0_SignerInfos(cms);
                         for (int si = 0; si < sk_CMS_SignerInfo_num(sis); ++si) {
                             CMS_SignerInfo *siInfo = sk_CMS_SignerInfo_value(sis, si);
                             X509 *signerCert = nullptr;
                             CMS_SignerInfo_get0_algs(siInfo, nullptr, &signerCert, nullptr, nullptr);
                             if (!signerCert) continue;
+
+                            // M2-P4: Reject weak RSA keys (< 2048 bits) during validation
+                            EVP_PKEY *pubKey = X509_get0_pubkey(signerCert);
+                            if (pubKey && EVP_PKEY_id(pubKey) == EVP_PKEY_RSA) {
+                                if (EVP_PKEY_bits(pubKey) < 2048) {
+                                    qWarning() << "SECURITY: Signature uses RSA"
+                                               << EVP_PKEY_bits(pubKey)
+                                               << "bit key — WeakKey";
+                                    weakKey = true;
+                                }
+                            }
+
+                            // M2-P4: Detect already-expired cert (NotAfter < current time)
+                            const ASN1_TIME *notAfter = X509_get0_notAfter(signerCert);
+                            if (notAfter && X509_cmp_current_time(notAfter) < 0) {
+                                qWarning() << "SECURITY: Signing certificate has expired (NotAfter < now)";
+                                certExpired = true;
+                            }
+
                             EXTENDED_KEY_USAGE *eku = static_cast<EXTENDED_KEY_USAGE*>(
                                 X509_get_ext_d2i(signerCert, NID_ext_key_usage, nullptr, nullptr));
                             if (eku) {
@@ -953,7 +1030,14 @@ QList<SignatureInfo> SignatureManager::validateSignatures(const QString &filePat
                             }
                         }
 
-                        if (ekuOk && signingTimeOk) {
+                        // M2-P4: WeakKey and CertExpired take priority over EKU/time checks
+                        if (weakKey) {
+                            info.isValid = false;
+                            info.trustStatus = "WeakKey";
+                        } else if (certExpired) {
+                            info.isValid = false;
+                            info.trustStatus = "CertExpired";
+                        } else if (ekuOk && signingTimeOk) {
                             info.isValid = true;
                             info.trustStatus = hasDss ? "ValidWithDSS" : "Valid";
                         } else if (!ekuOk) {
@@ -979,6 +1063,42 @@ QList<SignatureInfo> SignatureManager::validateSignatures(const QString &filePat
                         }
                         ERR_clear_error();
                     }
+                    // M2-P4: Re-parse embedded OCSP responses from DSS /OCSPs array
+                    // for revocation status. If the OCSP response reports revoked,
+                    // override trustStatus with "Revoked". Full DSS-to-field-name
+                    // correlation is wired in M5; the stub returns the first available
+                    // OCSP entry.
+                    if (info.trustStatus != "WeakKey" &&
+                        info.trustStatus != "CertExpired") {
+                        QByteArray ocspDer = d->extractOcspFromDss(doc, info.fieldName);
+                        if (!ocspDer.isEmpty()) {
+                            const unsigned char *p =
+                                reinterpret_cast<const unsigned char*>(ocspDer.constData());
+                            OCSP_RESPONSE *resp =
+                                d2i_OCSP_RESPONSE(nullptr, &p, ocspDer.size());
+                            if (resp) {
+                                OCSP_BASICRESP *basic = OCSP_response_get1_basic(resp);
+                                if (basic) {
+                                    for (int i = 0; i < OCSP_resp_count(basic); ++i) {
+                                        OCSP_SINGLERESP *sr = OCSP_resp_get0(basic, i);
+                                        int certStatus = -1;
+                                        OCSP_single_get0_status(sr, &certStatus,
+                                                                nullptr, nullptr, nullptr);
+                                        if (certStatus == V_OCSP_CERTSTATUS_REVOKED) {
+                                            qWarning() << "SECURITY: Embedded OCSP reports"
+                                                       << "signing certificate as REVOKED";
+                                            info.trustStatus = "Revoked";
+                                            info.isValid = false;
+                                            break;
+                                        }
+                                    }
+                                    OCSP_BASICRESP_free(basic);
+                                }
+                                OCSP_RESPONSE_free(resp);
+                            }
+                        }
+                    }
+
                     // unique_ptrs auto-release on scope exit
                 }
             } catch (...) {

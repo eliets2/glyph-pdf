@@ -471,20 +471,44 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAutosave.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignatureValidationMock.cpp")
+    add_executable(TestSignatureValidationMock
+        tests/TestSignatureValidationMock.cpp
+    )
+    target_include_directories(TestSignatureValidationMock PRIVATE src tests)
+    target_link_libraries(TestSignatureValidationMock PRIVATE
+        pdfws_core
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_test(NAME TestSignatureValidationMock COMMAND TestSignatureValidationMock)
+    set_tests_properties(TestSignatureValidationMock PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;security;signatures;mock;interface;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignatureValidation.cpp")
     add_executable(TestSignatureValidation
         tests/TestSignatureValidation.cpp
     )
     target_include_directories(TestSignatureValidation PRIVATE src tests)
-    target_link_libraries(TestSignatureValidation PRIVATE
-        pdfws_core
-        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    target_compile_definitions(TestSignatureValidation PRIVATE
+        SOURCE_DIR="${CMAKE_SOURCE_DIR}"
     )
+    target_link_libraries(TestSignatureValidation PRIVATE
+        pdfws_engines pdfws_core
+        OpenSSL::SSL OpenSSL::Crypto
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets podofo::podofo
+    )
+    if(WIN32)
+        target_link_libraries(TestSignatureValidation PRIVATE Crypt32)
+    endif()
     add_test(NAME TestSignatureValidation COMMAND TestSignatureValidation)
     set_tests_properties(TestSignatureValidation PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
-        TIMEOUT 60
-        LABELS "unit;security;signatures;qt;headless"
+        TIMEOUT 120
+        LABELS "integration;security;signatures;real-crypto;qt;headless"
     )
 endif()
 

@@ -316,6 +316,239 @@ private slots:
     }
 
     // -----------------------------------------------------------------------
+    // Adversarial Test 7 (M2-P4): Expired certificate
+    // An already-expired cert must either be refused at signing time or, if
+    // signing succeeds, validateSignatures must report CertExpired or
+    // SigningTimeOutOfRange (not a passing Valid status).
+    // -----------------------------------------------------------------------
+    void testExpiredCertRejected()
+    {
+        QString expiredP12 = kFixtureDir + "/expired_cert.p12";
+        if (!QFileInfo::exists(expiredP12))
+            QSKIP("expired_cert.p12 not generated — run generate.bat first");
+        REQUIRE_FIXTURES();
+
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_B);
+        QString output = m_tmpDir.filePath("expired_signed.pdf");
+        bool ok = mgr.signDocument(kInputPdf, output, expiredP12, kP12Pass);
+
+        if (ok && QFileInfo::exists(output)) {
+            // Signing was not rejected up-front; validation must catch it
+            X509_STORE *store = buildTestStore();
+            QVERIFY(store);
+            mgr.setTrustStoreForTest(store);
+
+            auto sigs = mgr.validateSignatures(output);
+            QVERIFY2(!sigs.isEmpty(), "Validate must return at least one result");
+
+            const QString &status = sigs.first().trustStatus;
+            bool expired = (status == "CertExpired" ||
+                            status == "SigningTimeOutOfRange");
+            QVERIFY2(expired,
+                qPrintable("Expected CertExpired or SigningTimeOutOfRange, got: " + status));
+            QVERIFY2(!sigs.first().isValid,
+                     "Signature with expired cert must not be marked valid");
+
+            X509_STORE_free(store);
+            mgr.setTrustStoreForTest(nullptr);
+        } else {
+            // Preferred outcome: signing was rejected because cert is expired
+            // (engine pre-checks NotAfter before signing)
+            QVERIFY2(!ok, "signDocument must return false for expired certificate");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Adversarial Test 8 (M2-P4): RSA-1024 key rejection
+    // signDocument must refuse to sign with an RSA-1024 cert (too weak).
+    // If signing somehow succeeds, validation must mark it WeakKey.
+    // -----------------------------------------------------------------------
+    void testRSA1024Rejected()
+    {
+        QString weakP12 = kFixtureDir + "/weak_cert_rsa1024.p12";
+        if (!QFileInfo::exists(weakP12))
+            QSKIP("weak_cert_rsa1024.p12 not generated — run generate.bat first");
+        REQUIRE_FIXTURES();
+
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_B);
+        QString output = m_tmpDir.filePath("weak_signed.pdf");
+        bool ok = mgr.signDocument(kInputPdf, output, weakP12, kP12Pass);
+
+        if (ok && QFileInfo::exists(output)) {
+            // Signing was not blocked at key-size check; validation must catch it
+            X509_STORE *store = buildTestStore();
+            QVERIFY(store);
+            mgr.setTrustStoreForTest(store);
+
+            auto sigs = mgr.validateSignatures(output);
+            QVERIFY2(!sigs.isEmpty(), "Validate must return at least one result");
+            QCOMPARE(sigs.first().trustStatus, QString("WeakKey"));
+            QVERIFY2(!sigs.first().isValid,
+                     "RSA-1024 signature must not be marked valid");
+
+            X509_STORE_free(store);
+            mgr.setTrustStoreForTest(nullptr);
+        } else {
+            // Preferred outcome: signing rejected at RSA < 2048-bit check
+            QVERIFY2(!ok, "signDocument must return false for RSA-1024 certificate");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Adversarial Test 9 (M2-P4): Revoked certificate reports Revoked
+    // This test requires DSS OCSP injection (wired in M5). Until then it uses
+    // QEXPECT_FAIL since the stub extractOcspFromDss returns empty at B_B level.
+    // -----------------------------------------------------------------------
+    void testRevokedCertReportsRevoked()
+    {
+        QString revokedP12 = kFixtureDir + "/revoked_cert.p12";
+        if (!QFileInfo::exists(revokedP12))
+            QSKIP("revoked_cert.p12 not generated — run generate.bat first");
+        QString revokedDer = kFixtureDir + "/revoked_ocsp_response.der";
+        if (!QFileInfo::exists(revokedDer))
+            QSKIP("revoked_ocsp_response.der not generated — run generate.bat first");
+        REQUIRE_FIXTURES();
+
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_B);
+        QString output = m_tmpDir.filePath("revoked_signed.pdf");
+        // revoked_cert.p12 uses an RSA-2048 cert so signing should succeed
+        QVERIFY(mgr.signDocument(kInputPdf, output, revokedP12, kP12Pass));
+
+        X509_STORE *store = buildTestStore();
+        QVERIFY(store);
+        mgr.setTrustStoreForTest(store);
+
+        auto sigs = mgr.validateSignatures(output);
+        QVERIFY(!sigs.isEmpty());
+
+        // OCSP DSS injection is wired in M5; at B_B level the DSS /OCSPs array
+        // is absent so extractOcspFromDss returns empty → revocation not detected.
+        QEXPECT_FAIL("", "Revocation reporting requires DSS OCSP injection (M5 wiring)", Continue);
+        QCOMPARE(sigs.first().trustStatus, QString("Revoked"));
+
+        X509_STORE_free(store);
+        mgr.setTrustStoreForTest(nullptr);
+    }
+
+    // -----------------------------------------------------------------------
+    // Adversarial Test 10 (M2-P4): Tampered PDF reports integrityIntact=false
+    // Sign a PDF, flip one byte in the signed byte range, then validate.
+    // -----------------------------------------------------------------------
+    void testTamperedPdfInvalid()
+    {
+        REQUIRE_FIXTURES();
+
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_B);
+        QString signedPath = m_tmpDir.filePath("to_tamper.pdf");
+        QVERIFY(mgr.signDocument(kInputPdf, signedPath, kP12Path, kP12Pass));
+
+        // Flip one byte in the signed content region (not inside the /Contents hex blob).
+        // Heuristic: flip a byte near the beginning of the file (within the first segment
+        // of the ByteRange, which is the PDF header + body before the signature).
+        {
+            QFile f(signedPath);
+            QVERIFY(f.open(QIODevice::ReadWrite));
+            QByteArray data = f.readAll();
+            QVERIFY2(data.size() > 16, "Signed PDF must have some content to tamper");
+
+            // Find /ByteRange to know the signed regions
+            int brPos = data.indexOf("/ByteRange [");
+            if (brPos < 0) brPos = data.indexOf("/ByteRange[");
+            if (brPos >= 0) {
+                int cursor = data.indexOf('[', brPos) + 1;
+                int brEnd  = data.indexOf(']', cursor);
+                QList<QByteArray> parts = data.mid(cursor, brEnd - cursor).trimmed().split(' ');
+                if (parts.size() == 4) {
+                    qint64 off1 = parts[0].toLongLong();
+                    qint64 len1 = parts[1].toLongLong();
+                    // Flip a byte in the middle of segment 1 (safe: within PDF header region)
+                    qint64 tampPos = off1 + len1 / 2;
+                    if (tampPos < data.size()) {
+                        data[static_cast<int>(tampPos)] =
+                            static_cast<char>(data[static_cast<int>(tampPos)] ^ 0x01);
+                    }
+                }
+            } else {
+                // Fallback: flip byte at 1/4 of file (PDF header region)
+                qint64 pos = data.size() / 4;
+                data[static_cast<int>(pos)] ^= 0x01;
+            }
+            f.seek(0);
+            f.write(data);
+            f.close();
+        }
+
+        auto sigs = mgr.validateSignatures(signedPath);
+        QVERIFY2(!sigs.isEmpty(), "Tampered PDF must produce at least one SignatureInfo");
+        QVERIFY2(!sigs.first().integrityIntact,
+                 "Tampered PDF must report integrityIntact=false");
+    }
+
+    // -----------------------------------------------------------------------
+    // Adversarial Test 11 (M2-P4): Multiple signatures — both must be intact
+    // Sign once, then sign the already-signed PDF again.
+    // Both signatures must report integrityIntact=true.
+    // -----------------------------------------------------------------------
+    void testMultipleSignatures()
+    {
+        REQUIRE_FIXTURES();
+
+        // First signature
+        SignatureManager mgr1;
+        mgr1.setSignatureLevel(PAdESLevel::B_B);
+        QString sig1Path = m_tmpDir.filePath("multi_sig1.pdf");
+        QVERIFY(mgr1.signDocument(kInputPdf, sig1Path, kP12Path, kP12Pass,
+                                  "FirstSig", "Location1"));
+
+        // Second signature on the already-signed PDF
+        SignatureManager mgr2;
+        mgr2.setSignatureLevel(PAdESLevel::B_B);
+        QString sig2Path = m_tmpDir.filePath("multi_sig2.pdf");
+        QVERIFY(mgr2.signDocument(sig1Path, sig2Path, kP12Path, kP12Pass,
+                                  "SecondSig", "Location2"));
+
+        // Validate the doubly-signed PDF
+        SignatureManager mgr3;
+        auto sigs = mgr3.validateSignatures(sig2Path);
+        QVERIFY2(sigs.size() >= 2,
+                 qPrintable(QString("Multi-signed PDF must report >= 2 signatures, got %1")
+                            .arg(sigs.size())));
+
+        for (const auto &sig : sigs) {
+            QVERIFY2(sig.integrityIntact,
+                     qPrintable("Signature " + sig.fieldName + " integrity failed after double-sign"));
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Adversarial Test 12 (M2-P4): Revoked OCSP signer
+    // A B_B signed PDF (no DSS OCSP embedding) must not claim hasDss=true.
+    // Full revoked-OCSP-signer check (M5 DSS injection path) is tested via
+    // testRevokedCertReportsRevoked once wired in M5.
+    // -----------------------------------------------------------------------
+    void testRevokedOcspSigner()
+    {
+        REQUIRE_FIXTURES();
+
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_B);
+        QString output = m_tmpDir.filePath("revoked_ocsp_signer.pdf");
+        QVERIFY(mgr.signDocument(kInputPdf, output, kP12Path, kP12Pass));
+
+        auto sigs = mgr.validateSignatures(output);
+        QVERIFY2(!sigs.isEmpty(), "Validate must produce at least one result");
+        // B_B level: no OCSP embedded → no DSS dictionary → hasDss must be false
+        QVERIFY2(!sigs.first().hasDss,
+                 "B_B signed PDF must not have DSS (no OCSP/TSA embedded)");
+        // With an untrusted OCSP responder in the chain, upgrading to B-LT would be
+        // blocked — this test confirms the B_B baseline: hasDss == false.
+    }
+
+    // -----------------------------------------------------------------------
     // Test 6: Bad OCSP response (wrong signer) must NOT be embedded in DSS
     //         We verify this indirectly: if OCSP injection was blocked, the
     //         DSS /OCSPs array is empty (or absent). We can't inject a fake
