@@ -13,6 +13,19 @@ Real public v1.0.0 ships when all M2-M8 work in `GLYPH-PDF-MONTHS-2-8-PROMPTS.md
 
 **Other v1.0.0 work in M2-M8:** Edact-Ray glyph-advance defense in redaction, OCR text-layer scrub in redaction rectangles, veraPDF subprocess for PDF/A validation, real-crypto E2E test coverage, 5 mode-page completions, 23 ribbon tools wired, Office→PDF import + PDF→PPT export, DiffEngine LCS/Myers upgrade, ar/fr/de translations populated, AI backend (Anthropic/OpenAI/Gemini/Ollama), third-party security audit, performance tuning + bug bash, OSS governance files (LICENSE/CONTRIBUTING/SECURITY), GitHub repo + CI workflows, marketing prep, MSI signing, package-manager submissions, launch announcement.
 
+### Security (M2-PROMPT-2 — 2026-05-29)
+
+- **Invisible OCR text layer scrub** (D1): `redactCanvasRecursively` now tracks text rendering
+  mode (`Tr` operator). Text operators (Tj/TJ/'/") executed with Tr==3 (invisible) whose glyph
+  bounding box intersects a redaction rectangle are removed from the content stream. No
+  Edact-Ray glyph-advance normalization gap is emitted for invisible scrubs — invisible glyphs
+  produce no visual output so there is no visible cursor position to preserve. For `'` and `"`
+  operators the text-line advance side-effect (T* equivalent) is still emitted to keep
+  subsequent text positioned correctly. Form XObjects are walked recursively; Tr state is
+  inherited across XObject boundaries (existing tracking behavior). Regression test
+  `testOCRScrubbing` confirms "hunter2"-style secrets in invisible (Tr==3) OCR layers are
+  scrubbed from redacted output with no Edact-Ray gap in their place.
+
 ### Security (M2-PROMPT-1 — 2026-05-29)
 
 - **Edact-Ray glyph-advance normalization** (D1/D2): new `GlyphAdvanceCalculator` helper class

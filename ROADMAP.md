@@ -195,8 +195,12 @@ make Markdown unsuitable as an interchange format in a security-critical documen
   — NO space glyph, so attacker cannot reconstruct removed characters from gap widths.
   D2 (PoDoFoBackend numeric-only TJ) + D3 (3 regression tests) also complete. Total: 16/16
   TestRedaction cases passing.
-- **D2: OCR text-layer scrub** — invisible text from prior OCR operations falling within
-  redaction rectangles removed from the invisible text stream
+- **D2: OCR text-layer scrub** ✅ DONE (M2-P2, 2026-05-29) — invisible text from prior OCR
+  operations falling within redaction rectangles removed from the invisible text stream.
+  `redactCanvasRecursively` now uses existing `currentRenderingMode` (Tr) tracking to suppress
+  Tj/TJ/'/\" operators with Tr==3 that intersect redaction rects. No Edact-Ray gap emitted for
+  invisible scrubs. Regression test `testOCRScrubbing` rewritten to be mechanistically correct
+  (checks content stream operators, not raw bytes of compressed stream).
 - **D3: Structure-tree scrub** — walk `/StructTreeRoot`; clear `/ActualText`, `/Alt`, `/E`
   entries containing redacted content; remove marked-content structure elements in redacted regions
 - **D4: Redaction audit log** — JSON sidecar (`.redaction-log.json`) per operation:
