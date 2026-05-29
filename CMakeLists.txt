@@ -116,6 +116,15 @@ target_link_libraries(pdfws_core INTERFACE
     Qt6::Gui
 )
 
+# ── Third-party vendored dependencies ──────────────────────────────────────
+add_subdirectory(third_party)
+
+# ── docmodel (STATIC) ──────────────────────────────────────────────────────
+add_subdirectory(src/docmodel)
+
+# ── pdfws_djot (STATIC) ───────────────────────────────────────────────────
+add_subdirectory(src/pdfws_djot)
+
 # ── pdfws_engines (STATIC) ───────────────────────────────────────────────
 add_library(pdfws_engines STATIC
     src/core/AnnotationSerializer.h  src/core/AnnotationSerializer.cpp
@@ -773,6 +782,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchMode.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 60
         LABELS "unit;modes;batch;ui;qt;headless"
+        RESOURCE_LOCK BatchModeIO
     )
 endif()
 
@@ -799,6 +809,49 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestInspector.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 60
         LABELS "unit;inspector;properties;ui;qt;headless"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPatternRedact.cpp")
+    add_executable(TestPatternRedact
+        tests/TestPatternRedact.cpp
+    )
+    target_include_directories(TestPatternRedact PRIVATE src tests)
+    target_link_libraries(TestPatternRedact PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestPatternRedact POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestPatternRedact>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestPatternRedact>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestPatternRedact"
+    )
+    add_test(NAME TestPatternRedact COMMAND TestPatternRedact)
+    set_tests_properties(TestPatternRedact PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;security;redaction;patterns;qt;headless"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestDjotRoundtrip.cpp")
+    add_executable(TestDjotRoundtrip
+        tests/TestDjotRoundtrip.cpp
+    )
+    target_include_directories(TestDjotRoundtrip PRIVATE src tests)
+    target_link_libraries(TestDjotRoundtrip PRIVATE
+        pdfws_djot docmodel
+        Qt6::Test Qt6::Core
+    )
+    add_test(NAME TestDjotRoundtrip COMMAND TestDjotRoundtrip)
+    set_tests_properties(TestDjotRoundtrip PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;djot;codec;provenance"
     )
 endif()
 
