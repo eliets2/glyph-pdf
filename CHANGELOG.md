@@ -13,6 +13,33 @@ Real public v1.0.0 ships when all M2-M8 work in `GLYPH-PDF-MONTHS-2-8-PROMPTS.md
 
 **Other v1.0.0 work in M2-M8:** Edact-Ray glyph-advance defense in redaction, OCR text-layer scrub in redaction rectangles, veraPDF subprocess for PDF/A validation, real-crypto E2E test coverage, 5 mode-page completions, 23 ribbon tools wired, Office→PDF import + PDF→PPT export, DiffEngine LCS/Myers upgrade, ar/fr/de translations populated, AI backend (Anthropic/OpenAI/Gemini/Ollama), third-party security audit, performance tuning + bug bash, OSS governance files (LICENSE/CONTRIBUTING/SECURITY), GitHub repo + CI workflows, marketing prep, MSI signing, package-manager submissions, launch announcement.
 
+### Batch Processing (M3-PROMPT-2 — 2026-05-29)
+
+#### Added
+- BatchMode wired with real execution loop — drag-drop file list (text/uri-list, PDF filter),
+  duplicate detection, Add Files / Add Folder / Remove / Clear buttons; QStandardItemModel
+  keeps m_filesToProcess in sync with the view.
+- 7 operation types: Convert (IConversionEngine::convertTo — real), Compress
+  (IPdfEditorEngine::optimizeDocument — real), Watermark (addTextWatermark + saveDocument —
+  real), Export PDF/A (exportPdfA — real), Merge (disabled — tooltip: "coming in M4"),
+  OCR (disabled — tooltip: "OCR engine available in M5"), Redact search-pattern (disabled —
+  tooltip: "coming in M3-P4"). QStackedWidget swaps per-operation config panels.
+- Per-file progress: QFutureWatcher::resultReadyAt drives inline log + ETA calculation;
+  overall QProgressBar updated 0-100%. Cancel button calls QFutureWatcher::cancel().
+- Continue-on-failure: worker lambda catches per-file result, appends ErrorInfo to ErrorLog,
+  does not abort the mapped future.
+- CSV/JSON error log export via ErrorLog::exportCsv/exportJson, triggered by Export Log
+  button (hidden until batch completes and ErrorLog is non-empty).
+- Preview banner and fake QThread::msleep loop completely removed.
+- IPdfEditorEngine calls serialized via QMutex (load/edit/save state machine; one instance
+  shared across worker threads). IConversionEngine::convertTo called without mutex (stateless).
+- ModeController.setScreen("batch") now injects AppContext via BatchMode::setAppContext().
+- Qt6::Concurrent added to pdfws_ui PRIVATE link libraries.
+- TestBatchMode (5/5 headless tests): file list population, duplicate detection, batch
+  convert (mock IConversionEngine — 3 files), continue-on-failure (2 good + 1 bad),
+  cancel (batch stops before all 6 files processed).
+- Deferred: OCR (M5 OcrPipeline), pattern redact (M3-P4).
+
 ### Form Builder (M3-PROMPT-1 — 2026-05-29)
 
 #### Added

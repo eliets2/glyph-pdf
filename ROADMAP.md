@@ -56,7 +56,7 @@ FORBIDDEN:
 
 ---
 
-## Progress: Sessions 1–11 + M1 + M2 + M3-P1 — Committed
+## Progress: Sessions 1–11 + M1 + M2 + M3-P2 — Committed
 
 | Session | Phase | Description | Status |
 |---------|-------|-------------|--------|
@@ -72,6 +72,7 @@ FORBIDDEN:
 | M2-P4 | 3 | Adversarial crypto fixtures + RSA key enforcement | ✅ |
 | M2-P5 | 5 | LaneScheduler infrastructure (GPU+CPU lanes) | ✅ |
 | M3-P1 | 4 | FormBuilderMode wired: drag-place 9 types + props panel + tab order | ✅ |
+| M3-P2 | 4 | BatchMode wired: file list + 7 ops (5 real) + QtConcurrent + error log | ✅ |
 
 **Remediation note (May 2026):** A 7-session cleanup phase resolved all accumulated technical debt
 before this roadmap was formalized: MainWindow modularization, `gp::` namespace migration, thread
