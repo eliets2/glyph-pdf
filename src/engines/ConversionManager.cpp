@@ -50,6 +50,14 @@ bool ConversionManager::convertTo(const QString &pdfPath, const QString &outputP
         return exportToHtml(pdfPath, outputPath);
     }
 
+    if (format == TargetFormat::Text) {
+        return exportToText(pdfPath, outputPath);
+    }
+
+    if (format == TargetFormat::PowerPoint) {
+        return exportToPowerPoint(pdfPath, outputPath, options);
+    }
+
     try {
         PoDoFo::PdfMemDocument doc;
         doc.Load(pdfPath.toUtf8().constData());
@@ -360,3 +368,196 @@ bool ConversionManager::convertOfficeToPdf(const QString &officePath, const QStr
     return false;
 #endif
 }
+#include <zip.h>
+#include <QXmlStreamWriter>
+#include <QBuffer>
+
+bool ConversionManager::exportToText(const QString &pdfPath, const QString &outputPath) {
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(pdfPath.toUtf8().constData());
+        
+        QFile file(outputPath);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return false;
+        QTextStream out(&file);
+
+        for (unsigned i = 0; i < doc.GetPages().GetCount(); ++i) {
+            QList<TextElement> elements = d->extractTextFromPage(i, doc);
+            std::sort(elements.begin(), elements.end(), [](const TextElement &a, const TextElement &b) {
+                if (std::abs(a.rect.y() - b.rect.y()) < (std::min(a.fontSize, b.fontSize) * 0.5)) {
+                    return a.rect.x() < b.rect.x();
+                }
+                return a.rect.y() > b.rect.y();
+            });
+
+            double lastY = -1;
+            for (const auto &el : elements) {
+                if (lastY != -1 && std::abs(lastY - el.rect.y()) > el.fontSize * 0.8) {
+                    out << "\n";
+                } else if (lastY != -1) {
+                    out << " ";
+                }
+                out << el.text;
+                lastY = el.rect.y();
+            }
+            out << "\n\n";
+        }
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+static void addZipFile(zip_t* za, const char* name, const QByteArray& data) {
+    zip_source_t* source = zip_source_buffer(za, data.constData(), data.size(), 0);
+    if (source) {
+        zip_file_add(za, name, source, ZIP_FL_OVERWRITE | ZIP_FL_ENC_UTF_8);
+    }
+}
+
+bool ConversionManager::exportToPowerPoint(const QString &pdfPath, const QString &outputPath, const QVariantMap &options) {
+    PdfiumBackend backend;
+    if (!backend.loadDocument(pdfPath)) return false;
+
+    int errorp = 0;
+    zip_t *za = zip_open(outputPath.toUtf8().constData(), ZIP_CREATE | ZIP_TRUNCATE, &errorp);
+    if (!za) return false;
+
+    int pageCount = backend.pageCount();
+
+    // 1. [Content_Types].xml
+    QByteArray contentTypes;
+    {
+        QXmlStreamWriter xml(&contentTypes);
+        xml.writeStartDocument();
+        xml.writeStartElement("Types");
+        xml.writeAttribute("xmlns", "http://schemas.openxmlformats.org/package/2006/content-types");
+        xml.writeEmptyElement("Default"); xml.writeAttribute("Extension", "jpeg"); xml.writeAttribute("ContentType", "image/jpeg");
+        xml.writeEmptyElement("Default"); xml.writeAttribute("Extension", "rels"); xml.writeAttribute("ContentType", "application/vnd.openxmlformats-package.relationships+xml");
+        xml.writeEmptyElement("Default"); xml.writeAttribute("Extension", "xml"); xml.writeAttribute("ContentType", "application/xml");
+        xml.writeEmptyElement("Override"); xml.writeAttribute("PartName", "/ppt/presentation.xml"); xml.writeAttribute("ContentType", "application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml");
+        xml.writeEmptyElement("Override"); xml.writeAttribute("PartName", "/ppt/slideLayouts/slideLayout1.xml"); xml.writeAttribute("ContentType", "application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml");
+        xml.writeEmptyElement("Override"); xml.writeAttribute("PartName", "/ppt/slideMasters/slideMaster1.xml"); xml.writeAttribute("ContentType", "application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml");
+        for (int i = 0; i < pageCount; ++i) {
+            xml.writeEmptyElement("Override"); xml.writeAttribute("PartName", QString("/ppt/slides/slide%1.xml").arg(i+1)); xml.writeAttribute("ContentType", "application/vnd.openxmlformats-officedocument.presentationml.slide+xml");
+        }
+        xml.writeEndElement();
+        xml.writeEndDocument();
+    }
+    addZipFile(za, "[Content_Types].xml", contentTypes);
+
+    // 2. _rels/.rels
+    QByteArray rootRels;
+    {
+        QXmlStreamWriter xml(&rootRels);
+        xml.writeStartDocument();
+        xml.writeStartElement("Relationships");
+        xml.writeAttribute("xmlns", "http://schemas.openxmlformats.org/package/2006/relationships");
+        xml.writeEmptyElement("Relationship"); xml.writeAttribute("Id", "rId1"); xml.writeAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"); xml.writeAttribute("Target", "ppt/presentation.xml");
+        xml.writeEndElement();
+        xml.writeEndDocument();
+    }
+    addZipFile(za, "_rels/.rels", rootRels);
+
+    // 3. ppt/presentation.xml
+    QByteArray presXml;
+    {
+        QXmlStreamWriter xml(&presXml);
+        xml.writeStartDocument();
+        xml.writeStartElement("p:presentation");
+        xml.writeAttribute("xmlns:a", "http://schemas.openxmlformats.org/drawingml/2006/main");
+        xml.writeAttribute("xmlns:r", "http://schemas.openxmlformats.org/officeDocument/2006/relationships");
+        xml.writeAttribute("xmlns:p", "http://schemas.openxmlformats.org/presentationml/2006/main");
+        xml.writeStartElement("p:sldIdLst");
+        for (int i = 0; i < pageCount; ++i) {
+            xml.writeEmptyElement("p:sldId"); xml.writeAttribute("id", QString::number(256 + i)); xml.writeAttribute("r:id", QString("rId%1").arg(i+2));
+        }
+        xml.writeEndElement();
+        xml.writeEmptyElement("p:sldSz"); xml.writeAttribute("cx", "9144000"); xml.writeAttribute("cy", "6858000");
+        xml.writeEndElement();
+        xml.writeEndDocument();
+    }
+    addZipFile(za, "ppt/presentation.xml", presXml);
+
+    // 4. ppt/_rels/presentation.xml.rels
+    QByteArray presRels;
+    {
+        QXmlStreamWriter xml(&presRels);
+        xml.writeStartDocument();
+        xml.writeStartElement("Relationships");
+        xml.writeAttribute("xmlns", "http://schemas.openxmlformats.org/package/2006/relationships");
+        xml.writeEmptyElement("Relationship"); xml.writeAttribute("Id", "rId1"); xml.writeAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster"); xml.writeAttribute("Target", "slideMasters/slideMaster1.xml");
+        for (int i = 0; i < pageCount; ++i) {
+            xml.writeEmptyElement("Relationship"); xml.writeAttribute("Id", QString("rId%1").arg(i+2)); xml.writeAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide"); xml.writeAttribute("Target", QString("slides/slide%1.xml").arg(i+1));
+        }
+        xml.writeEndElement();
+        xml.writeEndDocument();
+    }
+    addZipFile(za, "ppt/_rels/presentation.xml.rels", presRels);
+
+    // 5. master and layout
+    QByteArray slideMaster; { QXmlStreamWriter xml(&slideMaster); xml.writeStartDocument(); xml.writeStartElement("p:sldMaster"); xml.writeAttribute("xmlns:a", "http://schemas.openxmlformats.org/drawingml/2006/main"); xml.writeAttribute("xmlns:r", "http://schemas.openxmlformats.org/officeDocument/2006/relationships"); xml.writeAttribute("xmlns:p", "http://schemas.openxmlformats.org/presentationml/2006/main"); xml.writeStartElement("p:cSld"); xml.writeEmptyElement("p:spTree"); xml.writeEndElement(); xml.writeStartElement("p:sldLayoutIdLst"); xml.writeEmptyElement("p:sldLayoutId"); xml.writeAttribute("id", "2147483649"); xml.writeAttribute("r:id", "rId1"); xml.writeEndElement(); xml.writeEndElement(); xml.writeEndDocument(); }
+    addZipFile(za, "ppt/slideMasters/slideMaster1.xml", slideMaster);
+
+    QByteArray slideMasterRels; { QXmlStreamWriter xml(&slideMasterRels); xml.writeStartDocument(); xml.writeStartElement("Relationships"); xml.writeAttribute("xmlns", "http://schemas.openxmlformats.org/package/2006/relationships"); xml.writeEmptyElement("Relationship"); xml.writeAttribute("Id", "rId1"); xml.writeAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout"); xml.writeAttribute("Target", "../slideLayouts/slideLayout1.xml"); xml.writeEndElement(); xml.writeEndDocument(); }
+    addZipFile(za, "ppt/slideMasters/_rels/slideMaster1.xml.rels", slideMasterRels);
+
+    QByteArray slideLayout; { QXmlStreamWriter xml(&slideLayout); xml.writeStartDocument(); xml.writeStartElement("p:sldLayout"); xml.writeAttribute("xmlns:a", "http://schemas.openxmlformats.org/drawingml/2006/main"); xml.writeAttribute("xmlns:r", "http://schemas.openxmlformats.org/officeDocument/2006/relationships"); xml.writeAttribute("xmlns:p", "http://schemas.openxmlformats.org/presentationml/2006/main"); xml.writeStartElement("p:cSld"); xml.writeEmptyElement("p:spTree"); xml.writeEndElement(); xml.writeEndElement(); xml.writeEndDocument(); }
+    addZipFile(za, "ppt/slideLayouts/slideLayout1.xml", slideLayout);
+
+    QByteArray slideLayoutRels; { QXmlStreamWriter xml(&slideLayoutRels); xml.writeStartDocument(); xml.writeStartElement("Relationships"); xml.writeAttribute("xmlns", "http://schemas.openxmlformats.org/package/2006/relationships"); xml.writeEmptyElement("Relationship"); xml.writeAttribute("Id", "rId1"); xml.writeAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster"); xml.writeAttribute("Target", "../slideMasters/slideMaster1.xml"); xml.writeEndElement(); xml.writeEndDocument(); }
+    addZipFile(za, "ppt/slideLayouts/_rels/slideLayout1.xml.rels", slideLayoutRels);
+
+    // 6. pages
+    for (int i = 0; i < pageCount; ++i) {
+        QImage img = backend.renderPage(i, 150);
+        QByteArray imgData;
+        QBuffer buffer(&imgData);
+        buffer.open(QIODevice::WriteOnly);
+        img.save(&buffer, "JPEG");
+        addZipFile(za, QString("ppt/media/image%1.jpeg").arg(i+1).toUtf8().constData(), imgData);
+
+        QByteArray slideXml;
+        {
+            QXmlStreamWriter xml(&slideXml);
+            xml.writeStartDocument();
+            xml.writeStartElement("p:sld");
+            xml.writeAttribute("xmlns:a", "http://schemas.openxmlformats.org/drawingml/2006/main");
+            xml.writeAttribute("xmlns:r", "http://schemas.openxmlformats.org/officeDocument/2006/relationships");
+            xml.writeAttribute("xmlns:p", "http://schemas.openxmlformats.org/presentationml/2006/main");
+            xml.writeStartElement("p:cSld");
+            xml.writeStartElement("p:spTree");
+            xml.writeStartElement("p:nvGrpSpPr"); xml.writeEmptyElement("p:cNvPr"); xml.writeAttribute("id", "1"); xml.writeAttribute("name", ""); xml.writeEmptyElement("p:cNvGrpSpPr"); xml.writeEmptyElement("p:nvPr"); xml.writeEndElement();
+            xml.writeStartElement("p:grpSpPr"); xml.writeStartElement("a:xfrm"); xml.writeEmptyElement("a:off"); xml.writeAttribute("x", "0"); xml.writeAttribute("y", "0"); xml.writeEmptyElement("a:ext"); xml.writeAttribute("cx", "0"); xml.writeAttribute("cy", "0"); xml.writeEmptyElement("a:chOff"); xml.writeAttribute("x", "0"); xml.writeAttribute("y", "0"); xml.writeEmptyElement("a:chExt"); xml.writeAttribute("cx", "0"); xml.writeAttribute("cy", "0"); xml.writeEndElement(); xml.writeEndElement();
+            
+            xml.writeStartElement("p:pic");
+            xml.writeStartElement("p:nvPicPr"); xml.writeEmptyElement("p:cNvPr"); xml.writeAttribute("id", "4"); xml.writeAttribute("name", "Picture 1"); xml.writeEmptyElement("p:cNvPicPr"); xml.writeEmptyElement("p:nvPr"); xml.writeEndElement();
+            xml.writeStartElement("p:blipFill"); xml.writeEmptyElement("a:blip"); xml.writeAttribute("r:embed", "rId1"); xml.writeStartElement("a:stretch"); xml.writeEmptyElement("a:fillRect"); xml.writeEndElement(); xml.writeEndElement();
+            xml.writeStartElement("p:spPr"); xml.writeStartElement("a:xfrm"); xml.writeEmptyElement("a:off"); xml.writeAttribute("x", "0"); xml.writeAttribute("y", "0"); xml.writeEmptyElement("a:ext"); xml.writeAttribute("cx", "9144000"); xml.writeAttribute("cy", "6858000"); xml.writeEndElement(); xml.writeEndElement();
+            xml.writeEndElement();
+
+            xml.writeEndElement();
+            xml.writeEndElement();
+            xml.writeEndElement();
+            xml.writeEndDocument();
+        }
+        addZipFile(za, QString("ppt/slides/slide%1.xml").arg(i+1).toUtf8().constData(), slideXml);
+
+        QByteArray slideRels;
+        {
+            QXmlStreamWriter xml(&slideRels);
+            xml.writeStartDocument();
+            xml.writeStartElement("Relationships");
+            xml.writeAttribute("xmlns", "http://schemas.openxmlformats.org/package/2006/relationships");
+            xml.writeEmptyElement("Relationship"); xml.writeAttribute("Id", "rId1"); xml.writeAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"); xml.writeAttribute("Target", QString("../media/image%1.jpeg").arg(i+1));
+            xml.writeEmptyElement("Relationship"); xml.writeAttribute("Id", "rId2"); xml.writeAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout"); xml.writeAttribute("Target", "../slideLayouts/slideLayout1.xml");
+            xml.writeEndElement();
+            xml.writeEndDocument();
+        }
+        addZipFile(za, QString("ppt/slides/_rels/slide%1.xml.rels").arg(i+1).toUtf8().constData(), slideRels);
+    }
+
+    zip_close(za);
+    return true;
+}
+

@@ -5,7 +5,7 @@
 
 class IConversionEngine {
 public:
-    enum class TargetFormat { Word, Excel, Html, Image, Csv, OfficeToPdf };
+    enum class TargetFormat { Word, Excel, Html, Image, Csv, OfficeToPdf, Text, PowerPoint };
     struct TextElement { QString text; QRectF rect; double fontSize; QString fontName; };
 
     virtual ~IConversionEngine() = default;

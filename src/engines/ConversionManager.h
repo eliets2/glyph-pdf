@@ -20,6 +20,8 @@ private:
     bool exportToWord(const QString &outputPath, const QList<QList<TextElement>> &rows);
     bool exportToExcel(const QString &outputPath, const QList<QList<TextElement>> &rows);
     bool exportToHtml(const QString &pdfPath, const QString &outputPath);
+    bool exportToText(const QString &pdfPath, const QString &outputPath);
+    bool exportToPowerPoint(const QString &pdfPath, const QString &outputPath, const QVariantMap &options);
     bool exportToImage(const QString &pdfPath, const QString &outputPath, const QVariantMap &options);
     bool exportToCsv(const QString &outputPath, const QList<QList<TextElement>> &rows);
     bool convertOfficeToPdf(const QString &officePath, const QString &outputPath);

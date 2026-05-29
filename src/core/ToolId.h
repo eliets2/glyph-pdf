@@ -82,6 +82,7 @@ enum class ToolId {
     ToCsv,
     ToHtml,
     ToText,
+    ToPPT,
     Compress,
     Linearize,
     PdfA,

@@ -66,6 +66,7 @@ find_package(CURL QUIET)
 find_package(qpdf QUIET)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 find_package(Pdfium QUIET)
+find_package(libzip REQUIRED)
 
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
@@ -153,7 +154,7 @@ target_include_directories(pdfws_engines PUBLIC
 )
 target_link_libraries(pdfws_engines
     PUBLIC  pdfws_core
-    PRIVATE podofo::podofo OpenSSL::SSL OpenSSL::Crypto Qt6::Network Qt6::Widgets Qt6::Concurrent
+    PRIVATE podofo::podofo OpenSSL::SSL OpenSSL::Crypto Qt6::Network Qt6::Widgets Qt6::Concurrent libzip::zip
 )
 if(WIN32)
     target_link_libraries(pdfws_engines PUBLIC Credui Advapi32 Crypt32)
