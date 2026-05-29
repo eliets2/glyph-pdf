@@ -1421,14 +1421,20 @@ bool PoDoFoBackend::exportPdfA(const QString &outputPath, int conformanceLevel) 
     }
 }
 
-bool PoDoFoBackend::encryptDocument(const QString &userPassword, const QString &ownerPassword, bool canPrint, bool canCopy, bool canModify) {
+bool PoDoFoBackend::encryptDocument(const QString &userPassword, const QString &ownerPassword,
+                         const DocumentPermissions& permsStruct) {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
     try {
         auto perms = static_cast<PoDoFo::PdfPermissions>(0);
-        if (canPrint) perms = perms | PoDoFo::PdfPermissions::Print;
-        if (canCopy) perms = perms | PoDoFo::PdfPermissions::Copy;
-        if (canModify) perms = perms | PoDoFo::PdfPermissions::Edit;
+        if (permsStruct.print) perms = perms | PoDoFo::PdfPermissions::Print;
+        if (permsStruct.printHighQuality) perms = perms | PoDoFo::PdfPermissions::HighPrint;
+        if (permsStruct.copy) perms = perms | PoDoFo::PdfPermissions::Copy;
+        if (permsStruct.modify) perms = perms | PoDoFo::PdfPermissions::Edit;
+        if (permsStruct.annotate) perms = perms | PoDoFo::PdfPermissions::EditNotes;
+        if (permsStruct.fillForms) perms = perms | PoDoFo::PdfPermissions::FillAndSign;
+        if (permsStruct.accessibility) perms = perms | PoDoFo::PdfPermissions::Accessible;
+        if (permsStruct.assemble) perms = perms | PoDoFo::PdfPermissions::DocAssembly;
 
         d->document->SetEncrypted(
             userPassword.toUtf8().constData(), 
@@ -1443,6 +1449,29 @@ bool PoDoFoBackend::encryptDocument(const QString &userPassword, const QString &
     } catch (const PoDoFo::PdfError& e) {
 #ifdef QT_DEBUG
         qWarning() << "Error encrypting document:" << e.what();
+#endif
+        return false;
+    }
+}
+
+bool PoDoFoBackend::removeEncryption(const QString &ownerPassword) {
+    QMutexLocker locker(&d->mutex);
+    if (!d->document) return false;
+    try {
+        // First check if it's actually encrypted
+        if (!d->document->IsEncrypted()) {
+            return true; // Already decrypted
+        }
+        
+        // Remove encryption
+        d->document->SetEncrypt(nullptr);
+#ifdef QT_DEBUG
+        qDebug() << "Removed encryption from document.";
+#endif
+        return true;
+    } catch (const PoDoFo::PdfError& e) {
+#ifdef QT_DEBUG
+        qWarning() << "Error removing encryption:" << e.what();
 #endif
         return false;
     }

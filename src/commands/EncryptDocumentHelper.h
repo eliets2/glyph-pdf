@@ -9,12 +9,12 @@
 struct EncryptDocumentHelper {
     static bool execute(IPdfEditorEngine* engine, DocumentSession* doc,
                         const QString& userPwd, const QString& ownerPwd,
-                        bool canPrint, bool canCopy, bool canModify)
+                        const DocumentPermissions& perms)
     {
         if (!engine || !doc || doc->path().isEmpty())
             return false;
         engine->loadDocumentForEditing(doc->path());
-        if (!engine->encryptDocument(userPwd, ownerPwd, canPrint, canCopy, canModify)) {
+        if (!engine->encryptDocument(userPwd, ownerPwd, perms)) {
             qCritical() << "SECURITY: Document encryption routine failed. Aborting save operation.";
             // Reset engine state by reloading the original file. This prevents a
             // subsequent save from persisting a partially-encrypted in-memory

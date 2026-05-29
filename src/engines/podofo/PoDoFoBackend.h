@@ -61,7 +61,8 @@ public:
     bool linearizeDocument(const QString &outputPath);
     bool exportPdfA(const QString &outputPath, int conformanceLevel);
     bool encryptDocument(const QString &userPassword, const QString &ownerPassword,
-                         bool canPrint, bool canCopy, bool canModify);
+                         const DocumentPermissions& perms);
+    bool removeEncryption(const QString &ownerPassword);
     bool sanitizeDocument(const QString &outputPath);
 
     // Image operations

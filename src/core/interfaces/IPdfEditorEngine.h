@@ -85,6 +85,17 @@ struct OptimizeEstimate {
     double reductionPercent = 0.0;
 };
 
+struct DocumentPermissions {
+    bool print = true;
+    bool printHighQuality = true;
+    bool copy = true;
+    bool modify = false;
+    bool annotate = false;
+    bool fillForms = false;
+    bool accessibility = true;
+    bool assemble = false;
+};
+
 // ── Interface ──────────────────────────────────────────────────────────────
 
 class IPdfEditorEngine {
@@ -100,7 +111,8 @@ public:
     virtual bool linearizeDocument(const QString &outputPath) = 0;
     virtual bool exportPdfA(const QString &outputPath, int conformanceLevel) = 0;
     virtual bool encryptDocument(const QString &userPassword, const QString &ownerPassword,
-                                  bool canPrint, bool canCopy, bool canModify) = 0;
+                                  const DocumentPermissions& perms = DocumentPermissions()) = 0;
+    virtual bool removeEncryption(const QString &ownerPassword) = 0;
     virtual bool encryptWithCertificate(const QString &inputPath,
                                         const QString &outputPath,
                                         const QStringList &certPaths) = 0;

@@ -22,13 +22,6 @@ public:
 
 private:
     void manageForms();
-    void addFormTextField();
-    void addFormCheckbox();
-    void addFormRadioButton();
-    void addFormDropdown();
-    void addFormListBox();
-    void addFormDateField();
-    void addFormNumField();
 
     void onImportDataRequested();
     void onExportDataRequested();

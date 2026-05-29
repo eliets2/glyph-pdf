@@ -35,35 +35,51 @@ void FormsController::activate(ToolId id) {
 
     switch (id) {
     case ToolId::CreateForm:
-        manageForms();
+        _mainWindow->activateScreen("form");
         break;
     case ToolId::TextField:
-        addFormTextField();
+        _mainWindow->activateScreen("form");
+        if (viewer) viewer->setToolMode(ToolMode::FormAddText);
         break;
     case ToolId::Checkbox:
-        addFormCheckbox();
+        _mainWindow->activateScreen("form");
+        if (viewer) viewer->setToolMode(ToolMode::FormAddCheckbox);
         break;
     case ToolId::Radio:
-        addFormRadioButton();
+        _mainWindow->activateScreen("form");
+        if (viewer) viewer->setToolMode(ToolMode::FormAddRadio);
         break;
     case ToolId::Dropdown:
-        addFormDropdown();
+        _mainWindow->activateScreen("form");
+        if (viewer) viewer->setToolMode(ToolMode::FormAddDropdown);
         break;
     case ToolId::ListBox:
-        addFormListBox();
+        _mainWindow->activateScreen("form");
+        if (viewer) viewer->setToolMode(ToolMode::FormAddListBox);
         break;
     case ToolId::DateField:
-        addFormDateField();
+        _mainWindow->activateScreen("form");
+        if (viewer) viewer->setToolMode(ToolMode::FormAddDate);
         break;
     case ToolId::NumField:
-        addFormNumField();
+        _mainWindow->activateScreen("form");
+        if (viewer) viewer->setToolMode(ToolMode::FormAddNumeric);
         break;
     case ToolId::Button:
+        _mainWindow->activateScreen("form");
+        if (viewer) viewer->setToolMode(ToolMode::FormAddButton);
+        break;
     case ToolId::SigField:
+        _mainWindow->activateScreen("form");
+        if (viewer) viewer->setToolMode(ToolMode::FormAddSignature);
+        break;
     case ToolId::AutoDetect:
+        _mainWindow->activateScreen("form");
+        QMessageBox::information(_mainWindow, tr("Auto-Detect"), tr("Auto-detect form fields from document structure is coming in v1.1."));
+        break;
     case ToolId::Tabs:
-        QMessageBox::information(_mainWindow, tr("Interactive Forms"),
-            tr("Advanced interactive fields and automated form detection are scheduled for the next engine update."));
+        _mainWindow->activateScreen("form");
+        QMessageBox::information(_mainWindow, tr("Tab Order"), tr("Use the Tab Order panel in the Form Builder screen to manage tab order."));
         break;
     case ToolId::ImportData:
         onImportDataRequested();
@@ -74,138 +90,6 @@ void FormsController::activate(ToolId id) {
     default:
         break;
     }
-}
-
-void FormsController::manageForms() {
-    auto* viewer = _mainWindow->pdfViewer();
-    if (viewer) {
-        viewer->setToolMode(ToolMode::EditObject);
-        _mainWindow->statusBar()->showMessage(tr("Form Management Mode. AcroForm fields are now editable."), 5000);
-    }
-}
-
-void FormsController::addFormTextField() {
-    auto* viewer = _mainWindow->pdfViewer();
-    if (!viewer || !_ctx || !_ctx->forms) return;
-
-    bool ok;
-    QString name = QInputDialog::getText(_mainWindow, tr("Add Text Field"), tr("Field name:"), QLineEdit::Normal, "TextField1", &ok);
-    if (!ok || name.isEmpty()) return;
-
-    QRectF rect(100, 100, 200, 30);
-    _ctx->document->setPath(viewer->filePath());
-    AddFormFieldCommand(
-        _ctx->forms.get(), _ctx->document.get(), AddFormFieldCommand::FieldType::Text,
-        viewer->currentPage(), rect, name).redo();
-    _mainWindow->statusBar()->showMessage(tr("Text field '%1' added to page %2").arg(name).arg(viewer->currentPage() + 1), 5000);
-}
-
-void FormsController::addFormCheckbox() {
-    auto* viewer = _mainWindow->pdfViewer();
-    if (!viewer || !_ctx || !_ctx->forms) return;
-
-    bool ok;
-    QString name = QInputDialog::getText(_mainWindow, tr("Add Checkbox"), tr("Field name:"), QLineEdit::Normal, "Checkbox1", &ok);
-    if (!ok || name.isEmpty()) return;
-
-    QRectF rect(100, 100, 20, 20);
-    _ctx->document->setPath(viewer->filePath());
-    AddFormFieldCommand(
-        _ctx->forms.get(), _ctx->document.get(), AddFormFieldCommand::FieldType::Checkbox,
-        viewer->currentPage(), rect, name).redo();
-    _mainWindow->statusBar()->showMessage(tr("Checkbox '%1' added to page %2").arg(name).arg(viewer->currentPage() + 1), 5000);
-}
-
-void FormsController::addFormRadioButton() {
-    auto* viewer = _mainWindow->pdfViewer();
-    if (!viewer || !_ctx || !_ctx->forms) return;
-
-    bool ok;
-    QString name = QInputDialog::getText(_mainWindow, tr("Add Radio Button"), tr("Field name:"), QLineEdit::Normal, "Radio1", &ok);
-    if (!ok || name.isEmpty()) return;
-
-    QRectF rect(100, 100, 20, 20);
-    _ctx->document->setPath(viewer->filePath());
-    AddFormFieldCommand(
-        _ctx->forms.get(), _ctx->document.get(), AddFormFieldCommand::FieldType::Radio,
-        viewer->currentPage(), rect, name).redo();
-    _mainWindow->statusBar()->showMessage(tr("Radio button '%1' added to page %2").arg(name).arg(viewer->currentPage() + 1), 5000);
-}
-
-void FormsController::addFormDropdown() {
-    auto* viewer = _mainWindow->pdfViewer();
-    if (!viewer || !_ctx || !_ctx->forms) return;
-
-    bool ok;
-    QString name = QInputDialog::getText(_mainWindow, tr("Add Dropdown"), tr("Field name:"), QLineEdit::Normal, "Dropdown1", &ok);
-    if (!ok || name.isEmpty()) return;
-
-    QString optionsStr = QInputDialog::getText(_mainWindow, tr("Dropdown Options"), tr("Enter options separated by commas:"), QLineEdit::Normal, "Option1,Option2,Option3", &ok);
-    if (!ok || optionsStr.isEmpty()) return;
-
-    QStringList options = optionsStr.split(',', Qt::SkipEmptyParts);
-    for (auto &opt : options) opt = opt.trimmed();
-
-    QRectF rect(100, 100, 200, 25);
-    _ctx->document->setPath(viewer->filePath());
-    AddFormFieldCommand(
-        _ctx->forms.get(), _ctx->document.get(), AddFormFieldCommand::FieldType::Dropdown,
-        viewer->currentPage(), rect, name, options).redo();
-    _mainWindow->statusBar()->showMessage(tr("Dropdown '%1' added to page %2").arg(name).arg(viewer->currentPage() + 1), 5000);
-}
-
-void FormsController::addFormListBox() {
-    auto* viewer = _mainWindow->pdfViewer();
-    if (!viewer || !_ctx || !_ctx->forms) return;
-
-    bool ok;
-    QString name = QInputDialog::getText(_mainWindow, tr("Add List Box"), tr("Field name:"), QLineEdit::Normal, "ListBox1", &ok);
-    if (!ok || name.isEmpty()) return;
-
-    QString optionsStr = QInputDialog::getText(_mainWindow, tr("List Box Options"), tr("Enter options separated by commas:"), QLineEdit::Normal, "Item1,Item2,Item3", &ok);
-    if (!ok || optionsStr.isEmpty()) return;
-
-    QStringList options = optionsStr.split(',', Qt::SkipEmptyParts);
-    for (auto &opt : options) opt = opt.trimmed();
-
-    QRectF rect(100, 100, 200, 100);
-    _ctx->document->setPath(viewer->filePath());
-    AddFormFieldCommand(
-        _ctx->forms.get(), _ctx->document.get(), AddFormFieldCommand::FieldType::ListBox,
-        viewer->currentPage(), rect, name, options).redo();
-    _mainWindow->statusBar()->showMessage(tr("ListBox '%1' added to page %2").arg(name).arg(viewer->currentPage() + 1), 5000);
-}
-
-void FormsController::addFormDateField() {
-    auto* viewer = _mainWindow->pdfViewer();
-    if (!viewer || !_ctx || !_ctx->forms) return;
-
-    bool ok;
-    QString name = QInputDialog::getText(_mainWindow, tr("Add Date Field"), tr("Field name:"), QLineEdit::Normal, "Date1", &ok);
-    if (!ok || name.isEmpty()) return;
-
-    QRectF rect(100, 100, 200, 30);
-    _ctx->document->setPath(viewer->filePath());
-    AddFormFieldCommand(
-        _ctx->forms.get(), _ctx->document.get(), AddFormFieldCommand::FieldType::Date,
-        viewer->currentPage(), rect, name).redo();
-    _mainWindow->statusBar()->showMessage(tr("Date field '%1' added to page %2").arg(name).arg(viewer->currentPage() + 1), 5000);
-}
-
-void FormsController::addFormNumField() {
-    auto* viewer = _mainWindow->pdfViewer();
-    if (!viewer || !_ctx || !_ctx->forms) return;
-
-    bool ok;
-    QString name = QInputDialog::getText(_mainWindow, tr("Add Numeric Field"), tr("Field name:"), QLineEdit::Normal, "Numeric1", &ok);
-    if (!ok || name.isEmpty()) return;
-
-    QRectF rect(100, 100, 200, 30);
-    _ctx->document->setPath(viewer->filePath());
-    AddFormFieldCommand(
-        _ctx->forms.get(), _ctx->document.get(), AddFormFieldCommand::FieldType::Numeric,
-        viewer->currentPage(), rect, name).redo();
-    _mainWindow->statusBar()->showMessage(tr("Numeric field '%1' added to page %2").arg(name).arg(viewer->currentPage() + 1), 5000);
 }
 
 void FormsController::onImportDataRequested() {

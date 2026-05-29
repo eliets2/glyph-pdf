@@ -72,7 +72,9 @@ private slots:
         QVERIFY(engine.loadDocumentForEditing(pdf));
 
         QString encrypted = tmpDir.path() + "/encrypted.pdf";
-        bool result = engine.encryptDocument(encrypted, "testpass123", true, true, false);
+        DocumentPermissions perms;
+        perms.modify = false;
+        bool result = engine.encryptDocument(encrypted, "testpass123", perms);
         // Encryption may succeed or fail depending on backend capabilities;
         // we verify the engine doesn't crash and returns a clean error.
         if (!result) {
