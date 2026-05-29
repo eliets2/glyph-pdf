@@ -42,7 +42,11 @@ void ModeController::setScreen(const QString& id) {
         else if (id == "redact")  target = new RedactMode(this);
         else if (id == "compare") target = new CompareMode(this);
         else if (id == "pages")   target = new PagesMode(this);
-        else if (id == "batch")   target = new BatchMode(this);
+        else if (id == "batch") {
+            auto* bm = new BatchMode(this);
+            bm->setAppContext(_ctx);
+            target = bm;
+        }
         else if (id == "form")    target = new FormBuilderMode(_ctx, _viewer, this);
 
         if (target) {
