@@ -2,6 +2,8 @@
 
 #include <memory>
 
+// Forward declarations — no heavy engine headers in AppContext.h
+// (AppContext.h is included by pdfws_ui which does not link Qt6::Concurrent)
 class IPdfEditorEngine;
 class IOcrEngine;
 class IFormManager;
@@ -12,7 +14,10 @@ class QUndoStack;
 class DocumentSession;
 class AutosaveManager;
 
+namespace gp { class LaneScheduler; }
+
 struct AppContext {
+    std::shared_ptr<gp::LaneScheduler>  scheduler;
     std::shared_ptr<IPdfEditorEngine>   pdfEditor;
     std::shared_ptr<IOcrEngine>         ocr;
     std::shared_ptr<IFormManager>       forms;

@@ -1,6 +1,7 @@
 #include "Bootstrapper.h"
 #include "core/AppContext.h"
 
+#include "engines/scheduling/LaneScheduler.h"
 #include "engines/OcrEngine.h"
 #include "engines/PdfEditorEngine.h"
 #include "engines/FormManager.h"
@@ -10,11 +11,18 @@
 #include "engines/DocumentSession.h"
 #include "engines/AutosaveManager.h"
 
+#include <QThread>
 #include <QUndoStack>
 #include <memory>
 
 AppContext Bootstrapper::createContext() {
     AppContext ctx;
+
+    // LaneScheduler is base infrastructure; constructed first so that
+    // engines constructed below can obtain a reference to it if needed.
+    ctx.scheduler  = std::make_shared<gp::LaneScheduler>(
+        /*gpuCapacity=*/2,
+        /*cpuCapacity=*/QThread::idealThreadCount());
 
     ctx.ocr        = std::make_shared<OcrEngine>();
     ctx.pdfEditor  = std::make_shared<PdfEditorEngine>();

@@ -138,6 +138,9 @@ add_library(pdfws_engines STATIC
     src/engines/RenderCache.h          src/engines/RenderCache.cpp
     src/engines/DiffEngine.h           src/engines/DiffEngine.cpp
     src/engines/VeraPdfValidator.h     src/engines/VeraPdfValidator.cpp
+    src/engines/scheduling/ILaneScheduler.h
+    src/engines/scheduling/LaneScheduler.h  src/engines/scheduling/LaneScheduler.cpp
+    src/engines/scheduling/PipelineStage.h
     src/core/interfaces/IPdfDocument.h
     src/core/interfaces/IPdfPage.h
     src/core/interfaces/IPdfRenderer.h
@@ -352,6 +355,7 @@ target_link_libraries(PdfWorkstation PRIVATE
     pdfws_engines
     pdfws_commands
     pdfws_core
+    Qt6::Concurrent
 )
 
 # Windows: hide console
@@ -647,6 +651,21 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestVeraPdf.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
         LABELS "unit;integration;pdfa;verapdf;subprocess"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestLaneScheduler.cpp")
+    add_executable(TestLaneScheduler tests/TestLaneScheduler.cpp)
+    target_include_directories(TestLaneScheduler PRIVATE src tests)
+    target_link_libraries(TestLaneScheduler PRIVATE
+        pdfws_engines pdfws_core
+        Qt6::Test Qt6::Widgets Qt6::Concurrent podofo::podofo
+    )
+    add_test(NAME TestLaneScheduler COMMAND TestLaneScheduler)
+    set_tests_properties(TestLaneScheduler PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;concurrency;scheduling;lane-scheduler;qt"
     )
 endif()
 
