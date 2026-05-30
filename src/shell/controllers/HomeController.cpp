@@ -23,6 +23,7 @@
 #include <QProgressDialog>
 #include <QtConcurrent/QtConcurrent>
 #include <QFutureWatcher>
+#include <algorithm>
 #include "shell/StatusBar.h"
 #include "core/interfaces/IPdfEditorEngine.h"
 #include <QUndoStack>
@@ -291,6 +292,28 @@ void HomeController::addRecentFile(const QString& filePath) {
 QStringList HomeController::recentFiles() const {
     QSettings settings;
     return settings.value("recentFiles").toStringList();
+}
+
+void HomeController::removeFromRecents(const QString& filePath) {
+    if (filePath.isEmpty()) return;
+    QSettings settings;
+    QStringList recent = settings.value("recentFiles").toStringList();
+    recent.removeAll(filePath);
+    settings.setValue("recentFiles", recent);
+}
+
+int HomeController::pruneMissingRecents() {
+    QSettings settings;
+    QStringList recent = settings.value("recentFiles").toStringList();
+    const QStringList before = recent;
+    recent.erase(
+        std::remove_if(recent.begin(), recent.end(),
+                       [](const QString& p) { return !QFileInfo::exists(p); }),
+        recent.end());
+    const int removed = before.size() - recent.size();
+    if (removed > 0)
+        settings.setValue("recentFiles", recent);
+    return removed;
 }
 
 void HomeController::onImportOffice()

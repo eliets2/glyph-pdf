@@ -9,6 +9,7 @@
 #include <QApplication>
 #include <QFileInfo>
 #include <QSettings>
+#include <QStatusBar>
 
 namespace gp {
 
@@ -282,6 +283,19 @@ void MenuBar::refreshRecentFiles() {
     }
 
     m_recentMenu->addSeparator();
+
+    // Count missing entries to decide whether "Prune Missing" should be enabled
+    int missingCount = 0;
+    for (const QString& p : recent) {
+        if (!QFileInfo::exists(p)) ++missingCount;
+    }
+    auto* pruneAct = m_recentMenu->addAction(tr("Prune Missing Files"));
+    pruneAct->setEnabled(missingCount > 0);
+    pruneAct->setToolTip(tr("Remove %n missing file(s) from the recent list", nullptr, missingCount));
+    connect(pruneAct, &QAction::triggered, mainWindow, [mainWindow]() {
+        if (mainWindow) mainWindow->pruneMissingRecents();
+    });
+
     auto* clearAct = m_recentMenu->addAction(tr("Clear Recent Files"));
     connect(clearAct, &QAction::triggered, this, [this]() {
         QSettings s;
