@@ -16,6 +16,12 @@ class AutosaveManager;
 
 namespace gp { class LaneScheduler; }
 
+namespace pdfws {
+    class IDjotCodec;
+    class IDjotMapper;
+    class ProvenanceGuard;
+}
+
 struct AppContext {
     std::shared_ptr<gp::LaneScheduler>  scheduler;
     std::shared_ptr<IPdfEditorEngine>   pdfEditor;
@@ -27,6 +33,11 @@ struct AppContext {
     std::shared_ptr<QUndoStack>         undoStack;
     std::shared_ptr<DocumentSession>    document;
     std::shared_ptr<AutosaveManager>    autosave;
+
+    // Djot foundation
+    std::shared_ptr<pdfws::IDjotCodec>      djotCodec;
+    std::shared_ptr<pdfws::IDjotMapper>     djotMapper;
+    std::shared_ptr<pdfws::ProvenanceGuard> provenanceGuard;
 
     static constexpr const char* DefaultCloudSyncEndpoint = "https://weaver.enterprise.internal/v1/sync";
 };
