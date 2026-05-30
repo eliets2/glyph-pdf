@@ -3,19 +3,21 @@
 #include <QList>
 #include <QImage>
 #include <QStringList>
+#include "engines/MyersDiff.h"
 
 struct PageDiff {
-    int pageIndex;
-    QImage diffImage; // Visual diff overlay
-    QStringList textRemoved;
-    QStringList textAdded;
-    int pixelDiffCount;
+    int         pageIndex      = 0;
+    QImage      diffImage;           ///< visual pixel-diff overlay
+    QStringList textRemoved;         ///< tokens deleted (non-move deletes)
+    QStringList textAdded;           ///< tokens inserted (non-move inserts)
+    QList<MoveOperation> moves;      ///< tokens that moved position
+    int         pixelDiffCount = 0;
 };
 
 struct DiffResult {
-    bool isIdentical;
-    int pageCount1;
-    int pageCount2;
+    bool isIdentical = false;
+    int  pageCount1  = 0;
+    int  pageCount2  = 0;
     QList<PageDiff> pages;
 };
 

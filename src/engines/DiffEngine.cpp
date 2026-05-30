@@ -1,9 +1,9 @@
 #include "engines/DiffEngine.h"
+#include "engines/MyersDiff.h"
 #include "engines/pdfium/PdfiumBackend.h"
 #include <QFile>
 #include <QCryptographicHash>
 #include <QColor>
-#include <QSet>
 #include <QDebug>
 #include <QRegularExpression>
 
@@ -45,27 +45,41 @@ DiffResult DiffEngine::compare(const QString &file1, const QString &file2, int d
         pd.pageIndex = i;
         pd.pixelDiffCount = 0;
 
-        // Text diff: per-word set-difference algorithm. NOTE: not LCS/Myers — order changes are
-        // not detected as moves. See ROADMAP "Document comparison" for the Myers upgrade plan.
-        QString text1 = backend1.extractText(i);
-        QString text2 = backend2.extractText(i);
+        // Text diff via Myers 1986 LCS + move-detection post-pass.
+        const QString text1 = backend1.extractText(i);
+        const QString text2 = backend2.extractText(i);
+        const QStringList words1 = text1.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+        const QStringList words2 = text2.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
 
-        QStringList words1 = text1.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
-        QStringList words2 = text2.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+        const QList<EditOp> edits = MyersDiff::compute(words1, words2);
+        pd.moves = MyersDiff::detectMoves(edits);
 
-#if QT_VERSION < QT_VERSION_CHECK(5, 14, 0)
-        QSet<QString> set1 = QSet<QString>::fromList(words1);
-        QSet<QString> set2 = QSet<QString>::fromList(words2);
-#else
-        QSet<QString> set1(words1.begin(), words1.end());
-        QSet<QString> set2(words2.begin(), words2.end());
-#endif
-
-        for (const QString &w : set1) {
-            if (!set2.contains(w)) pd.textRemoved.append(w);
+        // Populate textRemoved / textAdded from non-move edits for backward compat.
+        // Build sets of moved tokens so we can exclude them.
+        QHash<QString, int> movedFromA, movedToB;
+        for (const MoveOperation& mv : pd.moves) {
+            movedFromA[mv.token]++;
+            movedToB[mv.token]++;
         }
-        for (const QString &w : set2) {
-            if (!set1.contains(w)) pd.textAdded.append(w);
+        QHash<QString, int> excludeA = movedFromA;
+        QHash<QString, int> excludeB = movedToB;
+
+        for (const EditOp& op : edits) {
+            if (op.type == EditOp::Type::Delete) {
+                auto it = excludeA.find(op.token);
+                if (it != excludeA.end() && it.value() > 0) {
+                    --(it.value());  // consume one move slot
+                } else {
+                    pd.textRemoved.append(op.token);
+                }
+            } else if (op.type == EditOp::Type::Insert) {
+                auto it = excludeB.find(op.token);
+                if (it != excludeB.end() && it.value() > 0) {
+                    --(it.value());
+                } else {
+                    pd.textAdded.append(op.token);
+                }
+            }
         }
 
         // Pixel diff
