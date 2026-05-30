@@ -15,6 +15,17 @@ Real public v1.0.0 ships when all M2-M8 work in `GLYPH-PDF-MONTHS-2-8-PROMPTS.md
 
 **Other v1.0.0 work in M2-M8:** Edact-Ray glyph-advance defense in redaction, OCR text-layer scrub in redaction rectangles, veraPDF subprocess for PDF/A validation, real-crypto E2E test coverage, 5 mode-page completions, 23 ribbon tools wired, Office→PDF import + PDF→PPT export, DiffEngine LCS/Myers upgrade, ar/fr/de translations populated, AI backend (Anthropic/OpenAI/Gemini/Ollama), third-party security audit, performance tuning + bug bash, OSS governance files (LICENSE/CONTRIBUTING/SECURITY), GitHub repo + CI workflows, marketing prep, MSI signing, package-manager submissions, launch announcement.
 
+### DiffEngine LCS/Myers Upgrade (M6-PROMPT-1 — 2026-05-30)
+
+#### Added
+- **`MyersDiff`** (`src/engines/MyersDiff.h/.cpp`): Myers 1986 O((N+M)D) LCS algorithm for token sequences. Produces a fully ordered edit script (Keep / Insert / Delete). `MyersDiff::detectMoves()` post-pass identifies Delete+Insert pairs of identical tokens and reclassifies them as `MoveOperation`.
+- **`DiffResult::PageDiff::moves`**: new `QList<MoveOperation>` field exposing moved tokens alongside existing `textAdded` / `textRemoved`.
+- **`CompareWidget` text diff panel**: new `QTextBrowser` below the two PDF viewers. Renders the diff with color coding — green insertions, red deletions, **orange moves** (with underline + position annotation). "NEXT →" / "← PREV" toolbar buttons in `CompareMode` now active and navigate through changes.
+- **`TestDiffEngine`** (10 tests): Myers correctness (empty, insert, delete, identical, complex LCS, edit-script ordering), move detection (no-moves, single-move, legal-document paragraph reorder), `DiffResult.moves` field smoke test.
+
+#### Replaced
+- `DiffEngine` per-word `QSet` set-difference replaced with `MyersDiff::compute()`. The previous implementation treated order changes as unrelated add+delete pairs; the new LCS correctly minimises edit distance and enables move detection. Existing `textAdded` / `textRemoved` fields remain populated for backward compatibility with `CompareMode` change counts.
+
 ### Office→PDF Import + Images→PDF (M5-PROMPT-3 — 2026-05-30)
 
 #### Added
@@ -292,7 +303,6 @@ Real public v1.0.0 ships when all M2-M8 work in `GLYPH-PDF-MONTHS-2-8-PROMPTS.md
 - MRC compression inside PDF/A not yet implemented
 - Some Session 7-11 features may be interface stubs pending full implementation verification
 - Translations: glyphpdf_{ar,fr,de}.ts are empty shells. Run `lupdate src/ -ts translations/glyphpdf_*.ts` then commission translators before claiming multilingual support.
-- DiffEngine uses per-word set-difference rather than LCS/Myers — order changes appear as add+delete pairs, not moves. Affects legal/compliance comparison persona.
 - Pattern redaction backend (PatternRedactor, 12 named patterns + custom regex, applyPatternRedactions) is **implemented** (M3-PROMPT-4). TestPatternRedact registered in CMake.
 - Send-for-signing workflow (remote signing order, reminders, audit trails) not implemented — only local certificate-based signing exists.
 - CollaborationManager.cpp marks itself "Cloud Sync Stub (Simulation)"; ICollaboration interface exists with no real network backend.
