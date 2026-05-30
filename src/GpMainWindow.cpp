@@ -276,6 +276,12 @@ MainWindow::MainWindow(const AppContext* ctx, QWidget* parent) : QMainWindow(par
         _ctx->autosave->start();
     }
 
+    // Auto-prune missing recent files on startup (if enabled in Preferences)
+    if (_home && QSettings().value("recent/autoPrune", false).toBool()) {
+        _home->pruneMissingRecents();
+        if (_menu) _menu->refreshRecentFiles();
+    }
+
     if (_ctx && _ctx->document && _home) {
         QTimer::singleShot(0, this, [this]() {
             QStringList recent = _home->recentFiles();
@@ -645,6 +651,18 @@ void MainWindow::initUpdateChecker() {
 
     // Check after a short delay so the window finishes painting first
     QTimer::singleShot(3000, _updater, &UpdateChecker::checkForUpdates);
+}
+
+void MainWindow::pruneMissingRecents()
+{
+    if (!_home) return;
+    const int removed = _home->pruneMissingRecents();
+    if (_menu) _menu->refreshRecentFiles();
+    if (removed > 0)
+        _status->showMessage(
+            tr("Removed %n missing recent file(s).", nullptr, removed), 4000);
+    else
+        _status->showMessage(tr("No missing recent files found."), 3000);
 }
 
 } // namespace gp

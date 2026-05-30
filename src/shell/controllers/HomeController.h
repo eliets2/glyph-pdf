@@ -22,6 +22,8 @@ public:
     void activate(ToolId id) override;
 
     void addRecentFile(const QString& filePath);
+    void removeFromRecents(const QString& filePath);
+    int  pruneMissingRecents();
     QStringList recentFiles() const;
 
 private:
