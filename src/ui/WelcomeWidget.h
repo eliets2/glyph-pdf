@@ -16,6 +16,8 @@ signals:
     void mergeRequested();
     void convertRequested();
     void protectRequested();
+    void importOfficeRequested();
+    void imagesToPdfRequested();
     void recentFileRequested(const QString& filePath);
     void removeRecentFileRequested(const QString& filePath);
 

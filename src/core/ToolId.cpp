@@ -81,6 +81,8 @@ QString toolIdToString(ToolId id) {
         { ToolId::Compress,       QStringLiteral("compress") },
         { ToolId::Linearize,      QStringLiteral("linearize") },
         { ToolId::PdfA,           QStringLiteral("pdfA") },
+        { ToolId::ImportOffice,   QStringLiteral("importOffice") },
+        { ToolId::ImagesToPdf,    QStringLiteral("imagesToPdf") },
         // Forms
         { ToolId::TextField,      QStringLiteral("textField") },
         { ToolId::Checkbox,       QStringLiteral("checkbox") },
@@ -207,6 +209,8 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         add(ToolId::Compress,       {"compress"});
         add(ToolId::Linearize,      {"linearize"});
         add(ToolId::PdfA,           {"pdfA", "pdfa"});
+        add(ToolId::ImportOffice,   {"importOffice", "import-office", "officeToPdf"});
+        add(ToolId::ImagesToPdf,    {"imagesToPdf", "images-to-pdf"});
 
         // ── Forms ──
         add(ToolId::TextField,      {"textField", "text-field", "textfield"});

@@ -4,6 +4,7 @@
 #include "ui/PdfViewerWidget.h"
 #include "ui/PageSetupDialog.h"
 #include "ui/ExportPresetsPanel.h"
+#include "engines/ConversionManager.h"
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -19,6 +20,9 @@
 #include <QPrintPreviewDialog>
 #include <QPrinter>
 #include <QPainter>
+#include <QProgressDialog>
+#include <QtConcurrent/QtConcurrent>
+#include <QFutureWatcher>
 #include "shell/StatusBar.h"
 #include "core/interfaces/IPdfEditorEngine.h"
 #include <QUndoStack>
@@ -33,7 +37,8 @@ QList<ToolId> HomeController::handledTools() const {
     return {
         ToolId::Open, ToolId::Save, ToolId::SaveAs,
         ToolId::Print, ToolId::PrintPreview, ToolId::PageSetup,
-        ToolId::ExportPresets, ToolId::Share, ToolId::Properties
+        ToolId::ExportPresets, ToolId::Share, ToolId::Properties,
+        ToolId::ImportOffice, ToolId::ImagesToPdf
     };
 }
 
@@ -71,6 +76,12 @@ void HomeController::activate(ToolId id) {
         break;
     case ToolId::Properties:
         showProperties();
+        break;
+    case ToolId::ImportOffice:
+        onImportOffice();
+        break;
+    case ToolId::ImagesToPdf:
+        onImagesToPdf();
         break;
     default:
         break;
@@ -280,6 +291,127 @@ void HomeController::addRecentFile(const QString& filePath) {
 QStringList HomeController::recentFiles() const {
     QSettings settings;
     return settings.value("recentFiles").toStringList();
+}
+
+void HomeController::onImportOffice()
+{
+#ifndef HAS_LIBREOFFICE
+    QMessageBox::information(
+        _mainWindow,
+        tr("LibreOffice Not Installed"),
+        tr("Office→PDF import requires LibreOffice.\n\n"
+           "Install LibreOffice (https://www.libreoffice.org) and restart GlyphPDF."));
+    return;
+#else
+    const QString officePath = QFileDialog::getOpenFileName(
+        _mainWindow,
+        tr("Import Office Document"),
+        QString(),
+        tr("Office Documents (*.docx *.doc *.xlsx *.xls *.pptx *.ppt *.odt *.ods *.odp *.rtf *.csv *.txt)"
+           ";;All Files (*)"));
+    if (officePath.isEmpty())
+        return;
+
+    const QString outputPath = QFileDialog::getSaveFileName(
+        _mainWindow,
+        tr("Save as PDF"),
+        QFileInfo(officePath).completeBaseName() + ".pdf",
+        tr("PDF Files (*.pdf)"));
+    if (outputPath.isEmpty())
+        return;
+
+    auto* progress = new QProgressDialog(
+        tr("Converting %1 to PDF…").arg(QFileInfo(officePath).fileName()),
+        tr("Cancel"), 0, 0, _mainWindow);
+    progress->setWindowModality(Qt::WindowModal);
+    progress->setMinimumDuration(500);
+
+    auto* watcher = new QFutureWatcher<bool>(_mainWindow);
+    QObject::connect(progress, &QProgressDialog::canceled, watcher, &QFutureWatcher<bool>::cancel);
+    QObject::connect(watcher, &QFutureWatcher<bool>::finished, _mainWindow, [=]() {
+        progress->close();
+        progress->deleteLater();
+        if (watcher->isCanceled()) {
+            watcher->deleteLater();
+            return;
+        }
+        const bool ok = watcher->result();
+        watcher->deleteLater();
+        if (ok) {
+            _mainWindow->statusBar()->showMessage(
+                tr("Converted to PDF: %1").arg(outputPath), 6000);
+            _mainWindow->openDocument(outputPath);
+        } else {
+            QMessageBox::warning(
+                _mainWindow,
+                tr("Conversion Failed"),
+                tr("Could not convert '%1' to PDF.\n"
+                   "Ensure LibreOffice is installed and the file is not password-protected.")
+                    .arg(QFileInfo(officePath).fileName()));
+        }
+    });
+
+    watcher->setFuture(QtConcurrent::run([officePath, outputPath]() {
+        ConversionManager mgr;
+        return mgr.convertOfficeToPdf(officePath, outputPath);
+    }));
+    progress->show();
+#endif
+}
+
+void HomeController::onImagesToPdf()
+{
+    const QStringList imagePaths = QFileDialog::getOpenFileNames(
+        _mainWindow,
+        tr("Select Images"),
+        QString(),
+        tr("Images (*.png *.jpg *.jpeg *.tif *.tiff *.bmp);;All Files (*)"));
+    if (imagePaths.isEmpty())
+        return;
+
+    const QString outputPath = QFileDialog::getSaveFileName(
+        _mainWindow,
+        tr("Save as PDF"),
+        "images.pdf",
+        tr("PDF Files (*.pdf)"));
+    if (outputPath.isEmpty())
+        return;
+
+    auto* progress = new QProgressDialog(
+        tr("Building PDF from %1 image(s)…").arg(imagePaths.size()),
+        tr("Cancel"), 0, 0, _mainWindow);
+    progress->setWindowModality(Qt::WindowModal);
+    progress->setMinimumDuration(300);
+
+    auto* watcher = new QFutureWatcher<bool>(_mainWindow);
+    QObject::connect(progress, &QProgressDialog::canceled, watcher, &QFutureWatcher<bool>::cancel);
+    QObject::connect(watcher, &QFutureWatcher<bool>::finished, _mainWindow, [=]() {
+        progress->close();
+        progress->deleteLater();
+        if (watcher->isCanceled()) {
+            watcher->deleteLater();
+            return;
+        }
+        const bool ok = watcher->result();
+        watcher->deleteLater();
+        if (ok) {
+            _mainWindow->statusBar()->showMessage(
+                tr("Images combined into PDF: %1").arg(outputPath), 6000);
+            _mainWindow->openDocument(outputPath);
+        } else {
+            QMessageBox::warning(
+                _mainWindow,
+                tr("Conversion Failed"),
+                tr("Could not combine images into a PDF.\n"
+                   "Ensure all selected files are valid image files."));
+        }
+    });
+
+    watcher->setFuture(QtConcurrent::run([imagePaths, outputPath]() {
+        ConversionManager mgr;
+        return mgr.convertImagesToPdf(imagePaths, outputPath);
+    }));
+    progress->show();
 }
 
 } // namespace gp

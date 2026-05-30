@@ -159,6 +159,8 @@ void WelcomeWidget::setupUi()
     auto* mergeCard   = makeActionCard(container, "merge",         "Merge Files");
     auto* convertCard = makeActionCard(container, "file-code",     "Convert");
     auto* protectCard = makeActionCard(container, "shield-check",  "Protect");
+    auto* importCard  = makeActionCard(container, "file-plus",     "Import Office");
+    auto* imgsCard    = makeActionCard(container, "image",         "Images to PDF");
 
     openCard->setAccessibleName(tr("Open PDF file"));
     openCard->setAccessibleDescription(tr("Browse and open an existing PDF document"));
@@ -168,6 +170,10 @@ void WelcomeWidget::setupUi()
     convertCard->setAccessibleDescription(tr("Convert between PDF and other file formats"));
     protectCard->setAccessibleName(tr("Protect PDF"));
     protectCard->setAccessibleDescription(tr("Add passwords, encryption, or digital signatures"));
+    importCard->setAccessibleName(tr("Import Office document"));
+    importCard->setAccessibleDescription(tr("Convert a Word, Excel or PowerPoint file to PDF via LibreOffice"));
+    imgsCard->setAccessibleName(tr("Images to PDF"));
+    imgsCard->setAccessibleDescription(tr("Combine PNG, JPEG or TIFF images into a single PDF"));
 
     connect(openCard,    &QPushButton::clicked, this, &WelcomeWidget::openFileRequested);
     connect(mergeCard,   &QPushButton::clicked, this, [this]() {
@@ -176,11 +182,15 @@ void WelcomeWidget::setupUi()
     });
     connect(convertCard, &QPushButton::clicked, this, &WelcomeWidget::convertRequested);
     connect(protectCard, &QPushButton::clicked, this, &WelcomeWidget::protectRequested);
+    connect(importCard,  &QPushButton::clicked, this, &WelcomeWidget::importOfficeRequested);
+    connect(imgsCard,    &QPushButton::clicked, this, &WelcomeWidget::imagesToPdfRequested);
 
     cardsRow->addWidget(openCard);
     cardsRow->addWidget(mergeCard);
     cardsRow->addWidget(convertCard);
     cardsRow->addWidget(protectCard);
+    cardsRow->addWidget(importCard);
+    cardsRow->addWidget(imgsCard);
 
     innerLayout->addLayout(cardsRow);
     innerLayout->addSpacing(40);
