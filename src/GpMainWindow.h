@@ -48,6 +48,7 @@ public:
     void setFullScreenMode(bool fullscreen);
     void updateTitle();
     MenuBar* menuBarWidget() const { return _menu; }
+    void pruneMissingRecents();
 
 public slots:
     void onScreenSelected(const QString& id);
