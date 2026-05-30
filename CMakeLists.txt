@@ -887,6 +887,23 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestDjotRoundtrip.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestDiffEngine.cpp")
+    add_executable(TestDiffEngine
+        tests/TestDiffEngine.cpp
+    )
+    target_include_directories(TestDiffEngine PRIVATE src tests)
+    target_link_libraries(TestDiffEngine PRIVATE
+        pdfws_engines pdfws_core
+        Qt6::Test Qt6::Core Qt6::Widgets
+    )
+    add_test(NAME TestDiffEngine COMMAND TestDiffEngine)
+    set_tests_properties(TestDiffEngine PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;diff;lcs;myers;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOfficeImport.cpp")
     add_executable(TestOfficeImport
         tests/TestOfficeImport.cpp
