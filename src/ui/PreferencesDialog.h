@@ -36,6 +36,7 @@ private:
     QComboBox*   _themeCombo  = nullptr;
     QSpinBox*    _autosaveIntervalSpin = nullptr;
     QCheckBox*   _autoUpdate  = nullptr;
+    QCheckBox*   _autoPrune   = nullptr;
     QComboBox*   _updateChannel = nullptr;
     QPushButton* _checkNowBtn = nullptr;
     QLabel*      _updateStatus = nullptr;
