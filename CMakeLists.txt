@@ -886,6 +886,30 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestDjotRoundtrip.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOfficeImport.cpp")
+    add_executable(TestOfficeImport
+        tests/TestOfficeImport.cpp
+    )
+    target_include_directories(TestOfficeImport PRIVATE src tests)
+    target_compile_definitions(TestOfficeImport PRIVATE
+        $<TARGET_PROPERTY:pdfws_engines,INTERFACE_COMPILE_DEFINITIONS>)
+    if(LIBREOFFICE_SOFFICE)
+        target_compile_definitions(TestOfficeImport PRIVATE
+            HAS_LIBREOFFICE=1
+            LIBREOFFICE_SOFFICE_PATH="${LIBREOFFICE_SOFFICE}")
+    endif()
+    target_link_libraries(TestOfficeImport PRIVATE
+        pdfws_engines pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+    )
+    add_test(NAME TestOfficeImport COMMAND TestOfficeImport)
+    set_tests_properties(TestOfficeImport PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;convert;office;import;images;qt;headless"
+    )
+endif()
+
 # ── Translations (Qt Linguist) ───────────────────────────────────────────
 if(Qt6LinguistTools_FOUND)
     set(TS_FILES
