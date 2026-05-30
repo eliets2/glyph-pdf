@@ -5,6 +5,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QSplitter>
+#include <QColor>
 #include <QTextBrowser>
 #include <QToolButton>
 #include <QTreeWidget>
@@ -28,12 +29,10 @@ CompareMode::CompareMode(QWidget* parent) : QWidget(parent) {
     tr->addWidget(mono(CompareMode::tr("COMPARE")));
     tr->addWidget(mono(CompareMode::tr("Q4-Report-v1.pdf   ↔   Q4-Report-v2.pdf")));
     auto* prev = new QToolButton; prev->setText(CompareMode::tr("← PREV")); prev->setProperty("variant","ghost");
-    prev->setEnabled(false);
-    prev->setToolTip(CompareMode::tr("Coming in v1.1"));
+    prev->setToolTip(CompareMode::tr("Navigate to previous change"));
     tr->addWidget(prev);
     auto* next = new QToolButton; next->setText(CompareMode::tr("NEXT →")); next->setProperty("variant","ghost");
-    next->setEnabled(false);
-    next->setToolTip(CompareMode::tr("Coming in v1.1"));
+    next->setToolTip(CompareMode::tr("Navigate to next change"));
     tr->addWidget(next);
     m_statusLabel = mono(CompareMode::tr("CHANGE 0 OF 0"));
     tr->addWidget(m_statusLabel);
@@ -55,6 +54,10 @@ CompareMode::CompareMode(QWidget* parent) : QWidget(parent) {
 
     m_compareWidget = new CompareWidget(this);
     col->addWidget(m_compareWidget, 1);
+
+    // Wire PREV/NEXT to CompareWidget navigation (captured after m_compareWidget exists)
+    connect(prev, &QToolButton::clicked, m_compareWidget, &CompareWidget::prevChange);
+    connect(next, &QToolButton::clicked, m_compareWidget, &CompareWidget::nextChange);
 
     // changes panel
     auto* changes = new QFrame;
@@ -98,14 +101,23 @@ void CompareMode::onDiffFinished() {
     int totalChanges = 0;
     m_tree->clear();
     for (const auto& page : m_lastResult.pages) {
-        int changes = page.textAdded.size() + page.textRemoved.size() + (page.pixelDiffCount > 0 ? 1 : 0);
+        const int textChanges = page.textAdded.size() + page.textRemoved.size()
+                                + page.moves.size();
+        const int changes = textChanges + (page.pixelDiffCount > 0 ? 1 : 0);
         if (changes > 0) {
             totalChanges += changes;
-            QString desc = tr("Added: %1 words, Removed: %2 words, Pixels changed: %3")
+            QString desc = tr("+%1 words  -%2 words  ↔%3 moved  ~%4 px")
                                .arg(page.textAdded.size())
                                .arg(page.textRemoved.size())
+                               .arg(page.moves.size())
                                .arg(page.pixelDiffCount);
-            new QTreeWidgetItem(m_tree, {QString::number(totalChanges), QString("p.%1").arg(page.pageIndex + 1), desc});
+            auto* item = new QTreeWidgetItem(m_tree,
+                {QString::number(totalChanges),
+                 QString("p.%1").arg(page.pageIndex + 1),
+                 desc});
+            // Colour code items that have moves
+            if (!page.moves.isEmpty())
+                item->setForeground(2, QColor("#d97c00"));  // orange for moves
         }
     }
 
