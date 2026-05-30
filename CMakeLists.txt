@@ -378,6 +378,19 @@ target_link_libraries(PdfWorkstation PRIVATE
     pdfws_core
     Qt6::Concurrent
 )
+# pdfws_djot + liblua in a link group so GNU ld makes multiple passes
+# and resolves forward references between the static archives.
+if(NOT MSVC)
+    target_link_libraries(PdfWorkstation PRIVATE
+        "-Wl,--start-group"
+        pdfws_djot
+        docmodel
+        liblua
+        "-Wl,--end-group"
+    )
+else()
+    target_link_libraries(PdfWorkstation PRIVATE pdfws_djot docmodel liblua)
+endif()
 
 # Windows: hide console
 if(WIN32 AND NOT MSVC)
@@ -818,7 +831,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPatternRedact.cpp")
     )
     target_include_directories(TestPatternRedact PRIVATE src tests)
     target_link_libraries(TestPatternRedact PRIVATE
-        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        pdfws_engines pdfws_commands pdfws_core podofo::podofo
         Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
         Qt6::Pdf Qt6::PdfWidgets
     )

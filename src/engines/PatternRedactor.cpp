@@ -57,7 +57,10 @@ QRegularExpression PatternRedactor::namedPattern(const QString& name) {
     const auto& tbl = patternTable();
     const auto it = tbl.find(name);
     if (it == tbl.end()) {
-        return QRegularExpression(); // invalid
+        // Return an explicitly invalid regex for unknown keys.
+        // Default QRegularExpression() is valid in Qt6 (matches empty string),
+        // so we use a syntactically broken pattern instead.
+        return QRegularExpression(QStringLiteral("(?P<"));  // invalid: unclosed named group
     }
     return QRegularExpression(*it);
 }
