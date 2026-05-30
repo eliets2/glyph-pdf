@@ -21,6 +21,9 @@
 #include <QPainter>
 #include <QFileInfo>
 #include <QDir>
+#include <QPageSize>
+#include <podofo/main/PdfPainter.h>
+#include <podofo/main/PdfPage.h>
 #include "engines/pdfium/PdfiumBackend.h"
 
 class ConversionManager::Private {
@@ -842,5 +845,100 @@ bool ConversionManager::exportToPowerPoint(const QString &pdfPath, const QString
 
     zip_close(za);
     return true;
+}
+
+bool ConversionManager::convertImagesToPdf(const QStringList &imagePaths,
+                                           const QString &outputPath,
+                                           ImageImportOptions opts)
+{
+    if (imagePaths.isEmpty()) {
+        qWarning() << "convertImagesToPdf: no input images provided";
+        return false;
+    }
+
+    // Determine page dimensions in PDF user units (1 pt = 1/72 inch)
+    // QPageSize sizes are in mm; convert to points.
+    QPageSize qs(opts.pageSize);
+    QSizeF pageSizeMm = qs.size(QPageSize::Millimeter);
+    const double mmPerPt = 25.4 / 72.0;
+    const double pageW = pageSizeMm.width()  / mmPerPt;  // points
+    const double pageH = pageSizeMm.height() / mmPerPt;  // points
+
+    try {
+        PoDoFo::PdfMemDocument doc;
+
+        for (const QString &imgPath : imagePaths) {
+            QFileInfo fi(imgPath);
+            if (!fi.exists()) {
+                qWarning() << "convertImagesToPdf: image not found:" << imgPath;
+                return false;
+            }
+
+            // Create a page
+            PoDoFo::PdfPage& page = doc.GetPages().CreatePage(
+                PoDoFo::Rect(0, 0, pageW, pageH));
+
+            // Load image via PoDoFo codec (PNG/JPEG/TIFF auto-detected)
+            auto image = doc.CreateImage();
+            PoDoFo::PdfImageInfo imgInfo;
+            try {
+                imgInfo = image->Load(imgPath.toStdString());
+            } catch (const std::exception &e) {
+                // Fall back to loading via Qt and feeding raw pixel data
+                QImage qimg;
+                if (!qimg.load(imgPath)) {
+                    qWarning() << "convertImagesToPdf: cannot load image:" << imgPath << e.what();
+                    return false;
+                }
+                // Convert to RGB24 for PoDoFo SetData
+                QImage rgb = qimg.convertToFormat(QImage::Format_RGB888);
+                const int w = rgb.width();
+                const int h = rgb.height();
+                const QByteArray rawBytes(reinterpret_cast<const char*>(rgb.constBits()),
+                                          static_cast<qsizetype>(rgb.sizeInBytes()));
+                image->SetData(
+                    PoDoFo::bufferview(rawBytes.constData(), static_cast<size_t>(rawBytes.size())),
+                    static_cast<unsigned>(w), static_cast<unsigned>(h),
+                    PoDoFo::PdfPixelFormat::RGB24);
+                imgInfo.Width  = static_cast<unsigned>(w);
+                imgInfo.Height = static_cast<unsigned>(h);
+            }
+
+            // Compute draw rect — fit image to page (or use natural size at opts.dpi)
+            double imgW = static_cast<double>(imgInfo.Width);
+            double imgH = static_cast<double>(imgInfo.Height);
+
+            double drawX = 0, drawY = 0, drawW, drawH;
+            if (opts.fitToPage) {
+                // Scale to fit inside page with uniform aspect ratio
+                double scaleX = pageW / imgW;
+                double scaleY = pageH / imgH;
+                double scale  = std::min(scaleX, scaleY);
+                drawW = imgW * scale;
+                drawH = imgH * scale;
+                // Center on page
+                drawX = (pageW  - drawW) / 2.0;
+                drawY = (pageH  - drawH) / 2.0;
+            } else {
+                // Natural DPI size
+                const double ptsPerPx = 72.0 / opts.dpi;
+                drawW = imgW * ptsPerPx;
+                drawH = imgH * ptsPerPx;
+                // Position at bottom-left (PDF origin)
+            }
+
+            PoDoFo::PdfPainter painter;
+            painter.SetCanvas(page);
+            // PoDoFo coordinate system: origin bottom-left; DrawImage y = bottom of image
+            painter.DrawImage(*image, drawX, drawY, drawW / imgW, drawH / imgH);
+            painter.FinishDrawing();
+        }
+
+        doc.Save(outputPath.toUtf8().constData());
+        return true;
+    } catch (const std::exception &e) {
+        qWarning() << "convertImagesToPdf: PoDoFo error:" << e.what();
+        return false;
+    }
 }
 
