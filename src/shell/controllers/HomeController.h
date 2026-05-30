@@ -33,6 +33,8 @@ private:
     void onPageSetup();
     void onExportPresets();
     void showProperties();
+    void onImportOffice();
+    void onImagesToPdf();
 
     const AppContext* _ctx = nullptr;
     MainWindow* _mainWindow = nullptr;
