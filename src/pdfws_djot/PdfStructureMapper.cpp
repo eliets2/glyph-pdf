@@ -1,4 +1,6 @@
 #include "PdfStructureMapper.h"
+#include "docmodel/SemanticDocument.h"
+#include <vector>
 
 namespace pdfws {
 
@@ -9,7 +11,9 @@ std::unique_ptr<docmodel::SemanticDocument> PdfStructureMapper::mapPdfToSemantic
     // Stub: returns an empty SemanticDocument.
     // Full implementation will use PoDoFo/PDFium to extract PDF structure
     // and populate the docmodel AST.
-    return std::make_unique<docmodel::SemanticDocument>();
+    docmodel::Provenance prov;
+    return std::make_unique<docmodel::SemanticDocument>(
+        std::vector<std::shared_ptr<docmodel::Section>>{}, prov);
 }
 
 bool PdfStructureMapper::applySemanticToPdf(const docmodel::SemanticDocument& /*doc*/,

@@ -235,7 +235,7 @@ private slots:
         public:
             bool convertTo(const QString&, const QString& outputPath,
                            TargetFormat, const QVariantMap& = {}) override {
-                QThread::msleep(80); // 80ms per file — give cancel a window
+                QThread::msleep(250); // 250ms per file — ensures cancel fires before completion even on multi-core
                 ++calls;
                 QFile f(outputPath);
                 if (f.open(QIODevice::WriteOnly)) { f.write("ok"); f.close(); }
