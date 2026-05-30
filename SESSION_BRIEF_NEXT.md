@@ -19,7 +19,8 @@
 | M3 (5/5) | `faac7f2`–`5bc2fbe` | FormBuilderMode, BatchMode, PagesMode, RedactMode+PatternRedactor, InspectorWidget properties |
 | M4 (6/7 + catchup) | `8bb8f95`–`d54f4a1` | View/Pages/Convert/Forms/Security tools; Djot foundation (docmodel + pdfws_djot + Lua + ProvenanceGuard); 8 walkthroughs; test registrations; CHANGELOG fixes |
 | **M5-P3** | `09b0cfc`–`052b13f` | **Office→PDF import** (HAS_LIBREOFFICE + real soffice subprocess + tree-kill) + **Images→PDF** (PoDoFo PdfImage XObject) + HomeController ToolId::ImportOffice/ImagesToPdf + WelcomeWidget 2 new cards + TestOfficeImport |
-| **LuaDjotCodec encode** | `d90eda2`–`eae9752` | **documentToDjot** real C++ emitter (Section→Block→Inline walker); design doc; TestDjotRoundtrip 12 tests |
+| **LuaDjotCodec encode** | `d90eda2`–`883ca89` | **documentToDjot** real C++ emitter (Section→Block→Inline walker); design doc; TestDjotRoundtrip 12 tests |
+| **M4-P6 D4** | `cf68514`–`a844cdf` | **Prune missing recents**: HomeController::pruneMissingRecents; MenuBar "Prune Missing Files" entry; PreferencesDialog auto-prune checkbox; auto-prune-on-startup |
 
 **Test count:** 24 ctest targets. Run: `ctest --output-on-failure -j4 --repeat-until-fail 3`
 
@@ -28,10 +29,9 @@
 ## What is PENDING
 
 ### ~~PROMPT 2 — LuaDjotCodec encode~~  ✅ DONE (2026-05-30)
-- `documentToDjot` implemented. M5-P4 / M6-P4 / M7-P3 encode-side unblocked.
-- Note: `djotToDocument` decode still produces empty SemanticDocument — full decode (AST walking) is M5-P4 scope.
+### ~~PROMPT 3 — M4-PROMPT-6 D4 (prune recents)~~ ✅ DONE (2026-05-30)
 
-### NEXT — PROMPT 3 — M4-PROMPT-6 Edge fixes (D4 only)
+### NEXT — PROMPT 4 — M5-PROMPT-1: RapidOCR real PP-OCRv5 (BLOCKED)
 - D1 (Strikeout/Squiggly real ToolModes) and D2 (Share via MAPI) are **verified in-place**.
 - D4 (Prune missing recent files) is **NOT implemented**.
 - Prompt is expanded to full 7-H in MONTHS-2-8-PROMPTS.md (PROMPT 3).
