@@ -161,6 +161,7 @@ add_library(pdfws_engines STATIC
     src/engines/qpdf/QpdfBackend.h     src/engines/qpdf/QpdfBackend.cpp
     src/engines/RenderCache.h          src/engines/RenderCache.cpp
     src/engines/DiffEngine.h           src/engines/DiffEngine.cpp
+    src/engines/MyersDiff.h            src/engines/MyersDiff.cpp
     src/engines/VeraPdfValidator.h     src/engines/VeraPdfValidator.cpp
     src/engines/scheduling/ILaneScheduler.h
     src/engines/scheduling/LaneScheduler.h  src/engines/scheduling/LaneScheduler.cpp
