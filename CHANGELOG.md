@@ -15,6 +15,28 @@ Real public v1.0.0 ships when all M2-M8 work in `GLYPH-PDF-MONTHS-2-8-PROMPTS.md
 
 **Other v1.0.0 work in M2-M8:** Edact-Ray glyph-advance defense in redaction, OCR text-layer scrub in redaction rectangles, veraPDF subprocess for PDF/A validation, real-crypto E2E test coverage, 5 mode-page completions, 23 ribbon tools wired, Office→PDF import + PDF→PPT export, DiffEngine LCS/Myers upgrade, ar/fr/de translations populated, AI backend (Anthropic/OpenAI/Gemini/Ollama), third-party security audit, performance tuning + bug bash, OSS governance files (LICENSE/CONTRIBUTING/SECURITY), GitHub repo + CI workflows, marketing prep, MSI signing, package-manager submissions, launch announcement.
 
+### Djot Interchange Foundation (M4-PROMPT-7 — 2026-05-30)
+
+#### Added
+- `pdfws_djot` and `docmodel` foundational static libraries for the dual-model architecture.
+- Vendor Lua 5.4 (MIT) + Djot reference parser at `third_party/lua-5.4/` + `third_party/djot/`. No reimplementation — spec-conformant parsing via the reference parser (non-negotiable per architecture).
+- `ProvenanceGuard` enforces a hard constraint: semantic (Djot) edits cannot be saved back to a signed, born-PDF document to prevent signature invalidation. Warns on unsigned born-PDFs with a "Save as copy" route.
+- `IDjotCodec` and `IDjotMapper` interfaces wired into `AppContext`. `LuaDjotCodec` implements `djotToDocument` (decode path).
+- TestDjotRoundtrip: 6 tests (decode, encode-stub documentation, ProvenanceGuard 4 cases).
+
+#### Known Issue (M4-PROMPT-7)
+- `LuaDjotCodec::documentToDjot` encode path is **stubbed** (`LuaDjotCodec.cpp:54` TODO, returns empty string). M5-PROMPT-4 (OCR→Djot mapping) is blocked until encode is implemented.
+
+### Edge Fixes (M4-PROMPT-6 — partial, not fully executed)
+
+#### Verified in-place from prior sessions
+- `ToolMode::Strikeout` and `ToolMode::Squiggly` are distinct enum values (not aliased to Underline) in `EditController` and render correctly in `AnnotationLayer` (D1 verified).
+- MAPI "Share with Attachment" wired via `GetProcAddress` at `HomeController.cpp:136` (D2 verified).
+
+#### Not yet implemented
+- Prune missing recent files from the recent-files list (D4) — no `pruneRecent`/`removeMissingRecent` logic found in source.
+- M4-PROMPT-6 in `docs/planning/MONTHS-2-8-PROMPTS.md` is skeletal (missing session_metadata, role, files_to_read, verification, constraints, error_recovery sections). Must be expanded to full 7-H format before execution.
+
 ### Pages Mode (M3-PROMPT-3 — 2026-05-29)
 
 #### Added
@@ -261,9 +283,10 @@ Real public v1.0.0 ships when all M2-M8 work in `GLYPH-PDF-MONTHS-2-8-PROMPTS.md
 - Some Session 7-11 features may be interface stubs pending full implementation verification
 - Translations: glyphpdf_{ar,fr,de}.ts are empty shells. Run `lupdate src/ -ts translations/glyphpdf_*.ts` then commission translators before claiming multilingual support.
 - DiffEngine uses per-word set-difference rather than LCS/Myers — order changes appear as add+delete pairs, not moves. Affects legal/compliance comparison persona.
-- Pattern redaction (email/phone/ID regex) not implemented. Only literal-string search-and-redact is available.
+- Pattern redaction backend (PatternRedactor, 12 named patterns + custom regex, applyPatternRedactions) is **implemented** (M3-PROMPT-4). TestPatternRedact registered in CMake.
 - Office→PDF import not implemented (only PDF→Office conversion paths exist).
 - Send-for-signing workflow (remote signing order, reminders, audit trails) not implemented — only local certificate-based signing exists.
 - CollaborationManager.cpp marks itself "Cloud Sync Stub (Simulation)"; ICollaboration interface exists with no real network backend.
-- RapidOcrEngine: PP-OCRv5 tensor pre/post processing is a stub. The engine is runtime-disabled in the OCR mode selector (greyed out with "Available in v1.1.0" tooltip) so users cannot select it.
+- RapidOcrEngine: PP-OCRv5 tensor pre/post processing is a stub (M5-PROMPT-1 closes). Model files in `models/ppocrv5/` are **PP-OCRv4 weights** (filename contains `PP-OCRv4`), not v5. Download actual PP-OCRv5 ONNX weights from PaddleOCR releases before executing M5-PROMPT-1. See `models/ppocrv5/STATUS.md`.
+- M4-PROMPT-6 D4: Prune missing recent files not yet implemented.
 - enterprise_installer.wxs at repo root (legacy WiX v3 with different product name) — superseded by packaging/GlyphPDF.wxs (WiX v4) and removed in this audit.
