@@ -18,7 +18,8 @@
 | M2 (5/5) | `42c0f46`–`c3eb22a` | Edact-Ray glyph-advance, OCR text-layer scrub, veraPDF subprocess, real-crypto E2E tests, LaneScheduler |
 | M3 (5/5) | `faac7f2`–`5bc2fbe` | FormBuilderMode, BatchMode, PagesMode, RedactMode+PatternRedactor, InspectorWidget properties |
 | M4 (6/7 + catchup) | `8bb8f95`–`d54f4a1` | View/Pages/Convert/Forms/Security tools; Djot foundation (docmodel + pdfws_djot + Lua + ProvenanceGuard); 8 walkthroughs; test registrations; CHANGELOG fixes |
-| **M5-P3** | `09b0cfc`–`0d9fdc9` | **Office→PDF import** (HAS_LIBREOFFICE + real soffice subprocess + tree-kill) + **Images→PDF** (PoDoFo PdfImage XObject) + HomeController ToolId::ImportOffice/ImagesToPdf + WelcomeWidget 2 new cards + TestOfficeImport |
+| **M5-P3** | `09b0cfc`–`052b13f` | **Office→PDF import** (HAS_LIBREOFFICE + real soffice subprocess + tree-kill) + **Images→PDF** (PoDoFo PdfImage XObject) + HomeController ToolId::ImportOffice/ImagesToPdf + WelcomeWidget 2 new cards + TestOfficeImport |
+| **LuaDjotCodec encode** | `d90eda2`–`eae9752` | **documentToDjot** real C++ emitter (Section→Block→Inline walker); design doc; TestDjotRoundtrip 12 tests |
 
 **Test count:** 24 ctest targets. Run: `ctest --output-on-failure -j4 --repeat-until-fail 3`
 
@@ -26,12 +27,11 @@
 
 ## What is PENDING
 
-### PROMPT 2 — MINI: LuaDjotCodec encode stub closure (NEXT recommended)
-- `LuaDjotCodec::documentToDjot` at `src/pdfws_djot/LuaDjotCodec.cpp:54` returns empty string (stub).
-- Blocks M5-P4 (OCR→Djot mapping), M6-P4 (annotation rich-text), M7-P3 (MRC sandwich text).
-- Estimated: **2-4 hours**. Independent, no blockers. See MONTHS-2-8-PROMPTS.md PROMPT 2.
+### ~~PROMPT 2 — LuaDjotCodec encode~~  ✅ DONE (2026-05-30)
+- `documentToDjot` implemented. M5-P4 / M6-P4 / M7-P3 encode-side unblocked.
+- Note: `djotToDocument` decode still produces empty SemanticDocument — full decode (AST walking) is M5-P4 scope.
 
-### PROMPT 3 — M4-PROMPT-6 Edge fixes (D4 only)
+### NEXT — PROMPT 3 — M4-PROMPT-6 Edge fixes (D4 only)
 - D1 (Strikeout/Squiggly real ToolModes) and D2 (Share via MAPI) are **verified in-place**.
 - D4 (Prune missing recent files) is **NOT implemented**.
 - Prompt is expanded to full 7-H in MONTHS-2-8-PROMPTS.md (PROMPT 3).
