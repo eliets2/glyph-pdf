@@ -85,6 +85,11 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
     _autosaveIntervalSpin->setValue(currentInterval);
     form->addRow(tr("Autosave Interval:"), _autosaveIntervalSpin);
 
+    _autoPrune = new QCheckBox(tr("Auto-prune missing recent files on startup"));
+    _autoPrune->setChecked(settings.value("recent/autoPrune", false).toBool());
+    _autoPrune->setAccessibleName(tr("Remove missing recent files from the list when the application starts"));
+    form->addRow(QString{}, _autoPrune);
+
     col->addWidget(genGroup);
 
     // Updates group
@@ -226,6 +231,7 @@ void PreferencesDialog::saveSettings()
     settings.setValue("ui/theme", _themeCombo->currentData().toString());
     settings.setValue("update/checkOnStartup", _autoUpdate->isChecked());
     settings.setValue("update/channel", _updateChannel->currentData().toString());
+    settings.setValue("recent/autoPrune", _autoPrune->isChecked());
 
     int intervalMinutes = _autosaveIntervalSpin->value();
     int intervalSeconds = intervalMinutes * 60;
