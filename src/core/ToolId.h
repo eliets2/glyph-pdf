@@ -86,6 +86,8 @@ enum class ToolId {
     Compress,
     Linearize,
     PdfA,
+    ImportOffice,
+    ImagesToPdf,
 
     // ── Forms ──
     TextField,
