@@ -71,3 +71,15 @@ New "Djot Interchange Foundation (M4-PROMPT-7)" section added to CHANGELOG.md (d
 1. **ProvenanceGuard.h inline redefinition fixed**: The original ProvenanceGuard.h redefined `docmodel::ProvenanceTag` inline ("until docmodel is merged"). Now that docmodel IS merged (ae84ca7), the inline was replaced with `#include "docmodel/ProvenanceTag.h"` to prevent ODR violations when both headers are included in the same TU.
 2. **gtest → QtTest rewrite**: Original TestDjotRoundtrip.cpp used Google Test which is not in MSYS2 ucrt64. Rewritten to QtTest for consistency with all other GlyphPDF test targets.
 3. **Djot .git stripped**: The vendored `third_party/djot/` had its `.git` directory removed before committing (was staged as embedded git repo — corrected with `git rm --cached -f`).
+
+---
+
+## Follow-up: encode path closure (2026-05-30, mini-prompt)
+
+`LuaDjotCodec::documentToDjot` was implemented as a **direct C++ tree-walker** (not via `djot.render`). The vendored `djot.lua` exposes only `parse()`, `render_html()`, `render_ast_*()` — there is no `djot.render(ast)` function that produces Djot text from an AST. The `djot-writer.lua` is a Pandoc-specific module and cannot be used standalone.
+
+**Commits:** `d90eda2` (encode C++ emitter) · `0149733` (TestDjotRoundtrip 8 new tests)
+
+**Design doc:** `docs/djot-encode-design.md`
+
+**Remaining:** `djotToDocument` still creates an empty `SemanticDocument` (decode stub). Full AST walking is M5-PROMPT-4 scope.
