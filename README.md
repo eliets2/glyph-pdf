@@ -129,6 +129,15 @@ cmake -B build -DVERAPDF_CLI_PATH=/path/to/verapdf
 
 Without this, `PdfAValidationPanel` shows "validator unavailable" — all other features work normally.
 
+**Optional: LibreOffice** for Office→PDF import (`.docx`, `.xlsx`, `.pptx`, `.odt`, etc.):
+```bash
+# Via MSYS2 (ucrt64)
+pacman -S --noconfirm mingw-w64-ucrt-x86_64-libreoffice-fresh
+# OR install the system LibreOffice installer (adds soffice.exe to PATH automatically)
+```
+CMake auto-detects soffice at configure time. Without LibreOffice, Office→PDF import shows
+a "LibreOffice not installed" message — all other features work normally.
+
 ### Why MSYS2 ucrt64?
 GlyphPDF migrated from a hybrid Qt-installer + vcpkg setup to fully MSYS2-native in v1.0.0 development. This eliminates the libstdc++/libwinpthread ABI mismatch that previously required carefully-chosen DLL mixes in the build directory. Single coherent toolchain (GCC 16.x + Qt 6.11 + all deps from pacman), single source of truth for dependency versions, easier maintenance via `pacman -Syu`.
 

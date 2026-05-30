@@ -64,6 +64,19 @@ find_package(OpenXLSX CONFIG QUIET)
 find_package(duckx CONFIG QUIET)
 find_package(CURL QUIET)
 find_package(qpdf QUIET)
+
+# LibreOffice headless — optional dep for Office→PDF import.
+# Not a hard requirement; graceful runtime no-op when absent.
+find_program(LIBREOFFICE_SOFFICE soffice
+    PATHS
+        "C:/Program Files/LibreOffice/program"
+        "C:/Program Files (x86)/LibreOffice/program"
+    DOC "LibreOffice headless soffice binary for Office→PDF conversion")
+if(LIBREOFFICE_SOFFICE)
+    message(STATUS "LibreOffice found at ${LIBREOFFICE_SOFFICE} — Office→PDF import enabled")
+else()
+    message(STATUS "LibreOffice not found — Office→PDF import will gracefully no-op at runtime")
+endif()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 find_package(Pdfium QUIET)
 find_package(libzip REQUIRED)
@@ -226,6 +239,11 @@ endif()
 if(duckx_FOUND)
     target_link_libraries(pdfws_engines PRIVATE duckx::duckx)
     target_compile_definitions(pdfws_engines PRIVATE HAS_DUCKX)
+endif()
+if(LIBREOFFICE_SOFFICE)
+    target_compile_definitions(pdfws_engines PRIVATE
+        HAS_LIBREOFFICE=1
+        LIBREOFFICE_SOFFICE_PATH="${LIBREOFFICE_SOFFICE}")
 endif()
 
 # veraPDF CLI — AGPL-3.0 subprocess only; never link in-process
