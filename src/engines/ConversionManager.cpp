@@ -344,28 +344,87 @@ bool ConversionManager::exportToCsv(const QString &outputPath, const QList<QList
     return true;
 }
 
-bool ConversionManager::convertOfficeToPdf(const QString &officePath, const QString &outputPath) {
-#ifdef HAS_LIBREOFFICE
-    QProcess process;
-    QFileInfo outInfo(outputPath);
-    QString outDir = outInfo.absolutePath();
-    process.start("soffice", {"--headless", "--convert-to", "pdf", officePath, "--outdir", outDir});
-    if (!process.waitForStarted() || !process.waitForFinished()) {
-        qWarning() << "Failed to run soffice process";
+bool ConversionManager::convertOfficeToPdf(const QString &officePath, const QString &outputPath,
+                                            int timeoutMs)
+{
+#ifndef HAS_LIBREOFFICE
+    Q_UNUSED(officePath); Q_UNUSED(outputPath); Q_UNUSED(timeoutMs);
+    qWarning() << "convertOfficeToPdf: LibreOffice not configured at build time";
+    return false;
+#else
+    // Validate extension: supported Office input formats
+    static const QStringList supportedExts = {
+        "docx", "doc", "xlsx", "xls", "pptx", "ppt",
+        "odt", "ods", "odp", "rtf", "csv", "txt"
+    };
+    QFileInfo inInfo(officePath);
+    if (!inInfo.exists()) {
+        qWarning() << "convertOfficeToPdf: input file does not exist:" << officePath;
         return false;
     }
-    
-    // LibreOffice outputs as "filename.pdf". If outputPath is different, we should rename it.
-    QFileInfo inInfo(officePath);
-    QString expectedOutPath = QDir(outDir).filePath(inInfo.baseName() + ".pdf");
-    if (expectedOutPath != outputPath) {
+    if (!supportedExts.contains(inInfo.suffix().toLower())) {
+        qWarning() << "convertOfficeToPdf: unsupported input format:" << inInfo.suffix();
+        return false;
+    }
+
+    // Kill any stale soffice lock from a previous crash (exit code 81)
+    // before launching, to avoid "locked" failures.
+#ifdef Q_OS_WIN
+    QProcess::execute("taskkill", {"/F", "/IM", "soffice.bin", "/IM", "soffice.exe"});
+#endif
+
+    QFileInfo outInfo(outputPath);
+    const QString outDir = outInfo.absolutePath();
+    QDir().mkpath(outDir);
+
+    QProcess process;
+    process.setProcessChannelMode(QProcess::MergedChannels);
+    const QString sofficePath = QString::fromLatin1(LIBREOFFICE_SOFFICE_PATH);
+    process.start(sofficePath, {
+        "--headless",
+        "--convert-to", "pdf:writer_pdf_Export",
+        "--outdir", outDir,
+        officePath
+    });
+
+    if (!process.waitForStarted(5000)) {
+        qWarning() << "convertOfficeToPdf: soffice failed to start:" << process.errorString();
+        return false;
+    }
+
+    const bool finished = process.waitForFinished(timeoutMs);
+    if (!finished) {
+        // Timeout — kill the entire process tree on Windows
+        const qint64 pid = process.processId();
+        qWarning() << "convertOfficeToPdf: timeout after" << timeoutMs << "ms; killing PID" << pid;
+        process.kill();
+#ifdef Q_OS_WIN
+        QProcess::execute("taskkill", {"/F", "/T", "/PID", QString::number(pid)});
+#endif
+        return false;
+    }
+
+    if (process.exitCode() != 0) {
+        qWarning() << "convertOfficeToPdf: soffice exited with code" << process.exitCode()
+                   << process.readAll();
+        return false;
+    }
+
+    // LibreOffice writes <basename>.pdf into outDir; rename to caller's outputPath if different.
+    const QString expectedOut = QDir(outDir).filePath(inInfo.completeBaseName() + ".pdf");
+    if (QFileInfo(expectedOut).canonicalFilePath() != QFileInfo(outputPath).canonicalFilePath()) {
         QFile::remove(outputPath);
-        QFile::rename(expectedOutPath, outputPath);
+        if (!QFile::rename(expectedOut, outputPath)) {
+            qWarning() << "convertOfficeToPdf: could not rename" << expectedOut << "to" << outputPath;
+            return false;
+        }
+    }
+
+    if (!QFileInfo(outputPath).exists() || QFileInfo(outputPath).size() == 0) {
+        qWarning() << "convertOfficeToPdf: output PDF is empty or missing:" << outputPath;
+        return false;
     }
     return true;
-#else
-    qWarning() << "LibreOffice not available for conversion";
-    return false;
 #endif
 }
 #include <zip.h>
