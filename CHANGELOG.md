@@ -15,6 +15,16 @@ Real public v1.0.0 ships when all M2-M8 work in `GLYPH-PDF-MONTHS-2-8-PROMPTS.md
 
 **Other v1.0.0 work in M2-M8:** Edact-Ray glyph-advance defense in redaction, OCR text-layer scrub in redaction rectangles, veraPDF subprocess for PDF/A validation, real-crypto E2E test coverage, 5 mode-page completions, 23 ribbon tools wired, Office→PDF import + PDF→PPT export, DiffEngine LCS/Myers upgrade, ar/fr/de translations populated, AI backend (Anthropic/OpenAI/Gemini/Ollama), third-party security audit, performance tuning + bug bash, OSS governance files (LICENSE/CONTRIBUTING/SECURITY), GitHub repo + CI workflows, marketing prep, MSI signing, package-manager submissions, launch announcement.
 
+### Office→PDF Import + Images→PDF (M5-PROMPT-3 — 2026-05-30)
+
+#### Added
+- **Office→PDF import via LibreOffice subprocess** (`HAS_LIBREOFFICE` CMake flag; `find_program(soffice)`). `ConversionManager::convertOfficeToPdf` replaces dead `#ifdef HAS_LIBREOFFICE` stub with real subprocess invocation: validates input extension, spawns `soffice --headless --convert-to pdf:writer_pdf_Export`, applies timeout (default 120s), kills process tree on Windows via `taskkill /F /T /PID` on timeout. Supported formats: `.docx`, `.xlsx`, `.pptx`, `.odt`, `.ods`, `.odp`, `.rtf`, `.csv`, `.txt`.
+- **Images→PDF** via PoDoFo PdfImage XObject embedding (`ConversionManager::convertImagesToPdf`). Accepts `QStringList` of PNG/JPEG/TIFF paths; one page per image; fit-to-page or natural DPI sizing; `ImageImportOptions { dpi, fitToPage, pageSize }`.
+- **Import Office Document** and **Images to PDF** action cards in `WelcomeWidget`. New signals: `importOfficeRequested()`, `imagesToPdfRequested()`.
+- `ToolId::ImportOffice` + `ToolId::ImagesToPdf` added to enum; `HomeController` handles both via `QtConcurrent::run` + `QProgressDialog` (non-blocking GUI).
+- `TestOfficeImport` (4 tests): images→PDF page count + XObject presence; empty-list guard; OfficeToPdf with real RTF (QSKIP without LibreOffice); unsupported-extension rejection. 24/24 ctest.
+- README "Build Instructions" updated with optional LibreOffice install note.
+
 ### Djot Interchange Foundation (M4-PROMPT-7 — 2026-05-30)
 
 #### Added
@@ -284,7 +294,6 @@ Real public v1.0.0 ships when all M2-M8 work in `GLYPH-PDF-MONTHS-2-8-PROMPTS.md
 - Translations: glyphpdf_{ar,fr,de}.ts are empty shells. Run `lupdate src/ -ts translations/glyphpdf_*.ts` then commission translators before claiming multilingual support.
 - DiffEngine uses per-word set-difference rather than LCS/Myers — order changes appear as add+delete pairs, not moves. Affects legal/compliance comparison persona.
 - Pattern redaction backend (PatternRedactor, 12 named patterns + custom regex, applyPatternRedactions) is **implemented** (M3-PROMPT-4). TestPatternRedact registered in CMake.
-- Office→PDF import not implemented (only PDF→Office conversion paths exist).
 - Send-for-signing workflow (remote signing order, reminders, audit trails) not implemented — only local certificate-based signing exists.
 - CollaborationManager.cpp marks itself "Cloud Sync Stub (Simulation)"; ICollaboration interface exists with no real network backend.
 - RapidOcrEngine: PP-OCRv5 tensor pre/post processing is a stub (M5-PROMPT-1 closes). Model files in `models/ppocrv5/` are **PP-OCRv4 weights** (filename contains `PP-OCRv4`), not v5. Download actual PP-OCRv5 ONNX weights from PaddleOCR releases before executing M5-PROMPT-1. See `models/ppocrv5/STATUS.md`.
