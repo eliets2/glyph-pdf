@@ -14,7 +14,7 @@ This file auto-loads in every Claude Code session opened in `C:\Users\User\Proje
 
 **Build environment (current):** MSYS2 **ucrt64** native — GCC 16.1.0, Qt 6.11.0, CMake 4.3.3, PoDoFo 1.1.0 (vendored). NOT mingw64; NOT Qt installer; NOT vcpkg.
 
-**Repo state:** branch `main`, head updated post-catchup (see `git log -1`). M1 work landed in `a6ea6aa`; MSYS2 migration in `45807de`+`6e7c8aa`+`9ac0c2f`; M2 sprint `42c0f46`–`c3eb22a`; M3 sprint `faac7f2`–`5bc2fbe`; M4 sprint `8bb8f95`–`bc00e6a` (catchup). See vault `01-current-state.md` for commit-by-commit map.
+**Repo state:** branch `main`, head `d54f4a1` (2026-05-30 — M4 catchup merge). M1 `a6ea6aa`; MSYS2 `45807de`–`9ac0c2f`; M2 `42c0f46`–`c3eb22a`; M3 `faac7f2`–`5bc2fbe`; M4+catchup `8bb8f95`–`d54f4a1`. See vault `01-current-state.md` for commit-by-commit map.
 
 **Tests:** 23 ctest targets. All should pass under MSYS2 ucrt64 build (verify with `ctest --output-on-failure -j4 --repeat-until-fail 3`). TestDjotRoundtrip: 7 tests (encode stub documented, ProvenanceGuard 4 cases). TestPatternRedact: 11 tests (PDFium-gated, pass without PDFium). TestBatchMode: RESOURCE_LOCK added to prevent parallel-run race.
 
