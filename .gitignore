@@ -58,6 +58,9 @@ Testing/
 scratch_*
 scratch/
 *.tmp.md
+script*.ps1
+tmp_*.pdf
+tmp_signed_*.pdf
 
 # Autosave artifacts (from AutosaveManager M1)
 *.autosave.pdf

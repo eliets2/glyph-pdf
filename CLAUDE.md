@@ -14,9 +14,9 @@ This file auto-loads in every Claude Code session opened in `C:\Users\User\Proje
 
 **Build environment (current):** MSYS2 **ucrt64** native — GCC 16.1.0, Qt 6.11.0, CMake 4.3.3, PoDoFo 1.1.0 (vendored). NOT mingw64; NOT Qt installer; NOT vcpkg.
 
-**Repo state:** branch `main`, head `9ac0c2f` (May 28, 2026). Working tree should have `third_party/podofo_build/` as the only untracked dir (gitignored). M1 work landed in `a6ea6aa`; MSYS2 migration landed in `45807de` + `6e7c8aa` + `9ac0c2f`.
+**Repo state:** branch `main`, head updated post-catchup (see `git log -1`). M1 work landed in `a6ea6aa`; MSYS2 migration in `45807de`+`6e7c8aa`+`9ac0c2f`; M2 sprint `42c0f46`–`c3eb22a`; M3 sprint `faac7f2`–`5bc2fbe`; M4 sprint `8bb8f95`–`bc00e6a` (catchup). See vault `01-current-state.md` for commit-by-commit map.
 
-**Tests:** 14 ctest targets. All 14 pass under MSYS2 ucrt64 build.
+**Tests:** 23 ctest targets. All should pass under MSYS2 ucrt64 build (verify with `ctest --output-on-failure -j4 --repeat-until-fail 3`). TestDjotRoundtrip: 7 tests (encode stub documented, ProvenanceGuard 4 cases). TestPatternRedact: 11 tests (PDFium-gated, pass without PDFium). TestBatchMode: RESOURCE_LOCK added to prevent parallel-run race.
 
 ---
 
@@ -180,9 +180,10 @@ C:\Users\User\Projects\pdf\
 ├── third_party/
 │   ├── podofo_build/             ← (NEW MSYS2) vendored PoDoFo 1.1.0 install tree
 │   ├── pdfium/                   ← isolated PDFium headers
-│   └── lua-5.4/                  ← (NEW M4 — pending) vendored Lua 5.4 reference Djot parser
-├── docmodel/                     ← (NEW M4 — pending) SemanticDocument tree + ProvenanceTag
-├── pdfws_djot/                   ← (NEW M4 — pending) Djot codec + IDjotMapper
+│   ├── lua-5.4/                  ← (NEW M4) vendored Lua 5.4 (MIT) reference parser
+│   └── djot/                     ← (NEW M4) vendored Djot reference parser (Lua files; no .git)
+├── src/docmodel/                 ← (NEW M4) SemanticDocument tree + ProvenanceTag
+├── src/pdfws_djot/               ← (NEW M4) Djot codec + IDjotMapper + ProvenanceGuard
 ├── models/                       ← OCR model files (Tesseract data + PP-OCRv5 ONNX)
 ├── resources/                    ← icons, fonts, QSS themes, .qrc
 ├── dist/                         ← built MSI artifacts (gitignored)
@@ -212,6 +213,29 @@ C:\Users\User\Projects\pdf\
 - Upgraded PoDoFo 0.10.3 → 1.1.0 (API adaptations in PoDoFoBackend.cpp + commands)
 - Vendored PoDoFo 1.1.0 install tree at `third_party/podofo_build/`
 - Updated CMakeLists.txt + README + CHANGELOG to MSYS2 ucrt64
+
+### Already done (M2 sprint — 5/5 prompts, May 29, 2026)
+- M2-P1: Edact-Ray glyph-advance normalization (GlyphAdvanceCalculator + numeric TJ)
+- M2-P2: OCR invisible text scrub in redaction (Tr==3 tracking in redactCanvasRecursively)
+- M2-P3: veraPDF subprocess for PDF/A conformance (VeraPdfValidator + PdfAValidationPanel wired)
+- M2-P4: Real-crypto E2E test expansion (adversarial fixtures, RSA key-size enforcement)
+- M2-P5: LaneScheduler infrastructure (GPU warm worker + CPU pool + CrossPagePipeline)
+
+### Already done (M3 sprint — 5/5 prompts, May 29-30, 2026)
+- M3-P1: FormBuilderMode wired drag-and-drop (field placement + 9 types + tab order)
+- M3-P2: BatchMode real execution loop (QtConcurrent + error log + 5 tests; RESOURCE_LOCK added in catchup)
+- M3-P3: PagesMode real split-form UI (real page list + split/reorder + TestPagesMode)
+- M3-P4: RedactMode + PatternRedactor (12 named patterns + applyPatternRedactions; TestPatternRedact registered in catchup)
+- M3-P5: InspectorWidget Properties tab fully bound (all 5 tabs; TestInspector 6 tests)
+
+### Already done (M4 sprint — 6/7 prompts + catchup, May 29-30, 2026)
+- M4-P1: View tools (TwoPage, EyeCare, Presentation Mode)
+- M4-P2: Pages tools (Resize, HeaderFooter, BatesNumbering — engine methods pre-existing, UI wired)
+- M4-P3: Convert tools (ToHtml, ToText, Compress, PDF→PPT structural PPTX export)
+- M4-P4: Forms tools (Button, SigField, AutoDetect, TabOrder)
+- M4-P5: Security tools (Permissions, RemoveSecurity, Certify, Timestamp, PatternRedact)
+- M4-P7: WS2 Djot foundation (docmodel + pdfws_djot + Lua vendor + ProvenanceGuard + TestDjotRoundtrip)
+- M4-P6: NOT executed (D1+D2 verified-in-place; D4 prune-recents not implemented; prompt skeletal)
 
 ### Remaining (M2-M8) — 34 prompts in `docs/planning/MONTHS-2-8-PROMPTS.md`
 
@@ -325,6 +349,12 @@ Below is the abridged version of the patterns most relevant to GlyphPDF Branch C
 ### Pattern 9: Antigravity built engines, didn't wire UI
 **The pattern of Antigravity sessions (per `07-sessions-log.md`):** strong real engine work (PoDoFo content-stream surgery, real FDF/CSV, real PAdES B-LTA, real DiffEngine Myers) but the corresponding UI integration was often left as stubs or preview banners. The audit caught this. **Rule for M3-M4 sessions:** every engine feature must also have a working UI path with no "scheduled for future engine update" message box.
 
+### Pattern 18: `tr` local variable shadows `QObject::tr()`
+**Discovered in M3-P1.** In any QObject subclass, naming a local variable `tr` (e.g., `auto* tr = new QHBoxLayout(...)`) shadows `QObject::tr()`. All `tr(...)` calls in the same function fail to compile with "tr cannot be used as a function." **Rule:** never use `tr`, `lay`, or other Qt-reserved identifiers as local variable names. Use `trow`, `hbox`, `row`, etc.
+
+### Pattern 19: TestBatchMode flaky under parallel ctest
+**Discovered in M3-P2.** TestBatchMode passes in isolation but fails intermittently under `ctest -j4`. Root cause: concurrent tests share I/O resources. **Fix (M4 catchup):** `RESOURCE_LOCK BatchModeIO` added to `set_tests_properties(TestBatchMode)`. Verify with `--repeat-until-fail 3`.
+
 ### Pattern 10: Universal "everything passes" syndrome
 **Every Antigravity walkthrough ends with "all deliverables completed, builds successfully, all tests pass."** None mention skipped tests, deferred sub-tasks, or known limitations. The CHANGELOG `Known Issues` section was honest, but session walkthroughs were not. **Rule:** walkthroughs should explicitly list (a) what's complete, (b) what's deferred + why, (c) what tests were added vs skipped, (d) any TODO comments inserted.
 
@@ -342,7 +372,7 @@ Read `src/core/interfaces/IPdfEditorEngine.h` first. Most engine changes propaga
 Find the controller for the affected tool (e.g., SecurityController for sign/encrypt/redact). Trace from ToolRegistry::activate(ToolId) → controller switch → engine call.
 
 ### "I need to add a new test"
-Add `.cpp` to `tests/` → register `qt_add_executable(...)` in `CMakeLists.txt` test section → add to ctest via `add_test(...)`.
+Add `.cpp` to `tests/` → register in the **root** `CMakeLists.txt` test section (there is no `tests/CMakeLists.txt`; all tests in root CMakeLists) → `add_executable` + `target_link_libraries` + `add_test` + `set_tests_properties`. Deploy qoffscreen plugin if test creates QApplication. Use `RESOURCE_LOCK` if test shares I/O resources (e.g., TestBatchMode).
 
 ### "I need to debug a signature issue"
 The signing path: `SignDocumentHelper::execute` (in `src/commands/`) → `SignatureManager::signDocument` → PoDoFo + OpenSSL → `buildDssDictionary` if level≥B_LT → `applyDocTimeStamp` if B_LTA. Test with `tests/TestSignatureRealCrypto.cpp` (real crypto, real fixtures). Mock-based `TestSignatureValidationMock` is for interface contract testing only.
@@ -357,6 +387,9 @@ Edit (a) this `CLAUDE.md` file (project-scoped, auto-loads) AND (b) `C:\Users\Us
 Add to §7 of this file AND:
 - Project-specific: `projects/glyphpdf/08-lessons-learned.md` (numbered sequentially Pattern 18+)
 - Cross-project (if applies to other stacks): `knowledge/agent-execution-anti-patterns.md` (also tool/stack-agnostic; applies to every project in workspace)
+
+### "I want to understand what the executor agent was thinking"
+Read `.context/<prompt-id>-source-analysis.md` and `.context/<prompt-id>-vault-summary.md`. These are per-prompt working memos written before execution. They're NOT authoritative (git log + vault notes are), but they explain what the agent found when it first read the codebase. Coverage: M2-P2 through M3-P5 (M4 subagent sessions didn't produce them). See `.context/README.md`.
 
 ### "I'm executing a Branch C prompt — what do I read first?"
 Per the STANDARD EXECUTION PROTOCOL **PHASE 0** in `docs/planning/MONTHS-2-8-PROMPTS.md` (and the inline reminder at the top of each individual prompt):
@@ -388,7 +421,7 @@ Don't run `pacman -Q` / `pip list` / `npm ls -g` / `where <tool>` cold. Read `C:
 Before executing a Branch C prompt:
 - [ ] Working tree clean (`git status --short` returns nothing or only known build-artifact dirs)
 - [ ] Last commit is what you expect (`git log -1`)
-- [ ] All 14 tests pass (`ctest --output-on-failure -j4` last line says `100% tests passed, 0 tests failed out of 14`)
+- [ ] All 23 tests pass (`ctest --output-on-failure -j4 --repeat-until-fail 3` — the repeat flag catches flaky tests; TestBatchMode has RESOURCE_LOCK for parallel runs)
 - [ ] No stale STATE.md left over from a previous context-gated session
 - [ ] Disk space for build (~5 GB headroom)
 - [ ] You have the prompt file path: `docs/planning/MONTHS-2-8-PROMPTS.md`
@@ -419,4 +452,4 @@ If you're not sure whether to update CLAUDE.md vs the Obsidian vault: update CLA
 
 ---
 
-*Last meaningful update: 2026-05-28 — post-MSYS2-migration + memory consolidation. Next: M2-PROMPT-1 (Edact-Ray glyph-advance) in a fresh CC session.*
+*Last meaningful update: 2026-05-30 — consolidated catchup (M3+M4 sprints + 8 walkthroughs + test registrations + CHANGELOG fixes + vault sync). Next: read `docs/planning/NEXT-SESSION-HAND-OFF.md` for the recommended next prompt (M5-PROMPT-3, Office import).*
