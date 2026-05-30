@@ -1,6 +1,6 @@
 # GlyphPDF — Next Claude Code Session Brief
 
-**Updated:** 2026-05-30 | **Branch:** main (merged from feature/m4-djot-foundation in catchup) | **Head:** see `git log -1`
+**Updated:** 2026-05-30 | **Branch:** main | **Head:** `0d9fdc9` (M5-P3 D7 walkthrough)
 **Project root:** `C:\Users\User\Projects\pdf`
 **Branch C SCOPE LOCK:** real public v1.0.0 ships ~8-9 months from M2 start (M8 target). Current `dist\GlyphPDF-1.0.0-x64.msi` is **private/internal only** — do NOT publish until M8.
 
@@ -17,30 +17,32 @@
 | MSYS2 | `45807de`+`6e7c8aa`+`9ac0c2f` | Qt-installer+vcpkg → MSYS2 ucrt64; PoDoFo 1.1.0 vendor |
 | M2 (5/5) | `42c0f46`–`c3eb22a` | Edact-Ray glyph-advance, OCR text-layer scrub, veraPDF subprocess, real-crypto E2E tests, LaneScheduler |
 | M3 (5/5) | `faac7f2`–`5bc2fbe` | FormBuilderMode, BatchMode, PagesMode, RedactMode+PatternRedactor, InspectorWidget properties |
-| M4 (6/7 + catchup) | `8bb8f95`–`bc00e6a` | View/Pages/Convert/Forms/Security tools; Djot foundation (docmodel + pdfws_djot + Lua + ProvenanceGuard); 8 walkthroughs; test registrations; CHANGELOG fixes |
+| M4 (6/7 + catchup) | `8bb8f95`–`d54f4a1` | View/Pages/Convert/Forms/Security tools; Djot foundation (docmodel + pdfws_djot + Lua + ProvenanceGuard); 8 walkthroughs; test registrations; CHANGELOG fixes |
+| **M5-P3** | `09b0cfc`–`0d9fdc9` | **Office→PDF import** (HAS_LIBREOFFICE + real soffice subprocess + tree-kill) + **Images→PDF** (PoDoFo PdfImage XObject) + HomeController ToolId::ImportOffice/ImagesToPdf + WelcomeWidget 2 new cards + TestOfficeImport |
 
-**Test count:** 23 ctest targets. Run: `ctest --output-on-failure -j4 --repeat-until-fail 3`
+**Test count:** 24 ctest targets. Run: `ctest --output-on-failure -j4 --repeat-until-fail 3`
 
 ---
 
 ## What is PENDING
 
-### M4-PROMPT-6 — Edge fixes (NOT YET EXECUTED)
-- D1 (Strikeout/Squiggly real ToolModes) and D2 (Share via MAPI) are **verified in-place** from prior sessions.
+### PROMPT 2 — MINI: LuaDjotCodec encode stub closure (NEXT recommended)
+- `LuaDjotCodec::documentToDjot` at `src/pdfws_djot/LuaDjotCodec.cpp:54` returns empty string (stub).
+- Blocks M5-P4 (OCR→Djot mapping), M6-P4 (annotation rich-text), M7-P3 (MRC sandwich text).
+- Estimated: **2-4 hours**. Independent, no blockers. See MONTHS-2-8-PROMPTS.md PROMPT 2.
+
+### PROMPT 3 — M4-PROMPT-6 Edge fixes (D4 only)
+- D1 (Strikeout/Squiggly real ToolModes) and D2 (Share via MAPI) are **verified in-place**.
 - D4 (Prune missing recent files) is **NOT implemented**.
-- The prompt in `docs/planning/MONTHS-2-8-PROMPTS.md` is **skeletal** (missing session_metadata, role, files_to_read, verification, constraints, error_recovery). Must expand to full 7-H before executing.
-- **Recommendation:** skip M4-P6 for now; execute M5-P3 (independent, clean scope) first.
+- Prompt is expanded to full 7-H in MONTHS-2-8-PROMPTS.md (PROMPT 3).
 
 ### M5 — OCR ensemble + Office import
 | Prompt | Status | Blocker |
 |--------|--------|---------|
 | M5-P1 RapidOCR real PP-OCRv5 | Not started | `models/ppocrv5/` contains PP-OCRv4 weights (see `models/ppocrv5/STATUS.md`). Download real PP-OCRv5 ONNX OR amend prompt to v4. |
 | M5-P2 LayoutEnsemble | Not started | Needs M5-P1 |
-| **M5-P3 Office→PDF import** | **READY — next recommended** | Independent; `HAS_LIBREOFFICE` CMake option; `soffice` subprocess; no M5-P1 dependency |
-| M5-P4 OCR→Djot mapping | Not started | Blocked on `LuaDjotCodec::documentToDjot` encode stub (`LuaDjotCodec.cpp:54`) |
-
-### WS2 Djot encode path (blocking M5-P4)
-`LuaDjotCodec::documentToDjot` returns empty string (stub). Implementing it requires walking the SemanticDocument tree and emitting Djot syntax. This is standalone C++ work (~2-4 hours) that should be done as a dedicated mini-prompt before M5-P4.
+| ~~**M5-P3 Office→PDF import**~~ | ✅ **DONE (2026-05-30)** | 24/24 ctest |
+| M5-P4 OCR→Djot mapping | Not started | Blocked on LuaDjotCodec encode stub (PROMPT 2 closes it) |
 
 ---
 
