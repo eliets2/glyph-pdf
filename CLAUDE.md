@@ -14,9 +14,9 @@ This file auto-loads in every Claude Code session opened in `C:\Users\User\Proje
 
 **Build environment (current):** MSYS2 **ucrt64** native — GCC 16.1.0, Qt 6.11.0, CMake 4.3.3, PoDoFo 1.1.0 (vendored). NOT mingw64; NOT Qt installer; NOT vcpkg.
 
-**Repo state:** branch `main`, head `d54f4a1` (2026-05-30 — M4 catchup merge). M1 `a6ea6aa`; MSYS2 `45807de`–`9ac0c2f`; M2 `42c0f46`–`c3eb22a`; M3 `faac7f2`–`5bc2fbe`; M4+catchup `8bb8f95`–`d54f4a1`. See vault `01-current-state.md` for commit-by-commit map.
+**Repo state:** branch `main`, head `0d9fdc9` (2026-05-30 — M5-P3 D7 walkthrough). M1 `a6ea6aa`; MSYS2 `45807de`–`9ac0c2f`; M2 `42c0f46`–`c3eb22a`; M3 `faac7f2`–`5bc2fbe`; M4+catchup `8bb8f95`–`d54f4a1`; M5-P3 `09b0cfc`–`0d9fdc9`. See vault `01-current-state.md` for commit-by-commit map.
 
-**Tests:** 23 ctest targets. All should pass under MSYS2 ucrt64 build (verify with `ctest --output-on-failure -j4 --repeat-until-fail 3`). TestDjotRoundtrip: 7 tests (encode stub documented, ProvenanceGuard 4 cases). TestPatternRedact: 11 tests (PDFium-gated, pass without PDFium). TestBatchMode: RESOURCE_LOCK added to prevent parallel-run race.
+**Tests:** 24 ctest targets. All should pass under MSYS2 ucrt64 build (verify with `ctest --output-on-failure -j4 --repeat-until-fail 3`). TestOfficeImport: 5 tests (3 active without LibreOffice; 2 QSKIP when soffice absent). TestDjotRoundtrip: 7 tests (encode stub documented, ProvenanceGuard 4 cases). TestPatternRedact: 11 tests (PDFium-gated, pass without PDFium). TestBatchMode: RESOURCE_LOCK added to prevent parallel-run race.
 
 ---
 
@@ -237,6 +237,9 @@ C:\Users\User\Projects\pdf\
 - M4-P7: WS2 Djot foundation (docmodel + pdfws_djot + Lua vendor + ProvenanceGuard + TestDjotRoundtrip)
 - M4-P6: NOT executed (D1+D2 verified-in-place; D4 prune-recents not implemented; prompt skeletal)
 
+### Already done (M5-P3 — 2026-05-30)
+- M5-P3: Office→PDF import (HAS_LIBREOFFICE, real soffice subprocess, tree-kill) + Images→PDF (PoDoFo PdfImage) + HomeController ToolId::ImportOffice/ImagesToPdf + WelcomeWidget cards + TestOfficeImport (24/24)
+
 ### Remaining (M2-M8) — 34 prompts in `docs/planning/MONTHS-2-8-PROMPTS.md`
 
 | Month | Sprint | Prompts | Notes |
@@ -421,7 +424,7 @@ Don't run `pacman -Q` / `pip list` / `npm ls -g` / `where <tool>` cold. Read `C:
 Before executing a Branch C prompt:
 - [ ] Working tree clean (`git status --short` returns nothing or only known build-artifact dirs)
 - [ ] Last commit is what you expect (`git log -1`)
-- [ ] All 23 tests pass (`ctest --output-on-failure -j4 --repeat-until-fail 3` — the repeat flag catches flaky tests; TestBatchMode has RESOURCE_LOCK for parallel runs)
+- [ ] All 24 tests pass (`ctest --output-on-failure -j4 --repeat-until-fail 3` — the repeat flag catches flaky tests; TestBatchMode has RESOURCE_LOCK for parallel runs)
 - [ ] No stale STATE.md left over from a previous context-gated session
 - [ ] Disk space for build (~5 GB headroom)
 - [ ] You have the prompt file path: `docs/planning/MONTHS-2-8-PROMPTS.md`
