@@ -1,6 +1,11 @@
 <RCC>
     <qresource prefix="/">
         <file>resources/app_logo.png</file>
+        <file>resources/branding/app_icon.png</file>
+        <file>resources/branding/tray_icon.png</file>
+        <file>resources/branding/splash.png</file>
+        <file>resources/branding/wordmark.png</file>
+        <file>resources/branding/installer_logo.png</file>
         <file>resources/icons/folder-open.svg</file>
         <file>resources/icons/save.svg</file>
         <file>resources/icons/mail.svg</file>
