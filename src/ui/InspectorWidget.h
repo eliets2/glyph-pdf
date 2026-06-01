@@ -72,9 +72,16 @@ private:
     QComboBox*         m_blendCombo    = nullptr;
     QSpinBox*          m_borderSpin    = nullptr;
 
-    // ── D4: Contents editor ────────────────────────────────────────────────
-    QTextEdit*         m_contentsEditor = nullptr;
+    // ── D4: Contents editor (M6-P4: Djot-aware) ────────────────────────────
+    QTextEdit*         m_contentsEditor = nullptr;  // Djot source input
+    QTextEdit*         m_djotPreview    = nullptr;  // live HTML render (read-only)
     QLabel*            m_charCountLabel = nullptr;
+
+    // M6-P4 D2 helpers — Djot toolbar actions + live preview refresh
+    void wrapSelection(const QString& prefix, const QString& suffix);
+    void insertLinePrefix(const QString& prefix);
+    void refreshDjotPreview();
+    void commitDjotEdit();
 
     // ── D5: Reply thread ──────────────────────────────────────────────────
     QListWidget*       m_replyList     = nullptr;
