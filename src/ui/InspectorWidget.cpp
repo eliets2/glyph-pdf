@@ -871,7 +871,10 @@ QWidget* InspectorWidget::createPropertiesView()
         reply.parentId     = m_currentAnnotation->id;
         reply.mode         = ToolMode::AddComment;
         reply.pageIndex    = m_currentAnnotation->pageIndex;
-        reply.text         = replyText;
+        // M6-P4: reply text is (trivial) Djot source; text is the plain
+        // projection. Dual-write to /RC + /PieceInfo happens on save.
+        reply.djotSource   = replyText;
+        reply.text         = pdfws_djot::djotToPlainText(replyText);
         reply.creationDate = QDateTime::currentDateTime().toString(Qt::ISODate);
         reply.color        = m_currentAnnotation->color;
 
