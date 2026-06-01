@@ -103,6 +103,7 @@ void PagesController::activate(ToolId id) {
     }
     case ToolId::BatesNumber: {
         BatesNumberingDialog dlg(_mainWindow);
+        dlg.setPageCount(viewer->pageCount());  // bound the range UI to the doc
         if (dlg.exec() == QDialog::Accepted) {
             BatesNumberingOptions opt = dlg.options();
             if (_ctx && _ctx->pdfEditor) {

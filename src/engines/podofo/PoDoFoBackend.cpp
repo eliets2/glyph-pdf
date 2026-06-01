@@ -944,14 +944,20 @@ bool PoDoFoBackend::applyBatesNumbering(const QString &path, const BatesNumberin
             font = &doc.GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::Helvetica);
         }
         
+        // Resolve the 1-based inclusive page range (<=0 means open-ended).
+        int firstIdx = (options.firstPage > 0) ? options.firstPage - 1 : 0;
+        int lastIdx  = (options.lastPage  > 0) ? options.lastPage  - 1 : totalPages - 1;
+        firstIdx = std::max(0, firstIdx);
+        lastIdx  = std::min(totalPages - 1, lastIdx);
+
         int currentNumber = options.startNumber;
-        for (int i = 0; i < totalPages; ++i) {
+        for (int i = firstIdx; i <= lastIdx; ++i) {
             auto& page = pages.GetPageAt(i);
-            
+
             QString numStr = QString::number(currentNumber).rightJustified(options.digitCount, '0');
             QString text = options.prefix + numStr + options.suffix;
             appendEscapedText(doc, page, text, options.position, options.fontSize, fontName);
-            
+
             currentNumber++;
         }
         
