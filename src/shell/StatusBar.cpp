@@ -9,6 +9,7 @@
 #include <QFileInfo>
 #include <QSizeF>
 #include <QStyle>
+#include <QSettings>
 
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "GpMainWindow.h"
@@ -21,6 +22,14 @@ QLabel* StatusBar::makeCell(const QString& text) {
     l->setProperty("role", "statusCell");
     l->setProperty("mono", true);
     return l;
+}
+
+QString StatusBar::ocrLanguageCellText() {
+    // Mirror the OCR mode's persisted language code (set in OCRMode); default EN.
+    QSettings settings;
+    const QString code = settings.value(QStringLiteral("ocr/language"), QStringLiteral("EN"))
+                             .toString().toUpper();
+    return tr("OCR · %1").arg(code);
 }
 
 StatusBar::StatusBar(QWidget* parent) : QStatusBar(parent) {
@@ -64,10 +73,8 @@ StatusBar::StatusBar(QWidget* parent) : QStatusBar(parent) {
     addWidget(_tool);
     addWidget(_sel);
 
-    _ocrLang = makeCell(tr("OCR · EN"));
+    _ocrLang = makeCell(ocrLanguageCellText());
     _ocrLang->setAccessibleName(tr("OCR language"));
-    _encoding = makeCell(tr("UTF-8"));
-    _encoding->setAccessibleName(tr("Document encoding"));
     _pdfVersion = makeCell(tr("PDF --"));
     _pdfVersion->setAccessibleName(tr("PDF version"));
     _pageSize = makeCell(tr("A4 · --×--"));
@@ -80,7 +87,6 @@ StatusBar::StatusBar(QWidget* parent) : QStatusBar(parent) {
     _unsaved->setVisible(false);
 
     addPermanentWidget(_ocrLang);
-    addPermanentWidget(_encoding);
     addPermanentWidget(_pdfVersion);
     addPermanentWidget(_pageSize);
     addPermanentWidget(_docInfo);
@@ -184,13 +190,11 @@ void StatusBar::updateFromDocument(IPdfEditorEngine* engine, const QString& file
     auto* viewer = mainWindow ? mainWindow->pdfViewer() : nullptr;
 
     if (viewer) {
-        _ocrLang->setText(tr("OCR · EN"));
+        _ocrLang->setText(ocrLanguageCellText());
         _ocrLang->setVisible(true);
     } else {
         _ocrLang->setVisible(false);
     }
-
-    _encoding->setText(tr("UTF-8"));
 
     QString versionStr = QStringLiteral("PDF 1.7");
     QFile file(filePath);
