@@ -15,6 +15,19 @@ Real public v1.0.0 ships when all M2-M8 work in `GLYPH-PDF-MONTHS-2-8-PROMPTS.md
 
 **Other v1.0.0 work in M2-M8:** Edact-Ray glyph-advance defense in redaction, OCR text-layer scrub in redaction rectangles, veraPDF subprocess for PDF/A validation, real-crypto E2E test coverage, 5 mode-page completions, 23 ribbon tools wired, Office→PDF import + PDF→PPT export, DiffEngine LCS/Myers upgrade, ar/fr/de translations populated, AI backend (Anthropic/OpenAI/Gemini/Ollama), third-party security audit, performance tuning + bug bash, OSS governance files (LICENSE/CONTRIBUTING/SECURITY), GitHub repo + CI workflows, marketing prep, MSI signing, package-manager submissions, launch announcement.
 
+### Localization ar/fr/de (M6-PROMPT-2 — 2026-05-30)
+
+#### Added
+- **`lupdate` populated** all three locale files (`glyphpdf_ar.ts`, `glyphpdf_fr.ts`, `glyphpdf_de.ts`) — 1394 source strings each, all marked `type="unfinished"` pending human translation.
+- **`.qm` binary files embedded** as Qt resources at `:/translations/` via `qt_add_translations RESOURCE_PREFIX "/translations"` in CMakeLists.txt. Loaded at startup via `QTranslator::load(locale, "glyphpdf", "_", ":/translations")`.
+- **`translations/README.md`**: documents commissioning status, vendor tracker table, lupdate/lrelease workflow.
+- **RTL audit** for Arabic: `main.cpp` sets `app.setLayoutDirection(Qt::RightToLeft)` when Arabic locale is selected; standard Qt widgets (QFormLayout, QHBoxLayout, QListWidget, QTreeWidget) auto-mirror. No critical widget-level RTL fixes required. AnnotationLayer painter coordinates intentionally locale-independent (fixed PDF coordinate system).
+
+#### Note
+Translations remain untranslated pending commission. Switching to Arabic/French/German in
+Preferences currently displays English source strings (graceful fallback). The engineering
+scaffolding is complete; translator delivery gates real multilingual UI.
+
 ### DiffEngine LCS/Myers Upgrade (M6-PROMPT-1 — 2026-05-30)
 
 #### Added
@@ -234,8 +247,7 @@ Real public v1.0.0 ships when all M2-M8 work in `GLYPH-PDF-MONTHS-2-8-PROMPTS.md
 - WCAG-aligned high contrast theme
 
 ### Localization
-- Qt Linguist translation framework wired (English only translated; Arabic, French, German .ts files exist as empty shells pending lupdate + translator pass)
-- RTL layout flag applied at application root via Qt::RightToLeft when language is Arabic; per-widget RTL handling not yet audited
+- Qt Linguist translation framework wired. All three locales (ar/fr/de) lupdate-populated (1394 strings each). `.qm` files embedded at `:/translations` via `qt_add_translations RESOURCE_PREFIX`. RTL audit complete — no critical issues; `app.setLayoutDirection` covers all standard widgets.
 - Language selection in Preferences (restart required) — picks resource translator but non-English packs are currently no-ops
 
 ### Error Handling
@@ -302,7 +314,6 @@ Real public v1.0.0 ships when all M2-M8 work in `GLYPH-PDF-MONTHS-2-8-PROMPTS.md
 - OCR ensemble pipeline (PP-DocLayoutV2, Surya, LaneScheduler) not yet implemented
 - MRC compression inside PDF/A not yet implemented
 - Some Session 7-11 features may be interface stubs pending full implementation verification
-- Translations: glyphpdf_{ar,fr,de}.ts are empty shells. Run `lupdate src/ -ts translations/glyphpdf_*.ts` then commission translators before claiming multilingual support.
 - Pattern redaction backend (PatternRedactor, 12 named patterns + custom regex, applyPatternRedactions) is **implemented** (M3-PROMPT-4). TestPatternRedact registered in CMake.
 - Send-for-signing workflow (remote signing order, reminders, audit trails) not implemented — only local certificate-based signing exists.
 - CollaborationManager.cpp marks itself "Cloud Sync Stub (Simulation)"; ICollaboration interface exists with no real network backend.
