@@ -1,36 +1,44 @@
 # PP-OCRv5 Model Status
 
-## Current files
+## RESOLVED (2026-06-01) — real PP-OCRv5 mobile acquired
 
-The three ONNX files in this directory are **PP-OCRv4 weights**, not PP-OCRv5:
+The blocker recorded below for M5-PROMPT-1 is **closed**. The directory now holds
+**genuine PP-OCRv5 mobile ONNX weights** (Apache-2.0, official PaddlePaddle org on
+Hugging Face). Full per-file provenance, source URLs, byte sizes and SHA-256 hashes
+are recorded in [`PROVENANCE.md`](PROVENANCE.md).
 
-| File | Actual version |
-|---|---|
-| `ch_PP-OCRv4_det_infer.onnx` | PP-OCRv4 detection |
-| `ch_PP-OCRv4_rec_infer.onnx` | PP-OCRv4 recognition |
-| `ch_ppocr_mobile_v2.0_cls_infer.onnx` | PP-OCRv2 classifier |
+| File | Role | Version |
+|---|---|---|
+| `PP-OCRv5_mobile_det_infer.onnx` | Text detection (DBNet) | PP-OCRv5 mobile, opset 11 |
+| `PP-OCRv5_mobile_rec_infer.onnx` | Text recognition (CTC/SVTR) | PP-OCRv5 mobile, opset 7, output dim 18385 |
+| `ppocrv5_rec_dict.txt` | Recognition dictionary (18,383 chars) | matches rec output (18383 + CTC blank + 1) |
+| `PP-LCNet_x1_0_textline_ori_infer.onnx` | Text-line orientation (0°/180°) | PP-OCRv5-era, opset 7, output dim 2 |
 
-## Blocker for M5-PROMPT-1
+Decision taken: **option 1 — real PP-OCRv5 weights** (recommended path from the
+original decision matrix below). The prior FAKE 10,000,000-byte placeholders
+(`ch_PP-OCRv4_*`) were deleted; see PROVENANCE.md "What this replaced".
 
-M5-PROMPT-1 (RapidOcrEngine real PP-OCRv5) requires actual PP-OCRv5 weights to deliver the accuracy improvement the prompt claims. Using PP-OCRv4 weights is acceptable as a short-term workaround but weakens the "2026 OCR accuracy" positioning.
+**Filename note for wiring:** the genuine keys file is `ppocrv5_rec_dict.txt`
+(the M5-P1 prompt and some docs say `ppocr_keys.txt` — that name was never present;
+use the real filename). RapidOcrEngine + PpOcrDecoder load `ppocrv5_rec_dict.txt`.
 
-## Download instructions
+**Runtime compatibility:** all four models use ONNX opset 7 or 11, within range of the
+bundled ONNX Runtime 1.17.3 (supports up to ~opset 20). They load under the CPU
+execution provider. Validated — see PROVENANCE.md.
 
-PP-OCRv5 ONNX weights are available from the PaddleOCR releases:
-- Detection: `PP-OCRv5_mobile_det_infer.onnx` or `PP-OCRv5_server_det_infer.onnx`
-- Recognition: `PP-OCRv5_mobile_rec_infer.onnx` or `PP-OCRv5_server_rec_infer.onnx`
-- Classifier: `ch_ppocr_mobile_v2.0_cls_infer.onnx` (unchanged from v2, still current)
+---
 
-Source: https://github.com/PaddlePaddle/PaddleOCR (check Releases for latest ONNX exports)
+## Original blocker (historical — now closed)
 
-## Decision for M5-PROMPT-1
+The three ONNX files in this directory were once PP-OCRv4 / placeholder weights, not
+PP-OCRv5. M5-PROMPT-1 (RapidOcrEngine real PP-OCRv5) required actual PP-OCRv5 weights
+to deliver the accuracy improvement the prompt claims.
 
-Before executing M5-PROMPT-1, choose one:
-1. **Download real PP-OCRv5 weights** (recommended) — fulfils the accuracy claim
-2. **Amend M5-PROMPT-1 to PP-OCRv4** — faster to start, weaker positioning
-
-Document the decision in CHANGELOG when M5-PROMPT-1 executes.
+### Decision for M5-PROMPT-1 (resolved: chose option 1)
+1. **Download real PP-OCRv5 weights** (recommended) — fulfils the accuracy claim ✅ **DONE**
+2. Amend M5-PROMPT-1 to PP-OCRv4 — faster to start, weaker positioning (not taken)
 
 ## Models directory
 
-`models/` is gitignored (binary files, too large for the repo). This STATUS.md is tracked to document the required model state.
+`models/` is gitignored (binary files, too large for the repo). This STATUS.md and
+PROVENANCE.md are tracked to document the required model state + acquisition record.
