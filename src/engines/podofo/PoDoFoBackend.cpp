@@ -2,6 +2,7 @@
 #include <memory>
 #include "PdfStringEscape.h"
 #include "GlyphAdvanceCalculator.h"
+#include "pdfws_djot/DjotToRichTextXhtml.h"
 #include <QDebug>
 #include <QTemporaryFile>
 #include <QFileInfo>
@@ -2119,6 +2120,45 @@ bool PoDoFoBackend::linearizeDocument(const QString &outputPath)
 #endif
 }
 
+// ── M6-PROMPT-4 D3 helpers ──────────────────────────────────────────────────
+namespace {
+
+// Write the original Djot source into the annotation's private data dictionary
+// at /PieceInfo /GlyphPDF /Private /DjotSource. ISO 32000-1 §14.5 reserves
+// /PieceInfo for application-private data keyed by a registered prefix; we use
+// "GlyphPDF". The Djot text is escaped via pdfEscapeLiteralString (the M1
+// content-stream-injection-defence helper) before being stored as a PdfString,
+// so no Djot byte can break out of the string object.
+//
+// This sidecar is what makes the GlyphPDF→PDF→GlyphPDF roundtrip lossless; it
+// is never read by Acrobat/Foxit (they consume /Contents + /RC instead).
+void writeDjotPieceInfo(PoDoFo::PdfMemDocument& doc,
+                        PoDoFo::PdfDictionary& annotDict,
+                        const QString& djotSource)
+{
+    if (djotSource.isEmpty()) return;
+
+    // /PieceInfo << /GlyphPDF << /LastModified (D:...) /Private << ... >> >> >>
+    auto& pieceInfoObj = doc.GetObjects().CreateDictionaryObject();
+    auto& glyphObj     = doc.GetObjects().CreateDictionaryObject();
+    auto& privateObj   = doc.GetObjects().CreateDictionaryObject();
+
+    const std::string escaped = pdfEscapeLiteralString(djotSource);
+    privateObj.GetDictionary().AddKey("DjotSource", PoDoFo::PdfString(escaped));
+
+    QString stamp = QStringLiteral("D:") +
+        QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMddhhmmss")) +
+        QStringLiteral("Z");
+    glyphObj.GetDictionary().AddKey("LastModified",
+        PoDoFo::PdfString(stamp.toStdString()));
+    glyphObj.GetDictionary().AddKeyIndirect("Private", privateObj);
+
+    pieceInfoObj.GetDictionary().AddKeyIndirect("GlyphPDF", glyphObj);
+    annotDict.AddKeyIndirect("PieceInfo", pieceInfoObj);
+}
+
+} // anonymous namespace
+
 bool PoDoFoBackend::embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations)
 {
     try {
@@ -2163,9 +2203,35 @@ bool PoDoFoBackend::embedAnnotations(const QString &inputPath, const QString &ou
                 auto& annot = page.GetAnnotations().CreateAnnot(annotType, pdfRect);
                 PoDoFo::PdfDictionary& dict = annot.GetDictionary();
                 
-                // Common properties
-                if (!anno.text.isEmpty()) {
-                    dict.AddKey("Contents", PoDoFo::PdfString(anno.text.toStdString()));
+                // ── M6-P4 D3: Djot dual-write (/Contents + /RC + /PieceInfo) ──
+                // Effective Djot source: explicit djotSource when present,
+                // otherwise derive a trivial Djot document from the plain text
+                // so older annotations still round-trip.
+                const QString djot = !anno.djotSource.isEmpty()
+                                         ? anno.djotSource
+                                         : anno.text;
+
+                if (!djot.isEmpty()) {
+                    // /Contents ← plain-text projection (spec-required fallback;
+                    // Acrobat/Foxit read this). Project from Djot so markup is
+                    // stripped rather than leaking '*'/'_' into plain text.
+                    const QString plain = !anno.djotSource.isEmpty()
+                                              ? pdfws_djot::djotToPlainText(anno.djotSource)
+                                              : anno.text;
+                    dict.AddKey("Contents",
+                                PoDoFo::PdfString(plain.toStdString()));
+
+                    // /RC ← restricted XHTML rich text per ISO 32000 §12.5.6.4.
+                    // Never store raw Djot here (non-negotiable). Only emit /RC
+                    // when there is genuine rich-text source to transcode.
+                    if (!anno.djotSource.isEmpty()) {
+                        const QString rc = pdfws_djot::djotToXhtml(anno.djotSource);
+                        dict.AddKey("RC", PoDoFo::PdfString(rc.toStdString()));
+                    }
+
+                    // /PieceInfo /GlyphPDF sidecar ← original Djot (escaped).
+                    // This preserves the perfect GlyphPDF roundtrip.
+                    writeDjotPieceInfo(doc, dict, anno.djotSource);
                 }
                 if (!anno.author.isEmpty()) {
                     dict.AddKey("T", PoDoFo::PdfString(anno.author.toStdString()));
@@ -2263,6 +2329,119 @@ bool PoDoFoBackend::embedAnnotations(const QString &inputPath, const QString &ou
         qWarning() << "Error embedding annotations:" << e.what();
         return false;
     }
+}
+
+// ── M6-PROMPT-4 D4: load annotations back from a PDF ────────────────────────
+QList<AnnotationItem> PoDoFoBackend::extractAnnotations(const QString &inputPath)
+{
+    QList<AnnotationItem> result;
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(inputPath.toUtf8().constData());
+
+        // PoDoFo 1.1.0 PdfString::GetString() returns std::string_view.
+        auto svToQString = [](std::string_view sv) {
+            return QString::fromUtf8(sv.data(), static_cast<int>(sv.size()));
+        };
+
+        const unsigned pageCount = doc.GetPages().GetCount();
+        for (unsigned p = 0; p < pageCount; ++p) {
+            auto& page = doc.GetPages().GetPageAt(p);
+            const double pageHeight = page.GetMediaBox().Height;
+            auto& annos = page.GetAnnotations();
+            const unsigned annoCount = annos.GetCount();
+
+            for (unsigned a = 0; a < annoCount; ++a) {
+                auto& annot = annos.GetAnnotAt(a);
+                const PoDoFo::PdfDictionary& dict = annot.GetDictionary();
+
+                AnnotationItem item;
+                item.pageIndex = static_cast<int>(p);
+
+                // ── Subtype → ToolMode (inverse of embedAnnotations) ──────────
+                item.mode = ToolMode::AddComment;
+                if (const auto* sub = dict.FindKey("Subtype")) {
+                    if (sub->IsName()) {
+                        const std::string s{sub->GetName().GetString()};
+                        if      (s == "StrikeOut") item.mode = ToolMode::Strikeout;
+                        else if (s == "Squiggly")  item.mode = ToolMode::Squiggly;
+                        else if (s == "Underline") item.mode = ToolMode::Underline;
+                        else if (s == "Highlight") item.mode = ToolMode::Highlight;
+                        else if (s == "Stamp")     item.mode = ToolMode::Stamp;
+                        else if (s == "FreeText")  item.mode = ToolMode::Callout;
+                        else if (s == "Text")      item.mode = ToolMode::AddComment;
+                    }
+                }
+
+                // ── Rect (PDF bottom-left origin → top-left QRectF) ───────────
+                if (const auto* rectObj = dict.FindKey("Rect")) {
+                    if (rectObj->IsArray()) {
+                        const auto& arr = rectObj->GetArray();
+                        if (arr.size() == 4) {
+                            const double x0 = arr[0].GetReal();
+                            const double y0 = arr[1].GetReal();
+                            const double x1 = arr[2].GetReal();
+                            const double y1 = arr[3].GetReal();
+                            const double w = x1 - x0;
+                            const double h = y1 - y0;
+                            item.rect = QRectF(x0, pageHeight - y1, w, h);
+                        }
+                    }
+                }
+
+                // ── /Contents → plain-text fallback ───────────────────────────
+                QString contents;
+                if (const auto* cObj = dict.FindKey("Contents")) {
+                    if (cObj->IsString())
+                        contents = svToQString(cObj->GetString().GetString());
+                }
+                item.text = contents;
+
+                // ── Identity / author / dates ─────────────────────────────────
+                if (const auto* nm = dict.FindKey("NM"))
+                    if (nm->IsString())
+                        item.id = svToQString(nm->GetString().GetString());
+                if (const auto* t = dict.FindKey("T"))
+                    if (t->IsString())
+                        item.author = svToQString(t->GetString().GetString());
+                if (const auto* cd = dict.FindKey("CreationDate"))
+                    if (cd->IsString())
+                        item.creationDate = svToQString(cd->GetString().GetString());
+
+                // ── djotSource restore: /PieceInfo /GlyphPDF /Private/DjotSource
+                // takes priority; else derive a trivial djotSource from the
+                // plain-text /Contents (D4). ──────────────────────────────────
+                QString djotSource;
+                if (const auto* pieceInfo = dict.FindKey("PieceInfo")) {
+                    if (pieceInfo->IsDictionary()) {
+                        if (const auto* glyph = pieceInfo->GetDictionary().FindKey("GlyphPDF")) {
+                            if (glyph->IsDictionary()) {
+                                if (const auto* priv = glyph->GetDictionary().FindKey("Private")) {
+                                    if (priv->IsDictionary()) {
+                                        if (const auto* ds = priv->GetDictionary().FindKey("DjotSource")) {
+                                            if (ds->IsString()) {
+                                                const std::string escaped{ds->GetString().GetString()};
+                                                const std::string raw = pdfUnescapeLiteralString(escaped);
+                                                djotSource = QString::fromUtf8(raw.c_str(),
+                                                                               static_cast<int>(raw.size()));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // Fall back to trivial djotSource derived from plain text.
+                item.djotSource = djotSource.isEmpty() ? contents : djotSource;
+
+                result.append(item);
+            }
+        }
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "Error extracting annotations:" << e.what();
+    }
+    return result;
 }
 
 // ── Watermarking (Session 13) ──────────────────────────────────────────────
