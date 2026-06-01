@@ -2,6 +2,7 @@
 #include "ui/PdfViewerWidget.h"
 #include "core/AnnotationTypes.h"
 #include "commands/EditAnnotationCommand.h"
+#include "pdfws_djot/DjotToRichTextXhtml.h"
 
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
@@ -309,7 +310,14 @@ void CommentsWidget::addComment()
     anno.mode = ToolMode::AddComment;
     anno.pageIndex = qMax(0, m_currentPage - 1);
     anno.author = author;
-    anno.text = content;
+    // M6-P4 D6: comments share the Djot rich-text model. The composer is still
+    // plain text, so the entered text is the (trivial) Djot source; the shared
+    // PoDoFoBackend::embedAnnotations dual-write then emits /Contents + /RC +
+    // /PieceInfo for comments exactly as for InspectorWidget annotations.
+    // TODO(M6-P5): give the comment composer the same Djot formatting toolbar +
+    // live preview as InspectorWidget so replies can be authored with markup.
+    anno.djotSource = content;
+    anno.text = pdfws_djot::djotToPlainText(content);
     anno.creationDate = QDateTime::currentDateTime().toString(Qt::ISODate);
     anno.reviewState = ReviewState::Open;
     anno.color = Qt::yellow;
@@ -340,7 +348,10 @@ void CommentsWidget::replyToComment()
     anno.mode = ToolMode::AddComment;
     anno.pageIndex = sel->data(0, Qt::UserRole + 1).toInt();
     anno.author = author;
-    anno.text = content;
+    // M6-P4 D6: replies use the same Djot rich-text dual-write as top-level
+    // comments (see addComment). TODO(M6-P5): rich Djot composer for replies.
+    anno.djotSource = content;
+    anno.text = pdfws_djot::djotToPlainText(content);
     anno.creationDate = QDateTime::currentDateTime().toString(Qt::ISODate);
     anno.reviewState = ReviewState::Open;
 
