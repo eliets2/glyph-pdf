@@ -34,6 +34,11 @@ struct BatesNumberingOptions {
     QString fontFamily;
     int fontSize = 12;
     HeaderFooterOptions::Position position = HeaderFooterOptions::Position::BottomRight;
+    // Page range to stamp, 1-based inclusive. firstPage <= 0 means "from the
+    // first page"; lastPage <= 0 means "through the last page". Defaults stamp
+    // every page (backward-compatible with the prior all-pages behavior).
+    int firstPage = 0;
+    int lastPage = 0;
 };
 
 // ── Watermark options ──────────────────────────────────────────────────────
