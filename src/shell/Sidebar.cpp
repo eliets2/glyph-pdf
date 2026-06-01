@@ -84,6 +84,12 @@ void Sidebar::init(const AppContext* ctx, PdfViewerWidget* viewer)
 
         // 3. Comments tab: CommentsWidget
         m_commentsWidget = new CommentsWidget(this);
+        // M6-P5 D3: hand the AppContext so review-state changes route through
+        // the shared QUndoStack / DocumentSession via EditAnnotationCommand,
+        // and the viewer so the widget can read/write the live annotation list
+        // (the context menu + composer are otherwise inert without it).
+        m_commentsWidget->setContext(m_ctx);
+        m_commentsWidget->setViewer(m_viewer);
         m_stack->addWidget(m_commentsWidget);
 
         connect(m_commentsWidget, &CommentsWidget::commentDoubleClicked, this, [this](int page) {
