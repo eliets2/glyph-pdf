@@ -1,7 +1,9 @@
 #include "ui/CommentsWidget.h"
 #include "ui/PdfViewerWidget.h"
 #include "core/AnnotationTypes.h"
+#include "core/AppContext.h"
 #include "commands/EditAnnotationCommand.h"
+#include "engines/DocumentSession.h"
 #include "pdfws_djot/DjotToRichTextXhtml.h"
 
 #include <QTreeWidget>
@@ -21,6 +23,7 @@
 #include <QHash>
 #include <QDate>
 #include <QDateTime>
+#include <QUndoStack>
 #include <functional>
 
 namespace {
@@ -179,24 +182,14 @@ CommentsWidget::CommentsWidget(QWidget *parent)
         auto *actCompleted  = menu.addAction(tr("Mark Completed"));
         auto *actCancelled  = menu.addAction(tr("Mark Cancelled"));
 
-        auto setReviewState = [this, annoId](ReviewState newState) {
-            if (!m_viewer) return;
-            auto annos = m_viewer->annotations();
-            for (int i = 0; i < annos.size(); ++i) {
-                if (annos[i].id == annoId) {
-                    annos[i].reviewState = newState;
-                    m_viewer->setAnnotations(annos);
-                    reloadAnnotations();
-                    return;
-                }
-            }
-        };
-
-        connect(actOpen,     &QAction::triggered, this, [=]{ setReviewState(ReviewState::Open); });
-        connect(actAccepted,  &QAction::triggered, this, [=]{ setReviewState(ReviewState::Accepted); });
-        connect(actRejected,  &QAction::triggered, this, [=]{ setReviewState(ReviewState::Rejected); });
-        connect(actCompleted, &QAction::triggered, this, [=]{ setReviewState(ReviewState::Completed); });
-        connect(actCancelled, &QAction::triggered, this, [=]{ setReviewState(ReviewState::Cancelled); });
+        // M6-P5 D3: route every state change through applyReviewState so it is
+        // pushed onto the shared QUndoStack via EditAnnotationCommand (undoable +
+        // marks the document dirty). The QMenu is non-modal per constraint.
+        connect(actOpen,      &QAction::triggered, this, [=]{ applyReviewState(annoId, ReviewState::Open); });
+        connect(actAccepted,  &QAction::triggered, this, [=]{ applyReviewState(annoId, ReviewState::Accepted); });
+        connect(actRejected,  &QAction::triggered, this, [=]{ applyReviewState(annoId, ReviewState::Rejected); });
+        connect(actCompleted, &QAction::triggered, this, [=]{ applyReviewState(annoId, ReviewState::Completed); });
+        connect(actCancelled, &QAction::triggered, this, [=]{ applyReviewState(annoId, ReviewState::Cancelled); });
 
         menu.exec(m_tree->viewport()->mapToGlobal(pos));
     });
@@ -215,6 +208,11 @@ void CommentsWidget::setViewer(PdfViewerWidget *viewer)
 {
     m_viewer = viewer;
     reloadAnnotations();
+}
+
+void CommentsWidget::setContext(const AppContext *ctx)
+{
+    m_ctx = ctx;
 }
 
 void CommentsWidget::setDocumentFile(const QString &filePath)
@@ -435,7 +433,57 @@ void CommentsWidget::replyToComment()
     reloadAnnotations();
 }
 
+void CommentsWidget::applyReviewState(const QString &annoId, ReviewState newState)
+{
+    if (!m_viewer || annoId.isEmpty()) return;
+
+    const QList<AnnotationItem> oldList = m_viewer->annotations();
+    QList<AnnotationItem> newList = oldList;
+
+    bool found = false;
+    for (int i = 0; i < newList.size(); ++i) {
+        if (newList[i].id == annoId) {
+            if (newList[i].reviewState == newState) return; // no-op
+            newList[i].reviewState = newState;
+            newList[i].modificationDate =
+                QDateTime::currentDateTime().toString(Qt::ISODate);
+            found = true;
+            break;
+        }
+    }
+    if (!found) return;
+
+    // Persist via EditAnnotationCommand when an undo stack is available
+    // (undoable + marks the DocumentSession dirty so the change is saved).
+    // Falls back to a direct setAnnotations when no context is wired, e.g.
+    // a standalone widget in a unit harness.
+    if (m_ctx && m_ctx->undoStack) {
+        DocumentSession *docSession = m_ctx->document ? m_ctx->document.get() : nullptr;
+        m_ctx->undoStack->push(
+            new EditAnnotationCommand(m_viewer, docSession, oldList, newList));
+    } else {
+        m_viewer->setAnnotations(newList);
+    }
+
+    reloadAnnotations();
+}
+
 void CommentsWidget::changeReviewState()
 {
-    // Not fully wired yet, but prepared for context menu actions
+    // M6-P5 D3: apply a review-state change to the currently selected comment.
+    // The richer per-state choices live in the tree context menu (non-modal);
+    // this slot is a keyboard/programmatic convenience that cycles the
+    // selected item's state is intentionally NOT implemented as a blocking
+    // dialog (constraint: no modal for review-state change).
+    if (!m_tree) return;
+    auto *sel = m_tree->currentItem();
+    if (!sel) return;
+    const QString annoId = sel->data(0, Qt::UserRole).toString();
+    if (annoId.isEmpty()) return;
+    // Advance Open → Accepted as a sensible default single-action toggle.
+    const ReviewState cur =
+        static_cast<ReviewState>(sel->data(0, Qt::UserRole + 2).toInt());
+    applyReviewState(annoId, cur == ReviewState::Accepted
+                                 ? ReviewState::Open
+                                 : ReviewState::Accepted);
 }
