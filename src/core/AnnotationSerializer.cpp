@@ -14,6 +14,7 @@ QJsonDocument AnnotationSerializer::toJson(const QList<AnnotationItem>& items)
         obj["rect_h"] = anno.rect.height();
         obj["color"] = anno.color.name(QColor::HexArgb);
         obj["text"] = anno.text;
+        obj["djotSource"] = anno.djotSource;
         obj["thickness"] = anno.thickness;
         
         obj["id"] = anno.id;
@@ -66,6 +67,7 @@ QList<AnnotationItem> AnnotationSerializer::fromJson(const QJsonDocument& doc)
                            obj["rect_w"].toDouble(), obj["rect_h"].toDouble());
         item.color = QColor(obj["color"].toString());
         item.text = obj["text"].toString();
+        item.djotSource = obj["djotSource"].toString();
         item.thickness = obj["thickness"].toInt();
         
         item.id = obj["id"].toString();
