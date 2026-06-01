@@ -14,9 +14,9 @@ This file auto-loads in every Claude Code session opened in `C:\Users\User\Proje
 
 **Build environment (current):** MSYS2 **ucrt64** native — GCC 16.1.0, Qt 6.11.0, CMake 4.3.3, PoDoFo 1.1.0 (vendored). NOT mingw64; NOT Qt installer; NOT vcpkg.
 
-**Repo state:** branch `main`, head `a844cdf` (2026-05-30 — M4-P6 walkthrough). M1 `a6ea6aa`; MSYS2 `45807de`–`9ac0c2f`; M2 `42c0f46`–`c3eb22a`; M3 `faac7f2`–`5bc2fbe`; M4+catchup `8bb8f95`–`d54f4a1`; M5-P3 `09b0cfc`–`052b13f`; Djot encode `d90eda2`–`883ca89`; M4-P6 `cf68514`–`a844cdf`. See vault `01-current-state.md` for commit-by-commit map.
+**Repo state:** branch `main`, head `a0ba100` (2026-05-30 — M6-P1 walkthrough). M1 `a6ea6aa`; MSYS2 `45807de`–`9ac0c2f`; M2 `42c0f46`–`c3eb22a`; M3 `faac7f2`–`5bc2fbe`; M4+catchup `8bb8f95`–`d54f4a1`; M5-P3 `09b0cfc`–`052b13f`; Djot encode `d90eda2`–`883ca89`; M4-P6 `cf68514`–`be07012`; M6-P1 `887823d`–`a0ba100`. See vault `01-current-state.md` for commit-by-commit map.
 
-**Tests:** 24 ctest targets. All should pass under MSYS2 ucrt64 build (verify with `ctest --output-on-failure -j4 --repeat-until-fail 3`). TestOfficeImport: 5 tests (3 active without LibreOffice; 2 QSKIP when soffice absent). TestDjotRoundtrip: 12 tests (8 encode verification + 4 ProvenanceGuard; encode stub test replaced by real tests). TestPatternRedact: 11 tests (PDFium-gated, pass without PDFium). TestBatchMode: RESOURCE_LOCK added to prevent parallel-run race.
+**Tests:** 25 ctest targets. All should pass under MSYS2 ucrt64 build (verify with `ctest --output-on-failure -j4 --repeat-until-fail 3`). TestDiffEngine: 12 tests (Myers LCS + move detection + legal-doc scenario). TestOfficeImport: 5 tests (3 active without LibreOffice; 2 QSKIP when soffice absent). TestDjotRoundtrip: 12 tests (8 encode verification + 4 ProvenanceGuard). TestPatternRedact: 11 tests (PDFium-gated). TestBatchMode: RESOURCE_LOCK.
 
 ---
 
@@ -245,6 +245,9 @@ C:\Users\User\Projects\pdf\
 
 ### Already done (M4-P6 — 2026-05-30)
 - M4-P6 D4: `HomeController::removeFromRecents()` + `pruneMissingRecents()`; `MainWindow::pruneMissingRecents()`; MenuBar "Prune Missing Files" entry (disabled when none missing); PreferencesDialog auto-prune checkbox (QSettings "recent/autoPrune"); auto-prune-on-startup in GpMainWindow constructor. M4-P6 fully closed (D1/D2/D3 verified-in-place; D4 implemented).
+
+### Already done (M6-PROMPT-1 — 2026-05-30)
+- DiffEngine Myers upgrade: `MyersDiff` O((N+M)D) LCS + `detectMoves()` post-pass; `PageDiff.moves` QList<MoveOperation>; DiffEngine routes through Myers; CompareWidget text diff panel with orange moves + PREV/NEXT nav; TestDiffEngine 12 tests (25/25)
 
 ### Remaining (M2-M8) — 34 prompts in `docs/planning/MONTHS-2-8-PROMPTS.md`
 
