@@ -15,6 +15,24 @@ Real public v1.0.0 ships when all M2-M8 work in `GLYPH-PDF-MONTHS-2-8-PROMPTS.md
 
 **Other v1.0.0 work in M2-M8:** Edact-Ray glyph-advance defense in redaction, OCR text-layer scrub in redaction rectangles, veraPDF subprocess for PDF/A validation, real-crypto E2E test coverage, 5 mode-page completions, 23 ribbon tools wired, Office→PDF import + PDF→PPT export, DiffEngine LCS/Myers upgrade, ar/fr/de translations populated, AI backend (Anthropic/OpenAI/Gemini/Ollama), third-party security audit, performance tuning + bug bash, OSS governance files (LICENSE/CONTRIBUTING/SECURITY), GitHub repo + CI workflows, marketing prep, MSI signing, package-manager submissions, launch announcement.
 
+### Comment Threading Depth (M6-PROMPT-5 — 2026-06-01)
+
+Replies, ISO 32000 `/IRT` in-reply-to linking, and non-modal review-state changes
+for the comment thread (CommentsWidget + PoDoFoBackend).
+
+#### Added
+- **Threaded view depth indent + filters** (`src/ui/CommentsWidget.cpp` — D1): nested replies render with a depth-scaled `↳` guide and progressive dimming so reply depth is legible even with word-wrapped multi-line text; a reply whose parent is filtered out is promoted to top-level so it is never hidden. New **date filter** (All / Today / Last 7 days / Last 30 days, computed against the ISO-8601 `creationDate`) alongside the existing **status** (now incl. Cancelled) and **author** filters. Review-state color tints each top-level row + state tooltip.
+- **`/IRT` in-reply-to linking on save** (`PoDoFoBackend::embedAnnotations` — D2): when an `AnnotationItem` has `parentId`, write `/IRT` as an indirect reference to the parent annotation + `/RT /R` per ISO 32000-1 §12.5.6.4. Review state is now written per-annotation via `/State` + `/StateModel /Review` for **both** top-level comments and replies (previously partial, reply-only, via a non-standard `/Subj "State"`). `ReviewState::Open` → `/State (None)`; `ReviewState::None` writes no `/State`.
+- **Thread + review-state load-back** (`PoDoFoBackend::extractAnnotations` — D2): restores `parentId` from `/IRT` → parent `/NM` and `reviewState` from `/State`, then rebuilds each parent's `replies` list — so replies stay threaded and review states roundtrip across save/reload.
+- **`changeReviewState` wired** (`src/ui/CommentsWidget.cpp` — D3): new `applyReviewState(id, state)` updates `AnnotationItem.reviewState` + `modificationDate` and pushes an `EditAnnotationCommand` onto the shared `QUndoStack` (undoable; marks the `DocumentSession` dirty). The tree context menu (Open / Accepted / Rejected / Cancelled / Completed) routes through it and stays **non-modal** (QMenu, no blocking dialog). `CommentsWidget` gains `setContext(AppContext*)`; `Sidebar` now also hands the widget the viewer (it was previously never given one, so its menu + composer were inert).
+- **`TestAnnotationDjot`** +4 cases (now 14): reply threading persists through the PDF roundtrip; every review state (Open/Accepted/Rejected/Cancelled/Completed) roundtrips; `ReviewState::None` omits `/State`; `.ann` serializer preserves `parentId` + `reviewState`.
+
+#### Replaced
+- Non-standard `/Subj "State"` partial review-state marker → spec `/State` + `/StateModel /Review` on the annotation, written for top-level comments and replies alike.
+
+#### Deferred / Known Issue
+- The comment composer is **still plain text**. The richer Djot composer toolbar + live preview for comments/replies (the `TODO(M6-P5)` seam left by M6-PROMPT-4) is **not** delivered in this sprint — M6-PROMPT-5's D1 scope is the threaded *view* (indent + filters), not composer markup authoring. Entered comment text is still treated as trivial Djot source and dual-writes correctly. The richer composer remains a future polish item.
+
 ### Djot Annotation Rich Text (M6-PROMPT-4 — 2026-06-01)
 
 Annotation + comment rich text uses Djot as internal authoring model; transcodes to PDF /RC XHTML + /Contents plain text + /PieceInfo Djot sidecar for perfect GlyphPDF roundtrip + Acrobat/Foxit interop (WS2 role 3 complete).
