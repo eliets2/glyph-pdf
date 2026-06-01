@@ -22,7 +22,10 @@ struct AnnotationItem {
     QList<QPointF> points;
     QColor color = Qt::yellow;
     int thickness = 2;
-    QString text;
+    QString text;          // Plain-text fallback (PDF /Contents). Always kept.
+    QString djotSource;    // Djot rich-text source (M6-P4). Internal authoring
+                           // model; transcoded to /RC XHTML on save, original
+                           // stashed in /PieceInfo. Empty => plain-text only.
     QRectF rect;
     
     // Appearance
