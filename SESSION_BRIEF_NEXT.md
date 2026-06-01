@@ -20,9 +20,10 @@
 | M4 (6/7 + catchup) | `8bb8f95`–`d54f4a1` | View/Pages/Convert/Forms/Security tools; Djot foundation (docmodel + pdfws_djot + Lua + ProvenanceGuard); 8 walkthroughs; test registrations; CHANGELOG fixes |
 | **M5-P3** | `09b0cfc`–`052b13f` | **Office→PDF import** (HAS_LIBREOFFICE + real soffice subprocess + tree-kill) + **Images→PDF** (PoDoFo PdfImage XObject) + HomeController ToolId::ImportOffice/ImagesToPdf + WelcomeWidget 2 new cards + TestOfficeImport |
 | **LuaDjotCodec encode** | `d90eda2`–`883ca89` | **documentToDjot** real C++ emitter (Section→Block→Inline walker); design doc; TestDjotRoundtrip 12 tests |
-| **M4-P6 D4** | `cf68514`–`a844cdf` | **Prune missing recents**: HomeController::pruneMissingRecents; MenuBar "Prune Missing Files" entry; PreferencesDialog auto-prune checkbox; auto-prune-on-startup |
+| **M4-P6 D4** | `cf68514`–`be07012` | **Prune missing recents**: HomeController::pruneMissingRecents; MenuBar "Prune Missing Files" entry; PreferencesDialog auto-prune checkbox; auto-prune-on-startup |
+| **M6-P1** | `887823d`–`a0ba100` | **DiffEngine Myers LCS**: MyersDiff O((N+M)D) + detectMoves; PageDiff.moves; CompareWidget text diff panel + orange moves + PREV/NEXT; TestDiffEngine 12 tests |
 
-**Test count:** 24 ctest targets. Run: `ctest --output-on-failure -j4 --repeat-until-fail 3`
+**Test count:** 25 ctest targets. Run: `ctest --output-on-failure -j4 --repeat-until-fail 3`
 
 ---
 
