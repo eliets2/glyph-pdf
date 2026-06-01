@@ -57,6 +57,12 @@ public:
     // Annotation Export
     bool embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations);
 
+    // Annotation Import (M6-P4 D4) — reads annotation dictionaries back into
+    // AnnotationItem, restoring djotSource from the /PieceInfo /GlyphPDF sidecar
+    // when present, else deriving a trivial djotSource from /Contents. Enables
+    // the perfect GlyphPDF→PDF→GlyphPDF rich-text roundtrip.
+    QList<AnnotationItem> extractAnnotations(const QString &inputPath);
+
     // Specialized conversion/security operations
     bool linearizeDocument(const QString &outputPath);
     bool exportPdfA(const QString &outputPath, int conformanceLevel);

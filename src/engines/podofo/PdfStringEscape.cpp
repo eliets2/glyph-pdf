@@ -51,3 +51,52 @@ std::string pdfEscapeLiteralString(const QString& input) {
     const QByteArray utf8 = input.toUtf8();
     return pdfEscapeLiteralString(std::string(utf8.constData(), static_cast<size_t>(utf8.size())));
 }
+
+std::string pdfUnescapeLiteralString(const std::string& input) {
+    std::string result;
+    result.reserve(input.size());
+
+    for (size_t i = 0; i < input.size(); ++i) {
+        char c = input[i];
+        if (c != '\\') {
+            result += c;
+            continue;
+        }
+        if (i + 1 >= input.size()) {        // trailing backslash — keep literal
+            result += c;
+            break;
+        }
+        char next = input[i + 1];
+        switch (next) {
+        case '(': result += '(';  i += 1; break;
+        case ')': result += ')';  i += 1; break;
+        case '\\':result += '\\'; i += 1; break;
+        case 'n': result += '\n'; i += 1; break;
+        case 'r': result += '\r'; i += 1; break;
+        case 't': result += '\t'; i += 1; break;
+        case 'b': result += '\b'; i += 1; break;
+        case 'f': result += '\f'; i += 1; break;
+        default:
+            if (next >= '0' && next <= '7') {
+                // Octal escape: up to 3 octal digits.
+                int value = 0, digits = 0;
+                size_t j = i + 1;
+                while (j < input.size() && digits < 3
+                       && input[j] >= '0' && input[j] <= '7') {
+                    value = value * 8 + (input[j] - '0');
+                    ++j;
+                    ++digits;
+                }
+                result += static_cast<char>(value & 0xFF);
+                i = j - 1;
+            } else {
+                // Unknown escape — drop the backslash, keep the char (matches
+                // PDF reader leniency).
+                result += next;
+                i += 1;
+            }
+            break;
+        }
+    }
+    return result;
+}
