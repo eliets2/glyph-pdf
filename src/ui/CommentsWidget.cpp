@@ -19,6 +19,9 @@
 #include <QAction>
 #include <QPixmap>
 #include <QHash>
+#include <QDate>
+#include <QDateTime>
+#include <functional>
 
 namespace {
 
@@ -103,11 +106,18 @@ CommentsWidget::CommentsWidget(QWidget *parent)
 
     auto *filterLayout = new QHBoxLayout();
     m_filterStatus = new QComboBox(this);
-    m_filterStatus->addItems({"All", "Open", "Accepted", "Rejected", "Completed"});
+    m_filterStatus->addItems({tr("All"), tr("Open"), tr("Accepted"),
+                              tr("Rejected"), tr("Completed"), tr("Cancelled")});
     m_filterAuthor = new QComboBox(this);
-    m_filterAuthor->addItem("All Authors");
+    m_filterAuthor->addItem(tr("All Authors"));
+    // M6-P5 D1: date filter — recency buckets computed against the annotation's
+    // ISO-8601 creationDate. "All Dates" disables the filter.
+    m_filterDate = new QComboBox(this);
+    m_filterDate->addItems({tr("All Dates"), tr("Today"), tr("Last 7 days"),
+                            tr("Last 30 days")});
     filterLayout->addWidget(m_filterStatus);
     filterLayout->addWidget(m_filterAuthor);
+    filterLayout->addWidget(m_filterDate);
     layout->addLayout(filterLayout);
 
     m_tree = new QTreeWidget(this);
@@ -150,6 +160,7 @@ CommentsWidget::CommentsWidget(QWidget *parent)
     connect(replyBtn, &QPushButton::clicked, this, &CommentsWidget::replyToComment);
     connect(m_filterStatus, &QComboBox::currentTextChanged, this, &CommentsWidget::refreshList);
     connect(m_filterAuthor, &QComboBox::currentTextChanged, this, &CommentsWidget::refreshList);
+    connect(m_filterDate, &QComboBox::currentIndexChanged, this, &CommentsWidget::refreshList);
 
     m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_tree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
@@ -228,35 +239,60 @@ void CommentsWidget::refreshList()
     reloadAnnotations();
 }
 
+// Map a status-filter combo label to the ReviewState it selects.
+// Returns true when the annotation's state passes the active filter.
+static bool statusPasses(const QString &statusFilter, ReviewState s)
+{
+    if (statusFilter == QObject::tr("All")) return true;
+    if (statusFilter == QObject::tr("Open"))      return s == ReviewState::Open;
+    if (statusFilter == QObject::tr("Accepted"))  return s == ReviewState::Accepted;
+    if (statusFilter == QObject::tr("Rejected"))  return s == ReviewState::Rejected;
+    if (statusFilter == QObject::tr("Completed")) return s == ReviewState::Completed;
+    if (statusFilter == QObject::tr("Cancelled")) return s == ReviewState::Cancelled;
+    return true;
+}
+
+// Date-recency filter. index: 0=All, 1=Today, 2=Last 7 days, 3=Last 30 days.
+// creationDate is stored ISO-8601 (Qt::ISODate); a blank/unparseable date
+// only passes the "All Dates" bucket.
+static bool datePasses(int dateIndex, const QString &creationDate)
+{
+    if (dateIndex <= 0) return true;
+    const QDateTime dt = QDateTime::fromString(creationDate, Qt::ISODate);
+    if (!dt.isValid()) return false;
+    const qint64 days = dt.date().daysTo(QDate::currentDate());
+    if (days < 0) return true; // future-dated: never hide
+    switch (dateIndex) {
+    case 1:  return days == 0;   // Today
+    case 2:  return days <= 7;   // Last 7 days
+    case 3:  return days <= 30;  // Last 30 days
+    default: return true;
+    }
+}
+
 void CommentsWidget::buildTree(const QList<AnnotationItem> &items)
 {
     m_tree->clear();
     m_filterAuthor->blockSignals(true);
     QString currentAuthor = m_filterAuthor->currentText();
     m_filterAuthor->clear();
-    m_filterAuthor->addItem("All Authors");
-    
+    m_filterAuthor->addItem(tr("All Authors"));
+
     QSet<QString> authors;
     QMap<QString, QTreeWidgetItem*> itemMap;
 
-    QString statusFilter = m_filterStatus->currentText();
-    bool filterAllStatus = statusFilter == "All";
+    const QString statusFilter = m_filterStatus->currentText();
+    const int dateIndex = m_filterDate ? m_filterDate->currentIndex() : 0;
 
     for (const auto &anno : items) {
         if (anno.mode != ToolMode::AddComment) continue;
         if (!anno.author.isEmpty()) authors.insert(anno.author);
-        
-        bool statusMatch = filterAllStatus;
-        if (!statusMatch) {
-            if (statusFilter == "Open" && anno.reviewState == ReviewState::Open) statusMatch = true;
-            else if (statusFilter == "Accepted" && anno.reviewState == ReviewState::Accepted) statusMatch = true;
-            else if (statusFilter == "Rejected" && anno.reviewState == ReviewState::Rejected) statusMatch = true;
-            else if (statusFilter == "Completed" && anno.reviewState == ReviewState::Completed) statusMatch = true;
-        }
 
-        bool authorMatch = (currentAuthor == "All Authors" || currentAuthor == anno.author);
+        const bool statusMatch = statusPasses(statusFilter, anno.reviewState);
+        const bool authorMatch = (currentAuthor == tr("All Authors") || currentAuthor == anno.author);
+        const bool dateMatch   = datePasses(dateIndex, anno.creationDate);
 
-        if (statusMatch && authorMatch) {
+        if (statusMatch && authorMatch && dateMatch) {
             auto *node = new QTreeWidgetItem();
 
             // Generate circular avatar icon
@@ -264,31 +300,58 @@ void CommentsWidget::buildTree(const QList<AnnotationItem> &items)
             node->setIcon(0, QIcon(avatar));
 
             // Build rich display text with review state badge
-            QString stateTag = reviewStateLabel(anno.reviewState);
-            QString display = QString("%1  \u2022  %2  [%3]\n%4")
+            const QString stateTag = reviewStateLabel(anno.reviewState);
+            const QString display = QString("%1  \u2022  %2  [%3]\n%4")
                 .arg(anno.author, anno.creationDate, stateTag, anno.text);
             node->setText(0, display);
 
-            // Set foreground color for the state
-            node->setForeground(0, QBrush(QColor(0xF8, 0xFA, 0xFC)));
+            // Tint the row toward the review-state color so Open/Accepted/
+            // Rejected/etc. are distinguishable at a glance (depth dimming
+            // below may override this for nested replies).
+            node->setForeground(0, QBrush(reviewStateColor(anno.reviewState)));
+            node->setToolTip(0, reviewStateLabel(anno.reviewState));
 
             node->setData(0, Qt::UserRole, anno.id);
             node->setData(0, Qt::UserRole + 1, anno.pageIndex);
             node->setData(0, Qt::UserRole + 2, static_cast<int>(anno.reviewState));
+            node->setData(0, Qt::UserRole + 3, anno.parentId);
             itemMap.insert(anno.id, node);
         }
     }
 
+    // Parent/child assembly. A reply nests under its parent when the parent
+    // also survived the filter; otherwise it is promoted to a top-level node
+    // so a matching reply is never hidden by a filtered-out parent.
+    QList<QTreeWidgetItem*> roots;
     for (const auto &anno : items) {
         if (anno.mode != ToolMode::AddComment) continue;
-        if (itemMap.contains(anno.id)) {
-            if (!anno.parentId.isEmpty() && itemMap.contains(anno.parentId)) {
-                itemMap[anno.parentId]->addChild(itemMap[anno.id]);
-            } else {
-                m_tree->addTopLevelItem(itemMap[anno.id]);
-            }
+        if (!itemMap.contains(anno.id)) continue;
+        if (!anno.parentId.isEmpty() && itemMap.contains(anno.parentId)) {
+            itemMap[anno.parentId]->addChild(itemMap[anno.id]);
+        } else {
+            m_tree->addTopLevelItem(itemMap[anno.id]);
+            roots.append(itemMap[anno.id]);
         }
     }
+
+    // M6-P5 D1: explicit depth indent. QTreeWidget already nests children, but
+    // we prepend a depth-scaled guide ("    \u21b3 ") and dim deeper replies so the
+    // reply depth is legible even with word-wrapped multi-line comment text.
+    std::function<void(QTreeWidgetItem*, int)> applyDepth =
+        [&](QTreeWidgetItem *node, int depth) {
+            if (depth > 0) {
+                const QString indent = QString(depth * 2, QChar(' '))
+                                       + QStringLiteral("\u21b3 ");
+                node->setText(0, indent + node->text(0));
+                // Progressively dim nested replies (floor at a readable grey).
+                const int shade = qMax(0x94, 0xF8 - depth * 0x1C);
+                node->setForeground(0, QBrush(QColor(shade, shade, shade)));
+            }
+            for (int i = 0; i < node->childCount(); ++i)
+                applyDepth(node->child(i), depth + 1);
+        };
+    for (QTreeWidgetItem *root : roots)
+        applyDepth(root, 0);
 
     for (const QString &a : authors) {
         m_filterAuthor->addItem(a);
