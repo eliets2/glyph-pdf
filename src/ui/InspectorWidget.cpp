@@ -3,6 +3,7 @@
 #include "core/AppContext.h"
 #include "ui/PdfViewerWidget.h"
 #include "commands/EditAnnotationCommand.h"
+#include "pdfws_djot/DjotToRichTextXhtml.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -27,6 +28,11 @@
 #include <QKeyEvent>
 #include <QUndoStack>
 #include <QUuid>
+#include <QToolButton>
+#include <QInputDialog>
+#include <QTextCursor>
+#include <QLineEdit>
+#include <functional>
 
 namespace {
     const char* BG_0  = "#1a1b1e";
@@ -667,15 +673,67 @@ QWidget* InspectorWidget::createPropertiesView()
 
     propsLayout->addWidget(createCollapsibleSection(tr("Position"), posContent));
 
-    // ── Section 4: Contents (D4) ────────────────────────────────────────────
+    // ── Section 4: Contents (D4 / M6-P4 Djot editor) ─────────────────────────
     auto* contentsWidget = new QWidget;
     auto* contentsLayout = new QVBoxLayout(contentsWidget);
     contentsLayout->setContentsMargins(12, 6, 12, 6);
     contentsLayout->setSpacing(4);
 
+    // ── Djot formatting toolbar (bold / italic / code / link / list / heading)
+    auto* djotToolbar = new QWidget;
+    auto* toolbarRow = new QHBoxLayout(djotToolbar);
+    toolbarRow->setContentsMargins(0, 0, 0, 0);
+    toolbarRow->setSpacing(2);
+
+    const QString toolBtnSheet = QStringLiteral(
+        "QToolButton {"
+        "  background: %1; border: 1px solid %2; border-radius: 3px;"
+        "  color: %3; font-family: 'Consolas', monospace; font-size: 11px;"
+        "  min-width: 22px; min-height: 20px; padding: 0 4px;"
+        "}"
+        "QToolButton:hover { background: %4; color: %5; }"
+    ).arg(BG_2, LINE, FG_1, ACCENT_DIM, ACCENT);
+
+    auto addToolBtn = [&](const QString& label, const QString& tip,
+                          std::function<void()> handler) {
+        auto* b = new QToolButton;
+        b->setText(label);
+        b->setToolTip(tip);
+        b->setCursor(Qt::PointingHandCursor);
+        b->setStyleSheet(toolBtnSheet);
+        QObject::connect(b, &QToolButton::clicked, this, handler);
+        toolbarRow->addWidget(b);
+        return b;
+    };
+
+    addToolBtn(QStringLiteral("B"), tr("Bold (**strong**)"),
+               [this]() { wrapSelection(QStringLiteral("**"), QStringLiteral("**")); });
+    addToolBtn(QStringLiteral("I"), tr("Italic (_emphasis_)"),
+               [this]() { wrapSelection(QStringLiteral("_"), QStringLiteral("_")); });
+    addToolBtn(QStringLiteral("</>"), tr("Inline code (`code`)"),
+               [this]() { wrapSelection(QStringLiteral("`"), QStringLiteral("`")); });
+    addToolBtn(QStringLiteral("\xF0\x9F\x94\x97"), tr("Link ([text](url))"),
+               [this]() {
+        bool ok = false;
+        const QString url = QInputDialog::getText(this, tr("Insert link"),
+                                                  tr("URL:"), QLineEdit::Normal,
+                                                  QStringLiteral("https://"), &ok);
+        if (ok && !url.isEmpty())
+            wrapSelection(QStringLiteral("["), QStringLiteral("](") + url + QStringLiteral(")"));
+    });
+    addToolBtn(QStringLiteral("\xE2\x80\xA2"), tr("List item (- )"),
+               [this]() { insertLinePrefix(QStringLiteral("- ")); });
+    addToolBtn(QStringLiteral("H"), tr("Heading (# )"),
+               [this]() { insertLinePrefix(QStringLiteral("# ")); });
+    toolbarRow->addStretch();
+    contentsLayout->addWidget(djotToolbar);
+
+    // ── Djot source editor ──────────────────────────────────────────────────
     m_contentsEditor = new QTextEdit;
-    m_contentsEditor->setFixedHeight(80);
-    m_contentsEditor->setPlaceholderText(QStringLiteral("Annotation text content..."));
+    m_contentsEditor->setFixedHeight(72);
+    m_contentsEditor->setAcceptRichText(false);
+    m_contentsEditor->setPlaceholderText(
+        QStringLiteral("Djot source — *bold*, _italic_, `code`, [link](url)..."));
     m_contentsEditor->setStyleSheet(QStringLiteral(
         "QTextEdit {"
         "  background: %1; border: 1px solid %2; border-radius: 4px;"
@@ -685,7 +743,26 @@ QWidget* InspectorWidget::createPropertiesView()
     ).arg(BG_0, LINE, FG_0, ACCENT));
     contentsLayout->addWidget(m_contentsEditor);
 
-    m_charCountLabel = new QLabel(QStringLiteral("0 chars \xC2\xB7 UTF-8"));
+    // ── Live preview label + read-only render pane ──────────────────────────
+    auto* previewLabel = new QLabel(tr("PREVIEW"));
+    previewLabel->setStyleSheet(QStringLiteral(
+        "color: %1; font-family: 'Manrope', sans-serif; font-size: 9px;"
+        "font-weight: 600; letter-spacing: 1px;"
+    ).arg(FG_3));
+    contentsLayout->addWidget(previewLabel);
+
+    m_djotPreview = new QTextEdit;
+    m_djotPreview->setReadOnly(true);
+    m_djotPreview->setFixedHeight(64);
+    m_djotPreview->setStyleSheet(QStringLiteral(
+        "QTextEdit {"
+        "  background: %1; border: 1px dashed %2; border-radius: 4px;"
+        "  color: %3; font-family: 'Manrope', sans-serif; font-size: 10.5px; padding: 6px;"
+        "}"
+    ).arg(BG_2, LINE, FG_0));
+    contentsLayout->addWidget(m_djotPreview);
+
+    m_charCountLabel = new QLabel(QStringLiteral("0 chars \xC2\xB7 Djot \xC2\xB7 UTF-8"));
     m_charCountLabel->setObjectName("charCount");
     m_charCountLabel->setAlignment(Qt::AlignRight);
     m_charCountLabel->setStyleSheet(QStringLiteral(
@@ -693,10 +770,13 @@ QWidget* InspectorWidget::createPropertiesView()
     ).arg(FG_3));
     contentsLayout->addWidget(m_charCountLabel);
 
-    // Live char count
+    // Live char count + live HTML preview as the user types Djot.
     QObject::connect(m_contentsEditor, &QTextEdit::textChanged, this, [this]() {
+        if (m_refreshing) return;
         int count = m_contentsEditor->toPlainText().length();
-        m_charCountLabel->setText(QStringLiteral("%1 chars \xC2\xB7 UTF-8").arg(count));
+        m_charCountLabel->setText(
+            QStringLiteral("%1 chars \xC2\xB7 Djot \xC2\xB7 UTF-8").arg(count));
+        refreshDjotPreview();
     });
 
     // Save on focus loss (install event filter on the editor)
@@ -860,16 +940,71 @@ QWidget* InspectorWidget::createPropertiesView()
 bool InspectorWidget::eventFilter(QObject* obj, QEvent* event)
 {
     if (obj == m_contentsEditor && event->type() == QEvent::FocusOut) {
-        if (m_currentAnnotation && !m_refreshing) {
-            QString newText = m_contentsEditor->toPlainText();
-            if (newText != m_currentAnnotation->text) {
-                AnnotationItem modified = *m_currentAnnotation;
-                modified.text = newText;
-                pushEditCommand(modified);
-            }
-        }
+        commitDjotEdit();
     }
     return QWidget::eventFilter(obj, event);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// M6-P4 D2 — Djot editor helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Commit the Djot source in the editor: write djotSource and auto-derive the
+// plain-text projection into annotation.text. Pushed as one undoable edit.
+void InspectorWidget::commitDjotEdit()
+{
+    if (!m_currentAnnotation || m_refreshing) return;
+
+    const QString newDjot = m_contentsEditor->toPlainText();
+    const QString newPlain = pdfws_djot::djotToPlainText(newDjot);
+
+    if (newDjot == m_currentAnnotation->djotSource
+        && newPlain == m_currentAnnotation->text) {
+        return;  // nothing changed
+    }
+
+    AnnotationItem modified = *m_currentAnnotation;
+    modified.djotSource = newDjot;
+    modified.text       = newPlain;   // plain-text projection kept in sync
+    pushEditCommand(modified);
+}
+
+// Re-render the live HTML preview pane from the current Djot source.
+void InspectorWidget::refreshDjotPreview()
+{
+    if (!m_djotPreview) return;
+    const QString djot = m_contentsEditor ? m_contentsEditor->toPlainText() : QString();
+    if (djot.trimmed().isEmpty()) {
+        m_djotPreview->clear();
+        return;
+    }
+    // Qt rich text understands the XHTML body fragment our transcoder emits.
+    m_djotPreview->setHtml(pdfws_djot::djotToHtmlFragment(djot));
+}
+
+// Wrap the current selection (or insert at cursor) with prefix/suffix markup.
+void InspectorWidget::wrapSelection(const QString& prefix, const QString& suffix)
+{
+    if (!m_contentsEditor) return;
+    QTextCursor cur = m_contentsEditor->textCursor();
+    const QString selected = cur.selectedText();
+    cur.insertText(prefix + selected + suffix);
+    if (selected.isEmpty()) {
+        // Park the cursor between the delimiters for immediate typing.
+        cur.movePosition(QTextCursor::Left, QTextCursor::MoveAnchor, suffix.length());
+        m_contentsEditor->setTextCursor(cur);
+    }
+    m_contentsEditor->setFocus();
+}
+
+// Prepend a line-level marker (e.g. "- " or "# ") to the cursor's current line.
+void InspectorWidget::insertLinePrefix(const QString& prefix)
+{
+    if (!m_contentsEditor) return;
+    QTextCursor cur = m_contentsEditor->textCursor();
+    cur.movePosition(QTextCursor::StartOfLine);
+    cur.insertText(prefix);
+    m_contentsEditor->setFocus();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1035,13 +1170,18 @@ void InspectorWidget::refreshProperties()
 
     if (m_borderSpin) m_borderSpin->setValue(ann.thickness);
 
-    // ── D4: Contents editor ───────────────────────────────────────────────
+    // ── D4 / M6-P4: Djot source editor + live preview ─────────────────────
     if (m_contentsEditor) {
+        // Show djotSource when present; otherwise treat the plain text as the
+        // (trivial) Djot source so older annotations remain editable.
+        const QString djot = ann.djotSource.isEmpty() ? ann.text : ann.djotSource;
         m_contentsEditor->blockSignals(true);
-        m_contentsEditor->setPlainText(ann.text);
+        m_contentsEditor->setPlainText(djot);
         m_contentsEditor->blockSignals(false);
         if (m_charCountLabel)
-            m_charCountLabel->setText(QStringLiteral("%1 chars \xC2\xB7 UTF-8").arg(ann.text.length()));
+            m_charCountLabel->setText(
+                QStringLiteral("%1 chars \xC2\xB7 Djot \xC2\xB7 UTF-8").arg(djot.length()));
+        refreshDjotPreview();
     }
 
     // ── D5: Reply thread ──────────────────────────────────────────────────
