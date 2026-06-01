@@ -134,6 +134,10 @@ void Sidebar::init(const AppContext* ctx, PdfViewerWidget* viewer)
                     m_lastFilePath = path;
                     m_commentsWidget->setDocumentFile(path);
                     updateFilesList();
+                    // D2: a new document is loaded — rebuild thumbnails so the
+                    // real PDFium renders reflect the new file (and the render
+                    // cache is cleared of the previous document's pages).
+                    if (m_thumbSidebar) m_thumbSidebar->rebuild();
                 }
                 m_commentsWidget->setCurrentPage(m_viewer->currentPage() + 1);
             }

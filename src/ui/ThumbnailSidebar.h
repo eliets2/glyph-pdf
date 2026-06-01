@@ -1,6 +1,7 @@
 #pragma once
 #include <QWidget>
 #include <QHash>
+#include <memory>
 
 class QVBoxLayout;
 class QScrollArea;
@@ -9,11 +10,14 @@ class QLabel;
 class QSpacerItem;
 class PdfViewerWidget;
 class ThumbItem;
+class RenderCache;
+class ThumbnailRenderer;
 
 class ThumbnailSidebar : public QWidget {
     Q_OBJECT
 public:
     explicit ThumbnailSidebar(QWidget* parent = nullptr);
+    ~ThumbnailSidebar() override;  // out-of-line: ThumbnailRenderer is opaque here
     void setViewer(PdfViewerWidget* viewer);
     void setCurrentPage(int page);
     void rebuild();
@@ -52,4 +56,11 @@ private:
     QHash<int, QWidget*> m_liveWidgets;
     QSpacerItem*         m_topSpacer   = nullptr;
     QSpacerItem*         m_bottomSpacer = nullptr;
+
+    // D2: real PDFium-rendered thumbnails cached at 75 DPI. The RenderCache
+    // (LRU, memory-budgeted) holds rendered page images; ThumbnailRenderer is
+    // an IPdfRenderer adapter over the viewer's PDFium-backed QPdfDocument.
+    static constexpr int ThumbnailDpi = 75;
+    std::shared_ptr<RenderCache>       m_renderCache;
+    std::unique_ptr<ThumbnailRenderer> m_renderer;
 };

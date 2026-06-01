@@ -378,6 +378,7 @@ target_link_libraries(pdfws_ui
     PUBLIC  pdfws_core pdfws_commands
     PRIVATE Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets Qt6::PrintSupport Qt6::Svg Qt6::Network
             Qt6::Concurrent podofo::podofo pdfws_djot
+            pdfws_engines  # D2: ThumbnailSidebar uses RenderCache for thumbnails
 )
 target_compile_definitions(pdfws_ui PRIVATE GLYPH_HAS_SVG=1)
 
