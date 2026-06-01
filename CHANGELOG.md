@@ -15,6 +15,21 @@ Real public v1.0.0 ships when all M2-M8 work in `GLYPH-PDF-MONTHS-2-8-PROMPTS.md
 
 **Other v1.0.0 work in M2-M8:** Edact-Ray glyph-advance defense in redaction, OCR text-layer scrub in redaction rectangles, veraPDF subprocess for PDF/A validation, real-crypto E2E test coverage, 5 mode-page completions, 23 ribbon tools wired, Office→PDF import + PDF→PPT export, DiffEngine LCS/Myers upgrade, ar/fr/de translations populated, AI backend (Anthropic/OpenAI/Gemini/Ollama), third-party security audit, performance tuning + bug bash, OSS governance files (LICENSE/CONTRIBUTING/SECURITY), GitHub repo + CI workflows, marketing prep, MSI signing, package-manager submissions, launch announcement.
 
+### AI Backend Wiring (M6-PROMPT-3 — 2026-06-01)
+
+#### Added
+- **`IAiProvider`** interface (`src/engines/ai/IAiProvider.h`): async `QFuture<AiResult> chat(history, opts)`; `isReady()` and `isPlausibleKey()` per provider.
+- **`AnthropicProvider`** (Anthropic Claude 3.5 Sonnet): reads key from `CredentialManager("Anthropic")` or `QSettings("ai/keyAnthropicCached")`; real HTTPS call via `QNetworkAccessManager` in `QtConcurrent::run` worker thread (non-blocking GUI).
+- **`OpenAiProvider`** (OpenAI GPT-4o): real HTTPS; key from `QSettings("ai/keyOpenAICached")`.
+- **`GeminiProvider`** (Google Gemini 1.5 Flash): real HTTPS; key from `QSettings("ai/keyGeminiCached")`.
+- **`OllamaProvider`** (local Ollama): connects to `http://localhost:11434`; no API key required; model from `QSettings("ai/ollamaModel", "llama3")`.
+- **`AIChatPanel` real wiring**: replaces canned reply with `activeProvider()->chat(history)` via `QFutureWatcher`. Chat history maintained across turns; typing-cursor placeholder replaced by response on completion. Suggestion chips submit pre-filled prompts.
+- **PreferencesDialog AI tab**: all 4 providers selectable (Anthropic, OpenAI, Gemini, Ollama — previously OpenAI/Gemini were "coming v1.1" placeholders). "Test key" button now performs a real 1-token API ping; result shown inline. Ollama shows informational message (no key needed).
+- **`TestAiProvider`** (10 tests): mock provider echo, empty history, key format validation for all 4 providers, real round-trip QSKIP-gated behind `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` env vars.
+
+#### Replaced
+- `AIChatPanel` canned reply `"AI: (v1.1) AI responses will appear here once real LLM calls are wired."` replaced with real async LLM calls.
+
 ### Localization ar/fr/de (M6-PROMPT-2 — 2026-05-30)
 
 #### Added
