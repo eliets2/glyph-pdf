@@ -207,6 +207,153 @@ private slots:
         QCOMPARE(back[0].djotSource, a.djotSource);
         QCOMPARE(back[0].text, a.text);
     }
+
+    // ── M6-P5 D2/D4: a reply threads + persists across save → reload ─────────
+    // parent comment + reply (with parentId) round-trip through the PDF; on
+    // reload the reply's parentId is restored from /IRT and the parent's
+    // replies list is rebuilt.
+    void testReplyThreadingPersistsThroughPdf() {
+        const QString base = createBasePdf(m_tmpDir, "thread_base.pdf");
+        QVERIFY(!base.isEmpty());
+        const QString out = m_tmpDir.filePath("thread_out.pdf");
+
+        AnnotationItem parent;
+        parent.id          = QStringLiteral("cmt-parent");
+        parent.mode        = ToolMode::AddComment;
+        parent.pageIndex   = 0;
+        parent.rect        = QRectF(60, 60, 100, 30);
+        parent.author      = QStringLiteral("Alice");
+        parent.text        = QStringLiteral("Top-level comment");
+        parent.djotSource  = parent.text;
+
+        AnnotationItem reply;
+        reply.id           = QStringLiteral("cmt-reply");
+        reply.parentId     = parent.id;             // <-- the thread link
+        reply.mode         = ToolMode::AddComment;
+        reply.pageIndex    = 0;
+        reply.rect         = QRectF(70, 70, 100, 30);
+        reply.author       = QStringLiteral("Bob");
+        reply.text         = QStringLiteral("A reply");
+        reply.djotSource   = reply.text;
+        parent.replies.append(reply.id);
+
+        PoDoFoBackend backend;
+        QVERIFY2(backend.embedAnnotations(base, out, { parent, reply }),
+                 "embedAnnotations should succeed for a threaded pair");
+
+        const QList<AnnotationItem> loaded = backend.extractAnnotations(out);
+        const AnnotationItem* gotParent = find(loaded, parent.id);
+        const AnnotationItem* gotReply  = find(loaded, reply.id);
+        QVERIFY2(gotParent != nullptr, "parent should reload");
+        QVERIFY2(gotReply  != nullptr, "reply should reload");
+
+        // Threading survived: reply still points at the parent via /IRT → /NM.
+        QCOMPARE(gotReply->parentId, parent.id);
+        // Top-level comment has no parent.
+        QVERIFY(gotParent->parentId.isEmpty());
+        // Parent.replies rebuilt from the restored link.
+        QVERIFY2(gotParent->replies.contains(reply.id),
+                 "parent.replies should be rebuilt on reload");
+    }
+
+    // ── M6-P5 D2/D4: every review state round-trips through the PDF ──────────
+    void testReviewStateRoundtripThroughPdf() {
+        struct Case { const char* id; ReviewState state; };
+        const QList<Case> cases = {
+            { "rs-open",      ReviewState::Open      },
+            { "rs-accepted",  ReviewState::Accepted  },
+            { "rs-rejected",  ReviewState::Rejected  },
+            { "rs-cancelled", ReviewState::Cancelled },
+            { "rs-completed", ReviewState::Completed },
+        };
+
+        const QString base = createBasePdf(m_tmpDir, "state_base.pdf");
+        QVERIFY(!base.isEmpty());
+        const QString out = m_tmpDir.filePath("state_out.pdf");
+
+        QList<AnnotationItem> annos;
+        int n = 0;
+        for (const auto& c : cases) {
+            AnnotationItem a;
+            a.id          = QString::fromLatin1(c.id);
+            a.mode        = ToolMode::AddComment;
+            a.pageIndex   = 0;
+            a.rect        = QRectF(40 + n * 5, 40 + n * 5, 80, 24);
+            a.author      = QStringLiteral("Reviewer");
+            a.text        = QStringLiteral("comment %1").arg(n);
+            a.djotSource  = a.text;
+            a.reviewState = c.state;
+            annos.append(a);
+            ++n;
+        }
+
+        PoDoFoBackend backend;
+        QVERIFY(backend.embedAnnotations(base, out, annos));
+
+        const QList<AnnotationItem> loaded = backend.extractAnnotations(out);
+        for (const auto& c : cases) {
+            const AnnotationItem* got = find(loaded, QString::fromLatin1(c.id));
+            QVERIFY2(got != nullptr,
+                     qPrintable(QStringLiteral("annotation %1 should reload")
+                                    .arg(c.id)));
+            QCOMPARE(static_cast<int>(got->reviewState), static_cast<int>(c.state));
+        }
+    }
+
+    // ── M6-P5 D4: ReviewState::None writes no /State and reloads as None ─────
+    void testReviewStateNoneOmitsStateKey() {
+        const QString base = createBasePdf(m_tmpDir, "none_base.pdf");
+        QVERIFY(!base.isEmpty());
+        const QString out = m_tmpDir.filePath("none_out.pdf");
+
+        AnnotationItem a;
+        a.id          = QStringLiteral("rs-none");
+        a.mode        = ToolMode::AddComment;
+        a.pageIndex   = 0;
+        a.rect        = QRectF(50, 50, 80, 24);
+        a.text        = QStringLiteral("no explicit state");
+        a.djotSource  = a.text;
+        a.reviewState = ReviewState::None;
+
+        PoDoFoBackend backend;
+        QVERIFY(backend.embedAnnotations(base, out, { a }));
+
+        const QList<AnnotationItem> loaded = backend.extractAnnotations(out);
+        const AnnotationItem* got = find(loaded, a.id);
+        QVERIFY(got != nullptr);
+        QCOMPARE(static_cast<int>(got->reviewState),
+                 static_cast<int>(ReviewState::None));
+    }
+
+    // ── M6-P5 D4: .ann JSON serializer round-trips parentId + reviewState ────
+    void testSerializerPreservesThreadAndState() {
+        AnnotationItem parent;
+        parent.id          = QStringLiteral("p");
+        parent.mode        = ToolMode::AddComment;
+        parent.reviewState = ReviewState::Accepted;
+
+        AnnotationItem reply;
+        reply.id           = QStringLiteral("c");
+        reply.parentId     = parent.id;
+        reply.mode         = ToolMode::AddComment;
+        reply.reviewState  = ReviewState::Rejected;
+        parent.replies.append(reply.id);
+
+        const QJsonDocument doc = AnnotationSerializer::toJson({ parent, reply });
+        const QList<AnnotationItem> back = AnnotationSerializer::fromJson(doc);
+        QCOMPARE(back.size(), 2);
+
+        const AnnotationItem* bp = find(back, parent.id);
+        const AnnotationItem* bc = find(back, reply.id);
+        QVERIFY(bp != nullptr);
+        QVERIFY(bc != nullptr);
+        QCOMPARE(bc->parentId, parent.id);
+        QVERIFY(bp->replies.contains(reply.id));
+        QCOMPARE(static_cast<int>(bp->reviewState),
+                 static_cast<int>(ReviewState::Accepted));
+        QCOMPARE(static_cast<int>(bc->reviewState),
+                 static_cast<int>(ReviewState::Rejected));
+    }
 };
 
 QTEST_MAIN(TestAnnotationDjot)
