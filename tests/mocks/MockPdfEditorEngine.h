@@ -34,6 +34,7 @@ public:
     bool setMetadata(const PdfMetadata &meta) override { m_meta = meta; return true; }
     QString currentFile() const override { return m_file; }
     QStringList getEmbeddedFiles() override { return {}; }
+    QByteArray extractEmbeddedFile(const QString &name) override { return QByteArray(); }
     QStringList getLayers() override { return {}; }
     
     bool rotatePage(const QString &path, int pageIndex, int degrees) override { return true; }

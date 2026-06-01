@@ -28,6 +28,7 @@ public:
     QString currentFile() const;
     void setCurrentFile(const QString &path);
     QStringList getEmbeddedFiles();
+    QByteArray extractEmbeddedFile(const QString &name);
     QStringList getLayers();
 
     // Page editing operations

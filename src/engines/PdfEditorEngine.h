@@ -37,6 +37,7 @@ public:
 
     QString currentFile() const override;
     QStringList getEmbeddedFiles() override;
+    QByteArray extractEmbeddedFile(const QString &name) override;
     QStringList getLayers() override;
 
     // Page editing operations
