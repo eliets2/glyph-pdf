@@ -1,5 +1,7 @@
 #include "ThumbnailSidebar.h"
 #include "PdfViewerWidget.h"
+#include "engines/RenderCache.h"
+#include "core/interfaces/IPdfRenderer.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -17,6 +19,35 @@
 #include <QDropEvent>
 #include <QApplication>
 #include <QPainter>
+#include <QPixmap>
+#include <QPdfDocument>
+
+// ---------------------------------------------------------------------------
+// D2: IPdfRenderer adapter over the viewer's PDFium-backed QPdfDocument.
+// Renders a page at the requested DPI; RenderCache wraps this for LRU caching
+// so each thumbnail is rendered once and reused across virtualization passes.
+// ---------------------------------------------------------------------------
+class ThumbnailRenderer : public IPdfRenderer {
+public:
+    explicit ThumbnailRenderer(PdfViewerWidget* viewer) : m_viewer(viewer) {}
+
+    QImage renderPage(int pageIndex, int dpi) override {
+        if (!m_viewer) return QImage();
+        // PdfViewerWidget::renderPage takes a points->pixels scale factor.
+        // dpi/72 converts DPI to that factor; the viewer renders via QPdfDocument
+        // (Qt's PDFium-backed PDF module).
+        const qreal scaleFactor = static_cast<qreal>(dpi) / 72.0;
+        return m_viewer->renderPage(pageIndex, scaleFactor);
+    }
+
+    QImage renderTile(int pageIndex, const QRectF& /*subRect*/, int dpi) override {
+        // Thumbnails never tile; full-page render is sufficient.
+        return renderPage(pageIndex, dpi);
+    }
+
+private:
+    PdfViewerWidget* m_viewer;
+};
 
 // ---------------------------------------------------------------------------
 // Constructor
@@ -89,6 +120,11 @@ ThumbnailSidebar::ThumbnailSidebar(QWidget* parent)
             this, &ThumbnailSidebar::updateVisibleThumbnails);
 }
 
+// Out-of-line destructor: ThumbnailRenderer (held by unique_ptr) is only a
+// complete type in this translation unit, so the deleter must be instantiated
+// here rather than in the header / MOC unit.
+ThumbnailSidebar::~ThumbnailSidebar() = default;
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -96,6 +132,18 @@ ThumbnailSidebar::ThumbnailSidebar(QWidget* parent)
 void ThumbnailSidebar::setViewer(PdfViewerWidget* viewer)
 {
     m_viewer = viewer;
+
+    // (Re)build the 75-DPI thumbnail render cache + renderer for this viewer.
+    if (viewer) {
+        m_renderer = std::make_unique<ThumbnailRenderer>(viewer);
+        m_renderCache = std::make_shared<RenderCache>();
+        // Thumbnails are small (≈140x181 px); a modest budget holds plenty.
+        m_renderCache->setMaxCacheSize(32LL * 1024 * 1024);
+    } else {
+        m_renderer.reset();
+        m_renderCache.reset();
+    }
+
     rebuild();
 }
 
@@ -107,6 +155,11 @@ void ThumbnailSidebar::rebuild()
         it.value()->deleteLater();
     }
     m_liveWidgets.clear();
+
+    // Drop cached page renders — rebuild() means the document (and therefore
+    // the page->image mapping) may have changed, so stale renders for reused
+    // page indices must not be shown.
+    if (m_renderCache) m_renderCache->clear();
 
     if (!m_viewer) {
         m_totalPages = 0;
@@ -226,50 +279,43 @@ QWidget* ThumbnailSidebar::createThumbWidget(int pageIndex)
     frameLayout->setContentsMargins(6, 6, 6, 6);
     frameLayout->setSpacing(0);
 
-    // Paper (8.5:11 aspect ratio placeholder)
+    // Paper (8.5:11 aspect ratio container)
     auto* paper = new QWidget;
     paper->setObjectName("thumbPaper");
     paper->setFixedSize(140, 181);
 
-    // Fake content blocks on paper
+    // D2: real PDFium-rendered thumbnail (cached via RenderCache at 75 DPI),
+    // replacing the former fake title/text/image block placeholders. The render
+    // is produced once per page and reused across virtualization passes.
     auto* paperLayout = new QVBoxLayout(paper);
-    paperLayout->setContentsMargins(10, 12, 10, 12);
-    paperLayout->setSpacing(6);
+    paperLayout->setContentsMargins(0, 0, 0, 0);
+    paperLayout->setSpacing(0);
 
-    // Title block
-    auto* titleBlock = new QWidget;
-    titleBlock->setFixedHeight(8);
-    titleBlock->setObjectName("thumbPaperTitle");
-    paperLayout->addWidget(titleBlock);
+    auto* pageImage = new QLabel;
+    pageImage->setObjectName("thumbPaperImage");
+    pageImage->setAlignment(Qt::AlignCenter);
+    pageImage->setScaledContents(false);
 
-    // Text lines
-    for (int line = 0; line < 5; ++line) {
-        auto* textBlock = new QWidget;
-        textBlock->setFixedHeight(4);
-        textBlock->setObjectName("thumbPaperText");
-        int widthPercent = (line == 4) ? 60 : 90 + (line % 2) * 5;
-        textBlock->setMaximumWidth(paper->width() * widthPercent / 100);
-        paperLayout->addWidget(textBlock);
+    QImage rendered;
+    if (m_renderCache && m_renderer) {
+        // getOrRender's scale arg maps to DPI as dpi = scale * 72, so passing
+        // 75/72 yields a 75-DPI render.
+        const qreal scale = static_cast<qreal>(ThumbnailDpi) / 72.0;
+        rendered = m_renderCache->getOrRender(pageIndex, scale, m_renderer.get());
     }
 
-    paperLayout->addStretch();
-
-    // Another block (simulating image or table)
-    auto* imgBlock = new QWidget;
-    imgBlock->setFixedHeight(28);
-    imgBlock->setObjectName("thumbPaperImg");
-    paperLayout->addWidget(imgBlock);
-
-    // More text lines
-    for (int line = 0; line < 3; ++line) {
-        auto* textBlock = new QWidget;
-        textBlock->setFixedHeight(4);
-        textBlock->setObjectName("thumbPaperText");
-        paperLayout->addWidget(textBlock);
+    if (!rendered.isNull()) {
+        // Fit the real page render inside the paper area, preserving aspect.
+        QPixmap pm = QPixmap::fromImage(rendered).scaled(
+            paper->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        pageImage->setPixmap(pm);
+    } else {
+        // Honest fallback when no document/render is available yet (e.g. the
+        // page failed to render) — a blank sheet, never fabricated content.
+        pageImage->setText(QString());
     }
 
-    paperLayout->addStretch();
-
+    paperLayout->addWidget(pageImage);
     frameLayout->addWidget(paper, 0, Qt::AlignCenter);
     thumbLayout->addWidget(frame);
 
