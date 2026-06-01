@@ -935,12 +935,14 @@ if(Qt6LinguistTools_FOUND)
         translations/glyphpdf_fr.ts
         translations/glyphpdf_de.ts
     )
-    # Generate .qm files from .ts files at build time
+    # Generate .qm files from .ts files at build time and embed as Qt resources
+    # at :/translations/glyphpdf_<lang>.qm — loaded by main.cpp via QTranslator.
+    # RESOURCE_PREFIX requires Qt 6.7+ (we have 6.11).
     qt_add_translations(PdfWorkstation
         TS_FILES ${TS_FILES}
-        QM_FILES_OUTPUT_VARIABLE QM_FILES
+        RESOURCE_PREFIX "/translations"
     )
-    message(STATUS "Qt LinguistTools found — translation targets enabled")
+    message(STATUS "Qt LinguistTools found — translation targets enabled (${TS_FILES})")
 else()
     message(STATUS "Qt LinguistTools not found — translation targets disabled")
 endif()
