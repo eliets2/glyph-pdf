@@ -178,6 +178,7 @@ target_include_directories(pdfws_engines PUBLIC
 target_link_libraries(pdfws_engines
     PUBLIC  pdfws_core
     PRIVATE podofo::podofo OpenSSL::SSL OpenSSL::Crypto Qt6::Network Qt6::Widgets Qt6::Concurrent libzip::zip
+            pdfws_djot
 )
 if(WIN32)
     target_link_libraries(pdfws_engines PUBLIC Credui Advapi32 Crypt32)
