@@ -3,6 +3,24 @@
 All notable changes to GlyphPDF are documented in this file.
 
 ## [Unreleased] — v1.0.0 Branch C SCOPE LOCK execution (M2-M8)
+
+### Edge-case cleanup + branding (M6-PROMPT-6 — 2026-06-01)
+#### Changed (decorative panels → real data)
+- **SignaturesPanel** renders real `ISignatureManager::validateSignatures` output (was hardcoded "Elie Matta / GlobalSign CA"). (D1)
+- **ThumbnailSidebar** shows real PDFium-rendered page thumbnails via RenderCache (was placeholder blocks). (D2)
+- **Sidebar** attachment extraction reads real embedded-file bytes via PoDoFo (was a text stub). (D3)
+- **StatusBar** OCR cell reflects the real selected language; removed the meaningless UTF-8 encoding cell. (D4)
+- **Bates numbering** gains a preset selector + All/Custom page-range UI (from/to spin boxes bounded to the document); the backend stamps only the chosen range (`firstPage`/`lastPage`, backward-compatible all-pages default). (D5)
+#### Added (branding)
+- App-wide window/taskbar **icon**, a startup **splash screen**, and a **system-tray icon** (Show/Quit + tooltip) wired in `main.cpp`; 5 brand assets bundled under `resources/branding/` via the Qt resource system.
+- `PdfWorkstation.exe` now carries the brand icon (windres `.rc`, `enable_language(RC)`); the WiX installer's icons (ARP, shortcuts, `.pdf` file-association DefaultIcon) are rebranded via a regenerated multi-size `glyphpdf.ico`.
+#### Verified
+- **PdfAValidationPanel** already exposes real veraPDF report data — no hardcoded violations (D6). A Pattern-5 grep across `src/ui|src/modes|src/shell` returns **zero** mock-masquerading-as-real surfaces.
+#### Known follow-ups
+- The **installer-logo** asset is bundled but not yet shown in a WiX UI dialog (needs a WixUI dialog set + license.rtf + BMP banners; deferred to M8 packaging — requires the WiX toolset to build/verify).
+- Brand PNGs are full-resolution (≈1–2 MB each); they are downscaled at runtime, so embedding optimized copies would shrink the binary (follow-up).
+- The rich Djot **comment composer toolbar** remains deferred (TODO(M6-P5) seam), unchanged by this pass.
+
 ### Added
 - Forms tools: Button field, signature field placement, auto-detect form fields, tab order editor - all wired.
 
