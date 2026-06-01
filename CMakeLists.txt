@@ -360,6 +360,11 @@ add_library(pdfws_ui STATIC
     src/modes/FormBuilderMode.h             src/modes/FormBuilderMode.cpp
     src/modes/FormFieldPropertiesPanel.h    src/modes/FormFieldPropertiesPanel.cpp
     src/modes/AIChatPanel.h                 src/modes/AIChatPanel.cpp
+    src/engines/ai/IAiProvider.h
+    src/engines/ai/AnthropicProvider.h      src/engines/ai/AnthropicProvider.cpp
+    src/engines/ai/OpenAiProvider.h         src/engines/ai/OpenAiProvider.cpp
+    src/engines/ai/GeminiProvider.h         src/engines/ai/GeminiProvider.cpp
+    src/engines/ai/OllamaProvider.h         src/engines/ai/OllamaProvider.cpp
     src/modes/SignaturesPanel.h             src/modes/SignaturesPanel.cpp
     src/modes/PdfAValidationPanel.h         src/modes/PdfAValidationPanel.cpp
     src/modes/CompressDialog.h              src/modes/CompressDialog.cpp
@@ -884,6 +889,23 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestDjotRoundtrip.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
         LABELS "unit;djot;codec;provenance"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAiProvider.cpp")
+    add_executable(TestAiProvider
+        tests/TestAiProvider.cpp
+    )
+    target_include_directories(TestAiProvider PRIVATE src tests)
+    target_link_libraries(TestAiProvider PRIVATE
+        pdfws_ui pdfws_engines pdfws_core
+        Qt6::Test Qt6::Core Qt6::Widgets Qt6::Network Qt6::Concurrent
+    )
+    add_test(NAME TestAiProvider COMMAND TestAiProvider)
+    set_tests_properties(TestAiProvider PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 30
+        LABELS "unit;ai;provider;mock;qt;headless"
     )
 endif()
 

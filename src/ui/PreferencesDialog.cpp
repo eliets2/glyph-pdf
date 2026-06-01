@@ -4,6 +4,11 @@
 #include "GpMainWindow.h"
 #include "core/AppContext.h"
 #include "engines/AutosaveManager.h"
+#include "engines/ai/AnthropicProvider.h"
+#include "engines/ai/OpenAiProvider.h"
+#include "engines/ai/GeminiProvider.h"
+#include "engines/ai/OllamaProvider.h"
+#include <QFutureWatcher>
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -153,11 +158,9 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
     _aiProviderCombo = new QComboBox;
     _aiProviderCombo->setAccessibleName(tr("AI provider"));
     _aiProviderCombo->addItem(QStringLiteral("Anthropic Claude"), QStringLiteral("Anthropic"));
-    // Future providers — disabled placeholders for v1.0.0
-    _aiProviderCombo->addItem(QStringLiteral("OpenAI (coming v1.1)"), QStringLiteral("OpenAI"));
-    _aiProviderCombo->addItem(QStringLiteral("Gemini (coming v1.1)"), QStringLiteral("Gemini"));
-    // v1.0.0: only Anthropic is wired; the others are visible to advertise the roadmap.
-    // isPlausibleKey returns permissive for unknown providers so save/test still work.
+    _aiProviderCombo->addItem(QStringLiteral("OpenAI ChatGPT"),   QStringLiteral("OpenAI"));
+    _aiProviderCombo->addItem(QStringLiteral("Google Gemini"),     QStringLiteral("Gemini"));
+    _aiProviderCombo->addItem(QStringLiteral("Ollama (local)"),    QStringLiteral("Ollama"));
     aiForm->addRow(tr("Provider:"), _aiProviderCombo);
 
     _aiKeyEdit = new QLineEdit;
@@ -285,20 +288,67 @@ void PreferencesDialog::onUpdateResult(const QString& msg)
 void PreferencesDialog::onAiTestKey()
 {
     const QString service = _aiProviderCombo->currentData().toString();
-    const QString key = _aiKeyEdit->text().trimmed();
-    if (key.isEmpty()) {
-        QMessageBox::warning(this, tr("Test Key"),
-            tr("Please enter an API key first."));
+    const QString key     = _aiKeyEdit->text().trimmed();
+
+    // For Ollama (local), no key is needed — just check reachability format
+    if (service == QLatin1String("Ollama")) {
+        QMessageBox::information(this, tr("Test Key"),
+            tr("Ollama uses no API key. Start the Ollama server locally and the provider "
+               "will connect automatically at http://localhost:11434."));
         return;
     }
-    if (CredentialManager::isPlausibleKey(service, key)) {
-        QMessageBox::information(this, tr("Test Key"),
-            tr("Key looks valid (format-only check; v1.0.0 does not make real API calls)."));
-    } else {
-        QMessageBox::warning(this, tr("Test Key"),
-            tr("Key format does not look right for %1. "
-               "Expected sk-ant-... prefix for Anthropic.").arg(service));
+
+    if (key.isEmpty()) {
+        QMessageBox::warning(this, tr("Test Key"), tr("Please enter an API key first."));
+        return;
     }
+
+    // Format-only check first
+    bool plausible = false;
+    if (service == QLatin1String("Anthropic"))
+        plausible = AnthropicProvider().isPlausibleKey(key);
+    else if (service == QLatin1String("OpenAI"))
+        plausible = OpenAiProvider().isPlausibleKey(key);
+    else if (service == QLatin1String("Gemini"))
+        plausible = GeminiProvider().isPlausibleKey(key);
+
+    if (!plausible) {
+        QMessageBox::warning(this, tr("Test Key"),
+            tr("Key format does not look right for %1.").arg(service));
+        return;
+    }
+
+    // Real 1-token ping
+    _aiTestBtn->setEnabled(false);
+    _aiStatusLabel->setText(tr("Testing…"));
+
+    std::unique_ptr<IAiProvider> prov;
+    if (service == QLatin1String("Anthropic")) prov = std::make_unique<AnthropicProvider>(key);
+    else if (service == QLatin1String("OpenAI")) prov = std::make_unique<OpenAiProvider>(key);
+    else if (service == QLatin1String("Gemini")) prov = std::make_unique<GeminiProvider>(key);
+
+    if (!prov) { _aiTestBtn->setEnabled(true); return; }
+
+    QList<AiMessage> ping{{QStringLiteral("user"), QStringLiteral("Hello")}};
+    AiOptions opts; opts.maxTokens = 1;
+
+    // shared_ptr keeps the provider alive until the lambda fires
+    auto sharedProv = std::shared_ptr<IAiProvider>(std::move(prov));
+    auto* watcher = new QFutureWatcher<AiResult>(this);
+    connect(watcher, &QFutureWatcher<AiResult>::finished, this,
+            [this, watcher, sharedProv]() {
+        _aiTestBtn->setEnabled(true);
+        const AiResult r = watcher->result();
+        watcher->deleteLater();
+        if (r.ok) {
+            _aiStatusLabel->setText(tr("✓ Key valid — API responded successfully"));
+            _aiStatusLabel->setStyleSheet("color:#4ec96d; font-size:10px;");
+        } else {
+            _aiStatusLabel->setText(tr("✗ %1").arg(r.errorMsg));
+            _aiStatusLabel->setStyleSheet("color:#cc3333; font-size:10px;");
+        }
+    });
+    watcher->setFuture(sharedProv->chat(ping, opts));
 }
 
 void PreferencesDialog::onAiSaveKey()
