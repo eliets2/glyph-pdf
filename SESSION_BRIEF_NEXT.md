@@ -21,7 +21,8 @@
 | **M5-P3** | `09b0cfc`–`052b13f` | **Office→PDF import** (HAS_LIBREOFFICE + real soffice subprocess + tree-kill) + **Images→PDF** (PoDoFo PdfImage XObject) + HomeController ToolId::ImportOffice/ImagesToPdf + WelcomeWidget 2 new cards + TestOfficeImport |
 | **LuaDjotCodec encode** | `d90eda2`–`883ca89` | **documentToDjot** real C++ emitter (Section→Block→Inline walker); design doc; TestDjotRoundtrip 12 tests |
 | **M4-P6 D4** | `cf68514`–`be07012` | **Prune missing recents**: HomeController::pruneMissingRecents; MenuBar "Prune Missing Files" entry; PreferencesDialog auto-prune checkbox; auto-prune-on-startup |
-| **M6-P1** | `887823d`–`a0ba100` | **DiffEngine Myers LCS**: MyersDiff O((N+M)D) + detectMoves; PageDiff.moves; CompareWidget text diff panel + orange moves + PREV/NEXT; TestDiffEngine 12 tests |
+| **M6-P1** | `887823d`–`db4ad30` | **DiffEngine Myers LCS**: MyersDiff O((N+M)D) + detectMoves; PageDiff.moves; CompareWidget text diff panel + orange moves + PREV/NEXT; TestDiffEngine 12 tests |
+| **M6-P2** | `0c8527c`–`0c1a133` | **Translations ar/fr/de**: lupdate 1394 strings; .qm embedded; translations/README.md; RTL audit; CHANGELOG closure |
 
 **Test count:** 25 ctest targets. Run: `ctest --output-on-failure -j4 --repeat-until-fail 3`
 

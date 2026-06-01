@@ -14,7 +14,7 @@ This file auto-loads in every Claude Code session opened in `C:\Users\User\Proje
 
 **Build environment (current):** MSYS2 **ucrt64** native — GCC 16.1.0, Qt 6.11.0, CMake 4.3.3, PoDoFo 1.1.0 (vendored). NOT mingw64; NOT Qt installer; NOT vcpkg.
 
-**Repo state:** branch `main`, head `a0ba100` (2026-05-30 — M6-P1 walkthrough). M1 `a6ea6aa`; MSYS2 `45807de`–`9ac0c2f`; M2 `42c0f46`–`c3eb22a`; M3 `faac7f2`–`5bc2fbe`; M4+catchup `8bb8f95`–`d54f4a1`; M5-P3 `09b0cfc`–`052b13f`; Djot encode `d90eda2`–`883ca89`; M4-P6 `cf68514`–`be07012`; M6-P1 `887823d`–`a0ba100`. See vault `01-current-state.md` for commit-by-commit map.
+**Repo state:** branch `main`, head `0c1a133` (2026-05-30 — M6-P2 walkthrough). M1 `a6ea6aa`; MSYS2 `45807de`–`9ac0c2f`; M2 `42c0f46`–`c3eb22a`; M3 `faac7f2`–`5bc2fbe`; M4+catchup `8bb8f95`–`d54f4a1`; M5-P3 `09b0cfc`–`052b13f`; Djot encode `d90eda2`–`883ca89`; M4-P6 `cf68514`–`be07012`; M6-P1 `887823d`–`db4ad30`; M6-P2 `0c8527c`–`0c1a133`. See vault `01-current-state.md` for commit-by-commit map.
 
 **Tests:** 25 ctest targets. All should pass under MSYS2 ucrt64 build (verify with `ctest --output-on-failure -j4 --repeat-until-fail 3`). TestDiffEngine: 12 tests (Myers LCS + move detection + legal-doc scenario). TestOfficeImport: 5 tests (3 active without LibreOffice; 2 QSKIP when soffice absent). TestDjotRoundtrip: 12 tests (8 encode verification + 4 ProvenanceGuard). TestPatternRedact: 11 tests (PDFium-gated). TestBatchMode: RESOURCE_LOCK.
 
@@ -248,6 +248,9 @@ C:\Users\User\Projects\pdf\
 
 ### Already done (M6-PROMPT-1 — 2026-05-30)
 - DiffEngine Myers upgrade: `MyersDiff` O((N+M)D) LCS + `detectMoves()` post-pass; `PageDiff.moves` QList<MoveOperation>; DiffEngine routes through Myers; CompareWidget text diff panel with orange moves + PREV/NEXT nav; TestDiffEngine 12 tests (25/25)
+
+### Already done (M6-PROMPT-2 — 2026-05-30)
+- Translations ar/fr/de: `lupdate` populated (1394 strings each); `.qm` embedded via `qt_add_translations RESOURCE_PREFIX "/translations"`; translations/README.md; RTL audit (no critical issues); CHANGELOG admission removed
 
 ### Remaining (M2-M8) — 34 prompts in `docs/planning/MONTHS-2-8-PROMPTS.md`
 
