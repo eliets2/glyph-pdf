@@ -423,6 +423,12 @@ if(WIN32 AND NOT MSVC)
     target_link_options(PdfWorkstation PRIVATE "-Wl,-subsystem,windows")
 endif()
 
+# Windows: embed the application icon into the executable (Explorer/taskbar file icon)
+if(WIN32)
+    enable_language(RC)
+    target_sources(PdfWorkstation PRIVATE src/app/app_icon.rc)
+endif()
+
 # ── Precompiled Headers ───────────────────────────────────────────────────
 target_precompile_headers(pdfws_engines PRIVATE
     <QString>

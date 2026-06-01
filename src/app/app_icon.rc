@@ -1,0 +1,3 @@
+// Windows application icon resource (embedded into PdfWorkstation.exe).
+// Lowest numeric ID becomes the executable's display icon in Explorer/taskbar.
+IDI_ICON1 ICON "app.ico"
