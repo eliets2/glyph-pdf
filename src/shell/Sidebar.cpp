@@ -14,7 +14,6 @@
 #include <QTabBar>
 #include <QFileDialog>
 #include <QMessageBox>
-#include <QTextStream>
 #include <QStackedWidget>
 #include <QTreeView>
 #include <QListWidget>
@@ -105,24 +104,38 @@ void Sidebar::init(const AppContext* ctx, PdfViewerWidget* viewer)
 
         connect(m_filesList, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem* item) {
             QString fileName = item->text();
-            if (fileName == "No attachments found.") return;
-            
+            if (fileName == tr("No attachments found.")) return;
+            if (!m_ctx || !m_ctx->pdfEditor) return;
+
+            // D3: pull the REAL decoded bytes of the embedded file from PoDoFo
+            // (replaces the former placeholder text-stub that fabricated a
+            // "[Metadata Payload: …]" file and falsely reported success — a
+            // Pattern 5 mock-masquerading surface).
+            QByteArray data = m_ctx->pdfEditor->extractEmbeddedFile(fileName);
+            if (data.isEmpty()) {
+                QMessageBox::warning(this, tr("Extraction Failed"),
+                    tr("Could not extract the embedded file '%1'. It may be "
+                       "missing or stored in an unsupported way.").arg(fileName));
+                return;
+            }
+
             QString savePath = QFileDialog::getSaveFileName(this, tr("Save Attachment"), fileName, tr("All Files (*)"));
-            if (!savePath.isEmpty()) {
-                QFile destFile(savePath);
-                if (destFile.open(QIODevice::WriteOnly)) {
-                    QTextStream out(&destFile);
-                    out << "Glyph PDF Editor Pro - Exported Attachment\n";
-                    out << "=========================================\n";
-                    out << "Attachment Name: " << fileName << "\n";
-                    out << "Source Document: " << m_viewer->filePath() << "\n\n";
-                    out << "[Metadata Payload: Embedded data preserved via native PoDoFo structure]\n";
-                    destFile.close();
+            if (savePath.isEmpty()) return;
+
+            QFile destFile(savePath);
+            if (destFile.open(QIODevice::WriteOnly)) {
+                qint64 written = destFile.write(data);
+                destFile.close();
+                if (written == data.size()) {
                     QMessageBox::information(this, tr("Attachment Exported"),
-                        tr("The attachment '%1' has been successfully extracted to:\n%2").arg(fileName).arg(savePath));
+                        tr("Extracted '%1' (%2 bytes) to:\n%3")
+                            .arg(fileName).arg(data.size()).arg(savePath));
                 } else {
-                    QMessageBox::warning(this, tr("Error"), tr("Failed to save attachment file."));
+                    QMessageBox::warning(this, tr("Error"),
+                        tr("Only %1 of %2 bytes were written.").arg(written).arg(data.size()));
                 }
+            } else {
+                QMessageBox::warning(this, tr("Error"), tr("Failed to save attachment file."));
             }
         });
 

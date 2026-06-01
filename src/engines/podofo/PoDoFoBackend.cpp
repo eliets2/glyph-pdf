@@ -310,43 +310,133 @@ void PoDoFoBackend::setCurrentFile(const QString &path) {
     d->currentFile = path;
 }
 
+namespace {
+
+// Resolve an object that may be an indirect reference to its real object.
+const PoDoFo::PdfObject* resolveRef(PoDoFo::PdfMemDocument* doc, const PoDoFo::PdfObject* obj) {
+    using namespace PoDoFo;
+    if (obj && obj->IsReference())
+        return &doc->GetObjects().MustGetObject(obj->GetReference());
+    return obj;
+}
+
+// Walk a PDF name-tree node (RFC: ISO 32000 §7.9.6). A node has either a
+// flat /Names [key value key value …] array (leaf) or a /Kids array of child
+// node references (intermediate). Both forms must be handled — qpdf and many
+// producers emit a /Kids hierarchy even for a single entry, which a /Names-only
+// reader would miss. `visit` is called with (name, valueObject) per entry;
+// returning true stops the walk early.
+void walkNameTree(PoDoFo::PdfMemDocument* doc, const PoDoFo::PdfObject* node,
+                  int depth,
+                  const std::function<bool(const std::string&, const PoDoFo::PdfObject*)>& visit,
+                  bool& stop) {
+    using namespace PoDoFo;
+    if (stop || !node || depth > 64) return;  // depth guard against cyclic refs
+    node = resolveRef(doc, node);
+    if (!node || !node->IsDictionary()) return;
+    const PdfDictionary& dict = node->GetDictionary();
+
+    if (dict.HasKey(PdfName("Names"))) {
+        const PdfObject* namesArr = resolveRef(doc, dict.GetKey(PdfName("Names")));
+        if (namesArr && namesArr->IsArray()) {
+            const auto& arr = namesArr->GetArray();
+            for (size_t i = 0; i + 1 < arr.size(); i += 2) {
+                const auto& nameVal = arr[i];
+                if (!nameVal.IsString()) continue;
+                if (visit(std::string(nameVal.GetString().GetString()), &arr[i + 1])) {
+                    stop = true;
+                    return;
+                }
+            }
+        }
+    }
+
+    if (dict.HasKey(PdfName("Kids"))) {
+        const PdfObject* kids = resolveRef(doc, dict.GetKey(PdfName("Kids")));
+        if (kids && kids->IsArray()) {
+            for (const auto& kid : kids->GetArray()) {
+                walkNameTree(doc, &kid, depth + 1, visit, stop);
+                if (stop) return;
+            }
+        }
+    }
+}
+
+// Return the root node of the catalog's EmbeddedFiles name tree, or nullptr.
+const PoDoFo::PdfObject* embeddedFilesRoot(PoDoFo::PdfMemDocument* doc) {
+    using namespace PoDoFo;
+    auto& catalog = doc->GetCatalog();
+    if (!catalog.GetDictionary().HasKey(PdfName("Names"))) return nullptr;
+    const PdfObject* names = resolveRef(doc, catalog.GetDictionary().GetKey(PdfName("Names")));
+    if (!names || !names->IsDictionary()) return nullptr;
+    if (!names->GetDictionary().HasKey(PdfName("EmbeddedFiles"))) return nullptr;
+    return resolveRef(doc, names->GetDictionary().GetKey(PdfName("EmbeddedFiles")));
+}
+
+// Decode the embedded stream of a /Filespec object → bytes (empty on failure).
+QByteArray decodeFilespecBytes(PoDoFo::PdfMemDocument* doc, const PoDoFo::PdfObject* fileSpec) {
+    using namespace PoDoFo;
+    fileSpec = resolveRef(doc, fileSpec);
+    if (!fileSpec || !fileSpec->IsDictionary()) return {};
+
+    const PdfObject* efSpec = resolveRef(doc, fileSpec->GetDictionary().GetKey(PdfName("EF")));
+    if (!efSpec || !efSpec->IsDictionary()) return {};
+
+    // Prefer /F (file), fall back to /UF (unicode file) stream.
+    const PdfDictionary& efDict = efSpec->GetDictionary();
+    const PdfObject* streamObj = efDict.GetKey(PdfName("F"));
+    if (!streamObj) streamObj = efDict.GetKey(PdfName("UF"));
+    streamObj = resolveRef(doc, streamObj);
+    if (!streamObj || !streamObj->HasStream()) return {};
+
+    const PdfObjectStream* stream = streamObj->GetStream();
+    if (!stream) return {};
+
+    charbuff buf;
+    stream->CopyTo(buf);  // decoded (filters applied) bytes
+    return QByteArray(buf.data(), static_cast<int>(buf.size()));
+}
+
+} // namespace
+
 QStringList PoDoFoBackend::getEmbeddedFiles() {
     QMutexLocker locker(&d->mutex);
     QStringList files;
     if (!d->document) return files;
     try {
-        using namespace PoDoFo;
-        auto& catalog = d->document->GetCatalog();
-        if (catalog.GetDictionary().HasKey(PdfName("Names"))) {
-            auto* namesObj = catalog.GetDictionary().GetKey(PdfName("Names"));
-            if (namesObj && namesObj->IsDictionary()) {
-                auto& namesDict = namesObj->GetDictionary();
-                if (namesDict.HasKey(PdfName("EmbeddedFiles"))) {
-                    auto* efObj = namesDict.GetKey(PdfName("EmbeddedFiles"));
-                    if (efObj && efObj->IsDictionary()) {
-                        auto& efDict = efObj->GetDictionary();
-                        if (efDict.HasKey(PdfName("Names"))) {
-                            auto* namesArrayObj = efDict.GetKey(PdfName("Names"));
-                            if (namesArrayObj && namesArrayObj->IsArray()) {
-                                const auto& arr = namesArrayObj->GetArray();
-                                for (size_t i = 0; i < arr.size(); i += 2) {
-                                    if (i < arr.size()) {
-                                        const auto& nameVal = arr[i];
-                                        if (nameVal.IsString()) {
-                                            files.append(QString::fromStdString(std::string(nameVal.GetString().GetString())));
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        const PoDoFo::PdfObject* root = embeddedFilesRoot(d->document.get());
+        if (!root) return files;
+        bool stop = false;
+        walkNameTree(d->document.get(), root, 0,
+            [&files](const std::string& name, const PoDoFo::PdfObject*) {
+                files.append(QString::fromStdString(name));
+                return false;  // visit every entry
+            }, stop);
     } catch (...) {
         // Fallback gracefully
     }
     return files;
+}
+
+QByteArray PoDoFoBackend::extractEmbeddedFile(const QString &name) {
+    QMutexLocker locker(&d->mutex);
+    QByteArray result;
+    if (!d->document) return result;
+    try {
+        const PoDoFo::PdfObject* root = embeddedFilesRoot(d->document.get());
+        if (!root) return result;
+        const std::string target = name.toStdString();
+        bool stop = false;
+        walkNameTree(d->document.get(), root, 0,
+            [&](const std::string& entryName, const PoDoFo::PdfObject* fileSpec) {
+                if (entryName != target) return false;
+                result = decodeFilespecBytes(d->document.get(), fileSpec);
+                return true;  // found — stop the walk
+            }, stop);
+    } catch (...) {
+        // Fallback gracefully — empty result signals "could not extract".
+    }
+    return result;
 }
 
 QStringList PoDoFoBackend::getLayers() {

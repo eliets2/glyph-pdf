@@ -169,6 +169,55 @@ private slots:
         QCOMPARE(sigs.size(), 0);
     }
 
+    // M6-P6 D3: real PoDoFo embedded-file byte extraction. Build a PDF with a
+    // known attachment, then verify the engine both lists it and returns the
+    // exact decoded bytes (regression guard for the Sidebar Files extractor,
+    // which previously wrote a fabricated placeholder stub).
+    void testEmbeddedFileExtraction()
+    {
+        // Includes embedded NUL + control bytes to prove binary-safe extraction.
+        static const char kRaw[] = "GlyphPDF embedded attachment payload \x00\x01\x02 end";
+        const QByteArray payload(kRaw, static_cast<int>(sizeof(kRaw) - 1));
+        const QString attachName = QStringLiteral("payload.bin");
+
+        QString attachPdf = tmpPath("with_attachment.pdf");
+        try {
+            PoDoFo::PdfMemDocument doc;
+            doc.GetPages().CreatePage(
+                PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+
+            auto fileSpec = doc.CreateFileSpec();
+            fileSpec->SetFilename(PoDoFo::PdfString(attachName.toStdString()));
+            PoDoFo::charbuff data(payload.constData(), payload.size());
+            fileSpec->SetEmbeddedData(data);
+
+            doc.GetOrCreateNames()
+               .GetOrCreateTree<PoDoFo::PdfEmbeddedFiles>()
+               .AddValue(PoDoFo::PdfString(attachName.toStdString()),
+                         std::shared_ptr<PoDoFo::PdfFileSpec>(std::move(fileSpec)));
+
+            doc.Save(attachPdf.toUtf8().constData());
+        } catch (const std::exception &e) {
+            QFAIL(qPrintable(QString("Failed to create attachment PDF: %1").arg(e.what())));
+        }
+        QVERIFY2(QFile::exists(attachPdf), "Attachment PDF was not created");
+
+        PdfEditorEngine editor;
+        QVERIFY(editor.loadDocumentForEditing(attachPdf));
+
+        QStringList embedded = editor.getEmbeddedFiles();
+        QVERIFY2(embedded.contains(attachName),
+                 qPrintable(QString("getEmbeddedFiles() did not list '%1' (got: %2)")
+                            .arg(attachName, embedded.join(", "))));
+
+        QByteArray extracted = editor.extractEmbeddedFile(attachName);
+        QCOMPARE(extracted.size(), payload.size());
+        QCOMPARE(extracted, payload);
+
+        // An unknown name must return empty, never fabricated data.
+        QVERIFY(editor.extractEmbeddedFile(QStringLiteral("does-not-exist.txt")).isEmpty());
+    }
+
     void testSaveWithLinearization()
     {
 #ifndef HAS_QPDF
