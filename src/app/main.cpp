@@ -14,6 +14,11 @@
 #include <QSettings>
 #include <QTranslator>
 #include <QLibraryInfo>
+#include <QIcon>
+#include <QSplashScreen>
+#include <QSystemTrayIcon>
+#include <QMenu>
+#include <QAction>
 
 // New Glyph design UI
 #include "GpMainWindow.h"
@@ -31,6 +36,9 @@ int main(int argc, char *argv[]) {
     QCoreApplication::setApplicationVersion("1.0.0");
     QCoreApplication::setOrganizationName("Glyph");
 
+    // Application-wide window / taskbar icon (branding)
+    app.setWindowIcon(QIcon(QStringLiteral(":/resources/branding/app_icon.png")));
+
     QCommandLineParser parser;
     parser.setApplicationDescription("Professional desktop PDF document platform");
     parser.addHelpOption();
@@ -41,6 +49,19 @@ int main(int argc, char *argv[]) {
 
     // Fusion base style — QSS overlays everything else
     app.setStyle(QStyleFactory::create("Fusion"));
+
+    // === Branding splash screen (visible during engine bootstrap) ===
+    QSplashScreen* splash = nullptr;
+    {
+        QPixmap splashPix(QStringLiteral(":/resources/branding/splash.png"));
+        if (!splashPix.isNull()) {
+            splashPix = splashPix.scaled(640, 420, Qt::KeepAspectRatio,
+                                         Qt::SmoothTransformation);
+            splash = new QSplashScreen(splashPix);
+            splash->show();
+            app.processEvents();
+        }
+    }
 
     // === Localization: Load translations ===
     QSettings settings;
@@ -108,6 +129,29 @@ int main(int argc, char *argv[]) {
     // Launch the new Glyph design UI
     gp::MainWindow mainWindow(&ctx);
     mainWindow.showMaximized();
+
+    if (splash) {
+        splash->finish(&mainWindow);
+        splash->deleteLater();
+    }
+
+    // === System tray icon (branding + quick show/quit) ===
+    if (QSystemTrayIcon::isSystemTrayAvailable()) {
+        auto* tray = new QSystemTrayIcon(
+            QIcon(QStringLiteral(":/resources/branding/tray_icon.png")), &mainWindow);
+        tray->setToolTip(QStringLiteral("GlyphPDF"));
+        auto* trayMenu = new QMenu(&mainWindow);
+        QObject::connect(trayMenu->addAction(QObject::tr("Show GlyphPDF")),
+                         &QAction::triggered, &mainWindow, [&mainWindow] {
+                             mainWindow.showNormal();
+                             mainWindow.raise();
+                             mainWindow.activateWindow();
+                         });
+        QObject::connect(trayMenu->addAction(QObject::tr("Quit")),
+                         &QAction::triggered, &app, &QApplication::quit);
+        tray->setContextMenu(trayMenu);
+        tray->show();
+    }
 
     if (!files.isEmpty()) {
         mainWindow.openDocument(files.first());
