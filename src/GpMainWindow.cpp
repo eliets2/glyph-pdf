@@ -466,7 +466,19 @@ void MainWindow::onScreenSelected(const QString& id) {
 
     // Swap right panel for screens that own it.
     if (id == "signature") {
-        if (!_sigPanel) _sigPanel = new SignaturesPanel(this);
+        if (!_sigPanel) {
+            _sigPanel = new SignaturesPanel(this);
+            // Route "Place Signature" through the same ribbon Sign flow
+            // (activate() is the public IToolController entry point; it also
+            // guards on an open document before invoking signDocument()).
+            connect(_sigPanel, &SignaturesPanel::placeSignatureRequested,
+                    this, [this]() { if (_security) _security->activate(ToolId::Sign); });
+        }
+        // Populate the DIGITAL ID card with the real signatures in the open file.
+        ISignatureManager* signing = _ctx ? _ctx->signing.get() : nullptr;
+        auto* viewer = pdfViewer();
+        const QString path = viewer ? viewer->filePath() : QString();
+        _sigPanel->setDocument(path, signing);
         replaceRight(_sigPanel);
     } else if (id == "pdfa") {
         if (!_pdfaPanel) _pdfaPanel = new PdfAValidationPanel(this);
