@@ -1,6 +1,7 @@
 #pragma once
 #include <QDialog>
 #include <memory>
+#include "engines/ai/IAiProvider.h"
 
 class QCheckBox;
 class QComboBox;
