@@ -2157,6 +2157,33 @@ void writeDjotPieceInfo(PoDoFo::PdfMemDocument& doc,
     annotDict.AddKeyIndirect("PieceInfo", pieceInfoObj);
 }
 
+// ── M6-P5 D2: review-state ↔ PDF /State name (ISO 32000 §12.5.6.4) ──────────
+// The PDF Review state model uses the names Accepted / Rejected / Cancelled /
+// Completed / None. We map our ReviewState::Open onto the spec name "None"
+// (Acrobat's default "Open" review state) and keep the others verbatim. The
+// inverse mapping in extractAnnotations restores the enum on reload.
+static const char* reviewStateToPdfName(ReviewState s)
+{
+    switch (s) {
+    case ReviewState::Accepted:  return "Accepted";
+    case ReviewState::Rejected:  return "Rejected";
+    case ReviewState::Cancelled: return "Cancelled";
+    case ReviewState::Completed: return "Completed";
+    case ReviewState::Open:      return "None";  // Acrobat "Open" == /State (None)
+    default:                     return nullptr; // ReviewState::None → no /State key
+    }
+}
+
+static ReviewState pdfNameToReviewState(const std::string& name)
+{
+    if (name == "Accepted")  return ReviewState::Accepted;
+    if (name == "Rejected")  return ReviewState::Rejected;
+    if (name == "Cancelled") return ReviewState::Cancelled;
+    if (name == "Completed") return ReviewState::Completed;
+    if (name == "None")      return ReviewState::Open;
+    return ReviewState::None;
+}
+
 } // anonymous namespace
 
 bool PoDoFoBackend::embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations)
@@ -2256,8 +2283,13 @@ bool PoDoFoBackend::embedAnnotations(const QString &inputPath, const QString &ou
                     if (!anno.parentId.isEmpty()) {
                         commentsToLink.append(anno);
                     }
-                    if (anno.reviewState != ReviewState::None && anno.reviewState != ReviewState::Open) {
-                        dict.AddKey("Subj", PoDoFo::PdfString("State")); // Standard for state change
+                    // M6-P5 D2: persist the review state on the annotation itself
+                    // via /State + /StateModel /Review (ISO 32000 §12.5.6.4) so it
+                    // round-trips for BOTH top-level comments and replies. (The
+                    // /IRT parent link is written in the linking pass below.)
+                    if (const char* stateName = reviewStateToPdfName(anno.reviewState)) {
+                        dict.AddKey("State", PoDoFo::PdfString(stateName));
+                        dict.AddKey("StateModel", PoDoFo::PdfString("Review"));
                     }
                 }
                 
@@ -2305,21 +2337,18 @@ bool PoDoFoBackend::embedAnnotations(const QString &inputPath, const QString &ou
             }
         }
 
-        // IRT (In Reply To) Linking
+        // ── M6-P5 D2: /IRT (In Reply To) linking, ISO 32000 §12.5.6.4 ──────────
+        // A reply annotation points at its parent via an indirect reference in
+        // /IRT, with /RT /R marking it as a Reply (vs /Group). The review state
+        // (/State + /StateModel) is already written per-annotation above for both
+        // replies and top-level comments.
         for (const auto& anno : commentsToLink) {
             if (idToObjectMap.contains(anno.id) && idToObjectMap.contains(anno.parentId)) {
                 PoDoFo::PdfObject* childObj = idToObjectMap[anno.id];
                 PoDoFo::PdfObject* parentObj = idToObjectMap[anno.parentId];
-                
+
                 childObj->GetDictionary().AddKeyIndirect("IRT", *parentObj);
                 childObj->GetDictionary().AddKey("RT", PoDoFo::PdfName("R"));
-                
-                // State updates (Accepted/Rejected/etc) in PDF are technically replies to the original annotation 
-                // with StateModel=Review and State=Accepted
-                if (anno.reviewState == ReviewState::Accepted) childObj->GetDictionary().AddKey("State", PoDoFo::PdfString("Accepted"));
-                else if (anno.reviewState == ReviewState::Rejected) childObj->GetDictionary().AddKey("State", PoDoFo::PdfString("Rejected"));
-                else if (anno.reviewState == ReviewState::Completed) childObj->GetDictionary().AddKey("State", PoDoFo::PdfString("Completed"));
-                else if (anno.reviewState == ReviewState::Cancelled) childObj->GetDictionary().AddKey("State", PoDoFo::PdfString("Cancelled"));
             }
         }
         
@@ -2435,7 +2464,43 @@ QList<AnnotationItem> PoDoFoBackend::extractAnnotations(const QString &inputPath
                 // Fall back to trivial djotSource derived from plain text.
                 item.djotSource = djotSource.isEmpty() ? contents : djotSource;
 
+                // ── M6-P5 D2: review state ← /State (StateModel Review) ────────
+                if (const auto* st = dict.FindKey("State")) {
+                    if (st->IsString())
+                        item.reviewState =
+                            pdfNameToReviewState(std::string(st->GetString().GetString()));
+                }
+
+                // ── M6-P5 D2: thread parent ← /IRT → parent /NM ────────────────
+                // /IRT is an indirect reference to the parent annotation; its
+                // /NM carries the parent id we stored on save. FindKey resolves
+                // the reference, so we read the parent's /NM directly.
+                if (const auto* irt = dict.FindKey("IRT")) {
+                    if (irt->IsDictionary()) {
+                        if (const auto* pnm = irt->GetDictionary().FindKey("NM")) {
+                            if (pnm->IsString())
+                                item.parentId = svToQString(pnm->GetString().GetString());
+                        }
+                    }
+                }
+
                 result.append(item);
+            }
+        }
+
+        // ── M6-P5 D2: rebuild parent.replies from the restored parentId links
+        // so the in-memory thread model is symmetric after a reload (mirrors
+        // what the composer maintains when replies are authored live). ────────
+        QMap<QString, int> idToIndex;
+        for (int i = 0; i < result.size(); ++i)
+            if (!result[i].id.isEmpty())
+                idToIndex.insert(result[i].id, i);
+        for (const auto& child : result) {
+            if (child.parentId.isEmpty()) continue;
+            auto it = idToIndex.constFind(child.parentId);
+            if (it != idToIndex.constEnd() && !child.id.isEmpty()
+                && !result[it.value()].replies.contains(child.id)) {
+                result[it.value()].replies.append(child.id);
             }
         }
     } catch (const PoDoFo::PdfError& e) {
