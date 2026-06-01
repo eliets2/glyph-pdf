@@ -15,6 +15,22 @@ Real public v1.0.0 ships when all M2-M8 work in `GLYPH-PDF-MONTHS-2-8-PROMPTS.md
 
 **Other v1.0.0 work in M2-M8:** Edact-Ray glyph-advance defense in redaction, OCR text-layer scrub in redaction rectangles, veraPDF subprocess for PDF/A validation, real-crypto E2E test coverage, 5 mode-page completions, 23 ribbon tools wired, Office→PDF import + PDF→PPT export, DiffEngine LCS/Myers upgrade, ar/fr/de translations populated, AI backend (Anthropic/OpenAI/Gemini/Ollama), third-party security audit, performance tuning + bug bash, OSS governance files (LICENSE/CONTRIBUTING/SECURITY), GitHub repo + CI workflows, marketing prep, MSI signing, package-manager submissions, launch announcement.
 
+### Djot Annotation Rich Text (M6-PROMPT-4 — 2026-06-01)
+
+Annotation + comment rich text uses Djot as internal authoring model; transcodes to PDF /RC XHTML + /Contents plain text + /PieceInfo Djot sidecar for perfect GlyphPDF roundtrip + Acrobat/Foxit interop (WS2 role 3 complete).
+
+#### Added
+- **`AnnotationItem::djotSource`** (`src/core/AnnotationTypes.h`): Djot rich-text source as the internal authoring model. Plain-text `text` retained as the PDF /Contents fallback. `AnnotationSerializer` preserves djotSource through the `.ann` JSON roundtrip.
+- **`pdfws_djot::DjotToRichTextXhtml`** (NEW `src/pdfws_djot/DjotToRichTextXhtml.{h,cpp}`): bounded transcoder for the annotation authoring subset (strong/emph/code/link/list/heading). `djotToXhtml` emits the restricted XHTML rich-text string per ISO 32000-1 §12.5.6.4; `djotToPlainText` strips markup for the /Contents projection; `djotToHtmlFragment` backs the live preview. NOT a Djot grammar reimplementation — the full-document path keeps using the vendored Lua reference parser.
+- **InspectorWidget Djot editor** (`src/ui/InspectorWidget.cpp`): the Contents editor is now a Djot source editor with a formatting toolbar (bold/italic/code/link/list/heading) and a live read-only HTML preview pane. Edits write djotSource and auto-derive `text` as the plain-text projection.
+- **Save-time dual-write** (`PoDoFoBackend::embedAnnotations`): `/Contents` = plain-text projection (spec-required fallback Acrobat/Foxit read); `/RC` = restricted XHTML via `DjotToRichTextXhtml` (raw Djot is never stored in /RC); `/PieceInfo /GlyphPDF /Private /DjotSource` = original Djot escaped via `pdfEscapeLiteralString`.
+- **Load-time restore** (NEW `PoDoFoBackend::extractAnnotations`): restores djotSource from the /PieceInfo sidecar when present (via new `pdfUnescapeLiteralString`, the exact inverse of `pdfEscapeLiteralString`), else derives a trivial djotSource from /Contents — a perfect GlyphPDF→PDF→GlyphPDF rich-text roundtrip.
+- **Comment integration** (`src/ui/CommentsWidget.cpp`): top-level comments and replies (and the InspectorWidget reply composer) populate djotSource, so the shared dual-write emits /RC + /PieceInfo for comments identically to annotations. (PROMPT-10 comment threading already shipped; the rich Djot composer toolbar for replies is left as a clean seam with `TODO(M6-P5)`.)
+- **`TestAnnotationDjot`** (NEW, 12 cases): markup→save→reopen→djotSource match; plain-text-only→djotSource=plain text; UTF-8 markup sidecar roundtrip; transcoder structure + XML-escaping + plain projection; escape/unescape lossless (ASCII+UTF-8); serializer preserves djotSource.
+
+#### Note
+The InspectorWidget gets the full Djot toolbar + live preview; the CommentsWidget composer remains plain text (its entered text is treated as trivial Djot source and still dual-writes correctly) — a richer Djot composer for comments/replies is deferred to M6-PROMPT-5.
+
 ### AI Backend Wiring (M6-PROMPT-3 — 2026-06-01)
 
 #### Added
