@@ -121,6 +121,9 @@ public:
     virtual bool setMetadata(const PdfMetadata &metadata) = 0;
     virtual QString currentFile() const = 0;
     virtual QStringList getEmbeddedFiles() = 0;
+    /// Extract the decoded bytes of the embedded file named `name` (as listed
+    /// by getEmbeddedFiles). Returns an empty array if absent or on error.
+    virtual QByteArray extractEmbeddedFile(const QString &name) = 0;
     virtual QStringList getLayers() = 0;
 
     virtual bool rotatePage(const QString &path, int pageIndex, int degrees) = 0;

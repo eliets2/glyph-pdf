@@ -554,6 +554,14 @@ QStringList PdfEditorEngine::getEmbeddedFiles()
     return d->backend->getEmbeddedFiles();
 }
 
+QByteArray PdfEditorEngine::extractEmbeddedFile(const QString &name)
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+    if (!d->backend) { d->noBackend("extractEmbeddedFile"); return {}; }
+    return d->backend->extractEmbeddedFile(name);
+}
+
 QStringList PdfEditorEngine::getLayers()
 {
     QMutexLocker locker(&d->mutex);
