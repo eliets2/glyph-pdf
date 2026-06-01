@@ -22,9 +22,10 @@
 | **LuaDjotCodec encode** | `d90eda2`–`883ca89` | **documentToDjot** real C++ emitter (Section→Block→Inline walker); design doc; TestDjotRoundtrip 12 tests |
 | **M4-P6 D4** | `cf68514`–`be07012` | **Prune missing recents**: HomeController::pruneMissingRecents; MenuBar "Prune Missing Files" entry; PreferencesDialog auto-prune checkbox; auto-prune-on-startup |
 | **M6-P1** | `887823d`–`db4ad30` | **DiffEngine Myers LCS**: MyersDiff O((N+M)D) + detectMoves; PageDiff.moves; CompareWidget text diff panel + orange moves + PREV/NEXT; TestDiffEngine 12 tests |
-| **M6-P2** | `0c8527c`–`0c1a133` | **Translations ar/fr/de**: lupdate 1394 strings; .qm embedded; translations/README.md; RTL audit; CHANGELOG closure |
+| **M6-P2** | `0c8527c`–`ba7e9c2` | **Translations ar/fr/de**: lupdate 1394 strings; .qm embedded; translations/README.md; RTL audit; CHANGELOG closure |
+| **M6-P3** | `6c89a1d`–`e09404d` | **AI backend**: IAiProvider + 4 providers; AIChatPanel real wiring; PreferencesDialog test-key ping; TestAiProvider 10 tests |
 
-**Test count:** 25 ctest targets. Run: `ctest --output-on-failure -j4 --repeat-until-fail 3`
+**Test count:** 26 ctest targets. Run: `ctest --output-on-failure -j4 --repeat-until-fail 3`
 
 ---
 
