@@ -28,6 +28,7 @@ signals:
 
 private:
     QLabel* makeCell(const QString& text);
+    static QString ocrLanguageCellText();  // OCR cell text from QSettings ocr/language
     QLabel* _mode = nullptr;
     QLabel* _screen = nullptr;
     QSpinBox* _pageSpinBox = nullptr;
@@ -38,7 +39,6 @@ private:
 
     // Permanent cells
     QLabel* _ocrLang = nullptr;
-    QLabel* _encoding = nullptr;
     QLabel* _pdfVersion = nullptr;
     QLabel* _pageSize = nullptr;
     QLabel* _docInfo = nullptr;

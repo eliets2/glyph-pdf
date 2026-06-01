@@ -13,8 +13,13 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QStandardItemModel>
+#include <QSettings>
 
 namespace gp {
+
+// Shared QSettings key for the user's selected OCR language code (e.g. "EN").
+// StatusBar reads the same key to display the real selected language.
+static const char* kOcrLanguageKey = "ocr/language";
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -68,6 +73,24 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
                            "RU · Русский", "ZH · 中文 (简)", "JA · 日本語",
                            "KO · 한국어", "AR · العربية", "NL · Nederlands"});
     m_langCombo->setProperty("variant", "ghost");
+
+    // Restore the previously-selected OCR language (code before " · ") and
+    // persist any change, so the StatusBar OCR cell reflects a real choice.
+    {
+        QSettings settings;
+        const QString savedCode = settings.value(kOcrLanguageKey, "EN").toString();
+        for (int i = 0; i < m_langCombo->count(); ++i) {
+            if (m_langCombo->itemText(i).section(QStringLiteral(" · "), 0, 0) == savedCode) {
+                m_langCombo->setCurrentIndex(i);
+                break;
+            }
+        }
+    }
+    connect(m_langCombo, &QComboBox::currentTextChanged, this, [](const QString& text) {
+        QSettings settings;
+        settings.setValue(kOcrLanguageKey, text.section(QStringLiteral(" · "), 0, 0));
+    });
+
     row->addWidget(m_langCombo);
 
     // ── Engine selector ─────────────────────────────────────────────────
