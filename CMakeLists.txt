@@ -341,6 +341,7 @@ add_library(pdfws_ui STATIC
     src/engines/ocr/RapidOcrEngine.h         src/engines/ocr/RapidOcrEngine.cpp
     src/engines/ocr/OcrPreprocessor.h        src/engines/ocr/OcrPreprocessor.cpp
     src/engines/ocr/OcrPipeline.h            src/engines/ocr/OcrPipeline.cpp
+    src/engines/ocr/PpOcrDecoder.h           src/engines/ocr/PpOcrDecoder.cpp
 
     src/util/Icons.h                        src/util/Icons.cpp
     src/util/Badge.h                        src/util/Badge.cpp
