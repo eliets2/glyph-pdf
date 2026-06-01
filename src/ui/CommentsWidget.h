@@ -48,6 +48,7 @@ private:
     QTreeWidget *m_tree = nullptr;
     QComboBox *m_filterStatus = nullptr;
     QComboBox *m_filterAuthor = nullptr;
+    QComboBox *m_filterDate = nullptr;
     QLineEdit *m_author = nullptr;
     QTextEdit *m_editor = nullptr;
     QPushButton *m_addBtn = nullptr;
