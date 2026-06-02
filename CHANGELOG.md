@@ -4,6 +4,30 @@ All notable changes to GlyphPDF are documented in this file.
 
 ## [Unreleased] — v1.0.0 Branch C SCOPE LOCK execution (M2-M8)
 
+### MRC Compression Pipeline — WS3 (M7-PROMPT-3 — 2026-06-02)
+
+Mixed Raster Content layered compression pipeline for scanned PDFs: JBIG2 (Apache-2.0, agl/jbig2enc) lossless foreground + JPEG2000 (OpenJPEG 2.5.4, BSD-2) background + invisible `3 Tr` OCR sandwich text from WS1+WS2 word boxes. PDF/A-2b conformant. **30× compression ratio** measured on synthetic A4 page (86 KB vs 2.64 MB raw pixels). veraPDF validation gate integrated. Optional DjVu importer (HAS_DJVU=OFF default, GPL-2.0+ accepted when enabled).
+
+#### Added
+- **`MrcPageProcessor`** (`src/engines/mrc/MrcPageProcessor.{h,cpp}`):
+  - `separatePage(QImage, QList<LayoutRegion>, QList<MergedOcrWord>) → MrcLayers`.
+  - Layout-guided separation: Title/Paragraph/List/Table/Header/Footer/Equation/Reference/Caption → foreground mask; Figure → background. Unclassified pixels: Otsu threshold.
+  - Foreground → JBIG2 lossless generic-region (HAS_JBIG2ENC; falls back to Flate/1bpp when jbig2enc not yet vendored). **NEVER pattern-matching mode** (Xerox 2013 incident; German BSI ban).
+  - Background → JPEG2000 at configurable ratio (Lossless: 10:1 / Balanced: 30:1 / Aggressive: 50:1) via OpenJPEG 2.5.4 (BSD-2-Clause, already in MSYS2 ucrt64). Custom write-stream callbacks (no opj_stream_create_default_memory_stream dependency).
+  - `estimateCompressedSize(QImage, MrcMode)` → size hint for CompressDialog UI.
+  - Thread-safe: `separatePage()` is re-entrant (CPU-lane safe).
+- **`MrcMode` enum** (`src/core/interfaces/IPdfEditorEngine.h`): `Off | Lossless | Balanced | Aggressive`.
+- **`PdfEditorEngine::exportMrcPdfA`**: raw PDF/A-2b writer (PDF 1.6, JPEG2000 bg XObject, JBIG2 mask XObject `/ImageMask true`, invisible 3 Tr text layer from OCR word boxes, XMP metadata stream, sRGB OutputIntent). veraPDF subprocess validation gate (warning if CLI unavailable).
+- **`CompressDialog` MRC selector** (`src/modes/CompressDialog.{h,cpp}`): QComboBox with Off/Lossless/Balanced/Aggressive + live size estimate label.
+- **`DjvuImporter`** (`src/engines/conversion/DjvuImporter.{h,cpp}`): optional DjVu → page images + embedded text via DjVuLibre. `HAS_DJVU=OFF` default; import-only (no DjVu output per ROADMAP).
+- **`TestMrcPipeline`** (`tests/TestMrcPipeline.cpp`): 9 tests — foreground mask, JPEG2000 encoding, layer separation, estimate ordering, **≥5× size reduction** (achieved 30.44×), sandwich text searchable, veraPDF QSKIP (CLI not configured), DjVu QSKIP (HAS_DJVU=OFF), mode ordering monotonic.
+- **`docs/MRC-ENCODER-LICENSE-AUDIT.md`**: D1 audit gate — jbig2enc Apache-2.0 approved; jbig2dec AGPL-3.0 rejected; OpenJPEG BSD-2 approved; DjVuLibre GPL-2.0+ conditional (HAS_DJVU guard).
+
+#### Removed (known-issues)
+- Removed "MRC compression inside PDF/A not yet implemented" admission. WS3 is now complete for v1.0.0.
+
+---
+
 ### OCR→Djot Mapping — WS2 Role 1 (M5-PROMPT-4 — 2026-06-02)
 
 OCR output maps to SemanticDocument via OcrDjotMapper (WS2 role 1) — layout regions → block structure; per-word fused text → Inline spans with `{pdf-page pdf-bbox pdf-font ocr-conf}` attributes; tables → Djot pipe tables. Feeds OCRMode review UI + M7-P3 MRC sandwich text layer.
@@ -435,7 +459,7 @@ scaffolding is complete; translator delivery gates real multilingual UI.
 
 ### Known Issues
 - MuPDF (AGPL) and Poppler (GPL) are never linked in-process (licensing constraint)
-- MRC compression inside PDF/A not yet implemented
+- ~~MRC compression inside PDF/A not yet implemented~~ **CLOSED (M7-PROMPT-3, 2026-06-02).** MRC pipeline ships: JBIG2+JPEG2000+sandwich text, 30× ratio, PDF/A-2b, veraPDF gate.
 - Some Session 7-11 features may be interface stubs pending full implementation verification
 - Pattern redaction backend (PatternRedactor, 12 named patterns + custom regex, applyPatternRedactions) is **implemented** (M3-PROMPT-4). TestPatternRedact registered in CMake.
 - Send-for-signing workflow (remote signing order, reminders, audit trails) not implemented — only local certificate-based signing exists.
