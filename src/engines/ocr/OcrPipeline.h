@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QFuture>
 #include <QImage>
 #include <QList>
 #include <QString>
@@ -7,7 +8,9 @@
 
 #include "core/OcrTypes.h"
 #include "core/interfaces/IOcrEngine.h"
+#include "engines/ocr/ILayoutDetector.h"
 #include "engines/ocr/OcrPreprocessor.h"
+#include "engines/scheduling/LaneScheduler.h"
 
 /// Strategy for multi-engine routing.
 enum class OcrStrategy {
@@ -24,6 +27,15 @@ struct MergedOcrWord {
     QString sourceEngine;  // "Tesseract", "RapidOCR", or "ROVER"
 };
 
+/// Per-page OCR output from recognizeDocument().
+struct PageOcrResult {
+    int                  pageIndex = 0;
+    QList<LayoutRegion>  layoutRegions;   // layout detected by LayoutEnsemble
+    QList<MergedOcrWord> words;           // ROVER-merged word results
+    bool                 success = false;
+    QString              errorMessage;
+};
+
 /// The OcrPipeline orchestrates preprocessing, multi-engine execution,
 /// and word-level confidence-weighted ROVER merging.
 class OcrPipeline {
@@ -32,6 +44,11 @@ public:
     explicit OcrPipeline(std::shared_ptr<IOcrEngine> primary,
                          std::shared_ptr<IOcrEngine> secondary = nullptr);
     ~OcrPipeline();
+
+    /// Attach a LayoutEnsemble and LaneScheduler for cross-page document OCR.
+    /// Both are non-owning; caller must keep them alive for recognizeDocument's lifetime.
+    void setLayoutEnsemble(class LayoutEnsemble *ensemble);
+    void setScheduler(gp::LaneScheduler *scheduler);
 
     /// Set the merging strategy.
     void setStrategy(OcrStrategy strategy);
@@ -44,6 +61,20 @@ public:
     /// Run the full pipeline on a page image.
     /// Returns merged word-level results in original-image coordinates.
     QList<MergedOcrWord> run(const QImage &pageImage);
+
+    /// Cross-page document OCR using LaneScheduler CrossPagePipeline.
+    ///
+    /// Stage1 (GPU): LayoutEnsemble detects regions for page P+1.
+    /// Stage2 (GPU/CPU fanout): per-region ROVER-merged OCR via the existing
+    ///   primary+secondary engines (falls back to whole-page OCR if no layout).
+    /// Stage3 (CPU): result fusion + OrderedResultQueue ordering.
+    ///
+    /// `pageImages` must be pre-rendered at the desired DPI (caller's responsibility).
+    /// Returns a QFuture that resolves to a PageOcrResult list in page order.
+    ///
+    /// Requires setLayoutEnsemble() and setScheduler() to be called first.
+    /// Falls back to sequential single-page run() if scheduler is null.
+    QFuture<QList<PageOcrResult>> recognizeDocument(const QList<QImage> &pageImages);
 
     // ── ROVER helpers (public for testability) ──────────────────────────
 
