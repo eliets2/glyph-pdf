@@ -395,7 +395,7 @@ Page image
 - **WS2 integration:** `ConversionManager` can export as Djot (`IDjotCodec::encode`) for
   downstream processing; Djot→PDF content-stream generation available via `IDjotMapper::toPdf`
 
-**Session 13 — Watermark + MRC Compression Pipeline (WS3 expanded)**
+**Session 13 — Watermark + MRC Compression Pipeline (WS3 expanded)** ✅ DONE (M7-PROMPT-3, 2026-06-02)
 
 This session merges the original watermark + compression scope with the MRC pipeline from
 Workstream 3. DjVu output is explicitly excluded; MRC runs inside PDF/A.
