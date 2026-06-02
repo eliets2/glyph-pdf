@@ -3,7 +3,9 @@
 #include <QRectF>
 #include <QWidget>
 
-#include "engines/ocr/OcrPipeline.h"   // MergedOcrWord, PageOcrResult
+#include "engines/ocr/OcrPipeline.h"       // MergedOcrWord, PageOcrResult
+#include "docmodel/SemanticDocument.h"       // SemanticDocument
+#include "pdfws_djot/LuaDjotCodec.h"         // documentToDjot (encode only)
 
 class QComboBox;
 class QCheckBox;
@@ -30,6 +32,21 @@ public:
     /// Load a completed OCR result into the mode for review.
     /// Call this after the OCR pipeline produces results.
     void setOcrResults(const QList<MergedOcrWord> &words);
+
+    /// Load an OcrDjotMapper-produced SemanticDocument into the review pane.
+    ///
+    /// The scan pane renders a simple inline-HTML preview (block structure visible).
+    /// The text pane (m_textEdit) is populated with the Djot source text for
+    /// Djot-aware edit-in-place (same pattern as M6-P4 annotation editor).
+    ///
+    /// Per-region accept/reject from setOcrResults() is preserved:
+    /// the accept/reject buttons remain active after this call.
+    ///
+    /// djotLibPath: path to the vendored djot/ directory (passed to LuaDjotCodec).
+    ///              May be empty — in that case the encode-only C++ emitter is used
+    ///              (it does not require the Lua runtime for the encode direction).
+    void setSemanticDocument(const docmodel::SemanticDocument &doc,
+                             const QString &djotLibPath = QString());
 
 signals:
     void ocrRequested();
