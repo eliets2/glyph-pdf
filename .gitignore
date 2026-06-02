@@ -55,7 +55,8 @@ test_out*.log
 test_err*.log
 test_output.txt
 test_results.txt
-Testing/
+# CTest output dir (capital T — exclude only the root-level CTest artefacts)
+/Testing/
 
 # Agent scratch files (Pattern 3 in agent-execution-anti-patterns)
 scratch_*
