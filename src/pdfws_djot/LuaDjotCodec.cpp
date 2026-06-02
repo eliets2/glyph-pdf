@@ -172,6 +172,50 @@ static void emitBlock(const docmodel::Block& block, int headingLevel,
         out << "```\n\n";
         break;
     }
+    case BT::Table: {
+        // Djot pipe-table syntax.
+        // Structure: ContainerBlock(Table) → rows as ContainerBlock(ListItem),
+        //            each row's sub-blocks = cells as TextBlock(Paragraph).
+        // First row is treated as the header row; a separator is emitted after it.
+        const auto& rows = block.getBlocks();
+        for (size_t ri = 0; ri < rows.size(); ++ri) {
+            if (!rows[ri]) continue;
+            const auto& cells = rows[ri]->getBlocks();
+            out << '|';
+            if (cells.empty()) {
+                // Row with no parsed cells — emit the row's own inlines as a single cell
+                out << ' ';
+                emitInlines(rows[ri]->getInlines(), out);
+                out << " |";
+            } else {
+                for (const auto& cell : cells) {
+                    if (!cell) { out << "  |"; continue; }
+                    out << ' ';
+                    emitInlines(cell->getInlines(), out);
+                    out << " |";
+                }
+            }
+            out << '\n';
+            // Emit header separator after the first row
+            if (ri == 0) {
+                size_t colCount = cells.empty() ? 1 : cells.size();
+                out << '|';
+                for (size_t ci = 0; ci < colCount; ++ci) {
+                    out << "---|";
+                }
+                out << '\n';
+            }
+        }
+        out << '\n';
+        break;
+    }
+    case BT::Figure: {
+        // Figure: emit as a fenced div with figure class, inlines as caption.
+        out << "::: figure\n";
+        emitInlines(block.getInlines(), out);
+        out << "\n:::\n\n";
+        break;
+    }
     }
 }
 
