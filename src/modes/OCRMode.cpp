@@ -1,4 +1,5 @@
 #include "OCRMode.h"
+#include "engines/ocr/RapidOcrEngine.h"
 #include "util/GpTheme.h"
 #include "util/Badge.h"
 
@@ -99,12 +100,16 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     m_engineCombo->addItem("Tesseract 5");
 #ifdef HAS_RAPIDOCR
     m_engineCombo->addItem("RapidOCR (PP-OCRv5)");
-    auto* model = qobject_cast<QStandardItemModel*>(m_engineCombo->model());
-    if (model) {
-        auto* item = model->item(1);
-        if (item) {
-            item->setEnabled(false);
-            item->setToolTip(tr("Available in v1.1.0"));
+    // Runtime gate: disable the selector only while the engine is still a Mock.
+    // RapidOcrEngine now runs the real PP-OCRv5 pipeline, so it stays enabled.
+    if (RapidOcrEngine().isMockImplementation()) {
+        auto* model = qobject_cast<QStandardItemModel*>(m_engineCombo->model());
+        if (model) {
+            auto* item = model->item(1);
+            if (item) {
+                item->setEnabled(false);
+                item->setToolTip(tr("Available in a future release"));
+            }
         }
     }
 #endif
