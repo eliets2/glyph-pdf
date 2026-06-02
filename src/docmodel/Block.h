@@ -12,7 +12,9 @@ public:
         Heading,
         List,
         ListItem,
-        CodeBlock
+        CodeBlock,
+        Table,    // ContainerBlock: children = rows (ListItem), each row's blocks = cells
+        Figure    // TextBlock: figure caption / alt-text as inlines; bbox in provenance
     };
 
     Block(Type t, Provenance p);

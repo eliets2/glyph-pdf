@@ -172,6 +172,7 @@ add_library(pdfws_engines STATIC
     src/engines/ocr/LayoutEnsemble.h        src/engines/ocr/LayoutEnsemble.cpp
     src/engines/ocr/OcrPreprocessor.h       src/engines/ocr/OcrPreprocessor.cpp
     src/engines/ocr/OcrPipeline.h           src/engines/ocr/OcrPipeline.cpp
+    src/engines/ocr/OcrDjotMapper.h         src/engines/ocr/OcrDjotMapper.cpp
     src/engines/ocr/PpOcrDecoder.h          src/engines/ocr/PpOcrDecoder.cpp
     src/engines/ocr/RapidOcrEngine.h        src/engines/ocr/RapidOcrEngine.cpp
     src/core/interfaces/IPdfDocument.h
@@ -186,7 +187,7 @@ target_include_directories(pdfws_engines PUBLIC
 target_link_libraries(pdfws_engines
     PUBLIC  pdfws_core
     PRIVATE podofo::podofo OpenSSL::SSL OpenSSL::Crypto Qt6::Network Qt6::Widgets Qt6::Concurrent libzip::zip
-            pdfws_djot
+            pdfws_djot docmodel
 )
 if(WIN32)
     target_link_libraries(pdfws_engines PUBLIC Credui Advapi32 Crypt32)
@@ -397,7 +398,7 @@ target_include_directories(pdfws_ui PUBLIC
 target_link_libraries(pdfws_ui
     PUBLIC  pdfws_core pdfws_commands
     PRIVATE Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets Qt6::PrintSupport Qt6::Svg Qt6::Network
-            Qt6::Concurrent podofo::podofo pdfws_djot
+            Qt6::Concurrent podofo::podofo pdfws_djot docmodel
             pdfws_engines  # D2: ThumbnailSidebar uses RenderCache for thumbnails
 )
 target_compile_definitions(pdfws_ui PRIVATE GLYPH_HAS_SVG=1)
@@ -695,6 +696,24 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrPipeline.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 180
         LABELS "ocr;pipeline;rover;timing;cross-page;qt;headless"
+    )
+endif()
+
+# ── TestOcrDjotMapper (M5-P4 D4) ─────────────────────────────────────────────
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrDjotMapper.cpp")
+    add_executable(TestOcrDjotMapper
+        tests/TestOcrDjotMapper.cpp
+    )
+    target_include_directories(TestOcrDjotMapper PRIVATE src tests)
+    target_link_libraries(TestOcrDjotMapper PRIVATE
+        pdfws_engines pdfws_core pdfws_djot docmodel
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Concurrent
+    )
+    add_test(NAME TestOcrDjotMapper COMMAND TestOcrDjotMapper)
+    set_tests_properties(TestOcrDjotMapper PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "ocr;mapper;djot;structural;roundtrip;headless"
     )
 endif()
 
