@@ -206,6 +206,20 @@ else()
     message(STATUS "Tesseract/Leptonica not found — OCR disabled")
 endif()
 
+# ── jbig2enc (Apache-2.0) — MRC foreground JBIG2 lossless encoding ──────────
+# NEVER pattern-matching mode (Xerox 2013 digit-substitution incident).
+# Lossless generic-region only — enforced in MrcPageProcessor::encodeForegroundJbig2.
+option(HAS_JBIG2ENC "Enable JBIG2 foreground encoding for MRC pipeline (Apache-2.0)" ON)
+if(HAS_JBIG2ENC AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/jbig2enc")
+    add_subdirectory(third_party/jbig2enc EXCLUDE_FROM_ALL)
+    target_link_libraries(pdfws_engines PRIVATE libjbig2enc)
+    target_include_directories(pdfws_engines PRIVATE third_party/jbig2enc/src)
+    target_compile_definitions(pdfws_engines PRIVATE HAS_JBIG2ENC)
+    message(STATUS "jbig2enc: ENABLED (Apache-2.0) — JBIG2 lossless foreground encoding active")
+else()
+    message(STATUS "jbig2enc: DISABLED — MRC foreground will use Flate fallback")
+endif()
+
 # ── OpenJPEG2 (BSD-2-Clause) — MRC background encoding ─────────────────────
 find_package(PkgConfig QUIET)
 if(PKG_CONFIG_FOUND)
