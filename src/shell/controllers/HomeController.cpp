@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #include "HomeController.h"
 #include "core/AppContext.h"
 #include "GpMainWindow.h"

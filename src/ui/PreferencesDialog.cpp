@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #include "PreferencesDialog.h"
 #include "core/UpdateChecker.h"
 #include "core/CredentialManager.h"

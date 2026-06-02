@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #include "SignaturesPanel.h"
 #include "util/GpTheme.h"
 #include "util/Badge.h"

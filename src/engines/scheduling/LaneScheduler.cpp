@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // src/engines/scheduling/LaneScheduler.cpp
 #include "LaneScheduler.h"
 #include <QtConcurrent>

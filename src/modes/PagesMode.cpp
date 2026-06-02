@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * PagesMode.cpp — M3-PROMPT-3 D1+D2+D3
  *

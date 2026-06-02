@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #include "ReorderPageCommand.h"
 
 ReorderPageCommand::ReorderPageCommand(IPdfEditorEngine* engine, DocumentSession* doc, int fromIndex, int toIndex, QUndoCommand* parent)

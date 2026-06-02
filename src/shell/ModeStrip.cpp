@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #include "ModeStrip.h"
 #include "util/GpTheme.h"
 #include "util/Icons.h"

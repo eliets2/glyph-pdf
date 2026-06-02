@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // src/engines/ocr/OcrDjotMapper.h
 // OcrDjotMapper — stateless converter: fused OCR output → SemanticDocument tree.
 //

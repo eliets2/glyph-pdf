@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #include "engines/podofo/PoDoFoBackend.h"
 #include <memory>
 #include "PdfStringEscape.h"

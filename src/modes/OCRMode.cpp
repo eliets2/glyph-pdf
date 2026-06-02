@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #include "OCRMode.h"
 #include "engines/ocr/RapidOcrEngine.h"
 #include "util/GpTheme.h"

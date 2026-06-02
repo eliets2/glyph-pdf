@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #include "engines/ocr/OcrPipeline.h"
 #include "engines/ocr/OcrDjotMapper.h"
 #include "engines/ocr/LayoutEnsemble.h"
