@@ -284,6 +284,34 @@ if(LIBREOFFICE_SOFFICE)
         LIBREOFFICE_SOFFICE_PATH="${LIBREOFFICE_SOFFICE}")
 endif()
 
+# ── DjVu importer (GPL-2.0+ optional; default OFF) ──────────────────────────
+# When enabled: links DjVuLibre. User accepts GPL-2.0+ by enabling this option.
+# Import-only — no DjVu output (excluded per ROADMAP).
+# See docs/MRC-ENCODER-LICENSE-AUDIT.md §3 for license rationale.
+option(HAS_DJVU "Enable optional DjVu importer via DjVuLibre (GPL-2.0+)" OFF)
+if(HAS_DJVU)
+    find_package(PkgConfig QUIET)
+    if(PKG_CONFIG_FOUND)
+        pkg_check_modules(DJVULIBRE REQUIRED ddjvuapi)
+        target_include_directories(pdfws_engines PUBLIC ${DJVULIBRE_INCLUDE_DIRS})
+        target_link_directories(pdfws_engines PUBLIC ${DJVULIBRE_LIBRARY_DIRS})
+        target_link_libraries(pdfws_engines PUBLIC ${DJVULIBRE_LIBRARIES})
+    else()
+        find_library(DJVULIBRE_LIB djvulibre REQUIRED)
+        target_link_libraries(pdfws_engines PUBLIC ${DJVULIBRE_LIB})
+    endif()
+    target_compile_definitions(pdfws_engines PUBLIC HAS_DJVU)
+    message(STATUS "DjVu importer: ENABLED via DjVuLibre (GPL-2.0+ accepted)")
+else()
+    message(STATUS "DjVu importer: DISABLED (HAS_DJVU=OFF, default)")
+endif()
+
+# DjvuImporter sources (always compiled; #ifdef HAS_DJVU guards the actual API calls)
+target_sources(pdfws_engines PRIVATE
+    src/engines/conversion/DjvuImporter.h
+    src/engines/conversion/DjvuImporter.cpp
+)
+
 # veraPDF CLI — AGPL-3.0 subprocess only; never link in-process
 set(VERAPDF_CLI_PATH "" CACHE FILEPATH "Path to veraPDF CLI executable (AGPL-3.0; subprocess only)")
 if(VERAPDF_CLI_PATH)
