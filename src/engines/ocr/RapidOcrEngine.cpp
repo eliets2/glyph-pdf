@@ -6,6 +6,9 @@
 #include <QMutexLocker>
 #include <QStandardPaths>
 #include <QFile>
+#include <QCoreApplication>
+
+#include "engines/ocr/PpOcrDecoder.h"
 
 #ifdef HAS_RAPIDOCR
 #include <onnxruntime_cxx_api.h>
@@ -20,6 +23,8 @@ public:
     std::unique_ptr<Ort::Session> clsSession;
     std::unique_ptr<Ort::Session> recSession;
 #endif
+    PpOcrDecoder decoder;
+    bool decoderReady = false;
     bool isInitialized = false;
     QString language = "eng";
     QString modelPath;
@@ -38,7 +43,11 @@ bool RapidOcrEngine::initialize(const QString &language, const QString &dataPath
 
     QString targetDataPath = dataPath;
     if (targetDataPath.isEmpty()) {
-        targetDataPath = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/models/ppocrv5";
+        // Resolution order: installed location (AppLocalData), then next to the
+        // executable (dev/test builds copy models/ppocrv5 beside the binary).
+        const QString appData = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/models/ppocrv5";
+        const QString nextToExe = QCoreApplication::applicationDirPath() + "/models/ppocrv5";
+        targetDataPath = QFile::exists(appData + "/PP-OCRv5_mobile_det_infer.onnx") ? appData : nextToExe;
     }
     
     if (d->isInitialized && d->language == language && d->modelPath == targetDataPath) {
@@ -55,9 +64,9 @@ bool RapidOcrEngine::initialize(const QString &language, const QString &dataPath
         d->sessionOptions->SetIntraOpNumThreads(2);
         d->sessionOptions->SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
 
-        QString detModel = QFileInfo(QDir(targetDataPath), "ch_PP-OCRv4_det_infer.onnx").absoluteFilePath();
-        QString clsModel = QFileInfo(QDir(targetDataPath), "ch_ppocr_mobile_v2.0_cls_infer.onnx").absoluteFilePath();
-        QString recModel = QFileInfo(QDir(targetDataPath), "ch_PP-OCRv4_rec_infer.onnx").absoluteFilePath();
+        QString detModel = QFileInfo(QDir(targetDataPath), "PP-OCRv5_mobile_det_infer.onnx").absoluteFilePath();
+        QString clsModel = QFileInfo(QDir(targetDataPath), "PP-LCNet_x1_0_textline_ori_infer.onnx").absoluteFilePath();
+        QString recModel = QFileInfo(QDir(targetDataPath), "PP-OCRv5_mobile_rec_infer.onnx").absoluteFilePath();
 
         // Normally we'd load the sessions here. We just check if files exist to avoid throwing if models are missing
         if (QFile::exists(detModel)) {
@@ -90,6 +99,15 @@ bool RapidOcrEngine::initialize(const QString &language, const QString &dataPath
             return false;
         }
 
+        // Wire the warm sessions into the decoder + load the recognition vocabulary.
+        d->decoder.setSessions(d->detSession.get(),
+                               d->clsSession ? d->clsSession.get() : nullptr,
+                               d->recSession.get());
+        const QString dictPath = QFileInfo(QDir(targetDataPath), "ppocrv5_rec_dict.txt").absoluteFilePath();
+        d->decoderReady = d->decoder.loadDictionary(dictPath);
+        if (!d->decoderReady)
+            qWarning() << "RapidOCR: recognition dictionary not loaded:" << dictPath;
+
         d->isInitialized = true;
         return true;
     } catch (const Ort::Exception& e) {
@@ -107,19 +125,10 @@ QList<OcrResult> RapidOcrEngine::processImage(const QImage &image)
     QList<OcrResult> results;
 #ifdef HAS_RAPIDOCR
     QMutexLocker locker(&d->mutex);
-    if (!d->isInitialized) return results;
+    if (!d->isInitialized || !d->decoderReady) return results;
 
-    // STUB: Actual pre/post processing of tensors for PP-OCRv5 involves DBNet box extraction,
-    // perspective transform, SVTR recognition, and CTCLoss decoding.
-    // For this boilerplate, we'd feed `image` to `d->detSession`, get map, extract polygons,
-    // crop each polygon, pass to `d->clsSession`, then `d->recSession` to get text.
-    
-    // We mock the return to let the pipeline work.
-    OcrResult res;
-    res.text = "RapidOCR_Mock";
-    res.boundingBox = QRectF(0, 0, 100, 20);
-    res.confidence = 85;
-    results.append(res);
+    // Real PP-OCRv5 pipeline: det → cls → perspective warp → SVTR rec → CTC decode.
+    results = d->decoder.run(image);
 #else
     Q_UNUSED(image)
 #endif
@@ -138,5 +147,5 @@ QString RapidOcrEngine::getRawText(const QImage &image)
 
 bool RapidOcrEngine::isMockImplementation() const
 {
-    return true;
+    return false;
 }
