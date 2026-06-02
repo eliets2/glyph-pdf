@@ -1,6 +1,11 @@
 # GlyphPDF v1.0.0 — Professional PDF Workstation
 
-A high-performance desktop PDF editor built with C++17 and Qt 6. Designed for professional environments with a focus on precision, security, and direct document manipulation.
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![CI](https://github.com/eliets2/glyph-pdf/actions/workflows/ci.yml/badge.svg)](https://github.com/eliets2/glyph-pdf/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/eliets2/glyph-pdf)](https://github.com/eliets2/glyph-pdf/releases/latest)
+[![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078d4.svg)](https://github.com/eliets2/glyph-pdf/releases/latest)
+
+A high-performance desktop PDF editor built with C++17 and Qt 6. Designed for professional environments with a focus on precision, security, and direct document manipulation — with no telemetry, no subscription, and no cloud dependency.
 
 ## Features
 
