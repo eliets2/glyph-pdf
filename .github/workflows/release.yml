@@ -1,0 +1,95 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-msi:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up MSYS2 ucrt64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-qt6-base
+            mingw-w64-ucrt-x86_64-qt6-tools
+            mingw-w64-ucrt-x86_64-qt6-svg
+            mingw-w64-ucrt-x86_64-qt6-translations
+            mingw-w64-ucrt-x86_64-qt6-imageformats
+            mingw-w64-ucrt-x86_64-qt6-pdf
+            mingw-w64-ucrt-x86_64-podofo
+            mingw-w64-ucrt-x86_64-qpdf
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-tesseract-ocr
+            mingw-w64-ucrt-x86_64-tesseract-data-eng
+            mingw-w64-ucrt-x86_64-leptonica
+            mingw-w64-ucrt-x86_64-libxml2
+            mingw-w64-ucrt-x86_64-freetype
+            mingw-w64-ucrt-x86_64-zlib
+            mingw-w64-ucrt-x86_64-curl
+            mingw-w64-ucrt-x86_64-libpng
+            mingw-w64-ucrt-x86_64-libjpeg-turbo
+            mingw-w64-ucrt-x86_64-libtiff
+
+      - name: Configure + Build
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+
+      - name: Run tests
+        run: |
+          cd build
+          QT_QPA_PLATFORM=offscreen ctest --output-on-failure -j4
+
+      - name: Build MSI
+        shell: cmd
+        run: |
+          cd packaging
+          build-msi.bat
+
+      - name: Compute SHA-256
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem dist\*.msi | Select-Object -First 1
+          $hash = (Get-FileHash $msi.FullName -Algorithm SHA256).Hash.ToLower()
+          "$hash  $($msi.Name)" | Out-File -Encoding utf8 dist\SHA256SUMS.txt
+          Write-Output "MSI: $($msi.Name)"
+          Write-Output "SHA256: $hash"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.msi
+            dist/SHA256SUMS.txt
+          body: |
+            ## GlyphPDF ${{ github.ref_name }}
+
+            See [CHANGELOG.md](CHANGELOG.md) for what's new.
+
+            ### Installation
+            Download `GlyphPDF-*-x64.msi` and run it. Registers `.pdf` file association (does not hijack the default handler).
+
+            ### Verification
+            ```
+            certutil -hashfile GlyphPDF-*-x64.msi SHA256
+            ```
+            Compare against `SHA256SUMS.txt`.

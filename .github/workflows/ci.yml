@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up MSYS2 ucrt64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-qt6-base
+            mingw-w64-ucrt-x86_64-qt6-tools
+            mingw-w64-ucrt-x86_64-qt6-svg
+            mingw-w64-ucrt-x86_64-qt6-translations
+            mingw-w64-ucrt-x86_64-qt6-imageformats
+            mingw-w64-ucrt-x86_64-qt6-pdf
+            mingw-w64-ucrt-x86_64-podofo
+            mingw-w64-ucrt-x86_64-qpdf
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-tesseract-ocr
+            mingw-w64-ucrt-x86_64-tesseract-data-eng
+            mingw-w64-ucrt-x86_64-leptonica
+            mingw-w64-ucrt-x86_64-libxml2
+            mingw-w64-ucrt-x86_64-freetype
+            mingw-w64-ucrt-x86_64-zlib
+            mingw-w64-ucrt-x86_64-curl
+            mingw-w64-ucrt-x86_64-libpng
+            mingw-w64-ucrt-x86_64-libjpeg-turbo
+            mingw-w64-ucrt-x86_64-libtiff
+
+      - name: Configure
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: |
+          cd build
+          QT_QPA_PLATFORM=offscreen ctest --output-on-failure -j4
