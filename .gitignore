@@ -46,6 +46,9 @@ onnxruntime-linux-*/
 
 # ML model weights (binary, managed separately)
 models/
+# Track provenance documentation within models/ despite the above exclusion
+!models/**/PROVENANCE.md
+!models/**/STATUS.md
 
 # Test output logs
 test_out*.log
