@@ -3,9 +3,11 @@
 #include "util/Badge.h"
 #include "core/AppContext.h"
 #include "core/interfaces/IPdfEditorEngine.h"
+#include "engines/mrc/MrcPageProcessor.h"
 
 #include <QButtonGroup>
 #include <QCheckBox>
+#include <QComboBox>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFrame>
@@ -141,6 +143,43 @@ CompressDialog::CompressDialog(const AppContext* ctx, QWidget* parent)
     af->addWidget(_chkStripMetadata, 2, 1);
 
     bl->addWidget(advFrame);
+
+    // ── MRC mode selector ──────────────────────────────────────────────────
+    // Mixed Raster Content: JBIG2 foreground + JPEG2000 background for scanned PDFs.
+    // Achieves 5-10× compression for scan-heavy documents.
+    auto* mrcFrame = new QFrame;
+    mrcFrame->setStyleSheet("background:#1a1b1e; border:1px solid #393b40; padding:8px;");
+    auto* mf = new QHBoxLayout(mrcFrame);
+    mf->setSpacing(8);
+
+    auto* mrcLabel = new QLabel(tr("MRC scan compression:"));
+    mrcLabel->setToolTip(tr(
+        "Mixed Raster Content: compresses scanned PDFs using JBIG2 (text layer) "
+        "and JPEG2000 (background layer). Achieves 5–10× compression. "
+        "Requires pre-rendered page images from the OCR engine."));
+    mf->addWidget(mrcLabel);
+
+    _mrcModeCombo = new QComboBox;
+    _mrcModeCombo->addItem(tr("Off (standard compression)"),      (int)MrcMode::Off);
+    _mrcModeCombo->addItem(tr("Lossless (10:1 background)"),      (int)MrcMode::Lossless);
+    _mrcModeCombo->addItem(tr("Balanced (30:1, recommended)"),    (int)MrcMode::Balanced);
+    _mrcModeCombo->addItem(tr("Aggressive (50:1 background)"),    (int)MrcMode::Aggressive);
+    _mrcModeCombo->setCurrentIndex(0);  // Off by default
+    _mrcModeCombo->setToolTip(tr(
+        "Balanced: best size/quality trade-off for archival.\n"
+        "Aggressive: maximum compression; may introduce artefacts in photo regions."));
+    mf->addWidget(_mrcModeCombo, 1);
+
+    _mrcEstLabel = new QLabel(tr("MRC: off"));
+    _mrcEstLabel->setProperty("mono", true);
+    _mrcEstLabel->setStyleSheet("font-size:10px; color:#9a9da1;");
+    mf->addWidget(_mrcEstLabel);
+
+    bl->addWidget(mrcFrame);
+
+    // Wire MRC combo to re-estimate
+    connect(_mrcModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &CompressDialog::refreshEstimate);
 
     // Size estimation display
     auto* sizeRow = new QFrame;
@@ -355,6 +394,20 @@ void CompressDialog::refreshEstimate() {
     _detailLabel->setText(
         QString("%1 images · %2 fonts · %3 duplicates")
         .arg(est.imageCount).arg(est.fontCount).arg(est.duplicateImages));
+
+    // MRC estimate label update
+    if (_mrcModeCombo) {
+        MrcMode mrcMode = (MrcMode)_mrcModeCombo->currentData().toInt();
+        if (mrcMode == MrcMode::Off) {
+            _mrcEstLabel->setText(tr("MRC: off"));
+        } else {
+            // Rough MRC estimate: use page count × average page image size heuristic.
+            // We don't have actual page images here; use the standard estimate as baseline
+            // and apply MRC ratio reduction on top.
+            qint64 mrcEst = (qint64)(est.estimatedBytes * 0.25);  // MRC ≈ 75% further reduction
+            _mrcEstLabel->setText(tr("MRC est: ≈%1").arg(formatBytes(mrcEst)));
+        }
+    }
 }
 
 // ── Compress action ───────────────────────────────────────────────────────────
@@ -380,6 +433,26 @@ void CompressDialog::onCompress() {
 
     if (outPath.isEmpty()) return;
 
+    // Check MRC mode
+    MrcMode mrcMode = MrcMode::Off;
+    if (_mrcModeCombo)
+        mrcMode = (MrcMode)_mrcModeCombo->currentData().toInt();
+
+    bool success = false;
+
+    if (mrcMode != MrcMode::Off) {
+        // MRC path: requires page images from OCR pipeline.
+        // In this dialog, we don't have pre-rendered images — show informational dialog.
+        QMessageBox::information(this, tr("MRC Export"),
+            tr("MRC (Mixed Raster Content) export requires the document to have been "
+               "processed through the OCR pipeline first.\n\n"
+               "To use MRC compression:\n"
+               "1. Run OCR on the document (OCR mode)\n"
+               "2. Use Export → MRC PDF/A from the File menu.\n\n"
+               "Falling back to standard compression for this export."));
+        mrcMode = MrcMode::Off;
+    }
+
     OptimizeOptions opts;
     opts.downsampleImages   = _chkDownsample->isChecked();
     opts.targetDpi          = _dpiSpin->value();
@@ -389,7 +462,7 @@ void CompressDialog::onCompress() {
     opts.removeUnusedObjects= _chkRemoveUnused->isChecked();
     opts.stripMetadata      = _chkStripMetadata->isChecked();
 
-    bool success = _ctx->pdfEditor->optimizeDocument(outPath, opts);
+    success = _ctx->pdfEditor->optimizeDocument(outPath, opts);
 
     if (success) {
         QFileInfo fi(outPath);

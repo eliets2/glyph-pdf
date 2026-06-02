@@ -1,5 +1,6 @@
 #pragma once
 #include <QDialog>
+#include "core/interfaces/IPdfEditorEngine.h"  // MrcMode
 
 class QCheckBox;
 class QComboBox;
@@ -37,6 +38,9 @@ private:
     QCheckBox* _chkRemoveUnused   = nullptr;
     QCheckBox* _chkStripMetadata  = nullptr;
 
+    // MRC mode selector (M7-P3 D5)
+    QComboBox* _mrcModeCombo      = nullptr;
+
     // Size display
     QLabel*       _fileLabel   = nullptr;
     QProgressBar* _origBar     = nullptr;
@@ -45,6 +49,7 @@ private:
     QLabel*       _estVal      = nullptr;
     Badge*        _reductBadge = nullptr;
     QLabel*       _detailLabel = nullptr;
+    QLabel*       _mrcEstLabel = nullptr;  ///< MRC size estimate label
 };
 
 } // namespace gp
