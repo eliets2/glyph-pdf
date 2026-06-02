@@ -8,7 +8,9 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: windows-latest
+    # Pin to windows-2022 — windows-latest redirects to windows-2025-vs2026 (beta)
+    # which has MSYS2 compatibility issues. Re-evaluate when windows-2025 is stable.
+    runs-on: windows-2022
 
     defaults:
       run:
@@ -17,6 +19,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
       - name: Set up MSYS2 ucrt64
         uses: msys2/setup-msys2@v2
