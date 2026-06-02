@@ -363,18 +363,27 @@ static int otsuThreshold(const QImage& img)
     // Add the single page — lossless generic encoding
     jbig2_add_page(ctx, pix);
 
-    // Retrieve the encoded stream
-    uint8_t* data = nullptr;
-    size_t   dataSize = 0;
-    jbig2_pages_complete(ctx);
-    data = jbig2_produce_page(ctx, 0, /*int refinement=*/0, &dataSize);
+    // Retrieve the encoded stream.
+    // jbig2_pages_complete: flushes the symbol dictionary (global segment).
+    // jbig2_produce_page: serialises the page segments.
+    // Both return malloc'd buffers with int lengths (jbig2enc API).
+    int symLen = 0;
+    uint8_t* symData = jbig2_pages_complete(ctx, &symLen, /*verbose=*/false);
+
+    int pageLen = 0;
+    // xres/yres 0 = unspecified (no DPI segment — fine for PDF embedding).
+    uint8_t* pageData = jbig2_produce_page(ctx, /*page_no=*/0,
+                                           /*xres=*/0, /*yres=*/0, &pageLen);
 
     QByteArray result;
-    if (data && dataSize > 0) {
-        result = QByteArray(reinterpret_cast<const char*>(data),
-                            static_cast<int>(dataSize));
-        free(data);
-    }
+    // Concatenate symbol dictionary + page data into one JBIG2 bitstream.
+    if (symData && symLen > 0)
+        result.append(reinterpret_cast<const char*>(symData), symLen);
+    if (pageData && pageLen > 0)
+        result.append(reinterpret_cast<const char*>(pageData), pageLen);
+
+    free(symData);
+    free(pageData);
 
     jbig2_destroy(ctx);
     pixDestroy(&pix);
