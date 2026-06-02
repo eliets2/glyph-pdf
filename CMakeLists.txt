@@ -217,6 +217,13 @@ elseif(PKG_ONNXRUNTIME_FOUND)
 else()
     message(STATUS "onnxruntime not found — RapidOCR PP-OCRv5 disabled")
 endif()
+
+# Deploy OCR models beside the build output so RapidOcrEngine + tests find them
+# at runtime via applicationDirPath()/models/ppocrv5 (dev/test convenience).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/models/ppocrv5")
+    file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/models/ppocrv5"
+         DESTINATION "${CMAKE_BINARY_DIR}/models")
+endif()
 if(qpdf_FOUND AND (TARGET qpdf::qpdf OR TARGET qpdf::libqpdf))
     if(TARGET qpdf::qpdf)
         target_link_libraries(pdfws_engines PUBLIC qpdf::qpdf)
@@ -614,6 +621,32 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRedaction.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
         LABELS "unit;security;redaction;regression;qt;headless"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRapidOcr.cpp" AND (onnxruntime_FOUND OR TARGET onnxruntime OR PKG_ONNXRUNTIME_FOUND))
+    add_executable(TestRapidOcr
+        tests/TestRapidOcr.cpp
+    )
+    target_include_directories(TestRapidOcr PRIVATE src tests)
+    target_link_libraries(TestRapidOcr PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core
+        Qt6::Test Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets
+    )
+    target_compile_definitions(TestRapidOcr PRIVATE
+        GLYPH_OCR_MODELS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/models/ppocrv5")
+    add_custom_command(TARGET TestRapidOcr POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:TestRapidOcr>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestRapidOcr>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestRapidOcr"
+    )
+    add_test(NAME TestRapidOcr COMMAND TestRapidOcr)
+    set_tests_properties(TestRapidOcr PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 180
+        LABELS "ocr;ml;rapidocr;qt;headless"
     )
 endif()
 
