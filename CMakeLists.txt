@@ -662,6 +662,42 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRapidOcr.cpp" AND (onnxruntime_
     )
 endif()
 
+# ── TestLayoutEnsemble (M5-P2 D7) ────────────────────────────────────────────
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestLayoutEnsemble.cpp")
+    add_executable(TestLayoutEnsemble
+        tests/TestLayoutEnsemble.cpp
+    )
+    target_include_directories(TestLayoutEnsemble PRIVATE src tests)
+    target_link_libraries(TestLayoutEnsemble PRIVATE
+        pdfws_engines pdfws_core
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+    )
+    add_test(NAME TestLayoutEnsemble COMMAND TestLayoutEnsemble)
+    set_tests_properties(TestLayoutEnsemble PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "ocr;layout;ensemble;iou;qt;headless"
+    )
+endif()
+
+# ── TestOcrPipeline (M5-P2 D7) ───────────────────────────────────────────────
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrPipeline.cpp")
+    add_executable(TestOcrPipeline
+        tests/TestOcrPipeline.cpp
+    )
+    target_include_directories(TestOcrPipeline PRIVATE src tests)
+    target_link_libraries(TestOcrPipeline PRIVATE
+        pdfws_engines pdfws_core
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+    )
+    add_test(NAME TestOcrPipeline COMMAND TestOcrPipeline)
+    set_tests_properties(TestOcrPipeline PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 180
+        LABELS "ocr;pipeline;rover;timing;cross-page;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestThreadSafety.cpp")
     add_executable(TestThreadSafety
         tests/TestThreadSafety.cpp

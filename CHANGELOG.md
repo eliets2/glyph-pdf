@@ -376,9 +376,21 @@ scaffolding is complete; translator delivery gates real multilingual UI.
 - Thread safety tests with QRecursiveMutex verification
 - Performance benchmarks with timing targets
 
+### M5-PROMPT-2 — Layout ensemble + cross-page pipelining (2026-06-02)
+#### Added
+- **ILayoutDetector** interface (`src/engines/ocr/ILayoutDetector.h`): `RegionType` enum (11 values), `LayoutRegion` struct (bbox/type/readingOrderIndex/confidence), pure-virtual `detect(QImage, Lane)`.
+- **PpDocLayoutDetector** (`PpDocLayoutDetector.{h,cpp}`): PP-DocLayoutV2 ONNX via `models/pp_doclayout/pp_doclayout_v2.onnx` (Apache-2.0, PaddlePaddle official HF repo). Warm session (never spawned per-page). Input `[1,3,800,800]` float32 CHW + `scale_factor [1,2]`; output pred_logits + pred_boxes (RT-DETR); 25-class → `RegionType` mapping; sigmoid threshold 0.5.
+- **SuryaDetector** (`SuryaDetector.{h,cpp}`): Clearly-named stub gated by `HAS_SURYA`. Surya code Apache-2.0; model weights Open Rail-M (commercial restriction for >$5M; redistribution not covered). Stub documents the license decision. When `HAS_SURYA=1`, dispatches `surya-detect` as QProcess subprocess (weights never link into binary, mirrors veraPDF AGPL pattern).
+- **LayoutEnsemble** (`LayoutEnsemble.{h,cpp}`): Runs 1+ ILayoutDetector* in parallel via LaneScheduler GPU lane; IoU > 0.5 merges regions; confidence-weighted type voting; reading-order re-computed from centroids (top-to-bottom, left-to-right). Single-detector mode works without Surya.
+- **OcrPipeline::recognizeDocument** (`OcrPipeline.cpp`): New `recognizeDocument(QList<QImage>) → QFuture<QList<PageOcrResult>>`. Uses `CrossPagePipeline` (stage1 layout ‖ stage2 per-region OCR fanout ‖ stage3 fusion). Layout regions captured via mutex per-page and threaded to `PageOcrResult.layoutRegions` without re-detection. Falls back to `QtConcurrent::run` sequential when no scheduler.
+- **OCRMode confidence overlay** (`OCRMode.{h,cpp}`): `setOcrResults(QList<MergedOcrWord>)` populates real confidence-colored HTML overlay (green ≥90 / yellow 70-89 / red <70). `updateInfoStrip()` shows real AVG CONFIDENCE N% and LOW-CONFIDENCE WORDS N. Right-click context menu: "Re-OCR this region" emits `reOcrRegionRequested(bbox)`; per-region Accept/Reject workflow.
+- **TestLayoutEnsemble** (10 tests): IoU computation, single/multi-detector merge, type voting, confidence threshold, reading-order.
+- **TestOcrPipeline** (9 tests): ROVER merge, IoU, recognizeDocument page count, cross-page correctness (structural: page indices, words non-empty, no crash).
+#### Removed (known-issues)
+- Removed "OCR ensemble pipeline (PP-DocLayoutV2, Surya, LaneScheduler) not yet implemented" admission. WS1 is now complete for v1.0.0.
+
 ### Known Issues
 - MuPDF (AGPL) and Poppler (GPL) are never linked in-process (licensing constraint)
-- OCR ensemble pipeline (PP-DocLayoutV2, Surya, LaneScheduler) not yet implemented
 - MRC compression inside PDF/A not yet implemented
 - Some Session 7-11 features may be interface stubs pending full implementation verification
 - Pattern redaction backend (PatternRedactor, 12 named patterns + custom regex, applyPatternRedactions) is **implemented** (M3-PROMPT-4). TestPatternRedact registered in CMake.
