@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #ifndef ENCRYPTIONDIALOG_H
 #define ENCRYPTIONDIALOG_H
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #include "CropPageCommand.h"
 
 CropPageCommand::CropPageCommand(IPdfEditorEngine* engine, DocumentSession* doc, int pageIndex, const QRectF& cropRect, QUndoCommand* parent)

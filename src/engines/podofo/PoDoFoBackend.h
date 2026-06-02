@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 #include "core/interfaces/IPdfDocument.h"
 #include "core/interfaces/IPdfWriter.h"

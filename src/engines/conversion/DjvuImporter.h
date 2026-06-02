@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // src/engines/conversion/DjvuImporter.h
 // DjvuImporter — optional DjVu → MRC PDF/A importer.
 //

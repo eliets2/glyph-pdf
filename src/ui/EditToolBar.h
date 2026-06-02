@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #ifndef EDITTOOLBAR_H
 #define EDITTOOLBAR_H
 

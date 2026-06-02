@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #include "core/UpdateChecker.h"
 #include "core/TempFileManager.h"
 

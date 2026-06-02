@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #include "ui/PdfViewerWidget.h"
 #include "GpMainWindow.h"
 #include "shell/StatusBar.h"

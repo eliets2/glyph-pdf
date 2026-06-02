@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #ifndef FINDBAR_H
 #define FINDBAR_H
 

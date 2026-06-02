@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // src/engines/ocr/SuryaDetector.h
 // SuryaDetector — Layout detector backed by VikParuchuri/surya (M5-P2 D3).
 //

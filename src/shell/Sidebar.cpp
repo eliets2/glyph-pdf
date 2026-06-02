@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #include "Sidebar.h"
 #include "GpMainWindow.h"
 #include "shell/StatusBar.h"

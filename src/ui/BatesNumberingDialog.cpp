@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #include "BatesNumberingDialog.h"
 #include <QVBoxLayout>
 #include <QFormLayout>

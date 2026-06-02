@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #ifndef PAGEMANAGEMENTDIALOG_H
 #define PAGEMANAGEMENTDIALOG_H
 

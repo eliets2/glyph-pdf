@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #include "FormsController.h"
 #include "ui/SignatureDialog.h"
 #include "core/interfaces/ISignatureManager.h"

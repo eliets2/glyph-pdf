@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #include "engines/PdfEditorEngine.h"
 #include "engines/BackendRouter.h"
 #include "engines/PatternRedactor.h"

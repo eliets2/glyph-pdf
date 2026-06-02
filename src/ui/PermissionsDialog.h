@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #ifndef PERMISSIONSDIALOG_H
 #define PERMISSIONSDIALOG_H
 

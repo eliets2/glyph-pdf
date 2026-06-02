@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // src/engines/ocr/LayoutEnsemble.cpp
 // LayoutEnsemble implementation — IoU reconciliation + reading-order assignment.
 

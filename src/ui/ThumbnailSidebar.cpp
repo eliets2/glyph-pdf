@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #include "ThumbnailSidebar.h"
 #include "PdfViewerWidget.h"
 #include "engines/RenderCache.h"

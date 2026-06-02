@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #include "engines/DiffEngine.h"
 #include "engines/MyersDiff.h"
 #include "engines/pdfium/PdfiumBackend.h"
