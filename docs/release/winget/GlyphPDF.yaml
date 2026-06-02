@@ -1,0 +1,9 @@
+# winget version manifest
+# Submit to: https://github.com/microsoft/winget-pkgs
+# Path in winget-pkgs: manifests/g/GlyphPDF/GlyphPDF/1.0.0/
+
+PackageIdentifier: GlyphPDF.GlyphPDF
+PackageVersion: 1.0.0
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.6.0

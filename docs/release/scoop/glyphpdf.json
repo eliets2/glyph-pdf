@@ -1,0 +1,50 @@
+{
+  "_comment": "Scoop manifest for GlyphPDF v1.0.0. Replace REPLACE_SHA256 and REPLACE_DOWNLOAD_URL before submitting.",
+  "version": "1.0.0",
+  "description": "Open-source privacy-first PDF workstation for Windows. Secure redaction, PAdES signatures, MRC compression, OCR ensemble, AI assistant. Apache-2.0.",
+  "homepage": "https://glyphpdf.com",
+  "license": "Apache-2.0",
+  "url": "https://github.com/YOUR_USERNAME/glyphpdf/releases/download/v1.0.0/GlyphPDF-1.0.0-x64.msi",
+  "hash": "sha256:REPLACE_SHA256",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/YOUR_USERNAME/glyphpdf/releases/download/v1.0.0/GlyphPDF-1.0.0-x64.msi",
+      "hash": "sha256:REPLACE_SHA256"
+    }
+  },
+  "installer": {
+    "script": [
+      "$msi = \"$dir\\GlyphPDF-1.0.0-x64.msi\"",
+      "Start-Process msiexec -ArgumentList \"/i\", \"$msi\", \"/quiet\", \"/norestart\", \"INSTALLDIR=$dir\" -Wait -NoNewWindow"
+    ]
+  },
+  "uninstaller": {
+    "script": [
+      "Start-Process msiexec -ArgumentList \"/x\", \"{fb1fbe00-e1af-449c-8a58-2d2e308b9127}\", \"/quiet\", \"/norestart\" -Wait -NoNewWindow"
+    ]
+  },
+  "bin": [
+    ["PdfWorkstation.exe", "glyphpdf"]
+  ],
+  "shortcuts": [
+    ["PdfWorkstation.exe", "GlyphPDF"]
+  ],
+  "persist": [],
+  "checkver": {
+    "url": "https://api.github.com/repos/YOUR_USERNAME/glyphpdf/releases/latest",
+    "jsonpath": "$.tag_name",
+    "regex": "v([\\d.]+)"
+  },
+  "autoupdate": {
+    "url": "https://github.com/YOUR_USERNAME/glyphpdf/releases/download/v$version/GlyphPDF-$version-x64.msi",
+    "hash": {
+      "url": "https://github.com/YOUR_USERNAME/glyphpdf/releases/download/v$version/SHA256SUMS.txt",
+      "find": "([a-fA-F0-9]{64})\\s+GlyphPDF-$version-x64\\.msi"
+    }
+  },
+  "notes": [
+    "Optional: install LibreOffice for Office-to-PDF import.",
+    "Optional: install veraPDF CLI and set path in Preferences for live PDF/A validation.",
+    "Optional: install Ollama for local AI assistant without an API key."
+  ]
+}

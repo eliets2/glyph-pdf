@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Chocolatey package spec for GlyphPDF v1.0.0
+  NOTE: Replace REPLACE_SHA256 with the actual SHA-256 of the signed MSI before publishing.
+  Replace REPLACE_DOWNLOAD_URL with the real GitHub Release download URL.
+
+  To build: choco pack glyphpdf.nuspec
+  To push:  choco push glyphpdf.1.0.0.nupkg --source https://push.chocolatey.org --api-key YOUR_KEY
+-->
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>glyphpdf</id>
+    <version>1.0.0</version>
+    <title>GlyphPDF</title>
+    <authors>Glyph</authors>
+    <projectUrl>https://glyphpdf.com</projectUrl>
+    <iconUrl>https://raw.githubusercontent.com/YOUR_USERNAME/glyphpdf/main/resources/branding/icon-256.png</iconUrl>
+    <licenseUrl>https://github.com/YOUR_USERNAME/glyphpdf/blob/main/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <projectSourceUrl>https://github.com/YOUR_USERNAME/glyphpdf</projectSourceUrl>
+    <bugTrackerUrl>https://github.com/YOUR_USERNAME/glyphpdf/issues</bugTrackerUrl>
+    <tags>pdf pdf-editor pdf-viewer ocr redaction digital-signatures privacy open-source admin</tags>
+    <summary>Open-source privacy-first PDF workstation for Windows. Apache-2.0.</summary>
+    <description><![CDATA[
+GlyphPDF is a full-featured, open-source PDF workstation for Windows.
+
+## Features
+
+- **Secure redaction** with Edact-Ray glyph-advance normalization (closes arXiv 2206.02285 side-channel)
+- **PAdES B-LT/B-LTA digital signatures** with real trust-chain + OCSP verification
+- **MRC layered compression**: JBIG2 + JPEG2000 + OCR sandwich text — 30x compression, PDF/A-2b
+- **OCR ensemble**: PP-DocLayoutV2 layout + Tesseract 5 + RapidOCR PP-OCRv5 + ROVER fusion
+- **Djot document interchange**: semantic dual-model with provenance tracking
+- **AI assistant**: Anthropic Claude, OpenAI GPT-4o, Gemini, Ollama (local)
+- **Office import**: .docx/.xlsx/.pptx via LibreOffice subprocess
+- **Batch processing**, **Form Builder** (9 field types), **Compare mode** with Myers LCS diff
+- No telemetry, no cloud upload, no subscription
+- Apache-2.0 licensed
+
+## Notes
+
+- Optional dependencies: LibreOffice (Office import), veraPDF CLI (PDF/A validation), Ollama (local AI)
+- 64-bit Windows 10/11 required
+    ]]></description>
+    <releaseNotes>https://github.com/YOUR_USERNAME/glyphpdf/releases/tag/v1.0.0</releaseNotes>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>
+]]>
+</description>
+
+<!-- Place install script at chocolatey/tools/chocolateyInstall.ps1:
+
+$ErrorActionPreference = 'Stop'
+$packageName = 'glyphpdf'
+$url64       = 'https://github.com/YOUR_USERNAME/glyphpdf/releases/download/v1.0.0/GlyphPDF-1.0.0-x64.msi'
+$checksum64  = 'REPLACE_SHA256'
+
+$packageArgs = @{
+  packageName    = $packageName
+  fileType       = 'MSI'
+  url64bit       = $url64
+  checksum64     = $checksum64
+  checksumType64 = 'sha256'
+  silentArgs     = '/quiet /norestart'
+  validExitCodes = @(0, 3010)
+}
+Install-ChocolateyPackage @packageArgs
+-->
+</package>
