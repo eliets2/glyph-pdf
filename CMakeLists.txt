@@ -175,6 +175,7 @@ add_library(pdfws_engines STATIC
     src/engines/ocr/OcrDjotMapper.h         src/engines/ocr/OcrDjotMapper.cpp
     src/engines/ocr/PpOcrDecoder.h          src/engines/ocr/PpOcrDecoder.cpp
     src/engines/ocr/RapidOcrEngine.h        src/engines/ocr/RapidOcrEngine.cpp
+    src/engines/mrc/MrcPageProcessor.h      src/engines/mrc/MrcPageProcessor.cpp
     src/core/interfaces/IPdfDocument.h
     src/core/interfaces/IPdfPage.h
     src/core/interfaces/IPdfRenderer.h
@@ -203,6 +204,21 @@ elseif(PKG_TESSERACT_FOUND AND PKG_LEPTONICA_FOUND)
     target_compile_definitions(pdfws_engines PUBLIC HAS_TESSERACT)
 else()
     message(STATUS "Tesseract/Leptonica not found — OCR disabled")
+endif()
+
+# ── OpenJPEG2 (BSD-2-Clause) — MRC background encoding ─────────────────────
+find_package(PkgConfig QUIET)
+if(PKG_CONFIG_FOUND)
+    pkg_check_modules(OPENJPEG2 QUIET libopenjp2)
+    if(OPENJPEG2_FOUND)
+        target_include_directories(pdfws_engines PUBLIC ${OPENJPEG2_INCLUDE_DIRS})
+        target_link_directories(pdfws_engines PUBLIC ${OPENJPEG2_LIBRARY_DIRS})
+        target_link_libraries(pdfws_engines PUBLIC ${OPENJPEG2_LIBRARIES})
+        target_compile_definitions(pdfws_engines PUBLIC HAS_OPENJPEG2)
+        message(STATUS "OpenJPEG2 found: ${OPENJPEG2_VERSION} — MRC JPEG2000 encoding enabled")
+    else()
+        message(STATUS "OpenJPEG2 not found — MRC JPEG2000 encoding will be disabled")
+    endif()
 endif()
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime-win-x64-1.17.3")

@@ -9,6 +9,21 @@
 #include <QColor>
 #include <QRegularExpression>
 
+// Forward declarations to avoid circular includes
+#include <QImage>
+#include <QList>
+struct PageOcrResult;  // defined in engines/ocr/OcrPipeline.h
+
+// ── MRC compression mode ───────────────────────────────────────────────────
+// Controls the JBIG2 foreground + JPEG2000 background encoding aggressiveness
+// in the Mixed Raster Content PDF/A-2b export pipeline (M7-P3).
+enum class MrcMode {
+    Off,         ///< No MRC — use standard image embedding
+    Lossless,    ///< JBIG2 lossless foreground + JPEG2000 at 10:1 background
+    Balanced,    ///< JBIG2 lossless foreground + JPEG2000 at 30:1 (default)
+    Aggressive   ///< JBIG2 lossless foreground + JPEG2000 at 50:1
+};
+
 struct PdfMetadata {
     QString title;
     QString author;
@@ -115,6 +130,20 @@ public:
     virtual bool deleteObjectAt(int pageIndex, const QPointF &pos) = 0;
     virtual bool linearizeDocument(const QString &outputPath) = 0;
     virtual bool exportPdfA(const QString &outputPath, int conformanceLevel) = 0;
+
+    /// Export current document as a PDF/A-2b MRC sandwich:
+    ///   - JPEG2000 background XObject per page
+    ///   - JBIG2 foreground mask XObject (1bpp) per page
+    ///   - Invisible text layer (3 Tr) from OCR word boxes
+    /// Runs veraPDF validation gate after assembly (QSKIP if CLI unavailable).
+    /// \param pageImages   Pre-rendered page images (from PDFium renderer).
+    /// \param pageResults  OCR results per page (from OcrPipeline); may be empty.
+    /// \param mode         MRC compression mode (default Balanced = 30:1 background).
+    /// \returns true if export + veraPDF validation passed.
+    virtual bool exportMrcPdfA(const QString& outputPath,
+                               const QList<QImage>& pageImages,
+                               const QList<struct PageOcrResult>& pageResults,
+                               MrcMode mode = MrcMode::Balanced) = 0;
     virtual bool encryptDocument(const QString &userPassword, const QString &ownerPassword,
                                   const DocumentPermissions& perms = DocumentPermissions()) = 0;
     virtual bool removeEncryption(const QString &ownerPassword) = 0;

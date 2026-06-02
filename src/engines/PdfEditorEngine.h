@@ -2,9 +2,13 @@
 
 #include <QString>
 #include <QList>
+#include <QImage>
 #include <memory>
 #include <QRegularExpression>
 #include "core/interfaces/IPdfEditorEngine.h"
+// PageOcrResult is forward-declared in IPdfEditorEngine.h via `struct PageOcrResult;`
+// Do NOT include OcrPipeline.h here — it pulls in LaneScheduler.h → QtConcurrent,
+// breaking test targets that link against pdfws_engines without Qt6::Concurrent.
 
 class PdfEditorEngine final : public IPdfEditorEngine
 {
@@ -26,6 +30,10 @@ public:
     // QPDF/Structural tasks
     bool linearizeDocument(const QString &outputPath) override;
     bool exportPdfA(const QString &outputPath, int conformanceLevel) override;
+    bool exportMrcPdfA(const QString& outputPath,
+                       const QList<QImage>& pageImages,
+                       const QList<PageOcrResult>& pageResults,
+                       MrcMode mode = MrcMode::Balanced) override;
     bool encryptDocument(const QString &userPassword, const QString &ownerPassword, const DocumentPermissions& perms = DocumentPermissions()) override;
     bool removeEncryption(const QString &ownerPassword) override;
     bool encryptWithCertificate(const QString &inputPath, const QString &outputPath, const QStringList &certPaths) override;
