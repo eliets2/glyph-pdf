@@ -166,6 +166,14 @@ add_library(pdfws_engines STATIC
     src/engines/scheduling/ILaneScheduler.h
     src/engines/scheduling/LaneScheduler.h  src/engines/scheduling/LaneScheduler.cpp
     src/engines/scheduling/PipelineStage.h
+    src/engines/ocr/ILayoutDetector.h
+    src/engines/ocr/PpDocLayoutDetector.h   src/engines/ocr/PpDocLayoutDetector.cpp
+    src/engines/ocr/SuryaDetector.h         src/engines/ocr/SuryaDetector.cpp
+    src/engines/ocr/LayoutEnsemble.h        src/engines/ocr/LayoutEnsemble.cpp
+    src/engines/ocr/OcrPreprocessor.h       src/engines/ocr/OcrPreprocessor.cpp
+    src/engines/ocr/OcrPipeline.h           src/engines/ocr/OcrPipeline.cpp
+    src/engines/ocr/PpOcrDecoder.h          src/engines/ocr/PpOcrDecoder.cpp
+    src/engines/ocr/RapidOcrEngine.h        src/engines/ocr/RapidOcrEngine.cpp
     src/core/interfaces/IPdfDocument.h
     src/core/interfaces/IPdfPage.h
     src/core/interfaces/IPdfRenderer.h
@@ -222,6 +230,10 @@ endif()
 # at runtime via applicationDirPath()/models/ppocrv5 (dev/test convenience).
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/models/ppocrv5")
     file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/models/ppocrv5"
+         DESTINATION "${CMAKE_BINARY_DIR}/models")
+endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/models/pp_doclayout")
+    file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/models/pp_doclayout"
          DESTINATION "${CMAKE_BINARY_DIR}/models")
 endif()
 if(qpdf_FOUND AND (TARGET qpdf::qpdf OR TARGET qpdf::libqpdf))
