@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // src/engines/ocr/ILayoutDetector.h
 // ILayoutDetector — pure-virtual layout detection interface (M5-P2 D1).
 //

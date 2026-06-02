@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // src/engines/mrc/MrcPageProcessor.h
 // MrcPageProcessor — Mixed Raster Content layer separation + encoding.
 //

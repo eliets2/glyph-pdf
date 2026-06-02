@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #include "engines/ConversionManager.h"
 #include <memory>
 #include <podofo/podofo.h>

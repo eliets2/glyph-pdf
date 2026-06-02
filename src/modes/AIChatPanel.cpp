@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #include "AIChatPanel.h"
 #include "util/GpTheme.h"
 #include "core/CredentialManager.h"

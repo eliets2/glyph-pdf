@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #include "engines/AutosaveManager.h"
 #include "engines/DocumentSession.h"
 #include "core/interfaces/IPdfEditorEngine.h"

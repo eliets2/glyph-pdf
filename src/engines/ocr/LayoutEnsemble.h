@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // src/engines/ocr/LayoutEnsemble.h
 // LayoutEnsemble — IoU-based multi-detector reconciliation (M5-P2 D4).
 //

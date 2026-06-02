@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #include "InspectorWidget.h"
 #include "core/AnnotationTypes.h"
 #include "core/AppContext.h"

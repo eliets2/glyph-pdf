@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #include "ui/AnnotationToolBar.h"
 #include "util/Icons.h"
 #include "util/GpTheme.h"

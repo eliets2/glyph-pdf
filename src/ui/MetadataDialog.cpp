@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #include "ui/MetadataDialog.h"
 #include <QFormLayout>
 #include <QLineEdit>

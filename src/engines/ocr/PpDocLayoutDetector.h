@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // src/engines/ocr/PpDocLayoutDetector.h
 // PpDocLayoutDetector — PP-DocLayoutV2 ONNX layout detector (M5-P2 D2).
 //

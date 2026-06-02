@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 // PpOcrDecoder — PP-OCRv5 pre/post-processing for the RapidOcrEngine ONNX pipeline.

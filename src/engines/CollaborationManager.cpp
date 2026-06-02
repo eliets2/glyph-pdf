@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #include "engines/CollaborationManager.h"
 #include "core/AnnotationSerializer.h"
 #include <QJsonDocument>
