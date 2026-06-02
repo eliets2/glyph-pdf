@@ -73,14 +73,20 @@ else()
       "Found leptonica version: ${Leptonica_VERSION} in `${Leptonica_INCLUDE_DIRS}`, `${Leptonica_LIBRARY_DIRS}`"
   )
 endif(NOT Leptonica_FOUND)
-if(Leptonica_INCLUDE_DIRS MATCHES "/leptonica/?$")
-  get_filename_component(parent_dir "${Leptonica_INCLUDE_DIRS}" DIRECTORY)
-  include_directories("${Leptonica_INCLUDE_DIRS}" "${parent_dir}")
-else()
-  include_directories("${Leptonica_INCLUDE_DIRS}")
+# Guard against empty INCLUDE_DIRS (MSYS2 installs to standard path; pkg-config
+# returns no explicit dir when the package is in the default compiler search path).
+if(Leptonica_INCLUDE_DIRS)
+  if(Leptonica_INCLUDE_DIRS MATCHES "/leptonica/?$")
+    get_filename_component(parent_dir "${Leptonica_INCLUDE_DIRS}" DIRECTORY)
+    include_directories("${Leptonica_INCLUDE_DIRS}" "${parent_dir}")
+  else()
+    include_directories("${Leptonica_INCLUDE_DIRS}")
+  endif()
+  include_directories(${Leptonica_INCLUDE_DIRS})
 endif()
-include_directories(${Leptonica_INCLUDE_DIRS})
-link_directories(${Leptonica_LIBRARY_DIRS})
+if(Leptonica_LIBRARY_DIRS)
+  link_directories(${Leptonica_LIBRARY_DIRS})
+endif()
 
 set(libjbig2enc_src
     "${CMAKE_CURRENT_SOURCE_DIR}/src/jbig2arith.cc"
@@ -97,6 +103,17 @@ set(libjbig2enc_hdr
 add_library(libjbig2enc ${libjbig2enc_src} ${libjbig2enc_hdr})
 set_target_properties(libjbig2enc PROPERTIES DEBUG_POSTFIX
                                              ${CMAKE_DEBUG_POSTFIX})
+# Propagate Leptonica as a PUBLIC dependency so consumers (pdfws_engines) link it
+# in the correct order (Leptonica must follow libjbig2enc for GNU ld to resolve
+# forward references from the static archive).
+if(Leptonica_LIBRARIES)
+    target_link_libraries(libjbig2enc PUBLIC ${Leptonica_LIBRARIES})
+endif()
+# On Windows, jbig2enc uses htonl/htons from Winsock — must be propagated
+# to consumers since libjbig2enc is a static library.
+if(WIN32)
+    target_link_libraries(libjbig2enc PUBLIC Ws2_32)
+endif()
 if(MSVC)
   # Linking to setargv.obj enables wildcard globbing for the command line
   # utilities, when compiling with MSVC
