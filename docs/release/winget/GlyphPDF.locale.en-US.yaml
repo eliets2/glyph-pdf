@@ -1,0 +1,42 @@
+# winget locale manifest (en-US)
+
+PackageIdentifier: GlyphPDF.GlyphPDF
+PackageVersion: 1.0.0
+PackageLocale: en-US
+Publisher: Glyph
+PublisherUrl: https://glyphpdf.com
+PublisherSupportUrl: https://github.com/YOUR_USERNAME/glyphpdf/issues
+PrivacyUrl: https://glyphpdf.com/privacy
+Author: Glyph
+PackageName: GlyphPDF
+PackageUrl: https://glyphpdf.com
+License: Apache-2.0
+LicenseUrl: https://github.com/YOUR_USERNAME/glyphpdf/blob/main/LICENSE
+Copyright: Copyright (c) 2026 Glyph
+CopyrightUrl: https://github.com/YOUR_USERNAME/glyphpdf/blob/main/LICENSE
+ShortDescription: Open-source privacy-first PDF workstation for Windows
+Description: >-
+  GlyphPDF is a full-featured, open-source PDF workstation for Windows.
+  It provides secure redaction with glyph-advance normalization (Edact-Ray defense),
+  PAdES B-LT/B-LTA digital signatures, MRC layered compression (30x ratio),
+  parallel OCR with PP-DocLayoutV2 + Tesseract + RapidOCR ROVER fusion,
+  Djot document interchange, AI assistant (Anthropic/OpenAI/Gemini/Ollama),
+  and a full-featured batch processing and form builder mode.
+  No telemetry. No cloud upload. No subscription. Apache-2.0 licensed.
+Moniker: glyphpdf
+Tags:
+  - pdf
+  - pdf-editor
+  - pdf-viewer
+  - ocr
+  - redaction
+  - digital-signatures
+  - privacy
+  - open-source
+ReleaseNotes: >-
+  First public release. All three workstreams complete:
+  WS1 (OCR ensemble), WS2 (Djot interchange), WS3 (MRC compression).
+  See https://github.com/YOUR_USERNAME/glyphpdf/releases/tag/v1.0.0 for full notes.
+ReleaseNotesUrl: https://github.com/YOUR_USERNAME/glyphpdf/releases/tag/v1.0.0
+ManifestType: locale
+ManifestVersion: 1.6.0
