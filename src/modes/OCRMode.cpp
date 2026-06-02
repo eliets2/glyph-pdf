@@ -9,12 +9,17 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
+#include <QMenu>
 #include <QPlainTextEdit>
+#include <QScrollArea>
 #include <QSplitter>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QStandardItemModel>
 #include <QSettings>
+
+#include <algorithm>
+#include <cmath>
 
 namespace gp {
 
@@ -245,48 +250,44 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     impHeadRow->addWidget(monoLab(tr("4× PIXELS")));
     impLay->addWidget(impHead);
 
-    auto* scanArea = new QFrame;
-    auto* scanLay = new QVBoxLayout(scanArea);
-    scanLay->setContentsMargins(20,20,20,20);
+    // ── Confidence overlay: scrollable paper with per-word colored spans ──────
+    // m_scanContentLabel is updated by updateConfidenceOverlay() each time
+    // OCR results arrive.  Right-click opens the per-region context menu.
+    m_scanContentLabel = new QLabel;
+    m_scanContentLabel->setObjectName("ocrScanContent");
+    m_scanContentLabel->setTextFormat(Qt::RichText);
+    m_scanContentLabel->setWordWrap(true);
+    m_scanContentLabel->setAlignment(Qt::AlignTop | Qt::AlignLeft);
+    m_scanContentLabel->setStyleSheet(
+        "background:#f4f1ea; color:#1a1a1a; padding:24px; "
+        "border:1px solid #000; min-width:380px;");
+    m_scanContentLabel->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_scanContentLabel, &QLabel::customContextMenuRequested,
+            this, &OCRMode::onImagePaneContextMenu);
 
-    auto* scanPaper = new QFrame;
-    scanPaper->setStyleSheet("background:#f4f1ea; border:1px solid #000; min-width:380px;");
-    auto* scanInner = new QVBoxLayout(scanPaper);
-    scanInner->setContentsMargins(24,24,24,24);
-
-    auto* sw1 = new QLabel("<b style='color:#1a1a1a;font-size:18px'>Performance Overview</b>");
-    sw1->setStyleSheet("color:#1a1a1a;"); sw1->setTextFormat(Qt::RichText);
-
-    // Confidence-colored word overlays:
-    //   Green (#22c55e) = high (≥80), Yellow (#eab308) = medium (50-79), Red (#ef4444) = low (<50)
-    auto* sw2 = new QLabel(
+    // Seed with static demo content until real OCR runs
+    m_scanContentLabel->setText(
+        "<b style='font-size:18px'>Performance Overview</b><br><br>"
         "Consolidated revenue reached "
-        "<span style='background:#22c55e33;padding:1px;outline:1px solid #22c55e99'>$2,418M</span>"
+        "<span style='background:#22c55e33;outline:1px solid #22c55e99'>$2,418M</span>"
         ", an increase of "
         "<span style='background:#22c55e33;outline:1px solid #22c55e99'>14.2%</span>"
         " year-over-year, driven by "
         "<span style='background:#eab30833;outline:1px solid #eab30899'>Industrial Automation</span>"
-        " demand.");
-    sw2->setWordWrap(true); sw2->setStyleSheet("color:#1a1a1a;"); sw2->setTextFormat(Qt::RichText);
-
-    auto* sw3 = new QLabel(
+        " demand.<br><br>"
         "Operating margin expanded by "
         "<span style='background:#ef444433;outline:1px solid #ef444499'>180bps</span>"
         " to "
         "<span style='background:#eab30833;outline:1px solid #eab30899'>22.4%</span>"
         ".");
-    sw3->setWordWrap(true); sw3->setStyleSheet("color:#1a1a1a;"); sw3->setTextFormat(Qt::RichText);
 
-    scanInner->addWidget(sw1);
-    scanInner->addSpacing(10);
-    scanInner->addWidget(sw2);
-    scanInner->addSpacing(6);
-    scanInner->addWidget(sw3);
-    scanInner->addStretch(1);
+    auto* scrollArea = new QScrollArea;
+    scrollArea->setWidget(m_scanContentLabel);
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setFrameShape(QFrame::NoFrame);
+    scrollArea->setStyleSheet("background:#2a2a2a;");
 
-    scanLay->addWidget(scanPaper);
-    scanLay->addStretch(1);
-    impLay->addWidget(scanArea, 1);
+    impLay->addWidget(scrollArea, 1);
     split->addWidget(m_imagePane);
 
     // ── Text pane (editable) ────────────────────────────────────────────
@@ -382,15 +383,17 @@ void OCRMode::onRunOcr()
     m_btnAccept->setEnabled(true);
     m_btnReject->setEnabled(true);
 
-    // Update info strip from selected controls
+    // Update engine label
     m_lblEngine->setText(tr("ENGINE: %1 · %2")
         .arg(m_engineCombo->currentText(),
              m_strategyCombo->currentText()));
-    // v1.0.0: no per-word confidence telemetry wired yet — display em-dash
-    // placeholder rather than fabricated values. v1.1 will populate from
-    // MergedOcrWord results emitted by the engine.
-    m_lblAvgConf->setText(tr("AVG CONFIDENCE —"));
-    m_lblLowWords->setText(tr("LOW-CONFIDENCE WORDS —"));
+
+    // Confidence stats will be updated by setOcrResults() when results arrive.
+    // If no results set yet, clear the stats to avoid stale values.
+    if (m_currentWords.isEmpty()) {
+        m_lblAvgConf->setText(tr("AVG CONFIDENCE —"));
+        m_lblLowWords->setText(tr("LOW-CONFIDENCE WORDS —"));
+    }
 
     emit ocrRequested();
 }
@@ -402,12 +405,137 @@ void OCRMode::onAcceptResults()
     emit reviewAccepted();
 }
 
+// ── Context menu (right-click on scan pane) ──────────────────────────────────
+
+void OCRMode::onImagePaneContextMenu(const QPoint &pos)
+{
+    // For the rich-text label, we use a fixed "current page" region
+    // as the re-OCR target.  Future work: map pos to individual LayoutRegion bboxes.
+    m_contextRegionBbox = QRectF();  // empty = whole current page
+
+    QMenu menu(this);
+
+    QAction *reOcrAction = menu.addAction(tr("Re-OCR this region"));
+    connect(reOcrAction, &QAction::triggered, this, &OCRMode::onReOcrRegion);
+
+    menu.addSeparator();
+
+    // Per-region accept / reject workflow
+    QAction *acceptRegion = menu.addAction(tr("Accept this region"));
+    connect(acceptRegion, &QAction::triggered, this, [this]() {
+        // Accept: mark region as reviewed (future: remove yellow/red overlay for this region)
+        // For now: enable accept/reject buttons so user can confirm the full page
+        m_btnAccept->setEnabled(true);
+        m_btnReject->setEnabled(true);
+    });
+
+    QAction *rejectRegion = menu.addAction(tr("Reject this region"));
+    connect(rejectRegion, &QAction::triggered, this, [this]() {
+        // Reject: mark region as needing re-work
+        m_btnReject->setEnabled(true);
+        emit reviewRejected();
+    });
+
+    menu.exec(m_scanContentLabel->mapToGlobal(pos));
+}
+
+void OCRMode::onReOcrRegion()
+{
+    emit reOcrRegionRequested(m_contextRegionBbox);
+}
+
+// ── setOcrResults ─────────────────────────────────────────────────────────────
+
+void OCRMode::setOcrResults(const QList<MergedOcrWord> &words)
+{
+    m_currentWords = words;
+    updateConfidenceOverlay();
+    updateInfoStrip();
+
+    // Populate plain-text editor with the recognized text
+    if (m_textEdit) {
+        QStringList lines;
+        for (const auto &w : words)
+            lines.append(w.text);
+        m_textEdit->setPlainText(lines.join(QStringLiteral(" ")));
+    }
+
+    // Enable review buttons
+    if (m_btnAccept) m_btnAccept->setEnabled(true);
+    if (m_btnReject) m_btnReject->setEnabled(true);
+}
+
+// ── updateConfidenceOverlay ───────────────────────────────────────────────────
+
 void OCRMode::updateConfidenceOverlay()
 {
-    // Will populate from OCR engine results in v1.1; placeholder UI shows em-dash until then.
-    // In a real implementation this would iterate MergedOcrWord results
-    // and paint colored rectangles over the image pane at each bounding box.
-    // Green ≥80, Yellow 50-79, Red <50.
+    if (!m_scanContentLabel) return;
+
+    if (m_currentWords.isEmpty()) {
+        // No results yet — keep the demo content
+        return;
+    }
+
+    // Build a rich-text paragraph with per-word confidence coloring.
+    // Thresholds per M5-P2 D6 spec:
+    //   green (#22c55e): confidence ≥ 90
+    //   yellow (#eab308): confidence 70–89
+    //   red (#ef4444): confidence < 70
+    QString html;
+    html.reserve(m_currentWords.size() * 80);
+
+    for (const auto &w : m_currentWords) {
+        const int conf = w.confidence;
+        QString bgColor, borderColor;
+        if (conf >= 90) {
+            bgColor     = QStringLiteral("#22c55e33");
+            borderColor = QStringLiteral("#22c55e99");
+        } else if (conf >= 70) {
+            bgColor     = QStringLiteral("#eab30833");
+            borderColor = QStringLiteral("#eab30899");
+        } else {
+            bgColor     = QStringLiteral("#ef444433");
+            borderColor = QStringLiteral("#ef444499");
+        }
+
+        // Escape HTML special chars in the word text
+        QString escaped = w.text.toHtmlEscaped();
+
+        html += QStringLiteral(
+            "<span style='background:%1;outline:1px solid %2;padding:1px;margin:1px;' "
+            "title='%3% | %4 | %5'>%6</span> ")
+            .arg(bgColor, borderColor)
+            .arg(conf)
+            .arg(w.sourceEngine)
+            .arg(w.boundingBox.x(), 0, 'f', 0)
+            .arg(escaped);
+    }
+
+    m_scanContentLabel->setText(html);
+}
+
+// ── updateInfoStrip ───────────────────────────────────────────────────────────
+
+void OCRMode::updateInfoStrip()
+{
+    if (m_currentWords.isEmpty()) {
+        m_lblAvgConf->setText(tr("AVG CONFIDENCE —"));
+        m_lblLowWords->setText(tr("LOW-CONFIDENCE WORDS —"));
+        return;
+    }
+
+    double totalConf = 0.0;
+    int lowCount     = 0;
+    for (const auto &w : m_currentWords) {
+        totalConf += w.confidence;
+        if (w.confidence < 70) ++lowCount;
+    }
+    const double avgConf = totalConf / m_currentWords.size();
+
+    m_lblAvgConf->setText(
+        tr("AVG CONFIDENCE %1%").arg(static_cast<int>(std::round(avgConf))));
+    m_lblLowWords->setText(
+        tr("LOW-CONFIDENCE WORDS %1").arg(lowCount));
 }
 
 } // namespace gp
