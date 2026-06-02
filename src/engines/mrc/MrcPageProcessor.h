@@ -33,8 +33,9 @@
 #include <QString>
 #include <memory>
 
-#include "engines/ocr/ILayoutDetector.h"   // LayoutRegion, RegionType
-#include "engines/ocr/OcrPipeline.h"        // MergedOcrWord
+#include "core/interfaces/IPdfEditorEngine.h"   // MrcMode enum
+#include "engines/ocr/ILayoutDetector.h"         // LayoutRegion, RegionType
+#include "engines/ocr/OcrPipeline.h"             // MergedOcrWord
 
 /// A word from the OCR sandwich layer (for PDF text placement).
 struct SandwichWord {
@@ -70,13 +71,7 @@ struct MrcLayers {
     QString     errorMessage;
 };
 
-/// MRC compression mode — controls aggressiveness of background JPEG2000 quality.
-enum class MrcMode {
-    Off,         ///< No MRC — use standard image embedding
-    Lossless,    ///< JBIG2 lossless foreground + JPEG2000 at 10:1 background
-    Balanced,    ///< JBIG2 lossless foreground + JPEG2000 at 30:1 background (default)
-    Aggressive   ///< JBIG2 lossless foreground + JPEG2000 at 50:1 background
-};
+// MrcMode is defined in core/interfaces/IPdfEditorEngine.h — do not re-declare.
 
 /// MRC page processor: layer separation + JBIG2/JPEG2000 encoding.
 ///
