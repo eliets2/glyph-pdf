@@ -3,6 +3,9 @@
 #include "engines/scheduling/PipelineStage.h"
 
 #include <QDebug>
+#include <QMutex>
+#include <QMutexLocker>
+#include <QThread>
 #include <QtConcurrent>
 #include <algorithm>
 #include <cmath>
@@ -275,15 +278,24 @@ QFuture<QList<PageOcrResult>> OcrPipeline::recognizeDocument(const QList<QImage>
     return QtConcurrent::run([=, pageImages = pageImages]() -> QList<PageOcrResult> {
         QList<PageOcrResult> orderedResults(pageCount);
 
-        // Stage1: layout detection (CPU dispatch into ensemble's GPU work)
-        auto stage1 = [=](int p) -> QList<LayoutRegion> {
+        // Capture stage1 layout output per-page so we don't re-detect after pipeline.
+        // Protected by a mutex (stage1 runs on multiple CPU tasks concurrently).
+        QMutex layoutMutex;
+        QVector<QList<LayoutRegion>> capturedLayouts(pageCount);
+
+        // Stage1: layout detection (GPU work dispatched inside PpDocLayoutDetector)
+        auto stage1 = [=, &layoutMutex, &capturedLayouts](int p) -> QList<LayoutRegion> {
+            QList<LayoutRegion> regions;
             if (layoutEns)
-                return layoutEns->detect(pageImages[p]);
-            return {};
+                regions = layoutEns->detect(pageImages[p]);
+            {
+                QMutexLocker lk(&layoutMutex);
+                capturedLayouts[p] = regions;
+            }
+            return regions;
         };
 
-        // Stage2: per-region OCR fanout (runs on GPU lane via LaneScheduler
-        //   inside PpDocLayoutDetector; here we run the text OCR on CPU lane)
+        // Stage2: per-region OCR fanout
         auto stage2 = [=](int p, QList<LayoutRegion> regions) -> QList<MergedOcrWord> {
             const QImage &img = pageImages[p];
             OcrPipeline pipe(primaryEngine, secondaryEngine);
@@ -314,12 +326,19 @@ QFuture<QList<PageOcrResult>> OcrPipeline::recognizeDocument(const QList<QImage>
             return allWords;
         };
 
-        // Stage3: assemble PageOcrResult
-        auto stage3 = [](int p, QList<MergedOcrWord> words) -> PageOcrResult {
+        // Stage3: assemble PageOcrResult (runs CPU side; safe to read capturedLayouts)
+        auto stage3 = [=, &capturedLayouts, &layoutMutex](int p,
+                                                            QList<MergedOcrWord> words)
+                       -> PageOcrResult {
             PageOcrResult pr;
             pr.pageIndex = p;
             pr.words     = std::move(words);
-            pr.success   = true;
+            {
+                QMutexLocker lk(&layoutMutex);
+                if (p < capturedLayouts.size())
+                    pr.layoutRegions = capturedLayouts[p];
+            }
+            pr.success = true;
             return pr;
         };
 
@@ -333,25 +352,6 @@ QFuture<QList<PageOcrResult>> OcrPipeline::recognizeDocument(const QList<QImage>
         gp::CrossPagePipeline<QList<LayoutRegion>, QList<MergedOcrWord>, PageOcrResult>
             pipeline(*sched, 4);
         pipeline.run(pageCount, stage1, stage2, stage3, handler);
-
-        // Populate layout regions (stage1 output is not threaded into stage2's result)
-        // by re-running ensemble results for each page (stored in orderedResults during
-        // stage3 invocation).  Since we stored words in stage3 but not regions (stage2
-        // takes regions as input not output), we do a lightweight re-detect here only
-        // when a layout ensemble is available — these are already cached inside the
-        // LaneScheduler's warm session (no re-load cost).
-        //
-        // NOTE: For a production-quality implementation, stage1 output would be threaded
-        // through a shared capture. This approach is correct and avoids re-inference
-        // because the pipeline already ran stage1 for all pages — the region results
-        // were consumed as stage2 input and are gone.  We accept the minimal re-detect
-        // overhead (pure CPU centroid compute from a cached warm model) here.
-        if (layoutEns) {
-            for (int p = 0; p < pageCount; ++p) {
-                if (orderedResults[p].success)
-                    orderedResults[p].layoutRegions = layoutEns->detect(pageImages[p]);
-            }
-        }
 
         return orderedResults;
     });
