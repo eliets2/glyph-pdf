@@ -2,6 +2,9 @@
 #include "engines/ocr/RapidOcrEngine.h"
 #include "util/GpTheme.h"
 #include "util/Badge.h"
+#include "docmodel/Block.h"
+#include "docmodel/Inline.h"
+#include "pdfws_djot/LuaDjotCodec.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -20,6 +23,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <sstream>
 
 namespace gp {
 
@@ -536,6 +540,187 @@ void OCRMode::updateInfoStrip()
         tr("AVG CONFIDENCE %1%").arg(static_cast<int>(std::round(avgConf))));
     m_lblLowWords->setText(
         tr("LOW-CONFIDENCE WORDS %1").arg(lowCount));
+}
+
+// ── setSemanticDocument — Djot-aware review UI ────────────────────────────────
+
+namespace {
+
+/// Escape HTML special characters for inline display.
+static QString htmlEsc(const std::string& s) {
+    return QString::fromStdString(s).toHtmlEscaped();
+}
+
+/// Walk a Block and produce simple inline-styled HTML.
+static void blockToHtml(const docmodel::Block& block, std::ostringstream& html)
+{
+    using BT = docmodel::Block::Type;
+
+    // Helper lambda: render a vector of Inline nodes to HTML
+    auto inlinesToHtml = [](const std::vector<std::shared_ptr<docmodel::Inline>>& inlines,
+                            std::ostringstream& out) {
+        for (const auto& inl : inlines) {
+            if (!inl) continue;
+            switch (inl->getType()) {
+            case docmodel::Inline::Type::Text:
+                out << htmlEsc(inl->getText()).toStdString();
+                break;
+            case docmodel::Inline::Type::Strong:
+                out << "<b>";
+                for (const auto& ch : inl->getChildren())
+                    if (ch) out << htmlEsc(ch->getText()).toStdString();
+                out << "</b>";
+                break;
+            case docmodel::Inline::Type::Emph:
+                out << "<i>";
+                for (const auto& ch : inl->getChildren())
+                    if (ch) out << htmlEsc(ch->getText()).toStdString();
+                out << "</i>";
+                break;
+            case docmodel::Inline::Type::Code:
+                out << "<code style='font-family:monospace;background:#e0e0e0;padding:1px 3px;'>";
+                for (const auto& ch : inl->getChildren())
+                    if (ch) out << htmlEsc(ch->getText()).toStdString();
+                out << "</code>";
+                break;
+            }
+        }
+    };
+
+    switch (block.getType()) {
+    case BT::Heading:
+        html << "<h1 style='font-size:18px;font-weight:600;margin:8px 0 4px;color:#1a1a1a;'>";
+        inlinesToHtml(block.getInlines(), html);
+        html << "</h1>";
+        break;
+    case BT::Paragraph:
+        html << "<p style='margin:4px 0;color:#1a1a1a;'>";
+        inlinesToHtml(block.getInlines(), html);
+        html << "</p>";
+        break;
+    case BT::Figure:
+        html << "<p style='margin:4px 0;color:#555;font-style:italic;'>"
+             << "<span style='background:#dbeafe;padding:1px 4px;border-radius:2px;'>"
+             << "Figure: </span> ";
+        inlinesToHtml(block.getInlines(), html);
+        html << "</p>";
+        break;
+    case BT::List:
+        html << "<ul style='margin:4px 0 4px 20px;color:#1a1a1a;'>";
+        for (const auto& item : block.getBlocks()) {
+            if (!item) continue;
+            html << "<li>";
+            inlinesToHtml(item->getInlines(), html);
+            html << "</li>";
+        }
+        html << "</ul>";
+        break;
+    case BT::Table: {
+        html << "<table style='border-collapse:collapse;margin:6px 0;width:100%;'>";
+        bool firstRow = true;
+        for (const auto& row : block.getBlocks()) {
+            if (!row) continue;
+            html << "<tr>";
+            const auto& cells = row->getBlocks();
+            if (cells.empty()) {
+                // Row with inline content
+                const char* cellTag = firstRow ? "th" : "td";
+                const char* cellStyle = firstRow
+                    ? "border:1px solid #999;padding:3px 6px;background:#e8e8e8;font-weight:600;"
+                    : "border:1px solid #ccc;padding:3px 6px;";
+                html << "<" << cellTag << " style='" << cellStyle << "'>";
+                inlinesToHtml(row->getInlines(), html);
+                html << "</" << cellTag << ">";
+            } else {
+                for (const auto& cell : cells) {
+                    if (!cell) continue;
+                    const char* cellTag = firstRow ? "th" : "td";
+                    const char* cellStyle = firstRow
+                        ? "border:1px solid #999;padding:3px 6px;background:#e8e8e8;font-weight:600;"
+                        : "border:1px solid #ccc;padding:3px 6px;";
+                    html << "<" << cellTag << " style='" << cellStyle << "'>";
+                    inlinesToHtml(cell->getInlines(), html);
+                    html << "</" << cellTag << ">";
+                }
+            }
+            html << "</tr>";
+            firstRow = false;
+        }
+        html << "</table>";
+        break;
+    }
+    case BT::CodeBlock:
+        html << "<pre style='background:#f5f5f5;padding:6px;font-family:monospace;"
+                "font-size:11px;margin:4px 0;overflow:auto;'>";
+        for (const auto& child : block.getBlocks()) {
+            if (!child) continue;
+            inlinesToHtml(child->getInlines(), html);
+            html << "\n";
+        }
+        html << "</pre>";
+        break;
+    case BT::ListItem:
+        // Standalone ListItem (shouldn't normally appear outside a List)
+        inlinesToHtml(block.getInlines(), html);
+        break;
+    }
+}
+
+/// Walk a SemanticDocument and produce inline-styled HTML preview.
+static QString semanticDocToHtml(const docmodel::SemanticDocument& doc)
+{
+    std::ostringstream html;
+    html << "<html><body style='font-family:Manrope,sans-serif;font-size:13px;"
+            "background:#f4f1ea;color:#1a1a1a;padding:16px;'>";
+
+    for (const auto& section : doc.getSections()) {
+        if (!section) continue;
+
+        // Page header (section-level separator if not the first section)
+        if (!section->getTitle().empty()) {
+            html << "<h2 style='font-size:14px;font-weight:700;margin:12px 0 4px;"
+                    "color:#666;border-top:1px solid #ccc;padding-top:8px;'>"
+                 << htmlEsc(section->getTitle()).toStdString()
+                 << "</h2>";
+        }
+
+        for (const auto& block : section->getBlocks()) {
+            if (block) blockToHtml(*block, html);
+        }
+    }
+
+    html << "</body></html>";
+    return QString::fromStdString(html.str());
+}
+
+} // anonymous namespace
+
+void OCRMode::setSemanticDocument(const docmodel::SemanticDocument &doc,
+                                  const QString &djotLibPath)
+{
+    // 1. Render SemanticDocument → inline-styled HTML for the scan pane
+    if (m_scanContentLabel) {
+        const QString html = semanticDocToHtml(doc);
+        m_scanContentLabel->setText(html);
+    }
+
+    // 2. Populate the Djot text editor for Djot-aware edit-in-place.
+    //    LuaDjotCodec::documentToDjot uses the C++ emitter (no Lua required for encode).
+    //    The djotLibPath is only needed for djotToDocument (the decode stub) — not here.
+    if (m_textEdit) {
+        pdfws::LuaDjotCodec codec(djotLibPath.toStdString());
+        try {
+            std::string djotText = codec.documentToDjot(doc);
+            m_textEdit->setPlainText(QString::fromStdString(djotText));
+        } catch (const std::exception& e) {
+            m_textEdit->setPlainText(
+                tr("[Djot encode error: %1]").arg(QString::fromLatin1(e.what())));
+        }
+    }
+
+    // 3. Enable the review buttons (accept/reject) — per-region workflow
+    if (m_btnAccept) m_btnAccept->setEnabled(true);
+    if (m_btnReject) m_btnReject->setEnabled(true);
 }
 
 } // namespace gp
