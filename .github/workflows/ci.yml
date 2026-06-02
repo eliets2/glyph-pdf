@@ -17,38 +17,48 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Set up MSYS2 ucrt64
         uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
-          update: true
-          install: >-
-            mingw-w64-ucrt-x86_64-toolchain
-            mingw-w64-ucrt-x86_64-cmake
-            mingw-w64-ucrt-x86_64-ninja
-            mingw-w64-ucrt-x86_64-pkgconf
-            mingw-w64-ucrt-x86_64-qt6-base
-            mingw-w64-ucrt-x86_64-qt6-tools
-            mingw-w64-ucrt-x86_64-qt6-svg
-            mingw-w64-ucrt-x86_64-qt6-translations
-            mingw-w64-ucrt-x86_64-qt6-imageformats
-            mingw-w64-ucrt-x86_64-qt6-pdf
-            mingw-w64-ucrt-x86_64-podofo
-            mingw-w64-ucrt-x86_64-qpdf
-            mingw-w64-ucrt-x86_64-openssl
-            mingw-w64-ucrt-x86_64-tesseract-ocr
-            mingw-w64-ucrt-x86_64-tesseract-data-eng
-            mingw-w64-ucrt-x86_64-leptonica
-            mingw-w64-ucrt-x86_64-libxml2
-            mingw-w64-ucrt-x86_64-freetype
-            mingw-w64-ucrt-x86_64-zlib
-            mingw-w64-ucrt-x86_64-curl
-            mingw-w64-ucrt-x86_64-libpng
-            mingw-w64-ucrt-x86_64-libjpeg-turbo
-            mingw-w64-ucrt-x86_64-libtiff
+          update: false
+          pacboy: >-
+            toolchain:u
+            cmake:u
+            ninja:u
+            pkgconf:u
+            qt6-base:u
+            qt6-tools:u
+            qt6-svg:u
+            qt6-translations:u
+            qt6-imageformats:u
+            qt6-pdf:u
+            podofo:u
+            qpdf:u
+            openssl:u
+            tesseract-ocr:u
+            tesseract-data-eng:u
+            leptonica:u
+            libxml2:u
+            freetype:u
+            zlib:u
+            curl:u
+            libpng:u
+            libjpeg-turbo:u
+            libtiff:u
+            openjpeg2:u
+
+      # Download ONNX Runtime 1.17.3 (gitignored; required for HAS_RAPIDOCR)
+      - name: Download ONNX Runtime
+        shell: pwsh
+        run: |
+          $url = "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-win-x64-1.17.3.zip"
+          $zip = "ort.zip"
+          Invoke-WebRequest -Uri $url -OutFile $zip -TimeoutSec 120
+          Expand-Archive -Path $zip -DestinationPath . -Force
+          Remove-Item $zip
+          Write-Host "ORT extracted: $(Get-ChildItem onnxruntime-win-x64-1.17.3 | Select-Object -First 3)"
 
       - name: Configure
         run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -57,6 +67,8 @@ jobs:
         run: cmake --build build --parallel
 
       - name: Test
+        # Models (ONNX weights) are gitignored — TestRapidOcr + TestMrcPipeline will
+        # QSKIP model-dependent cases gracefully; all other 30 tests must pass.
         run: |
           cd build
           QT_QPA_PLATFORM=offscreen ctest --output-on-failure -j4
