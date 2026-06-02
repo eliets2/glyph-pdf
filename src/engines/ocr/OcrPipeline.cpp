@@ -1,4 +1,5 @@
 #include "engines/ocr/OcrPipeline.h"
+#include "engines/ocr/OcrDjotMapper.h"
 #include "engines/ocr/LayoutEnsemble.h"
 #include "engines/scheduling/PipelineStage.h"
 
@@ -354,6 +355,49 @@ QFuture<QList<PageOcrResult>> OcrPipeline::recognizeDocument(const QList<QImage>
         pipeline.run(pageCount, stage1, stage2, stage3, handler);
 
         return orderedResults;
+    });
+}
+
+// ── recognizeDocumentAsDjot ───────────────────────────────────────────────────
+
+QFuture<docmodel::SemanticDocument> OcrPipeline::recognizeDocumentAsDjot(
+    const QString& pdfPath,
+    const QList<QImage>& pageImages)
+{
+    // Capture what we need for the async chain.
+    // recognizeDocument() returns a QFuture; we chain it via QtConcurrent::run
+    // so that the mapping step executes on the CPU lane (thread pool).
+    //
+    // Pattern: launch an outer QtConcurrent::run that:
+    //   1. Calls recognizeDocument() synchronously (waits on future result).
+    //   2. Maps the PageOcrResult list via OcrDjotMapper.
+    //   3. Returns SemanticDocument.
+    //
+    // This keeps OcrDjotMapper on a CPU worker thread (not the calling/UI thread),
+    // satisfying the "CPU-bound mapping; use CPU lane" constraint.
+
+    // Snapshot pipeline members for async capture
+    auto primaryEngine   = d->primary;
+    auto secondaryEngine = d->secondary;
+    OcrStrategy strat    = d->strategy;
+    OcrPreprocessOptions ppOpts = d->preprocessOpts;
+    LayoutEnsemble*   layoutEns = d->layoutEnsemble;
+    gp::LaneScheduler* sched    = d->scheduler;
+
+    return QtConcurrent::run([=, pageImages = pageImages,
+                               pdfPath = pdfPath]() -> docmodel::SemanticDocument {
+        // Step 1: run the recognizeDocument pipeline (synchronous inside this worker)
+        OcrPipeline pipe(primaryEngine, secondaryEngine);
+        pipe.setStrategy(strat);
+        pipe.setPreprocessing(ppOpts);
+        if (layoutEns) pipe.setLayoutEnsemble(layoutEns);
+        if (sched)     pipe.setScheduler(sched);
+
+        QList<PageOcrResult> pageResults = pipe.recognizeDocument(pageImages).result();
+
+        // Step 2: map via OcrDjotMapper (stateless, CPU-bound)
+        OcrDjotMapper mapper;
+        return mapper.fromOcrResults(pageResults, pdfPath);
     });
 }
 

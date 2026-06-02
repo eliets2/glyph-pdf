@@ -11,6 +11,7 @@
 #include "engines/ocr/ILayoutDetector.h"
 #include "engines/ocr/OcrPreprocessor.h"
 #include "engines/scheduling/LaneScheduler.h"
+#include "docmodel/SemanticDocument.h"
 
 /// Strategy for multi-engine routing.
 enum class OcrStrategy {
@@ -75,6 +76,20 @@ public:
     /// Requires setLayoutEnsemble() and setScheduler() to be called first.
     /// Falls back to sequential single-page run() if scheduler is null.
     QFuture<QList<PageOcrResult>> recognizeDocument(const QList<QImage> &pageImages);
+
+    /// High-level convenience: run the full pipeline and map the result to a
+    /// SemanticDocument via OcrDjotMapper.
+    ///
+    /// \param pdfPath  Source PDF path — embedded in every BornOCR provenance node.
+    /// \param pageImages  Pre-rendered page images (one per page).
+    ///
+    /// Mapping runs on the LaneScheduler CPU lane (if scheduler is set) or inline
+    /// on the calling thread (sequential fallback).
+    ///
+    /// Back-compat: recognizeDocument() is unchanged.
+    QFuture<docmodel::SemanticDocument> recognizeDocumentAsDjot(
+        const QString& pdfPath,
+        const QList<QImage>& pageImages);
 
     // ── ROVER helpers (public for testability) ──────────────────────────
 
