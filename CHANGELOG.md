@@ -4,6 +4,50 @@ All notable changes to GlyphPDF are documented in this file.
 
 ## [Unreleased] — v1.0.0 Branch C SCOPE LOCK execution (M2-M8)
 
+### OCR→Djot Mapping — WS2 Role 1 (M5-PROMPT-4 — 2026-06-02)
+
+OCR output maps to SemanticDocument via OcrDjotMapper (WS2 role 1) — layout regions → block structure; per-word fused text → Inline spans with `{pdf-page pdf-bbox pdf-font ocr-conf}` attributes; tables → Djot pipe tables. Feeds OCRMode review UI + M7-P3 MRC sandwich text layer.
+
+#### Added
+- **`OcrDjotMapper`** (`src/engines/ocr/OcrDjotMapper.{h,cpp}`): stateless pure-function
+  `fromOcrResults(QList<PageOcrResult>, pdfPath) → SemanticDocument`. No hidden state;
+  re-entrant and safe to call from multiple CPU lane workers simultaneously.
+  - Reading-order (`LayoutRegion::readingOrderIndex`) → block order within each Section.
+  - RegionType mapping: `Title` → `Heading(level 1)`, `Paragraph` → `Paragraph`,
+    `Table` → `ContainerBlock(Table)`, `Figure` → `Figure`, `List` → `List`
+    (ContainerBlock with ListItem children per Y-line), `Header` → `Paragraph` with
+    `{page-header}` attr in provenance, `Footer` → `Paragraph` with `{page-footer}` attr.
+    `Equation`, `Reference`, `Caption`, `Other` → `Paragraph` with typed attr annotation.
+  - Per-word fused `MergedOcrWord` → `TextInline` with provenance encoding:
+    `{pdf-page=N pdf-bbox="x y w h" pdf-font="Name" ocr-conf=0.92}|path/to/file.pdf`
+    stored in `Provenance::source_file` so M7-P3 MRC sandwich text can align words to tiles.
+  - Every block node carries `BornOCR` `ProvenanceTag` + source PDF path + page index + bbox.
+  - **Table cells**: X-gap analysis clusters row words into cells;
+    `ContainerBlock(Table)` → rows (`ListItem`) → cells (`Paragraph`).
+- **`OcrPipeline::recognizeDocumentAsDjot`** (`src/engines/ocr/OcrPipeline.{h,cpp}`):
+  new API `QFuture<SemanticDocument> recognizeDocumentAsDjot(pdfPath, pageImages)`.
+  Chains `recognizeDocument()` → `OcrDjotMapper::fromOcrResults()` in a single
+  `QtConcurrent` CPU-lane worker thread (CPU-bound mapping stays off the UI thread).
+  Back-compat: `QFuture<QList<PageOcrResult>> recognizeDocument()` is unchanged.
+- **`OCRMode::setSemanticDocument`** (`src/modes/OCRMode.{h,cpp}`):
+  Djot-aware "Review before save" pane. Scan pane renders inline-styled HTML via a direct
+  SemanticDocument tree-walker (Heading/Paragraph/Figure/List/Table blocks, no external CSS).
+  Text pane populates with Djot source text via `LuaDjotCodec::documentToDjot` (C++ emitter —
+  no Lua runtime required for encode direction) for Djot-aware edit-in-place.
+  Per-region accept/reject buttons (M5-P2 D6) remain active after doc load.
+- **`Block::Type`** extended with `Table` and `Figure` types (`src/docmodel/Block.h`).
+- **`LuaDjotCodec::emitBlock`** updated: `Table` emits Djot pipe-table syntax with header
+  separator row; `Figure` emits `::: figure` fenced div.
+- **`TestOcrDjotMapper`** (14 tests): empty input, Paragraph/Title/Header/Footer/Figure/List/
+  Table region mapping, per-word BornOCR provenance with attribute encoding, block order from
+  readingOrderIndex, encode roundtrip (paragraph text in Djot output), table pipe-table syntax
+  (`|` + all cell texts), multi-page sections, failed page error section. **31/31 ctest pass.**
+
+#### WS2 Status
+- WS2 Role 1 (OCR→Djot mapping): **COMPLETE** (this prompt)
+- WS2 Role 3 (annotation rich text): **COMPLETE** (M6-PROMPT-4, 2026-06-01)
+- WS2 Role 2 (authoring Djot→PDF): implicit in M4-PROMPT-7 IDjotMapper
+
 ### Edge-case cleanup + branding (M6-PROMPT-6 — 2026-06-01)
 #### Changed (decorative panels → real data)
 - **SignaturesPanel** renders real `ISignatureManager::validateSignatures` output (was hardcoded "Elie Matta / GlobalSign CA"). (D1)
