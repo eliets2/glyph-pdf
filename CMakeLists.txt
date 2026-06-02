@@ -1128,6 +1128,25 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOfficeImport.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestMrcPipeline.cpp")
+    add_executable(TestMrcPipeline
+        tests/TestMrcPipeline.cpp
+    )
+    target_include_directories(TestMrcPipeline PRIVATE src tests)
+    target_compile_definitions(TestMrcPipeline PRIVATE
+        $<TARGET_PROPERTY:pdfws_engines,INTERFACE_COMPILE_DEFINITIONS>)
+    target_link_libraries(TestMrcPipeline PRIVATE
+        pdfws_engines pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+    )
+    add_test(NAME TestMrcPipeline COMMAND TestMrcPipeline)
+    set_tests_properties(TestMrcPipeline PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;mrc;compression;pdfa;sandwich;qt;headless"
+    )
+endif()
+
 # ── Translations (Qt Linguist) ───────────────────────────────────────────
 if(Qt6LinguistTools_FOUND)
     set(TS_FILES

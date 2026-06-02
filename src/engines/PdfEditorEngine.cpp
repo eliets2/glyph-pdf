@@ -313,8 +313,8 @@ static QByteArray buildXmpStream(const QString& docId)
         "<dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">MRC Document</rdf:li></rdf:Alt></dc:title>"
         "<dc:creator><rdf:Seq><rdf:li>GlyphPDF</rdf:li></rdf:Seq></dc:creator>"
         "</rdf:Description>"
-        "</rdf:RDF></x:xmpmeta><?xpacket end=\"w\"?>")
-        .arg(docId).toUtf8();
+        "</rdf:RDF></x:xmpmeta><?xpacket end=\"w\"?>").toUtf8();
+    Q_UNUSED(docId)
 }
 
 // Write integer to PDF as ASCII bytes.
@@ -630,9 +630,10 @@ bool PdfEditorEngine::exportMrcPdfA(
     out.write("startxref\n");
     out.write(QByteArray::number(xrefOffset) + "\n");
     out.write("%%EOF\n");
+    qint64 totalWritten = out.pos();
     out.close();
 
-    qDebug() << "MrcPdfA: wrote" << out.pos() << "bytes to" << outputPath;
+    qDebug() << "MrcPdfA: wrote" << totalWritten << "bytes to" << outputPath;
 
     // ── veraPDF validation gate ───────────────────────────────────────────
     if (gp::VeraPdfValidator::isAvailable()) {
