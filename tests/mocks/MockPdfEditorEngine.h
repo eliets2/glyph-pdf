@@ -1,8 +1,11 @@
 #pragma once
 #include "core/interfaces/IPdfEditorEngine.h"
 #include <QMap>
-
+#include <QImage>
 #include <QFile>
+
+// Forward declaration — IPdfEditorEngine.h already forward-declares PageOcrResult
+// using `struct PageOcrResult;` so we don't need the full OcrPipeline.h here.
 
 class MockPdfEditorEngine : public IPdfEditorEngine {
 public:
@@ -26,6 +29,9 @@ public:
     bool deleteObjectAt(int, const QPointF &) override { return m_loaded; }
     bool linearizeDocument(const QString &) override { return m_loaded; }
     bool exportPdfA(const QString &, int) override { return m_loaded; }
+    bool exportMrcPdfA(const QString&, const QList<QImage>&,
+                       const QList<PageOcrResult>&,
+                       MrcMode) override { return m_loaded; }
     bool encryptDocument(const QString &, const QString &, const DocumentPermissions&) override { return m_loaded; }
     bool removeEncryption(const QString &) override { return m_loaded; }
     bool encryptWithCertificate(const QString &, const QString &, const QStringList &) override { return m_loaded; }
