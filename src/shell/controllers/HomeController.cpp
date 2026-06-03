@@ -27,6 +27,9 @@
 #include <algorithm>
 #include "shell/StatusBar.h"
 #include "core/interfaces/IPdfEditorEngine.h"
+#include "core/interfaces/ISignatureManager.h"
+#include "pdfws_djot/ProvenanceGuard.h"
+#include "docmodel/ProvenanceTag.h"
 #include <QUndoStack>
 #include <QPdfDocument>
 
@@ -105,6 +108,35 @@ void HomeController::onSave() {
         _mainWindow->statusBar()->showMessage(tr("Save unavailable: current tab has no file path."), 5000);
         return;
     }
+
+    // D-05: ProvenanceGuard check — enforce §6 non-negotiable before every save.
+    // Determines whether the document is signed (using the signature manager) and
+    // passes EditPath::DirectStructural (annotation/engine saves are structural,
+    // not Djot round-trips).  The guard throws ProvenanceViolation for the
+    // DjotThenSave+BornPDF+signed combination; structural saves are allowed but
+    // will be gated further once the Djot editor is wired (TODO(WP-4)).
+    if (_ctx->provenanceGuard && _ctx->signing) {
+        try {
+            bool isSigned = !_ctx->signing->validateSignatures(filePath).isEmpty();
+            // All loaded PDFs are treated as BornPDF by default; Djot-born docs
+            // will carry an explicit BornDjot marker when the mapper is wired (WP-4).
+            _ctx->provenanceGuard->checkEditVia(
+                docmodel::ProvenanceTag::BornPDF,
+                isSigned,
+                pdfws::EditPath::DirectStructural);
+        } catch (const pdfws::ProvenanceViolation& pv) {
+            // DirectStructural is always allowed by the guard; this branch only
+            // fires if the guard logic is extended in the future.
+            QMessageBox::warning(
+                _mainWindow,
+                tr("Save Blocked"),
+                tr("This document cannot be saved in-place: %1\n\n"
+                   "Use 'Save As' to create a copy.")
+                    .arg(QString::fromStdString(pv.what())));
+            return;
+        }
+    }
+
     viewer->saveAnnotations();
     const bool ok = _ctx->pdfEditor->saveDocument(filePath);
     if (ok) {
