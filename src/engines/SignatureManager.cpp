@@ -97,6 +97,9 @@ public:
     QString tsaUrl;
     PAdESLevel level = PAdESLevel::B_T;
     X509_STORE *testTrustStore = nullptr;
+    // E-02: outcome of the most recent signing call so the UI can tell a partial
+    // (core-signed but LTV-missing) result apart from a total failure.
+    SignOutcome lastOutcome = SignOutcome::NotRun;
 
     // -----------------------------------------------------------------------
     // Populate X509_STORE with trust roots
@@ -626,6 +629,7 @@ SignatureManager::~SignatureManager() = default;
 void SignatureManager::setTsaUrl(const QString &url) { d->tsaUrl = url; }
 void SignatureManager::setSignatureLevel(PAdESLevel level) { d->level = level; }
 void SignatureManager::setTrustStoreForTest(X509_STORE *store) { d->testTrustStore = store; }
+SignOutcome SignatureManager::lastSignOutcome() const { return d->lastOutcome; }
 
 // ---------------------------------------------------------------------------
 bool SignatureManager::signDocument(const QString &inputPath,
@@ -653,6 +657,8 @@ bool SignatureManager::signDocumentImpl(const QString &inputPath,
                                         const QString &reason,
                                         const QString &location)
 {
+    // E-02: assume failure until we know the core signature bytes were written.
+    d->lastOutcome = SignOutcome::Failed;
     try {
         PdfMemDocument doc;
         doc.Load(inputPath.toStdString());
@@ -857,12 +863,20 @@ bool SignatureManager::signDocumentImpl(const QString &inputPath,
             }
         }
 
+        // E-02: at this point the cryptographic signature bytes ARE on disk
+        // (SignDocument completed above). If overallOk is false it is purely the
+        // B-LT/B-LTA enhancement that failed — record that distinctly so the UI
+        // can show "signed, but long-term-validation data missing" rather than a
+        // bare "signing failed". The strict boolean return is unchanged.
+        d->lastOutcome = overallOk ? SignOutcome::Success : SignOutcome::PartialLtvMissing;
         return overallOk;
     } catch (const PdfError &e) {
         qWarning() << "PoDoFo error during signing:" << e.what();
+        d->lastOutcome = SignOutcome::Failed;
         return false;
     } catch (const std::exception &e) {
         qWarning() << "Standard error during signing:" << e.what();
+        d->lastOutcome = SignOutcome::Failed;
         return false;
     }
 }

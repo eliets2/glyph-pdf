@@ -208,21 +208,40 @@ void SecurityController::signDocument() {
 
         QPointer<SecurityController> self(this);
         auto result = std::make_shared<std::atomic<bool>>(false);
+        // E-02: also capture the signing OUTCOME so the UI can tell a partial
+        // (core-signed, LTV-missing) result apart from a total sign failure.
+        auto outcome = std::make_shared<std::atomic<int>>(static_cast<int>(SignOutcome::NotRun));
 
-        QThread* worker = QThread::create([signing, doc, outputPath, certPath, pwd, reason, location, result]() {
+        QThread* worker = QThread::create([signing, doc, outputPath, certPath, pwd, reason, location, result, outcome]() {
             bool ok = SignDocumentHelper::execute(
                 signing, doc, outputPath, certPath, pwd, reason, location);
             result->store(ok);
+            if (signing) outcome->store(static_cast<int>(signing->lastSignOutcome()));
         });
 
-        connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result]() {
+        connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result, outcome]() {
             progress->close();
             progress->deleteLater();
             if (!self) return;
-            bool ok = result->load();
+            const bool ok = result->load();
+            const auto sigOutcome = static_cast<SignOutcome>(outcome->load());
             if (ok) {
                 self->_mainWindow->statusBar()->showMessage(tr("Document signed and saved to %1").arg(outputPath), 5000);
                 if (QMessageBox::question(self->_mainWindow, tr("Open Signed PDF"), tr("Signing complete. Would you like to open the signed file?")) == QMessageBox::Yes) {
+                    self->_mainWindow->openDocument(outputPath);
+                }
+            } else if (sigOutcome == SignOutcome::PartialLtvMissing) {
+                // E-02: the signature bytes ARE on disk — do NOT tell the user signing
+                // failed (which would make them discard a validly-signed file). Warn
+                // that only the long-term-validation enhancement could not be added.
+                QMessageBox::warning(self->_mainWindow, tr("Signature Applied — Long-Term Validation Incomplete"),
+                    tr("The document was signed and saved to %1, but the long-term "
+                       "validation data (DSS / archive timestamp) could not be embedded. "
+                       "The signature is valid now; please verify the TSA/OCSP "
+                       "configuration if you require B-LT/B-LTA archival assurances.")
+                        .arg(outputPath));
+                self->_mainWindow->statusBar()->showMessage(tr("Signed (long-term validation data missing)."), 5000);
+                if (QMessageBox::question(self->_mainWindow, tr("Open Signed PDF"), tr("Would you like to open the signed file?")) == QMessageBox::Yes) {
                     self->_mainWindow->openDocument(outputPath);
                 }
             } else {
