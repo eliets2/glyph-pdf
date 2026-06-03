@@ -295,10 +295,60 @@ bool PoDoFoBackend::writeDocument(const QString &path) {
 }
 
 bool PoDoFoBackend::writeUpdate(const QString &path) {
-    qCritical() << "PoDoFoBackend::writeUpdate called but only full-rewrite is implemented — "
-                << "this would invalidate any existing signatures. Falling through to saveDocument; "
-                << "ensure no signed document state when this path is reached.";
-    return saveDocument(path);
+    QMutexLocker locker(&d->mutex);
+    if (!d->document) return false;
+
+    // §6 non-negotiable: when signatures exist, a full rewrite changes the byte
+    // offsets that every /ByteRange points at and silently invalidates the
+    // signatures. Detect signatures and, if present, perform a real PoDoFo
+    // incremental update (SaveUpdate appends a new revision, leaving the original
+    // bytes — and therefore all signed /ByteRange windows — intact).
+    bool hasSignatures = false;
+    try {
+        for (auto field : d->document->GetFieldsIterator()) {
+            if (field != nullptr && field->GetType() == PoDoFo::PdfFieldType::Signature) {
+                hasSignatures = true;
+                break;
+            }
+        }
+    } catch (const PoDoFo::PdfError& e) {
+        qCritical() << "PoDoFoBackend::writeUpdate: failed to inspect signature fields:"
+                    << e.what() << "— refusing to write rather than risk invalidating a signature.";
+        return false;
+    }
+
+    if (!hasSignatures) {
+        // No signatures to protect — a full save is safe.
+        return saveDocument(path);
+    }
+
+    // Incremental update path. SaveUpdate appends to the file at `path`, which must
+    // already contain the original document bytes. If we are writing to a different
+    // file than the source, copy the source first so the incremental revision is
+    // appended onto the exact bytes the signatures were computed over.
+    try {
+        const QString src = d->currentFile;
+        if (!src.isEmpty() && QString::compare(src, path, Qt::CaseInsensitive) != 0) {
+            if (QFile::exists(path) && !QFile::remove(path)) {
+                qCritical() << "PoDoFoBackend::writeUpdate: cannot overwrite target" << path;
+                return false;
+            }
+            if (!QFile::copy(src, path)) {
+                qCritical() << "PoDoFoBackend::writeUpdate: failed to stage source bytes from"
+                            << src << "to" << path << "for incremental update.";
+                return false;
+            }
+        }
+        d->document->SaveUpdate(path.toUtf8().constData());
+        return true;
+    } catch (const PoDoFo::PdfError& e) {
+        qCritical() << "PoDoFoBackend::writeUpdate: incremental SaveUpdate failed:"
+                    << e.what() << "path:" << path;
+        return false;
+    } catch (const std::exception& e) {
+        qCritical() << "PoDoFoBackend::writeUpdate: incremental save exception:" << e.what();
+        return false;
+    }
 }
 
 QString PoDoFoBackend::currentFile() const {
