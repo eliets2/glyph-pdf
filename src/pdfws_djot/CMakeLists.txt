@@ -19,6 +19,7 @@ target_link_libraries(pdfws_djot PUBLIC
     docmodel
     liblua
     Qt6::Core
+    PRIVATE podofo::podofo
 )
 
 # Suppress warnings from vendored Lua headers in our TUs
