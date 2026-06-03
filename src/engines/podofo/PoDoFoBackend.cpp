@@ -1022,9 +1022,39 @@ bool PoDoFoBackend::applyBatesNumbering(const QString &path, const BatesNumberin
 }
 
 
-void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj, 
-                             const std::vector<PoDoFo::Rect>& pdfRects, 
-                             PoDoFo::PdfPage& page, 
+// A-02: destructively replace an image XObject's pixel data with a single 1x1
+// black pixel, so the ORIGINAL image bytes do not survive anywhere in the saved
+// file. We rewrite the stream and the geometry/colour keys to a self-consistent
+// 1x1 DeviceGray image and strip keys that referenced the old pixels (Filter,
+// DecodeParms, SMask, Mask, Decode, alternates). The on-page Do is dropped
+// separately by the caller, so the neutralised object is also no longer painted.
+static void neutralizeImageXObject(PoDoFo::PdfObject& xobj)
+{
+    using namespace PoDoFo;
+    if (!xobj.IsDictionary()) return;
+    auto& dict = xobj.GetDictionary();
+
+    // Remove keys tied to the original pixel encoding/geometry.
+    for (const char* k : { "Filter", "DecodeParms", "DP", "SMask", "Mask",
+                           "Decode", "Alternates", "ColorKeyMask", "Interpolate" }) {
+        if (dict.HasKey(k)) dict.RemoveKey(PdfName(k));
+    }
+
+    // Self-consistent 1x1 8-bit DeviceGray image.
+    dict.AddKey(PdfName("Width"),            static_cast<int64_t>(1));
+    dict.AddKey(PdfName("Height"),           static_cast<int64_t>(1));
+    dict.AddKey(PdfName("BitsPerComponent"), static_cast<int64_t>(8));
+    dict.AddKey(PdfName("ColorSpace"),       PdfName("DeviceGray"));
+
+    // Overwrite the stream with a single black pixel (raw, unfiltered).
+    auto& stream = xobj.GetOrCreateStream();
+    const char pixel[1] = { '\0' };
+    stream.SetData(bufferview(pixel, sizeof(pixel)), true /*raw*/);
+}
+
+void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
+                             const std::vector<PoDoFo::Rect>& pdfRects,
+                             PoDoFo::PdfPage& page,
                              PoDoFo::PdfMemDocument* document,
                              std::set<int64_t>& redactedMcids) 
 {
@@ -1066,12 +1096,52 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
     
     int64_t currentMcid = -1;
 
+    // A-02: track the graphics-state CTM so an image's placement is computed from
+    // its own `cm` matrix (the normal case), not the text cursor. A PDF affine
+    // matrix is [a b c d e f]; image space is the unit square [0,1]x[0,1], so the
+    // four transformed corners give the image's device-space bounding box.
+    struct Ctm { double a=1,b=0,c=0,d=1,e=0,f=0; };
+    Ctm ctm;                       // current transformation matrix
+    std::vector<Ctm> ctmStack;     // q/Q save/restore stack
+
+    // result = m2 x m1 (apply m1 then m2), per PDF 8.3.4 matrix concatenation.
+    auto concat = [](const Ctm& m1, const Ctm& m2) -> Ctm {
+        Ctm r;
+        r.a = m1.a * m2.a + m1.b * m2.c;
+        r.b = m1.a * m2.b + m1.b * m2.d;
+        r.c = m1.c * m2.a + m1.d * m2.c;
+        r.d = m1.c * m2.b + m1.d * m2.d;
+        r.e = m1.e * m2.a + m1.f * m2.c + m2.e;
+        r.f = m1.e * m2.b + m1.f * m2.d + m2.f;
+        return r;
+    };
+
     auto isIntersectingSpan = [&](double xStart, double xEnd, double y) -> bool {
         for (const auto& r : pdfRects) {
             if (y >= r.Y && y <= (r.Y + r.Height)) {
                 if (xEnd >= r.X && xStart <= (r.X + r.Width))
                     return true;
             }
+        }
+        return false;
+    };
+
+    // A-02: does the CURRENT CTM's image bbox (unit square mapped through ctm)
+    // intersect any redaction rect? Uses an axis-aligned bbox of the 4 corners.
+    auto imageBboxIntersects = [&]() -> bool {
+        const double xs[4] = {0, 1, 0, 1};
+        const double ys[4] = {0, 0, 1, 1};
+        double minX = 1e300, minY = 1e300, maxX = -1e300, maxY = -1e300;
+        for (int k = 0; k < 4; ++k) {
+            double dx = ctm.a * xs[k] + ctm.c * ys[k] + ctm.e;
+            double dy = ctm.b * xs[k] + ctm.d * ys[k] + ctm.f;
+            minX = std::min(minX, dx); maxX = std::max(maxX, dx);
+            minY = std::min(minY, dy); maxY = std::max(maxY, dy);
+        }
+        for (const auto& r : pdfRects) {
+            if (maxX >= r.X && minX <= (r.X + r.Width) &&
+                maxY >= r.Y && minY <= (r.Y + r.Height))
+                return true;
         }
         return false;
     };
@@ -1092,6 +1162,24 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                 newStream << "ET\n";
                 continue;
             }
+
+            // A-02: graphics-state CTM tracking (q/Q/cm). Stack index 0 == last
+            // pushed operand, so "a b c d e f cm" gives stack[5..0] = a..f.
+            if (kw == "q") {
+                ctmStack.push_back(ctm);
+            } else if (kw == "Q") {
+                if (!ctmStack.empty()) { ctm = ctmStack.back(); ctmStack.pop_back(); }
+            } else if (kw == "cm" && stack.size() >= 6 &&
+                       stack[0].IsNumberOrReal() && stack[1].IsNumberOrReal() &&
+                       stack[2].IsNumberOrReal() && stack[3].IsNumberOrReal() &&
+                       stack[4].IsNumberOrReal() && stack[5].IsNumberOrReal()) {
+                Ctm m;
+                m.a = stack[5].GetReal(); m.b = stack[4].GetReal();
+                m.c = stack[3].GetReal(); m.d = stack[2].GetReal();
+                m.e = stack[1].GetReal(); m.f = stack[0].GetReal();
+                ctm = concat(m, ctm);   // new CTM = cm-matrix x oldCTM
+            }
+
             if (kw == "TL" && stack.size() > 0) {
                 if (stack[0].IsNumberOrReal()) leading = stack[0].GetReal();
             }
@@ -1285,30 +1373,45 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
             
             if (kw == "Do" && stack.size() > 0 && stack[0].IsName()) {
                 std::string xobjName(stack[0].GetName().GetString());
-                if (isIntersectingSpan(textX, textX, textY)) { // Simple check for image position
-                    if (currentMcid != -1) {
-                        redactedMcids.insert(currentMcid);
-                    }
-                    continue;
-                }
-                
+
                 auto resources = page.GetResources();
                 auto* xobjectDict = resources.GetDictionary().FindKey("XObject");
+                PdfObject* xobj = nullptr;
                 if (xobjectDict && xobjectDict->IsDictionary()) {
                     auto* xobjRef = xobjectDict->GetDictionary().FindKey(xobjName);
                     if (xobjRef) {
-                        PdfObject* xobj = xobjRef;
+                        xobj = xobjRef;
                         if (xobj->IsReference())
                             xobj = &document->GetObjects().MustGetObject(xobj->GetReference());
-                        
-                        if (xobj->IsDictionary()) {
-                            auto& dict = xobj->GetDictionary();
-                            auto* subtype = dict.FindKey("Subtype");
-                            if (subtype && subtype->GetName().GetString() == "Form") {
-                                redactCanvasRecursively(*xobj, pdfRects, page, document, redactedMcids);
-                            }
-                        }
                     }
+                }
+
+                std::string subtypeName;
+                if (xobj && xobj->IsDictionary()) {
+                    auto& dict = xobj->GetDictionary();
+                    auto* subtype = dict.FindKey("Subtype");
+                    if (subtype && subtype->IsName())
+                        subtypeName = std::string(subtype->GetName().GetString());
+                }
+
+                if (subtypeName == "Image") {
+                    // A-02: test the IMAGE's own placement (unit square through the
+                    // current CTM), not the text cursor. If it intersects a redaction
+                    // rect: (1) drop the Do so the image is not painted, and
+                    // (2) excise the underlying pixels — replacing the image XObject
+                    // stream with a 1x1 transparent pixel — so the original bytes do
+                    // NOT survive in the saved file (the NSA "Redacting with
+                    // Confidence" failure class). Dropping only the Do would leave the
+                    // image object recoverable with any extraction tool.
+                    if (imageBboxIntersects()) {
+                        if (currentMcid != -1) redactedMcids.insert(currentMcid);
+                        neutralizeImageXObject(*xobj);
+                        continue;   // drop the Do operator
+                    }
+                    // Non-intersecting image: emit the Do unchanged (falls through).
+                } else if (subtypeName == "Form") {
+                    // Form XObject: recurse for text/image excision inside it.
+                    redactCanvasRecursively(*xobj, pdfRects, page, document, redactedMcids);
                 }
             }
             
