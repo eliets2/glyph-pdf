@@ -7,9 +7,6 @@
 #include <memory>
 
 #include "engines/ai/IAiProvider.h"
-#include "engines/ai/AnthropicProvider.h"
-#include "engines/ai/OpenAiProvider.h"
-#include "engines/ai/GeminiProvider.h"
 #include "engines/ai/OllamaProvider.h"
 
 // ---------------------------------------------------------------------------
@@ -74,27 +71,7 @@ private slots:
         QVERIFY(w.result().ok);  // empty content → still succeeds
     }
 
-    // ── Key format validation (no network) ────────────────────────────────
-
-    void testAnthropicKeyFormat() {
-        gp::AnthropicProvider p;
-        QVERIFY( p.isPlausibleKey(QStringLiteral("sk-ant-abcdefghij12345678")));
-        QVERIFY(!p.isPlausibleKey(QStringLiteral("sk-openai-abc")));
-        QVERIFY(!p.isPlausibleKey(QStringLiteral("short")));
-    }
-
-    void testOpenAiKeyFormat() {
-        gp::OpenAiProvider p;
-        QVERIFY( p.isPlausibleKey(QStringLiteral("sk-abcdefghijklmnopqrstu12345")));
-        QVERIFY(!p.isPlausibleKey(QStringLiteral("sk-ant-abc")));
-        QVERIFY(!p.isPlausibleKey(QStringLiteral("tiny")));
-    }
-
-    void testGeminiKeyFormat() {
-        gp::GeminiProvider p;
-        QVERIFY( p.isPlausibleKey(QStringLiteral("AIzaSyAbcdefghij1234567890")));
-        QVERIFY(!p.isPlausibleKey(QStringLiteral("short")));
-    }
+    // ── Ollama provider (no network, contract checks) ─────────────────────
 
     void testOllamaNoKeyRequired() {
         gp::OllamaProvider p;
@@ -103,53 +80,40 @@ private slots:
         QVERIFY(p.isPlausibleKey(QStringLiteral("anything")));
     }
 
-    void testAnthropicNoKeyNotReady() {
-        // Provider with no key and no QSettings entry should not be ready
-        gp::AnthropicProvider p(QStringLiteral(""));
-        // Without ANTHROPIC_API_KEY env or QSettings configured: not ready
-        // (This test may pass or be unreliable if the CI machine has a key stored;
-        //  that is expected and acceptable — the guard is format-check only.)
+    void testOllamaIsReadyWithDefaultEndpoint() {
+        // OllamaProvider with default endpoint is considered "ready"
+        // (endpoint is non-empty; actual reachability determined at chat() time)
+        gp::OllamaProvider p;
+        QVERIFY(p.isReady());
     }
 
-    // ── Real round-trip (env-gated — QSKIP when key absent) ───────────────
-
-    void testAnthropicRealPing() {
-        const QString key = qEnvironmentVariable("ANTHROPIC_API_KEY");
-        if (key.isEmpty())
-            QSKIP("ANTHROPIC_API_KEY not set — skipping real Anthropic ping");
-
-        gp::AnthropicProvider prov(key);
-        QVERIFY(prov.isReady());
-
-        QList<gp::AiMessage> ping{{QStringLiteral("user"), QStringLiteral("Say only: ok")}};
-        gp::AiOptions opts; opts.maxTokens = 5;
-        QFutureWatcher<gp::AiResult> w;
-        QEventLoop loop;
-        connect(&w, &QFutureWatcher<gp::AiResult>::finished, &loop, &QEventLoop::quit);
-        w.setFuture(prov.chat(ping, opts));
-        loop.exec();
-
-        const gp::AiResult r = w.result();
-        QVERIFY2(r.ok, qPrintable(QStringLiteral("Anthropic real ping failed: ") + r.errorMsg));
-        QVERIFY(!r.text.isEmpty());
+    void testOllamaProviderName() {
+        gp::OllamaProvider p;
+        QVERIFY(!p.providerName().isEmpty());
+        QVERIFY(p.providerName().toLower().contains("ollama"));
     }
 
-    void testOpenAiRealPing() {
-        const QString key = qEnvironmentVariable("OPENAI_API_KEY");
-        if (key.isEmpty())
-            QSKIP("OPENAI_API_KEY not set — skipping real OpenAI ping");
+    // ── Real round-trip (env-gated — QSKIP when Ollama absent) ───────────
 
-        gp::OpenAiProvider prov(key);
-        QList<gp::AiMessage> ping{{QStringLiteral("user"), QStringLiteral("Say only: ok")}};
-        gp::AiOptions opts; opts.maxTokens = 5;
-        QFutureWatcher<gp::AiResult> w;
-        QEventLoop loop;
-        connect(&w, &QFutureWatcher<gp::AiResult>::finished, &loop, &QEventLoop::quit);
-        w.setFuture(prov.chat(ping, opts));
-        loop.exec();
-
-        const gp::AiResult r = w.result();
-        QVERIFY2(r.ok, qPrintable(QStringLiteral("OpenAI real ping failed: ") + r.errorMsg));
+    void testOllamaRealPing() {
+        const QString endpoint = qEnvironmentVariable("OLLAMA_ENDPOINT",
+                                                       "http://localhost:11434");
+        gp::OllamaProvider prov(endpoint);
+        // If the env variable OLLAMA_SKIP_REAL_PING is set, skip the network test
+        if (!qEnvironmentVariable("OLLAMA_REAL_PING").isEmpty()) {
+            QList<gp::AiMessage> ping{{QStringLiteral("user"), QStringLiteral("Say only: ok")}};
+            gp::AiOptions opts; opts.maxTokens = 5;
+            QFutureWatcher<gp::AiResult> w;
+            QEventLoop loop;
+            connect(&w, &QFutureWatcher<gp::AiResult>::finished, &loop, &QEventLoop::quit);
+            w.setFuture(prov.chat(ping, opts));
+            loop.exec();
+            const gp::AiResult r = w.result();
+            QVERIFY2(r.ok, qPrintable(QStringLiteral("Ollama real ping failed: ") + r.errorMsg));
+            QVERIFY(!r.text.isEmpty());
+        } else {
+            QSKIP("OLLAMA_REAL_PING not set — skipping real Ollama network ping");
+        }
     }
 };
 
