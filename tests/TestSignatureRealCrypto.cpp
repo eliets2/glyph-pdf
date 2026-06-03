@@ -207,6 +207,11 @@ private slots:
         QVERIFY2(QFileInfo::exists(output), "B_LTA: output PDF must exist even if timestamp failed");
         QVERIFY2(!ok, "B_LTA without a TSA must report failure (timestamp not applied)");
 
+        // E-02: the strict boolean is false, but the signature bytes ARE written —
+        // the outcome must be PartialLtvMissing (not Failed) so the UI can warn
+        // instead of telling the user signing failed and making them discard it.
+        QCOMPARE(mgr.lastSignOutcome(), SignOutcome::PartialLtvMissing);
+
         // E-06: an empty TSA token must NOT have been written as a 4-null-byte
         // /DocTimeStamp. The signed file must still load + validate cleanly (i.e.
         // no poisoned timestamp dict was committed).
