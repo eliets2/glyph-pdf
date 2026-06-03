@@ -6,7 +6,6 @@
 #include <memory>
 #include "engines/ai/IAiProvider.h"
 
-class CredentialManager;
 class QListWidget;
 class QLineEdit;
 class QToolButton;
@@ -26,10 +25,6 @@ private slots:
 private:
     IAiProvider* activeProvider() const;
 
-    std::unique_ptr<CredentialManager>         m_credentialManager;
-    std::unique_ptr<IAiProvider>               m_anthropic;
-    std::unique_ptr<IAiProvider>               m_openai;
-    std::unique_ptr<IAiProvider>               m_gemini;
     std::unique_ptr<IAiProvider>               m_ollama;
 
     QListWidget*                               m_msgs    = nullptr;

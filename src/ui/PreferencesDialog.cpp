@@ -1,13 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "PreferencesDialog.h"
 #include "core/UpdateChecker.h"
-#include "core/CredentialManager.h"
 #include "GpMainWindow.h"
 #include "core/AppContext.h"
 #include "engines/AutosaveManager.h"
-#include "engines/ai/AnthropicProvider.h"
-#include "engines/ai/OpenAiProvider.h"
-#include "engines/ai/GeminiProvider.h"
 #include "engines/ai/OllamaProvider.h"
 #include <QFutureWatcher>
 
@@ -28,8 +24,7 @@
 namespace gp {
 
 PreferencesDialog::PreferencesDialog(QWidget* parent)
-    : QDialog(parent),
-      _credentialManager(std::make_unique<CredentialManager>())
+    : QDialog(parent)
 {
     setWindowTitle(tr("Preferences"));
     setMinimumWidth(460);
@@ -153,33 +148,32 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
     auto* aiTab = new QWidget;
     auto* aiCol = new QVBoxLayout(aiTab);
 
-    auto* aiGroup = new QGroupBox(tr("AI Provider"));
+    auto* aiGroup = new QGroupBox(tr("AI Provider — Ollama (local)"));
     auto* aiForm = new QFormLayout(aiGroup);
 
-    _aiProviderCombo = new QComboBox;
-    _aiProviderCombo->setAccessibleName(tr("AI provider"));
-    _aiProviderCombo->addItem(QStringLiteral("Anthropic Claude"), QStringLiteral("Anthropic"));
-    _aiProviderCombo->addItem(QStringLiteral("OpenAI ChatGPT"),   QStringLiteral("OpenAI"));
-    _aiProviderCombo->addItem(QStringLiteral("Google Gemini"),     QStringLiteral("Gemini"));
-    _aiProviderCombo->addItem(QStringLiteral("Ollama (local)"),    QStringLiteral("Ollama"));
-    aiForm->addRow(tr("Provider:"), _aiProviderCombo);
-
+    // Ollama endpoint
     _aiKeyEdit = new QLineEdit;
-    _aiKeyEdit->setEchoMode(QLineEdit::Password);
-    _aiKeyEdit->setPlaceholderText(tr("sk-ant-..."));
-    _aiKeyEdit->setAccessibleName(tr("API key"));
-    aiForm->addRow(tr("API Key:"), _aiKeyEdit);
+    _aiKeyEdit->setPlaceholderText(tr("http://localhost:11434"));
+    _aiKeyEdit->setAccessibleName(tr("Ollama endpoint URL"));
+    _aiKeyEdit->setText(QSettings().value("ai/ollamaEndpoint",
+                                          QStringLiteral("http://localhost:11434")).toString());
+    aiForm->addRow(tr("Ollama endpoint:"), _aiKeyEdit);
+
+    // Ollama model
+    auto* ollamaModelEdit = new QLineEdit;
+    ollamaModelEdit->setObjectName("ollamaModelEdit");
+    ollamaModelEdit->setPlaceholderText(tr("llama3"));
+    ollamaModelEdit->setAccessibleName(tr("Ollama model name"));
+    ollamaModelEdit->setText(QSettings().value("ai/ollamaModel",
+                                               QStringLiteral("llama3")).toString());
+    aiForm->addRow(tr("Model:"), ollamaModelEdit);
 
     aiCol->addWidget(aiGroup);
 
     // Action buttons row
     auto* aiBtnRow = new QHBoxLayout;
-    _aiTestBtn   = new QPushButton(tr("Test key"));
-    _aiSaveBtn   = new QPushButton(tr("Save && encrypt"));
-    _aiDeleteBtn = new QPushButton(tr("Delete stored key"));
+    _aiTestBtn   = new QPushButton(tr("Test connection"));
     aiBtnRow->addWidget(_aiTestBtn);
-    aiBtnRow->addWidget(_aiSaveBtn);
-    aiBtnRow->addWidget(_aiDeleteBtn);
     aiBtnRow->addStretch(1);
     aiCol->addLayout(aiBtnRow);
 
@@ -190,19 +184,17 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
     aiCol->addWidget(_aiStatusLabel);
 
     // Privacy note
-    auto* aiNote = new QLabel(tr("Your API key is stored encrypted in Windows Credential Manager. "
-                                 "AI features (real LLM calls) are scheduled for v1.1 — for v1.0.0 "
-                                 "this UI saves the key only."));
+    auto* aiNote = new QLabel(tr("AI runs entirely on your machine via a local Ollama server. "
+                                 "No document content is sent to any external server. "
+                                 "Start Ollama at the endpoint above before using AI Chat."));
     aiNote->setWordWrap(true);
     aiNote->setStyleSheet("color:#888; font-size:10px;");
     aiCol->addWidget(aiNote);
 
     aiCol->addStretch();
 
-    // Refresh status on tab change (and once now)
-    connect(_aiTestBtn,   &QPushButton::clicked, this, &PreferencesDialog::onAiTestKey);
-    connect(_aiSaveBtn,   &QPushButton::clicked, this, &PreferencesDialog::onAiSaveKey);
-    connect(_aiDeleteBtn, &QPushButton::clicked, this, &PreferencesDialog::onAiDeleteKey);
+    // Save endpoint+model on Save button (handled in saveSettings via object name lookup)
+    connect(_aiTestBtn, &QPushButton::clicked, this, &PreferencesDialog::onAiTestKey);
     connect(tabs, &QTabWidget::currentChanged, this, [this](int){ refreshAiStatus(); });
 
     tabs->addTab(aiTab, tr("AI"));
@@ -240,6 +232,18 @@ void PreferencesDialog::saveSettings()
     int intervalMinutes = _autosaveIntervalSpin->value();
     int intervalSeconds = intervalMinutes * 60;
     settings.setValue("autosave/intervalSeconds", intervalSeconds);
+
+    // AI — Ollama endpoint and model
+    if (_aiKeyEdit) {
+        const QString endpoint = _aiKeyEdit->text().trimmed();
+        if (!endpoint.isEmpty())
+            settings.setValue("ai/ollamaEndpoint", endpoint);
+    }
+    if (auto* modelEdit = findChild<QLineEdit*>("ollamaModelEdit")) {
+        const QString model = modelEdit->text().trimmed();
+        if (!model.isEmpty())
+            settings.setValue("ai/ollamaModel", model);
+    }
 
     // Live apply to AutosaveManager
     MainWindow* mainWin = qobject_cast<MainWindow*>(parentWidget());
@@ -288,117 +292,54 @@ void PreferencesDialog::onUpdateResult(const QString& msg)
 
 void PreferencesDialog::onAiTestKey()
 {
-    const QString service = _aiProviderCombo->currentData().toString();
-    const QString key     = _aiKeyEdit->text().trimmed();
+    const QString endpoint = _aiKeyEdit ? _aiKeyEdit->text().trimmed()
+                                        : QStringLiteral("http://localhost:11434");
+    const QString model    = QSettings().value("ai/ollamaModel",
+                                               QStringLiteral("llama3")).toString();
 
-    // For Ollama (local), no key is needed — just check reachability format
-    if (service == QLatin1String("Ollama")) {
-        QMessageBox::information(this, tr("Test Key"),
-            tr("Ollama uses no API key. Start the Ollama server locally and the provider "
-               "will connect automatically at http://localhost:11434."));
-        return;
-    }
-
-    if (key.isEmpty()) {
-        QMessageBox::warning(this, tr("Test Key"), tr("Please enter an API key first."));
-        return;
-    }
-
-    // Format-only check first
-    bool plausible = false;
-    if (service == QLatin1String("Anthropic"))
-        plausible = AnthropicProvider().isPlausibleKey(key);
-    else if (service == QLatin1String("OpenAI"))
-        plausible = OpenAiProvider().isPlausibleKey(key);
-    else if (service == QLatin1String("Gemini"))
-        plausible = GeminiProvider().isPlausibleKey(key);
-
-    if (!plausible) {
-        QMessageBox::warning(this, tr("Test Key"),
-            tr("Key format does not look right for %1.").arg(service));
-        return;
-    }
-
-    // Real 1-token ping
     _aiTestBtn->setEnabled(false);
-    _aiStatusLabel->setText(tr("Testing…"));
+    _aiStatusLabel->setText(tr("Testing Ollama connection…"));
 
-    std::unique_ptr<IAiProvider> prov;
-    if (service == QLatin1String("Anthropic")) prov = std::make_unique<AnthropicProvider>(key);
-    else if (service == QLatin1String("OpenAI")) prov = std::make_unique<OpenAiProvider>(key);
-    else if (service == QLatin1String("Gemini")) prov = std::make_unique<GeminiProvider>(key);
-
-    if (!prov) { _aiTestBtn->setEnabled(true); return; }
-
+    auto prov = std::make_shared<OllamaProvider>(endpoint);
     QList<AiMessage> ping{{QStringLiteral("user"), QStringLiteral("Hello")}};
-    AiOptions opts; opts.maxTokens = 1;
+    AiOptions opts; opts.maxTokens = 5;
 
-    // shared_ptr keeps the provider alive until the lambda fires
-    auto sharedProv = std::shared_ptr<IAiProvider>(std::move(prov));
     auto* watcher = new QFutureWatcher<AiResult>(this);
     connect(watcher, &QFutureWatcher<AiResult>::finished, this,
-            [this, watcher, sharedProv]() {
+            [this, watcher, prov]() {
         _aiTestBtn->setEnabled(true);
         const AiResult r = watcher->result();
         watcher->deleteLater();
         if (r.ok) {
-            _aiStatusLabel->setText(tr("✓ Key valid — API responded successfully"));
+            _aiStatusLabel->setText(tr("✓ Ollama reachable — AI chat is ready"));
             _aiStatusLabel->setStyleSheet("color:#4ec96d; font-size:10px;");
         } else {
             _aiStatusLabel->setText(tr("✗ %1").arg(r.errorMsg));
             _aiStatusLabel->setStyleSheet("color:#cc3333; font-size:10px;");
         }
     });
-    watcher->setFuture(sharedProv->chat(ping, opts));
+    watcher->setFuture(prov->chat(ping, opts));
 }
 
 void PreferencesDialog::onAiSaveKey()
 {
-    const QString service = _aiProviderCombo->currentData().toString();
-    const QString key = _aiKeyEdit->text().trimmed();
-    if (key.isEmpty()) {
-        QMessageBox::warning(this, tr("Save Key"),
-            tr("Please enter an API key first."));
-        return;
-    }
-    if (_credentialManager->storeKey(service, key)) {
-        QMessageBox::information(this, tr("Save Key"),
-            tr("API key encrypted and stored in Windows Credential Manager."));
-        _aiKeyEdit->clear();
-        refreshAiStatus();
-    } else {
-        QMessageBox::critical(this, tr("Save Key"),
-            tr("Failed to store API key. Check that Windows Credential Manager is available."));
-    }
+    // No-op: Ollama requires no API key. Settings saved via saveSettings().
 }
 
 void PreferencesDialog::onAiDeleteKey()
 {
-    const QString service = _aiProviderCombo->currentData().toString();
-    if (!_credentialManager->hasKey(service)) {
-        QMessageBox::information(this, tr("Delete Key"),
-            tr("No key is currently stored for %1.").arg(service));
-        return;
-    }
-    if (_credentialManager->deleteKey(service)) {
-        QMessageBox::information(this, tr("Delete Key"),
-            tr("Stored API key has been removed."));
-        refreshAiStatus();
-    } else {
-        QMessageBox::critical(this, tr("Delete Key"),
-            tr("Failed to delete stored key."));
-    }
+    // No-op: Ollama requires no API key.
 }
 
 void PreferencesDialog::refreshAiStatus()
 {
-    if (!_aiStatusLabel || !_aiProviderCombo || !_credentialManager) return;
-    const QString service = _aiProviderCombo->currentData().toString();
-    const bool present = _credentialManager->hasKey(service);
-    _aiStatusLabel->setText(present ? tr("Status: Key stored for %1").arg(service)
-                                    : tr("Status: No key configured for %1").arg(service));
-    _aiStatusLabel->setStyleSheet(present ? "color:#4ec96d; font-size:10px;"
-                                          : "color:#888; font-size:10px;");
+    if (!_aiStatusLabel) return;
+    const QString endpoint = QSettings().value("ai/ollamaEndpoint",
+                                               QStringLiteral("http://localhost:11434")).toString();
+    const QString model    = QSettings().value("ai/ollamaModel",
+                                               QStringLiteral("llama3")).toString();
+    _aiStatusLabel->setText(tr("Ollama endpoint: %1  ·  model: %2").arg(endpoint, model));
+    _aiStatusLabel->setStyleSheet("color:#888; font-size:10px;");
 }
 
 } // namespace gp
