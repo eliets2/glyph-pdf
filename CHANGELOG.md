@@ -2,7 +2,12 @@
 
 All notable changes to GlyphPDF are documented in this file.
 
-## [1.0.0] — 2026-06-02
+## [Unreleased] — Branch C (internal builds only; public v1.0.0 ships at M8)
+
+> De-promoted from a premature `[1.0.0] — 2026-06-02` heading by the 2026-06-02 deep audit
+> (`docs/audit/AUDIT-2026-06-02.md`): i18n (0/1394 strings translated), FormBuilder delete/move/resize,
+> OCSP revocation, and multiple security fixes remain open. Do not tag v1.0.0 until the audit
+> release-gate (CLAUDE.md §9) is clear.
 
 ### MRC Compression Pipeline — WS3 (M7-PROMPT-3 — 2026-06-02)
 
