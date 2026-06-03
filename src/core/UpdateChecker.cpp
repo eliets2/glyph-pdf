@@ -147,6 +147,31 @@ void UpdateChecker::onManifestReply() {
         return;
     }
 
+    // TODO(WP-7): add a manifest-validation unit test (inject JSON into
+    // onManifestReply via a seam) asserting http downloadUrl and empty sha256 are
+    // rejected and updateAvailable is NOT emitted.
+    // B-03: a poisoned manifest could specify an http (or otherwise non-TLS)
+    // downloadUrl and/or omit the sha256, after which the file would be fetched
+    // over an unauthenticated channel, the (conditional) integrity check skipped,
+    // and msiexec run on attacker-controlled bytes — a remote-code-execution path.
+    // Refuse such a manifest here, BEFORE advertising the update, so neither the
+    // download nor msiexec can ever be reached for it. Require:
+    //   (a) a valid downloadUrl whose scheme is exactly https, and
+    //   (b) a non-empty sha256 so onDownloadFinished's integrity check is mandatory.
+    if (!m_latest.downloadUrl.isValid() ||
+        m_latest.downloadUrl.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) != 0) {
+        qWarning() << "UpdateChecker: rejecting manifest — downloadUrl is not https:"
+                   << m_latest.downloadUrl.toString();
+        emit checkFailed(tr("Update rejected: the download URL is not a secure (https) link."));
+        return;
+    }
+    if (m_latest.sha256.trimmed().isEmpty()) {
+        qWarning() << "UpdateChecker: rejecting manifest — empty sha256 (integrity"
+                   << "check would be skipped).";
+        emit checkFailed(tr("Update rejected: the manifest is missing a SHA-256 checksum."));
+        return;
+    }
+
     // Check if remote version is newer than current
     if (!isNewerVersion(m_latest.version, currentVersion())) {
         emit noUpdateAvailable();
@@ -234,17 +259,19 @@ void UpdateChecker::onDownloadFinished() {
     f.write(reply->readAll());
     f.close();
 
-    // SHA-256 verification
-    if (!m_latest.sha256.isEmpty()) {
-        if (!verifySha256(m_downloadedPath, m_latest.sha256)) {
-            TempFileManager::instance().untrack(m_downloadedPath);
-            QFile::remove(m_downloadedPath);
-            m_downloadedPath.clear();
-            emit downloadFailed(
-                tr("Update package failed integrity check (SHA-256 mismatch). "
-                   "The download may be corrupted. Please try again later."));
-            return;
-        }
+    // B-03: SHA-256 verification is MANDATORY (fail-closed). An empty checksum must
+    // never silently skip the check — onManifestReply already refuses an empty
+    // sha256, and this guard ensures no other entry point can reach msiexec with an
+    // unverified package.
+    if (m_latest.sha256.trimmed().isEmpty() ||
+        !verifySha256(m_downloadedPath, m_latest.sha256)) {
+        TempFileManager::instance().untrack(m_downloadedPath);
+        QFile::remove(m_downloadedPath);
+        m_downloadedPath.clear();
+        emit downloadFailed(
+            tr("Update package failed integrity check (SHA-256 mismatch or missing "
+               "checksum). The download was discarded. Please try again later."));
+        return;
     }
 
     m_progressPct = 100;
