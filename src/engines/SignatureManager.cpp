@@ -116,15 +116,32 @@ public:
         QSettings settings;
         QString path = settings.value("signing/trustStorePath").toString();
         if (!path.isEmpty()) {
+            // E-09: a failed load here must NOT be swallowed. If we silently leave
+            // the store empty, CMS_verify fails with UNABLE_TO_GET_ISSUER_CERT and
+            // EVERY signature is reported "UntrustedChain" with no hint that the
+            // configured trust store itself failed to load. Surface + log it and
+            // mark the status distinctly so the UI/operator can tell the difference.
             QFileInfo fi(path);
+            int loaded = 0;
             if (fi.isDir()) {
                 X509_LOOKUP *lookup = X509_STORE_add_lookup(store, X509_LOOKUP_hash_dir());
-                if (lookup) X509_LOOKUP_add_dir(lookup, path.toUtf8().constData(), X509_FILETYPE_PEM);
+                if (lookup)
+                    loaded = X509_LOOKUP_add_dir(lookup, path.toUtf8().constData(), X509_FILETYPE_PEM);
             } else {
                 X509_LOOKUP *lookup = X509_STORE_add_lookup(store, X509_LOOKUP_file());
-                if (lookup) X509_LOOKUP_load_file(lookup, path.toUtf8().constData(), X509_FILETYPE_PEM);
+                if (lookup)
+                    loaded = X509_LOOKUP_load_file(lookup, path.toUtf8().constData(), X509_FILETYPE_PEM);
             }
-            trustStoreUsedStr = "CustomPath";
+            if (loaded != 1) {
+                char errBuf[256];
+                ERR_error_string_n(ERR_get_error(), errBuf, sizeof(errBuf));
+                qWarning() << "SignatureManager: FAILED to load custom trust store from"
+                           << path << ":" << errBuf
+                           << "— all signatures will appear untrusted until this is fixed.";
+                trustStoreUsedStr = "CustomPathLoadFailed";
+            } else {
+                trustStoreUsedStr = "CustomPath";
+            }
         } else {
 #ifdef Q_OS_WIN
             HCERTSTORE hStore = CertOpenSystemStoreA(0, "ROOT");
