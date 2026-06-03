@@ -192,9 +192,10 @@ bool PoDoFoBackend::loadDocument(const QString &path) {
         d->currentFile = path;
         return true;
     } catch (const PoDoFo::PdfError& e) {
-#ifdef QT_DEBUG
-        qWarning() << "Error loading document:" << e.what();
-#endif
+        // E-05/E-18: log unconditionally (not only in Debug). In a Release build the
+        // bare boolean return left zero diagnostic for "why did this PDF fail to
+        // load?" — including on the recovery-load entry point.
+        qWarning() << "PoDoFoBackend::loadDocument failed:" << e.what() << "path:" << path;
         return false;
     }
 }
@@ -209,9 +210,10 @@ bool PoDoFoBackend::saveDocument(const QString &path) {
 #endif
         return true;
     } catch (const PoDoFo::PdfError& e) {
-#ifdef QT_DEBUG
-        qWarning() << "Error saving document:" << e.what();
-#endif
+        // E-05: a failed save in Release previously produced no trace, making
+        // "my file got corrupted" reports nearly impossible to diagnose. Save is
+        // security/IO-critical (autosave, sign flow) — log unconditionally.
+        qCritical() << "PoDoFoBackend::saveDocument failed:" << e.what() << "path:" << path;
         return false;
     }
 }
@@ -1557,14 +1559,13 @@ bool PoDoFoBackend::exportPdfA(const QString &outputPath, int conformanceLevel) 
 #endif
         return true;
     } catch (const PoDoFo::PdfError& e) {
-#ifdef QT_DEBUG
-        qWarning() << "PoDoFo error during PDF/A export:" << e.what();
-#endif
+        // E-05/E-12: security/compliance path — log unconditionally.
+        qCritical() << "PoDoFoBackend::exportPdfA failed (PdfError):" << e.what()
+                    << "path:" << outputPath;
         return false;
     } catch (const std::exception& e) {
-#ifdef QT_DEBUG
-        qWarning() << "Error during PDF/A export:" << e.what();
-#endif
+        qCritical() << "PoDoFoBackend::exportPdfA failed:" << e.what()
+                    << "path:" << outputPath;
         return false;
     }
 }
@@ -1595,9 +1596,9 @@ bool PoDoFoBackend::encryptDocument(const QString &userPassword, const QString &
 #endif
         return true;
     } catch (const PoDoFo::PdfError& e) {
-#ifdef QT_DEBUG
-        qWarning() << "Error encrypting document:" << e.what();
-#endif
+        // E-05/E-12: encryption is security-critical — a failed SetEncrypted in
+        // Release previously produced no log, only a silent boolean no-op.
+        qCritical() << "PoDoFoBackend::encryptDocument failed:" << e.what();
         return false;
     }
 }
