@@ -1196,9 +1196,21 @@ QList<SignatureInfo> SignatureManager::validateSignatures(const QString &filePat
 
                     // unique_ptrs auto-release on scope exit
                 }
-            } catch (...) {
+            } catch (const std::exception &ex) {
+                // E-03: an exception here means we could NOT complete verification
+                // (OOM, PoDoFo/OpenSSL state error, a future logic bug) — it does
+                // NOT mean the signature is forged. Reporting "Invalid" would mislead
+                // the user into rejecting a possibly-valid signature. Use a distinct
+                // status so the UI can show "Could not verify" and log the context.
+                qWarning() << "validateSignatures: verification error on field"
+                           << info.fieldName << "in" << filePath << ":" << ex.what();
                 info.isValid = false;
-                info.trustStatus = "Invalid";
+                info.trustStatus = "VerificationError";
+            } catch (...) {
+                qCritical() << "validateSignatures: non-standard exception verifying field"
+                            << info.fieldName << "in" << filePath;
+                info.isValid = false;
+                info.trustStatus = "VerificationError";
             }
 
             results.append(info);
