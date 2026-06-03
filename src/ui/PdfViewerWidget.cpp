@@ -8,6 +8,7 @@
 #include <QPdfDocument>
 #include <QPdfView>
 #include <QPdfSearchModel>
+#include <QPdfLink>
 #include <QPdfBookmarkModel>
 #include <QPdfPageNavigator>
 #include <QPdfPageRenderer>
@@ -343,19 +344,37 @@ void PdfViewerWidget::redactAllMatches(const QString &text, bool matchCase, bool
     QList<AnnotationItem> annos = m_annotationLayer->annotations();
     int count = m_searchModel->rowCount(QModelIndex());
     for (int i = 0; i < count; ++i) {
-        QModelIndex idx = m_searchModel->index(i, 0);
-        int page = m_searchModel->data(idx, static_cast<int>(QPdfSearchModel::Role::Page)).toInt();
-        QPointF pos = m_searchModel->data(idx, static_cast<int>(QPdfSearchModel::Role::Location)).toPointF();
-
-        AnnotationItem item;
-        item.pageIndex = page;
-        item.mode = ToolMode::Redact;
-        item.color = Qt::black;
-        item.thickness = 1;
-        // Note: QPdfSearchModel location is bottom-left of the text.
-        // We estimate height. In a production build, we'd use character box data.
-        item.rect = QRectF(pos.x(), pos.y() - 15, 80, 18);
-        annos.append(item);
+        // A-05: use the REAL matched-text geometry, not a fixed 80x18pt box. The
+        // old constant box under-covered any match wider than 80pt (long emails,
+        // IBANs, large fonts): the downstream rectangle-based excision then left
+        // the tail glyphs in the content stream, recoverable. QPdfLink::rectangles()
+        // gives the true per-match bounding rectangle(s) in PDF points.
+        const QPdfLink link = m_searchModel->resultAtIndex(i);
+        const int page = link.page();
+        const QList<QRectF> rects = link.rectangles();
+        if (rects.isEmpty()) {
+            // Fallback: no geometry available — fall back to the point location with a
+            // conservative box rather than dropping the match silently.
+            const QModelIndex idx = m_searchModel->index(i, 0);
+            const QPointF pos = m_searchModel->data(idx, static_cast<int>(QPdfSearchModel::Role::Location)).toPointF();
+            AnnotationItem item;
+            item.pageIndex = page;
+            item.mode = ToolMode::Redact;
+            item.color = Qt::black;
+            item.thickness = 1;
+            item.rect = QRectF(pos.x(), pos.y() - 15, 80, 18);
+            annos.append(item);
+            continue;
+        }
+        for (const QRectF &r : rects) {
+            AnnotationItem item;
+            item.pageIndex = page;
+            item.mode = ToolMode::Redact;
+            item.color = Qt::black;
+            item.thickness = 1;
+            item.rect = r;   // exact matched-text rectangle
+            annos.append(item);
+        }
     }
     m_annotationLayer->setAnnotations(annos);
 }
