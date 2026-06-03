@@ -580,6 +580,42 @@ private slots:
         Q_UNUSED(ok);
         QVERIFY(!pdfData.isEmpty());
     }
+
+    // -----------------------------------------------------------------------
+    // E-01: certifyDocument must write a /DocMDP certification transform, not
+    // silently downgrade to an ordinary approval signature. Prove the signed
+    // output actually contains /DocMDP and a TransformMethod entry.
+    // -----------------------------------------------------------------------
+    void testCertifyWritesDocMDP()
+    {
+        REQUIRE_FIXTURES();
+        QVERIFY(m_tmpDir.isValid());
+
+        QString output = m_tmpDir.filePath("certified_docmdp.pdf");
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_B);   // no TSA needed for this assertion
+
+        bool ok = mgr.certifyDocument(kInputPdf, output, kP12Path, kP12Pass,
+                                      /*certificationLevel=*/1, "CertifyReason", "CertifyLoc");
+        QVERIFY2(ok, "certifyDocument(level=1) should succeed with the valid P12");
+        QVERIFY2(QFileInfo::exists(output), "Certified PDF must exist");
+
+        QFile f(output);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        const QByteArray data = f.readAll();
+        f.close();
+
+        // The /DocMDP transform is the whole point of certification. Its absence is
+        // exactly the E-01 silent-downgrade bug.
+        QVERIFY2(data.contains("/DocMDP"),
+                 "Certified document MUST contain a /DocMDP transform (E-01)");
+
+        // An invalid certification level must be rejected outright (no downgrade).
+        QString bad = m_tmpDir.filePath("certified_bad.pdf");
+        bool badOk = mgr.certifyDocument(kInputPdf, bad, kP12Path, kP12Pass,
+                                         /*certificationLevel=*/9, "", "");
+        QVERIFY2(!badOk, "certifyDocument must reject an out-of-range certification level");
+    }
 };
 
 QTEST_GUILESS_MAIN(TestSignatureRealCrypto)

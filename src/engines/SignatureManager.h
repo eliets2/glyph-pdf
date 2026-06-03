@@ -55,6 +55,16 @@ public:
     QList<SignatureInfo> validateSignatures(const QString &filePath) override;
 
 private:
+    // Shared signing core used by both signDocument (certificationLevel == 0) and
+    // certifyDocument (certificationLevel 1..3 -> /DocMDP). See SignatureManager.cpp.
+    bool signDocumentImpl(const QString &inputPath,
+                          const QString &outputPath,
+                          const QString &certPath,
+                          const QString &password,
+                          int certificationLevel,
+                          const QString &reason,
+                          const QString &location);
+
     class Private;
     std::unique_ptr<Private> d;
 };
