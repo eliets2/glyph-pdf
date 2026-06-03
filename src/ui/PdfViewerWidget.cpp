@@ -30,9 +30,10 @@
 #include <QTimer>
 #include <QRubberBand>
 #include <QMouseEvent>
-#include <podofo/podofo.h>
-#include <sstream>
-#include <vector>
+// D-02 fix: do NOT include <podofo/podofo.h> in the UI layer.
+// All PoDoFo page-manipulation operations are routed through
+// gp::PdfPageOps (engines/podofo/PdfPageOps.h) which lives in pdfws_engines.
+#include "engines/podofo/PdfPageOps.h"
 #include <QMap>
 #include <QGraphicsColorizeEffect>
 #include <QScrollArea>
@@ -696,18 +697,7 @@ void PdfViewerWidget::extractPages(int from, int to, const QString &outputFile)
     auto result = std::make_shared<std::atomic<bool>>(false);
 
     QThread* worker = QThread::create([inputPath, from, to, outputFile, result]() {
-        try {
-            PoDoFo::PdfMemDocument sourceDoc;
-            sourceDoc.Load(inputPath.toUtf8().constData());
-            
-            PoDoFo::PdfMemDocument destDoc;
-            destDoc.GetPages().AppendDocumentPages(sourceDoc, from, to - from + 1);
-            destDoc.Save(outputFile.toUtf8().constData());
-            result->store(true);
-        } catch (const std::exception& e) {
-            qWarning() << "PoDoFo error extracting pages:" << e.what();
-            result->store(false);
-        }
+        result->store(gp::extractPages(inputPath, from, to, outputFile));
     });
 
     QPointer<PdfViewerWidget> self(this);
@@ -747,20 +737,7 @@ void PdfViewerWidget::deletePages(int from, int to, const QString &outputFile)
     auto result = std::make_shared<std::atomic<bool>>(false);
 
     QThread* worker = QThread::create([inputPath, from, to, outputFile, result]() {
-        try {
-            PoDoFo::PdfMemDocument doc;
-            doc.Load(inputPath.toUtf8().constData());
-            
-            for (int i = to; i >= from; --i) {
-                doc.GetPages().RemovePageAt(i);
-            }
-            
-            doc.Save(outputFile.toUtf8().constData());
-            result->store(true);
-        } catch (const std::exception& e) {
-            qWarning() << "PoDoFo error deleting pages:" << e.what();
-            result->store(false);
-        }
+        result->store(gp::deletePages(inputPath, from, to, outputFile));
     });
 
     QPointer<PdfViewerWidget> self(this);
@@ -794,35 +771,7 @@ void PdfViewerWidget::insertBlankPage(int index, const QString &outputFile)
     auto result = std::make_shared<std::atomic<bool>>(false);
 
     QThread* worker = QThread::create([inputPath, index, outputFile, result]() {
-        try {
-            PoDoFo::PdfMemDocument sourceDoc;
-            sourceDoc.Load(inputPath.toUtf8().constData());
-            
-            PoDoFo::PdfMemDocument destDoc;
-            
-            // Copy pages before the insertion index
-            if (index > 0) {
-                destDoc.GetPages().AppendDocumentPages(sourceDoc, 0, index);
-            }
-            
-            // Create a blank page at the insertion index
-            PoDoFo::Rect mediaBox = PoDoFo::Rect(0, 0, 595.276, 841.890); // default A4
-            if (sourceDoc.GetPages().GetCount() > 0) {
-                mediaBox = sourceDoc.GetPages().GetPageAt(0).GetMediaBox();
-            }
-            destDoc.GetPages().CreatePage(mediaBox);
-            
-            // Copy remaining pages after
-            if (index < sourceDoc.GetPages().GetCount()) {
-                destDoc.GetPages().AppendDocumentPages(sourceDoc, index, sourceDoc.GetPages().GetCount() - index);
-            }
-            
-            destDoc.Save(outputFile.toUtf8().constData());
-            result->store(true);
-        } catch (const std::exception& e) {
-            qWarning() << "PoDoFo error inserting blank page:" << e.what();
-            result->store(false);
-        }
+        result->store(gp::insertBlankPage(inputPath, index, outputFile));
     });
 
     QPointer<PdfViewerWidget> self(this);
@@ -858,22 +807,7 @@ void PdfViewerWidget::rotatePages(int from, int to, int angle, const QString &ou
     auto result = std::make_shared<std::atomic<bool>>(false);
 
     QThread* worker = QThread::create([inputPath, from, to, angle, outputFile, result]() {
-        try {
-            PoDoFo::PdfMemDocument doc;
-            doc.Load(inputPath.toUtf8().constData());
-            
-            for (int i = from; i <= to; ++i) {
-                PoDoFo::PdfPage& page = doc.GetPages().GetPageAt(i);
-                int currentRot = static_cast<int>(page.GetRotation());
-                page.SetRotation((currentRot + angle) % 360);
-            }
-            
-            doc.Save(outputFile.toUtf8().constData());
-            result->store(true);
-        } catch (const std::exception& e) {
-            qWarning() << "PoDoFo error rotating pages:" << e.what();
-            result->store(false);
-        }
+        result->store(gp::rotatePages(inputPath, from, to, angle, outputFile));
     });
 
     QPointer<PdfViewerWidget> self(this);
@@ -965,231 +899,48 @@ bool PdfViewerWidget::saveDocumentAs(const QString &outputFile)
 
 void PdfViewerWidget::applyRedactions(const QString &outputFile)
 {
-    try {
-        PoDoFo::PdfMemDocument doc;
-        doc.Load(m_filePath.toUtf8().constData());
+    // D-02 fix: PoDoFo calls are routed through gp::applyRedactionsToFile so
+    // this UI translation unit does not need to include <podofo/podofo.h>.
 
-        QList<AnnotationItem> redactions;
-        for (const auto& anno : m_annotationLayer->annotations()) {
-            if (anno.mode == ToolMode::Redact) {
-                redactions.append(anno);
-            }
-        }
-
-        if (redactions.isEmpty()) {
-            doc.Save(outputFile.toUtf8().constData());
-            return;
-        }
-
-        // Group redactions by page
-        QMap<int, QList<QRectF>> redactionsByPage;
-        for (const auto& anno : redactions) {
-            if (anno.pageIndex < 0 || static_cast<unsigned>(anno.pageIndex) >= doc.GetPages().GetCount()) continue;
-            PoDoFo::PdfPage& page = doc.GetPages().GetPageAt(anno.pageIndex);
-            double pageHeight = page.GetMediaBox().Height;
-            QRectF pdfRect(anno.rect.x(),
-                           pageHeight - anno.rect.y() - anno.rect.height(),
-                           anno.rect.width(),
-                           anno.rect.height());
-            redactionsByPage[anno.pageIndex].append(pdfRect);
-        }
-
-        for (auto it = redactionsByPage.begin(); it != redactionsByPage.end(); ++it) {
-            int pageIndex = it.key();
-            const QList<QRectF>& rects = it.value();
-            PoDoFo::PdfPage& page = doc.GetPages().GetPageAt(pageIndex);
-
-            // Phase 1: Read the content stream and rebuild it without text
-            // operators whose coordinates fall inside any redaction rectangle.
-            PoDoFo::PdfContentStreamReader reader(page);
-            PoDoFo::PdfContent content;
-
-            double currentX = 0, currentY = 0;
-            std::string newStream;
-            bool insideRedactedZone = false;
-
-            // We can't selectively remove operators from PoDoFo's content stream
-            // reader in a round-trip fashion. Instead, we'll use the painter approach:
-            // 1. Draw white rectangles to obliterate existing content visually AND in print
-            // 2. Draw black rectangles on top for visible redaction marks
-            // 3. Remove text from the content stream by rewriting it
-            //
-            // PoDoFo 1.1 does not provide a content stream WRITER that can selectively
-            // filter operators. The reliable approach for this version:
-            // - Get raw content stream bytes
-            // - Parse and filter text operators by position
-            // - Replace the content stream
-
-            // Get the raw content stream
-            auto* contentsObj = page.GetDictionary().FindKey("Contents");
-            if (contentsObj && contentsObj->HasStream()) {
-                PoDoFo::charbuff streamBuf;
-                auto& stream = contentsObj->GetOrCreateStream();
-                stream.CopyTo(streamBuf);
-                std::string streamStr(streamBuf.data(), streamBuf.size());
-
-                // Track text position via simple state machine
-                // Parse Tm, Td, TD operators for position
-                // Remove Tj/TJ operators when position is inside redaction rect
-                double textX = 0, textY = 0;
-                bool inTextBlock = false;
-
-                std::istringstream iss(streamStr);
-                std::ostringstream oss;
-                std::string token;
-                std::vector<std::string> operandStack;
-
-                while (iss >> token) {
-                    if (token == "BT") {
-                        inTextBlock = true;
-                        textX = 0;
-                        textY = 0;
-                        oss << token << " ";
-                        continue;
-                    }
-                    if (token == "ET") {
-                        inTextBlock = false;
-                        oss << token << " ";
-                        operandStack.clear();
-                        continue;
-                    }
-
-                    if (token == "Tm" && operandStack.size() >= 6) {
-                        try {
-                            textX = std::stod(operandStack[operandStack.size() - 2]);
-                            textY = std::stod(operandStack[operandStack.size() - 1]);
-                        } catch (const std::exception& e) {
-                            qWarning() << __func__ << "swallowed exception:" << e.what();
-                        } catch (...) {
-                            qWarning() << __func__ << "swallowed unknown exception";
-                        }
-
-                        bool redacted = false;
-                        QPointF pos(textX, textY);
-                        for (const auto& r : rects) {
-                            if (r.contains(pos) || (textX >= r.left() && textX <= r.right() && textY >= r.bottom() && textY <= r.top())) {
-                                redacted = true;
-                                break;
-                            }
-                        }
-
-                        if (redacted) {
-                            operandStack.clear();
-                            oss << "1 0 0 1 0 0 Tm ";
-                            continue;
-                        }
-
-                        for (const auto& op : operandStack) oss << op << " ";
-                        oss << token << " ";
-                        operandStack.clear();
-                        continue;
-                    }
-
-                    if ((token == "Td" || token == "TD") && operandStack.size() >= 2) {
-                        try {
-                            textX += std::stod(operandStack[operandStack.size() - 2]);
-                            textY += std::stod(operandStack[operandStack.size() - 1]);
-                        } catch (const std::exception& e) {
-                            qWarning() << __func__ << "swallowed exception:" << e.what();
-                        } catch (...) {
-                            qWarning() << __func__ << "swallowed unknown exception";
-                        }
-
-                        for (const auto& op : operandStack) oss << op << " ";
-                        oss << token << " ";
-                        operandStack.clear();
-                        continue;
-                    }
-
-                    if ((token == "Tj" || token == "TJ" || token == "'" || token == "\"") && inTextBlock) {
-                        bool redacted = false;
-                        QPointF pos(textX, textY);
-                        for (const auto& r : rects) {
-                            if (r.contains(pos) || (textX >= r.left() && textX <= r.right() && textY >= r.bottom() && textY <= r.top())) {
-                                redacted = true;
-                                break;
-                            }
-                        }
-
-                        if (redacted) {
-                            operandStack.clear();
-                            continue;
-                        }
-
-                        for (const auto& op : operandStack) oss << op << " ";
-                        oss << token << " ";
-                        operandStack.clear();
-                        continue;
-                    }
-
-                    if (token == "Tf" || token == "cm" || token == "re" || token == "m" ||
-                        token == "l" || token == "c" || token == "v" || token == "y" ||
-                        token == "h" || token == "W" || token == "W*" || token == "n" ||
-                        token == "f" || token == "F" || token == "f*" || token == "B" ||
-                        token == "B*" || token == "b" || token == "b*" || token == "S" ||
-                        token == "s" || token == "Do" || token == "gs" || token == "CS" ||
-                        token == "cs" || token == "SC" || token == "sc" || token == "SCN" ||
-                        token == "scn" || token == "G" || token == "g" || token == "RG" ||
-                        token == "rg" || token == "K" || token == "k" || token == "w" ||
-                        token == "J" || token == "j" || token == "M" || token == "d" ||
-                        token == "ri" || token == "i" || token == "q" || token == "Q" ||
-                        token == "Tc" || token == "Tw" || token == "Tz" || token == "TL" ||
-                        token == "Tr" || token == "Ts" || token == "T*") {
-                        for (const auto& op : operandStack) oss << op << " ";
-                        oss << token << " ";
-                        operandStack.clear();
-                        continue;
-                    }
-
-                    operandStack.push_back(token);
-                }
-
-                // Flush remaining operands
-                for (const auto& op : operandStack) oss << op << " ";
-
-                std::string filteredStream = oss.str();
-                PoDoFo::charbuff newBuf(filteredStream);
-                contentsObj->GetOrCreateStream().SetData(newBuf);
-            }
-
-            // Phase 2: Draw black rectangles on top for visual redaction marks
-            PoDoFo::PdfPainter painter;
-            painter.SetCanvas(page);
-            painter.GraphicsState.SetNonStrokingColor(PoDoFo::PdfColor(0.0, 0.0, 0.0));
-            for (const auto& r : rects) {
-                painter.DrawRectangle(r.x(), r.y(), r.width(), r.height(), PoDoFo::PdfPathDrawMode::Fill);
-            }
-            painter.FinishDrawing();
-        }
-
-        doc.Save(outputFile.toUtf8().constData());
-        qDebug() << "Redactions applied with content stream filtering to:" << outputFile;
-    } catch (const std::exception& e) {
-        qWarning() << "PoDoFo error applying redactions:" << e.what();
+    QList<AnnotationItem> redactions;
+    for (const auto& anno : m_annotationLayer->annotations()) {
+        if (anno.mode == ToolMode::Redact)
+            redactions.append(anno);
     }
+
+    if (redactions.isEmpty()) {
+        // Nothing to redact — just copy the source file.
+        QFile::copy(m_filePath, outputFile);
+        return;
+    }
+
+    // Convert screen-space annotation rects to PDF user-space coords.
+    // QPdfDocument::pagePointSize() returns page dimensions in points (same unit
+    // as PoDoFo's user space), with origin at top-left.  PoDoFo uses bottom-left
+    // origin, so we flip: pdfY = pageHeight − screenY − rectHeight.
+    QMap<int, QList<QRectF>> rectsByPage;
+    int totalPages = m_document->pageCount();
+    for (const auto& anno : redactions) {
+        if (anno.pageIndex < 0 || anno.pageIndex >= totalPages) continue;
+        QSizeF pageSize = m_document->pagePointSize(anno.pageIndex);
+        double pageHeight = pageSize.height();
+        QRectF pdfRect(anno.rect.x(),
+                       pageHeight - anno.rect.y() - anno.rect.height(),
+                       anno.rect.width(),
+                       anno.rect.height());
+        rectsByPage[anno.pageIndex].append(pdfRect);
+    }
+
+    if (!gp::applyRedactionsToFile(m_filePath, rectsByPage, outputFile))
+        qWarning() << "applyRedactions: engine failed on" << outputFile;
+    else
+        qDebug() << "Redactions applied with content stream filtering to:" << outputFile;
 }
 
 void PdfViewerWidget::mergeDocuments(const QStringList &files, const QString &outputFile)
 {
-    if (files.isEmpty()) return;
-
-    try {
-        PoDoFo::PdfMemDocument destDoc;
-        
-        for (const QString &fileName : files) {
-            PoDoFo::PdfMemDocument sourceDoc;
-            sourceDoc.Load(fileName.toUtf8().constData());
-            
-            int count = sourceDoc.GetPages().GetCount();
-            if (count > 0) {
-                destDoc.GetPages().AppendDocumentPages(sourceDoc, 0, count);
-            }
-        }
-        
-        destDoc.Save(outputFile.toUtf8().constData());
-    } catch (const std::exception& e) {
-        qWarning() << "PoDoFo error merging documents:" << e.what();
-    }
+    if (!gp::mergeDocuments(files, outputFile))
+        qWarning() << "mergeDocuments: engine failed on" << outputFile;
 }
 
 void PdfViewerWidget::printDocument()
