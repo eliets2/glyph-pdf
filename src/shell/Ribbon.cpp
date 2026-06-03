@@ -80,12 +80,6 @@ QToolButton* Ribbon::makeTool(const QString& id, const QString& label,
     btn->setAccessibleName(label);
     btn->setAccessibleDescription(tr("Activate %1 tool").arg(label));
 
-    // v1.0.0: Cloud Sync backend is a stub. Disable the ribbon entry so users
-    // cannot trigger the no-op flow. See SecurityController::cloudSyncSync.
-    if (id == QLatin1String("cloud")) {
-        btn->setEnabled(false);
-        btn->setToolTip(tr("Coming in a future release"));
-    }
     return btn;
 }
 

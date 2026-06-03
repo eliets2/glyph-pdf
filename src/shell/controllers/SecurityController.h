@@ -29,7 +29,6 @@ private:
     void applyRedactions();
     void exportAnnotationPackage();
     void importAnnotationPackage();
-    void cloudSyncSync();
     void permissionsDocument();
     void removeSecurity();
     void certifyDocument();
