@@ -706,6 +706,14 @@ void BatchMode::onRunClicked() {
         BatchFileResult result;
         result.inputPath = inputPath;
 
+        // E-13: QtConcurrent::mapped stores any exception that escapes this lambda
+        // in the QFuture; the QFutureWatcher connections never call result() to
+        // retrieve it, so in Qt 6 the unobserved exception can call std::terminate
+        // when the watcher is destroyed (and the file's result is never emitted, so
+        // the progress count is wrong). The engine calls below go through PoDoFo,
+        // which throws. Catch everything here and turn it into a failed result.
+        try {
+
         // Resolve output path (pure string ops, no GUI)
         QString baseName = QFileInfo(inputPath).completeBaseName();
         auto resolveDir = [&](const QString& configured) -> QString {
@@ -800,6 +808,20 @@ void BatchMode::onRunClicked() {
                 : techDetail;
         }
         return result;
+
+        } catch (const std::exception& e) {
+            result.success = false;
+            result.errorMessage = QStringLiteral("Exception processing %1: %2")
+                .arg(QFileInfo(inputPath).fileName(), QString::fromUtf8(e.what()));
+            qWarning() << "BatchMode: exception processing" << inputPath << ":" << e.what();
+            return result;
+        } catch (...) {
+            result.success = false;
+            result.errorMessage = QStringLiteral("Unknown exception processing %1")
+                .arg(QFileInfo(inputPath).fileName());
+            qCritical() << "BatchMode: unknown exception processing" << inputPath;
+            return result;
+        }
     };
 
     // Wire per-result callback for inline progress updates
