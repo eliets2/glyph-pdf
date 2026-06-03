@@ -74,7 +74,7 @@ ModeStrip::ModeStrip(QWidget* parent) : QFrame(parent) {
     _autosaveLabel->setAccessibleName(tr("Autosave status"));
     row->addWidget(_autosaveLabel);
 
-    _syncLabel = new QLabel(tr("⤺ SYNCED · v.0"));
+    _syncLabel = new QLabel(tr("⤺ LOCAL ONLY"));
     _syncLabel->setProperty("mono", true);
     _syncLabel->setAccessibleName(tr("Sync status"));
     row->addWidget(_syncLabel);
@@ -195,10 +195,6 @@ void ModeStrip::setAutosaveTime(const QDateTime& time) {
         _lastSavedTime = time.time();
     }
     updateLabels();
-}
-
-void ModeStrip::setSyncStatus(const QString& status) {
-    _syncLabel->setText(status);
 }
 
 void ModeStrip::setSignatureStatus(int signedCount, int totalCount) {
