@@ -156,6 +156,8 @@ add_library(pdfws_engines STATIC
     src/engines/podofo/PdfStringEscape.h src/engines/podofo/PdfStringEscape.cpp
     src/engines/podofo/GlyphAdvanceCalculator.h src/engines/podofo/GlyphAdvanceCalculator.cpp
     src/engines/podofo/PoDoFoBackend.h src/engines/podofo/PoDoFoBackend.cpp
+    src/engines/podofo/PdfEncryptPubSec.h src/engines/podofo/PdfEncryptPubSec.cpp
+    src/engines/podofo/PdfPageOps.h       src/engines/podofo/PdfPageOps.cpp
     src/engines/pdfium/PdfiumBackend.h src/engines/pdfium/PdfiumBackend.cpp
     src/engines/qpdf/QpdfBackend.h     src/engines/qpdf/QpdfBackend.cpp
     src/engines/RenderCache.h          src/engines/RenderCache.cpp
@@ -346,11 +348,9 @@ add_library(pdfws_commands STATIC
     src/commands/DeleteFormFieldCommand.h
     src/commands/MoveFormFieldCommand.h
     src/commands/ResizeFormFieldCommand.h
-    src/commands/EditAnnotationCommand.h
     src/commands/EncryptDocumentHelper.h
     src/commands/SignDocumentHelper.h
     src/commands/SanitizeDocumentHelper.h
-    src/commands/RedactCommand.h
     src/commands/MoveImageCommand.h
     src/commands/ResizeImageCommand.h
     src/commands/RotateImageCommand.h
@@ -371,7 +371,8 @@ target_link_libraries(pdfws_commands
 # ── pdfws_ui (STATIC) ────────────────────────────────────────────────────
 add_library(pdfws_ui STATIC
     src/ui/PdfViewerWidget.h         src/ui/PdfViewerWidget.cpp
-    src/ui/EditAnnotationCommand.cpp src/ui/RedactCommand.cpp
+    src/ui/EditAnnotationCommand.h   src/ui/EditAnnotationCommand.cpp
+    src/ui/RedactCommand.h           src/ui/RedactCommand.cpp
     src/ui/WelcomeWidget.h           src/ui/WelcomeWidget.cpp
     src/ui/FindBar.h                 src/ui/FindBar.cpp
     src/ui/AnnotationToolBar.h       src/ui/AnnotationToolBar.cpp
@@ -415,10 +416,9 @@ add_library(pdfws_ui STATIC
     src/shell/controllers/FormsController.h  src/shell/controllers/FormsController.cpp
     src/shell/controllers/SecurityController.h src/shell/controllers/SecurityController.cpp
     src/util/GpTheme.h
-    src/engines/ocr/RapidOcrEngine.h         src/engines/ocr/RapidOcrEngine.cpp
-    src/engines/ocr/OcrPreprocessor.h        src/engines/ocr/OcrPreprocessor.cpp
-    src/engines/ocr/OcrPipeline.h            src/engines/ocr/OcrPipeline.cpp
-    src/engines/ocr/PpOcrDecoder.h           src/engines/ocr/PpOcrDecoder.cpp
+    # D-07 fix: OCR sources removed from pdfws_ui — they are compiled once in
+    # pdfws_engines (lines above) and exposed to pdfws_ui via the PRIVATE link.
+    # Duplicating them caused two ODR copies of static state in the final binary.
 
     src/util/Icons.h                        src/util/Icons.cpp
     src/util/Badge.h                        src/util/Badge.cpp
