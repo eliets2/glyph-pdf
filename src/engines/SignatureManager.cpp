@@ -49,6 +49,7 @@
 #include <QSettings>
 #include <limits>
 #include <vector>
+#include <stdexcept>
 
 using namespace PoDoFo;
 
@@ -516,9 +517,14 @@ public:
                         m_accumulated, QCryptographicHash::Sha256);
                     QByteArray token = m_priv->fetchTimestampToken(digest);
                     if (token.isEmpty()) {
-                        qWarning() << "B-LTA: TSA returned empty token";
-                        contents.assign(4, '\0');
-                        return;
+                        // E-06: an empty TSA token is a HARD failure. Writing 4 null
+                        // bytes here would embed a structurally-malformed /DocTimeStamp
+                        // /Contents into the file (PoDoFo finalizes whatever we return),
+                        // silently breaking the B-LTA archival claim. Throw instead so
+                        // PoDoFo aborts the timestamp operation and the caller can fail.
+                        qWarning() << "B-LTA: TSA returned empty token — aborting document timestamp";
+                        throw std::runtime_error(
+                            "B-LTA: TSA returned an empty timestamp token — aborting /DocTimeStamp");
                     }
                     contents.assign(token.constData(), token.size());
                 }
@@ -530,6 +536,12 @@ public:
             return true;
         } catch (const PdfError &e) {
             qWarning() << "B-LTA timestamp addition failed:" << e.what();
+            return false;
+        } catch (const std::exception &e) {
+            // E-06: includes the empty-TSA-token hard failure thrown from
+            // TimestampSigner::ComputeSignature. The document timestamp is NOT
+            // applied; the caller reports B-LTA as not in effect.
+            qWarning() << "B-LTA timestamp addition aborted:" << e.what();
             return false;
         }
     }
