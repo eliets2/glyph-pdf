@@ -194,14 +194,18 @@ private slots:
         // Without TSA url, B_LTA returns false (docTimestamp failed)
         // but the underlying signed bytes must exist
         QVERIFY2(QFileInfo::exists(output), "B_LTA: output PDF must exist even if timestamp failed");
+        QVERIFY2(!ok, "B_LTA without a TSA must report failure (timestamp not applied)");
 
+        // E-06: an empty TSA token must NOT have been written as a 4-null-byte
+        // /DocTimeStamp. The signed file must still load + validate cleanly (i.e.
+        // no poisoned timestamp dict was committed).
         X509_STORE *store = buildTestStore();
         mgr.setTrustStoreForTest(store);
         auto results = mgr.validateSignatures(output);
         QVERIFY(!results.isEmpty());
         // Without TSA, hasDocTimestamp will be false — document signature still present
-        QVERIFY2(results.first().integrityIntact || !results.first().integrityIntact,
-                 "B_LTA: validation must not crash regardless of timestamp status");
+        QVERIFY2(!results.first().hasDocTimestamp,
+                 "B_LTA: a failed TSA must not leave a (malformed) /DocTimeStamp (E-06)");
 
         X509_STORE_free(store);
         mgr.setTrustStoreForTest(nullptr);
