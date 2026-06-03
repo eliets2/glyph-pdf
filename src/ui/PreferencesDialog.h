@@ -2,7 +2,6 @@
 #pragma once
 #include <QDialog>
 #include <memory>
-#include "engines/ai/IAiProvider.h"
 
 class QCheckBox;
 class QComboBox;
@@ -10,7 +9,6 @@ class QPushButton;
 class QLabel;
 class QLineEdit;
 class QSpinBox;
-class CredentialManager;
 
 namespace gp {
 
@@ -44,14 +42,11 @@ private:
     QLabel*      _updateStatus = nullptr;
 
     // AI tab widgets
-    QComboBox*   _aiProviderCombo = nullptr;
-    QLineEdit*   _aiKeyEdit       = nullptr;
+    QLineEdit*   _aiKeyEdit       = nullptr;  // repurposed: Ollama endpoint
     QPushButton* _aiTestBtn       = nullptr;
     QPushButton* _aiSaveBtn       = nullptr;
     QPushButton* _aiDeleteBtn     = nullptr;
     QLabel*      _aiStatusLabel   = nullptr;
-
-    std::unique_ptr<CredentialManager> _credentialManager;
 };
 
 } // namespace gp
