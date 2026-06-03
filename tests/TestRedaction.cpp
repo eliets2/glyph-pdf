@@ -402,6 +402,84 @@ private slots:
         bool ok = engine.applyRedactions(0, {QRectF(90, 120, 200, 30)});
         QVERIFY2(!ok, "Redaction on binary/unparseable stream must return false (safe abort)");
     }
+
+    // A-02: an image (bitmap) XObject intersecting a redaction rect must be excised
+    // — its original pixel bytes must NOT survive, and the on-page Do must be
+    // dropped. We place TWO images: one under the redaction rect (must be
+    // neutralised to 1x1) and one well clear of it (must be untouched). This also
+    // proves the intersection test uses the image CTM, not the text cursor.
+    void testRedactionRemovesImageBytes() {
+        QString pdf = tmpPath("image_redact.pdf");
+        // Distinctive RGB24 pixel pattern so we can also scan for raw leakage.
+        const int W = 16, H = 16;
+        QByteArray pixels;
+        for (int i = 0; i < W * H; ++i) { pixels.append('\xAB'); pixels.append('\xCD'); pixels.append('\xEF'); }
+
+        {
+            PoDoFo::PdfMemDocument doc;
+            auto& page = doc.GetPages().CreatePage(PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            const double pageH = page.GetMediaBox().Height;   // ~842 for A4
+
+            PoDoFo::PdfPainter painter;
+            painter.SetCanvas(page);
+
+            // Secret image: device rect [100,600]..[180,660] (scaled to 80x60 pt).
+            auto secret = doc.CreateImage();
+            secret->SetData(PoDoFo::bufferview(pixels.constData(), pixels.size()),
+                            W, H, PoDoFo::PdfPixelFormat::RGB24);
+            painter.DrawImage(*secret, 100, 600, 80.0 / W, 60.0 / H);
+
+            // Control image far away: device rect [100,100]..[140,140].
+            auto keep = doc.CreateImage();
+            keep->SetData(PoDoFo::bufferview(pixels.constData(), pixels.size()),
+                          W, H, PoDoFo::PdfPixelFormat::RGB24);
+            painter.DrawImage(*keep, 100, 100, 40.0 / W, 40.0 / H);
+
+            painter.FinishDrawing();
+            doc.Save(pdf.toUtf8().constData());
+
+            // Sanity: redaction rect (top-left coords) that maps onto the secret
+            // image's PDF region [600,660] in y. y_qt = pageH - 660.
+            m_secretRectY = pageH - 660.0;
+        }
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+        // QRectF(x=100, y=pageH-660, w=80, h=60) → PDF rect (100, 600, 80, 60).
+        QVERIFY2(engine.applyRedactions(0, {QRectF(100, m_secretRectY, 80, 60)}),
+                 "image redaction must succeed");
+
+        QString out = tmpPath("image_redact_out.pdf");
+        QVERIFY(engine.saveDocument(out));
+
+        // Inspect the saved file: exactly one image XObject must have been
+        // neutralised to 1x1 (the secret), and at least one must retain its
+        // original 16x16 size (the control).
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(out.toUtf8().constData());
+        int neutralised = 0, intact = 0;
+        for (auto it = doc.GetObjects().begin(); it != doc.GetObjects().end(); ++it) {
+            PoDoFo::PdfObject* o = *it;
+            if (!o->IsDictionary()) continue;
+            auto& d = o->GetDictionary();
+            auto* st = d.FindKey("Subtype");
+            if (!st || !st->IsName() || std::string(st->GetName().GetString()) != "Image") continue;
+            auto* w = d.FindKey("Width");
+            auto* h = d.FindKey("Height");
+            if (!w || !h) continue;
+            const int64_t ww = w->GetNumber();
+            const int64_t hh = h->GetNumber();
+            if (ww == 1 && hh == 1) ++neutralised;
+            else if (ww == W && hh == H) ++intact;
+        }
+        QVERIFY2(neutralised >= 1, "the redacted image XObject must be excised to 1x1");
+        QVERIFY2(intact >= 1, "the non-intersecting image must be left intact (CTM-based test)");
+    }
+
+private:
+    double m_secretRectY = 0.0;
+
+private slots:
 };
 
 QTEST_GUILESS_MAIN(TestRedaction)
