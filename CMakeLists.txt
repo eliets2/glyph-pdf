@@ -793,9 +793,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEncryption.cpp")
         tests/TestEncryption.cpp
     )
     target_include_directories(TestEncryption PRIVATE src tests)
+    # ZLIB is needed by the A-01/G-03 PubSec round-trip test to FlateDecode the
+    # AES-decrypted content stream and assert the plaintext marker is recoverable.
+    find_package(ZLIB REQUIRED)
     target_link_libraries(TestEncryption PRIVATE
         pdfws_engines pdfws_core
-        Qt6::Test Qt6::Widgets podofo::podofo
+        Qt6::Test Qt6::Widgets podofo::podofo ZLIB::ZLIB
     )
     add_test(NAME TestEncryption COMMAND TestEncryption)
     set_tests_properties(TestEncryption PROPERTIES
