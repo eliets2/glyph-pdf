@@ -693,156 +693,17 @@ using CmsPtr = std::unique_ptr<CMS_ContentInfo, CMS_Deleter>;
 using X509Ptr = std::unique_ptr<X509, X509_Deleter>;
 using SkX509Ptr = std::unique_ptr<STACK_OF(X509), STACK_X509_Deleter>;
 
-// PoDoFo Hack to support PubSec
-#define private public
-#define protected public
+// D-01 fix: the PdfEncryptPubSec class (which must subclass PoDoFo::PdfEncrypt
+// via the #define private public hack) is isolated to its own translation unit
+// (src/engines/podofo/PdfEncryptPubSec.cpp) so the ODR-violating macro scope
+// does not contaminate this TU or any other TU in the build.
+// This TU includes <podofo/podofo.h> WITHOUT the macros — that is safe and correct.
+// See PdfEncryptPubSec.h/.cpp for the implementation and rationale.
+#include "engines/podofo/PdfEncryptPubSec.h"
 #include <podofo/podofo.h>
-#undef private
-#undef protected
 #include <podofo/main/PdfMemDocument.h>
-#include <podofo/main/PdfEncryptSession.h>
 #include <openssl/rand.h>
-
-// A-01 fix: certificate (PubSec) encryption that actually encrypts document
-// streams/strings with the *real* file-encryption key (FEK) carried in the
-// /Recipients CMS envelopes, so any conformant PubSec reader can decrypt.
-//
-// Root cause of the prior breakage: the old implementation delegated Encrypt()/
-// Decrypt() to a separate PdfEncryptAESV3 created via Create("dummy","dummy"),
-// whose internal key was never the FEK. PoDoFo only invokes GenerateEncryptionKey
-// on THIS object (populating the context with the FEK), but the delegate's
-// Encrypt() did not honour the context FEK, so every stream was AES-encrypted
-// under a key unrelated to the FEK. A certificate holder recovers the FEK from
-// /Recipients, which does not match — output is permanently undecryptable
-// (empirically confirmed: PoDoFo self-load reported "Flate Decoding Error -3").
-//
-// Definitive fix: perform AES-256-CBC directly with the FEK per PDF 2.0
-// §7.6.5.2 (AESV3/R6): each string/stream is encrypted with the file encryption
-// key directly (no per-object key derivation for V5), prefixed by a random
-// 16-byte IV, PKCS#7-padded. No second key-holder object exists.
-class PdfEncryptPubSec : public PoDoFo::PdfEncrypt {
-    std::vector<unsigned char> m_fek;          // 32-byte file encryption key
-    std::vector<QByteArray> m_recipientsCMS;
-
-    static constexpr size_t kIvLen = 16;       // AES block size / IV length
-    static constexpr size_t kBlock = 16;
-
-    // AES-256-CBC core. Returns false on OpenSSL failure.
-    static bool aesCbc(bool encrypt, const unsigned char* key, const unsigned char* iv,
-                       const unsigned char* in, int inLen, unsigned char* out, int& outLen) {
-        EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-        if (!ctx) return false;
-        bool ok = false;
-        int len = 0, total = 0;
-        if (EVP_CipherInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv, encrypt ? 1 : 0) == 1) {
-            // PKCS#7 padding is enabled by default — matches PDF AESV3 stream layout.
-            if (EVP_CipherUpdate(ctx, out, &len, in, inLen) == 1) {
-                total = len;
-                if (EVP_CipherFinal_ex(ctx, out + total, &len) == 1) {
-                    total += len;
-                    ok = true;
-                }
-            }
-        }
-        outLen = total;
-        EVP_CIPHER_CTX_free(ctx);
-        return ok;
-    }
-
-public:
-    PdfEncryptPubSec(const unsigned char* fek, const std::vector<QByteArray>& recipients)
-        : PoDoFo::PdfEncrypt()
-    {
-        m_fek.assign(fek, fek + 32);
-        m_recipientsCMS = recipients;
-
-        m_Algorithm = PoDoFo::PdfEncryptionAlgorithm::AESV3R6;
-        m_KeyLength = PoDoFo::PdfKeyLength::L256;
-        m_pValue = PoDoFo::PdfPermissions::Default;
-        m_rValue = 6;
-        m_EncryptMetadata = true;
-        m_initialized = false;
-    }
-
-    void GenerateEncryptionKey(const std::string_view&, PoDoFo::PdfAuthResult, PODOFO_CRYPT_CTX*,
-        unsigned char[48], unsigned char[48], unsigned char encryptionKey[32]) override
-    {
-        // Populate the context key with the real FEK; our Encrypt/Decrypt below
-        // also use m_fek directly, so the two are guaranteed identical.
-        memcpy(encryptionKey, m_fek.data(), 32);
-    }
-
-    void CreateEncryptionDictionary(PoDoFo::PdfDictionary& dict) const override {
-        dict.AddKey(PoDoFo::PdfName("Filter"), PoDoFo::PdfName("PubSec"));
-        dict.AddKey(PoDoFo::PdfName("SubFilter"), PoDoFo::PdfName("adbe.pkcs7.s5"));
-        dict.AddKey(PoDoFo::PdfName("V"), static_cast<int64_t>(5));
-        dict.AddKey(PoDoFo::PdfName("Length"), static_cast<int64_t>(256));
-
-        PoDoFo::PdfArray recips;
-        for (const auto& r : m_recipientsCMS) {
-            recips.Add(PoDoFo::PdfString::FromRaw(std::string_view(r.constData(), r.size()), true));
-        }
-        dict.AddKey(PoDoFo::PdfName("Recipients"), recips);
-    }
-
-    void Encrypt(const char* inStr, size_t inLen, PoDoFo::PdfEncryptContext& /*context*/,
-        const PoDoFo::PdfReference& /*objref*/, char* outStr, size_t outLen) const override {
-        // Layout: [16-byte IV][AES-256-CBC(plaintext, FEK, IV) with PKCS#7 padding].
-        auto* out = reinterpret_cast<unsigned char*>(outStr);
-        if (outLen < kIvLen)
-            throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::ValueOutOfRange, __FILE__, __LINE__, "PubSec Encrypt: output buffer too small for IV");
-        if (RAND_bytes(out, static_cast<int>(kIvLen)) != 1)
-            throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InternalLogic, __FILE__, __LINE__, "PubSec Encrypt: RAND_bytes failed");
-        int cipherLen = 0;
-        if (!aesCbc(true, m_fek.data(), out, reinterpret_cast<const unsigned char*>(inStr),
-                    static_cast<int>(inLen), out + kIvLen, cipherLen))
-            throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InternalLogic, __FILE__, __LINE__, "PubSec Encrypt: AES-256-CBC failed");
-        if (kIvLen + static_cast<size_t>(cipherLen) != outLen)
-            throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InternalLogic, __FILE__, __LINE__, "PubSec Encrypt: ciphertext length mismatch");
-    }
-
-    void Decrypt(const char* inStr, size_t inLen, PoDoFo::PdfEncryptContext& /*context*/,
-        const PoDoFo::PdfReference& /*objref*/, char* outStr, size_t& outLen) const override {
-        if (inLen < kIvLen + kBlock || ((inLen - kIvLen) % kBlock) != 0)
-            throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InvalidEncryptionDict, __FILE__, __LINE__, "PubSec Decrypt: malformed ciphertext length");
-        const auto* in = reinterpret_cast<const unsigned char*>(inStr);
-        int plainLen = 0;
-        if (!aesCbc(false, m_fek.data(), in, in + kIvLen,
-                    static_cast<int>(inLen - kIvLen), reinterpret_cast<unsigned char*>(outStr), plainLen))
-            throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InvalidPassword, __FILE__, __LINE__, "PubSec Decrypt: AES-256-CBC failed (wrong key or corrupt data)");
-        outLen = static_cast<size_t>(plainLen);
-    }
-
-    // Stream encryption is routed by PoDoFo through PdfStatefulEncrypt::EncryptTo,
-    // which calls Encrypt()/Decrypt() above; the explicit stream factories are not
-    // exercised by the AESV3 save/load path. Refuse loudly if ever invoked so a
-    // future code path cannot silently fall back to an unencrypted stream.
-    std::unique_ptr<PoDoFo::InputStream> CreateEncryptionInputStream(PoDoFo::InputStream&, size_t,
-        PoDoFo::PdfEncryptContext&, const PoDoFo::PdfReference&) const override {
-        throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::NotImplemented, __FILE__, __LINE__, "PubSec: streaming decryption not supported");
-    }
-
-    std::unique_ptr<PoDoFo::OutputStream> CreateEncryptionOutputStream(PoDoFo::OutputStream&,
-        PoDoFo::PdfEncryptContext&, const PoDoFo::PdfReference&) const override {
-        throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::NotImplemented, __FILE__, __LINE__, "PubSec: streaming encryption not supported");
-    }
-
-    size_t CalculateStreamLength(size_t length) const override {
-        // IV + CBC ciphertext with PKCS#7 padding (always adds a full block when aligned).
-        return kIvLen + (length / kBlock + 1) * kBlock;
-    }
-
-    size_t CalculateStreamOffset() const override {
-        return kIvLen;
-    }
-
-    PoDoFo::PdfAuthResult Authenticate(const std::string_view&, const std::string_view&,
-        PODOFO_CRYPT_CTX*, unsigned char encryptionKey[32]) const override {
-        // When re-opening, hand back the FEK so DecryptTo uses the correct key.
-        memcpy(encryptionKey, m_fek.data(), 32);
-        return PoDoFo::PdfAuthResult::Owner;
-    }
-};
+#include <openssl/sha.h>
 
 bool PdfEditorEngine::encryptWithCertificate(const QString &inputPath,
                                               const QString &outputPath,
@@ -948,7 +809,7 @@ bool PdfEditorEngine::encryptWithCertificate(const QString &inputPath,
     try {
         PoDoFo::PdfMemDocument doc;
         doc.Load(inputPath.toUtf8().constData(), "");
-        doc.SetEncrypt(std::make_unique<PdfEncryptPubSec>(fek, envelopes));
+        doc.SetEncrypt(gp::makePdfEncryptPubSec(fek, envelopes));
         doc.Save(outputPath.toUtf8().constData(), PoDoFo::PdfSaveOptions::None);
     } catch (const PoDoFo::PdfError &e) {
         d->setErr(ErrorInfo::Error,
