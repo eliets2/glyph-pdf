@@ -24,6 +24,7 @@
 #include <QCryptographicHash>
 
 #include "engines/SignatureManager.h"
+#include "engines/podofo/PoDoFoBackend.h"
 #include <openssl/x509.h>
 #include <openssl/x509_vfy.h>
 #include <openssl/pem.h>
@@ -39,6 +40,16 @@ static const QString kCaPath     = kFixtureDir + "/test_ca.pem";
 static const QString kInputPdf   = kFixtureDir + "/test_input.pdf";
 static const QString kP12Pass    = QStringLiteral("test");
 
+// TODO(WP-7): kFixtureDir is RELATIVE, so under ctest (CWD = build/) the fixtures
+// are not found and REQUIRE_FIXTURES QSKIPs the ENTIRE suite — it never gates in CI
+// despite being ctest #8 "passing" in 0.03s. Several existing assertions here also
+// fail when the suite is actually executed (signing produces a valid /ByteRange +
+// /Contents file, but validateSignatures re-parse reports trust="Unsigned"). Both
+// are pre-existing test-infra defects owned by WP-7 (cf. G-05/G-06). The WP-2 tests
+// added here (testCertifyWritesDocMDP, testWriteUpdatePreservesSignature, and the
+// strengthened testBLTA_DocTimestampPresent) were verified by running the binary
+// from the repo root, where they PASS; they are written to avoid the broken
+// validateSignatures path so they remain valid once WP-7 makes the suite gate.
 #define REQUIRE_FIXTURES() \
     do { \
         if (!QFileInfo::exists(kP12Path) || !QFileInfo::exists(kInputPdf) || !QFileInfo::exists(kCaPath)) { \
@@ -619,6 +630,66 @@ private slots:
         bool badOk = mgr.certifyDocument(kInputPdf, bad, kP12Path, kP12Pass,
                                          /*certificationLevel=*/9, "", "");
         QVERIFY2(!badOk, "certifyDocument must reject an out-of-range certification level");
+    }
+
+    // -----------------------------------------------------------------------
+    // E-08: PoDoFoBackend::writeUpdate must perform an INCREMENTAL update when a
+    // document has signatures, so the signed /ByteRange windows stay byte-for-byte
+    // intact. A full rewrite would shift offsets and invalidate the signature.
+    //
+    // Oracle: an incremental update APPENDS a new revision, so the original signed
+    // bytes (including the entire /ByteRange-covered region and /Contents) must
+    // survive verbatim as a PREFIX of the updated file. A full rewrite would
+    // re-serialize from object 1 and the prefix would NOT match. We assert prefix
+    // preservation directly (independent of validateSignatures), which is exactly
+    // the property /ByteRange integrity depends on.
+    // -----------------------------------------------------------------------
+    void testWriteUpdatePreservesSignature()
+    {
+        REQUIRE_FIXTURES();
+        QVERIFY(m_tmpDir.isValid());
+
+        // 1) Produce a signed PDF.
+        QString signed_ = m_tmpDir.filePath("wu_signed.pdf");
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_T);
+        QVERIFY2(mgr.signDocument(kInputPdf, signed_, kP12Path, kP12Pass, "WU", ""),
+                 "precondition: signing must succeed");
+        QFile sf(signed_);
+        QVERIFY(sf.open(QIODevice::ReadOnly));
+        const QByteArray original = sf.readAll();
+        sf.close();
+        QVERIFY2(original.contains("/ByteRange") && original.contains("/Contents"),
+                 "precondition: signed file must contain /ByteRange and /Contents");
+
+        // 2) Load via the backend and writeUpdate to a NEW path.
+        PoDoFoBackend backend;
+        QVERIFY2(backend.loadDocument(signed_), "backend must load the signed PDF");
+        QString updated = m_tmpDir.filePath("wu_updated.pdf");
+        QVERIFY2(backend.writeUpdate(updated),
+                 "writeUpdate must succeed (incremental) on a signed document");
+        QVERIFY(QFileInfo::exists(updated));
+
+        // 3) Incremental update preserved the original signed bytes verbatim as a
+        //    prefix — proof the signed /ByteRange region was not disturbed. (A full
+        //    rewrite, the E-08 bug, would fail this: the bytes would be re-laid-out.)
+        QFile uf(updated);
+        QVERIFY(uf.open(QIODevice::ReadOnly));
+        const QByteArray updatedBytes = uf.readAll();
+        uf.close();
+        QVERIFY2(updatedBytes.size() >= original.size(),
+                 "incremental update must not shrink the file");
+        QVERIFY2(updatedBytes.startsWith(original),
+                 "E-08: writeUpdate must append (incremental) — original signed bytes "
+                 "must remain a verbatim prefix; a full rewrite invalidates /ByteRange");
+
+        // 4) An UNsigned document still writes via the full-save fallback.
+        PoDoFoBackend plain;
+        QVERIFY2(plain.loadDocument(kInputPdf), "backend must load the unsigned input");
+        QString plainOut = m_tmpDir.filePath("wu_plain.pdf");
+        QVERIFY2(plain.writeUpdate(plainOut),
+                 "writeUpdate must succeed (full save) on an unsigned document");
+        QVERIFY(QFileInfo::exists(plainOut));
     }
 };
 
