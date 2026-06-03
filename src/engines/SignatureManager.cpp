@@ -606,6 +606,24 @@ bool SignatureManager::signDocument(const QString &inputPath,
                                     const QString &reason,
                                     const QString &location)
 {
+    // certificationLevel == 0 ⇒ ordinary approval signature (no /DocMDP).
+    return signDocumentImpl(inputPath, outputPath, certPath, password, 0, reason, location);
+}
+
+// ---------------------------------------------------------------------------
+// Shared signing core. certificationLevel: 0 = ordinary approval signature;
+// 1/2/3 = certification (author) signature with a /DocMDP transform whose
+// permission is NoPerms/FormFill/Annotations respectively. For a certification
+// signature this MUST write /DocMDP or the whole operation fails — there is no
+// silent downgrade to an ordinary signature (audit E-01).
+bool SignatureManager::signDocumentImpl(const QString &inputPath,
+                                        const QString &outputPath,
+                                        const QString &certPath,
+                                        const QString &password,
+                                        int certificationLevel,
+                                        const QString &reason,
+                                        const QString &location)
+{
     try {
         PdfMemDocument doc;
         doc.Load(inputPath.toStdString());
@@ -671,6 +689,37 @@ bool SignatureManager::signDocument(const QString &inputPath,
 
         if (!reason.isEmpty())   signature->SetSignatureReason(PdfString(reason.toStdString()));
         if (!location.isEmpty()) signature->SetSignatureLocation(PdfString(location.toStdString()));
+
+        // E-01: certification (author) signature — write the /DocMDP transform that
+        // restricts subsequent modifications. certificationLevel 1/2/3 maps to
+        // PdfCertPermission NoPerms/FormFill/Annotations. If this cannot be written
+        // we MUST NOT fall back to an ordinary signature: a recipient would then be
+        // unable to tell the document is unlocked while the UI claims it is certified.
+        if (certificationLevel != 0) {
+            PdfCertPermission perm;
+            switch (certificationLevel) {
+                case 1: perm = PdfCertPermission::NoPerms; break;
+                case 2: perm = PdfCertPermission::FormFill; break;
+                case 3: perm = PdfCertPermission::Annotations; break;
+                default:
+                    qWarning() << "certifyDocument: invalid certification level"
+                               << certificationLevel << "— refusing to sign";
+                    if (issuerCert) X509_free(issuerCert);
+                    if (leafCert)   X509_free(leafCert);
+                    return false;
+            }
+            try {
+                signature->AddCertificationReference(perm);
+            } catch (const PdfError &e) {
+                qCritical() << "certifyDocument: failed to write /DocMDP certification"
+                            << "reference (level" << certificationLevel << "):" << e.what()
+                            << "— ABORTING; document will NOT be silently downgraded to an"
+                            << "ordinary signature.";
+                if (issuerCert) X509_free(issuerCert);
+                if (leafCert)   X509_free(leafCert);
+                return false;
+            }
+        }
 
         // B-T: embed RFC 3161 timestamp token (only if TSA configured)
         if (d->level >= PAdESLevel::B_T && !d->tsaUrl.isEmpty()) {
@@ -798,14 +847,17 @@ bool SignatureManager::certifyDocument(const QString &inputPath,
                                        const QString &reason,
                                        const QString &location)
 {
-    // For M4-PROMPT-5 D3: Certify (cert-level signing)
-    // Uses the same signDocument flow but we need to add /DocMDP entry if we were to fully implement it
-    // Wait, let's look at the implementation. The prompt says:
-    // "Like Sign but with cert-level (1/2/3) selection. Wires to SignatureManager::certifyDocument (new method extending sign with /DocMDP entry)."
-    // We can call signDocument and then add DocMDP, or just duplicate the PoDoFo signing logic.
-    // For now, let's implement a wrapper or just simple PoDoFo wrapper if PoDoFo supports DocMDP directly.
-    qWarning() << "certifyDocument is not fully implemented yet, falling back to regular signature";
-    return signDocument(inputPath, outputPath, certPath, password, reason, location);
+    // M4-PROMPT-5 D3: Certify (author signature with /DocMDP). Shares the full
+    // signing/B-LT/B-LTA crypto path via signDocumentImpl; the only difference is
+    // the certification level, which drives the /DocMDP transform. A level outside
+    // 1..3 is rejected rather than silently downgraded (audit E-01).
+    if (certificationLevel < 1 || certificationLevel > 3) {
+        qWarning() << "certifyDocument: certification level" << certificationLevel
+                   << "out of range (expected 1..3) — refusing to certify";
+        return false;
+    }
+    return signDocumentImpl(inputPath, outputPath, certPath, password,
+                            certificationLevel, reason, location);
 }
 
 bool SignatureManager::addDocTimeStamp(const QString &inputPath, const QString &outputPath)
