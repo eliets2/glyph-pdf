@@ -143,9 +143,6 @@ MainWindow::MainWindow(const AppContext* ctx, QWidget* parent) : QMainWindow(par
             _status->updateUnsaved(dirty);
             if (!dirty) {
                 _modeStrip->setAutosaveTime(QDateTime::currentDateTime());
-                _modeStrip->setSyncStatus(tr("⤺ SYNCED · v.1"));
-            } else {
-                _modeStrip->setSyncStatus(tr("⤺ NOT SYNCED"));
             }
             updateTitle();
         });

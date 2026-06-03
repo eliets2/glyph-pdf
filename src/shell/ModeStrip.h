@@ -25,7 +25,6 @@ public:
 
 public slots:
     void setAutosaveTime(const QDateTime& time);
-    void setSyncStatus(const QString& status);
     void setSignatureStatus(int signedCount, int totalCount);
 
 signals:
