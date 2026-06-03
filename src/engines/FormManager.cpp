@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "engines/FormManager.h"
+#include "engines/podofo/PdfStringEscape.h"
 #include <memory>
 #include <QDebug>
 #include <podofo/podofo.h>
@@ -457,11 +458,16 @@ bool FormManager::exportFormData(const QString &pdfFilePath, const QString &outp
         } else if (format.toLower() == "fdf") {
             out << "%FDF-1.2\n1 0 obj\n<< /FDF << /Fields [\n";
             for (auto it = data.cbegin(); it != data.cend(); ++it) {
-                QString k = it.key();
-                k.replace(")", "\\)").replace("(", "\\(");
-                QString v = it.value().toString();
-                v.replace(")", "\\)").replace("(", "\\(");
-                out << "<< /T (" << k << ") /V (" << v << ") >>\n";
+                // A-04: the ad-hoc replace() escaped ( and ) but NOT backslash, so a
+                // field value containing '\' produced an invalid PDF literal string
+                // (e.g. a trailing '\' escaped the closing ')' and broke the FDF
+                // structure; "a\b" became the backspace escape). Route through the
+                // canonical escaper which escapes '\' first, then ( and ), in the
+                // correct order. Field names/values can come from an attacker-supplied
+                // AcroForm, so this is the §6 "raw user strings -> always escape" rule.
+                out << "<< /T (" << QString::fromStdString(pdfEscapeLiteralString(it.key()))
+                    << ") /V (" << QString::fromStdString(pdfEscapeLiteralString(it.value().toString()))
+                    << ") >>\n";
             }
             out << "] >> >>\nendobj\ntrailer << /Root 1 0 R >>\n%%EOF\n";
         }
