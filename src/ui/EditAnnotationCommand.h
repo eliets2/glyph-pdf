@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
+// D-04 fix: header moved from src/commands/ to src/ui/ so that the
+// pdfws_commands layer no longer has an upward dependency on PdfViewerWidget.
 #pragma once
 #include <QUndoCommand>
 #include <QPointer>
 #include <QList>
 #include "core/AnnotationTypes.h"
 #include "engines/DocumentSession.h"
-
-class PdfViewerWidget;
+#include "ui/PdfViewerWidget.h"
 
 // Stores annotation data directly. Uses QPointer to safely access the
 // viewer if it is still alive; a deleted tab will not crash undo/redo.

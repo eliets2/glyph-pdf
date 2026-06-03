@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-#include "commands/EditAnnotationCommand.h"
+#include "ui/EditAnnotationCommand.h"
 #include "ui/PdfViewerWidget.h"
 
 void EditAnnotationCommand::applyAnnotations(const QList<AnnotationItem>& anns) {
