@@ -11,7 +11,7 @@ static RibbonTabDef makeHome() {
         { "Selection", {{ "select","Select","cursor",true },{ "hand","Hand","hand",false },{ "snapshot","Snapshot","share",false }}},
         { "Find", {{ "search","Find","search",true },{ "findRep","Find & Replace","search",false },{ "regex","Regex","search",false }}},
         { "History", {{ "undo","Undo","undo",true },{ "redo","Redo","redo",false },{ "history","History","more",false }}},
-        { "Share", {{ "share","Share","share",true },{ "cloud","Cloud Sync","cloudSync",false },{ "sendSign","Send for Sig.","share",false }}},
+        { "Share", {{ "share","Share","share",true }}},
         { "File", {{ "save","Save","save",true },{ "saveAs","Save As","save",false },{ "print","Print","print",false }}},
     }};
 }

@@ -10,12 +10,16 @@
 #include "ui/MetadataDialog.h"
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "core/interfaces/ISignatureManager.h"
-#include "core/interfaces/ICollaboration.h"
 #include "commands/EncryptDocumentHelper.h"
 #include "commands/SignDocumentHelper.h"
 #include "commands/SanitizeDocumentHelper.h"
 #include "commands/SetMetadataCommand.h"
+#include "core/AnnotationSerializer.h"
 
+#include <QDateTime>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QProgressDialog>
@@ -42,7 +46,7 @@ QList<ToolId> SecurityController::handledTools() const {
     return {
         ToolId::Encrypt, ToolId::Password, ToolId::Sign,
         ToolId::ValidateSig, ToolId::Sanitize, ToolId::ApplyRedact,
-        ToolId::ExportAnno, ToolId::ImportAnno, ToolId::Cloud,
+        ToolId::ExportAnno, ToolId::ImportAnno,
         ToolId::Permissions, ToolId::RemoveSecurity, ToolId::Certify,
         ToolId::Timestamp, ToolId::PatternRedact, ToolId::RegexRedact
     };
@@ -77,9 +81,6 @@ void SecurityController::activate(ToolId id) {
         break;
     case ToolId::ImportAnno:
         importAnnotationPackage();
-        break;
-    case ToolId::Cloud:
-        cloudSyncSync();
         break;
     case ToolId::Permissions:
         permissionsDocument();
@@ -275,14 +276,23 @@ void SecurityController::sanitizeDocument() {
 
 void SecurityController::exportAnnotationPackage() {
     auto* viewer = _mainWindow->pdfViewer();
-    if (!viewer || !_ctx || !_ctx->collab) return;
+    if (!viewer) return;
 
     QString outputPath = QFileDialog::getSaveFileName(_mainWindow, tr("Export Annotation Package"),
         QFileInfo(viewer->filePath()).baseName() + "_annotations.json",
         tr("JSON Files (*.json)"));
     if (outputPath.isEmpty()) return;
 
-    if (_ctx->collab->exportAnnotationPackage(viewer->annotations(), outputPath)) {
+    QJsonObject root;
+    root["version"]     = "1.0";
+    root["exported_at"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+    root["source"]      = "GlyphPDF";
+    root["annotations"] = AnnotationSerializer::toJson(viewer->annotations()).array();
+
+    QFile file(outputPath);
+    if (file.open(QIODevice::WriteOnly)) {
+        file.write(QJsonDocument(root).toJson());
+        file.close();
         _mainWindow->statusBar()->showMessage(tr("Annotations exported to %1").arg(outputPath), 5000);
     } else {
         QMessageBox::critical(_mainWindow, tr("Error"), tr("Failed to export annotation package."));
@@ -291,13 +301,25 @@ void SecurityController::exportAnnotationPackage() {
 
 void SecurityController::importAnnotationPackage() {
     auto* viewer = _mainWindow->pdfViewer();
-    if (!viewer || !_ctx || !_ctx->collab) return;
+    if (!viewer) return;
 
     QString inputPath = QFileDialog::getOpenFileName(_mainWindow, tr("Import Annotation Package"), "",
         tr("JSON Files (*.json)"));
     if (inputPath.isEmpty()) return;
 
-    QList<AnnotationItem> items = _ctx->collab->importAnnotationPackage(inputPath);
+    QFile file(inputPath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(_mainWindow, tr("Import Error"), tr("Could not open the annotation package file."));
+        return;
+    }
+    constexpr qint64 MaxPackageBytes = 50 * 1024 * 1024;
+    if (file.size() > MaxPackageBytes) {
+        QMessageBox::warning(_mainWindow, tr("Import Error"), tr("Annotation package exceeds the 50 MB size limit."));
+        return;
+    }
+    QList<AnnotationItem> items = AnnotationSerializer::fromJson(QJsonDocument::fromJson(file.readAll()));
+    file.close();
+
     if (!items.isEmpty()) {
         if (QMessageBox::question(_mainWindow, tr("Import Annotations"),
             tr("Imported %1 annotations. Merge with current document?").arg(items.size())) == QMessageBox::Yes) {
@@ -309,45 +331,6 @@ void SecurityController::importAnnotationPackage() {
     } else {
         QMessageBox::warning(_mainWindow, tr("Import Error"), tr("No annotations found in package or file is invalid."));
     }
-}
-
-void SecurityController::cloudSyncSync() {
-    // v1.0.0: Cloud Sync backend is a stub (see CollaborationManager::pushToCloud
-    // "Cloud Sync Stub (Simulation)"). Do NOT pretend it works — inform the user
-    // and bail out before any work is done. The stub flow below is preserved
-    // (compiled out) so it can be reinstated when a real backend lands in v1.1+.
-    QMessageBox::information(
-        _mainWindow,
-        tr("Cloud Sync"),
-        tr("Cloud Sync is not available in v1.0.0. This feature is scheduled for a later release."));
-
-#if 0
-    auto* viewer = _mainWindow->pdfViewer();
-    if (!viewer || !_ctx || !_ctx->collab) return;
-
-    _mainWindow->statusBar()->showMessage(tr("Initiating Document Weaver Cloud Sync..."));
-
-    QTemporaryFile tempFile(QDir::tempPath() + "/collab_XXXXXX.json");
-    tempFile.setAutoRemove(false);
-    if (!tempFile.open()) {
-        _mainWindow->statusBar()->showMessage(tr("Cloud Sync Failed: Unable to create temporary package."));
-        return;
-    }
-    QString tempPath = tempFile.fileName();
-    tempFile.close(); // Close descriptor so it can be written to by exporter
-
-    if (_ctx->collab->exportAnnotationPackage(viewer->annotations(), tempPath)) {
-        QSettings settings;
-        QString cloudEndpoint = settings.value("cloud/sync_endpoint",
-                                               AppContext::DefaultCloudSyncEndpoint).toString();
-        if (_ctx->collab->pushToCloud(tempPath, cloudEndpoint)) {
-            _mainWindow->statusBar()->showMessage(tr("Cloud Sync Successful. Annotations shared."), 5000);
-        } else {
-            QMessageBox::warning(_mainWindow, tr("Sync Failed"), tr("Cloud endpoint unavailable. Running in local mode."));
-        }
-        QFile::remove(tempPath);
-    }
-#endif
 }
 
 void SecurityController::applyRedactions() {
