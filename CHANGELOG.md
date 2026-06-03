@@ -9,6 +9,25 @@ All notable changes to GlyphPDF are documented in this file.
 > OCSP revocation, and multiple security fixes remain open. Do not tag v1.0.0 until the audit
 > release-gate (CLAUDE.md §9) is clear.
 
+### WP-1: Remove cloud upload paths (2026-06-03) — audit-remediation branch
+
+#### Removed
+- **Cloud Sync / CollaborationManager**: deleted `src/engines/CollaborationManager.*`,
+  `src/core/interfaces/ICollaboration.h`, `AppContext::collab` field, and
+  `AppContext::DefaultCloudSyncEndpoint`. Annotation export/import inlined
+  into SecurityController using AnnotationSerializer (local file I/O only).
+- **Fake SYNCED/NOT SYNCED indicator** (C-01): removed `setSyncStatus("SYNCED·v.1")`
+  and `setSyncStatus("NOT SYNCED")` calls from GpMainWindow; removed
+  `ModeStrip::setSyncStatus` slot entirely. Status bar now always shows LOCAL ONLY.
+- **Send for Signature ribbon button** (C-05): removed `sendSign` tool from the Home
+  ribbon Share group; no handler existed and it implied a cloud e-sign upload.
+- **Cloud Sync ribbon button**: removed `cloud` tool from the Home ribbon Share group.
+- **Cloud AI providers** (B-02): deleted `AnthropicProvider.*`, `OpenAiProvider.*`,
+  `GeminiProvider.*` — all three send document/chat content to external servers.
+  AI Chat is now **Ollama-only** (localhost, no internet). Updated AIChatPanel,
+  PreferencesDialog (AI tab now shows Ollama endpoint + model fields), and
+  TestAiProvider (removed Anthropic/OpenAI/Gemini cases; 32/32 ctest passes).
+
 ### MRC Compression Pipeline — WS3 (M7-PROMPT-3 — 2026-06-02)
 
 Mixed Raster Content layered compression pipeline for scanned PDFs: JBIG2 (Apache-2.0, agl/jbig2enc) lossless foreground + JPEG2000 (OpenJPEG 2.5.4, BSD-2) background + invisible `3 Tr` OCR sandwich text from WS1+WS2 word boxes. PDF/A-2b conformant. **30× compression ratio** measured on synthetic A4 page (86 KB vs 2.64 MB raw pixels). veraPDF validation gate integrated. Optional DjVu importer (HAS_DJVU=OFF default, GPL-2.0+ accepted when enabled).
