@@ -44,7 +44,7 @@ A high-performance desktop PDF editor built with C++17 and Qt 6. Designed for pr
 - Dark, Light, and High Contrast themes
 - Drag-and-drop PDF opening
 - Recent files (max 20)
-- AI Chat panel
+- AI Chat panel (local Ollama only — no document content leaves the machine)
 - Find & Replace with redact-all option
 - Full keyboard accessibility (F6 region cycling, F1 help)
 
