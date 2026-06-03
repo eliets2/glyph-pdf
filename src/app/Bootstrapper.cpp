@@ -8,7 +8,6 @@
 #include "engines/FormManager.h"
 #include "engines/SignatureManager.h"
 #include "engines/ConversionManager.h"
-#include "engines/CollaborationManager.h"
 #include "engines/DocumentSession.h"
 #include "engines/AutosaveManager.h"
 
@@ -35,7 +34,6 @@ AppContext Bootstrapper::createContext() {
     ctx.forms      = std::make_shared<FormManager>();
     ctx.signing    = std::make_shared<SignatureManager>();
     ctx.conversion = std::make_shared<ConversionManager>();
-    ctx.collab     = std::make_shared<CollaborationManager>();
     ctx.undoStack  = std::make_shared<QUndoStack>();
     ctx.undoStack->setUndoLimit(200);
     ctx.document   = std::make_shared<DocumentSession>();
