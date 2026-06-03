@@ -14,9 +14,9 @@ This file auto-loads in every Claude Code session opened in `C:\Users\User\Proje
 
 **Build environment (current):** MSYS2 **ucrt64** native — GCC 16.1.0, Qt 6.11.0, CMake 4.3.3, PoDoFo 1.1.0 (vendored). NOT mingw64; NOT Qt installer; NOT vcpkg.
 
-**Repo state:** branch `main`, head `e09404d` (2026-06-01 — M6-P3 walkthrough). M1 `a6ea6aa`; MSYS2 `45807de`–`9ac0c2f`; M2 `42c0f46`–`c3eb22a`; M3 `faac7f2`–`5bc2fbe`; M4+catchup `8bb8f95`–`d54f4a1`; M5-P3 `09b0cfc`–`052b13f`; Djot encode `d90eda2`–`883ca89`; M4-P6 `cf68514`–`be07012`; M6-P1 `887823d`–`db4ad30`; M6-P2 `0c8527c`–`ba7e9c2`; M6-P3 `6c89a1d`–`e09404d`. See vault `01-current-state.md` for commit-by-commit map.
+**Repo state:** branch `main`, head `e1c5394` (2026-06-02 — CI runner pin) — **audit branch `audit-remediation` active; see `docs/audit/AUDIT-2026-06-02.md`**. M1 `a6ea6aa`; MSYS2 `45807de`–`9ac0c2f`; M2 `42c0f46`–`c3eb22a`; M3 `faac7f2`–`5bc2fbe`; M4+catchup `8bb8f95`–`d54f4a1`; M5-P3 `09b0cfc`–`052b13f`; Djot encode `d90eda2`–`883ca89`; M4-P6 `cf68514`–`be07012`; M6-P1 `887823d`–`db4ad30`; M6-P2 `0c8527c`–`ba7e9c2`; M6-P3 `6c89a1d`–`e09404d`. See vault `01-current-state.md` for commit-by-commit map.
 
-**Tests:** 26 ctest targets. All should pass under MSYS2 ucrt64 build (verify with `ctest --output-on-failure -j4 --repeat-until-fail 3`). TestDiffEngine: 12 tests (Myers LCS + move detection + legal-doc scenario). TestOfficeImport: 5 tests (3 active without LibreOffice; 2 QSKIP when soffice absent). TestDjotRoundtrip: 12 tests (8 encode verification + 4 ProvenanceGuard). TestPatternRedact: 11 tests (PDFium-gated). TestBatchMode: RESOURCE_LOCK.
+**Tests:** 34 ctest targets defined (32 pass in the default `ctest` run; verified clean-build 2026-06-02). All should pass under MSYS2 ucrt64 build (verify with `ctest --output-on-failure -j4 --repeat-until-fail 3`). TestDiffEngine: 12 tests (Myers LCS + move detection + legal-doc scenario). TestOfficeImport: 5 tests (3 active without LibreOffice; 2 QSKIP when soffice absent). TestDjotRoundtrip: 12 tests (8 encode verification + 4 ProvenanceGuard). TestPatternRedact: 11 tests (PDFium-gated). TestBatchMode: RESOURCE_LOCK.
 
 ---
 
@@ -96,7 +96,7 @@ cmake --build build --parallel 8
 ```powershell
 cd build
 ctest --output-on-failure -j4
-# Expected: 14/14 pass
+# Expected: 32/32 pass
 ```
 
 ### Run the app
