@@ -139,16 +139,38 @@ void SecurityController::encryptDocument() {
         perms.modify = dlg.canModify();
         
         QPointer<SecurityController> self(this);
+        auto result = std::make_shared<std::atomic<bool>>(false);
 
-        QThread* worker = QThread::create([engine, doc, userPwd, ownerPwd, perms]() {
-            EncryptDocumentHelper::execute(engine, doc, userPwd, ownerPwd, perms);
+        // E-04: capture the helper's return value. On failure (e.g. saveDocument
+        // could not write the encrypted file — disk full, file locked, I/O error)
+        // the file on disk is left UNCHANGED (still plaintext). We must NOT claim
+        // "Document encrypted" in that case. E-20: also catch worker-thread
+        // exceptions so a PoDoFo throw across the thread boundary cannot terminate.
+        QThread* worker = QThread::create([engine, doc, userPwd, ownerPwd, perms, result]() {
+            try {
+                result->store(EncryptDocumentHelper::execute(engine, doc, userPwd, ownerPwd, perms));
+            } catch (const std::exception& e) {
+                qCritical() << "Encryption worker thread threw:" << e.what();
+                result->store(false);
+            } catch (...) {
+                qCritical() << "Encryption worker thread threw an unknown exception";
+                result->store(false);
+            }
         });
 
-        connect(worker, &QThread::finished, _mainWindow, [self, progress]() {
+        connect(worker, &QThread::finished, _mainWindow, [self, progress, result]() {
             progress->close();
             progress->deleteLater();
             if (!self) return;
-            self->_mainWindow->statusBar()->showMessage(QObject::tr("Document encrypted"), 5000);
+            if (result->load()) {
+                self->_mainWindow->statusBar()->showMessage(QObject::tr("Document encrypted"), 5000);
+            } else {
+                QMessageBox::critical(self->_mainWindow, tr("Encryption Failed"),
+                    tr("The document could not be encrypted and saved. The original file "
+                       "was left unchanged. Check that the file is not read-only and the "
+                       "disk is not full."));
+                self->_mainWindow->statusBar()->showMessage(tr("Encryption failed."), 5000);
+            }
         });
         connect(worker, &QThread::finished, worker, &QObject::deleteLater);
         worker->start();
