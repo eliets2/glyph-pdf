@@ -47,6 +47,8 @@ public:
     bool addDocTimeStamp(const QString &inputPath,
                          const QString &outputPath) override;
 
+    SignOutcome lastSignOutcome() const override;
+
     /**
      * @brief Validate all digital signatures in a PDF.
      * @param filePath Path to the PDF file.
