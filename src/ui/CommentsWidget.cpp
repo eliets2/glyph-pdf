@@ -3,7 +3,7 @@
 #include "ui/PdfViewerWidget.h"
 #include "core/AnnotationTypes.h"
 #include "core/AppContext.h"
-#include "commands/EditAnnotationCommand.h"
+#include "ui/EditAnnotationCommand.h"
 #include "engines/DocumentSession.h"
 #include "pdfws_djot/DjotToRichTextXhtml.h"
 
