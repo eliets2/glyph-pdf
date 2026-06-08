@@ -32,6 +32,8 @@ namespace {
 RenderCache::RenderCache() {}
 
 RenderCache::~RenderCache() {
+    m_prefetchCancelToken.fetchAndAddRelaxed(1);
+    if (m_prefetchFuture.isRunning()) m_prefetchFuture.waitForFinished();
     clear();
 }
 
@@ -268,7 +270,11 @@ void RenderCache::prefetchViewport(int centerPage, qreal scale, IPdfRenderer* re
     }
     std::weak_ptr<RenderCache> weakThis = weak_from_this();
 
-    QtConcurrent::run([weakThis, pagesToPrefetch, scale, renderer, currentToken]() {
+    if (m_prefetchFuture.isRunning()) {
+        // cancellation signaled via token above
+    }
+
+    m_prefetchFuture = QtConcurrent::run([weakThis, pagesToPrefetch, scale, renderer, currentToken]() {
         auto self = weakThis.lock();
         if (!self) return;
 
@@ -279,9 +285,12 @@ void RenderCache::prefetchViewport(int centerPage, qreal scale, IPdfRenderer* re
             }
 
             RenderCacheKey key{p, scale, false, QRectF()};
-            self->m_lock.lockForRead();
-            bool cached = self->m_renderedPages.contains(key);
-            self->m_lock.unlock();
+            
+            bool cached = false;
+            {
+                WriteLockGuard guard(self->m_lock);
+                cached = self->m_renderedPages.contains(key);
+            }
 
             if (!cached) {
                 int dpi = static_cast<int>(scale * 72.0);

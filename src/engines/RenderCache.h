@@ -11,6 +11,7 @@
 #include <QAtomicInt>
 #include <memory>
 #include <future>
+#include <QFuture>
 #include "core/interfaces/IPdfRenderer.h"
 
 // Memory-guard thresholds (Session 16 D5)
@@ -108,6 +109,7 @@ private:
 
     // Viewport prefetch cancellation token
     QAtomicInt m_prefetchCancelToken{0};
+    QFuture<void> m_prefetchFuture;
 
     // Tier 1: Metadata
     int m_pageCount = 0;
