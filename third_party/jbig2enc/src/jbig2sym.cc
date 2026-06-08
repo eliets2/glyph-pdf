@@ -330,8 +330,8 @@ jbig2enc_textregion(struct jbig2enc_ctx *restrict ctx,
       // if stripwidth is 1, all the t values must be the same so they aren't
       // even encoded
       if (stripwidth > 1) {
-        const int deltat = BY(sym) - stript;
-        jbig2enc_int(ctx, JBIG2_IAIT, deltat);
+        const int deltat_sym = BY(sym) - stript;
+        jbig2enc_int(ctx, JBIG2_IAIT, deltat_sym);
       }
 
       // The assignments array is absolutely indexed, but in the case that we

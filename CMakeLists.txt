@@ -22,7 +22,11 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
 add_compile_options(-Wall -Wextra -Wno-unused-parameter)
-
+if(MSVC)
+    add_compile_options(/we4715 /we4834 /we4456) # return-type, nodiscard, shadow equivalents
+else()
+    add_compile_options(-Werror=return-type -Werror=unused-result -Werror=shadow)
+endif()
 # ── Dependencies ──────────────────────────────────────────────────────────
 find_package(Qt6 COMPONENTS Core Gui Widgets Pdf PdfWidgets PrintSupport Svg Network Test Concurrent REQUIRED)
 find_package(Qt6 COMPONENTS LinguistTools QUIET)
@@ -192,7 +196,7 @@ target_link_libraries(pdfws_engines
             pdfws_djot docmodel
 )
 if(WIN32)
-    target_link_libraries(pdfws_engines PUBLIC Credui Advapi32 Crypt32)
+    target_link_libraries(pdfws_engines PRIVATE Credui Advapi32 Crypt32)
 endif()
 if(Tesseract_FOUND AND Leptonica_FOUND)
     find_package(OpenMP REQUIRED)
@@ -629,6 +633,23 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignatureValidationMock.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRobustness.cpp")
+    add_executable(TestRobustness
+        tests/TestRobustness.cpp
+    )
+    target_include_directories(TestRobustness PRIVATE src tests)
+    target_link_libraries(TestRobustness PRIVATE
+        pdfws_engines pdfws_core
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets podofo::podofo
+    )
+    add_test(NAME TestRobustness COMMAND TestRobustness)
+    set_tests_properties(TestRobustness PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;security;robustness;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignatureValidation.cpp")
     add_executable(TestSignatureValidation
         tests/TestSignatureValidation.cpp
@@ -658,6 +679,11 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignatureRealCrypto.cpp")
         tests/TestSignatureRealCrypto.cpp
     )
     target_include_directories(TestSignatureRealCrypto PRIVATE src tests)
+    # Inject the absolute source root so kFixtureDir in the test is not relative
+    # (ctest CWD = build/; a relative path would not find tests/fixtures/).
+    target_compile_definitions(TestSignatureRealCrypto PRIVATE
+        SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    )
     target_link_libraries(TestSignatureRealCrypto PRIVATE
         pdfws_engines pdfws_core
         OpenSSL::SSL OpenSSL::Crypto

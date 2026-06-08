@@ -34,7 +34,13 @@
 // Helpers
 // ---------------------------------------------------------------------------
 
+// kFixtureDir is ABSOLUTE using the SOURCE_DIR compile-time macro injected by
+// CMakeLists.txt — so the suite runs correctly under ctest (CWD = build/).
+#ifdef SOURCE_DIR
+static const QString kFixtureDir = QStringLiteral(SOURCE_DIR "/tests/fixtures/signing");
+#else
 static const QString kFixtureDir = QStringLiteral("tests/fixtures/signing");
+#endif
 static const QString kP12Path    = kFixtureDir + "/test_signer.p12";
 static const QString kCaPath     = kFixtureDir + "/test_ca.pem";
 static const QString kInputPdf   = kFixtureDir + "/test_input.pdf";
@@ -138,7 +144,7 @@ private slots:
         REQUIRE_FIXTURES();
         QVERIFY(m_tmpDir.isValid());
 
-        QString output = m_tmpDir.filePath("signed_blt.pdf");
+        QString output = "C:/Users/User/Projects/pdf/build/signed_blt.pdf";
 
         SignatureManager mgr;
         mgr.setSignatureLevel(PAdESLevel::B_LT);
@@ -158,6 +164,7 @@ private slots:
         // Locate /Contents hex string in the raw bytes
         // PAdES /Contents is a hex-string like <DEADBEEF...>
         int contentsStart = pdfData.indexOf("/Contents <");
+        if (contentsStart < 0) contentsStart = pdfData.indexOf("/Contents<");
         QVERIFY2(contentsStart >= 0, "/Contents not found in signed PDF");
         int hexStart = pdfData.indexOf('<', contentsStart) + 1;
         int hexEnd   = pdfData.indexOf('>', hexStart);
@@ -306,13 +313,13 @@ private slots:
             if (parts.size() == 4) {
                 qint64 off1 = parts[0].toLongLong();
                 qint64 len1 = parts[1].toLongLong();
-                // Make off2 = off1 + len1 - 10 (overlaps by 10 bytes)
                 qint64 newOff2 = off1 + len1 - 10;
                 qint64 len2    = parts[3].toLongLong();
+                qint64 newLen2 = len2 + 10;
                 QByteArray newBr = QByteArray::number(off1) + " " +
                                    QByteArray::number(len1) + " " +
                                    QByteArray::number(newOff2) + " " +
-                                   QByteArray::number(len2);
+                                   QByteArray::number(newLen2);
                 // Pad with spaces to keep file size identical
                 while (newBr.size() < brContent.size()) newBr += ' ';
                 pdfData.replace(cursor, brEnd - cursor, newBr.left(brEnd - cursor));
@@ -432,7 +439,10 @@ private slots:
         REQUIRE_FIXTURES();
 
         SignatureManager mgr;
-        mgr.setSignatureLevel(PAdESLevel::B_B);
+        // Sign at B_LT so the OCSP response is injected into the DSS /OCSPs array.
+        // At B_B level there is no DSS, so extractOcspFromDss returns empty and
+        // revocation is invisible — that would be a silent soft-pass, not a real test.
+        mgr.setSignatureLevel(PAdESLevel::B_LT);
         QString output = m_tmpDir.filePath("revoked_signed.pdf");
         // revoked_cert.p12 uses an RSA-2048 cert so signing should succeed
         QVERIFY(mgr.signDocument(kInputPdf, output, revokedP12, kP12Pass));
@@ -444,10 +454,12 @@ private slots:
         auto sigs = mgr.validateSignatures(output);
         QVERIFY(!sigs.isEmpty());
 
-        // OCSP DSS injection is wired in M5; at B_B level the DSS /OCSPs array
-        // is absent so extractOcspFromDss returns empty → revocation not detected.
-        QEXPECT_FAIL("", "Revocation reporting requires DSS OCSP injection (M5 wiring)", Continue);
+        // With B_LT the OCSP response is embedded in DSS /OCSPs; the revocation
+        // check in validateSignatures reads it via extractOcspFromDss and must
+        // override trustStatus to "Revoked". This is a hard assertion — if the
+        // engine fails to detect revocation, that is a security defect.
         QCOMPARE(sigs.first().trustStatus, QString("Revoked"));
+        QVERIFY2(!sigs.first().isValid, "Revoked cert signature must not be valid");
 
         X509_STORE_free(store);
         mgr.setTrustStoreForTest(nullptr);
@@ -484,9 +496,9 @@ private slots:
                 QList<QByteArray> parts = data.mid(cursor, brEnd - cursor).trimmed().split(' ');
                 if (parts.size() == 4) {
                     qint64 off1 = parts[0].toLongLong();
-                    qint64 len1 = parts[1].toLongLong();
-                    // Flip a byte in the middle of segment 1 (safe: within PDF header region)
-                    qint64 tampPos = off1 + len1 / 2;
+                    qint64 off2 = parts[2].toLongLong();
+                    // Flip a byte in segment 2 to break signature without breaking PDF syntax
+                    qint64 tampPos = off2 + 2;
                     if (tampPos < data.size()) {
                         data[static_cast<int>(tampPos)] =
                             static_cast<char>(data[static_cast<int>(tampPos)] ^ 0x01);
