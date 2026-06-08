@@ -34,6 +34,7 @@ LaneScheduler::~LaneScheduler() {
 }
 
 void LaneScheduler::shutdown() {
+    cancelAll();
     {
         QMutexLocker lock(&m_gpuMutex);
         if (m_gpuStopping) return;
@@ -42,9 +43,13 @@ void LaneScheduler::shutdown() {
     }
     if (m_gpuThread) {
         m_gpuThread->quit();
-        m_gpuThread->wait(5000);
+        if (!m_gpuThread->wait(30000)) {
+            qCritical("LaneScheduler: GPU thread did not stop in 30s — forcing termination");
+            m_gpuThread->terminate();
+            m_gpuThread->wait();
+        }
     }
-    m_cpuPool.waitForDone(5000);
+    m_cpuPool.waitForDone(-1);
 }
 
 void LaneScheduler::gpuWorkerLoop() {
