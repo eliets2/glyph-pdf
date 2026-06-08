@@ -40,6 +40,7 @@ private:
     QComboBox*   _updateChannel = nullptr;
     QPushButton* _checkNowBtn = nullptr;
     QLabel*      _updateStatus = nullptr;
+    QComboBox*   _ocrEngineCombo = nullptr;
 
     // AI tab widgets
     QLineEdit*   _aiKeyEdit       = nullptr;  // repurposed: Ollama endpoint

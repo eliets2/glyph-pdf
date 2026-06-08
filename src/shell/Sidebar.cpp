@@ -112,8 +112,8 @@ void Sidebar::init(const AppContext* ctx, PdfViewerWidget* viewer)
             // (replaces the former placeholder text-stub that fabricated a
             // "[Metadata Payload: …]" file and falsely reported success — a
             // Pattern 5 mock-masquerading surface).
-            QByteArray data = m_ctx->pdfEditor->extractEmbeddedFile(fileName);
-            if (data.isEmpty()) {
+            QByteArray fileData = m_ctx->pdfEditor->extractEmbeddedFile(fileName);
+            if (fileData.isEmpty()) {
                 QMessageBox::warning(this, tr("Extraction Failed"),
                     tr("Could not extract the embedded file '%1'. It may be "
                        "missing or stored in an unsupported way.").arg(fileName));
@@ -125,15 +125,15 @@ void Sidebar::init(const AppContext* ctx, PdfViewerWidget* viewer)
 
             QFile destFile(savePath);
             if (destFile.open(QIODevice::WriteOnly)) {
-                qint64 written = destFile.write(data);
+                qint64 written = destFile.write(fileData);
                 destFile.close();
-                if (written == data.size()) {
+                if (written == fileData.size()) {
                     QMessageBox::information(this, tr("Attachment Exported"),
                         tr("Extracted '%1' (%2 bytes) to:\n%3")
-                            .arg(fileName).arg(data.size()).arg(savePath));
+                            .arg(fileName).arg(fileData.size()).arg(savePath));
                 } else {
                     QMessageBox::warning(this, tr("Error"),
-                        tr("Only %1 of %2 bytes were written.").arg(written).arg(data.size()));
+                        tr("Only %1 of %2 bytes were written.").arg(written).arg(fileData.size()));
                 }
             } else {
                 QMessageBox::warning(this, tr("Error"), tr("Failed to save attachment file."));
