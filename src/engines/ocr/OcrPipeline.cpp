@@ -350,9 +350,9 @@ QFuture<QList<PageOcrResult>> OcrPipeline::recognizeDocument(const QList<QImage>
                 orderedResults[p] = std::move(result);
         };
 
-        // Run the 3-stage cross-page pipeline with backpressure = 4 pages
+        // Run the 3-stage cross-page pipeline with backpressure = max(1, cpuCapacity/2)
         gp::CrossPagePipeline<QList<LayoutRegion>, QList<MergedOcrWord>, PageOcrResult>
-            pipeline(*sched, 4);
+            pipeline(*sched);
         pipeline.run(pageCount, stage1, stage2, stage3, handler);
 
         return orderedResults;
