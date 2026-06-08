@@ -199,9 +199,9 @@ void BatchMode::buildOperationPanel(QWidget* host) {
                     it->setToolTip(tip);
                 }
             };
-            disableItem(OpMerge,  tr("Merge: engine method not yet available — coming in M4"));
-            disableItem(OpOCR,    tr("OCR engine available in M5"));
-            disableItem(OpRedact, tr("Search-pattern redact coming in M3-P4"));
+            disableItem(OpMerge,  tr("Merge: not available in v1.0 batch mode."));
+            disableItem(OpOCR,    tr("OCR: not available in v1.0 batch mode."));
+            disableItem(OpRedact, tr("Redact: not available in v1.0 batch mode."));
         }
     }
 
@@ -345,7 +345,7 @@ void BatchMode::buildOperationPanel(QWidget* host) {
     auto* pMerge = new QFrame;
     {
         auto* lay = new QVBoxLayout(pMerge);
-        auto* lbl = new QLabel(tr("Merge: engine method not yet available.\nComing in M4."));
+        auto* lbl = new QLabel(tr("Merge: not available in v1.0 batch mode."));
         lbl->setAlignment(Qt::AlignCenter);
         lbl->setWordWrap(true);
         lbl->setStyleSheet("color:#71747a; padding:20px;");
@@ -358,7 +358,7 @@ void BatchMode::buildOperationPanel(QWidget* host) {
     auto* pOCR = new QFrame;
     {
         auto* lay = new QVBoxLayout(pOCR);
-        auto* lbl = new QLabel(tr("OCR engine available in M5.\nThis operation will be enabled once\nthe OcrPipeline is wired."));
+        auto* lbl = new QLabel(tr("OCR: not available in v1.0 batch mode."));
         lbl->setAlignment(Qt::AlignCenter);
         lbl->setWordWrap(true);
         lbl->setStyleSheet("color:#71747a; padding:20px;");
@@ -371,7 +371,7 @@ void BatchMode::buildOperationPanel(QWidget* host) {
     auto* pRedact = new QFrame;
     {
         auto* lay = new QVBoxLayout(pRedact);
-        auto* lbl = new QLabel(tr("Search-pattern redaction coming in M3-P4.\nThis operation will be enabled once\nthe pattern redact engine is wired."));
+        auto* lbl = new QLabel(tr("Redact: not available in v1.0 batch mode."));
         lbl->setAlignment(Qt::AlignCenter);
         lbl->setWordWrap(true);
         lbl->setStyleSheet("color:#71747a; padding:20px;");
@@ -624,9 +624,9 @@ void BatchMode::onRunClicked() {
     // Refuse disabled operations
     if (opIdx == OpMerge || opIdx == OpOCR || opIdx == OpRedact) {
         QString reason;
-        if      (opIdx == OpMerge)  reason = tr("Merge is not yet available — coming in M4.");
-        else if (opIdx == OpOCR)    reason = tr("OCR engine available in M5.");
-        else                        reason = tr("Search-pattern redact coming in M3-P4.");
+        if      (opIdx == OpMerge)  reason = tr("Merge: not available in v1.0 batch mode.");
+        else if (opIdx == OpOCR)    reason = tr("OCR: not available in v1.0 batch mode.");
+        else                        reason = tr("Redact: not available in v1.0 batch mode.");
         QMessageBox::information(this, tr("Operation Not Available"), reason);
         return;
     }

@@ -34,6 +34,12 @@ public:
     bool createButton(const QString &pdfFilePath, int pageIndex, const QRectF &rect, const QString &caption, const QString &action, const QString &outputPath) override;
     QList<FieldSuggestion> autoDetectFields(const QString &pdfFilePath, int pageIndex) override;
 
+    bool removeFieldByName(const QString &pdfFilePath, const QString &fieldName, const QString &outputPath) override;
+    bool updateFieldRect(const QString &pdfFilePath, const QString &fieldName,
+                         int pageIndex, const QRectF &newRect, const QString &outputPath) override;
+    QStringList listFields(const QString &pdfFilePath) override;
+    bool setTabOrder(const QString &pdfFilePath, const QStringList &orderedNames, const QString &outputPath) override;
+
     bool exportFormData(const QString &pdfFilePath, const QString &outputPath, const QString &format) override;
     bool importFormData(const QString &pdfFilePath, const QString &dataFilePath, const QString &outputPath) override;
     bool flattenForm(const QString &pdfFilePath, const QString &outputPath) override;

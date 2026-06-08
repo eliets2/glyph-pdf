@@ -545,9 +545,9 @@ bool FormManager::flattenForm(const QString &pdfFilePath, const QString &outputP
                 PoDoFo::PdfPage* page = nullptr;
                 auto* pObj = field.GetDictionary().FindKey("P");
                 if (pObj) {
-                    if (pObj->IsReference()) pObj = &doc.GetObjects().MustGetObject(pObj->GetReference());
+                    if (pObj->IsReference()) pObj = &doc.GetObjects().MustGetObject(pObj->GetIndirectReference());
                     for (unsigned pi = 0; pi < doc.GetPages().GetCount(); ++pi) {
-                        if (doc.GetPages().GetPageAt(pi).GetObject().GetReference() == pObj->GetReference()) {
+                        if (doc.GetPages().GetPageAt(pi).GetObject().GetIndirectReference() == pObj->GetIndirectReference()) {
                             page = &doc.GetPages().GetPageAt(pi);
                             break;
                         }
@@ -560,7 +560,7 @@ bool FormManager::flattenForm(const QString &pdfFilePath, const QString &outputP
                         auto& p = doc.GetPages().GetPageAt(pi);
                         auto& annos = p.GetAnnotations();
                         for (unsigned ai = 0; ai < annos.GetCount(); ++ai) {
-                            if (annos.GetAnnotAt(ai).GetObject().GetReference() == field.GetObject().GetReference()) {
+                            if (annos.GetAnnotAt(ai).GetObject().GetIndirectReference() == field.GetObject().GetIndirectReference()) {
                                 page = &p;
                                 break;
                             }
@@ -648,6 +648,209 @@ bool FormManager::flattenForm(const QString &pdfFilePath, const QString &outputP
         return false;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "PoDoFo error during form flattening:" << e.what();
+        return false;
+    }
+}
+
+// ── removeFieldByName ─────────────────────────────────────────────────────────
+// Locates the named AcroForm field by full name, removes it from the /Fields
+// array AND removes the corresponding Widget annotation from the page, then
+// saves to outputPath.  Returns true on success.
+bool FormManager::removeFieldByName(const QString &pdfFilePath,
+                                    const QString &fieldName,
+                                    const QString &outputPath)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(pdfFilePath.toUtf8().constData());
+
+        auto* acroForm = doc.GetAcroForm();
+        if (!acroForm) {
+            qWarning() << "removeFieldByName: no AcroForm in" << pdfFilePath;
+            return false;
+        }
+
+        // Find the field index by full name
+        int fieldIdx = -1;
+        PoDoFo::PdfReference fieldRef;
+        for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
+            auto& f = acroForm->GetFieldAt(i);
+            if (QString::fromStdString(f.GetFullName()) == fieldName) {
+                fieldIdx = static_cast<int>(i);
+                fieldRef = f.GetObject().GetIndirectReference();
+                break;
+            }
+        }
+
+        if (fieldIdx < 0) {
+            qWarning() << "removeFieldByName: field not found:" << fieldName;
+            return false;
+        }
+
+        // Remove the Widget annotation from every page that references this field
+        for (unsigned pi = 0; pi < doc.GetPages().GetCount(); ++pi) {
+            auto& page = doc.GetPages().GetPageAt(pi);
+            auto& annos = page.GetAnnotations();
+            for (unsigned ai = annos.GetCount(); ai-- > 0;) {
+                if (annos.GetAnnotAt(ai).GetObject().GetIndirectReference() == fieldRef) {
+                    annos.RemoveAnnotAt(ai);
+                    break;
+                }
+            }
+        }
+
+        // Remove from AcroForm /Fields
+        acroForm->RemoveFieldAt(static_cast<unsigned>(fieldIdx));
+
+        doc.Save(outputPath.toUtf8().constData());
+        qDebug() << "Removed field" << fieldName << "and saved to" << outputPath;
+        return true;
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "removeFieldByName error:" << e.what();
+        return false;
+    }
+}
+
+// ── updateFieldRect ───────────────────────────────────────────────────────────
+// Updates the /Rect of the named field's widget annotation to newRect.
+// newRect is in Qt widget coordinates (origin top-left of the page); this
+// function converts to PDF coordinates (origin bottom-left) using pageIndex to
+// determine the page height.
+bool FormManager::updateFieldRect(const QString &pdfFilePath,
+                                  const QString &fieldName,
+                                  int pageIndex,
+                                  const QRectF &newRect,
+                                  const QString &outputPath)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(pdfFilePath.toUtf8().constData());
+
+        if (pageIndex < 0 || static_cast<unsigned>(pageIndex) >= doc.GetPages().GetCount()) {
+            qWarning() << "updateFieldRect: invalid pageIndex" << pageIndex;
+            return false;
+        }
+
+        auto* acroForm = doc.GetAcroForm();
+        if (!acroForm) {
+            qWarning() << "updateFieldRect: no AcroForm in" << pdfFilePath;
+            return false;
+        }
+
+        double pageH = doc.GetPages().GetPageAt(pageIndex).GetMediaBox().Height;
+
+        // Convert Qt (top-left origin) to PDF (bottom-left origin)
+        PoDoFo::Rect pdfRect(
+            newRect.x(),
+            pageH - newRect.y() - newRect.height(),
+            newRect.width(),
+            newRect.height()
+        );
+
+        PoDoFo::PdfArray rectArr;
+        rectArr.Add(PoDoFo::PdfVariant(pdfRect.X));
+        rectArr.Add(PoDoFo::PdfVariant(pdfRect.Y));
+        rectArr.Add(PoDoFo::PdfVariant(pdfRect.X + pdfRect.Width));
+        rectArr.Add(PoDoFo::PdfVariant(pdfRect.Y + pdfRect.Height));
+
+        bool found = false;
+        for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
+            auto& f = acroForm->GetFieldAt(i);
+            if (QString::fromStdString(f.GetFullName()) == fieldName) {
+                f.GetDictionary().AddKey(PoDoFo::PdfName("Rect"), rectArr);
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            qWarning() << "updateFieldRect: field not found:" << fieldName;
+            return false;
+        }
+
+        doc.Save(outputPath.toUtf8().constData());
+        qDebug() << "Updated rect for field" << fieldName << "on page" << pageIndex;
+        return true;
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "updateFieldRect error:" << e.what();
+        return false;
+    }
+}
+
+// ── listFields ────────────────────────────────────────────────────────────────
+// Returns the full names of all AcroForm fields in the document.
+QStringList FormManager::listFields(const QString &pdfFilePath)
+{
+    QStringList names;
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(pdfFilePath.toUtf8().constData());
+        auto* acroForm = doc.GetAcroForm();
+        if (!acroForm) return names;
+        for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
+            names.append(QString::fromStdString(acroForm->GetFieldAt(i).GetFullName()));
+        }
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "listFields error:" << e.what();
+    }
+    return names;
+}
+
+// ── setTabOrder ───────────────────────────────────────────────────────────────
+// Writes the AcroForm /CO (calculation order) array with field references in
+// orderedNames order.  This array is used by PDF readers to determine the tab
+// sequence.  Fields not in orderedNames are appended at the end of the CO array.
+bool FormManager::setTabOrder(const QString &pdfFilePath,
+                              const QStringList &orderedNames,
+                              const QString &outputPath)
+{
+    QString tempOut = (pdfFilePath == outputPath) ? outputPath + ".tmp" : outputPath;
+    try {
+        {
+            PoDoFo::PdfMemDocument doc;
+            doc.Load(pdfFilePath.toUtf8().constData());
+
+            auto* acroForm = doc.GetAcroForm();
+            if (!acroForm) {
+                qWarning() << "setTabOrder: no AcroForm in" << pdfFilePath;
+                return false;
+            }
+
+            // Build a name→reference map
+            std::map<std::string, PoDoFo::PdfReference> refMap;
+            for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
+                auto& f = acroForm->GetFieldAt(i);
+                refMap[f.GetFullName()] = f.GetObject().GetIndirectReference();
+            }
+
+            // Build /CO array in the requested order
+            PoDoFo::PdfArray coArr;
+            // First: fields in orderedNames
+            for (const QString& name : orderedNames) {
+                auto it = refMap.find(name.toStdString());
+                if (it != refMap.end()) {
+                    coArr.Add(it->second);
+                    refMap.erase(it);
+                }
+            }
+            // Then: any remaining fields not in the ordered list
+            for (const auto& kv : refMap) {
+                coArr.Add(kv.second);
+            }
+
+            acroForm->GetDictionary().AddKey(PoDoFo::PdfName("CO"), coArr);
+            
+            doc.Save(tempOut.toUtf8().constData());
+            qDebug() << "setTabOrder: wrote" << coArr.GetSize() << "entries to /CO";
+        }
+        
+        if (pdfFilePath == outputPath) {
+            QFile::remove(outputPath);
+            QFile::rename(tempOut, outputPath);
+        }
+        return true;
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "setTabOrder error:" << e.what();
         return false;
     }
 }

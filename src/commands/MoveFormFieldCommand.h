@@ -8,10 +8,8 @@
 #include "engines/DocumentSession.h"
 
 /// Undo/redo command for moving a form field to a new position.
-/// IFormManager v1.0.0 does not expose a moveField() method; the command
-/// records the move intent and marks the document as dirty. Full engine-side
-/// rect update requires PoDoFo widget annotation dictionary surgery and is
-/// scheduled for v1.1 (blocked on IFormManager::updateFieldRect API addition).
+/// redo(): calls IFormManager::updateFieldRect with newRect (persists to PDF).
+/// undo(): calls IFormManager::updateFieldRect with oldRect (reverts).
 class MoveFormFieldCommand : public QUndoCommand {
 public:
     MoveFormFieldCommand(IFormManager* engine,
@@ -31,17 +29,23 @@ public:
     }
 
     void redo() override {
-        if (!m_doc) return;
-        qWarning() << "MoveFormFieldCommand: engine-side field move not yet implemented"
-                   << "— field" << m_fieldName << "move recorded only. See ROADMAP.";
-        m_doc->markReload();
-        setObsolete(false);
+        if (!m_engine || !m_doc || m_doc->path().isEmpty()) return;
+        const QString path = m_doc->path();
+        const bool ok = m_engine->updateFieldRect(path, m_fieldName, m_pageIndex, m_newRect, path);
+        if (!ok) {
+            qWarning() << "MoveFormFieldCommand::redo: updateFieldRect failed for" << m_fieldName;
+        }
+        m_doc->markDirty();
     }
 
     void undo() override {
-        if (!m_doc) return;
-        qWarning() << "MoveFormFieldCommand: undo not yet implemented. See ROADMAP.";
-        m_doc->markReload();
+        if (!m_engine || !m_doc || m_doc->path().isEmpty()) return;
+        const QString path = m_doc->path();
+        const bool ok = m_engine->updateFieldRect(path, m_fieldName, m_pageIndex, m_oldRect, path);
+        if (!ok) {
+            qWarning() << "MoveFormFieldCommand::undo: updateFieldRect (revert) failed for" << m_fieldName;
+        }
+        m_doc->markDirty();
     }
 
     int id() const override { return 0x107; }
