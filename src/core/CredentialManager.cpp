@@ -26,7 +26,7 @@ bool CredentialManager::storeKey(const QString& service, const QString& secret) 
     cred.TargetName = const_cast<LPWSTR>(targetW.c_str());
     cred.CredentialBlobSize = static_cast<DWORD>(secretBytes.size());
     cred.CredentialBlob = reinterpret_cast<LPBYTE>(const_cast<char*>(secretBytes.constData()));
-    cred.Persist = CRED_PERSIST_LOCAL_MACHINE;
+    cred.Persist = CRED_PERSIST_ENTERPRISE;
     if (!CredWriteW(&cred, 0)) {
         qWarning() << "CredentialManager::storeKey CredWriteW failed for" << service << "error" << GetLastError();
         return false;

@@ -60,6 +60,9 @@ jobs:
         run: |
           $url = "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-win-x64-1.17.3.zip"
           Invoke-WebRequest -Uri $url -OutFile ort.zip -TimeoutSec 180
+          $expected = "356A33D024F2709786BEBD5D4CA06CD5392875DA95DAA0455AAE72EDC8993256"
+          $actual = (Get-FileHash ort.zip -Algorithm SHA256).Hash
+          if ($actual -ne $expected) { Write-Error "ORT checksum mismatch"; exit 1 }
           Expand-Archive -Path ort.zip -DestinationPath . -Force
           Remove-Item ort.zip
           Write-Host "ORT extracted to: $((Get-Item onnxruntime-win-x64-1.17.3).FullName)"
