@@ -39,6 +39,24 @@ public:
 
     virtual QList<FieldSuggestion> autoDetectFields(const QString &pdfFilePath, int pageIndex) = 0;
 
+    // Field mutation (persist changes to the PDF on disk)
+    /// Remove the named AcroForm field from the PDF and write to outputPath.
+    /// Returns false if the field is not found or a save error occurs.
+    virtual bool removeFieldByName(const QString &pdfFilePath, const QString &fieldName, const QString &outputPath) = 0;
+
+    /// Update the /Rect of the named widget annotation to newRect (PDF user-space coordinates).
+    /// Converts from Qt widget coordinates (origin top-left) to PDF coordinates (origin bottom-left).
+    virtual bool updateFieldRect(const QString &pdfFilePath, const QString &fieldName,
+                                 int pageIndex, const QRectF &newRect, const QString &outputPath) = 0;
+
+    /// Return a list of all AcroForm field names in the document (all pages).
+    virtual QStringList listFields(const QString &pdfFilePath) = 0;
+
+    /// Persist the tab order to the AcroForm /CO array.
+    /// orderedNames: field full names in desired tab order.
+    /// Fields not in orderedNames are appended after the ordered set.
+    virtual bool setTabOrder(const QString &pdfFilePath, const QStringList &orderedNames, const QString &outputPath) = 0;
+
     // Import / Export / Flatten
     virtual bool exportFormData(const QString &pdfFilePath, const QString &outputPath, const QString &format) = 0; // format: "FDF" or "CSV"
     virtual bool importFormData(const QString &pdfFilePath, const QString &dataFilePath, const QString &outputPath) = 0;

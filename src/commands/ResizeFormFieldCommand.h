@@ -8,9 +8,8 @@
 #include "engines/DocumentSession.h"
 
 /// Undo/redo command for resizing a form field's bounding rectangle.
-/// IFormManager v1.0.0 does not expose updateFieldRect(); the command records
-/// the resize and marks the document dirty. Full engine-side rect update is
-/// scheduled for v1.1 (same blocker as MoveFormFieldCommand).
+/// redo(): calls IFormManager::updateFieldRect with newRect (persists to PDF).
+/// undo(): calls IFormManager::updateFieldRect with oldRect (reverts).
 class ResizeFormFieldCommand : public QUndoCommand {
 public:
     ResizeFormFieldCommand(IFormManager* engine,
@@ -30,17 +29,23 @@ public:
     }
 
     void redo() override {
-        if (!m_doc) return;
-        qWarning() << "ResizeFormFieldCommand: engine-side field resize not yet implemented"
-                   << "— field" << m_fieldName << "resize recorded only. See ROADMAP.";
-        m_doc->markReload();
-        setObsolete(false);
+        if (!m_engine || !m_doc || m_doc->path().isEmpty()) return;
+        const QString path = m_doc->path();
+        const bool ok = m_engine->updateFieldRect(path, m_fieldName, m_pageIndex, m_newRect, path);
+        if (!ok) {
+            qWarning() << "ResizeFormFieldCommand::redo: updateFieldRect failed for" << m_fieldName;
+        }
+        m_doc->markDirty();
     }
 
     void undo() override {
-        if (!m_doc) return;
-        qWarning() << "ResizeFormFieldCommand: undo not yet implemented. See ROADMAP.";
-        m_doc->markReload();
+        if (!m_engine || !m_doc || m_doc->path().isEmpty()) return;
+        const QString path = m_doc->path();
+        const bool ok = m_engine->updateFieldRect(path, m_fieldName, m_pageIndex, m_oldRect, path);
+        if (!ok) {
+            qWarning() << "ResizeFormFieldCommand::undo: updateFieldRect (revert) failed for" << m_fieldName;
+        }
+        m_doc->markDirty();
     }
 
     int id() const override { return 0x108; }

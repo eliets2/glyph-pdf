@@ -927,6 +927,14 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormBuilder.cpp")
         pdfws_engines pdfws_core pdfws_commands podofo::podofo
         Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
     )
+    add_custom_command(TARGET TestFormBuilder POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestFormBuilder>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestFormBuilder>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestFormBuilder"
+    )
     add_test(NAME TestFormBuilder COMMAND TestFormBuilder)
     set_tests_properties(TestFormBuilder PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"

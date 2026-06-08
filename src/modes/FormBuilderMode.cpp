@@ -90,13 +90,11 @@ void FormBuilderMode::buildToolbar(QVBoxLayout* col)
 
     trow->addStretch(1);
 
-    m_autoDetectBtn = new QToolButton;
-    m_autoDetectBtn->setText(FormBuilderMode::tr("Auto-detect Fields"));
-    m_autoDetectBtn->setProperty("variant", "ghost");
-    m_autoDetectBtn->setToolTip(FormBuilderMode::tr("Auto-detect form fields from document structure — Coming in v1.1"));
-    m_autoDetectBtn->setEnabled(false);
-    connect(m_autoDetectBtn, &QToolButton::clicked, this, &FormBuilderMode::onAutoDetectClicked);
-    trow->addWidget(m_autoDetectBtn);
+    // Auto-detect and Preview removed: no real backend available in v1.0.
+    // These controls were disabled with a "Coming in v1.1" tooltip — removed
+    // entirely per the no-fake-functional-UI policy.
+    m_autoDetectBtn = nullptr;
+    m_previewBtn    = nullptr;
 
     m_tabOrderBtn = new QToolButton;
     m_tabOrderBtn->setText(FormBuilderMode::tr("Tab Order"));
@@ -104,14 +102,6 @@ void FormBuilderMode::buildToolbar(QVBoxLayout* col)
     m_tabOrderBtn->setCheckable(true);
     connect(m_tabOrderBtn, &QToolButton::toggled, this, &FormBuilderMode::onTabOrderToggled);
     trow->addWidget(m_tabOrderBtn);
-
-    m_previewBtn = new QToolButton;
-    m_previewBtn->setText(FormBuilderMode::tr("Preview Form"));
-    m_previewBtn->setProperty("variant", "ghost");
-    m_previewBtn->setToolTip(FormBuilderMode::tr("Preview filled form — Coming in v1.1"));
-    m_previewBtn->setEnabled(false);
-    connect(m_previewBtn, &QToolButton::clicked, this, &FormBuilderMode::onPreviewFormClicked);
-    trow->addWidget(m_previewBtn);
 
     m_exitBtn = new QToolButton;
     m_exitBtn->setText(FormBuilderMode::tr("Exit Form"));
@@ -246,10 +236,31 @@ void FormBuilderMode::updateNoDocumentState()
 void FormBuilderMode::refreshFieldList()
 {
     if (!m_fieldList) return;
-    // Field list is populated via items added as fields are placed in this session.
-    // Persisted fields from the PDF are not enumerated here (IFormManager does not
-    // expose a listFields() method in v1.0.0; that is scheduled for v1.1).
-    // The list therefore reflects fields placed since FormBuilderMode was entered.
+    // Enumerate all AcroForm fields present in the PDF (persisted + session-placed).
+    if (!m_ctx || !m_ctx->forms || !m_ctx->document || m_ctx->document->path().isEmpty())
+        return;
+
+    // Preserve any session-placed fields not yet in the PDF
+    QStringList sessionFields;
+    for (int i = 0; i < m_fieldList->count(); ++i)
+        sessionFields.append(m_fieldList->item(i)->text());
+
+    const QStringList persisted = m_ctx->forms->listFields(m_ctx->document->path());
+
+    m_fieldList->clear();
+    for (const QString& name : persisted) {
+        auto* item = new QListWidgetItem(name);
+        item->setData(Qt::UserRole, name);
+        m_fieldList->addItem(item);
+    }
+    // Re-add any session-only items not yet in the persisted list
+    for (const QString& name : sessionFields) {
+        if (!persisted.contains(name)) {
+            auto* item = new QListWidgetItem(name);
+            item->setData(Qt::UserRole, name);
+            m_fieldList->addItem(item);
+        }
+    }
 }
 
 // ── Slot implementations ──────────────────────────────────────────────────────
@@ -318,8 +329,8 @@ void FormBuilderMode::onFieldPlacementRequested(int pageIndex, QRectF pdfRect, T
 
 void FormBuilderMode::onAutoDetectClicked()
 {
-    // Auto-detect is disabled (setEnabled(false) in buildToolbar).
-    // This slot is a no-op stub — the button tooltip says "Coming in v1.1".
+    // Button removed from UI in buildToolbar — slot retained for signal plumbing
+    // compatibility but is never triggered in normal operation.
 }
 
 void FormBuilderMode::onTabOrderToggled(bool checked)
@@ -340,8 +351,8 @@ void FormBuilderMode::onTabOrderToggled(bool checked)
 
 void FormBuilderMode::onPreviewFormClicked()
 {
-    // Preview is disabled (setEnabled(false) in buildToolbar).
-    // This slot is a no-op stub — the button tooltip says "Coming in v1.1".
+    // Button removed from UI in buildToolbar — slot retained for signal plumbing
+    // compatibility but is never triggered in normal operation.
 }
 
 void FormBuilderMode::onExitFormClicked()
@@ -412,13 +423,32 @@ void FormBuilderMode::onDeleteFieldClicked()
 
 void FormBuilderMode::onTabOrderApplyClicked()
 {
-    // Tab order is tracked client-side (the field list in m_tabOrderList order).
-    // IFormManager v1.0.0 does not expose a setTabOrder() method; persisting
-    // the tab order to the PDF AcroForm /CO array is scheduled for v1.1.
-    // For now, this records the intended order in the UI for visual reference.
-    QMessageBox::information(this, tr("Tab Order"),
-        tr("Tab order updated in the form builder view.\n"
-           "Persisting tab order to PDF is scheduled for v1.1."));
+    if (!m_ctx || !m_ctx->forms || !m_ctx->document || m_ctx->document->path().isEmpty()) {
+        QMessageBox::warning(this, tr("Tab Order"), tr("No document open."));
+        return;
+    }
+
+    QStringList orderedNames;
+    if (m_tabOrderList) {
+        for (int i = 0; i < m_tabOrderList->count(); ++i)
+            orderedNames.append(m_tabOrderList->item(i)->text());
+    }
+
+    if (orderedNames.isEmpty()) {
+        QMessageBox::information(this, tr("Tab Order"), tr("No fields in tab order list."));
+        return;
+    }
+
+    const QString path = m_ctx->document->path();
+    const bool ok = m_ctx->forms->setTabOrder(path, orderedNames, path);
+    if (ok) {
+        m_ctx->document->markDirty();
+        QMessageBox::information(this, tr("Tab Order"),
+            tr("Tab order saved to PDF (/CO array updated)."));
+    } else {
+        QMessageBox::warning(this, tr("Tab Order"),
+            tr("Failed to persist tab order to PDF. Check the document is writable."));
+    }
 }
 
 void FormBuilderMode::onEscapePressed()
