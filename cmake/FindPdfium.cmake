@@ -14,6 +14,13 @@ find_library(Pdfium_LIBRARY NAMES pdfium libpdfium
     PATHS "${_pdfium_root}/lib"
     NO_DEFAULT_PATH)
 
+if(Pdfium_LIBRARY)
+    file(SHA256 "${Pdfium_LIBRARY}" _pdfium_hash)
+    if(NOT _pdfium_hash STREQUAL "0fcd45dca1cb20e73f2335046d63f630afc13430e2d5e8309d08f6e940b0de03")
+        message(FATAL_ERROR "PDFium binary checksum mismatch! Expected 0fcd45dca1cb20e73f2335046d63f630afc13430e2d5e8309d08f6e940b0de03 but got ${_pdfium_hash}")
+    endif()
+endif()
+
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(Pdfium DEFAULT_MSG Pdfium_LIBRARY Pdfium_INCLUDE_DIR)
 
