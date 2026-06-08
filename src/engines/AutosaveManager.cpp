@@ -98,12 +98,6 @@ void AutosaveManager::onTick()
 
         if (success) {
             bool renameOk = atomicRename(tmpAutosavePath, finalAutosavePath);
-            if (!renameOk) {
-                // Retry once after 250ms
-                QThread::msleep(250);
-                renameOk = atomicRename(tmpAutosavePath, finalAutosavePath);
-            }
-
             if (renameOk) {
                 QDateTime now = QDateTime::currentDateTime();
                 if (m_document) {
@@ -111,8 +105,22 @@ void AutosaveManager::onTick()
                 }
                 emit autosaveCompleted(now);
             } else {
-                qWarning() << "Autosave failed: atomic rename failed from" << tmpAutosavePath << "to" << finalAutosavePath;
-                emit autosaveFailed("Failed to rename temporary autosave file");
+                // Retry once after 250ms asynchronously
+                QTimer::singleShot(250, this, [this, tmpAutosavePath, finalAutosavePath]() {
+                    bool retryOk = atomicRename(tmpAutosavePath, finalAutosavePath);
+                    if (retryOk) {
+                        QDateTime now = QDateTime::currentDateTime();
+                        if (m_document) {
+                            m_document->setLastAutosave(now);
+                        }
+                        emit autosaveCompleted(now);
+                    } else {
+                        qWarning() << "Autosave failed: atomic rename failed from" << tmpAutosavePath << "to" << finalAutosavePath;
+                        emit autosaveFailed("Failed to rename temporary autosave file");
+                    }
+                    m_saving = false;
+                });
+                return; // Return early, m_saving = false will be handled in the timer
             }
         } else {
             qWarning() << "Autosave failed during document save";
