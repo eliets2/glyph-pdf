@@ -177,7 +177,21 @@ SchedulerResult<T> LaneScheduler::submit(SchedulerOptions opts,
         // Acquire blocks if gpuCapacity tasks already in-flight.
         // Anti-spawn-per-page: the GPU thread is persistent; only the task
         // payload is enqueued, never a new thread.
-        m_gpuSemaphore.acquire();
+        if (!m_gpuSemaphore.tryAcquire(1, 0)) {
+            // Stopped or at capacity; check stopping flag first:
+            {
+                QMutexLocker lk(&m_gpuMutex);
+                if (m_gpuStopping) {
+                    SchedulerError err;
+                    err.code = SchedulerErrorCode::Cancelled;
+                    err.message = "Scheduler is shutting down";
+                    promise->addResult(ScheduledValue<T>::failure(err));
+                    promise->finish();
+                    return future;
+                }
+            }
+            m_gpuSemaphore.acquire();  // blocking path only when capacity is full but not stopped
+        }
         m_gpuInFlight.fetchAndAddOrdered(1);
         enqueueGpu(GpuTask{ std::move(runWork) });
     } else {
