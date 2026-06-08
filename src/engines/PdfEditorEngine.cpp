@@ -83,8 +83,8 @@ bool PdfEditorEngine::loadDocumentForEditing(const QString &filePath)
         // Continue loading — this is just a warning
     }
 
-    auto* docBackend = BackendRouter::documentBackendFor(filePath);
-    if (!docBackend) {
+    auto docOwner = BackendRouter::documentBackendFor(filePath);
+    if (!docOwner) {
         d->setErr(ErrorInfo::Error,
                   QObject::tr("Could not find a suitable backend for this file."),
                   QStringLiteral("BackendRouter::documentBackendFor returned null for: %1").arg(filePath),
@@ -92,13 +92,18 @@ bool PdfEditorEngine::loadDocumentForEditing(const QString &filePath)
         return false;
     }
 
-    auto podofoBackend = std::unique_ptr<PoDoFoBackend>(dynamic_cast<PoDoFoBackend*>(docBackend));
-    if (!podofoBackend) {
+    // D-09: Borrow for type check to prevent leak if downcast fails
+    auto* borrowed = dynamic_cast<PoDoFoBackend*>(docOwner.get());
+    if (!borrowed) {
         d->setErr(ErrorInfo::Error,
                   QObject::tr("The editing backend is not available."),
                   QStringLiteral("dynamic_cast<PoDoFoBackend*> failed for: %1").arg(filePath));
         return false;
     }
+
+    // Now safely transfer ownership.
+    auto podofoBackend = std::unique_ptr<PoDoFoBackend>(static_cast<PoDoFoBackend*>(docOwner.release()));
+
 
     if (podofoBackend->loadDocument(filePath)) {
         d->backend = std::move(podofoBackend);

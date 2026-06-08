@@ -471,7 +471,6 @@ static void opjInfoCallback(const char* /*msg*/, void* /*client*/)
         compParams[c].x0   = 0;
         compParams[c].y0   = 0;
         compParams[c].prec = 8;
-        compParams[c].bpp  = 8;
         compParams[c].sgnd = 0;
     }
 

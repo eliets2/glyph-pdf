@@ -1773,7 +1773,10 @@ bool PoDoFoBackend::sanitizeDocument(const QString &outputPath) {
         }
         
         if (catalog.GetDictionary().HasKey(PdfName("Names"))) {
-            auto* namesObj = catalog.GetDictionary().GetKey(PdfName("Names"));
+            auto* namesObj = catalog.GetDictionary().FindKey(PdfName("Names"));
+            if (namesObj && namesObj->IsReference()) {
+                namesObj = &d->document->GetObjects().MustGetObject(namesObj->GetReference());
+            }
             if (namesObj && namesObj->IsDictionary()) {
                 auto& namesDict = namesObj->GetDictionary();
                 if (namesDict.HasKey(PdfName("EmbeddedFiles"))) {
@@ -2992,8 +2995,8 @@ bool PoDoFoBackend::addImageWatermark(const ImageWatermarkOptions &options)
             std::string existingStream;
             if (contentsObj->GetObject().IsArray()) {
                 auto& arr = contentsObj->GetObject().GetArray();
-                for (size_t i = 0; i < arr.GetSize(); ++i) {
-                    auto& ref = arr[i];
+                for (size_t idx = 0; idx < arr.GetSize(); ++idx) {
+                    auto& ref = arr[idx];
                     if (ref.IsReference()) {
                         auto& partObj = doc.GetObjects().MustGetObject(ref.GetReference());
                         if (partObj.IsDictionary() && partObj.HasStream()) {
