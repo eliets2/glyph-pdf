@@ -77,10 +77,10 @@ ShortcutHelpDialog::ShortcutHelpDialog(QWidget* parent)
     };
 
     for (const auto& group : groups) {
-        auto* parent = new QTreeWidgetItem(tree, {group.name});
-        parent->setExpanded(true);
+        auto* parentItem = new QTreeWidgetItem(tree, {group.name});
+        parentItem->setExpanded(true);
         for (const auto& entry : group.entries) {
-            new QTreeWidgetItem(parent, {entry.action, entry.shortcut});
+            new QTreeWidgetItem(parentItem, {entry.action, entry.shortcut});
         }
     }
 

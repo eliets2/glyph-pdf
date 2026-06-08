@@ -24,33 +24,33 @@ CompareMode::CompareMode(QWidget* parent) : QWidget(parent) {
     auto* tb = new QFrame;
     tb->setProperty("role","modeToolbar");
     tb->setFixedHeight(Theme::ToolbarH);
-    auto* tr = new QHBoxLayout(tb);
-    tr->setContentsMargins(10,0,10,0); tr->setSpacing(6);
+    auto* hrow = new QHBoxLayout(tb);
+    hrow->setContentsMargins(10,0,10,0); hrow->setSpacing(6);
     auto mono = [](const QString& s){ auto* l = new QLabel(s); l->setProperty("mono",true); return l; };
-    tr->addWidget(mono(CompareMode::tr("COMPARE")));
-    tr->addWidget(mono(CompareMode::tr("Q4-Report-v1.pdf   ↔   Q4-Report-v2.pdf")));
-    auto* prev = new QToolButton; prev->setText(CompareMode::tr("← PREV")); prev->setProperty("variant","ghost");
-    prev->setToolTip(CompareMode::tr("Navigate to previous change"));
-    tr->addWidget(prev);
-    auto* next = new QToolButton; next->setText(CompareMode::tr("NEXT →")); next->setProperty("variant","ghost");
-    next->setToolTip(CompareMode::tr("Navigate to next change"));
-    tr->addWidget(next);
-    m_statusLabel = mono(CompareMode::tr("CHANGE 0 OF 0"));
-    tr->addWidget(m_statusLabel);
-    tr->addStretch(1);
+    hrow->addWidget(mono(tr("COMPARE")));
+    hrow->addWidget(mono("Q4-Report-v1.pdf   ↔   Q4-Report-v2.pdf"));
+    auto* prev = new QToolButton; prev->setText(tr("← PREV")); prev->setProperty("variant","ghost");
+    prev->setToolTip(tr("Navigate to previous change"));
+    hrow->addWidget(prev);
+    auto* next = new QToolButton; next->setText(tr("NEXT →")); next->setProperty("variant","ghost");
+    next->setToolTip(tr("Navigate to next change"));
+    hrow->addWidget(next);
+    m_statusLabel = mono(tr("CHANGE 0 OF 0"));
+    hrow->addWidget(m_statusLabel);
+    hrow->addStretch(1);
 
     auto* toggleDiff = new QToolButton;
-    toggleDiff->setText(CompareMode::tr("Toggle Overlay"));
+    toggleDiff->setText(tr("Toggle Overlay"));
     toggleDiff->setCheckable(true);
     connect(toggleDiff, &QToolButton::toggled, [this](bool checked) {
         m_compareWidget->setShowPixelDiff(checked);
     });
-    tr->addWidget(toggleDiff);
+    hrow->addWidget(toggleDiff);
 
-    auto* close = new QToolButton; close->setText(CompareMode::tr("Close Compare")); close->setProperty("variant","ghost");
+    auto* close = new QToolButton; close->setText(tr("Close Compare")); close->setProperty("variant","ghost");
     close->setEnabled(false);
-    close->setToolTip(CompareMode::tr("Not available in this version"));
-    tr->addWidget(close);
+    close->setToolTip(tr("Not available in this version"));
+    hrow->addWidget(close);
     col->addWidget(tb);
 
     m_compareWidget = new CompareWidget(this);
