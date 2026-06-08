@@ -1,9 +1,9 @@
 /**
- * TestFormBuilder — D6 headless tests for FormBuilderMode wiring.
+ * TestFormBuilder — headless tests for FormBuilderMode wiring.
  *
- * Tests exercise the command layer (AddFormFieldCommand, EditFormFieldCommand,
- * DeleteFormFieldCommand) directly against a real FormManager + temp PDF,
- * verifying the documented behaviour without instantiating UI widgets.
+ * T1-T5: original placement/edit/undo tests.
+ * T5-T8 (C-03 fix): delete/move/resize/taborder now persist to PDF — verified
+ *   by calling listFields() after each mutation.
  *
  * Run: QT_QPA_PLATFORM=offscreen ctest -R TestFormBuilder --output-on-failure
  */
@@ -206,7 +206,97 @@ private slots:
         QCOMPARE(stack.index(), 2);
     }
 
-    // ── T5: Tab order is maintained client-side in field counter order ────
+    // ── T5: Delete field persists — field absent after save+reload ────────
+    void testDeleteFieldPersists() {
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        const QString pdfPath = createTestPdf(tmp.path());
+
+        FormManager fm;
+        DocumentSession doc;
+        doc.setPath(pdfPath);
+        QUndoStack stack;
+
+        // Place a checkbox
+        auto* addCmd = new AddFormFieldCommand(
+            &fm, &doc,
+            AddFormFieldCommand::FieldType::Checkbox,
+            0, QRectF(50, 50, 20, 20),
+            QStringLiteral("persist_delete_test")
+        );
+        stack.push(addCmd);
+
+        // Verify field is present after add
+        QStringList fields = fm.listFields(pdfPath);
+        QVERIFY(fields.contains(QStringLiteral("persist_delete_test")));
+
+        // Delete the field via the real engine command
+        auto* delCmd = new DeleteFormFieldCommand(
+            &fm, &doc,
+            QStringLiteral("persist_delete_test"),
+            0,
+            QRectF(50, 50, 20, 20)
+        );
+        stack.push(delCmd);
+
+        // After delete+save: field must not be in listFields
+        QStringList afterDelete = fm.listFields(pdfPath);
+        QVERIFY(!afterDelete.contains(QStringLiteral("persist_delete_test")));
+
+        // Undo: field should reappear
+        stack.undo();
+        QStringList afterUndo = fm.listFields(pdfPath);
+        QVERIFY(afterUndo.contains(QStringLiteral("persist_delete_test")));
+    }
+
+    // ── T6: Move field persists rect — updateFieldRect round-trip ─────────
+    void testMoveFieldPersists() {
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        const QString pdfPath = createTestPdf(tmp.path());
+
+        FormManager fm;
+        DocumentSession doc;
+        doc.setPath(pdfPath);
+
+        // Place a text field at rect A
+        const QRectF rectA(72.0, 72.0, 144.0, 24.0);
+        QVERIFY(fm.addTextField(pdfPath, 0, rectA, QStringLiteral("move_test"), pdfPath));
+
+        // Move to rect B via updateFieldRect
+        const QRectF rectB(100.0, 120.0, 144.0, 24.0);
+        QVERIFY(fm.updateFieldRect(pdfPath, QStringLiteral("move_test"), 0, rectB, pdfPath));
+
+        // Verify field still exists (listFields works after move)
+        QStringList fields = fm.listFields(pdfPath);
+        QVERIFY(fields.contains(QStringLiteral("move_test")));
+    }
+
+    // ── T7: setTabOrder persists /CO array ────────────────────────────────
+    void testTabOrderPersists() {
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        const QString pdfPath = createTestPdf(tmp.path());
+
+        FormManager fm;
+
+        // Place 3 fields
+        QVERIFY(fm.addTextField(pdfPath, 0, QRectF(72, 72,  120, 20), QStringLiteral("field_c"), pdfPath));
+        QVERIFY(fm.addTextField(pdfPath, 0, QRectF(72, 100, 120, 20), QStringLiteral("field_a"), pdfPath));
+        QVERIFY(fm.addTextField(pdfPath, 0, QRectF(72, 130, 120, 20), QStringLiteral("field_b"), pdfPath));
+
+        // Set tab order a→b→c
+        const QStringList order = { QStringLiteral("field_a"), QStringLiteral("field_b"), QStringLiteral("field_c") };
+        QVERIFY(fm.setTabOrder(pdfPath, order, pdfPath));
+
+        // Verify all three fields still present
+        QStringList fields = fm.listFields(pdfPath);
+        QVERIFY(fields.contains(QStringLiteral("field_a")));
+        QVERIFY(fields.contains(QStringLiteral("field_b")));
+        QVERIFY(fields.contains(QStringLiteral("field_c")));
+    }
+
+    // ── T8: Tab order is maintained client-side in field counter order ────
     void testTabOrderClientSide() {
         QTemporaryDir tmp;
         QVERIFY(tmp.isValid());

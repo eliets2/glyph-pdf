@@ -82,7 +82,7 @@ PdfAValidationPanel::PdfAValidationPanel(QWidget* parent) : QFrame(parent) {
     // Action buttons
     m_fixBtn = new QPushButton(tr("Fix Automatically"));
     m_fixBtn->setEnabled(false);
-    m_fixBtn->setToolTip(tr("Automatic fix — planned for v1.1.0"));
+    m_fixBtn->setToolTip(tr("Automatic fix is not available in this version."));
 
     auto* conv = new QPushButton(tr("Convert to PDF/A-2B"));
     conv->setStyleSheet("background:#ff8c42;color:#1a1b1e;border:1px solid #ff8c42;font-weight:600;padding:8px 12px;");
@@ -105,7 +105,7 @@ PdfAValidationPanel::PdfAValidationPanel(QWidget* parent) : QFrame(parent) {
         } else {
             QMessageBox::information(this, tr("Convert to PDF/A-2B"),
                 tr("Use File > Export As PDF/A to convert the current document.\n"
-                   "Direct conversion from the validation panel is planned for v1.1.0."));
+                   "Direct conversion from the validation panel is not available in this version."));
         }
     });
 

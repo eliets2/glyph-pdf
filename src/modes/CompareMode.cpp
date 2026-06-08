@@ -49,7 +49,7 @@ CompareMode::CompareMode(QWidget* parent) : QWidget(parent) {
 
     auto* close = new QToolButton; close->setText(CompareMode::tr("Close Compare")); close->setProperty("variant","ghost");
     close->setEnabled(false);
-    close->setToolTip(CompareMode::tr("Coming in v1.1"));
+    close->setToolTip(CompareMode::tr("Not available in this version"));
     tr->addWidget(close);
     col->addWidget(tb);
 
