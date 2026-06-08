@@ -186,14 +186,41 @@ private slots:
         {
             PoDoFo::PdfMemDocument doc;
             auto& page = doc.GetPages().CreatePage(PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
-            
+
             auto& catalog = doc.GetCatalog();
+
+            // -- Outlines (bookmarks) --
             auto& outlines = doc.GetObjects().CreateDictionaryObject();
             catalog.GetDictionary().AddKey(PoDoFo::PdfName("Outlines"), outlines.GetIndirectReference());
-            
+
+            // -- Collection (Portfolio) --
             auto& collection = doc.GetObjects().CreateDictionaryObject();
             catalog.GetDictionary().AddKey(PoDoFo::PdfName("Collection"), collection.GetIndirectReference());
-            
+
+            // -- JavaScript via /Names /JavaScript --
+            auto& jsDictObj = doc.GetObjects().CreateDictionaryObject();
+            jsDictObj.GetDictionary().AddKey(PoDoFo::PdfName("S"), PoDoFo::PdfName("JavaScript"));
+            jsDictObj.GetDictionary().AddKey(PoDoFo::PdfName("JS"),
+                PoDoFo::PdfString("app.alert('pwned');"));
+            auto& namesDict = doc.GetObjects().CreateDictionaryObject();
+            PoDoFo::PdfArray jsNames;
+            jsNames.Add(PoDoFo::PdfString("EvilScript"));
+            jsNames.Add(jsDictObj.GetIndirectReference());
+            namesDict.GetDictionary().AddKey(PoDoFo::PdfName("JavaScript"), jsNames);
+            catalog.GetDictionary().AddKey(PoDoFo::PdfName("Names"), namesDict.GetIndirectReference());
+
+            // -- OCProperties (Optional Content) --
+            auto& ocpObj = doc.GetObjects().CreateDictionaryObject();
+            ocpObj.GetDictionary().AddKey(PoDoFo::PdfName("OCGs"), PoDoFo::PdfArray());
+            catalog.GetDictionary().AddKey(PoDoFo::PdfName("OCProperties"), ocpObj.GetIndirectReference());
+
+            // -- Page-level AA (Additional Actions) --
+            auto& aaObj = doc.GetObjects().CreateDictionaryObject();
+            aaObj.GetDictionary().AddKey(PoDoFo::PdfName("O"),
+                PoDoFo::PdfString("app.alert('open');"));
+            page.GetDictionary().AddKey(PoDoFo::PdfName("AA"), aaObj.GetIndirectReference());
+
+            // -- AcroForm field with /V (default value to scrub) --
             auto& field = page.CreateField<PoDoFo::PdfTextBox>("FieldName", PoDoFo::Rect(100, 100, 100, 20));
             field.SetText(PoDoFo::PdfString("FieldValue"));
 
@@ -202,28 +229,55 @@ private slots:
 
         PdfEditorEngine engine;
         QVERIFY(engine.loadDocumentForEditing(pdf));
-        
+
         QString outPdf = m_tmpDir.filePath("sanitizetest_out.pdf");
         QVERIFY(engine.sanitizeDocument(outPdf));
 
         PoDoFo::PdfMemDocument outDoc;
         outDoc.Load(outPdf.toUtf8().constData());
-        
-        auto& catalog = outDoc.GetCatalog();
-        QVERIFY(!catalog.GetDictionary().HasKey("Outlines"));
-        QVERIFY(!catalog.GetDictionary().HasKey("Collection"));
-        
-        if (catalog.GetDictionary().HasKey("AcroForm")) {
-            auto* acroForm = catalog.GetDictionary().GetKey("AcroForm");
+
+        auto& outCatalog = outDoc.GetCatalog();
+
+        // Vector 1: /Outlines removed.
+        QVERIFY2(!outCatalog.GetDictionary().HasKey("Outlines"),
+                 "G-04: /Outlines must be removed by sanitize");
+
+        // Vector 2: /Collection removed.
+        QVERIFY2(!outCatalog.GetDictionary().HasKey("Collection"),
+                 "G-04: /Collection must be removed by sanitize");
+
+        // Vector 3: /Names /JavaScript removed.
+        if (outCatalog.GetDictionary().HasKey("Names")) {
+            auto* namesObj = outCatalog.GetDictionary().FindKey("Names");
+            if (namesObj && namesObj->IsReference())
+                namesObj = &outDoc.GetObjects().MustGetObject(namesObj->GetReference());
+            if (namesObj && namesObj->IsDictionary()) {
+                QVERIFY2(!namesObj->GetDictionary().HasKey("JavaScript"),
+                         "G-04: /Names /JavaScript must be removed by sanitize");
+            }
+        }
+
+        // Vector 4: /OCProperties removed.
+        QVERIFY2(!outCatalog.GetDictionary().HasKey("OCProperties"),
+                 "G-04: /OCProperties must be removed by sanitize");
+
+        // Vector 5: page-level /AA removed.
+        auto& outPage = outDoc.GetPages().GetPageAt(0);
+        QVERIFY2(!outPage.GetDictionary().HasKey("AA"),
+                 "G-04: page /AA (additional-actions) must be removed by sanitize");
+
+        // Vector 6: AcroForm field /V scrubbed.
+        if (outCatalog.GetDictionary().HasKey("AcroForm")) {
+            auto* acroForm = outCatalog.GetDictionary().GetKey("AcroForm");
             if (acroForm && acroForm->IsDictionary() && acroForm->GetDictionary().HasKey("Fields")) {
                 auto* fields = acroForm->GetDictionary().GetKey("Fields");
                 if (fields && fields->IsArray() && fields->GetArray().GetSize() > 0) {
                     auto fieldRef = fields->GetArray()[0];
                     if (fieldRef.IsReference()) {
                         auto& fieldDict = outDoc.GetObjects().MustGetObject(fieldRef.GetReference());
-                        if (fieldDict.IsDictionary()) {
-                            QVERIFY2(!fieldDict.GetDictionary().HasKey("V"), "Form field V should be removed");
-                        }
+                        if (fieldDict.IsDictionary())
+                            QVERIFY2(!fieldDict.GetDictionary().HasKey("V"),
+                                     "G-04: Form field /V must be removed by sanitize");
                     }
                 }
             }

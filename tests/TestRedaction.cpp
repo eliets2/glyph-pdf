@@ -173,18 +173,51 @@ private slots:
     }
 
     void testRedactedTextUnextractable() {
+        // G-02: prove SECRET_DATA is absent from ALL decoded streams, not just raw bytes.
+        // A FlateDecode-compressed stream containing SECRET_DATA passes the raw-byte
+        // check but is still extractable by any PDF viewer. PoDoFo CopyTo() applies
+        // all stream filters (decompression), making this a real redaction gate.
         QString pdf = createTestPdfWithText("unextract.pdf", "SECRET_DATA");
+        QVERIFY(!pdf.isEmpty());
         PdfEditorEngine engine;
         QVERIFY(engine.loadDocumentForEditing(pdf));
         QVERIFY(engine.applyRedactions(0, {QRectF(90, 120, 200, 30)}));
-        
+
         QString output = tmpPath("unextract_redacted.pdf");
-        engine.saveDocument(output);
-        
-        QFile file(output);
-        QVERIFY(file.open(QIODevice::ReadOnly));
-        QByteArray data = file.readAll();
-        QVERIFY2(!data.contains("SECRET_DATA"), "Redacted text should not be extractable from the output PDF");
+        QVERIFY(engine.saveDocument(output));
+
+        // Reload via PoDoFo and inspect every decoded stream.
+        PoDoFo::PdfMemDocument verifyDoc;
+        verifyDoc.Load(output.toUtf8().constData());
+
+        const QByteArray secret("SECRET_DATA");
+        bool leaked = false;
+
+        // Page content streams (decoded — FlateDecode applied by CopyTo).
+        for (int pi = 0; pi < (int)verifyDoc.GetPages().GetCount(); ++pi) {
+            auto& page = verifyDoc.GetPages().GetPageAt(pi);
+            auto* co = page.GetContents();
+            if (!co) continue;
+            PoDoFo::charbuff buf;
+            co->CopyTo(buf);
+            if (QByteArray(buf.data(), static_cast<int>(buf.size())).contains(secret))
+                leaked = true;
+        }
+
+        // All XObject/other streams (Form XObjects, image data).
+        for (auto it = verifyDoc.GetObjects().begin();
+             it != verifyDoc.GetObjects().end(); ++it) {
+            PoDoFo::PdfObject* obj = *it;
+            if (!obj->HasStream()) continue;
+            PoDoFo::charbuff buf;
+            try { obj->GetStream()->CopyTo(buf); } catch (...) { continue; }
+            if (QByteArray(buf.data(), static_cast<int>(buf.size())).contains(secret))
+                leaked = true;
+        }
+
+        QVERIFY2(!leaked,
+                 "SECRET_DATA must not appear in any decoded stream after redaction "
+                 "(G-02: FlateDecode-compressed leakage would defeat raw-byte check)");
     }
     
     void testRedactionFormXObject() {

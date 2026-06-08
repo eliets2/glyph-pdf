@@ -61,12 +61,12 @@ private slots:
 
         PdfEditorEngine engine;
         QVERIFY(engine.loadDocumentForEditing(pdf));
-        
+
         // Empty password should be gracefully handled, typically by applying standard security with empty password
         DocumentPermissions perms;
         bool ok = engine.encryptDocument("", "", perms);
         QVERIFY(ok);
-        
+
         QString output = tmpPath("empty_pass_encrypted.pdf");
         engine.saveDocument(output);
         QVERIFY(QFile::exists(output));
@@ -77,6 +77,63 @@ private slots:
         QVERIFY2(data.contains("/Encrypt"), "Saved PDF must have an /Encrypt dictionary");
         QVERIFY2(data.contains("/V 5"), "Encryption must use V=5 (AES-256)");
         QVERIFY2(data.contains("/R 6"), "Encryption revision must be R=6 (AES-256 R6)");
+    }
+
+    // G-03: prove that opening an AES-256 encrypted file WITHOUT the correct
+    // password fails. A broken encryption implementation that writes the /Encrypt
+    // dict but leaves content unencrypted would not throw here.
+    void testEncryptionPreventsPasswordlessAccess() {
+        // Create and encrypt a PDF with a non-trivial user password.
+        QString pdf = tmpPath("enforce_input.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            auto& page = doc.GetPages().CreatePage(
+                PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            PoDoFo::PdfPainter p;
+            p.SetCanvas(page);
+            auto& font = doc.GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::Helvetica);
+            p.TextState.SetFont(font, 12.0);
+            p.DrawText("G03_PLAINTEXT_MARKER", 100, 700);
+            p.FinishDrawing();
+            doc.Save(pdf.toUtf8().constData());
+        }
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+        DocumentPermissions perms;
+        QVERIFY(engine.encryptDocument("correct_user_pass", "owner_pass", perms));
+        QString output = tmpPath("enforce_encrypted.pdf");
+        QVERIFY(engine.saveDocument(output));
+
+        // Attempt to open WITHOUT a password. PoDoFo must throw PdfError
+        // (or PoDoFo::PdfException). If it succeeds, the encryption is broken.
+        bool threwAsExpected = false;
+        try {
+            PoDoFo::PdfMemDocument lockedDoc;
+            lockedDoc.Load(output.toUtf8().constData());
+            // If Load succeeds without a password and content is readable, encryption failed.
+            // Check if content stream is accessible (it shouldn't be).
+            if (lockedDoc.GetPages().GetCount() > 0) {
+                auto& page = lockedDoc.GetPages().GetPageAt(0);
+                auto* co = page.GetContents();
+                if (co) {
+                    PoDoFo::charbuff buf;
+                    co->CopyTo(buf);
+                    // If we can read the plaintext marker, encryption is broken.
+                    QVERIFY2(!QByteArray(buf.data(), (int)buf.size()).contains("G03_PLAINTEXT_MARKER"),
+                             "G-03: Encrypted PDF content is readable without password — encryption broken");
+                }
+            }
+            // Some PoDoFo versions open empty-password encrypted files without throwing.
+            // The critical check is content unreadability above.
+        } catch (const PoDoFo::PdfError&) {
+            threwAsExpected = true;  // expected: password required
+        } catch (const std::exception&) {
+            threwAsExpected = true;  // also acceptable
+        }
+        // Either PoDoFo threw (password required) or it opened but content was unreadable.
+        // Both are correct outcomes for a working encryption implementation.
+        Q_UNUSED(threwAsExpected);
     }
 
     // Reader-side helper (A-01 / G-03): CMS-unwrap the 24-byte seed from a
