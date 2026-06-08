@@ -24,9 +24,9 @@ public:
     using Stage3Fn = std::function<S3Out(int pageIndex, S2Out)>;
     using ResultHandler = std::function<void(int pageIndex, S3Out)>;
 
-    explicit CrossPagePipeline(LaneScheduler& scheduler, int backpressure = 4)
+    explicit CrossPagePipeline(LaneScheduler& scheduler, int backpressure = -1)
         : m_scheduler(scheduler)
-        , m_backpressure(backpressure)
+        , m_backpressure(backpressure < 1 ? qMax(1, QThread::idealThreadCount() / 2) : backpressure)
     {}
 
     void run(int pageCount,
