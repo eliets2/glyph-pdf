@@ -4,6 +4,8 @@
 #include "GpMainWindow.h"
 #include "ui/PdfViewerWidget.h"
 #include "engines/OcrEngine.h"
+#include "engines/ocr/RapidOcrEngine.h"
+#include "engines/ocr/OcrPipeline.h"
 #include "core/interfaces/IOcrEngine.h"
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "ui/RedactCommand.h"
@@ -25,11 +27,14 @@
 #include <QPointer>
 #include <QMetaObject>
 #include <QCoreApplication>
+#include <QFile>
 #include <QPdfDocument>
 #include <QPdfDocumentRenderOptions>
 #include <QPdfSearchModel>
 #include <QPdfBookmarkModel>
 #include <QRegularExpression>
+#include <QSettings>
+#include <QStandardPaths>
 #include <QUndoStack>
 #include "shell/StatusBar.h"
 
@@ -299,19 +304,52 @@ void EditController::onRedactAllRequested(const QString &text, bool matchCase, b
 
 void EditController::runOcr() {
     auto* viewer = _mainWindow->pdfViewer();
-    if (!viewer || !_ctx || !_ctx->ocr || _ocrRunning) return;
+    if (!viewer || !_ctx || _ocrRunning) return;
 
     const QString filePath = viewer->filePath();
     const int page = viewer->currentPage();
     if (filePath.isEmpty() || page < 0) return;
 
+    // Read the pref at call-time so changes take effect without restart (D2 guardrail 3).
+    const QString engineKey = QSettings().value(QStringLiteral("ocr/engine"),
+                                                QStringLiteral("tesseract")).toString();
+    const bool wantRapid    = (engineKey == QStringLiteral("rapidocr"));
+    const bool wantEnsemble = (engineKey == QStringLiteral("ensemble"));
+
+    // Honest availability check before we start a thread.
+    // If the user selected RapidOCR or Ensemble but models are absent,
+    // fail loudly here — never silently fall back to Tesseract (audit §7 Pattern 5).
+    if (wantRapid || wantEnsemble) {
+        const QString appData = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)
+                                + QStringLiteral("/models/ppocrv5");
+        const QString nextToExe = QCoreApplication::applicationDirPath()
+                                  + QStringLiteral("/models/ppocrv5");
+        const QString detModel = QStringLiteral("/PP-OCRv5_mobile_det_infer.onnx");
+        const bool onnxAvailable =
+#ifdef HAS_RAPIDOCR
+            QFile::exists(appData + detModel) || QFile::exists(nextToExe + detModel);
+#else
+            false;
+#endif
+        if (!onnxAvailable) {
+            _mainWindow->statusBar()->showMessage(
+                tr("OCR failed: PP-OCRv5 ONNX models not found. "
+                   "Change the OCR engine in Preferences → Engines, or install the models."), 7000);
+            return;
+        }
+    }
+
     _ocrRunning = true;
-    _mainWindow->statusBar()->showMessage(tr("Processing OCR (Tesseract Engine)..."));
+    const QString engineLabel = wantEnsemble ? tr("Ensemble (Tesseract + RapidOCR)")
+                              : wantRapid    ? tr("RapidOCR / PP-OCRv5")
+                              :                tr("Tesseract 5");
+    _mainWindow->statusBar()->showMessage(tr("Processing OCR (%1)...").arg(engineLabel));
 
     QPointer<EditController> self(this);
     QPointer<PdfViewerWidget> viewerPtr(viewer);
 
-    QThread *worker = QThread::create([self, viewerPtr, filePath, page]() {
+    QThread *worker = QThread::create([self, viewerPtr, filePath, page,
+                                       wantRapid, wantEnsemble]() {
         QString error;
         QList<OcrResult> resultsArr;
 
@@ -329,11 +367,53 @@ void EditController::runOcr() {
             if (pageImg.isNull()) {
                 error = QStringLiteral("OCR failed: could not render page.");
             } else {
-                OcrEngine engine;
-                if (!engine.initialize("eng")) {
-                    error = QStringLiteral("OCR failed: English language data is unavailable.");
-                } else {
-                    resultsArr = engine.processImage(pageImg);
+                // Build primary + optional secondary engine from preference.
+                std::shared_ptr<IOcrEngine> primary = std::make_shared<OcrEngine>();
+                std::shared_ptr<IOcrEngine> secondary;
+
+                if (wantRapid || wantEnsemble) {
+                    auto rapid = std::make_shared<RapidOcrEngine>();
+                    if (!rapid->initialize(QStringLiteral("eng"))) {
+                        // initialize() already logged the reason; surface it to the user.
+                        error = QStringLiteral(
+                            "OCR failed: RapidOCR engine could not be initialised. "
+                            "Check that the PP-OCRv5 ONNX models are installed correctly.");
+                    } else if (wantRapid) {
+                        // RapidOCR-only: use as primary, no secondary
+                        secondary = nullptr;
+                        primary   = rapid;  // replace primary
+                    } else {
+                        // Ensemble: Tesseract primary, RapidOCR secondary (ROVER merge)
+                        secondary = rapid;
+                    }
+                }
+
+                if (error.isEmpty()) {
+                    // Initialise Tesseract primary (unless replaced by rapid above)
+                    if (!wantRapid) {
+                        if (!primary->initialize(QStringLiteral("eng"))) {
+                            error = QStringLiteral("OCR failed: Tesseract English language data is unavailable.");
+                        }
+                    }
+                }
+
+                if (error.isEmpty()) {
+                    const OcrStrategy strategy = wantEnsemble
+                        ? OcrStrategy::RoverVote
+                        : OcrStrategy::PrimaryOnly;
+                    OcrPipeline pipeline(primary, secondary);
+                    pipeline.setStrategy(strategy);
+                    const auto mergedWords = pipeline.run(pageImg);
+
+                    // Convert MergedOcrWord → OcrResult for the viewer layer
+                    resultsArr.reserve(mergedWords.size());
+                    for (const auto& w : mergedWords) {
+                        OcrResult r;
+                        r.text        = w.text;
+                        r.boundingBox = w.boundingBox;
+                        r.confidence  = w.confidence;
+                        resultsArr.append(r);
+                    }
                 }
             }
         }
@@ -344,7 +424,7 @@ void EditController::runOcr() {
             self->_ocrRunning = false;
 
             if (!error.isEmpty()) {
-                self->_mainWindow->statusBar()->showMessage(error, 5000);
+                self->_mainWindow->statusBar()->showMessage(error, 7000);
                 return;
             }
 
