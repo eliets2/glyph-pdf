@@ -1,6 +1,6 @@
 # GlyphPDF — Round-2 Verification & Audit (2026-06-09)
 
-**Branch:** `audit-remediation` HEAD `59f960b` · build clean under `-Werror` · `ctest` reports 33/33
+**Branch:** `audit-remediation` HEAD `53e1a40` · build clean under `-Werror` · `ctest` reports 37/37
 **Method:** 6 independent auditors (security re-verify, UX, UI, code-completeness, repo, vault) after the WP-0…WP-8a remediation was stabilized + committed.
 
 > **Bottom line:** the remediation is **~80% real and verified**, but the §7 tracker **overstates completion**. Three things marked "DONE" are not actually closed, and the matured real-crypto test is silently skipping. None of this is fake work — it's *incomplete* work labelled done.
@@ -74,3 +74,13 @@ Per-domain detail: `round2/{SEC-reverify,UX,UI,CODE,REPO,VAULT}.md`.
 | **i18n honesty** Multilingual claim with 0 translated strings | **CLOSED** | R2-9 | `README.md`, `CHANGELOG.md`, `docs/release/release-notes-v1.0.0.md` updated: English-only for v1.0; Arabic/French/German translations planned for future release. |
 | **NF-2 CTM bug** Form XObject redaction CTM not inherited | **CLOSED** | R2-9 | `redactCanvasRecursively` now passes `parentCtm` to Form XObject recursion; image bbox computed in page space. `testRedactionNeutralizesImageInFormLocalResources` now PASS. Full suite 37/37. |
 | **H-emergent-risk** Emergence capstone | **CLOSED** | R2-9 | `docs/audit/round2/H-emergent-risk.md` written: ER-1 OCSP replay, ER-2 redaction+incremental-save, ER-3 FEK+multi-recipient, ER-4 SaveAs guard gap, ER-5 CMS two-pass downgrade oracle. ER-1+ER-5 compose into practical attack; ER-2 is architectural. |
+
+## R3 Remediation Progress (Emergent Risks)
+
+| Finding | Status | Session | Evidence |
+|---------|--------|---------|----------|
+| **ER-4** ProvenanceGuard scope gap: SaveAs bypasses gate | **CLOSED** | R3-1 | `HomeController.cpp:176-191` — isSigned guard + cancel-default `QMessageBox::warning` before `saveDocumentAs`; `GpTheme.h` `warning()` amber color; `SignaturesWidget.cpp:69-80` three-way trust status (green/amber/red); `TestChain1.cpp:134-169` coverage. |
+| **ER-5** CMS two-pass downgrade oracle UntrustedChain display | **CLOSED** | R3-1 | `SignaturesWidget.cpp:69-80` — `UntrustedChain` renders amber (`gp::Theme::warning()`); compound attack path blocked by ER-1 certID match. |
+| **NF-6 / ER-1** OCSP certID mismatch in extractOcspFromDss | **CLOSED** | R3-2 | `SignatureManager.cpp:597-755` — full certID serial matching loop; `validateSignatures` downgrades `NoCertMatch` → `UntrustedChain` + `isValid=false`; `ISignatureManager.h` gains `ocspStatus`/`ocspNoteNF6`; `TestSignatureRealCrypto.cpp` adversarial DER test + positive hasDss path. |
+| **ER-2** Redaction + incremental save leaks excised bytes | **CLOSED** | R3-3 | `SecurityController.cpp:394-407` — UI-layer `QMessageBox::critical` hard block; `PdfEditorEngine.cpp:1124-1133` — engine-layer guard returns `false`+`ErrorInfo` (defense-in-depth); `TestRedaction.cpp:614-656` — `testRedactionOnSignedDocIsBlocked()`. |
+| **ER-3** FEK derivation + multi-recipient re-encryption | **CLOSED** | R3-4 | `IPdfEditorEngine.h` + `PoDoFoBackend.cpp` `recipientCount()` added; `SecurityController.cpp` — guard in `encryptDocument()` + `permissionsDocument()` when `recipientCount() > 1`; `TestRobustness.cpp` — `testRecipientCountReturnedCorrectly()`. |
