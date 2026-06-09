@@ -23,7 +23,7 @@ HOLD: A-01 cert-encryption (real CMS→AES round-trip), A-02 image excision, E-0
 | 8 | **MEDIUM (security)** | Redaction still misses images in Form-XObject resources, annotation `/AP` streams, `/SMask`s; forged-CRL soft-fails; A-03 PDFium render alloc unclamped | sec2 NF-1/NF-2/NF-4 | Residual redaction-leak + DoS surface. |
 
 ## Confirmed NOT-DONE (vs tracker)
-- **SP-5b** (B-01 key purge) · **SP-6 / capstone H** (never run) · **G-07 TestDjotFuzz** (not written — `djotToDocument` is real, so it *can* be) · **i18n** 0/1394 · **C-03** FormBuilder delete/move/resize still UI-only (`FormBuilderMode.cpp:143,230,421`).
+- **SP-5b** (B-01 key purge) · **SP-6 / capstone H** (never run) · **G-07 TestDjotFuzz** (not written — `djotToDocument` is real, so it *can* be) · **i18n** 0/1394.
 
 ## What IS verified-good
 - All 8 Pattern-5 mock surfaces GONE; SYNCED indicator gone; cloud removal clean (zero orphaned headers).
@@ -54,7 +54,7 @@ Per-domain detail: `round2/{SEC-reverify,UX,UI,CODE,REPO,VAULT}.md`.
 | **UX-01** ~52 ribbon tools have no handler (silent qWarning) | **CLOSED** | R2-4 | 6 tools wired to real engine; 42 added to `RibbonModel::plannedTools()` (disabled+tooltip); `TestRibbonIntegrity.cpp` guards. |
 | **UX-02** Cloud-orphans enabled (Forms›Distribute, Protect›Compliance) | **CLOSED** | R2-4 | `sendForm/collect/submit/auditLog/dlp/policy` removed from `RibbonModel.cpp`; `ToolId::Cloud` deleted. |
 | **UX-03/04** permissionsDocument/removeSecurity discard save return | OPEN | — | R2-2 pending |
-| **UX-08/C-03** FormBuilder delete/move/resize UI-only | OPEN | — | R2-6 pending |
+| **UX-08/C-03** FormBuilder delete/move/resize UI-only | **CLOSED** | R2-6 | `FormManager::removeFieldByName`+`updateFieldRect` via PoDoFo AcroForm; `AddFormFieldCommand::undo()` wired; `DeleteFormFieldCommand`/`MoveFormFieldCommand`/`ResizeFormFieldCommand` call engine; delete button enables on selection; `TestFormPersistence.cpp` (TP-1..TP-5) — all green. |
 | **NF-1** Forged-CRL soft-fails as UntrustedChain | OPEN | — | R2-3 pending |
 | **NF-2** Redaction misses Form-XObject resources + AP streams + SMasks | OPEN | — | R2-3 pending |
 | **NF-4** PdfiumBackend render alloc unclamped (OOM/overflow) | OPEN | — | R2-3 pending |
