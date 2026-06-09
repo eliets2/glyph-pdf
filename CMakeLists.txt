@@ -694,6 +694,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignatureRealCrypto.cpp")
     )
     if(WIN32)
         target_link_libraries(TestSignatureRealCrypto PRIVATE Crypt32)
+        # Deploy the vendored podofo 1.1.0 DLL so the runtime loader picks up the correct
+        # version instead of the ucrt64 system 0.10.4. Same pattern as TestFormBuilder.
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestSignatureRealCrypto POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestSignatureRealCrypto>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestSignatureRealCrypto"
+            )
+        endif()
     endif()
     add_test(NAME TestSignatureRealCrypto COMMAND TestSignatureRealCrypto)
     set_tests_properties(TestSignatureRealCrypto PROPERTIES
@@ -1170,6 +1180,28 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestDjotRoundtrip.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
         LABELS "unit;djot;codec;provenance"
+    )
+endif()
+
+# ── TestDjotFuzz (R2-7 G-07) ─────────────────────────────────────────────
+# DocumentFuzzer round-trip fuzz harness: generates random SemanticDocument
+# instances via DocumentFuzzer, encodes them to Djot, then decodes back and
+# asserts no crash + content-presence. Structural equivalence tests are
+# QEXPECT_FAIL until djotToDocument AST-walking is fully implemented (M5).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestDjotFuzz.cpp")
+    add_executable(TestDjotFuzz
+        tests/TestDjotFuzz.cpp
+    )
+    target_include_directories(TestDjotFuzz PRIVATE src tests)
+    target_link_libraries(TestDjotFuzz PRIVATE
+        pdfws_djot docmodel
+        Qt6::Test Qt6::Core
+    )
+    add_test(NAME TestDjotFuzz COMMAND TestDjotFuzz)
+    set_tests_properties(TestDjotFuzz PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;djot;fuzz;codec;roundtrip"
     )
 endif()
 
