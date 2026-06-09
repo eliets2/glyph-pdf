@@ -173,6 +173,23 @@ void HomeController::onSaveAs() {
         tr("Save Document As"), QFileInfo(viewer->filePath()).fileName(),
         tr("PDF Files (*.pdf);;All Files (*)"));
     if (fileName.isEmpty()) return;
+
+    // ER-4: warn before silently producing a file with an invalidated signature.
+    // onSave() routes signed saves through writeUpdate (incremental append) to
+    // preserve /ByteRange.  onSaveAs() must always do a full rewrite to the new
+    // path, which shifts byte offsets and breaks every existing signature.
+    // Give the user an explicit choice rather than silently delivering a broken file.
+    if (_ctx->pdfEditor && _ctx->pdfEditor->hasPdfSignatures()) {
+        auto choice = QMessageBox::warning(
+            _mainWindow, tr("Signed Document — Save As"),
+            tr("Saving as a new file will invalidate this document’s digital signature.\n\n"
+               "To preserve the signature use Save (Ctrl+S) instead, which appends "
+               "an incremental update.\n\n"
+               "Continue and save an unsigned copy?"),
+            QMessageBox::Ok | QMessageBox::Cancel, QMessageBox::Cancel);
+        if (choice != QMessageBox::Ok) return;
+    }
+
     if (viewer->saveDocumentAs(fileName)) {
         _mainWindow->statusBar()->showMessage(tr("Document saved to %1").arg(fileName), 5000);
     } else {
