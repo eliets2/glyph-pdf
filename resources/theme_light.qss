@@ -236,3 +236,70 @@ QListWidget[role="sidebarList"] {
     border: none;
     background: transparent;
 }
+
+/* === VS-02: QTabWidget === */
+QTabWidget::pane {
+    border: 1px solid #8a8678;
+    background: #e9e6dd;
+    top: -1px;
+}
+QTabBar::tab {
+    background: #d8d5cb;
+    color: #454650;
+    padding: 4px 12px;
+    min-height: 24px;
+    border: 1px solid #8a8678;
+    border-bottom: none;
+    margin-right: 2px;
+}
+QTabBar::tab:hover {
+    background: #cac6bb;
+    color: #1a1b1e;
+}
+QTabBar::tab:selected {
+    background: #e9e6dd;
+    color: #1a1b1e;
+    border-top: 2px solid #c25a18;
+}
+
+/* === VS-03: QGroupBox === */
+QGroupBox {
+    border: 1px solid #8a8678;
+    margin-top: 8px;
+    padding-top: 6px;
+    color: #1a1b1e;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 4px;
+    color: #454650;
+    font-size: 10.5px;
+    letter-spacing: 0.4px;
+}
+
+/* === VS-04: QSpinBox === */
+QSpinBox {
+    background: #f3f0e7;
+    border: 1px solid #8a8678;
+    color: #1a1b1e;
+    padding: 2px 4px;
+    min-height: 22px;
+}
+QSpinBox:focus {
+    border: 2px solid #c25a18;
+}
+QSpinBox::up-button, QSpinBox::down-button {
+    background: #d8d5cb;
+    border: 0;
+    width: 14px;
+}
+QSpinBox::up-button:hover, QSpinBox::down-button:hover {
+    background: #cac6bb;
+}
+QSpinBox::up-arrow {
+    width: 7px; height: 7px;
+}
+QSpinBox::down-arrow {
+    width: 7px; height: 7px;
+}
