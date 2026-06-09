@@ -43,3 +43,28 @@ HOLD: A-01 cert-encryption (real CMS→AES round-trip), A-02 image excision, E-0
 6. **SP-6 capstone (/security):** run emergence-engine over remediated code; produce `H-emergent-risk.md`; final release-gate.
 
 Per-domain detail: `round2/{SEC-reverify,UX,UI,CODE,REPO,VAULT}.md`.
+
+---
+
+## R2 Remediation Progress
+
+| Finding | Status | Session | Evidence |
+|---------|--------|---------|----------|
+| **CHAIN-1** ProvenanceGuard no-op + writeUpdate no callers | OPEN | — | R2-1 in progress |
+| **UX-01** ~52 ribbon tools have no handler (silent qWarning) | OPEN | — | R2-4 in progress |
+| **UX-02** Cloud-orphans enabled (Forms›Distribute, Protect›Compliance) | OPEN | — | R2-4 in progress |
+| **UX-03/04** permissionsDocument/removeSecurity discard save return | OPEN | — | R2-2 pending |
+| **UX-08/C-03** FormBuilder delete/move/resize UI-only | OPEN | — | R2-6 pending |
+| **NF-1** Forged-CRL soft-fails as UntrustedChain | OPEN | — | R2-3 pending |
+| **NF-2** Redaction misses Form-XObject resources + AP streams + SMasks | OPEN | — | R2-3 pending |
+| **NF-4** PdfiumBackend render alloc unclamped (OOM/overflow) | OPEN | — | R2-3 pending |
+| **T-01** CommentsWidget hardcoded dark hex | **CLOSED** | R2-5 | `src/ui/CommentsWidget.cpp` — inline styleSheets removed; `gp::Theme::accent()/okGreen()` used; QPalette roles for text. |
+| **T-02** CompressDialog hardcoded dark hex | **CLOSED** | R2-5 | `src/modes/CompressDialog.cpp` — bg0/bg3/line/lineStrong/fg0/fg2/accent tokens throughout. |
+| **T-03** SignaturesWidget hardcoded dark hex | **CLOSED** | R2-5 | `src/ui/SignaturesWidget.cpp` — fg2()/bg3()/bg2()/okGreen()/danger() tokens; drops `color:white`. |
+| **T-10** AnnotationLayer Qt::blue HC selection | **CLOSED** | R2-5 | `src/ui/AnnotationLayer.cpp:207` — `QPalette::Highlight` (HC-visible). |
+| **VS-02** No QSS for QTabWidget | **CLOSED** | R2-5 | `resources/theme_{dark,light,highcontrast}.qss` — QTabWidget::pane + QTabBar::tab rules added. |
+| **VS-03** No QSS for QGroupBox | **CLOSED** | R2-5 | Same 3 QSS files — QGroupBox + QGroupBox::title rules added. |
+| **VS-04** No QSS for QSpinBox | **CLOSED** | R2-5 | Same 3 QSS files — QSpinBox + button rules added. |
+| **CODE** TestSignatureRealCrypto QSKIPs + hardcoded path | OPEN | — | R2-7 pending |
+| **G-07** TestDjotFuzz not written | OPEN | — | R2-7 pending |
+| **B-01** Private keys in git history | OPEN | — | R2-8 pending (solo, last) |
