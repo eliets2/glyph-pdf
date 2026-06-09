@@ -3,6 +3,7 @@
 #include "RibbonModel.h"
 #include "util/GpTheme.h"
 #include "util/Icons.h"
+#include <QSet>
 
 #include <algorithm>
 
@@ -106,14 +107,21 @@ QWidget* Ribbon::buildBody(int tabIdx) {
         QVector<Tool> bigs, smalls;
         for (const auto& t : grp.tools) (t.big ? bigs : smalls).append(t);
 
+        const QSet<QString>& planned = RibbonModel::plannedTools();
+
         for (const auto& t : bigs) {
             auto* b = makeTool(t.id, t.label, t.icon, true);
             if (t.id == _activeTool) b->setProperty("active", true);
-            const QString id = t.id;
-            connect(b, &QToolButton::clicked, this, [this, id]() {
-                setActiveTool(id);
-                emit toolActivated(id);
-            });
+            if (planned.contains(t.id)) {
+                b->setEnabled(false);
+                b->setToolTip(tr("Planned for a future release"));
+            } else {
+                const QString id = t.id;
+                connect(b, &QToolButton::clicked, this, [this, id]() {
+                    setActiveTool(id);
+                    emit toolActivated(id);
+                });
+            }
             _buttons.insert(t.id, b);
             bodyRow->addWidget(b);
         }
@@ -127,11 +135,16 @@ QWidget* Ribbon::buildBody(int tabIdx) {
                 const auto& t = smalls.at(k);
                 auto* b = makeTool(t.id, t.label, t.icon, false);
                 if (t.id == _activeTool) b->setProperty("active", true);
-                const QString id = t.id;
-                connect(b, &QToolButton::clicked, this, [this, id]() {
-                    setActiveTool(id);
-                    emit toolActivated(id);
-                });
+                if (planned.contains(t.id)) {
+                    b->setEnabled(false);
+                    b->setToolTip(tr("Planned for a future release"));
+                } else {
+                    const QString id = t.id;
+                    connect(b, &QToolButton::clicked, this, [this, id]() {
+                        setActiveTool(id);
+                        emit toolActivated(id);
+                    });
+                }
                 _buttons.insert(t.id, b);
                 colLay->addWidget(b);
             }
