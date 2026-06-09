@@ -2,6 +2,7 @@
 #include "engines/pdfium/PdfiumBackend.h"
 #include <QMutexLocker>
 #include <QDebug>
+#include <cstdint>
 
 #ifdef HAS_PDFIUM
 
@@ -98,6 +99,18 @@ QImage PdfiumBackend::renderPage(int pageIndex, int dpi) {
     int widthPixels = static_cast<int>(width * scale);
     int heightPixels = static_cast<int>(height * scale);
 
+    // NF-4: Clamp render dimensions to prevent OOM/DoS from a crafted large
+    // /MediaBox + /UserUnit yielding a multi-GB allocation or int overflow.
+    if (widthPixels <= 0 || heightPixels <= 0 ||
+        widthPixels > 20000 || heightPixels > 20000 ||
+        static_cast<int64_t>(widthPixels) * heightPixels > 120000000) {
+        qWarning() << "PdfiumBackend::renderPage: page" << pageIndex
+                   << "render dimensions" << widthPixels << "x" << heightPixels
+                   << "exceed safe limits — rejecting to prevent OOM/DoS";
+        FPDF_ClosePage(page);
+        return QImage();
+    }
+
     QImage image(widthPixels, heightPixels, QImage::Format_ARGB32);
     image.fill(Qt::white);
 
@@ -123,6 +136,17 @@ QImage PdfiumBackend::renderTile(int pageIndex, const QRectF &subRect, int dpi) 
 
     int tileW = static_cast<int>(subRect.width() * scale);
     int tileH = static_cast<int>(subRect.height() * scale);
+
+    // NF-4: Clamp tile dimensions to prevent OOM/DoS from a crafted large
+    // /MediaBox + /UserUnit yielding a multi-GB allocation or int overflow.
+    if (tileW <= 0 || tileH <= 0 ||
+        tileW > 20000 || tileH > 20000 ||
+        static_cast<int64_t>(tileW) * tileH > 120000000) {
+        qWarning() << "PdfiumBackend::renderTile: tile dimensions" << tileW << "x" << tileH
+                   << "exceed safe limits — rejecting to prevent OOM/DoS";
+        FPDF_ClosePage(page);
+        return QImage();
+    }
 
     QImage tileImage(tileW, tileH, QImage::Format_ARGB32);
     tileImage.fill(Qt::white);

@@ -509,6 +509,97 @@ private slots:
         QVERIFY2(intact >= 1, "the non-intersecting image must be left intact (CTM-based test)");
     }
 
+    // NF-2: An image embedded inside a Form XObject's OWN /Resources dict (not the
+    // page's /Resources) must be neutralized when its bounding box intersects the
+    // redaction rect. This proves that the Do-name lookup uses the current canvas's
+    // resource dictionary during recursion, not always the top-level page dict.
+    void testRedactionNeutralizesImageInFormLocalResources() {
+        // Distinctive pixel pattern for the secret image.
+        const int W = 8, H = 8;
+        QByteArray pixels;
+        for (int i = 0; i < W * H; ++i) {
+            pixels.append('\xDE'); pixels.append('\xAD'); pixels.append('\xBE');
+        }
+
+        QString pdf = tmpPath("form_local_img.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            auto& page = doc.GetPages().CreatePage(
+                PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+
+            // Create a Form XObject with its own painter.  When we call
+            // xobjPainter.DrawImage(), PoDoFo registers the image in the Form's
+            // OWN /Resources/XObject — NOT in the page's resources.  This is
+            // exactly the NF-2 scenario.
+            auto xobj = doc.CreateXObjectForm(PoDoFo::Rect(0, 0, 80, 60));
+            PoDoFo::PdfPainter xobjPainter;
+            xobjPainter.SetCanvas(*xobj);
+            auto secretImg = doc.CreateImage();
+            secretImg->SetData(PoDoFo::bufferview(pixels.constData(), pixels.size()),
+                               W, H, PoDoFo::PdfPixelFormat::RGB24);
+            // Draw the image filling the Form's bounding box.
+            xobjPainter.DrawImage(*secretImg, 0, 0, 80.0 / W, 60.0 / H);
+            xobjPainter.FinishDrawing();
+
+            // Place the Form on the page at position (100, 600) in PDF coords
+            // (device: left=100, bottom=600, right=180, top=660).
+            PoDoFo::PdfPainter painter;
+            painter.SetCanvas(page);
+            painter.DrawXObject(*xobj, 100, 600);
+            painter.FinishDrawing();
+
+            doc.Save(pdf.toUtf8().constData());
+
+            // Remember PDF->Qt Y conversion: Qt y_top = pageH - pdf_top = pageH - 660
+            m_secretRectY = page.GetMediaBox().Height - 660.0;
+        }
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+        // QRectF covers the Form placement area.
+        QVERIFY2(engine.applyRedactions(0, {QRectF(100, m_secretRectY, 80, 60)}),
+                 "NF-2: redaction over Form-local-resource image must succeed");
+
+        QString out = tmpPath("form_local_img_redacted.pdf");
+        QVERIFY(engine.saveDocument(out));
+
+        // Verify: the image must be neutralised to 1x1 — its original 8x8 pixel
+        // bytes must not survive in any decoded stream in the saved file.
+        PoDoFo::PdfMemDocument verifyDoc;
+        verifyDoc.Load(out.toUtf8().constData());
+
+        int neutralised = 0;
+        bool pixelLeaked = false;
+        const QByteArray secretPixels = pixels; // \xDE\xAD\xBE repeated
+
+        for (auto it = verifyDoc.GetObjects().begin();
+             it != verifyDoc.GetObjects().end(); ++it) {
+            PoDoFo::PdfObject* o = *it;
+            if (o->IsDictionary()) {
+                auto& d = o->GetDictionary();
+                auto* st = d.FindKey("Subtype");
+                if (st && st->IsName() &&
+                    std::string(st->GetName().GetString()) == "Image") {
+                    auto* w = d.FindKey("Width");
+                    auto* h = d.FindKey("Height");
+                    if (w && h && w->GetNumber() == 1 && h->GetNumber() == 1)
+                        ++neutralised;
+                }
+            }
+            if (o->HasStream()) {
+                PoDoFo::charbuff buf;
+                try { o->GetStream()->CopyTo(buf); } catch (...) { continue; }
+                if (QByteArray(buf.data(), static_cast<int>(buf.size())).contains(secretPixels))
+                    pixelLeaked = true;
+            }
+        }
+
+        QVERIFY2(neutralised >= 1,
+                 "NF-2: image embedded in Form XObject local /Resources must be excised to 1x1");
+        QVERIFY2(!pixelLeaked,
+                 "NF-2: original secret pixel bytes must not survive in any decoded stream");
+    }
+
 private:
     double m_secretRectY = 0.0;
 
