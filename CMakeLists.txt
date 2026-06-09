@@ -878,6 +878,32 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestControllers.cpp")
     )
 endif()
 
+# ── TestRibbonIntegrity (R2-4 D5) ────────────────────────────────────────
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRibbonIntegrity.cpp")
+    add_executable(TestRibbonIntegrity
+        tests/TestRibbonIntegrity.cpp
+    )
+    target_include_directories(TestRibbonIntegrity PRIVATE src)
+    target_link_libraries(TestRibbonIntegrity PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core
+        Qt6::Test Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestRibbonIntegrity POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestRibbonIntegrity>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestRibbonIntegrity>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestRibbonIntegrity"
+    )
+    add_test(NAME TestRibbonIntegrity COMMAND TestRibbonIntegrity)
+    set_tests_properties(TestRibbonIntegrity PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;ribbon;integrity;ui;qt;headless"
+    )
+endif()
+
 # ── Integration tests (Session 20) ───────────────────────────────────────
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestIntegration.cpp")
     add_executable(TestIntegration
