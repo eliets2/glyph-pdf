@@ -353,6 +353,20 @@ bool PoDoFoBackend::writeUpdate(const QString &path) {
     }
 }
 
+bool PoDoFoBackend::hasPdfSignatures() const {
+    QMutexLocker locker(&d->mutex);
+    if (!d->document) return false;
+    try {
+        for (auto field : d->document->GetFieldsIterator()) {
+            if (field != nullptr && field->GetType() == PoDoFo::PdfFieldType::Signature)
+                return true;
+        }
+    } catch (const PoDoFo::PdfError&) {
+        // Cannot determine — treat conservatively as unsigned
+    }
+    return false;
+}
+
 QString PoDoFoBackend::currentFile() const {
     QMutexLocker locker(&d->mutex);
     return d->currentFile;
