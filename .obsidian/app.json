@@ -1,9 +1,0 @@
-{
-  "alwaysUpdateLinks": true,
-  "newFileLocation": "folder",
-  "newFileFolderPath": "memory",
-  "attachmentFolderPath": "memory",
-  "showLineNumber": true,
-  "strictLineBreaks": false,
-  "readableLineLength": true
-}
