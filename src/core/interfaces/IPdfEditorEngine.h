@@ -205,6 +205,17 @@ public:
     virtual ErrorInfo lastError() const = 0;
     virtual void clearError() = 0;
 
+    // R2-1 D2: incremental-update save that preserves /ByteRange integrity.
+    // Must be called instead of saveDocument() whenever the loaded document
+    // has PDF signatures (see hasPdfSignatures()). On a document without
+    // signatures the implementation may fall back to a full save.
+    virtual bool writeUpdate(const QString &outputPath) = 0;
+
+    // R2-1 D2: return true iff the currently-loaded document contains at least
+    // one PDF signature field (/Sig widget).  Used by HomeController::onSave to
+    // select the correct save path without coupling the controller to the backend.
+    virtual bool hasPdfSignatures() const = 0;
+
 protected:
     IPdfEditorEngine() = default;
     IPdfEditorEngine(const IPdfEditorEngine&) = delete;

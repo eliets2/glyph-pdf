@@ -700,6 +700,26 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignatureRealCrypto.cpp")
     )
 endif()
 
+# R2-1 CHAIN-1 closure tests (D3)
+# Tests only ProvenanceGuard logic — no pdfws_engines, no OpenSSL, no podofo.
+# This keeps TestChain1 runnable in all environments without DLL-path issues.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestChain1.cpp")
+    add_executable(TestChain1
+        tests/TestChain1.cpp
+    )
+    target_include_directories(TestChain1 PRIVATE src tests)
+    target_link_libraries(TestChain1 PRIVATE
+        pdfws_djot pdfws_core
+        Qt6::Test Qt6::Core
+    )
+    add_test(NAME TestChain1 COMMAND TestChain1)
+    set_tests_properties(TestChain1 PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;security;chain1;provenance;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRedaction.cpp")
     add_executable(TestRedaction
         tests/TestRedaction.cpp
