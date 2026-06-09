@@ -3,6 +3,41 @@
 
 namespace gp {
 
+const QSet<QString>& RibbonModel::plannedTools() {
+    // Central registry of tool string IDs that have no real engine backing yet.
+    // Ribbon renders these disabled ("Planned for a future release") rather than
+    // letting them silently fail. Add here when a new tool enters the ribbon but
+    // its backend implementation hasn't shipped. Remove when the handler is wired.
+    static const QSet<QString> planned = {
+        // Home
+        "snapshot", "findRep", "regex", "undo", "redo", "history",
+        // View – panels and window management
+        "thumbs", "bookmarks", "comments", "layers", "rtl",
+        "splitWin", "compare", "newWin",
+        // Edit – advanced text/object operations
+        "insertText", "deleteText", "link", "attach", "delete",
+        "alignL", "alignC", "alignR", "distribute", "group", "layerOrder",
+        "ocrVerify", "ocrLang", "ocrSettings",
+        "measure", "distance", "area",
+        // Organize – page decoration and advanced ops
+        "replace", "reverse", "compareDocs", "watermark", "background",
+        // Comment – advanced annotation types
+        "callout", "poly", "eraser", "stamp", "customStamp",
+        "summary", "filterComm", "statusComm", "trackChanges", "reply",
+        // Convert – additional format targets and batch
+        "toMD", "toEPUB", "fromScan", "fromWeb",
+        "extractTables", "detectTables",
+        // exportCSV omitted: aliases to ToolId::ToCsv which is handled
+        "reduce", "batchConv", "preset", "watch",
+        // Forms – validation, reset, flatten
+        "rules", "required", "calc", "reset", "flatten",
+        // Protect – trust store management
+        "trust",
+    };
+    return planned;
+}
+
+
 // Build tabs one at a time to keep compiler memory usage down.
 // (A single massive aggregate initializer can OOM g++ with PCH.)
 
@@ -65,7 +100,6 @@ static RibbonTabDef makeForms() {
         { "Build", {{ "createForm","Create Form","form",true },{ "autoDetect","Auto-detect","form",false },{ "tabs","Tab Order","form",false }}},
         { "Validate", {{ "rules","Validation","form",true },{ "required","Required","form",false },{ "calc","Calculation","form",false }}},
         { "Data", {{ "export","Export Data","merge",false },{ "import","Import Data","insertPage",false },{ "reset","Reset","redact",false },{ "flatten","Flatten","form",false }}},
-        { "Distribute", {{ "sendForm","Send Form","share",true },{ "collect","Collect","merge",false },{ "submit","Submit","share",false }}},
     }};
 }
 static RibbonTabDef makeProtect() {
@@ -73,7 +107,6 @@ static RibbonTabDef makeProtect() {
         { "Security", {{ "password","Password","lock",true },{ "permissions","Permissions","lock",false },{ "encrypt","Encrypt","lock",false },{ "removeSec","Remove Sec.","lock",false }}},
         { "Redact", {{ "markRedact","Mark","redact",true },{ "applyRedact","Apply","redact",false },{ "patternRedact","Pattern","redact",false },{ "regexRedact","Regex","redact",false },{ "sanitize","Sanitize","redact",false }}},
         { "Sign", {{ "certify","Certify","signature",true },{ "sign","Sign","signature",false },{ "timestamp","Timestamp","signature",false },{ "validateSig","Validate","signature",false },{ "trust","Trust Store","lock",false }}},
-        { "Compliance", {{ "auditLog","Audit Log","form",true },{ "dlp","DLP","lock",false },{ "policy","Policy","form",false }}},
     }};
 }
 
