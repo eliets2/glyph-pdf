@@ -144,7 +144,7 @@ private slots:
         REQUIRE_FIXTURES();
         QVERIFY(m_tmpDir.isValid());
 
-        QString output = "C:/Users/User/Projects/pdf/build/signed_blt.pdf";
+        QString output = m_tmpDir.filePath("signed_blt.pdf");
 
         SignatureManager mgr;
         mgr.setSignatureLevel(PAdESLevel::B_LT);
