@@ -277,7 +277,15 @@ void EditController::onReplaceAllRequested(const QString &searchText, const QStr
                                         _fontBold, _fontItalic, _fontAlignment);
     }
 
-    _ctx->pdfEditor->saveDocument(viewer->filePath());
+    // R2-1 D2: route through incremental update when document is signed, so
+    // existing /ByteRange signatures are not invalidated by a full rewrite.
+    {
+        const bool isSigned = _ctx->pdfEditor->hasPdfSignatures();
+        if (isSigned)
+            _ctx->pdfEditor->writeUpdate(viewer->filePath());
+        else
+            _ctx->pdfEditor->saveDocument(viewer->filePath());
+    }
 
     if (_ctx->document) {
         _ctx->document->setPath(viewer->filePath());

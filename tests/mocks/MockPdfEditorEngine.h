@@ -76,14 +76,25 @@ public:
     ErrorInfo lastError() const override { return m_lastError; }
     void clearError() override { m_lastError = ErrorInfo{}; }
 
+    // R2-1 D2
+    bool writeUpdate(const QString &path) override {
+        ++m_writeUpdateCalls;
+        m_lastWriteUpdatePath = path;
+        return saveDocument(path);
+    }
+    bool hasPdfSignatures() const override { return m_hasPdfSignatures; }
+
     // Test helpers
     mutable ErrorInfo m_lastError;
     bool m_loaded = false;
     bool m_sanitizeResult = true;
+    bool m_hasPdfSignatures = false;
     int m_sanitizeCalls = 0;
     int m_saveCalls = 0;
+    int m_writeUpdateCalls = 0;
     QString m_lastSanitizedPath;
     QString m_lastSavedPath;
+    QString m_lastWriteUpdatePath;
     QString m_file;
     PdfMetadata m_meta;
 };
