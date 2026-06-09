@@ -1290,3 +1290,10 @@ bool PdfEditorEngine::hasPdfSignatures() const
     return d->backend->hasPdfSignatures();
 }
 
+int PdfEditorEngine::recipientCount() const
+{
+    QMutexLocker locker(&d->mutex);
+    if (!d->backend) return 0;
+    return d->backend->recipientCount();
+}
+

@@ -93,6 +93,9 @@ public:
     bool writeUpdate(const QString &outputPath) override;
     bool hasPdfSignatures() const override;
 
+    // ER-3
+    int recipientCount() const override;
+
 private:
     class Private;
     std::unique_ptr<Private> d;

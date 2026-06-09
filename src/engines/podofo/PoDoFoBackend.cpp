@@ -367,6 +367,24 @@ bool PoDoFoBackend::hasPdfSignatures() const {
     return false;
 }
 
+int PoDoFoBackend::recipientCount() const {
+    QMutexLocker locker(&d->mutex);
+    if (!d->document || !d->document->IsEncrypted()) return 0;
+    try {
+        // Walk the trailer to find /Encrypt, then read /Recipients array.
+        // PoDoFo 1.1.0 resolves indirect references automatically via FindKey.
+        const PoDoFo::PdfObject* encrypt =
+            d->document->GetTrailer().GetDictionary().FindKey("Encrypt");
+        if (!encrypt) return 0;
+        const PoDoFo::PdfObject* recipients =
+            encrypt->GetDictionary().FindKey("Recipients");
+        if (!recipients || !recipients->IsArray()) return 0;
+        return static_cast<int>(recipients->GetArray().size());
+    } catch (...) {
+        return 0;
+    }
+}
+
 QString PoDoFoBackend::currentFile() const {
     QMutexLocker locker(&d->mutex);
     return d->currentFile;
