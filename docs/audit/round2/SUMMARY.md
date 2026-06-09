@@ -53,7 +53,10 @@ Per-domain detail: `round2/{SEC-reverify,UX,UI,CODE,REPO,VAULT}.md`.
 | **CHAIN-1** ProvenanceGuard no-op + writeUpdate no callers | **CLOSED** | R2-1 | `ProvenanceGuard.cpp:25-31` throws on DjotThenSave+isSigned; `HomeController/EditController` route signed saves through `writeUpdate()`; `hasPdfSignatures()` added to `IPdfEditorEngine`; `TestChain1.cpp` (6 tests). |
 | **UX-01** ~52 ribbon tools have no handler (silent qWarning) | **CLOSED** | R2-4 | 6 tools wired to real engine; 42 added to `RibbonModel::plannedTools()` (disabled+tooltip); `TestRibbonIntegrity.cpp` guards. |
 | **UX-02** Cloud-orphans enabled (Forms›Distribute, Protect›Compliance) | **CLOSED** | R2-4 | `sendForm/collect/submit/auditLog/dlp/policy` removed from `RibbonModel.cpp`; `ToolId::Cloud` deleted. |
-| **UX-03/04** permissionsDocument/removeSecurity discard save return | OPEN | — | R2-2 pending |
+| **UX-03** permissionsDocument discards EncryptDocumentHelper return | **CLOSED** | R2-2 | `SecurityController.cpp:479-513` — `result` atomic captures return; failure shows `QMessageBox::critical`; worker wrapped in try/catch to prevent `std::terminate`. |
+| **UX-04** removeSecurity discards saveDocument return | **CLOSED** | R2-2 | `SecurityController.cpp:524-539` — return checked; on failure shows `QMessageBox::critical`, `viewer->reload()` is NOT called. |
+| **UX-14** onSave failure status-bar only (no modal) | **CLOSED** | R2-2 | `HomeController.cpp:155-162` — failure now shows `QMessageBox::critical` matching onSaveAs path; status bar retained. |
+| **D3** EditController::onReplaceAllRequested discards save return | **CLOSED** | R2-2 | `EditController.cpp:282-299` — writeUpdate/saveDocument return checked; failure shows `QMessageBox::critical` and returns early. |
 | **UX-08/C-03** FormBuilder delete/move/resize UI-only | OPEN | — | R2-6 pending |
 | **NF-1** Forged-CRL soft-fails as UntrustedChain | OPEN | — | R2-3 pending |
 | **NF-2** Redaction misses Form-XObject resources + AP streams + SMasks | OPEN | — | R2-3 pending |
