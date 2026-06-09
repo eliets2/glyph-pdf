@@ -68,6 +68,6 @@ Per-domain detail: `round2/{SEC-reverify,UX,UI,CODE,REPO,VAULT}.md`.
 | **VS-02** No QSS for QTabWidget | **CLOSED** | R2-5 | `resources/theme_{dark,light,highcontrast}.qss` — QTabWidget::pane + QTabBar::tab rules added. |
 | **VS-03** No QSS for QGroupBox | **CLOSED** | R2-5 | Same 3 QSS files — QGroupBox + QGroupBox::title rules added. |
 | **VS-04** No QSS for QSpinBox | **CLOSED** | R2-5 | Same 3 QSS files — QSpinBox + button rules added. |
-| **CODE** TestSignatureRealCrypto QSKIPs + hardcoded path | OPEN | — | R2-7 pending |
-| **G-07** TestDjotFuzz not written | OPEN | — | R2-7 pending |
+| **CODE** TestSignatureRealCrypto QSKIPs + hardcoded path | **CLOSED** | R2-7 | Fresh test-only CA+signer fixtures in `tests/fixtures/signing/`; `.gitattributes` marks PDFs binary (CRLF fix); hardcoded `C:/Users/.../signed_blt.pdf` replaced with `m_tmpDir.filePath()`; POST_BUILD deploys podofo 1.1.0 DLL. Suite runs 16/16, **0 QSKIP**. |
+| **G-07** TestDjotFuzz not written | **CLOSED** | R2-7 | `tests/TestDjotFuzz.cpp` — DocumentFuzzer round-trip harness (12 seeds + 4 edge cases). Encodes via `documentToDjot`, decodes via `djotToDocument`; asserts no crash/null + leaf text presence. Structural equivalence tests `QEXPECT_FAIL`-guarded until M5 AST-walking lands. 19/19 tests pass in ctest. |
 | **B-01** Private keys in git history | OPEN | — | R2-8 pending (solo, last) |
