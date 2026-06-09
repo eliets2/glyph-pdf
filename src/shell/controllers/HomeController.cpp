@@ -109,24 +109,26 @@ void HomeController::onSave() {
         return;
     }
 
-    // D-05: ProvenanceGuard check — enforce §6 non-negotiable before every save.
-    // Determines whether the document is signed (using the signature manager) and
-    // passes EditPath::DirectStructural (annotation/engine saves are structural,
-    // not Djot round-trips).  The guard throws ProvenanceViolation for the
-    // DjotThenSave+BornPDF+signed combination; structural saves are allowed but
-    // will be gated further once the Djot editor is wired (TODO(WP-4)).
-    if (_ctx->provenanceGuard && _ctx->signing) {
+    // R2-1 D1+D2: ProvenanceGuard check + signed-document routing.
+    //
+    // The guard (D1) enforces §6 non-negotiable:
+    //   - DjotThenSave on a signed document is REFUSED (would full-rewrite,
+    //     invalidating /ByteRange).  The caller must use "Save as copy".
+    //   - DirectStructural on a signed document is ALLOWED and is routed
+    //     through writeUpdate (D2), which performs an incremental append that
+    //     preserves the existing signed byte range.
+    //
+    // We use the engine's hasPdfSignatures() for the routing decision to avoid
+    // re-parsing the file; validateSignatures() is heavier and hits the disk.
+    const bool isSigned = _ctx->pdfEditor && _ctx->pdfEditor->hasPdfSignatures();
+
+    if (_ctx->provenanceGuard) {
         try {
-            bool isSigned = !_ctx->signing->validateSignatures(filePath).isEmpty();
-            // All loaded PDFs are treated as BornPDF by default; Djot-born docs
-            // will carry an explicit BornDjot marker when the mapper is wired (WP-4).
             _ctx->provenanceGuard->checkEditVia(
                 docmodel::ProvenanceTag::BornPDF,
                 isSigned,
                 pdfws::EditPath::DirectStructural);
         } catch (const pdfws::ProvenanceViolation& pv) {
-            // DirectStructural is always allowed by the guard; this branch only
-            // fires if the guard logic is extended in the future.
             QMessageBox::warning(
                 _mainWindow,
                 tr("Save Blocked"),
@@ -138,7 +140,15 @@ void HomeController::onSave() {
     }
 
     viewer->saveAnnotations();
-    const bool ok = _ctx->pdfEditor->saveDocument(filePath);
+
+    // D2: signed documents must go through incremental update so the original
+    // /ByteRange-covered bytes are not disturbed.  A full saveDocument() call
+    // re-serialises from scratch and shifts all byte offsets, silently
+    // invalidating every signature in the document.
+    const bool ok = isSigned
+        ? _ctx->pdfEditor->writeUpdate(filePath)
+        : _ctx->pdfEditor->saveDocument(filePath);
+
     if (ok) {
         if (_ctx->undoStack) _ctx->undoStack->setClean();
         _mainWindow->statusBar()->showMessage(tr("Document saved: %1").arg(filePath), 5000);
