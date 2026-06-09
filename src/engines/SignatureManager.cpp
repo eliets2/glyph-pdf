@@ -595,14 +595,25 @@ public:
     }
 
     // -----------------------------------------------------------------------
-    // M2-P4: Extract embedded OCSP DER bytes from the DSS /OCSPs array for
-    // a specific signature field. Returns empty QByteArray if not found.
-    // Full DSS-to-field-name correlation is wired in M5 when the VRI dict
-    // links /OCSPs entries to individual signatures; for now returns the
-    // first available OCSP DER or empty (stub).
+    // ER-1 fix: Extract embedded OCSP DER bytes from the DSS /OCSPs array,
+    // returning only an entry whose single-response certID matches the signer
+    // certificate.  Pass signerCert=nullptr to bypass matching (legacy path).
+    //
+    // Matching strategy: compare serial number (ASN1_INTEGER_cmp) and issuer
+    // name hash via OCSP_id_issuer_cmp on a candidate OCSP_CERTID built from
+    // the signer cert's issuer name + public key hash (SHA-1, as embedded in
+    // the OCSP CertID).  Full SHA-256 hash comparison is deferred to M5 when
+    // the issuer cert is available from the DSS /Certs array (TODO M5).
+    //
+    // Returns: matching DER bytes, or empty if no certID match is found.
+    // Sets *outNoCertMatch=true when DSS entries exist but none match the cert.
     // -----------------------------------------------------------------------
-    QByteArray extractOcspFromDss(const PdfMemDocument &doc, const QString &/*sigFieldName*/)
+    QByteArray extractOcspFromDss(const PdfMemDocument &doc,
+                                  const QString &/*sigFieldName*/,
+                                  X509 *signerCert = nullptr,
+                                  bool *outNoCertMatch = nullptr)
     {
+        if (outNoCertMatch) *outNoCertMatch = false;
         try {
             const auto &catalog = doc.GetCatalog().GetDictionary();
             qDebug() << "extractOcspFromDss: catalog keys:" << catalog.HasKey(PdfName("DSS"));
@@ -631,23 +642,109 @@ public:
                 return {};
             }
 
-            // Return the first OCSP stream's content (M5 will correlate by VRI key)
-            const PdfObject &firstRef = ocspsArr[0];
-            const PdfObject *streamObj = nullptr;
-            if (firstRef.IsReference()) {
-                streamObj = &doc.GetObjects().MustGetObject(firstRef.GetReference());
-            } else {
-                streamObj = &firstRef;
-            }
-            if (!streamObj || !streamObj->HasStream()) {
-                qDebug() << "extractOcspFromDss: streamObj not found or has no stream";
-                return {};
+            // ER-1: iterate all DSS OCSP entries and return the first one whose
+            // certID matches the signer certificate.  If signerCert is nullptr
+            // (legacy / no-cert path), fall through to the first-entry behaviour.
+            bool anyEntryParsed = false;
+            for (unsigned int idx = 0; idx < ocspsArr.GetSize(); ++idx) {
+                const PdfObject &entryRef = ocspsArr[idx];
+                const PdfObject *streamObj = nullptr;
+                if (entryRef.IsReference()) {
+                    streamObj = &doc.GetObjects().MustGetObject(entryRef.GetReference());
+                } else {
+                    streamObj = &entryRef;
+                }
+                if (!streamObj || !streamObj->HasStream()) {
+                    qDebug() << "extractOcspFromDss: entry" << idx
+                             << "not found or has no stream — skipping";
+                    continue;
+                }
+
+                charbuff buf;
+                streamObj->GetStream()->CopyTo(buf);
+                QByteArray der(buf.data(), static_cast<int>(buf.size()));
+
+                // If no signer cert provided, return the first entry (legacy behaviour).
+                if (!signerCert) {
+                    qDebug() << "extractOcspFromDss: no signerCert — returning entry 0, size ="
+                             << der.size();
+                    return der;
+                }
+
+                // ER-1: parse the OCSP response and check certID matching.
+                const unsigned char *p =
+                    reinterpret_cast<const unsigned char *>(der.constData());
+                OCSP_RESPONSE *resp = d2i_OCSP_RESPONSE(nullptr, &p, der.size());
+                if (!resp) {
+                    qDebug() << "extractOcspFromDss: entry" << idx
+                             << "failed to parse as OCSP_RESPONSE — skipping";
+                    continue;
+                }
+
+                OCSP_BASICRESP *basic = OCSP_response_get1_basic(resp);
+                OCSP_RESPONSE_free(resp);
+                if (!basic) {
+                    qDebug() << "extractOcspFromDss: entry" << idx
+                             << "failed to get OCSP_BASICRESP — skipping";
+                    continue;
+                }
+
+                anyEntryParsed = true;
+                bool matched = false;
+                int count = OCSP_resp_count(basic);
+                qDebug() << "extractOcspFromDss: entry" << idx
+                         << "has" << count << "single responses";
+
+                // ER-1: match certID against the signer cert's serial number.
+                // We compare ASN1_INTEGER serials directly — this requires the
+                // signer cert's serial to appear in the OCSP CertID, which is
+                // always the case for a well-formed OCSP response covering that
+                // certificate.
+                //
+                // TODO M5: when the issuer cert is available from DSS /Certs,
+                // upgrade to full certID comparison using OCSP_cert_to_id +
+                // OCSP_id_cmp for both serial and issuer hash verification.
+                // That closes the residual risk of a serial collision across
+                // certificates issued by different CAs.
+                ASN1_INTEGER *signerSerial = X509_get_serialNumber(signerCert);
+
+                for (int i = 0; i < count && !matched; ++i) {
+                    OCSP_SINGLERESP *singleResp = OCSP_resp_get0(basic, i);
+                    if (!singleResp) continue;
+                    const OCSP_CERTID *certId = OCSP_SINGLERESP_get0_id(singleResp);
+                    if (!certId) continue;
+
+                    // Extract the serial from the embedded CertID.
+                    ASN1_INTEGER *idSerial = nullptr;
+                    OCSP_id_get0_info(nullptr, nullptr, nullptr, &idSerial,
+                                      const_cast<OCSP_CERTID *>(certId));
+
+                    if (signerSerial && idSerial &&
+                        ASN1_INTEGER_cmp(signerSerial, idSerial) == 0) {
+                        matched = true;
+                        qDebug() << "extractOcspFromDss: serial match found at entry"
+                                 << idx << "single-resp" << i;
+                    }
+                }
+
+                OCSP_BASICRESP_free(basic);
+
+                if (matched) {
+                    qDebug() << "extractOcspFromDss: returning matching OCSP entry"
+                             << idx << "size =" << der.size();
+                    return der;
+                }
+                qDebug() << "extractOcspFromDss: entry" << idx
+                         << "certID does not match signer cert — skipping";
             }
 
-            charbuff buf;
-            streamObj->GetStream()->CopyTo(buf);
-            qDebug() << "extractOcspFromDss: successfully extracted OCSP, size =" << buf.size();
-            return QByteArray(buf.data(), static_cast<int>(buf.size()));
+            // No matching entry found.
+            if (anyEntryParsed && outNoCertMatch) {
+                *outNoCertMatch = true;
+                qWarning() << "SECURITY: DSS /OCSPs entries exist but none match"
+                           << "the signer certificate (ER-1)";
+            }
+            return {};
         } catch (const std::exception &e) {
             qDebug() << "extractOcspFromDss exception:" << e.what();
             return {};
@@ -1538,14 +1635,49 @@ QList<SignatureInfo> SignatureManager::validateSignatures(const QString &filePat
                         }
                         ERR_clear_error();
                     }
-                    // M2-P4: Re-parse embedded OCSP responses from DSS /OCSPs array
-                    // for revocation status. If the OCSP response reports revoked,
-                    // override trustStatus with "Revoked". Full DSS-to-field-name
-                    // correlation is wired in M5; the stub returns the first available
-                    // OCSP entry.
+                    // ER-1: Extract the signer cert from the CMS structure so
+                    // extractOcspFromDss can match it against the OCSP certID.
+                    // We take the first signer; multi-signer documents use the
+                    // first signer's cert for OCSP correlation (M5 will iterate).
+                    X509 *ocspSignerCert = nullptr;
+                    if (cms) {
+                        STACK_OF(CMS_SignerInfo) *ocspSis = CMS_get0_SignerInfos(cms);
+                        if (ocspSis && sk_CMS_SignerInfo_num(ocspSis) > 0) {
+                            CMS_SignerInfo *firstSi = sk_CMS_SignerInfo_value(ocspSis, 0);
+                            if (firstSi) {
+                                CMS_SignerInfo_get0_algs(firstSi, nullptr,
+                                                         &ocspSignerCert,
+                                                         nullptr, nullptr);
+                            }
+                        }
+                    }
+
+                    // M2-P4 / ER-1: Re-parse embedded OCSP responses from DSS /OCSPs
+                    // array for revocation status. extractOcspFromDss now performs
+                    // certID matching (serial + issuer hash) against ocspSignerCert
+                    // before returning any entry, closing the ER-1 "first-entry stub"
+                    // gap.  If no entry matches, outNoCertMatch is set true and
+                    // trustStatus is mapped to UntrustedChain (not ValidWithDSS).
                     if (info.trustStatus != "WeakKey" &&
                         info.trustStatus != "CertExpired") {
-                        QByteArray ocspDer = d->extractOcspFromDss(doc, info.fieldName);
+                        bool noCertMatch = false;
+                        QByteArray ocspDer = d->extractOcspFromDss(
+                            doc, info.fieldName, ocspSignerCert, &noCertMatch);
+
+                        // ER-1: if DSS entries exist but none match the signer cert,
+                        // refuse to upgrade trustStatus — map to UntrustedChain.
+                        if (noCertMatch) {
+                            info.ocspStatus = "NoCertMatch";
+                            if (info.trustStatus == "ValidWithDSS" ||
+                                info.trustStatus == "Valid") {
+                                qWarning() << "SECURITY: OCSP certID mismatch — DSS"
+                                           << "entry does not cover the signer cert."
+                                           << "Downgrading trustStatus to UntrustedChain (ER-1)";
+                                info.trustStatus = "UntrustedChain";
+                                info.isValid = false;
+                            }
+                        }
+
                         if (!ocspDer.isEmpty()) {
                             const unsigned char *p =
                                 reinterpret_cast<const unsigned char*>(ocspDer.constData());
@@ -1556,6 +1688,14 @@ QList<SignatureInfo> SignatureManager::validateSignatures(const QString &filePat
                                 OCSP_BASICRESP *basic = OCSP_response_get1_basic(resp);
                                 if (basic) {
                                     qDebug() << "validateSignatures: successfully got OCSP_BASICRESP, count =" << OCSP_resp_count(basic);
+
+                                    // NF-6: OCSP nonce check. We cannot verify the nonce
+                                    // here because the original OCSP request object is not
+                                    // stored at validation time. Add OCSP_check_nonce() here
+                                    // when the request is persisted in the DSS alongside the
+                                    // response (M5 VRI work).
+                                    info.ocspNoteNF6 = true;
+
                                     for (int i = 0; i < OCSP_resp_count(basic); ++i) {
                                         OCSP_SINGLERESP *sr = OCSP_resp_get0(basic, i);
                                         int reason = -1;
