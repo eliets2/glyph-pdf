@@ -6,6 +6,7 @@
 #include "ui/EditAnnotationCommand.h"
 #include "engines/DocumentSession.h"
 #include "pdfws_djot/DjotToRichTextXhtml.h"
+#include "util/GpTheme.h"
 
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
@@ -25,6 +26,8 @@
 #include <QDate>
 #include <QDateTime>
 #include <QUndoStack>
+#include <QPalette>
+#include <QApplication>
 #include <functional>
 
 namespace {
@@ -105,7 +108,10 @@ CommentsWidget::CommentsWidget(QWidget *parent)
     layout->setSpacing(8);
 
     auto *title = new QLabel(tr("Thread"), this);
-    title->setStyleSheet("font-weight: 700; font-size: 11px; color: #94A3B8; text-transform: uppercase; letter-spacing: 0.6px;");
+    // T-01: use palette role instead of hardcoded dark hex so the label renders
+    // correctly in Light and High-Contrast themes.
+    title->setStyleSheet("font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px;");
+    title->setForegroundRole(QPalette::PlaceholderText);
     layout->addWidget(title);
 
     auto *filterLayout = new QHBoxLayout();
@@ -129,32 +135,52 @@ CommentsWidget::CommentsWidget(QWidget *parent)
     m_tree->setWordWrap(true);
     layout->addWidget(m_tree, 1);
 
+    // T-01: composer background and input colors use palette roles so they adapt
+    // to Light and High-Contrast themes instead of the former hardcoded dark hex.
     auto *composer = new QWidget(this);
     composer->setObjectName("composer");
-    composer->setStyleSheet("#composer { background: #1E293B; border-radius: 6px; padding: 8px; }");
+    composer->setAutoFillBackground(true);
+    // Use the "mid" role as a slightly-offset surface (equivalent to bg2/bg3)
+    // — this is already set by the QSS base rules per theme so we just let it inherit.
     auto *cLyt = new QVBoxLayout(composer);
     cLyt->setContentsMargins(8,8,8,8);
     cLyt->setSpacing(6);
 
     m_author = new QLineEdit(this);
     m_author->setPlaceholderText(tr("Your Name"));
-    m_author->setStyleSheet("QLineEdit { background: #0F172A; border: 1px solid #334155; border-radius: 4px; padding: 4px; color: #F8FAFC; }");
+    // No inline stylesheet: the QSS rules for QLineEdit already apply the
+    // correct theme-aware background/border/color for each theme.
     cLyt->addWidget(m_author);
 
     m_editor = new QTextEdit(this);
     m_editor->setPlaceholderText(tr("Add a comment or reply..."));
     m_editor->setFixedHeight(60);
-    m_editor->setStyleSheet("QTextEdit { background: #0F172A; border: 1px solid #334155; border-radius: 4px; padding: 4px; color: #F8FAFC; }");
+    // No inline stylesheet: the QSS rules for QTextEdit cover all three themes.
     cLyt->addWidget(m_editor);
 
     auto *btnLyt = new QHBoxLayout;
     btnLyt->addStretch();
     m_addBtn = new QPushButton(tr("Post"), this);
-    m_addBtn->setStyleSheet("QPushButton { background: #3B82F6; color: white; border: none; border-radius: 4px; padding: 4px 12px; font-weight: 600; } QPushButton:hover { background: #2563EB; }");
+    // Use accent color from GpTheme for the Post button so it is visible in all themes.
+    {
+        const QColor accent = gp::Theme::accent();
+        const QString isDark = (gp::Theme::current() == gp::Theme::Light) ? "#ffffff" : "#1a1b1e";
+        m_addBtn->setStyleSheet(
+            QString("QPushButton { background: %1; color: %2; border: none; "
+                    "border-radius: 4px; padding: 4px 12px; font-weight: 600; }")
+                .arg(accent.name(), isDark));
+    }
     btnLyt->addWidget(m_addBtn);
-    
+
     auto *replyBtn = new QPushButton(tr("Reply"), this);
-    replyBtn->setStyleSheet("QPushButton { background: #10B981; color: white; border: none; border-radius: 4px; padding: 4px 12px; font-weight: 600; } QPushButton:hover { background: #059669; }");
+    // Use okGreen token — theme-consistent; leave text white (sufficient contrast on all themes).
+    {
+        const QColor ok = gp::Theme::okGreen();
+        replyBtn->setStyleSheet(
+            QString("QPushButton { background: %1; color: #ffffff; border: none; "
+                    "border-radius: 4px; padding: 4px 12px; font-weight: 600; }")
+                .arg(ok.name()));
+    }
     btnLyt->addWidget(replyBtn);
 
     cLyt->addLayout(btnLyt);
@@ -174,8 +200,9 @@ CommentsWidget::CommentsWidget(QWidget *parent)
         if (annoId.isEmpty()) return;
 
         QMenu menu(this);
-        menu.setStyleSheet("QMenu { background: #1E293B; color: #F8FAFC; border: 1px solid #334155; }"
-                           "QMenu::item:selected { background: #3B82F6; }");
+        // T-01: clear the hardcoded dark inline stylesheet so the context menu
+        // inherits the theme QSS rules (QMenu selector) for all three themes.
+        menu.setStyleSheet(QString());
 
         auto *actOpen      = menu.addAction(tr("Mark Open"));
         auto *actAccepted   = menu.addAction(tr("Mark Accepted"));
