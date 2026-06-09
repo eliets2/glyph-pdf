@@ -53,6 +53,9 @@ if(EXISTS "${_podofo_vendor}/lib/cmake/podofo/podofo-config.cmake")
     list(PREPEND CMAKE_PREFIX_PATH "${_podofo_vendor}")
     message(STATUS "Using vendored podofo 1.1.0 from ${_podofo_vendor}")
 endif()
+# Path to the vendored podofo 1.1.0 DLL — deployed next to test executables
+# so the runtime loader picks it up instead of the system 0.10.4 DLL.
+set(PODOFO_VENDOR_DLL "${_podofo_vendor}/bin/libpodofo.dll")
 
 find_package(podofo CONFIG REQUIRED)
 # podofo 1.1.0 exports 'podofo::podofo_shared' (namespaced).
@@ -1005,13 +1008,45 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormBuilder.cpp")
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
             "$<TARGET_FILE_DIR:TestFormBuilder>/platforms/qoffscreen.dll"
-        COMMENT "Deploying qoffscreen platform plugin for TestFormBuilder"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PODOFO_VENDOR_DLL}"
+            "$<TARGET_FILE_DIR:TestFormBuilder>/libpodofo.dll"
+        COMMENT "Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFormBuilder"
     )
     add_test(NAME TestFormBuilder COMMAND TestFormBuilder)
     set_tests_properties(TestFormBuilder PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 60
         LABELS "unit;forms;form-fields;builder;qt;headless"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormPersistence.cpp")
+    add_executable(TestFormPersistence
+        tests/TestFormPersistence.cpp
+        src/engines/DocumentSession.cpp
+    )
+    target_include_directories(TestFormPersistence PRIVATE src tests)
+    target_link_libraries(TestFormPersistence PRIVATE
+        pdfws_engines pdfws_core pdfws_commands podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET TestFormPersistence POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestFormPersistence>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestFormPersistence>/platforms/qoffscreen.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PODOFO_VENDOR_DLL}"
+            "$<TARGET_FILE_DIR:TestFormPersistence>/libpodofo.dll"
+        COMMENT "Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFormPersistence"
+    )
+    add_test(NAME TestFormPersistence COMMAND TestFormPersistence)
+    set_tests_properties(TestFormPersistence PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;forms;form-fields;persistence;qt;headless"
     )
 endif()
 
