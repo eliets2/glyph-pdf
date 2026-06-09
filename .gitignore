@@ -70,12 +70,10 @@ tmp_signed_*.pdf
 *.autosave.pdf
 *.autosave.pdf.tmp
 
-# Signing fixtures generated binaries (script regenerates)
-tests/fixtures/signing/*.p12
-tests/fixtures/signing/*.key
-tests/fixtures/signing/*.crt
-tests/fixtures/signing/*.csr
-tests/fixtures/signing/*.srl
+# Signing fixtures: test-only keys/certs are intentionally committed (test infrastructure).
+# They are NOT production keys. R2-8 will purge the old compromised a6ea6aa history.
+# Do NOT add exclusion patterns here — these files must be tracked.
+# If you regenerate, re-commit: git add tests/fixtures/signing/ && git commit
 
 # Vendored PoDoFo 1.1.0 build artifact (install tree is tracked separately)
 third_party/podofo_build/
