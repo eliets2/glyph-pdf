@@ -28,6 +28,9 @@ public:
     // R2-1 D2: true iff the loaded document has at least one PDF signature field.
     bool hasPdfSignatures() const;
 
+    // ER-3: number of CMS recipient envelopes in /Encrypt → /Recipients.
+    int recipientCount() const;
+
     // Document information/structure
     QString currentFile() const;
     void setCurrentFile(const QString &path);
