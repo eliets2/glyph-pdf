@@ -1066,15 +1066,23 @@ static void neutralizeImageXObject(PoDoFo::PdfObject& xobj)
     stream.SetData(bufferview(pixel, sizeof(pixel)), true /*raw*/);
 }
 
+// CTM for the redaction canvas recursion — forward-declared so it can be
+// used as a default parameter value inside the helper struct below.
+struct RedactCtm { double a=1,b=0,c=0,d=1,e=0,f=0; };
+
 // NF-2: Pass the active resource dictionary explicitly so that when we
 // recurse into a Form XObject that has its own /Resources dict, Do-name
 // lookups are resolved against that Form's resources, not the page's.
+// parentCtm: the accumulated CTM from the parent canvas at the point the
+// Form XObject's Do was encountered.  Inside the Form we start with this
+// CTM so that `cm` and image-bbox calculations are in page space.
 void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                              const std::vector<PoDoFo::Rect>& pdfRects,
                              PoDoFo::PdfPage& page,
                              PoDoFo::PdfMemDocument* document,
                              std::set<int64_t>& redactedMcids,
-                             PoDoFo::PdfObject* activeResources = nullptr)
+                             PoDoFo::PdfObject* activeResources = nullptr,
+                             RedactCtm parentCtm = RedactCtm{})
 {
     using namespace PoDoFo;
 
@@ -1127,8 +1135,11 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
     // its own `cm` matrix (the normal case), not the text cursor. A PDF affine
     // matrix is [a b c d e f]; image space is the unit square [0,1]x[0,1], so the
     // four transformed corners give the image's device-space bounding box.
-    struct Ctm { double a=1,b=0,c=0,d=1,e=0,f=0; };
-    Ctm ctm;                       // current transformation matrix
+    // NF-2 fix: initialise from parentCtm so that Form XObject recursion inherits
+    // the parent canvas's accumulated transformation (e.g. the `cm` that placed
+    // the Form on the page), keeping all image bbox calculations in page space.
+    using Ctm = RedactCtm;
+    Ctm ctm = parentCtm;           // current transformation matrix (inherited from parent)
     std::vector<Ctm> ctmStack;     // q/Q save/restore stack
 
     // result = m2 x m1 (apply m1 then m2), per PDF 8.3.4 matrix concatenation.
@@ -1470,8 +1481,11 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                         }
                     }
                     // Fall back to the current canvas resources if the Form has none.
+                    // NF-2 fix: pass ctm so the child recursion knows the page-space
+                    // position where this Form XObject was placed (via `cm` before Do).
                     redactCanvasRecursively(*xobj, pdfRects, page, document, redactedMcids,
-                                           formResources ? formResources : canvasResources);
+                                           formResources ? formResources : canvasResources,
+                                           ctm);
                 }
             }
             
