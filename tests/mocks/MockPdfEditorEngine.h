@@ -83,6 +83,7 @@ public:
         return saveDocument(path);
     }
     bool hasPdfSignatures() const override { return m_hasPdfSignatures; }
+    int recipientCount() const override { return 0; }
 
     // Test helpers
     mutable ErrorInfo m_lastError;
