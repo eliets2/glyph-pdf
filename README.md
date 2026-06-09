@@ -48,6 +48,10 @@ A high-performance desktop PDF editor built with C++17 and Qt 6. Designed for pr
 - Find & Replace with redact-all option
 - Full keyboard accessibility (F6 region cycling, F1 help)
 
+### Localization
+
+GlyphPDF v1.0 ships in English. Arabic, French, and German translations are planned for a future release (translation scaffolding — 1394 strings each — is in place; human-translated packages are pending commissioning).
+
 ### Auto-Update
 - JSON manifest-based update checker
 - SHA-256 verified downloads
