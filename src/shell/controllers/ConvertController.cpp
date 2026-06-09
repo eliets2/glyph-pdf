@@ -30,7 +30,7 @@ QList<ToolId> ConvertController::handledTools() const {
     return {
         ToolId::Combine, ToolId::ToWord, ToolId::ToExcel, ToolId::ToCsv,
         ToolId::ToHtml, ToolId::ToText, ToolId::Compress,
-        ToolId::ToPPT, ToolId::Linearize, ToolId::PdfA
+        ToolId::ToPPT, ToolId::ToImage, ToolId::Linearize, ToolId::PdfA
     };
 }
 
@@ -62,6 +62,9 @@ void ConvertController::activate(ToolId id) {
         break;
     case ToolId::ToPPT:
         exportToPowerPoint();
+        break;
+    case ToolId::ToImage:
+        exportToImage();
         break;
     case ToolId::Compress:
         openCompressDialog();
@@ -479,6 +482,51 @@ void ConvertController::exportToPowerPoint() {
             }
         } else {
             QMessageBox::critical(self->_mainWindow, tr("Export Error"), tr("Failed to convert document to PowerPoint."));
+            self->_mainWindow->statusBar()->showMessage(tr("Export failed."));
+        }
+    });
+
+    connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+    worker->start();
+}
+
+void ConvertController::exportToImage() {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->conversion) return;
+    QString outputPath = QFileDialog::getSaveFileName(_mainWindow, tr("Export to Image"),
+        QFileInfo(viewer->filePath()).path() + "/" + QFileInfo(viewer->filePath()).baseName() + ".png",
+        tr("PNG Images (*.png);;JPEG Images (*.jpg);;TIFF Images (*.tif)"));
+    if (outputPath.isEmpty()) return;
+
+    _mainWindow->statusBar()->showMessage(tr("Exporting to image..."));
+
+    auto* progress = new QProgressDialog(tr("Exporting to image..."), QString(), 0, 0, _mainWindow);
+    progress->setWindowModality(Qt::WindowModal);
+    progress->setMinimumDuration(0);
+    progress->show();
+
+    IConversionEngine* conv = _ctx->conversion.get();
+    const QString inputPath = viewer->filePath();
+    QPointer<ConvertController> self(this);
+    auto result = std::make_shared<std::atomic<bool>>(false);
+
+    QThread* worker = QThread::create([conv, inputPath, outputPath, result]() {
+        bool ok = conv->convertTo(inputPath, outputPath, IConversionEngine::TargetFormat::Image);
+        result->store(ok);
+    });
+
+    connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result]() {
+        progress->close();
+        progress->deleteLater();
+        if (!self) return;
+        bool ok = result->load();
+        if (ok) {
+            self->_mainWindow->statusBar()->showMessage(tr("Export complete: %1").arg(outputPath), 5000);
+            if (QMessageBox::question(self->_mainWindow, tr("Export Success"), tr("Export to image complete. Open file?")) == QMessageBox::Yes) {
+                QDesktopServices::openUrl(QUrl::fromLocalFile(outputPath));
+            }
+        } else {
+            QMessageBox::critical(self->_mainWindow, tr("Export Error"), tr("Failed to export document to image."));
             self->_mainWindow->statusBar()->showMessage(tr("Export failed."));
         }
     });

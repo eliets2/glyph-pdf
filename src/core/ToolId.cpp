@@ -79,6 +79,7 @@ QString toolIdToString(ToolId id) {
         { ToolId::ToHtml,         QStringLiteral("toHTML") },
         { ToolId::ToText,         QStringLiteral("toText") },
         { ToolId::ToPPT,          QStringLiteral("toPPT") },
+        { ToolId::ToImage,        QStringLiteral("toImage") },
         { ToolId::Compress,       QStringLiteral("compress") },
         { ToolId::Linearize,      QStringLiteral("linearize") },
         { ToolId::PdfA,           QStringLiteral("pdfA") },
@@ -108,7 +109,6 @@ QString toolIdToString(ToolId id) {
         { ToolId::ApplyRedact,    QStringLiteral("applyRedact") },
         { ToolId::ExportAnno,     QStringLiteral("exportAnno") },
         { ToolId::ImportAnno,     QStringLiteral("importAnno") },
-        { ToolId::Cloud,          QStringLiteral("cloud") },
         { ToolId::Permissions,    QStringLiteral("permissions") },
         { ToolId::RemoveSecurity, QStringLiteral("removeSec") },
         { ToolId::Certify,        QStringLiteral("certify") },
@@ -196,21 +196,22 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         add(ToolId::Resize,         {"resize"});
         add(ToolId::AddHeader,      {"addHeader", "addheader", "header"});
         add(ToolId::AddFooter,      {"addFooter", "addfooter", "footer"});
-        add(ToolId::AddPageNumbers, {"addPageNumbers", "addpagenumbers", "page-numbers"});
+        add(ToolId::AddPageNumbers, {"addPageNumbers", "addpagenumbers", "page-numbers", "pageNums"});
         add(ToolId::BatesNumber,    {"batesNumber", "batesnumber", "bates"});
 
         // ── Convert ──
-        add(ToolId::Combine,        {"combine", "combinePDF", "combinepdf"});
+        add(ToolId::Combine,        {"combine", "combinePDF", "combinepdf", "merge"});
         add(ToolId::ToWord,         {"toWord", "to-word", "toword"});
         add(ToolId::ToExcel,        {"toExcel", "to-excel", "toexcel"});
         add(ToolId::ToCsv,          {"toCSV", "exportCSV", "tocsv", "exportcsv"});
         add(ToolId::ToHtml,         {"toHTML", "to-h-t-m-l", "tohtml"});
         add(ToolId::ToText,         {"toText", "to-text", "totext"});
         add(ToolId::ToPPT,          {"toPPT", "to-ppt", "toppt", "powerpoint"});
+        add(ToolId::ToImage,        {"toImage", "to-image", "toimage"});
         add(ToolId::Compress,       {"compress"});
         add(ToolId::Linearize,      {"linearize"});
         add(ToolId::PdfA,           {"pdfA", "pdfa"});
-        add(ToolId::ImportOffice,   {"importOffice", "import-office", "officeToPdf"});
+        add(ToolId::ImportOffice,   {"importOffice", "import-office", "officeToPdf", "fromFile"});
         add(ToolId::ImagesToPdf,    {"imagesToPdf", "images-to-pdf"});
 
         // ── Forms ──
@@ -226,8 +227,8 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         add(ToolId::SigField,       {"sigField", "sigfield"});
         add(ToolId::AutoDetect,     {"autoDetect", "autodetect"});
         add(ToolId::Tabs,           {"tabs", "tab-order", "taborder"});
-        add(ToolId::ImportData,     {"importData", "importdata", "import-data"});
-        add(ToolId::ExportData,     {"exportData", "exportdata", "export-data"});
+        add(ToolId::ImportData,     {"importData", "importdata", "import-data", "import"});
+        add(ToolId::ExportData,     {"exportData", "exportdata", "export-data", "export"});
 
         // ── Security ──
         add(ToolId::Encrypt,        {"encrypt"});
@@ -238,7 +239,6 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         add(ToolId::ApplyRedact,    {"applyRedact", "applyredact"});
         add(ToolId::ExportAnno,     {"exportAnno", "exportanno"});
         add(ToolId::ImportAnno,     {"importAnno", "importanno"});
-        add(ToolId::Cloud,          {"cloud"});
         add(ToolId::Permissions,    {"permissions"});
         add(ToolId::RemoveSecurity, {"removeSec", "removesec"});
         add(ToolId::Certify,        {"certify"});
