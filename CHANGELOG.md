@@ -402,8 +402,10 @@ scaffolding is complete; translator delivery gates real multilingual UI.
 - WCAG-aligned high contrast theme
 
 ### Localization
-- Qt Linguist translation framework wired. All three locales (ar/fr/de) lupdate-populated (1394 strings each). `.qm` files embedded at `:/translations` via `qt_add_translations RESOURCE_PREFIX`. RTL audit complete — no critical issues; `app.setLayoutDirection` covers all standard widgets.
-- Language selection in Preferences (restart required) — picks resource translator but non-English packs are currently no-ops
+
+GlyphPDF v1.0 ships in English. Arabic, French, and German translations are planned for a future release.
+
+Qt Linguist translation framework wired. All three locales (ar/fr/de) lupdate-populated (1394 strings each, 0 translated — all `type="unfinished"`). `.qm` files embedded at `:/translations` via `qt_add_translations RESOURCE_PREFIX`. RTL audit complete for Arabic. Language selector in Preferences is present but non-English packs are no-ops in v1.0.
 
 ### Error Handling
 - ErrorInfo struct with severity levels (Info, Warning, Error, Critical)

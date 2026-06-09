@@ -87,8 +87,10 @@ Licensed under [Apache-2.0](LICENSE).
 - Autosave every 5 minutes (configurable 1-30 min); crash recovery on next launch.
 
 ### Localization
-- Translation framework wired for Arabic (RTL), French, German.
-- 1394 source strings each; human-translated packages pending commissioning.
+
+GlyphPDF v1.0 ships in English. Arabic, French, and German translations are planned for a future release.
+
+Translation framework wired for Arabic (RTL), French, German (1394 source strings each; 0 translated in v1.0). Human-translated packages are pending commissioning for a future release.
 
 ---
 
