@@ -51,8 +51,8 @@ Per-domain detail: `round2/{SEC-reverify,UX,UI,CODE,REPO,VAULT}.md`.
 | Finding | Status | Session | Evidence |
 |---------|--------|---------|----------|
 | **CHAIN-1** ProvenanceGuard no-op + writeUpdate no callers | OPEN | — | R2-1 in progress |
-| **UX-01** ~52 ribbon tools have no handler (silent qWarning) | OPEN | — | R2-4 in progress |
-| **UX-02** Cloud-orphans enabled (Forms›Distribute, Protect›Compliance) | OPEN | — | R2-4 in progress |
+| **UX-01** ~52 ribbon tools have no handler (silent qWarning) | **CLOSED** | R2-4 | 6 tools wired to real engine; 42 added to `RibbonModel::plannedTools()` (disabled+tooltip); `TestRibbonIntegrity.cpp` guards. |
+| **UX-02** Cloud-orphans enabled (Forms›Distribute, Protect›Compliance) | **CLOSED** | R2-4 | `sendForm/collect/submit/auditLog/dlp/policy` removed from `RibbonModel.cpp`; `ToolId::Cloud` deleted. |
 | **UX-03/04** permissionsDocument/removeSecurity discard save return | OPEN | — | R2-2 pending |
 | **UX-08/C-03** FormBuilder delete/move/resize UI-only | OPEN | — | R2-6 pending |
 | **NF-1** Forged-CRL soft-fails as UntrustedChain | OPEN | — | R2-3 pending |
