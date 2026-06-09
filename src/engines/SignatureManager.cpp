@@ -1494,22 +1494,28 @@ QList<SignatureInfo> SignatureManager::validateSignatures(const QString &filePat
 
                         bool isUntrustedChain = false;
                         bool isExpired = false;
+                        // NF-1: A forged/tampered CRL is adversarial evidence and must
+                        // hard-fail — NOT be bucketed with the benign "CRL unavailable".
+                        bool isForgedCrl = false;
                         unsigned long e;
                         while ((e = ERR_get_error()) != 0) {
                             int r = ERR_GET_REASON(e);
                             if (r == X509_V_ERR_CERT_HAS_EXPIRED ||
                                 r == X509_V_ERR_CERT_NOT_YET_VALID) {
                                 isExpired = true;
+                            } else if (r == X509_V_ERR_UNABLE_TO_DECRYPT_CRL_SIGNATURE ||
+                                       r == X509_V_ERR_CRL_SIGNATURE_FAILURE) {
+                                // Tampered/forged CRL — treat as hard Invalid.
+                                isForgedCrl = true;
                             } else if (r == X509_V_ERR_CERT_UNTRUSTED ||
                                        r == X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT ||
                                        r == X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY ||
                                        r == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT ||
                                        r == X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN ||
                                        r == X509_V_ERR_UNABLE_TO_GET_CRL ||
-                                       r == X509_V_ERR_UNABLE_TO_DECRYPT_CRL_SIGNATURE ||
-                                       r == X509_V_ERR_CRL_SIGNATURE_FAILURE ||
                                        r == X509_V_ERR_CRL_NOT_YET_VALID ||
                                        r == X509_V_ERR_CRL_HAS_EXPIRED) {
+                                // Benign CRL unavailability — soft UntrustedChain.
                                 isUntrustedChain = true;
                             }
                         }
@@ -1521,6 +1527,10 @@ QList<SignatureInfo> SignatureManager::validateSignatures(const QString &filePat
                             info.trustStatus = "WeakKey";
                         } else if (certExpired || isExpired) {
                             info.trustStatus = "CertExpired";
+                        } else if (isForgedCrl) {
+                            // NF-1: forged CRL signature is adversarial — hard fail.
+                            info.isValid = false;
+                            info.trustStatus = "Invalid";
                         } else if (isUntrustedChain || integrityOk) {
                             info.trustStatus = "UntrustedChain";
                         } else {
