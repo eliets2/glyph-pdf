@@ -279,12 +279,23 @@ void EditController::onReplaceAllRequested(const QString &searchText, const QStr
 
     // R2-1 D2: route through incremental update when document is signed, so
     // existing /ByteRange signatures are not invalidated by a full rewrite.
+    // D3 (R2-2): check the save return value — a silent discard here means
+    // the user sees "Replaced N occurrences" while the file was never written.
     {
         const bool isSigned = _ctx->pdfEditor->hasPdfSignatures();
-        if (isSigned)
-            _ctx->pdfEditor->writeUpdate(viewer->filePath());
-        else
-            _ctx->pdfEditor->saveDocument(viewer->filePath());
+        const bool saveOk = isSigned
+            ? _ctx->pdfEditor->writeUpdate(viewer->filePath())
+            : _ctx->pdfEditor->saveDocument(viewer->filePath());
+        if (!saveOk) {
+            QMessageBox::critical(
+                _mainWindow,
+                tr("Save Failed"),
+                tr("The replacements were applied in memory, but the file could not "
+                   "be saved. Check that the disk is not full and the file is not "
+                   "write-protected."));
+            _mainWindow->statusBar()->showMessage(tr("Replace All: save failed."), 5000);
+            return;
+        }
     }
 
     if (_ctx->document) {

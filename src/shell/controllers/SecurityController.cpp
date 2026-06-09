@@ -476,16 +476,37 @@ void SecurityController::permissionsDocument() {
         const DocumentPermissions perms = dlg.permissions();
         
         QPointer<SecurityController> self(this);
+        // UX-03: capture the helper's return value. On write failure (disk full,
+        // file locked, I/O error) the file on disk is left UNCHANGED. We must
+        // NOT claim "Document permissions updated" in that case — same pattern
+        // as the E-04 fix in encryptDocument.
+        auto result = std::make_shared<std::atomic<bool>>(false);
 
-        QThread* worker = QThread::create([engine, doc, userPwd, ownerPwd, perms]() {
-            EncryptDocumentHelper::execute(engine, doc, userPwd, ownerPwd, perms);
+        QThread* worker = QThread::create([engine, doc, userPwd, ownerPwd, perms, result]() {
+            try {
+                result->store(EncryptDocumentHelper::execute(engine, doc, userPwd, ownerPwd, perms));
+            } catch (const std::exception& e) {
+                qCritical() << "permissionsDocument worker thread threw:" << e.what();
+                result->store(false);
+            } catch (...) {
+                qCritical() << "permissionsDocument worker thread threw an unknown exception";
+                result->store(false);
+            }
         });
 
-        connect(worker, &QThread::finished, _mainWindow, [self, progress]() {
+        connect(worker, &QThread::finished, _mainWindow, [self, progress, result]() {
             progress->close();
             progress->deleteLater();
             if (!self) return;
-            self->_mainWindow->statusBar()->showMessage(QObject::tr("Document permissions updated"), 5000);
+            if (result->load()) {
+                self->_mainWindow->statusBar()->showMessage(QObject::tr("Document permissions updated"), 5000);
+            } else {
+                QMessageBox::critical(self->_mainWindow, tr("Permissions Update Failed"),
+                    tr("The document permissions could not be saved. The original file "
+                       "was left unchanged. Check that the file is not read-only and the "
+                       "disk is not full."));
+                self->_mainWindow->statusBar()->showMessage(tr("Permissions update failed."), 5000);
+            }
         });
         connect(worker, &QThread::finished, worker, &QObject::deleteLater);
         worker->start();
@@ -509,7 +530,18 @@ void SecurityController::removeSecurity() {
         return;
     }
     if (engine->removeEncryption(pwd)) {
-        engine->saveDocument(viewer->filePath());
+        // UX-04: check the saveDocument return value. If the write fails (disk
+        // full, file locked, etc.) the file on disk is still encrypted. Do NOT
+        // reload the viewer or claim "security removed" — that would leave the
+        // UI showing an unlocked document while the file on disk is still locked.
+        if (!engine->saveDocument(viewer->filePath())) {
+            QMessageBox::critical(_mainWindow, tr("Remove Security"),
+                tr("The security settings were removed in memory, but the file could "
+                   "not be saved. The file on disk is unchanged. Check that the file "
+                   "is not read-only and the disk is not full."));
+            _mainWindow->statusBar()->showMessage(tr("Remove security: save failed."), 5000);
+            return;
+        }
         viewer->reload();
         _mainWindow->statusBar()->showMessage(tr("Document security removed."), 5000);
     } else {
