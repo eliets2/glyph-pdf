@@ -46,6 +46,7 @@ struct Theme {
     static QColor underline()   { return QColor("#4ec9b0"); }
     static QColor strike()      { return QColor("#c586c0"); }
     static QColor danger()      { return QColor("#c8442b"); }
+    static QColor warning()     { return QColor("#F59E0B"); }
     static QColor info()        { return QColor("#7fb1e8"); }
     static QColor okGreen()     { return QColor("#4ec9b0"); }
 

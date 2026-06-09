@@ -67,8 +67,15 @@ void SignaturesWidget::setDocumentFile(const QString &filePath)
             nameLabel->setStyleSheet("font-weight: bold;");
 
             QLabel *statusLabel = new QLabel(tr("Status: %1").arg(info.trustStatus));
-            // T-03: use GpTheme tokens (okGreen / danger) instead of hardcoded hex.
-            if (info.isValid) {
+            // T-03 / ER-5: three-way colour mapping so UntrustedChain is visually
+            // distinct from both ValidWithDSS (green) and Invalid/Revoked/Forged (red).
+            //   ValidWithDSS               → okGreen  (#4ec9b0)
+            //   UntrustedChain             → warning   (#F59E0B, amber)
+            //   Invalid / Revoked / Forged → danger    (#c8442b, red)
+            if (info.trustStatus == QLatin1String("UntrustedChain")) {
+                statusLabel->setStyleSheet(
+                    QString("color: %1;").arg(gp::Theme::warning().name()));
+            } else if (info.isValid) {
                 statusLabel->setStyleSheet(
                     QString("color: %1;").arg(gp::Theme::okGreen().name()));
             } else {

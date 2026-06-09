@@ -129,6 +129,43 @@ private slots:
         QVERIFY2(!threw, "Unsigned BornDjot + DjotThenSave must not throw");
         QVERIFY2(result.allowed, "Unsigned BornDjot + DjotThenSave must be allowed");
     }
+
+    // -------------------------------------------------------------------
+    // Test G (ER-4): onSaveAs guard — the ProvenanceGuard must still permit
+    // DirectStructural on a signed document (the engine-side invariant that
+    // HomeController::onSaveAs relies on after the user acknowledges the
+    // "will invalidate signature" warning and the save proceeds).
+    //
+    // This test documents the contract: once the user has accepted the ER-4
+    // warning dialog, the underlying save is a plain full-rewrite to a new
+    // path, which is exactly the DirectStructural + isSigned combination.
+    // The guard must NOT block it — HomeController already presented the
+    // user-visible gate; a secondary guard throw would silently swallow the
+    // save without feedback.
+    // -------------------------------------------------------------------
+    void testSignedDocSaveAsAcknowledgedUnsigned()
+    {
+        // Precondition: a signed BornPDF document subjected to a structural
+        // edit (DirectStructural) must be permitted by ProvenanceGuard.
+        // This mirrors the post-warning path in HomeController::onSaveAs.
+        pdfws::ProvenanceGuard guard;
+        pdfws::ProvenanceGuardResult result;
+        bool threw = false;
+        try {
+            result = guard.checkEditVia(docmodel::ProvenanceTag::BornPDF,
+                                        /*isSigned=*/true,
+                                        pdfws::EditPath::DirectStructural);
+        } catch (...) {
+            threw = true;
+        }
+        QVERIFY2(!threw,
+                 "DirectStructural on a signed doc must not throw — "
+                 "HomeController::onSaveAs presents the isSigned warning; "
+                 "the guard must not double-block the acknowledged save");
+        QVERIFY2(result.allowed,
+                 "DirectStructural allowed=true is required for onSaveAs "
+                 "to complete after the user acknowledges the ER-4 warning");
+    }
 };
 
 QTEST_GUILESS_MAIN(TestChain1)
