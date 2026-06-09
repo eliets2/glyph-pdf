@@ -216,6 +216,12 @@ public:
     // select the correct save path without coupling the controller to the backend.
     virtual bool hasPdfSignatures() const = 0;
 
+    // ER-3: Return the number of CMS recipient envelopes in the /Encrypt
+    // dictionary's /Recipients array.  Returns 0 if the document is not
+    // encrypted or has no public-key recipients.  The caller checks > 1 to
+    // detect the multi-recipient case before allowing in-place re-encryption.
+    virtual int recipientCount() const = 0;
+
 protected:
     IPdfEditorEngine() = default;
     IPdfEditorEngine(const IPdfEditorEngine&) = delete;

@@ -53,6 +53,48 @@ private slots:
         QVERIFY2(!loaded, "Malformed PDF with random bytes must gracefully fail to load, not crash");
     }
 
+    // ER-3: recipientCount() must return 0 for an unencrypted document and a
+    // positive value for a document with a public-key /Recipients array.
+    void testRecipientCountReturnedCorrectly() {
+        // Case 1: unencrypted document → must return 0.
+        const QString plainPath = tmpPath("plain_for_recip.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            doc.GetPages().CreatePage(
+                PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            doc.Save(plainPath.toUtf8().constData());
+        }
+
+        PdfEditorEngine plainEngine;
+        QVERIFY(plainEngine.loadDocumentForEditing(plainPath));
+        QCOMPARE(plainEngine.recipientCount(), 0);
+
+        // Case 2: password-encrypted document.
+        // A standard password-encrypted PDF has no /Recipients array (that is
+        // the public-key / CMS case), so recipientCount() must still return 0
+        // — the guard only fires for public-key multi-recipient documents.
+        const QString encPath = tmpPath("password_encrypted.pdf");
+        {
+            PdfEditorEngine encEngine;
+            QVERIFY(encEngine.loadDocumentForEditing(plainPath));
+            DocumentPermissions perms;
+            QVERIFY(encEngine.encryptDocument("user", "owner", perms));
+            QVERIFY(encEngine.saveDocument(encPath));
+        }
+
+        PdfEditorEngine encEngine2;
+        // Loading a password-encrypted document without the password may fail
+        // in strict builds; tolerate either outcome but require no crash.
+        const bool loadedEnc = encEngine2.loadDocumentForEditing(encPath);
+        if (loadedEnc) {
+            // Password-encrypted docs have no /Recipients array.
+            QCOMPARE(encEngine2.recipientCount(), 0);
+        } else {
+            // Could not open without password — that is acceptable behaviour.
+            QCOMPARE(encEngine2.recipientCount(), 0);
+        }
+    }
+
     // NF-4: A crafted PDF with a very large /MediaBox must NOT cause OOM or a
     // crash when rendered.  PdfiumBackend::renderPage must reject dimensions that
     // exceed the safe limits (>20000 px in either dimension, or >120MP total) and

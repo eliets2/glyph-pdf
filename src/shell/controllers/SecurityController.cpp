@@ -115,6 +115,21 @@ void SecurityController::encryptDocument() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->pdfEditor) return;
 
+    // ER-3: Re-encrypting a multi-recipient document changes the session key,
+    // locking out other recipients whose envelopes were computed against the original FEK.
+    if (_ctx->pdfEditor->recipientCount() > 1) {
+        auto choice = QMessageBox::warning(
+            _mainWindow, tr("Multi-Recipient Document"),
+            tr("This document is encrypted for multiple recipients (%1).\n\n"
+               "Re-encrypting in place will change the session key. "
+               "Other recipients will no longer be able to open the document "
+               "unless their access is re-granted.\n\n"
+               "Continue? All recipients must be re-specified after saving.")
+                .arg(_ctx->pdfEditor->recipientCount()),
+            QMessageBox::Ok | QMessageBox::Cancel, QMessageBox::Cancel);
+        if (choice != QMessageBox::Ok) return;
+    }
+
     EncryptionDialog dlg(_mainWindow);
     if (dlg.exec() == QDialog::Accepted) {
         if (dlg.userPassword().isEmpty() && dlg.ownerPassword().isEmpty()) {
@@ -459,6 +474,21 @@ void SecurityController::applyRedactions() {
 void SecurityController::permissionsDocument() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->pdfEditor) return;
+
+    // ER-3: Re-encrypting a multi-recipient document changes the session key,
+    // locking out other recipients whose envelopes were computed against the original FEK.
+    if (_ctx->pdfEditor->recipientCount() > 1) {
+        auto choice = QMessageBox::warning(
+            _mainWindow, tr("Multi-Recipient Document"),
+            tr("This document is encrypted for multiple recipients (%1).\n\n"
+               "Re-encrypting in place will change the session key. "
+               "Other recipients will no longer be able to open the document "
+               "unless their access is re-granted.\n\n"
+               "Continue? All recipients must be re-specified after saving.")
+                .arg(_ctx->pdfEditor->recipientCount()),
+            QMessageBox::Ok | QMessageBox::Cancel, QMessageBox::Cancel);
+        if (choice != QMessageBox::Ok) return;
+    }
 
     PermissionsDialog dlg(_mainWindow);
     if (dlg.exec() == QDialog::Accepted) {
