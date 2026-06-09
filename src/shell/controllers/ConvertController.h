@@ -28,6 +28,7 @@ private:
     void exportToHtml();
     void exportToText();
     void exportToPowerPoint();
+    void exportToImage();
     void openCompressDialog();
     void mergePdfs();
     void linearizeDocument();
