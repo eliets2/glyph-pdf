@@ -1272,3 +1272,21 @@ void PdfEditorEngine::clearError()
     QMutexLocker locker(&d->mutex);
     d->clearErr();
 }
+
+// ── R2-1 D2: signed-document save routing ─────────────────────────────────
+
+bool PdfEditorEngine::writeUpdate(const QString &outputPath)
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("writeUpdate");
+    return d->backend->writeUpdate(outputPath);
+}
+
+bool PdfEditorEngine::hasPdfSignatures() const
+{
+    QMutexLocker locker(&d->mutex);
+    if (!d->backend) return false;
+    return d->backend->hasPdfSignatures();
+}
+

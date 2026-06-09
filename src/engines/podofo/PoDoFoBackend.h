@@ -25,6 +25,9 @@ public:
     bool writeDocument(const QString &path) override;
     bool writeUpdate(const QString &path) override;
 
+    // R2-1 D2: true iff the loaded document has at least one PDF signature field.
+    bool hasPdfSignatures() const;
+
     // Document information/structure
     QString currentFile() const;
     void setCurrentFile(const QString &path);

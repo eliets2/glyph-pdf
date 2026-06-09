@@ -89,6 +89,10 @@ public:
     ErrorInfo lastError() const override;
     void clearError() override;
 
+    // R2-1 D2
+    bool writeUpdate(const QString &outputPath) override;
+    bool hasPdfSignatures() const override;
+
 private:
     class Private;
     std::unique_ptr<Private> d;
