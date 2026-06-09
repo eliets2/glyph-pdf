@@ -34,8 +34,12 @@ public:
     }
 
     void undo() override {
-        qWarning() << "AddFormFieldCommand: undo not yet implemented — field will remain. See ROADMAP.";
-        // To implement: call IFormManager::removeFieldById(m_fieldId, m_pageIndex)
+        if (!m_engine || !m_doc || m_doc->path().isEmpty()) return;
+        const bool ok = m_engine->removeFieldByName(m_doc->path(), m_name, m_doc->path());
+        if (!ok) {
+            qWarning() << "AddFormFieldCommand::undo: removeFieldByName failed for" << m_name;
+        }
+        m_doc->markDirty();
     }
 
     int id() const override { return 0x104; }

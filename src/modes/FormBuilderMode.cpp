@@ -6,6 +6,8 @@
 #include "core/PdfEnums.h"
 #include "commands/AddFormFieldCommand.h"
 #include "commands/DeleteFormFieldCommand.h"
+#include "commands/MoveFormFieldCommand.h"
+#include "commands/ResizeFormFieldCommand.h"
 #include "util/GpTheme.h"
 
 #include <QCheckBox>
@@ -306,10 +308,13 @@ void FormBuilderMode::onFieldPlacementRequested(int pageIndex, QRectF pdfRect, T
     );
     m_ctx->undoStack->push(cmd);
 
-    // Add to session field list
+    // Add to session field list — store name (UserRole), page (UserRole+1), rect (UserRole+2)
+    // so onDeleteFieldClicked can reconstruct the rect for DeleteFormFieldCommand undo.
     if (m_fieldList) {
         auto* item = new QListWidgetItem(name);
-        item->setData(Qt::UserRole, name);
+        item->setData(Qt::UserRole,     name);
+        item->setData(Qt::UserRole + 1, pageIndex);
+        item->setData(Qt::UserRole + 2, pdfRect);
         m_fieldList->addItem(item);
         m_fieldList->setCurrentItem(item);
     }
@@ -392,16 +397,16 @@ void FormBuilderMode::onDeleteFieldClicked()
     auto* item = m_fieldList->currentItem();
     if (!item) return;
 
-    const QString name = item->data(Qt::UserRole).toString();
-
-    // Determine page index — stored as UserRole+1 during placement
-    const int page = item->data(Qt::UserRole + 1).toInt();
+    const QString name  = item->data(Qt::UserRole).toString();
+    const int     page  = item->data(Qt::UserRole + 1).toInt();
+    const QRectF  rect  = item->data(Qt::UserRole + 2).toRectF();
 
     auto* cmd = new DeleteFormFieldCommand(
         m_ctx->forms.get(),
         m_ctx->document.get(),
         name,
-        page
+        page,
+        rect   // pass rect so undo() can restore the field at its original position
     );
     m_ctx->undoStack->push(cmd);
 
