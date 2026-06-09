@@ -20,7 +20,7 @@ HOLD: A-01 cert-encryption (real CMS→AES round-trip), A-02 image excision, E-0
 | 5 | **HIGH (security-adjacent)** | More **silent-success-on-failure**: `permissionsDocument` / `removeSecurity` discard `saveDocument` return | UX-03/04 (`SecurityController.cpp:480-514`) | Same E-04 pattern, unswept. |
 | 6 | **HIGH (UX orphans)** | Cloud-orphaned ribbon items still enabled (Forms›Distribute, Protect›Compliance) | UX-02 | Dead since WP-1 cloud removal; should be removed/disclosed. |
 | 7 | **MEDIUM (UI)** | Theme breakage — hardcoded dark hex in `CommentsWidget`, `CompressDialog`, `SignaturesWidget`; no QSS for QTabWidget/QGroupBox/QSpinBox | UI T-01/02/03, VS-02/03/04 | Broken visuals in Light + High-Contrast themes. |
-| 8 | **MEDIUM (security)** | Redaction still misses images in Form-XObject resources, annotation `/AP` streams, `/SMask`s; forged-CRL soft-fails; A-03 PDFium render alloc unclamped | sec2 NF-1/NF-2/NF-4 | Residual redaction-leak + DoS surface. |
+| 8 | ~~**MEDIUM (security)**~~ **CLOSED R2-3** | ~~Redaction still misses images in Form-XObject resources, annotation `/AP` streams, `/SMask`s; forged-CRL soft-fails; A-03 PDFium render alloc unclamped~~ | sec2 NF-1/NF-2/NF-4 — all three closed in commit `39ffe46` | Fixed: Form-XObject local resources, AP stream walk, SMask neutralisation, CRL hard-fail, render clamp. |
 
 ## Confirmed NOT-DONE (vs tracker)
 - **SP-5b** (B-01 key purge) · **SP-6 / capstone H** (never run) · **G-07 TestDjotFuzz** (not written — `djotToDocument` is real, so it *can* be) · **i18n** 0/1394 · **C-03** FormBuilder delete/move/resize still UI-only (`FormBuilderMode.cpp:143,230,421`).
@@ -58,9 +58,9 @@ Per-domain detail: `round2/{SEC-reverify,UX,UI,CODE,REPO,VAULT}.md`.
 | **UX-14** onSave failure status-bar only (no modal) | **CLOSED** | R2-2 | `HomeController.cpp:155-162` — failure now shows `QMessageBox::critical` matching onSaveAs path; status bar retained. |
 | **D3** EditController::onReplaceAllRequested discards save return | **CLOSED** | R2-2 | `EditController.cpp:282-299` — writeUpdate/saveDocument return checked; failure shows `QMessageBox::critical` and returns early. |
 | **UX-08/C-03** FormBuilder delete/move/resize UI-only | OPEN | — | R2-6 pending |
-| **NF-1** Forged-CRL soft-fails as UntrustedChain | OPEN | — | R2-3 pending |
-| **NF-2** Redaction misses Form-XObject resources + AP streams + SMasks | OPEN | — | R2-3 pending |
-| **NF-4** PdfiumBackend render alloc unclamped (OOM/overflow) | OPEN | — | R2-3 pending |
+| **NF-1** Forged-CRL soft-fails as UntrustedChain | **CLOSED** | R2-3 | `src/engines/SignatureManager.cpp:1500-1507` — `X509_V_ERR_CRL_SIGNATURE_FAILURE` and `X509_V_ERR_UNABLE_TO_DECRYPT_CRL_SIGNATURE` set `isForgedCrl=true`; mapped to `isValid=false`/`Invalid` at line 1530-1533; benign CRL codes remain soft UntrustedChain. |
+| **NF-2** Redaction misses Form-XObject resources + AP streams + SMasks | **CLOSED** | R2-3 | `src/engines/podofo/PoDoFoBackend.cpp` — `redactCanvasRecursively` takes `activeResources` param (line 1081); Do-name, font, Properties lookups use `canvasResources` (lines 1258, 1284, 1407); Form XObject recursion passes Form's own `/Resources` (lines 1460-1464); SMask neutralised before base image (lines 1443-1451); annotation `/AP`→`/N` Form XObjects walked before removal (lines 1603-1636). Test: `TestRedaction.cpp::testRedactionNeutralizesImageInFormLocalResources`. |
+| **NF-4** PdfiumBackend render alloc unclamped (OOM/overflow) | **CLOSED** | R2-3 | `src/engines/pdfium/PdfiumBackend.cpp:102-110` (`renderPage`) and `lines 140-148` (`renderTile`) — clamp to 20000px per dimension and 120MP area; return empty `QImage()` on violation. Test: `TestRobustness.cpp::testPdfiumRenderOversizedPageRejected`. |
 | **T-01** CommentsWidget hardcoded dark hex | **CLOSED** | R2-5 | `src/ui/CommentsWidget.cpp` — inline styleSheets removed; `gp::Theme::accent()/okGreen()` used; QPalette roles for text. |
 | **T-02** CompressDialog hardcoded dark hex | **CLOSED** | R2-5 | `src/modes/CompressDialog.cpp` — bg0/bg3/line/lineStrong/fg0/fg2/accent tokens throughout. |
 | **T-03** SignaturesWidget hardcoded dark hex | **CLOSED** | R2-5 | `src/ui/SignaturesWidget.cpp` — fg2()/bg3()/bg2()/okGreen()/danger() tokens; drops `color:white`. |
