@@ -153,6 +153,14 @@ void HomeController::onSave() {
         if (_ctx->undoStack) _ctx->undoStack->setClean();
         _mainWindow->statusBar()->showMessage(tr("Document saved: %1").arg(filePath), 5000);
     } else {
+        // UX-14: a save failure means the user's work was NOT persisted.
+        // A 5-second status bar transient is easily missed for a data-loss event.
+        // Show a modal QMessageBox::critical to match the onSaveAs failure path.
+        QMessageBox::critical(
+            _mainWindow,
+            tr("Save Failed"),
+            tr("Could not save '%1'. Check that the disk is not full and the "
+               "file is not write-protected.").arg(filePath));
         _mainWindow->statusBar()->showMessage(tr("Save failed: %1").arg(filePath), 5000);
     }
 }
