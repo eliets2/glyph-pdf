@@ -160,3 +160,71 @@ QTreeView[role="sidebarList"], QListWidget[role="sidebarList"] { border: none; b
 QFrame[role="modeToolbar"] { background: #1a1a1a; border-bottom: 2px solid #ffffff; min-height: 32px; }
 QFrame[role="infoStrip"] { background: #0a0a0a; border-bottom: 2px solid #ffffff; min-height: 22px; }
 QLabel[role="infoStrip"] { color: #ffffff; font-family: "JetBrains Mono"; font-size: 10px; }
+
+/* === VS-02: QTabWidget === */
+QTabWidget::pane {
+    border: 2px solid #ffffff;
+    background: #000000;
+    top: -2px;
+}
+QTabBar::tab {
+    background: #1a1a1a;
+    color: #ffffff;
+    padding: 4px 12px;
+    min-height: 24px;
+    border: 2px solid #ffffff;
+    border-bottom: none;
+    margin-right: 2px;
+    font-weight: 700;
+}
+QTabBar::tab:hover {
+    background: #333333;
+    color: #ffff00;
+}
+QTabBar::tab:selected {
+    background: #000000;
+    color: #ffff00;
+    border-top: 3px solid #ffff00;
+}
+
+/* === VS-03: QGroupBox === */
+QGroupBox {
+    border: 2px solid #ffffff;
+    margin-top: 8px;
+    padding-top: 6px;
+    color: #ffffff;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 4px;
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+/* === VS-04: QSpinBox === */
+QSpinBox {
+    background: #0a0a0a;
+    border: 2px solid #ffffff;
+    color: #ffffff;
+    padding: 2px 4px;
+    min-height: 22px;
+}
+QSpinBox:focus {
+    border: 3px solid #ffff00;
+}
+QSpinBox::up-button, QSpinBox::down-button {
+    background: #1a1a1a;
+    border: 0;
+    width: 16px;
+}
+QSpinBox::up-button:hover, QSpinBox::down-button:hover {
+    background: #333333;
+}
+QSpinBox::up-arrow {
+    width: 8px; height: 8px;
+}
+QSpinBox::down-arrow {
+    width: 8px; height: 8px;
+}

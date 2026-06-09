@@ -34,12 +34,24 @@ static QToolButton* presetCard(const QString& name, const QString& spec,
     b->setCheckable(true);
     b->setChecked(active);
     b->setMinimumHeight(100);
+    // T-02: use GpTheme tokens instead of hardcoded dark hex so preset cards
+    // render correctly in Light and High-Contrast themes.
+    const QString accentHex  = gp::Theme::accent().name();
+    const QString bg0Hex     = gp::Theme::bg0().name();
+    const QString lineHex    = gp::Theme::line().name();
+    const QString lineSHex   = gp::Theme::lineStrong().name();
+    const QString fg0Hex     = gp::Theme::fg0().name();
     b->setStyleSheet(active
-        ? "QToolButton{background:rgba(255,140,66,0.13);border:1px solid #ff8c42;"
-          "color:#dfe1e5;text-align:left;padding:14px;}"
-        : "QToolButton{background:#1a1b1e;border:1px solid #4a4d52;"
-          "color:#dfe1e5;text-align:left;padding:14px;}"
-          "QToolButton:hover{border-color:#71747a;}");
+        ? QString("QToolButton{background:rgba(%1,%2,%3,0.13);border:1px solid %4;"
+                  "color:%5;text-align:left;padding:14px;}")
+              .arg(gp::Theme::accent().red())
+              .arg(gp::Theme::accent().green())
+              .arg(gp::Theme::accent().blue())
+              .arg(accentHex, fg0Hex)
+        : QString("QToolButton{background:%1;border:1px solid %2;"
+                  "color:%3;text-align:left;padding:14px;}"
+                  "QToolButton:hover{border-color:%4;}")
+              .arg(bg0Hex, lineHex, fg0Hex, lineSHex));
     return b;
 }
 
@@ -103,8 +115,11 @@ CompressDialog::CompressDialog(const AppContext* ctx, QWidget* parent)
     bl->addLayout(grid);
 
     // Advanced option row
+    // T-02: use GpTheme tokens; no hardcoded dark hex.
     auto* advFrame = new QFrame;
-    advFrame->setStyleSheet("background:#1a1b1e; border:1px solid #393b40; padding:8px;");
+    advFrame->setStyleSheet(
+        QString("background:%1; border:1px solid %2; padding:8px;")
+            .arg(gp::Theme::bg0().name(), gp::Theme::line().name()));
     auto* af = new QGridLayout(advFrame);
     af->setSpacing(4);
 
@@ -149,7 +164,10 @@ CompressDialog::CompressDialog(const AppContext* ctx, QWidget* parent)
     // Mixed Raster Content: JBIG2 foreground + JPEG2000 background for scanned PDFs.
     // Achieves 5-10× compression for scan-heavy documents.
     auto* mrcFrame = new QFrame;
-    mrcFrame->setStyleSheet("background:#1a1b1e; border:1px solid #393b40; padding:8px;");
+    // T-02: theme-aware background/border.
+    mrcFrame->setStyleSheet(
+        QString("background:%1; border:1px solid %2; padding:8px;")
+            .arg(gp::Theme::bg0().name(), gp::Theme::line().name()));
     auto* mf = new QHBoxLayout(mrcFrame);
     mf->setSpacing(8);
 
@@ -173,7 +191,9 @@ CompressDialog::CompressDialog(const AppContext* ctx, QWidget* parent)
 
     _mrcEstLabel = new QLabel(tr("MRC: off"));
     _mrcEstLabel->setProperty("mono", true);
-    _mrcEstLabel->setStyleSheet("font-size:10px; color:#9a9da1;");
+    // T-02: use fg2 token.
+    _mrcEstLabel->setStyleSheet(
+        QString("font-size:10px; color:%1;").arg(gp::Theme::fg2().name()));
     mf->addWidget(_mrcEstLabel);
 
     bl->addWidget(mrcFrame);
@@ -184,7 +204,10 @@ CompressDialog::CompressDialog(const AppContext* ctx, QWidget* parent)
 
     // Size estimation display
     auto* sizeRow = new QFrame;
-    sizeRow->setStyleSheet("background:#1a1b1e; border:1px solid #393b40; padding:10px;");
+    // T-02: theme-aware background/border.
+    sizeRow->setStyleSheet(
+        QString("background:%1; border:1px solid %2; padding:10px;")
+            .arg(gp::Theme::bg0().name(), gp::Theme::line().name()));
     auto* sl = new QVBoxLayout(sizeRow);
 
     auto* origRow = new QHBoxLayout;
@@ -197,9 +220,12 @@ CompressDialog::CompressDialog(const AppContext* ctx, QWidget* parent)
     _origBar->setValue(100);
     _origBar->setTextVisible(false);
     _origBar->setFixedHeight(10);
+    // T-02: theme-aware progress bar.
     _origBar->setStyleSheet(
-        "QProgressBar{background:#34363b;border:1px solid #4a4d52;}"
-        "QProgressBar::chunk{background:#71747a;}");
+        QString("QProgressBar{background:%1;border:1px solid %2;}"
+                "QProgressBar::chunk{background:%3;}")
+            .arg(gp::Theme::bg3().name(), gp::Theme::lineStrong().name(),
+                 gp::Theme::fg2().name()));
     origRow->addWidget(_origBar, 1);
     _origVal = new QLabel("— MB");
     _origVal->setProperty("mono", true);
@@ -218,13 +244,17 @@ CompressDialog::CompressDialog(const AppContext* ctx, QWidget* parent)
     _estBar->setValue(0);
     _estBar->setTextVisible(false);
     _estBar->setFixedHeight(10);
+    // T-02: theme-aware estimated bar (accent chunk).
     _estBar->setStyleSheet(
-        "QProgressBar{background:#34363b;border:1px solid #4a4d52;}"
-        "QProgressBar::chunk{background:#ff8c42;}");
+        QString("QProgressBar{background:%1;border:1px solid %2;}"
+                "QProgressBar::chunk{background:%3;}")
+            .arg(gp::Theme::bg3().name(), gp::Theme::lineStrong().name(),
+                 gp::Theme::accent().name()));
     estRow->addWidget(_estBar, 1);
     _estVal = new QLabel("— MB");
     _estVal->setProperty("mono", true);
-    _estVal->setStyleSheet("color:#ff8c42;");
+    // T-02: use accent token.
+    _estVal->setStyleSheet(QString("color:%1;").arg(gp::Theme::accent().name()));
     _estVal->setFixedWidth(80);
     _estVal->setAlignment(Qt::AlignRight);
     estRow->addWidget(_estVal);
@@ -236,7 +266,9 @@ CompressDialog::CompressDialog(const AppContext* ctx, QWidget* parent)
     badge->addStretch(1);
     _detailLabel = new QLabel;
     _detailLabel->setProperty("mono", true);
-    _detailLabel->setStyleSheet("font-size:10px; color:#9a9da1;");
+    // T-02: use fg2 token for dim detail text.
+    _detailLabel->setStyleSheet(
+        QString("font-size:10px; color:%1;").arg(gp::Theme::fg2().name()));
     badge->addWidget(_detailLabel);
     sl->addLayout(badge);
     bl->addWidget(sizeRow);
@@ -253,9 +285,12 @@ CompressDialog::CompressDialog(const AppContext* ctx, QWidget* parent)
     auto* cancel = new QPushButton(tr("Cancel"));
     cancel->setFlat(true);
     auto* go = new QPushButton(tr("COMPRESS DOCUMENT"));
+    // T-02: accent button using GpTheme token; text color is always the bg0
+    // (dark on accent) which gives sufficient contrast across all three themes.
     go->setStyleSheet(
-        "background:#ff8c42;color:#1a1b1e;border:1px solid #ff8c42;"
-        "font-weight:700;padding:8px 20px;letter-spacing:0.6px;");
+        QString("background:%1;color:%2;border:1px solid %1;"
+                "font-weight:700;padding:8px 20px;letter-spacing:0.6px;")
+            .arg(gp::Theme::accent().name(), gp::Theme::bg0().name()));
     fr->addWidget(cancel);
     fr->addWidget(go);
     col->addWidget(foot);

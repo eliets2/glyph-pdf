@@ -5,6 +5,7 @@
 #include <QMouseEvent>
 #include <QDebug>
 #include <QtMath>
+#include <QApplication>
 #include <cmath>
 
 #ifndef M_PI
@@ -201,11 +202,16 @@ void AnnotationLayer::paintEvent(QPaintEvent *event)
 
         painter.setPen(QPen(anno.color, anno.thickness, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
 
-        // Draw selection highlight if selected
+        // Draw selection highlight if selected.
+        // T-10: use QPalette::Highlight instead of hardcoded Qt::blue so the
+        // selection ring is visible in High-Contrast theme (yellow on HC palette).
         if (index == m_selectedIndex) {
             painter.save();
-            painter.setPen(QPen(Qt::blue, 1, Qt::DashLine));
-            painter.setBrush(QColor(0, 0, 255, 30));
+            const QColor hlColor = qApp->palette().color(QPalette::Highlight);
+            QColor hlFill = hlColor;
+            hlFill.setAlpha(30);
+            painter.setPen(QPen(hlColor, 1, Qt::DashLine));
+            painter.setBrush(hlFill);
             if (anno.mode == ToolMode::DrawFreehand || anno.mode == ToolMode::AddSignature) {
                 painter.drawRect(annoBounds.adjusted(-5, -5, 5, 5));
             } else {
@@ -342,9 +348,17 @@ void AnnotationLayer::paintEvent(QPaintEvent *event)
             
             bool selected = (img.xobjectName == m_selectedImageName);
             
-            // Draw border
-            painter.setPen(QPen(selected ? Qt::blue : QColor(100, 100, 255, 120), selected ? 2 : 1, Qt::DashLine));
-            painter.setBrush(selected ? QColor(0, 0, 255, 20) : Qt::NoBrush);
+            // Draw border — T-10: use system Highlight palette role for
+            // the selected image border so it is visible in High-Contrast theme.
+            {
+                const QColor hlColor = qApp->palette().color(QPalette::Highlight);
+                QColor hlDim = hlColor;
+                hlDim.setAlpha(120);
+                QColor hlFill = hlColor;
+                hlFill.setAlpha(20);
+                painter.setPen(QPen(selected ? hlColor : hlDim, selected ? 2 : 1, Qt::DashLine));
+                painter.setBrush(selected ? hlFill : Qt::NoBrush);
+            }
             painter.drawRect(r);
             
             if (selected) {
