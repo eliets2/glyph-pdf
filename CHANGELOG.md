@@ -9,6 +9,11 @@ All notable changes to GlyphPDF are documented in this file.
 > OCSP revocation, and multiple security fixes remain open. Do not tag v1.0.0 until the audit
 > release-gate (CLAUDE.md §9) is clear.
 
+## Security — 2026-06-10
+- [B-01] Private key material (ca.key, signer.key, test_signer.p12) purged from git history via
+  git filter-repo. These files were present in commit a6ea6aa and are now absent from all refs.
+  Collaborators must re-clone. Fresh test-only fixtures regenerated (R2-7).
+
 ### WP-1: Remove cloud upload paths (2026-06-03) — audit-remediation branch
 
 #### Removed
