@@ -15,8 +15,18 @@ struct SignatureInfo {
     QString trustStatus;
     QString trustStoreUsed;
     // PAdES-level fields
-    bool hasDss = false;        // B-LT: DSS dictionary present
-    bool hasDocTimestamp = false; // B-LTA: document timestamp present
+    bool hasDss = false;           // B-LT: DSS dictionary present
+    bool hasDocTimestamp = false;  // B-LTA: document timestamp present
+    // NF-6: set to true when an OCSP response was found in the DSS but the
+    // original OCSP request object is unavailable at validation time, so nonce
+    // verification (OCSP_check_nonce) was skipped. Closed as "documented +
+    // deferred to M5 VRI work" when the request is persisted alongside the
+    // response.
+    bool ocspNoteNF6 = false;
+    // ER-1: "NoCertMatch" when DSS /OCSPs entries exist but none of their
+    // single responses match the signer certificate's serial + issuer hash.
+    // Caller maps this to "UntrustedChain" in trustStatus.
+    QString ocspStatus;
 };
 
 /// PAdES signature conformance levels per ETSI EN 319 132-1.
