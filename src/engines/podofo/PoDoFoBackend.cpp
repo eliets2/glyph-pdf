@@ -1066,14 +1066,27 @@ static void neutralizeImageXObject(PoDoFo::PdfObject& xobj)
     stream.SetData(bufferview(pixel, sizeof(pixel)), true /*raw*/);
 }
 
+// NF-2: Pass the active resource dictionary explicitly so that when we
+// recurse into a Form XObject that has its own /Resources dict, Do-name
+// lookups are resolved against that Form's resources, not the page's.
 void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                              const std::vector<PoDoFo::Rect>& pdfRects,
                              PoDoFo::PdfPage& page,
                              PoDoFo::PdfMemDocument* document,
-                             std::set<int64_t>& redactedMcids) 
+                             std::set<int64_t>& redactedMcids,
+                             PoDoFo::PdfObject* activeResources = nullptr)
 {
     using namespace PoDoFo;
-    
+
+    // Resolve the active resource dictionary for this canvas:
+    // - If the caller supplied one (Form XObject recursion), use it.
+    // - Otherwise fall back to the page's own resources.
+    PdfObject* canvasResources = activeResources;
+    if (!canvasResources) {
+        // Top-level call: use page resources.
+        canvasResources = &page.GetResources().GetObject();
+    }
+
     std::string streamStr;
     if (canvasObj.HasStream()) {
         auto* streamObj = canvasObj.GetStream();
@@ -1242,8 +1255,10 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                         currentMcid = mcidObj->GetNumber();
                     }
                 } else if (prop.IsName()) {
-                    auto resources = page.GetResources();
-                    auto* propDictObj = resources.GetDictionary().FindKey("Properties");
+                    // NF-2: resolve Properties from the current canvas resources.
+                    auto* propDictObj = (canvasResources && canvasResources->IsDictionary())
+                                       ? canvasResources->GetDictionary().FindKey("Properties")
+                                       : nullptr;
                     if (propDictObj && propDictObj->IsDictionary()) {
                         auto* subDictObj = propDictObj->GetDictionary().FindKey(prop.GetName());
                         if (subDictObj) {
@@ -1264,10 +1279,12 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
             
             bool isTextOp = (kw == "Tj" || kw == "TJ" || kw == "'" || kw == "\"");
             if (isTextOp) {
-                // Resolve font
+                // Resolve font — NF-2: use canvasResources (may be a Form XObject's
+                // /Resources) so fonts local to a Form are found correctly.
                 const PdfFont* resolvedFont = nullptr;
-                auto resources = page.GetResources();
-                auto* fontDict = resources.GetDictionary().FindKey("Font");
+                auto* fontDict = (canvasResources && canvasResources->IsDictionary())
+                                 ? canvasResources->GetDictionary().FindKey("Font")
+                                 : nullptr;
                 if (fontDict && fontDict->IsDictionary()) {
                     auto* fontObj = fontDict->GetDictionary().FindKey(currentFontName);
                     if (fontObj) {
@@ -1388,15 +1405,19 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
             if (kw == "Do" && stack.size() > 0 && stack[0].IsName()) {
                 std::string xobjName(stack[0].GetName().GetString());
 
-                auto resources = page.GetResources();
-                auto* xobjectDict = resources.GetDictionary().FindKey("XObject");
+                // NF-2: Use the CURRENT canvas's resource dictionary (not always
+                // the page dict) so that names defined in a Form XObject's own
+                // /Resources are resolved correctly during recursion.
                 PdfObject* xobj = nullptr;
-                if (xobjectDict && xobjectDict->IsDictionary()) {
-                    auto* xobjRef = xobjectDict->GetDictionary().FindKey(xobjName);
-                    if (xobjRef) {
-                        xobj = xobjRef;
-                        if (xobj->IsReference())
-                            xobj = &document->GetObjects().MustGetObject(xobj->GetReference());
+                if (canvasResources && canvasResources->IsDictionary()) {
+                    auto* xobjectDict = canvasResources->GetDictionary().FindKey("XObject");
+                    if (xobjectDict && xobjectDict->IsDictionary()) {
+                        auto* xobjRef = xobjectDict->GetDictionary().FindKey(xobjName);
+                        if (xobjRef) {
+                            xobj = xobjRef;
+                            if (xobj->IsReference())
+                                xobj = &document->GetObjects().MustGetObject(xobj->GetReference());
+                        }
                     }
                 }
 
@@ -1419,13 +1440,38 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                     // image object recoverable with any extraction tool.
                     if (imageBboxIntersects()) {
                         if (currentMcid != -1) redactedMcids.insert(currentMcid);
+                        // NF-2: Also neutralize any /SMask image referenced by this
+                        // image XObject — an SMask can carry original pixel data that
+                        // would survive if only the base image is neutralized.
+                        auto& imgDict = xobj->GetDictionary();
+                        auto* smaskRef = imgDict.FindKey("SMask");
+                        if (smaskRef) {
+                            PdfObject* smaskObj = smaskRef;
+                            if (smaskObj->IsReference())
+                                smaskObj = &document->GetObjects().MustGetObject(smaskObj->GetReference());
+                            if (smaskObj && smaskObj->IsDictionary())
+                                neutralizeImageXObject(*smaskObj);
+                        }
                         neutralizeImageXObject(*xobj);
                         continue;   // drop the Do operator
                     }
                     // Non-intersecting image: emit the Do unchanged (falls through).
                 } else if (subtypeName == "Form") {
-                    // Form XObject: recurse for text/image excision inside it.
-                    redactCanvasRecursively(*xobj, pdfRects, page, document, redactedMcids);
+                    // NF-2: Form XObject — recurse and pass the Form's own /Resources
+                    // dict (if it has one) so that Do-name lookups inside the Form
+                    // resolve against its local resource namespace.
+                    PdfObject* formResources = nullptr;
+                    if (xobj && xobj->IsDictionary()) {
+                        auto* fres = xobj->GetDictionary().FindKey("Resources");
+                        if (fres) {
+                            formResources = fres;
+                            if (formResources->IsReference())
+                                formResources = &document->GetObjects().MustGetObject(formResources->GetReference());
+                        }
+                    }
+                    // Fall back to the current canvas resources if the Form has none.
+                    redactCanvasRecursively(*xobj, pdfRects, page, document, redactedMcids,
+                                           formResources ? formResources : canvasResources);
                 }
             }
             
@@ -1544,17 +1590,55 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
         }
         painter.FinishDrawing();
 
+        // NF-2: Walk annotation /AP streams BEFORE removing annotations that
+        // intersect the redaction rect.  An annotation's /AP (appearance) dictionary
+        // can reference Form XObjects that in turn contain image XObjects.  Those
+        // images must be neutralized so their bytes do not survive in the saved file.
         auto& annos = page.GetAnnotations();
         std::vector<unsigned> toRemove;
         for (unsigned i = 0; i < annos.GetCount(); ++i) {
             auto& anno = annos.GetAnnotAt(i);
             auto r = anno.GetRect();
+            bool intersects = false;
             for (const auto& redRect : pdfRects) {
                 if (r.X < (redRect.X + redRect.Width) && (r.X + r.Width) > redRect.X &&
                     r.Y < (redRect.Y + redRect.Height) && (r.Y + r.Height) > redRect.Y) {
-                    toRemove.push_back(i);
+                    intersects = true;
                     break;
                 }
+            }
+            if (intersects) {
+                // Walk /AP -> /N (normal appearance) Form XObject for image excision.
+                auto& annoObj = anno.GetObject();
+                if (annoObj.IsDictionary()) {
+                    auto* apRef = annoObj.GetDictionary().FindKey("AP");
+                    if (apRef) {
+                        PoDoFo::PdfObject* apObj = apRef;
+                        if (apObj->IsReference())
+                            apObj = &d->document->GetObjects().MustGetObject(apObj->GetReference());
+                        if (apObj && apObj->IsDictionary()) {
+                            auto* nRef = apObj->GetDictionary().FindKey("N");
+                            if (nRef) {
+                                PoDoFo::PdfObject* nObj = nRef;
+                                if (nObj->IsReference())
+                                    nObj = &d->document->GetObjects().MustGetObject(nObj->GetReference());
+                                if (nObj && nObj->IsDictionary() && nObj->HasStream()) {
+                                    // /N is a Form XObject — recurse to neutralize images inside it.
+                                    PoDoFo::PdfObject* apResources = nullptr;
+                                    auto* apRes = nObj->GetDictionary().FindKey("Resources");
+                                    if (apRes) {
+                                        apResources = apRes;
+                                        if (apResources->IsReference())
+                                            apResources = &d->document->GetObjects().MustGetObject(apResources->GetReference());
+                                    }
+                                    redactCanvasRecursively(*nObj, pdfRects, page, d->document.get(),
+                                                           redactedMcids, apResources);
+                                }
+                            }
+                        }
+                    }
+                }
+                toRemove.push_back(i);
             }
         }
         for (auto it = toRemove.rbegin(); it != toRemove.rend(); ++it) {
