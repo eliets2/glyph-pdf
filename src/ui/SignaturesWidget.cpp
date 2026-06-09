@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "ui/SignaturesWidget.h"
+#include "util/GpTheme.h"
 #include <QLabel>
 #include <QVBoxLayout>
 #include <QListWidget>
@@ -16,15 +17,19 @@ SignaturesWidget::SignaturesWidget(ISignatureManager *signMgr, QWidget *parent)
     m_emptyLabel = new QLabel(tr("No digital signatures detected."), this);
     m_emptyLabel->setWordWrap(true);
     m_emptyLabel->setAlignment(Qt::AlignCenter);
-    m_emptyLabel->setStyleSheet("color: #64748B; padding: 20px;");
+    // T-03: use fg2 token (dim secondary text) instead of hardcoded dark hex.
+    m_emptyLabel->setStyleSheet(
+        QString("color: %1; padding: 20px;").arg(gp::Theme::fg2().name()));
     layout->addWidget(m_emptyLabel);
 
     m_listWidget = new QListWidget(this);
-    m_listWidget->setStyleSheet(QString(
-        "QListWidget { background: transparent; border: none; }"
-        "QListWidget::item { border-bottom: 1px solid #333; padding: 10px; }"
-        "QListWidget::item:selected { background: #2D2D2D; }"
-    ));
+    // T-03: replace hardcoded dark hex with GpTheme tokens for list item borders
+    // and selection background so the widget works in Light and High-Contrast.
+    m_listWidget->setStyleSheet(
+        QString("QListWidget { background: transparent; border: none; }"
+                "QListWidget::item { border-bottom: 1px solid %1; padding: 10px; }"
+                "QListWidget::item:selected { background: %2; }")
+            .arg(gp::Theme::bg3().name(), gp::Theme::bg2().name()));
     m_listWidget->hide();
     layout->addWidget(m_listWidget);
 }
@@ -58,17 +63,23 @@ void SignaturesWidget::setDocumentFile(const QString &filePath)
             itemLayout->setSpacing(2);
 
             QLabel *nameLabel = new QLabel(info.signerName.isEmpty() ? info.fieldName : info.signerName);
-            nameLabel->setStyleSheet("font-weight: bold; color: white;");
-            
+            // T-03: use palette role for primary text rather than hardcoded "white".
+            nameLabel->setStyleSheet("font-weight: bold;");
+
             QLabel *statusLabel = new QLabel(tr("Status: %1").arg(info.trustStatus));
+            // T-03: use GpTheme tokens (okGreen / danger) instead of hardcoded hex.
             if (info.isValid) {
-                statusLabel->setStyleSheet("color: #10B981;"); // Green
+                statusLabel->setStyleSheet(
+                    QString("color: %1;").arg(gp::Theme::okGreen().name()));
             } else {
-                statusLabel->setStyleSheet("color: #EF4444;"); // Red
+                statusLabel->setStyleSheet(
+                    QString("color: %1;").arg(gp::Theme::danger().name()));
             }
 
             QLabel *reasonLabel = new QLabel(info.reason);
-            reasonLabel->setStyleSheet("font-size: 10px; color: #94A3B8;");
+            // T-03: use fg2 token (dim secondary text).
+            reasonLabel->setStyleSheet(
+                QString("font-size: 10px; color: %1;").arg(gp::Theme::fg2().name()));
 
             itemLayout->addWidget(nameLabel);
             itemLayout->addWidget(statusLabel);
