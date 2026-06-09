@@ -88,3 +88,7 @@ graphify-out/*
 !graphify-out/manifest.json
 
 
+
+# generated audit report (regen: python docs/audit/_gen_pdf.py)
+docs/audit/*.pdf
+docs/audit/_*.log
