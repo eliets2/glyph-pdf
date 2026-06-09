@@ -1,7 +1,15 @@
 #include <QtTest>
 #include <QTemporaryDir>
+#include <QFileInfo>
 #include <podofo/podofo.h>
 #include "engines/PdfEditorEngine.h"
+#include "engines/SignatureManager.h"
+
+#ifdef SOURCE_DIR
+static const QString kRedactFixtureDir = QStringLiteral(SOURCE_DIR "/tests/fixtures/signing");
+#else
+static const QString kRedactFixtureDir = QStringLiteral("tests/fixtures/signing");
+#endif
 
 class TestRedaction : public QObject {
     Q_OBJECT
@@ -603,7 +611,46 @@ private slots:
 private:
     double m_secretRectY = 0.0;
 
-private slots:
+    // ER-2: Redacting a signed document must be blocked at the engine level to
+    // prevent the incremental-save revision-history leak.  The engine guard is the
+    // last line of defence (the UI guard in SecurityController::applyRedactions is
+    // the first), so it must independently return false when hasPdfSignatures() is
+    // true, without touching any XObject bytes.
+    void testRedactionOnSignedDocIsBlocked()
+    {
+        const QString p12Path  = kRedactFixtureDir + "/test_signer.p12";
+        const QString inputPdf = kRedactFixtureDir + "/test_input.pdf";
+        if (!QFileInfo::exists(p12Path) || !QFileInfo::exists(inputPdf)) {
+            QSKIP("Signing fixtures missing — skipping ER-2 guard test. "
+                  "Run tests/fixtures/signing/generate.bat to create them.");
+        }
+
+        // 1. Produce a signed copy of test_input.pdf.
+        QString signedPdf = tmpPath("er2_signed.pdf");
+        {
+            SignatureManager mgr;
+            bool ok = mgr.signDocument(inputPdf, signedPdf,
+                                       p12Path, QStringLiteral("test"),
+                                       QStringLiteral("ER-2 guard test"),
+                                       QStringLiteral("TestLocation"));
+            QVERIFY2(ok, "Signing test_input.pdf must succeed for ER-2 fixture");
+        }
+        QVERIFY2(QFileInfo::exists(signedPdf), "Signed PDF must exist on disk");
+
+        // 2. Load the signed document into the engine and confirm it reports signatures.
+        PdfEditorEngine engine;
+        QVERIFY2(engine.loadDocumentForEditing(signedPdf),
+                 "Engine must load the signed document for editing");
+        QVERIFY2(engine.hasPdfSignatures(),
+                 "ER-2 pre-condition: hasPdfSignatures() must be true after signing");
+
+        // 3. Attempt to redact — the engine guard must refuse and return false.
+        // A full-page rect ensures the call would succeed on an unsigned document.
+        bool ok = engine.applyRedactions(0, {QRectF(0, 0, 1000, 1000)});
+        QVERIFY2(!ok,
+                 "ER-2: applyRedactions() must return false on a signed document "
+                 "to prevent incremental-save revision-history leakage");
+    }
 };
 
 QTEST_GUILESS_MAIN(TestRedaction)

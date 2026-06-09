@@ -408,6 +408,20 @@ void SecurityController::applyRedactions() {
         return;
     }
 
+    // ER-2: Redacting a signed document via incremental save leaks excised bytes into
+    // revision 1. Block in-place redaction and require the user to save an unsigned copy.
+    if (_ctx->pdfEditor->hasPdfSignatures()) {
+        QMessageBox::critical(
+            _mainWindow, tr("Cannot Redact Signed Document"),
+            tr("This document is digitally signed.\n\n"
+               "Applying redactions and saving in place would leave the original "
+               "content recoverable from the PDF revision history.\n\n"
+               "To redact permanently:\n"
+               "1. File > Save As — save an unsigned copy.\n"
+               "2. Open the copy and apply redactions."));
+        return;
+    }
+
     if (QMessageBox::question(_mainWindow, tr("Confirm In-Place Redaction"),
         tr("Apply redaction marks to the open PDF and overwrite it in place?\n\n"
            "This operation is destructive. The current implementation removes some matching page content and annotations, then paints black boxes, but it cannot guarantee secure removal of all recoverable text, images, forms, or hidden content. Use a dedicated redaction tool for legally sensitive material.")) != QMessageBox::Yes) {

@@ -1121,6 +1121,16 @@ bool PdfEditorEngine::applyRedactions(int pageIndex, const QList<QRectF> &rects)
     QMutexLocker locker(&d->mutex);
     d->clearErr();
     if (!d->backend) return d->noBackend("applyRedactions");
+    // ER-2: Redacting a signed document via incremental save leaks excised bytes into
+    // revision 1 of the PDF. Refuse at the engine level as a hard guard.
+    if (d->backend->hasPdfSignatures()) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Cannot apply redactions to a signed document: "
+                              "incremental save would leave original content recoverable "
+                              "from PDF revision history. Save an unsigned copy first."),
+                  QStringLiteral("applyRedactions blocked: document has signatures"));
+        return false;
+    }
     bool ok = d->backend->applyRedactions(pageIndex, rects);
     if (!ok) {
         d->setErr(ErrorInfo::Error,
