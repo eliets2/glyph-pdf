@@ -1,0 +1,16 @@
+# Binary files — no line-ending conversion
+*.pdf       binary
+*.p12       binary
+*.der       binary
+*.dll       binary
+*.exe       binary
+*.a         binary
+*.lib       binary
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.ico       binary
+*.key       -text
+*.crt       -text
+*.csr       -text
+*.pem       -text
