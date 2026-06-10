@@ -229,7 +229,7 @@ void FormBuilderMode::updateNoDocumentState()
             m_fieldBtns[i]->setEnabled(hasDoc);
     }
     m_tabOrderBtn->setEnabled(hasDoc);
-    m_deleteFieldBtn->setEnabled(false);
+    m_deleteFieldBtn->setEnabled(m_fieldList && m_fieldList->currentItem() != nullptr);
 
     if (hasDoc)
         refreshFieldList();

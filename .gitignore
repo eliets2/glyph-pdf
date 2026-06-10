@@ -24,11 +24,15 @@ autosave/
 *.pro.user
 *.qmlproject.user
 
-# Obsidian vault config (keep .obsidian tracked or not — personal choice)
+# Obsidian vault config
 .obsidian/workspace.json
 .obsidian/workspace-mobile.json
 .obsidian/plugins/
 .obsidian/cache
+.obsidian/
+
+# Claude agent planning docs (session-local)
+.agents/
 
 # OS
 .DS_Store
@@ -55,6 +59,12 @@ test_out*.log
 test_err*.log
 test_output.txt
 test_results.txt
+test_stderr.txt
+test_stdout.txt
+out.txt
+out_test.txt
+trc_out.txt
+tsv_out.txt
 # CTest output dir (capital T — exclude only the root-level CTest artefacts)
 /Testing/
 
