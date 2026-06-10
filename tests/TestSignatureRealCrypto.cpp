@@ -46,16 +46,9 @@ static const QString kCaPath     = kFixtureDir + "/test_ca.pem";
 static const QString kInputPdf   = kFixtureDir + "/test_input.pdf";
 static const QString kP12Pass    = QStringLiteral("test");
 
-// TODO(WP-7): kFixtureDir is RELATIVE, so under ctest (CWD = build/) the fixtures
-// are not found and REQUIRE_FIXTURES QSKIPs the ENTIRE suite — it never gates in CI
-// despite being ctest #8 "passing" in 0.03s. Several existing assertions here also
-// fail when the suite is actually executed (signing produces a valid /ByteRange +
-// /Contents file, but validateSignatures re-parse reports trust="Unsigned"). Both
-// are pre-existing test-infra defects owned by WP-7 (cf. G-05/G-06). The WP-2 tests
-// added here (testCertifyWritesDocMDP, testWriteUpdatePreservesSignature, and the
-// strengthened testBLTA_DocTimestampPresent) were verified by running the binary
-// from the repo root, where they PASS; they are written to avoid the broken
-// validateSignatures path so they remain valid once WP-7 makes the suite gate.
+// SOURCE_DIR is injected by CMakeLists.txt (target_compile_definitions) so
+// kFixtureDir is absolute and REQUIRE_FIXTURES finds the signing fixtures under
+// ctest (CWD = build/).  Suite runs 0-QSKIP as verified in R2-7.
 #define REQUIRE_FIXTURES() \
     do { \
         if (!QFileInfo::exists(kP12Path) || !QFileInfo::exists(kInputPdf) || !QFileInfo::exists(kCaPath)) { \
