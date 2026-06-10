@@ -811,11 +811,21 @@ double getEncodedStringWidth(const PoDoFo::PdfFont* font, const PoDoFo::PdfStrin
     return font->GetStringLength(str.GetString(), state);
 }
 
-void cleanStructElement(PoDoFo::PdfObject* elem, 
-                        PoDoFo::PdfReference pageRef, 
-                        const std::set<int64_t>& redactedMcids, 
-                        PoDoFo::PdfMemDocument* doc) {
+void cleanStructElement(PoDoFo::PdfObject* elem,
+                        PoDoFo::PdfReference pageRef,
+                        const std::set<int64_t>& redactedMcids,
+                        PoDoFo::PdfMemDocument* doc,
+                        int depth = 0) {
     if (!elem) return;
+    // N-3: cap nesting depth. A crafted structure tree with a /K cycle would
+    // otherwise recurse until stack exhaustion. Legitimate tag trees are
+    // shallow; 64 levels is far beyond any real document.
+    constexpr int kMaxStructDepth = 64;
+    if (depth > kMaxStructDepth) {
+        qWarning() << "SECURITY: structure-tree recursion exceeded depth"
+                   << kMaxStructDepth << "- possible cyclic /K reference; subtree skipped";
+        return;
+    }
     if (elem->IsReference()) {
         elem = &doc->GetObjects().MustGetObject(elem->GetReference());
     }
@@ -860,7 +870,7 @@ void cleanStructElement(PoDoFo::PdfObject* elem,
                                 childRedacted = true;
                             }
                         } else {
-                            cleanStructElement(kidObj, pageRef, redactedMcids, doc);
+                            cleanStructElement(kidObj, pageRef, redactedMcids, doc, depth + 1);
                             auto* subK = kidDict.FindKey("K");
                             if (subK && subK->IsArray() && subK->GetArray().GetSize() == 0) {
                                 removeKid = true;
@@ -899,7 +909,7 @@ void cleanStructElement(PoDoFo::PdfObject* elem,
                         childRedacted = true;
                     }
                 } else {
-                    cleanStructElement(kidObj, pageRef, redactedMcids, doc);
+                    cleanStructElement(kidObj, pageRef, redactedMcids, doc, depth + 1);
                     auto* subK = kidDict.FindKey("K");
                     if (subK && subK->IsArray() && subK->GetArray().GetSize() == 0) {
                         dict.RemoveKey("K");
@@ -1100,9 +1110,20 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                              PoDoFo::PdfMemDocument* document,
                              std::set<int64_t>& redactedMcids,
                              PoDoFo::PdfObject* activeResources = nullptr,
-                             RedactCtm parentCtm = RedactCtm{})
+                             RedactCtm parentCtm = RedactCtm{},
+                             int depth = 0)
 {
     using namespace PoDoFo;
+
+    // N-3: cap nesting depth. A crafted PDF with cyclic or deeply nested Form
+    // XObject references would otherwise exhaust the stack. 32 levels is far
+    // beyond any legitimate document (typical nesting is 1-3).
+    constexpr int kMaxCanvasDepth = 32;
+    if (depth > kMaxCanvasDepth) {
+        qWarning() << "SECURITY: redaction canvas recursion exceeded depth"
+                   << kMaxCanvasDepth << "- possible cyclic Form XObject; subtree skipped";
+        return;
+    }
 
     // Resolve the active resource dictionary for this canvas:
     // - If the caller supplied one (Form XObject recursion), use it.
@@ -1503,7 +1524,7 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                     // position where this Form XObject was placed (via `cm` before Do).
                     redactCanvasRecursively(*xobj, pdfRects, page, document, redactedMcids,
                                            formResources ? formResources : canvasResources,
-                                           ctm);
+                                           ctm, depth + 1);
                 }
             }
             
@@ -1998,6 +2019,33 @@ bool PoDoFoBackend::sanitizeDocument(const QString &outputPath) {
                 // 23. Remove annotation contents & rich text
                 if (dict.HasKey("Contents")) dict.RemoveKey("Contents");
                 if (dict.HasKey("RC")) dict.RemoveKey("RC");
+
+                // 24. Strip dangerous annotation actions. Link/Widget annotations
+                // carry actions in /A and additional actions in /AA. A /Launch,
+                // /URI, /SubmitForm, /ImportData, /GoToR, /JavaScript, /Sound,
+                // /Movie or /Rendition action is an exfiltration / code-exec
+                // vector, so remove /A entirely for those. /AA is always removed
+                // (it has no benign use in a sanitized document). Internal /GoTo
+                // navigation is preserved.
+                if (dict.HasKey("AA")) dict.RemoveKey("AA");
+                auto* actionObj = dict.FindKey("A");
+                if (actionObj) {
+                    PoDoFo::PdfObject* resolvedAction = actionObj;
+                    if (resolvedAction->IsReference())
+                        resolvedAction = &d->document->GetObjects().MustGetObject(resolvedAction->GetReference());
+                    bool dangerous = true; // default-deny: unknown action types are stripped
+                    if (resolvedAction && resolvedAction->IsDictionary()) {
+                        auto* sObj = resolvedAction->GetDictionary().FindKey("S");
+                        if (sObj && sObj->IsName()) {
+                            const std::string s = std::string(sObj->GetName().GetString());
+                            // Preserve only benign internal goto navigation. Everything
+                            // else (Launch/URI/SubmitForm/ImportData/GoToR/JavaScript/
+                            // Sound/Movie/Rendition/Named) is stripped.
+                            if (s == "GoTo") dangerous = false;
+                        }
+                    }
+                    if (dangerous) dict.RemoveKey("A");
+                }
 
                 // 19. Remove RichMedia, Movie, Screen annotations
                 auto* subtypeObj = dict.FindKey("Subtype");
@@ -3290,6 +3338,12 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
                 bool isRgb = csObj && csObj->IsName() && csObj->GetName().GetString() == "DeviceRGB";
                 auto* bpcObj = dict.FindKey("BitsPerComponent");
                 int bpc = bpcObj ? static_cast<int>(bpcObj->GetNumber()) : 8;
+
+                // Guard: cap to 10 000 px on each axis before the int cast, matching
+                // the replaceImage() cap. A crafted PDF with w/h > INT_MAX would otherwise
+                // cause truncation in static_cast<int> and a mismatched-stride QImage.
+                constexpr int64_t kMaxOptimizeDim = 10000;
+                if (w > kMaxOptimizeDim || h > kMaxOptimizeDim) continue;
 
                 if (isRgb && bpc == 8 && static_cast<qint64>(buf.size()) >= w * h * 3) {
                     QImage src(reinterpret_cast<const uchar*>(buf.data()),

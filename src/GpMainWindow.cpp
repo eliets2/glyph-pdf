@@ -571,7 +571,7 @@ void MainWindow::dropEvent(QDropEvent* event) {
 
 void MainWindow::initUpdateChecker() {
     QSettings settings;
-    if (!settings.value("update/checkOnStartup", true).toBool())
+    if (!settings.value("update/checkOnStartup", false).toBool())
         return;
 
     // --- Notification bar (hidden until update is found) ---

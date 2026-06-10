@@ -19,6 +19,10 @@ enum class ToolId {
     ExportPresets,
     Share,
     Properties,
+    Undo,
+    Redo,
+    Watermark,
+    Compare,
 
     // ── View ──
     ZoomIn,

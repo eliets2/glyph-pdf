@@ -33,8 +33,13 @@ Licensed under [Apache-2.0](LICENSE).
 - **PP-DocLayoutV2 layout detector** (ONNX, Apache-2.0): 11-region-type detection
   (Title/Paragraph/Table/Figure/List/Header/Footer/Equation/Reference/Caption/Other).
 - **Tesseract 5.5.2 + RapidOCR PP-OCRv5** dual-engine fanout via LaneScheduler.
-- **ROVER word-level fusion** for multi-engine consensus.
-- **Per-region confidence overlay** (green/yellow/red) with re-OCR on demand.
+- **ROVER word-level fusion** for multi-engine consensus — the default OCR engine
+  is the ROVER ensemble (Tesseract primary + RapidOCR secondary, IoU-matched,
+  confidence-weighted), with automatic fallback to Tesseract-only when the
+  bundled PP-OCRv5 models are unavailable.
+- **OCR result overlay** in the viewer, with re-OCR on demand from the Edit ribbon.
+- **All models bundled** — the installer ships the PP-OCRv5 and layout ONNX
+  weights plus Tesseract language data, so OCR works offline with no downloads.
 - **Cross-page pipeline:** layout ‖ OCR ‖ fusion overlap via `CrossPagePipeline`.
 
 ### Djot Document Interchange — Workstream 2
@@ -58,10 +63,10 @@ Licensed under [Apache-2.0](LICENSE).
 - **veraPDF validation gate** before finalization.
 
 ### AI Assistant
-- **Four providers:** Anthropic Claude 3.5 Sonnet, OpenAI GPT-4o, Google Gemini 1.5 Flash,
-  local Ollama (llama3 default). Real async HTTPS calls — no canned responses.
-- API keys stored in Windows Credential Manager or QSettings.
-- "Test key" button performs a real 1-token ping before saving.
+- **Local AI via Ollama** (llama3 default): real async HTTPS calls to a locally running Ollama
+  instance — no data leaves your machine.
+- API key storage via Windows Credential Manager; "Test connection" verifies reachability before saving.
+- Cloud providers (Anthropic, OpenAI, Google Gemini) are planned for a future release.
 
 ### Office & Image Import
 - **Office→PDF** via LibreOffice subprocess (docx/xlsx/pptx/odt/ods/odp/rtf/csv/txt).
@@ -72,8 +77,9 @@ Licensed under [Apache-2.0](LICENSE).
 - **Pages mode:** split (by-page / every-N / range expression), reorder with drag-drop.
 - **Batch mode:** 7 operation types, per-file progress, continue-on-failure, CSV/JSON
   error log export.
-- **Form Builder:** 9 field types (Text/Checkbox/Radio/Dropdown/ListBox/Date/Numeric/
-  Signature/Button) with tab-order editor and undo/redo.
+- **Form Builder:** 7 field types (Text/Checkbox/Radio/Dropdown/ListBox/Date/Numeric)
+  with tab-order editor and undo/redo. Signature widget and pushbutton fields are planned
+  for a future release.
 - **Compare mode:** Myers LCS diff with move detection (green/red/orange), NEXT/PREV
   navigation.
 - **Signature mode:** PAdES B-LT/B-LTA signing + validation with trust indicators.
@@ -113,9 +119,12 @@ Translation framework wired for Arabic (RTL), French, German (1394 source string
 ## SHA-256 Verification
 
 ```
-SHA-256: REPLACE_WITH_ACTUAL_HASH_AFTER_SIGNING
+SHA-256: 160297D59065FE4A000C953067BD0367BE0EF84CFA15905782FEC5D2BBFC29B1
 File:    GlyphPDF-1.0.0-x64.msi
 ```
+
+> Note: regenerate this hash whenever the MSI is rebuilt. `packaging\build-msi.ps1`
+> writes the current value to `dist\GlyphPDF-1.0.0-x64.msi.sha256`.
 
 **PowerShell verification:**
 ```powershell
@@ -154,7 +163,7 @@ GlyphPDF would not exist without these open-source projects:
 | Library | License | Use |
 |---------|---------|-----|
 | Qt 6.11 | LGPL-3.0 | Application framework |
-| PoDoFo 0.10.4 | LGPL-2.0 | PDF editing + annotations |
+| PoDoFo 1.1.0 | LGPL-2.0 | PDF editing + annotations |
 | PDFium | BSD-3-Clause | PDF rendering |
 | qpdf 12.3.2 | Apache-2.0 | PDF linearization + repair |
 | Tesseract 5.5.2 | Apache-2.0 | OCR engine |

@@ -1,22 +1,35 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  GlyphPDF — WiX v4 MSI installer (Session 17 D2)
+  GlyphPDF — WiX v4/v5 MSI installer (Session 17 D2; R4 packaging pass)
 
   Installs to Program Files, creates Start Menu + Desktop shortcuts,
   registers .pdf file association as OpenWith option (NOT hijacking default),
   supports upgrade/uninstall via MajorUpgrade.
+
+  R4: WixUI_InstallDir dialog set (license agreement + install location),
+  full payload now includes ONNX models (ROVER ensemble + layout detection)
+  and bundled tessdata so the installed app needs zero network access.
+
+  Build:  wix build -src GlyphPDF.wxs -d DeployDir=..\deploy
+               -ext WixToolset.UI.wixext -arch x64 -out GlyphPDF-1.0.0-x64.msi
 -->
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
 
   <Package
     Name="GlyphPDF"
     Manufacturer="Glyph"
     Version="1.0.0.0"
     UpgradeCode="fb1fbe00-e1af-449c-8a58-2d2e308b9127"
+    ProductCode="5BA17AB1-F3AC-4A62-B02E-27FC9B77F691"
     Scope="perMachine"
     Language="1033"
     Compressed="yes">
 
+    <!-- ProductCode is PINNED for v1.0.0 so the shipped MSI and the winget
+         manifest (packaging/winget) always agree and rebuilds are reproducible.
+         IMPORTANT: generate a NEW ProductCode for every released version (MSI
+         major-upgrade semantics require it) while keeping UpgradeCode constant. -->
     <MajorUpgrade
       DowngradeErrorMessage="A newer version of [ProductName] is already installed."
       Schedule="afterInstallInitialize" />
@@ -26,6 +39,12 @@
     <Icon Id="GlyphPDFIcon" SourceFile="$(var.DeployDir)\glyphpdf.ico" />
     <Property Id="ARPPRODUCTICON" Value="GlyphPDFIcon" />
     <Property Id="ARPHELPLINK" Value="https://glyphpdf.com" />
+    <Property Id="ARPURLINFOABOUT" Value="https://glyphpdf.com" />
+    <Property Id="ARPCOMMENTS" Value="Privacy-first PDF workstation — no telemetry, no cloud, documents stay on your machine." />
+
+    <!-- ── Installer UI: license agreement + install-dir chooser ──── -->
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
 
     <!-- ── Feature tree ──────────────────────────────────────────── -->
     <Feature Id="Core" Title="GlyphPDF Application" Level="1" AllowAbsent="no">

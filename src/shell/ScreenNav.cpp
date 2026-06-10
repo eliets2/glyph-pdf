@@ -22,19 +22,23 @@ ScreenNav::ScreenNav(QWidget* parent) : QFrame(parent) {
     label->setProperty("role", "screenNavLabel");
     row->addWidget(label);
 
+    // Note: the dedicated "OCR Verify" review screen (OCRMode) is not wired for
+    // v1.0 — OCR runs from the Edit ribbon ("Run OCR"), which uses the real
+    // Tesseract+RapidOCR ROVER ensemble and renders result overlays in the
+    // viewer. The standalone confidence-review screen is planned for a future
+    // release; it is hidden here rather than shipped as a dead nav entry.
     const QVector<QPair<QPair<QString,QString>, QString>> items = {
         {{"",          tr("Standard")},      "00"},
-        {{"ocr",       tr("OCR Verify")},    "01"},
-        {{"redact",    tr("Redaction")},      "02"},
-        {{"signature", tr("Signatures")},     "03"},
-        {{"compare",   tr("Compare")},        "04"},
-        {{"pages",     tr("Pages")},          "05"},
-        {{"batch",     tr("Batch")},          "06"},
-        {{"ai",        tr("AI Chat")},        "07"},
-        {{"form",      tr("Form Builder")},   "08"},
-        {{"compress",  tr("Compress")},       "09"},
-        {{"pdfa",      tr("PDF/A")},          "10"},
-        {{"watermark", tr("Watermark")},      "11"},
+        {{"redact",    tr("Redaction")},      "01"},
+        {{"signature", tr("Signatures")},     "02"},
+        {{"compare",   tr("Compare")},        "03"},
+        {{"pages",     tr("Pages")},          "04"},
+        {{"batch",     tr("Batch")},          "05"},
+        {{"ai",        tr("AI Chat")},        "06"},
+        {{"form",      tr("Form Builder")},   "07"},
+        {{"compress",  tr("Compress")},       "08"},
+        {{"pdfa",      tr("PDF/A")},          "09"},
+        {{"watermark", tr("Watermark")},      "10"},
     };
     for (const auto& itm : items) {
         const QString id  = itm.first.first;

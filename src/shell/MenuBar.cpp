@@ -56,11 +56,17 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
                 QMessageBox::information(mainWindow, tr("User Guide"), 
                     tr("Glyph PDF Editor User Guide is available online at https://glyph.app/guide"));
             } else if (toolId == "about") {
-                QMessageBox::about(mainWindow, tr("About Glyph PDF"), 
-                    tr("<h3>Glyph PDF Editor Pro</h3>"
+                QMessageBox::about(mainWindow, tr("About GlyphPDF"),
+                    tr("<h3>GlyphPDF</h3>"
                        "<p>Version 1.0.0</p>"
-                       "<p>Powered by C++17, Qt 6.10.2, and PoDoFo.</p>"
-                       "<p>&copy; 2026 Glyph Inc. All rights reserved.</p>"));
+                       "<p>A privacy-first PDF workstation for Windows. "
+                       "No telemetry, no cloud, no subscription.</p>"
+                       "<p>Built with C++17, Qt 6.11, PoDoFo 1.1, and PDFium.</p>"
+                       "<p>&copy; 2026 Glyph. Licensed under the "
+                       "<a href=\"https://www.apache.org/licenses/LICENSE-2.0\">Apache License 2.0</a>.</p>"
+                       "<p>This product bundles open-source components under the "
+                       "MIT, Apache-2.0, BSD, and LGPL licenses. Full notices are in "
+                       "<b>LICENSE-3RD-PARTY.md</b>, installed alongside the application.</p>"));
             } else if (toolId == "shortcuts") {
                 ShortcutHelpDialog dlg(mainWindow);
                 dlg.exec();

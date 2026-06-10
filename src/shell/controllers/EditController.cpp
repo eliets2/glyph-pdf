@@ -330,32 +330,43 @@ void EditController::runOcr() {
     if (filePath.isEmpty() || page < 0) return;
 
     // Read the pref at call-time so changes take effect without restart (D2 guardrail 3).
-    const QString engineKey = QSettings().value(QStringLiteral("ocr/engine"),
-                                                QStringLiteral("tesseract")).toString();
+    // Default is "auto": prefer the ROVER ensemble when the PP-OCRv5 models are
+    // installed, else degrade to Tesseract. (Legacy installs may still hold the old
+    // "tesseract" default; that is honoured as an explicit single-engine choice.)
+    QString engineKey = QSettings().value(QStringLiteral("ocr/engine"),
+                                          QStringLiteral("auto")).toString();
+    const bool autoSelect = (engineKey.isEmpty() || engineKey == QStringLiteral("auto"));
+
+    // Resolve ONNX model availability once (needed both for auto-resolution and the
+    // explicit-selection availability check below).
+    const QString appData = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)
+                            + QStringLiteral("/models/ppocrv5");
+    const QString nextToExe = QCoreApplication::applicationDirPath()
+                              + QStringLiteral("/models/ppocrv5");
+    const QString detModel = QStringLiteral("/PP-OCRv5_mobile_det_infer.onnx");
+    const bool onnxAvailable =
+#ifdef HAS_RAPIDOCR
+        QFile::exists(appData + detModel) || QFile::exists(nextToExe + detModel);
+#else
+        false;
+#endif
+
+    if (autoSelect) {
+        // ROVER-by-default: dual-engine ensemble when models are present, else Tesseract.
+        engineKey = onnxAvailable ? QStringLiteral("ensemble") : QStringLiteral("tesseract");
+    }
+
     const bool wantRapid    = (engineKey == QStringLiteral("rapidocr"));
     const bool wantEnsemble = (engineKey == QStringLiteral("ensemble"));
 
-    // Honest availability check before we start a thread.
-    // If the user selected RapidOCR or Ensemble but models are absent,
-    // fail loudly here — never silently fall back to Tesseract (audit §7 Pattern 5).
-    if (wantRapid || wantEnsemble) {
-        const QString appData = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)
-                                + QStringLiteral("/models/ppocrv5");
-        const QString nextToExe = QCoreApplication::applicationDirPath()
-                                  + QStringLiteral("/models/ppocrv5");
-        const QString detModel = QStringLiteral("/PP-OCRv5_mobile_det_infer.onnx");
-        const bool onnxAvailable =
-#ifdef HAS_RAPIDOCR
-            QFile::exists(appData + detModel) || QFile::exists(nextToExe + detModel);
-#else
-            false;
-#endif
-        if (!onnxAvailable) {
-            _mainWindow->statusBar()->showMessage(
-                tr("OCR failed: PP-OCRv5 ONNX models not found. "
-                   "Change the OCR engine in Preferences → Engines, or install the models."), 7000);
-            return;
-        }
+    // Honest availability check for an EXPLICIT RapidOCR/Ensemble selection: fail
+    // loudly rather than silently downgrade (audit §7 Pattern 5). The auto path
+    // already guaranteed availability above, so it is exempt.
+    if (!autoSelect && (wantRapid || wantEnsemble) && !onnxAvailable) {
+        _mainWindow->statusBar()->showMessage(
+            tr("OCR failed: PP-OCRv5 ONNX models not found. "
+               "Change the OCR engine in Preferences → Engines, or install the models."), 7000);
+        return;
     }
 
     _ocrRunning = true;

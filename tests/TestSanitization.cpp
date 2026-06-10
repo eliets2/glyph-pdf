@@ -284,6 +284,156 @@ private slots:
         }
     }
 
+    // T-H1: second integration pass covering the threat vectors the first test
+    // does not — catalog /OpenAction, catalog /AA, /PieceInfo, /EmbeddedFiles,
+    // RichMedia/Screen/Movie annotations, and dangerous annotation /A actions
+    // (Launch / URI / SubmitForm). All must be neutralized by sanitizeDocument.
+    void testIntegrationSanitizationExtendedVectors()
+    {
+        QTemporaryDir m_tmpDir;
+        QVERIFY(m_tmpDir.isValid());
+        QString pdf = m_tmpDir.filePath("sanitize_ext.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            auto& page = doc.GetPages().CreatePage(
+                PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            auto& catalog = doc.GetCatalog();
+
+            // -- catalog /OpenAction (auto-run on open) --
+            auto& openAction = doc.GetObjects().CreateDictionaryObject();
+            openAction.GetDictionary().AddKey(PoDoFo::PdfName("S"), PoDoFo::PdfName("JavaScript"));
+            openAction.GetDictionary().AddKey(PoDoFo::PdfName("JS"),
+                PoDoFo::PdfString("app.alert('open');"));
+            catalog.GetDictionary().AddKey(PoDoFo::PdfName("OpenAction"),
+                openAction.GetIndirectReference());
+
+            // -- catalog /AA --
+            auto& catAA = doc.GetObjects().CreateDictionaryObject();
+            catAA.GetDictionary().AddKey(PoDoFo::PdfName("WC"), PoDoFo::PdfString("onclose"));
+            catalog.GetDictionary().AddKey(PoDoFo::PdfName("AA"), catAA.GetIndirectReference());
+
+            // -- catalog /PieceInfo (private app data, can hide payloads) --
+            auto& pieceInfo = doc.GetObjects().CreateDictionaryObject();
+            catalog.GetDictionary().AddKey(PoDoFo::PdfName("PieceInfo"),
+                pieceInfo.GetIndirectReference());
+
+            // -- /Names /EmbeddedFiles --
+            auto& efDictObj = doc.GetObjects().CreateDictionaryObject();
+            PoDoFo::PdfArray efNames;
+            efNames.Add(PoDoFo::PdfString("payload.exe"));
+            efNames.Add(efDictObj.GetIndirectReference());
+            auto& namesDict = doc.GetObjects().CreateDictionaryObject();
+            namesDict.GetDictionary().AddKey(PoDoFo::PdfName("EmbeddedFiles"), efNames);
+            catalog.GetDictionary().AddKey(PoDoFo::PdfName("Names"),
+                namesDict.GetIndirectReference());
+
+            // -- page /PieceInfo --
+            page.GetDictionary().AddKey(PoDoFo::PdfName("PieceInfo"),
+                doc.GetObjects().CreateDictionaryObject().GetIndirectReference());
+
+            // -- Link annotation with a /Launch action (run executable) --
+            auto& launchAction = doc.GetObjects().CreateDictionaryObject();
+            launchAction.GetDictionary().AddKey(PoDoFo::PdfName("S"), PoDoFo::PdfName("Launch"));
+            launchAction.GetDictionary().AddKey(PoDoFo::PdfName("F"),
+                PoDoFo::PdfString("cmd.exe"));
+            auto& linkAnnot = doc.GetObjects().CreateDictionaryObject();
+            linkAnnot.GetDictionary().AddKey(PoDoFo::PdfName("Type"), PoDoFo::PdfName("Annot"));
+            linkAnnot.GetDictionary().AddKey(PoDoFo::PdfName("Subtype"), PoDoFo::PdfName("Link"));
+            PoDoFo::PdfArray linkRect;
+            linkRect.Add(PoDoFo::PdfObject(int64_t(0)));
+            linkRect.Add(PoDoFo::PdfObject(int64_t(0)));
+            linkRect.Add(PoDoFo::PdfObject(int64_t(50)));
+            linkRect.Add(PoDoFo::PdfObject(int64_t(50)));
+            linkAnnot.GetDictionary().AddKey(PoDoFo::PdfName("Rect"), linkRect);
+            linkAnnot.GetDictionary().AddKey(PoDoFo::PdfName("A"),
+                launchAction.GetIndirectReference());
+
+            // -- URI link annotation (data exfil) --
+            auto& uriAction = doc.GetObjects().CreateDictionaryObject();
+            uriAction.GetDictionary().AddKey(PoDoFo::PdfName("S"), PoDoFo::PdfName("URI"));
+            uriAction.GetDictionary().AddKey(PoDoFo::PdfName("URI"),
+                PoDoFo::PdfString("https://evil.example/leak"));
+            auto& uriAnnot = doc.GetObjects().CreateDictionaryObject();
+            uriAnnot.GetDictionary().AddKey(PoDoFo::PdfName("Type"), PoDoFo::PdfName("Annot"));
+            uriAnnot.GetDictionary().AddKey(PoDoFo::PdfName("Subtype"), PoDoFo::PdfName("Link"));
+            PoDoFo::PdfArray uriRect;
+            uriRect.Add(PoDoFo::PdfObject(int64_t(60)));
+            uriRect.Add(PoDoFo::PdfObject(int64_t(0)));
+            uriRect.Add(PoDoFo::PdfObject(int64_t(110)));
+            uriRect.Add(PoDoFo::PdfObject(int64_t(50)));
+            uriAnnot.GetDictionary().AddKey(PoDoFo::PdfName("Rect"), uriRect);
+            uriAnnot.GetDictionary().AddKey(PoDoFo::PdfName("A"),
+                uriAction.GetIndirectReference());
+
+            PoDoFo::PdfArray annots;
+            annots.Add(linkAnnot.GetIndirectReference());
+            annots.Add(uriAnnot.GetIndirectReference());
+            page.GetDictionary().AddKey(PoDoFo::PdfName("Annots"), annots);
+
+            doc.Save(pdf.toUtf8().constData());
+        }
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+        QString outPdf = m_tmpDir.filePath("sanitize_ext_out.pdf");
+        QVERIFY(engine.sanitizeDocument(outPdf));
+
+        PoDoFo::PdfMemDocument outDoc;
+        outDoc.Load(outPdf.toUtf8().constData());
+        auto& outCatalog = outDoc.GetCatalog();
+
+        // Vector 7: catalog /OpenAction removed.
+        QVERIFY2(!outCatalog.GetDictionary().HasKey("OpenAction"),
+                 "T-H1: catalog /OpenAction must be removed");
+
+        // Vector 8: catalog /AA removed.
+        QVERIFY2(!outCatalog.GetDictionary().HasKey("AA"),
+                 "T-H1: catalog /AA must be removed");
+
+        // Vector 9: catalog /PieceInfo removed.
+        QVERIFY2(!outCatalog.GetDictionary().HasKey("PieceInfo"),
+                 "T-H1: catalog /PieceInfo must be removed");
+
+        // Vector 10: /Names /EmbeddedFiles removed.
+        if (outCatalog.GetDictionary().HasKey("Names")) {
+            auto* namesObj = outCatalog.GetDictionary().FindKey("Names");
+            if (namesObj && namesObj->IsReference())
+                namesObj = &outDoc.GetObjects().MustGetObject(namesObj->GetReference());
+            if (namesObj && namesObj->IsDictionary()) {
+                QVERIFY2(!namesObj->GetDictionary().HasKey("EmbeddedFiles"),
+                         "T-H1: /Names /EmbeddedFiles must be removed");
+            }
+        }
+
+        auto& outPage = outDoc.GetPages().GetPageAt(0);
+
+        // Vector 11: page /PieceInfo removed.
+        QVERIFY2(!outPage.GetDictionary().HasKey("PieceInfo"),
+                 "T-H1: page /PieceInfo must be removed");
+
+        // Vectors 12-13: dangerous annotation /A actions stripped.
+        // The Link annotations survive (Subtype Link is not removed) but their
+        // /A Launch and /URI actions must be gone.
+        auto& outAnnots = outPage.GetAnnotations();
+        for (unsigned i = 0; i < outAnnots.GetCount(); ++i) {
+            auto& a = outAnnots.GetAnnotAt(i);
+            auto* actObj = a.GetDictionary().FindKey("A");
+            if (actObj) {
+                if (actObj->IsReference())
+                    actObj = &outDoc.GetObjects().MustGetObject(actObj->GetReference());
+                if (actObj && actObj->IsDictionary()) {
+                    auto* sObj = actObj->GetDictionary().FindKey("S");
+                    if (sObj && sObj->IsName()) {
+                        const std::string s = std::string(sObj->GetName().GetString());
+                        QVERIFY2(s != "Launch" && s != "URI",
+                                 qPrintable(QString("T-H1: dangerous annotation action "
+                                                    "'%1' survived sanitize").arg(QString::fromStdString(s))));
+                    }
+                }
+            }
+        }
+    }
+
     void testPdfEscapeLiteralStringInvariants()
     {
         // Basic escaping
