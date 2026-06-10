@@ -98,13 +98,16 @@ private slots:
         }
 
         PdfEditorEngine engine;
-        // Must return false (PoDoFo rejects truncated stream) and not crash/OOM.
+        // Must not crash, OOM, or hang — PoDoFo rejects truncated stream lengths; qpdf
+        // may repair some. Both return values (true = repaired, false = rejected) are OK.
         bool loaded = engine.loadDocumentForEditing(malformedPdf);
-        // Either the engine loaded (qpdf repaired it) or returned false — both are OK.
-        // What is NOT OK is a crash, OOM, or hang.
-        Q_UNUSED(loaded);
-        // If we reach here without segfault/OOM, the test passes.
-        QVERIFY(true);
+        if (loaded) {
+            PdfMetadata meta;
+            QVERIFY2(engine.getMetadata(meta),
+                     "Repaired malformed-stream document must support metadata queries");
+        } else {
+            QVERIFY2(!loaded, "Engine cleanly rejected the malformed stream without crash");
+        }
     }
 
     // G-01c / A-03: A crafted PDF with an image stream claiming extremely large
@@ -143,15 +146,17 @@ private slots:
         }
 
         PdfEditorEngine engine;
-        // The engine must load without crashing (PoDoFo loads the dict; the dimension
-        // check is in the rendering path — PdfiumBackend — not the loading path).
+        // The PDF structure is valid — PoDoFo loads it fine; dimension enforcement is in
+        // the rendering path (PdfiumBackend, covered by TestRobustness::testPdfiumRenderOversizedPageRejected).
+        // This test verifies load-path stability for adversarial dimension headers.
         bool loaded = engine.loadDocumentForEditing(hugePdf);
-        // Load may succeed (the structure is valid PDF), but rendering must be safe.
-        // We do not call render here to avoid the PdfiumBackend path in unit tests.
-        Q_UNUSED(loaded);
-
-        // Assert the constant is enforced: images > kMaxImageDimPx on either axis
-        // are either clamped to kMaxImageDimPx or rejected before QImage allocation.
+        if (loaded) {
+            PdfMetadata meta;
+            QVERIFY2(engine.getMetadata(meta),
+                     "Document with oversized image header must support metadata queries");
+        }
+        // The PoDoFo optimize path (optimizeImages) caps dimensions at 10 000 px per axis
+        // before QImage construction. Verify our limit constants are sane.
         QVERIFY2(kMaxImageDimPx > 0 && kMaxImageDimPx <= 65536,
                  "kMaxImageDimPx must be a sane positive limit (prevents QImage overflow)");
     }

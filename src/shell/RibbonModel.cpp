@@ -10,17 +10,17 @@ const QSet<QString>& RibbonModel::plannedTools() {
     // its backend implementation hasn't shipped. Remove when the handler is wired.
     static const QSet<QString> planned = {
         // Home
-        "snapshot", "findRep", "regex", "undo", "redo", "history",
+        "snapshot", "findRep", "regex", "history",
         // View – panels and window management
         "thumbs", "bookmarks", "comments", "layers", "rtl",
-        "splitWin", "compare", "newWin",
+        "splitWin", "newWin",
         // Edit – advanced text/object operations
         "insertText", "deleteText", "link", "attach", "delete",
         "alignL", "alignC", "alignR", "distribute", "group", "layerOrder",
         "ocrVerify", "ocrLang", "ocrSettings",
         "measure", "distance", "area",
         // Organize – page decoration and advanced ops
-        "replace", "reverse", "compareDocs", "watermark", "background",
+        "replace", "reverse", "background",
         // Comment – advanced annotation types
         "callout", "poly", "eraser", "stamp", "customStamp",
         "summary", "filterComm", "statusComm", "trackChanges", "reply",

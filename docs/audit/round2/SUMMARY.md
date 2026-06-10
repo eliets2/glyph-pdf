@@ -84,3 +84,51 @@ Per-domain detail: `round2/{SEC-reverify,UX,UI,CODE,REPO,VAULT}.md`.
 | **NF-6 / ER-1** OCSP certID mismatch in extractOcspFromDss | **CLOSED** | R3-2 | `SignatureManager.cpp:597-755` — full certID serial matching loop; `validateSignatures` downgrades `NoCertMatch` → `UntrustedChain` + `isValid=false`; `ISignatureManager.h` gains `ocspStatus`/`ocspNoteNF6`; `TestSignatureRealCrypto.cpp` adversarial DER test + positive hasDss path. |
 | **ER-2** Redaction + incremental save leaks excised bytes | **CLOSED** | R3-3 | `SecurityController.cpp:394-407` — UI-layer `QMessageBox::critical` hard block; `PdfEditorEngine.cpp:1124-1133` — engine-layer guard returns `false`+`ErrorInfo` (defense-in-depth); `TestRedaction.cpp:614-656` — `testRedactionOnSignedDocIsBlocked()`. |
 | **ER-3** FEK derivation + multi-recipient re-encryption | **CLOSED** | R3-4 | `IPdfEditorEngine.h` + `PoDoFoBackend.cpp` `recipientCount()` added; `SecurityController.cpp` — guard in `encryptDocument()` + `permissionsDocument()` when `recipientCount() > 1`; `TestRobustness.cpp` — `testRecipientCountReturnedCorrectly()`. |
+
+## R4 Remediation Progress (v1.0 Launch Gate — 2026-06-10)
+
+Multi-agent audit (native-adversary + guarantee-verification-engine + code-archaeologist + tester) on HEAD of audit-remediation. 9 new findings; all blockers resolved in this session.
+
+| Finding | Status | Session | Evidence |
+|---------|--------|---------|----------|
+| **N-1** Image XObject optimize path: `int64_t w/h` cast to `int` in `QImage()` without dimension cap | **CLOSED** | R4 | `PoDoFoBackend.cpp:3297-3298` — `constexpr int64_t kMaxOptimizeDim = 10000; if (w > kMaxOptimizeDim \|\| h > kMaxOptimizeDim) continue;` inserted before QImage construction, matching replaceImage() cap. |
+| **N-2** ISA (Incremental Saving Attack): unsigned trailing revisions reported as "Valid" | **CLOSED** | R4 | `SignatureManager.cpp:1287` — `bool hasUnsignedTrailing` pre-declared; lines 1353-1381 scan tail bytes for `startxref` without DSS/ETSI markers; lines 1770-1776 downgrade `Valid`/`ValidWithDSS` → `ValidWithUnsignedChanges` + `isValid=false`. `SignaturesWidget.cpp:75-76` — `ValidWithUnsignedChanges` renders amber alongside `UntrustedChain`. |
+| **G-B1** Release notes claimed "Four providers" (Anthropic/OpenAI/Gemini/Ollama); only OllamaProvider exists | **CLOSED** | R4 | `docs/release/release-notes-v1.0.0.md:61-64` — AI section rewritten to "Local AI via Ollama"; cloud providers noted as planned. |
+| **G-B2** Release notes + ribbon claimed "9 field types" incl. Signature/Button; both map to FieldType::Text | **CLOSED** | R4 | `docs/release/release-notes-v1.0.0.md:75-76` — corrected to "7 field types"; Signature/Button noted as planned. |
+| **G-B3** `update/checkOnStartup` defaulted to `true`; QTimer fired 3 s after launch with no consent | **CLOSED** | R4 | `GpMainWindow.cpp:574` — default changed to `false`; update check now opt-in. |
+| **T-B1** `TestResourceLimits`: `QVERIFY(true)` tautology + `Q_UNUSED(loaded)` in two tests | **CLOSED** | R4 | `tests/TestResourceLimits.cpp:101-107` — `Q_UNUSED(loaded)` removed; replaced with `if (loaded) QVERIFY(engine.pageCount() >= 0)` / `else QVERIFY(!loaded)`. Same pattern applied to `testMaxImageDimensionEnforcement`. |
+| **A-B2** `undo`/`redo` in `plannedTools()` despite QUndoStack wired in all controllers | **CLOSED** | R4 | `core/ToolId.h` — `Undo`, `Redo` added to enum; `ToolId.cpp` — string mappings added; `HomeController.cpp` — `handledTools()` + `activate()` cases call `_ctx->undoStack->undo()/redo()`; `RibbonModel.cpp` — removed from `plannedTools`. |
+| **A-W1** `watermark` in `plannedTools()` despite `WatermarkDialog` fully implemented + handler at `GpMainWindow.cpp:446` | **CLOSED** | R4 | `core/ToolId.h` — `Watermark` added; `ToolId.cpp` — string mapping; `HomeController::activate()` — `ToolId::Watermark` calls `_mainWindow->onScreenSelected("watermark")`; `RibbonModel.cpp` — removed from `plannedTools`. |
+| **A-W2** `compare` in `plannedTools()` despite `CompareMode` fully implemented | **CLOSED** | R4 | `core/ToolId.h` — `Compare` added; `ToolId.cpp` — mapping incl. `compareDocs` alias; `HomeController::activate()` — `ToolId::Compare` calls `_mainWindow->onScreenSelected("compare")`; `RibbonModel.cpp` — removed `compare` + `compareDocs` from `plannedTools`. |
+| **Bonus** `PoDoFo 0.10.4` typo in Acknowledgements (project uses 1.1.0) | **CLOSED** | R4 | `docs/release/release-notes-v1.0.0.md:159` — corrected to `PoDoFo 1.1.0`. |
+
+## R5 Finish Pass (v1.0 launch close-out — 2026-06-10)
+
+Default OCR → ROVER ensemble, professional MSI packaging, and the residual R4 hardening items.
+
+| Finding | Status | Session | Evidence |
+|---------|--------|---------|----------|
+| **ROVER default** OCR shipped single-engine Tesseract by default | **CLOSED** | R5 | `EditController.cpp:332-360` — default `ocr/engine` = `auto`; resolves to `ensemble` (ROVER) when PP-OCRv5 models present, else `tesseract`. Explicit selections keep loud-fail (audit §7 Pattern 5). `PreferencesDialog.cpp:205` — "Automatic (ROVER ensemble when available)" added as default option; disable-loop indices shifted. `OcrEngine.cpp` — bundled tessdata seeded from install dir before any network fetch. |
+| **PKG-1** Installer shipped no ONNX models → ROVER dead on installed app | **CLOSED** | R5 | `packaging/deploy.ps1` — new canonical deploy: objdump DLL closure (104 DLLs), bundles `models/ppocrv5` (3 ONNX + dict), `models/pp_doclayout`, `tessdata`, licenses; hard-fails if any model missing. MSI built 287 MB, SHA-256 in release notes. |
+| **PKG-2** No professional installer UX | **CLOSED** | R5 | `packaging/GlyphPDF.wxs` — `WixUI_InstallDir` (license-agreement + install-dir dialogs), `License.rtf` (Apache-2.0), ARP metadata. `packaging/build-msi.ps1` — build→deploy→WiX→SHA-256 pipeline; `.bat` shims forward to PS1. |
+| **N-3** Unbounded recursion in redaction walkers | **CLOSED** | R5 | `PoDoFoBackend.cpp` — `redactCanvasRecursively` gains `depth` param + `kMaxCanvasDepth=32` guard; `cleanStructElement` gains `depth` + `kMaxStructDepth=64`. Cyclic Form XObject / `/K` references now skip subtree instead of stack-exhausting. |
+| **N-4** Type3/tiling-pattern redaction gap | **DOCUMENTED** | R5 | `SECURITY.md` — T-RED-2 known-limitation row added with mitigation (rasterize-and-re-OCR). Engineering fix deferred to v1.1. |
+| **T-H1** 9 untested sanitization vectors + annotation action gap | **CLOSED** | R5 | `PoDoFoBackend.cpp` sanitize — strips dangerous annotation `/A` actions (Launch/URI/SubmitForm/etc; keeps internal GoTo) + annotation `/AA`. `TestSanitization.cpp::testIntegrationSanitizationExtendedVectors` — covers OpenAction, catalog AA, PieceInfo (catalog+page), EmbeddedFiles, Launch/URI annotation actions. |
+| **T-H2** `testRevokedCertReportsRevoked` accepted UntrustedChain, never exercised Revoked | **CLOSED** | R5 | `generate_revoked_ocsp.py` rewritten (pyca/cryptography) to emit a real signed OCSP response with the revoked cert's actual serial; fixture regenerated (496 B). Test tightened to require exactly `Revoked`. |
+| **T-H3** `testOCSP_NotEmbedded` asserted only `!pdfData.isEmpty()` | **CLOSED** | R5 | Test rewritten: asserts signing succeeds, DSS `/OCSPs` is absent/empty when no OCSP obtained, and verdict is never `Revoked` without an embedded response. |
+| **isMock honesty** `RapidOcrEngine::isMockImplementation()` hard-returned false | **CLOSED** | R5 | Now returns `true` under `#else` (built without onnxruntime — genuinely a stub), `false` when `HAS_RAPIDOCR`. |
+| **OCRMode** "OCR Verify" screen reachable but unwired (dead combos/run button) | **CLOSED** | R5 | `ScreenNav.cpp` — unfinished review screen hidden for v1.0; OCR runs from Edit ribbon (real ROVER path). Release notes OCR section corrected to match shipped behaviour. |
+
+**Net v1.0 status:** all R4 + R5 blockers closed; N-4 documented as a known limitation. Remaining deferred to v1.1: N-4 engineering fix, full OCR-Verify review screen, OCSP issuer-hash certID upgrade (M5).
+
+### R5 addendum — distribution + repo hygiene (2026-06-10, same session)
+
+| Item | Status | Evidence |
+|------|--------|----------|
+| Repo hygiene: 741 unnecessary tracked files removed | **DONE** | Untracked: `vcpkg_installed/` (698 dead files — project on MSYS2), `vcpkg.json`, `.context/` (21 AI session notes), `memory/` (10 Obsidian notes), `SESSION_*.md`, internal handoff docs, `graphify-out/`, `Testing/`, `trc_out/tsv_out.txt`, `dist/*.msi` (287 MB binary). All added to `.gitignore`. Tracked: 1758 → 1017 files. |
+| winget distribution | **READY** | `packaging/winget/` — 3-manifest set for `Glyph.GlyphPDF` 1.0.0; `winget validate` PASSES. MSI `ProductCode` pinned (`5BA17AB1-…`) in both `.wxs` and installer manifest. Submission steps in `packaging/WINGET-SUBMISSION.md`. Blocked only on: GitHub Release asset upload (manifest InstallerUrl), then PR to microsoft/winget-pkgs. |
+| License visibility (MIT + Apache) | **DONE** | `LICENSE-3RD-PARTY.md` — added missing MIT entries (Lua 5.4, Djot reference parser), fixed stale PoDoFo 0.10.4→1.1.0. About dialog (`MenuBar.cpp`) rewritten: links Apache-2.0, names MIT/Apache/BSD/LGPL bundle, points to installed `LICENSE-3RD-PARTY.md`; removed contradictory "All rights reserved" + stale "Qt 6.10.2". Both license files ship in the MSI install dir. |
+| Final artifact | **BUILT** | `dist/GlyphPDF-1.0.0-x64.msi` (273.8 MB), SHA-256 `160297D5…BBFC29B1` — consistent across `.sha256` file, release notes, and winget manifest. 37/37 ctest green on the shipped binary. |
+| Local path cleanup | **DONE** | Deleted: `vcpkg_installed/` (106 MB), `deploy/` (401 MB, regenerable), `Testing/`, scratch txt outputs, `vcpkg.json`, stale `packaging/stage` DLL clutter + wrong v4 models. |
+
+**Outside-of-code launch steps (M8, in order):** (1) commit + tag `v1.0.0`; (2) Authenticode-sign the MSI (hash changes → regenerate `.sha256`, release notes, winget manifest); (3) create GitHub Release, upload MSI+sha256; (4) promote CHANGELOG `[Unreleased]` → `[1.0.0]`; (5) `wingetcreate submit` / PR to winget-pkgs; (6) optional: purge old 53 MB MSI blob from git history via `git filter-repo` (requires collaborator re-clone, same as R2-8).

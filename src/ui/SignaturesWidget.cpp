@@ -72,7 +72,8 @@ void SignaturesWidget::setDocumentFile(const QString &filePath)
             //   ValidWithDSS               → okGreen  (#4ec9b0)
             //   UntrustedChain             → warning   (#F59E0B, amber)
             //   Invalid / Revoked / Forged → danger    (#c8442b, red)
-            if (info.trustStatus == QLatin1String("UntrustedChain")) {
+            if (info.trustStatus == QLatin1String("UntrustedChain") ||
+                info.trustStatus == QLatin1String("ValidWithUnsignedChanges")) {
                 statusLabel->setStyleSheet(
                     QString("color: %1;").arg(gp::Theme::warning().name()));
             } else if (info.isValid) {

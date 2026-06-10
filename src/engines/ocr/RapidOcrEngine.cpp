@@ -148,5 +148,15 @@ QString RapidOcrEngine::getRawText(const QImage &image)
 
 bool RapidOcrEngine::isMockImplementation() const
 {
+#ifdef HAS_RAPIDOCR
+    // Real PP-OCRv5 ONNX implementation is compiled in. (Model files may still
+    // be absent at runtime — that is reported by initialize() returning false,
+    // and gated in the UI by a file-existence check — but the implementation
+    // itself is not a stub.)
     return false;
+#else
+    // Built without onnxruntime: processImage() is a no-op that returns no
+    // results. This IS a stub, so report it honestly.
+    return true;
+#endif
 }

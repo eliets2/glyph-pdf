@@ -174,7 +174,16 @@ C:\Users\User\Projects\pdf\
 │   ├── TestRedaction, TestThreadSafety, TestEncryption, TestResourceLimits, TestControllers,
 │   ├── TestIntegration, TestPerformance,
 │   └── TestAutosave (NEW M1), TestSignatureRealCrypto (NEW M1)
-├── packaging/                    ← WiX v4 MSI installer (GlyphPDF.wxs + build-msi.bat)
+├── packaging/                    ← WiX v5 MSI pipeline (R5). Canonical: build-msi.ps1 →
+│                                  deploy.ps1 (objdump DLL closure + models/ppocrv5 +
+│                                  pp_doclayout + tessdata + licenses) → wix build with
+│                                  WixUI_InstallDir license dialog → SHA-256. .bat files
+│                                  forward to the .ps1. WiX UI ext pinned to CLI version.
+│                                  ProductCode PINNED per release in GlyphPDF.wxs (new GUID
+│                                  each version; UpgradeCode constant). winget/ holds the
+│                                  validated Glyph.GlyphPDF manifests (see WINGET-SUBMISSION.md).
+│                                  R5 repo hygiene: vcpkg_installed (dead), .context, memory,
+│                                  SESSION_*.md, graphify-out, dist/, deploy/ all untracked+ignored.
 ├── translations/                 ← glyphpdf_en/ar/fr/de.ts (ar/fr/de are 6-line empty shells;
 │                                  M6-PROMPT-2 will populate via lupdate + commission translators)
 ├── third_party/
