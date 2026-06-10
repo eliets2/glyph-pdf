@@ -2,12 +2,32 @@
 
 All notable changes to GlyphPDF are documented in this file.
 
-## [Unreleased] — Branch C (internal builds only; public v1.0.0 ships at M8)
+## [1.0.0] — 2026-06-10
 
-> De-promoted from a premature `[1.0.0] — 2026-06-02` heading by the 2026-06-02 deep audit
-> (`docs/audit/AUDIT-2026-06-02.md`): i18n (0/1394 strings translated), FormBuilder delete/move/resize,
-> OCSP revocation, and multiple security fixes remain open. Do not tag v1.0.0 until the audit
-> release-gate (CLAUDE.md §9) is clear.
+First public release. The 2026-06-02 audit release-gate is clear: the WP-0…WP-8a
+remediation, R2/R3 verification rounds, and the R4/R5 launch-gate passes
+(multi-agent audit, 37/37 tests, MSI packaging with bundled OCR models) are
+complete — see `docs/audit/round2/SUMMARY.md`. The items that de-promoted the
+premature 2026-06-02 heading are resolved or honestly disclosed: i18n is
+declared English-only for v1.0, FormBuilder delete/move/resize persist via
+AcroForm, OCSP revocation is enforced with certID matching, and all security
+blockers (incl. the incremental-saving-attack detection and image-dimension
+caps) are closed with tests.
+
+### R4/R5 launch-gate highlights (2026-06-10)
+- **Security:** image XObject dimension cap (OOB read), incremental saving
+  attack detection (`ValidWithUnsignedChanges`), recursion depth guards in
+  redaction walkers, annotation Launch/URI/SubmitForm action stripping in
+  sanitize, honest `Revoked` OCSP verdict with a real matching fixture.
+- **OCR:** ROVER ensemble (Tesseract + RapidOCR) is the default engine with
+  automatic Tesseract fallback; all ONNX models and tessdata ship in the MSI —
+  OCR is fully offline, no first-run downloads.
+- **Packaging:** WiX MSI with license dialog, objdump-derived DLL closure,
+  pinned ProductCode, SHA-256 checksum, validated winget manifests.
+- **Honesty pass:** release-notes claims corrected (Ollama-only AI, 7 form
+  field types), update check now opt-in, undo/redo/watermark/compare wired,
+  unfinished OCR-Verify screen hidden, Type3/pattern redaction gap disclosed
+  in SECURITY.md (T-RED-2).
 
 ## Security — 2026-06-10
 - [B-01] Private key material (ca.key, signer.key, test_signer.p12) purged from git history via

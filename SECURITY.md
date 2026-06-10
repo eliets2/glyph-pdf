@@ -65,6 +65,7 @@ appreciated but will be triaged as informational:
 | ID | Area | Description |
 |----|------|-------------|
 | T-RED-1 | Redaction | Image/vector XObjects under a redaction box are covered by a black rectangle but not excised from the content stream. Text redaction performs genuine content-stream excision. |
+| T-RED-2 | Redaction | Text painted via Type3 font glyphs (CharProcs content streams) or rendered through tiling-pattern fills is not recursed into during content-stream excision. Such text under a redaction box may survive as graphical marks. Standard (Type1/TrueType/CID) text redaction is unaffected. Mitigation: rasterize-and-re-OCR the page before redacting documents that use Type3 fonts or pattern-filled text. |
 | T-API-2 | AI providers | API keys fall back to plaintext QSettings when Windows Credential Manager has no entry. |
 
 ---

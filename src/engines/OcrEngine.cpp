@@ -14,6 +14,7 @@
 #include <QSet>
 #include <QStandardPaths>
 #include <QFile>
+#include <QCoreApplication>
 #include <QTimer>
 #include <QUrl>
 #include <QImage>
@@ -198,6 +199,20 @@ bool OcrEngine::initialize(const QString &language, const QString &dataPath)
 
     const QString filename = safeLanguage + ".traineddata";
     const QString filepath = QFileInfo(dir, filename).absoluteFilePath();
+
+    // Seed from the bundled install-dir copy before any network fallback.
+    // The MSI ships tessdata/ next to the executable; copying it into
+    // AppLocalData keeps the strict path validation above intact and means a
+    // fresh install performs OCR with zero network access.
+    if (!QFile::exists(filepath)) {
+        const QString bundled = QCoreApplication::applicationDirPath()
+                                + QStringLiteral("/tessdata/") + filename;
+        if (QFile::exists(bundled)) {
+            if (!QFile::copy(bundled, filepath)) {
+                qWarning() << "OCR: failed to seed bundled language pack from" << bundled;
+            }
+        }
+    }
 
     if (!QFile::exists(filepath)) {
 #ifdef QT_DEBUG

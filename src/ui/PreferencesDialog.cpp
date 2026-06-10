@@ -200,6 +200,10 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
     _ocrEngineCombo = new QComboBox;
     _ocrEngineCombo->setObjectName(QStringLiteral("ocrEngineCombo"));
     _ocrEngineCombo->setAccessibleName(tr("OCR engine selection"));
+    // Default "Automatic" uses the ROVER ensemble when the PP-OCRv5 models are
+    // installed, and degrades to Tesseract when they are not. Unlike an explicit
+    // ensemble selection, the automatic mode never errors on missing models.
+    _ocrEngineCombo->addItem(tr("Automatic  (ROVER ensemble when available)"), QStringLiteral("auto"));
     _ocrEngineCombo->addItem(tr("Tesseract 5  (always available)"),   QStringLiteral("tesseract"));
     _ocrEngineCombo->addItem(tr("RapidOCR / PP-OCRv5  (ONNX)"),       QStringLiteral("rapidocr"));
     _ocrEngineCombo->addItem(tr("Ensemble  (Tesseract + RapidOCR, ROVER merge)"), QStringLiteral("ensemble"));
@@ -224,7 +228,7 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
                                    "Place the models/ppocrv5/ directory next to the executable\n"
                                    "or in the application data directory to enable this engine.");
             auto* model = qobject_cast<QStandardItemModel*>(_ocrEngineCombo->model());
-            for (int i = 1; i <= 2; ++i) {  // indices 1=rapidocr, 2=ensemble
+            for (int i = 2; i <= 3; ++i) {  // indices 2=rapidocr, 3=ensemble (0=auto, 1=tesseract)
                 if (model) {
                     auto* item = model->item(i);
                     if (item) { item->setEnabled(false); item->setToolTip(tip); }
@@ -233,10 +237,11 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
         }
     }
 
-    // Restore saved preference (default: tesseract — always available, no download).
+    // Restore saved preference (default: auto — ROVER ensemble when models present,
+    // else Tesseract; always safe to select).
     {
         const QString savedEngine = QSettings().value(QStringLiteral("ocr/engine"),
-                                                      QStringLiteral("tesseract")).toString();
+                                                      QStringLiteral("auto")).toString();
         for (int i = 0; i < _ocrEngineCombo->count(); ++i) {
             if (_ocrEngineCombo->itemData(i).toString() == savedEngine) {
                 _ocrEngineCombo->setCurrentIndex(i);

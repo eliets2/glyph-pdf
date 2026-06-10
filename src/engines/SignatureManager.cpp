@@ -1284,6 +1284,7 @@ QList<SignatureInfo> SignatureManager::validateSignatures(const QString &filePat
             info.isValid     = false;
             info.integrityIntact = false;
             info.trustStatus = "Invalid";
+            bool hasUnsignedTrailing = false; // set inside try; used after try/catch
 
             try {
                 const PoDoFo::PdfDictionary* actualSigDict = sigValDict;
@@ -1348,6 +1349,30 @@ QList<SignatureInfo> SignatureManager::validateSignatures(const QString &filePat
                     info.trustStatus = "ByteRangeMismatch";
                     results.append(info);
                     continue;
+                }
+
+                // ISA (Incremental Saving Attack) detection: scan bytes beyond the ByteRange.
+                // Legitimate PAdES B-LT/B-LTA revisions (DSS, DocTimeStamp) contain /DSS,
+                // /ETSI.RFC3161, or a new /ByteRange key. A pure content-modifying revision
+                // (no DSS/timestamp marker) indicates a possible ISA — flag for downgrade later.
+                {
+                    qint64 trailingStart = static_cast<qint64>(off2) + static_cast<qint64>(len2);
+                    if (trailingStart < fileData.size()) {
+                        QByteArray tail = fileData.mid(static_cast<int>(trailingStart));
+                        if (tail.contains("startxref")) {
+                            bool likelyDss = tail.contains("/DSS")
+                                          || tail.contains("/ETSI.RFC3161")
+                                          || tail.contains("/OCSPs")
+                                          || tail.contains("/ByteRange");
+                            if (!likelyDss) {
+                                hasUnsignedTrailing = true;
+                                qWarning() << "SECURITY: unsigned incremental revision detected"
+                                           << "after ByteRange (no DSS/timestamp marker) —"
+                                           << "possible incremental saving attack on field"
+                                           << info.fieldName;
+                            }
+                        }
+                    }
                 }
 
                 if (off1 > std::numeric_limits<int>::max() ||
@@ -1738,6 +1763,17 @@ QList<SignatureInfo> SignatureManager::validateSignatures(const QString &filePat
                             << info.fieldName << "in" << filePath;
                 info.isValid = false;
                 info.trustStatus = "VerificationError";
+            }
+
+            // ISA downgrade: if an unsigned non-DSS incremental revision was found and the
+            // signature otherwise verified as "Valid" or "ValidWithDSS", surface the gap.
+            if (hasUnsignedTrailing &&
+                (info.trustStatus == QLatin1String("Valid") ||
+                 info.trustStatus == QLatin1String("ValidWithDSS"))) {
+                qWarning() << "SECURITY: downgrading trustStatus from" << info.trustStatus
+                           << "to ValidWithUnsignedChanges for field" << info.fieldName;
+                info.trustStatus = "ValidWithUnsignedChanges";
+                info.isValid = false;
             }
 
             results.append(info);

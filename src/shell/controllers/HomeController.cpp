@@ -43,7 +43,9 @@ QList<ToolId> HomeController::handledTools() const {
         ToolId::Open, ToolId::Save, ToolId::SaveAs,
         ToolId::Print, ToolId::PrintPreview, ToolId::PageSetup,
         ToolId::ExportPresets, ToolId::Share, ToolId::Properties,
-        ToolId::ImportOffice, ToolId::ImagesToPdf
+        ToolId::ImportOffice, ToolId::ImagesToPdf,
+        ToolId::Undo, ToolId::Redo,
+        ToolId::Watermark, ToolId::Compare
     };
 }
 
@@ -87,6 +89,18 @@ void HomeController::activate(ToolId id) {
         break;
     case ToolId::ImagesToPdf:
         onImagesToPdf();
+        break;
+    case ToolId::Undo:
+        if (_ctx && _ctx->undoStack) _ctx->undoStack->undo();
+        break;
+    case ToolId::Redo:
+        if (_ctx && _ctx->undoStack) _ctx->undoStack->redo();
+        break;
+    case ToolId::Watermark:
+        _mainWindow->onScreenSelected(QStringLiteral("watermark"));
+        break;
+    case ToolId::Compare:
+        _mainWindow->onScreenSelected(QStringLiteral("compare"));
         break;
     default:
         break;

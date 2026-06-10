@@ -18,6 +18,10 @@ QString toolIdToString(ToolId id) {
         { ToolId::ExportPresets,  QStringLiteral("exportPresets") },
         { ToolId::Share,          QStringLiteral("share") },
         { ToolId::Properties,     QStringLiteral("properties") },
+        { ToolId::Undo,           QStringLiteral("undo") },
+        { ToolId::Redo,           QStringLiteral("redo") },
+        { ToolId::Watermark,      QStringLiteral("watermark") },
+        { ToolId::Compare,        QStringLiteral("compare") },
         // View
         { ToolId::ZoomIn,         QStringLiteral("zoomIn") },
         { ToolId::ZoomOut,        QStringLiteral("zoomOut") },
@@ -142,6 +146,10 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         add(ToolId::ExportPresets,  {"exportPresets", "export-presets", "exportpresets"});
         add(ToolId::Share,          {"share"});
         add(ToolId::Properties,     {"properties"});
+        add(ToolId::Undo,           {"undo"});
+        add(ToolId::Redo,           {"redo"});
+        add(ToolId::Watermark,      {"watermark"});
+        add(ToolId::Compare,        {"compare", "compareDocs", "comparedocs"});
 
         // ── View ──
         add(ToolId::ZoomIn,         {"zoomIn", "zoom-in", "zoomin"});

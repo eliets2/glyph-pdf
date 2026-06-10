@@ -25,6 +25,7 @@
 
 #include "engines/SignatureManager.h"
 #include "engines/podofo/PoDoFoBackend.h"
+#include <podofo/podofo.h>
 #include <openssl/x509.h>
 #include <openssl/x509_vfy.h>
 #include <openssl/pem.h>
@@ -447,21 +448,17 @@ private slots:
         auto sigs = mgr.validateSignatures(output);
         QVERIFY(!sigs.isEmpty());
 
-        // With B_LT the OCSP response is embedded in DSS /OCSPs.  The ER-1 fix
-        // (R3-2) performs certID matching: the stub revoked_ocsp_response.der has
-        // all-zero issuerNameHash/issuerKeyHash (serial=1) which will not match
-        // the real revoked_cert.p12 signer certificate.  When certID does not
-        // match, extractOcspFromDss returns empty and trustStatus is downgraded to
-        // "UntrustedChain" (correct security-conservative outcome — cannot confirm
-        // revocation without a matching OCSP response).  If a properly constructed
-        // OCSP response matching the signer cert is embedded, "Revoked" is returned.
-        // Both outcomes are acceptable; neither must be "Valid" or "ValidWithDSS".
+        // With B_LT the OCSP response is embedded in DSS /OCSPs. The fixture
+        // revoked_ocsp_response.der (regenerated via generate_revoked_ocsp.py)
+        // carries the revoked cert's real serial number, so the ER-1 certID
+        // match (serial compare) succeeds and the embedded REVOKED status is
+        // honoured. The verdict MUST be exactly "Revoked" — not the weaker
+        // "UntrustedChain" soft-fail, and certainly not "Valid".
         const QString &status = sigs.first().trustStatus;
-        bool acceptable = (status == "Revoked" || status == "UntrustedChain");
-        QVERIFY2(acceptable,
-                 qPrintable(QString("testRevokedCertReportsRevoked: expected Revoked or "
-                                    "UntrustedChain (certID mismatch), got: %1").arg(status)));
-        QVERIFY2(!sigs.first().isValid, "Revoked/UntrustedChain cert signature must not be valid");
+        QVERIFY2(status == QLatin1String("Revoked"),
+                 qPrintable(QString("testRevokedCertReportsRevoked: expected Revoked "
+                                    "(matching OCSP fixture), got: %1").arg(status)));
+        QVERIFY2(!sigs.first().isValid, "Revoked cert signature must not be valid");
 
         X509_STORE_free(store);
         mgr.setTrustStoreForTest(nullptr);
@@ -520,6 +517,51 @@ private slots:
         QVERIFY2(!sigs.isEmpty(), "Tampered PDF must produce at least one SignatureInfo");
         QVERIFY2(!sigs.first().integrityIntact,
                  "Tampered PDF must report integrityIntact=false");
+    }
+
+    // -----------------------------------------------------------------------
+    // Adversarial Test (R4 / N-2): Incremental Saving Attack
+    // Sign a PDF, then append an unsigned incremental revision using raw PoDoFo
+    // (as an external attacker tool would — bypassing GlyphPDF's ProvenanceGuard).
+    // The signature bytes remain intact, so naive validators report "Valid".
+    // validateSignatures must surface the unsigned revision: trustStatus becomes
+    // ValidWithUnsignedChanges (or a non-valid status) and isValid=false.
+    // -----------------------------------------------------------------------
+    void testUnsignedIncrementalRevisionDetected()
+    {
+        REQUIRE_FIXTURES();
+
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_B);
+        QString attacked = m_tmpDir.filePath("isa_attacked.pdf");
+        QVERIFY(mgr.signDocument(kInputPdf, attacked, kP12Path, kP12Pass));
+
+        // The attacker's modification: change metadata, save incrementally.
+        // The original signed bytes are untouched; a new revision is appended.
+        {
+            PoDoFo::PdfMemDocument doc;
+            doc.Load(attacked.toUtf8().constData());
+            doc.GetMetadata().SetAuthor(PoDoFo::PdfString("Mallory"));
+            doc.SaveUpdate(attacked.toUtf8().constData());
+        }
+
+        X509_STORE *store = buildTestStore();
+        QVERIFY(store);
+        mgr.setTrustStoreForTest(store);
+
+        auto sigs = mgr.validateSignatures(attacked);
+
+        X509_STORE_free(store);
+        mgr.setTrustStoreForTest(nullptr);
+
+        QVERIFY2(!sigs.isEmpty(), "Attacked PDF must still report the signature");
+        const auto &info = sigs.first();
+        QVERIFY2(info.trustStatus != QLatin1String("Valid") &&
+                 info.trustStatus != QLatin1String("ValidWithDSS"),
+                 qPrintable(QString("Unsigned incremental revision must not validate "
+                                    "clean, got: %1").arg(info.trustStatus)));
+        QVERIFY2(!info.isValid,
+                 "isValid must be false when unsigned changes follow the ByteRange");
     }
 
     // -----------------------------------------------------------------------
@@ -597,22 +639,44 @@ private slots:
         QString output = m_tmpDir.filePath("signed_blt_nocsp.pdf");
         SignatureManager mgr;
         mgr.setSignatureLevel(PAdESLevel::B_LT);
-        // No OCSP server reachable in offline CI — OCSP fetch returns empty.
-        // The verification guard must not crash and DSS is built without OCSP.
+        // The normal test signer has no reachable OCSP responder and no local
+        // <name>_ocsp_response.der fixture, so OCSP fetch returns empty. Signing
+        // must still succeed (DSS built certs-only) and must NOT fabricate a
+        // revocation verdict from a response that was never obtained/verified.
         bool ok = mgr.signDocument(kInputPdf, output, kP12Path, kP12Pass, "", "");
-        // DSS may succeed without OCSP (certs-only)
+        QVERIFY2(ok, "B_LT signing must succeed even when no OCSP is available");
         QVERIFY(QFileInfo::exists(output));
 
-        // Read the signed PDF and ensure no /OCSPs array with suspicious content
-        QFile pdfFile(output);
-        QVERIFY(pdfFile.open(QIODevice::ReadOnly));
-        QByteArray pdfData = pdfFile.readAll();
-        pdfFile.close();
+        // Assert no OCSP was embedded: the DSS /OCSPs array must be absent or
+        // empty. A present-but-populated /OCSPs here would mean an unverified
+        // response was injected — exactly the failure this test guards against.
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(output.toUtf8().constData());
+        const auto& catalog = doc.GetCatalog().GetDictionary();
+        const auto* dssObj = catalog.FindKey(PoDoFo::PdfName("DSS"));
+        if (dssObj && dssObj->IsReference())
+            dssObj = &doc.GetObjects().MustGetObject(dssObj->GetReference());
+        if (dssObj && dssObj->IsDictionary()) {
+            const auto* ocspsObj = dssObj->GetDictionary().FindKey(PoDoFo::PdfName("OCSPs"));
+            if (ocspsObj && ocspsObj->IsReference())
+                ocspsObj = &doc.GetObjects().MustGetObject(ocspsObj->GetReference());
+            if (ocspsObj && ocspsObj->IsArray()) {
+                QVERIFY2(ocspsObj->GetArray().IsEmpty(),
+                         "No-OCSP signing must not embed a /OCSPs entry");
+            }
+        }
 
-        // The test passes as long as signDocument did not crash.
-        // (In offline mode, OCSP fetch fails → verification skipped → not embedded)
-        Q_UNUSED(ok);
-        QVERIFY(!pdfData.isEmpty());
+        // And the verification verdict must never be "Revoked" without a
+        // matching, embedded OCSP response.
+        X509_STORE *store = buildTestStore();
+        QVERIFY(store);
+        mgr.setTrustStoreForTest(store);
+        auto sigs = mgr.validateSignatures(output);
+        mgr.setTrustStoreForTest(nullptr);
+        X509_STORE_free(store);
+        QVERIFY(!sigs.isEmpty());
+        QVERIFY2(sigs.first().trustStatus != QLatin1String("Revoked"),
+                 "Must not report Revoked when no OCSP response was embedded");
     }
 
     // -----------------------------------------------------------------------
