@@ -63,6 +63,30 @@ jobs:
             mingw-w64-ucrt-x86_64-libjpeg-turbo
             mingw-w64-ucrt-x86_64-libtiff
             mingw-w64-ucrt-x86_64-openjpeg2
+            mingw-w64-ucrt-x86_64-fontconfig
+
+      # The codebase requires podofo 1.1.0 (accessor API on PdfContent etc.).
+      # MSYS2 ships an older podofo, so build 1.1.0 from source into the
+      # vendored prefix that CMakeLists.txt auto-detects. Cached across runs.
+      - name: Restore vendored podofo cache
+        id: podofo-cache
+        uses: actions/cache@v4
+        with:
+          path: third_party/podofo/install
+          key: podofo-1.1.0-ucrt64-r1
+
+      - name: Build vendored podofo 1.1.0
+        if: steps.podofo-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch 1.1.0 https://github.com/podofo/podofo.git podofo-src
+          cmake -S podofo-src -B podofo-src/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPODOFO_BUILD_TOOLS=OFF \
+            -DPODOFO_BUILD_TEST=OFF \
+            -DPODOFO_BUILD_EXAMPLES=OFF \
+            -DCMAKE_INSTALL_PREFIX="$PWD/third_party/podofo/install"
+          cmake --build podofo-src/build --parallel
+          cmake --install podofo-src/build
 
       # Download ONNX Runtime 1.17.3 — gitignored binary, required for HAS_RAPIDOCR
       - name: Download ONNX Runtime
