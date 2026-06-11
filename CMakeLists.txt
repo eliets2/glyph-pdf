@@ -230,17 +230,29 @@ else()
 endif()
 
 # ── OpenJPEG2 (BSD-2-Clause) — MRC background encoding ─────────────────────
-find_package(PkgConfig QUIET)
-if(PKG_CONFIG_FOUND)
-    pkg_check_modules(OPENJPEG2 QUIET libopenjp2)
+# REQUIRED: MrcPageProcessor.cpp includes <openjpeg.h> unconditionally.
+# Prefer the CMake config package (MSYS2 ships openjpeg-2.5 config; pkg-config
+# detection is unreliable on CI runners); fall back to pkg-config.
+find_package(OpenJPEG CONFIG QUIET)
+if(OpenJPEG_FOUND)
+    target_include_directories(pdfws_engines PUBLIC ${OPENJPEG_INCLUDE_DIRS})
+    target_link_libraries(pdfws_engines PUBLIC openjp2)
+    target_compile_definitions(pdfws_engines PUBLIC HAS_OPENJPEG2)
+    message(STATUS "OpenJPEG2 found (CMake config ${OPENJPEG_VERSION}) — MRC JPEG2000 encoding enabled")
+else()
+    find_package(PkgConfig QUIET)
+    if(PKG_CONFIG_FOUND)
+        pkg_check_modules(OPENJPEG2 QUIET libopenjp2)
+    endif()
     if(OPENJPEG2_FOUND)
         target_include_directories(pdfws_engines PUBLIC ${OPENJPEG2_INCLUDE_DIRS})
         target_link_directories(pdfws_engines PUBLIC ${OPENJPEG2_LIBRARY_DIRS})
         target_link_libraries(pdfws_engines PUBLIC ${OPENJPEG2_LIBRARIES})
         target_compile_definitions(pdfws_engines PUBLIC HAS_OPENJPEG2)
-        message(STATUS "OpenJPEG2 found: ${OPENJPEG2_VERSION} — MRC JPEG2000 encoding enabled")
+        message(STATUS "OpenJPEG2 found (pkg-config ${OPENJPEG2_VERSION}) — MRC JPEG2000 encoding enabled")
     else()
-        message(STATUS "OpenJPEG2 not found — MRC JPEG2000 encoding will be disabled")
+        message(FATAL_ERROR "OpenJPEG2 not found — required by MrcPageProcessor (MRC JPEG2000 encoding). "
+                            "Install mingw-w64-ucrt-x86_64-openjpeg2 (MSYS2) or provide OpenJPEGConfig.cmake.")
     endif()
 endif()
 
