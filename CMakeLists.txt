@@ -49,7 +49,8 @@ message(STATUS "Qt6 plugins dir: ${QT6_PLUGINS_DIR}")
 # Vendored podofo 1.1.0 (built from source with ucrt64 toolchain).
 # Prepend to CMAKE_PREFIX_PATH so it is found before MSYS2 ucrt64's 0.10.4.
 set(_podofo_vendor "${CMAKE_CURRENT_SOURCE_DIR}/third_party/podofo/install")
-if(EXISTS "${_podofo_vendor}/lib/cmake/podofo/podofo-config.cmake")
+if(EXISTS "${_podofo_vendor}/lib/cmake/podofo/podofo-config.cmake" AND
+   EXISTS "${_podofo_vendor}/bin/libpodofo.dll")
     list(PREPEND CMAKE_PREFIX_PATH "${_podofo_vendor}")
     message(STATUS "Using vendored podofo 1.1.0 from ${_podofo_vendor}")
 endif()
