@@ -92,6 +92,23 @@ jobs:
           Remove-Item ort.zip
           Write-Host "ORT extracted to: $((Get-Item onnxruntime-win-x64-1.17.3).FullName)"
 
+      # Download the PDFium runtime DLL — matches the vendored import lib
+      # (chromium/7834, see third_party/pdfium/PROVENANCE.md). Gitignored binary.
+      - name: Download PDFium runtime DLL
+        shell: pwsh
+        run: |
+          $url = "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7834/pdfium-win-x64.tgz"
+          Invoke-WebRequest -Uri $url -OutFile pdfium.tgz -TimeoutSec 180
+          New-Item -ItemType Directory -Force pdfium-extract | Out-Null
+          tar -xzf pdfium.tgz -C pdfium-extract
+          $expected = "A487E1D2A18F164ADC3A17AACEE158787FA86049E6D91D3712B0A43F745E6905"
+          $actual = (Get-FileHash pdfium-extract/bin/pdfium.dll -Algorithm SHA256).Hash
+          if ($actual -ne $expected) { Write-Error "pdfium.dll checksum mismatch: $actual"; exit 1 }
+          New-Item -ItemType Directory -Force third_party/pdfium/bin | Out-Null
+          Copy-Item pdfium-extract/bin/pdfium.dll third_party/pdfium/bin/pdfium.dll
+          Remove-Item pdfium.tgz; Remove-Item -Recurse -Force pdfium-extract
+          Write-Host "pdfium.dll staged at third_party/pdfium/bin/"
+
       - name: Configure
         run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 

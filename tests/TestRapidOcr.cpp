@@ -5,6 +5,7 @@
 // rendered known-text image, and asserts the decoded text is real.
 
 #include <QtTest>
+#include <QFile>
 #include <QImage>
 #include <QPainter>
 #include <QFont>
@@ -48,6 +49,9 @@ private slots:
     // The genuine PP-OCRv5 models must load under the bundled ORT 1.17.3.
     void testInitializeLoadsModels()
     {
+        // models/ is not in the repository — CI runners legitimately lack it.
+        if (!QFile::exists(QStringLiteral(GLYPH_OCR_MODELS_DIR "/PP-OCRv5_mobile_det_infer.onnx")))
+            QSKIP("PP-OCRv5 models not present in this environment");
         RapidOcrEngine eng;
         const bool ok = eng.initialize(QStringLiteral("eng"),
                                        QStringLiteral(GLYPH_OCR_MODELS_DIR));

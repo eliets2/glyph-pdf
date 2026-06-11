@@ -305,6 +305,27 @@ if(Pdfium_FOUND AND TARGET Pdfium::Pdfium)
 else()
     message(STATUS "PDFium not found — PdfiumBackend disabled")
 endif()
+
+# ── Stage runtime DLLs beside test/app binaries ─────────────────────────────
+# Test executables live in CMAKE_BINARY_DIR; a fresh checkout has none of the
+# non-MSYS2 runtime DLLs (vendored podofo, ONNX Runtime, PDFium), so stage
+# them once here. Windows resolves exe-dir DLLs before System32, which also
+# shields tests from the incompatible onnxruntime.dll Windows ships there.
+set(_runtime_dlls "")
+if(EXISTS "${PODOFO_VENDOR_DLL}")
+    list(APPEND _runtime_dlls "${PODOFO_VENDOR_DLL}")
+endif()
+if(TARGET onnxruntime)
+    list(APPEND _runtime_dlls "${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime-win-x64-1.17.3/lib/onnxruntime.dll")
+endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/pdfium/bin/pdfium.dll")
+    list(APPEND _runtime_dlls "${CMAKE_CURRENT_SOURCE_DIR}/third_party/pdfium/bin/pdfium.dll")
+endif()
+if(_runtime_dlls)
+    add_custom_target(stage_runtime_dlls ALL
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_runtime_dlls} "${CMAKE_BINARY_DIR}"
+        COMMENT "Staging runtime DLLs into build dir")
+endif()
 if(OpenXLSX_FOUND)
     target_link_libraries(pdfws_engines PRIVATE OpenXLSX::OpenXLSX)
     target_compile_definitions(pdfws_engines PRIVATE HAS_OPENXLSX)
