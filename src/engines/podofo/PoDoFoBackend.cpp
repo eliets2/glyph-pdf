@@ -2069,14 +2069,23 @@ bool PoDoFoBackend::sanitizeDocument(const QString &outputPath) {
         }
 
         // 21. Trailer ID second element randomization
-        if (trailer.GetDictionary().HasKey("ID")) {
-            auto* idObj = trailer.GetDictionary().FindKey("ID");
+        // Re-fetch the trailer reference: `trailer` above was taken before
+        // ~20 steps of document surgery. /ID entries are BINARY strings per
+        // the PDF spec, so use PdfString::FromRaw — the text-string ctor
+        // runs encoding validation over the random bytes, which is both
+        // wrong semantically and was implicated in an intermittent crash
+        // (AssertMutable AV on CI). Aligned quint32 buffer instead of a
+        // reinterpret_cast over a char vector.
+        {
+            auto& trailerNow = d->document->GetTrailer();
+            auto* idObj = trailerNow.GetDictionary().FindKey("ID");
             if (idObj && idObj->IsArray()) {
                 auto& idArr = idObj->GetArray();
                 if (idArr.GetSize() >= 2) {
-                    std::vector<char> randomBytes(16);
-                    QRandomGenerator::system()->fillRange(reinterpret_cast<quint32*>(randomBytes.data()), 4);
-                    idArr[1] = PdfObject(PdfString(std::string(randomBytes.data(), 16)));
+                    quint32 randomWords[4];
+                    QRandomGenerator::system()->fillRange(randomWords, 4);
+                    idArr[1] = PdfObject(PdfString::FromRaw(
+                        PoDoFo::bufferview(reinterpret_cast<const char*>(randomWords), 16)));
                 }
             }
         }
