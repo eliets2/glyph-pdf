@@ -61,19 +61,30 @@ public:
             });
 
             // Stage 3 — CPU (fusion / output)
+            // Runs INLINE on this continuation's thread, which is already a
+            // CPU pool thread. Re-submitting to the same pool and blocking
+            // (the previous design) deadlocked whenever in-flight pages >=
+            // pool size: every pool thread sat blocked in a continuation
+            // waiting for a stage3 task that needed one of those same
+            // threads. Inline execution removes the circular wait — forward
+            // progress then depends only on the GPU lane's own thread.
             // Captures bpSemaphore by reference; safe because bpSemaphore
             // outlives all futures (defined above this loop).
-            auto f3 = f2.then([this, s3, handler, p, &bpSemaphore](ScheduledValue<S2Out> sv)
+            auto f3 = f2.then([s3, handler, p, &bpSemaphore](ScheduledValue<S2Out> sv)
                                -> ScheduledValue<S3Out> {
                 ScheduledValue<S3Out> result;
                 if (!sv.ok) {
                     result = ScheduledValue<S3Out>::failure(sv.error);
                 } else {
-                    auto f = m_scheduler.submit<S3Out>(
-                        SchedulerOptions{Lane::CPU, TaskPriority::Normal, p, "stage3"},
-                        [s3, p, v = sv.value]() -> S3Out { return s3(p, v); });
-                    f.waitForFinished();
-                    result = f.result();
+                    try {
+                        result = ScheduledValue<S3Out>::success(s3(p, sv.value));
+                    } catch (const std::exception& e) {
+                        SchedulerError err;
+                        err.code = SchedulerErrorCode::WorkerCrashed;
+                        err.pageIndex = p;
+                        err.message = QString::fromStdString(e.what());
+                        result = ScheduledValue<S3Out>::failure(err);
+                    }
                     if (result.ok) handler(p, result.value);
                 }
                 bpSemaphore.release();
