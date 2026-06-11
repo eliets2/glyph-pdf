@@ -152,6 +152,30 @@ private slots:
         QCOMPARE(resultsReceived.loadRelaxed(), pageCount);
     }
 
+    // Regression: thread-starvation deadlock when in-flight pages >= CPU
+    // pool size. With pool=4 and backpressure=4, the old stage3 design
+    // (re-submit to the pool + blocking wait inside a pool-thread
+    // continuation) hung forever on 4-core CI runners. Fixed by running
+    // stage3 inline on the continuation thread. This test reproduces the
+    // CI condition deterministically regardless of host core count.
+    void testCrossPagePipeliningSmallPool() {
+        LaneScheduler sched(/*gpuCapacity=*/2, /*cpuCapacity=*/4);
+        const int pageCount = 10;
+
+        CrossPagePipeline<int, int, int> pipeline(sched, /*backpressure=*/4);
+
+        QAtomicInt resultsReceived{0};
+        pipeline.run(
+            pageCount,
+            [](int /*p*/) -> int { QThread::msleep(10); return 1; },
+            [](int /*p*/, int v) -> int { QThread::msleep(15); return v; },
+            [](int /*p*/, int v) -> int { QThread::msleep(5); return v; },
+            [&resultsReceived](int, int) { resultsReceived.fetchAndAddOrdered(1); }
+        );
+
+        QCOMPARE(resultsReceived.loadRelaxed(), pageCount);
+    }
+
     void testOrderedResultQueueWithMissingPages() {
         LaneScheduler sched(2, 4);
 
