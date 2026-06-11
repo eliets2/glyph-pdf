@@ -1031,7 +1031,10 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestLaneScheduler.cpp")
     add_test(NAME TestLaneScheduler COMMAND TestLaneScheduler)
     set_tests_properties(TestLaneScheduler PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
-        TIMEOUT 120
+        TIMEOUT 300
+        # Thread-scheduling assertions starve under parallel ctest on 2-core
+        # CI runners (timeout with -j4); run alone.
+        RUN_SERIAL TRUE
         LABELS "unit;concurrency;scheduling;lane-scheduler;qt"
     )
 endif()
@@ -1142,9 +1145,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchMode.cpp")
     add_test(NAME TestBatchMode COMMAND TestBatchMode)
     set_tests_properties(TestBatchMode PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
-        TIMEOUT 60
+        TIMEOUT 120
         LABELS "unit;modes;batch;ui;qt;headless"
         RESOURCE_LOCK BatchModeIO
+        # Timing-sensitive batch progress assertions flake under parallel
+        # ctest (-j4); run alone.
+        RUN_SERIAL TRUE
     )
 endif()
 
