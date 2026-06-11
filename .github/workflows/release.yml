@@ -1,12 +1,25 @@
-name: Release
+name: Release Gate
+
+# Build + test verification on release tags.
+#
+# This workflow does NOT build or upload the MSI. The official installer is
+# built locally via packaging/build-msi.ps1 because:
+#   1. The bundled ONNX models (models/ppocrv5, models/pp_doclayout) are not
+#      in the repository, and packaging/deploy.ps1 hard-fails without them.
+#   2. Release assets must be immutable — the winget manifest pins the MSI's
+#      SHA-256, so a CI-built MSI with a different hash must never overwrite
+#      the published asset.
 
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 jobs:
-  build-msi:
+  build-and-test:
+    # Pin to windows-2022 — windows-latest redirects to windows-2025-vs2026 (beta)
+    # which has MSYS2 compatibility issues. Re-evaluate when windows-2025 is stable.
     runs-on: windows-2022
 
     defaults:
@@ -16,14 +29,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
       - name: Set up MSYS2 ucrt64
         uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
-          update: true
+          update: false
           install: >-
             mingw-w64-ucrt-x86_64-toolchain
             mingw-w64-ucrt-x86_64-cmake
@@ -41,6 +54,7 @@ jobs:
             mingw-w64-ucrt-x86_64-tesseract-ocr
             mingw-w64-ucrt-x86_64-tesseract-data-eng
             mingw-w64-ucrt-x86_64-leptonica
+            mingw-w64-ucrt-x86_64-libzip
             mingw-w64-ucrt-x86_64-libxml2
             mingw-w64-ucrt-x86_64-freetype
             mingw-w64-ucrt-x86_64-zlib
@@ -48,48 +62,29 @@ jobs:
             mingw-w64-ucrt-x86_64-libpng
             mingw-w64-ucrt-x86_64-libjpeg-turbo
             mingw-w64-ucrt-x86_64-libtiff
+            mingw-w64-ucrt-x86_64-openjpeg2
 
-      - name: Configure + Build
+      # Download ONNX Runtime 1.17.3 — gitignored binary, required for HAS_RAPIDOCR
+      - name: Download ONNX Runtime
+        shell: pwsh
         run: |
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build --parallel
+          $url = "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-win-x64-1.17.3.zip"
+          Invoke-WebRequest -Uri $url -OutFile ort.zip -TimeoutSec 180
+          $expected = "356A33D024F2709786BEBD5D4CA06CD5392875DA95DAA0455AAE72EDC8993256"
+          $actual = (Get-FileHash ort.zip -Algorithm SHA256).Hash
+          if ($actual -ne $expected) { Write-Error "ORT checksum mismatch"; exit 1 }
+          Expand-Archive -Path ort.zip -DestinationPath . -Force
+          Remove-Item ort.zip
+          Write-Host "ORT extracted to: $((Get-Item onnxruntime-win-x64-1.17.3).FullName)"
 
-      - name: Run tests
+      - name: Configure
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        # ONNX model files (models/) are gitignored — tests that need them QSKIP gracefully
         run: |
           cd build
           QT_QPA_PLATFORM=offscreen ctest --output-on-failure -j4
-
-      - name: Build MSI
-        shell: cmd
-        run: |
-          cd packaging
-          build-msi.bat
-
-      - name: Compute SHA-256
-        shell: pwsh
-        run: |
-          $msi = Get-ChildItem dist\*.msi | Select-Object -First 1
-          $hash = (Get-FileHash $msi.FullName -Algorithm SHA256).Hash.ToLower()
-          "$hash  $($msi.Name)" | Out-File -Encoding utf8 dist\SHA256SUMS.txt
-          Write-Output "MSI: $($msi.Name)"
-          Write-Output "SHA256: $hash"
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/*.msi
-            dist/SHA256SUMS.txt
-          body: |
-            ## GlyphPDF ${{ github.ref_name }}
-
-            See [CHANGELOG.md](CHANGELOG.md) for what's new.
-
-            ### Installation
-            Download `GlyphPDF-*-x64.msi` and run it. Registers `.pdf` file association (does not hijack the default handler).
-
-            ### Verification
-            ```
-            certutil -hashfile GlyphPDF-*-x64.msi SHA256
-            ```
-            Compare against `SHA256SUMS.txt`.
