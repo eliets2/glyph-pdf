@@ -3,7 +3,7 @@ PackageIdentifier: Glyph.GlyphPDF
 PackageVersion: 1.0.0
 PackageLocale: en-US
 Publisher: Glyph
-PublisherUrl: https://glyphpdf.com
+PublisherUrl: https://github.com/eliets2/glyph-pdf
 PublisherSupportUrl: https://github.com/eliets2/glyph-pdf/issues
 Author: Glyph
 PackageName: GlyphPDF
