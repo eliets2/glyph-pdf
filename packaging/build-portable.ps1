@@ -2,7 +2,7 @@
 #  GlyphPDF — Portable ZIP build pipeline (PowerShell)
 #
 #  Produces a self-contained deploy/ directory via deploy.ps1 then zips it
-#  into GlyphPDF-1.0.0-x64-portable.zip.  No installation required — users
+#  into GlyphPDF-1.0.1-x64-portable.zip.  No installation required — users
 #  unzip anywhere and run GlyphPDF.exe directly.
 #
 #  Usage:  powershell -ExecutionPolicy Bypass -File packaging\build-portable.ps1
@@ -15,7 +15,7 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $DeployDir   = Join-Path $ProjectRoot 'deploy'
 $PackDir     = $PSScriptRoot
 $OutputDir   = Join-Path $ProjectRoot 'dist'
-$Version     = '1.0.0'
+$Version     = '1.0.1'
 $ZipName     = "GlyphPDF-$Version-x64-portable.zip"
 
 Write-Host '========================================'
