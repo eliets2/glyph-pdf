@@ -7,7 +7,7 @@
 #  Usage:  powershell -ExecutionPolicy Bypass -File packaging\build-msi.ps1
 #          [-SkipBuild]   reuse the existing build/ output
 # 
-param([switch]$SkipBuild)
+param([switch]$SkipBuild, [switch]$MsiOnly)
 $ErrorActionPreference = 'Stop'
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
@@ -17,11 +17,12 @@ $PackDir     = $PSScriptRoot
 $OutputDir   = Join-Path $ProjectRoot 'dist'
 $Version     = '1.0.0'
 $MsiName     = "GlyphPDF-$Version-x64.msi"
+$ZipName     = "GlyphPDF-$Version-x64-portable.zip"
 
 $env:PATH = "C:\msys64\ucrt64\bin;$env:PATH"
 
 Write-Host '========================================'
-Write-Host " GlyphPDF MSI build pipeline  v$Version"
+Write-Host " GlyphPDF release build pipeline  v$Version"
 Write-Host '========================================'
 
 #  1. Build 
@@ -72,16 +73,33 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'WiX build failed.' }
 } finally { Pop-Location }
 
-#  4. SHA-256 checksum 
-Write-Host '[4/4] Computing SHA-256...'
-$hash = (Get-FileHash $msiPath -Algorithm SHA256).Hash
-"$hash  $MsiName" | Set-Content -Path "$msiPath.sha256" -Encoding Ascii
+#  4. MSI SHA-256 checksum
+Write-Host '[4/5] Computing MSI SHA-256...'
+$msiHash = (Get-FileHash $msiPath -Algorithm SHA256).Hash
+"$msiHash  $MsiName" | Set-Content -Path "$msiPath.sha256" -Encoding Ascii
+
+#  5. Portable ZIP (reuses deploy/ already built in step 2)
+if (-not $MsiOnly) {
+    Write-Host '[5/5] Creating portable ZIP...'
+    & powershell -ExecutionPolicy Bypass -File (Join-Path $PackDir 'build-portable.ps1') -SkipDeploy
+    if ($LASTEXITCODE -ne 0) { throw 'Portable ZIP build failed.' }
+} else {
+    Write-Host '[5/5] Skipping portable ZIP (-MsiOnly).'
+}
 
 $msiSize = (Get-Item $msiPath).Length / 1MB
+$zipPath = Join-Path $OutputDir $ZipName
 Write-Host '========================================'
 Write-Host (' MSI:    {0}' -f $msiPath)
 Write-Host (' Size:   {0:N1} MB' -f $msiSize)
-Write-Host (' SHA256: {0}' -f $hash)
+Write-Host (' SHA256: {0}' -f $msiHash)
+if (-not $MsiOnly -and (Test-Path $zipPath)) {
+    $zipHash = (Get-Content "$zipPath.sha256").Split(' ')[0]
+    $zipSize = (Get-Item $zipPath).Length / 1MB
+    Write-Host (' ZIP:    {0}' -f $zipPath)
+    Write-Host (' Size:   {0:N1} MB' -f $zipSize)
+    Write-Host (' SHA256: {0}' -f $zipHash)
+}
 Write-Host '========================================'
-Write-Host ' Release-notes step: paste the SHA-256 into'
-Write-Host ' docs/release/release-notes-v1.0.0.md (SHA-256 Verification).'
+Write-Host ' Update docs/release/release-notes-v1.0.0.md with both SHA-256 hashes.'
+Write-Host ' Upload both dist/ artifacts to the GitHub Release.'
