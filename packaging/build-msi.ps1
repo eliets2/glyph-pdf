@@ -15,7 +15,7 @@ $BuildDir    = Join-Path $ProjectRoot 'build'
 $DeployDir   = Join-Path $ProjectRoot 'deploy'
 $PackDir     = $PSScriptRoot
 $OutputDir   = Join-Path $ProjectRoot 'dist'
-$Version     = '1.0.0'
+$Version     = '1.0.1'
 $MsiName     = "GlyphPDF-$Version-x64.msi"
 $ZipName     = "GlyphPDF-$Version-x64-portable.zip"
 
@@ -101,5 +101,5 @@ if (-not $MsiOnly -and (Test-Path $zipPath)) {
     Write-Host (' SHA256: {0}' -f $zipHash)
 }
 Write-Host '========================================'
-Write-Host ' Update docs/release/release-notes-v1.0.0.md with both SHA-256 hashes.'
+Write-Host ' Update docs/release/release-notes-v1.0.1.md with both SHA-256 hashes.'
 Write-Host ' Upload both dist/ artifacts to the GitHub Release.'
