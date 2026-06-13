@@ -23,6 +23,11 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QPageSize>
+#include <QStandardPaths>
+#include <QCoreApplication>
+#ifdef Q_OS_WIN
+#include <QSettings>
+#endif
 #include <podofo/main/PdfPainter.h>
 #include <podofo/main/PdfPage.h>
 #include "engines/pdfium/PdfiumBackend.h"
@@ -348,14 +353,64 @@ bool ConversionManager::exportToCsv(const QString &outputPath, const QList<QList
     return true;
 }
 
+QString ConversionManager::locateSoffice()
+{
+    // 1. Portable LibreOffice bundled alongside the application (if a future build
+    //    ships one). Checked first so a bundled copy always wins over a system one.
+    const QString appDir = QCoreApplication::applicationDirPath();
+    const QStringList bundled = {
+        appDir + "/libreoffice/program/soffice.exe",
+        appDir + "/libreoffice/program/soffice",
+    };
+    for (const QString &p : bundled) {
+        if (QFileInfo::exists(p))
+            return QDir::toNativeSeparators(p);
+    }
+
+    // 2. On the PATH (covers MSYS2 ucrt64 builds and user-modified PATHs).
+    const QString onPath = QStandardPaths::findExecutable("soffice");
+    if (!onPath.isEmpty())
+        return QDir::toNativeSeparators(onPath);
+
+    // 3. Standard install locations.
+    const QStringList standard = {
+        "C:/Program Files/LibreOffice/program/soffice.exe",
+        "C:/Program Files (x86)/LibreOffice/program/soffice.exe",
+        "/usr/bin/soffice",                                   // Linux
+        "/Applications/LibreOffice.app/Contents/MacOS/soffice" // macOS
+    };
+    for (const QString &p : standard) {
+        if (QFileInfo::exists(p))
+            return QDir::toNativeSeparators(p);
+    }
+
+#ifdef Q_OS_WIN
+    // 4. Windows registry — App Paths gives the install dir even for non-default
+    //    locations chosen by the user during a LibreOffice install.
+    const QStringList regKeys = {
+        "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\soffice.exe",
+        "HKEY_CURRENT_USER\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\soffice.exe",
+    };
+    for (const QString &key : regKeys) {
+        QSettings reg(key, QSettings::NativeFormat);
+        const QString path = reg.value("Default").toString().remove('"');
+        if (!path.isEmpty() && QFileInfo::exists(path))
+            return QDir::toNativeSeparators(path);
+    }
+#endif
+
+    return QString(); // No converter found — caller degrades gracefully.
+}
+
 bool ConversionManager::convertOfficeToPdf(const QString &officePath, const QString &outputPath,
                                             int timeoutMs)
 {
-#ifndef HAS_LIBREOFFICE
-    Q_UNUSED(officePath); Q_UNUSED(outputPath); Q_UNUSED(timeoutMs);
-    qWarning() << "convertOfficeToPdf: LibreOffice not configured at build time";
-    return false;
-#else
+    const QString sofficePath = locateSoffice();
+    if (sofficePath.isEmpty()) {
+        qWarning() << "convertOfficeToPdf: no LibreOffice/soffice converter found on this machine";
+        return false;
+    }
+
     // Validate extension: supported Office input formats
     static const QStringList supportedExts = {
         "docx", "doc", "xlsx", "xls", "pptx", "ppt",
@@ -383,7 +438,6 @@ bool ConversionManager::convertOfficeToPdf(const QString &officePath, const QStr
 
     QProcess process;
     process.setProcessChannelMode(QProcess::MergedChannels);
-    const QString sofficePath = QString::fromLatin1(LIBREOFFICE_SOFFICE_PATH);
     process.start(sofficePath, {
         "--headless",
         "--convert-to", "pdf:writer_pdf_Export",
@@ -429,7 +483,6 @@ bool ConversionManager::convertOfficeToPdf(const QString &officePath, const QStr
         return false;
     }
     return true;
-#endif
 }
 #include <zip.h>
 #include <QXmlStreamWriter>

@@ -14,6 +14,7 @@
 
 #include <QFileDialog>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QDesktopServices>
 #include <QUrl>
 #include <QFileInfo>
@@ -400,14 +401,27 @@ int HomeController::pruneMissingRecents() {
 
 void HomeController::onImportOffice()
 {
-#ifndef HAS_LIBREOFFICE
-    QMessageBox::information(
-        _mainWindow,
-        tr("LibreOffice Not Installed"),
-        tr("Office→PDF import requires LibreOffice.\n\n"
-           "Install LibreOffice (https://www.libreoffice.org) and restart GlyphPDF."));
-    return;
-#else
+    // Runtime detection — works with whatever the user has installed (LibreOffice on
+    // the PATH, in Program Files, or recorded in the registry), independent of what
+    // the build machine had. No converter is bundled; we use the one already present.
+    if (!ConversionManager::isOfficeImportAvailable()) {
+        QMessageBox box(_mainWindow);
+        box.setIcon(QMessageBox::Information);
+        box.setWindowTitle(tr("Office Import Needs a Converter"));
+        box.setText(tr("Importing Word, Excel and PowerPoint files to PDF uses "
+                       "LibreOffice, which doesn't appear to be installed."));
+        box.setInformativeText(tr("LibreOffice is free and open source. Install it once, "
+                                  "then this feature works automatically — no GlyphPDF "
+                                  "restart required."));
+        QPushButton *download = box.addButton(tr("Download LibreOffice…"), QMessageBox::AcceptRole);
+        box.addButton(QMessageBox::Cancel);
+        box.setDefaultButton(download);
+        box.exec();
+        if (box.clickedButton() == download)
+            QDesktopServices::openUrl(QUrl("https://www.libreoffice.org/download/download/"));
+        return;
+    }
+
     const QString officePath = QFileDialog::getOpenFileName(
         _mainWindow,
         tr("Import Office Document"),
@@ -461,7 +475,6 @@ void HomeController::onImportOffice()
         return mgr.convertOfficeToPdf(officePath, outputPath);
     }));
     progress->show();
-#endif
 }
 
 void HomeController::onImagesToPdf()
