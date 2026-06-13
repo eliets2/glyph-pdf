@@ -153,7 +153,8 @@ void PdfAValidationPanel::updateDisplay(const PdfAValidationReport& report) {
 
     if (!report.validatorAvailable) {
         m_statusLabel->setText(
-            tr("Validator unavailable — build with -DVERAPDF_CLI_PATH=<path> to enable real validation."));
+            tr("PDF/A validation needs veraPDF, which isn't installed. "
+               "Download it free from verapdf.org — all other features work normally."));
         m_exportBtn->setEnabled(false);
         return;
     }
