@@ -58,7 +58,7 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
             } else if (toolId == "about") {
                 QMessageBox::about(mainWindow, tr("About GlyphPDF"),
                     tr("<h3>GlyphPDF</h3>"
-                       "<p>Version 1.0.0</p>"
+                       "<p>Version 1.0.1</p>"
                        "<p>A privacy-first PDF workstation for Windows. "
                        "No telemetry, no cloud, no subscription.</p>"
                        "<p>Built with C++17, Qt 6.11, PoDoFo 1.1, and PDFium.</p>"

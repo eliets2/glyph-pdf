@@ -11,7 +11,7 @@
   and bundled tessdata so the installed app needs zero network access.
 
   Build:  wix build -src GlyphPDF.wxs -d DeployDir=..\deploy
-               -ext WixToolset.UI.wixext -arch x64 -out GlyphPDF-1.0.0-x64.msi
+               -ext WixToolset.UI.wixext -arch x64 -out GlyphPDF-1.0.1-x64.msi
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
@@ -19,17 +19,20 @@
   <Package
     Name="GlyphPDF"
     Manufacturer="Glyph"
-    Version="1.0.0.0"
+    Version="1.0.1.0"
     UpgradeCode="fb1fbe00-e1af-449c-8a58-2d2e308b9127"
-    ProductCode="5BA17AB1-F3AC-4A62-B02E-27FC9B77F691"
+    ProductCode="83AD3854-CF43-4F27-B34D-CBB42B5624AB"
     Scope="perMachine"
     Language="1033"
     Compressed="yes">
 
-    <!-- ProductCode is PINNED for v1.0.0 so the shipped MSI and the winget
+    <!-- ProductCode is PINNED per release so the shipped MSI and the winget
          manifest (packaging/winget) always agree and rebuilds are reproducible.
-         IMPORTANT: generate a NEW ProductCode for every released version (MSI
-         major-upgrade semantics require it) while keeping UpgradeCode constant. -->
+         A NEW ProductCode is generated for every released version (MSI major-
+         upgrade semantics require it) while keeping UpgradeCode constant so
+         MajorUpgrade replaces the prior install. History:
+           v1.0.0  5BA17AB1-F3AC-4A62-B02E-27FC9B77F691
+           v1.0.1  83AD3854-CF43-4F27-B34D-CBB42B5624AB -->
     <MajorUpgrade
       DowngradeErrorMessage="A newer version of [ProductName] is already installed."
       Schedule="afterInstallInitialize" />
@@ -38,8 +41,8 @@
 
     <Icon Id="GlyphPDFIcon" SourceFile="$(var.DeployDir)\glyphpdf.ico" />
     <Property Id="ARPPRODUCTICON" Value="GlyphPDFIcon" />
-    <Property Id="ARPHELPLINK" Value="https://glyphpdf.com" />
-    <Property Id="ARPURLINFOABOUT" Value="https://glyphpdf.com" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/eliets2/glyph-pdf" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/eliets2/glyph-pdf" />
     <Property Id="ARPCOMMENTS" Value="Privacy-first PDF workstation — no telemetry, no cloud, documents stay on your machine." />
 
     <!-- ── Installer UI: license agreement + install-dir chooser ──── -->

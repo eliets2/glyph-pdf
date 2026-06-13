@@ -2,6 +2,33 @@
 
 All notable changes to GlyphPDF are documented in this file.
 
+## [1.0.1] — 2026-06-14
+
+Maintenance release. Fixes installability on clean machines and revives two
+optional features that were dead in the shipped v1.0.0 binary.
+
+### Fixed
+- **Installer "procedure entry point could not be found" crash on clean Windows.**
+  `onnxruntime.dll` depends on the Visual C++ 2015–2022 runtime
+  (`VCRUNTIME140.dll`, `VCRUNTIME140_1.dll`, `MSVCP140.dll`), which was not
+  bundled. The installer and portable ZIP now include the VC++ runtime, so the
+  app launches on a fresh Windows install with no prerequisites.
+- **Office → PDF import was inert in v1.0.0.** The LibreOffice path was baked from
+  the build machine at compile time; on the release builder (no LibreOffice) the
+  feature was compiled out entirely. It is now detected at runtime (bundled copy,
+  PATH, Program Files, or registry) and works with whatever the user has installed.
+- **PDF/A validation was permanently "unavailable" in v1.0.0** for the same
+  build-time-path reason. veraPDF is now detected at runtime.
+
+### Added
+- **Bundled veraPDF 1.30.2 + a minimal OpenJDK 21 runtime** so PDF/A conformance
+  validation works out of the box — no Java install required. Invoked as a
+  subprocess only (GPLv3+/MPLv2+; license-safe aggregation).
+- **Portable edition** — `GlyphPDF-1.0.1-x64-portable.zip`, unzip-and-run, no
+  installation, no registry writes.
+- One-click "Download…" prompts for LibreOffice / veraPDF when an optional tool
+  is absent, replacing the old developer-oriented "build with -D…" messages.
+
 ## [1.0.0] — 2026-06-10
 
 First public release. The 2026-06-02 audit release-gate is clear: the WP-0…WP-8a
