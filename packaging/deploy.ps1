@@ -95,8 +95,24 @@ do {
 } while ($copied -gt 0 -and $rounds -lt 10)
 Write-Host "      closure complete after $rounds round(s)."
 
-#  7. ML models (ROVER ensemble + layout detection) 
-Write-Host '[5/8] Copying ONNX models...'
+#  7. Visual C++ runtime DLLs (required by onnxruntime.dll, which is MSVC-compiled)
+# onnxruntime.dll imports VCRUNTIME140.dll, VCRUNTIME140_1.dll, MSVCP140.dll.
+# These are NOT in ucrt64\bin so the objdump closure misses them. Users without
+# a VC++ 2019+ app installed will get "procedure entry point cannot be found".
+Write-Host '[5/8] Copying Visual C++ 2022 runtime DLLs...'
+$sys32 = [System.Environment]::SystemDirectory
+$vcDlls = 'VCRUNTIME140.dll', 'VCRUNTIME140_1.dll', 'MSVCP140.dll', 'MSVCP140_1.dll', 'MSVCP140_2.dll'
+foreach ($dll in $vcDlls) {
+    $src = Join-Path $sys32 $dll
+    if (Test-Path $src) {
+        Copy-Item $src $DeployDir
+    } else {
+        Write-Warning "VC++ runtime DLL not found in System32: $dll"
+    }
+}
+
+#  8. ML models (ROVER ensemble + layout detection)
+Write-Host '[6/8] Copying ONNX models...'
 $modelsSrc = Join-Path $ProjectRoot 'models'
 $modelsDst = Join-Path $DeployDir 'models'
 
@@ -123,8 +139,8 @@ if (Test-Path (Join-Path $layoutSrc 'pp_doclayout_v2.onnx')) {
     throw 'models/pp_doclayout/pp_doclayout_v2.onnx missing - layout detection would be dead in the installed app.'
 }
 
-#  8. Tesseract language data (bundled - avoids first-run network fetch) 
-Write-Host '[6/8] Copying tessdata...'
+#  9. Tesseract language data (bundled - avoids first-run network fetch)
+Write-Host '[7/8] Copying tessdata...'
 $tessSrc = Join-Path $PackDir 'stage\tessdata'
 if (-not (Test-Path (Join-Path $tessSrc 'eng.traineddata'))) {
     throw 'packaging/stage/tessdata/eng.traineddata missing - Tesseract would hit the network on first OCR.'
@@ -132,17 +148,18 @@ if (-not (Test-Path (Join-Path $tessSrc 'eng.traineddata'))) {
 New-Item -ItemType Directory -Path (Join-Path $DeployDir 'tessdata') -Force | Out-Null
 Copy-Item (Join-Path $tessSrc '*.traineddata') (Join-Path $DeployDir 'tessdata')
 
-#  9. Branding + licenses 
-Write-Host '[7/8] Copying icon and licenses...'
+#  10. Branding + licenses
+Write-Host '[8/8] Copying icon and licenses...'
 Copy-Item (Join-Path $PackDir 'stage\glyphpdf.ico') $DeployDir
 Copy-Item (Join-Path $ProjectRoot 'LICENSE') (Join-Path $DeployDir 'LICENSE.txt')
 Copy-Item (Join-Path $ProjectRoot 'LICENSE-3RD-PARTY.md') $DeployDir
 
-#  10. Final validation gate 
-Write-Host '[8/8] Validating deploy tree...'
+#  11. Final validation gate
+Write-Host 'Validating deploy tree...'
 $critical = 'GlyphPDF.exe', 'Qt6Core.dll', 'Qt6Widgets.dll', 'Qt6Pdf.dll',
             'libpodofo.dll', 'pdfium.dll', 'onnxruntime.dll',
             'libtesseract-5.5.dll', 'libcrypto-3-x64.dll',
+            'VCRUNTIME140.dll', 'VCRUNTIME140_1.dll', 'MSVCP140.dll',
             'models\ppocrv5\PP-OCRv5_mobile_det_infer.onnx',
             'models\ppocrv5\PP-OCRv5_mobile_rec_infer.onnx',
             'models\ppocrv5\PP-LCNet_x1_0_textline_ori_infer.onnx',
