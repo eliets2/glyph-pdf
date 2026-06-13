@@ -113,6 +113,15 @@ graphify-out/
 
 
 
-# generated audit report (regen: python docs/audit/_gen_pdf.py)
+# generated audit report
 docs/audit/*.pdf
 docs/audit/_*.log
+
+# AI-session working material — kept locally per session, never committed.
+# (Removed from tracking 2026-06-13: build walkthroughs + raw multi-agent audit
+#  dumps were internal session logs, not part of the public source distribution.)
+docs/**/walkthroughs/
+docs/audit/_workstreams/
+docs/audit/round2/
+docs/planning/*-CATCHUP-PROMPT.md
+docs/planning/*-PROMPTS.md
