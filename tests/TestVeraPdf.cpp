@@ -5,13 +5,11 @@
 
 // TestVeraPdf — veraPDF CLI subprocess integration tests.
 //
-// When VERAPDF_CLI_PATH is not configured at build time, isAvailable() returns
-// false and initTestCase() calls QSKIP, so the entire suite is counted as
-// skipped (not failed) by ctest. This is the normal CI path when veraPDF is
-// not installed.
-//
-// When VERAPDF_CLI_PATH is configured and the binary exists, the two test
-// functions exercise the real subprocess.
+// veraPDF is located at runtime (VeraPdfValidator::locateCli): a bundled copy,
+// the GLYPHPDF_VERAPDF env var, or the PATH. When none is present, isAvailable()
+// returns false and initTestCase() calls QSKIP, so the suite is counted as
+// skipped (not failed) by ctest — the normal CI path when veraPDF isn't installed.
+// When a validator is found, the test functions exercise the real subprocess.
 
 using namespace gp;
 
@@ -39,14 +37,10 @@ private:
 
 private slots:
     void initTestCase() {
-#ifndef VERAPDF_CLI_PATH
-        QSKIP("VERAPDF_CLI_PATH not configured at build time — skipping veraPDF integration tests");
-#else
         if (!VeraPdfValidator::isAvailable()) {
-            QSKIP("veraPDF executable not found at configured path — skipping integration tests");
+            QSKIP("veraPDF not found at runtime (bundle/env/PATH) — skipping integration tests");
         }
         QVERIFY(m_tmpDir.isValid());
-#endif
     }
 
     // isAvailable() must be true when we reach here (initTestCase would have skipped otherwise)

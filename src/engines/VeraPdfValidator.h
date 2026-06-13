@@ -34,6 +34,10 @@ public:
     static PdfAValidationReport validate(const QString& pdfPath, PdfAConformance level);
     static bool isAvailable();
 
+    // Runtime path to the veraPDF CLI (bundled copy, env override, or PATH).
+    // Empty when no validator is present. Resolved at runtime, never at build time.
+    static QString locateCli();
+
 private:
     static QString conformanceFlag(PdfAConformance level);
     static PdfAValidationReport parseJson(const QByteArray& jsonOutput);

@@ -151,20 +151,22 @@ cmake -B build -G "Ninja"
 cmake --build build --parallel 8
 ```
 
-### Optional external tools (two features, not bundled)
+### Optional external tools (two features)
 
-Two **optional** features rely on external programs that GlyphPDF cannot bundle in-process for licensing/size reasons. Both degrade gracefully — the app runs fine without them, only the specific feature is disabled with a clear in-app message:
+Two **optional** features use external programs. Both are **detected at runtime** — the
+app finds them automatically if they're on the machine (bundled alongside GlyphPDF, on the
+PATH, in Program Files, or in the registry), with **no configuration**. Both degrade
+gracefully: the app runs fine without them and offers a one-click download when you first
+use the feature.
 
-| Feature | External tool | Why not bundled | Without it |
-|---------|--------------|-----------------|------------|
-| PDF/A conformance validation | [veraPDF](https://verapdf.org/home/#download) (AGPL-3.0) | AGPL — invoked as a separate subprocess only, never linked | `PdfAValidationPanel` shows "validator unavailable" |
-| Office → PDF import (`.docx`, `.xlsx`, `.pptx`, `.odt`) | LibreOffice (`soffice`) | ~400 MB — would quadruple the installer size | Office import shows "LibreOffice not installed" |
+| Feature | External tool | How it's found | Without it |
+|---------|--------------|----------------|------------|
+| PDF/A conformance validation | [veraPDF](https://verapdf.org/home/#download) (AGPL-3.0, subprocess only) | bundled `verapdf/`, `GLYPHPDF_VERAPDF` env var, or PATH | In-app prompt to download veraPDF |
+| Office → PDF import (`.docx`, `.xlsx`, `.pptx`, `.odt`) | LibreOffice (`soffice`) | bundled `libreoffice/`, PATH, Program Files, or registry | In-app prompt to download LibreOffice |
 
-These are auto-detected. To wire them in for a source build:
-```bash
-cmake -B build -DVERAPDF_CLI_PATH=/path/to/verapdf   # PDF/A validation
-pacman -S --noconfirm mingw-w64-ucrt-x86_64-libreoffice-fresh   # or system LibreOffice; soffice auto-detected
-```
+Neither is bundled in the default installer (veraPDF ships its own ~150 MB Java runtime;
+LibreOffice is ~400 MB). To bundle veraPDF anyway, drop its CLI tree at `third_party/verapdf/`
+before running `packaging/build-msi.bat` — `deploy.ps1` stages it and the app auto-detects it.
 
 ### Why MSYS2 ucrt64?
 GlyphPDF migrated from a hybrid Qt-installer + vcpkg setup to fully MSYS2-native in v1.0.0 development. This eliminates the libstdc++/libwinpthread ABI mismatch that previously required carefully-chosen DLL mixes in the build directory. Single coherent toolchain (GCC 16.x + Qt 6.11 + all deps from pacman), single source of truth for dependency versions, easier maintenance via `pacman -Syu`.

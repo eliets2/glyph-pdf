@@ -73,18 +73,9 @@ find_package(duckx CONFIG QUIET)
 find_package(CURL QUIET)
 find_package(qpdf QUIET)
 
-# LibreOffice headless — optional dep for Office→PDF import.
-# Not a hard requirement; graceful runtime no-op when absent.
-find_program(LIBREOFFICE_SOFFICE soffice
-    PATHS
-        "C:/Program Files/LibreOffice/program"
-        "C:/Program Files (x86)/LibreOffice/program"
-    DOC "LibreOffice headless soffice binary for Office→PDF conversion")
-if(LIBREOFFICE_SOFFICE)
-    message(STATUS "LibreOffice found at ${LIBREOFFICE_SOFFICE} — Office→PDF import enabled")
-else()
-    message(STATUS "LibreOffice not found — Office→PDF import will gracefully no-op at runtime")
-endif()
+# LibreOffice headless (Office→PDF import) is detected at RUNTIME by
+# ConversionManager::locateSoffice() — never baked at build time, so the shipped
+# binary works on whatever machine the user has. No build-time probe needed.
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 find_package(Pdfium QUIET)
 find_package(libzip REQUIRED)
@@ -334,11 +325,6 @@ if(duckx_FOUND)
     target_link_libraries(pdfws_engines PRIVATE duckx::duckx)
     target_compile_definitions(pdfws_engines PRIVATE HAS_DUCKX)
 endif()
-if(LIBREOFFICE_SOFFICE)
-    target_compile_definitions(pdfws_engines PRIVATE
-        HAS_LIBREOFFICE=1
-        LIBREOFFICE_SOFFICE_PATH="${LIBREOFFICE_SOFFICE}")
-endif()
 
 # ── DjVu importer (GPL-2.0+ optional; default OFF) ──────────────────────────
 # When enabled: links DjVuLibre. User accepts GPL-2.0+ by enabling this option.
@@ -368,15 +354,11 @@ target_sources(pdfws_engines PRIVATE
     src/engines/conversion/DjvuImporter.cpp
 )
 
-# veraPDF CLI — AGPL-3.0 subprocess only; never link in-process
-set(VERAPDF_CLI_PATH "" CACHE FILEPATH "Path to veraPDF CLI executable (AGPL-3.0; subprocess only)")
-if(VERAPDF_CLI_PATH)
-    target_compile_definitions(pdfws_engines PRIVATE
-        VERAPDF_CLI_PATH="${VERAPDF_CLI_PATH}")
-    message(STATUS "veraPDF CLI: ${VERAPDF_CLI_PATH}")
-else()
-    message(STATUS "veraPDF CLI not configured. PdfAValidationPanel will show 'validator unavailable'.")
-endif()
+# veraPDF CLI (AGPL-3.0 — subprocess only, never linked in-process) is located at
+# RUNTIME by VeraPdfValidator::locateCli(): a copy bundled next to the app
+# (verapdf/ — staged by deploy.ps1), the GLYPHPDF_VERAPDF env var, or the PATH.
+# No build-time path is baked, so the shipped binary works regardless of the build
+# machine. PdfAValidationPanel shows 'validator unavailable' only when none is found.
 
 # ── pdfws_commands (STATIC — mostly header-only but needs moc for some) ──
 add_library(pdfws_commands STATIC
@@ -1311,11 +1293,6 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOfficeImport.cpp")
     target_include_directories(TestOfficeImport PRIVATE src tests)
     target_compile_definitions(TestOfficeImport PRIVATE
         $<TARGET_PROPERTY:pdfws_engines,INTERFACE_COMPILE_DEFINITIONS>)
-    if(LIBREOFFICE_SOFFICE)
-        target_compile_definitions(TestOfficeImport PRIVATE
-            HAS_LIBREOFFICE=1
-            LIBREOFFICE_SOFFICE_PATH="${LIBREOFFICE_SOFFICE}")
-    endif()
     target_link_libraries(TestOfficeImport PRIVATE
         pdfws_engines pdfws_core podofo::podofo
         Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent

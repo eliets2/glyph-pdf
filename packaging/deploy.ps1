@@ -148,8 +148,28 @@ if (-not (Test-Path (Join-Path $tessSrc 'eng.traineddata'))) {
 New-Item -ItemType Directory -Path (Join-Path $DeployDir 'tessdata') -Force | Out-Null
 Copy-Item (Join-Path $tessSrc '*.traineddata') (Join-Path $DeployDir 'tessdata')
 
-#  10. Branding + licenses
-Write-Host '[8/8] Copying icon and licenses...'
+#  10. Optional: bundle veraPDF for out-of-the-box PDF/A validation.
+# veraPDF is AGPL-3.0 — bundled as a SEPARATE program invoked via subprocess only
+# (never linked in-process), which is license-safe aggregation. The app finds it at
+# runtime under <appdir>/verapdf/ (VeraPdfValidator::locateCli). Drop a veraPDF CLI
+# tree (with its bundled JRE) at third_party/verapdf to bundle it; otherwise this is
+# skipped and PDF/A validation degrades gracefully until the user installs veraPDF.
+$veraSrc = Join-Path $ProjectRoot 'third_party\verapdf'
+if (Test-Path (Join-Path $veraSrc 'verapdf.bat')) {
+    Write-Host '[8/8] Bundling veraPDF (PDF/A validator)...'
+    $veraDst = Join-Path $DeployDir 'verapdf'
+    New-Item -ItemType Directory -Path $veraDst -Force | Out-Null
+    Copy-Item (Join-Path $veraSrc '*') $veraDst -Recurse -Force
+    # AGPL compliance: ensure veraPDF's own license travels with the binary.
+    if (Test-Path (Join-Path $veraSrc 'LICENSE.txt')) {
+        Copy-Item (Join-Path $veraSrc 'LICENSE.txt') (Join-Path $veraDst 'LICENSE-veraPDF.txt') -Force
+    }
+} else {
+    Write-Host '[8/8] veraPDF not present at third_party/verapdf - skipping (PDF/A validation will prompt the user to install it).'
+}
+
+#  11. Branding + licenses
+Write-Host 'Copying icon and licenses...'
 Copy-Item (Join-Path $PackDir 'stage\glyphpdf.ico') $DeployDir
 Copy-Item (Join-Path $ProjectRoot 'LICENSE') (Join-Path $DeployDir 'LICENSE.txt')
 Copy-Item (Join-Path $ProjectRoot 'LICENSE-3RD-PARTY.md') $DeployDir
