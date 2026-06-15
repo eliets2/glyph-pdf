@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Chocolatey package spec for GlyphPDF v1.2.1
+  Chocolatey package spec for GlyphPDF v1.3.0
 
   To build: choco pack glyphpdf.nuspec
-  To push:  choco push glyphpdf.1.2.1.nupkg --source https://push.chocolatey.org --api-key YOUR_KEY
+  To push:  choco push glyphpdf.1.3.0.nupkg --source https://push.chocolatey.org --api-key YOUR_KEY
 
   Install script lives at tools/chocolateyInstall.ps1 (create alongside this file).
 -->
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
     <id>glyphpdf</id>
-    <version>1.2.1</version>
+    <version>1.3.0</version>
     <title>GlyphPDF</title>
     <authors>Glyph</authors>
     <projectUrl>https://github.com/eliets2/glyph-pdf</projectUrl>
@@ -33,11 +33,20 @@ GlyphPDF is a full-featured, open-source PDF workstation for Windows.
 - **Djot document interchange**: semantic dual-model with provenance tracking
 - **AI assistant**: Anthropic Claude, OpenAI GPT-4o, Gemini, Ollama (local)
 - **Office import**: .docx/.xlsx/.pptx via LibreOffice subprocess
-- **Batch processing**, **Form Builder** (9 field types), **Compare mode** with Myers LCS diff
+- **Batch processing** (OCR, Merge, Redact, hot-folder watch), **Form Builder** (10 field types incl. calculated), **Compare mode** with Myers LCS diff + page-reorder detection
 - No telemetry, no cloud upload, no subscription
 - Apache-2.0 licensed
 
-## v1.2.1 Fixes
+## v1.3.0 Features
+
+- Restored OCR Verify screen; Stamp, Callout and Erase annotation tools + comment attachments
+- Calculated AcroForm field type (10th field type)
+- Batch OCR, Merge and Redact operations; hot-folder watching
+- Compare report export (HTML/text) and whole-page reorder detection
+- Encrypted-ZIP secure sharing and XMP-based document expiry (read-only on expiry)
+- Tagged-PDF reading-order accessibility check
+
+## v1.2.1 Fixes (included)
 
 - Fixed startup crash on all v1.0.x and v1.2.0 installs: deploy.ps1 was bundling
   the ABI-incompatible MSYS2 podofo 0.10.4 instead of the vendored podofo 1.1.0
@@ -56,7 +65,7 @@ GlyphPDF is a full-featured, open-source PDF workstation for Windows.
 - Optional dependencies: LibreOffice (Office import), Ollama (local AI)
 - 64-bit Windows 10 (1607+) or Windows 11 required
     ]]></description>
-    <releaseNotes>https://github.com/eliets2/glyph-pdf/releases/tag/v1.2.1</releaseNotes>
+    <releaseNotes>https://github.com/eliets2/glyph-pdf/releases/tag/v1.3.0</releaseNotes>
   </metadata>
   <files>
     <file src="tools\**" target="tools" />
@@ -67,8 +76,8 @@ GlyphPDF is a full-featured, open-source PDF workstation for Windows.
 
 $ErrorActionPreference = 'Stop'
 $packageName = 'glyphpdf'
-$url64       = 'https://github.com/eliets2/glyph-pdf/releases/download/v1.2.1/GlyphPDF-1.2.1-x64.msi'
-$checksum64  = 'A4B16DD2080FE2F6EA3E1CD81966865322EEFAB78BE31169F1319161DD7644DC'
+$url64       = 'https://github.com/eliets2/glyph-pdf/releases/download/v1.3.0/GlyphPDF-1.3.0-x64.msi'
+$checksum64  = 'A64464B40CF07A3229C2C9AA4D0E643FC9C934BF9B203AD8DC7BDDCB91EA0805'
 
 $packageArgs = @{
   packageName    = $packageName
