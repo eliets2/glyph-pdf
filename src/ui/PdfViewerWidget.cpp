@@ -212,8 +212,20 @@ void PdfViewerWidget::updateRotation()
 
 // ---- Tool Mode ----
 
+void PdfViewerWidget::setReadOnly(bool readOnly)
+{
+    m_readOnly = readOnly;
+    if (readOnly)
+        setToolMode(ToolMode::HandTool);
+}
+
 void PdfViewerWidget::setToolMode(ToolMode mode)
 {
+    // In read-only mode (e.g. an expired document) only viewing and text
+    // selection are permitted; any editing/annotation mode falls back to Hand.
+    if (m_readOnly && mode != ToolMode::HandTool && mode != ToolMode::SelectText)
+        mode = ToolMode::HandTool;
+
     m_toolMode = mode;
     m_annotationLayer->setMode(mode);
     
