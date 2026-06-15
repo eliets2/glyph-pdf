@@ -68,6 +68,19 @@ public:
         return m_addFieldResult;
     }
 
+    bool addCalculatedField(const QString &pdfFilePath, int pageIndex, const QRectF &rect,
+                            const QString &fieldName, const QString &expression,
+                            const QString &outputPath) override {
+        m_lastFilePath = pdfFilePath;
+        m_lastPageIndex = pageIndex;
+        m_lastRect = rect;
+        m_lastFieldName = fieldName;
+        m_lastExpression = expression;
+        m_lastOutputPath = outputPath;
+        ++m_addFieldCalls;
+        return m_addFieldResult;
+    }
+
     // Test helpers -- configurable return values
     bool m_extractResult = true;
     bool m_fillResult = true;
@@ -81,6 +94,7 @@ public:
     QString m_lastFilePath;
     QString m_lastOutputPath;
     QString m_lastFieldName;
+    QString m_lastExpression;
     QVariantMap m_lastFieldData;
     QStringList m_lastOptions;
     QRectF m_lastRect;
