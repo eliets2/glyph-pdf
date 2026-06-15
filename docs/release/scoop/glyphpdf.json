@@ -1,23 +1,23 @@
 {
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Open-source privacy-first PDF workstation for Windows. Secure redaction, PAdES signatures, MRC compression, OCR ensemble. Apache-2.0.",
   "homepage": "https://github.com/eliets2/glyph-pdf",
   "license": "Apache-2.0",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/eliets2/glyph-pdf/releases/download/v1.2.0/GlyphPDF-1.2.0-x64.msi",
-      "hash": "sha256:EA2ED66C256C3346E9ABAF300AB34F1191D1116EFC88BA1DC38AB0B354116BCA"
+      "url": "https://github.com/eliets2/glyph-pdf/releases/download/v1.2.1/GlyphPDF-1.2.1-x64.msi",
+      "hash": "sha256:PENDING_REBUILD"
     }
   },
   "installer": {
     "script": [
-      "$msi = \"$dir\\GlyphPDF-1.2.0-x64.msi\"",
+      "$msi = \"$dir\\GlyphPDF-1.2.1-x64.msi\"",
       "Start-Process msiexec -ArgumentList \"/i\", \"$msi\", \"/quiet\", \"/norestart\", \"INSTALLDIR=$dir\" -Wait -NoNewWindow"
     ]
   },
   "uninstaller": {
     "script": [
-      "Start-Process msiexec -ArgumentList \"/x\", \"{C1F384AE-8A11-4770-B1BB-86A80F53F713}\", \"/quiet\", \"/norestart\" -Wait -NoNewWindow"
+      "Start-Process msiexec -ArgumentList \"/x\", \"{70670D6B-02A3-4DB3-A7E0-6874D3376352}\", \"/quiet\", \"/norestart\" -Wait -NoNewWindow"
     ]
   },
   "bin": [

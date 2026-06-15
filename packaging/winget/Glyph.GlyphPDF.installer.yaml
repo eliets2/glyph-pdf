@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
 PackageIdentifier: Glyph.GlyphPDF
-PackageVersion: 1.2.0
+PackageVersion: 1.2.1
 Platform:
 - Windows.Desktop
 MinimumOSVersion: 10.0.19041.0
@@ -11,11 +11,11 @@ InstallModes:
 - silent
 - silentWithProgress
 UpgradeBehavior: install
-ProductCode: '{C1F384AE-8A11-4770-B1BB-86A80F53F713}'
+ProductCode: '{70670D6B-02A3-4DB3-A7E0-6874D3376352}'
 ReleaseDate: 2026-06-15
 Installers:
 - Architecture: x64
-  InstallerUrl: https://github.com/eliets2/glyph-pdf/releases/download/v1.2.0/GlyphPDF-1.2.0-x64.msi
-  InstallerSha256: EA2ED66C256C3346E9ABAF300AB34F1191D1116EFC88BA1DC38AB0B354116BCA
+  InstallerUrl: https://github.com/eliets2/glyph-pdf/releases/download/v1.2.1/GlyphPDF-1.2.1-x64.msi
+  InstallerSha256: PENDING_REBUILD
 ManifestType: installer
 ManifestVersion: 1.6.0

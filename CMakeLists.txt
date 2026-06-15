@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(PdfWorkstation VERSION 1.2.0 LANGUAGES CXX)
+project(PdfWorkstation VERSION 1.2.1 LANGUAGES CXX)
 
 # MSYS2 ucrt64 — single coherent toolchain + Qt6 + all deps via pacman.
 # Explicit prefix paths so CMake resolves packages regardless of calling shell.
