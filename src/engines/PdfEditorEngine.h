@@ -4,6 +4,7 @@
 #include <QString>
 #include <QList>
 #include <QImage>
+#include <QDate>
 #include <memory>
 #include <QRegularExpression>
 #include "core/interfaces/IPdfEditorEngine.h"
@@ -43,6 +44,12 @@ public:
     // Metadata
     bool getMetadata(PdfMetadata &outMetadata) override;
     bool setMetadata(const PdfMetadata &metadata) override;
+
+    // Document expiry (§9.11) — local XMP marker, not part of IPdfEditorEngine.
+    // Writes <glyph:ExpiryDate>YYYY-MM-DD</glyph:ExpiryDate> into the catalog XMP.
+    bool setExpiryDate(const QString& pdfPath, const QDate& date, const QString& outputPath);
+    // Returns the embedded expiry date, or an invalid QDate if none is present.
+    static QDate readExpiryDate(const QString& pdfPath);
 
     QString currentFile() const override;
     QStringList getEmbeddedFiles() override;
