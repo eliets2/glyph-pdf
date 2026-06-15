@@ -15,7 +15,6 @@ Users work with PDFs in fragmented ways.
 * They open one app to read.
 * They use another app to annotate.
 * They use a separate tool to edit text.
-* They use cloud services for sharing.
 * They use different tools again for signing, OCR, redaction, or form filling.
 
 This creates friction:
@@ -79,7 +78,7 @@ Needs: Precise editing, Compare documents, Redaction, Audit trails, Permission c
 ### Persona 4: Small business owner
 
 Sends proposals, contracts, and forms to customers.
-Needs: Form creation, Signing workflows, Branding, Batch processing, Cloud access, Simple pricing
+Needs: Form creation, Signing workflows, Branding, Batch processing, Simple pricing
 
 ### Persona 5: IT or enterprise admin
 
@@ -104,7 +103,7 @@ Needs: Licensing controls, Security policies, SSO, Admin dashboards, Deployment 
 * PDF viewing, Text editing, Object editing, Annotation tools, OCR
 * Conversion to and from common formats, Form creation and filling
 * E-signatures, Redaction, Document comparison, Page management
-* Batch automation, Cloud sync and sharing, Security features
+* Batch automation, Security features
 * Accessibility support, Desktop primary + mobile/web companion
 
 ### 7.2 Out of scope for v1
@@ -225,24 +224,19 @@ Needs: Licensing controls, Security policies, SSO, Admin dashboards, Deployment 
 * Downsample images, remove unused objects/metadata
 * Quality controls, size reduction estimates
 
-### 9.14 Cloud and sync
-* Account sign-in, sync documents and preferences
-* Cloud storage save, share by link/email
-* Version history, offline work with later sync
-
-### 9.15 Accessibility
+### 9.14 Accessibility
 * Screen reader support, keyboard shortcuts, high contrast
 * Scalable UI, logical focus order, accessible labels
 * Preserve accessibility tags in exports
 * Reading order checks for tagged PDFs
 
-### 9.16 Search and navigation
+### 9.15 Search and navigation
 * Full-text search, search in comments/bookmarks
 * Regex search, find and replace
 * Page thumbnails, bookmark navigation, jump to page
 * Recent pages and history
 
-### 9.17 File import and export
+### 9.16 File import and export
 * Open standard and linearized PDFs
 * Import Word, Excel, PowerPoint, images, scans
 * Export to supported formats
@@ -260,7 +254,7 @@ Needs: Licensing controls, Security policies, SSO, Admin dashboards, Deployment 
 
 ## 11. Permissions and roles
 
-* Consumer mode: Full local editing, personal cloud sync, basic sharing/signing
+* Consumer mode: Full local editing, basic sharing/signing
 * Team mode: Shared templates, review workflows, admin controls, audit logs
 * Enterprise mode: Central licensing, SSO, DLP integration, policy enforcement
 
@@ -285,7 +279,6 @@ Needs: Licensing controls, Security policies, SSO, Admin dashboards, Deployment 
 ## 14. Security and privacy
 
 * Local files remain local by default
-* Cloud sync opt-in only
 * Encrypt data in transit and at rest
 * Secure deletion of temporary files
 * No silent content logging
@@ -309,11 +302,10 @@ Needs: Licensing controls, Security policies, SSO, Admin dashboards, Deployment 
 * Desktop: Primary platform (editing, OCR, forms, redaction, enterprise)
 * Mobile: Reading, annotating, signing, scanning, quick edits
 * Web companion: File access, review, sharing, lightweight editing
-* Same account across devices, offline-first on mobile
 
 ## 18. Integrations
 
-* Storage: Local filesystem, cloud drives, network drives
+* Storage: Local filesystem, network drives
 * Identity: Email login, SSO, MFA
 * Ecosystem: Office formats, images, scanners, signature providers, DLP
 
@@ -351,7 +343,7 @@ Needs: Licensing controls, Security policies, SSO, Admin dashboards, Deployment 
 
 * Phase 1: Core editor (viewer, search, annotation, page mgmt, export, autosave)
 * Phase 2: Professional workflows (editing, OCR, conversion, forms, signatures, security)
-* Phase 3: Power and enterprise (compare, redaction, batch, cloud, admin, permissions)
+* Phase 3: Power and enterprise (compare, redaction, batch, admin, permissions)
 * Phase 4: Optimization and scale (performance, accessibility, localization, automation, integrations)
 
 ## 24. Risks and mitigations
@@ -366,7 +358,6 @@ Needs: Licensing controls, Security policies, SSO, Admin dashboards, Deployment 
 
 * Free vs paid feature split
 * Mobile editing scope
-* First-class cloud services in v1
 * Enterprise admin depth in first release
 * AI features timing
 * Minimum OCR language set
@@ -374,6 +365,61 @@ Needs: Licensing controls, Security policies, SSO, Admin dashboards, Deployment 
 ## 26. Recommended MVP
 
 Fast PDF viewing, Search, Annotation, Basic text editing, OCR, Conversion, Page tools, Form filling, E-signatures, Basic protection, Autosave and recovery.
+
+## 27. Implementation status (as of v1.3.0 — 2026-06-15)
+
+Legend: ✅ Done · 🟡 Partial · ⬜ Planned/not started
+
+| § | Area | Status | Notes |
+|---|------|--------|-------|
+| 9.1 | Document viewing | ✅ | Single/continuous/two-page/presentation, dark mode, keyboard nav, bookmarks/attachments |
+| 9.2 | Text & object editing | ✅ | Inline text edit, image edit, move/resize/rotate, undo/redo |
+| 9.3 | Annotation & markup | 🟡 | Highlight/underline/strike/squiggly, notes, **callouts, stamps**, shapes, freehand, **comment attachments** done (v1.3.0). Gaps: **Erase** canvas hit-testing (placeholder only), comment threads/filters/review-summary UI |
+| 9.4 | OCR | ✅ | ROVER ensemble (PP-DocLayout + Tesseract 5 + RapidOCR), searchable output, **OCR Verify review screen restored** (v1.3.0) |
+| 9.5 | Conversion | 🟡 | Word/Excel/PPT/image/text/HTML/CSV + batch + presets. Gap: Markdown/EPUB targets |
+| 9.6 | Forms | ✅ | All 10 field types incl. **calculated field** (v1.3.0), tab order, flatten, CSV/FDF data. Gap: XML data, richer validation-rule UI |
+| 9.7 | E-signatures | 🟡 | Local typed/drawn/image + certificate (PAdES B-LT/B-LTA) signing & trust-chain/OCSP validation. **Not started: multi-party send-for-signing, signing order, reminders, status tracking, audit trail** |
+| 9.8 | Redaction | ✅ | Mark + preview + pattern (regex) + permanent content excision + batch redact |
+| 9.9 | Page management | ✅ | Insert/delete/reorder/rotate/split/merge/extract/crop/resize, page numbers, headers/footers, Bates |
+| 9.10 | Document comparison | ✅ | Visual + Myers-LCS text diff, **HTML/text report export, page-reorder detection** (v1.3.0) |
+| 9.11 | Security | 🟡 | Passwords, permissions, AES-256, watermarks, metadata sanitization, **encrypted-ZIP secure package + XMP document expiry → read-only** (v1.3.0). Out of scope (local-first): URL secure links, server-side access revocation |
+| 9.12 | Batch & automation | 🟡 | Convert/compress/watermark + **OCR/Merge/Redact + hot-folder watching** (v1.3.0). Gap: named preset workflows |
+| 9.13 | Compression | ✅ | Downsampling, object/metadata stripping, size estimates |
+| 9.14 | Accessibility | 🟡 | **Tagged-PDF reading-order check** (v1.3.0). Gaps: tag preservation/repair on export, full screen-reader labeling |
+| 9.15 | Search & navigation | 🟡 | Full-text search, thumbnails, bookmarks, jump-to-page. Gap: regex search + find-and-replace |
+| 9.16 | File import & export | ✅ | Standard/linearized PDFs, Office/image/scan import, metadata/bookmark/hyperlink preservation |
+
+v1.3.0 closed nine PRD gaps (annotation tools §9.3, OCR Verify §9.4, calculated field §9.6,
+batch OCR/Merge/Redact §9.12, compare export + page-reorder §9.10, hot folder §9.12, secure
+sharing + expiry §9.11, reading-order check §9.14).
+
+## 28. Roadmap — next versions
+
+### v1.4.x — finish the partials
+* **Annotation Erase** — dedicated `ToolMode::Erase` + canvas hit-testing/removal (replace the v1.3.0 placeholder)
+* **Batch OCR hardening** — end-to-end runtime validation of the render→OCR→MRC path; progress/cancel correctness under load
+* **Comment review UI** — threads, filters, status (open/resolved/rejected) and review summaries over the existing `AnnotationItem` data model
+* **Accessibility export** — preserve and repair tags on export; surface labels for screen readers (pairs with the §9.14 reading-order check)
+* **Search & navigation** — wire regex search and find-and-replace (currently disabled ribbon tools)
+
+### v1.5.x — workflow depth
+* **E-signature workflow (§9.7)** — send-for-signing, signing order, reminders, status tracking, and audit trail (the largest remaining Phase-2 gap)
+* **Batch preset workflows (§9.12)** — named, reusable multi-step batch pipelines
+* **Form polish (§9.6)** — XML form data import/export, validation-rule editor
+* **Conversion targets (§9.5)** — Markdown and EPUB export
+
+### Foundational / M5
+* **Djot semantic round-trip** — implement `LuaDjotCodec::djotToDocument` AST-walking (currently a stub guarded by `QEXPECT_FAIL` in TestDjotFuzz); unblocks full Djot rich-text interchange
+
+### Platform expansion (deferred / strategic)
+* **Mobile companion (§17)** — reading, annotating, signing, scanning, quick edits
+* **Web companion (§17)** — file access, review, sharing, lightweight editing
+* **Enterprise (§11/§18)** — SSO/MFA, DLP integration, admin dashboards, central licensing, policy enforcement
+
+### Explicitly out of scope (unchanged)
+* Cloud sync / account-based storage (privacy-first, local-only stance — §9 "Cloud and sync" was removed)
+* Real-time collaborative coauthoring with live cursor presence (§7.2)
+* Native CAD/video editing, full DMS/email-client replacement (§7.2)
 
 ---
 
@@ -384,7 +430,8 @@ Fast PDF viewing, Search, Annotation, Basic text editing, OCR, Conversion, Page 
 * Backend: FastAPI, Python OCR workers, Redis, PostgreSQL, MinIO, OpenSearch, Keycloak
 * PDF Engine: PDFium/MuPDF rendering, qpdf/pikepdf for manipulation, Ghostscript compression
 
-### Current Implementation (v0.2 Desktop — Active Codebase)
-* C++17 / Qt 6.10.2 (MinGW 13.1.0) / PoDoFo 1.1 / OpenSSL 3.x
-* Native Windows desktop application
+### Current Implementation (v1.3.0 Desktop — Active Codebase)
+* C++17 / Qt 6.10.2 (MinGW 13.1.0 / MSYS2 ucrt64) / PoDoFo 1.1 / PDFium / OpenSSL 3.x
+* OCR: Tesseract 5 + RapidOCR (ONNX Runtime) + PP-DocLayout, ROVER fusion
+* Native Windows desktop application (MSI + portable ZIP); privacy-first, fully offline
 * Project path: C:\Users\User\Projects\pdf
