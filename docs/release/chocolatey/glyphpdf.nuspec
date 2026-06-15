@@ -68,7 +68,7 @@ GlyphPDF is a full-featured, open-source PDF workstation for Windows.
 $ErrorActionPreference = 'Stop'
 $packageName = 'glyphpdf'
 $url64       = 'https://github.com/eliets2/glyph-pdf/releases/download/v1.2.1/GlyphPDF-1.2.1-x64.msi'
-$checksum64  = 'PENDING_REBUILD'
+$checksum64  = 'A4B16DD2080FE2F6EA3E1CD81966865322EEFAB78BE31169F1319161DD7644DC'
 
 $packageArgs = @{
   packageName    = $packageName

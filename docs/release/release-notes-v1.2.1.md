@@ -56,7 +56,7 @@ All five security fixes from v1.2.0 are included — see
 2. Verify SHA-256:
    ```powershell
    (Get-FileHash "GlyphPDF-1.2.1-x64.msi" -Algorithm SHA256).Hash
-   # Expected: <SHA256_AFTER_BUILD>
+   # Expected: A4B16DD2080FE2F6EA3E1CD81966865322EEFAB78BE31169F1319161DD7644DC
    ```
 3. Run the installer — upgrades in-place from v1.0.x and v1.2.0.
 
@@ -66,4 +66,4 @@ All five security fixes from v1.2.0 are included — see
 
 | File | SHA-256 |
 |------|---------|
-| `GlyphPDF-1.2.1-x64.msi` | `<PENDING_REBUILD>` |
+| `GlyphPDF-1.2.1-x64.msi` | `A4B16DD2080FE2F6EA3E1CD81966865322EEFAB78BE31169F1319161DD7644DC` |
