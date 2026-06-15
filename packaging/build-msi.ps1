@@ -15,7 +15,7 @@ $BuildDir    = Join-Path $ProjectRoot 'build'
 $DeployDir   = Join-Path $ProjectRoot 'deploy'
 $PackDir     = $PSScriptRoot
 $OutputDir   = Join-Path $ProjectRoot 'dist'
-$Version     = '1.2.1'
+$Version     = '1.3.0'
 $MsiName     = "GlyphPDF-$Version-x64.msi"
 $ZipName     = "GlyphPDF-$Version-x64-portable.zip"
 
