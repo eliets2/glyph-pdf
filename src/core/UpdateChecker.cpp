@@ -65,6 +65,12 @@ QString UpdateChecker::currentVersion() {
     return QCoreApplication::applicationVersion();
 }
 
+QUrl UpdateChecker::manifestUrlForChannel(const QString& channel) {
+    if (channel.compare(QLatin1String("beta"), Qt::CaseInsensitive) == 0)
+        return QUrl(QStringLiteral("https://eliets2.github.io/glyph-pdf/updates/beta.json"));
+    return QUrl(QString::fromLatin1(DefaultManifestUrl));
+}
+
 // ── Version comparison ───────────────────────────────────────────────────
 
 bool UpdateChecker::isNewerVersion(const QString& remote, const QString& local) const {
