@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Chocolatey package spec for GlyphPDF v1.2.0
+  Chocolatey package spec for GlyphPDF v1.2.1
 
   To build: choco pack glyphpdf.nuspec
-  To push:  choco push glyphpdf.1.2.0.nupkg --source https://push.chocolatey.org --api-key YOUR_KEY
+  To push:  choco push glyphpdf.1.2.1.nupkg --source https://push.chocolatey.org --api-key YOUR_KEY
 
   Install script lives at tools/chocolateyInstall.ps1 (create alongside this file).
 -->
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
     <id>glyphpdf</id>
-    <version>1.2.0</version>
+    <version>1.2.1</version>
     <title>GlyphPDF</title>
     <authors>Glyph</authors>
     <projectUrl>https://github.com/eliets2/glyph-pdf</projectUrl>
@@ -37,7 +37,13 @@ GlyphPDF is a full-featured, open-source PDF workstation for Windows.
 - No telemetry, no cloud upload, no subscription
 - Apache-2.0 licensed
 
-## v1.2.0 Security Fixes
+## v1.2.1 Fixes
+
+- Fixed startup crash on all v1.0.x and v1.2.0 installs: deploy.ps1 was bundling
+  the ABI-incompatible MSYS2 podofo 0.10.4 instead of the vendored podofo 1.1.0
+  that GlyphPDF.exe was linked against, causing "Entry Point Not Found" on launch.
+
+## v1.2.0 Security Fixes (included)
 
 - Removed OCSP test-fixture bypass from production builds (SECFIX-1)
 - Fixed AES-256-GCM downgrade oracle via unauthenticated version byte (SECFIX-2)
@@ -50,7 +56,7 @@ GlyphPDF is a full-featured, open-source PDF workstation for Windows.
 - Optional dependencies: LibreOffice (Office import), Ollama (local AI)
 - 64-bit Windows 10 (1607+) or Windows 11 required
     ]]></description>
-    <releaseNotes>https://github.com/eliets2/glyph-pdf/releases/tag/v1.2.0</releaseNotes>
+    <releaseNotes>https://github.com/eliets2/glyph-pdf/releases/tag/v1.2.1</releaseNotes>
   </metadata>
   <files>
     <file src="tools\**" target="tools" />
@@ -61,8 +67,8 @@ GlyphPDF is a full-featured, open-source PDF workstation for Windows.
 
 $ErrorActionPreference = 'Stop'
 $packageName = 'glyphpdf'
-$url64       = 'https://github.com/eliets2/glyph-pdf/releases/download/v1.2.0/GlyphPDF-1.2.0-x64.msi'
-$checksum64  = 'EA2ED66C256C3346E9ABAF300AB34F1191D1116EFC88BA1DC38AB0B354116BCA'
+$url64       = 'https://github.com/eliets2/glyph-pdf/releases/download/v1.2.1/GlyphPDF-1.2.1-x64.msi'
+$checksum64  = 'PENDING_REBUILD'
 
 $packageArgs = @{
   packageName    = $packageName

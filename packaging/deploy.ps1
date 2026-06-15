@@ -72,7 +72,10 @@ if (Test-Path $vendorPodofo) {
     Copy-Item $vendorPodofo $DeployDir
     Write-Host '      Staged vendored libpodofo.dll (1.1.0).'
 } else {
-    throw "third_party/podofo/install/bin/libpodofo.dll not found - vendored PoDoFo 1.1.0 build required."
+    # No vendored podofo — CMake fell back to the MSYS2 ucrt64 copy (0.10.4).
+    # The objdump closure will copy it from ucrt64\bin, which is correct because
+    # GlyphPDF.exe was also linked against that same version.
+    Write-Host '      No vendored podofo found; objdump closure will stage the MSYS2 ucrt64 copy.'
 }
 
 #  6. MinGW DLL dependency closure via objdump

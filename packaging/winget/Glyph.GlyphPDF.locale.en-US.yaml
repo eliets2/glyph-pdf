@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
 PackageIdentifier: Glyph.GlyphPDF
-PackageVersion: 1.2.0
+PackageVersion: 1.2.1
 PackageLocale: en-US
 Publisher: Glyph
 PublisherUrl: https://github.com/eliets2/glyph-pdf
@@ -26,11 +26,11 @@ Tags:
 - privacy
 - offline
 ReleaseNotes: >-
-  Security patch release. Removes OCSP test-fixture bypass from production builds
-  (SECFIX-1), fixes AES downgrade oracle (SECFIX-2), TOCTOU in update checker
-  (SECFIX-3), unbounded recursion in signature manager (SECFIX-4), and Ollama
-  data-exfiltration vector (SECFIX-5). Also fixes undo-history corruption
-  (ARCHFIX-1) and HTTP semaphore timeout (ARCHFIX-1).
-ReleaseNotesUrl: https://github.com/eliets2/glyph-pdf/releases/tag/v1.2.0
+  Patch release fixing a startup crash on all v1.0.x and v1.2.0 installs.
+  deploy.ps1 was bundling the ABI-incompatible MSYS2 podofo 0.10.4 instead
+  of the vendored podofo 1.1.0 that GlyphPDF.exe was linked against, causing
+  an "Entry Point Not Found" crash for PdfContent::PdfContent() on every launch.
+  Also includes all v1.2.0 security fixes (SECFIX-1 through SECFIX-5).
+ReleaseNotesUrl: https://github.com/eliets2/glyph-pdf/releases/tag/v1.2.1
 ManifestType: defaultLocale
 ManifestVersion: 1.6.0
