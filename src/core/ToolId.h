@@ -106,6 +106,7 @@ enum class ToolId {
     CreateForm,
     ListBox,
     Button,
+    CalcField,
     DateField,
     NumField,
     SigField,

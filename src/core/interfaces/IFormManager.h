@@ -37,6 +37,15 @@ public:
     virtual bool createButton(const QString &pdfFilePath, int pageIndex, const QRectF &rect,
                               const QString &caption, const QString &action, const QString &outputPath) = 0;
 
+    /// Add a read-only text field whose value is computed by a JavaScript/AcroForm
+    /// calculation. `expression` is the JS calculation string (e.g.
+    /// "AFSimple_Calculate('SUM', new Array('field1','field2'))"). The field is
+    /// wired via /AA /C and registered in the AcroForm /CO calculation-order array.
+    virtual bool addCalculatedField(const QString &pdfFilePath, int pageIndex,
+                                    const QRectF &rect, const QString &fieldName,
+                                    const QString &expression,
+                                    const QString &outputPath) = 0;
+
     virtual QList<FieldSuggestion> autoDetectFields(const QString &pdfFilePath, int pageIndex) = 0;
 
     // Field mutation (persist changes to the PDF on disk)
