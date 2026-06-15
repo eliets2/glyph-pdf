@@ -649,7 +649,7 @@ void MainWindow::initUpdateChecker() {
 
     QString channel = settings.value("update/channel", "stable").toString();
     if (channel == "beta") {
-        _updater->setManifestUrl(QUrl("https://eliets2.github.io/glyph-pdf/updates/beta.json"));
+        _updater->setManifestUrl(UpdateChecker::manifestUrlForChannel(channel));
     }
 
     connect(_updater, &UpdateChecker::updateAvailable, this,

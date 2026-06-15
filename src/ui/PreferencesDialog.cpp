@@ -398,6 +398,12 @@ void PreferencesDialog::onCheckNow()
 
     auto* checker = new UpdateChecker(this);
 
+    // Honor the channel currently selected in the combo (even if not yet saved).
+    const QString channel = _updateChannel ? _updateChannel->currentData().toString()
+                                           : QStringLiteral("stable");
+    if (channel == QLatin1String("beta"))
+        checker->setManifestUrl(UpdateChecker::manifestUrlForChannel(channel));
+
     connect(checker, &UpdateChecker::updateAvailable, this, [this, checker](const UpdateChecker::UpdateInfo& info) {
         onUpdateResult(tr("Update available: v%1 (%2)").arg(info.version, info.releaseDate));
         checker->deleteLater();
