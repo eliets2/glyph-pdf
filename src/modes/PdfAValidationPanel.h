@@ -3,6 +3,7 @@
 #include <QFrame>
 #include <QString>
 #include "engines/VeraPdfValidator.h"
+#include <functional>
 
 namespace gp {
 
@@ -12,6 +13,10 @@ class PdfAValidationPanel : public QFrame {
     Q_OBJECT
 public:
     explicit PdfAValidationPanel(QWidget* parent = nullptr);
+
+public:
+    void setExportPdfACallback(
+        std::function<bool(const QString& outputPath, int conformanceLevel)> cb);
 
 public slots:
     void setDocument(const QString& path, PdfAConformance level = PdfAConformance::PDF_A_2B);
@@ -23,6 +28,9 @@ private:
 
     QString m_currentDocPath;
     PdfAConformance m_currentConformance{PdfAConformance::PDF_A_2B};
+
+    std::function<bool(const QString&, int)> m_exportPdfACallback;
+    QMetaObject::Connection m_fixBtnConn;
 
     // Dynamic UI elements updated by updateDisplay()
     class QLabel* m_statusLabel{nullptr};

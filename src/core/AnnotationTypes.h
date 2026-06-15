@@ -14,7 +14,8 @@ enum class ReviewState {
     Accepted,
     Rejected,
     Cancelled,
-    Completed
+    Completed,
+    LastValue = Completed  // sentinel — update if new values are added
 };
 
 struct AnnotationItem {

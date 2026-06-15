@@ -39,8 +39,12 @@ AppContext Bootstrapper::createContext() {
     ctx.document   = std::make_shared<DocumentSession>();
     ctx.autosave   = std::make_shared<AutosaveManager>(ctx.pdfEditor, ctx.document);
 
-    // Djot foundation (M4-PROMPT-7)
-    std::string djotPath = (QCoreApplication::applicationDirPath() + "/../third_party/djot").toStdString();
+    // Djot foundation (M4-PROMPT-7, ARCH-4)
+#ifndef DJOT_LIB_DIR
+#  error "DJOT_LIB_DIR must be defined by CMake — check target_compile_definitions in CMakeLists.txt"
+#endif
+    std::string djotPath = QString::fromUtf8(DJOT_LIB_DIR).toStdString();
+    
     ctx.djotCodec       = std::make_shared<pdfws::LuaDjotCodec>(djotPath);
     ctx.djotMapper      = std::make_shared<pdfws::PdfStructureMapper>();
     ctx.provenanceGuard = std::make_shared<pdfws::ProvenanceGuard>();

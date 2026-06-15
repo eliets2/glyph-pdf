@@ -9,7 +9,7 @@
 #endif
 
 #ifdef HAS_PDFIUM
-#include "engines/pdfium/PdfiumBackend.h"
+// RenderCache only depends on the IPdfRenderer interface now.
 #endif
 
 namespace {
@@ -98,13 +98,7 @@ QSizeF RenderCache::pageSize(int page, IPdfRenderer* renderer) {
     }
 
     if (promisePtr) {
-        QSizeF size;
-#ifdef HAS_PDFIUM
-        auto* pdfium = dynamic_cast<PdfiumBackend*>(renderer);
-        if (pdfium) {
-            size = pdfium->pageSize(page);
-        }
-#endif
+        QSizeF size = renderer->pageSize(page);
         if (!size.isValid()) {
             size = QSizeF(595.276, 841.890); // Default A4 size
         }
@@ -328,15 +322,10 @@ QString RenderCache::getOrExtractText(int page, IPdfRenderer* renderer) {
 
     if (!renderer) return QString();
 
-#ifdef HAS_PDFIUM
-    auto* pdfium = dynamic_cast<PdfiumBackend*>(renderer);
-    if (pdfium) {
-        QString extracted = pdfium->extractText(page);
-        WriteLockGuard guard(m_lock);
-        m_textLayer.insert(page, extracted);
-        return extracted;
-    }
-#endif
+    QString extracted = renderer->extractText(page);
+    WriteLockGuard guard(m_lock);
+    m_textLayer.insert(page, extracted);
+    return extracted;
 
     return QString();
 }

@@ -714,6 +714,7 @@ bool PdfEditorEngine::encryptWithCertificate(const QString &inputPath,
                                               const QString &outputPath,
                                               const QStringList &certPaths)
 {
+    QMutexLocker locker(&d->mutex);
     d->clearErr();
 
     if (certPaths.isEmpty()) {

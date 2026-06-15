@@ -179,6 +179,8 @@ void FormBuilderMode::buildContent(QVBoxLayout* col)
     m_propsPanel = new FormFieldPropertiesPanel(m_ctx, this);
     m_propsPanel->setVisible(false);
     rightCol->addWidget(m_propsPanel);
+    connect(m_propsPanel, &FormFieldPropertiesPanel::geometryCommitted,
+            this, &FormBuilderMode::onFieldGeometryCommitted);
 
     // Tab order panel (visible when Tab Order button is checked)
     m_tabOrderPanel = new QFrame;
@@ -382,8 +384,11 @@ void FormBuilderMode::onFieldListSelectionChanged()
         m_deleteFieldBtn->setEnabled(hasSelection);
 
     if (hasSelection && m_propsPanel) {
-        const QString name = m_fieldList->currentItem()->text();
+        auto* item = m_fieldList->currentItem();
+        const QString name = item->text();
+        const QRectF rect = item->data(Qt::UserRole + 2).toRectF();
         m_propsPanel->setFieldName(name);
+        m_propsPanel->setFieldRect(rect);
         m_propsPanel->setVisible(true);
     } else if (m_propsPanel) {
         m_propsPanel->setVisible(false);
@@ -516,6 +521,35 @@ QString FormBuilderMode::uniqueFieldName(ToolMode mode, int pageIndex) const
         default:                         prefix = QStringLiteral("field");     break;
     }
     return QStringLiteral("%1_p%2_%3").arg(prefix).arg(pageIndex + 1).arg(m_fieldCounter);
+}
+
+void FormBuilderMode::onFieldGeometryCommitted(const QRectF& newRect)
+{
+    if (!m_fieldList || !m_ctx || !m_ctx->document || !m_ctx->undoStack) return;
+    auto* item = m_fieldList->currentItem();
+    if (!item) return;
+
+    const QString name    = item->data(Qt::UserRole).toString();
+    const int     page    = item->data(Qt::UserRole + 1).toInt();
+    const QRectF  oldRect = item->data(Qt::UserRole + 2).toRectF();
+
+    if (oldRect == newRect) return;
+
+    QUndoCommand* cmd = nullptr;
+    if (qFuzzyCompare(oldRect.width(),  newRect.width()) &&
+        qFuzzyCompare(oldRect.height(), newRect.height())) {
+        cmd = new MoveFormFieldCommand(
+            m_ctx->forms.get(), m_ctx->document.get(),
+            name, page, oldRect, newRect);
+    } else {
+        cmd = new ResizeFormFieldCommand(
+            m_ctx->forms.get(), m_ctx->document.get(),
+            name, page, oldRect, newRect);
+    }
+    m_ctx->undoStack->push(cmd);
+
+    // Update stored rect so subsequent undo/redo has fresh base
+    item->setData(Qt::UserRole + 2, newRect);
 }
 
 } // namespace gp

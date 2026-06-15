@@ -82,7 +82,6 @@ PdfAValidationPanel::PdfAValidationPanel(QWidget* parent) : QFrame(parent) {
     // Action buttons
     m_fixBtn = new QPushButton(tr("Fix Automatically"));
     m_fixBtn->setEnabled(false);
-    m_fixBtn->setToolTip(tr("Automatic fix is not available in this version."));
 
     auto* conv = new QPushButton(tr("Convert to PDF/A-2B"));
     conv->setStyleSheet("background:#ff8c42;color:#1a1b1e;border:1px solid #ff8c42;font-weight:600;padding:8px 12px;");
@@ -121,6 +120,12 @@ void PdfAValidationPanel::setDocument(const QString& path, PdfAConformance level
     runValidation();
 }
 
+void PdfAValidationPanel::setExportPdfACallback(
+    std::function<bool(const QString& outputPath, int conformanceLevel)> cb)
+{
+    m_exportPdfACallback = std::move(cb);
+}
+
 // ---------------------------------------------------------------------------
 // Run veraPDF validation and refresh the display
 // ---------------------------------------------------------------------------
@@ -156,12 +161,16 @@ void PdfAValidationPanel::updateDisplay(const PdfAValidationReport& report) {
             tr("PDF/A validation needs veraPDF, which isn't installed. "
                "Download it free from verapdf.org — all other features work normally."));
         m_exportBtn->setEnabled(false);
+        m_fixBtn->setEnabled(false);
+        if (m_fixBtnConn) disconnect(m_fixBtnConn);
         return;
     }
 
     if (!report.errorMessage.isEmpty()) {
         m_statusLabel->setText(tr("Validation error: %1").arg(report.errorMessage));
         m_exportBtn->setEnabled(false);
+        m_fixBtn->setEnabled(false);
+        if (m_fixBtnConn) disconnect(m_fixBtnConn);
         return;
     }
 
@@ -172,6 +181,8 @@ void PdfAValidationPanel::updateDisplay(const PdfAValidationReport& report) {
             ? tr("PDF/A")
             : report.conformanceLevel;
         m_statusLabel->setText(tr("✓ Conforms to %1").arg(level));
+        m_fixBtn->setEnabled(false);
+        if (m_fixBtnConn) disconnect(m_fixBtnConn);
         return;
     }
 
@@ -191,6 +202,46 @@ void PdfAValidationPanel::updateDisplay(const PdfAValidationReport& report) {
             m_issuesLayout->addWidget(issueRow(v.ruleId, label, isError));
         }
         m_issuesList->show();
+
+        if (m_fixBtnConn) disconnect(m_fixBtnConn);
+
+        if (m_exportPdfACallback) {
+            m_fixBtn->setEnabled(true);
+            m_fixBtn->setToolTip(tr(
+                "Export a PDF/A-compliant copy of this document, "
+                "fixing the violations listed above."));
+
+            const QString docPath = m_currentDocPath;
+            const int conformance = static_cast<int>(m_currentConformance);
+            auto cb = m_exportPdfACallback;
+
+            m_fixBtnConn = connect(m_fixBtn, &QPushButton::clicked, this,
+                [this, docPath, conformance, cb]() {
+                    QFileInfo fi(docPath);
+                    const QString suggested =
+                        fi.dir().filePath(fi.completeBaseName() + "_fixed_pdfa.pdf");
+                    QString dest = QFileDialog::getSaveFileName(
+                        this,
+                        tr("Save Fixed PDF/A"),
+                        suggested,
+                        tr("PDF files (*.pdf);;All files (*)"));
+                    if (dest.isEmpty()) return;
+
+                    const bool ok = cb(dest, conformance);
+                    if (ok) {
+                        QMessageBox::information(this, tr("Fix Applied"),
+                            tr("PDF/A-compliant copy saved to:\n%1\n\nRe-validating…").arg(dest));
+                        setDocument(dest, static_cast<PdfAConformance>(conformance));
+                    } else {
+                        QMessageBox::warning(this, tr("Fix Failed"),
+                            tr("Could not export a compliant copy.\n"
+                               "Try File > Export As PDF/A for more options."));
+                    }
+                });
+        } else {
+            m_fixBtn->setEnabled(false);
+            m_fixBtn->setToolTip(tr("No export callback configured."));
+        }
     }
 }
 

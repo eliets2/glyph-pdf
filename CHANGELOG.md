@@ -2,6 +2,21 @@
 
 All notable changes to GlyphPDF are documented in this file.
 
+## [1.2.0] — 2026-06-15
+
+Security patch release addressing critical vulnerabilities and architecture bugs.
+
+### Fixed
+- **SECFIX-1**: Removed unconditional GLYPH_TESTING definition which enabled test-only backdoors in production builds.
+- **SECFIX-2**: Replaced unauthenticated CBC fallback branch in PdfEncryptPubSec with a hard exception.
+- **SECFIX-3**: Fixed TOCTOU vulnerability in UpdateChecker by verifying against an open HANDLE before msiexec launch.
+- **SECFIX-4**: Fixed SignatureManager infinite recursion and added strict /SubFilter enforcement for document timestamps.
+- **SECFIX-5**: Hardened OllamaProvider by enforcing HTTPS/localhost and bounding data exfiltration with truncation.
+
+### Changed
+- Incremental updates are strictly verified.
+- Dependency paths dynamically loaded.
+
 ## [1.0.1] — 2026-06-14
 
 Maintenance release. Fixes installability on clean machines and revives two

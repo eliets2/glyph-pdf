@@ -424,6 +424,9 @@ private slots:
     // -----------------------------------------------------------------------
     void testRevokedCertReportsRevoked()
     {
+#ifndef GLYPH_TESTING
+        QSKIP("This test requires DSS OCSP injection (wired in M5) which is disabled in production builds.");
+#endif
         QString revokedP12 = kFixtureDir + "/revoked_cert.p12";
         if (!QFileInfo::exists(revokedP12))
             QSKIP("revoked_cert.p12 not generated — run generate.bat first");

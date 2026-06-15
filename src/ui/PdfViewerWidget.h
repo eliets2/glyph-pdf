@@ -75,7 +75,7 @@ public:
     void deletePages(int from, int to, const QString &outputFile);
     void insertBlankPage(int index, const QString &outputFile);
     void rotatePages(int from, int to, int angle, const QString &outputFile);
-    void applyRedactions(const QString &outputFile);
+
     bool saveDocumentAs(const QString &outputFile);
     static void mergeDocuments(const QStringList &files, const QString &outputFile);
     void printDocument();

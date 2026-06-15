@@ -6,24 +6,11 @@
 
 #ifdef HAS_PDFIUM
 
-static int s_pdfiumRefCount = 0;
-static QMutex s_pdfiumMutex;
-
 PdfiumBackend::PdfiumBackend() {
-    QMutexLocker locker(&s_pdfiumMutex);
-    if (s_pdfiumRefCount == 0) {
-        FPDF_InitLibrary();
-    }
-    s_pdfiumRefCount++;
 }
 
 PdfiumBackend::~PdfiumBackend() {
     closeDocument();
-    QMutexLocker locker(&s_pdfiumMutex);
-    s_pdfiumRefCount--;
-    if (s_pdfiumRefCount == 0) {
-        FPDF_DestroyLibrary();
-    }
 }
 
 bool PdfiumBackend::loadDocument(const QString &filePath) {

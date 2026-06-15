@@ -11,7 +11,7 @@
   and bundled tessdata so the installed app needs zero network access.
 
   Build:  wix build -src GlyphPDF.wxs -d DeployDir=..\deploy
-               -ext WixToolset.UI.wixext -arch x64 -out GlyphPDF-1.0.1-x64.msi
+               -ext WixToolset.UI.wixext -arch x64 -out GlyphPDF-1.2.0-x64.msi
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
@@ -19,9 +19,9 @@
   <Package
     Name="GlyphPDF"
     Manufacturer="Glyph"
-    Version="1.0.1.0"
+    Version="1.2.0.0"
     UpgradeCode="fb1fbe00-e1af-449c-8a58-2d2e308b9127"
-    ProductCode="83AD3854-CF43-4F27-B34D-CBB42B5624AB"
+    ProductCode="C1F384AE-8A11-4770-B1BB-86A80F53F713"
     Scope="perMachine"
     Language="1033"
     Compressed="yes">
@@ -32,7 +32,8 @@
          upgrade semantics require it) while keeping UpgradeCode constant so
          MajorUpgrade replaces the prior install. History:
            v1.0.0  5BA17AB1-F3AC-4A62-B02E-27FC9B77F691
-           v1.0.1  83AD3854-CF43-4F27-B34D-CBB42B5624AB -->
+           v1.0.1  83AD3854-CF43-4F27-B34D-CBB42B5624AB
+           v1.2.0  C1F384AE-8A11-4770-B1BB-86A80F53F713 -->
     <MajorUpgrade
       DowngradeErrorMessage="A newer version of [ProductName] is already installed."
       Schedule="afterInstallInitialize" />
@@ -48,6 +49,7 @@
     <!-- ── Installer UI: license agreement + install-dir chooser ──── -->
     <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
     <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
+    <WixVariable Id="WixUIBannerBmp"  Value="banner.bmp" />
 
     <!-- ── Feature tree ──────────────────────────────────────────── -->
     <Feature Id="Core" Title="GlyphPDF Application" Level="1" AllowAbsent="no">

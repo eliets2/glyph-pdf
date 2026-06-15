@@ -228,7 +228,7 @@ void HomeController::onShare() {
 #ifdef Q_OS_WIN
     HMODULE hMapi = LoadLibraryA("mapi32.dll");
     if (hMapi) {
-        LPMAPISENDMAIL pfnSendMail = (LPMAPISENDMAIL)GetProcAddress(hMapi, "MAPISendMail");
+        LPMAPISENDMAIL pfnSendMail = reinterpret_cast<LPMAPISENDMAIL>(reinterpret_cast<void*>(GetProcAddress(hMapi, "MAPISendMail")));
         if (pfnSendMail) {
             MapiFileDesc fileDesc;
             memset(&fileDesc, 0, sizeof(MapiFileDesc));

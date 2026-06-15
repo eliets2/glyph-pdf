@@ -252,9 +252,7 @@ PdfMetadata PoDoFoBackend::metadata() const {
         }
         outMetadata.keywords = kwList.join(", ");
     } catch (const PoDoFo::PdfError& e) {
-#ifdef QT_DEBUG
         qWarning() << "PoDoFo error during getMetadata:" << e.what();
-#endif
     }
     return outMetadata;
 }
@@ -283,9 +281,7 @@ bool PoDoFoBackend::setMetadata(const PdfMetadata &metadata) {
 #endif
         return true;
     } catch (const PoDoFo::PdfError& e) {
-#ifdef QT_DEBUG
         qWarning() << "PoDoFo error during setMetadata:" << e.what();
-#endif
         return false;
     } catch (...) {
         return false;
@@ -771,9 +767,7 @@ bool PoDoFoBackend::editTextInline(int pageIndex, const QRectF &rect, const QStr
 #endif
         return true;
     } catch (const PoDoFo::PdfError& e) {
-#ifdef QT_DEBUG
         qWarning() << "PoDoFo error editing text:" << e.what();
-#endif
         return false;
     }
 }
@@ -787,9 +781,7 @@ bool PoDoFoBackend::deleteObjectAt(int pageIndex, const QPointF &pos) {
         d->document->Save(d->currentFile.toUtf8().constData());
         return true;
     } catch (const PoDoFo::PdfError& e) {
-#ifdef QT_DEBUG
         qWarning() << "deleteObjectAt save error:" << e.what();
-#endif
         return false;
     }
 }
@@ -1595,10 +1587,8 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
             }
 
             if (hasInlineImage || hasBinaryContent) {
-#ifdef QT_DEBUG
                 qWarning() << "Redaction: stream contains inline images or binary data on page"
                            << pageIndex << "— skipping content surgery, applying visual overlay only.";
-#endif
             } else {
                 redactCanvasRecursively(page.GetObject(), pdfRects, page, d->document.get(), redactedMcids);
                 streamFilterApplied = true;
@@ -1873,9 +1863,7 @@ bool PoDoFoBackend::removeEncryption(const QString &ownerPassword) {
 #endif
         return true;
     } catch (const PoDoFo::PdfError& e) {
-#ifdef QT_DEBUG
         qWarning() << "Error removing encryption:" << e.what();
-#endif
         return false;
     }
 }
@@ -1894,9 +1882,7 @@ bool PoDoFoBackend::sanitizeDocument(const QString &outputPath) {
             ? outputInfo.absoluteFilePath()
             : outputInfo.canonicalFilePath();
         if (QString::compare(sourcePath, targetPath, Qt::CaseInsensitive) == 0) {
-#ifdef QT_DEBUG
             qWarning() << "Refusing to sanitize in place:" << outputPath;
-#endif
             return false;
         }
     }
@@ -2096,9 +2082,7 @@ bool PoDoFoBackend::sanitizeDocument(const QString &outputPath) {
             QTemporaryFile tempFile(outputDir + "/.sanitize_XXXXXX.pdf");
             tempFile.setAutoRemove(false);
             if (!tempFile.open()) {
-#ifdef QT_DEBUG
                 qWarning() << "Unable to create temporary sanitized output in:" << outputDir;
-#endif
                 return false;
             }
             tempPath = tempFile.fileName();
@@ -2124,9 +2108,7 @@ bool PoDoFoBackend::sanitizeDocument(const QString &outputPath) {
                 throw std::runtime_error("qpdf_read or qpdf_init_write failed");
             }
         } catch (const std::exception& e) {
-#ifdef QT_DEBUG
             qWarning() << "QPDF sanitization rebuild failed, falling back to basic save:" << e.what();
-#endif
             if (QFileInfo::exists(outputPath) && !QFile::remove(outputPath)) {
                 QFile::remove(tempPath);
                 return false;
@@ -2152,14 +2134,10 @@ bool PoDoFoBackend::sanitizeDocument(const QString &outputPath) {
 #endif
         return true;
     } catch (const PoDoFo::PdfError& e) {
-#ifdef QT_DEBUG
         qWarning() << "PoDoFo error during sanitize:" << e.what();
-#endif
         return false;
     } catch (const std::exception& e) {
-#ifdef QT_DEBUG
         qWarning() << "Error during sanitize:" << e.what();
-#endif
         return false;
     }
 }
@@ -2308,9 +2286,7 @@ QList<PdfImageInfo> PoDoFoBackend::listImages(int pageIndex) {
             }
         }
     } catch (const PoDoFo::PdfError& e) {
-#ifdef QT_DEBUG
         qWarning() << "listImages error:" << e.what();
-#endif
     }
     return result;
 }
@@ -2340,9 +2316,7 @@ bool PoDoFoBackend::moveImage(int pageIndex, const QString &xobjectName, double 
         if (ok) d->document->Save(d->currentFile.toUtf8().constData());
         return ok;
     } catch (const PoDoFo::PdfError& e) {
-#ifdef QT_DEBUG
         qWarning() << "moveImage error:" << e.what();
-#endif
         return false;
     }
 }
@@ -2368,9 +2342,7 @@ bool PoDoFoBackend::resizeImage(int pageIndex, const QString &xobjectName, doubl
         if (ok) d->document->Save(d->currentFile.toUtf8().constData());
         return ok;
     } catch (const PoDoFo::PdfError& e) {
-#ifdef QT_DEBUG
         qWarning() << "resizeImage error:" << e.what();
-#endif
         return false;
     }
 }
@@ -2403,9 +2375,7 @@ bool PoDoFoBackend::rotateImage(int pageIndex, const QString &xobjectName, doubl
         if (ok) d->document->Save(d->currentFile.toUtf8().constData());
         return ok;
     } catch (const PoDoFo::PdfError& e) {
-#ifdef QT_DEBUG
         qWarning() << "rotateImage error:" << e.what();
-#endif
         return false;
     }
 }
@@ -2462,9 +2432,7 @@ bool PoDoFoBackend::replaceImage(int pageIndex, const QString &xobjectName, cons
         d->document->Save(d->currentFile.toUtf8().constData());
         return true;
     } catch (const PoDoFo::PdfError& e) {
-#ifdef QT_DEBUG
         qWarning() << "replaceImage error:" << e.what();
-#endif
         return false;
     }
 }
@@ -2506,9 +2474,7 @@ bool PoDoFoBackend::deleteImage(int pageIndex, const QString &xobjectName) {
         d->document->Save(d->currentFile.toUtf8().constData());
         return true;
     } catch (const PoDoFo::PdfError& e) {
-#ifdef QT_DEBUG
         qWarning() << "deleteImage error:" << e.what();
-#endif
         return false;
     }
 }
@@ -2547,16 +2513,12 @@ bool PoDoFoBackend::linearizeDocument(const QString &outputPath)
         qpdf_cleanup(&pdf);
         return false;
     } catch (const std::exception& e) {
-#ifdef QT_DEBUG
         qWarning() << "QPDF linearization error:" << e.what();
-#endif
         return false;
     }
 #else
     Q_UNUSED(outputPath)
-#ifdef QT_DEBUG
     qWarning() << "Linearization not available — built without qpdf";
-#endif
     return false;
 #endif
 }
