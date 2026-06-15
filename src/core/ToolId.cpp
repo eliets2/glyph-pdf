@@ -50,6 +50,9 @@ QString toolIdToString(ToolId id) {
         { ToolId::Squiggly,       QStringLiteral("squiggly") },
         { ToolId::Note,           QStringLiteral("note") },
         { ToolId::Comment,        QStringLiteral("comment") },
+        { ToolId::Stamp,          QStringLiteral("stamp") },
+        { ToolId::Callout,        QStringLiteral("callout") },
+        { ToolId::Erase,          QStringLiteral("erase") },
         { ToolId::Pencil,         QStringLiteral("pencil") },
         { ToolId::Freehand,       QStringLiteral("freehand") },
         { ToolId::TextBox,        QStringLiteral("textbox") },
@@ -180,6 +183,9 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         add(ToolId::Squiggly,       {"squiggly"});
         add(ToolId::Note,           {"note"});
         add(ToolId::Comment,        {"comment"});
+        add(ToolId::Stamp,          {"stamp", "customStamp", "customstamp"});
+        add(ToolId::Callout,        {"callout"});
+        add(ToolId::Erase,          {"erase", "eraser"});
         add(ToolId::Pencil,         {"pencil"});
         add(ToolId::Freehand,       {"freehand"});
         add(ToolId::TextBox,        {"textbox"});
