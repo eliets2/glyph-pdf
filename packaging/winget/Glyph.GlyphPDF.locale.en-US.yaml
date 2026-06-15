@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
 PackageIdentifier: Glyph.GlyphPDF
-PackageVersion: 1.0.0
+PackageVersion: 1.2.0
 PackageLocale: en-US
 Publisher: Glyph
 PublisherUrl: https://github.com/eliets2/glyph-pdf
@@ -25,6 +25,12 @@ Tags:
 - digital-signature
 - privacy
 - offline
-ReleaseNotesUrl: https://github.com/eliets2/glyph-pdf/releases/tag/v1.0.0
+ReleaseNotes: >-
+  Security patch release. Removes OCSP test-fixture bypass from production builds
+  (SECFIX-1), fixes AES downgrade oracle (SECFIX-2), TOCTOU in update checker
+  (SECFIX-3), unbounded recursion in signature manager (SECFIX-4), and Ollama
+  data-exfiltration vector (SECFIX-5). Also fixes undo-history corruption
+  (ARCHFIX-1) and HTTP semaphore timeout (ARCHFIX-1).
+ReleaseNotesUrl: https://github.com/eliets2/glyph-pdf/releases/tag/v1.2.0
 ManifestType: defaultLocale
 ManifestVersion: 1.6.0
