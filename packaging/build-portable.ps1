@@ -15,7 +15,7 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $DeployDir   = Join-Path $ProjectRoot 'deploy'
 $PackDir     = $PSScriptRoot
 $OutputDir   = Join-Path $ProjectRoot 'dist'
-$Version     = '1.0.1'
+$Version     = '1.2.0'
 $ZipName     = "GlyphPDF-$Version-x64-portable.zip"
 
 Write-Host '========================================'
