@@ -112,9 +112,15 @@ private:
     QComboBox*          m_pdfaLevel      = nullptr;
     QLineEdit*          m_pdfaOutDir     = nullptr;
 
-    // Merge panel (disabled)
-    // OCR panel (disabled)
-    // Redact panel (disabled)
+    // Merge panel
+    QLineEdit*          m_mergeOutDir    = nullptr;
+
+    // OCR panel
+    QLineEdit*          m_ocrOutDir      = nullptr;
+
+    // Redact panel
+    QLineEdit*          m_redactPatterns = nullptr;   // comma-separated regex patterns
+    QLineEdit*          m_redactOutDir   = nullptr;
 
     // Progress
     QProgressBar*       m_overallProgress = nullptr;
@@ -145,10 +151,13 @@ private:
         OpCompress  = 1,
         OpWatermark = 2,
         OpExportPdfA = 3,
-        OpMerge     = 4,   // disabled
-        OpOCR       = 5,   // disabled
-        OpRedact    = 6,   // disabled
+        OpMerge     = 4,
+        OpOCR       = 5,
+        OpRedact    = 6,
     };
+
+    // Special-case handler for Merge (single combined output, not per-file mapped).
+    void runMerge();
 };
 
 } // namespace gp
