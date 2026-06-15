@@ -140,6 +140,16 @@ void CompareMode::onDiffFinished() {
         }
     }
 
+    // Page-level reorder entries (whole pages that moved position).
+    for (const auto& mv : m_lastResult.pageMoves) {
+        ++totalChanges;
+        auto* item = new QTreeWidgetItem(m_tree,
+            {QString::number(totalChanges),
+             QString("p.%1 \xE2\x86\x92 p.%2").arg(mv.fromPage + 1).arg(mv.toPage + 1),
+             tr("Page %1 moved to position %2").arg(mv.fromPage + 1).arg(mv.toPage + 1)});
+        item->setForeground(2, QColor("#7a4cc8"));  // purple for page moves
+    }
+
     m_statusLabel->setText(tr("%1 CHANGES").arg(totalChanges));
 }
 
@@ -224,6 +234,14 @@ QString CompareMode::buildHtmlReport() const {
         return html;
     }
 
+    if (!m_lastResult.pageMoves.isEmpty()) {
+        o << "<h2>Page moves</h2>\n<ul>\n";
+        for (const auto& mv : m_lastResult.pageMoves)
+            o << "<li class=\"moved\">Page " << (mv.fromPage + 1) << " moved to position "
+              << (mv.toPage + 1) << " <span class=\"unchanged\">" << esc(mv.excerpt) << "</span></li>\n";
+        o << "</ul>\n";
+    }
+
     for (const auto& page : m_lastResult.pages) {
         const bool changed = !page.textAdded.isEmpty() || !page.textRemoved.isEmpty()
                              || !page.moves.isEmpty() || page.pixelDiffCount > 0;
@@ -278,6 +296,13 @@ QString CompareMode::buildTextReport() const {
     if (m_lastResult.isIdentical) {
         o << "The documents are identical.\n";
         return out;
+    }
+
+    if (!m_lastResult.pageMoves.isEmpty()) {
+        o << "Page moves:\n";
+        for (const auto& mv : m_lastResult.pageMoves)
+            o << "  Page " << (mv.fromPage + 1) << " moved to position " << (mv.toPage + 1) << "\n";
+        o << "\n";
     }
 
     for (const auto& page : m_lastResult.pages) {
