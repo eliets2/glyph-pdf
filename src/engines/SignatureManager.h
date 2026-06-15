@@ -57,6 +57,10 @@ public:
     QList<SignatureInfo> validateSignatures(const QString &filePath) override;
 
 private:
+    static bool isLegitimateIncrementalAppend(const QByteArray& trailingBytes,
+                                              const QByteArray& baseDocument,
+                                              QString& reason);
+
     // Shared signing core used by both signDocument (certificationLevel == 0) and
     // certifyDocument (certificationLevel 1..3 -> /DocMDP). See SignatureManager.cpp.
     bool signDocumentImpl(const QString &inputPath,

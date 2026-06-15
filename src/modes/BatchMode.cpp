@@ -824,7 +824,13 @@ void BatchMode::onRunClicked() {
         }
     };
 
-    // Wire per-result callback for inline progress updates
+    // Wire per-result callback for inline progress updates.
+    // We use explicit disconnect+reconnect rather than Qt::UniqueConnection because
+    // UniqueConnection compares sender/signal/receiver/slot by pointer and would still
+    // allow a second identical lambda connection (each lambda is a distinct functor
+    // object with a unique address). The disconnect call is therefore load-bearing and
+    // must not be removed or replaced with UniqueConnection.
+    disconnect(&m_watcher, &QFutureWatcher<BatchFileResult>::resultReadyAt, this, nullptr);
     connect(&m_watcher, &QFutureWatcher<BatchFileResult>::resultReadyAt,
             this, [this](int idx) {
         BatchFileResult res = m_watcher.resultAt(idx);
@@ -860,7 +866,8 @@ void BatchMode::onRunClicked() {
         } else {
             m_etaLabel->clear();
         }
-    }, Qt::QueuedConnection);
+    }, Qt::QueuedConnection); // Deduplication is enforced by the preceding disconnect call
+
 
     QFuture<BatchFileResult> future = QtConcurrent::mapped(capturedFiles, processFileReal);
     m_watcher.setFuture(future);

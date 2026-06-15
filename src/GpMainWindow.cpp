@@ -53,6 +53,7 @@
 #include "core/UpdateChecker.h"
 
 #include <QFrame>
+#include <QDebug>
 #include <QLabel>
 #include <QPushButton>
 #include <QSettings>
@@ -274,10 +275,14 @@ MainWindow::MainWindow(const AppContext* ctx, QWidget* parent) : QMainWindow(par
         _ctx->autosave->start();
     }
 
-    // Auto-prune missing recent files on startup (if enabled in Preferences)
-    if (_home && QSettings().value("recent/autoPrune", false).toBool()) {
-        _home->pruneMissingRecents();
-        if (_menu) _menu->refreshRecentFiles();
+    // Auto-prune missing recent files on startup
+    if (_home) {
+        QTimer::singleShot(0, this, [this]() {
+            const int pruned = _home->pruneMissingRecents();
+            if (pruned > 0)
+                qDebug() << "[HomeController] Pruned" << pruned << "missing recent file(s).";
+            if (_menu) _menu->refreshRecentFiles();
+        });
     }
 
     if (_ctx && _ctx->document && _home) {
@@ -480,6 +485,10 @@ void MainWindow::onScreenSelected(const QString& id) {
         replaceRight(_sigPanel);
     } else if (id == "pdfa") {
         if (!_pdfaPanel) _pdfaPanel = new PdfAValidationPanel(this);
+        _pdfaPanel->setExportPdfACallback(
+            [this](const QString& dest, int level) -> bool {
+                return _ctx && _ctx->pdfEditor && _ctx->pdfEditor->exportPdfA(dest, level);
+            });
         replaceRight(_pdfaPanel);
     } else {
         replaceRight(_right);

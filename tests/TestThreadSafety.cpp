@@ -21,6 +21,12 @@ public:
     QImage renderTile(int pageIndex, const QRectF &subRect, int dpi) override {
         return QImage();
     }
+    QSizeF pageSize(int pageIndex) const override {
+        return QSizeF(595, 842);
+    }
+    QString extractText(int pageIndex) override {
+        return QString();
+    }
 };
 
 class TestThreadSafety : public QObject {

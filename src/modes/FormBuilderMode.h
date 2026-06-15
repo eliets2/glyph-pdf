@@ -44,6 +44,7 @@ private slots:
     void onDeleteFieldClicked();
     void onTabOrderApplyClicked();
     void onEscapePressed();
+    void onFieldGeometryCommitted(const QRectF& newRect);
 
 private:
     void buildToolbar(class QVBoxLayout* col);

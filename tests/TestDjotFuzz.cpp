@@ -4,17 +4,8 @@
 // Tests the documentToDjot → djotToDocument round-trip using pseudo-random
 // SemanticDocument instances produced by DocumentFuzzer.
 //
-// NOTE on structural equivalence:
-//   djotToDocument currently parses the Djot AST via Lua but does NOT yet
-//   walk the parsed AST back into SemanticDocument nodes — it returns an empty
-//   document (placeholder pending M5 AST-walking implementation). Therefore:
-//   - Tests that assert "encode must produce non-empty output for non-empty input"
-//     run as hard QVERIFY assertions.
-//   - Tests that assert structural equivalence (section count, block count, text)
-//     are marked QEXPECT_FAIL with a clear label so they become hard failures
-//     automatically once djotToDocument is fully implemented.
-//   - The round-trip must NEVER throw, crash, or produce null — that is always a
-//     hard failure regardless of the decode stub status.
+// All tests run as hard assertions — M5 AST-walking is fully implemented.
+// The round-trip must NEVER throw, crash, or produce null.
 //
 // Wired by CMakeLists.txt (same pattern as TestDjotRoundtrip).
 
@@ -120,7 +111,7 @@ private slots:
     //   1. generateRandomDocument(seed) → model
     //   2. documentToDjot(model) → djotText  (hard assertions: non-null, non-empty)
     //   3. djotToDocument(djotText) → reparsed  (hard assertions: no throw, non-null)
-    //   4. Structural equivalence checks (QEXPECT_FAIL until djotToDocument is complete)
+    //   4. Structural equivalence checks (hard assertions)
     // -----------------------------------------------------------------------
 
     void testFuzzSeed0()  { runFuzzSeed(0);  }
@@ -358,11 +349,6 @@ private slots:
 
     // -----------------------------------------------------------------------
     // E-05: Section count round-trip.
-    //
-    // QEXPECT_FAIL: djotToDocument currently returns an empty SemanticDocument
-    // (AST walking not yet implemented). This test will fail until M5 wires up
-    // the AST-to-SemanticDocument mapper. Marked so the CI failure is expected
-    // now and becomes a hard failure once the implementation is complete.
     // -----------------------------------------------------------------------
     void testStructuralEquivalenceSectionCount()
     {
@@ -392,10 +378,6 @@ private slots:
         auto reparsed = codec.djotToDocument(djotText);
         QVERIFY2(reparsed != nullptr, "decode must return non-null");
 
-        // EXPECTED FAILURE: djotToDocument stub returns empty document.
-        // Remove QEXPECT_FAIL once djotToDocument fully walks the Lua AST.
-        QEXPECT_FAIL("", "djotToDocument AST-walking not yet implemented (M5); "
-                         "section count will be 0 until then", Continue);
         QCOMPARE(static_cast<int>(reparsed->getSections().size()), 3);
     }
 
@@ -403,8 +385,6 @@ private slots:
     // E-06: Fuzz round-trip structural assertion over 12 seeds.
     //       documentToDjot(fuzzed) must produce output whose section count
     //       equals the fuzzed document's section count after decode.
-    //
-    // QEXPECT_FAIL: same stub limitation as E-05.
     // -----------------------------------------------------------------------
     void testFuzzRoundtripSectionCount()
     {
@@ -442,9 +422,7 @@ private slots:
                      qPrintable(QString("seed %1: djotToDocument returned null").arg(seed)));
 
             // Structural equivalence: section count must round-trip.
-            // EXPECTED FAILURE until djotToDocument AST-walking is implemented.
             if (originalSectionCount > 0) {
-                QEXPECT_FAIL("", "djotToDocument AST-walking not yet implemented (M5)", Continue);
                 QCOMPARE(static_cast<int>(reparsed->getSections().size()),
                          originalSectionCount);
             }
@@ -524,12 +502,8 @@ private:
         QVERIFY2(reparsed != nullptr,
                  qPrintable(QString("seed %1: djotToDocument must return non-null").arg(seed)));
 
-        // 4. Structural equivalence (QEXPECT_FAIL until M5 AST-walking is done).
-        //    Check section count only when the original had sections.
+        // 4. Structural equivalence — check section count only when the original had sections.
         if (numSections > 0) {
-            QEXPECT_FAIL("",
-                         "djotToDocument returns empty doc until AST-walking implemented (M5)",
-                         Continue);
             QVERIFY2(static_cast<int>(reparsed->getSections().size()) == numSections,
                      qPrintable(QString("seed %1: section count mismatch: got %2 want %3")
                                 .arg(seed)
@@ -537,11 +511,7 @@ private:
                                 .arg(numSections)));
         }
 
-        // Block count check (same QEXPECT_FAIL guard).
         if (numBlocks > 0) {
-            QEXPECT_FAIL("",
-                         "djotToDocument returns empty doc until AST-walking implemented (M5)",
-                         Continue);
             QVERIFY2(countTopLevelBlocks(*reparsed) == numBlocks,
                      qPrintable(QString("seed %1: block count mismatch: got %2 want %3")
                                 .arg(seed)

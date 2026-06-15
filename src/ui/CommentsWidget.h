@@ -63,6 +63,13 @@ private:
     QLineEdit *m_author = nullptr;
     QTextEdit *m_editor = nullptr;
     QPushButton *m_addBtn = nullptr;
+
+    // M6-P5: Djot composer helpers
+    void wrapSelection(const QString& prefix, const QString& suffix);
+    void insertLinePrefix(const QString& prefix);
+    void refreshDjotPreview();
+
+    QTextEdit   *m_djotPreview  = nullptr;
 };
 
 #endif // COMMENTSWIDGET_H
