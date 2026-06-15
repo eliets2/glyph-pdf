@@ -100,6 +100,7 @@ QString toolIdToString(ToolId id) {
         { ToolId::CreateForm,     QStringLiteral("createForm") },
         { ToolId::ListBox,        QStringLiteral("listbox") },
         { ToolId::Button,         QStringLiteral("button") },
+        { ToolId::CalcField,      QStringLiteral("calcfield") },
         { ToolId::DateField,      QStringLiteral("dateField") },
         { ToolId::NumField,       QStringLiteral("numField") },
         { ToolId::SigField,       QStringLiteral("sigField") },
@@ -236,6 +237,7 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         add(ToolId::CreateForm,     {"createForm", "createform"});
         add(ToolId::ListBox,        {"listbox"});
         add(ToolId::Button,         {"button"});
+        add(ToolId::CalcField,      {"calcField", "calcfield", "calc-field", "calculatedField"});
         add(ToolId::DateField,      {"dateField", "datefield"});
         add(ToolId::NumField,       {"numField", "numfield"});
         add(ToolId::SigField,       {"sigField", "sigfield"});

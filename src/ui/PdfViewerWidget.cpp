@@ -241,6 +241,7 @@ void PdfViewerWidget::setToolMode(ToolMode mode)
         case ToolMode::FormAddNumeric:
         case ToolMode::FormAddSignature:
         case ToolMode::FormAddButton:
+        case ToolMode::FormAddCalculated:
             m_pdfView->setCursor(Qt::CrossCursor);
             break;
         default:
@@ -261,6 +262,7 @@ bool PdfViewerWidget::isFormBuilderMode(ToolMode mode) {
         case ToolMode::FormAddNumeric:
         case ToolMode::FormAddSignature:
         case ToolMode::FormAddButton:
+        case ToolMode::FormAddCalculated:
             return true;
         default:
             return false;
