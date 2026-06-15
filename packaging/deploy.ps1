@@ -45,8 +45,8 @@ Write-Host '[2/8] Running windeployqt6...'
     (Join-Path $DeployDir 'GlyphPDF.exe')
 if ($LASTEXITCODE -ne 0) { throw 'windeployqt6 failed.' }
 
-#  5. Third-party engine binaries 
-Write-Host '[3/8] Copying engine binaries (PDFium, ONNX Runtime)...'
+#  5. Third-party engine binaries
+Write-Host '[3/8] Copying engine binaries (PDFium, ONNX Runtime, PoDoFo)...'
 $pdfiumCandidates = @(
     (Join-Path $BuildDir 'pdfium.dll'),
     (Join-Path $ProjectRoot 'third_party\pdfium\bin\pdfium.dll')
@@ -62,7 +62,20 @@ foreach ($f in 'onnxruntime.dll', 'onnxruntime_providers_shared.dll') {
     else { throw "$f not found in $onnxLib - OCR inference runtime missing." }
 }
 
-#  6. MinGW DLL dependency closure via objdump 
+# Stage vendored libpodofo.dll (1.1.0) BEFORE the objdump closure so the
+# closure's already-present guard prevents MSYS2 ucrt64's podofo 0.10.4
+# from overwriting it. The two versions are ABI-incompatible; shipping 0.10.4
+# against an exe linked with 1.1.0 causes an "Entry Point Not Found" crash on
+# startup because PdfContent::PdfContent() is not exported by 0.10.4.
+$vendorPodofo = Join-Path $ProjectRoot 'third_party\podofo\install\bin\libpodofo.dll'
+if (Test-Path $vendorPodofo) {
+    Copy-Item $vendorPodofo $DeployDir
+    Write-Host '      Staged vendored libpodofo.dll (1.1.0).'
+} else {
+    throw "third_party/podofo/install/bin/libpodofo.dll not found - vendored PoDoFo 1.1.0 build required."
+}
+
+#  6. MinGW DLL dependency closure via objdump
 # Iteratively scan every PE binary in deploy/ for "DLL Name:" imports and copy
 # anything that exists in the MSYS2 ucrt64 bin dir until a fixpoint is reached.
 Write-Host '[4/8] Resolving MinGW DLL dependency closure...'
