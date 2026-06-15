@@ -4,6 +4,9 @@
 
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "core/interfaces/IConversionEngine.h"
+#include "core/interfaces/IOcrEngine.h"
+#include "engines/ocr/OcrPipeline.h"
+#include "engines/podofo/PdfPageOps.h"
 
 using TargetFormat = IConversionEngine::TargetFormat;
 
@@ -27,8 +30,11 @@ using TargetFormat = IConversionEngine::TargetFormat;
 #include <QStandardItemModel>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <QApplication>
 #include <QDir>
 #include <QFileInfo>
+#include <QPdfDocument>
+#include <QRegularExpression>
 #include <QUrl>
 #include <QtConcurrent/QtConcurrent>
 
@@ -182,28 +188,11 @@ void BatchMode::buildOperationPanel(QWidget* host) {
     m_opCombo->addItem(tr("Compress / Optimize"));   // OpCompress = 1
     m_opCombo->addItem(tr("Add Text Watermark"));    // OpWatermark = 2
     m_opCombo->addItem(tr("Export PDF/A"));          // OpExportPdfA = 3
-    m_opCombo->addItem(tr("Merge PDFs"));            // OpMerge = 4  (disabled)
-    m_opCombo->addItem(tr("OCR"));                   // OpOCR = 5    (disabled)
-    m_opCombo->addItem(tr("Redact (Search Pattern)")); // OpRedact = 6 (disabled)
+    m_opCombo->addItem(tr("Merge PDFs"));            // OpMerge = 4
+    m_opCombo->addItem(tr("OCR (searchable PDF)"));  // OpOCR = 5
+    m_opCombo->addItem(tr("Redact (Search Pattern)")); // OpRedact = 6
     opRow->addWidget(m_opCombo);
     vlay->addLayout(opRow);
-
-    // Disable unavailable operations using QStandardItemModel
-    {
-        QStandardItemModel* sim = qobject_cast<QStandardItemModel*>(m_opCombo->model());
-        if (sim) {
-            auto disableItem = [&](int idx, const QString& tip) {
-                QStandardItem* it = sim->item(idx);
-                if (it) {
-                    it->setEnabled(false);
-                    it->setToolTip(tip);
-                }
-            };
-            disableItem(OpMerge,  tr("Merge: not available in v1.0 batch mode."));
-            disableItem(OpOCR,    tr("OCR: not available in v1.0 batch mode."));
-            disableItem(OpRedact, tr("Redact: not available in v1.0 batch mode."));
-        }
-    }
 
     // Stacked config panels (one per operation)
     m_cfgStack = new QStackedWidget;
@@ -341,41 +330,87 @@ void BatchMode::buildOperationPanel(QWidget* host) {
     }
     m_cfgStack->addWidget(pPdfA);  // index 3
 
-    // ── Panel 4: Merge (disabled) ─────────────────────────────────────────
+    // ── Panel 4: Merge ────────────────────────────────────────────────────
     auto* pMerge = new QFrame;
     {
         auto* lay = new QVBoxLayout(pMerge);
-        auto* lbl = new QLabel(tr("Merge: not available in v1.0 batch mode."));
-        lbl->setAlignment(Qt::AlignCenter);
-        lbl->setWordWrap(true);
-        lbl->setStyleSheet("color:#71747a; padding:20px;");
-        lay->addWidget(lbl);
+        auto* note = new QLabel(tr("All input files are merged, in list order, into a single PDF\n"
+                                   "named after the first file (…_merged.pdf)."));
+        note->setWordWrap(true);
+        note->setStyleSheet("color:#71747a; font-size:10px;");
+        lay->addWidget(note);
+
+        lay->addWidget(new QLabel(tr("Output Folder:")));
+        auto* dirRow = new QHBoxLayout;
+        m_mergeOutDir = new QLineEdit;
+        m_mergeOutDir->setPlaceholderText(tr("Same folder as first source"));
+        auto* pickBtn = new QPushButton(tr("…"));
+        pickBtn->setFixedWidth(28);
+        dirRow->addWidget(m_mergeOutDir);
+        dirRow->addWidget(pickBtn);
+        lay->addLayout(dirRow);
+        connect(pickBtn, &QPushButton::clicked, this, [this]() {
+            QString dir = QFileDialog::getExistingDirectory(this, tr("Select Output Folder"));
+            if (!dir.isEmpty()) m_mergeOutDir->setText(dir);
+        });
         lay->addStretch(1);
     }
     m_cfgStack->addWidget(pMerge);  // index 4
 
-    // ── Panel 5: OCR (disabled) ───────────────────────────────────────────
+    // ── Panel 5: OCR ──────────────────────────────────────────────────────
     auto* pOCR = new QFrame;
     {
         auto* lay = new QVBoxLayout(pOCR);
-        auto* lbl = new QLabel(tr("OCR: not available in v1.0 batch mode."));
-        lbl->setAlignment(Qt::AlignCenter);
-        lbl->setWordWrap(true);
-        lbl->setStyleSheet("color:#71747a; padding:20px;");
-        lay->addWidget(lbl);
+        auto* note = new QLabel(tr("Each file is OCR'd and written as a searchable PDF "
+                                   "(image + invisible text layer)."));
+        note->setWordWrap(true);
+        note->setStyleSheet("color:#71747a; font-size:10px;");
+        lay->addWidget(note);
+
+        lay->addWidget(new QLabel(tr("Output Folder:")));
+        auto* dirRow = new QHBoxLayout;
+        m_ocrOutDir = new QLineEdit;
+        m_ocrOutDir->setPlaceholderText(tr("Same folder as source"));
+        auto* pickBtn = new QPushButton(tr("…"));
+        pickBtn->setFixedWidth(28);
+        dirRow->addWidget(m_ocrOutDir);
+        dirRow->addWidget(pickBtn);
+        lay->addLayout(dirRow);
+        connect(pickBtn, &QPushButton::clicked, this, [this]() {
+            QString dir = QFileDialog::getExistingDirectory(this, tr("Select Output Folder"));
+            if (!dir.isEmpty()) m_ocrOutDir->setText(dir);
+        });
         lay->addStretch(1);
     }
     m_cfgStack->addWidget(pOCR);  // index 5
 
-    // ── Panel 6: Redact search-pattern (disabled) ─────────────────────────
+    // ── Panel 6: Redact search-pattern ────────────────────────────────────
     auto* pRedact = new QFrame;
     {
         auto* lay = new QVBoxLayout(pRedact);
-        auto* lbl = new QLabel(tr("Redact: not available in v1.0 batch mode."));
-        lbl->setAlignment(Qt::AlignCenter);
-        lbl->setWordWrap(true);
-        lbl->setStyleSheet("color:#71747a; padding:20px;");
-        lay->addWidget(lbl);
+        lay->addWidget(new QLabel(tr("Regex Patterns (comma-separated):")));
+        m_redactPatterns = new QLineEdit;
+        m_redactPatterns->setPlaceholderText(tr(R"(e.g. \d{3}-\d{2}-\d{4}, [\w.]+@[\w.]+)"));
+        lay->addWidget(m_redactPatterns);
+        auto* note = new QLabel(tr("Matches are excised from the content stream and flattened "
+                                   "(not just covered)."));
+        note->setWordWrap(true);
+        note->setStyleSheet("color:#71747a; font-size:10px;");
+        lay->addWidget(note);
+
+        lay->addWidget(new QLabel(tr("Output Folder:")));
+        auto* dirRow = new QHBoxLayout;
+        m_redactOutDir = new QLineEdit;
+        m_redactOutDir->setPlaceholderText(tr("Same folder as source"));
+        auto* pickBtn = new QPushButton(tr("…"));
+        pickBtn->setFixedWidth(28);
+        dirRow->addWidget(m_redactOutDir);
+        dirRow->addWidget(pickBtn);
+        lay->addLayout(dirRow);
+        connect(pickBtn, &QPushButton::clicked, this, [this]() {
+            QString dir = QFileDialog::getExistingDirectory(this, tr("Select Output Folder"));
+            if (!dir.isEmpty()) m_redactOutDir->setText(dir);
+        });
         lay->addStretch(1);
     }
     m_cfgStack->addWidget(pRedact);  // index 6
@@ -597,6 +632,14 @@ QString BatchMode::resolveOutputPath(const QString& inputPath) const {
         outDir = pickOutDir(m_pdfaOutDir);
         if (outDir.isEmpty()) outDir = QFileInfo(inputPath).absolutePath();
         return QDir(outDir).filePath(outName + "_pdfa.pdf");
+    case OpOCR:
+        outDir = pickOutDir(m_ocrOutDir);
+        if (outDir.isEmpty()) outDir = QFileInfo(inputPath).absolutePath();
+        return QDir(outDir).filePath(outName + "_ocr.pdf");
+    case OpRedact:
+        outDir = pickOutDir(m_redactOutDir);
+        if (outDir.isEmpty()) outDir = QFileInfo(inputPath).absolutePath();
+        return QDir(outDir).filePath(outName + "_redacted.pdf");
     default:
         return {};
     }
@@ -621,20 +664,25 @@ void BatchMode::onRunClicked() {
 
     int opIdx = m_opCombo ? m_opCombo->currentIndex() : 0;
 
-    // Refuse disabled operations
-    if (opIdx == OpMerge || opIdx == OpOCR || opIdx == OpRedact) {
-        QString reason;
-        if      (opIdx == OpMerge)  reason = tr("Merge: not available in v1.0 batch mode.");
-        else if (opIdx == OpOCR)    reason = tr("OCR: not available in v1.0 batch mode.");
-        else                        reason = tr("Redact: not available in v1.0 batch mode.");
-        QMessageBox::information(this, tr("Operation Not Available"), reason);
-        return;
-    }
-
     // Guard: AppContext must be set for engine operations
     if (!m_ctx) {
         QMessageBox::warning(this, tr("Engine Unavailable"),
             tr("No AppContext available. Ensure the application is fully initialized."));
+        return;
+    }
+
+    // Merge is a single combined output over all files — it does not fit the
+    // per-file mapped pipeline, so it has a dedicated synchronous handler.
+    if (opIdx == OpMerge) {
+        runMerge();
+        return;
+    }
+
+    // Redact requires at least one pattern.
+    if (opIdx == OpRedact &&
+        (!m_redactPatterns || m_redactPatterns->text().trimmed().isEmpty())) {
+        QMessageBox::information(this, tr("No Patterns"),
+            tr("Enter one or more comma-separated regex patterns to redact."));
         return;
     }
 
@@ -696,6 +744,15 @@ void BatchMode::onRunClicked() {
     const QString capturedPdfAOutDir = m_pdfaOutDir ? m_pdfaOutDir->text().trimmed() : QString();
     const int capturedFmtIdx = m_fmtCombo ? m_fmtCombo->currentIndex() : 0;
 
+    // OCR config
+    const QString capturedOcrOutDir = m_ocrOutDir ? m_ocrOutDir->text().trimmed() : QString();
+
+    // Redact config
+    const QString capturedRedactOutDir = m_redactOutDir ? m_redactOutDir->text().trimmed() : QString();
+    const QStringList capturedRedactPatterns = m_redactPatterns
+        ? m_redactPatterns->text().split(QLatin1Char(','), Qt::SkipEmptyParts)
+        : QStringList();
+
     // Worker lambda — runs on QtConcurrent thread pool.
     // All captured values are by-value copies of GUI state taken above on the GUI thread.
     // 'this' is not captured to avoid dangling if BatchMode is destroyed mid-batch.
@@ -737,6 +794,12 @@ void BatchMode::onRunClicked() {
             break;
         case OpExportPdfA:
             result.outputPath = QDir(resolveDir(capturedPdfAOutDir)).filePath(baseName + "_pdfa.pdf");
+            break;
+        case OpOCR:
+            result.outputPath = QDir(resolveDir(capturedOcrOutDir)).filePath(baseName + "_ocr.pdf");
+            break;
+        case OpRedact:
+            result.outputPath = QDir(resolveDir(capturedRedactOutDir)).filePath(baseName + "_redacted.pdf");
             break;
         default:
             result.errorMessage = QStringLiteral("Unsupported operation");
@@ -795,6 +858,68 @@ void BatchMode::onRunClicked() {
                 } else {
                     ok = editor.exportPdfA(result.outputPath, capturedPdfALevel);
                     if (!ok) techDetail = editor.lastError().technicalDetails;
+                }
+            } else if (capturedOp == OpRedact) {
+                if (!editor.loadDocumentForEditing(inputPath)) {
+                    techDetail = editor.lastError().technicalDetails;
+                    ok = false;
+                } else {
+                    ok = true;
+                    for (const QString& patStr : capturedRedactPatterns) {
+                        QRegularExpression re(patStr.trimmed());
+                        if (!re.isValid()) {
+                            techDetail = QStringLiteral("Invalid regex pattern: %1").arg(patStr.trimmed());
+                            ok = false;
+                            break;
+                        }
+                        // startPage = endPage = -1 → redact all pages.
+                        if (!editor.applyPatternRedactions(re, -1, -1)) {
+                            techDetail = editor.lastError().technicalDetails;
+                            ok = false;
+                            break;
+                        }
+                    }
+                    if (ok) {
+                        ok = editor.saveDocument(result.outputPath);
+                        if (!ok) techDetail = editor.lastError().technicalDetails;
+                    }
+                }
+            } else if (capturedOp == OpOCR) {
+                // Render each page, OCR it, then assemble a searchable MRC PDF/A
+                // (image background + invisible text layer from the OCR words).
+                if (!capturedCtx->ocr) {
+                    techDetail = QStringLiteral("OCR engine not available");
+                    ok = false;
+                } else {
+                    QPdfDocument pdf;
+                    pdf.load(inputPath);
+                    if (pdf.status() != QPdfDocument::Status::Ready || pdf.pageCount() <= 0) {
+                        techDetail = QStringLiteral("Failed to open PDF for rendering: %1").arg(inputPath);
+                        ok = false;
+                    } else {
+                        capturedCtx->ocr->initialize(QStringLiteral("eng"));
+                        OcrPipeline pipeline(capturedCtx->ocr);
+                        pipeline.setStrategy(OcrStrategy::PrimaryOnly);
+
+                        QList<QImage> images;
+                        QList<PageOcrResult> pageResults;
+                        const double dpi = 150.0;
+                        for (int p = 0; p < pdf.pageCount(); ++p) {
+                            const QSizeF pts = pdf.pagePointSize(p);
+                            const QSize px(qMax(1, int(pts.width()  * dpi / 72.0)),
+                                           qMax(1, int(pts.height() * dpi / 72.0)));
+                            const QImage img = pdf.render(p, px);
+                            images.append(img);
+
+                            PageOcrResult pr;
+                            pr.pageIndex = p;
+                            pr.words     = img.isNull() ? QList<MergedOcrWord>() : pipeline.run(img);
+                            pr.success   = true;
+                            pageResults.append(pr);
+                        }
+                        ok = editor.exportMrcPdfA(result.outputPath, images, pageResults);
+                        if (!ok) techDetail = editor.lastError().technicalDetails;
+                    }
                 }
             }
         }
@@ -871,6 +996,57 @@ void BatchMode::onRunClicked() {
 
     QFuture<BatchFileResult> future = QtConcurrent::mapped(capturedFiles, processFileReal);
     m_watcher.setFuture(future);
+}
+
+// ── Merge (single combined output) ──────────────────────────────────────────────
+// Merge does not fit the per-file QtConcurrent::mapped pipeline (N inputs → 1
+// output), so it runs synchronously here via gp::mergeDocuments.
+void BatchMode::runMerge() {
+    if (m_filesToProcess.size() < 2) {
+        QMessageBox::information(this, tr("Merge PDFs"),
+            tr("Add at least two PDF files to merge."));
+        return;
+    }
+
+    const QString first = m_filesToProcess.first();
+    QString outDir = m_mergeOutDir ? m_mergeOutDir->text().trimmed() : QString();
+    if (outDir.isEmpty()) outDir = QFileInfo(first).absolutePath();
+    const QString outPath = QDir(outDir).filePath(
+        QFileInfo(first).completeBaseName() + QStringLiteral("_merged.pdf"));
+
+    if (!confirmOverwrite(outPath)) return;
+
+    m_logView->clear();
+    m_overallProgress->setRange(0, 100);
+    m_overallProgress->setValue(0);
+    m_fileProgress->setValue(0);
+    m_statusLabel->setText(tr("Merging %1 files…").arg(m_filesToProcess.size()));
+    appendLog(tr("Merging %1 files → %2")
+        .arg(m_filesToProcess.size()).arg(QFileInfo(outPath).fileName()));
+
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    bool ok = false;
+    QString err;
+    try {
+        ok = gp::mergeDocuments(m_filesToProcess, outPath);
+    } catch (const std::exception& e) {
+        err = QString::fromUtf8(e.what());
+    } catch (...) {
+        err = tr("unknown error");
+    }
+    QApplication::restoreOverrideCursor();
+
+    m_overallProgress->setValue(100);
+    m_fileProgress->setValue(100);
+    if (ok) {
+        appendLog(QStringLiteral("  \xE2\x9C\x93 %1").arg(outPath), "#4ec96d");
+        m_statusLabel->setText(tr("MERGE COMPLETE — %1").arg(QFileInfo(outPath).fileName()));
+    } else {
+        appendLog(QStringLiteral("  \xE2\x9C\x95 %1")
+            .arg(err.isEmpty() ? tr("Merge failed") : tr("Merge failed — %1").arg(err)), "#c8442b");
+        m_statusLabel->setText(tr("MERGE FAILED"));
+    }
+    emit batchFinished();
 }
 
 void BatchMode::onCancelClicked() {
