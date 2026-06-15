@@ -530,6 +530,7 @@ endif()
 # to that test target, otherwise Bootstrapper.cpp's #error will abort the build.
 target_compile_definitions(PdfWorkstation PRIVATE
     DJOT_LIB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/third_party/djot"
+    GLYPHPDF_VERSION="${PROJECT_VERSION}"
 )
 
 # Windows: hide console

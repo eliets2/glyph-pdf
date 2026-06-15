@@ -116,7 +116,7 @@ private:
     int  m_progressPct = 0;
 
     static constexpr const char* DefaultManifestUrl =
-        "https://glyphpdf.com/updates/latest.json";
+        "https://eliets2.github.io/glyph-pdf/updates/latest.json";
 };
 
 } // namespace gp
