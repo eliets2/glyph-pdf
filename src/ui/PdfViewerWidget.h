@@ -35,6 +35,10 @@ public:
     void reload();
     ToolMode toolMode() const { return m_toolMode; }
     void setToolMode(ToolMode mode);
+    // Read-only mode (e.g. for expired documents): blocks editing/annotation
+    // tool modes, allowing only viewing and text selection.
+    void setReadOnly(bool readOnly);
+    bool isReadOnly() const { return m_readOnly; }
     void setAnnotationColor(const QColor &color);
     void setAnnotationThickness(int thickness);
     void saveAnnotations();
@@ -123,6 +127,7 @@ private:
     AnnotationLayer *m_annotationLayer;
     qreal m_zoomFactor;
     ToolMode m_toolMode;
+    bool m_readOnly = false;
     QString m_filePath;
     int m_rotation;
     QImage m_overlayImage;

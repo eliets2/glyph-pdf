@@ -10,6 +10,8 @@
 #include "engines/VeraPdfValidator.h"
 #include "core/ErrorInfo.h"
 #include "core/TempFileManager.h"
+#include <podofo/podofo.h>
+#include <QDate>
 #include <QMutexLocker>
 #include <QRecursiveMutex>
 #include <QSettings>
@@ -860,6 +862,108 @@ bool PdfEditorEngine::setMetadata(const PdfMetadata &metadata)
                   QObject::tr("Could not update the document metadata."),
                   QStringLiteral("setMetadata failed"));
     return ok;
+}
+
+// ── Document expiry (XMP) ────────────────────────────────────────────────────
+namespace {
+constexpr const char* kGlyphNs = "http://glyphpdf.example/ns/1.0/";
+
+// Insert or replace <glyph:ExpiryDate> in an existing XMP packet, or build a
+// fresh minimal packet if `existing` has no usable rdf:RDF block.
+QByteArray injectExpiry(const QByteArray& existing, const QString& dateStr) {
+    const QString elem = QStringLiteral("<glyph:ExpiryDate>%1</glyph:ExpiryDate>").arg(dateStr);
+    QString xmp = QString::fromUtf8(existing);
+
+    if (xmp.contains(QStringLiteral("<glyph:ExpiryDate>"))) {
+        static const QRegularExpression re(
+            QStringLiteral("<glyph:ExpiryDate>.*?</glyph:ExpiryDate>"),
+            QRegularExpression::DotMatchesEverythingOption);
+        xmp.replace(re, elem);
+        return xmp.toUtf8();
+    }
+    if (xmp.contains(QStringLiteral("</rdf:RDF>"))) {
+        const QString desc = QStringLiteral(
+            "<rdf:Description rdf:about=\"\" xmlns:glyph=\"%1\">%2</rdf:Description>\n")
+            .arg(QString::fromUtf8(kGlyphNs), elem);
+        xmp.replace(QStringLiteral("</rdf:RDF>"), desc + QStringLiteral("</rdf:RDF>"));
+        return xmp.toUtf8();
+    }
+    return QStringLiteral(
+        "<?xpacket begin=\"\xEF\xBB\xBF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>"
+        "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">"
+        "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"
+        "<rdf:Description rdf:about=\"\" xmlns:glyph=\"%1\">%2</rdf:Description>"
+        "</rdf:RDF></x:xmpmeta><?xpacket end=\"w\"?>")
+        .arg(QString::fromUtf8(kGlyphNs), elem).toUtf8();
+}
+} // namespace
+
+bool PdfEditorEngine::setExpiryDate(const QString& pdfPath, const QDate& date, const QString& outputPath)
+{
+    if (!date.isValid()) return false;
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(pdfPath.toUtf8().constData());
+
+        // Ensure the catalog has an XMP /Metadata stream, then read it back.
+        doc.GetMetadata().SyncXMPMetadata(true);
+
+        auto& catDict = doc.GetCatalog().GetDictionary();
+        PoDoFo::PdfObject* metaObj = catDict.FindKey("Metadata");
+        if (!metaObj) {
+            qWarning() << "setExpiryDate: no /Metadata stream after sync";
+            return false;
+        }
+
+        QByteArray existing;
+        if (metaObj->HasStream()) {
+            if (const PoDoFo::PdfObjectStream* s = metaObj->GetStream()) {
+                PoDoFo::charbuff buf;
+                s->CopyTo(buf);
+                existing = QByteArray(buf.data(), static_cast<int>(buf.size()));
+            }
+        }
+
+        const QByteArray newXmp = injectExpiry(existing, date.toString(QStringLiteral("yyyy-MM-dd")));
+
+        metaObj->GetDictionary().AddKey(PoDoFo::PdfName("Type"), PoDoFo::PdfName("Metadata"));
+        metaObj->GetDictionary().AddKey(PoDoFo::PdfName("Subtype"), PoDoFo::PdfName("XML"));
+        metaObj->GetOrCreateStream().SetData(
+            PoDoFo::bufferview(newXmp.constData(), static_cast<size_t>(newXmp.size())));
+
+        doc.Save(outputPath.toUtf8().constData());
+        return true;
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "setExpiryDate error:" << e.what();
+        return false;
+    }
+}
+
+QDate PdfEditorEngine::readExpiryDate(const QString& pdfPath)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(pdfPath.toUtf8().constData());
+        auto& catDict = doc.GetCatalog().GetDictionary();
+        const PoDoFo::PdfObject* metaObj = catDict.FindKey("Metadata");
+        if (!metaObj || !metaObj->HasStream()) return {};
+
+        const PoDoFo::PdfObjectStream* s = metaObj->GetStream();
+        if (!s) return {};
+        PoDoFo::charbuff buf;
+        s->CopyTo(buf);
+        const QString xmp = QString::fromUtf8(buf.data(), static_cast<int>(buf.size()));
+
+        static const QRegularExpression re(
+            QStringLiteral("<glyph:ExpiryDate>\\s*([0-9]{4}-[0-9]{2}-[0-9]{2})\\s*</glyph:ExpiryDate>"));
+        const auto m = re.match(xmp);
+        if (m.hasMatch())
+            return QDate::fromString(m.captured(1), QStringLiteral("yyyy-MM-dd"));
+        return {};
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "readExpiryDate error:" << e.what();
+        return {};
+    }
 }
 
 QString PdfEditorEngine::currentFile() const

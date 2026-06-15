@@ -28,6 +28,7 @@
 #include "shell/ToolRegistry.h"
 #include "ui/FindBar.h"
 #include "engines/DocumentSession.h"
+#include "engines/PdfEditorEngine.h"
 #include "util/GpTheme.h"
 
 #include <QApplication>
@@ -371,6 +372,20 @@ void MainWindow::openDocument(const QString& filePath) {
         _status->setPage(viewer->currentPage() + 1, viewer->pageCount());
         _status->updateFromDocument(_ctx->pdfEditor.get(), filePath);
         _status->updateUnsaved(false);
+
+        // Document expiry (§9.11): if a glyph:ExpiryDate is set and has passed,
+        // open the document read-only and warn the user.
+        const QDate expiry = PdfEditorEngine::readExpiryDate(filePath);
+        if (expiry.isValid() && expiry < QDate::currentDate()) {
+            viewer->setReadOnly(true);
+            QMessageBox box(QMessageBox::Warning, tr("Document Expired"),
+                tr("This document expired on %1. It has been opened in read-only mode.")
+                    .arg(expiry.toString(Qt::ISODate)),
+                QMessageBox::Ok, this);
+            box.exec();
+        } else {
+            viewer->setReadOnly(false);
+        }
 
         // Check if the engine reported a repair warning (D4)
         if (_ctx && _ctx->pdfEditor) {

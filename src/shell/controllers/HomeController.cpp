@@ -18,6 +18,13 @@
 #include <QDesktopServices>
 #include <QUrl>
 #include <QFileInfo>
+#include <QFile>
+#include <QDir>
+#include <QProcess>
+#include <QInputDialog>
+#include <QLineEdit>
+#include <QStandardPaths>
+#include <QCoreApplication>
 #include <QSettings>
 #include <QPrintPreviewDialog>
 #include <QPrinter>
@@ -219,8 +226,30 @@ void HomeController::onSaveAs() {
 void HomeController::onShare() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer) return;
-    
-    QString filePath = viewer->filePath();
+
+    const QString filePath = viewer->filePath();
+    if (filePath.isEmpty()) {
+        _mainWindow->statusBar()->showMessage(tr("No document is open."), 3000);
+        return;
+    }
+
+    QMessageBox box(_mainWindow);
+    box.setWindowTitle(tr("Share Document"));
+    box.setIcon(QMessageBox::Question);
+    box.setText(tr("How would you like to share this document?"));
+    QPushButton* emailBtn = box.addButton(tr("Email attachment"), QMessageBox::AcceptRole);
+    QPushButton* pkgBtn   = box.addButton(tr("Create encrypted package"), QMessageBox::ActionRole);
+    box.addButton(QMessageBox::Cancel);
+    box.exec();
+
+    if (box.clickedButton() == pkgBtn) {
+        createEncryptedPackage(filePath);
+    } else if (box.clickedButton() == emailBtn) {
+        shareViaEmail(filePath);
+    }
+}
+
+void HomeController::shareViaEmail(const QString& filePath) {
     QString fileName = QFileInfo(filePath).fileName();
     QString subject = tr("PDF Document: %1").arg(fileName);
     QString body = tr("Please find the attached PDF document.");
@@ -258,6 +287,70 @@ void HomeController::onShare() {
 
     QString url = QString("mailto:?subject=%1&body=%2").arg(subject).arg(body);
     QDesktopServices::openUrl(QUrl(url, QUrl::TolerantMode));
+}
+
+// Secure sharing (§9.11): bundle the PDF into an AES-256 encrypted ZIP using a
+// 7-Zip executable (PATH, common install dirs, or bundled next to the app).
+void HomeController::createEncryptedPackage(const QString& filePath) {
+    QString sevenZip = QStandardPaths::findExecutable(QStringLiteral("7z"));
+    if (sevenZip.isEmpty()) {
+        const QStringList candidates = {
+            QStringLiteral("C:/Program Files/7-Zip/7z.exe"),
+            QStringLiteral("C:/Program Files (x86)/7-Zip/7z.exe"),
+            QCoreApplication::applicationDirPath() + QStringLiteral("/7z.exe"),
+        };
+        for (const QString& c : candidates)
+            if (QFileInfo::exists(c)) { sevenZip = c; break; }
+    }
+    if (sevenZip.isEmpty()) {
+        QMessageBox::warning(_mainWindow, tr("Encrypted Package"),
+            tr("7-Zip (7z.exe) was not found. Install 7-Zip to create AES-256 "
+               "encrypted packages, or use Protect \xE2\x96\xB8 Encrypt to password-protect "
+               "the PDF directly."));
+        return;
+    }
+
+    bool ok = false;
+    const QString password = QInputDialog::getText(_mainWindow, tr("Encrypted Package"),
+        tr("Package password:"), QLineEdit::Password, QString(), &ok);
+    if (!ok || password.isEmpty()) return;
+
+    QString outPath = QFileDialog::getSaveFileName(_mainWindow,
+        tr("Save Encrypted Package"),
+        QFileInfo(filePath).completeBaseName() + QStringLiteral(".zip"),
+        tr("Encrypted ZIP (*.zip)"));
+    if (outPath.isEmpty()) return;
+    if (!outPath.endsWith(QLatin1String(".zip"), Qt::CaseInsensitive))
+        outPath += QStringLiteral(".zip");
+    QFile::remove(outPath);  // 7z appends to an existing archive — start fresh
+
+    // 7z a -tzip -mem=AES256 -p<pwd> <out.zip> <pdf>
+    QStringList args;
+    args << QStringLiteral("a") << QStringLiteral("-tzip")
+         << QStringLiteral("-mem=AES256")
+         << (QStringLiteral("-p") + password)
+         << QDir::toNativeSeparators(outPath)
+         << QDir::toNativeSeparators(filePath);
+
+    QProcess proc;
+    proc.start(sevenZip, args);
+    if (!proc.waitForStarted(5000)) {
+        QMessageBox::warning(_mainWindow, tr("Encrypted Package"),
+            tr("Could not launch 7-Zip."));
+        return;
+    }
+    proc.waitForFinished(-1);
+
+    if (proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0
+        && QFileInfo::exists(outPath)) {
+        _mainWindow->statusBar()->showMessage(
+            tr("Encrypted package created: %1").arg(QFileInfo(outPath).fileName()), 5000);
+        QMessageBox::information(_mainWindow, tr("Encrypted Package"),
+            tr("AES-256 encrypted package created:\n%1").arg(outPath));
+    } else {
+        QMessageBox::warning(_mainWindow, tr("Encrypted Package"),
+            tr("7-Zip failed to create the package (exit code %1).").arg(proc.exitCode()));
+    }
 }
 
 void HomeController::onPrint() {
