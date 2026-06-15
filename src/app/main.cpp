@@ -34,7 +34,11 @@ int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
 
     QCoreApplication::setApplicationName("GlyphPDF");
-    QCoreApplication::setApplicationVersion("1.2.0");
+#ifdef GLYPHPDF_VERSION
+    QCoreApplication::setApplicationVersion(GLYPHPDF_VERSION);  // injected from CMake PROJECT_VERSION
+#else
+    QCoreApplication::setApplicationVersion("0.0.0");
+#endif
     QCoreApplication::setOrganizationName("Glyph");
 
     // Application-wide window / taskbar icon (branding)

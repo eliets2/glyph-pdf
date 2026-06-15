@@ -595,8 +595,20 @@ void MainWindow::dropEvent(QDropEvent* event) {
 
 void MainWindow::initUpdateChecker() {
     QSettings settings;
-    if (!settings.value("update/checkOnStartup", false).toBool())
+    // On by default (privacy-first: a version check against GitHub, no telemetry).
+    if (!settings.value("update/checkOnStartup", true).toBool())
         return;
+
+    // One-time transparency notice — tell the user we check for updates and how
+    // to turn it off, then never prompt again.
+    if (!settings.value("update/firstRunNoticeShown", false).toBool()) {
+        settings.setValue("update/firstRunNoticeShown", true);
+        QMessageBox::information(this, tr("Software updates"),
+            tr("GlyphPDF checks GitHub for new versions when it starts and shows a "
+               "dismissible banner if one is available. It never downloads or installs "
+               "anything without your click, and sends no usage data.\n\n"
+               "You can turn this off under Preferences \xE2\x96\xB8 Updates."));
+    }
 
     // --- Notification bar (hidden until update is found) ---
     _updateBar = new QFrame(this);
@@ -637,7 +649,7 @@ void MainWindow::initUpdateChecker() {
 
     QString channel = settings.value("update/channel", "stable").toString();
     if (channel == "beta") {
-        _updater->setManifestUrl(QUrl("https://glyphpdf.com/updates/beta.json"));
+        _updater->setManifestUrl(QUrl("https://eliets2.github.io/glyph-pdf/updates/beta.json"));
     }
 
     connect(_updater, &UpdateChecker::updateAvailable, this,
