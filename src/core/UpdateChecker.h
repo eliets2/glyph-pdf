@@ -56,6 +56,10 @@ public:
 
     static QString currentVersion();
 
+    /// Resolve the manifest URL for a release channel ("stable" or "beta").
+    /// Centralizes the channel→URL mapping so callers can't drift.
+    static QUrl manifestUrlForChannel(const QString& channel);
+
 public slots:
     /** Fetch manifest and compare versions. Non-blocking. */
     void checkForUpdates();
