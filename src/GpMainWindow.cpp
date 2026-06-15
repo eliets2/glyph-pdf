@@ -46,6 +46,7 @@
 
 #include "ui/ShortcutHelpDialog.h"
 #include "ui/PreferencesDialog.h"
+#include "ui/UpdateDialog.h"
 #include "ui/RecoveryDialog.h"
 #include "engines/AutosaveManager.h"
 #include "ui/ErrorDialog.h"
@@ -627,14 +628,9 @@ void MainWindow::initUpdateChecker() {
     barLabel->setObjectName("updateBarLabel");
     barLay->addWidget(barLabel, 1);
 
-    auto* downloadBtn = new QPushButton(tr("Download"));
-    downloadBtn->setObjectName("updateDownloadBtn");
-    barLay->addWidget(downloadBtn);
-
-    auto* installBtn = new QPushButton(tr("Install && Restart"));
-    installBtn->setObjectName("updateInstallBtn");
-    installBtn->setVisible(false);
-    barLay->addWidget(installBtn);
+    auto* viewBtn = new QPushButton(tr("View Update"));
+    viewBtn->setObjectName("updateViewBtn");
+    barLay->addWidget(viewBtn);
 
     auto* dismissBtn = new QPushButton(tr("Dismiss"));
     barLay->addWidget(dismissBtn);
@@ -652,39 +648,21 @@ void MainWindow::initUpdateChecker() {
         _updater->setManifestUrl(UpdateChecker::manifestUrlForChannel(channel));
     }
 
+    // Latest update info, so "View Update" can open the dialog on demand.
+    auto pending = std::make_shared<UpdateChecker::UpdateInfo>();
+
     connect(_updater, &UpdateChecker::updateAvailable, this,
-        [barLabel, downloadBtn, installBtn, this](const UpdateChecker::UpdateInfo& info) {
-            barLabel->setText(tr("Update available: GlyphPDF v%1 (%2)")
-                .arg(info.version, info.releaseDate));
+        [this, barLabel, pending](const UpdateChecker::UpdateInfo& info) {
+            *pending = info;
+            barLabel->setText(tr("GlyphPDF v%1 is available.").arg(info.version));
             _updateBar->setVisible(true);
         });
 
-    connect(downloadBtn, &QPushButton::clicked, this, [downloadBtn, barLabel, this]() {
-        downloadBtn->setEnabled(false);
-        barLabel->setText(tr("Downloading update..."));
-        _updater->downloadUpdate();
-    });
-
-    connect(_updater, &UpdateChecker::downloadProgressChanged, this,
-        [barLabel](int pct) {
-            barLabel->setText(tr("Downloading update... %1%").arg(pct));
-        });
-
-    connect(_updater, &UpdateChecker::downloadReady, this,
-        [barLabel, downloadBtn, installBtn](const QString&) {
-            barLabel->setText(tr("Update downloaded — ready to install."));
-            downloadBtn->setVisible(false);
-            installBtn->setVisible(true);
-        });
-
-    connect(_updater, &UpdateChecker::downloadFailed, this,
-        [barLabel, downloadBtn](const QString& reason) {
-            barLabel->setText(tr("Download failed: %1").arg(reason));
-            downloadBtn->setEnabled(true);
-        });
-
-    connect(installBtn, &QPushButton::clicked, this, [this]() {
-        _updater->applyUpdate();
+    // The download/verify/install flow lives in the polished modal dialog.
+    connect(viewBtn, &QPushButton::clicked, this, [this, pending]() {
+        if (pending->version.isEmpty()) return;
+        UpdateDialog dlg(_updater, *pending, this);
+        dlg.exec();
     });
 
     connect(_updater, &UpdateChecker::updateLaunched, this, []() {

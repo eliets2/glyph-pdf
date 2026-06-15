@@ -422,6 +422,7 @@ add_library(pdfws_ui STATIC
     src/ui/ThumbnailSidebar.h        src/ui/ThumbnailSidebar.cpp
     src/ui/ShortcutHelpDialog.h      src/ui/ShortcutHelpDialog.cpp
     src/ui/PreferencesDialog.h       src/ui/PreferencesDialog.cpp
+    src/ui/UpdateDialog.h            src/ui/UpdateDialog.cpp
     src/ui/RecoveryDialog.h          src/ui/RecoveryDialog.cpp
     src/ui/ErrorDialog.h             src/ui/ErrorDialog.cpp
     src/ui/PageSetupDialog.h         src/ui/PageSetupDialog.cpp
