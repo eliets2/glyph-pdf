@@ -31,10 +31,12 @@ using TargetFormat = IConversionEngine::TargetFormat;
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QApplication>
+#include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
 #include <QPdfDocument>
 #include <QRegularExpression>
+#include <QTimer>
 #include <QUrl>
 #include <QtConcurrent/QtConcurrent>
 
@@ -152,6 +154,8 @@ void BatchMode::buildFilePanel(QWidget* host) {
     row2->addWidget(removeBtn);
     row2->addWidget(clearBtn);
     btnLay->addLayout(row2);
+
+    buildHotFolderSection(btnLay);
 
     vlay->addWidget(btnFrame);
 
@@ -595,6 +599,126 @@ void BatchMode::onRemoveSelected() {
 void BatchMode::onOperationChanged(int index) {
     if (m_cfgStack)
         m_cfgStack->setCurrentIndex(index);
+}
+
+// ── Hot folder (Phase 3) ────────────────────────────────────────────────────────
+
+// static — identity key for a file: name + last-modified time. A file is only
+// auto-ingested once unless it is replaced/modified.
+QString BatchMode::hotFileKey(const QFileInfo& fi) {
+    return fi.fileName() + QLatin1Char('|')
+         + QString::number(fi.lastModified().toMSecsSinceEpoch());
+}
+
+void BatchMode::buildHotFolderSection(QVBoxLayout* btnLay) {
+    auto* hotLabel = new QLabel(tr("HOT FOLDER"));
+    hotLabel->setProperty("mono", true);
+    hotLabel->setStyleSheet("margin-top:6px;");
+    btnLay->addWidget(hotLabel);
+
+    m_hotFolderCheck = new QCheckBox(tr("Watch folder (hot folder)"));
+    m_hotFolderCheck->setToolTip(tr("Auto-add new PDFs dropped into a folder"));
+    btnLay->addWidget(m_hotFolderCheck);
+
+    auto* hotRow = new QHBoxLayout;
+    m_hotFolderEdit = new QLineEdit;
+    m_hotFolderEdit->setReadOnly(true);
+    m_hotFolderEdit->setPlaceholderText(tr("No folder watched"));
+    auto* hotBrowse = new QPushButton(tr("…"));
+    hotBrowse->setFixedWidth(28);
+    hotRow->addWidget(m_hotFolderEdit);
+    hotRow->addWidget(hotBrowse);
+    btnLay->addLayout(hotRow);
+
+    m_hotAutoRunCheck = new QCheckBox(tr("Auto-run on new files"));
+    m_hotAutoRunCheck->setToolTip(tr("Start the batch automatically when new files arrive"));
+    btnLay->addWidget(m_hotAutoRunCheck);
+
+    connect(m_hotFolderCheck, &QCheckBox::toggled, this, &BatchMode::onToggleHotFolder);
+    // Browse re-picks the folder by re-triggering the toggle flow.
+    connect(hotBrowse, &QPushButton::clicked, this, [this]() {
+        if (m_hotFolderCheck->isChecked())
+            m_hotFolderCheck->setChecked(false);  // stop current watch
+        m_hotFolderCheck->setChecked(true);       // prompt + start
+    });
+}
+
+void BatchMode::onToggleHotFolder() {
+    const bool on = m_hotFolderCheck && m_hotFolderCheck->isChecked();
+
+    if (on) {
+        QString dir = QFileDialog::getExistingDirectory(this, tr("Select Hot Folder to Watch"));
+        if (dir.isEmpty()) {
+            // User cancelled — revert the checkbox without recursing into stop logic.
+            QSignalBlocker block(m_hotFolderCheck);
+            m_hotFolderCheck->setChecked(false);
+            return;
+        }
+        m_hotFolderPath = dir;
+        m_hotFolderEdit->setText(dir);
+
+        // Seed the processed set with existing files so only NEW files trigger.
+        m_hotProcessed.clear();
+        const auto seed = QDir(dir).entryInfoList(QStringList() << "*.pdf" << "*.PDF",
+                                                  QDir::Files);
+        for (const QFileInfo& fi : seed)
+            m_hotProcessed.insert(hotFileKey(fi));
+
+        if (!m_hotFolderDebounce) {
+            m_hotFolderDebounce = new QTimer(this);
+            m_hotFolderDebounce->setSingleShot(true);
+            m_hotFolderDebounce->setInterval(500);
+            connect(m_hotFolderDebounce, &QTimer::timeout, this,
+                    [this]() { onHotFolderChanged(m_hotFolderPath); });
+        }
+        if (!m_hotFolderWatcher) {
+            m_hotFolderWatcher = new QFileSystemWatcher(this);
+            connect(m_hotFolderWatcher, &QFileSystemWatcher::directoryChanged, this,
+                    [this](const QString&) { if (m_hotFolderDebounce) m_hotFolderDebounce->start(); });
+        }
+        m_hotFolderWatcher->addPath(dir);
+        appendLog(tr("Hot folder watching: %1").arg(dir), "#5b9bd5");
+    } else {
+        // Toggled off — tear down watcher + debounce and clear state.
+        if (m_hotFolderWatcher) {
+            delete m_hotFolderWatcher;
+            m_hotFolderWatcher = nullptr;
+        }
+        if (m_hotFolderDebounce) {
+            m_hotFolderDebounce->stop();
+            delete m_hotFolderDebounce;
+            m_hotFolderDebounce = nullptr;
+        }
+        m_hotFolderPath.clear();
+        m_hotProcessed.clear();
+        if (m_hotFolderEdit) m_hotFolderEdit->clear();
+        appendLog(tr("Hot folder watching stopped."), "#71747a");
+    }
+}
+
+void BatchMode::onHotFolderChanged(const QString& path) {
+    if (path.isEmpty()) return;
+
+    const auto entries = QDir(path).entryInfoList(QStringList() << "*.pdf" << "*.PDF",
+                                                  QDir::Files, QDir::Name);
+    QStringList newFiles;
+    for (const QFileInfo& fi : entries) {
+        const QString key = hotFileKey(fi);
+        if (!m_hotProcessed.contains(key)) {
+            m_hotProcessed.insert(key);
+            newFiles << fi.absoluteFilePath();
+        }
+    }
+    if (newFiles.isEmpty()) return;
+
+    addFilePaths(newFiles);
+    appendLog(tr("Hot folder: ingested %1 new file%2.")
+                  .arg(newFiles.size())
+                  .arg(newFiles.size() == 1 ? QString() : tr("s")),
+              "#5b9bd5");
+
+    if (m_hotAutoRunCheck && m_hotAutoRunCheck->isChecked() && !m_watcher.isRunning())
+        onRunClicked();
 }
 
 // ── Output path resolution ────────────────────────────────────────────────────
