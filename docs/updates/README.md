@@ -27,15 +27,25 @@ Served at `https://eliets2.github.io/glyph-pdf/updates/latest.json`
 }
 ```
 
-## One-time setup (GitHub Pages)
+## GitHub Pages (ENABLED 2026-06-15)
 
-1. Repo **Settings ▸ Pages ▸ Build and deployment**: *Deploy from a branch*,
-   branch = the branch you publish from, folder = **`/docs`**.
-   With `/docs` as the site root, `docs/updates/latest.json` is served at
-   `https://eliets2.github.io/glyph-pdf/updates/latest.json` (the default the app ships with).
-2. Releases are tagged on `audit-remediation`. Pages serves from one branch, so
-   either merge release commits into the Pages branch or point Pages at
-   `audit-remediation` so the published `docs/updates/latest.json` is current.
+Pages is **live**, serving from **`audit-remediation` / `/docs`** with HTTPS enforced:
+`https://eliets2.github.io/glyph-pdf/updates/latest.json` returns the current manifest
+(verified HTTP 200). `docs/.nojekyll` makes Pages serve files verbatim.
+
+It was enabled via the API:
+
+```sh
+echo '{"source":{"branch":"audit-remediation","path":"/docs"}}' \
+  | gh api -X POST repos/eliets2/glyph-pdf/pages --input -
+```
+
+**If you later merge to `main` and retire `audit-remediation`,** repoint Pages so the
+manifest keeps serving:
+
+```sh
+gh api -X PUT repos/eliets2/glyph-pdf/pages -f 'source[branch]=main' -f 'source[path]=/docs'
+```
 
 ## Each release
 
