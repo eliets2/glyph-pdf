@@ -149,22 +149,56 @@ public:
                  const PoDoFo::PdfReference& /*ref*/,
                  char* outStr, size_t outLen) const override
     {
-        auto* out = reinterpret_cast<unsigned char*>(outStr);
-        if (outLen < kIvLen)
+        constexpr uint8_t kVersionGCM = 0x02;
+        constexpr size_t kNonceLen = 12;
+        constexpr size_t kTagLen = 16;
+
+        if (outLen < 1 + kNonceLen + inLen + kTagLen)
             throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::ValueOutOfRange,
-                __FILE__, __LINE__, "PubSec Encrypt: output buffer too small for IV");
-        if (RAND_bytes(out, static_cast<int>(kIvLen)) != 1)
+                __FILE__, __LINE__, "PubSec Encrypt: output buffer too small for GCM");
+
+        auto* out = reinterpret_cast<unsigned char*>(outStr);
+        out[0] = kVersionGCM;
+
+        if (RAND_bytes(out + 1, static_cast<int>(kNonceLen)) != 1)
             throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InternalLogic,
                 __FILE__, __LINE__, "PubSec Encrypt: RAND_bytes failed");
+
+        EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+        if (!ctx)
+            throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InternalLogic,
+                __FILE__, __LINE__, "PubSec Encrypt: EVP_CIPHER_CTX_new failed");
+        auto ctxGuard = std::unique_ptr<EVP_CIPHER_CTX, decltype(&EVP_CIPHER_CTX_free)>(ctx, EVP_CIPHER_CTX_free);
+
+        if (EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, nullptr, nullptr) != 1)
+            throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InternalLogic, __FILE__, __LINE__, "PubSec Encrypt failed");
+        if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, static_cast<int>(kNonceLen), nullptr) != 1)
+            throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InternalLogic, __FILE__, __LINE__, "PubSec Encrypt failed");
+        if (EVP_EncryptInit_ex(ctx, nullptr, nullptr, m_fek.data(), out + 1) != 1)
+            throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InternalLogic, __FILE__, __LINE__, "PubSec Encrypt failed");
+
         int cipherLen = 0;
-        if (!aesCbc(true, m_fek.data(), out,
-                    reinterpret_cast<const unsigned char*>(inStr),
-                    static_cast<int>(inLen), out + kIvLen, cipherLen))
-            throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InternalLogic,
-                __FILE__, __LINE__, "PubSec Encrypt: AES-256-CBC failed");
-        if (kIvLen + static_cast<size_t>(cipherLen) != outLen)
-            throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InternalLogic,
-                __FILE__, __LINE__, "PubSec Encrypt: ciphertext length mismatch");
+        if (EVP_EncryptUpdate(ctx, out + 1 + kNonceLen, &cipherLen, reinterpret_cast<const unsigned char*>(inStr), static_cast<int>(inLen)) != 1)
+            throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InternalLogic, __FILE__, __LINE__, "PubSec Encrypt failed");
+
+        int finalLen = 0;
+        if (EVP_EncryptFinal_ex(ctx, out + 1 + kNonceLen + cipherLen, &finalLen) != 1)
+            throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InternalLogic, __FILE__, __LINE__, "PubSec Encrypt failed");
+
+        if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, static_cast<int>(kTagLen), out + 1 + kNonceLen + cipherLen + finalLen) != 1)
+            throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InternalLogic, __FILE__, __LINE__, "PubSec Encrypt failed");
+    }
+
+    void decryptLegacyCBC(const unsigned char* in, size_t inLen, unsigned char* out, size_t& outLen) const {
+        if (inLen < kIvLen + kBlock || ((inLen - kIvLen) % kBlock) != 0)
+            throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InvalidEncryptionDict,
+                __FILE__, __LINE__, "PubSec Decrypt: malformed ciphertext length");
+        int plainLen = 0;
+        if (!aesCbc(false, m_fek.data(), in, in + kIvLen,
+                    static_cast<int>(inLen - kIvLen), out, plainLen))
+            throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InvalidPassword,
+                __FILE__, __LINE__, "PubSec Decrypt: AES-256-CBC failed");
+        outLen = static_cast<size_t>(plainLen);
     }
 
     void Decrypt(const char* inStr, size_t inLen,
@@ -172,17 +206,66 @@ public:
                  const PoDoFo::PdfReference& /*ref*/,
                  char* outStr, size_t& outLen) const override
     {
-        if (inLen < kIvLen + kBlock || ((inLen - kIvLen) % kBlock) != 0)
-            throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InvalidEncryptionDict,
-                __FILE__, __LINE__, "PubSec Decrypt: malformed ciphertext length");
+        constexpr uint8_t kVersionCBC = 0x01;
+        constexpr uint8_t kVersionGCM = 0x02;
+        constexpr size_t kNonceLen = 12;
+        constexpr size_t kTagLen = 16;
+
+        if (inLen == 0) {
+            outLen = 0;
+            return;
+        }
+
         const auto* in = reinterpret_cast<const unsigned char*>(inStr);
-        int plainLen = 0;
-        if (!aesCbc(false, m_fek.data(), in, in + kIvLen,
-                    static_cast<int>(inLen - kIvLen),
-                    reinterpret_cast<unsigned char*>(outStr), plainLen))
-            throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InvalidPassword,
-                __FILE__, __LINE__, "PubSec Decrypt: AES-256-CBC failed");
-        outLen = static_cast<size_t>(plainLen);
+        auto* out = reinterpret_cast<unsigned char*>(outStr);
+        uint8_t version = in[0];
+
+        if (version == kVersionGCM) {
+            if (inLen < 1 + kNonceLen + kTagLen)
+                throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InvalidEncryptionDict,
+                    __FILE__, __LINE__, "PubSec Decrypt: GCM blob too short");
+
+            const unsigned char* nonce = in + 1;
+            const unsigned char* tag = in + inLen - kTagLen;
+            const unsigned char* ciphertext = in + 1 + kNonceLen;
+            size_t cipherLen = inLen - 1 - kNonceLen - kTagLen;
+
+            EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+            if (!ctx)
+                throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InternalLogic,
+                    __FILE__, __LINE__, "PubSec Decrypt: EVP_CIPHER_CTX_new failed");
+            auto ctxGuard = std::unique_ptr<EVP_CIPHER_CTX, decltype(&EVP_CIPHER_CTX_free)>(ctx, EVP_CIPHER_CTX_free);
+
+            if (EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, nullptr, nullptr) != 1)
+                throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InternalLogic, __FILE__, __LINE__, "PubSec Decrypt failed");
+            if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, static_cast<int>(kNonceLen), nullptr) != 1)
+                throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InternalLogic, __FILE__, __LINE__, "PubSec Decrypt failed");
+            if (EVP_DecryptInit_ex(ctx, nullptr, nullptr, m_fek.data(), nonce) != 1)
+                throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InternalLogic, __FILE__, __LINE__, "PubSec Decrypt failed");
+            if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, static_cast<int>(kTagLen), const_cast<unsigned char*>(tag)) != 1)
+                throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InternalLogic, __FILE__, __LINE__, "PubSec Decrypt failed");
+
+            int plainLen = 0;
+            if (EVP_DecryptUpdate(ctx, out, &plainLen, ciphertext, static_cast<int>(cipherLen)) != 1)
+                throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InternalLogic, __FILE__, __LINE__, "PubSec Decrypt failed");
+
+            int finalLen = 0;
+            if (EVP_DecryptFinal_ex(ctx, out + plainLen, &finalLen) != 1) {
+                // C-1 FIX: GCM tag verification failed
+                throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InvalidPassword,
+                    __FILE__, __LINE__, "PubSec Decrypt: GCM tag verification failed");
+            }
+            outLen = static_cast<size_t>(plainLen + finalLen);
+        } else if (version == kVersionCBC) {
+            decryptLegacyCBC(in + 1, inLen - 1, out, outLen);
+        } else {
+            // SECFIX-2: the version byte is unauthenticated. Any value other than the
+            // known GCM (0x02) or versioned-CBC (0x01) markers must be a HARD error —
+            // never an unauthenticated CBC fallback, which would be a downgrade oracle
+            // (an attacker flips in[0] to strip GCM integrity).
+            throw PoDoFo::PdfError(PoDoFo::PdfErrorCode::InvalidEncryptionDict,
+                __FILE__, __LINE__, "PubSec Decrypt: unknown version byte — possible downgrade attack");
+        }
     }
 
     std::unique_ptr<PoDoFo::InputStream>
@@ -204,11 +287,11 @@ public:
     }
 
     size_t CalculateStreamLength(size_t length) const override {
-        // IV + CBC ciphertext (PKCS#7 always adds a full block when aligned).
-        return kIvLen + (length / kBlock + 1) * kBlock;
+        // [0x02 version][12-byte nonce][ciphertext][16-byte GCM tag]
+        return 1 + 12 + length + 16;
     }
 
-    size_t CalculateStreamOffset() const override { return kIvLen; }
+    size_t CalculateStreamOffset() const override { return 0; }
 
     PoDoFo::PdfAuthResult
     Authenticate(const std::string_view&, const std::string_view&,

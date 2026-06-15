@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 #include <QWidget>
+#include <QRectF>
 
 class QLineEdit;
 class QCheckBox;
 class QLabel;
 class QToolButton;
+class QDoubleSpinBox;
 
 struct AppContext;
 
@@ -24,8 +26,12 @@ public:
     /// Clear all fields (deselected state).
     void clearFields();
 
+    void setFieldRect(const QRectF& rect);
+    QRectF fieldRect() const;
+
 signals:
     void propertiesApplied(const QString& fieldName);
+    void geometryCommitted(const QRectF& newRect);
 
 private slots:
     void onApplyClicked();
@@ -48,6 +54,11 @@ private:
     QLabel*     m_regexStatus     = nullptr;
     QLabel*     m_nameStatus      = nullptr;
     QToolButton* m_applyBtn       = nullptr;
+
+    QDoubleSpinBox* m_spinX = nullptr;
+    QDoubleSpinBox* m_spinY = nullptr;
+    QDoubleSpinBox* m_spinW = nullptr;
+    QDoubleSpinBox* m_spinH = nullptr;
 };
 
 } // namespace gp

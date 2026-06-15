@@ -3,10 +3,12 @@
 
 #include <QHash>
 #include <QDebug>
+#include <mutex>
 
 #ifdef HAS_PDFIUM
 #include <fpdfview.h>
 #include <fpdf_text.h>
+#include "engines/pdfium/PdfiumEnvironment.h"
 #endif
 
 // ---------------------------------------------------------------------------
@@ -93,12 +95,7 @@ PatternRedactor::extractCharsWithPositions(const QString& pdfPath, int pageIndex
     QList<CharInfo> result;
 
 #ifdef HAS_PDFIUM
-    // FPDF_InitLibrary is idempotent; callers may call multiple times safely.
-    static bool s_pdfiumInitialized = false;
-    if (!s_pdfiumInitialized) {
-        FPDF_InitLibrary();
-        s_pdfiumInitialized = true;
-    }
+    PdfiumEnvironment env;
 
     FPDF_DOCUMENT doc = FPDF_LoadDocument(pdfPath.toLocal8Bit().constData(), nullptr);
     if (!doc) {
@@ -138,7 +135,8 @@ PatternRedactor::extractCharsWithPositions(const QString& pdfPath, int pageIndex
         if (!FPDFText_GetCharBox(textPage, ci,
                                   &pdf_left, &pdf_right, &pdf_bottom, &pdf_top)) {
             // Could not get bounding box — push a zero-size placeholder so indices stay aligned
-            result.append(CharInfo{ QChar(static_cast<uint>(codepoint)), QRectF() });
+            char32_t cp = static_cast<char32_t>(codepoint);
+            result.append(CharInfo{ QString::fromUcs4(&cp, 1), QRectF() });
             continue;
         }
 
@@ -151,8 +149,9 @@ PatternRedactor::extractCharsWithPositions(const QString& pdfPath, int pageIndex
         const double qtW = pdf_right - pdf_left;
         const double qtH = pdf_top - pdf_bottom;
 
+        char32_t cp = static_cast<char32_t>(codepoint);
         result.append(CharInfo{
-            QChar(static_cast<uint>(codepoint)),
+            QString::fromUcs4(&cp, 1),
             QRectF(qtX, qtY, qtW, qtH)
         });
     }

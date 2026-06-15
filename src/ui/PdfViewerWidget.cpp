@@ -897,45 +897,7 @@ bool PdfViewerWidget::saveDocumentAs(const QString &outputFile)
     return true;
 }
 
-void PdfViewerWidget::applyRedactions(const QString &outputFile)
-{
-    // D-02 fix: PoDoFo calls are routed through gp::applyRedactionsToFile so
-    // this UI translation unit does not need to include <podofo/podofo.h>.
 
-    QList<AnnotationItem> redactions;
-    for (const auto& anno : m_annotationLayer->annotations()) {
-        if (anno.mode == ToolMode::Redact)
-            redactions.append(anno);
-    }
-
-    if (redactions.isEmpty()) {
-        // Nothing to redact — just copy the source file.
-        QFile::copy(m_filePath, outputFile);
-        return;
-    }
-
-    // Convert screen-space annotation rects to PDF user-space coords.
-    // QPdfDocument::pagePointSize() returns page dimensions in points (same unit
-    // as PoDoFo's user space), with origin at top-left.  PoDoFo uses bottom-left
-    // origin, so we flip: pdfY = pageHeight − screenY − rectHeight.
-    QMap<int, QList<QRectF>> rectsByPage;
-    int totalPages = m_document->pageCount();
-    for (const auto& anno : redactions) {
-        if (anno.pageIndex < 0 || anno.pageIndex >= totalPages) continue;
-        QSizeF pageSize = m_document->pagePointSize(anno.pageIndex);
-        double pageHeight = pageSize.height();
-        QRectF pdfRect(anno.rect.x(),
-                       pageHeight - anno.rect.y() - anno.rect.height(),
-                       anno.rect.width(),
-                       anno.rect.height());
-        rectsByPage[anno.pageIndex].append(pdfRect);
-    }
-
-    if (!gp::applyRedactionsToFile(m_filePath, rectsByPage, outputFile))
-        qWarning() << "applyRedactions: engine failed on" << outputFile;
-    else
-        qDebug() << "Redactions applied with content stream filtering to:" << outputFile;
-}
 
 void PdfViewerWidget::mergeDocuments(const QStringList &files, const QString &outputFile)
 {

@@ -4,7 +4,6 @@
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
-#include <QDesktopServices>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -15,6 +14,12 @@
 #include <QProcess>
 #include <QSettings>
 #include <QDebug>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <wintrust.h>
+#include <softpub.h>
+#endif
 
 namespace gp {
 
@@ -147,9 +152,6 @@ void UpdateChecker::onManifestReply() {
         return;
     }
 
-    // TODO(WP-7): add a manifest-validation unit test (inject JSON into
-    // onManifestReply via a seam) asserting http downloadUrl and empty sha256 are
-    // rejected and updateAvailable is NOT emitted.
     // B-03: a poisoned manifest could specify an http (or otherwise non-TLS)
     // downloadUrl and/or omit the sha256, after which the file would be fetched
     // over an unauthenticated channel, the (conditional) integrity check skipped,
@@ -287,6 +289,35 @@ void UpdateChecker::applyUpdate() {
         return;
     }
 
+#ifdef Q_OS_WIN
+    // N-2 FIX: Verify Authenticode signature before launching MSI.
+    // SHA-256 hash alone is insufficient if the manifest server is compromised.
+    std::wstring wDownloaded = m_downloadedPath.toStdWString();
+    HANDLE hMsi = CreateFileW(wDownloaded.c_str(), GENERIC_READ,
+                              FILE_SHARE_READ,          // deny write/delete sharing while we hold it
+                              nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hMsi == INVALID_HANDLE_VALUE) {
+        qWarning() << "N-2: could not open MSI for verification:" << m_downloadedPath;
+        emit checkFailed(tr("Update file could not be opened for signature verification."));
+        return;
+    }
+    if (!verifyAuthenticode(hMsi, m_downloadedPath)) {
+        CloseHandle(hMsi);
+        qWarning() << "N-2: Authenticode check failed - aborting and deleting" << m_downloadedPath;
+        QFile::remove(m_downloadedPath);
+        emit checkFailed(tr("Update file signature verification failed. "
+                            "The downloaded file may be corrupted or tampered with. "
+                            "Please try again or download manually from the official website."));
+        return;
+    }
+    qInfo() << "N-2: Authenticode verification passed for" << m_downloadedPath;
+#else
+    // SECFIX-3 Part B: no Authenticode equivalent on non-Windows - refuse to launch
+    // an installer we cannot verify, rather than falling through to msiexec.
+    qWarning() << "N-2: Non-Windows platform - refusing to launch MSI installer";
+    return;
+#endif
+
     // Launch MSI in silent upgrade mode via msiexec
     // /qb = basic UI (progress bar only)
     // /i  = install (MajorUpgrade in WiX handles the upgrade)
@@ -297,6 +328,9 @@ void UpdateChecker::applyUpdate() {
     };
 
     bool started = QProcess::startDetached("msiexec.exe", args);
+#ifdef Q_OS_WIN
+    CloseHandle(hMsi);   // SECFIX-3: release only after launch; no swap window remained open
+#endif
 
     if (started) {
         emit updateLaunched();
@@ -306,5 +340,49 @@ void UpdateChecker::applyUpdate() {
         // D5: Rollback — app continues running, user can try again
     }
 }
+
+#ifdef Q_OS_WIN
+bool UpdateChecker::verifyAuthenticode(void* hFile, const QString& pathForLogging)
+{
+    WINTRUST_FILE_INFO fileInfo{};
+    fileInfo.cbStruct       = sizeof(WINTRUST_FILE_INFO);
+    // SECFIX-3: verify the OPEN HANDLE, not the path. hFile takes precedence and
+    // closes the TOCTOU window between verify and msiexec launch. pcwszFilePath is
+    // left null so WinVerifyTrust cannot re-open (and an attacker cannot swap) the path.
+    fileInfo.pcwszFilePath  = nullptr;
+    fileInfo.hFile          = hFile;
+    fileInfo.pgKnownSubject = nullptr;
+
+    WINTRUST_DATA trustData{};
+    trustData.cbStruct            = sizeof(WINTRUST_DATA);
+    trustData.pPolicyCallbackData = nullptr;
+    trustData.pSIPClientData      = nullptr;
+    trustData.dwUIChoice          = WTD_UI_NONE;          // no UI prompts
+    trustData.fdwRevocationChecks = WTD_REVOKE_WHOLECHAIN; // check full chain
+    trustData.dwUnionChoice       = WTD_CHOICE_FILE;
+    trustData.pFile               = &fileInfo;
+    trustData.dwStateAction       = WTD_STATEACTION_VERIFY;
+    trustData.hWVTStateData       = nullptr;
+    trustData.pwszURLReference    = nullptr;
+    trustData.dwProvFlags         = WTD_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT;
+    trustData.dwUIContext         = 0;
+
+    GUID actionGuid = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+    LONG result = WinVerifyTrust(static_cast<HWND>(INVALID_HANDLE_VALUE),
+                                  &actionGuid,
+                                  &trustData);
+
+    // Close the state data to release resources
+    trustData.dwStateAction = WTD_STATEACTION_CLOSE;
+    WinVerifyTrust(static_cast<HWND>(INVALID_HANDLE_VALUE), &actionGuid, &trustData);
+
+    if (result != ERROR_SUCCESS) {
+        qWarning() << "N-2: Authenticode verification failed for" << pathForLogging
+                   << "— HRESULT:" << Qt::hex << result;
+        return false;
+    }
+    return true;
+}
+#endif
 
 } // namespace gp

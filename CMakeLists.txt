@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(PdfWorkstation VERSION 1.0.1 LANGUAGES CXX)
+project(PdfWorkstation VERSION 1.2.0 LANGUAGES CXX)
 
 # MSYS2 ucrt64 — single coherent toolchain + Qt6 + all deps via pacman.
 # Explicit prefix paths so CMake resolves packages regardless of calling shell.
@@ -13,6 +13,9 @@ list(APPEND CMAKE_MODULE_PATH "${MSYS2_ROOT}/lib/cmake")
 set(ENV{PKG_CONFIG_PATH} "${MSYS2_ROOT}/lib/pkgconfig:${MSYS2_ROOT}/share/pkgconfig")
 set(ENV{PKG_CONFIG_LIBDIR} "${MSYS2_ROOT}/lib/pkgconfig:${MSYS2_ROOT}/share/pkgconfig")
 enable_testing()
+# SECFIX-1: GLYPH_TESTING must NOT be defined for production builds. It guards an
+# OCSP test-fixture bypass in SignatureManager.cpp. Opt in only for CI test builds.
+option(GLYPHPDF_ENABLE_TEST_FIXTURES "Enable OCSP test fixture loading (for CI only)" OFF)
 include(CTest)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -157,6 +160,7 @@ add_library(pdfws_engines STATIC
     src/engines/podofo/PoDoFoBackend.h src/engines/podofo/PoDoFoBackend.cpp
     src/engines/podofo/PdfEncryptPubSec.h src/engines/podofo/PdfEncryptPubSec.cpp
     src/engines/podofo/PdfPageOps.h       src/engines/podofo/PdfPageOps.cpp
+    src/engines/pdfium/PdfiumEnvironment.h src/engines/pdfium/PdfiumEnvironment.cpp
     src/engines/pdfium/PdfiumBackend.h src/engines/pdfium/PdfiumBackend.cpp
     src/engines/qpdf/QpdfBackend.h     src/engines/qpdf/QpdfBackend.cpp
     src/engines/RenderCache.h          src/engines/RenderCache.cpp
@@ -480,6 +484,10 @@ target_link_libraries(pdfws_ui
 )
 target_compile_definitions(pdfws_ui PRIVATE GLYPH_HAS_SVG=1)
 
+if(WIN32)
+    # N-2: WinVerifyTrust for MSI Authenticode checking
+    target_link_libraries(pdfws_ui PRIVATE wintrust)
+endif()
 # Disable PCH for files with heavy initializer lists (prevents OOM in g++)
 set_source_files_properties(
     src/shell/RibbonModel.cpp
@@ -515,6 +523,14 @@ if(NOT MSVC)
 else()
     target_link_libraries(PdfWorkstation PRIVATE pdfws_djot docmodel liblua)
 endif()
+
+# ARCH-4: Inject djot path.
+# IMPORTANT: DJOT_LIB_DIR is defined only for PdfWorkstation. If any test target
+# ever adds Bootstrapper.cpp to its sources, add the same target_compile_definitions
+# to that test target, otherwise Bootstrapper.cpp's #error will abort the build.
+target_compile_definitions(PdfWorkstation PRIVATE
+    DJOT_LIB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/third_party/djot"
+)
 
 # Windows: hide console
 if(WIN32 AND NOT MSVC)
@@ -703,6 +719,9 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignatureRealCrypto.cpp")
     target_compile_definitions(TestSignatureRealCrypto PRIVATE
         SOURCE_DIR="${CMAKE_SOURCE_DIR}"
     )
+    if(GLYPHPDF_ENABLE_TEST_FIXTURES)
+        target_compile_definitions(TestSignatureRealCrypto PRIVATE GLYPH_TESTING=1)
+    endif()
     target_link_libraries(TestSignatureRealCrypto PRIVATE
         pdfws_engines pdfws_core
         OpenSSL::SSL OpenSSL::Crypto
@@ -1224,6 +1243,28 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestDjotFuzz.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
         LABELS "unit;djot;fuzz;codec;roundtrip"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestUpdateChecker.cpp")
+    add_executable(TestUpdateChecker
+        tests/TestUpdateChecker.cpp
+        src/core/UpdateChecker.cpp
+        src/core/TempFileManager.cpp
+    )
+    target_include_directories(TestUpdateChecker PRIVATE src tests)
+    target_compile_definitions(TestUpdateChecker PRIVATE GLYPH_TESTING=1)
+    target_link_libraries(TestUpdateChecker PRIVATE
+        Qt6::Test Qt6::Core Qt6::Network
+    )
+    if(WIN32)
+        target_link_libraries(TestUpdateChecker PRIVATE Wintrust)
+    endif()
+    add_test(NAME TestUpdateChecker COMMAND TestUpdateChecker)
+    set_tests_properties(TestUpdateChecker PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 30
+        LABELS "unit;update;security;qt;headless"
     )
 endif()
 
