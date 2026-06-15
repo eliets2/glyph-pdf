@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GlyphPDF — privacy-first PDF workstation</title>
+  <meta name="description" content="GlyphPDF is an open-source, privacy-first PDF workstation for Windows. No telemetry, no cloud, fully offline.">
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh;
+      font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+      background: radial-gradient(1200px 600px at 50% -10%, #1c2230 0%, #0f1115 60%);
+      color: #e6e8ec; display: flex; align-items: center; justify-content: center;
+    }
+    .card { max-width: 640px; padding: 48px 28px; text-align: center; }
+    .logo { font-size: 40px; font-weight: 800; letter-spacing: -0.5px; margin: 0 0 6px; }
+    .logo .g { color: #ff8c42; }
+    .tag { color: #9aa0aa; font-size: 16px; margin: 0 0 28px; }
+    .badges { color: #6f7681; font-size: 13px; margin-bottom: 28px; }
+    .badges span { display: inline-block; margin: 0 8px; }
+    .btns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    a.btn {
+      text-decoration: none; padding: 11px 20px; border-radius: 8px; font-weight: 600; font-size: 14px;
+      border: 1px solid #2c3340;
+    }
+    a.primary { background: #ff8c42; color: #15171c; border-color: #ff8c42; }
+    a.ghost { color: #cdd2da; background: #171a21; }
+    a.btn:hover { filter: brightness(1.08); }
+    .foot { margin-top: 30px; font-size: 12px; color: #6f7681; line-height: 1.7; }
+    .foot a { color: #8aa6d8; text-decoration: none; }
+    code { background: #171a21; padding: 2px 6px; border-radius: 4px; font-size: 12px; color: #b9c0cc; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1 class="logo"><span class="g">Glyph</span>PDF</h1>
+    <p class="tag">A privacy-first PDF workstation for Windows — no telemetry, no cloud, fully offline.</p>
+    <p class="badges">
+      <span>Apache-2.0</span>·<span>OCR · Redaction · Forms · Compare</span>·<span>PAdES signatures</span>
+    </p>
+    <div class="btns">
+      <a class="btn primary" href="https://github.com/eliets2/glyph-pdf/releases/latest">Download latest release</a>
+      <a class="btn ghost" href="https://github.com/eliets2/glyph-pdf">View on GitHub</a>
+    </div>
+    <p class="foot">
+      In-app updates read <a href="updates/latest.json">updates/latest.json</a>.<br>
+      Verify any download with its <code>.sha256</code> sidecar before installing.
+    </p>
+  </main>
+</body>
+</html>
