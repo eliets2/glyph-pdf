@@ -73,11 +73,12 @@ void FormBuilderMode::buildToolbar(QVBoxLayout* col)
     const QStringList labels = {
         FormBuilderMode::tr("TEXT FIELD"), FormBuilderMode::tr("CHECKBOX"), FormBuilderMode::tr("RADIO"),
         FormBuilderMode::tr("DROPDOWN"),   FormBuilderMode::tr("LIST BOX"), FormBuilderMode::tr("DATE"),
-        FormBuilderMode::tr("NUMERIC"),    FormBuilderMode::tr("SIGNATURE"), FormBuilderMode::tr("BUTTON")
+        FormBuilderMode::tr("NUMERIC"),    FormBuilderMode::tr("SIGNATURE"), FormBuilderMode::tr("BUTTON"),
+        FormBuilderMode::tr("CALCULATED")
     };
 
     bool first = true;
-    for (int i = 0; i < 9; ++i) {
+    for (int i = 0; i < k_fieldTypeCount; ++i) {
         auto* b = new QToolButton;
         b->setText(labels[i]);
         b->setProperty("variant", "ghost");
@@ -89,6 +90,15 @@ void FormBuilderMode::buildToolbar(QVBoxLayout* col)
         m_fieldBtns[i] = b;
         trow->addWidget(b);
     }
+
+    // Calculation-expression input — only visible while the CALCULATED type is
+    // selected. Read at placement time and carried into addCalculatedField().
+    m_calcExprEdit = new QLineEdit;
+    m_calcExprEdit->setPlaceholderText(
+        FormBuilderMode::tr("Calc expression, e.g. AFSimple_Calculate('SUM', new Array('a','b'))"));
+    m_calcExprEdit->setMinimumWidth(280);
+    m_calcExprEdit->setVisible(false);
+    trow->addWidget(m_calcExprEdit);
 
     trow->addStretch(1);
 
@@ -226,7 +236,7 @@ void FormBuilderMode::updateNoDocumentState()
     m_contentStack->setCurrentIndex(hasDoc ? 1 : 0);
 
     // Enable field-type buttons only when a document is open
-    for (int i = 0; i < 9; ++i) {
+    for (int i = 0; i < k_fieldTypeCount; ++i) {
         if (m_fieldBtns[i])
             m_fieldBtns[i]->setEnabled(hasDoc);
     }
@@ -277,7 +287,7 @@ void FormBuilderMode::onFieldButtonToggled(bool checked)
     if (!btn) return;
 
     const int idx = btn->property("fieldModeIndex").toInt();
-    if (idx < 0 || idx >= 9) return;
+    if (idx < 0 || idx >= k_fieldTypeCount) return;
 
     const bool hasDoc = m_ctx && m_ctx->document && !m_ctx->document->path().isEmpty();
     if (!hasDoc) {
@@ -285,6 +295,10 @@ void FormBuilderMode::onFieldButtonToggled(bool checked)
             tr("Open a PDF document before placing form fields."));
         return;
     }
+
+    // Reveal the calculation-expression input only for the CALCULATED type.
+    if (m_calcExprEdit)
+        m_calcExprEdit->setVisible(k_fieldModes[idx] == ToolMode::FormAddCalculated);
 
     m_canvas->setToolMode(k_fieldModes[idx]);
 }
@@ -300,13 +314,34 @@ void FormBuilderMode::onFieldPlacementRequested(int pageIndex, QRectF pdfRect, T
     const auto fieldType = static_cast<AddFormFieldCommand::FieldType>(typeInt);
     const QString name = uniqueFieldName(mode, pageIndex);
 
+    // Calculated fields carry their JS calculation expression via the options list.
+    QStringList options;
+    if (mode == ToolMode::FormAddCalculated) {
+        QString expr = m_calcExprEdit ? m_calcExprEdit->text().trimmed() : QString();
+        if (expr.isEmpty()) {
+            bool ok = false;
+            expr = QInputDialog::getText(this, tr("Calculated Field"),
+                tr("JavaScript / AcroForm calculation expression:"),
+                QLineEdit::Normal,
+                QStringLiteral("AFSimple_Calculate('SUM', new Array())"), &ok).trimmed();
+            if (!ok || expr.isEmpty()) {
+                // User cancelled — abort placement and restore the default tool.
+                if (m_canvas) m_canvas->setToolMode(ToolMode::FormAddText);
+                if (m_fieldBtns[0]) m_fieldBtns[0]->setChecked(true);
+                return;
+            }
+        }
+        options << expr;
+    }
+
     auto* cmd = new AddFormFieldCommand(
         m_ctx->forms.get(),
         m_ctx->document.get(),
         fieldType,
         pageIndex,
         pdfRect,
-        name
+        name,
+        options
     );
     m_ctx->undoStack->push(cmd);
 
@@ -475,6 +510,7 @@ void FormBuilderMode::onEscapePressed()
             case ToolMode::FormAddNumeric:
             case ToolMode::FormAddSignature:
             case ToolMode::FormAddButton:
+            case ToolMode::FormAddCalculated:
                 return true;
             default: return false;
             }
@@ -500,6 +536,7 @@ int FormBuilderMode::toolModeToFieldType(ToolMode mode)
         case ToolMode::FormAddNumeric:   return static_cast<int>(AddFormFieldCommand::FieldType::Numeric);
         case ToolMode::FormAddSignature: return static_cast<int>(AddFormFieldCommand::FieldType::Text); // Sig uses text box
         case ToolMode::FormAddButton:    return static_cast<int>(AddFormFieldCommand::FieldType::Text); // Button uses text box
+        case ToolMode::FormAddCalculated:return static_cast<int>(AddFormFieldCommand::FieldType::Calculated);
         default: return -1;
     }
 }
@@ -518,6 +555,7 @@ QString FormBuilderMode::uniqueFieldName(ToolMode mode, int pageIndex) const
         case ToolMode::FormAddNumeric:   prefix = QStringLiteral("numeric");   break;
         case ToolMode::FormAddSignature: prefix = QStringLiteral("sig");       break;
         case ToolMode::FormAddButton:    prefix = QStringLiteral("button");    break;
+        case ToolMode::FormAddCalculated:prefix = QStringLiteral("calc");      break;
         default:                         prefix = QStringLiteral("field");     break;
     }
     return QStringLiteral("%1_p%2_%3").arg(prefix).arg(pageIndex + 1).arg(m_fieldCounter);
