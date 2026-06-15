@@ -1,50 +1,50 @@
 {
-  "_comment": "Scoop manifest for GlyphPDF v1.0.0. Replace REPLACE_SHA256 and REPLACE_DOWNLOAD_URL before submitting.",
-  "version": "1.0.0",
-  "description": "Open-source privacy-first PDF workstation for Windows. Secure redaction, PAdES signatures, MRC compression, OCR ensemble, AI assistant. Apache-2.0.",
-  "homepage": "https://glyphpdf.com",
+  "version": "1.2.0",
+  "description": "Open-source privacy-first PDF workstation for Windows. Secure redaction, PAdES signatures, MRC compression, OCR ensemble. Apache-2.0.",
+  "homepage": "https://github.com/eliets2/glyph-pdf",
   "license": "Apache-2.0",
-  "url": "https://github.com/YOUR_USERNAME/glyphpdf/releases/download/v1.0.0/GlyphPDF-1.0.0-x64.msi",
-  "hash": "sha256:REPLACE_SHA256",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/YOUR_USERNAME/glyphpdf/releases/download/v1.0.0/GlyphPDF-1.0.0-x64.msi",
-      "hash": "sha256:REPLACE_SHA256"
+      "url": "https://github.com/eliets2/glyph-pdf/releases/download/v1.2.0/GlyphPDF-1.2.0-x64.msi",
+      "hash": "sha256:EA2ED66C256C3346E9ABAF300AB34F1191D1116EFC88BA1DC38AB0B354116BCA"
     }
   },
   "installer": {
     "script": [
-      "$msi = \"$dir\\GlyphPDF-1.0.0-x64.msi\"",
+      "$msi = \"$dir\\GlyphPDF-1.2.0-x64.msi\"",
       "Start-Process msiexec -ArgumentList \"/i\", \"$msi\", \"/quiet\", \"/norestart\", \"INSTALLDIR=$dir\" -Wait -NoNewWindow"
     ]
   },
   "uninstaller": {
     "script": [
-      "Start-Process msiexec -ArgumentList \"/x\", \"{fb1fbe00-e1af-449c-8a58-2d2e308b9127}\", \"/quiet\", \"/norestart\" -Wait -NoNewWindow"
+      "Start-Process msiexec -ArgumentList \"/x\", \"{C1F384AE-8A11-4770-B1BB-86A80F53F713}\", \"/quiet\", \"/norestart\" -Wait -NoNewWindow"
     ]
   },
   "bin": [
-    ["PdfWorkstation.exe", "glyphpdf"]
+    ["GlyphPDF.exe", "glyphpdf"]
   ],
   "shortcuts": [
-    ["PdfWorkstation.exe", "GlyphPDF"]
+    ["GlyphPDF.exe", "GlyphPDF"]
   ],
   "persist": [],
   "checkver": {
-    "url": "https://api.github.com/repos/YOUR_USERNAME/glyphpdf/releases/latest",
+    "url": "https://api.github.com/repos/eliets2/glyph-pdf/releases/latest",
     "jsonpath": "$.tag_name",
     "regex": "v([\\d.]+)"
   },
   "autoupdate": {
-    "url": "https://github.com/YOUR_USERNAME/glyphpdf/releases/download/v$version/GlyphPDF-$version-x64.msi",
-    "hash": {
-      "url": "https://github.com/YOUR_USERNAME/glyphpdf/releases/download/v$version/SHA256SUMS.txt",
-      "find": "([a-fA-F0-9]{64})\\s+GlyphPDF-$version-x64\\.msi"
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/eliets2/glyph-pdf/releases/download/v$version/GlyphPDF-$version-x64.msi",
+        "hash": {
+          "url": "https://github.com/eliets2/glyph-pdf/releases/download/v$version/GlyphPDF-$version-x64.msi.sha256",
+          "find": "([a-fA-F0-9]{64})"
+        }
+      }
     }
   },
   "notes": [
     "Optional: install LibreOffice for Office-to-PDF import.",
-    "Optional: install veraPDF CLI and set path in Preferences for live PDF/A validation.",
     "Optional: install Ollama for local AI assistant without an API key."
   ]
 }
