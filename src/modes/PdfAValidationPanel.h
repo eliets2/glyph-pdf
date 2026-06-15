@@ -25,6 +25,7 @@ private:
     void runValidation();
     void updateDisplay(const PdfAValidationReport& report);
     void onExportReportClicked();
+    void onCheckReadingOrder();   // §9.14 tagged-PDF reading-order check
 
     QString m_currentDocPath;
     PdfAConformance m_currentConformance{PdfAConformance::PDF_A_2B};
@@ -39,6 +40,7 @@ private:
     class QVBoxLayout* m_issuesLayout{nullptr};
     class QPushButton* m_fixBtn{nullptr};
     class QPushButton* m_exportBtn{nullptr};
+    class QPushButton* m_readingOrderBtn{nullptr};
 };
 
 } // namespace gp
