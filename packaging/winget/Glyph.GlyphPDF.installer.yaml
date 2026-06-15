@@ -16,6 +16,6 @@ ReleaseDate: 2026-06-15
 Installers:
 - Architecture: x64
   InstallerUrl: https://github.com/eliets2/glyph-pdf/releases/download/v1.2.1/GlyphPDF-1.2.1-x64.msi
-  InstallerSha256: PENDING_REBUILD
+  InstallerSha256: A4B16DD2080FE2F6EA3E1CD81966865322EEFAB78BE31169F1319161DD7644DC
 ManifestType: installer
 ManifestVersion: 1.6.0
