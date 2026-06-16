@@ -1300,6 +1300,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAiProvider.cpp")
         tests/TestAiProvider.cpp
     )
     target_include_directories(TestAiProvider PRIVATE src tests)
+    target_compile_definitions(TestAiProvider PRIVATE
+        SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     target_link_libraries(TestAiProvider PRIVATE
         pdfws_ui pdfws_engines pdfws_core
         Qt6::Test Qt6::Core Qt6::Widgets Qt6::Network Qt6::Concurrent

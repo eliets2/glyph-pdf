@@ -93,6 +93,45 @@ private slots:
         QVERIFY(p.providerName().toLower().contains("ollama"));
     }
 
+    // ── AR-1 D5: AIChatPanel void* UAF guard ─────────────────────────────
+    // Pre-fix: cursor item stored as void* in a QVariant property; list clear
+    //   or document switch between onSend and onAiFinished dangled the ptr.
+    // Post-fix: row index stored in m_cursorRow; looked up safely via
+    //   m_msgs->item(row) in onAiFinished. Input disabled while in-flight.
+    // This guard test reads the AIChatPanel source and asserts the forbidden
+    // pattern is absent and the safe pattern is present.
+    void testAR1D5_noCursorItemVoidPtrProperty()
+    {
+#ifndef SOURCE_DIR
+#define SOURCE_DIR "."
+#endif
+        const QString srcPath = QStringLiteral(SOURCE_DIR)
+            + "/src/modes/AIChatPanel.cpp";
+
+        QFile src(srcPath);
+        if (!src.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            QSKIP("Cannot open AIChatPanel.cpp for source inspection — skipping");
+        }
+        const QString content = QString::fromUtf8(src.readAll());
+        src.close();
+
+        // Banned: raw void* property round-trip
+        const bool hasVoidPtrPattern =
+            content.contains(QStringLiteral("static_cast<void*>")) ||
+            content.contains(QStringLiteral("value<void*>"));
+
+        QVERIFY2(!hasVoidPtrPattern,
+            "AIChatPanel must not store cursor item as void* (AR-1 D5)");
+
+        // Required: row-based safe lookup
+        QVERIFY2(content.contains(QStringLiteral("m_cursorRow")),
+            "AIChatPanel must use m_cursorRow for safe cursor tracking (AR-1 D5)");
+
+        // Required: input disabled while in-flight
+        QVERIFY2(content.contains(QStringLiteral("setInputEnabled")),
+            "AIChatPanel must disable input while request is in-flight (AR-1 D5)");
+    }
+
     // ── Real round-trip (env-gated — QSKIP when Ollama absent) ───────────
 
     void testOllamaRealPing() {

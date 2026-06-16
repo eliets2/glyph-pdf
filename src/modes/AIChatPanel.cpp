@@ -87,11 +87,22 @@ AIChatPanel::~AIChatPanel() = default;
 
 // ---------------------------------------------------------------------------
 
+// AR-1 D5: helper — disable/enable both the button AND returnPressed so no
+// second request can race onAiFinished while a request is in-flight.
+void AIChatPanel::setInputEnabled(bool enabled)
+{
+    if (m_sendBtn) m_sendBtn->setEnabled(enabled);
+    if (m_input)   m_input->setEnabled(enabled);
+}
+
 void AIChatPanel::onSend()
 {
     if (!m_input || !m_msgs) return;
     const QString userText = m_input->text().trimmed();
     if (userText.isEmpty()) return;
+
+    // AR-1 D5: guard against a second send racing onAiFinished
+    if (m_watcher.isRunning()) return;
 
     if (!m_ollama->isReady()) {
         m_msgs->addItem(tr("⚠ Ollama not reachable. Start Ollama at http://localhost:11434."));
@@ -101,10 +112,14 @@ void AIChatPanel::onSend()
     // Show user message
     m_msgs->addItem(QStringLiteral("YOU: ") + userText);
     m_input->clear();
-    m_sendBtn->setEnabled(false);
 
-    // Typing cursor placeholder
-    auto* cursor = new QListWidgetItem(tr("AI: …"), m_msgs);
+    // AR-1 D5: disable both button and returnPressed while in-flight
+    setInputEnabled(false);
+
+    // AR-1 D5: record the row index of the placeholder rather than storing a
+    // raw pointer that could dangle after list clear or document switch.
+    auto* placeholder = new QListWidgetItem(tr("AI: …"), m_msgs);
+    m_cursorRow = m_msgs->row(placeholder);
     m_msgs->scrollToBottom();
 
     // Append to history
@@ -112,28 +127,28 @@ void AIChatPanel::onSend()
 
     // Submit async — non-blocking; QFutureWatcher::finished fires on main thread
     m_watcher.setFuture(m_ollama->chat(m_history));
-
-    // Store pointer so onAiFinished can replace the placeholder
-    m_msgs->setProperty("cursorItem", QVariant::fromValue(static_cast<void*>(cursor)));
 }
 
 void AIChatPanel::onAiFinished()
 {
-    m_sendBtn->setEnabled(true);
+    // AR-1 D5: re-enable input now that the request completed
+    setInputEnabled(true);
 
     const AiResult result = m_watcher.result();
 
-    // Replace the typing-cursor placeholder
-    auto* cursor = static_cast<QListWidgetItem*>(
-        m_msgs->property("cursorItem").value<void*>());
-    if (cursor) {
-        const QString display = result.ok
-            ? (QStringLiteral("AI: ") + result.text)
-            : (QStringLiteral("AI ⚠: ") + result.errorMsg);
-        cursor->setText(display);
+    // AR-1 D5: look up the cursor row by index; if the list was cleared or
+    // the document was switched (m_msgs->clear()), item() returns nullptr —
+    // safe no-op.  Reset m_cursorRow so a subsequent send starts fresh.
+    if (m_msgs && m_cursorRow >= 0) {
+        if (auto* cursorItem = m_msgs->item(m_cursorRow)) {
+            const QString display = result.ok
+                ? (QStringLiteral("AI: ") + result.text)
+                : (QStringLiteral("AI ⚠: ") + result.errorMsg);
+            cursorItem->setText(display);
+        }
+        m_cursorRow = -1;
     }
     m_msgs->scrollToBottom();
-    m_msgs->setProperty("cursorItem", QVariant());
 
     if (result.ok) {
         // Append assistant turn to history

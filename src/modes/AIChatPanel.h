@@ -25,6 +25,9 @@ private slots:
 private:
     IAiProvider* activeProvider() const;
 
+    // AR-1 D5: disable input while a request is in-flight
+    void setInputEnabled(bool enabled);
+
     std::unique_ptr<IAiProvider>               m_ollama;
 
     QListWidget*                               m_msgs    = nullptr;
@@ -33,6 +36,11 @@ private:
 
     QList<AiMessage>                           m_history;
     QFutureWatcher<AiResult>                   m_watcher;
+
+    // AR-1 D5: row index replaces the void* QVariant property.
+    // -1 = no request in-flight. We look up the item by row in onAiFinished
+    // rather than storing a raw pointer that could dangle after list clear.
+    int                                        m_cursorRow = -1;
 };
 
 } // namespace gp
