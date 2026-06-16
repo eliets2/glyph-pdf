@@ -32,9 +32,16 @@ namespace {
 RenderCache::RenderCache() {}
 
 RenderCache::~RenderCache() {
-    m_prefetchCancelToken.fetchAndAddRelaxed(1);
-    if (m_prefetchFuture.isRunning()) m_prefetchFuture.waitForFinished();
+    cancelAndWaitForPrefetch();
     clear();
+}
+
+// AR-1 D2: Signal cancellation and block until any in-flight prefetch exits.
+// Must be called before the renderer passed to prefetchViewport is destroyed.
+void RenderCache::cancelAndWaitForPrefetch() {
+    m_prefetchCancelToken.fetchAndAddRelaxed(1);
+    if (m_prefetchFuture.isRunning())
+        m_prefetchFuture.waitForFinished();
 }
 
 void RenderCache::setMaxCacheSize(qint64 bytes) {

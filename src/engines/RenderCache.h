@@ -82,7 +82,15 @@ public:
     void insertTile(int page, qreal scale, const QRectF &subRect, const QImage &image);
 
     // Viewport Prefetch
+    // OWNERSHIP CONTRACT (AR-1 D2): `renderer` is a non-owning raw ptr. The
+    // caller MUST call cancelAndWaitForPrefetch() before destroying or
+    // replacing the renderer, to ensure no pool thread is still calling
+    // renderPage() on a dangled pointer.
     void prefetchViewport(int centerPage, qreal scale, IPdfRenderer* renderer);
+
+    // AR-1 D2: Cancels any in-flight prefetch and blocks until the pool thread
+    // has exited. Call this before tearing down the renderer.
+    void cancelAndWaitForPrefetch();
 
     // Memory guards (Session 16 D5)
     static qint64 availableSystemMemory();

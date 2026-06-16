@@ -2,12 +2,14 @@
 #include "core/AppContext.h"
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "engines/PdfEditorEngine.h"
+#include "engines/RenderCache.h"
 #include "core/ErrorInfo.h"
 
 #include <QTemporaryFile>
 #include <QTemporaryDir>
 #include <QFile>
 #include <QFileInfo>
+#include <memory>
 
 /**
  * Session 20 D1 — End-to-end integration tests.
@@ -180,6 +182,43 @@ private slots:
             QVERIFY(QFileInfo::exists(linearized));
             QVERIFY(QFileInfo(linearized).size() > 0);
         }
+    }
+
+    // ── AR-1 D2: cancelAndWaitForPrefetch blocks until the pool thread exits ─
+    // Pre-fix: no such method; caller had no safe way to drain the prefetch
+    //   before destroying the renderer — leading to a UAF on document close.
+    // Post-fix: cancelAndWaitForPrefetch() signals the token and joins the
+    //   QFuture; this test verifies it does not crash or deadlock.
+    void testPrefetchCancelBeforeRendererDestroy() {
+        // Minimal stub renderer — returns a null image (prefetch will skip
+        // the insert but the token-check path still exercises the join).
+        class NullRenderer : public IPdfRenderer {
+        public:
+            QImage   renderPage(int, int) override                 { return {}; }
+            QImage   renderTile(int, const QRectF&, int) override  { return {}; }
+            QString  extractText(int) override                      { return {}; }
+            QSizeF   pageSize(int) const override                   { return {595.276, 841.890}; }
+        };
+
+        auto cache = std::make_shared<RenderCache>();
+        cache->setPageCount(4);
+
+        // We hold the renderer as a unique_ptr to model the ownership that
+        // PdfViewerWidget has: it owns the renderer and can destroy it.
+        auto renderer = std::make_unique<NullRenderer>();
+        IPdfRenderer* rawPtr = renderer.get();
+
+        // Trigger an async prefetch
+        cache->prefetchViewport(0, 1.0, rawPtr);
+
+        // Simulate document close: cancel+join BEFORE destroying renderer
+        cache->cancelAndWaitForPrefetch();
+
+        // Now safe to destroy the renderer — no in-flight lambda holds rawPtr
+        renderer.reset();
+
+        // If we reach here without a crash/ASAN complaint, the guard works.
+        QVERIFY(true);
     }
 
     // ── AR-1 D1: Watermark on a font-less PDF must not crash ─────────────
