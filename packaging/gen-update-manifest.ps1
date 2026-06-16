@@ -15,7 +15,7 @@ $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $msiName     = "GlyphPDF-$Version-x64.msi"
 $sidecar     = Join-Path $ProjectRoot "dist\$msiName.sha256"
-if (-not (Test-Path $sidecar)) { throw "Missing $sidecar — run build-msi.ps1 first." }
+if (-not (Test-Path $sidecar)) { throw "Missing $sidecar - run build-msi.ps1 first." }
 
 $sha = ((Get-Content $sidecar -Raw).Trim() -split '\s+')[0].ToUpper()
 
@@ -31,7 +31,9 @@ $manifest = [ordered]@{
 $outDir = Join-Path $ProjectRoot 'docs\updates'
 if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir | Out-Null }
 $outFile = Join-Path $outDir "$Channel.json"
-$manifest | ConvertTo-Json | Set-Content -Path $outFile -Encoding utf8
+$json = $manifest | ConvertTo-Json
+# Write UTF-8 WITHOUT BOM — a BOM breaks QJsonDocument::fromJson in the app.
+[System.IO.File]::WriteAllText($outFile, $json, (New-Object System.Text.UTF8Encoding($false)))
 
 Write-Host "Wrote $outFile"
 Write-Host "  version: $Version  sha256: $sha"
