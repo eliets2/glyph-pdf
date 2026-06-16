@@ -84,6 +84,7 @@ void EditController::activate(ToolId id) {
         { ToolId::Comment,       ToolMode::AddComment },
         { ToolId::Stamp,         ToolMode::Stamp },
         { ToolId::Callout,       ToolMode::Callout },
+        { ToolId::Erase,         ToolMode::Erase },
         { ToolId::MarkRedact,    ToolMode::Redact },
         { ToolId::Signature,     ToolMode::AddSignature },
         { ToolId::Rectangle,     ToolMode::DrawRectangle },
@@ -105,13 +106,6 @@ void EditController::activate(ToolId id) {
     case ToolId::Image:
     case ToolId::EditImage:
         enterImageEditMode();
-        break;
-    case ToolId::Erase:
-        // TODO(§9.3): annotation eraser needs a dedicated ToolMode + canvas
-        // hit-testing/removal path in AnnotationLayer. Until then, surface an
-        // honest placeholder rather than silently doing nothing.
-        QMessageBox::information(_mainWindow, tr("Eraser"),
-            tr("The annotation eraser is not yet implemented."));
         break;
     default:
         if (toolModes.contains(id)) {

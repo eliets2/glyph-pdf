@@ -11,6 +11,9 @@
 #include "shell/controllers/FormsController.h"
 #include "shell/controllers/SecurityController.h"
 #include "shell/ToolRegistry.h"
+#include "ui/AnnotationLayer.h"
+#include "core/AnnotationTypes.h"
+#include <QTest>
 
 class TestControllers : public QObject {
     Q_OBJECT
@@ -79,6 +82,52 @@ private slots:
         QVERIFY(tools.contains(ToolId::Image));
         QVERIFY(!tools.contains(ToolId::Open));
         QVERIFY(!tools.contains(ToolId::Encrypt));
+    }
+
+    // Eraser tool (PRD §9.3): clicking with ToolMode::Erase active deletes the
+    // topmost annotation under the cursor. Drives the AnnotationLayer widget
+    // directly with a synthetic mouse press.
+    void testEraserDeletesAnnotationUnderCursor() {
+        AnnotationLayer layer;
+        layer.resize(400, 400);
+
+        AnnotationItem a;
+        a.mode = ToolMode::DrawRectangle;
+        a.rect = QRectF(50, 50, 100, 80);   // covers point (100, 90)
+        a.color = Qt::red;
+        layer.setAnnotations({a});
+        QCOMPARE(layer.annotations().size(), 1);
+
+        layer.setMode(ToolMode::Erase);
+
+        int changes = 0;
+        QObject::connect(&layer, &AnnotationLayer::annotationsChanged,
+                         [&changes]() { ++changes; });
+
+        // Click inside the rectangle -> the annotation must be removed.
+        QTest::mouseClick(&layer, Qt::LeftButton, Qt::NoModifier, QPoint(100, 90));
+        QCOMPARE(layer.annotations().size(), 0);
+        QVERIFY(changes >= 1);  // annotationsChanged() emitted for persistence
+    }
+
+    // Eraser must be a no-op when the click misses every annotation.
+    void testEraserMissLeavesAnnotationsIntact() {
+        AnnotationLayer layer;
+        layer.resize(400, 400);
+
+        AnnotationItem a;
+        a.mode = ToolMode::DrawRectangle;
+        a.rect = QRectF(50, 50, 100, 80);
+        layer.setAnnotations({a});
+
+        layer.setMode(ToolMode::Erase);
+        QTest::mouseClick(&layer, Qt::LeftButton, Qt::NoModifier, QPoint(300, 300));
+        QCOMPARE(layer.annotations().size(), 1);
+    }
+
+    void testEditControllerHandlesEraser() {
+        gp::EditController ctrl(&m_ctx, nullptr);
+        QVERIFY(ctrl.handledTools().contains(ToolId::Erase));
     }
 
     void testPagesControllerHandles() {

@@ -242,6 +242,7 @@ void PdfViewerWidget::setToolMode(ToolMode mode)
         case ToolMode::DrawFreehand:
         case ToolMode::DrawShape:
         case ToolMode::Crop:
+        case ToolMode::Erase:
             m_pdfView->setCursor(Qt::CrossCursor);
             break;
         case ToolMode::FormAddText:
