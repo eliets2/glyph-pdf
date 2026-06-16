@@ -32,8 +32,14 @@ AutosaveManager::AutosaveManager(std::shared_ptr<IPdfEditorEngine> pdfEditor, st
     , m_pdfEditor(std::move(pdfEditor))
     , m_document(std::move(document))
     , m_timer(new QTimer(this))
+    // AR-1 D4: single-shot member timer; being a child of `this` it is
+    // destroyed (and therefore stopped) before `this`, so any pending
+    // 250-ms retry callback is automatically cancelled when the
+    // AutosaveManager is destroyed.
+    , m_retryTimer(new QTimer(this))
 {
     connect(m_timer, &QTimer::timeout, this, &AutosaveManager::onTick);
+    m_retryTimer->setSingleShot(true);
 
     // Read initial interval from settings
     QSettings settings;
@@ -105,22 +111,29 @@ void AutosaveManager::onTick()
                 }
                 emit autosaveCompleted(now);
             } else {
-                // Retry once after 250ms asynchronously
-                QTimer::singleShot(250, this, [this, tmpAutosavePath, finalAutosavePath]() {
-                    bool retryOk = atomicRename(tmpAutosavePath, finalAutosavePath);
-                    if (retryOk) {
-                        QDateTime now = QDateTime::currentDateTime();
-                        if (m_document) {
-                            m_document->setLastAutosave(now);
+                // AR-1 D4: Retry once after 250ms via a member QTimer so the
+                // callback is automatically cancelled if `this` is destroyed
+                // before the timer fires (replaces the unsafe singleShot UAF).
+                // Disconnect any previous connection first to avoid stacking.
+                m_retryTimer->disconnect();
+                connect(m_retryTimer, &QTimer::timeout, this,
+                    [this, tmpAutosavePath, finalAutosavePath]() {
+                        bool retryOk = atomicRename(tmpAutosavePath, finalAutosavePath);
+                        if (retryOk) {
+                            QDateTime now = QDateTime::currentDateTime();
+                            if (m_document) {
+                                m_document->setLastAutosave(now);
+                            }
+                            emit autosaveCompleted(now);
+                        } else {
+                            qWarning() << "Autosave failed: atomic rename failed from"
+                                       << tmpAutosavePath << "to" << finalAutosavePath;
+                            emit autosaveFailed("Failed to rename temporary autosave file");
                         }
-                        emit autosaveCompleted(now);
-                    } else {
-                        qWarning() << "Autosave failed: atomic rename failed from" << tmpAutosavePath << "to" << finalAutosavePath;
-                        emit autosaveFailed("Failed to rename temporary autosave file");
-                    }
-                    m_saving = false;
-                });
-                return; // Return early, m_saving = false will be handled in the timer
+                        m_saving = false;
+                    });
+                m_retryTimer->start(250);
+                return; // m_saving = false will be set inside the retry lambda
             }
         } else {
             qWarning() << "Autosave failed during document save";

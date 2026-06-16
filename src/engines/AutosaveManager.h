@@ -5,6 +5,7 @@
 #include <QTimer>
 #include <QDateTime>
 #include <memory>
+#include <atomic>
 
 class IPdfEditorEngine;
 class DocumentSession;
@@ -35,6 +36,10 @@ private:
     std::shared_ptr<IPdfEditorEngine> m_pdfEditor;
     std::shared_ptr<DocumentSession> m_document;
     QTimer* m_timer;
+    // AR-1 D4: member retry timer — child of `this` so it is auto-cancelled
+    // when AutosaveManager is destroyed, eliminating the singleShot UAF.
+    QTimer* m_retryTimer;
     int m_intervalSeconds = 300;
-    bool m_saving = false;
+    // AR-1 D4: atomic so the prefetch-thread read in onTick is data-race-free.
+    std::atomic<bool> m_saving{false};
 };

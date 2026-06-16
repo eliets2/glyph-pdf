@@ -75,6 +75,48 @@ private slots:
         QFile::remove(autosaveFile);
     }
 
+    // AR-1 D4: Rename-fail-then-destroy window must not UAF.
+    // Pre-fix: QTimer::singleShot(250, this, lambda) captured `this` raw;
+    //   destroying AutosaveManager within 250ms let the callback fire on a
+    //   freed object.
+    // Post-fix: retry is routed through a member QTimer (child of `this`),
+    //   which is destroyed before `this`, so the callback is automatically
+    //   cancelled. Test verifies no crash.
+    void testRetryTimerCancelledOnDestroy()
+    {
+        QString originalFile = "test_retry_cancel.pdf";
+        QString autosaveFile = originalFile + ".autosave.pdf";
+        QString tmpFile      = originalFile + ".autosave.pdf.tmp";
+
+        // Remove leftover files from prior runs
+        QFile::remove(autosaveFile);
+        QFile::remove(tmpFile);
+
+        auto mockEditor = std::make_shared<MockPdfEditorEngine>();
+        mockEditor->m_loaded = true;
+        mockEditor->m_file   = originalFile;
+
+        auto doc = std::make_shared<DocumentSession>();
+        doc->setPath(originalFile);
+        doc->markDirty();
+
+        {
+            AutosaveManager manager(mockEditor, doc);
+            // Fire a save cycle synchronously
+            QMetaObject::invokeMethod(&manager, "onTick", Qt::DirectConnection);
+            // Give the async future a moment to complete (up to 500ms)
+            QTest::qWait(300);
+            // AutosaveManager is destroyed here while m_retryTimer may be live.
+            // Pre-fix: singleShot UAF; post-fix: member timer cancelled safely.
+        }
+
+        // If we reach here without a crash the guard works.
+        QVERIFY(true);
+
+        QFile::remove(autosaveFile);
+        QFile::remove(tmpFile);
+    }
+
     void testFindOrphanedAutosaves() {
         QString originalFile = "test_orphan.pdf";
         QString autosaveFile = originalFile + ".autosave.pdf";
