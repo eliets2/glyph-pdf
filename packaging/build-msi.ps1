@@ -54,10 +54,12 @@ if (-not (Get-Command wix -ErrorAction SilentlyContinue)) {
 # incompatible with an older installed CLI.
 $wixVer = ((& wix --version) -split '\+')[0]
 $extList = & wix extension list -g 2>$null | Out-String
-if ($extList -notmatch 'WixToolset\.UI\.wixext') {
-    Write-Host "      adding WixToolset.UI.wixext/$wixVer (global)..."
-    & wix extension add -g "WixToolset.UI.wixext/$wixVer"
-    if ($LASTEXITCODE -ne 0) { throw 'Failed to add WixToolset.UI.wixext.' }
+foreach ($ext in @('WixToolset.UI.wixext', 'WixToolset.Util.wixext')) {
+    if ($extList -notmatch [regex]::Escape($ext)) {
+        Write-Host "      adding $ext/$wixVer (global)..."
+        & wix extension add -g "$ext/$wixVer"
+        if ($LASTEXITCODE -ne 0) { throw "Failed to add $ext." }
+    }
 }
 
 if (-not (Test-Path $OutputDir)) { New-Item -ItemType Directory -Path $OutputDir | Out-Null }
@@ -68,6 +70,7 @@ try {
     & wix build -src 'GlyphPDF.wxs' `
         -d "DeployDir=$DeployDir" `
         -ext WixToolset.UI.wixext `
+        -ext WixToolset.Util.wixext `
         -arch x64 `
         -out $msiPath
     if ($LASTEXITCODE -ne 0) { throw 'WiX build failed.' }
