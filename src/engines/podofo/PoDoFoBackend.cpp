@@ -2956,7 +2956,12 @@ bool PoDoFoBackend::addTextWatermark(const TextWatermarkOptions &options)
             painter.SetCanvas(page);
 
             // Set graphics state for transparency
-            painter.TextState.SetFont(*doc.GetFonts().SearchFont("Helvetica"), static_cast<float>(options.fontSize));
+            // AR-1 D1: null-check SearchFont; fall back to Standard-14 so a doc
+            // without an embedded Helvetica doesn't crash on dereference.
+            const PoDoFo::PdfFont* wmFont = doc.GetFonts().SearchFont("Helvetica");
+            if (!wmFont)
+                wmFont = &doc.GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::Helvetica);
+            painter.TextState.SetFont(*wmFont, static_cast<float>(options.fontSize));
             painter.GraphicsState.SetNonStrokingColor(PoDoFo::PdfColor(
                 options.color.redF(), options.color.greenF(), options.color.blueF()));
 

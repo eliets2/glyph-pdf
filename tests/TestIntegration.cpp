@@ -182,6 +182,32 @@ private slots:
         }
     }
 
+    // ── AR-1 D1: Watermark on a font-less PDF must not crash ─────────────
+    // Pre-fix: SearchFont("Helvetica") returns nullptr; immediate deref → crash.
+    // Post-fix: null-check falls back to GetStandard14Font; returns true.
+    void testWatermarkOnFontlessPdf() {
+        QTemporaryDir tmpDir;
+        QVERIFY(tmpDir.isValid());
+        // createTestPdf produces a minimal PDF with no embedded fonts
+        QString pdf = createTestPdf(tmpDir.path(), "fontless.pdf");
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+
+        TextWatermarkOptions opts;
+        opts.text        = "CONFIDENTIAL";
+        opts.fontSize    = 48.0;
+        opts.opacity     = 0.3;
+        opts.rotationDeg = 45.0;
+        opts.color       = Qt::red;
+        opts.pageFrom    = 0;
+        opts.pageTo      = 0;
+
+        // Must complete without crashing and return true
+        bool result = engine.addTextWatermark(opts);
+        QVERIFY(result);
+    }
+
     // ── Test 8: Error reporting consistency ──────────────────────────────
     void testErrorReportingConsistency() {
         PdfEditorEngine engine;
