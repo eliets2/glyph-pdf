@@ -457,6 +457,34 @@ void AnnotationLayer::mousePressEvent(QMouseEvent *event)
         return;
     }
 
+    if (m_currentMode == ToolMode::Erase) {
+        // Eraser (PRD §9.3): delete the topmost annotation under the cursor.
+        // Hit-test from top (last drawn) to bottom, mirroring EditObject.
+        // NOTE: deletion is not yet undoable — routing through QUndoStack is a
+        // follow-up (annotations have no delete command in this codebase yet).
+        int found = -1;
+        for (int i = m_annotations.size() - 1; i >= 0; --i) {
+            const auto& anno = m_annotations[i];
+            if (anno.mode == ToolMode::DrawFreehand || anno.mode == ToolMode::AddSignature) {
+                for (const auto& pt : anno.points) {
+                    if (QLineF(pt, pos).length() < 10) {
+                        found = i;
+                        break;
+                    }
+                }
+            } else if (anno.rect.contains(pos)) {
+                found = i;
+            }
+            if (found != -1) break;
+        }
+        if (found != -1) {
+            // deleteAnnotation() removes the item, clears selection,
+            // emits annotationsChanged() (for persistence) and repaints.
+            deleteAnnotation(found);
+        }
+        return;
+    }
+
     if (m_currentMode == ToolMode::EditObject) {
         int found = -1;
         // Hit test from top to bottom
