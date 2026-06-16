@@ -14,7 +14,7 @@
 
   Build:  wix build -src GlyphPDF.wxs -d DeployDir=..\deploy
                -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext
-               -arch x64 -out GlyphPDF-1.3.0-x64.msi
+               -arch x64 -out GlyphPDF-1.3.1-x64.msi
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
@@ -22,9 +22,9 @@
   <Package
     Name="GlyphPDF"
     Manufacturer="Glyph"
-    Version="1.3.0.0"
+    Version="1.3.1.0"
     UpgradeCode="fb1fbe00-e1af-449c-8a58-2d2e308b9127"
-    ProductCode="79DAC62D-3F70-45CD-AE85-05DCE56901D7"
+    ProductCode="ACBE8FC8-FB58-4028-9BFB-FD86B4773D7F"
     Scope="perMachine"
     Language="1033"
     Compressed="yes">
@@ -38,7 +38,8 @@
            v1.0.1  83AD3854-CF43-4F27-B34D-CBB42B5624AB
            v1.2.0  C1F384AE-8A11-4770-B1BB-86A80F53F713
            v1.2.1  70670D6B-02A3-4DB3-A7E0-6874D3376352
-           v1.3.0  79DAC62D-3F70-45CD-AE85-05DCE56901D7 -->
+           v1.3.0  79DAC62D-3F70-45CD-AE85-05DCE56901D7
+           v1.3.1  ACBE8FC8-FB58-4028-9BFB-FD86B4773D7F -->
     <MajorUpgrade
       DowngradeErrorMessage="A newer version of [ProductName] is already installed."
       Schedule="afterInstallInitialize" />
