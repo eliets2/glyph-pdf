@@ -139,6 +139,46 @@ private slots:
         QVERIFY2(!ok, "convertTo(OfficeToPdf) should return false for missing input");
     }
 
+    // AR-1 D3: Guard test — conversion command must NOT contain a global
+    // soffice taskkill that would destroy the user's unsaved work.
+    // Pre-fix: ConversionManager::convertOfficeToPdf executed
+    //   `taskkill /F /IM soffice.bin /IM soffice.exe` before every conversion.
+    // Post-fix: blanket kill removed; private --env:UserInstallation used.
+    // This test reads the source file and asserts the banned string is absent.
+    void testAR1D3_noGlobalSofficeKill()
+    {
+        // Resolve the source file relative to the test binary's build location
+        // SOURCE_DIR is injected by CMake via a compile definition.
+#ifndef SOURCE_DIR
+#define SOURCE_DIR "."
+#endif
+        const QString srcPath = QStringLiteral(SOURCE_DIR)
+            + "/src/engines/ConversionManager.cpp";
+
+        QFile src(srcPath);
+        if (!src.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            QSKIP("Cannot open ConversionManager.cpp for source inspection — skipping");
+        }
+        const QString content = QString::fromUtf8(src.readAll());
+        src.close();
+
+        // The banned pattern: blanket kill of all soffice processes
+        const bool hasBlanketKill =
+            content.contains(QStringLiteral("taskkill")) &&
+            content.contains(QStringLiteral("/IM")) &&
+            content.contains(QStringLiteral("soffice"));
+
+        // The private-profile pattern must be present instead
+        const bool hasPrivateProfile =
+            content.contains(QStringLiteral("UserInstallation"));
+
+        QVERIFY2(!hasBlanketKill || hasPrivateProfile,
+            "ConversionManager must not issue a blanket soffice taskkill "
+            "without the private-profile guard (AR-1 D3)");
+        QVERIFY2(hasPrivateProfile,
+            "ConversionManager must use --env:UserInstallation private profile (AR-1 D3)");
+    }
+
     // D2 — OfficeToPdf returns false gracefully when no converter is present
     void testOfficeToPdf_noLibreOffice()
     {

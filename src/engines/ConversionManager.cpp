@@ -25,6 +25,7 @@
 #include <QPageSize>
 #include <QStandardPaths>
 #include <QCoreApplication>
+#include <QUrl>
 #ifdef Q_OS_WIN
 #include <QSettings>
 #endif
@@ -426,11 +427,16 @@ bool ConversionManager::convertOfficeToPdf(const QString &officePath, const QStr
         return false;
     }
 
-    // Kill any stale soffice lock from a previous crash (exit code 81)
-    // before launching, to avoid "locked" failures.
-#ifdef Q_OS_WIN
-    QProcess::execute("taskkill", {"/F", "/IM", "soffice.bin", "/IM", "soffice.exe"});
-#endif
+    // AR-1 D3: Do NOT pre-kill all soffice instances — that destroys the
+    // user's unsaved work in any open LibreOffice window.  Instead, launch
+    // soffice with a private per-PID user-installation directory so it never
+    // acquires a shared lock with the user's running instance.
+    const QString privateProfile = QDir::tempPath()
+        + QStringLiteral("/glyphpdf-soffice-%1").arg(QCoreApplication::applicationPid());
+    QDir().mkpath(privateProfile);
+
+    // Convert the profile path to a file:/// URL as soffice expects
+    QString profileUrl = QUrl::fromLocalFile(privateProfile).toString();
 
     QFileInfo outInfo(outputPath);
     const QString outDir = outInfo.absolutePath();
@@ -439,6 +445,7 @@ bool ConversionManager::convertOfficeToPdf(const QString &officePath, const QStr
     QProcess process;
     process.setProcessChannelMode(QProcess::MergedChannels);
     process.start(sofficePath, {
+        QStringLiteral("--env:UserInstallation=") + profileUrl,
         "--headless",
         "--convert-to", "pdf:writer_pdf_Export",
         "--outdir", outDir,

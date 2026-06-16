@@ -1335,7 +1335,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOfficeImport.cpp")
     )
     target_include_directories(TestOfficeImport PRIVATE src tests)
     target_compile_definitions(TestOfficeImport PRIVATE
-        $<TARGET_PROPERTY:pdfws_engines,INTERFACE_COMPILE_DEFINITIONS>)
+        $<TARGET_PROPERTY:pdfws_engines,INTERFACE_COMPILE_DEFINITIONS>
+        SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     target_link_libraries(TestOfficeImport PRIVATE
         pdfws_engines pdfws_core podofo::podofo
         Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
