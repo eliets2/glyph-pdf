@@ -1,4 +1,4 @@
-# GlyphPDF v1.0.0 — Professional PDF Workstation
+# GlyphPDF v1.3.1 — Professional PDF Workstation
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![CI](https://github.com/eliets2/glyph-pdf/actions/workflows/ci.yml/badge.svg)](https://github.com/eliets2/glyph-pdf/actions/workflows/ci.yml)
@@ -13,8 +13,8 @@ A high-performance desktop PDF editor built with C++17 and Qt 6. Designed for pr
 
 | Option | Download | How to run |
 |--------|----------|------------|
-| **Installer** (recommended) | [`GlyphPDF-1.0.0-x64.msi`](https://github.com/eliets2/glyph-pdf/releases/latest) | Double-click → Next → Finish. Adds Start-menu & desktop shortcuts and a "PDF Document — GlyphPDF" Open-With entry. |
-| **Portable** (no install) | [`GlyphPDF-1.0.0-x64-portable.zip`](https://github.com/eliets2/glyph-pdf/releases/latest) | Unzip anywhere — including a USB stick — and run `GlyphPDF.exe`. Nothing is written to the registry. |
+| **Installer** (recommended) | [`GlyphPDF-1.3.1-x64.msi`](https://github.com/eliets2/glyph-pdf/releases/latest) | Double-click → Next → Finish. Adds Start-menu & desktop shortcuts and a "PDF Document — GlyphPDF" Open-With entry. |
+| **Portable** (no install) | [`GlyphPDF-1.3.1-x64-portable.zip`](https://github.com/eliets2/glyph-pdf/releases/latest) | Unzip anywhere — including a USB stick — and run `GlyphPDF.exe`. Nothing is written to the registry. |
 
 Coming soon: `winget install Glyph.GlyphPDF` (pending Microsoft review).
 
@@ -22,7 +22,7 @@ Coming soon: `winget install Glyph.GlyphPDF` (pending Microsoft review).
 
 Every release is published with a `.sha256` file so you can verify the download integrity:
 ```powershell
-Get-FileHash .\GlyphPDF-1.0.0-x64.msi -Algorithm SHA256
+Get-FileHash .\GlyphPDF-1.3.1-x64.msi -Algorithm SHA256
 ```
 
 ## Features
@@ -228,7 +228,7 @@ ctest --output-on-failure
 
 ## Architecture
 
-GlyphPDF v1.0.0 is publicly released (Apache-2.0). The architecture integrates three workstreams committed per `ROADMAP.md`:
+GlyphPDF v1.3.1 is publicly released (Apache-2.0). The architecture integrates three workstreams committed per `ROADMAP.md`:
 
 - **Dual-Model Core** — Structural model (PDF object graph owned by PoDoFo + PDFium + qpdf — source of truth for sign/redact/forms/exact layout) ↔ Semantic model (`docmodel::SemanticDocument` — editing/interchange model). Djot ↔ Semantic = LOSSLESS; Semantic ↔ PDF = EXPLICITLY LOSSY both ways. `ProvenanceGuard` refuses Djot-edit-save-back for signed/born-PDF documents.
 - **Heterogeneous LaneScheduler** — GPU lane (warm persistent worker, never spawn-per-page) + CPU lane (QtConcurrent, core-count) + cross-page pipelining (`layout(P+1) ‖ ocr(P) ‖ fusion(P-1)`). Reused by: OCR ensemble, MRC compression pipeline, future GPU workloads.

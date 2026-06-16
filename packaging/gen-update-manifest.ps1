@@ -4,7 +4,7 @@
 # commit docs/updates/latest.json to the GitHub Pages branch so the in-app
 # UpdateChecker sees the new version.
 #
-# Usage:  powershell -ExecutionPolicy Bypass -File packaging\gen-update-manifest.ps1 -Version 1.3.0
+# Usage:  powershell -ExecutionPolicy Bypass -File packaging\gen-update-manifest.ps1 -Version 1.3.1
 param(
     [Parameter(Mandatory=$true)][string]$Version,
     [string]$MinVersion = '1.0.0',

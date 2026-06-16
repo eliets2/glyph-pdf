@@ -1,9 +1,9 @@
-# GlyphPDF — Spec ↔ Code Traceability (v1.3.0)
+# GlyphPDF — Spec ↔ Code Traceability (v1.3.1)
 
 Maps each PRD §9 functional requirement to the **actual implementing code**, verified
-against the `audit-remediation` tree at v1.3.0. Status mirrors PRD §27.
+against the `audit-remediation` tree at v1.3.1. Status mirrors PRD §27.
 
-Legend: ✅ Done · 🟡 Partial · ⬜ Planned. Line numbers are indicative (current at v1.3.0).
+Legend: ✅ Done · 🟡 Partial · ⬜ Planned. Line numbers are indicative (current at v1.3.1).
 
 | § | Requirement | Status | Implementing code (verified) |
 |---|-------------|--------|------------------------------|
