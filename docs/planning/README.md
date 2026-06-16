@@ -13,6 +13,7 @@ For the Claude Code session memory, see `/CLAUDE.md`.
 | **`M1-REMEDIATION.md`** | Month 1 remediation prompt (closes 11 release blockers). **Already executed** — commit `a6ea6aa` (May 27, 2026). Kept for reference. | ~472 lines |
 | **`MSYS2-MIGRATION.md`** | MSYS2 ucrt64 build environment migration prompt. **Already executed** — commits `45807de` + `6e7c8aa` + `9ac0c2f` (May 28, 2026). Kept for reference. | ~669 lines |
 | **`MONTHS-2-8-PROMPTS.md`** | All 34 launch prompts for M2-M8 Branch C execution. Each prompt is a self-contained 7-H formatted message ready to paste into a fresh Claude Code session. | ~2,229 lines |
+| **`AUDIT-2026-06-16-REMEDIATION.md`** | 12 self-contained 7-H prompts (AR-PROMPT-1..12) closing every finding from the 2026-06-16 full-codebase audit (8 domains: crypto, PDF backend, redaction/encryption, subprocess/IO/OCR, concurrency, architecture/Djot, build/packaging, UI/UX). Includes severity index + dependency order + vault-update text. | this audit |
 
 ## How to use these
 
