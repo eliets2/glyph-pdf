@@ -366,7 +366,7 @@ Needs: Licensing controls, Security policies, SSO, Admin dashboards, Deployment 
 
 Fast PDF viewing, Search, Annotation, Basic text editing, OCR, Conversion, Page tools, Form filling, E-signatures, Basic protection, Autosave and recovery.
 
-## 27. Implementation status (as of v1.3.0 — 2026-06-15)
+## 27. Implementation status (as of v1.3.1 — 2026-06-16)
 
 Legend: ✅ Done · 🟡 Partial · ⬜ Planned/not started
 
@@ -430,7 +430,7 @@ sharing + expiry §9.11, reading-order check §9.14).
 * Backend: FastAPI, Python OCR workers, Redis, PostgreSQL, MinIO, OpenSearch, Keycloak
 * PDF Engine: PDFium/MuPDF rendering, qpdf/pikepdf for manipulation, Ghostscript compression
 
-### Current Implementation (v1.3.0 Desktop — Active Codebase)
+### Current Implementation (v1.3.1 Desktop — Active Codebase)
 * C++17 / Qt 6.10.2 (MinGW 13.1.0 / MSYS2 ucrt64) / PoDoFo 1.1 / PDFium / OpenSSL 3.x
 * OCR: Tesseract 5 + RapidOCR (ONNX Runtime) + PP-DocLayout, ROVER fusion
 * Native Windows desktop application (MSI + portable ZIP); privacy-first, fully offline

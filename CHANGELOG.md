@@ -2,6 +2,38 @@
 
 All notable changes to GlyphPDF are documented in this file.
 
+## [1.3.1] — 2026-06-16
+
+Maintenance release polishing the v1.3.0 feature set.
+
+### Fixed
+- **OCR Verify** screen no longer shows hardcoded demo content; it presents a clean empty state until OCR runs.
+
+### Added
+- **In-app updates** wired end-to-end: an on-launch update banner plus a polished update dialog (new vs. installed version, release-notes link, download progress, SHA-256 + signature verification). Manifest served from GitHub Pages.
+- **Preferences ▸ Updates** "Check Now" honours the selected channel; the app version now derives from the build.
+- **Branded MSI installer wizard** with a custom Welcome/Finish background and a "Launch GlyphPDF" finish option.
+
+## [1.3.0] — 2026-06-15
+
+Feature release closing nine PRD gaps.
+
+### Added
+- Restored the **OCR Verify** review screen to navigation.
+- Annotation **Stamp, Callout, Erase** tools and comment **file attachments**.
+- **Calculated** AcroForm field — the 10th form-field type.
+- Batch **OCR, Merge, Redact** operations and **hot-folder watching**.
+- Compare **report export** (HTML/text) and **page-reorder detection**.
+- **Encrypted-ZIP secure sharing** and **XMP document expiry** (read-only on expiry).
+- **Tagged-PDF reading-order** accessibility check.
+
+## [1.2.1] — 2026-06-15
+
+Critical patch — fixes a startup "Entry Point Not Found" crash on all v1.0.x / v1.2.0 installs.
+
+### Fixed
+- `deploy.ps1` bundled the ABI-incompatible MSYS2 podofo 0.10.4 instead of the vendored podofo 1.1.0 the app was linked against. The vendored DLL is now staged before the dependency-closure pass.
+
 ## [1.2.0] — 2026-06-15
 
 Security patch release addressing critical vulnerabilities and architecture bugs.

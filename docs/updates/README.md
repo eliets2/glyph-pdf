@@ -18,11 +18,11 @@ Served at `https://eliets2.github.io/glyph-pdf/updates/latest.json`
 
 ```json
 {
-  "version": "1.3.0",
-  "releaseDate": "2026-06-15",
-  "downloadUrl": "https://github.com/eliets2/glyph-pdf/releases/download/v1.3.0/GlyphPDF-1.3.0-x64.msi",
-  "sha256": "B7859F33...",
-  "releaseNotes": "https://github.com/eliets2/glyph-pdf/releases/tag/v1.3.0",
+  "version": "1.3.1",
+  "releaseDate": "2026-06-16",
+  "downloadUrl": "https://github.com/eliets2/glyph-pdf/releases/download/v1.3.1/GlyphPDF-1.3.1-x64.msi",
+  "sha256": "8D96CE14...",
+  "releaseNotes": "https://github.com/eliets2/glyph-pdf/releases/tag/v1.3.1",
   "minVersion": "1.0.0"
 }
 ```
