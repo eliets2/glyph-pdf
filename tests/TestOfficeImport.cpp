@@ -139,6 +139,18 @@ private slots:
         QVERIFY2(!ok, "convertTo(OfficeToPdf) should return false for missing input");
     }
 
+    // D3 — Guard test: Ensure no global soffice taskkill in ConversionManager.cpp
+    void testOfficeToPdf_NoGlobalTaskkill()
+    {
+        // Simple static analysis of the source file to ensure the blanket taskkill was removed
+        QFile sourceFile("../../src/engines/ConversionManager.cpp");
+        if (sourceFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            QString content = QString::fromUtf8(sourceFile.readAll());
+            QVERIFY2(!content.contains("\"taskkill\", {\"/F\", \"/IM\", \"soffice.bin\""), 
+                     "ConversionManager.cpp must not contain a global soffice taskkill");
+        }
+    }
+
     // D2 — OfficeToPdf returns false gracefully when no converter is present
     void testOfficeToPdf_noLibreOffice()
     {
