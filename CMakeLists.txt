@@ -399,7 +399,7 @@ target_link_libraries(pdfws_commands
 add_library(pdfws_ui STATIC
     src/ui/PdfViewerWidget.h         src/ui/PdfViewerWidget.cpp
     src/ui/EditAnnotationCommand.h   src/ui/EditAnnotationCommand.cpp
-    src/ui/RedactCommand.h           src/ui/RedactCommand.cpp
+
     src/ui/WelcomeWidget.h           src/ui/WelcomeWidget.cpp
     src/ui/FindBar.h                 src/ui/FindBar.cpp
     src/ui/AnnotationToolBar.h       src/ui/AnnotationToolBar.cpp
