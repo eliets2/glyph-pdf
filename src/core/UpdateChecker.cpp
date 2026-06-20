@@ -19,6 +19,7 @@
 #include <windows.h>
 #include <wintrust.h>
 #include <softpub.h>
+#include <wincrypt.h>
 #endif
 
 namespace gp {
@@ -303,6 +304,14 @@ void UpdateChecker::applyUpdate() {
                               FILE_SHARE_READ,          // deny write/delete sharing while we hold it
                               nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (hMsi == INVALID_HANDLE_VALUE) {
+    // Re-verify SHA-256 after handle is opened to prevent TOCTOU
+    if (!verifySha256(m_downloadedPath, m_latest.sha256)) {
+        CloseHandle(hMsi);
+        qWarning() << "N-2: TOCTOU SHA-256 mismatch before apply for" << m_downloadedPath;
+        emit checkFailed(tr("Update file integrity check failed at install time."));
+        return;
+    }
+
         qWarning() << "N-2: could not open MSI for verification:" << m_downloadedPath;
         emit checkFailed(tr("Update file could not be opened for signature verification."));
         return;
@@ -377,6 +386,31 @@ bool UpdateChecker::verifyAuthenticode(void* hFile, const QString& pathForLoggin
     LONG result = WinVerifyTrust(static_cast<HWND>(INVALID_HANDLE_VALUE),
                                   &actionGuid,
                                   &trustData);
+
+    if (result == ERROR_SUCCESS) {
+        bool publisherMatch = false;
+        CRYPT_PROVIDER_DATA* provData = WTHelperProvDataFromStateData(trustData.hWVTStateData);
+        if (provData) {
+            CRYPT_PROVIDER_SGNR* provSigner = WTHelperGetProvSignerFromChain(provData, 0, FALSE, 0);
+            if (provSigner && provSigner->csCertChain > 0) {
+                PCCERT_CONTEXT cert = provSigner->pasCertChain[0].pCert;
+                DWORD nameLen = CertGetNameStringW(cert, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, nullptr, nullptr, 0);
+                if (nameLen > 0) {
+                    std::vector<wchar_t> nameBuf(nameLen);
+                    CertGetNameStringW(cert, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, nullptr, nameBuf.data(), nameLen);
+                    QString publisher = QString::fromWCharArray(nameBuf.data());
+                    if (publisher.contains("GlyphPDF", Qt::CaseInsensitive)) {
+                        publisherMatch = true;
+                    } else {
+                        qWarning() << "N-2: Authenticode publisher mismatch. Expected GlyphPDF, got:" << publisher;
+                    }
+                }
+            }
+        }
+        if (!publisherMatch) {
+            result = TRUST_E_SUBJECT_NOT_TRUSTED;
+        }
+    }
 
     // Close the state data to release resources
     trustData.dwStateAction = WTD_STATEACTION_CLOSE;

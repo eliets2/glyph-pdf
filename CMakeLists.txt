@@ -1260,7 +1260,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestUpdateChecker.cpp")
         Qt6::Test Qt6::Core Qt6::Network
     )
     if(WIN32)
-        target_link_libraries(TestUpdateChecker PRIVATE Wintrust)
+        target_link_libraries(TestUpdateChecker PRIVATE Wintrust Crypt32)
     endif()
     add_test(NAME TestUpdateChecker COMMAND TestUpdateChecker)
     set_tests_properties(TestUpdateChecker PROPERTIES

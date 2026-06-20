@@ -13,6 +13,7 @@
 #include <QSaveFile>
 #include <QSet>
 #include <QStandardPaths>
+#include <QSettings>
 #include <QFile>
 #include <QCoreApplication>
 #include <QTimer>
@@ -149,11 +150,6 @@ OcrEngine::~OcrEngine() = default;
 
 bool OcrEngine::initialize(const QString &language, const QString &dataPath)
 {
-    if (QThread::currentThread() == QCoreApplication::instance()->thread()) {
-        qWarning() << "CRITICAL: OcrEngine::initialize() called from main GUI thread! Blocking operations must run on worker threads.";
-        return false;
-    }
-
     if (dataPath.contains("..")) {
         qWarning() << "SECURITY: Rejected OCR data path containing directory traversal sequences (..).";
         return false;
@@ -218,6 +214,10 @@ bool OcrEngine::initialize(const QString &language, const QString &dataPath)
 #ifdef QT_DEBUG
         qDebug() << "OCR language pack not found locally. Downloading:" << safeLanguage;
 #endif
+        if (!QSettings().value("ocr/allowNetworkDownload", false).toBool()) {
+            qWarning() << "OCR download disabled";
+            return false;
+        }
         if (!downloadTrainedData(safeLanguage, filepath)) {
             return false;
         }
@@ -251,6 +251,11 @@ bool OcrEngine::initialize(const QString &language, const QString &dataPath)
 
 QList<OcrResult> OcrEngine::processImage(const QImage &image)
 {
+    if (QThread::currentThread() == QCoreApplication::instance()->thread()) {
+        qWarning() << "CRITICAL: OcrEngine::processImage() called from main GUI thread! Blocking operations must run on worker threads.";
+        return QList<OcrResult>();
+    }
+
     QList<OcrResult> results;
     if (image.isNull()) return results;
     if (image.width() > 10000 || image.height() > 10000) {
@@ -307,6 +312,11 @@ QList<OcrResult> OcrEngine::processImage(const QImage &image)
 
 QString OcrEngine::getRawText(const QImage &image)
 {
+    if (QThread::currentThread() == QCoreApplication::instance()->thread()) {
+        qWarning() << "CRITICAL: OcrEngine::getRawText() called from main GUI thread! Blocking operations must run on worker threads.";
+        return QString();
+    }
+
     if (image.isNull()) return QString();
     if (image.width() > 10000 || image.height() > 10000) {
         qWarning() << "SECURITY: Rejected oversized OCR image matrix to prevent memory exhaustion.";
