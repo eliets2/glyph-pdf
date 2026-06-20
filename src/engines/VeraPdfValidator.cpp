@@ -20,8 +20,9 @@ QString VeraPdfValidator::locateCli() {
     const QString appDir = QCoreApplication::applicationDirPath();
     // 1. Bundled next to the app (deploy.ps1 stages it under verapdf/).
     const QStringList bundled = {
-        appDir + "/verapdf/verapdf.bat",
         appDir + "/verapdf/verapdf",
+        appDir + "/verapdf/verapdf.bat",
+        appDir + "/verapdf",
         appDir + "/verapdf.bat",
     };
     for (const QString& p : bundled) {
@@ -60,6 +61,11 @@ PdfAValidationReport VeraPdfValidator::validate(const QString& pdfPath, PdfAConf
     PdfAValidationReport report;
     report.validatorAvailable = false;
 
+    if (pdfPath.contains('&') || pdfPath.contains('|') || pdfPath.contains('<') || pdfPath.contains('>')) {
+        report.errorMessage = "Invalid characters in PDF path";
+        return report;
+    }
+
     const QString cliPath = locateCli();
     if (cliPath.isEmpty()) {
         report.errorMessage = QStringLiteral(
@@ -71,12 +77,21 @@ PdfAValidationReport VeraPdfValidator::validate(const QString& pdfPath, PdfAConf
     report.validatorAvailable = true;
 
     QProcess proc;
-    QStringList args = {
-        "--format", "json",
-        "--flavour", conformanceFlag(level),
-        pdfPath
-    };
-    proc.start(cliPath, args);
+    QStringList args;
+    if (cliPath.endsWith(".bat", Qt::CaseInsensitive) || cliPath.endsWith(".cmd", Qt::CaseInsensitive)) {
+        args << "/c" << "call" << cliPath;
+        args << "--format" << "json" << "--flavour" << conformanceFlag(level) << pdfPath;
+        proc.start("cmd.exe", args);
+    } else {
+        args << "--format" << "json" << "--flavour" << conformanceFlag(level) << pdfPath;
+        proc.start(cliPath, args);
+    }
+
+    if (!proc.waitForStarted(5000)) {
+        report.errorMessage = "veraPDF failed to start";
+        return report;
+    }
+
     if (!proc.waitForFinished(30000)) { // 30s timeout
         proc.kill();
         report.errorMessage = QStringLiteral("veraPDF timed out after 30 seconds.");
@@ -84,7 +99,12 @@ PdfAValidationReport VeraPdfValidator::validate(const QString& pdfPath, PdfAConf
     }
 
     QByteArray output = proc.readAllStandardOutput();
-    return parseJson(output);
+    PdfAValidationReport r = parseJson(output);
+    r.validatorAvailable = true;
+    if (!r.errorMessage.isEmpty() && proc.exitCode() != 0) {
+        r.errorMessage = QStringLiteral("veraPDF tool error (exit code %1)").arg(proc.exitCode());
+    }
+    return r;
 }
 
 PdfAValidationReport VeraPdfValidator::parseJson(const QByteArray& jsonOutput) {

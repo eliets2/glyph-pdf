@@ -396,6 +396,7 @@ QList<QPolygonF> PpOcrDecoder::detect(const QImage &imageIn) const
         if (os.size() != 4) return polys;
         const int mh = static_cast<int>(os[2]);
         const int mw = static_cast<int>(os[3]);
+        if (info.GetElementCount() != 1LL * 1 * mh * mw) return polys;
         const float *prob = outs[0].GetTensorData<float>();
 
         // Binarize.
@@ -485,6 +486,7 @@ PpOcrDecoder::RecResult PpOcrDecoder::recognizeCrop(const QImage &cropIn) const
     QImage crop = cropIn.convertToFormat(QImage::Format_RGB888);
     double ar = static_cast<double>(crop.width()) / std::max(1, crop.height());
     int rw = std::max(1, static_cast<int>(std::ceil(kRecHeight * ar)));
+    rw = std::min(rw, 4096);
     QImage r = crop.scaled(rw, kRecHeight, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
                    .convertToFormat(QImage::Format_RGB888);
 
@@ -516,6 +518,7 @@ PpOcrDecoder::RecResult PpOcrDecoder::recognizeCrop(const QImage &cropIn) const
         if (os.size() != 3) return res;
         const int T = static_cast<int>(os[1]);
         const int C = static_cast<int>(os[2]);
+        if (info.GetElementCount() != 1LL * T * C) return res;
         const float *probs = outs[0].GetTensorData<float>();   // already softmaxed in-graph
         res = ctcGreedyDecode(probs, T, C, m_vocab, /*blankIndex*/0);
     } catch (const Ort::Exception &e) {
