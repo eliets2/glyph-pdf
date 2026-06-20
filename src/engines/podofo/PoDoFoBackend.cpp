@@ -156,10 +156,26 @@ public:
     QList<PdfImageInfo> lastListedImages;
 
     PoDoFo::PdfMemDocument& resolveDocument(const QString& path) {
+        // Already the loaded document (possibly with unsaved in-memory edits) — operate on it.
         if (document && currentFile == path) {
             return *document;
         }
-        throw std::runtime_error("SECURITY: Cannot mutate an unloaded document path: " + path.toStdString());
+        // AR-4 D2 security guard: never silently load a SECOND, divergent copy from disk
+        // while a different document is already in memory — that would discard the edited
+        // doc and save the stale on-disk bytes instead. Refuse loudly.
+        if (document && !currentFile.isEmpty()) {
+            throw std::runtime_error(
+                "SECURITY: refusing to mutate '" + path.toStdString() +
+                "' while a different document ('" + currentFile.toStdString() + "') is loaded");
+        }
+        // Nothing loaded yet — lazy-load the requested path. The path-based mutator API
+        // (addHeaderFooter/applyBatesNumbering/cropPage/…) is contractually a
+        // load→mutate→save over `path`; honour that when no document is resident.
+        auto newDoc = std::make_unique<PoDoFo::PdfMemDocument>();
+        newDoc->Load(path.toUtf8().constData());
+        document = std::move(newDoc);
+        currentFile = path;
+        return *document;
     }
 
     PdfImageInfo* findImageByName(int pageIndex, const QString& xobjectName, PoDoFoBackend* parent) {
@@ -2656,10 +2672,16 @@ static ReviewState pdfNameToReviewState(const std::string& name)
 
 bool PoDoFoBackend::embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations)
 {
+    QMutexLocker locker(&d->mutex);
     try {
-        PoDoFo::PdfMemDocument doc;
-        doc.Load(inputPath.toUtf8().constData());
-        
+        // AR-4 D2 fix: operate on the resolved member document (lazy-loaded if nothing is
+        // resident) so the signature-aware writeUpdate() below persists THIS doc. Previously
+        // a fresh *local* copy was built while writeUpdate() saved the unrelated member doc
+        // (yielding 0 annotations), or threw "writeUpdate failed" when no document was loaded
+        // (uncaught std::runtime_error → terminate). Reusing the live member doc also honours
+        // the anti-divergence guarantee — in-memory edits are not discarded.
+        auto& doc = d->resolveDocument(inputPath);
+
         QMap<QString, PoDoFo::PdfObject*> idToObjectMap;
         QList<AnnotationItem> commentsToLink;
         
@@ -2823,6 +2845,11 @@ bool PoDoFoBackend::embedAnnotations(const QString &inputPath, const QString &ou
         if (!writeUpdate(outputPath)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "Error embedding annotations:" << e.what();
+        return false;
+    } catch (const std::exception& e) {
+        // resolveDocument() / writeUpdate() raise std::runtime_error; never let it escape
+        // to terminate() (was the 0xc0000409 crash in TestAnnotationDjot).
         qWarning() << "Error embedding annotations:" << e.what();
         return false;
     }

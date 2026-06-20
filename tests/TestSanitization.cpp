@@ -440,11 +440,23 @@ private slots:
         QCOMPARE(pdfEscapeLiteralString(std::string("test")), std::string("test"));
         QCOMPARE(pdfEscapeLiteralString(std::string("te(s)t\\")), std::string("te\\(s\\)t\\\\"));
         
-        // Idempotency: double escaping should equal single escaping
+        // AR-4 D5: escaping is deliberately NOT idempotent (the old idempotency
+        // heuristic was lossy for backslash-letter pairs and was removed). The real
+        // invariant is round-trip fidelity: unescape(escape(x)) == x for any payload,
+        // including backslash/paren/control bytes.
+        for (const std::string& payload : {
+                 std::string("te(s)t\\"),
+                 std::string("\\n is a literal backslash-n, \n is a newline"),
+                 std::string("nested \\( \\) and ()()"),
+                 std::string("\x01\x02\x7f tail") }) {
+            QCOMPARE(pdfUnescapeLiteralString(pdfEscapeLiteralString(payload)), payload);
+        }
+        // Double-escaping must add escapes (proves non-idempotence is intentional).
         std::string once = pdfEscapeLiteralString(std::string("te(s)t\\"));
         std::string twice = pdfEscapeLiteralString(once);
-        QCOMPARE(once, twice);
-        
+        QVERIFY(twice.size() > once.size());
+        QCOMPARE(pdfUnescapeLiteralString(twice), once);
+
         // Escaping control characters
         QCOMPARE(pdfEscapeLiteralString(std::string("\n\r")), std::string("\\n\\r"));
     }
