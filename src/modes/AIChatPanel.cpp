@@ -101,10 +101,12 @@ void AIChatPanel::onSend()
     // Show user message
     m_msgs->addItem(QStringLiteral("YOU: ") + userText);
     m_input->clear();
+    m_input->setEnabled(false); // Disable input while in flight
     m_sendBtn->setEnabled(false);
 
     // Typing cursor placeholder
-    auto* cursor = new QListWidgetItem(tr("AI: …"), m_msgs);
+    m_cursorRow = m_msgs->count();
+    new QListWidgetItem(tr("AI: …"), m_msgs);
     m_msgs->scrollToBottom();
 
     // Append to history
@@ -112,33 +114,41 @@ void AIChatPanel::onSend()
 
     // Submit async — non-blocking; QFutureWatcher::finished fires on main thread
     m_watcher.setFuture(m_ollama->chat(m_history));
-
-    // Store pointer so onAiFinished can replace the placeholder
-    m_msgs->setProperty("cursorItem", QVariant::fromValue(static_cast<void*>(cursor)));
 }
 
 void AIChatPanel::onAiFinished()
 {
     m_sendBtn->setEnabled(true);
+    m_input->setEnabled(true);
 
     const AiResult result = m_watcher.result();
 
     // Replace the typing-cursor placeholder
-    auto* cursor = static_cast<QListWidgetItem*>(
-        m_msgs->property("cursorItem").value<void*>());
-    if (cursor) {
-        const QString display = result.ok
-            ? (QStringLiteral("AI: ") + result.text)
-            : (QStringLiteral("AI ⚠: ") + result.errorMsg);
-        cursor->setText(display);
+    if (m_cursorRow >= 0 && m_cursorRow < m_msgs->count()) {
+        auto* cursor = m_msgs->item(m_cursorRow);
+        if (cursor) {
+            const QString display = result.ok
+                ? (QStringLiteral("AI: ") + result.text)
+                : (QStringLiteral("AI ⚠: ") + result.errorMsg);
+            cursor->setText(display);
+        }
     }
+    m_cursorRow = -1;
     m_msgs->scrollToBottom();
-    m_msgs->setProperty("cursorItem", QVariant());
 
     if (result.ok) {
         // Append assistant turn to history
         m_history.append({QStringLiteral("assistant"), result.text});
     }
+}
+
+void AIChatPanel::resetSession()
+{
+    if (m_msgs) m_msgs->clear();
+    m_history.clear();
+    m_cursorRow = -1;
+    if (m_input) m_input->setEnabled(true);
+    if (m_sendBtn) m_sendBtn->setEnabled(true);
 }
 
 } // namespace gp

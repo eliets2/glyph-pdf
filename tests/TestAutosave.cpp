@@ -103,6 +103,43 @@ private slots:
         QFile::remove(originalFile);
         QFile::remove(autosaveFile);
     }
+    void testRetryUAF() {
+        QString originalFile = "test_uaf.pdf";
+        QString autosaveFile = originalFile + ".autosave.pdf";
+        QString tmpAutosaveFile = originalFile + ".autosave.pdf.tmp";
+
+        QFile::remove(originalFile);
+        QFile::remove(autosaveFile);
+        QFile::remove(tmpAutosaveFile);
+
+        auto mockEditor = std::make_shared<MockPdfEditorEngine>();
+        mockEditor->m_loaded = true;
+        mockEditor->m_file = originalFile;
+
+        auto doc = std::make_shared<DocumentSession>();
+        doc->setPath(originalFile);
+        doc->markDirty();
+
+        // Create a directory at autosaveFile to force atomicRename to fail
+        QDir().mkdir(autosaveFile);
+
+        {
+            AutosaveManager manager(mockEditor, doc);
+            QMetaObject::invokeMethod(&manager, "onTick", Qt::DirectConnection);
+            
+            // Wait for the future to finish, which will trigger the lambda and fail the rename.
+            // The rename failure queues the 250ms retry timer.
+            QTest::qWait(50);
+            
+            // AutosaveManager goes out of scope here and is destroyed
+        }
+
+        // Wait past the 250ms window to see if the timer callback crashes (UAF)
+        QTest::qWait(300);
+        
+        QDir().rmdir(autosaveFile);
+        QFile::remove(tmpAutosaveFile);
+    }
 };
 
 QTEST_GUILESS_MAIN(TestAutosave)

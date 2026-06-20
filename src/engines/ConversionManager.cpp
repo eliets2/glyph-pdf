@@ -7,6 +7,7 @@
 #include <QDebug>
 #include <QFile>
 #include <QTextStream>
+#include "core/TempFileManager.h"
 
 // Forward declarations or include headers if available
 #ifdef HAS_OPENXLSX
@@ -426,11 +427,11 @@ bool ConversionManager::convertOfficeToPdf(const QString &officePath, const QStr
         return false;
     }
 
-    // Kill any stale soffice lock from a previous crash (exit code 81)
-    // before launching, to avoid "locked" failures.
-#ifdef Q_OS_WIN
-    QProcess::execute("taskkill", {"/F", "/IM", "soffice.bin", "/IM", "soffice.exe"});
-#endif
+    // Remove blanket pre-kill to avoid destroying user's unsaved work.
+    // Instead, launch soffice with a private profile so it doesn't wait on a shared lock.
+    QString profileDir = TempFileManager::instance().createTempDir("glyphpdf-soffice");
+    // Ensure path uses forward slashes for the file:/// URI
+    QString profileUri = "file:///" + QDir::toNativeSeparators(profileDir).replace("\\", "/");
 
     QFileInfo outInfo(outputPath);
     const QString outDir = outInfo.absolutePath();
@@ -439,6 +440,7 @@ bool ConversionManager::convertOfficeToPdf(const QString &officePath, const QStr
     QProcess process;
     process.setProcessChannelMode(QProcess::MergedChannels);
     process.start(sofficePath, {
+        "--env:UserInstallation=" + profileUri,
         "--headless",
         "--convert-to", "pdf:writer_pdf_Export",
         "--outdir", outDir,

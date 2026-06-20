@@ -82,6 +82,26 @@ private slots:
         QVERIFY(cache->cacheHits() + cache->cacheMisses() >= 8000);
     }
 
+    void testPrefetchUAF() {
+        auto cache = std::make_shared<RenderCache>();
+        cache->setPageCount(100);
+        
+        auto renderer = std::make_unique<DummyRenderer>();
+        
+        // Start prefetch
+        cache->prefetchViewport(50, 1.0, renderer.get());
+        
+        // Immediately clear cache which should cancel prefetch.
+        cache->clear();
+        
+        // Destroy renderer. If prefetch wasn't cancelled properly,
+        // it would cause a use-after-free here.
+        renderer.reset();
+        
+        // Wait a bit to ensure the background thread had a chance to hit the UAF if it was going to
+        QThread::msleep(100);
+    }
+
     void testConcurrentEngineAccess() {
         QString pdf = tmpPath("concurrent.pdf");
         {

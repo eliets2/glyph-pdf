@@ -51,6 +51,9 @@ qint64 RenderCache::maxCacheSize() const {
 }
 
 void RenderCache::clear() {
+    m_prefetchCancelToken.fetchAndAddRelaxed(1);
+    if (m_prefetchFuture.isRunning()) m_prefetchFuture.waitForFinished();
+
     WriteLockGuard guard(m_lock);
     m_renderedPages.clear();
     m_lruList.clear();
