@@ -220,26 +220,23 @@ void SecurityController::signDocument() {
         const QString location = dlg.location();
 
         QPointer<SecurityController> self(this);
-        auto result = std::make_shared<std::atomic<bool>>(false);
-        auto outcome = std::make_shared<std::atomic<int>>(static_cast<int>(SignOutcome::NotRun));
+        auto result = std::make_shared<std::atomic<int>>(static_cast<int>(SignOutcome::NotRun));
 
-        QThread* worker = QThread::create([weakSigning, weakDoc, outputPath, certPath, pwd, reason, location, result, outcome]() {
+        QThread* worker = QThread::create([weakSigning, weakDoc, outputPath, certPath, pwd, reason, location, result]() {
             auto signing = weakSigning.lock();
             auto doc = weakDoc.lock();
             if (!signing || !doc) return;
-            bool ok = SignDocumentHelper::execute(
+            SignOutcome ok = SignDocumentHelper::execute(
                 signing.get(), doc.get(), outputPath, certPath, pwd, reason, location);
-            result->store(ok);
-            outcome->store(static_cast<int>(signing->lastSignOutcome()));
+            result->store(static_cast<int>(ok));
         });
 
-        connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result, outcome]() {
+        connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result]() {
             progress->close();
             progress->deleteLater();
             if (!self) return;
-            const bool ok = result->load();
-            const auto sigOutcome = static_cast<SignOutcome>(outcome->load());
-            if (ok) {
+            const auto sigOutcome = static_cast<SignOutcome>(result->load());
+            if (sigOutcome == SignOutcome::Success) {
                 self->_mainWindow->statusBar()->showMessage(tr("Document signed and saved to %1").arg(outputPath), 5000);
                 if (QMessageBox::question(self->_mainWindow, tr("Open Signed PDF"), tr("Signing complete. Would you like to open the signed file?")) == QMessageBox::Yes) {
                     self->_mainWindow->openDocument(outputPath);
@@ -424,9 +421,12 @@ void SecurityController::applyRedactions() {
         return;
     }
 
-    if (QMessageBox::question(_mainWindow, tr("Confirm In-Place Redaction"),
-        tr("Apply redaction marks to the open PDF and overwrite it in place?\n\n"
-           "This operation is destructive. The current implementation removes some matching page content and annotations, then paints black boxes, but it cannot guarantee secure removal of all recoverable text, images, forms, or hidden content. Use a dedicated redaction tool for legally sensitive material.")) != QMessageBox::Yes) {
+    if (QMessageBox::question(_mainWindow, tr("Confirm Redaction"),
+        tr("Apply redaction marks to the open PDF?\n\n"
+           "This operation permanently excises matched content from content streams, "
+           "removes associated metadata (annotations, structure tree text, form data), "
+           "sanitizes the document, and saves to a new file.\n\n"
+           "The original file is preserved unmodified. This action cannot be undone.")) != QMessageBox::Yes) {
         return;
     }
 
@@ -629,25 +629,32 @@ void SecurityController::certifyDocument() {
         int certLevel = 1;
 
         QPointer<SecurityController> self(this);
-        auto result = std::make_shared<std::atomic<bool>>(false);
+        auto result = std::make_shared<std::atomic<int>>(static_cast<int>(SignOutcome::NotRun));
 
         QThread* worker = QThread::create([weakSigning, weakDoc, outputPath, certPath, pwd, certLevel, reason, location, result]() {
             auto signing = weakSigning.lock();
             auto doc = weakDoc.lock();
             if (!signing || !doc) return;
-            bool ok = signing->certifyDocument(doc->path(), outputPath, certPath, pwd, certLevel, reason, location);
-            if (ok) doc->markReload();
-            result->store(ok);
+            SignOutcome outcome = signing->certifyDocument(doc->path(), outputPath, certPath, pwd, certLevel, reason, location);
+            if (outcome == SignOutcome::Success || outcome == SignOutcome::PartialLtvMissing) doc->markReload();
+            result->store(static_cast<int>(outcome));
         });
 
         connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result]() {
             progress->close();
             progress->deleteLater();
             if (!self) return;
-            bool ok = result->load();
-            if (ok) {
+            const auto certOutcome = static_cast<SignOutcome>(result->load());
+            if (certOutcome == SignOutcome::Success) {
                 self->_mainWindow->statusBar()->showMessage(tr("Document certified and saved to %1").arg(outputPath), 5000);
                 if (QMessageBox::question(self->_mainWindow, tr("Open Certified PDF"), tr("Certification complete. Would you like to open the certified file?")) == QMessageBox::Yes) {
+                    self->_mainWindow->openDocument(outputPath);
+                }
+            } else if (certOutcome == SignOutcome::PartialLtvMissing) {
+                QMessageBox::warning(self->_mainWindow, tr("Certified — Long-Term Validation Incomplete"),
+                    tr("The document was certified and saved to %1, but long-term validation data could not be embedded.").arg(outputPath));
+                self->_mainWindow->statusBar()->showMessage(tr("Certified (LTV data missing)."), 5000);
+                if (QMessageBox::question(self->_mainWindow, tr("Open Certified PDF"), tr("Would you like to open the certified file?")) == QMessageBox::Yes) {
                     self->_mainWindow->openDocument(outputPath);
                 }
             } else {

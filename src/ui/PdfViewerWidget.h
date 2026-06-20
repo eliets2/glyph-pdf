@@ -47,7 +47,7 @@ public:
     void deleteSelectedAnnotation();
     QList<AnnotationItem> annotations() const;
     void searchDocument(const QString &text, bool forward, bool matchCase, bool wholeWords);
-    void redactAllMatches(const QString &text, bool matchCase, bool wholeWords);
+
     void setOcrResults(const QList<OcrResult> &results);
 
     // Page navigation

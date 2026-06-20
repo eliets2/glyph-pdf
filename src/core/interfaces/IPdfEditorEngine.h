@@ -179,7 +179,7 @@ public:
     // inclusive) and excise them from the content stream.
     // Pass startPage = -1 / endPage = -1 to redact all pages.
     virtual bool applyPatternRedactions(const QRegularExpression& pattern,
-                                        int startPage, int endPage) = 0;
+                                        const QList<int>& pages = QList<int>(), const QString& outputPath = QString()) = 0;
 
     // Page Geometry & Operations
     virtual bool cropPage(const QString &path, int pageIndex, const QRectF &cropRect) = 0;

@@ -198,7 +198,7 @@ private slots:
         QVERIFY(rx.isValid());
 
         // applyPatternRedactions should not crash regardless of PDFium availability
-        const bool ok = engine.applyPatternRedactions(rx, 0, 0);
+        const bool ok = engine.applyPatternRedactions(rx, QList<int>{0});
 
 #ifdef HAS_PDFIUM
         // With PDFium: the email is found, redacted successfully

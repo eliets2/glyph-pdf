@@ -997,16 +997,13 @@ void BatchMode::onRunClicked() {
                             break;
                         }
                         // startPage = endPage = -1 → redact all pages.
-                        if (!editor.applyPatternRedactions(re, -1, -1)) {
+                        if (!editor.applyPatternRedactions(re, QList<int>(), result.outputPath)) {
                             techDetail = editor.lastError().technicalDetails;
                             ok = false;
                             break;
                         }
                     }
-                    if (ok) {
-                        ok = editor.saveDocument(result.outputPath);
-                        if (!ok) techDetail = editor.lastError().technicalDetails;
-                    }
+                    // applyPatternRedactions already saves via sanitizeDocument
                 }
             } else if (capturedOp == OpOCR) {
                 // Render each page, OCR it, then assemble a searchable MRC PDF/A
