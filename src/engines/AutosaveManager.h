@@ -5,6 +5,7 @@
 #include <QTimer>
 #include <QDateTime>
 #include <memory>
+#include <atomic>
 
 class IPdfEditorEngine;
 class DocumentSession;
@@ -36,5 +37,5 @@ private:
     std::shared_ptr<DocumentSession> m_document;
     QTimer* m_timer;
     int m_intervalSeconds = 300;
-    bool m_saving = false;
+    std::atomic<bool> m_saving{false};
 };

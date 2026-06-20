@@ -182,6 +182,22 @@ private slots:
         }
     }
 
+    // ── Test 8: Watermark null dereference (AR-PROMPT-1 D1) ─────────────
+    void testWatermarkNullDeref() {
+        QTemporaryDir tmpDir;
+        QVERIFY(tmpDir.isValid());
+        QString pdf = createTestPdf(tmpDir.path());
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+
+        TextWatermarkOptions opts;
+        opts.text = "TEST";
+        
+        bool result = engine.addTextWatermark(opts);
+        QVERIFY(result || !engine.lastError().isOk()); // Should not crash
+    }
+
     // ── Test 8: Error reporting consistency ──────────────────────────────
     void testErrorReportingConsistency() {
         PdfEditorEngine engine;
