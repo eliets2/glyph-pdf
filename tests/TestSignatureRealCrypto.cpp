@@ -102,7 +102,7 @@ private slots:
         mgr.setSignatureLevel(PAdESLevel::B_T);
         // No TSA URL — pure B-B with local signing time is acceptable for this test
 
-        bool ok = mgr.signDocument(kInputPdf, output, kP12Path, kP12Pass, "TestReason", "TestLocation");
+        bool ok = (mgr.signDocument(kInputPdf, output, kP12Path, kP12Pass, "TestReason", "TestLocation") == SignOutcome::Success);
         QVERIFY2(ok, "B_T signDocument should succeed with valid P12");
         QVERIFY2(QFileInfo::exists(output), "Output PDF must exist after signing");
 
@@ -144,7 +144,7 @@ private slots:
         mgr.setSignatureLevel(PAdESLevel::B_LT);
         // No TSA URL for network independence; DSS still built (certs + OCSP if live)
 
-        bool ok = mgr.signDocument(kInputPdf, output, kP12Path, kP12Pass, "BLT-Test", "");
+        bool ok = (mgr.signDocument(kInputPdf, output, kP12Path, kP12Pass, "BLT-Test", "") == SignOutcome::Success);
         QVERIFY2(ok, "B_LT signDocument should succeed");
         QVERIFY2(QFileInfo::exists(output), "Output PDF must exist");
 
@@ -202,16 +202,16 @@ private slots:
         // No TSA URL → addDocTimestamp returns false → signDocument returns false
         // This exercises the graceful-degradation path.
 
-        bool ok = mgr.signDocument(kInputPdf, output, kP12Path, kP12Pass, "", "");
-        // Without TSA url, B_LTA returns false (docTimestamp failed)
+        SignOutcome outcome = mgr.signDocument(kInputPdf, output, kP12Path, kP12Pass, "", "");
+        // Without TSA url, B_LTA returns PartialLtvMissing (docTimestamp failed)
         // but the underlying signed bytes must exist
         QVERIFY2(QFileInfo::exists(output), "B_LTA: output PDF must exist even if timestamp failed");
-        QVERIFY2(!ok, "B_LTA without a TSA must report failure (timestamp not applied)");
+        QVERIFY2(outcome != SignOutcome::Success, "B_LTA without a TSA must report failure (timestamp not applied)");
 
         // E-02: the strict boolean is false, but the signature bytes ARE written —
         // the outcome must be PartialLtvMissing (not Failed) so the UI can warn
         // instead of telling the user signing failed and making them discard it.
-        QCOMPARE(mgr.lastSignOutcome(), SignOutcome::PartialLtvMissing);
+        QCOMPARE(outcome, SignOutcome::PartialLtvMissing);
 
         // E-06: an empty TSA token must NOT have been written as a 4-null-byte
         // /DocTimeStamp. The signed file must still load + validate cleanly (i.e.
@@ -226,7 +226,7 @@ private slots:
 
         X509_STORE_free(store);
         mgr.setTrustStoreForTest(nullptr);
-        Q_UNUSED(ok);
+        Q_UNUSED(outcome);
     }
 
     // -----------------------------------------------------------------------
@@ -239,7 +239,7 @@ private slots:
         QString output = m_tmpDir.filePath("signed_untrusted.pdf");
         SignatureManager mgr;
         mgr.setSignatureLevel(PAdESLevel::B_T);
-        bool ok = mgr.signDocument(kInputPdf, output, kP12Path, kP12Pass, "", "");
+        bool ok = (mgr.signDocument(kInputPdf, output, kP12Path, kP12Pass, "", "") == SignOutcome::Success);
         QVERIFY(ok);
 
         // Use an EMPTY store (no trusted roots loaded)
@@ -287,7 +287,7 @@ private slots:
 
         SignatureManager mgr;
         mgr.setSignatureLevel(PAdESLevel::B_T);
-        bool ok = mgr.signDocument(kInputPdf, output, kP12Path, kP12Pass, "", "");
+        bool ok = (mgr.signDocument(kInputPdf, output, kP12Path, kP12Pass, "", "") == SignOutcome::Success);
         QVERIFY(ok);
 
         // Patch the ByteRange in-memory: replace the real off2 value with off1+len1-10
@@ -352,7 +352,7 @@ private slots:
         SignatureManager mgr;
         mgr.setSignatureLevel(PAdESLevel::B_B);
         QString output = m_tmpDir.filePath("expired_signed.pdf");
-        bool ok = mgr.signDocument(kInputPdf, output, expiredP12, kP12Pass);
+        bool ok = (mgr.signDocument(kInputPdf, output, expiredP12, kP12Pass) == SignOutcome::Success);
 
         if (ok && QFileInfo::exists(output)) {
             // Signing was not rejected up-front; validation must catch it
@@ -395,7 +395,7 @@ private slots:
         SignatureManager mgr;
         mgr.setSignatureLevel(PAdESLevel::B_B);
         QString output = m_tmpDir.filePath("weak_signed.pdf");
-        bool ok = mgr.signDocument(kInputPdf, output, weakP12, kP12Pass);
+        bool ok = (mgr.signDocument(kInputPdf, output, weakP12, kP12Pass) == SignOutcome::Success);
 
         if (ok && QFileInfo::exists(output)) {
             // Signing was not blocked at key-size check; validation must catch it
@@ -442,7 +442,7 @@ private slots:
         mgr.setSignatureLevel(PAdESLevel::B_LT);
         QString output = m_tmpDir.filePath("revoked_signed.pdf");
         // revoked_cert.p12 uses an RSA-2048 cert so signing should succeed
-        QVERIFY(mgr.signDocument(kInputPdf, output, revokedP12, kP12Pass));
+        QVERIFY(mgr.signDocument(kInputPdf, output, revokedP12, kP12Pass) == SignOutcome::Success);
 
         X509_STORE *store = buildTestStore();
         QVERIFY(store);
@@ -478,7 +478,7 @@ private slots:
         SignatureManager mgr;
         mgr.setSignatureLevel(PAdESLevel::B_B);
         QString signedPath = m_tmpDir.filePath("to_tamper.pdf");
-        QVERIFY(mgr.signDocument(kInputPdf, signedPath, kP12Path, kP12Pass));
+        QVERIFY(mgr.signDocument(kInputPdf, signedPath, kP12Path, kP12Pass) == SignOutcome::Success);
 
         // Flip one byte in the signed content region (not inside the /Contents hex blob).
         // Heuristic: flip a byte near the beginning of the file (within the first segment
@@ -537,7 +537,7 @@ private slots:
         SignatureManager mgr;
         mgr.setSignatureLevel(PAdESLevel::B_B);
         QString attacked = m_tmpDir.filePath("isa_attacked.pdf");
-        QVERIFY(mgr.signDocument(kInputPdf, attacked, kP12Path, kP12Pass));
+        QVERIFY(mgr.signDocument(kInputPdf, attacked, kP12Path, kP12Pass) == SignOutcome::Success);
 
         // The attacker's modification: change metadata, save incrementally.
         // The original signed bytes are untouched; a new revision is appended.
@@ -616,7 +616,7 @@ private slots:
         SignatureManager mgr;
         mgr.setSignatureLevel(PAdESLevel::B_B);
         QString output = m_tmpDir.filePath("revoked_ocsp_signer.pdf");
-        QVERIFY(mgr.signDocument(kInputPdf, output, kP12Path, kP12Pass));
+        QVERIFY(mgr.signDocument(kInputPdf, output, kP12Path, kP12Pass) == SignOutcome::Success);
 
         auto sigs = mgr.validateSignatures(output);
         QVERIFY2(!sigs.isEmpty(), "Validate must produce at least one result");
@@ -646,7 +646,7 @@ private slots:
         // <name>_ocsp_response.der fixture, so OCSP fetch returns empty. Signing
         // must still succeed (DSS built certs-only) and must NOT fabricate a
         // revocation verdict from a response that was never obtained/verified.
-        bool ok = mgr.signDocument(kInputPdf, output, kP12Path, kP12Pass, "", "");
+        bool ok = (mgr.signDocument(kInputPdf, output, kP12Path, kP12Pass, "", "") == SignOutcome::Success);
         QVERIFY2(ok, "B_LT signing must succeed even when no OCSP is available");
         QVERIFY(QFileInfo::exists(output));
 
@@ -696,8 +696,8 @@ private slots:
         SignatureManager mgr;
         mgr.setSignatureLevel(PAdESLevel::B_B);   // no TSA needed for this assertion
 
-        bool ok = mgr.certifyDocument(kInputPdf, output, kP12Path, kP12Pass,
-                                      /*certificationLevel=*/1, "CertifyReason", "CertifyLoc");
+        bool ok = (mgr.certifyDocument(kInputPdf, output, kP12Path, kP12Pass,
+                                      /*certificationLevel=*/1, "CertifyReason", "CertifyLoc") == SignOutcome::Success);
         QVERIFY2(ok, "certifyDocument(level=1) should succeed with the valid P12");
         QVERIFY2(QFileInfo::exists(output), "Certified PDF must exist");
 
@@ -713,8 +713,8 @@ private slots:
 
         // An invalid certification level must be rejected outright (no downgrade).
         QString bad = m_tmpDir.filePath("certified_bad.pdf");
-        bool badOk = mgr.certifyDocument(kInputPdf, bad, kP12Path, kP12Pass,
-                                         /*certificationLevel=*/9, "", "");
+        bool badOk = (mgr.certifyDocument(kInputPdf, bad, kP12Path, kP12Pass,
+                                         /*certificationLevel=*/9, "", "") == SignOutcome::Success);
         QVERIFY2(!badOk, "certifyDocument must reject an out-of-range certification level");
     }
 
@@ -739,8 +739,8 @@ private slots:
         QString signed_ = m_tmpDir.filePath("wu_signed.pdf");
         SignatureManager mgr;
         mgr.setSignatureLevel(PAdESLevel::B_T);
-        QVERIFY2(mgr.signDocument(kInputPdf, signed_, kP12Path, kP12Pass, "WU", ""),
-                 "precondition: signing must succeed");
+        QVERIFY2(mgr.signDocument(kInputPdf, signed_, kP12Path, kP12Pass, "WU", "") == SignOutcome::Success,
+                 "First signature failed");
         QFile sf(signed_);
         QVERIFY(sf.open(QIODevice::ReadOnly));
         const QByteArray original = sf.readAll();
@@ -813,8 +813,8 @@ private slots:
             QString output = m_tmpDir.filePath("certid_mismatch.pdf");
             SignatureManager mgr;
             mgr.setSignatureLevel(PAdESLevel::B_LT);
-            bool ok = mgr.signDocument(kInputPdf, output, kP12Path, kP12Pass,
-                                       "CertIDTest", "");
+            bool ok = (mgr.signDocument(kInputPdf, output, kP12Path, kP12Pass,
+                                       "CertIDTest", "") == SignOutcome::Success);
             if (!ok || !QFileInfo::exists(output)) {
                 QSKIP("B_LT signing did not produce a file — skipping adversarial part");
             }
@@ -883,8 +883,8 @@ private slots:
             QString output = m_tmpDir.filePath("certid_baseline.pdf");
             SignatureManager mgr;
             mgr.setSignatureLevel(PAdESLevel::B_LT);
-            bool ok = mgr.signDocument(kInputPdf, output, kP12Path, kP12Pass,
-                                       "BaselineTest", "");
+            bool ok = (mgr.signDocument(kInputPdf, output, kP12Path, kP12Pass,
+                                       "BaselineTest", "") == SignOutcome::Success);
             // Signing may return false if B_LT OCSP fetch failed — file still exists.
             QVERIFY2(QFileInfo::exists(output), "B_LT output must exist even if OCSP failed");
 
