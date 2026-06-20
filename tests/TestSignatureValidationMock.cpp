@@ -190,10 +190,10 @@ private slots:
         MockSignatureManager mock;
         mock.m_signResult = true;
 
-        bool ok = mock.signDocument("input.pdf", "signed.pdf",
+        SignOutcome ok = mock.signDocument("input.pdf", "signed.pdf",
                                     "cert.p12", "password",
                                     "Approval", "Office");
-        QVERIFY(ok);
+        QCOMPARE(ok, SignOutcome::Success);
         QCOMPARE(mock.m_signCalls, 1);
         QCOMPARE(mock.m_lastInputPath, QString("input.pdf"));
         QCOMPARE(mock.m_lastOutputPath, QString("signed.pdf"));
@@ -207,9 +207,9 @@ private slots:
         MockSignatureManager mock;
         mock.m_signResult = false;
 
-        bool ok = mock.signDocument("input.pdf", "signed.pdf",
+        SignOutcome ok = mock.signDocument("input.pdf", "signed.pdf",
                                     "bad_cert.p12", "wrong", "", "");
-        QVERIFY2(!ok, "Sign should fail with bad cert");
+        QCOMPARE(ok, SignOutcome::Failed);
         QCOMPARE(mock.m_signCalls, 1);
     }
 
@@ -220,8 +220,8 @@ private slots:
 
         // Mock does not validate paths -- that is the real engine's job.
         // This test verifies the mock tracks calls correctly with empty input.
-        bool ok = mock.signDocument("", "", "", "", "", "");
-        QVERIFY(ok);
+        SignOutcome ok = mock.signDocument("", "", "", "", "", "");
+        QCOMPARE(ok, SignOutcome::Success);
         QCOMPARE(mock.m_lastInputPath, QString(""));
         QCOMPARE(mock.m_lastOutputPath, QString(""));
     }
@@ -335,8 +335,8 @@ private slots:
         mock.setSignatureLevel(PAdESLevel::B_LTA);
         mock.m_signResult = true;
 
-        bool ok = mock.signDocument("in.pdf", "out.pdf", "cert.p12", "pw", "", "");
-        QVERIFY(ok);
+        SignOutcome ok = mock.signDocument("in.pdf", "out.pdf", "cert.p12", "pw", "", "");
+        QCOMPARE(ok, SignOutcome::Success);
         // Level set independently — sign does not reset it
         QCOMPARE(mock.m_level, PAdESLevel::B_LTA);
         QCOMPARE(mock.m_signCalls, 1);

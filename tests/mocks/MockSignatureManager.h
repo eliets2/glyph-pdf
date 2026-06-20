@@ -7,9 +7,9 @@ public:
 
     void setSignatureLevel(PAdESLevel level) override { m_level = level; }
 
-    bool signDocument(const QString &inputPath, const QString &outputPath,
+    SignOutcome signDocument(const QString &inputPath, const QString &outputPath,
                       const QString &certPath, const QString &password,
-                      const QString &reason, const QString &location) override {
+                      const QString &reason = QString(), const QString &location = QString()) override {
         m_lastInputPath  = inputPath;
         m_lastOutputPath = outputPath;
         m_lastCertPath   = certPath;
@@ -17,13 +17,14 @@ public:
         m_lastReason     = reason;
         m_lastLocation   = location;
         ++m_signCalls;
-        return m_signResult;
+        QFile::copy(inputPath, outputPath);
+        return m_signResult ? SignOutcome::Success : SignOutcome::Failed;
     }
 
-    bool certifyDocument(const QString &inputPath, const QString &outputPath,
+    SignOutcome certifyDocument(const QString &inputPath, const QString &outputPath,
                          const QString &certPath, const QString &password,
-                         int certificationLevel,
-                         const QString &reason, const QString &location) override {
+                         int certificationLevel = 1,
+                         const QString &reason = QString(), const QString &location = QString()) override {
         m_lastInputPath  = inputPath;
         m_lastOutputPath = outputPath;
         m_lastCertPath   = certPath;
@@ -31,7 +32,8 @@ public:
         m_lastReason     = reason;
         m_lastLocation   = location;
         ++m_signCalls; // count as a sign call
-        return m_signResult;
+        QFile::copy(inputPath, outputPath);
+        return m_signResult ? SignOutcome::Success : SignOutcome::Failed;
     }
 
     bool addDocTimeStamp(const QString &inputPath, const QString &outputPath) override {

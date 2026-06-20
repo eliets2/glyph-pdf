@@ -58,21 +58,16 @@ public:
     /// Set the target PAdES conformance level (default: B_T).
     virtual void setSignatureLevel(PAdESLevel level) = 0;
 
-    virtual bool signDocument(const QString &inputPath, const QString &outputPath,
+    virtual SignOutcome signDocument(const QString &inputPath, const QString &outputPath,
                                const QString &certPath, const QString &password,
                                const QString &reason = QString(), const QString &location = QString()) = 0;
 
-    virtual bool certifyDocument(const QString &inputPath, const QString &outputPath,
+    virtual SignOutcome certifyDocument(const QString &inputPath, const QString &outputPath,
                                  const QString &certPath, const QString &password,
                                  int certificationLevel = 1,
                                  const QString &reason = QString(), const QString &location = QString()) = 0;
 
     virtual bool addDocTimeStamp(const QString &inputPath, const QString &outputPath) = 0;
-
-    /// Outcome of the most recent signDocument/certifyDocument call. The UI uses
-    /// this to differentiate a partial (LTV-missing) result from a total failure
-    /// (E-02). Default is NotRun for managers that do not track it.
-    virtual SignOutcome lastSignOutcome() const { return SignOutcome::NotRun; }
 
     virtual QList<SignatureInfo> validateSignatures(const QString &filePath) = 0;
 
