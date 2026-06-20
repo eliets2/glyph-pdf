@@ -1186,10 +1186,20 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
     };
 
     auto isIntersectingSpan = [&](double xStart, double xEnd, double y) -> bool {
+        double outX1 = ctm.a * xStart + ctm.c * y + ctm.e;
+        double outY1 = ctm.b * xStart + ctm.d * y + ctm.f;
+        double outX2 = ctm.a * xEnd   + ctm.c * y + ctm.e;
+        double outY2 = ctm.b * xEnd   + ctm.d * y + ctm.f;
+        
+        double minX = std::min(outX1, outX2);
+        double maxX = std::max(outX1, outX2);
+        double minY = std::min(outY1, outY2);
+        double maxY = std::max(outY1, outY2);
+
         for (const auto& r : pdfRects) {
-            if (y >= r.Y && y <= (r.Y + r.Height)) {
-                if (xEnd >= r.X && xStart <= (r.X + r.Width))
-                    return true;
+            if (maxX >= r.X && minX <= (r.X + r.Width) &&
+                maxY >= r.Y && minY <= (r.Y + r.Height)) {
+                return true;
             }
         }
         return false;
@@ -2088,7 +2098,7 @@ bool PoDoFoBackend::sanitizeDocument(const QString &outputPath) {
             tempPath = tempFile.fileName();
         }
 
-        d->document->Save(tempPath.toUtf8().constData());
+        d->document->Save(tempPath.toUtf8().constData(), PoDoFo::PdfSaveOptions::Clean);
 
 #ifdef HAS_QPDF
         try {
@@ -2956,7 +2966,11 @@ bool PoDoFoBackend::addTextWatermark(const TextWatermarkOptions &options)
             painter.SetCanvas(page);
 
             // Set graphics state for transparency
-            painter.TextState.SetFont(*doc.GetFonts().SearchFont("Helvetica"), static_cast<float>(options.fontSize));
+            const PoDoFo::PdfFont* font = doc.GetFonts().SearchFont("Helvetica");
+            if (!font) {
+                font = &doc.GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::Helvetica);
+            }
+            painter.TextState.SetFont(*font, static_cast<float>(options.fontSize));
             painter.GraphicsState.SetNonStrokingColor(PoDoFo::PdfColor(
                 options.color.redF(), options.color.greenF(), options.color.blueF()));
 

@@ -173,14 +173,52 @@ QRectF PatternRedactor::mergeCharBoxes(const QList<CharInfo>& chars, int startId
     // endIdx is exclusive
     QRectF merged;
     bool first = true;
+    bool hasNull = false;
     for (int i = startIdx; i < endIdx && i < chars.size(); ++i) {
         const QRectF& box = chars[i].bbox;
-        if (box.isNull() || box.isEmpty()) continue;
+        if (box.isNull() || box.isEmpty()) {
+            hasNull = true;
+            continue;
+        }
         if (first) {
             merged = box;
             first = false;
         } else {
             merged = merged.united(box);
+        }
+    }
+
+    if (hasNull) {
+        // Expand to fill the gap using surrounding characters if possible
+        double leftX = merged.isNull() ? 1e9 : merged.left();
+        double rightX = merged.isNull() ? -1e9 : merged.right();
+        double top = merged.isNull() ? 1e9 : merged.top();
+        double bottom = merged.isNull() ? -1e9 : merged.bottom();
+
+        // Find a valid box before the match
+        for (int i = startIdx - 1; i >= 0; --i) {
+            if (!chars[i].bbox.isNull() && !chars[i].bbox.isEmpty()) {
+                leftX = std::min(leftX, chars[i].bbox.right());
+                top = std::min(top, chars[i].bbox.top());
+                bottom = std::max(bottom, chars[i].bbox.bottom());
+                break;
+            }
+        }
+        // Find a valid box after the match
+        for (int i = endIdx; i < chars.size(); ++i) {
+            if (!chars[i].bbox.isNull() && !chars[i].bbox.isEmpty()) {
+                rightX = std::max(rightX, chars[i].bbox.left());
+                top = std::min(top, chars[i].bbox.top());
+                bottom = std::max(bottom, chars[i].bbox.bottom());
+                break;
+            }
+        }
+
+        if (leftX <= rightX && top <= bottom && leftX != 1e9 && rightX != -1e9) {
+            merged = QRectF(QPointF(leftX, top), QPointF(rightX, bottom));
+        } else if (merged.isNull()) {
+            // Completely unresolvable fallback
+            merged = QRectF(0, 0, 100, 20); // Arbitrary fallback
         }
     }
     return merged;
