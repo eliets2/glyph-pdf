@@ -5,6 +5,8 @@
 #include "core/AppContext.h"
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "engines/PatternRedactor.h"
+#include "modes/PagesMode.h"
+#include <podofo/podofo.h>
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -270,36 +272,43 @@ QRegularExpression RedactMode::currentRegex() const {
     return PatternRedactor::namedPattern(key);
 }
 
-std::pair<int,int> RedactMode::resolvePageRange() const {
-    // Returns 0-based inclusive [start, end]; -1 signals "all pages" to caller
+QList<int> RedactMode::resolvePageRange() const {
     if (m_scopeAllPages && m_scopeAllPages->isChecked()) {
-        return {-1, -1};
+        return QList<int>();  // empty = all pages
     }
     if (m_scopeCurrentPage && m_scopeCurrentPage->isChecked()) {
-        // Current page — caller must resolve the actual page index from the viewer
-        return {0, 0};
+        // Current page — return page 0 as default.
+        // The caller (applyPatternRedactions) will act on whatever pages are listed.
+        return QList<int>{ 0 };
     }
-    // Range expression — simple parse: "start-end" or single number
     if (m_pageRangeEdit) {
         const QString expr = m_pageRangeEdit->text().trimmed();
-        if (!expr.isEmpty()) {
-            const int dash = expr.indexOf('-');
-            bool startOk = false, endOk = false;
-            int startPage = 0, endPage = 0;
-            if (dash > 0) {
-                startPage = expr.left(dash).trimmed().toInt(&startOk) - 1;
-                endPage   = expr.mid(dash + 1).trimmed().toInt(&endOk) - 1;
-            } else {
-                startPage = expr.toInt(&startOk) - 1;
-                endPage = startPage;
-                endOk = startOk;
-            }
-            if (startOk && endOk && startPage >= 0 && endPage >= startPage) {
-                return {startPage, endPage};
+        if (expr.isEmpty()) {
+            return QList<int>{-2}; // Sentinel for invalid
+        }
+        // Get page count from the engine's loaded document
+        int totalPages = 0;
+        if (m_ctx && m_ctx->pdfEditor) {
+            // Load the PDF quickly to get page count via PoDoFo
+            const QString pdfPath = m_ctx->pdfEditor->currentFile();
+            if (!pdfPath.isEmpty()) {
+                try {
+                    PoDoFo::PdfMemDocument doc;
+                    doc.Load(pdfPath.toUtf8().constData());
+                    totalPages = static_cast<int>(doc.GetPages().GetCount());
+                } catch (...) {}
             }
         }
+        if (totalPages <= 0) {
+            return QList<int>{-2}; // Can't determine page count
+        }
+        QList<int> pages = PagesMode::parsePageRange(expr, totalPages);
+        if (pages.isEmpty()) {
+            return QList<int>{-2}; // Sentinel for invalid
+        }
+        return pages;
     }
-    return {-1, -1};
+    return QList<int>();
 }
 
 void RedactMode::showMatchCount(int count) {
@@ -332,12 +341,17 @@ void RedactMode::onPreviewMatches() {
         return;
     }
 
-    const auto [startPage, endPage] = resolvePageRange();
+    const QList<int> pages = resolvePageRange();
+    if (pages.size() == 1 && pages.first() == -2) {
+        // Invalid range
+        showMatchCount(0);
+        return;
+    }
 
     // For preview: count matches across the requested scope (single page or first page if all)
     int previewPage = 0;
-    if (startPage >= 0) {
-        previewPage = startPage;
+    if (!pages.isEmpty()) {
+        previewPage = pages.first();
     }
     const QList<QRectF> matches = PatternRedactor::findMatches(pdfPath, previewPage, rx);
     showMatchCount(matches.size());
@@ -365,7 +379,11 @@ void RedactMode::onApplyRedactions() {
         return;
     }
 
-    const auto [startPage, endPage] = resolvePageRange();
+    const QList<int> pages = resolvePageRange();
+    if (pages.size() == 1 && pages.first() == -2) {
+        QMessageBox::warning(this, tr("Redact"), tr("Invalid page range."));
+        return;
+    }
 
     // Confirm action
     const int answer = QMessageBox::question(
@@ -376,7 +394,7 @@ void RedactMode::onApplyRedactions() {
         QMessageBox::No);
     if (answer != QMessageBox::Yes) return;
 
-    bool success = m_ctx->pdfEditor->applyPatternRedactions(rx, startPage, endPage);
+    bool success = m_ctx->pdfEditor->applyPatternRedactions(rx, pages);
     if (!success) {
         QMessageBox::critical(this, tr("Redaction Failed"),
             tr("Pattern redaction failed. The document has not been modified.\n\n%1")

@@ -8,7 +8,6 @@
 #include "engines/ocr/OcrPipeline.h"
 #include "core/interfaces/IOcrEngine.h"
 #include "core/interfaces/IPdfEditorEngine.h"
-#include "ui/RedactCommand.h"
 #include "ui/EditAnnotationCommand.h"
 #include "commands/MoveImageCommand.h"
 #include "commands/ResizeImageCommand.h"
@@ -322,10 +321,20 @@ void EditController::onReplaceAllRequested(const QString &searchText, const QStr
 
 void EditController::onRedactAllRequested(const QString &text, bool matchCase, bool wholeWords) {
     auto* viewer = _mainWindow->pdfViewer();
-    if (viewer && _ctx && _ctx->document && _ctx->undoStack) {
-        _ctx->document->setPath(viewer->filePath());
-        _ctx->undoStack->push(new RedactCommand(viewer, _ctx->document.get(), text, matchCase, wholeWords));
-        _mainWindow->statusBar()->showMessage(tr("Applied redactions to all search results for '%1'").arg(text), 5000);
+    if (viewer && _ctx && _ctx->pdfEditor) {
+        QRegularExpression::PatternOptions opts = QRegularExpression::NoPatternOption;
+        if (!matchCase) opts |= QRegularExpression::CaseInsensitiveOption;
+        
+        QString pattern = QRegularExpression::escape(text);
+        if (wholeWords) {
+            pattern = QStringLiteral("\\b") + pattern + QStringLiteral("\\b");
+        }
+        
+        QRegularExpression rx(pattern, opts);
+        if (_ctx->pdfEditor->applyPatternRedactions(rx, QList<int>())) {
+            _mainWindow->statusBar()->showMessage(tr("Applied redactions to all search results for '%1'").arg(text), 5000);
+            viewer->loadDocument(viewer->filePath());
+        }
     }
 }
 

@@ -81,7 +81,7 @@ public:
     bool deleteImage(int pageIndex, const QString &xobjectName) override;
     bool applyRedactions(int pageIndex, const QList<QRectF> &rects) override;
     bool applyPatternRedactions(const QRegularExpression& pattern,
-                                int startPage, int endPage) override;
+                                const QList<int>& pages = QList<int>(), const QString& outputPath = QString()) override;
     bool embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations) override;
 
     // Watermarking (Session 13)

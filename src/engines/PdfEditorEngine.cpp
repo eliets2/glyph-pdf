@@ -1247,7 +1247,7 @@ bool PdfEditorEngine::applyRedactions(int pageIndex, const QList<QRectF> &rects)
 }
 
 bool PdfEditorEngine::applyPatternRedactions(const QRegularExpression& pattern,
-                                              int startPage, int endPage)
+                                              const QList<int>& pages, const QString& outputPath)
 {
     QMutexLocker locker(&d->mutex);
     d->clearErr();
@@ -1270,15 +1270,18 @@ bool PdfEditorEngine::applyPatternRedactions(const QRegularExpression& pattern,
 
     // Determine page range
     const int totalPages = static_cast<int>(d->backend->pageCount());
-    int firstPage = (startPage < 0) ? 0 : startPage;
-    int lastPage  = (endPage   < 0) ? totalPages - 1 : endPage;
-    firstPage = qBound(0, firstPage, totalPages - 1);
-    lastPage  = qBound(0, lastPage,  totalPages - 1);
+    QList<int> targetPages = pages;
+    if (targetPages.isEmpty()) {
+        for (int i = 0; i < totalPages; ++i) {
+            targetPages.append(i);
+        }
+    }
 
     bool anySuccess = false;
     bool anyFailure = false;
 
-    for (int pg = firstPage; pg <= lastPage; ++pg) {
+    for (int pg : targetPages) {
+        if (pg < 0 || pg >= totalPages) continue;
         const QList<QRectF> matches = PatternRedactor::findMatches(pdfPath, pg, pattern);
         if (matches.isEmpty()) continue;
 
@@ -1296,13 +1299,33 @@ bool PdfEditorEngine::applyPatternRedactions(const QRegularExpression& pattern,
     if (anyFailure) {
         d->setErr(ErrorInfo::Warning,
                   QObject::tr("Pattern redaction partially failed on one or more pages."),
-                  QStringLiteral("applyPatternRedactions: pattern=%1 pages=%2-%3")
-                      .arg(pattern.pattern()).arg(firstPage).arg(lastPage));
+                  QStringLiteral("applyPatternRedactions: pattern=%1 pages count=%2")
+                      .arg(pattern.pattern()).arg(targetPages.size()));
+        // Reload from disk to revert partial changes
+        d->backend->loadDocument(pdfPath);
         return false;
     }
 
-    // If no pages had matches at all, that is still success (no-op)
-    Q_UNUSED(anySuccess);
+    if (!anySuccess) return true; // No matches found
+
+    // Success: save with sanitization
+    QString outPath = outputPath;
+    if (outPath.isEmpty()) {
+        QFileInfo fi(pdfPath);
+        outPath = fi.absolutePath() + "/" + fi.completeBaseName() + "_redacted." + fi.suffix();
+    }
+
+    bool saved = d->backend->sanitizeDocument(outPath);
+    if (!saved) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to save sanitized redacted document."),
+                  QStringLiteral("applyPatternRedactions: sanitizeDocument failed on %1").arg(outPath));
+        d->backend->loadDocument(pdfPath);
+        return false;
+    }
+
+    // Load the new file into the backend so subsequent edits act on it
+    d->backend->loadDocument(outPath);
     return true;
 }
 

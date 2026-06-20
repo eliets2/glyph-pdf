@@ -616,6 +616,7 @@ private:
     // last line of defence (the UI guard in SecurityController::applyRedactions is
     // the first), so it must independently return false when hasPdfSignatures() is
     // true, without touching any XObject bytes.
+private slots:
     void testRedactionOnSignedDocIsBlocked()
     {
         const QString p12Path  = kRedactFixtureDir + "/test_signer.p12";
@@ -629,10 +630,10 @@ private:
         QString signedPdf = tmpPath("er2_signed.pdf");
         {
             SignatureManager mgr;
-            bool ok = mgr.signDocument(inputPdf, signedPdf,
+            bool ok = (mgr.signDocument(inputPdf, signedPdf,
                                        p12Path, QStringLiteral("test"),
                                        QStringLiteral("ER-2 guard test"),
-                                       QStringLiteral("TestLocation"));
+                                       QStringLiteral("TestLocation")) == SignOutcome::Success);
             QVERIFY2(ok, "Signing test_input.pdf must succeed for ER-2 fixture");
         }
         QVERIFY2(QFileInfo::exists(signedPdf), "Signed PDF must exist on disk");
