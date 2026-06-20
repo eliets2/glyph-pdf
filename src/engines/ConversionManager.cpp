@@ -205,7 +205,7 @@ bool ConversionManager::exportToWord(const QString &outputPath, const QList<QLis
         p = doc.append_paragraph();
     }
     doc.save();
-    return true;
+    return QFileInfo(outputPath).size() > 0;
 #else
     // Fallback: Generate HTML-based DOC (Word can open it)
     QFile file(outputPath);
@@ -220,7 +220,8 @@ bool ConversionManager::exportToWord(const QString &outputPath, const QList<QLis
         out << "</p>";
     }
     out << "</body></html>";
-    return true;
+    file.close();
+    return QFileInfo(outputPath).size() > 0;
 #endif
 }
 
@@ -241,7 +242,7 @@ bool ConversionManager::exportToExcel(const QString &outputPath, const QList<QLi
         rowIdx++;
     }
     doc.save();
-    return true;
+    return QFileInfo(outputPath).size() > 0;
 #else
     // Fallback: Generate CSV
     QFile file(outputPath);
@@ -256,7 +257,13 @@ bool ConversionManager::exportToExcel(const QString &outputPath, const QList<QLi
         }
         out << line.join(",") << "\n";
     }
-    return true;
+    out.flush();
+    // AR-5 D2 (corrected): success = the write completed without an IO error. A text-less
+    // PDF (e.g. the smoke-test blank page) legitimately yields an empty CSV — emptiness is
+    // NOT a conversion failure, whereas a disk/permission error is. Check status, not size.
+    const bool writeOk = out.status() == QTextStream::Ok && file.error() == QFileDevice::NoError;
+    file.close();
+    return writeOk && QFileInfo::exists(outputPath);
 #endif
 }
 
@@ -283,15 +290,6 @@ bool ConversionManager::exportToHtml(const QString &pdfPath, const QString &outp
         QSizeF size = backend.pageSize(i);
         out << QString("<div class=\"page\" style=\"width: %1pt; height: %2pt;\">\n").arg(size.width()).arg(size.height());
 
-        // We use Podofo for text since PDFium char-by-char extraction with fonts is complex here, 
-        // but wait, "PDFium text extraction + positional CSS layout". Let's extract via Podofo since it's already there, 
-        // or just use PoDoFo if available, otherwise fallback.
-        // Actually, to fulfill the prompt precisely without writing 200 lines of FPDF calls, let's just 
-        // use the already implemented extractTextFromPage for simplicity unless strictly PDFium API is needed.
-        // Prompt: "Acceptance: PDFium text extraction + positional CSS layout."
-        // We can use FPDFText_LoadPage, FPDFText_GetRect, FPDFText_GetText for bounding boxes.
-        // I will use Podofo for the HTML output since I can't easily query PDFium fonts without `#include <fpdf_text.h>` and we don't have it directly included.
-        // Wait, I can just use PoDoFo inside this function!
         try {
             PoDoFo::PdfMemDocument doc;
             doc.Load(pdfPath.toUtf8().constData());
@@ -307,7 +305,8 @@ bool ConversionManager::exportToHtml(const QString &pdfPath, const QString &outp
         out << "</div>\n";
     }
     out << "</body></html>\n";
-    return true;
+    file.close();
+    return QFileInfo(outputPath).size() > 0;
 #else
     return false;
 #endif
@@ -323,7 +322,8 @@ bool ConversionManager::exportToImage(const QString &pdfPath, const QString &out
 
     if (options.contains("page") && page >= 0 && page < backend.pageCount()) {
         QImage img = backend.renderPage(page, dpi);
-        return img.save(outputPath, format.toUtf8().constData());
+        bool saved = img.save(outputPath, format.toUtf8().constData());
+        return saved && QFileInfo(outputPath).size() > 0;
     } else {
         // Render all pages to separate files, assuming outputPath contains %1 for page number
         bool ok = true;
@@ -332,7 +332,8 @@ bool ConversionManager::exportToImage(const QString &pdfPath, const QString &out
             QString path = outputPath;
             if (path.contains("%1")) path = path.arg(i + 1);
             else path = path + QString("_page%1").arg(i + 1);
-            ok &= img.save(path, format.toUtf8().constData());
+            bool saved = img.save(path, format.toUtf8().constData());
+            ok &= (saved && QFileInfo(path).size() > 0);
         }
         return ok;
     }
@@ -351,7 +352,8 @@ bool ConversionManager::exportToCsv(const QString &outputPath, const QList<QList
         }
         out << line.join(",") << "\n";
     }
-    return true;
+    file.close();
+    return QFileInfo(outputPath).size() > 0;
 }
 
 QString ConversionManager::locateSoffice()
@@ -520,7 +522,8 @@ bool ConversionManager::exportToText(const QString &pdfPath, const QString &outp
             }
             out << "\n\n";
         }
-        return true;
+        file.close();
+        return QFileInfo(outputPath).size() > 0;
     } catch (...) {
         return false;
     }
@@ -899,8 +902,8 @@ bool ConversionManager::exportToPowerPoint(const QString &pdfPath, const QString
         addZipFile(za, QString("ppt/slides/_rels/slide%1.xml.rels").arg(i+1).toUtf8().constData(), slideRels);
     }
 
-    zip_close(za);
-    return true;
+    if (zip_close(za) != 0) return false;
+    return QFileInfo(outputPath).size() > 0;
 }
 
 bool ConversionManager::convertImagesToPdf(const QStringList &imagePaths,
@@ -944,6 +947,10 @@ bool ConversionManager::convertImagesToPdf(const QStringList &imagePaths,
                 QImage qimg;
                 if (!qimg.load(imgPath)) {
                     qWarning() << "convertImagesToPdf: cannot load image:" << imgPath << e.what();
+                    return false;
+                }
+                if (qimg.width() > 10000 || qimg.height() > 10000) {
+                    qWarning() << "convertImagesToPdf: image dimensions too large";
                     return false;
                 }
                 // Convert to RGB24 for PoDoFo SetData
