@@ -11,6 +11,7 @@
 #include "core/ErrorInfo.h"
 #include "core/TempFileManager.h"
 #include <podofo/podofo.h>
+#include "engines/podofo/PdfStringEscape.h"
 #include <QDate>
 #include <QMutexLocker>
 #include <QRecursiveMutex>
@@ -574,15 +575,10 @@ bool PdfEditorEngine::exportMrcPdfA(
                 double fs = qMax(1.0, bh);
 
                 // Escape PDF string special characters
-                QString txt = w.text;
-                txt.replace(QLatin1Char('\\'), QStringLiteral("\\\\"));
-                txt.replace(QLatin1Char('('),  QStringLiteral("\\("));
-                txt.replace(QLatin1Char(')'),  QStringLiteral("\\)"));
-
                 cs += pdfReal(fs) + " Tf\n";
-                cs += pdfReal(bw / (txt.length() > 0 ? txt.length() : 1)) + " Tz\n";
+                cs += pdfReal(bw / (w.text.length() > 0 ? w.text.length() : 1)) + " Tz\n";
                 cs += pdfReal(x) + " " + pdfReal(y) + " Td\n";
-                cs += "(" + txt.toUtf8() + ") Tj\n";
+                cs += "(" + QByteArray::fromStdString(pdfEscapeLiteralString(w.text)) + ") Tj\n";
                 cs += "0 0 Td\n";
             }
             cs += "ET\n";
