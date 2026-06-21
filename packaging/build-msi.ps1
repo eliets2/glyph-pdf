@@ -6,16 +6,16 @@
 #  -> SHA-256 of the SIGNED MSI -> gate: refuse to publish unsigned artifact.
 #
 #  Signing configuration (via environment or parameters):
-#    GLYPHPDF_SIGN_CERT_PFX  — path to PFX file (takes precedence over /a)
-#    GLYPHPDF_SIGN_CERT_PASS — PFX password (if GLYPHPDF_SIGN_CERT_PFX is set)
-#    GLYPHPDF_SIGN_THUMBPRINT — certificate thumbprint for /sha1 selection
-#    GLYPHPDF_TIMESTAMP_URL  — RFC-3161 timestamp server URL
+#    GLYPHPDF_SIGN_CERT_PFX  - path to PFX file (takes precedence over /a)
+#    GLYPHPDF_SIGN_CERT_PASS - PFX password (if GLYPHPDF_SIGN_CERT_PFX is set)
+#    GLYPHPDF_SIGN_THUMBPRINT - certificate thumbprint for /sha1 selection
+#    GLYPHPDF_TIMESTAMP_URL  - RFC-3161 timestamp server URL
 #                              (default: http://timestamp.digicert.com)
 #
 #  To skip signing (dev builds that will NEVER be published):
 #    -SkipSigning
 #  The pipeline will print a conspicuous warning and the artifact is marked
-#  "UNSIGNED" — the PublishRelease step refuses to proceed.
+#  "UNSIGNED" - the PublishRelease step refuses to proceed.
 #
 #  To do a one-line swap to the real EV/OV cert:
 #    set GLYPHPDF_SIGN_CERT_PFX=C:\certs\ev-cert.pfx
@@ -25,7 +25,7 @@
 #
 #  Usage:  powershell -ExecutionPolicy Bypass -File packaging\build-msi.ps1
 #          [-SkipBuild]   reuse the existing build/ output
-#          [-SkipSigning] dev/test only — NEVER publish unsigned artifacts
+#          [-SkipSigning] dev/test only - NEVER publish unsigned artifacts
 #
 param(
     [switch]$SkipBuild,
@@ -45,7 +45,7 @@ $ZipName     = "GlyphPDF-$Version-x64-portable.zip"
 
 $env:PATH = "C:\msys64\ucrt64\bin;$env:PATH"
 
-# ── Authenticode signing configuration ──────────────────────────────────────
+# -- Authenticode signing configuration --------------------------------------
 $TimestampUrl = if ($env:GLYPHPDF_TIMESTAMP_URL) { $env:GLYPHPDF_TIMESTAMP_URL }
                 else { 'http://timestamp.digicert.com' }
 
@@ -82,7 +82,7 @@ function Invoke-SignArtifact {
     # Build signtool arguments
     $signArgs = @('sign', '/fd', 'sha256', '/td', 'sha256',
                   '/tr', $TimestampUrl,
-                  '/d', "GlyphPDF — Open-Source PDF Workstation",
+                  '/d', "GlyphPDF - Open-Source PDF Workstation",
                   '/du', 'https://github.com/eliets2/glyph-pdf')
 
     if ($env:GLYPHPDF_SIGN_CERT_PFX) {
@@ -125,7 +125,7 @@ function Invoke-SignArtifact {
 
 function Assert-Signed {
     param([string]$Path)
-    # If signing was skipped, gate here — refuse to compute a "publish-ready" SHA.
+    # If signing was skipped, gate here - refuse to compute a "publish-ready" SHA.
     if ($script:Unsigned) {
         $name = [System.IO.Path]::GetFileName($Path)
         Write-Error @"
@@ -147,7 +147,7 @@ GLYPHPDF_SIGN_THUMBPRINT.
     if ($signtool) {
         & $signtool verify /pa $Path 2>$null
         if ($LASTEXITCODE -ne 0) {
-            Write-Error "PUBLISH GATE: $Path failed Authenticode verify — artifact is NOT signed."
+            Write-Error "PUBLISH GATE: $Path failed Authenticode verify - artifact is NOT signed."
             exit 1
         }
     }
@@ -192,7 +192,7 @@ $exeInDeploy = Join-Path $DeployDir 'GlyphPDF.exe'
 if (-not $SkipSigning) {
     Write-Host '[3/5] Signing GlyphPDF.exe (Authenticode, RFC-3161 timestamp)...'
     if (-not (Test-Path $exeInDeploy)) {
-        throw "GlyphPDF.exe not found in deploy/ ($exeInDeploy) — run deploy.ps1 first."
+        throw "GlyphPDF.exe not found in deploy/ ($exeInDeploy) - run deploy.ps1 first."
     }
     Invoke-SignArtifact -Path $exeInDeploy -Description 'GlyphPDF executable'
 } else {
@@ -242,7 +242,7 @@ if (-not $SkipSigning) {
 #  PUBLISH GATE: refuse to compute/publish SHA-256 for an unsigned artifact
 Assert-Signed -Path $msiPath
 
-#  5. MSI SHA-256 — computed AFTER signing (so the hash is of the signed file)
+#  5. MSI SHA-256 - computed AFTER signing (so the hash is of the signed file)
 Write-Host '[5/5] Computing MSI SHA-256 (of signed artifact)...'
 $msiHash = (Get-FileHash $msiPath -Algorithm SHA256).Hash
 "$msiHash  $MsiName" | Set-Content -Path "$msiPath.sha256" -Encoding Ascii
