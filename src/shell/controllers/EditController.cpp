@@ -401,6 +401,7 @@ void EditController::runOcr() {
                                        wantRapid, wantEnsemble]() {
         QString error;
         QList<OcrResult> resultsArr;
+        QList<MergedOcrWord> mergedWords;   // also surfaced to the OCR Verify screen
 
         QPdfDocument document;
         const auto loadError = document.load(filePath);
@@ -452,7 +453,7 @@ void EditController::runOcr() {
                         : OcrStrategy::PrimaryOnly;
                     OcrPipeline pipeline(primary, secondary);
                     pipeline.setStrategy(strategy);
-                    const auto mergedWords = pipeline.run(pageImg);
+                    mergedWords = pipeline.run(pageImg);
 
                     // Convert MergedOcrWord → OcrResult for the viewer layer
                     resultsArr.reserve(mergedWords.size());
@@ -467,7 +468,7 @@ void EditController::runOcr() {
             }
         }
 
-        QMetaObject::invokeMethod(QCoreApplication::instance(), [self, viewerPtr, filePath, page, resultsArr, error]() {
+        QMetaObject::invokeMethod(QCoreApplication::instance(), [self, viewerPtr, filePath, page, resultsArr, mergedWords, error]() {
             if (!self) return;
 
             self->_ocrRunning = false;
@@ -484,6 +485,9 @@ void EditController::runOcr() {
 
             viewerPtr->setOcrResults(resultsArr);
             viewerPtr->setToolMode(ToolMode::SelectText);
+            // Feed the OCR Verify screen (if open) so it shows real recognised words
+            // for review instead of an empty/decorative panel.
+            emit self->ocrResultsReady(mergedWords);
             self->_mainWindow->statusBar()->showMessage(tr("OCR Complete. %1 text blocks detected.").arg(resultsArr.size()), 5000);
         }, Qt::QueuedConnection);
     });
