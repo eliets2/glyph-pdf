@@ -77,6 +77,12 @@ void Sidebar::init(const AppContext* ctx, PdfViewerWidget* viewer)
         m_thumbSidebar->setViewer(m_viewer);
         m_stack->addWidget(m_thumbSidebar);
 
+        // Clicking a thumbnail navigates the viewer to that page.
+        // pageClicked carries a 0-based page index (matches goToPage()).
+        connect(m_thumbSidebar, &ThumbnailSidebar::pageClicked, this, [this](int page) {
+            if (m_viewer) m_viewer->goToPage(page);
+        });
+
         // 2. Bookmarks tab: BookmarkPanel
         m_bookmarkPanel = new BookmarkPanel(this);
         m_bookmarkPanel->setViewer(m_viewer);
