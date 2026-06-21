@@ -95,9 +95,11 @@ jobs:
 
           echo ""
           echo "=== Running cmake configure — MUST FAIL with FATAL_ERROR ==="
-          cmake -B build-guard-test -G Ninja -DCMAKE_BUILD_TYPE=Release 2>&1 || true
-          # Capture exit code: cmake should return non-zero due to FATAL_ERROR
-          CMAKE_EXIT=$?
+          # Capture cmake's REAL exit code. The previous `cmake ... || true` clobbered
+          # $? (it captured the exit of `true`, always 0), so the guard always looked
+          # broken. `&& CMAKE_EXIT=0 || CMAKE_EXIT=$?` records cmake's actual status
+          # without aborting the step under errexit.
+          cmake -B build-guard-test -G Ninja -DCMAKE_BUILD_TYPE=Release 2>&1 && CMAKE_EXIT=0 || CMAKE_EXIT=$?
           echo "cmake exit code: $CMAKE_EXIT"
           exit $CMAKE_EXIT
         # We EXPECT cmake to fail. Invert the step result:
@@ -209,9 +211,9 @@ jobs:
         id: mupdf_guard_check
         run: |
           echo "=== Running cmake configure with stub MuPDF — MUST FAIL ==="
+          # Capture cmake's REAL exit code (see poppler job — `|| true` clobbered $?).
           cmake -B build-mupdf-guard -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH="/tmp/stub-mupdf" 2>&1 || true
-          CMAKE_EXIT=$?
+            -DCMAKE_PREFIX_PATH="/tmp/stub-mupdf" 2>&1 && CMAKE_EXIT=0 || CMAKE_EXIT=$?
           echo "cmake exit code: $CMAKE_EXIT"
           exit $CMAKE_EXIT
         continue-on-error: true
