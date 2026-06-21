@@ -4,6 +4,7 @@
 #include "ui/PdfViewerWidget.h"
 #include "ui/ShortcutHelpDialog.h"
 #include "ui/PreferencesDialog.h"
+#include "core/UpdateChecker.h"
 #include <QAction>
 #include <QMenu>
 #include <QMessageBox>
@@ -56,9 +57,12 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
                 QMessageBox::information(mainWindow, tr("User Guide"), 
                     tr("Glyph PDF Editor User Guide is available online at https://glyph.app/guide"));
             } else if (toolId == "about") {
+                // AR-8 D2: version is single-sourced from CMake PROJECT_VERSION via
+                // QCoreApplication::applicationVersion() (set in main.cpp).
+                // Never hardcode the version string here.
                 QMessageBox::about(mainWindow, tr("About GlyphPDF"),
                     tr("<h3>GlyphPDF</h3>"
-                       "<p>Version 1.2.1</p>"
+                       "<p>Version %1</p>"
                        "<p>A privacy-first PDF workstation for Windows. "
                        "No telemetry, no cloud, no subscription.</p>"
                        "<p>Built with C++17, Qt 6.11, PoDoFo 1.1, and PDFium.</p>"
@@ -66,7 +70,8 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
                        "<a href=\"https://www.apache.org/licenses/LICENSE-2.0\">Apache License 2.0</a>.</p>"
                        "<p>This product bundles open-source components under the "
                        "MIT, Apache-2.0, BSD, and LGPL licenses. Full notices are in "
-                       "<b>LICENSE-3RD-PARTY.md</b>, installed alongside the application.</p>"));
+                       "<b>LICENSE-3RD-PARTY.md</b>, installed alongside the application.</p>")
+                    .arg(UpdateChecker::currentVersion()));
             } else if (toolId == "shortcuts") {
                 ShortcutHelpDialog dlg(mainWindow);
                 dlg.exec();
