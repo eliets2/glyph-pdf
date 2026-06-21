@@ -48,7 +48,10 @@ bool ErrorLog::exportCsv(const QString& path) const {
             << esc(e.userMessage) << ','
             << esc(e.technicalDetails) << '\n';
     }
-    return true;
+    // Don't report success until the bytes are flushed without an IO error — callers
+    // (BatchMode, ErrorDialog) surface this bool to the user as "export succeeded".
+    out.flush();
+    return out.status() == QTextStream::Ok && f.error() == QFileDevice::NoError;
 }
 
 bool ErrorLog::exportJson(const QString& path) const {
@@ -69,6 +72,8 @@ bool ErrorLog::exportJson(const QString& path) const {
     QFile f(path);
     if (!f.open(QIODevice::WriteOnly))
         return false;
-    f.write(QJsonDocument(arr).toJson(QJsonDocument::Indented));
-    return true;
+    const QByteArray json = QJsonDocument(arr).toJson(QJsonDocument::Indented);
+    const qint64 written = f.write(json);
+    // Verify the full payload was written and no IO error occurred before claiming success.
+    return written == json.size() && f.error() == QFileDevice::NoError;
 }
