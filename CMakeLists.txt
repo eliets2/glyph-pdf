@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(PdfWorkstation VERSION 1.3.1 LANGUAGES CXX)
+project(PdfWorkstation VERSION 1.3.2 LANGUAGES CXX)
 
 # MSYS2 ucrt64 — single coherent toolchain + Qt6 + all deps via pacman.
 # Explicit prefix paths so CMake resolves packages regardless of calling shell.
@@ -24,11 +24,77 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
+# AR-11 D4: Default to Release when CMAKE_BUILD_TYPE is unset.
+# Without this, a bare `cmake -B build` yields an unoptimised assert-enabled build
+# that ships DWARF paths (C:\Users\User\Projects\pdf) in every binary.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    message(STATUS "AR-11 D4: CMAKE_BUILD_TYPE not set — defaulting to Release")
+    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type (default: Release)" FORCE)
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS
+                 "Debug" "Release" "RelWithDebInfo" "MinSizeRel")
+endif()
+
 add_compile_options(-Wall -Wextra -Wno-unused-parameter)
 if(MSVC)
     add_compile_options(/we4715 /we4834 /we4456) # return-type, nodiscard, shadow equivalents
 else()
     add_compile_options(-Werror=return-type -Werror=unused-result -Werror=shadow)
+endif()
+
+# AR-11 D4: Security hardening flags (GCC/MinGW, Release builds only).
+# -fstack-protector-strong  — stack smashing detection (SSP) on functions with
+#                              complex stack frames (GCC 4.9+)
+# -D_FORTIFY_SOURCE=2       — buffer overflow detection in glibc wrappers;
+#                              requires optimisation (-O1 or higher).
+# Linker PE flags (Windows x64):
+#   --dynamicbase            → sets IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE (ASLR)
+#   --nxcompat               → sets IMAGE_DLLCHARACTERISTICS_NX_COMPAT  (DEP/NX)
+#   --high-entropy-va        → 64-bit ASLR (HEASLR; requires --dynamicbase)
+# LTO:
+#   -flto / -flto=auto       — link-time optimisation; reduces binary size, speeds
+#                              up release builds, eliminates cross-TU dead code.
+# These flags are NOT applied to Debug builds so developers don't pay the LTO
+# link-time cost during iteration, and _FORTIFY_SOURCE=2 won't warn without -O.
+if(NOT MSVC)
+    # AR-11 D4: Compile-time hardening flags for Release / RelWithDebInfo / MinSizeRel.
+    # add_compile_options applies globally to all targets in this directory tree.
+    # Generator expressions gate them to non-Debug configurations.
+    add_compile_options(
+        "$<$<NOT:$<CONFIG:Debug>>:-fstack-protector-strong>"
+        "$<$<NOT:$<CONFIG:Debug>>:-D_FORTIFY_SOURCE=2>"
+    )
+    # AR-11 D4: PE security flags (Windows ASLR/DEP/HEASLR) — Release/RelWithDebInfo.
+    # --dynamicbase  → IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE (ASLR)
+    # --nxcompat     → IMAGE_DLLCHARACTERISTICS_NX_COMPAT (DEP/NX)
+    # --high-entropy-va → 64-bit HEASLR (requires --dynamicbase)
+    add_link_options(
+        "$<$<NOT:$<CONFIG:Debug>>:-Wl,--dynamicbase,--nxcompat,--high-entropy-va>"
+    )
+    # AR-11 D4: LTO — opt-in via -DGLYPHPDF_ENABLE_LTO=ON.
+    # Default OFF: LTO dramatically increases link time (minutes on large codebases).
+    # The release CI leg sets GLYPHPDF_ENABLE_LTO=ON; dev builds get fast links.
+    option(GLYPHPDF_ENABLE_LTO "Enable Link-Time Optimisation (LTO) for Release builds" OFF)
+    if(GLYPHPDF_ENABLE_LTO AND NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+        message(STATUS "AR-11 D4: LTO enabled (GLYPHPDF_ENABLE_LTO=ON)")
+        add_compile_options("$<$<NOT:$<CONFIG:Debug>>:-flto=auto>")
+        add_link_options("$<$<NOT:$<CONFIG:Debug>>:-flto=auto>")
+    endif()
+endif()
+
+# AR-11 D4: Strip release binaries so they do not leak build-host DWARF paths
+# (the default MinGW Release build includes full debug symbols including
+# the absolute source path C:\Users\User\Projects\pdf\src\...).
+# strip is run as a post-build step on PdfWorkstation.exe in Release mode.
+# Test executables are not stripped (dev-time debugging value).
+if(NOT MSVC AND CMAKE_BUILD_TYPE STREQUAL "Release")
+    find_program(STRIP_PROGRAM strip
+        PATHS "${MSYS2_ROOT}/bin" /c/msys64/ucrt64/bin
+        NO_DEFAULT_PATH)
+    if(STRIP_PROGRAM)
+        message(STATUS "AR-11 D4: strip found at ${STRIP_PROGRAM} — Release EXE will be stripped")
+    else()
+        message(WARNING "AR-11 D4: strip not found — Release EXE will contain DWARF debug paths")
+    endif()
 endif()
 # ── Dependencies ──────────────────────────────────────────────────────────
 find_package(Qt6 COMPONENTS Core Gui Widgets Pdf PdfWidgets PrintSupport Svg Network Test Concurrent REQUIRED)
@@ -94,12 +160,38 @@ if(NOT onnxruntime_FOUND AND PkgConfig_FOUND)
     pkg_check_modules(PKG_ONNXRUNTIME QUIET libonnxruntime)
 endif()
 
-# MuPDF + Poppler FATAL_ERROR guards (license: AGPL-3.0 + GPL-2.0+ incompatible)
-if(TARGET mupdf OR TARGET libmupdf OR TARGET mupdf-pkg)
-    message(FATAL_ERROR "MuPDF detected (AGPL-3.0). Use PDFium for rendering.")
+# ── License contamination guards (MuPDF AGPL-3.0 + Poppler GPL-2.0+) ──────────
+# Four detection methods each: (1) CMake targets (bare + namespaced),
+# (2) find_package, (3) pkg-config, (4) namespaced/aliased targets.
+# AR-11 D3: broadened to cover namespaced targets (Poppler::poppler,
+# unofficial::poppler, etc.) that vcpkg and some system CMake configs export.
+# CI exercises this gate with a matrix leg that installs poppler and asserts
+# configure fails (see .github/workflows/license-guard.yml).
+#
+# MuPDF AGPL-3.0 — NEVER link in-process
+if(TARGET mupdf
+   OR TARGET libmupdf
+   OR TARGET mupdf-pkg
+   OR TARGET MuPDF::MuPDF
+   OR TARGET mupdf::mupdf
+   OR TARGET PkgConfig::mupdf)
+    message(FATAL_ERROR
+        "MuPDF detected (AGPL-3.0). Linking MuPDF would force GlyphPDF under "
+        "AGPL-3.0. Use PDFium (BSD-3-Clause) for rendering.")
 endif()
-if(TARGET poppler OR TARGET poppler-cpp OR TARGET libpoppler)
-    message(FATAL_ERROR "Poppler detected (GPL-2.0+). Use PDFium for rendering.")
+# Poppler GPL-2.0+ — NEVER link in-process
+if(TARGET poppler
+   OR TARGET poppler-cpp
+   OR TARGET libpoppler
+   OR TARGET Poppler::poppler
+   OR TARGET Poppler::poppler-cpp
+   OR TARGET unofficial::poppler
+   OR TARGET unofficial::poppler-cpp
+   OR TARGET PkgConfig::POPPLER
+   OR TARGET PkgConfig::poppler)
+    message(FATAL_ERROR
+        "Poppler detected (GPL-2.0+). Linking Poppler would force GlyphPDF under "
+        "GPL-2.0+. Use PDFium (BSD-3-Clause) for rendering.")
 endif()
 
 find_package(MuPDF QUIET)
@@ -119,6 +211,11 @@ endif()
 pkg_check_modules(POPPLER QUIET poppler)
 if(POPPLER_FOUND)
     message(FATAL_ERROR "Poppler found via pkg-config (GPL-2.0+). Remove.")
+endif()
+# Extra: catch poppler-cpp pkg-config module (Poppler can be found via either)
+pkg_check_modules(POPPLER_CPP QUIET poppler-cpp)
+if(POPPLER_CPP_FOUND)
+    message(FATAL_ERROR "Poppler (poppler-cpp) found via pkg-config (GPL-2.0+). Remove.")
 endif()
 
 # ── pdfws_core (INTERFACE — header-only) ──────────────────────────────────
@@ -300,6 +397,71 @@ if(Pdfium_FOUND AND TARGET Pdfium::Pdfium)
     target_compile_definitions(pdfws_engines PUBLIC HAS_PDFIUM)
 else()
     message(STATUS "PDFium not found — PdfiumBackend disabled")
+endif()
+
+# AR-11 D5: Feature/version summary + hard-fail on missing shipped-feature defines.
+# The four core features listed in README.md / release notes MUST be present in any
+# artifact that will be signed and submitted to winget. A QUIET find_package() today
+# silently drops features with no build error. This gate makes omissions loud.
+#
+# GLYPHPDF_RELEASE_BUILD=ON is set by the release CI leg (packaging/build-msi.ps1)
+# and the release workflow. Developer builds with missing deps are allowed to proceed
+# (STATUS messages only); release builds hard-fail.
+option(GLYPHPDF_RELEASE_BUILD "Hard-fail on any missing shipped feature (set by release pipeline)" OFF)
+
+# Track which shipped features are present
+set(_has_pdfium   FALSE)
+set(_has_tesseract FALSE)
+set(_has_rapidocr  FALSE)
+set(_has_qpdf      FALSE)
+
+if(Pdfium_FOUND AND TARGET Pdfium::Pdfium)
+    set(_has_pdfium TRUE)
+endif()
+if(PKG_TESSERACT_FOUND OR Tesseract_FOUND)
+    set(_has_tesseract TRUE)
+endif()
+if(onnxruntime_FOUND OR TARGET onnxruntime OR PKG_ONNXRUNTIME_FOUND)
+    set(_has_rapidocr TRUE)
+endif()
+if(qpdf_FOUND AND (TARGET qpdf::qpdf OR TARGET qpdf::libqpdf))
+    set(_has_qpdf TRUE)
+endif()
+
+message(STATUS "")
+message(STATUS "===== GlyphPDF ${PROJECT_VERSION} — Feature Summary (AR-11 D5) =====")
+message(STATUS "  HAS_PDFIUM    : ${_has_pdfium}   (rendering engine — PDF.js-speed rendering)")
+message(STATUS "  HAS_TESSERACT : ${_has_tesseract}  (primary OCR engine — Tesseract 5)")
+message(STATUS "  HAS_RAPIDOCR  : ${_has_rapidocr}  (secondary OCR — PP-OCRv5 ROVER ensemble)")
+message(STATUS "  HAS_QPDF      : ${_has_qpdf}   (PDF linearisation)")
+message(STATUS "  LTO           : ${GLYPHPDF_ENABLE_LTO}")
+message(STATUS "  Release build : ${GLYPHPDF_RELEASE_BUILD}")
+message(STATUS "===================================================================")
+message(STATUS "")
+
+if(GLYPHPDF_RELEASE_BUILD)
+    set(_missing_features "")
+    if(NOT _has_pdfium)
+        list(APPEND _missing_features "HAS_PDFIUM (PDFium not found)")
+    endif()
+    if(NOT _has_tesseract)
+        list(APPEND _missing_features "HAS_TESSERACT (Tesseract not found)")
+    endif()
+    if(NOT _has_rapidocr)
+        list(APPEND _missing_features "HAS_RAPIDOCR (ONNX Runtime not found)")
+    endif()
+    if(NOT _has_qpdf)
+        list(APPEND _missing_features "HAS_QPDF (qpdf not found)")
+    endif()
+    if(_missing_features)
+        message(FATAL_ERROR
+            "AR-11 D5: RELEASE BUILD FAILED — missing shipped feature(s): "
+            "${_missing_features} — "
+            "All four core features must be present before signing and publishing. "
+            "Resolve missing dependencies or set GLYPHPDF_RELEASE_BUILD=OFF for dev builds.")
+    else()
+        message(STATUS "AR-11 D5: Release build — all four shipped features confirmed present.")
+    endif()
 endif()
 
 # ── Stage runtime DLLs beside test/app binaries ─────────────────────────────
@@ -546,6 +708,18 @@ endif()
 if(WIN32)
     enable_language(RC)
     target_sources(PdfWorkstation PRIVATE src/app/app_icon.rc)
+endif()
+
+# AR-11 D4: Strip PdfWorkstation.exe in Release builds to remove DWARF debug paths.
+# DWARF in a MinGW/GCC Release binary leaks the build-host path
+# (C:\Users\User\Projects\pdf) into every shipped binary.
+# Post-build step: strip is applied only when explicitly found (above) in Release mode.
+if(NOT MSVC AND CMAKE_BUILD_TYPE STREQUAL "Release" AND STRIP_PROGRAM)
+    add_custom_command(TARGET PdfWorkstation POST_BUILD
+        COMMAND "${STRIP_PROGRAM}" "$<TARGET_FILE:PdfWorkstation>"
+        COMMENT "AR-11 D4: Stripping DWARF paths from Release PdfWorkstation.exe"
+        VERBATIM
+    )
 endif()
 
 # ── Precompiled Headers ───────────────────────────────────────────────────
