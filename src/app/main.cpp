@@ -87,8 +87,10 @@ int main(int argc, char *argv[]) {
         app.installTranslator(&appTranslator);
     }
 
-    // === RTL layout support ===
-    if (locale.textDirection() == Qt::RightToLeft) {
+    // === RTL layout support (AR-8 D6) ===
+    // Priority: 1. Explicit user toggle (ui/rtl setting). 2. System locale direction.
+    if (settings.value(QStringLiteral("ui/rtl"),
+                       locale.textDirection() == Qt::RightToLeft).toBool()) {
         app.setLayoutDirection(Qt::RightToLeft);
     }
 

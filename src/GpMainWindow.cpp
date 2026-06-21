@@ -627,8 +627,9 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 
 void MainWindow::initUpdateChecker() {
     QSettings settings;
-    // On by default (privacy-first: a version check against GitHub, no telemetry).
-    if (!settings.value("update/checkOnStartup", true).toBool())
+    // AR-8 D6: default OFF (audit preference; first-run consent notice in v1.3.1
+    // explains the update check to users who later opt in via Preferences).
+    if (!settings.value("update/checkOnStartup", false).toBool())
         return;
 
     // One-time transparency notice — tell the user we check for updates and how
