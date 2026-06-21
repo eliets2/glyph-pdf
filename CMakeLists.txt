@@ -155,6 +155,33 @@ if(PkgConfig_FOUND)
     pkg_check_modules(PKG_LEPTONICA QUIET lept)
 endif()
 
+# Robustness fallback (CI fix): in minimal environments pkg-config can fail to
+# resolve tesseract.pc / lept.pc even when libtesseract + leptonica and their
+# headers ARE installed (the .pc may be absent from the package or its transitive
+# Requires.private graph is unsatisfiable). Probe the library + headers directly so
+# OCR (HAS_TESSERACT) is enabled wherever Tesseract is genuinely present, instead of
+# silently shipping an OCR-less build. find_library/find_path do not depend on .pc.
+if(NOT PKG_TESSERACT_FOUND)
+    find_library(_TESS_LIB NAMES tesseract libtesseract tesseract55 tesseract54 tesseract-5)
+    find_path(_TESS_INC NAMES tesseract/capi.h tesseract/baseapi.h)
+    if(_TESS_LIB AND _TESS_INC)
+        set(PKG_TESSERACT_FOUND TRUE)
+        set(PKG_TESSERACT_LIBRARIES ${_TESS_LIB})
+        set(PKG_TESSERACT_INCLUDE_DIRS ${_TESS_INC})
+        message(STATUS "Tesseract found via find_library fallback: ${_TESS_LIB}")
+    endif()
+endif()
+if(NOT PKG_LEPTONICA_FOUND)
+    find_library(_LEPT_LIB NAMES lept leptonica liblept lept-5)
+    find_path(_LEPT_INC NAMES leptonica/allheaders.h allheaders.h)
+    if(_LEPT_LIB AND _LEPT_INC)
+        set(PKG_LEPTONICA_FOUND TRUE)
+        set(PKG_LEPTONICA_LIBRARIES ${_LEPT_LIB})
+        set(PKG_LEPTONICA_INCLUDE_DIRS ${_LEPT_INC})
+        message(STATUS "Leptonica found via find_library fallback: ${_LEPT_LIB}")
+    endif()
+endif()
+
 find_package(onnxruntime QUIET)
 if(NOT onnxruntime_FOUND AND PkgConfig_FOUND)
     pkg_check_modules(PKG_ONNXRUNTIME QUIET libonnxruntime)
