@@ -70,7 +70,7 @@ ModeStrip::ModeStrip(QWidget* parent) : QFrame(parent) {
 
     row->addStretch(1);
 
-    _autosaveLabel = new QLabel(tr("● AUTOSAVED · --:--:--"));
+    _autosaveLabel = new QLabel(tr("● UNSAVED"));
     _autosaveLabel->setProperty("mono", true);
     _autosaveLabel->setAccessibleName(tr("Autosave status"));
     row->addWidget(_autosaveLabel);
@@ -97,7 +97,10 @@ ModeStrip::ModeStrip(QWidget* parent) : QFrame(parent) {
 
 void ModeStrip::init(const AppContext* ctx) {
     _ctx = ctx;
-    _lastSavedTime = QTime::currentTime();
+    // AR-8 D2: do NOT set _lastSavedTime here — it starts as an invalid QTime.
+    // The label will correctly show "● UNSAVED" until the user actually saves.
+    // _lastSavedTime is set only when DocumentSession::dirtyChanged fires with
+    // dirty==false (a real save occurred).
 
     if (_ctx && _ctx->document) {
         connect(_ctx->document.get(), &DocumentSession::dirtyChanged, this, [this](bool dirty) {
@@ -139,8 +142,13 @@ void ModeStrip::updateLabels() {
                 _autosaveLabel->setProperty("state", "unsaved");
             }
         } else {
-            QString saveTimeStr = _lastSavedTime.isValid() ? _lastSavedTime.toString("hh:mm:ss") : QTime::currentTime().toString("hh:mm:ss");
-            _autosaveLabel->setText(tr("● SAVED · %1").arg(saveTimeStr));
+            // AR-8 D2: Never print currentTime() as a save time.
+            // If we have a real save time from a dirtyChanged signal, show it.
+            // Otherwise show "● SAVED" without a fabricated timestamp.
+            QString saveTimeStr = _lastSavedTime.isValid() ? _lastSavedTime.toString("hh:mm:ss") : QString();
+            _autosaveLabel->setText(saveTimeStr.isEmpty()
+                ? tr("● SAVED")
+                : tr("● SAVED · %1").arg(saveTimeStr));
             _autosaveLabel->setProperty("state", "saved");
         }
         _autosaveLabel->style()->unpolish(_autosaveLabel);
