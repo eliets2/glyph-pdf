@@ -149,23 +149,11 @@ PagesMode::PagesMode(QWidget* parent) : QWidget(parent)
     modeLabel->setProperty("mono", true);
     tbLayout->addWidget(modeLabel);
 
-    const QStringList toolButtons {
-        PagesMode::tr("Insert Before"),
-        PagesMode::tr("Insert After"),
-        PagesMode::tr("Delete"),
-        PagesMode::tr("Extract"),
-        PagesMode::tr("Replace"),
-        PagesMode::tr("Rotate ↺"),
-        PagesMode::tr("Rotate ↻"),
-        PagesMode::tr("Split Here"),
-        PagesMode::tr("Merge")
-    };
-    for (const QString& label : toolButtons) {
-        auto* btn = new QToolButton;
-        btn->setText(label);
-        btn->setProperty("variant", "ghost");
-        tbLayout->addWidget(btn);
-    }
+    // AR-8 D3: the per-page action buttons (Insert Before/After, Delete, Extract,
+    // Replace, Rotate, Split Here, Merge) are HIDDEN until wired to engine actions.
+    // Their planned ToolId enum entries and engine method stubs are preserved;
+    // re-enable by connecting them in a future session.  Do NOT show disabled
+    // controls with "future release" tooltips (SCOPE LOCK §5).
     tbLayout->addStretch(1);
 
     for (const QString& s : QStringList{"S", "M", "L"}) {
