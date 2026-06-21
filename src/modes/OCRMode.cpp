@@ -219,7 +219,7 @@ void OCRMode::buildInfoStrip(QVBoxLayout* col)
     row->setContentsMargins(12, 0, 12, 0);
     row->setSpacing(14);
 
-    m_lblPage    = infoLab(tr("PAGE 01 OF 12"));
+    m_lblPage    = infoLab(tr("PAGE — OF —"));
     m_lblAvgConf = infoLab(tr("AVG CONFIDENCE —"));
     m_lblLowWords= infoLab(tr("LOW-CONFIDENCE WORDS —"));
     m_lblEngine  = infoLab(tr("ENGINE: Tesseract 5"));
@@ -241,11 +241,10 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     split->setHandleWidth(1);
 
     // ── Page list ───────────────────────────────────────────────────────
+    // Populated by setOcrResults() from real document pages; starts empty.
     m_pageList = new QListWidget;
     m_pageList->setObjectName("ocrPageList");
     m_pageList->setFixedWidth(180);
-    for (int i = 1; i <= 12; ++i)
-        m_pageList->addItem(QString("Page %1   ●").arg(i, 3, 10, QChar('0')));
     split->addWidget(m_pageList);
 
     // ── Image / scan pane ───────────────────────────────────────────────
