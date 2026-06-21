@@ -2,9 +2,11 @@
 #pragma once
 #include <QStackedWidget>
 #include <QHash>
+#include <QList>
 
 class PdfViewerWidget;
 struct AppContext;
+struct MergedOcrWord;   // engines/ocr/OcrPipeline.h (fwd-declared to keep QtConcurrent out of this header)
 
 namespace gp {
 
@@ -30,8 +32,14 @@ public:
     // Must be called before setScreen("form") is triggered.
     void setAppContext(const AppContext* ctx) { _ctx = ctx; }
 
+    // Forward recognised OCR words to the OCR Verify screen (if it has been created).
+    void deliverOcrResults(const QList<MergedOcrWord>& words);
+
 signals:
     void screenChanged(const QString& id);
+    // Emitted when the OCR Verify screen's Run button is pressed; the host wires this
+    // to the real OCR pipeline (EditController::runOcr).
+    void ocrRunRequested();
 
 private:
     QHash<QString, QWidget*> _byId;

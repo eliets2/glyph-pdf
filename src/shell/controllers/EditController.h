@@ -4,10 +4,12 @@
 #include <QObject>
 #include <QString>
 #include <QRectF>
+#include <QList>
 #include "core/ToolId.h"
 #include "core/interfaces/IToolController.h"
 
 struct AppContext;
+struct MergedOcrWord;   // engines/ocr/OcrPipeline.h (fwd-declared to keep QtConcurrent out of this header)
 class EditToolBar;
 
 namespace gp {
@@ -32,6 +34,16 @@ public:
                                bool matchCase, bool wholeWords, bool useRegex);
     void onRedactAllRequested(const QString &text, bool matchCase, bool wholeWords);
 
+public slots:
+    // Run OCR on the viewer's current page (engine chosen per Preferences). Public so
+    // the OCR Verify screen's Run button can drive the same real pipeline as the ribbon.
+    void runOcr();
+
+signals:
+    // Emitted on the GUI thread when an OCR run finishes, carrying the recognised
+    // words so the OCR Verify screen can display them for review.
+    void ocrResultsReady(const QList<MergedOcrWord>& words);
+
 private slots:
     void onImageSelected(const QString &name, const QRectF &placement);
     void onImageMoved(const QString &name, double dx, double dy);
@@ -40,7 +52,6 @@ private slots:
     void onTextFormatChanged(const QString &fontFamily, int fontSize, const QColor &color, bool bold, bool italic, int alignment);
 
 private:
-    void runOcr();
     void editPdfText();
     void enterImageEditMode();
 

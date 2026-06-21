@@ -39,7 +39,13 @@ void ModeController::setScreen(const QString& id) {
     // Lazy initialization
     if (_byId.contains(id) && _byId[id] == nullptr) {
         QWidget* target = nullptr;
-        if (id == "ocr")          target = new OCRMode(this);
+        if (id == "ocr") {
+            auto* om = new OCRMode(this);
+            // Drive the real OCR pipeline from the screen's Run button, and refresh
+            // the review panes when results arrive (host brokers to EditController).
+            connect(om, &OCRMode::ocrRequested, this, &ModeController::ocrRunRequested);
+            target = om;
+        }
         else if (id == "redact") {
             auto* rm = new RedactMode(this);
             rm->setAppContext(_ctx);
@@ -68,6 +74,11 @@ void ModeController::setScreen(const QString& id) {
     if (!target) target = _viewer;
     setCurrentWidget(target);
     emit screenChanged(id);
+}
+
+void ModeController::deliverOcrResults(const QList<MergedOcrWord>& words) {
+    if (auto* om = qobject_cast<OCRMode*>(_byId.value("ocr", nullptr)))
+        om->setOcrResults(words);
 }
 
 } // namespace gp
