@@ -161,15 +161,17 @@ void HomeController::onSave() {
         }
     }
 
+    // Flush the .ann sidecar cache so it stays in sync with the embedded copy.
     viewer->saveAnnotations();
 
-    // D2: signed documents must go through incremental update so the original
-    // /ByteRange-covered bytes are not disturbed.  A full saveDocument() call
-    // re-serialises from scratch and shifts all byte offsets, silently
-    // invalidating every signature in the document.
-    const bool ok = isSigned
-        ? _ctx->pdfEditor->writeUpdate(filePath)
-        : _ctx->pdfEditor->saveDocument(filePath);
+    // AR-7 D1: embed annotations into the PDF object graph, not just the sidecar.
+    // embedAnnotations(in, out, annots) loads the live document via resolveDocument,
+    // appends annotation dictionaries to the page /Annots arrays, and calls
+    // writeUpdate(out) — which persists ALL in-memory changes (structural edits
+    // AND annotations) as an incremental update.  This replaces the separate
+    // saveDocument / writeUpdate call below.  Signed documents benefit from the
+    // same incremental-append path (writeUpdate preserves the /ByteRange).
+    const bool ok = _ctx->pdfEditor->embedAnnotations(filePath, filePath, viewer->annotations());
 
     if (ok) {
         if (_ctx->undoStack) _ctx->undoStack->setClean();
@@ -212,7 +214,28 @@ void HomeController::onSaveAs() {
         if (choice != QMessageBox::Ok) return;
     }
 
-    if (viewer->saveDocumentAs(fileName)) {
+    // AR-7 D1: embed annotations directly into the output PDF so they are visible
+    // in other readers.  If the engine is available, route through embedAnnotations
+    // (which also copies all structural edits and annotation dicts in one call).
+    // Fall back to a raw file copy for engine-less open documents.
+    bool ok = false;
+    if (_ctx && _ctx->pdfEditor) {
+        ok = _ctx->pdfEditor->embedAnnotations(
+            viewer->filePath(), fileName, viewer->annotations());
+        if (ok) {
+            // Also copy the .ann sidecar cache alongside the new PDF.
+            const QString srcAnn = viewer->filePath() + QStringLiteral(".ann");
+            const QString dstAnn = fileName + QStringLiteral(".ann");
+            if (QFile::exists(srcAnn) && srcAnn != dstAnn) {
+                if (QFile::exists(dstAnn)) QFile::remove(dstAnn);
+                QFile::copy(srcAnn, dstAnn);
+            }
+        }
+    } else {
+        ok = viewer->saveDocumentAs(fileName);
+    }
+
+    if (ok) {
         _mainWindow->statusBar()->showMessage(tr("Document saved to %1").arg(fileName), 5000);
     } else {
         QMessageBox::warning(
