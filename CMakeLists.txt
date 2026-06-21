@@ -183,7 +183,6 @@ add_library(pdfws_engines STATIC
     src/engines/ocr/RapidOcrEngine.h        src/engines/ocr/RapidOcrEngine.cpp
     src/engines/mrc/MrcPageProcessor.h      src/engines/mrc/MrcPageProcessor.cpp
     src/core/interfaces/IPdfDocument.h
-    src/core/interfaces/IPdfPage.h
     src/core/interfaces/IPdfRenderer.h
     src/core/interfaces/IPdfWriter.h
     src/core/interfaces/IPdfSearcher.h

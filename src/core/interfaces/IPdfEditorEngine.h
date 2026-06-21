@@ -117,40 +117,23 @@ struct DocumentPermissions {
     bool assemble = false;
 };
 
-// ── Interface ──────────────────────────────────────────────────────────────
+// ── Role interfaces (AR-10 D1) ──────────────────────────────────────────────
+//
+// The ~60-method IPdfEditorEngine god-interface is decomposed into cohesive
+// role interfaces so new code (and mocks) can depend on the narrow seam they
+// actually use instead of the whole engine. IPdfEditorEngine remains as the
+// union of these roles (an engine implements all of them), so EXISTING callers
+// and the concrete PdfEditorEngine are unchanged — callers can be migrated to
+// the narrow roles incrementally. The roles share the struct definitions and
+// includes above, so no type was duplicated.
 
-class IPdfEditorEngine {
+/// Document open / persist / metadata / signature-aware save.
+class IPdfDocumentIO {
 public:
-    virtual ~IPdfEditorEngine() = default;
+    virtual ~IPdfDocumentIO() = default;
     virtual bool loadDocumentForEditing(const QString &filePath) = 0;
     virtual bool saveDocument(const QString &outputPath) = 0;
-    virtual bool editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
-                                const QString &fontFamily = "", int fontSize = 0,
-                                const QColor &color = Qt::black, bool bold = false,
-                                bool italic = false, int alignment = 0) = 0;
-    virtual bool deleteObjectAt(int pageIndex, const QPointF &pos) = 0;
     virtual bool linearizeDocument(const QString &outputPath) = 0;
-    virtual bool exportPdfA(const QString &outputPath, int conformanceLevel) = 0;
-
-    /// Export current document as a PDF/A-2b MRC sandwich:
-    ///   - JPEG2000 background XObject per page
-    ///   - JBIG2 foreground mask XObject (1bpp) per page
-    ///   - Invisible text layer (3 Tr) from OCR word boxes
-    /// Runs veraPDF validation gate after assembly (QSKIP if CLI unavailable).
-    /// \param pageImages   Pre-rendered page images (from PDFium renderer).
-    /// \param pageResults  OCR results per page (from OcrPipeline); may be empty.
-    /// \param mode         MRC compression mode (default Balanced = 30:1 background).
-    /// \returns true if export + veraPDF validation passed.
-    virtual bool exportMrcPdfA(const QString& outputPath,
-                               const QList<QImage>& pageImages,
-                               const QList<struct PageOcrResult>& pageResults,
-                               MrcMode mode = MrcMode::Balanced) = 0;
-    virtual bool encryptDocument(const QString &userPassword, const QString &ownerPassword,
-                                  const DocumentPermissions& perms = DocumentPermissions()) = 0;
-    virtual bool removeEncryption(const QString &ownerPassword) = 0;
-    virtual bool encryptWithCertificate(const QString &inputPath,
-                                        const QString &outputPath,
-                                        const QStringList &certPaths) = 0;
     virtual bool sanitizeDocument(const QString &outputPath) = 0;
     virtual bool getMetadata(PdfMetadata &outMetadata) = 0;
     virtual bool setMetadata(const PdfMetadata &metadata) = 0;
@@ -160,28 +143,28 @@ public:
     /// by getEmbeddedFiles). Returns an empty array if absent or on error.
     virtual QByteArray extractEmbeddedFile(const QString &name) = 0;
     virtual QStringList getLayers() = 0;
+    virtual ErrorInfo lastError() const = 0;
+    virtual void clearError() = 0;
+    // R2-1 D2: incremental-update save that preserves /ByteRange integrity.
+    // Must be called instead of saveDocument() whenever the loaded document
+    // has PDF signatures (see ISignatureAware::hasPdfSignatures()).
+    virtual bool writeUpdate(const QString &outputPath) = 0;
+};
 
+/// Page-level structural and text edits.
+class IPageEditor {
+public:
+    virtual ~IPageEditor() = default;
+    virtual bool editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
+                                const QString &fontFamily = "", int fontSize = 0,
+                                const QColor &color = Qt::black, bool bold = false,
+                                bool italic = false, int alignment = 0) = 0;
+    virtual bool deleteObjectAt(int pageIndex, const QPointF &pos) = 0;
     virtual bool rotatePage(const QString &path, int pageIndex, int degrees) = 0;
     virtual QByteArray extractPageAsBytes(const QString &path, int pageIndex) = 0;
     virtual bool insertPageFromBytes(const QString &path, int atIndex, const QByteArray &pageData) = 0;
     virtual bool deletePage(const QString &path, int pageIndex) = 0;
     virtual bool insertBlankPage(const QString &path, int atIndex) = 0;
-
-    virtual QList<PdfImageInfo> listImages(int pageIndex) = 0;
-    virtual bool moveImage(int pageIndex, const QString &xobjectName, double dx, double dy) = 0;
-    virtual bool resizeImage(int pageIndex, const QString &xobjectName, double newWidth, double newHeight) = 0;
-    virtual bool rotateImage(int pageIndex, const QString &xobjectName, double degrees) = 0;
-    virtual bool replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath) = 0;
-    virtual bool deleteImage(int pageIndex, const QString &xobjectName) = 0;
-    virtual bool applyRedactions(int pageIndex, const QList<QRectF> &rects) = 0;
-
-    // Pattern-based redaction: find all regex matches across [startPage, endPage] (0-based,
-    // inclusive) and excise them from the content stream.
-    // Pass startPage = -1 / endPage = -1 to redact all pages.
-    virtual bool applyPatternRedactions(const QRegularExpression& pattern,
-                                        const QList<int>& pages = QList<int>(), const QString& outputPath = QString()) = 0;
-
-    // Page Geometry & Operations
     virtual bool cropPage(const QString &path, int pageIndex, const QRectF &cropRect) = 0;
     virtual bool resizePage(const QString &path, int pageIndex, const QSizeF &size) = 0;
     virtual bool reorderPages(const QString &path, int fromIndex, int toIndex) = 0;
@@ -190,42 +173,89 @@ public:
     // 'permutation[i]' is the 0-based original page index that should appear at
     // position i in the result.  Returns false if permutation is invalid or write fails.
     virtual bool reorderAllPages(const QString &path, const QList<int> &permutation) = 0;
-
-    // Content Injection
     virtual bool addHeaderFooter(const QString &path, const HeaderFooterOptions &options) = 0;
     virtual bool applyBatesNumbering(const QString &path, const BatesNumberingOptions &options) = 0;
+};
 
-    // Annotation Export
-    virtual bool embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations) = 0;
-
-    // Watermarking (Session 13)
+/// Embedded-image manipulation and watermarking.
+class IImageEditor {
+public:
+    virtual ~IImageEditor() = default;
+    virtual QList<PdfImageInfo> listImages(int pageIndex) = 0;
+    virtual bool moveImage(int pageIndex, const QString &xobjectName, double dx, double dy) = 0;
+    virtual bool resizeImage(int pageIndex, const QString &xobjectName, double newWidth, double newHeight) = 0;
+    virtual bool rotateImage(int pageIndex, const QString &xobjectName, double degrees) = 0;
+    virtual bool replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath) = 0;
+    virtual bool deleteImage(int pageIndex, const QString &xobjectName) = 0;
     virtual bool addTextWatermark(const TextWatermarkOptions &options) = 0;
     virtual bool addImageWatermark(const ImageWatermarkOptions &options) = 0;
+};
 
-    // Optimization (Session 13)
+/// Redaction (region- and pattern-based).
+class IRedactor {
+public:
+    virtual ~IRedactor() = default;
+    virtual bool applyRedactions(int pageIndex, const QList<QRectF> &rects) = 0;
+    // Pattern-based redaction: find all regex matches across the given pages
+    // (0-based) and excise them from the content stream. Empty/`{-1}` pages
+    // is interpreted per the implementation's documented contract.
+    virtual bool applyPatternRedactions(const QRegularExpression& pattern,
+                                        const QList<int>& pages = QList<int>(), const QString& outputPath = QString()) = 0;
+};
+
+/// Encryption / decryption (password + certificate).
+class IEncryptor {
+public:
+    virtual ~IEncryptor() = default;
+    virtual bool encryptDocument(const QString &userPassword, const QString &ownerPassword,
+                                  const DocumentPermissions& perms = DocumentPermissions()) = 0;
+    virtual bool removeEncryption(const QString &ownerPassword) = 0;
+    virtual bool encryptWithCertificate(const QString &inputPath,
+                                        const QString &outputPath,
+                                        const QStringList &certPaths) = 0;
+    // ER-3: number of CMS recipient envelopes in the /Encrypt dictionary's
+    // /Recipients array (0 if not public-key encrypted).
+    virtual int recipientCount() const = 0;
+};
+
+/// Export and optimization.
+class IExporter {
+public:
+    virtual ~IExporter() = default;
+    virtual bool exportPdfA(const QString &outputPath, int conformanceLevel) = 0;
+    /// Export current document as a PDF/A-2b MRC sandwich (JPEG2000 background +
+    /// JBIG2 foreground mask + invisible OCR text layer). Runs veraPDF gate.
+    virtual bool exportMrcPdfA(const QString& outputPath,
+                               const QList<QImage>& pageImages,
+                               const QList<struct PageOcrResult>& pageResults,
+                               MrcMode mode = MrcMode::Balanced) = 0;
     virtual OptimizeEstimate estimateOptimization(const OptimizeOptions &options) = 0;
     virtual bool optimizeDocument(const QString &outputPath, const OptimizeOptions &options) = 0;
+};
 
-    // Error reporting (Session 16)
-    virtual ErrorInfo lastError() const = 0;
-    virtual void clearError() = 0;
-
-    // R2-1 D2: incremental-update save that preserves /ByteRange integrity.
-    // Must be called instead of saveDocument() whenever the loaded document
-    // has PDF signatures (see hasPdfSignatures()). On a document without
-    // signatures the implementation may fall back to a full save.
-    virtual bool writeUpdate(const QString &outputPath) = 0;
-
-    // R2-1 D2: return true iff the currently-loaded document contains at least
-    // one PDF signature field (/Sig widget).  Used by HomeController::onSave to
-    // select the correct save path without coupling the controller to the backend.
+/// Signature awareness + annotation embedding.
+class ISignatureAware {
+public:
+    virtual ~ISignatureAware() = default;
+    // R2-1 D2: true iff the currently-loaded document contains at least one PDF
+    // signature field (/Sig widget). Used to select the correct save path.
     virtual bool hasPdfSignatures() const = 0;
+    virtual bool embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations) = 0;
+};
 
-    // ER-3: Return the number of CMS recipient envelopes in the /Encrypt
-    // dictionary's /Recipients array.  Returns 0 if the document is not
-    // encrypted or has no public-key recipients.  The caller checks > 1 to
-    // detect the multi-recipient case before allowing in-place re-encryption.
-    virtual int recipientCount() const = 0;
+// ── Aggregate interface ─────────────────────────────────────────────────────
+// The union of the role interfaces above. A concrete engine implements them
+// all; callers may depend on this aggregate (legacy) or on a single role.
+
+class IPdfEditorEngine : public IPdfDocumentIO,
+                         public IPageEditor,
+                         public IImageEditor,
+                         public IRedactor,
+                         public IEncryptor,
+                         public IExporter,
+                         public ISignatureAware {
+public:
+    ~IPdfEditorEngine() override = default;
 
 protected:
     IPdfEditorEngine() = default;
