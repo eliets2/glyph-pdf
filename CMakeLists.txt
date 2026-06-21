@@ -245,6 +245,25 @@ if(POPPLER_CPP_FOUND)
     message(FATAL_ERROR "Poppler (poppler-cpp) found via pkg-config (GPL-2.0+). Remove.")
 endif()
 
+# 5th method — direct library probe. Some distributions (e.g. MSYS2) ship the
+# poppler/mupdf shared library WITHOUT a matching top-level .pc or CMake config,
+# so the target/find_package/pkg-config probes above miss them. find_library
+# catches an installed libpoppler/libmupdf regardless of packaging metadata. On a
+# normal GlyphPDF build host neither is installed (we use PDFium), so this is inert
+# there; it only fires in the deliberate license-guard CI leg.
+find_library(_GUARD_MUPDF_LIB NAMES mupdf libmupdf mupdf-third)
+if(_GUARD_MUPDF_LIB)
+    message(FATAL_ERROR
+        "MuPDF library detected (${_GUARD_MUPDF_LIB}, AGPL-3.0). Linking MuPDF would "
+        "force GlyphPDF under AGPL-3.0. Use PDFium (BSD-3-Clause).")
+endif()
+find_library(_GUARD_POPPLER_LIB NAMES poppler poppler-cpp libpoppler poppler-glib)
+if(_GUARD_POPPLER_LIB)
+    message(FATAL_ERROR
+        "Poppler library detected (${_GUARD_POPPLER_LIB}, GPL-2.0+). Linking Poppler "
+        "would force GlyphPDF under GPL-2.0+. Use PDFium (BSD-3-Clause).")
+endif()
+
 # ── pdfws_core (INTERFACE — header-only) ──────────────────────────────────
 add_library(pdfws_core INTERFACE)
 target_include_directories(pdfws_core INTERFACE
