@@ -43,6 +43,7 @@
 #include <QSplitter>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <QtConcurrent/QtConcurrent>
 
 namespace gp {
 
@@ -456,39 +457,56 @@ void PagesMode::refreshPageList()
         return;
     }
 
-    // Ask the engine for page count via a page-property query.
-    // We derive pageCount from the engine's save-state; if unavailable fall back
-    // to an error state rather than showing fake data.
-    int pageCount = 0;
-    if (m_ctx->pdfEditor) {
-        // Load (may be a no-op if already loaded)
-        m_ctx->pdfEditor->loadDocumentForEditing(path);
-        // Count pages: PoDoFoBackend does not expose a standalone pageCount() on
-        // IPdfEditorEngine.  The safest proxy is to call extractPageAsBytes(path, 0)
-        // and binary-search upward — but that is expensive.  Instead, use the
-        // DocumentSession if it tracks page count, or fall back to a heuristic read.
-        //
-        // Practical approach: we use the document session's page count if available.
-        // DocumentSession::pageCount() is not in AppContext.h but the underlying
-        // loadDocumentForEditing already loaded the doc; check via a sentinel:
-        // extractPageAsBytes returns non-empty for valid pages, empty for out-of-range.
-        // Binary-search is O(log N) and safe.
+    // AR-7 D2: the page-count binary search issues multiple extractPageAsBytes()
+    // calls that each do engine I/O — run it on a worker thread so the GUI stays
+    // responsive, then populate the UI from onPageCountReady() on the GUI thread.
+    m_pageCountLabel->setText(PagesMode::tr("Loading…"));
+    if (m_splitAtSpin)    m_splitAtSpin->setRange(1, 1);
+    if (m_splitEverySpin) m_splitEverySpin->setRange(1, 1);
+
+    if (!m_ctx->pdfEditor) {
+        m_pageCountLabel->setText(PagesMode::tr("0 pages"));
+        return;
+    }
+
+    if (!m_pageCountWatcher) {
+        m_pageCountWatcher = new QFutureWatcher<int>(this);
+        connect(m_pageCountWatcher, &QFutureWatcher<int>::finished,
+                this, &PagesMode::onPageCountReady);
+    }
+
+    // Cancel any still-running query for a previous document.
+    if (m_pageCountWatcher->isRunning()) {
+        m_pageCountWatcher->cancel();
+        m_pageCountWatcher->waitForFinished();
+    }
+
+    std::weak_ptr<IPdfEditorEngine> weakEditor = m_ctx->pdfEditor;
+    m_pageCountWatcher->setFuture(QtConcurrent::run([weakEditor, path]() -> int {
+        auto engine = weakEditor.lock();
+        if (!engine) return 0;
+        engine->loadDocumentForEditing(path);
+        // O(log N) binary search: extractPageAsBytes returns non-empty for valid indices.
         int lo = 0, hi = 1;
-        // Expand hi until extractPageAsBytes returns empty
-        while (!m_ctx->pdfEditor->extractPageAsBytes(path, hi).isEmpty()) {
+        while (!engine->extractPageAsBytes(path, hi).isEmpty()) {
             hi *= 2;
-            if (hi > 4096) break; // safety cap
+            if (hi > 4096) break;
         }
-        // Binary search between lo and hi
         while (lo < hi) {
             const int mid = (lo + hi) / 2;
-            if (m_ctx->pdfEditor->extractPageAsBytes(path, mid).isEmpty())
+            if (engine->extractPageAsBytes(path, mid).isEmpty())
                 hi = mid;
             else
                 lo = mid + 1;
         }
-        pageCount = lo;
-    }
+        return lo;
+    }));
+}
+
+void PagesMode::onPageCountReady()
+{
+    if (!m_pageCountWatcher || m_pageCountWatcher->isCanceled()) return;
+    const int pageCount = m_pageCountWatcher->result();
 
     if (pageCount <= 0) {
         m_pageCountLabel->setText(PagesMode::tr("0 pages"));
@@ -502,11 +520,11 @@ void PagesMode::refreshPageList()
     if (m_splitEverySpin) m_splitEverySpin->setRange(1, pageCount);
 
     // Populate page list and reorder list
+    m_pageList->clear();
+    m_reorderList->clear();
+    m_originalOrder.clear();
+
     for (int i = 0; i < pageCount; ++i) {
-        // Page list item: gray placeholder icon + page number
-        // (Real thumbnail rendering requires a render backend path through AppContext;
-        //  that plumbing is deferred to when IPdfRenderBackend is added to AppContext.
-        //  For now, display a styled placeholder with the page number.)
         QPixmap thumb(100, 130);
         thumb.fill(QColor(220, 220, 220));
 
@@ -514,7 +532,7 @@ void PagesMode::refreshPageList()
         item->setIcon(QIcon(thumb));
         item->setText(PagesMode::tr("Page %1").arg(i + 1));
         item->setSizeHint(QSize(120, 160));
-        item->setData(Qt::UserRole, i); // store 0-based index
+        item->setData(Qt::UserRole, i);
         m_pageList->addItem(item);
 
         m_reorderList->addItem(PagesMode::tr("Page %1").arg(i + 1));
