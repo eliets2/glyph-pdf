@@ -22,7 +22,6 @@ public:
     void activate(ToolId id) override;
 
 private:
-    void manageForms();
     void autoDetectFields();
     void editTabOrder();
 
