@@ -67,6 +67,7 @@ public:
     bool cropPage(const QString &path, int pageIndex, const QRectF &cropRect) override;
     bool resizePage(const QString &path, int pageIndex, const QSizeF &size) override;
     bool reorderPages(const QString &path, int fromIndex, int toIndex) override;
+    bool reorderAllPages(const QString &path, const QList<int> &permutation) override;
 
     // Content Injection
     bool addHeaderFooter(const QString &path, const HeaderFooterOptions &options) override;

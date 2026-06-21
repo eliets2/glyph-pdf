@@ -1003,6 +1003,47 @@ bool PoDoFoBackend::reorderPages(const QString &path, int fromIndex, int toIndex
     }
 }
 
+bool PoDoFoBackend::reorderAllPages(const QString &path, const QList<int> &permutation) {
+    QMutexLocker locker(&d->mutex);
+    try {
+        auto& doc = d->resolveDocument(path);
+        auto& pages = doc.GetPages();
+        const int n = static_cast<int>(pages.GetCount());
+
+        // Validate permutation: must be a bijection of [0, n).
+        if (permutation.size() != n) return false;
+        QVector<bool> seen(n, false);
+        for (int idx : permutation) {
+            if (idx < 0 || idx >= n || seen[idx]) return false;
+            seen[idx] = true;
+        }
+
+        // Extract ALL pages into a temporary document in the DESIRED order.
+        // We copy each source page (by original index) into a temp doc, then
+        // rebuild the real document's page tree from the temp doc.  This performs
+        // the entire permutation without any intermediate writes to disk.
+        PoDoFo::PdfMemDocument tempDoc;
+        for (int i = 0; i < n; ++i) {
+            tempDoc.GetPages().InsertDocumentPageAt(i, doc, permutation[i]);
+        }
+
+        // Remove all pages from the original document (back-to-front to keep indices stable).
+        for (int i = n - 1; i >= 0; --i) {
+            pages.RemovePageAt(i);
+        }
+
+        // Re-insert from the temp doc in the correct order.
+        for (int i = 0; i < n; ++i) {
+            pages.InsertDocumentPageAt(i, tempDoc, i);
+        }
+
+        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
 bool PoDoFoBackend::addHeaderFooter(const QString &path, const HeaderFooterOptions &options) {
     QMutexLocker locker(&d->mutex);
     try {

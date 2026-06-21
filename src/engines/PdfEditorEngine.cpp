@@ -1107,6 +1107,19 @@ bool PdfEditorEngine::reorderPages(const QString &path, int fromIndex, int toInd
     return ok;
 }
 
+bool PdfEditorEngine::reorderAllPages(const QString &path, const QList<int> &permutation)
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("reorderAllPages");
+    bool ok = d->backend->reorderAllPages(path, permutation);
+    if (!ok)
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to reorder all pages."),
+                  QStringLiteral("reorderAllPages size=%1").arg(permutation.size()));
+    return ok;
+}
+
 bool PdfEditorEngine::addHeaderFooter(const QString &path, const HeaderFooterOptions &options)
 {
     QMutexLocker locker(&d->mutex);
