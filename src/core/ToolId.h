@@ -37,6 +37,7 @@ enum class ToolId {
     Fullscreen,
     DarkMode,
     EyeCare,
+    RTL,          // AR-8 D6: toggle right-to-left layout direction
 
     // ── Edit ──
     Hand,
