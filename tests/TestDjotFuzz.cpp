@@ -123,7 +123,7 @@ private slots:
     //   1. generateRandomDocument(seed) → model
     //   2. documentToDjot(model) → djotText  (hard assertions: non-null, non-empty)
     //   3. djotToDocument(djotText) → reparsed  (hard assertions: no throw, non-null)
-    //   4. Structural equivalence checks (QEXPECT_FAIL until djotToDocument is complete)
+    //   4. Structural equivalence checks (AR-9 D1 wired djotToDocument; all are now HARD assertions)
     // -----------------------------------------------------------------------
 
     void testFuzzSeed0()  { runFuzzSeed(0);  }
@@ -362,10 +362,9 @@ private slots:
     // -----------------------------------------------------------------------
     // E-05: Section count round-trip.
     //
-    // QEXPECT_FAIL: djotToDocument currently returns an empty SemanticDocument
-    // (AST walking not yet implemented). This test will fail until M5 wires up
-    // the AST-to-SemanticDocument mapper. Marked so the CI failure is expected
-    // now and becomes a hard failure once the implementation is complete.
+    // AR-9 D1 wired djotToDocument to walk the Lua AST back into SemanticDocument
+    // nodes. The three emitted section headings are now reconstructed as three
+    // sections on reparse — this is a HARD assertion (no QEXPECT_FAIL).
     // -----------------------------------------------------------------------
     void testStructuralEquivalenceSectionCount()
     {
@@ -405,7 +404,7 @@ private slots:
     //       documentToDjot(fuzzed) must produce output whose section count
     //       equals the fuzzed document's section count after decode.
     //
-    // QEXPECT_FAIL: same stub limitation as E-05.
+    // AR-9 D1: djotToDocument walks the Lua AST — section count is a HARD assertion.
     // -----------------------------------------------------------------------
     void testFuzzRoundtripSectionCount()
     {
