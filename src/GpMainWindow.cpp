@@ -199,6 +199,11 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
     connect(_modeStrip, &ModeStrip::aiToggleRequested,    this, &MainWindow::toggleAi);
     connect(_screenNav, &ScreenNav::screenSelected,       this, &MainWindow::onScreenSelected);
 
+    // OCR Verify screen <-> real OCR pipeline: the screen's Run button drives
+    // EditController::runOcr, and recognised words flow back to the review panes.
+    connect(_modes, &ModeController::ocrRunRequested, _edit, &EditController::runOcr);
+    connect(_edit, &EditController::ocrResultsReady, _modes, &ModeController::deliverOcrResults);
+
     // FindBar wiring
     connect(_findBar, &FindBar::searchRequested,     _edit, &EditController::onSearchRequested);
     connect(_findBar, &FindBar::replaceRequested,    _edit, &EditController::onReplaceRequested);
