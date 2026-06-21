@@ -11,7 +11,10 @@ public:
     ~PdfStructureMapper() override;
 
     std::unique_ptr<docmodel::SemanticDocument> mapPdfToSemantic(const std::string& pdfFilePath) override;
-    bool applySemanticToPdf(const docmodel::SemanticDocument& doc, const std::string& inputPdf, const std::string& outputPdf) override;
+    ApplyOutcome applySemanticToPdf(const docmodel::SemanticDocument& doc,
+                                    const std::string& inputPdf,
+                                    const std::string& outputPdf,
+                                    const ProvenanceToken& token) override;
 };
 
 } // namespace pdfws
