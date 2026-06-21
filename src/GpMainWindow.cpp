@@ -210,6 +210,19 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
     // EditController::runOcr, and recognised words flow back to the review panes.
     connect(_modes, &ModeController::ocrRunRequested, _edit, &EditController::runOcr);
     connect(_edit, &EditController::ocrResultsReady, _modes, &ModeController::deliverOcrResults);
+    // OCR review workflow. Accept: the recognised text was already delivered to
+    // the review panes (and is applied via the OCR pipeline), so confirm it.
+    // Reject: OCRMode has already cleared its overlay/results locally; surface a
+    // status message. Re-OCR region: re-run OCR (whole page until per-region
+    // bbox mapping ships — same EditController slot as the Run button).
+    connect(_modes, &ModeController::ocrReviewAccepted, this, [this]() {
+        statusBar()->showMessage(tr("OCR results accepted."), 3000);
+    });
+    connect(_modes, &ModeController::ocrReviewRejected, this, [this]() {
+        statusBar()->showMessage(tr("OCR results rejected — overlay cleared."), 3000);
+    });
+    connect(_modes, &ModeController::ocrReRunRegionRequested, _edit,
+            [this](QRectF) { _edit->runOcr(); });
 
     // FindBar wiring
     connect(_findBar, &FindBar::searchRequested,     _edit, &EditController::onSearchRequested);

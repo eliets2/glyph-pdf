@@ -172,6 +172,8 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     m_btnRun->setObjectName("ocrBtnRun");
     m_btnRun->setText(tr("Run OCR"));
     m_btnRun->setProperty("variant", "accent");
+    m_btnRun->setAccessibleName(tr("Run OCR"));
+    m_btnRun->setAccessibleDescription(tr("Run optical character recognition on the current page"));
     connect(m_btnRun, &QToolButton::clicked, this, &OCRMode::onRunOcr);
     row->addWidget(m_btnRun);
 
@@ -180,6 +182,8 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     m_btnAccept->setText(tr("✓ Accept"));
     m_btnAccept->setProperty("variant", "ghost");
     m_btnAccept->setEnabled(false);
+    m_btnAccept->setAccessibleName(tr("Accept OCR results"));
+    m_btnAccept->setAccessibleDescription(tr("Keep the recognised text and confidence overlay for this page"));
     connect(m_btnAccept, &QToolButton::clicked, this, &OCRMode::onAcceptResults);
     row->addWidget(m_btnAccept);
 
@@ -188,7 +192,9 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     m_btnReject->setText(tr("✗ Reject"));
     m_btnReject->setProperty("variant", "ghost");
     m_btnReject->setEnabled(false);
-    connect(m_btnReject, &QToolButton::clicked, this, &OCRMode::reviewRejected);
+    m_btnReject->setAccessibleName(tr("Reject OCR results"));
+    m_btnReject->setAccessibleDescription(tr("Discard the recognised text and clear the OCR overlay"));
+    connect(m_btnReject, &QToolButton::clicked, this, &OCRMode::onRejectResults);
     row->addWidget(m_btnReject);
 
     auto* sep2 = new QFrame; sep2->setFrameShape(QFrame::VLine);
@@ -372,9 +378,14 @@ void OCRMode::buildPanes(QVBoxLayout* col)
 
 void OCRMode::onRunOcr()
 {
-    // Enable review buttons after OCR run
-    m_btnAccept->setEnabled(true);
-    m_btnReject->setEnabled(true);
+    // R2: do NOT pre-enable Accept/Reject here. They must stay disabled until
+    // setOcrResults() actually delivers recognised words — otherwise the user
+    // can "accept" a result that does not exist yet. Show a processing state
+    // instead and let setOcrResults() enable the review buttons on arrival.
+    m_btnRun->setEnabled(false);
+    m_btnRun->setText(tr("Running…"));
+    m_btnAccept->setEnabled(false);
+    m_btnReject->setEnabled(false);
 
     // Update engine label
     m_lblEngine->setText(tr("ENGINE: %1 · %2")
@@ -382,11 +393,9 @@ void OCRMode::onRunOcr()
              m_strategyCombo->currentText()));
 
     // Confidence stats will be updated by setOcrResults() when results arrive.
-    // If no results set yet, clear the stats to avoid stale values.
-    if (m_currentWords.isEmpty()) {
-        m_lblAvgConf->setText(tr("AVG CONFIDENCE —"));
-        m_lblLowWords->setText(tr("LOW-CONFIDENCE WORDS —"));
-    }
+    // Clear the stats now to avoid showing stale values while OCR runs.
+    m_lblAvgConf->setText(tr("AVG CONFIDENCE —"));
+    m_lblLowWords->setText(tr("LOW-CONFIDENCE WORDS —"));
 
     emit ocrRequested();
 }
@@ -396,6 +405,19 @@ void OCRMode::onAcceptResults()
     m_btnAccept->setEnabled(false);
     m_btnReject->setEnabled(false);
     emit reviewAccepted();
+}
+
+void OCRMode::onRejectResults()
+{
+    // Reject clears the current OCR overlay/results so the page returns to its
+    // pre-OCR state; the host is notified to drop any pending applied text.
+    m_currentWords.clear();
+    updateConfidenceOverlay();
+    updateInfoStrip();
+    if (m_textEdit) m_textEdit->clear();
+    m_btnAccept->setEnabled(false);
+    m_btnReject->setEnabled(false);
+    emit reviewRejected();
 }
 
 // ── Context menu (right-click on scan pane) ──────────────────────────────────
@@ -423,11 +445,7 @@ void OCRMode::onImagePaneContextMenu(const QPoint &pos)
     });
 
     QAction *rejectRegion = menu.addAction(tr("Reject this region"));
-    connect(rejectRegion, &QAction::triggered, this, [this]() {
-        // Reject: mark region as needing re-work
-        m_btnReject->setEnabled(true);
-        emit reviewRejected();
-    });
+    connect(rejectRegion, &QAction::triggered, this, &OCRMode::onRejectResults);
 
     menu.exec(m_scanContentLabel->mapToGlobal(pos));
 }
@@ -453,9 +471,16 @@ void OCRMode::setOcrResults(const QList<MergedOcrWord> &words)
         m_textEdit->setPlainText(lines.join(QStringLiteral(" ")));
     }
 
-    // Enable review buttons
-    if (m_btnAccept) m_btnAccept->setEnabled(true);
-    if (m_btnReject) m_btnReject->setEnabled(true);
+    // Restore the Run button (it was disabled + relabelled while OCR ran).
+    if (m_btnRun) {
+        m_btnRun->setEnabled(true);
+        m_btnRun->setText(tr("Run OCR"));
+    }
+
+    // Enable review buttons only when there is something to review.
+    const bool hasWords = !words.isEmpty();
+    if (m_btnAccept) m_btnAccept->setEnabled(hasWords);
+    if (m_btnReject) m_btnReject->setEnabled(hasWords);
 }
 
 // ── updateConfidenceOverlay ───────────────────────────────────────────────────

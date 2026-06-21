@@ -59,6 +59,7 @@ signals:
 private slots:
     void onRunOcr();
     void onAcceptResults();
+    void onRejectResults();
     void onImagePaneContextMenu(const QPoint &pos);
     void onReOcrRegion();
 

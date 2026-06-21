@@ -3,6 +3,7 @@
 #include <QStackedWidget>
 #include <QHash>
 #include <QList>
+#include <QRectF>
 
 class PdfViewerWidget;
 struct AppContext;
@@ -40,6 +41,12 @@ signals:
     // Emitted when the OCR Verify screen's Run button is pressed; the host wires this
     // to the real OCR pipeline (EditController::runOcr).
     void ocrRunRequested();
+    // OCR review-workflow relays (mirror ocrRunRequested): the host wires these
+    // to real behaviour. Accept = keep applied results; Reject = drop pending
+    // results; Re-run region = re-run OCR (whole page until region mapping ships).
+    void ocrReviewAccepted();
+    void ocrReviewRejected();
+    void ocrReRunRegionRequested(QRectF regionBbox);
 
 private:
     QHash<QString, QWidget*> _byId;
