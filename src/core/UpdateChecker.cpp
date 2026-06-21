@@ -14,6 +14,7 @@
 #include <QProcess>
 #include <QSettings>
 #include <QDebug>
+#include <chrono>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -121,6 +122,10 @@ void UpdateChecker::checkForUpdates() {
                   QStringLiteral("GlyphPDF/%1").arg(currentVersion()));
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::NoLessSafeRedirectPolicy);
+    // Bound the request so a stalled connection (proxy / TLS handshake that never
+    // completes) can't leave the UI stuck on "Checking..." forever — on timeout the
+    // reply finishes with OperationCanceledError and we surface a clear failure.
+    req.setTransferTimeout(std::chrono::milliseconds{20000});
 
     m_manifestReply = m_nam->get(req);
     connect(m_manifestReply, &QNetworkReply::finished,
