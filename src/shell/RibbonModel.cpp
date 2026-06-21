@@ -12,7 +12,8 @@ const QSet<QString>& RibbonModel::plannedTools() {
         // Home
         "snapshot", "findRep", "regex", "history",
         // View – panels and window management
-        "thumbs", "bookmarks", "comments", "layers", "rtl",
+        // "rtl" removed: AR-8 D6 shipped the RTL toggle (ViewController handles it).
+        "thumbs", "bookmarks", "comments", "layers",
         "splitWin", "newWin",
         // Edit – advanced text/object operations
         "insertText", "deleteText", "link", "attach", "delete",
@@ -22,7 +23,8 @@ const QSet<QString>& RibbonModel::plannedTools() {
         // Organize – page decoration and advanced ops
         "replace", "reverse", "background",
         // Comment – advanced annotation types
-        "callout", "poly", "eraser", "stamp", "customStamp",
+        // (callout, eraser, stamp promoted to real tools — see ToolId::Callout/Erase/Stamp)
+        "poly", "customStamp",
         "summary", "filterComm", "statusComm", "trackChanges", "reply",
         // Convert – additional format targets and batch
         "toMD", "toEPUB", "fromScan", "fromWeb",

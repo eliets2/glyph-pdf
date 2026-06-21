@@ -31,6 +31,8 @@ private:
     void onSave();
     void onSaveAs();
     void onShare();
+    void shareViaEmail(const QString& filePath);
+    void createEncryptedPackage(const QString& filePath);
     void onPrint();
     void onPrintPreview();
     void onPageSetup();

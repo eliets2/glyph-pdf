@@ -2,6 +2,7 @@
 #include "engines/RenderCache.h"
 #include <QtConcurrent>
 #include <QFuture>
+#include <QThread>
 #include <QDebug>
 
 #ifdef Q_OS_WIN
@@ -9,7 +10,7 @@
 #endif
 
 #ifdef HAS_PDFIUM
-#include "engines/pdfium/PdfiumBackend.h"
+// RenderCache only depends on the IPdfRenderer interface now.
 #endif
 
 namespace {
@@ -51,13 +52,42 @@ qint64 RenderCache::maxCacheSize() const {
 }
 
 void RenderCache::clear() {
+    m_prefetchCancelToken.fetchAndAddRelaxed(1);
+    if (m_prefetchFuture.isRunning()) m_prefetchFuture.waitForFinished();
+
     WriteLockGuard guard(m_lock);
     m_renderedPages.clear();
-    m_lruList.clear();
+    m_lruOrder.clear();
     m_totalBytes = 0;
     m_pageSizes.clear();
     m_textLayer.clear();
     m_pageCount = 0;
+}
+
+// O(1) move-to-front. Caller holds the write lock. (AR-6 D2)
+void RenderCache::touchLru(const RenderCacheKey &key, CacheValue &value) {
+    // splice is O(1) and preserves iterator validity of the moved element.
+    m_lruOrder.splice(m_lruOrder.begin(), m_lruOrder, value.lruIt);
+    value.lruIt = m_lruOrder.begin();
+    Q_UNUSED(key);
+}
+
+// O(1) insert-or-replace at the front. Caller holds the write lock. (AR-6 D2)
+void RenderCache::insertLocked(const RenderCacheKey &key, const QImage &image) {
+    qint64 bytes = imageSizeInBytes(image);
+    auto it = m_renderedPages.find(key);
+    if (it != m_renderedPages.end()) {
+        // Replace existing entry: adjust byte accounting, refresh LRU position.
+        m_totalBytes += bytes - it->bytes;
+        it->image = image;
+        it->bytes = bytes;
+        touchLru(key, *it);
+    } else {
+        m_lruOrder.push_front(key);
+        m_totalBytes += bytes;
+        m_renderedPages.insert(key, CacheValue{image, bytes, m_lruOrder.begin()});
+    }
+    evictIfNeeded();
 }
 
 void RenderCache::resetStats() {
@@ -98,17 +128,31 @@ QSizeF RenderCache::pageSize(int page, IPdfRenderer* renderer) {
     }
 
     if (promisePtr) {
+        // AR-6 D4: if renderer->pageSize() throws, the promise must STILL be
+        // fulfilled — otherwise fut.get() (here and on every concurrent waiter)
+        // blocks/throws on a broken promise forever, permanently poisoning this
+        // page's metadata cache. On failure we satisfy the promise with a safe
+        // default AND evict the cached future under the write lock so a later
+        // call can retry a real measurement.
         QSizeF size;
-#ifdef HAS_PDFIUM
-        auto* pdfium = dynamic_cast<PdfiumBackend*>(renderer);
-        if (pdfium) {
-            size = pdfium->pageSize(page);
+        bool failed = false;
+        try {
+            size = renderer->pageSize(page);
+        } catch (...) {
+            failed = true;
         }
-#endif
         if (!size.isValid()) {
             size = QSizeF(595.276, 841.890); // Default A4 size
         }
+        // Always set the value first so no waiter ever sees a broken promise.
         promisePtr->set_value(size);
+        if (failed) {
+            WriteLockGuard guard(m_lock);
+            // Only erase if it's still our (now-fulfilled-with-default) future,
+            // so a concurrent successful insert is not clobbered.
+            if (m_pageSizes.contains(page))
+                m_pageSizes.remove(page);
+        }
     }
 
     return fut.get();
@@ -151,12 +195,11 @@ QImage RenderCache::getOrRender(int page, qreal scale, IPdfRenderer* renderer) {
     // 1. Try to read and update LRU together (TOCTOU fix)
     {
         WriteLockGuard guard(m_lock);
-        if (m_renderedPages.contains(key)) {
+        auto it = m_renderedPages.find(key);
+        if (it != m_renderedPages.end()) {
             m_hits.fetchAndAddRelaxed(1);
-            QImage img = m_renderedPages.value(key).image;
-            m_lruList.removeOne(key);
-            m_lruList.prepend(key);
-            return img;
+            touchLru(key, *it);
+            return it->image;
         }
     }
 
@@ -171,16 +214,12 @@ QImage RenderCache::getOrRender(int page, qreal scale, IPdfRenderer* renderer) {
     // 3. Insert and evict
     {
         WriteLockGuard guard(m_lock);
-        if (m_renderedPages.contains(key)) {
-            return m_renderedPages.value(key).image;
+        auto it = m_renderedPages.find(key);
+        if (it != m_renderedPages.end()) {
+            touchLru(key, *it);
+            return it->image;
         }
-
-        qint64 bytes = imageSizeInBytes(rendered);
-        m_renderedPages.insert(key, {rendered, bytes});
-        m_lruList.removeOne(key);
-        m_lruList.prepend(key);
-        m_totalBytes += bytes;
-        evictIfNeeded();
+        insertLocked(key, rendered);
     }
 
     return rendered;
@@ -192,12 +231,11 @@ QImage RenderCache::getOrRenderTile(int page, qreal scale, const QRectF &subRect
     // 1. Try to read and update LRU together (TOCTOU fix)
     {
         WriteLockGuard guard(m_lock);
-        if (m_renderedPages.contains(key)) {
+        auto it = m_renderedPages.find(key);
+        if (it != m_renderedPages.end()) {
             m_hits.fetchAndAddRelaxed(1);
-            QImage img = m_renderedPages.value(key).image;
-            m_lruList.removeOne(key);
-            m_lruList.prepend(key);
-            return img;
+            touchLru(key, *it);
+            return it->image;
         }
     }
 
@@ -212,16 +250,12 @@ QImage RenderCache::getOrRenderTile(int page, qreal scale, const QRectF &subRect
     // 3. Insert and evict
     {
         WriteLockGuard guard(m_lock);
-        if (m_renderedPages.contains(key)) {
-            return m_renderedPages.value(key).image;
+        auto it = m_renderedPages.find(key);
+        if (it != m_renderedPages.end()) {
+            touchLru(key, *it);
+            return it->image;
         }
-
-        qint64 bytes = imageSizeInBytes(tileImg);
-        m_renderedPages.insert(key, {tileImg, bytes});
-        m_lruList.removeOne(key);
-        m_lruList.prepend(key);
-        m_totalBytes += bytes;
-        evictIfNeeded();
+        insertLocked(key, tileImg);
     }
 
     return tileImg;
@@ -230,23 +264,13 @@ QImage RenderCache::getOrRenderTile(int page, qreal scale, const QRectF &subRect
 void RenderCache::insertPage(int page, qreal scale, const QImage &image) {
     WriteLockGuard guard(m_lock);
     RenderCacheKey key{page, scale, false, QRectF()};
-    qint64 bytes = imageSizeInBytes(image);
-    m_renderedPages.insert(key, {image, bytes});
-    m_lruList.removeOne(key);
-    m_lruList.prepend(key);
-    m_totalBytes += bytes;
-    evictIfNeeded();
+    insertLocked(key, image);
 }
 
 void RenderCache::insertTile(int page, qreal scale, const QRectF &subRect, const QImage &image) {
     WriteLockGuard guard(m_lock);
     RenderCacheKey key{page, scale, true, subRect};
-    qint64 bytes = imageSizeInBytes(image);
-    m_renderedPages.insert(key, {image, bytes});
-    m_lruList.removeOne(key);
-    m_lruList.prepend(key);
-    m_totalBytes += bytes;
-    evictIfNeeded();
+    insertLocked(key, image);
 }
 
 void RenderCache::prefetchViewport(int centerPage, qreal scale, IPdfRenderer* renderer) {
@@ -278,6 +302,18 @@ void RenderCache::prefetchViewport(int centerPage, qreal scale, IPdfRenderer* re
         auto self = weakThis.lock();
         if (!self) return;
 
+        // AR-6 D1: rendering is SERIAL — the backend (PdfiumBackend) serialises
+        // every renderPage()/renderTile() behind one mutex (PDFium page objects
+        // are not safe to render concurrently against a single FPDF_DOCUMENT).
+        // We deliberately keep render serial rather than maintaining a pool of
+        // per-thread document instances; the chosen mitigation is to run this
+        // BACKGROUND prefetch at the lowest thread priority so it can never
+        // starve the foreground UI render. When the UI thread requests a page,
+        // the OS scheduler preempts this thread for the (normal-priority) caller,
+        // so foreground latency is bounded by at most one in-flight page render.
+        if (QThread* t = QThread::currentThread())
+            t->setPriority(QThread::LowestPriority);
+
         for (int p : pagesToPrefetch) {
             // Check cancellation token before rendering each page
             if (self->m_prefetchCancelToken.loadRelaxed() != currentToken) {
@@ -304,12 +340,7 @@ void RenderCache::prefetchViewport(int centerPage, qreal scale, IPdfRenderer* re
                 if (!rendered.isNull()) {
                     WriteLockGuard guard(self->m_lock);
                     if (!self->m_renderedPages.contains(key)) {
-                        qint64 bytes = self->imageSizeInBytes(rendered);
-                        self->m_renderedPages.insert(key, {rendered, bytes});
-                        self->m_lruList.removeOne(key);
-                        self->m_lruList.prepend(key);
-                        self->m_totalBytes += bytes;
-                        self->evictIfNeeded();
+                        self->insertLocked(key, rendered);
                     }
                 }
             }
@@ -328,15 +359,10 @@ QString RenderCache::getOrExtractText(int page, IPdfRenderer* renderer) {
 
     if (!renderer) return QString();
 
-#ifdef HAS_PDFIUM
-    auto* pdfium = dynamic_cast<PdfiumBackend*>(renderer);
-    if (pdfium) {
-        QString extracted = pdfium->extractText(page);
-        WriteLockGuard guard(m_lock);
-        m_textLayer.insert(page, extracted);
-        return extracted;
-    }
-#endif
+    QString extracted = renderer->extractText(page);
+    WriteLockGuard guard(m_lock);
+    m_textLayer.insert(page, extracted);
+    return extracted;
 
     return QString();
 }
@@ -349,12 +375,15 @@ void RenderCache::insertText(int page, const QString &text) {
 void RenderCache::evictIfNeeded() {
     // Note: Assumes write lock is already held
     Q_ASSERT(t_writeLocked);
-    while (m_totalBytes > m_maxCacheSize && !m_lruList.isEmpty()) {
-        RenderCacheKey oldestKey = m_lruList.takeLast();
-        if (m_renderedPages.contains(oldestKey)) {
-            m_totalBytes -= m_renderedPages.value(oldestKey).bytes;
-            m_renderedPages.remove(oldestKey);
+    while (m_totalBytes > m_maxCacheSize && !m_lruOrder.empty()) {
+        // O(1) eviction: oldest is at the back of the intrusive LRU list.
+        const RenderCacheKey oldestKey = m_lruOrder.back();
+        auto it = m_renderedPages.find(oldestKey);
+        if (it != m_renderedPages.end()) {
+            m_totalBytes -= it->bytes;
+            m_renderedPages.erase(it);
         }
+        m_lruOrder.pop_back();
     }
 
 #ifndef QT_NO_DEBUG
@@ -403,6 +432,14 @@ bool RenderCache::shouldAutoTile(int page, qreal scale, IPdfRenderer* renderer) 
 }
 
 void RenderCache::checkMemoryPressure() {
+    // AR-6 D5: throttle the OS poll. This runs on every getOrRender(); querying
+    // GlobalMemoryStatusEx per tile during a scroll is a syscall storm. Only
+    // actually poll once per MemoryPressurePollInterval calls. Eviction is not
+    // time-critical — a 32-call delay before reacting to low memory is fine, and
+    // the next interval re-checks. (fetchAndAdd wraps harmlessly.)
+    const int tick = m_memoryPressureTick.fetchAndAddRelaxed(1);
+    if ((tick % MemoryPressurePollInterval) != 0) return;
+
     if (!isSystemMemoryLow()) return;
 
     qWarning() << "RenderCache: system memory low (<"
@@ -412,11 +449,13 @@ void RenderCache::checkMemoryPressure() {
     WriteLockGuard guard(m_lock);
 
     // Aggressive eviction: shrink to AggressiveCacheLimit
-    while (m_totalBytes > MemoryGuard::AggressiveCacheLimit && !m_lruList.isEmpty()) {
-        RenderCacheKey oldestKey = m_lruList.takeLast();
-        if (m_renderedPages.contains(oldestKey)) {
-            m_totalBytes -= m_renderedPages.value(oldestKey).bytes;
-            m_renderedPages.remove(oldestKey);
+    while (m_totalBytes > MemoryGuard::AggressiveCacheLimit && !m_lruOrder.empty()) {
+        const RenderCacheKey oldestKey = m_lruOrder.back();
+        auto it = m_renderedPages.find(oldestKey);
+        if (it != m_renderedPages.end()) {
+            m_totalBytes -= it->bytes;
+            m_renderedPages.erase(it);
         }
+        m_lruOrder.pop_back();
     }
 }

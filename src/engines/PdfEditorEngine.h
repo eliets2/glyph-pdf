@@ -4,6 +4,7 @@
 #include <QString>
 #include <QList>
 #include <QImage>
+#include <QDate>
 #include <memory>
 #include <QRegularExpression>
 #include "core/interfaces/IPdfEditorEngine.h"
@@ -44,6 +45,12 @@ public:
     bool getMetadata(PdfMetadata &outMetadata) override;
     bool setMetadata(const PdfMetadata &metadata) override;
 
+    // Document expiry (§9.11) — local XMP marker, not part of IPdfEditorEngine.
+    // Writes <glyph:ExpiryDate>YYYY-MM-DD</glyph:ExpiryDate> into the catalog XMP.
+    bool setExpiryDate(const QString& pdfPath, const QDate& date, const QString& outputPath);
+    // Returns the embedded expiry date, or an invalid QDate if none is present.
+    static QDate readExpiryDate(const QString& pdfPath);
+
     QString currentFile() const override;
     QStringList getEmbeddedFiles() override;
     QByteArray extractEmbeddedFile(const QString &name) override;
@@ -60,6 +67,7 @@ public:
     bool cropPage(const QString &path, int pageIndex, const QRectF &cropRect) override;
     bool resizePage(const QString &path, int pageIndex, const QSizeF &size) override;
     bool reorderPages(const QString &path, int fromIndex, int toIndex) override;
+    bool reorderAllPages(const QString &path, const QList<int> &permutation) override;
 
     // Content Injection
     bool addHeaderFooter(const QString &path, const HeaderFooterOptions &options) override;
@@ -74,7 +82,7 @@ public:
     bool deleteImage(int pageIndex, const QString &xobjectName) override;
     bool applyRedactions(int pageIndex, const QList<QRectF> &rects) override;
     bool applyPatternRedactions(const QRegularExpression& pattern,
-                                int startPage, int endPage) override;
+                                const QList<int>& pages = QList<int>(), const QString& outputPath = QString()) override;
     bool embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations) override;
 
     // Watermarking (Session 13)

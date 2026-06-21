@@ -75,7 +75,12 @@ QList<AnnotationItem> AnnotationSerializer::fromJson(const QJsonDocument& doc)
         item.parentId = obj["parentId"].toString();
         item.author = obj["author"].toString();
         item.creationDate = obj["creationDate"].toString();
-        item.reviewState = static_cast<ReviewState>(obj["reviewState"].toInt());
+        {
+            int rsInt = obj["reviewState"].toInt(0);
+            if (rsInt < 0 || rsInt > static_cast<int>(ReviewState::LastValue))
+                rsInt = 0;
+            item.reviewState = static_cast<ReviewState>(rsInt);
+        }
 
         QJsonArray repliesArray = obj["replies"].toArray();
         for (int j = 0; j < repliesArray.size(); ++j) {

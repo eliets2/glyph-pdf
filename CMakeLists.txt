@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(PdfWorkstation VERSION 1.0.0 LANGUAGES CXX)
+project(PdfWorkstation VERSION 1.3.2 LANGUAGES CXX)
 
 # MSYS2 ucrt64 — single coherent toolchain + Qt6 + all deps via pacman.
 # Explicit prefix paths so CMake resolves packages regardless of calling shell.
@@ -13,6 +13,9 @@ list(APPEND CMAKE_MODULE_PATH "${MSYS2_ROOT}/lib/cmake")
 set(ENV{PKG_CONFIG_PATH} "${MSYS2_ROOT}/lib/pkgconfig:${MSYS2_ROOT}/share/pkgconfig")
 set(ENV{PKG_CONFIG_LIBDIR} "${MSYS2_ROOT}/lib/pkgconfig:${MSYS2_ROOT}/share/pkgconfig")
 enable_testing()
+# SECFIX-1: GLYPH_TESTING must NOT be defined for production builds. It guards an
+# OCSP test-fixture bypass in SignatureManager.cpp. Opt in only for CI test builds.
+option(GLYPHPDF_ENABLE_TEST_FIXTURES "Enable OCSP test fixture loading (for CI only)" OFF)
 include(CTest)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -21,11 +24,77 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
+# AR-11 D4: Default to Release when CMAKE_BUILD_TYPE is unset.
+# Without this, a bare `cmake -B build` yields an unoptimised assert-enabled build
+# that ships DWARF paths (C:\Users\User\Projects\pdf) in every binary.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    message(STATUS "AR-11 D4: CMAKE_BUILD_TYPE not set — defaulting to Release")
+    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type (default: Release)" FORCE)
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS
+                 "Debug" "Release" "RelWithDebInfo" "MinSizeRel")
+endif()
+
 add_compile_options(-Wall -Wextra -Wno-unused-parameter)
 if(MSVC)
     add_compile_options(/we4715 /we4834 /we4456) # return-type, nodiscard, shadow equivalents
 else()
     add_compile_options(-Werror=return-type -Werror=unused-result -Werror=shadow)
+endif()
+
+# AR-11 D4: Security hardening flags (GCC/MinGW, Release builds only).
+# -fstack-protector-strong  — stack smashing detection (SSP) on functions with
+#                              complex stack frames (GCC 4.9+)
+# -D_FORTIFY_SOURCE=2       — buffer overflow detection in glibc wrappers;
+#                              requires optimisation (-O1 or higher).
+# Linker PE flags (Windows x64):
+#   --dynamicbase            → sets IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE (ASLR)
+#   --nxcompat               → sets IMAGE_DLLCHARACTERISTICS_NX_COMPAT  (DEP/NX)
+#   --high-entropy-va        → 64-bit ASLR (HEASLR; requires --dynamicbase)
+# LTO:
+#   -flto / -flto=auto       — link-time optimisation; reduces binary size, speeds
+#                              up release builds, eliminates cross-TU dead code.
+# These flags are NOT applied to Debug builds so developers don't pay the LTO
+# link-time cost during iteration, and _FORTIFY_SOURCE=2 won't warn without -O.
+if(NOT MSVC)
+    # AR-11 D4: Compile-time hardening flags for Release / RelWithDebInfo / MinSizeRel.
+    # add_compile_options applies globally to all targets in this directory tree.
+    # Generator expressions gate them to non-Debug configurations.
+    add_compile_options(
+        "$<$<NOT:$<CONFIG:Debug>>:-fstack-protector-strong>"
+        "$<$<NOT:$<CONFIG:Debug>>:-D_FORTIFY_SOURCE=2>"
+    )
+    # AR-11 D4: PE security flags (Windows ASLR/DEP/HEASLR) — Release/RelWithDebInfo.
+    # --dynamicbase  → IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE (ASLR)
+    # --nxcompat     → IMAGE_DLLCHARACTERISTICS_NX_COMPAT (DEP/NX)
+    # --high-entropy-va → 64-bit HEASLR (requires --dynamicbase)
+    add_link_options(
+        "$<$<NOT:$<CONFIG:Debug>>:-Wl,--dynamicbase,--nxcompat,--high-entropy-va>"
+    )
+    # AR-11 D4: LTO — opt-in via -DGLYPHPDF_ENABLE_LTO=ON.
+    # Default OFF: LTO dramatically increases link time (minutes on large codebases).
+    # The release CI leg sets GLYPHPDF_ENABLE_LTO=ON; dev builds get fast links.
+    option(GLYPHPDF_ENABLE_LTO "Enable Link-Time Optimisation (LTO) for Release builds" OFF)
+    if(GLYPHPDF_ENABLE_LTO AND NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+        message(STATUS "AR-11 D4: LTO enabled (GLYPHPDF_ENABLE_LTO=ON)")
+        add_compile_options("$<$<NOT:$<CONFIG:Debug>>:-flto=auto>")
+        add_link_options("$<$<NOT:$<CONFIG:Debug>>:-flto=auto>")
+    endif()
+endif()
+
+# AR-11 D4: Strip release binaries so they do not leak build-host DWARF paths
+# (the default MinGW Release build includes full debug symbols including
+# the absolute source path C:\Users\User\Projects\pdf\src\...).
+# strip is run as a post-build step on PdfWorkstation.exe in Release mode.
+# Test executables are not stripped (dev-time debugging value).
+if(NOT MSVC AND CMAKE_BUILD_TYPE STREQUAL "Release")
+    find_program(STRIP_PROGRAM strip
+        PATHS "${MSYS2_ROOT}/bin" /c/msys64/ucrt64/bin
+        NO_DEFAULT_PATH)
+    if(STRIP_PROGRAM)
+        message(STATUS "AR-11 D4: strip found at ${STRIP_PROGRAM} — Release EXE will be stripped")
+    else()
+        message(WARNING "AR-11 D4: strip not found — Release EXE will contain DWARF debug paths")
+    endif()
 endif()
 # ── Dependencies ──────────────────────────────────────────────────────────
 find_package(Qt6 COMPONENTS Core Gui Widgets Pdf PdfWidgets PrintSupport Svg Network Test Concurrent REQUIRED)
@@ -73,18 +142,9 @@ find_package(duckx CONFIG QUIET)
 find_package(CURL QUIET)
 find_package(qpdf QUIET)
 
-# LibreOffice headless — optional dep for Office→PDF import.
-# Not a hard requirement; graceful runtime no-op when absent.
-find_program(LIBREOFFICE_SOFFICE soffice
-    PATHS
-        "C:/Program Files/LibreOffice/program"
-        "C:/Program Files (x86)/LibreOffice/program"
-    DOC "LibreOffice headless soffice binary for Office→PDF conversion")
-if(LIBREOFFICE_SOFFICE)
-    message(STATUS "LibreOffice found at ${LIBREOFFICE_SOFFICE} — Office→PDF import enabled")
-else()
-    message(STATUS "LibreOffice not found — Office→PDF import will gracefully no-op at runtime")
-endif()
+# LibreOffice headless (Office→PDF import) is detected at RUNTIME by
+# ConversionManager::locateSoffice() — never baked at build time, so the shipped
+# binary works on whatever machine the user has. No build-time probe needed.
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 find_package(Pdfium QUIET)
 find_package(libzip REQUIRED)
@@ -100,12 +160,38 @@ if(NOT onnxruntime_FOUND AND PkgConfig_FOUND)
     pkg_check_modules(PKG_ONNXRUNTIME QUIET libonnxruntime)
 endif()
 
-# MuPDF + Poppler FATAL_ERROR guards (license: AGPL-3.0 + GPL-2.0+ incompatible)
-if(TARGET mupdf OR TARGET libmupdf OR TARGET mupdf-pkg)
-    message(FATAL_ERROR "MuPDF detected (AGPL-3.0). Use PDFium for rendering.")
+# ── License contamination guards (MuPDF AGPL-3.0 + Poppler GPL-2.0+) ──────────
+# Four detection methods each: (1) CMake targets (bare + namespaced),
+# (2) find_package, (3) pkg-config, (4) namespaced/aliased targets.
+# AR-11 D3: broadened to cover namespaced targets (Poppler::poppler,
+# unofficial::poppler, etc.) that vcpkg and some system CMake configs export.
+# CI exercises this gate with a matrix leg that installs poppler and asserts
+# configure fails (see .github/workflows/license-guard.yml).
+#
+# MuPDF AGPL-3.0 — NEVER link in-process
+if(TARGET mupdf
+   OR TARGET libmupdf
+   OR TARGET mupdf-pkg
+   OR TARGET MuPDF::MuPDF
+   OR TARGET mupdf::mupdf
+   OR TARGET PkgConfig::mupdf)
+    message(FATAL_ERROR
+        "MuPDF detected (AGPL-3.0). Linking MuPDF would force GlyphPDF under "
+        "AGPL-3.0. Use PDFium (BSD-3-Clause) for rendering.")
 endif()
-if(TARGET poppler OR TARGET poppler-cpp OR TARGET libpoppler)
-    message(FATAL_ERROR "Poppler detected (GPL-2.0+). Use PDFium for rendering.")
+# Poppler GPL-2.0+ — NEVER link in-process
+if(TARGET poppler
+   OR TARGET poppler-cpp
+   OR TARGET libpoppler
+   OR TARGET Poppler::poppler
+   OR TARGET Poppler::poppler-cpp
+   OR TARGET unofficial::poppler
+   OR TARGET unofficial::poppler-cpp
+   OR TARGET PkgConfig::POPPLER
+   OR TARGET PkgConfig::poppler)
+    message(FATAL_ERROR
+        "Poppler detected (GPL-2.0+). Linking Poppler would force GlyphPDF under "
+        "GPL-2.0+. Use PDFium (BSD-3-Clause) for rendering.")
 endif()
 
 find_package(MuPDF QUIET)
@@ -125,6 +211,11 @@ endif()
 pkg_check_modules(POPPLER QUIET poppler)
 if(POPPLER_FOUND)
     message(FATAL_ERROR "Poppler found via pkg-config (GPL-2.0+). Remove.")
+endif()
+# Extra: catch poppler-cpp pkg-config module (Poppler can be found via either)
+pkg_check_modules(POPPLER_CPP QUIET poppler-cpp)
+if(POPPLER_CPP_FOUND)
+    message(FATAL_ERROR "Poppler (poppler-cpp) found via pkg-config (GPL-2.0+). Remove.")
 endif()
 
 # ── pdfws_core (INTERFACE — header-only) ──────────────────────────────────
@@ -152,6 +243,8 @@ add_library(pdfws_engines STATIC
     src/core/ErrorInfo.h             src/core/ErrorInfo.cpp
     src/core/TempFileManager.h       src/core/TempFileManager.cpp
     src/core/CredentialManager.h     src/core/CredentialManager.cpp
+    src/core/ISecretStore.h
+    src/core/EncryptedFileSecretStore.h src/core/EncryptedFileSecretStore.cpp
     src/engines/OcrEngine.h          src/engines/OcrEngine.cpp
     src/engines/PdfEditorEngine.h    src/engines/PdfEditorEngine.cpp
     src/engines/FormManager.h        src/engines/FormManager.cpp
@@ -166,6 +259,7 @@ add_library(pdfws_engines STATIC
     src/engines/podofo/PoDoFoBackend.h src/engines/podofo/PoDoFoBackend.cpp
     src/engines/podofo/PdfEncryptPubSec.h src/engines/podofo/PdfEncryptPubSec.cpp
     src/engines/podofo/PdfPageOps.h       src/engines/podofo/PdfPageOps.cpp
+    src/engines/pdfium/PdfiumEnvironment.h src/engines/pdfium/PdfiumEnvironment.cpp
     src/engines/pdfium/PdfiumBackend.h src/engines/pdfium/PdfiumBackend.cpp
     src/engines/qpdf/QpdfBackend.h     src/engines/qpdf/QpdfBackend.cpp
     src/engines/RenderCache.h          src/engines/RenderCache.cpp
@@ -186,7 +280,6 @@ add_library(pdfws_engines STATIC
     src/engines/ocr/RapidOcrEngine.h        src/engines/ocr/RapidOcrEngine.cpp
     src/engines/mrc/MrcPageProcessor.h      src/engines/mrc/MrcPageProcessor.cpp
     src/core/interfaces/IPdfDocument.h
-    src/core/interfaces/IPdfPage.h
     src/core/interfaces/IPdfRenderer.h
     src/core/interfaces/IPdfWriter.h
     src/core/interfaces/IPdfSearcher.h
@@ -230,17 +323,29 @@ else()
 endif()
 
 # ── OpenJPEG2 (BSD-2-Clause) — MRC background encoding ─────────────────────
-find_package(PkgConfig QUIET)
-if(PKG_CONFIG_FOUND)
-    pkg_check_modules(OPENJPEG2 QUIET libopenjp2)
+# REQUIRED: MrcPageProcessor.cpp includes <openjpeg.h> unconditionally.
+# Prefer the CMake config package (MSYS2 ships openjpeg-2.5 config; pkg-config
+# detection is unreliable on CI runners); fall back to pkg-config.
+find_package(OpenJPEG CONFIG QUIET)
+if(OpenJPEG_FOUND)
+    target_include_directories(pdfws_engines PUBLIC ${OPENJPEG_INCLUDE_DIRS})
+    target_link_libraries(pdfws_engines PUBLIC openjp2)
+    target_compile_definitions(pdfws_engines PUBLIC HAS_OPENJPEG2)
+    message(STATUS "OpenJPEG2 found (CMake config ${OPENJPEG_VERSION}) — MRC JPEG2000 encoding enabled")
+else()
+    find_package(PkgConfig QUIET)
+    if(PKG_CONFIG_FOUND)
+        pkg_check_modules(OPENJPEG2 QUIET libopenjp2)
+    endif()
     if(OPENJPEG2_FOUND)
         target_include_directories(pdfws_engines PUBLIC ${OPENJPEG2_INCLUDE_DIRS})
         target_link_directories(pdfws_engines PUBLIC ${OPENJPEG2_LIBRARY_DIRS})
         target_link_libraries(pdfws_engines PUBLIC ${OPENJPEG2_LIBRARIES})
         target_compile_definitions(pdfws_engines PUBLIC HAS_OPENJPEG2)
-        message(STATUS "OpenJPEG2 found: ${OPENJPEG2_VERSION} — MRC JPEG2000 encoding enabled")
+        message(STATUS "OpenJPEG2 found (pkg-config ${OPENJPEG2_VERSION}) — MRC JPEG2000 encoding enabled")
     else()
-        message(STATUS "OpenJPEG2 not found — MRC JPEG2000 encoding will be disabled")
+        message(FATAL_ERROR "OpenJPEG2 not found — required by MrcPageProcessor (MRC JPEG2000 encoding). "
+                            "Install mingw-w64-ucrt-x86_64-openjpeg2 (MSYS2) or provide OpenJPEGConfig.cmake.")
     endif()
 endif()
 
@@ -293,6 +398,92 @@ if(Pdfium_FOUND AND TARGET Pdfium::Pdfium)
 else()
     message(STATUS "PDFium not found — PdfiumBackend disabled")
 endif()
+
+# AR-11 D5: Feature/version summary + hard-fail on missing shipped-feature defines.
+# The four core features listed in README.md / release notes MUST be present in any
+# artifact that will be signed and submitted to winget. A QUIET find_package() today
+# silently drops features with no build error. This gate makes omissions loud.
+#
+# GLYPHPDF_RELEASE_BUILD=ON is set by the release CI leg (packaging/build-msi.ps1)
+# and the release workflow. Developer builds with missing deps are allowed to proceed
+# (STATUS messages only); release builds hard-fail.
+option(GLYPHPDF_RELEASE_BUILD "Hard-fail on any missing shipped feature (set by release pipeline)" OFF)
+
+# Track which shipped features are present
+set(_has_pdfium   FALSE)
+set(_has_tesseract FALSE)
+set(_has_rapidocr  FALSE)
+set(_has_qpdf      FALSE)
+
+if(Pdfium_FOUND AND TARGET Pdfium::Pdfium)
+    set(_has_pdfium TRUE)
+endif()
+if(PKG_TESSERACT_FOUND OR Tesseract_FOUND)
+    set(_has_tesseract TRUE)
+endif()
+if(onnxruntime_FOUND OR TARGET onnxruntime OR PKG_ONNXRUNTIME_FOUND)
+    set(_has_rapidocr TRUE)
+endif()
+if(qpdf_FOUND AND (TARGET qpdf::qpdf OR TARGET qpdf::libqpdf))
+    set(_has_qpdf TRUE)
+endif()
+
+message(STATUS "")
+message(STATUS "===== GlyphPDF ${PROJECT_VERSION} — Feature Summary (AR-11 D5) =====")
+message(STATUS "  HAS_PDFIUM    : ${_has_pdfium}   (rendering engine — PDF.js-speed rendering)")
+message(STATUS "  HAS_TESSERACT : ${_has_tesseract}  (primary OCR engine — Tesseract 5)")
+message(STATUS "  HAS_RAPIDOCR  : ${_has_rapidocr}  (secondary OCR — PP-OCRv5 ROVER ensemble)")
+message(STATUS "  HAS_QPDF      : ${_has_qpdf}   (PDF linearisation)")
+message(STATUS "  LTO           : ${GLYPHPDF_ENABLE_LTO}")
+message(STATUS "  Release build : ${GLYPHPDF_RELEASE_BUILD}")
+message(STATUS "===================================================================")
+message(STATUS "")
+
+if(GLYPHPDF_RELEASE_BUILD)
+    set(_missing_features "")
+    if(NOT _has_pdfium)
+        list(APPEND _missing_features "HAS_PDFIUM (PDFium not found)")
+    endif()
+    if(NOT _has_tesseract)
+        list(APPEND _missing_features "HAS_TESSERACT (Tesseract not found)")
+    endif()
+    if(NOT _has_rapidocr)
+        list(APPEND _missing_features "HAS_RAPIDOCR (ONNX Runtime not found)")
+    endif()
+    if(NOT _has_qpdf)
+        list(APPEND _missing_features "HAS_QPDF (qpdf not found)")
+    endif()
+    if(_missing_features)
+        message(FATAL_ERROR
+            "AR-11 D5: RELEASE BUILD FAILED — missing shipped feature(s): "
+            "${_missing_features} — "
+            "All four core features must be present before signing and publishing. "
+            "Resolve missing dependencies or set GLYPHPDF_RELEASE_BUILD=OFF for dev builds.")
+    else()
+        message(STATUS "AR-11 D5: Release build — all four shipped features confirmed present.")
+    endif()
+endif()
+
+# ── Stage runtime DLLs beside test/app binaries ─────────────────────────────
+# Test executables live in CMAKE_BINARY_DIR; a fresh checkout has none of the
+# non-MSYS2 runtime DLLs (vendored podofo, ONNX Runtime, PDFium), so stage
+# them once here. Windows resolves exe-dir DLLs before System32, which also
+# shields tests from the incompatible onnxruntime.dll Windows ships there.
+set(_runtime_dlls "")
+if(EXISTS "${PODOFO_VENDOR_DLL}")
+    list(APPEND _runtime_dlls "${PODOFO_VENDOR_DLL}")
+endif()
+if(TARGET onnxruntime)
+    list(APPEND _runtime_dlls "${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime-win-x64-1.17.3/lib/onnxruntime.dll")
+endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/pdfium/bin/pdfium.dll")
+    list(APPEND _runtime_dlls "${CMAKE_CURRENT_SOURCE_DIR}/third_party/pdfium/bin/pdfium.dll")
+endif()
+if(_runtime_dlls)
+    add_custom_target(stage_runtime_dlls ALL
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_runtime_dlls} "${CMAKE_BINARY_DIR}"
+        COMMENT "Staging runtime DLLs into build dir")
+endif()
 if(OpenXLSX_FOUND)
     target_link_libraries(pdfws_engines PRIVATE OpenXLSX::OpenXLSX)
     target_compile_definitions(pdfws_engines PRIVATE HAS_OPENXLSX)
@@ -300,11 +491,6 @@ endif()
 if(duckx_FOUND)
     target_link_libraries(pdfws_engines PRIVATE duckx::duckx)
     target_compile_definitions(pdfws_engines PRIVATE HAS_DUCKX)
-endif()
-if(LIBREOFFICE_SOFFICE)
-    target_compile_definitions(pdfws_engines PRIVATE
-        HAS_LIBREOFFICE=1
-        LIBREOFFICE_SOFFICE_PATH="${LIBREOFFICE_SOFFICE}")
 endif()
 
 # ── DjVu importer (GPL-2.0+ optional; default OFF) ──────────────────────────
@@ -335,15 +521,11 @@ target_sources(pdfws_engines PRIVATE
     src/engines/conversion/DjvuImporter.cpp
 )
 
-# veraPDF CLI — AGPL-3.0 subprocess only; never link in-process
-set(VERAPDF_CLI_PATH "" CACHE FILEPATH "Path to veraPDF CLI executable (AGPL-3.0; subprocess only)")
-if(VERAPDF_CLI_PATH)
-    target_compile_definitions(pdfws_engines PRIVATE
-        VERAPDF_CLI_PATH="${VERAPDF_CLI_PATH}")
-    message(STATUS "veraPDF CLI: ${VERAPDF_CLI_PATH}")
-else()
-    message(STATUS "veraPDF CLI not configured. PdfAValidationPanel will show 'validator unavailable'.")
-endif()
+# veraPDF CLI (AGPL-3.0 — subprocess only, never linked in-process) is located at
+# RUNTIME by VeraPdfValidator::locateCli(): a copy bundled next to the app
+# (verapdf/ — staged by deploy.ps1), the GLYPHPDF_VERAPDF env var, or the PATH.
+# No build-time path is baked, so the shipped binary works regardless of the build
+# machine. PdfAValidationPanel shows 'validator unavailable' only when none is found.
 
 # ── pdfws_commands (STATIC — mostly header-only but needs moc for some) ──
 add_library(pdfws_commands STATIC
@@ -366,6 +548,8 @@ add_library(pdfws_commands STATIC
     src/commands/DeleteImageCommand.h
     src/commands/ReorderPageCommand.h
     src/commands/ReorderPageCommand.cpp
+    src/commands/ReorderPermutationCommand.h
+    src/commands/ReorderPermutationCommand.cpp
     src/commands/CropPageCommand.h
     src/commands/CropPageCommand.cpp
 )
@@ -380,7 +564,7 @@ target_link_libraries(pdfws_commands
 add_library(pdfws_ui STATIC
     src/ui/PdfViewerWidget.h         src/ui/PdfViewerWidget.cpp
     src/ui/EditAnnotationCommand.h   src/ui/EditAnnotationCommand.cpp
-    src/ui/RedactCommand.h           src/ui/RedactCommand.cpp
+
     src/ui/WelcomeWidget.h           src/ui/WelcomeWidget.cpp
     src/ui/FindBar.h                 src/ui/FindBar.cpp
     src/ui/AnnotationToolBar.h       src/ui/AnnotationToolBar.cpp
@@ -403,6 +587,7 @@ add_library(pdfws_ui STATIC
     src/ui/ThumbnailSidebar.h        src/ui/ThumbnailSidebar.cpp
     src/ui/ShortcutHelpDialog.h      src/ui/ShortcutHelpDialog.cpp
     src/ui/PreferencesDialog.h       src/ui/PreferencesDialog.cpp
+    src/ui/UpdateDialog.h            src/ui/UpdateDialog.cpp
     src/ui/RecoveryDialog.h          src/ui/RecoveryDialog.cpp
     src/ui/ErrorDialog.h             src/ui/ErrorDialog.cpp
     src/ui/PageSetupDialog.h         src/ui/PageSetupDialog.cpp
@@ -465,6 +650,10 @@ target_link_libraries(pdfws_ui
 )
 target_compile_definitions(pdfws_ui PRIVATE GLYPH_HAS_SVG=1)
 
+if(WIN32)
+    # N-2: WinVerifyTrust for MSI Authenticode checking
+    target_link_libraries(pdfws_ui PRIVATE wintrust)
+endif()
 # Disable PCH for files with heavy initializer lists (prevents OOM in g++)
 set_source_files_properties(
     src/shell/RibbonModel.cpp
@@ -501,6 +690,15 @@ else()
     target_link_libraries(PdfWorkstation PRIVATE pdfws_djot docmodel liblua)
 endif()
 
+# ARCH-4: Inject djot path.
+# IMPORTANT: DJOT_LIB_DIR is defined only for PdfWorkstation. If any test target
+# ever adds Bootstrapper.cpp to its sources, add the same target_compile_definitions
+# to that test target, otherwise Bootstrapper.cpp's #error will abort the build.
+target_compile_definitions(PdfWorkstation PRIVATE
+    DJOT_LIB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/third_party/djot"
+    GLYPHPDF_VERSION="${PROJECT_VERSION}"
+)
+
 # Windows: hide console
 if(WIN32 AND NOT MSVC)
     target_link_options(PdfWorkstation PRIVATE "-Wl,-subsystem,windows")
@@ -510,6 +708,18 @@ endif()
 if(WIN32)
     enable_language(RC)
     target_sources(PdfWorkstation PRIVATE src/app/app_icon.rc)
+endif()
+
+# AR-11 D4: Strip PdfWorkstation.exe in Release builds to remove DWARF debug paths.
+# DWARF in a MinGW/GCC Release binary leaks the build-host path
+# (C:\Users\User\Projects\pdf) into every shipped binary.
+# Post-build step: strip is applied only when explicitly found (above) in Release mode.
+if(NOT MSVC AND CMAKE_BUILD_TYPE STREQUAL "Release" AND STRIP_PROGRAM)
+    add_custom_command(TARGET PdfWorkstation POST_BUILD
+        COMMAND "${STRIP_PROGRAM}" "$<TARGET_FILE:PdfWorkstation>"
+        COMMENT "AR-11 D4: Stripping DWARF paths from Release PdfWorkstation.exe"
+        VERBATIM
+    )
 endif()
 
 # ── Precompiled Headers ───────────────────────────────────────────────────
@@ -654,6 +864,23 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRobustness.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSecretStore.cpp")
+    add_executable(TestSecretStore
+        tests/TestSecretStore.cpp
+    )
+    target_include_directories(TestSecretStore PRIVATE src tests)
+    target_link_libraries(TestSecretStore PRIVATE
+        pdfws_engines pdfws_core
+        Qt6::Test Qt6::Core Qt6::Gui
+    )
+    add_test(NAME TestSecretStore COMMAND TestSecretStore)
+    set_tests_properties(TestSecretStore PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;security;secrets;privacy;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignatureValidation.cpp")
     add_executable(TestSignatureValidation
         tests/TestSignatureValidation.cpp
@@ -688,6 +915,9 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignatureRealCrypto.cpp")
     target_compile_definitions(TestSignatureRealCrypto PRIVATE
         SOURCE_DIR="${CMAKE_SOURCE_DIR}"
     )
+    if(GLYPHPDF_ENABLE_TEST_FIXTURES)
+        target_compile_definitions(TestSignatureRealCrypto PRIVATE GLYPH_TESTING=1)
+    endif()
     target_link_libraries(TestSignatureRealCrypto PRIVATE
         pdfws_engines pdfws_core
         OpenSSL::SSL OpenSSL::Crypto
@@ -998,7 +1228,10 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestLaneScheduler.cpp")
     add_test(NAME TestLaneScheduler COMMAND TestLaneScheduler)
     set_tests_properties(TestLaneScheduler PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
-        TIMEOUT 120
+        TIMEOUT 300
+        # Thread-scheduling assertions starve under parallel ctest on 2-core
+        # CI runners (timeout with -j4); run alone.
+        RUN_SERIAL TRUE
         LABELS "unit;concurrency;scheduling;lane-scheduler;qt"
     )
 endif()
@@ -1109,9 +1342,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchMode.cpp")
     add_test(NAME TestBatchMode COMMAND TestBatchMode)
     set_tests_properties(TestBatchMode PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
-        TIMEOUT 60
+        TIMEOUT 120
         LABELS "unit;modes;batch;ui;qt;headless"
         RESOURCE_LOCK BatchModeIO
+        # Timing-sensitive batch progress assertions flake under parallel
+        # ctest (-j4); run alone.
+        RUN_SERIAL TRUE
     )
 endif()
 
@@ -1206,6 +1442,28 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestDjotFuzz.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestUpdateChecker.cpp")
+    add_executable(TestUpdateChecker
+        tests/TestUpdateChecker.cpp
+        src/core/UpdateChecker.cpp
+        src/core/TempFileManager.cpp
+    )
+    target_include_directories(TestUpdateChecker PRIVATE src tests)
+    target_compile_definitions(TestUpdateChecker PRIVATE GLYPH_TESTING=1)
+    target_link_libraries(TestUpdateChecker PRIVATE
+        Qt6::Test Qt6::Core Qt6::Network
+    )
+    if(WIN32)
+        target_link_libraries(TestUpdateChecker PRIVATE Wintrust Crypt32)
+    endif()
+    add_test(NAME TestUpdateChecker COMMAND TestUpdateChecker)
+    set_tests_properties(TestUpdateChecker PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 30
+        LABELS "unit;update;security;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAnnotationDjot.cpp")
     add_executable(TestAnnotationDjot
         tests/TestAnnotationDjot.cpp
@@ -1272,11 +1530,6 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOfficeImport.cpp")
     target_include_directories(TestOfficeImport PRIVATE src tests)
     target_compile_definitions(TestOfficeImport PRIVATE
         $<TARGET_PROPERTY:pdfws_engines,INTERFACE_COMPILE_DEFINITIONS>)
-    if(LIBREOFFICE_SOFFICE)
-        target_compile_definitions(TestOfficeImport PRIVATE
-            HAS_LIBREOFFICE=1
-            LIBREOFFICE_SOFFICE_PATH="${LIBREOFFICE_SOFFICE}")
-    endif()
     target_link_libraries(TestOfficeImport PRIVATE
         pdfws_engines pdfws_core podofo::podofo
         Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent

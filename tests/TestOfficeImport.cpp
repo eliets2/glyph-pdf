@@ -15,18 +15,8 @@
 
 static QString sofficePath()
 {
-#ifdef HAS_LIBREOFFICE
-    return QString::fromLatin1(LIBREOFFICE_SOFFICE_PATH);
-#else
-    // Check common Windows install locations at runtime
-    QStringList candidates = {
-        "C:/Program Files/LibreOffice/program/soffice.exe",
-        "C:/Program Files (x86)/LibreOffice/program/soffice.exe",
-    };
-    for (const QString& p : candidates)
-        if (QFileInfo::exists(p)) return p;
-    return QString();
-#endif
+    // Same runtime detection the application uses.
+    return ConversionManager::locateSoffice();
 }
 
 // Create a minimal 3-page synthetic PNG image for testing.
@@ -149,12 +139,24 @@ private slots:
         QVERIFY2(!ok, "convertTo(OfficeToPdf) should return false for missing input");
     }
 
-    // D2 — OfficeToPdf: no-op when LibreOffice not configured at build time
+    // D3 — Guard test: Ensure no global soffice taskkill in ConversionManager.cpp
+    void testOfficeToPdf_NoGlobalTaskkill()
+    {
+        // Simple static analysis of the source file to ensure the blanket taskkill was removed
+        QFile sourceFile("../../src/engines/ConversionManager.cpp");
+        if (sourceFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            QString content = QString::fromUtf8(sourceFile.readAll());
+            QVERIFY2(!content.contains("\"taskkill\", {\"/F\", \"/IM\", \"soffice.bin\""), 
+                     "ConversionManager.cpp must not contain a global soffice taskkill");
+        }
+    }
+
+    // D2 — OfficeToPdf returns false gracefully when no converter is present
     void testOfficeToPdf_noLibreOffice()
     {
-#ifdef HAS_LIBREOFFICE
-        QSKIP("HAS_LIBREOFFICE defined — skipping no-op test");
-#else
+        if (ConversionManager::isOfficeImportAvailable())
+            QSKIP("A LibreOffice converter is available — cannot exercise the no-converter path");
+
         QTemporaryDir tmp;
         QVERIFY(tmp.isValid());
 
@@ -168,8 +170,7 @@ private slots:
         ConversionManager mgr;
         const bool ok = mgr.convertTo(docxPath, tmp.filePath("out.pdf"),
                                       IConversionEngine::TargetFormat::OfficeToPdf);
-        QVERIFY2(!ok, "OfficeToPdf should return false when HAS_LIBREOFFICE is not defined");
-#endif
+        QVERIFY2(!ok, "OfficeToPdf should return false when no soffice converter is found");
     }
 };
 

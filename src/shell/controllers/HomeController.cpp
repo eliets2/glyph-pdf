@@ -14,9 +14,17 @@
 
 #include <QFileDialog>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QDesktopServices>
 #include <QUrl>
 #include <QFileInfo>
+#include <QFile>
+#include <QDir>
+#include <QProcess>
+#include <QInputDialog>
+#include <QLineEdit>
+#include <QStandardPaths>
+#include <QCoreApplication>
 #include <QSettings>
 #include <QPrintPreviewDialog>
 #include <QPrinter>
@@ -136,10 +144,22 @@ void HomeController::onSave() {
     // re-parsing the file; validateSignatures() is heavier and hits the disk.
     const bool isSigned = _ctx->pdfEditor && _ctx->pdfEditor->hasPdfSignatures();
 
+    // AR-9 D2: derive the provenance origin from the loaded document rather than
+    // hardcoding BornPDF. The save path operates on the currently-open file; its
+    // origin is determined by how it was loaded. The shell only opens PDFs via
+    // this controller (born-PDF), so we infer BornPDF from the .pdf source; when
+    // born-Djot / born-OCR import paths are wired they will thread their true
+    // origin through DocumentSession to here. Inferring (not asserting) keeps the
+    // guard honest for whatever the document actually is.
+    const docmodel::ProvenanceTag origin =
+        filePath.endsWith(QStringLiteral(".djot"), Qt::CaseInsensitive)
+            ? docmodel::ProvenanceTag::BornDjot
+            : docmodel::ProvenanceTag::BornPDF;
+
     if (_ctx->provenanceGuard) {
         try {
             _ctx->provenanceGuard->checkEditVia(
-                docmodel::ProvenanceTag::BornPDF,
+                origin,
                 isSigned,
                 pdfws::EditPath::DirectStructural);
         } catch (const pdfws::ProvenanceViolation& pv) {
@@ -153,15 +173,17 @@ void HomeController::onSave() {
         }
     }
 
+    // Flush the .ann sidecar cache so it stays in sync with the embedded copy.
     viewer->saveAnnotations();
 
-    // D2: signed documents must go through incremental update so the original
-    // /ByteRange-covered bytes are not disturbed.  A full saveDocument() call
-    // re-serialises from scratch and shifts all byte offsets, silently
-    // invalidating every signature in the document.
-    const bool ok = isSigned
-        ? _ctx->pdfEditor->writeUpdate(filePath)
-        : _ctx->pdfEditor->saveDocument(filePath);
+    // AR-7 D1: embed annotations into the PDF object graph, not just the sidecar.
+    // embedAnnotations(in, out, annots) loads the live document via resolveDocument,
+    // appends annotation dictionaries to the page /Annots arrays, and calls
+    // writeUpdate(out) — which persists ALL in-memory changes (structural edits
+    // AND annotations) as an incremental update.  This replaces the separate
+    // saveDocument / writeUpdate call below.  Signed documents benefit from the
+    // same incremental-append path (writeUpdate preserves the /ByteRange).
+    const bool ok = _ctx->pdfEditor->embedAnnotations(filePath, filePath, viewer->annotations());
 
     if (ok) {
         if (_ctx->undoStack) _ctx->undoStack->setClean();
@@ -204,7 +226,28 @@ void HomeController::onSaveAs() {
         if (choice != QMessageBox::Ok) return;
     }
 
-    if (viewer->saveDocumentAs(fileName)) {
+    // AR-7 D1: embed annotations directly into the output PDF so they are visible
+    // in other readers.  If the engine is available, route through embedAnnotations
+    // (which also copies all structural edits and annotation dicts in one call).
+    // Fall back to a raw file copy for engine-less open documents.
+    bool ok = false;
+    if (_ctx && _ctx->pdfEditor) {
+        ok = _ctx->pdfEditor->embedAnnotations(
+            viewer->filePath(), fileName, viewer->annotations());
+        if (ok) {
+            // Also copy the .ann sidecar cache alongside the new PDF.
+            const QString srcAnn = viewer->filePath() + QStringLiteral(".ann");
+            const QString dstAnn = fileName + QStringLiteral(".ann");
+            if (QFile::exists(srcAnn) && srcAnn != dstAnn) {
+                if (QFile::exists(dstAnn)) QFile::remove(dstAnn);
+                QFile::copy(srcAnn, dstAnn);
+            }
+        }
+    } else {
+        ok = viewer->saveDocumentAs(fileName);
+    }
+
+    if (ok) {
         _mainWindow->statusBar()->showMessage(tr("Document saved to %1").arg(fileName), 5000);
     } else {
         QMessageBox::warning(
@@ -218,8 +261,30 @@ void HomeController::onSaveAs() {
 void HomeController::onShare() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer) return;
-    
-    QString filePath = viewer->filePath();
+
+    const QString filePath = viewer->filePath();
+    if (filePath.isEmpty()) {
+        _mainWindow->statusBar()->showMessage(tr("No document is open."), 3000);
+        return;
+    }
+
+    QMessageBox box(_mainWindow);
+    box.setWindowTitle(tr("Share Document"));
+    box.setIcon(QMessageBox::Question);
+    box.setText(tr("How would you like to share this document?"));
+    QPushButton* emailBtn = box.addButton(tr("Email attachment"), QMessageBox::AcceptRole);
+    QPushButton* pkgBtn   = box.addButton(tr("Create encrypted package"), QMessageBox::ActionRole);
+    box.addButton(QMessageBox::Cancel);
+    box.exec();
+
+    if (box.clickedButton() == pkgBtn) {
+        createEncryptedPackage(filePath);
+    } else if (box.clickedButton() == emailBtn) {
+        shareViaEmail(filePath);
+    }
+}
+
+void HomeController::shareViaEmail(const QString& filePath) {
     QString fileName = QFileInfo(filePath).fileName();
     QString subject = tr("PDF Document: %1").arg(fileName);
     QString body = tr("Please find the attached PDF document.");
@@ -227,7 +292,7 @@ void HomeController::onShare() {
 #ifdef Q_OS_WIN
     HMODULE hMapi = LoadLibraryA("mapi32.dll");
     if (hMapi) {
-        LPMAPISENDMAIL pfnSendMail = (LPMAPISENDMAIL)GetProcAddress(hMapi, "MAPISendMail");
+        LPMAPISENDMAIL pfnSendMail = reinterpret_cast<LPMAPISENDMAIL>(reinterpret_cast<void*>(GetProcAddress(hMapi, "MAPISendMail")));
         if (pfnSendMail) {
             MapiFileDesc fileDesc;
             memset(&fileDesc, 0, sizeof(MapiFileDesc));
@@ -257,6 +322,70 @@ void HomeController::onShare() {
 
     QString url = QString("mailto:?subject=%1&body=%2").arg(subject).arg(body);
     QDesktopServices::openUrl(QUrl(url, QUrl::TolerantMode));
+}
+
+// Secure sharing (§9.11): bundle the PDF into an AES-256 encrypted ZIP using a
+// 7-Zip executable (PATH, common install dirs, or bundled next to the app).
+void HomeController::createEncryptedPackage(const QString& filePath) {
+    QString sevenZip = QStandardPaths::findExecutable(QStringLiteral("7z"));
+    if (sevenZip.isEmpty()) {
+        const QStringList candidates = {
+            QStringLiteral("C:/Program Files/7-Zip/7z.exe"),
+            QStringLiteral("C:/Program Files (x86)/7-Zip/7z.exe"),
+            QCoreApplication::applicationDirPath() + QStringLiteral("/7z.exe"),
+        };
+        for (const QString& c : candidates)
+            if (QFileInfo::exists(c)) { sevenZip = c; break; }
+    }
+    if (sevenZip.isEmpty()) {
+        QMessageBox::warning(_mainWindow, tr("Encrypted Package"),
+            tr("7-Zip (7z.exe) was not found. Install 7-Zip to create AES-256 "
+               "encrypted packages, or use Protect \xE2\x96\xB8 Encrypt to password-protect "
+               "the PDF directly."));
+        return;
+    }
+
+    bool ok = false;
+    const QString password = QInputDialog::getText(_mainWindow, tr("Encrypted Package"),
+        tr("Package password:"), QLineEdit::Password, QString(), &ok);
+    if (!ok || password.isEmpty()) return;
+
+    QString outPath = QFileDialog::getSaveFileName(_mainWindow,
+        tr("Save Encrypted Package"),
+        QFileInfo(filePath).completeBaseName() + QStringLiteral(".zip"),
+        tr("Encrypted ZIP (*.zip)"));
+    if (outPath.isEmpty()) return;
+    if (!outPath.endsWith(QLatin1String(".zip"), Qt::CaseInsensitive))
+        outPath += QStringLiteral(".zip");
+    QFile::remove(outPath);  // 7z appends to an existing archive — start fresh
+
+    // 7z a -tzip -mem=AES256 -p<pwd> <out.zip> <pdf>
+    QStringList args;
+    args << QStringLiteral("a") << QStringLiteral("-tzip")
+         << QStringLiteral("-mem=AES256")
+         << (QStringLiteral("-p") + password)
+         << QDir::toNativeSeparators(outPath)
+         << QDir::toNativeSeparators(filePath);
+
+    QProcess proc;
+    proc.start(sevenZip, args);
+    if (!proc.waitForStarted(5000)) {
+        QMessageBox::warning(_mainWindow, tr("Encrypted Package"),
+            tr("Could not launch 7-Zip."));
+        return;
+    }
+    proc.waitForFinished(-1);
+
+    if (proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0
+        && QFileInfo::exists(outPath)) {
+        _mainWindow->statusBar()->showMessage(
+            tr("Encrypted package created: %1").arg(QFileInfo(outPath).fileName()), 5000);
+        QMessageBox::information(_mainWindow, tr("Encrypted Package"),
+            tr("AES-256 encrypted package created:\n%1").arg(outPath));
+    } else {
+        QMessageBox::warning(_mainWindow, tr("Encrypted Package"),
+            tr("7-Zip failed to create the package (exit code %1).").arg(proc.exitCode()));
+    }
 }
 
 void HomeController::onPrint() {
@@ -400,14 +529,27 @@ int HomeController::pruneMissingRecents() {
 
 void HomeController::onImportOffice()
 {
-#ifndef HAS_LIBREOFFICE
-    QMessageBox::information(
-        _mainWindow,
-        tr("LibreOffice Not Installed"),
-        tr("Office→PDF import requires LibreOffice.\n\n"
-           "Install LibreOffice (https://www.libreoffice.org) and restart GlyphPDF."));
-    return;
-#else
+    // Runtime detection — works with whatever the user has installed (LibreOffice on
+    // the PATH, in Program Files, or recorded in the registry), independent of what
+    // the build machine had. No converter is bundled; we use the one already present.
+    if (!ConversionManager::isOfficeImportAvailable()) {
+        QMessageBox box(_mainWindow);
+        box.setIcon(QMessageBox::Information);
+        box.setWindowTitle(tr("Office Import Needs a Converter"));
+        box.setText(tr("Importing Word, Excel and PowerPoint files to PDF uses "
+                       "LibreOffice, which doesn't appear to be installed."));
+        box.setInformativeText(tr("LibreOffice is free and open source. Install it once, "
+                                  "then this feature works automatically — no GlyphPDF "
+                                  "restart required."));
+        QPushButton *download = box.addButton(tr("Download LibreOffice…"), QMessageBox::AcceptRole);
+        box.addButton(QMessageBox::Cancel);
+        box.setDefaultButton(download);
+        box.exec();
+        if (box.clickedButton() == download)
+            QDesktopServices::openUrl(QUrl("https://www.libreoffice.org/download/download/"));
+        return;
+    }
+
     const QString officePath = QFileDialog::getOpenFileName(
         _mainWindow,
         tr("Import Office Document"),
@@ -461,7 +603,6 @@ void HomeController::onImportOffice()
         return mgr.convertOfficeToPdf(officePath, outputPath);
     }));
     progress->show();
-#endif
 }
 
 void HomeController::onImagesToPdf()

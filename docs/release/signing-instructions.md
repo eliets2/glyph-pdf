@@ -59,7 +59,7 @@ Get-FileHash dist\GlyphPDF-1.0.0-x64.msi -Algorithm SHA256
 Record this hash — it goes into:
 - `docs/release/release-notes-v1.0.0.md` (SHA-256 Verification section)
 - The GitHub Release body
-- `docs/release/winget/GlyphPDF.installer.yaml` (InstallerSha256 field)
+- `packaging/winget/Glyph.GlyphPDF.installer.yaml` (InstallerSha256 field)
 - `docs/release/chocolatey/glyphpdf.nuspec` (checksum)
 - `docs/release/scoop/glyphpdf.json` (hash field)
 

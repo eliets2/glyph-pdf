@@ -10,6 +10,9 @@
 #include "engines/VeraPdfValidator.h"
 #include "core/ErrorInfo.h"
 #include "core/TempFileManager.h"
+#include <podofo/podofo.h>
+#include "engines/podofo/PdfStringEscape.h"
+#include <QDate>
 #include <QMutexLocker>
 #include <QRecursiveMutex>
 #include <QSettings>
@@ -572,15 +575,10 @@ bool PdfEditorEngine::exportMrcPdfA(
                 double fs = qMax(1.0, bh);
 
                 // Escape PDF string special characters
-                QString txt = w.text;
-                txt.replace(QLatin1Char('\\'), QStringLiteral("\\\\"));
-                txt.replace(QLatin1Char('('),  QStringLiteral("\\("));
-                txt.replace(QLatin1Char(')'),  QStringLiteral("\\)"));
-
                 cs += pdfReal(fs) + " Tf\n";
-                cs += pdfReal(bw / (txt.length() > 0 ? txt.length() : 1)) + " Tz\n";
+                cs += pdfReal(bw / (w.text.length() > 0 ? w.text.length() : 1)) + " Tz\n";
                 cs += pdfReal(x) + " " + pdfReal(y) + " Td\n";
-                cs += "(" + txt.toUtf8() + ") Tj\n";
+                cs += "(" + QByteArray::fromStdString(pdfEscapeLiteralString(w.text)) + ") Tj\n";
                 cs += "0 0 Td\n";
             }
             cs += "ET\n";
@@ -714,6 +712,7 @@ bool PdfEditorEngine::encryptWithCertificate(const QString &inputPath,
                                               const QString &outputPath,
                                               const QStringList &certPaths)
 {
+    QMutexLocker locker(&d->mutex);
     d->clearErr();
 
     if (certPaths.isEmpty()) {
@@ -861,6 +860,108 @@ bool PdfEditorEngine::setMetadata(const PdfMetadata &metadata)
     return ok;
 }
 
+// ── Document expiry (XMP) ────────────────────────────────────────────────────
+namespace {
+constexpr const char* kGlyphNs = "http://glyphpdf.example/ns/1.0/";
+
+// Insert or replace <glyph:ExpiryDate> in an existing XMP packet, or build a
+// fresh minimal packet if `existing` has no usable rdf:RDF block.
+QByteArray injectExpiry(const QByteArray& existing, const QString& dateStr) {
+    const QString elem = QStringLiteral("<glyph:ExpiryDate>%1</glyph:ExpiryDate>").arg(dateStr);
+    QString xmp = QString::fromUtf8(existing);
+
+    if (xmp.contains(QStringLiteral("<glyph:ExpiryDate>"))) {
+        static const QRegularExpression re(
+            QStringLiteral("<glyph:ExpiryDate>.*?</glyph:ExpiryDate>"),
+            QRegularExpression::DotMatchesEverythingOption);
+        xmp.replace(re, elem);
+        return xmp.toUtf8();
+    }
+    if (xmp.contains(QStringLiteral("</rdf:RDF>"))) {
+        const QString desc = QStringLiteral(
+            "<rdf:Description rdf:about=\"\" xmlns:glyph=\"%1\">%2</rdf:Description>\n")
+            .arg(QString::fromUtf8(kGlyphNs), elem);
+        xmp.replace(QStringLiteral("</rdf:RDF>"), desc + QStringLiteral("</rdf:RDF>"));
+        return xmp.toUtf8();
+    }
+    return QStringLiteral(
+        "<?xpacket begin=\"\xEF\xBB\xBF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>"
+        "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">"
+        "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"
+        "<rdf:Description rdf:about=\"\" xmlns:glyph=\"%1\">%2</rdf:Description>"
+        "</rdf:RDF></x:xmpmeta><?xpacket end=\"w\"?>")
+        .arg(QString::fromUtf8(kGlyphNs), elem).toUtf8();
+}
+} // namespace
+
+bool PdfEditorEngine::setExpiryDate(const QString& pdfPath, const QDate& date, const QString& outputPath)
+{
+    if (!date.isValid()) return false;
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(pdfPath.toUtf8().constData());
+
+        // Ensure the catalog has an XMP /Metadata stream, then read it back.
+        doc.GetMetadata().SyncXMPMetadata(true);
+
+        auto& catDict = doc.GetCatalog().GetDictionary();
+        PoDoFo::PdfObject* metaObj = catDict.FindKey("Metadata");
+        if (!metaObj) {
+            qWarning() << "setExpiryDate: no /Metadata stream after sync";
+            return false;
+        }
+
+        QByteArray existing;
+        if (metaObj->HasStream()) {
+            if (const PoDoFo::PdfObjectStream* s = metaObj->GetStream()) {
+                PoDoFo::charbuff buf;
+                s->CopyTo(buf);
+                existing = QByteArray(buf.data(), static_cast<int>(buf.size()));
+            }
+        }
+
+        const QByteArray newXmp = injectExpiry(existing, date.toString(QStringLiteral("yyyy-MM-dd")));
+
+        metaObj->GetDictionary().AddKey(PoDoFo::PdfName("Type"), PoDoFo::PdfName("Metadata"));
+        metaObj->GetDictionary().AddKey(PoDoFo::PdfName("Subtype"), PoDoFo::PdfName("XML"));
+        metaObj->GetOrCreateStream().SetData(
+            PoDoFo::bufferview(newXmp.constData(), static_cast<size_t>(newXmp.size())));
+
+        doc.Save(outputPath.toUtf8().constData());
+        return true;
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "setExpiryDate error:" << e.what();
+        return false;
+    }
+}
+
+QDate PdfEditorEngine::readExpiryDate(const QString& pdfPath)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(pdfPath.toUtf8().constData());
+        auto& catDict = doc.GetCatalog().GetDictionary();
+        const PoDoFo::PdfObject* metaObj = catDict.FindKey("Metadata");
+        if (!metaObj || !metaObj->HasStream()) return {};
+
+        const PoDoFo::PdfObjectStream* s = metaObj->GetStream();
+        if (!s) return {};
+        PoDoFo::charbuff buf;
+        s->CopyTo(buf);
+        const QString xmp = QString::fromUtf8(buf.data(), static_cast<int>(buf.size()));
+
+        static const QRegularExpression re(
+            QStringLiteral("<glyph:ExpiryDate>\\s*([0-9]{4}-[0-9]{2}-[0-9]{2})\\s*</glyph:ExpiryDate>"));
+        const auto m = re.match(xmp);
+        if (m.hasMatch())
+            return QDate::fromString(m.captured(1), QStringLiteral("yyyy-MM-dd"));
+        return {};
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "readExpiryDate error:" << e.what();
+        return {};
+    }
+}
+
 QString PdfEditorEngine::currentFile() const
 {
     QMutexLocker locker(&d->mutex);
@@ -1006,6 +1107,19 @@ bool PdfEditorEngine::reorderPages(const QString &path, int fromIndex, int toInd
     return ok;
 }
 
+bool PdfEditorEngine::reorderAllPages(const QString &path, const QList<int> &permutation)
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("reorderAllPages");
+    bool ok = d->backend->reorderAllPages(path, permutation);
+    if (!ok)
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to reorder all pages."),
+                  QStringLiteral("reorderAllPages size=%1").arg(permutation.size()));
+    return ok;
+}
+
 bool PdfEditorEngine::addHeaderFooter(const QString &path, const HeaderFooterOptions &options)
 {
     QMutexLocker locker(&d->mutex);
@@ -1142,7 +1256,7 @@ bool PdfEditorEngine::applyRedactions(int pageIndex, const QList<QRectF> &rects)
 }
 
 bool PdfEditorEngine::applyPatternRedactions(const QRegularExpression& pattern,
-                                              int startPage, int endPage)
+                                              const QList<int>& pages, const QString& outputPath)
 {
     QMutexLocker locker(&d->mutex);
     d->clearErr();
@@ -1165,15 +1279,18 @@ bool PdfEditorEngine::applyPatternRedactions(const QRegularExpression& pattern,
 
     // Determine page range
     const int totalPages = static_cast<int>(d->backend->pageCount());
-    int firstPage = (startPage < 0) ? 0 : startPage;
-    int lastPage  = (endPage   < 0) ? totalPages - 1 : endPage;
-    firstPage = qBound(0, firstPage, totalPages - 1);
-    lastPage  = qBound(0, lastPage,  totalPages - 1);
+    QList<int> targetPages = pages;
+    if (targetPages.isEmpty()) {
+        for (int i = 0; i < totalPages; ++i) {
+            targetPages.append(i);
+        }
+    }
 
     bool anySuccess = false;
     bool anyFailure = false;
 
-    for (int pg = firstPage; pg <= lastPage; ++pg) {
+    for (int pg : targetPages) {
+        if (pg < 0 || pg >= totalPages) continue;
         const QList<QRectF> matches = PatternRedactor::findMatches(pdfPath, pg, pattern);
         if (matches.isEmpty()) continue;
 
@@ -1191,13 +1308,33 @@ bool PdfEditorEngine::applyPatternRedactions(const QRegularExpression& pattern,
     if (anyFailure) {
         d->setErr(ErrorInfo::Warning,
                   QObject::tr("Pattern redaction partially failed on one or more pages."),
-                  QStringLiteral("applyPatternRedactions: pattern=%1 pages=%2-%3")
-                      .arg(pattern.pattern()).arg(firstPage).arg(lastPage));
+                  QStringLiteral("applyPatternRedactions: pattern=%1 pages count=%2")
+                      .arg(pattern.pattern()).arg(targetPages.size()));
+        // Reload from disk to revert partial changes
+        d->backend->loadDocument(pdfPath);
         return false;
     }
 
-    // If no pages had matches at all, that is still success (no-op)
-    Q_UNUSED(anySuccess);
+    if (!anySuccess) return true; // No matches found
+
+    // Success: save with sanitization
+    QString outPath = outputPath;
+    if (outPath.isEmpty()) {
+        QFileInfo fi(pdfPath);
+        outPath = fi.absolutePath() + "/" + fi.completeBaseName() + "_redacted." + fi.suffix();
+    }
+
+    bool saved = d->backend->sanitizeDocument(outPath);
+    if (!saved) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to save sanitized redacted document."),
+                  QStringLiteral("applyPatternRedactions: sanitizeDocument failed on %1").arg(outPath));
+        d->backend->loadDocument(pdfPath);
+        return false;
+    }
+
+    // Load the new file into the backend so subsequent edits act on it
+    d->backend->loadDocument(outPath);
     return true;
 }
 

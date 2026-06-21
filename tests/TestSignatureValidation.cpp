@@ -96,7 +96,7 @@ private slots:
         mgr.setSignatureLevel(PAdESLevel::B_B);
 
         QString output = m_tmp.filePath("signed_valid.pdf");
-        bool ok = mgr.signDocument(kInput, output, kP12, kPass);
+        bool ok = (mgr.signDocument(kInput, output, kP12, kPass) == SignOutcome::Success);
         QVERIFY2(ok, "Signing with valid RSA-2048 cert should succeed");
         QVERIFY2(QFileInfo::exists(output), "Output PDF must exist after signing");
     }
@@ -185,7 +185,7 @@ private slots:
         SignatureManager mgr;
         mgr.setSignatureLevel(PAdESLevel::B_B);
         QString output = m_tmp.filePath("signed_bb.pdf");
-        bool ok = mgr.signDocument(kInput, output, kP12, kPass);
+        bool ok = (mgr.signDocument(kInput, output, kP12, kPass) == SignOutcome::Success);
         QVERIFY2(ok, "B_B signing must succeed");
 
         // The validate call must not crash for any level

@@ -2,7 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    # Run on main and the active audit-remediation branch so regressions are
+    # caught before a merge. AR-12 D3: CI must gate every push, not just main.
+    branches: [ main, audit-remediation ]
   pull_request:
     branches: [ main ]
 
@@ -28,6 +30,7 @@ jobs:
           msystem: UCRT64
           update: false
           install: >-
+            git
             mingw-w64-ucrt-x86_64-toolchain
             mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-ninja
@@ -53,6 +56,30 @@ jobs:
             mingw-w64-ucrt-x86_64-libjpeg-turbo
             mingw-w64-ucrt-x86_64-libtiff
             mingw-w64-ucrt-x86_64-openjpeg2
+            mingw-w64-ucrt-x86_64-fontconfig
+
+      # The codebase requires podofo 1.1.0 (accessor API on PdfContent etc.).
+      # MSYS2 ships an older podofo, so build 1.1.0 from source into the
+      # vendored prefix that CMakeLists.txt auto-detects. Cached across runs.
+      - name: Restore vendored podofo cache
+        id: podofo-cache
+        uses: actions/cache@v4
+        with:
+          path: third_party/podofo/install
+          key: podofo-1.1.0-ucrt64-r1
+
+      - name: Build vendored podofo 1.1.0
+        if: steps.podofo-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch 1.1.0 https://github.com/podofo/podofo.git podofo-src
+          cmake -S podofo-src -B podofo-src/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPODOFO_BUILD_TOOLS=OFF \
+            -DPODOFO_BUILD_TEST=OFF \
+            -DPODOFO_BUILD_EXAMPLES=OFF \
+            -DCMAKE_INSTALL_PREFIX="$PWD/third_party/podofo/install"
+          cmake --build podofo-src/build --parallel
+          cmake --install podofo-src/build
 
       # Download ONNX Runtime 1.17.3 — gitignored binary, required for HAS_RAPIDOCR
       - name: Download ONNX Runtime
@@ -67,14 +94,53 @@ jobs:
           Remove-Item ort.zip
           Write-Host "ORT extracted to: $((Get-Item onnxruntime-win-x64-1.17.3).FullName)"
 
+      # Download the PDFium runtime DLL — matches the vendored import lib
+      # (chromium/7834, see third_party/pdfium/PROVENANCE.md). Gitignored binary.
+      - name: Download PDFium runtime DLL
+        shell: pwsh
+        run: |
+          $url = "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7834/pdfium-win-x64.tgz"
+          Invoke-WebRequest -Uri $url -OutFile pdfium.tgz -TimeoutSec 180
+          New-Item -ItemType Directory -Force pdfium-extract | Out-Null
+          tar -xzf pdfium.tgz -C pdfium-extract
+          $expected = "A487E1D2A18F164ADC3A17AACEE158787FA86049E6D91D3712B0A43F745E6905"
+          $actual = (Get-FileHash pdfium-extract/bin/pdfium.dll -Algorithm SHA256).Hash
+          if ($actual -ne $expected) { Write-Error "pdfium.dll checksum mismatch: $actual"; exit 1 }
+          New-Item -ItemType Directory -Force third_party/pdfium/bin | Out-Null
+          Copy-Item pdfium-extract/bin/pdfium.dll third_party/pdfium/bin/pdfium.dll
+          Remove-Item pdfium.tgz; Remove-Item -Recurse -Force pdfium-extract
+          Write-Host "pdfium.dll staged at third_party/pdfium/bin/"
+
       - name: Configure
         run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build --parallel
 
+      # AR-12 D3: assert that PDFium, Tesseract, and ONNX features are detected.
+      # This catches a silent dependency drop before any test runs.
+      # (In dev builds with GLYPHPDF_RELEASE_BUILD=OFF, missing deps are warnings;
+      # in this CI build all four should be present because we downloaded them above.)
+      - name: Assert shipped-feature defines are ON
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release 2>&1 | tee /tmp/cmake_out.txt
+          if grep -q "HAS_PDFIUM    : FALSE" /tmp/cmake_out.txt; then
+            echo "FAIL: HAS_PDFIUM is FALSE — PDFium was not found after download step"
+            exit 1
+          fi
+          if grep -q "HAS_TESSERACT : FALSE" /tmp/cmake_out.txt; then
+            echo "FAIL: HAS_TESSERACT is FALSE — Tesseract was not installed"
+            exit 1
+          fi
+          if grep -q "HAS_RAPIDOCR  : FALSE" /tmp/cmake_out.txt; then
+            echo "FAIL: HAS_RAPIDOCR is FALSE — ONNX Runtime was not found"
+            exit 1
+          fi
+          echo "PASS: HAS_PDFIUM, HAS_TESSERACT, HAS_RAPIDOCR all confirmed ON"
+
       - name: Test
-        # ONNX model files (models/) are gitignored — tests that need them QSKIP gracefully
+        # ONNX model files (models/) are gitignored — tests that need them QSKIP gracefully.
+        # PDFium is present (downloaded above) so HAS_PDFIUM tests run with real character positions.
         run: |
           cd build
           QT_QPA_PLATFORM=offscreen ctest --output-on-failure -j4

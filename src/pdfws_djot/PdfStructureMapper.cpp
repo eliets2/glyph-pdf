@@ -16,13 +16,29 @@
 //   stream text tokens.  Fine-grained heading/list/table detection and column
 //   re-flow are not performed.  Use OcrDjotMapper for layout-fidelity editing.
 
+// AR-9 D2 — type-level provenance chokepoint (compile-time evidence):
+//   applySemanticToPdf() takes `const ProvenanceToken&`. ProvenanceToken's
+//   constructor is private (friend: ProvenanceGuard), so the ONLY way to obtain
+//   one is ProvenanceGuard::mintApplyToken(), which throws ProvenanceViolation
+//   for the forbidden (signed + DjotThenSave) edit. Two facts were verified by
+//   compilation during AR-9:
+//     1. `mapper.applySemanticToPdf(doc, in, out)`  (no token) → does NOT compile
+//        ("no matching function … candidate requires const ProvenanceToken&").
+//     2. `ProvenanceToken t(...)`  (fabricate)       → does NOT compile
+//        ("constructor is private within this context").
+//   Hence no caller can reach this lossy full-rewrite path without first passing
+//   the guard. The guard is a type-level control, not a convention.
+
 #include "PdfStructureMapper.h"
+#include "pdfws_djot/ProvenanceGuard.h"
 #include "docmodel/SemanticDocument.h"
 #include "docmodel/Block.h"
 #include "docmodel/Inline.h"
 #include "docmodel/ProvenanceTag.h"
 
 #include <podofo/podofo.h>
+
+#include <QtGlobal>
 
 #include <string>
 #include <string_view>
@@ -188,35 +204,38 @@ PdfStructureMapper::mapPdfToSemantic(const std::string& pdfFilePath)
                 pageProv));
         }
     } catch (const PoDoFo::PdfError& e) {
-        // Return a 1-section error document instead of empty.
-        docmodel::Provenance errProv;
-        errProv.tag         = docmodel::ProvenanceTag::BornPDF;
-        errProv.source_file = pdfFilePath;
-        errProv.page_index  = 0;
-        std::string errText = std::string("[PdfStructureMapper: load error] ") + e.what();
-        auto errInline = std::make_shared<docmodel::TextInline>(errText, errProv);
-        std::vector<std::shared_ptr<docmodel::Inline>> inlines;
-        inlines.push_back(std::move(errInline));
-        std::vector<std::shared_ptr<docmodel::Block>> blocks;
-        blocks.push_back(std::make_shared<docmodel::TextBlock>(
-            docmodel::Block::Type::Paragraph, std::move(inlines), errProv));
-        sections.push_back(std::make_shared<docmodel::Section>(
-            std::string{}, std::move(blocks),
-            std::vector<std::shared_ptr<docmodel::Section>>{}, errProv));
+        // AR-10 D3: do NOT encode the error as document content. The previous
+        // behaviour synthesised a 1-section document whose paragraph text was
+        // "[PdfStructureMapper: load error] ...", so a load failure looked like
+        // a successfully-parsed page and that error string could be edited,
+        // round-tripped through Djot, and written back into a real PDF.
+        // A failed load is signalled by a null result; the failure is logged so
+        // it is never silent.
+        qWarning("PdfStructureMapper::mapPdfToSemantic load error for %s: %s",
+                 pdfFilePath.c_str(), e.what());
+        return nullptr;
     }
 
     return std::make_unique<docmodel::SemanticDocument>(std::move(sections), docProv);
 }
 
-bool PdfStructureMapper::applySemanticToPdf(const docmodel::SemanticDocument& /*doc*/,
-                                             const std::string& /*inputPdf*/,
-                                             const std::string& /*outputPdf*/)
+ApplyOutcome PdfStructureMapper::applySemanticToPdf(const docmodel::SemanticDocument& /*doc*/,
+                                                    const std::string& /*inputPdf*/,
+                                                    const std::string& /*outputPdf*/,
+                                                    const ProvenanceToken& /*token*/)
 {
-    // applySemanticToPdf for born-PDFs is intentionally not implemented.
-    // The ProvenanceGuard (wired in WP-3/D-05) refuses DjotThenSave on born-PDFs,
-    // so this path is never reached in production.  Returning false is correct
-    // and safe — callers must check the return value.
-    return false;
+    // applySemanticToPdf for born-PDFs is intentionally not implemented: a
+    // SemanticDocument produced by mapPdfToSemantic is page-granularity (one
+    // paragraph per page) and cannot be written back as a faithful structural
+    // edit without losing the original layout. Reaching this method at all
+    // already required a ProvenanceToken (AR-9 D2), so the signed-doc refusal
+    // has been enforced upstream by the guard.
+    //
+    // Return a DISTINCT NotSupported outcome instead of a bare `false` that
+    // conflated "unsupported" with "I/O failure" (audit: callers could not tell
+    // the difference and risked silently treating an unsupported edit as a
+    // transient failure to retry).
+    return ApplyOutcome::NotSupported;
 }
 
 } // namespace pdfws

@@ -212,8 +212,20 @@ void PdfViewerWidget::updateRotation()
 
 // ---- Tool Mode ----
 
+void PdfViewerWidget::setReadOnly(bool readOnly)
+{
+    m_readOnly = readOnly;
+    if (readOnly)
+        setToolMode(ToolMode::HandTool);
+}
+
 void PdfViewerWidget::setToolMode(ToolMode mode)
 {
+    // In read-only mode (e.g. an expired document) only viewing and text
+    // selection are permitted; any editing/annotation mode falls back to Hand.
+    if (m_readOnly && mode != ToolMode::HandTool && mode != ToolMode::SelectText)
+        mode = ToolMode::HandTool;
+
     m_toolMode = mode;
     m_annotationLayer->setMode(mode);
     
@@ -241,6 +253,7 @@ void PdfViewerWidget::setToolMode(ToolMode mode)
         case ToolMode::FormAddNumeric:
         case ToolMode::FormAddSignature:
         case ToolMode::FormAddButton:
+        case ToolMode::FormAddCalculated:
             m_pdfView->setCursor(Qt::CrossCursor);
             break;
         default:
@@ -261,6 +274,7 @@ bool PdfViewerWidget::isFormBuilderMode(ToolMode mode) {
         case ToolMode::FormAddNumeric:
         case ToolMode::FormAddSignature:
         case ToolMode::FormAddButton:
+        case ToolMode::FormAddCalculated:
             return true;
         default:
             return false;
@@ -330,54 +344,6 @@ void PdfViewerWidget::searchDocument(const QString &text, bool forward, bool mat
     if (m_searchModel->searchString() != text) {
         m_searchModel->setSearchString(text);
     }
-}
-
-void PdfViewerWidget::redactAllMatches(const QString &text, bool matchCase, bool wholeWords)
-{
-    if (text.isEmpty()) return;
-    
-    if (m_searchModel->searchString() != text) {
-        m_searchModel->setSearchString(text);
-        // In a real app, we'd wait for the search to complete.
-        // For now, we'll process existing results or ask the user to search first.
-    }
-
-    QList<AnnotationItem> annos = m_annotationLayer->annotations();
-    int count = m_searchModel->rowCount(QModelIndex());
-    for (int i = 0; i < count; ++i) {
-        // A-05: use the REAL matched-text geometry, not a fixed 80x18pt box. The
-        // old constant box under-covered any match wider than 80pt (long emails,
-        // IBANs, large fonts): the downstream rectangle-based excision then left
-        // the tail glyphs in the content stream, recoverable. QPdfLink::rectangles()
-        // gives the true per-match bounding rectangle(s) in PDF points.
-        const QPdfLink link = m_searchModel->resultAtIndex(i);
-        const int page = link.page();
-        const QList<QRectF> rects = link.rectangles();
-        if (rects.isEmpty()) {
-            // Fallback: no geometry available — fall back to the point location with a
-            // conservative box rather than dropping the match silently.
-            const QModelIndex idx = m_searchModel->index(i, 0);
-            const QPointF pos = m_searchModel->data(idx, static_cast<int>(QPdfSearchModel::Role::Location)).toPointF();
-            AnnotationItem item;
-            item.pageIndex = page;
-            item.mode = ToolMode::Redact;
-            item.color = Qt::black;
-            item.thickness = 1;
-            item.rect = QRectF(pos.x(), pos.y() - 15, 80, 18);
-            annos.append(item);
-            continue;
-        }
-        for (const QRectF &r : rects) {
-            AnnotationItem item;
-            item.pageIndex = page;
-            item.mode = ToolMode::Redact;
-            item.color = Qt::black;
-            item.thickness = 1;
-            item.rect = r;   // exact matched-text rectangle
-            annos.append(item);
-        }
-    }
-    m_annotationLayer->setAnnotations(annos);
 }
 
 // ---- Page Navigation ----
@@ -897,45 +863,7 @@ bool PdfViewerWidget::saveDocumentAs(const QString &outputFile)
     return true;
 }
 
-void PdfViewerWidget::applyRedactions(const QString &outputFile)
-{
-    // D-02 fix: PoDoFo calls are routed through gp::applyRedactionsToFile so
-    // this UI translation unit does not need to include <podofo/podofo.h>.
 
-    QList<AnnotationItem> redactions;
-    for (const auto& anno : m_annotationLayer->annotations()) {
-        if (anno.mode == ToolMode::Redact)
-            redactions.append(anno);
-    }
-
-    if (redactions.isEmpty()) {
-        // Nothing to redact — just copy the source file.
-        QFile::copy(m_filePath, outputFile);
-        return;
-    }
-
-    // Convert screen-space annotation rects to PDF user-space coords.
-    // QPdfDocument::pagePointSize() returns page dimensions in points (same unit
-    // as PoDoFo's user space), with origin at top-left.  PoDoFo uses bottom-left
-    // origin, so we flip: pdfY = pageHeight − screenY − rectHeight.
-    QMap<int, QList<QRectF>> rectsByPage;
-    int totalPages = m_document->pageCount();
-    for (const auto& anno : redactions) {
-        if (anno.pageIndex < 0 || anno.pageIndex >= totalPages) continue;
-        QSizeF pageSize = m_document->pagePointSize(anno.pageIndex);
-        double pageHeight = pageSize.height();
-        QRectF pdfRect(anno.rect.x(),
-                       pageHeight - anno.rect.y() - anno.rect.height(),
-                       anno.rect.width(),
-                       anno.rect.height());
-        rectsByPage[anno.pageIndex].append(pdfRect);
-    }
-
-    if (!gp::applyRedactionsToFile(m_filePath, rectsByPage, outputFile))
-        qWarning() << "applyRedactions: engine failed on" << outputFile;
-    else
-        qDebug() << "Redactions applied with content stream filtering to:" << outputFile;
-}
 
 void PdfViewerWidget::mergeDocuments(const QStringList &files, const QString &outputFile)
 {
@@ -1070,8 +998,11 @@ void PdfViewerWidget::printDocument()
 
 void PdfViewerWidget::setOcrResults(const QList<OcrResult> &results) { if (m_annotationLayer) m_annotationLayer->setOcrResults(results); }
 
+// AR-7 D5: forward the overlay image to the AnnotationLayer, which has a
+// real paintEvent and will draw it on top of all annotation content.
+// The m_overlayImage member is kept for reference (e.g. unit tests that inspect state).
 void PdfViewerWidget::setOverlayImage(const QImage &img) {
     m_overlayImage = img;
-    update();
+    if (m_annotationLayer) m_annotationLayer->setOverlayImage(img);
 }
 

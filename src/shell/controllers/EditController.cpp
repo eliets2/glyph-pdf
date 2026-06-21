@@ -8,7 +8,6 @@
 #include "engines/ocr/OcrPipeline.h"
 #include "core/interfaces/IOcrEngine.h"
 #include "core/interfaces/IPdfEditorEngine.h"
-#include "ui/RedactCommand.h"
 #include "ui/EditAnnotationCommand.h"
 #include "commands/MoveImageCommand.h"
 #include "commands/ResizeImageCommand.h"
@@ -52,6 +51,7 @@ QList<ToolId> EditController::handledTools() const {
         ToolId::Pencil, ToolId::Freehand,
         ToolId::TextBox, ToolId::AddText,
         ToolId::Note, ToolId::Comment,
+        ToolId::Stamp, ToolId::Callout, ToolId::Erase,
         ToolId::MarkRedact, ToolId::Signature,
         ToolId::Rectangle, ToolId::Oval,
         ToolId::Line, ToolId::Arrow,
@@ -81,6 +81,8 @@ void EditController::activate(ToolId id) {
         { ToolId::AddText,       ToolMode::AddTextBox },
         { ToolId::Note,          ToolMode::AddComment },
         { ToolId::Comment,       ToolMode::AddComment },
+        { ToolId::Stamp,         ToolMode::Stamp },
+        { ToolId::Callout,       ToolMode::Callout },
         { ToolId::MarkRedact,    ToolMode::Redact },
         { ToolId::Signature,     ToolMode::AddSignature },
         { ToolId::Rectangle,     ToolMode::DrawRectangle },
@@ -102,6 +104,13 @@ void EditController::activate(ToolId id) {
     case ToolId::Image:
     case ToolId::EditImage:
         enterImageEditMode();
+        break;
+    case ToolId::Erase:
+        // TODO(§9.3): annotation eraser needs a dedicated ToolMode + canvas
+        // hit-testing/removal path in AnnotationLayer. Until then, surface an
+        // honest placeholder rather than silently doing nothing.
+        QMessageBox::information(_mainWindow, tr("Eraser"),
+            tr("The annotation eraser is not yet implemented."));
         break;
     default:
         if (toolModes.contains(id)) {
@@ -312,10 +321,20 @@ void EditController::onReplaceAllRequested(const QString &searchText, const QStr
 
 void EditController::onRedactAllRequested(const QString &text, bool matchCase, bool wholeWords) {
     auto* viewer = _mainWindow->pdfViewer();
-    if (viewer && _ctx && _ctx->document && _ctx->undoStack) {
-        _ctx->document->setPath(viewer->filePath());
-        _ctx->undoStack->push(new RedactCommand(viewer, _ctx->document.get(), text, matchCase, wholeWords));
-        _mainWindow->statusBar()->showMessage(tr("Applied redactions to all search results for '%1'").arg(text), 5000);
+    if (viewer && _ctx && _ctx->pdfEditor) {
+        QRegularExpression::PatternOptions opts = QRegularExpression::NoPatternOption;
+        if (!matchCase) opts |= QRegularExpression::CaseInsensitiveOption;
+        
+        QString pattern = QRegularExpression::escape(text);
+        if (wholeWords) {
+            pattern = QStringLiteral("\\b") + pattern + QStringLiteral("\\b");
+        }
+        
+        QRegularExpression rx(pattern, opts);
+        if (_ctx->pdfEditor->applyPatternRedactions(rx, QList<int>())) {
+            _mainWindow->statusBar()->showMessage(tr("Applied redactions to all search results for '%1'").arg(text), 5000);
+            viewer->loadDocument(viewer->filePath());
+        }
     }
 }
 

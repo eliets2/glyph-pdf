@@ -32,6 +32,12 @@ namespace gp {
 // StatusBar reads the same key to display the real selected language.
 static const char* kOcrLanguageKey = "ocr/language";
 
+// Empty-state shown in the scan/confidence pane before any OCR has run.
+static const char* kOcrEmptyStateHtml =
+    "<span style='color:#8a8a8a;font-size:13px;'>No OCR results yet.<br><br>"
+    "Open a scanned PDF and run OCR to review the recognized text and "
+    "per-word confidence here.</span>";
+
 // ── helpers ─────────────────────────────────────────────────────────────────
 
 static QFrame* makeStrip(const char* role, int h) {
@@ -213,7 +219,7 @@ void OCRMode::buildInfoStrip(QVBoxLayout* col)
     row->setContentsMargins(12, 0, 12, 0);
     row->setSpacing(14);
 
-    m_lblPage    = infoLab(tr("PAGE 01 OF 12"));
+    m_lblPage    = infoLab(tr("PAGE — OF —"));
     m_lblAvgConf = infoLab(tr("AVG CONFIDENCE —"));
     m_lblLowWords= infoLab(tr("LOW-CONFIDENCE WORDS —"));
     m_lblEngine  = infoLab(tr("ENGINE: Tesseract 5"));
@@ -235,11 +241,10 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     split->setHandleWidth(1);
 
     // ── Page list ───────────────────────────────────────────────────────
+    // Populated by setOcrResults() from real document pages; starts empty.
     m_pageList = new QListWidget;
     m_pageList->setObjectName("ocrPageList");
     m_pageList->setFixedWidth(180);
-    for (int i = 1; i <= 12; ++i)
-        m_pageList->addItem(QString("Page %1   ●").arg(i, 3, 10, QChar('0')));
     split->addWidget(m_pageList);
 
     // ── Image / scan pane ───────────────────────────────────────────────
@@ -270,21 +275,8 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     connect(m_scanContentLabel, &QLabel::customContextMenuRequested,
             this, &OCRMode::onImagePaneContextMenu);
 
-    // Seed with static demo content until real OCR runs
-    m_scanContentLabel->setText(
-        "<b style='font-size:18px'>Performance Overview</b><br><br>"
-        "Consolidated revenue reached "
-        "<span style='background:#22c55e33;outline:1px solid #22c55e99'>$2,418M</span>"
-        ", an increase of "
-        "<span style='background:#22c55e33;outline:1px solid #22c55e99'>14.2%</span>"
-        " year-over-year, driven by "
-        "<span style='background:#eab30833;outline:1px solid #eab30899'>Industrial Automation</span>"
-        " demand.<br><br>"
-        "Operating margin expanded by "
-        "<span style='background:#ef444433;outline:1px solid #ef444499'>180bps</span>"
-        " to "
-        "<span style='background:#eab30833;outline:1px solid #eab30899'>22.4%</span>"
-        ".");
+    // Empty state until a document is OCR'd (replaced by updateConfidenceOverlay).
+    m_scanContentLabel->setText(kOcrEmptyStateHtml);
 
     auto* scrollArea = new QScrollArea;
     scrollArea->setWidget(m_scanContentLabel);
@@ -310,11 +302,8 @@ void OCRMode::buildPanes(QVBoxLayout* col)
 
     m_textEdit = new QPlainTextEdit;
     m_textEdit->setObjectName("ocrTextEdit");
-    m_textEdit->setPlainText(
-        "Performance Overview\n\n"
-        "Consolidated revenue reached $2,418M, an increase of 14.2% year-over-year, "
-        "driven by Industrial Automation demand.\n\n"
-        "Operating margin expanded by 180bps to 22.4%.");
+    m_textEdit->setPlaceholderText(
+        tr("Recognized text appears here after you run OCR on a document."));
     txtLay->addWidget(m_textEdit, 1);
     split->addWidget(textPane);
 
@@ -331,7 +320,7 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     zHeadRow->addStretch(1);
     zLay->addWidget(zHead);
 
-    m_zoomBig = new QLabel("$2,418M");
+    m_zoomBig = new QLabel(QStringLiteral("\xE2\x80\x94"));  // em dash — no selection
     m_zoomBig->setAlignment(Qt::AlignCenter);
     m_zoomBig->setStyleSheet(
         "background:#e8e6df; color:#1a1a1a; font-family:Manrope; "
@@ -339,8 +328,7 @@ void OCRMode::buildPanes(QVBoxLayout* col)
         "border:1px solid #000;");
     zLay->addWidget(m_zoomBig);
 
-    m_zoomMeta = new QLabel(
-        "WORD #13\nCONFIDENCE 64%\nBBOX 318, 442 · 84×22\nBASELINE 462 pt\nSOURCE: ROVER");
+    m_zoomMeta = new QLabel(tr("No word selected"));
     m_zoomMeta->setProperty("mono", true);
     m_zoomMeta->setStyleSheet("padding:8px 12px;");
     m_zoomMeta->setAlignment(Qt::AlignLeft);
@@ -477,7 +465,8 @@ void OCRMode::updateConfidenceOverlay()
     if (!m_scanContentLabel) return;
 
     if (m_currentWords.isEmpty()) {
-        // No results yet — keep the demo content
+        // No results yet — show the empty state, not stale content.
+        m_scanContentLabel->setText(kOcrEmptyStateHtml);
         return;
     }
 

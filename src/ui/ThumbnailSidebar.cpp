@@ -46,6 +46,14 @@ public:
         return renderPage(pageIndex, dpi);
     }
 
+    QSizeF pageSize(int /*pageIndex*/) const override {
+        return QSizeF();
+    }
+
+    QString extractText(int /*pageIndex*/) override {
+        return QString();
+    }
+
 private:
     PdfViewerWidget* m_viewer;
 };
@@ -469,7 +477,7 @@ void ThumbnailSidebar::dropEvent(QDropEvent* event)
         int sourceIndex = event->mimeData()->text().toInt();
         
         // Find target index based on drop position in the scroll area
-        QPoint pos = m_scroll->widget()->mapFrom(this, event->pos());
+        QPoint pos = m_scroll->widget()->mapFrom(this, event->position().toPoint());
         int targetIndex = qMax(0, qMin(m_totalPages - 1, pos.y() / ThumbItemHeight));
         
         if (sourceIndex != targetIndex) {

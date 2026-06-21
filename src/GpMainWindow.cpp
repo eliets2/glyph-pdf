@@ -28,6 +28,7 @@
 #include "shell/ToolRegistry.h"
 #include "ui/FindBar.h"
 #include "engines/DocumentSession.h"
+#include "engines/PdfEditorEngine.h"
 #include "util/GpTheme.h"
 
 #include <QApplication>
@@ -40,11 +41,13 @@
 #include <QShortcut>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QCloseEvent>
 #include <QMimeData>
 #include <QRegularExpression>
 
 #include "ui/ShortcutHelpDialog.h"
 #include "ui/PreferencesDialog.h"
+#include "ui/UpdateDialog.h"
 #include "ui/RecoveryDialog.h"
 #include "engines/AutosaveManager.h"
 #include "ui/ErrorDialog.h"
@@ -53,6 +56,7 @@
 #include "core/UpdateChecker.h"
 
 #include <QFrame>
+#include <QDebug>
 #include <QLabel>
 #include <QPushButton>
 #include <QSettings>
@@ -60,7 +64,8 @@
 
 namespace gp {
 
-MainWindow::MainWindow(const AppContext* ctx, QWidget* parent) : QMainWindow(parent), _ctx(ctx) {
+MainWindow::MainWindow(AppContext ctx, QWidget* parent)
+    : QMainWindow(parent), _ownedCtx(std::move(ctx)), _ctx(&_ownedCtx) {
     setWindowTitle(tr("Glyph PDF — [No Document]"));
     setAccessibleName(tr("Glyph PDF main window"));
     resize(1480, 920);
@@ -98,10 +103,10 @@ MainWindow::MainWindow(const AppContext* ctx, QWidget* parent) : QMainWindow(par
     _left = new Sidebar(Sidebar::Left, this);
     _right = new Sidebar(Sidebar::Right, this);
     _modes = new ModeController(this);
-    _modes->setAppContext(ctx);
+    _modes->setAppContext(_ctx);
 
-    _left->init(ctx, _modes->viewer());
-    _right->init(ctx, _modes->viewer());
+    _left->init(_ctx, _modes->viewer());
+    _right->init(_ctx, _modes->viewer());
 
     rowLay->addWidget(_left);
     rowLay->addWidget(_modes, 1);
@@ -119,13 +124,13 @@ MainWindow::MainWindow(const AppContext* ctx, QWidget* parent) : QMainWindow(par
     setStatusBar(_status);
 
     // === Instantiate Controllers
-    _home = new HomeController(ctx, this, this);
-    _view = new ViewController(ctx, this, this);
-    _edit = new EditController(ctx, this, this);
-    _pages = new PagesController(ctx, this, this);
-    _convert = new ConvertController(ctx, this, this);
-    _forms = new FormsController(ctx, this, this);
-    _security = new SecurityController(ctx, this, this);
+    _home = new HomeController(_ctx, this, this);
+    _view = new ViewController(_ctx, this, this);
+    _edit = new EditController(_ctx, this, this);
+    _pages = new PagesController(_ctx, this, this);
+    _convert = new ConvertController(_ctx, this, this);
+    _forms = new FormsController(_ctx, this, this);
+    _security = new SecurityController(_ctx, this, this);
 
     _toolRegistry = new ToolRegistry(this);
     _toolRegistry->registerController(_home);
@@ -136,10 +141,10 @@ MainWindow::MainWindow(const AppContext* ctx, QWidget* parent) : QMainWindow(par
     _toolRegistry->registerController(_forms);
     _toolRegistry->registerController(_security);
 
-    _modeStrip->init(ctx);
+    _modeStrip->init(_ctx);
 
-    if (ctx && ctx->document) {
-        connect(ctx->document.get(), &DocumentSession::dirtyChanged, this, [this](bool dirty) {
+    if (_ctx && _ctx->document) {
+        connect(_ctx->document.get(), &DocumentSession::dirtyChanged, this, [this](bool dirty) {
             _status->updateUnsaved(dirty);
             if (!dirty) {
                 _modeStrip->setAutosaveTime(QDateTime::currentDateTime());
@@ -274,10 +279,14 @@ MainWindow::MainWindow(const AppContext* ctx, QWidget* parent) : QMainWindow(par
         _ctx->autosave->start();
     }
 
-    // Auto-prune missing recent files on startup (if enabled in Preferences)
-    if (_home && QSettings().value("recent/autoPrune", false).toBool()) {
-        _home->pruneMissingRecents();
-        if (_menu) _menu->refreshRecentFiles();
+    // Auto-prune missing recent files on startup
+    if (_home) {
+        QTimer::singleShot(0, this, [this]() {
+            const int pruned = _home->pruneMissingRecents();
+            if (pruned > 0)
+                qDebug() << "[HomeController] Pruned" << pruned << "missing recent file(s).";
+            if (_menu) _menu->refreshRecentFiles();
+        });
     }
 
     if (_ctx && _ctx->document && _home) {
@@ -367,10 +376,27 @@ void MainWindow::openDocument(const QString& filePath) {
         _status->updateFromDocument(_ctx->pdfEditor.get(), filePath);
         _status->updateUnsaved(false);
 
+        // Document expiry (§9.11): if a glyph:ExpiryDate is set and has passed,
+        // open the document read-only and warn the user.
+        const QDate expiry = PdfEditorEngine::readExpiryDate(filePath);
+        if (expiry.isValid() && expiry < QDate::currentDate()) {
+            viewer->setReadOnly(true);
+            QMessageBox box(QMessageBox::Warning, tr("Document Expired"),
+                tr("This document expired on %1. It has been opened in read-only mode.")
+                    .arg(expiry.toString(Qt::ISODate)),
+                QMessageBox::Ok, this);
+            box.exec();
+        } else {
+            viewer->setReadOnly(false);
+        }
+
         // Check if the engine reported a repair warning (D4)
         if (_ctx && _ctx->pdfEditor) {
             ErrorInfo err = _ctx->pdfEditor->lastError();
-            if (err && err.severity == ErrorInfo::Warning) {
+            // A repair warning carries a message but is not an error-level
+            // condition (isOk() is severity-based since AR-10 D3), so test the
+            // message presence explicitly rather than operator bool().
+            if (!err.userMessage.isEmpty() && err.severity == ErrorInfo::Warning) {
                 ErrorDialog::show(err, this);
                 _ctx->pdfEditor->clearError();
             }
@@ -480,6 +506,10 @@ void MainWindow::onScreenSelected(const QString& id) {
         replaceRight(_sigPanel);
     } else if (id == "pdfa") {
         if (!_pdfaPanel) _pdfaPanel = new PdfAValidationPanel(this);
+        _pdfaPanel->setExportPdfACallback(
+            [this](const QString& dest, int level) -> bool {
+                return _ctx && _ctx->pdfEditor && _ctx->pdfEditor->exportPdfA(dest, level);
+            });
         replaceRight(_pdfaPanel);
     } else {
         replaceRight(_right);
@@ -569,10 +599,53 @@ void MainWindow::dropEvent(QDropEvent* event) {
     event->acceptProposedAction();
 }
 
+// AR-7 D4: prompt Save / Discard / Cancel when quitting with unsaved changes.
+void MainWindow::closeEvent(QCloseEvent* event) {
+    const bool dirty = _ctx && _ctx->document && _ctx->document->isDirty();
+    if (dirty) {
+        QMessageBox msgBox(this);
+        msgBox.setWindowTitle(tr("Unsaved Changes"));
+        msgBox.setText(tr("The document has unsaved changes."));
+        msgBox.setInformativeText(tr("Do you want to save before closing?"));
+        msgBox.setIcon(QMessageBox::Warning);
+        auto* saveBtn    = msgBox.addButton(tr("Save"),    QMessageBox::AcceptRole);
+        auto* discardBtn = msgBox.addButton(tr("Discard"), QMessageBox::DestructiveRole);
+        msgBox.addButton(tr("Cancel"), QMessageBox::RejectRole);
+        msgBox.setDefaultButton(saveBtn);
+        msgBox.exec();
+
+        if (msgBox.clickedButton() == saveBtn) {
+            if (_home) _home->activate(ToolId::Save);
+            // Accept the close — save was initiated (a failed save shows its own error dialog).
+            event->accept();
+        } else if (msgBox.clickedButton() == discardBtn) {
+            event->accept();
+        } else {
+            // Cancel pressed: do not close.
+            event->ignore();
+            return;
+        }
+    }
+    QMainWindow::closeEvent(event);
+}
+
 void MainWindow::initUpdateChecker() {
     QSettings settings;
+    // AR-8 D6: default OFF (audit preference; first-run consent notice in v1.3.1
+    // explains the update check to users who later opt in via Preferences).
     if (!settings.value("update/checkOnStartup", false).toBool())
         return;
+
+    // One-time transparency notice — tell the user we check for updates and how
+    // to turn it off, then never prompt again.
+    if (!settings.value("update/firstRunNoticeShown", false).toBool()) {
+        settings.setValue("update/firstRunNoticeShown", true);
+        QMessageBox::information(this, tr("Software updates"),
+            tr("GlyphPDF checks GitHub for new versions when it starts and shows a "
+               "dismissible banner if one is available. It never downloads or installs "
+               "anything without your click, and sends no usage data.\n\n"
+               "You can turn this off under Preferences \xE2\x96\xB8 Updates."));
+    }
 
     // --- Notification bar (hidden until update is found) ---
     _updateBar = new QFrame(this);
@@ -591,14 +664,9 @@ void MainWindow::initUpdateChecker() {
     barLabel->setObjectName("updateBarLabel");
     barLay->addWidget(barLabel, 1);
 
-    auto* downloadBtn = new QPushButton(tr("Download"));
-    downloadBtn->setObjectName("updateDownloadBtn");
-    barLay->addWidget(downloadBtn);
-
-    auto* installBtn = new QPushButton(tr("Install && Restart"));
-    installBtn->setObjectName("updateInstallBtn");
-    installBtn->setVisible(false);
-    barLay->addWidget(installBtn);
+    auto* viewBtn = new QPushButton(tr("View Update"));
+    viewBtn->setObjectName("updateViewBtn");
+    barLay->addWidget(viewBtn);
 
     auto* dismissBtn = new QPushButton(tr("Dismiss"));
     barLay->addWidget(dismissBtn);
@@ -613,42 +681,24 @@ void MainWindow::initUpdateChecker() {
 
     QString channel = settings.value("update/channel", "stable").toString();
     if (channel == "beta") {
-        _updater->setManifestUrl(QUrl("https://glyphpdf.com/updates/beta.json"));
+        _updater->setManifestUrl(UpdateChecker::manifestUrlForChannel(channel));
     }
 
+    // Latest update info, so "View Update" can open the dialog on demand.
+    auto pending = std::make_shared<UpdateChecker::UpdateInfo>();
+
     connect(_updater, &UpdateChecker::updateAvailable, this,
-        [barLabel, downloadBtn, installBtn, this](const UpdateChecker::UpdateInfo& info) {
-            barLabel->setText(tr("Update available: GlyphPDF v%1 (%2)")
-                .arg(info.version, info.releaseDate));
+        [this, barLabel, pending](const UpdateChecker::UpdateInfo& info) {
+            *pending = info;
+            barLabel->setText(tr("GlyphPDF v%1 is available.").arg(info.version));
             _updateBar->setVisible(true);
         });
 
-    connect(downloadBtn, &QPushButton::clicked, this, [downloadBtn, barLabel, this]() {
-        downloadBtn->setEnabled(false);
-        barLabel->setText(tr("Downloading update..."));
-        _updater->downloadUpdate();
-    });
-
-    connect(_updater, &UpdateChecker::downloadProgressChanged, this,
-        [barLabel](int pct) {
-            barLabel->setText(tr("Downloading update... %1%").arg(pct));
-        });
-
-    connect(_updater, &UpdateChecker::downloadReady, this,
-        [barLabel, downloadBtn, installBtn](const QString&) {
-            barLabel->setText(tr("Update downloaded — ready to install."));
-            downloadBtn->setVisible(false);
-            installBtn->setVisible(true);
-        });
-
-    connect(_updater, &UpdateChecker::downloadFailed, this,
-        [barLabel, downloadBtn](const QString& reason) {
-            barLabel->setText(tr("Download failed: %1").arg(reason));
-            downloadBtn->setEnabled(true);
-        });
-
-    connect(installBtn, &QPushButton::clicked, this, [this]() {
-        _updater->applyUpdate();
+    // The download/verify/install flow lives in the polished modal dialog.
+    connect(viewBtn, &QPushButton::clicked, this, [this, pending]() {
+        if (pending->version.isEmpty()) return;
+        UpdateDialog dlg(_updater, *pending, this);
+        dlg.exec();
     });
 
     connect(_updater, &UpdateChecker::updateLaunched, this, []() {

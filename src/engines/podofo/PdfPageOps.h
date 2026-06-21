@@ -30,12 +30,7 @@ bool insertBlankPage(const QString& inputPath, int atIndex, const QString& outpu
 bool rotatePages(const QString& inputPath, int from, int to, int angle,
                  const QString& outputPath);
 
-/// Apply redactions (black fill boxes + text-operator scrub) to the pages
-/// identified by the rects map (key = 0-based page index), writing to outputPath.
-/// The coordinates are in PDF user-space (origin bottom-left).
-bool applyRedactionsToFile(const QString& inputPath,
-                           const QMap<int, QList<QRectF>>& rectsByPage,
-                           const QString& outputPath);
+
 
 /// Merge all files in inputs into outputPath.
 bool mergeDocuments(const QStringList& inputs, const QString& outputPath);

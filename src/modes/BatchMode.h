@@ -11,6 +11,8 @@
 #include <QElapsedTimer>
 #include <QMutex>
 #include <QStandardItemModel>
+#include <QFileSystemWatcher>
+#include <QSet>
 
 class QLabel;
 class QListView;
@@ -21,6 +23,10 @@ class QLineEdit;
 class QSlider;
 class QSpinBox;
 class QToolButton;
+class QCheckBox;
+class QTimer;
+class QFileInfo;
+class QVBoxLayout;
 
 namespace gp {
 
@@ -71,6 +77,8 @@ private slots:
     void onBatchFinished();
     void onExportLog();
     void onOperationChanged(int index);
+    void onToggleHotFolder();
+    void onHotFolderChanged(const QString& path);
 
 private:
     void buildFilePanel(QWidget* host);
@@ -112,9 +120,15 @@ private:
     QComboBox*          m_pdfaLevel      = nullptr;
     QLineEdit*          m_pdfaOutDir     = nullptr;
 
-    // Merge panel (disabled)
-    // OCR panel (disabled)
-    // Redact panel (disabled)
+    // Merge panel
+    QLineEdit*          m_mergeOutDir    = nullptr;
+
+    // OCR panel
+    QLineEdit*          m_ocrOutDir      = nullptr;
+
+    // Redact panel
+    QLineEdit*          m_redactPatterns = nullptr;   // comma-separated regex patterns
+    QLineEdit*          m_redactOutDir   = nullptr;
 
     // Progress
     QProgressBar*       m_overallProgress = nullptr;
@@ -145,10 +159,25 @@ private:
         OpCompress  = 1,
         OpWatermark = 2,
         OpExportPdfA = 3,
-        OpMerge     = 4,   // disabled
-        OpOCR       = 5,   // disabled
-        OpRedact    = 6,   // disabled
+        OpMerge     = 4,
+        OpOCR       = 5,
+        OpRedact    = 6,
     };
+
+    // Special-case handler for Merge (single combined output, not per-file mapped).
+    void runMerge();
+
+    // Hot folder (Phase 3) — watch a directory and auto-ingest new PDFs.
+    void buildHotFolderSection(QVBoxLayout* btnLay);
+    static QString hotFileKey(const QFileInfo& fi);   // filename + mtime identity
+
+    QCheckBox*          m_hotFolderCheck   = nullptr;
+    QLineEdit*          m_hotFolderEdit    = nullptr;
+    QCheckBox*          m_hotAutoRunCheck  = nullptr;
+    QFileSystemWatcher* m_hotFolderWatcher = nullptr;
+    QString             m_hotFolderPath;
+    QTimer*             m_hotFolderDebounce = nullptr;
+    QSet<QString>       m_hotProcessed;     // already-seen files (filename+mtime)
 };
 
 } // namespace gp

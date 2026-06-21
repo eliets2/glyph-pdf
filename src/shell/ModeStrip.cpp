@@ -11,6 +11,7 @@
 #include <QStyle>
 #include <QToolButton>
 #include <QTimer>
+#include <QtConcurrent/QtConcurrent>
 
 namespace gp {
 
@@ -69,7 +70,7 @@ ModeStrip::ModeStrip(QWidget* parent) : QFrame(parent) {
 
     row->addStretch(1);
 
-    _autosaveLabel = new QLabel(tr("● AUTOSAVED · --:--:--"));
+    _autosaveLabel = new QLabel(tr("● UNSAVED"));
     _autosaveLabel->setProperty("mono", true);
     _autosaveLabel->setAccessibleName(tr("Autosave status"));
     row->addWidget(_autosaveLabel);
@@ -96,7 +97,10 @@ ModeStrip::ModeStrip(QWidget* parent) : QFrame(parent) {
 
 void ModeStrip::init(const AppContext* ctx) {
     _ctx = ctx;
-    _lastSavedTime = QTime::currentTime();
+    // AR-8 D2: do NOT set _lastSavedTime here — it starts as an invalid QTime.
+    // The label will correctly show "● UNSAVED" until the user actually saves.
+    // _lastSavedTime is set only when DocumentSession::dirtyChanged fires with
+    // dirty==false (a real save occurred).
 
     if (_ctx && _ctx->document) {
         connect(_ctx->document.get(), &DocumentSession::dirtyChanged, this, [this](bool dirty) {
@@ -138,8 +142,13 @@ void ModeStrip::updateLabels() {
                 _autosaveLabel->setProperty("state", "unsaved");
             }
         } else {
-            QString saveTimeStr = _lastSavedTime.isValid() ? _lastSavedTime.toString("hh:mm:ss") : QTime::currentTime().toString("hh:mm:ss");
-            _autosaveLabel->setText(tr("● SAVED · %1").arg(saveTimeStr));
+            // AR-8 D2: Never print currentTime() as a save time.
+            // If we have a real save time from a dirtyChanged signal, show it.
+            // Otherwise show "● SAVED" without a fabricated timestamp.
+            QString saveTimeStr = _lastSavedTime.isValid() ? _lastSavedTime.toString("hh:mm:ss") : QString();
+            _autosaveLabel->setText(saveTimeStr.isEmpty()
+                ? tr("● SAVED")
+                : tr("● SAVED · %1").arg(saveTimeStr));
             _autosaveLabel->setProperty("state", "saved");
         }
         _autosaveLabel->style()->unpolish(_autosaveLabel);
@@ -149,19 +158,33 @@ void ModeStrip::updateLabels() {
     // 2. Sync Status
     _syncLabel->setText(tr("⤺ LOCAL ONLY"));
 
-    // 3. Signatures Status
+    // 3. Signatures Status — AR-7 D2: validation runs on a worker thread.
+    // When the path changes, kick a QtConcurrent worker; the GUI thread only
+    // reads the cached counts that were set by the previous completed validation.
     if (_ctx->document && _ctx->signing) {
         QString path = _ctx->document->path();
-        if (!path.isEmpty() && path != _lastPath) {
+        if (!path.isEmpty() && path != _lastPath && !_sigValidationInFlight.load()) {
             _lastPath = path;
-            auto sigs = _ctx->signing->validateSignatures(path);
-            _cachedTotalSigs = sigs.size();
-            _cachedValidSigs = 0;
-            for (const auto& s : sigs) {
-                if (s.isValid) _cachedValidSigs++;
+            _sigValidationInFlight.store(true);
+
+            // Capture a weak reference so a destroyed ModeStrip does not crash.
+            std::weak_ptr<ISignatureManager> weakSigning = _ctx->signing;
+
+            if (!_sigWatcher) {
+                _sigWatcher = new QFutureWatcher<QPair<int,int>>(this);
+                connect(_sigWatcher, &QFutureWatcher<QPair<int,int>>::finished,
+                        this, &ModeStrip::onSignatureValidationDone);
             }
+            _sigWatcher->setFuture(QtConcurrent::run([weakSigning, path]() -> QPair<int,int> {
+                auto signing = weakSigning.lock();
+                if (!signing) return {0, 0};
+                const auto sigs = signing->validateSignatures(path);
+                int valid = 0;
+                for (const auto& s : sigs) { if (s.isValid) ++valid; }
+                return {valid, static_cast<int>(sigs.size())};
+            }));
         }
-        
+
         if (_cachedTotalSigs > 0) {
             _signLabel->setText(tr("✓ SIGNED · %1 OF %2").arg(_cachedValidSigs).arg(_cachedTotalSigs));
             _signLabel->setProperty("state", "valid");
@@ -179,6 +202,16 @@ void ModeStrip::updateLabels() {
         _signLabel->style()->unpolish(_signLabel);
         _signLabel->style()->polish(_signLabel);
     }
+}
+
+void ModeStrip::onSignatureValidationDone() {
+    if (!_sigWatcher) return;
+    const auto result = _sigWatcher->result();
+    _cachedValidSigs = result.first;
+    _cachedTotalSigs = result.second;
+    _sigValidationInFlight.store(false);
+    // Refresh the label with the freshly validated counts.
+    updateLabels();
 }
 
 void ModeStrip::setMode(const QString& id) {

@@ -34,7 +34,11 @@ int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
 
     QCoreApplication::setApplicationName("GlyphPDF");
-    QCoreApplication::setApplicationVersion("1.0.0");
+#ifdef GLYPHPDF_VERSION
+    QCoreApplication::setApplicationVersion(GLYPHPDF_VERSION);  // injected from CMake PROJECT_VERSION
+#else
+    QCoreApplication::setApplicationVersion("0.0.0");
+#endif
     QCoreApplication::setOrganizationName("Glyph");
 
     // Application-wide window / taskbar icon (branding)
@@ -83,8 +87,10 @@ int main(int argc, char *argv[]) {
         app.installTranslator(&appTranslator);
     }
 
-    // === RTL layout support ===
-    if (locale.textDirection() == Qt::RightToLeft) {
+    // === RTL layout support (AR-8 D6) ===
+    // Priority: 1. Explicit user toggle (ui/rtl setting). 2. System locale direction.
+    if (settings.value(QStringLiteral("ui/rtl"),
+                       locale.textDirection() == Qt::RightToLeft).toBool()) {
         app.setLayoutDirection(Qt::RightToLeft);
     }
 
@@ -124,11 +130,13 @@ int main(int argc, char *argv[]) {
     // D6: Install temp file cleanup — atexit handler + stale cleanup
     TempFileManager::install();
 
-    // Initialize engine infrastructure via Bootstrapper
+    // Initialize engine infrastructure via Bootstrapper. The window takes
+    // ownership of the context by value (AR-10 D2), so it cannot outlive a
+    // stack-local context.
     auto ctx = Bootstrapper::createContext();
 
     // Launch the new Glyph design UI
-    gp::MainWindow mainWindow(&ctx);
+    gp::MainWindow mainWindow(std::move(ctx));
     mainWindow.showMaximized();
 
     if (splash) {

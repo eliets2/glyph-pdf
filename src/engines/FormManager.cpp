@@ -392,6 +392,70 @@ bool FormManager::createButton(const QString &pdfFilePath, int pageIndex, const 
     }
 }
 
+// ── addCalculatedField ────────────────────────────────────────────────────────
+// Creates a read-only text field whose value is computed by the supplied
+// JavaScript/AcroForm calculation expression. The calculation runs via the
+// /AA /C (Calculate) additional action; the field is registered in the AcroForm
+// /CO array so conforming viewers recompute it in document order.
+bool FormManager::addCalculatedField(const QString &pdfFilePath, int pageIndex, const QRectF &rect,
+                                     const QString &fieldName, const QString &expression,
+                                     const QString &outputPath)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(pdfFilePath.toUtf8().constData());
+        if (pageIndex < 0 || static_cast<unsigned>(pageIndex) >= doc.GetPages().GetCount()) return false;
+
+        PoDoFo::PdfPage& page = doc.GetPages().GetPageAt(pageIndex);
+        PoDoFo::Rect pdfRect(rect.x(), page.GetMediaBox().Height - rect.y() - rect.height(), rect.width(), rect.height());
+
+        auto& field = page.CreateField<PoDoFo::PdfTextBox>(fieldName.toStdString(), pdfRect);
+        field.SetText(PoDoFo::PdfString(""));
+
+        // /AA dictionary: /C (Calculate) JavaScript action plus a /F (Format)
+        // action so the computed result displays as a 2-decimal number.
+        PoDoFo::PdfDictionary aaDict;
+
+        PoDoFo::PdfDictionary calcAction;
+        calcAction.AddKey(PoDoFo::PdfName("S"), PoDoFo::PdfName("JavaScript"));
+        calcAction.AddKey(PoDoFo::PdfName("JS"), PoDoFo::PdfString(expression.toStdString()));
+        aaDict.AddKey(PoDoFo::PdfName("C"), calcAction);
+
+        PoDoFo::PdfDictionary formatAction;
+        formatAction.AddKey(PoDoFo::PdfName("S"), PoDoFo::PdfName("JavaScript"));
+        formatAction.AddKey(PoDoFo::PdfName("JS"), PoDoFo::PdfString("AFNumber_Format(2, 0, 0, 0, \"\", true);"));
+        aaDict.AddKey(PoDoFo::PdfName("F"), formatAction);
+
+        field.GetDictionary().AddKey(PoDoFo::PdfName("AA"), aaDict);
+
+        // A calculated field must be read-only so users can't overtype the result.
+        int flags = 0;
+        const PoDoFo::PdfObject* ffObj = field.GetDictionary().FindKey("Ff");
+        if (ffObj && ffObj->IsNumber()) flags = static_cast<int>(ffObj->GetNumber());
+        flags |= (1 << 0); // ReadOnly
+        field.GetDictionary().AddKey(PoDoFo::PdfName("Ff"), PoDoFo::PdfVariant(static_cast<int64_t>(flags)));
+
+        // Register the field in the AcroForm /CO calculation-order array so
+        // viewers know to recalculate it. Append to any existing /CO entries.
+        auto* acroForm = doc.GetAcroForm();
+        if (acroForm) {
+            PoDoFo::PdfArray coArr;
+            const PoDoFo::PdfObject* existing = acroForm->GetDictionary().FindKey("CO");
+            if (existing && existing->IsArray()) coArr = existing->GetArray();
+            coArr.Add(field.GetObject().GetIndirectReference());
+            acroForm->GetDictionary().AddKey(PoDoFo::PdfName("CO"), coArr);
+        }
+
+        doc.Save(outputPath.toUtf8().constData());
+        qDebug() << "Added calculated field" << fieldName << "on page" << pageIndex
+                 << "expr:" << expression;
+        return true;
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "Error adding calculated field:" << e.what();
+        return false;
+    }
+}
+
 QList<FieldSuggestion> FormManager::autoDetectFields(const QString &pdfFilePath, int pageIndex)
 {
     QList<FieldSuggestion> suggestions;

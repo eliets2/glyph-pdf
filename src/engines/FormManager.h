@@ -32,6 +32,9 @@ public:
     bool addListBox(const QString &pdfFilePath, int pageIndex, const QRectF &rect, const QString &fieldName, const QStringList &options, bool multiSelect, const QString &outputPath) override;
 
     bool createButton(const QString &pdfFilePath, int pageIndex, const QRectF &rect, const QString &caption, const QString &action, const QString &outputPath) override;
+    bool addCalculatedField(const QString &pdfFilePath, int pageIndex, const QRectF &rect,
+                            const QString &fieldName, const QString &expression,
+                            const QString &outputPath) override;
     QList<FieldSuggestion> autoDetectFields(const QString &pdfFilePath, int pageIndex) override;
 
     bool removeFieldByName(const QString &pdfFilePath, const QString &fieldName, const QString &outputPath) override;

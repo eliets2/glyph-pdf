@@ -4,26 +4,28 @@
 #include <QDebug>
 #include <cstdint>
 
+// AR-6 D1 — SERIAL-RENDER CONTRACT (justification).
+// Every public method here takes m_mutex, so all render/extract/search calls
+// against this backend are serialised. This is INTENTIONAL, not an oversight:
+// PDFium page objects loaded from a single FPDF_DOCUMENT are not safe to render
+// concurrently (FPDF_LoadPage/RenderPageBitmap mutate shared document state).
+// Genuinely concurrent rendering would require a POOL of independent backend
+// instances, each owning its own FPDF_LoadDocument handle to the same file —
+// a larger ownership change (pool lifecycle, per-thread instance routing from
+// RenderCache, N× the document memory). We deliberately keep render serial and
+// instead prevent the one real harm of serial render — background prefetch
+// stalling the foreground UI — by running prefetch at LowestPriority
+// (RenderCache::prefetchViewport, AR-6 D1). LaneScheduler/CrossPagePipeline
+// parallelism remains real for the CPU/GPU OCR stages, which do NOT funnel
+// through this single backend mutex.
+
 #ifdef HAS_PDFIUM
 
-static int s_pdfiumRefCount = 0;
-static QMutex s_pdfiumMutex;
-
 PdfiumBackend::PdfiumBackend() {
-    QMutexLocker locker(&s_pdfiumMutex);
-    if (s_pdfiumRefCount == 0) {
-        FPDF_InitLibrary();
-    }
-    s_pdfiumRefCount++;
 }
 
 PdfiumBackend::~PdfiumBackend() {
     closeDocument();
-    QMutexLocker locker(&s_pdfiumMutex);
-    s_pdfiumRefCount--;
-    if (s_pdfiumRefCount == 0) {
-        FPDF_DestroyLibrary();
-    }
 }
 
 bool PdfiumBackend::loadDocument(const QString &filePath) {

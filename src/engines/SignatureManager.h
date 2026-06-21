@@ -29,14 +29,14 @@ public:
     void setTsaUrl(const QString &url) override;
     void setSignatureLevel(PAdESLevel level) override;
 
-    bool signDocument(const QString &inputPath,
+    SignOutcome signDocument(const QString &inputPath,
                       const QString &outputPath,
                       const QString &certPath,
                       const QString &password,
                       const QString &reason = QString(),
                       const QString &location = QString()) override;
 
-    bool certifyDocument(const QString &inputPath,
+    SignOutcome certifyDocument(const QString &inputPath,
                          const QString &outputPath,
                          const QString &certPath,
                          const QString &password,
@@ -44,10 +44,7 @@ public:
                          const QString &reason = QString(),
                          const QString &location = QString()) override;
 
-    bool addDocTimeStamp(const QString &inputPath,
-                         const QString &outputPath) override;
-
-    SignOutcome lastSignOutcome() const override;
+    bool addDocTimeStamp(const QString &inputPath, const QString &outputPath) override;
 
     /**
      * @brief Validate all digital signatures in a PDF.
@@ -57,9 +54,13 @@ public:
     QList<SignatureInfo> validateSignatures(const QString &filePath) override;
 
 private:
+    static bool isLegitimateIncrementalAppend(const QByteArray& trailingBytes,
+                                              const QByteArray& baseDocument,
+                                              QString& reason);
+
     // Shared signing core used by both signDocument (certificationLevel == 0) and
     // certifyDocument (certificationLevel 1..3 -> /DocMDP). See SignatureManager.cpp.
-    bool signDocumentImpl(const QString &inputPath,
+    SignOutcome signDocumentImpl(const QString &inputPath,
                           const QString &outputPath,
                           const QString &certPath,
                           const QString &password,

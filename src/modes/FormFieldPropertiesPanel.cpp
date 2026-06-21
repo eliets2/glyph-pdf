@@ -11,6 +11,7 @@
 #include <QToolButton>
 #include <QUndoStack>
 #include <QVBoxLayout>
+#include <QDoubleSpinBox>
 
 namespace gp {
 
@@ -64,6 +65,23 @@ FormFieldPropertiesPanel::FormFieldPropertiesPanel(const AppContext* ctx, QWidge
     m_regexStatus->setStyleSheet("QLabel { color: #c00; font-size: 10px; }");
     m_regexStatus->setVisible(false);
     form->addRow(QString(), m_regexStatus);
+
+    auto addSpin = [this](QDoubleSpinBox*& spin) {
+        spin = new QDoubleSpinBox;
+        spin->setRange(0, 9999);
+        spin->setDecimals(1);
+    };
+    addSpin(m_spinX);
+    addSpin(m_spinY);
+    addSpin(m_spinW);
+    addSpin(m_spinH);
+    
+    auto* geomLayout = new QHBoxLayout;
+    geomLayout->addWidget(new QLabel(tr("X:"))); geomLayout->addWidget(m_spinX);
+    geomLayout->addWidget(new QLabel(tr("Y:"))); geomLayout->addWidget(m_spinY);
+    geomLayout->addWidget(new QLabel(tr("W:"))); geomLayout->addWidget(m_spinW);
+    geomLayout->addWidget(new QLabel(tr("H:"))); geomLayout->addWidget(m_spinH);
+    form->addRow(tr("Geometry:"), geomLayout);
 
     col->addLayout(form);
     col->addStretch(1);
@@ -131,6 +149,21 @@ void FormFieldPropertiesPanel::onApplyClicked()
     const QString applied = newProps.name.isEmpty() ? m_fieldName : newProps.name;
     m_fieldName = applied;
     emit propertiesApplied(applied);
+    emit geometryCommitted(fieldRect());
+}
+
+void FormFieldPropertiesPanel::setFieldRect(const QRectF& rect)
+{
+    if (m_spinX) m_spinX->setValue(rect.x());
+    if (m_spinY) m_spinY->setValue(rect.y());
+    if (m_spinW) m_spinW->setValue(rect.width());
+    if (m_spinH) m_spinH->setValue(rect.height());
+}
+
+QRectF FormFieldPropertiesPanel::fieldRect() const
+{
+    if (!m_spinX || !m_spinY || !m_spinW || !m_spinH) return QRectF();
+    return QRectF(m_spinX->value(), m_spinY->value(), m_spinW->value(), m_spinH->value());
 }
 
 void FormFieldPropertiesPanel::onNameChanged(const QString& /*text*/)

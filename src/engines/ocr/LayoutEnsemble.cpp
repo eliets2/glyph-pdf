@@ -191,6 +191,18 @@ QList<LayoutRegion> LayoutEnsemble::detect(const QImage &page)
     if (d->scheduler && d->detectors.size() > 1) {
         // Parallel dispatch via LaneScheduler GPU lane.
         // Each detector holds its own ONNX session / mutex — safe to run concurrently.
+        //
+        // AR-6 D3 note: this method waits (below) on GPU-lane futures, and it is
+        // itself invoked as the CrossPagePipeline CPU stage1 body — i.e. a CPU
+        // worker thread blocks here on the GPU lane. That is the antipattern the
+        // audit flags. It is NON-deadlocking here ONLY because ILayoutDetector
+        // implementations run their inference synchronously on the assigned
+        // thread and NEVER sub-submit back to the CPU pool (verified for
+        // PpDocLayoutDetector/SuryaDetector) — so the GPU lane always makes
+        // forward progress without needing a CPU-pool thread, and the wait
+        // always resolves. Detectors MUST keep that contract: a detector that
+        // re-submits CPU work and blocks would reintroduce the circular wait
+        // that CrossPagePipeline (PipelineStage.h) was hardened against.
         using ResultType = QList<LayoutRegion>;
         QList<gp::SchedulerResult<ResultType>> futures;
         futures.reserve((int)d->detectors.size());

@@ -1,24 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Chocolatey package spec for GlyphPDF v1.0.0
-  NOTE: Replace REPLACE_SHA256 with the actual SHA-256 of the signed MSI before publishing.
-  Replace REPLACE_DOWNLOAD_URL with the real GitHub Release download URL.
+  Chocolatey package spec for GlyphPDF v1.3.1
 
   To build: choco pack glyphpdf.nuspec
-  To push:  choco push glyphpdf.1.0.0.nupkg --source https://push.chocolatey.org --api-key YOUR_KEY
+  To push:  choco push glyphpdf.1.3.1.nupkg --source https://push.chocolatey.org --api-key YOUR_KEY
+
+  Install script lives at tools/chocolateyInstall.ps1 (create alongside this file).
 -->
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
     <id>glyphpdf</id>
-    <version>1.0.0</version>
+    <version>1.3.1</version>
     <title>GlyphPDF</title>
     <authors>Glyph</authors>
-    <projectUrl>https://glyphpdf.com</projectUrl>
-    <iconUrl>https://raw.githubusercontent.com/YOUR_USERNAME/glyphpdf/main/resources/branding/icon-256.png</iconUrl>
-    <licenseUrl>https://github.com/YOUR_USERNAME/glyphpdf/blob/main/LICENSE</licenseUrl>
+    <projectUrl>https://github.com/eliets2/glyph-pdf</projectUrl>
+    <iconUrl>https://raw.githubusercontent.com/eliets2/glyph-pdf/main/resources/branding/icon-256.png</iconUrl>
+    <licenseUrl>https://github.com/eliets2/glyph-pdf/blob/main/LICENSE</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
-    <projectSourceUrl>https://github.com/YOUR_USERNAME/glyphpdf</projectSourceUrl>
-    <bugTrackerUrl>https://github.com/YOUR_USERNAME/glyphpdf/issues</bugTrackerUrl>
+    <projectSourceUrl>https://github.com/eliets2/glyph-pdf</projectSourceUrl>
+    <bugTrackerUrl>https://github.com/eliets2/glyph-pdf/issues</bugTrackerUrl>
     <tags>pdf pdf-editor pdf-viewer ocr redaction digital-signatures privacy open-source admin</tags>
     <summary>Open-source privacy-first PDF workstation for Windows. Apache-2.0.</summary>
     <description><![CDATA[
@@ -33,30 +33,58 @@ GlyphPDF is a full-featured, open-source PDF workstation for Windows.
 - **Djot document interchange**: semantic dual-model with provenance tracking
 - **AI assistant**: Anthropic Claude, OpenAI GPT-4o, Gemini, Ollama (local)
 - **Office import**: .docx/.xlsx/.pptx via LibreOffice subprocess
-- **Batch processing**, **Form Builder** (9 field types), **Compare mode** with Myers LCS diff
+- **Batch processing** (OCR, Merge, Redact, hot-folder watch), **Form Builder** (10 field types incl. calculated), **Compare mode** with Myers LCS diff + page-reorder detection
 - No telemetry, no cloud upload, no subscription
 - Apache-2.0 licensed
 
+## v1.3.1 Maintenance
+
+- Removed placeholder data from the OCR Verify screen (now a clean empty state)
+- In-app updates wired end-to-end: on-launch banner + a polished update dialog
+  (release notes, progress, SHA-256/signature verification)
+- Branded MSI installer wizard with a "Launch GlyphPDF" finish option
+
+## v1.3.0 Features (included)
+
+- Restored OCR Verify screen; Stamp, Callout and Erase annotation tools + comment attachments
+- Calculated AcroForm field type (10th field type)
+- Batch OCR, Merge and Redact operations; hot-folder watching
+- Compare report export (HTML/text) and whole-page reorder detection
+- Encrypted-ZIP secure sharing and XMP-based document expiry (read-only on expiry)
+- Tagged-PDF reading-order accessibility check
+
+## v1.2.1 Fixes (included)
+
+- Fixed startup crash on all v1.0.x and v1.2.0 installs: deploy.ps1 was bundling
+  the ABI-incompatible MSYS2 podofo 0.10.4 instead of the vendored podofo 1.1.0
+  that GlyphPDF.exe was linked against, causing "Entry Point Not Found" on launch.
+
+## v1.2.0 Security Fixes (included)
+
+- Removed OCSP test-fixture bypass from production builds (SECFIX-1)
+- Fixed AES-256-GCM downgrade oracle via unauthenticated version byte (SECFIX-2)
+- Fixed TOCTOU in MSI update verification (SECFIX-3)
+- Fixed unbounded recursion in signature shadow-attack detector (SECFIX-4)
+- Restricted Ollama AI provider to localhost/HTTPS endpoints (SECFIX-5)
+
 ## Notes
 
-- Optional dependencies: LibreOffice (Office import), veraPDF CLI (PDF/A validation), Ollama (local AI)
-- 64-bit Windows 10/11 required
+- Optional dependencies: LibreOffice (Office import), Ollama (local AI)
+- 64-bit Windows 10 (1607+) or Windows 11 required
     ]]></description>
-    <releaseNotes>https://github.com/YOUR_USERNAME/glyphpdf/releases/tag/v1.0.0</releaseNotes>
+    <releaseNotes>https://github.com/eliets2/glyph-pdf/releases/tag/v1.3.1</releaseNotes>
   </metadata>
   <files>
     <file src="tools\**" target="tools" />
   </files>
 </package>
-]]>
-</description>
 
 <!-- Place install script at chocolatey/tools/chocolateyInstall.ps1:
 
 $ErrorActionPreference = 'Stop'
 $packageName = 'glyphpdf'
-$url64       = 'https://github.com/YOUR_USERNAME/glyphpdf/releases/download/v1.0.0/GlyphPDF-1.0.0-x64.msi'
-$checksum64  = 'REPLACE_SHA256'
+$url64       = 'https://github.com/eliets2/glyph-pdf/releases/download/v1.3.1/GlyphPDF-1.3.1-x64.msi'
+$checksum64  = '8D96CE144A504C450E858C858B6AA8E0C54D710D3D4C6FDA6FB0D22824DF962A'
 
 $packageArgs = @{
   packageName    = $packageName
@@ -69,4 +97,3 @@ $packageArgs = @{
 }
 Install-ChocolateyPackage @packageArgs
 -->
-</package>

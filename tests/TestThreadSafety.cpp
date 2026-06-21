@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QTemporaryDir>
 #include <future>
+#include <stdexcept>
 #include <podofo/podofo.h>
 #include "engines/PdfEditorEngine.h"
 
@@ -21,6 +22,50 @@ public:
     QImage renderTile(int pageIndex, const QRectF &subRect, int dpi) override {
         return QImage();
     }
+    QSizeF pageSize(int pageIndex) const override {
+        return QSizeF(595, 842);
+    }
+    QString extractText(int pageIndex) override {
+        return QString();
+    }
+};
+
+// AR-6 D4: a renderer whose pageSize() throws on the first call, then succeeds.
+// Used to prove RenderCache::pageSize never leaves a broken promise and retries.
+class ThrowingThenOkRenderer : public IPdfRenderer {
+public:
+    mutable QAtomicInt pageSizeCalls{0};
+    QImage renderPage(int, int) override { return QImage(); }
+    QImage renderTile(int, const QRectF &, int) override { return QImage(); }
+    QString extractText(int) override { return QString(); }
+    QSizeF pageSize(int pageIndex) const override {
+        Q_UNUSED(pageIndex);
+        if (pageSizeCalls.fetchAndAddOrdered(1) == 0)
+            throw std::runtime_error("simulated renderer failure");
+        return QSizeF(200, 300);
+    }
+};
+
+// AR-6 D1: records the QThread priority seen during renderPage(), so a test can
+// prove background prefetch runs de-prioritised relative to a foreground render.
+class PriorityProbeRenderer : public IPdfRenderer {
+public:
+    QAtomicInt sawLowestPriority{0};
+    QAtomicInt renderCount{0};
+    QImage renderPage(int, int) override {
+        renderCount.fetchAndAddOrdered(1);
+        if (QThread::currentThread() &&
+            QThread::currentThread()->priority() == QThread::LowestPriority) {
+            sawLowestPriority.storeRelease(1);
+        }
+        QThread::msleep(2);
+        QImage img(50, 50, QImage::Format_ARGB32);
+        img.fill(Qt::white);
+        return img;
+    }
+    QImage renderTile(int, const QRectF &, int) override { return QImage(); }
+    QString extractText(int) override { return QString(); }
+    QSizeF pageSize(int) const override { return QSizeF(595, 842); }
 };
 
 class TestThreadSafety : public QObject {
@@ -74,6 +119,140 @@ private slots:
         cache->setMaxCacheSize(1 * 1024 * 1024);
         
         QVERIFY(cache->cacheHits() + cache->cacheMisses() >= 8000);
+    }
+
+    // AR-6 D2: hash/equality must be consistent. Two keys that compare equal
+    // (differing only by sub-quantization-grid double noise) MUST hash equal.
+    // Pre-fix this failed: hashing used exact double bits while equality used
+    // qFuzzyCompare, so equal keys could hash differently → duplicate tiles.
+    void testRenderCacheKeyHashEqualityInvariant() {
+        // Same page, scale differing by far less than one grid cell (1e-3).
+        RenderCacheKey a{3, 1.5, false, QRectF()};
+        RenderCacheKey b{3, 1.5 + 1e-7, false, QRectF()};
+        QVERIFY2(a == b, "keys within the scale grid must compare equal");
+        QCOMPARE(qHash(a), qHash(b)); // a == b  =>  qHash(a) == qHash(b)
+
+        // Tile keys: sub-rect noise below the rect grid must also be equal+equihash.
+        RenderCacheKey ta{5, 2.0, true, QRectF(10.0, 20.0, 100.0, 50.0)};
+        RenderCacheKey tb{5, 2.0, true, QRectF(10.0 + 1e-9, 20.0, 100.0, 50.0 - 1e-9)};
+        QVERIFY2(ta == tb, "tile keys within the rect grid must compare equal");
+        QCOMPARE(qHash(ta), qHash(tb));
+
+        // Distinct keys must NOT collapse: different page / scale / rect.
+        RenderCacheKey c{4, 1.5, false, QRectF()};
+        QVERIFY(!(a == c));
+        RenderCacheKey d{3, 2.0, false, QRectF()};
+        QVERIFY(!(a == d));
+        RenderCacheKey te{5, 2.0, true, QRectF(11.0, 20.0, 100.0, 50.0)};
+        QVERIFY(!(ta == te));
+    }
+
+    // AR-6 D2: scroll-stress must not produce duplicate tiles. Re-requesting the
+    // "same" page at slightly-perturbed scales (sub-grid noise) must hit the
+    // cache, not insert a second copy. Observable: misses == unique pages only,
+    // and the cache holds one entry per unique page (bounded, no dup waste).
+    void testRenderCacheNoDuplicateTilesUnderScroll() {
+        auto cache = std::make_shared<RenderCache>();
+        cache->setMaxCacheSize(256 * 1024 * 1024); // large: no eviction interference
+        cache->setPageCount(20);
+        cache->resetStats();
+
+        DummyRenderer renderer;
+
+        const int uniquePages = 5;
+        // Simulate scrolling back and forth across 5 pages, 40 passes, each pass
+        // perturbing the scale by sub-grid noise (well under 1/ScaleStep = 1e-3).
+        for (int pass = 0; pass < 40; ++pass) {
+            for (int p = 0; p < uniquePages; ++p) {
+                qreal jitter = (pass % 7) * 1e-6; // < 1e-3 grid cell
+                cache->getOrRender(p, 1.0 + jitter, &renderer);
+            }
+        }
+
+        const qint64 misses = cache->cacheMisses();
+        const qint64 hits   = cache->cacheHits();
+
+        // Exactly one miss (one real render) per unique page — no duplicates.
+        QCOMPARE(misses, static_cast<qint64>(uniquePages));
+        // Everything else was a hit.
+        QCOMPARE(hits, static_cast<qint64>(40 * uniquePages - uniquePages));
+    }
+
+    // AR-6 D4: if the fulfilling thread throws, pageSize() must NOT leave a
+    // broken promise (which would block/throw forever for this page), and a
+    // later call must retry. Pre-fix the throw propagated past set_value(),
+    // leaving the cached future broken — fut.get() then threw std::future_error
+    // for every subsequent caller of this page.
+    void testPageSizeBrokenPromiseRecovery() {
+        auto cache = std::make_shared<RenderCache>();
+        cache->setPageCount(10);
+        ThrowingThenOkRenderer renderer;
+
+        // First call: renderer throws internally. Must return a valid default,
+        // never throw, never hang.
+        QSizeF first;
+        bool threw = false;
+        try {
+            first = cache->pageSize(7, &renderer);
+        } catch (...) {
+            threw = true;
+        }
+        QVERIFY2(!threw, "pageSize must not propagate the renderer exception");
+        QVERIFY2(first.isValid(), "pageSize must return a valid default on failure");
+
+        // Second call: the poisoned entry must have been evicted, so this
+        // retries and gets the real size (200x300) from the now-OK renderer.
+        QSizeF second = cache->pageSize(7, &renderer);
+        QCOMPARE(second, QSizeF(200, 300));
+    }
+
+    // AR-6 D1: render is serial by design; background prefetch must run at the
+    // LOWEST thread priority so it cannot starve the foreground UI render. This
+    // verifies the prefetch worker actually lowers its priority before touching
+    // the (serialised) renderer. Pre-fix the prefetch ran at normal priority and
+    // contended with the foreground on equal footing.
+    void testPrefetchRunsAtLowestPriority() {
+        auto cache = std::make_shared<RenderCache>();
+        cache->setPageCount(100);
+        cache->setMaxCacheSize(256 * 1024 * 1024);
+        PriorityProbeRenderer renderer;
+
+        cache->prefetchViewport(50, 1.0, &renderer);
+
+        // Wait for the prefetch worker to render at least one page (bounded).
+        QElapsedTimer timer;
+        timer.start();
+        while (renderer.renderCount.loadRelaxed() == 0 && timer.elapsed() < 5000)
+            QThread::msleep(5);
+
+        // Let it run a couple of pages so the priority is observed.
+        QThread::msleep(50);
+
+        QVERIFY2(renderer.sawLowestPriority.loadAcquire() == 1,
+            "background prefetch must render at QThread::LowestPriority so it "
+            "cannot starve the foreground UI (AR-6 D1)");
+
+        cache->clear(); // cancel+join before renderer destruction
+    }
+
+    void testPrefetchUAF() {
+        auto cache = std::make_shared<RenderCache>();
+        cache->setPageCount(100);
+        
+        auto renderer = std::make_unique<DummyRenderer>();
+        
+        // Start prefetch
+        cache->prefetchViewport(50, 1.0, renderer.get());
+        
+        // Immediately clear cache which should cancel prefetch.
+        cache->clear();
+        
+        // Destroy renderer. If prefetch wasn't cancelled properly,
+        // it would cause a use-after-free here.
+        renderer.reset();
+        
+        // Wait a bit to ensure the background thread had a chance to hit the UAF if it was going to
+        QThread::msleep(100);
     }
 
     void testConcurrentEngineAccess() {

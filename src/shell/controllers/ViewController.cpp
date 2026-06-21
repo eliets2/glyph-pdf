@@ -4,14 +4,15 @@
 #include "GpMainWindow.h"
 #include "ui/PdfViewerWidget.h"
 
-#include <QMessageBox>
-#include "shell/StatusBar.h"
-#include <QPdfView>
-#include <QTimer>
+#include <QApplication>
 #include <QEvent>
 #include <QKeyEvent>
+#include <QMessageBox>
 #include <QMouseEvent>
-#include <QApplication>
+#include <QPdfView>
+#include <QSettings>
+#include <QTimer>
+#include "shell/StatusBar.h"
 
 namespace gp {
 
@@ -26,14 +27,16 @@ QList<ToolId> ViewController::handledTools() const {
         ToolId::FitWidth, ToolId::FitPage,
         ToolId::SinglePage, ToolId::Continuous, ToolId::TwoPage,
         ToolId::Presentation, ToolId::Fullscreen,
-        ToolId::DarkMode, ToolId::EyeCare
+        ToolId::DarkMode, ToolId::EyeCare,
+        ToolId::RTL  // AR-8 D6: shipped — toggles QApplication layout direction
     };
 }
 
 void ViewController::activate(ToolId id) {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer) {
-        if (id != ToolId::DarkMode && id != ToolId::EyeCare) {
+        // DarkMode, EyeCare, and RTL work without an open document.
+        if (id != ToolId::DarkMode && id != ToolId::EyeCare && id != ToolId::RTL) {
             _mainWindow->statusBar()->showMessage(tr("No document is open."), 3000);
             return;
         }
@@ -77,9 +80,22 @@ void ViewController::activate(ToolId id) {
         _mainWindow->toggleTheme();
         break;
     case ToolId::EyeCare:
-        viewer->toggleEyeCareMode();
+        if (viewer) viewer->toggleEyeCareMode();
         _mainWindow->statusBar()->showMessage(tr("Eye Care mode toggled."), 3000);
         break;
+    case ToolId::RTL: {
+        // AR-8 D6: toggle the application-wide layout direction.
+        // Qt propagates the new direction to all widgets automatically.
+        // Persist the choice so it survives a restart.
+        const bool wasRTL = (QApplication::layoutDirection() == Qt::RightToLeft);
+        const Qt::LayoutDirection newDir = wasRTL ? Qt::LeftToRight : Qt::RightToLeft;
+        QApplication::setLayoutDirection(newDir);
+        QSettings().setValue(QStringLiteral("ui/rtl"), newDir == Qt::RightToLeft);
+        _mainWindow->statusBar()->showMessage(
+            wasRTL ? tr("Layout direction: Left-to-Right.")
+                   : tr("Layout direction: Right-to-Left."), 3000);
+        break;
+    }
     default:
         break;
     }

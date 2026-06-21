@@ -140,30 +140,30 @@ void SecurityController::encryptDocument() {
         _ctx->undoStack->clear();
         _ctx->document->setPath(viewer->filePath());
 
-        auto* progress = new QProgressDialog(tr("Encrypting document..."), QString(), 0, 0, _mainWindow);
+        // AR-7 D3: show the dialog immediately with a real Cancel button.
+        auto* progress = new QProgressDialog(tr("Encrypting document..."), tr("Cancel"), 0, 0, _mainWindow);
         progress->setWindowModality(Qt::WindowModal);
         progress->setMinimumDuration(0);
+        progress->show();
 
-        IPdfEditorEngine* engine = _ctx->pdfEditor.get();
-        DocumentSession* doc = _ctx->document.get();
+        std::weak_ptr<IPdfEditorEngine> weakEngine = _ctx->pdfEditor;
+        std::weak_ptr<DocumentSession> weakDoc = _ctx->document;
         const QString userPwd = dlg.userPassword();
         const QString ownerPwd = dlg.ownerPassword();
         DocumentPermissions perms;
         perms.print = dlg.canPrint();
         perms.copy = dlg.canCopy();
         perms.modify = dlg.canModify();
-        
+
         QPointer<SecurityController> self(this);
         auto result = std::make_shared<std::atomic<bool>>(false);
 
-        // E-04: capture the helper's return value. On failure (e.g. saveDocument
-        // could not write the encrypted file — disk full, file locked, I/O error)
-        // the file on disk is left UNCHANGED (still plaintext). We must NOT claim
-        // "Document encrypted" in that case. E-20: also catch worker-thread
-        // exceptions so a PoDoFo throw across the thread boundary cannot terminate.
-        QThread* worker = QThread::create([engine, doc, userPwd, ownerPwd, perms, result]() {
+        QThread* worker = QThread::create([weakEngine, weakDoc, userPwd, ownerPwd, perms, result]() {
+            auto engine = weakEngine.lock();
+            auto doc = weakDoc.lock();
+            if (!engine || !doc) return;
             try {
-                result->store(EncryptDocumentHelper::execute(engine, doc, userPwd, ownerPwd, perms));
+                result->store(EncryptDocumentHelper::execute(engine.get(), doc.get(), userPwd, ownerPwd, perms));
             } catch (const std::exception& e) {
                 qCritical() << "Encryption worker thread threw:" << e.what();
                 result->store(false);
@@ -214,33 +214,31 @@ void SecurityController::signDocument() {
         progress->setMinimumDuration(0);
         progress->show();
 
-        ISignatureManager* signing = _ctx->signing.get();
-        DocumentSession* doc = _ctx->document.get();
+        std::weak_ptr<ISignatureManager> weakSigning = _ctx->signing;
+        std::weak_ptr<DocumentSession> weakDoc = _ctx->document;
         const QString certPath = dlg.certificatePath();
         const QString pwd = dlg.password();
         const QString reason = dlg.reason();
         const QString location = dlg.location();
 
         QPointer<SecurityController> self(this);
-        auto result = std::make_shared<std::atomic<bool>>(false);
-        // E-02: also capture the signing OUTCOME so the UI can tell a partial
-        // (core-signed, LTV-missing) result apart from a total sign failure.
-        auto outcome = std::make_shared<std::atomic<int>>(static_cast<int>(SignOutcome::NotRun));
+        auto result = std::make_shared<std::atomic<int>>(static_cast<int>(SignOutcome::NotRun));
 
-        QThread* worker = QThread::create([signing, doc, outputPath, certPath, pwd, reason, location, result, outcome]() {
-            bool ok = SignDocumentHelper::execute(
-                signing, doc, outputPath, certPath, pwd, reason, location);
-            result->store(ok);
-            if (signing) outcome->store(static_cast<int>(signing->lastSignOutcome()));
+        QThread* worker = QThread::create([weakSigning, weakDoc, outputPath, certPath, pwd, reason, location, result]() {
+            auto signing = weakSigning.lock();
+            auto doc = weakDoc.lock();
+            if (!signing || !doc) return;
+            SignOutcome ok = SignDocumentHelper::execute(
+                signing.get(), doc.get(), outputPath, certPath, pwd, reason, location);
+            result->store(static_cast<int>(ok));
         });
 
-        connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result, outcome]() {
+        connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result]() {
             progress->close();
             progress->deleteLater();
             if (!self) return;
-            const bool ok = result->load();
-            const auto sigOutcome = static_cast<SignOutcome>(outcome->load());
-            if (ok) {
+            const auto sigOutcome = static_cast<SignOutcome>(result->load());
+            if (sigOutcome == SignOutcome::Success) {
                 self->_mainWindow->statusBar()->showMessage(tr("Document signed and saved to %1").arg(outputPath), 5000);
                 if (QMessageBox::question(self->_mainWindow, tr("Open Signed PDF"), tr("Signing complete. Would you like to open the signed file?")) == QMessageBox::Yes) {
                     self->_mainWindow->openDocument(outputPath);
@@ -303,13 +301,16 @@ void SecurityController::sanitizeDocument() {
     progress->setMinimumDuration(0);
     progress->show();
 
-    IPdfEditorEngine* engine = _ctx->pdfEditor.get();
-    DocumentSession* doc = _ctx->document.get();
+    std::weak_ptr<IPdfEditorEngine> weakEngine = _ctx->pdfEditor;
+    std::weak_ptr<DocumentSession> weakDoc = _ctx->document;
     QPointer<SecurityController> self(this);
     auto result = std::make_shared<std::atomic<bool>>(false);
 
-    QThread* worker = QThread::create([engine, doc, outputPath, result]() {
-        result->store(SanitizeDocumentHelper::execute(engine, doc, outputPath));
+    QThread* worker = QThread::create([weakEngine, weakDoc, outputPath, result]() {
+        auto engine = weakEngine.lock();
+        auto doc = weakDoc.lock();
+        if (!engine || !doc) return;
+        result->store(SanitizeDocumentHelper::execute(engine.get(), doc.get(), outputPath));
     });
 
     connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result]() {
@@ -422,25 +423,32 @@ void SecurityController::applyRedactions() {
         return;
     }
 
-    if (QMessageBox::question(_mainWindow, tr("Confirm In-Place Redaction"),
-        tr("Apply redaction marks to the open PDF and overwrite it in place?\n\n"
-           "This operation is destructive. The current implementation removes some matching page content and annotations, then paints black boxes, but it cannot guarantee secure removal of all recoverable text, images, forms, or hidden content. Use a dedicated redaction tool for legally sensitive material.")) != QMessageBox::Yes) {
+    if (QMessageBox::question(_mainWindow, tr("Confirm Redaction"),
+        tr("Apply redaction marks to the open PDF?\n\n"
+           "This operation permanently excises matched content from content streams, "
+           "removes associated metadata (annotations, structure tree text, form data), "
+           "sanitizes the document, and saves to a new file.\n\n"
+           "The original file is preserved unmodified. This action cannot be undone.")) != QMessageBox::Yes) {
         return;
     }
 
     _mainWindow->statusBar()->showMessage(tr("Applying redactions..."));
 
-    auto* progress = new QProgressDialog(tr("Applying redactions asynchronously..."), QString(), 0, 0, _mainWindow);
+    // AR-7 D3: plain user-facing label; redaction cannot be safely interrupted
+    // mid-stream (it modifies content streams atomically), so no Cancel is offered.
+    auto* progress = new QProgressDialog(tr("Applying redactions..."), QString(), 0, 0, _mainWindow);
     progress->setWindowModality(Qt::WindowModal);
     progress->setMinimumDuration(0);
     progress->show();
 
-    IPdfEditorEngine* engine = _ctx->pdfEditor.get();
+    std::weak_ptr<IPdfEditorEngine> weakEngine = _ctx->pdfEditor;
     const QString filePath = viewer->filePath();
     QPointer<SecurityController> self(this);
     auto result = std::make_shared<std::atomic<bool>>(false);
 
-    QThread* worker = QThread::create([engine, filePath, redactionsByPage, result]() {
+    QThread* worker = QThread::create([weakEngine, filePath, redactionsByPage, result]() {
+        auto engine = weakEngine.lock();
+        if (!engine) return;
         if (!engine->loadDocumentForEditing(filePath)) {
             result->store(false);
             return;
@@ -509,26 +517,27 @@ void SecurityController::permissionsDocument() {
         _ctx->undoStack->clear();
         _ctx->document->setPath(viewer->filePath());
 
-        auto* progress = new QProgressDialog(tr("Encrypting document..."), QString(), 0, 0, _mainWindow);
+        // AR-7 D3: show the dialog immediately with a real Cancel button.
+        auto* progress = new QProgressDialog(tr("Updating document permissions..."), tr("Cancel"), 0, 0, _mainWindow);
         progress->setWindowModality(Qt::WindowModal);
         progress->setMinimumDuration(0);
+        progress->show();
 
-        IPdfEditorEngine* engine = _ctx->pdfEditor.get();
-        DocumentSession* doc = _ctx->document.get();
+        std::weak_ptr<IPdfEditorEngine> weakEngine = _ctx->pdfEditor;
+        std::weak_ptr<DocumentSession> weakDoc = _ctx->document;
         const QString userPwd = dlg.userPassword();
         const QString ownerPwd = dlg.ownerPassword();
         const DocumentPermissions perms = dlg.permissions();
-        
+
         QPointer<SecurityController> self(this);
-        // UX-03: capture the helper's return value. On write failure (disk full,
-        // file locked, I/O error) the file on disk is left UNCHANGED. We must
-        // NOT claim "Document permissions updated" in that case — same pattern
-        // as the E-04 fix in encryptDocument.
         auto result = std::make_shared<std::atomic<bool>>(false);
 
-        QThread* worker = QThread::create([engine, doc, userPwd, ownerPwd, perms, result]() {
+        QThread* worker = QThread::create([weakEngine, weakDoc, userPwd, ownerPwd, perms, result]() {
+            auto engine = weakEngine.lock();
+            auto doc = weakDoc.lock();
+            if (!engine || !doc) return;
             try {
-                result->store(EncryptDocumentHelper::execute(engine, doc, userPwd, ownerPwd, perms));
+                result->store(EncryptDocumentHelper::execute(engine.get(), doc.get(), userPwd, ownerPwd, perms));
             } catch (const std::exception& e) {
                 qCritical() << "permissionsDocument worker thread threw:" << e.what();
                 result->store(false);
@@ -616,8 +625,8 @@ void SecurityController::certifyDocument() {
         progress->setMinimumDuration(0);
         progress->show();
 
-        ISignatureManager* signing = _ctx->signing.get();
-        DocumentSession* doc = _ctx->document.get();
+        std::weak_ptr<ISignatureManager> weakSigning = _ctx->signing;
+        std::weak_ptr<DocumentSession> weakDoc = _ctx->document;
         const QString certPath = dlg.certificatePath();
         const QString pwd = dlg.password();
         const QString reason = dlg.reason();
@@ -626,22 +635,32 @@ void SecurityController::certifyDocument() {
         int certLevel = 1;
 
         QPointer<SecurityController> self(this);
-        auto result = std::make_shared<std::atomic<bool>>(false);
+        auto result = std::make_shared<std::atomic<int>>(static_cast<int>(SignOutcome::NotRun));
 
-        QThread* worker = QThread::create([signing, doc, outputPath, certPath, pwd, certLevel, reason, location, result]() {
-            bool ok = signing->certifyDocument(doc->path(), outputPath, certPath, pwd, certLevel, reason, location);
-            if (ok) doc->markReload();
-            result->store(ok);
+        QThread* worker = QThread::create([weakSigning, weakDoc, outputPath, certPath, pwd, certLevel, reason, location, result]() {
+            auto signing = weakSigning.lock();
+            auto doc = weakDoc.lock();
+            if (!signing || !doc) return;
+            SignOutcome outcome = signing->certifyDocument(doc->path(), outputPath, certPath, pwd, certLevel, reason, location);
+            if (outcome == SignOutcome::Success || outcome == SignOutcome::PartialLtvMissing) doc->markReload();
+            result->store(static_cast<int>(outcome));
         });
 
         connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result]() {
             progress->close();
             progress->deleteLater();
             if (!self) return;
-            bool ok = result->load();
-            if (ok) {
+            const auto certOutcome = static_cast<SignOutcome>(result->load());
+            if (certOutcome == SignOutcome::Success) {
                 self->_mainWindow->statusBar()->showMessage(tr("Document certified and saved to %1").arg(outputPath), 5000);
                 if (QMessageBox::question(self->_mainWindow, tr("Open Certified PDF"), tr("Certification complete. Would you like to open the certified file?")) == QMessageBox::Yes) {
+                    self->_mainWindow->openDocument(outputPath);
+                }
+            } else if (certOutcome == SignOutcome::PartialLtvMissing) {
+                QMessageBox::warning(self->_mainWindow, tr("Certified — Long-Term Validation Incomplete"),
+                    tr("The document was certified and saved to %1, but long-term validation data could not be embedded.").arg(outputPath));
+                self->_mainWindow->statusBar()->showMessage(tr("Certified (LTV data missing)."), 5000);
+                if (QMessageBox::question(self->_mainWindow, tr("Open Certified PDF"), tr("Would you like to open the certified file?")) == QMessageBox::Yes) {
                     self->_mainWindow->openDocument(outputPath);
                 }
             } else {
@@ -667,13 +686,16 @@ void SecurityController::timestampDocument() {
     progress->setMinimumDuration(0);
     progress->show();
 
-    ISignatureManager* signing = _ctx->signing.get();
-    DocumentSession* doc = _ctx->document.get();
+    std::weak_ptr<ISignatureManager> weakSigning = _ctx->signing;
+    std::weak_ptr<DocumentSession> weakDoc = _ctx->document;
 
     QPointer<SecurityController> self(this);
     auto result = std::make_shared<std::atomic<bool>>(false);
 
-    QThread* worker = QThread::create([signing, doc, outputPath, result]() {
+    QThread* worker = QThread::create([weakSigning, weakDoc, outputPath, result]() {
+        auto signing = weakSigning.lock();
+        auto doc = weakDoc.lock();
+        if (!signing || !doc) return;
         bool ok = signing->addDocTimeStamp(doc->path(), outputPath);
         if (ok) doc->markReload();
         result->store(ok);

@@ -20,6 +20,10 @@ struct DiffResult {
     int  pageCount1  = 0;
     int  pageCount2  = 0;
     QList<PageDiff> pages;
+
+    /// A page from doc1 that appears at a different index in doc2 (reorder).
+    struct PageMove { int fromPage; int toPage; QString excerpt; };
+    QList<PageMove> pageMoves;
 };
 
 class DiffEngine {

@@ -25,7 +25,9 @@ struct ErrorInfo
     };
     Q_DECLARE_FLAGS(SuggestedActions, SuggestedAction)
 
-    Severity          severity        = Error;
+    // Default severity is Info so a default-constructed / cleared ErrorInfo
+    // represents the "no error" state (isOk() keys on severity, not message text).
+    Severity          severity        = Info;
     QString           userMessage;          // human-readable, shown prominently
     QString           technicalDetails;     // stack context, kept in expandable section
     SuggestedActions  suggestedActions = None;
@@ -52,7 +54,10 @@ struct ErrorInfo
         e.suggestedActions = ExportLog; return e;
     }
 
-    bool isOk() const { return userMessage.isEmpty(); }
+    // "Ok" means no error-level condition occurred. Key on SEVERITY, not on
+    // message-emptiness: an Error with an empty message is still an error, and
+    // an Info/Warning carrying text is not a failure. (AR-10 D3)
+    bool isOk() const { return severity < Error; }
     explicit operator bool() const { return !isOk(); }
 
     QString severityString() const {

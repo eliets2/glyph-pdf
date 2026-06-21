@@ -56,13 +56,14 @@ public:
     bool replaceImage(int, const QString &, const QString &) override { return true; }
     bool deleteImage(int, const QString &) override { return true; }
     bool applyRedactions(int, const QList<QRectF> &) override { return m_loaded; }
-    bool applyPatternRedactions(const QRegularExpression&, int, int) override { return m_loaded; }
+    bool applyPatternRedactions(const QRegularExpression&, const QList<int>&, const QString&) override { return m_loaded; }
     bool embedAnnotations(const QString &, const QString &, const QList<AnnotationItem> &) override { return m_loaded; }
 
     // Page geometry & content injection
     bool cropPage(const QString &, int, const QRectF &) override { return m_loaded; }
     bool resizePage(const QString &, int, const QSizeF &) override { return m_loaded; }
     bool reorderPages(const QString &, int, int) override { return m_loaded; }
+    bool reorderAllPages(const QString &, const QList<int> &) override { return m_loaded; }
     bool addHeaderFooter(const QString &, const HeaderFooterOptions &) override { return m_loaded; }
     bool applyBatesNumbering(const QString &, const BatesNumberingOptions &) override { return m_loaded; }
 

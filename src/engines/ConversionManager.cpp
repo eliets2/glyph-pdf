@@ -7,6 +7,7 @@
 #include <QDebug>
 #include <QFile>
 #include <QTextStream>
+#include "core/TempFileManager.h"
 
 // Forward declarations or include headers if available
 #ifdef HAS_OPENXLSX
@@ -23,6 +24,11 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QPageSize>
+#include <QStandardPaths>
+#include <QCoreApplication>
+#ifdef Q_OS_WIN
+#include <QSettings>
+#endif
 #include <podofo/main/PdfPainter.h>
 #include <podofo/main/PdfPage.h>
 #include "engines/pdfium/PdfiumBackend.h"
@@ -199,7 +205,7 @@ bool ConversionManager::exportToWord(const QString &outputPath, const QList<QLis
         p = doc.append_paragraph();
     }
     doc.save();
-    return true;
+    return QFileInfo(outputPath).size() > 0;
 #else
     // Fallback: Generate HTML-based DOC (Word can open it)
     QFile file(outputPath);
@@ -214,7 +220,8 @@ bool ConversionManager::exportToWord(const QString &outputPath, const QList<QLis
         out << "</p>";
     }
     out << "</body></html>";
-    return true;
+    file.close();
+    return QFileInfo(outputPath).size() > 0;
 #endif
 }
 
@@ -235,7 +242,7 @@ bool ConversionManager::exportToExcel(const QString &outputPath, const QList<QLi
         rowIdx++;
     }
     doc.save();
-    return true;
+    return QFileInfo(outputPath).size() > 0;
 #else
     // Fallback: Generate CSV
     QFile file(outputPath);
@@ -250,7 +257,13 @@ bool ConversionManager::exportToExcel(const QString &outputPath, const QList<QLi
         }
         out << line.join(",") << "\n";
     }
-    return true;
+    out.flush();
+    // AR-5 D2 (corrected): success = the write completed without an IO error. A text-less
+    // PDF (e.g. the smoke-test blank page) legitimately yields an empty CSV — emptiness is
+    // NOT a conversion failure, whereas a disk/permission error is. Check status, not size.
+    const bool writeOk = out.status() == QTextStream::Ok && file.error() == QFileDevice::NoError;
+    file.close();
+    return writeOk && QFileInfo::exists(outputPath);
 #endif
 }
 
@@ -277,15 +290,6 @@ bool ConversionManager::exportToHtml(const QString &pdfPath, const QString &outp
         QSizeF size = backend.pageSize(i);
         out << QString("<div class=\"page\" style=\"width: %1pt; height: %2pt;\">\n").arg(size.width()).arg(size.height());
 
-        // We use Podofo for text since PDFium char-by-char extraction with fonts is complex here, 
-        // but wait, "PDFium text extraction + positional CSS layout". Let's extract via Podofo since it's already there, 
-        // or just use PoDoFo if available, otherwise fallback.
-        // Actually, to fulfill the prompt precisely without writing 200 lines of FPDF calls, let's just 
-        // use the already implemented extractTextFromPage for simplicity unless strictly PDFium API is needed.
-        // Prompt: "Acceptance: PDFium text extraction + positional CSS layout."
-        // We can use FPDFText_LoadPage, FPDFText_GetRect, FPDFText_GetText for bounding boxes.
-        // I will use Podofo for the HTML output since I can't easily query PDFium fonts without `#include <fpdf_text.h>` and we don't have it directly included.
-        // Wait, I can just use PoDoFo inside this function!
         try {
             PoDoFo::PdfMemDocument doc;
             doc.Load(pdfPath.toUtf8().constData());
@@ -301,7 +305,8 @@ bool ConversionManager::exportToHtml(const QString &pdfPath, const QString &outp
         out << "</div>\n";
     }
     out << "</body></html>\n";
-    return true;
+    file.close();
+    return QFileInfo(outputPath).size() > 0;
 #else
     return false;
 #endif
@@ -317,7 +322,8 @@ bool ConversionManager::exportToImage(const QString &pdfPath, const QString &out
 
     if (options.contains("page") && page >= 0 && page < backend.pageCount()) {
         QImage img = backend.renderPage(page, dpi);
-        return img.save(outputPath, format.toUtf8().constData());
+        bool saved = img.save(outputPath, format.toUtf8().constData());
+        return saved && QFileInfo(outputPath).size() > 0;
     } else {
         // Render all pages to separate files, assuming outputPath contains %1 for page number
         bool ok = true;
@@ -326,7 +332,8 @@ bool ConversionManager::exportToImage(const QString &pdfPath, const QString &out
             QString path = outputPath;
             if (path.contains("%1")) path = path.arg(i + 1);
             else path = path + QString("_page%1").arg(i + 1);
-            ok &= img.save(path, format.toUtf8().constData());
+            bool saved = img.save(path, format.toUtf8().constData());
+            ok &= (saved && QFileInfo(path).size() > 0);
         }
         return ok;
     }
@@ -345,17 +352,68 @@ bool ConversionManager::exportToCsv(const QString &outputPath, const QList<QList
         }
         out << line.join(",") << "\n";
     }
-    return true;
+    file.close();
+    return QFileInfo(outputPath).size() > 0;
+}
+
+QString ConversionManager::locateSoffice()
+{
+    // 1. Portable LibreOffice bundled alongside the application (if a future build
+    //    ships one). Checked first so a bundled copy always wins over a system one.
+    const QString appDir = QCoreApplication::applicationDirPath();
+    const QStringList bundled = {
+        appDir + "/libreoffice/program/soffice.exe",
+        appDir + "/libreoffice/program/soffice",
+    };
+    for (const QString &p : bundled) {
+        if (QFileInfo::exists(p))
+            return QDir::toNativeSeparators(p);
+    }
+
+    // 2. On the PATH (covers MSYS2 ucrt64 builds and user-modified PATHs).
+    const QString onPath = QStandardPaths::findExecutable("soffice");
+    if (!onPath.isEmpty())
+        return QDir::toNativeSeparators(onPath);
+
+    // 3. Standard install locations.
+    const QStringList standard = {
+        "C:/Program Files/LibreOffice/program/soffice.exe",
+        "C:/Program Files (x86)/LibreOffice/program/soffice.exe",
+        "/usr/bin/soffice",                                   // Linux
+        "/Applications/LibreOffice.app/Contents/MacOS/soffice" // macOS
+    };
+    for (const QString &p : standard) {
+        if (QFileInfo::exists(p))
+            return QDir::toNativeSeparators(p);
+    }
+
+#ifdef Q_OS_WIN
+    // 4. Windows registry — App Paths gives the install dir even for non-default
+    //    locations chosen by the user during a LibreOffice install.
+    const QStringList regKeys = {
+        "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\soffice.exe",
+        "HKEY_CURRENT_USER\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\soffice.exe",
+    };
+    for (const QString &key : regKeys) {
+        QSettings reg(key, QSettings::NativeFormat);
+        const QString path = reg.value("Default").toString().remove('"');
+        if (!path.isEmpty() && QFileInfo::exists(path))
+            return QDir::toNativeSeparators(path);
+    }
+#endif
+
+    return QString(); // No converter found — caller degrades gracefully.
 }
 
 bool ConversionManager::convertOfficeToPdf(const QString &officePath, const QString &outputPath,
                                             int timeoutMs)
 {
-#ifndef HAS_LIBREOFFICE
-    Q_UNUSED(officePath); Q_UNUSED(outputPath); Q_UNUSED(timeoutMs);
-    qWarning() << "convertOfficeToPdf: LibreOffice not configured at build time";
-    return false;
-#else
+    const QString sofficePath = locateSoffice();
+    if (sofficePath.isEmpty()) {
+        qWarning() << "convertOfficeToPdf: no LibreOffice/soffice converter found on this machine";
+        return false;
+    }
+
     // Validate extension: supported Office input formats
     static const QStringList supportedExts = {
         "docx", "doc", "xlsx", "xls", "pptx", "ppt",
@@ -371,11 +429,11 @@ bool ConversionManager::convertOfficeToPdf(const QString &officePath, const QStr
         return false;
     }
 
-    // Kill any stale soffice lock from a previous crash (exit code 81)
-    // before launching, to avoid "locked" failures.
-#ifdef Q_OS_WIN
-    QProcess::execute("taskkill", {"/F", "/IM", "soffice.bin", "/IM", "soffice.exe"});
-#endif
+    // Remove blanket pre-kill to avoid destroying user's unsaved work.
+    // Instead, launch soffice with a private profile so it doesn't wait on a shared lock.
+    QString profileDir = TempFileManager::instance().createTempDir("glyphpdf-soffice");
+    // Ensure path uses forward slashes for the file:/// URI
+    QString profileUri = "file:///" + QDir::toNativeSeparators(profileDir).replace("\\", "/");
 
     QFileInfo outInfo(outputPath);
     const QString outDir = outInfo.absolutePath();
@@ -383,8 +441,8 @@ bool ConversionManager::convertOfficeToPdf(const QString &officePath, const QStr
 
     QProcess process;
     process.setProcessChannelMode(QProcess::MergedChannels);
-    const QString sofficePath = QString::fromLatin1(LIBREOFFICE_SOFFICE_PATH);
     process.start(sofficePath, {
+        "--env:UserInstallation=" + profileUri,
         "--headless",
         "--convert-to", "pdf:writer_pdf_Export",
         "--outdir", outDir,
@@ -429,7 +487,6 @@ bool ConversionManager::convertOfficeToPdf(const QString &officePath, const QStr
         return false;
     }
     return true;
-#endif
 }
 #include <zip.h>
 #include <QXmlStreamWriter>
@@ -465,7 +522,8 @@ bool ConversionManager::exportToText(const QString &pdfPath, const QString &outp
             }
             out << "\n\n";
         }
-        return true;
+        file.close();
+        return QFileInfo(outputPath).size() > 0;
     } catch (...) {
         return false;
     }
@@ -844,8 +902,8 @@ bool ConversionManager::exportToPowerPoint(const QString &pdfPath, const QString
         addZipFile(za, QString("ppt/slides/_rels/slide%1.xml.rels").arg(i+1).toUtf8().constData(), slideRels);
     }
 
-    zip_close(za);
-    return true;
+    if (zip_close(za) != 0) return false;
+    return QFileInfo(outputPath).size() > 0;
 }
 
 bool ConversionManager::convertImagesToPdf(const QStringList &imagePaths,
@@ -889,6 +947,10 @@ bool ConversionManager::convertImagesToPdf(const QStringList &imagePaths,
                 QImage qimg;
                 if (!qimg.load(imgPath)) {
                     qWarning() << "convertImagesToPdf: cannot load image:" << imgPath << e.what();
+                    return false;
+                }
+                if (qimg.width() > 10000 || qimg.height() > 10000) {
+                    qWarning() << "convertImagesToPdf: image dimensions too large";
                     return false;
                 }
                 // Convert to RGB24 for PoDoFo SetData

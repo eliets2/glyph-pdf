@@ -354,6 +354,71 @@ private slots:
         QCOMPARE(static_cast<int>(bc->reviewState),
                  static_cast<int>(ReviewState::Rejected));
     }
+    // ── AR-7 D1: Save chokepoint — in-place embed then re-open proves persistence
+    // Simulates onSave() calling embedAnnotations(filePath, filePath, annotations).
+    // Pre-fix: annotations were never embedded (only the .ann sidecar was written).
+    // Post-fix: re-opening the PDF with extractAnnotations shows them in the object graph.
+    void testSaveChokepoint_embedInPlace() {
+        // Step 1: create the base PDF
+        const QString base = createBasePdf(m_tmpDir, "ar7d1_base.pdf");
+        QVERIFY2(!base.isEmpty(), "Could not create base PDF");
+
+        // Step 2: build an annotation that would come from the viewer
+        AnnotationItem a;
+        a.id           = QStringLiteral("ar7-d1-save");
+        a.mode         = ToolMode::AddComment;
+        a.pageIndex    = 0;
+        a.rect         = QRectF(50, 50, 100, 30);
+        a.author       = QStringLiteral("AR7Tester");
+        a.text         = QStringLiteral("AR-7 save chokepoint test");
+        a.djotSource   = a.text;
+
+        // Step 3: call embedAnnotations with inputPath == outputPath (the onSave() path)
+        PoDoFoBackend backend;
+        QVERIFY2(backend.embedAnnotations(base, base, { a }),
+                 "embedAnnotations in-place (Save path) should succeed");
+
+        // Step 4: RE-OPEN with a FRESH backend and extractAnnotations — this is the
+        // evidence gate: annotations must be in the PDF object graph, not just the sidecar.
+        PoDoFoBackend backend2;
+        const QList<AnnotationItem> loaded = backend2.extractAnnotations(base);
+        const AnnotationItem* got = find(loaded, a.id);
+        QVERIFY2(got != nullptr,
+                 "annotation must be present in the re-opened PDF object graph (AR-7 D1)");
+        QCOMPARE(got->text, a.text);
+    }
+
+    // ── AR-7 D1: Save-As chokepoint — embed into a different output path
+    // Simulates onSaveAs() calling embedAnnotations(srcPath, dstPath, annotations).
+    void testSaveChokepoint_embedToNewFile() {
+        const QString base = createBasePdf(m_tmpDir, "ar7d1_src.pdf");
+        QVERIFY2(!base.isEmpty(), "Could not create source PDF");
+        const QString dst = m_tmpDir.filePath("ar7d1_dst.pdf");
+
+        AnnotationItem a;
+        a.id         = QStringLiteral("ar7-d1-saveas");
+        a.mode       = ToolMode::Highlight;
+        a.pageIndex  = 0;
+        a.rect       = QRectF(60, 80, 120, 20);
+        a.author     = QStringLiteral("AR7Tester");
+        a.text       = QStringLiteral("Highlight via Save As");
+
+        PoDoFoBackend backend;
+        QVERIFY2(backend.embedAnnotations(base, dst, { a }),
+                 "embedAnnotations to a new path (Save As path) should succeed");
+
+        // Source must be unmodified (no annotations added to it)
+        PoDoFoBackend backend2;
+        const QList<AnnotationItem> srcLoaded = backend2.extractAnnotations(base);
+        QVERIFY2(find(srcLoaded, a.id) == nullptr,
+                 "source PDF must not be modified by Save As");
+
+        // Destination must contain the annotation in the PDF object graph
+        PoDoFoBackend backend3;
+        const QList<AnnotationItem> dstLoaded = backend3.extractAnnotations(dst);
+        QVERIFY2(find(dstLoaded, a.id) != nullptr,
+                 "annotation must be present in the Save-As PDF object graph (AR-7 D1)");
+    }
 };
 
 QTEST_MAIN(TestAnnotationDjot)

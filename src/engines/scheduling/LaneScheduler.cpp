@@ -2,6 +2,7 @@
 // src/engines/scheduling/LaneScheduler.cpp
 #include "LaneScheduler.h"
 #include <QtConcurrent>
+#include <QDebug>
 
 namespace gp {
 
@@ -91,9 +92,15 @@ int LaneScheduler::inFlightCount(Lane lane) const {
 void LaneScheduler::setLaneCapacity(Lane lane, int capacity) {
     if (lane == Lane::CPU) {
         m_cpuPool.setMaxThreadCount(capacity);
+        return;
     }
-    // GPU capacity is fixed at construction via QSemaphore;
-    // runtime resize would require draining the queue first and is not supported.
+    // AR-6 D5: GPU capacity is fixed at construction via QSemaphore; a runtime
+    // resize would require draining the queue and re-sizing the semaphore, which
+    // is not supported. Previously this silently no-op'd, so a caller believed
+    // it had changed GPU parallelism when it had not. Warn loudly instead.
+    qWarning() << "LaneScheduler::setLaneCapacity(GPU," << capacity
+               << ") ignored — GPU lane capacity is fixed at construction "
+                  "(set it via the LaneScheduler gpuCapacity constructor arg).";
 }
 
 } // namespace gp
