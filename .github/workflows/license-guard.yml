@@ -1,0 +1,231 @@
+name: License Guard
+
+# AR-11 D3: Verify that the MuPDF/Poppler FATAL_ERROR guards actually fire when
+# those libraries are installed. This job installs poppler (GPL-2.0+) and asserts
+# that cmake configure FAILS with a FATAL_ERROR — proving the guard is real, not
+# decorative.
+#
+# This runs on every push/PR to main and is also run as part of the release gate.
+# A failing guard (cmake succeeds with poppler present) is a CRITICAL compliance
+# violation — the job must stay red until the CMakeLists.txt guard is fixed.
+
+on:
+  push:
+    branches: [ main, audit-remediation ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  poppler-guard:
+    name: "Guard: cmake FAILS with Poppler installed"
+    runs-on: windows-2022
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+      - name: Set up MSYS2 ucrt64 (with Poppler)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          install: >-
+            git
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-qt6-base
+            mingw-w64-ucrt-x86_64-qt6-tools
+            mingw-w64-ucrt-x86_64-qt6-svg
+            mingw-w64-ucrt-x86_64-qt6-pdf
+            mingw-w64-ucrt-x86_64-podofo
+            mingw-w64-ucrt-x86_64-qpdf
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-tesseract-ocr
+            mingw-w64-ucrt-x86_64-tesseract-data-eng
+            mingw-w64-ucrt-x86_64-leptonica
+            mingw-w64-ucrt-x86_64-libzip
+            mingw-w64-ucrt-x86_64-libxml2
+            mingw-w64-ucrt-x86_64-freetype
+            mingw-w64-ucrt-x86_64-zlib
+            mingw-w64-ucrt-x86_64-curl
+            mingw-w64-ucrt-x86_64-libpng
+            mingw-w64-ucrt-x86_64-libjpeg-turbo
+            mingw-w64-ucrt-x86_64-libtiff
+            mingw-w64-ucrt-x86_64-openjpeg2
+            mingw-w64-ucrt-x86_64-fontconfig
+            mingw-w64-ucrt-x86_64-poppler
+
+      # veraPDF vendored dir is not in the repo (gitignored) — create a minimal
+      # stub so deploy.ps1 doesn't fail; the guard test only probes cmake configure.
+      - name: Restore vendored podofo cache
+        id: podofo-cache
+        uses: actions/cache@v4
+        with:
+          path: third_party/podofo/install
+          key: podofo-1.1.0-ucrt64-r1
+
+      - name: Build vendored podofo 1.1.0
+        if: steps.podofo-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch 1.1.0 https://github.com/podofo/podofo.git podofo-src
+          cmake -S podofo-src -B podofo-src/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPODOFO_BUILD_TOOLS=OFF \
+            -DPODOFO_BUILD_TEST=OFF \
+            -DPODOFO_BUILD_EXAMPLES=OFF \
+            -DCMAKE_INSTALL_PREFIX="$PWD/third_party/podofo/install"
+          cmake --build podofo-src/build --parallel
+          cmake --install podofo-src/build
+
+      - name: Assert cmake configure FAILS with Poppler installed
+        id: guard_check
+        run: |
+          echo "=== Verifying Poppler is present (pkg-config) ==="
+          pkg-config --modversion poppler && echo "poppler confirmed present" || true
+          pkg-config --modversion poppler-cpp && echo "poppler-cpp confirmed present" || true
+
+          echo ""
+          echo "=== Running cmake configure — MUST FAIL with FATAL_ERROR ==="
+          cmake -B build-guard-test -G Ninja -DCMAKE_BUILD_TYPE=Release 2>&1 || true
+          # Capture exit code: cmake should return non-zero due to FATAL_ERROR
+          CMAKE_EXIT=$?
+          echo "cmake exit code: $CMAKE_EXIT"
+          exit $CMAKE_EXIT
+        # We EXPECT cmake to fail. Invert the step result:
+        # If cmake SUCCEEDED (exit 0) → the guard is broken → mark step failure.
+        # If cmake FAILED    (exit != 0) → guard fired correctly → mark step success.
+        continue-on-error: true
+
+      - name: Evaluate guard result
+        run: |
+          # guard_check outcome == 'failure' means cmake failed (guard fired) — GOOD.
+          # guard_check outcome == 'success' means cmake succeeded (guard broken) — BAD.
+          if [ "${{ steps.guard_check.outcome }}" = "failure" ]; then
+            echo "PASS: cmake configure correctly FAILED with Poppler installed."
+            echo "The MuPDF/Poppler FATAL_ERROR guard is working."
+            exit 0
+          else
+            echo "FAIL: cmake configure SUCCEEDED with Poppler installed."
+            echo "The license contamination guard is BROKEN — Poppler (GPL-2.0+) could be"
+            echo "linked into GlyphPDF without any build-time error. Fix CMakeLists.txt."
+            exit 1
+          fi
+
+      - name: Cleanup guard test build dir
+        if: always()
+        run: rm -rf build-guard-test || true
+
+  mupdf-guard:
+    name: "Guard: cmake FAILS with MuPDF installed"
+    runs-on: windows-2022
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    # MuPDF is not in MSYS2 ucrt64 packages. This job tests the find_package/pkg-config
+    # method by injecting a stub CMake config that exports the mupdf::mupdf target.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+      - name: Set up MSYS2 ucrt64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          install: >-
+            git
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-qt6-base
+            mingw-w64-ucrt-x86_64-qt6-tools
+            mingw-w64-ucrt-x86_64-qt6-svg
+            mingw-w64-ucrt-x86_64-qt6-pdf
+            mingw-w64-ucrt-x86_64-podofo
+            mingw-w64-ucrt-x86_64-qpdf
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-tesseract-ocr
+            mingw-w64-ucrt-x86_64-tesseract-data-eng
+            mingw-w64-ucrt-x86_64-leptonica
+            mingw-w64-ucrt-x86_64-libzip
+            mingw-w64-ucrt-x86_64-libxml2
+            mingw-w64-ucrt-x86_64-freetype
+            mingw-w64-ucrt-x86_64-zlib
+            mingw-w64-ucrt-x86_64-curl
+            mingw-w64-ucrt-x86_64-libpng
+            mingw-w64-ucrt-x86_64-libjpeg-turbo
+            mingw-w64-ucrt-x86_64-libtiff
+            mingw-w64-ucrt-x86_64-openjpeg2
+            mingw-w64-ucrt-x86_64-fontconfig
+
+      - name: Restore vendored podofo cache
+        id: podofo-cache
+        uses: actions/cache@v4
+        with:
+          path: third_party/podofo/install
+          key: podofo-1.1.0-ucrt64-r1
+
+      - name: Build vendored podofo 1.1.0
+        if: steps.podofo-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch 1.1.0 https://github.com/podofo/podofo.git podofo-src
+          cmake -S podofo-src -B podofo-src/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPODOFO_BUILD_TOOLS=OFF \
+            -DPODOFO_BUILD_TEST=OFF \
+            -DPODOFO_BUILD_EXAMPLES=OFF \
+            -DCMAKE_INSTALL_PREFIX="$PWD/third_party/podofo/install"
+          cmake --build podofo-src/build --parallel
+          cmake --install podofo-src/build
+
+      - name: Inject stub mupdf CMake config (simulates MuPDF installation)
+        run: |
+          # Create a stub that exports the mupdf::mupdf target so the
+          # find_package(MuPDF) path in CMakeLists.txt finds it.
+          mkdir -p /tmp/stub-mupdf/cmake
+          cat > /tmp/stub-mupdf/cmake/MuPDFConfig.cmake << 'EOF'
+          # Stub: simulates an installed MuPDF for guard testing
+          add_library(mupdf INTERFACE IMPORTED GLOBAL)
+          add_library(mupdf::mupdf ALIAS mupdf)
+          set(MuPDF_FOUND TRUE)
+          set(MUPDF_FOUND TRUE)
+          EOF
+
+      - name: Assert cmake configure FAILS with stub MuPDF
+        id: mupdf_guard_check
+        run: |
+          echo "=== Running cmake configure with stub MuPDF — MUST FAIL ==="
+          cmake -B build-mupdf-guard -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="/tmp/stub-mupdf" 2>&1 || true
+          CMAKE_EXIT=$?
+          echo "cmake exit code: $CMAKE_EXIT"
+          exit $CMAKE_EXIT
+        continue-on-error: true
+
+      - name: Evaluate MuPDF guard result
+        run: |
+          if [ "${{ steps.mupdf_guard_check.outcome }}" = "failure" ]; then
+            echo "PASS: cmake configure correctly FAILED with MuPDF stub present."
+            exit 0
+          else
+            echo "FAIL: cmake configure SUCCEEDED with MuPDF stub. Guard is BROKEN."
+            exit 1
+          fi
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf build-mupdf-guard || true
