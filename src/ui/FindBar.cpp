@@ -8,6 +8,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QKeyEvent>
+#include <QMessageBox>
 #include <QShowEvent>
 
 FindBar::FindBar(QWidget *parent)
@@ -115,8 +116,20 @@ FindBar::FindBar(QWidget *parent)
     });
     connect(btnRedactAll, &QPushButton::clicked, [this]() {
         const QString text = searchInput->text().trimmed();
-        if (!text.isEmpty())
-            emit redactAllRequested(text, caseCheckBox->isChecked(), wordsCheckBox->isChecked());
+        if (text.isEmpty()) return;
+        // AR-8 D4: Redact All is a one-click destructive operation — permanently
+        // removes text from the document. Require explicit confirmation before
+        // emitting the signal, so the user cannot trigger it accidentally.
+        const auto answer = QMessageBox::warning(
+            this,
+            tr("Confirm Redact All"),
+            tr("This will permanently redact every occurrence of \"%1\" in the document. "
+               "Redaction cannot be undone.\n\n"
+               "Are you sure you want to continue?").arg(text),
+            QMessageBox::Yes | QMessageBox::Cancel,
+            QMessageBox::Cancel);
+        if (answer != QMessageBox::Yes) return;
+        emit redactAllRequested(text, caseCheckBox->isChecked(), wordsCheckBox->isChecked());
     });
 
     connect(regexCheckBox, &QCheckBox::toggled, [this](bool checked) {

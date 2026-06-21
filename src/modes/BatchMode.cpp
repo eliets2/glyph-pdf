@@ -810,11 +810,32 @@ void BatchMode::onRunClicked() {
         return;
     }
 
-    // Pre-check output paths for overwrite conflicts on GUI thread
-    // (only for single-file lists to avoid flooding dialogs)
+    // AR-8 D4: Pre-check output paths for overwrite conflicts.
+    // For single-file runs, show a per-file dialog.
+    // For multi-file runs, collect all conflicting paths and show one summary
+    // dialog rather than flooding the user with N dialogs.
     if (m_filesToProcess.size() == 1) {
         QString out = resolveOutputPath(m_filesToProcess.first());
         if (!out.isEmpty() && !confirmOverwrite(out)) return;
+    } else if (m_filesToProcess.size() > 1) {
+        QStringList willOverwrite;
+        for (const QString& src : m_filesToProcess) {
+            QString out = resolveOutputPath(src);
+            if (!out.isEmpty() && QFileInfo::exists(out))
+                willOverwrite << QFileInfo(out).fileName();
+        }
+        if (!willOverwrite.isEmpty()) {
+            const auto btn = QMessageBox::warning(
+                this,
+                tr("Overwrite Existing Files?"),
+                tr("%1 output file(s) already exist and will be overwritten:\n\n%2\n\n"
+                   "This operation cannot be undone. Continue?")
+                    .arg(willOverwrite.size())
+                    .arg(willOverwrite.join(QStringLiteral("\n"))),
+                QMessageBox::Yes | QMessageBox::Cancel,
+                QMessageBox::Cancel);
+            if (btn != QMessageBox::Yes) return;
+        }
     }
 
     // Reset state
