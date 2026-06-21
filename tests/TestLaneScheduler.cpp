@@ -3,6 +3,8 @@
 #include <QAtomicInt>
 #include <QMutex>
 #include <QSet>
+#include <QtConcurrent>
+#include <QFuture>
 #include "engines/scheduling/LaneScheduler.h"
 #include "engines/scheduling/PipelineStage.h"
 
@@ -173,6 +175,98 @@ private slots:
             [&resultsReceived](int, int) { resultsReceived.fetchAndAddOrdered(1); }
         );
 
+        QCOMPARE(resultsReceived.loadRelaxed(), pageCount);
+    }
+
+    // AR-6 D3 evidence gate: the audit-named failing config —
+    // setLaneCapacity(CPU,2) + backpressure 4 — must complete (no deadlock,
+    // no starvation, all pages delivered). A watchdog thread fails the test
+    // rather than hanging ctest forever if a regression reintroduces a hang.
+    void testNoDeadlockAtLowCpuCapacity() {
+        LaneScheduler sched(/*gpuCapacity=*/2, /*cpuCapacity=*/QThread::idealThreadCount());
+        sched.setLaneCapacity(Lane::CPU, 2); // the failing config
+        const int pageCount = 24;
+
+        CrossPagePipeline<int, int, int> pipeline(sched, /*backpressure=*/4);
+
+        QAtomicInt resultsReceived{0};
+        QAtomicInt done{0};
+
+        // Watchdog: if run() hasn't returned in 30s, it deadlocked.
+        QFuture<void> work = QtConcurrent::run([&]() {
+            pipeline.run(
+                pageCount,
+                [](int /*p*/) -> int { QThread::msleep(5); return 1; },
+                [](int /*p*/, int v) -> int { QThread::msleep(8); return v; },
+                [](int /*p*/, int v) -> int { QThread::msleep(3); return v; },
+                [&resultsReceived](int, int) { resultsReceived.fetchAndAddOrdered(1); }
+            );
+            done.storeRelease(1);
+        });
+
+        QElapsedTimer timer;
+        timer.start();
+        while (done.loadAcquire() == 0 && timer.elapsed() < 30000)
+            QThread::msleep(20);
+
+        QVERIFY2(done.loadAcquire() == 1,
+            "CrossPagePipeline deadlocked at setLaneCapacity(CPU,2) + backpressure 4");
+        work.waitForFinished();
+        QCOMPARE(resultsReceived.loadRelaxed(), pageCount);
+    }
+
+    // AR-6 D3 regression: a CPU-lane task must not synchronously fan out to AND
+    // block on the GPU lane. We construct the circular dependency the audit
+    // warns about: stage2 (GPU) work that can only complete once a CPU-pool
+    // thread is free. The OLD design ran stage1's continuation on its CPU-pool
+    // thread and BLOCKED it (waitForFinished) awaiting stage2 — so when every
+    // CPU thread is thus blocked, the CPU work stage2 depends on can never run,
+    // and the pipeline hangs forever. The fixed design chains stage2 via
+    // .then().unwrap(), so the stage1 continuation returns immediately and no
+    // CPU thread is ever parked on the GPU lane — the dependent CPU work runs
+    // and the pipeline completes. A watchdog converts a regression-hang into a
+    // test failure instead of stalling ctest.
+    void testNoCpuThreadParksOnGpuLane() {
+        const int pool = 2;
+        LaneScheduler sched(/*gpuCapacity=*/2, /*cpuCapacity=*/QThread::idealThreadCount());
+        sched.setLaneCapacity(Lane::CPU, pool);
+        const int pageCount = 8;
+
+        CrossPagePipeline<int, int, int> pipeline(sched, /*backpressure=*/4);
+
+        QAtomicInt resultsReceived{0};
+        QAtomicInt done{0};
+
+        QFuture<void> work = QtConcurrent::run([&]() {
+            pipeline.run(
+                pageCount,
+                [](int /*p*/) -> int { QThread::msleep(5); return 1; },
+                // stage2 (GPU): depends on a CPU-pool thread being free — it
+                // submits a CPU-lane task and waits for it. If stage1's
+                // continuation pinned the pool threads (old design), this
+                // dependent CPU task can never be scheduled => deadlock.
+                [&sched](int p, int v) -> int {
+                    auto cpuFut = sched.submit<int>(
+                        {Lane::CPU, TaskPriority::High, p, "stage2-cpu-dep"},
+                        []() -> int { return 1; });
+                    cpuFut.waitForFinished();
+                    return v;
+                },
+                [](int /*p*/, int v) -> int { return v; },
+                [&resultsReceived](int, int) { resultsReceived.fetchAndAddOrdered(1); }
+            );
+            done.storeRelease(1);
+        });
+
+        QElapsedTimer timer;
+        timer.start();
+        while (done.loadAcquire() == 0 && timer.elapsed() < 30000)
+            QThread::msleep(20);
+
+        QVERIFY2(done.loadAcquire() == 1,
+            "Pipeline hung: a CPU-pool thread parked on the GPU lane, starving "
+            "the CPU work stage2 depends on (D3 regression)");
+        work.waitForFinished();
         QCOMPARE(resultsReceived.loadRelaxed(), pageCount);
     }
 
