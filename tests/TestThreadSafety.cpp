@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QTemporaryDir>
 #include <future>
+#include <stdexcept>
 #include <podofo/podofo.h>
 #include "engines/PdfEditorEngine.h"
 
@@ -26,6 +27,22 @@ public:
     }
     QString extractText(int pageIndex) override {
         return QString();
+    }
+};
+
+// AR-6 D4: a renderer whose pageSize() throws on the first call, then succeeds.
+// Used to prove RenderCache::pageSize never leaves a broken promise and retries.
+class ThrowingThenOkRenderer : public IPdfRenderer {
+public:
+    mutable QAtomicInt pageSizeCalls{0};
+    QImage renderPage(int, int) override { return QImage(); }
+    QImage renderTile(int, const QRectF &, int) override { return QImage(); }
+    QString extractText(int) override { return QString(); }
+    QSizeF pageSize(int pageIndex) const override {
+        Q_UNUSED(pageIndex);
+        if (pageSizeCalls.fetchAndAddOrdered(1) == 0)
+            throw std::runtime_error("simulated renderer failure");
+        return QSizeF(200, 300);
     }
 };
 
@@ -137,6 +154,34 @@ private slots:
         QCOMPARE(misses, static_cast<qint64>(uniquePages));
         // Everything else was a hit.
         QCOMPARE(hits, static_cast<qint64>(40 * uniquePages - uniquePages));
+    }
+
+    // AR-6 D4: if the fulfilling thread throws, pageSize() must NOT leave a
+    // broken promise (which would block/throw forever for this page), and a
+    // later call must retry. Pre-fix the throw propagated past set_value(),
+    // leaving the cached future broken — fut.get() then threw std::future_error
+    // for every subsequent caller of this page.
+    void testPageSizeBrokenPromiseRecovery() {
+        auto cache = std::make_shared<RenderCache>();
+        cache->setPageCount(10);
+        ThrowingThenOkRenderer renderer;
+
+        // First call: renderer throws internally. Must return a valid default,
+        // never throw, never hang.
+        QSizeF first;
+        bool threw = false;
+        try {
+            first = cache->pageSize(7, &renderer);
+        } catch (...) {
+            threw = true;
+        }
+        QVERIFY2(!threw, "pageSize must not propagate the renderer exception");
+        QVERIFY2(first.isValid(), "pageSize must return a valid default on failure");
+
+        // Second call: the poisoned entry must have been evicted, so this
+        // retries and gets the real size (200x300) from the now-OK renderer.
+        QSizeF second = cache->pageSize(7, &renderer);
+        QCOMPARE(second, QSizeF(200, 300));
     }
 
     void testPrefetchUAF() {
