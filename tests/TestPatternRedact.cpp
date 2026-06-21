@@ -1,3 +1,20 @@
+// AR-12 D2: PII pattern-redact tests — environment-masking gap documentation.
+//
+// PatternRedactor::findMatches() requires PDFium (HAS_PDFIUM) to extract
+// per-character bounding boxes. Without PDFium the function returns an empty
+// list and the full-redact exercise is a no-op. This is NOT masked silently:
+//   - Tests gate on #ifdef HAS_PDFIUM; without it they assert matches==0 and
+//     log a clear comment.
+//   - The CI pipeline (ci.yml) downloads and hash-verifies pdfium.dll before
+//     running ctest, so HAS_PDFIUM is always ON in the CI environment.
+//
+// AR-12 D2 HARD CI REQUIREMENT: the ci.yml step "Assert shipped-feature defines
+// are ON" fails the build if HAS_PDFIUM is FALSE. Pattern-redact PII tests
+// therefore run with REAL character positions on every CI push.
+//
+// Developer builds without PDFium are allowed to QCOMPARE-with-0 (see #else
+// branches below); they must not QSKIP or QEXPECT_FAIL the count assertion.
+
 #include <QtTest>
 #include <QTemporaryDir>
 #include <podofo/podofo.h>
