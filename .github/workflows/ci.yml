@@ -2,7 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    # Run on main and the active audit-remediation branch so regressions are
+    # caught before a merge. AR-12 D3: CI must gate every push, not just main.
+    branches: [ main, audit-remediation ]
   pull_request:
     branches: [ main ]
 
@@ -115,8 +117,30 @@ jobs:
       - name: Build
         run: cmake --build build --parallel
 
+      # AR-12 D3: assert that PDFium, Tesseract, and ONNX features are detected.
+      # This catches a silent dependency drop before any test runs.
+      # (In dev builds with GLYPHPDF_RELEASE_BUILD=OFF, missing deps are warnings;
+      # in this CI build all four should be present because we downloaded them above.)
+      - name: Assert shipped-feature defines are ON
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release 2>&1 | tee /tmp/cmake_out.txt
+          if grep -q "HAS_PDFIUM    : FALSE" /tmp/cmake_out.txt; then
+            echo "FAIL: HAS_PDFIUM is FALSE — PDFium was not found after download step"
+            exit 1
+          fi
+          if grep -q "HAS_TESSERACT : FALSE" /tmp/cmake_out.txt; then
+            echo "FAIL: HAS_TESSERACT is FALSE — Tesseract was not installed"
+            exit 1
+          fi
+          if grep -q "HAS_RAPIDOCR  : FALSE" /tmp/cmake_out.txt; then
+            echo "FAIL: HAS_RAPIDOCR is FALSE — ONNX Runtime was not found"
+            exit 1
+          fi
+          echo "PASS: HAS_PDFIUM, HAS_TESSERACT, HAS_RAPIDOCR all confirmed ON"
+
       - name: Test
-        # ONNX model files (models/) are gitignored — tests that need them QSKIP gracefully
+        # ONNX model files (models/) are gitignored — tests that need them QSKIP gracefully.
+        # PDFium is present (downloaded above) so HAS_PDFIUM tests run with real character positions.
         run: |
           cd build
           QT_QPA_PLATFORM=offscreen ctest --output-on-failure -j4

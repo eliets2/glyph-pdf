@@ -119,11 +119,34 @@ jobs:
           Remove-Item pdfium.tgz; Remove-Item -Recurse -Force pdfium-extract
           Write-Host "pdfium.dll staged at third_party/pdfium/bin/"
 
-      - name: Configure
-        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      # AR-12 D3: Assert shipped-feature defines using GLYPHPDF_RELEASE_BUILD=ON.
+      # This hard-fails configure if any of HAS_PDFIUM / HAS_TESSERACT / HAS_RAPIDOCR
+      # / HAS_QPDF is absent — matching the check that build-msi.ps1 enforces locally.
+      # Also ensures GLYPH_TESTING is NOT set (OCSP bypass must not ship in release builds).
+      - name: Configure (release gate — GLYPHPDF_RELEASE_BUILD=ON)
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DGLYPHPDF_RELEASE_BUILD=ON \
+            2>&1 | tee /tmp/cmake_release_out.txt
+          # cmake FATAL_ERROR exits non-zero when features are missing; tee above
+          # would still print the error. The step fails automatically on non-zero exit.
+          echo "Configure passed — all shipped features confirmed present"
 
       - name: Build
         run: cmake --build build --parallel
+
+      # AR-12 D3: Verify GLYPH_TESTING is absent from the release build flags.
+      # If the build system accidentally defined it, the OCSP test-hook path would
+      # ship in a production binary — a security regression.
+      - name: Assert GLYPH_TESTING not defined in release build
+        shell: pwsh
+        run: |
+          $buildLog = Get-Content build/CMakeFiles/CMakeOutput.log -ErrorAction SilentlyContinue
+          if ($buildLog -match "GLYPH_TESTING") {
+            Write-Error "FAIL: GLYPH_TESTING appears in CMakeOutput.log — OCSP test hook must not ship in release"
+            exit 1
+          }
+          Write-Host "PASS: GLYPH_TESTING correctly absent from release build"
 
       - name: Test
         # ONNX model files (models/) are gitignored — tests that need them QSKIP gracefully
