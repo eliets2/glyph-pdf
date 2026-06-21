@@ -34,7 +34,8 @@ CompareMode::CompareMode(QWidget* parent) : QWidget(parent) {
     hrow->setContentsMargins(10,0,10,0); hrow->setSpacing(6);
     auto mono = [](const QString& s){ auto* l = new QLabel(s); l->setProperty("mono",true); return l; };
     hrow->addWidget(mono(tr("COMPARE")));
-    hrow->addWidget(mono("Q4-Report-v1.pdf   ↔   Q4-Report-v2.pdf"));
+    m_filesLabel = mono(tr("No files selected — use Compare Docs to open two PDFs"));
+    hrow->addWidget(m_filesLabel);
     auto* prev = new QToolButton; prev->setText(tr("← PREV")); prev->setProperty("variant","ghost");
     prev->setToolTip(tr("Navigate to previous change"));
     hrow->addWidget(prev);
@@ -61,10 +62,8 @@ CompareMode::CompareMode(QWidget* parent) : QWidget(parent) {
     connect(m_exportBtn, &QToolButton::clicked, this, &CompareMode::onExportReport);
     hrow->addWidget(m_exportBtn);
 
-    auto* close = new QToolButton; close->setText(tr("Close Compare")); close->setProperty("variant","ghost");
-    close->setEnabled(false);
-    close->setToolTip(tr("Not available in this version"));
-    hrow->addWidget(close);
+    // "Close Compare" button removed (AR-8 D3): navigating away from compare mode
+    // is handled by the mode strip, so a second button here was inert dead UI.
     col->addWidget(tb);
 
     m_compareWidget = new CompareWidget(this);
@@ -96,6 +95,10 @@ void CompareMode::compareFiles(const QString& file1, const QString& file2) {
     m_file1 = file1;
     m_file2 = file2;
     m_compareWidget->loadDocuments(file1, file2);
+    // Update the toolbar label to show the actual file names being compared.
+    if (m_filesLabel) {
+        m_filesLabel->setText(QFileInfo(file1).fileName() + "   ↔   " + QFileInfo(file2).fileName());
+    }
     m_statusLabel->setText(tr("COMPARING..."));
     m_tree->clear();
     if (m_exportBtn) m_exportBtn->setEnabled(false);

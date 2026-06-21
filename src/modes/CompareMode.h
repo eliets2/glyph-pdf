@@ -29,6 +29,7 @@ private:
     CompareWidget* m_compareWidget;
     QTreeWidget* m_tree;
     QLabel* m_statusLabel;
+    QLabel* m_filesLabel = nullptr;   // AR-8 D1: shows actual compared filenames
     QToolButton* m_exportBtn = nullptr;
     QFutureWatcher<DiffResult> m_watcher;
     DiffResult m_lastResult;
