@@ -64,6 +64,8 @@ private slots:
 protected:
     void dragEnterEvent(QDragEnterEvent* event) override;
     void dropEvent(QDropEvent* event) override;
+    // AR-7 D4: prompt Save / Discard / Cancel when quitting with unsaved changes.
+    void closeEvent(QCloseEvent* event) override;
 
 private:
     const AppContext* _ctx  = nullptr;
