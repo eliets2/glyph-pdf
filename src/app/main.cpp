@@ -130,11 +130,13 @@ int main(int argc, char *argv[]) {
     // D6: Install temp file cleanup — atexit handler + stale cleanup
     TempFileManager::install();
 
-    // Initialize engine infrastructure via Bootstrapper
+    // Initialize engine infrastructure via Bootstrapper. The window takes
+    // ownership of the context by value (AR-10 D2), so it cannot outlive a
+    // stack-local context.
     auto ctx = Bootstrapper::createContext();
 
     // Launch the new Glyph design UI
-    gp::MainWindow mainWindow(&ctx);
+    gp::MainWindow mainWindow(std::move(ctx));
     mainWindow.showMaximized();
 
     if (splash) {
