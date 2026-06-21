@@ -166,6 +166,14 @@ void AnnotationLayer::setSelectedImageName(const QString &name)
     update();
 }
 
+// AR-7 D5: store the overlay image and trigger a repaint so it is drawn on top
+// of all annotation content.  Pass a null QImage to clear the overlay.
+void AnnotationLayer::setOverlayImage(const QImage &img)
+{
+    m_overlayImage = img;
+    update();
+}
+
 void AnnotationLayer::paintEvent(QPaintEvent *event)
 {
     QPainter painter(this);
@@ -396,6 +404,14 @@ void AnnotationLayer::paintEvent(QPaintEvent *event)
                 painter.drawText(labelRect, Qt::AlignCenter, img.xobjectName);
             }
         }
+    }
+
+    // AR-7 D5: paint the overlay image (e.g. pixel-diff from CompareMode) on top
+    // of all annotation content, scaled to fill the widget.
+    if (!m_overlayImage.isNull()) {
+        painter.setOpacity(0.5);
+        painter.drawImage(rect(), m_overlayImage);
+        painter.setOpacity(1.0);
     }
 }
 
