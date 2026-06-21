@@ -2,6 +2,19 @@
 
 All notable changes to GlyphPDF are documented in this file.
 
+## [1.3.2.1] — 2026-06-21
+
+Patch release on 1.3.2.
+
+### Fixed
+- **Welcome screen** now appears on launch. `WelcomeWidget` had been built but never
+  wired into the window, so the app opened straight into the empty document UI; it is
+  now the start page (recent files + Open/Import/Images shortcuts), and the workspace
+  takes over once a document is opened.
+- **Check for updates** no longer hangs on "Checking…": the manifest request now has a
+  20-second transfer timeout, so a stalled connection reports a clear failure instead
+  of spinning indefinitely.
+
 ## [1.3.2] — 2026-06-21
 
 Security & correctness release closing the 2026-06-16 full-codebase audit
