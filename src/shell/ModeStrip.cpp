@@ -11,6 +11,7 @@
 #include <QStyle>
 #include <QToolButton>
 #include <QTimer>
+#include <QtConcurrent/QtConcurrent>
 
 namespace gp {
 
@@ -149,19 +150,33 @@ void ModeStrip::updateLabels() {
     // 2. Sync Status
     _syncLabel->setText(tr("⤺ LOCAL ONLY"));
 
-    // 3. Signatures Status
+    // 3. Signatures Status — AR-7 D2: validation runs on a worker thread.
+    // When the path changes, kick a QtConcurrent worker; the GUI thread only
+    // reads the cached counts that were set by the previous completed validation.
     if (_ctx->document && _ctx->signing) {
         QString path = _ctx->document->path();
-        if (!path.isEmpty() && path != _lastPath) {
+        if (!path.isEmpty() && path != _lastPath && !_sigValidationInFlight.load()) {
             _lastPath = path;
-            auto sigs = _ctx->signing->validateSignatures(path);
-            _cachedTotalSigs = sigs.size();
-            _cachedValidSigs = 0;
-            for (const auto& s : sigs) {
-                if (s.isValid) _cachedValidSigs++;
+            _sigValidationInFlight.store(true);
+
+            // Capture a weak reference so a destroyed ModeStrip does not crash.
+            std::weak_ptr<ISignatureManager> weakSigning = _ctx->signing;
+
+            if (!_sigWatcher) {
+                _sigWatcher = new QFutureWatcher<QPair<int,int>>(this);
+                connect(_sigWatcher, &QFutureWatcher<QPair<int,int>>::finished,
+                        this, &ModeStrip::onSignatureValidationDone);
             }
+            _sigWatcher->setFuture(QtConcurrent::run([weakSigning, path]() -> QPair<int,int> {
+                auto signing = weakSigning.lock();
+                if (!signing) return {0, 0};
+                const auto sigs = signing->validateSignatures(path);
+                int valid = 0;
+                for (const auto& s : sigs) { if (s.isValid) ++valid; }
+                return {valid, static_cast<int>(sigs.size())};
+            }));
         }
-        
+
         if (_cachedTotalSigs > 0) {
             _signLabel->setText(tr("✓ SIGNED · %1 OF %2").arg(_cachedValidSigs).arg(_cachedTotalSigs));
             _signLabel->setProperty("state", "valid");
@@ -179,6 +194,16 @@ void ModeStrip::updateLabels() {
         _signLabel->style()->unpolish(_signLabel);
         _signLabel->style()->polish(_signLabel);
     }
+}
+
+void ModeStrip::onSignatureValidationDone() {
+    if (!_sigWatcher) return;
+    const auto result = _sigWatcher->result();
+    _cachedValidSigs = result.first;
+    _cachedTotalSigs = result.second;
+    _sigValidationInFlight.store(false);
+    // Refresh the label with the freshly validated counts.
+    updateLabels();
 }
 
 void ModeStrip::setMode(const QString& id) {
