@@ -2,6 +2,7 @@
 #include "engines/RenderCache.h"
 #include <QtConcurrent>
 #include <QFuture>
+#include <QThread>
 #include <QDebug>
 
 #ifdef Q_OS_WIN
@@ -300,6 +301,18 @@ void RenderCache::prefetchViewport(int centerPage, qreal scale, IPdfRenderer* re
     m_prefetchFuture = QtConcurrent::run([weakThis, pagesToPrefetch, scale, renderer, currentToken]() {
         auto self = weakThis.lock();
         if (!self) return;
+
+        // AR-6 D1: rendering is SERIAL — the backend (PdfiumBackend) serialises
+        // every renderPage()/renderTile() behind one mutex (PDFium page objects
+        // are not safe to render concurrently against a single FPDF_DOCUMENT).
+        // We deliberately keep render serial rather than maintaining a pool of
+        // per-thread document instances; the chosen mitigation is to run this
+        // BACKGROUND prefetch at the lowest thread priority so it can never
+        // starve the foreground UI render. When the UI thread requests a page,
+        // the OS scheduler preempts this thread for the (normal-priority) caller,
+        // so foreground latency is bounded by at most one in-flight page render.
+        if (QThread* t = QThread::currentThread())
+            t->setPriority(QThread::LowestPriority);
 
         for (int p : pagesToPrefetch) {
             // Check cancellation token before rendering each page
