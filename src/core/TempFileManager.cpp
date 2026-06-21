@@ -91,12 +91,15 @@ void TempFileManager::cleanAll() {
 }
 
 void TempFileManager::cleanStaleTempFiles() {
-    QDir dir(appTempDir());
-    if (!dir.exists()) return;
+    QDir sysTemp(QStandardPaths::writableLocation(QStandardPaths::TempLocation));
+    if (!sysTemp.exists()) return;
 
     // Remove anything older than 24 hours from previous sessions
     QDateTime cutoff = QDateTime::currentDateTime().addDays(-1);
-    const auto entries = dir.entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot);
+    
+    // Only clean our own entries to prevent arbitrary temp deletion
+    const auto entries = sysTemp.entryInfoList({"GlyphPDF-*", "glyph_*"}, QDir::Dirs | QDir::Files | QDir::NoDotAndDotDot);
+    
     int removed = 0;
     for (const QFileInfo& fi : entries) {
         if (fi.lastModified() < cutoff) {
@@ -115,8 +118,18 @@ void TempFileManager::cleanStaleTempFiles() {
 // ── Static helpers ───────────────────────────────────────────────────────
 
 QString TempFileManager::appTempDir() {
-    return QStandardPaths::writableLocation(QStandardPaths::TempLocation)
-           + QDir::separator() + "GlyphPDF";
+    static QString path;
+    if (path.isEmpty()) {
+        QString sysTemp = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+        QTemporaryDir tmp(sysTemp + QDir::separator() + "GlyphPDF-XXXXXX");
+        if (tmp.isValid()) {
+            tmp.setAutoRemove(false);
+            path = tmp.path();
+        } else {
+            path = sysTemp + QDir::separator() + "GlyphPDF";
+        }
+    }
+    return path;
 }
 
 static void atexitCleanup() {

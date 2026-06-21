@@ -33,7 +33,12 @@ class ToolRegistry;
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
-    explicit MainWindow(const AppContext* ctx, QWidget* parent = nullptr);
+    // AR-10 D2: the window OWNS its AppContext by value (it is a cheap aggregate
+    // of shared_ptrs) rather than holding a raw pointer to a caller-owned
+    // (often stack-local) context. This removes the stack-lifetime risk the
+    // audit flagged at main.cpp without changing the const AppContext* seen by
+    // controllers (they read _ctx, which points at the owned copy).
+    explicit MainWindow(AppContext ctx, QWidget* parent = nullptr);
     ~MainWindow() override;
 
     PdfViewerWidget* pdfViewer() const;
@@ -64,9 +69,12 @@ private slots:
 protected:
     void dragEnterEvent(QDragEnterEvent* event) override;
     void dropEvent(QDropEvent* event) override;
+    // AR-7 D4: prompt Save / Discard / Cancel when quitting with unsaved changes.
+    void closeEvent(QCloseEvent* event) override;
 
 private:
-    const AppContext* _ctx  = nullptr;
+    AppContext        _ownedCtx;           // owned; outlives all controllers
+    const AppContext* _ctx  = nullptr;     // points at _ownedCtx
 
     HomeController*     _home = nullptr;
     ViewController*     _view = nullptr;

@@ -1,0 +1,28 @@
+Qt 6 Framework
+===============
+Version: 6.11.0 (MSYS2 ucrt64 package)
+License: GNU Lesser General Public License v3.0 (LGPL-3.0)
+         and Qt Commercial License
+Source:  https://code.qt.io/qt/qtbase.git
+         https://www.qt.io/licensing/
+
+GlyphPDF uses Qt 6 under LGPL-3.0 via dynamic linking. The Qt libraries are
+not modified. Users may replace the Qt libraries with modified versions per
+LGPL-3.0 §4.
+
+GNU LESSER GENERAL PUBLIC LICENSE
+Version 3, 29 June 2007
+
+Copyright (C) 2007 Free Software Foundation, Inc. <https://fsf.org/>
+
+Everyone is permitted to copy and distribute verbatim copies of this license
+document, but changing it is not allowed.
+
+This version of the GNU Lesser General Public License incorporates the terms
+and conditions of version 3 of the GNU General Public License, supplemented
+by the additional permissions listed below.
+
+[Full LGPL-3.0 text — https://www.gnu.org/licenses/lgpl-3.0.txt]
+
+Qt copyright notices and individual module licenses:
+https://doc.qt.io/qt-6/licenses-used-in-qt.html

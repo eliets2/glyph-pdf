@@ -104,10 +104,19 @@ Translation framework wired for Arabic (RTL), French, German (1394 source string
 
 **System requirements:** Windows 10/11 x64, ~500 MB disk space.
 
+### Option A — Installer (recommended)
 1. Download `GlyphPDF-1.0.0-x64.msi` below.
 2. Verify the SHA-256 checksum (see SHA-256 Verification below).
-3. Run the MSI installer — no admin rights required for per-user install.
+3. Run the MSI installer.
 4. Launch GlyphPDF from the Start Menu or by double-clicking any `.pdf` file.
+
+### Option B — Portable (no installation)
+1. Download `GlyphPDF-1.0.0-x64-portable.zip` below.
+2. Verify the SHA-256 checksum.
+3. Unzip to any folder (e.g. `C:\GlyphPDF` or a USB drive).
+4. Run `GlyphPDF.exe` directly from that folder.
+
+The portable edition is fully self-contained — all runtimes, models, and language data are included. Nothing is written outside the unzipped folder.
 
 **Optional dependencies (not bundled):**
 - LibreOffice (for Office→PDF import)
@@ -119,12 +128,12 @@ Translation framework wired for Arabic (RTL), French, German (1394 source string
 ## SHA-256 Verification
 
 ```
-SHA-256: 160297D59065FE4A000C953067BD0367BE0EF84CFA15905782FEC5D2BBFC29B1
+SHA-256: 79286BA3F8756B166C7ED4F8D1F2342CE0AE41EA9018C73A26E16BE010AF827B
 File:    GlyphPDF-1.0.0-x64.msi
-```
 
-> Note: regenerate this hash whenever the MSI is rebuilt. `packaging\build-msi.ps1`
-> writes the current value to `dist\GlyphPDF-1.0.0-x64.msi.sha256`.
+SHA-256: 530D24541824362CCD2EAFD55F1BB15ABABE461EB1662E32D80B1CDEB6E17BB7
+File:    GlyphPDF-1.0.0-x64-portable.zip
+```
 
 **PowerShell verification:**
 ```powershell

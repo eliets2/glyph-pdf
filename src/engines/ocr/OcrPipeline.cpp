@@ -344,7 +344,17 @@ QFuture<QList<PageOcrResult>> OcrPipeline::recognizeDocument(const QList<QImage>
             return pr;
         };
 
-        // Result handler: store in page-order array
+        // Result handler: store in page-order array.
+        //
+        // AR-6 D5 — DISJOINT-INDEX WRITE CONTRACT: CrossPagePipeline invokes the
+        // handler exactly once per page, each with a distinct page index p, and
+        // each write targets a distinct slot orderedResults[p]. No two handler
+        // invocations ever touch the same slot, so these writes need no mutex
+        // even though stage3 continuations may run concurrently on different
+        // threads. The QList is pre-sized to pageCount up front (never resized
+        // here), so no reallocation races with the writes. This contract is the
+        // reason the lock-free write below is safe — do not add work that writes
+        // a shared slot here without adding synchronisation.
         auto handler = [&orderedResults](int p, PageOcrResult result) {
             if (p >= 0 && p < orderedResults.size())
                 orderedResults[p] = std::move(result);

@@ -3,8 +3,9 @@
 #include <QFrame>
 #include <QHash>
 #include <QTime>
-
+#include <QFutureWatcher>
 #include <QDateTime>
+#include <atomic>
 
 class QToolButton;
 class QLabel;
@@ -44,6 +45,14 @@ private:
     QString _lastPath;
     int _cachedValidSigs = 0;
     int _cachedTotalSigs = 0;
+
+    // AR-7 D2: signature validation runs on a worker thread to avoid freezing the UI.
+    // _sigWatcher fires onSignatureValidationDone() on the GUI thread when finished.
+    QFutureWatcher<QPair<int,int>>* _sigWatcher = nullptr;
+    std::atomic<bool> _sigValidationInFlight{false};
+
+private slots:
+    void onSignatureValidationDone();
 };
 
 } // namespace gp

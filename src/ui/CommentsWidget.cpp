@@ -29,6 +29,9 @@
 #include <QPalette>
 #include <QApplication>
 #include <functional>
+#include <QToolButton>
+#include <QTextCursor>
+#include <QInputDialog>
 
 namespace {
 
@@ -152,11 +155,67 @@ CommentsWidget::CommentsWidget(QWidget *parent)
     // correct theme-aware background/border/color for each theme.
     cLyt->addWidget(m_author);
 
+    // ── M6-P5: Djot formatting toolbar ──────────────────────────────────
+    auto* djotToolbar = new QWidget(composer);
+    auto* toolbarRow  = new QHBoxLayout(djotToolbar);
+    toolbarRow->setContentsMargins(0, 0, 0, 0);
+    toolbarRow->setSpacing(2);
+
+    const QString toolBtnSheet = QStringLiteral(
+        "QToolButton {"
+        "  background: #2b2d30; border: 1px solid #393b40; border-radius: 3px;"
+        "  color: #a8abb0; font-family: 'Consolas', monospace; font-size: 11px;"
+        "  min-width: 22px; min-height: 20px; padding: 0 4px;"
+        "}"
+        "QToolButton:hover { background: rgba(255,140,66,0.15); color: #ff8c42; }");
+
+    auto addToolBtn = [&](const QString& label, const QString& tip,
+                          std::function<void()> handler) {
+        auto* b = new QToolButton;
+        b->setText(label);
+        b->setToolTip(tip);
+        b->setCursor(Qt::PointingHandCursor);
+        b->setStyleSheet(toolBtnSheet);
+        QObject::connect(b, &QToolButton::clicked, this, handler);
+        toolbarRow->addWidget(b);
+        return b;
+    };
+    addToolBtn(QStringLiteral("B"),   tr("Bold (**strong**)"),    [this]() { wrapSelection(QStringLiteral("**"), QStringLiteral("**")); });
+    addToolBtn(QStringLiteral("I"),   tr("Italic (_emphasis_)"),  [this]() { wrapSelection(QStringLiteral("_"),  QStringLiteral("_")); });
+    addToolBtn(QStringLiteral("</>"), tr("Inline code (`code`)"), [this]() { wrapSelection(QStringLiteral("`"),  QStringLiteral("`")); });
+    addToolBtn(QStringLiteral("\xF0\x9F\x94\x97"), tr("Link ([text](url))"), [this]() {
+        bool ok = false;
+        const QString url = QInputDialog::getText(this, tr("Insert link"),
+                                                  tr("URL:"), QLineEdit::Normal,
+                                                  QStringLiteral("https://"), &ok);
+        if (ok && !url.isEmpty())
+            wrapSelection(QStringLiteral("["), QStringLiteral("](") + url + QStringLiteral(")"));
+    });
+    addToolBtn(QStringLiteral("\xE2\x80\xA2"), tr("List item (- )"), [this]() { insertLinePrefix(QStringLiteral("- ")); });
+    addToolBtn(QStringLiteral("H"),  tr("Heading (# )"),             [this]() { insertLinePrefix(QStringLiteral("# ")); });
+    toolbarRow->addStretch();
+    cLyt->addWidget(djotToolbar);
+
     m_editor = new QTextEdit(this);
     m_editor->setPlaceholderText(tr("Add a comment or reply..."));
     m_editor->setFixedHeight(60);
     // No inline stylesheet: the QSS rules for QTextEdit cover all three themes.
     cLyt->addWidget(m_editor);
+
+    // ── M6-P5: Live Djot preview ──────────────────────────────────────────
+    m_djotPreview = new QTextEdit(composer);
+    m_djotPreview->setReadOnly(true);
+    m_djotPreview->setFixedHeight(64);
+    m_djotPreview->setStyleSheet(QStringLiteral(
+        "QTextEdit {"
+        "  background: #2b2d30; border: 1px dashed #393b40; border-radius: 4px;"
+        "  color: #dfe1e5; font-family: 'Manrope', sans-serif; font-size: 10.5px; padding: 6px;"
+        "}"));
+    cLyt->addWidget(m_djotPreview);
+
+    QObject::connect(m_editor, &QTextEdit::textChanged, this, [this]() {
+        refreshDjotPreview();
+    });
 
     auto *btnLyt = new QHBoxLayout;
     btnLyt->addStretch();
@@ -403,8 +462,6 @@ void CommentsWidget::addComment()
     // plain text, so the entered text is the (trivial) Djot source; the shared
     // PoDoFoBackend::embedAnnotations dual-write then emits /Contents + /RC +
     // /PieceInfo for comments exactly as for InspectorWidget annotations.
-    // TODO(M6-P5): give the comment composer the same Djot formatting toolbar +
-    // live preview as InspectorWidget so replies can be authored with markup.
     anno.djotSource = content;
     anno.text = pdfws_djot::djotToPlainText(content);
     anno.creationDate = QDateTime::currentDateTime().toString(Qt::ISODate);
@@ -438,7 +495,7 @@ void CommentsWidget::replyToComment()
     anno.pageIndex = sel->data(0, Qt::UserRole + 1).toInt();
     anno.author = author;
     // M6-P4 D6: replies use the same Djot rich-text dual-write as top-level
-    // comments (see addComment). TODO(M6-P5): rich Djot composer for replies.
+    // comments (see addComment).
     anno.djotSource = content;
     anno.text = pdfws_djot::djotToPlainText(content);
     anno.creationDate = QDateTime::currentDateTime().toString(Qt::ISODate);
@@ -514,4 +571,39 @@ void CommentsWidget::changeReviewState()
     applyReviewState(annoId, cur == ReviewState::Accepted
                                  ? ReviewState::Open
                                  : ReviewState::Accepted);
+}
+
+void CommentsWidget::wrapSelection(const QString& prefix, const QString& suffix)
+{
+    if (!m_editor) return;
+    QTextCursor cur = m_editor->textCursor();
+    if (cur.hasSelection()) {
+        const QString sel = cur.selectedText();
+        cur.insertText(prefix + sel + suffix);
+    } else {
+        cur.insertText(prefix + suffix);
+        cur.movePosition(QTextCursor::Left, QTextCursor::MoveAnchor, suffix.length());
+        m_editor->setTextCursor(cur);
+    }
+    m_editor->setFocus();
+}
+
+void CommentsWidget::insertLinePrefix(const QString& prefix)
+{
+    if (!m_editor) return;
+    QTextCursor cur = m_editor->textCursor();
+    cur.movePosition(QTextCursor::StartOfLine);
+    cur.insertText(prefix);
+    m_editor->setFocus();
+}
+
+void CommentsWidget::refreshDjotPreview()
+{
+    if (!m_djotPreview || !m_editor) return;
+    const QString djot = m_editor->toPlainText();
+    if (djot.trimmed().isEmpty()) {
+        m_djotPreview->clear();
+        return;
+    }
+    m_djotPreview->setHtml(pdfws_djot::djotToHtmlFragment(djot));
 }

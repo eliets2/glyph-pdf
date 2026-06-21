@@ -103,9 +103,12 @@ static void emitInline(const docmodel::Inline& inl, std::ostringstream& out)
         out << '_';
         break;
     case T::Strong:
-        out << "**";
+        // Djot strong is a single-asterisk pair: `*bold*`. Using `**bold**`
+        // here parses back as a *nested* strong (strong>strong), which breaks
+        // the inline round-trip — see TestDjotRoundtrip::testStructuralRoundtrip.
+        out << '*';
         emitInlines(inl.getChildren(), out);
-        out << "**";
+        out << '*';
         break;
     case T::Code:
         out << '`';
@@ -239,6 +242,268 @@ static void emitSection(const docmodel::Section& section, int depth,
     }
 }
 
+// ===========================================================================
+// Djot AST → SemanticDocument walker (decode).
+//
+// We walk the Lua AST table produced by djot.parse() directly (no JSON
+// round-trip). The AST is the structure documented in third_party/djot/djot/
+// ast.lua: a top-level "doc" node whose children are either "section" nodes
+// (produced by add_sections() wrapping headings) or loose block nodes.
+//
+// Node access helpers: a node table has fields t (tag, string), s (text,
+// string), c (children, array). We read them by raw key so the ast.lua
+// metatable aliases don't matter.
+// ---------------------------------------------------------------------------
+
+// Push node.<field> (a raw table field) onto the stack. Returns the Lua type.
+static int pushField(lua_State* L, int nodeIdx, const char* field)
+{
+    lua_pushstring(L, field);
+    lua_rawget(L, nodeIdx < 0 ? nodeIdx - 1 : nodeIdx);
+    return lua_type(L, -1);
+}
+
+// Read node.t (tag) as std::string ("" if absent). Leaves stack unchanged.
+static std::string nodeTag(lua_State* L, int nodeIdx)
+{
+    std::string tag;
+    if (pushField(L, nodeIdx, "t") == LUA_TSTRING) {
+        size_t len = 0;
+        const char* p = lua_tolstring(L, -1, &len);
+        tag.assign(p, len);
+    }
+    lua_pop(L, 1);
+    return tag;
+}
+
+// Read node.s (text) as std::string ("" if absent). Leaves stack unchanged.
+static std::string nodeText(lua_State* L, int nodeIdx)
+{
+    std::string s;
+    if (pushField(L, nodeIdx, "s") == LUA_TSTRING) {
+        size_t len = 0;
+        const char* p = lua_tolstring(L, -1, &len);
+        s.assign(p, len);
+    }
+    lua_pop(L, 1);
+    return s;
+}
+
+// Number of children in node.c (0 if absent).
+static int childCount(lua_State* L, int nodeIdx)
+{
+    int n = 0;
+    if (pushField(L, nodeIdx, "c") == LUA_TTABLE) {
+        n = static_cast<int>(lua_rawlen(L, -1));
+    }
+    lua_pop(L, 1);
+    return n;
+}
+
+// Push node.c[i] (1-based) onto the stack. Caller must pop. Returns false if
+// node has no children table.
+static bool pushChild(lua_State* L, int nodeIdx, int i)
+{
+    if (pushField(L, nodeIdx, "c") != LUA_TTABLE) {
+        lua_pop(L, 1);
+        return false;
+    }
+    lua_rawgeti(L, -1, i);   // push c[i]
+    lua_remove(L, -2);       // remove the c table, leave c[i] on top
+    return true;
+}
+
+static docmodel::Provenance djotProv()
+{
+    docmodel::Provenance p;
+    p.tag = docmodel::ProvenanceTag::BornDjot;
+    return p;
+}
+
+// Collect the concatenated plain text of an inline subtree (for verbatim/code).
+static std::string collectInlineText(lua_State* L, int nodeIdx)
+{
+    std::string out = nodeText(L, nodeIdx);
+    if (!out.empty()) return out;
+    const int n = childCount(L, nodeIdx);
+    for (int i = 1; i <= n; ++i) {
+        if (pushChild(L, nodeIdx, i)) {
+            out += collectInlineText(L, -1);
+            lua_pop(L, 1);
+        }
+    }
+    return out;
+}
+
+// Walk an inline node (top of relative index nodeIdx) → docmodel::Inline.
+static std::shared_ptr<docmodel::Inline> walkInline(lua_State* L, int nodeIdx)
+{
+    const std::string tag = nodeTag(L, nodeIdx);
+
+    if (tag == "str") {
+        return std::make_shared<docmodel::TextInline>(nodeText(L, nodeIdx), djotProv());
+    }
+    if (tag == "softbreak" || tag == "hardbreak") {
+        return std::make_shared<docmodel::TextInline>(std::string{" "}, djotProv());
+    }
+    if (tag == "verbatim" || tag == "code") {
+        // Code span: content is literal text. Represent as a Code inline whose
+        // single child carries the literal text (mirrors the emitter, which
+        // reads getChildren()[i]->getText() for Code spans).
+        std::vector<std::shared_ptr<docmodel::Inline>> kids;
+        kids.push_back(std::make_shared<docmodel::TextInline>(
+            collectInlineText(L, nodeIdx), djotProv()));
+        return std::make_shared<docmodel::ContainerInline>(
+            docmodel::Inline::Type::Code, std::move(kids), djotProv());
+    }
+    if (tag == "emph" || tag == "strong") {
+        std::vector<std::shared_ptr<docmodel::Inline>> kids;
+        const int n = childCount(L, nodeIdx);
+        for (int i = 1; i <= n; ++i) {
+            if (pushChild(L, nodeIdx, i)) {
+                if (auto inl = walkInline(L, -1)) kids.push_back(std::move(inl));
+                lua_pop(L, 1);
+            }
+        }
+        return std::make_shared<docmodel::ContainerInline>(
+            tag == "emph" ? docmodel::Inline::Type::Emph
+                          : docmodel::Inline::Type::Strong,
+            std::move(kids), djotProv());
+    }
+
+    // Unknown / unsupported inline: fall back to its plain text so content is
+    // never silently dropped.
+    const std::string fallback = collectInlineText(L, nodeIdx);
+    if (!fallback.empty()) {
+        return std::make_shared<docmodel::TextInline>(fallback, djotProv());
+    }
+    return nullptr;
+}
+
+// Walk the inline children of a block-ish node into an inline vector.
+static std::vector<std::shared_ptr<docmodel::Inline>>
+walkInlineChildren(lua_State* L, int nodeIdx)
+{
+    std::vector<std::shared_ptr<docmodel::Inline>> inlines;
+    const int n = childCount(L, nodeIdx);
+    for (int i = 1; i <= n; ++i) {
+        if (pushChild(L, nodeIdx, i)) {
+            if (auto inl = walkInline(L, -1)) inlines.push_back(std::move(inl));
+            lua_pop(L, 1);
+        }
+    }
+    return inlines;
+}
+
+// Forward decl for list-item recursion.
+static std::shared_ptr<docmodel::Block> walkBlock(lua_State* L, int nodeIdx);
+
+// Walk a "list" node → ContainerBlock(List) of ListItem TextBlocks.
+static std::shared_ptr<docmodel::Block> walkList(lua_State* L, int nodeIdx)
+{
+    std::vector<std::shared_ptr<docmodel::Block>> items;
+    const int n = childCount(L, nodeIdx);
+    for (int i = 1; i <= n; ++i) {
+        if (!pushChild(L, nodeIdx, i)) continue;
+        if (nodeTag(L, -1) == "list_item") {
+            // A list item's inline content is the concatenation of the inlines
+            // of its child paragraph(s) — the emitter writes "- <inlines>".
+            std::vector<std::shared_ptr<docmodel::Inline>> inlines;
+            const int ic = childCount(L, -1);
+            for (int j = 1; j <= ic; ++j) {
+                if (pushChild(L, -1, j)) {
+                    const std::string ctag = nodeTag(L, -1);
+                    if (ctag == "para" || ctag == "heading") {
+                        auto sub = walkInlineChildren(L, -1);
+                        for (auto& s : sub) inlines.push_back(std::move(s));
+                    }
+                    lua_pop(L, 1);
+                }
+            }
+            items.push_back(std::make_shared<docmodel::TextBlock>(
+                docmodel::Block::Type::ListItem, std::move(inlines), djotProv()));
+        }
+        lua_pop(L, 1);
+    }
+    return std::make_shared<docmodel::ContainerBlock>(
+        docmodel::Block::Type::List, std::move(items), djotProv());
+}
+
+// Walk a block node (top of stack at nodeIdx) → docmodel::Block (or nullptr).
+static std::shared_ptr<docmodel::Block> walkBlock(lua_State* L, int nodeIdx)
+{
+    const std::string tag = nodeTag(L, nodeIdx);
+
+    if (tag == "para") {
+        return std::make_shared<docmodel::TextBlock>(
+            docmodel::Block::Type::Paragraph, walkInlineChildren(L, nodeIdx), djotProv());
+    }
+    if (tag == "heading") {
+        return std::make_shared<docmodel::TextBlock>(
+            docmodel::Block::Type::Heading, walkInlineChildren(L, nodeIdx), djotProv());
+    }
+    if (tag == "list") {
+        return walkList(L, nodeIdx);
+    }
+    if (tag == "code_block" || tag == "raw_block") {
+        // Code block content is stored in node.s (one string). Mirror the
+        // emitter's representation: a CodeBlock ContainerBlock whose child
+        // paragraphs are the lines.
+        const std::string content = nodeText(L, nodeIdx);
+        std::vector<std::shared_ptr<docmodel::Block>> lines;
+        std::string line;
+        std::istringstream iss(content);
+        while (std::getline(iss, line)) {
+            std::vector<std::shared_ptr<docmodel::Inline>> inl;
+            inl.push_back(std::make_shared<docmodel::TextInline>(line, djotProv()));
+            lines.push_back(std::make_shared<docmodel::TextBlock>(
+                docmodel::Block::Type::Paragraph, std::move(inl), djotProv()));
+        }
+        return std::make_shared<docmodel::ContainerBlock>(
+            docmodel::Block::Type::CodeBlock, std::move(lines), djotProv());
+    }
+    if (tag == "blockquote" || tag == "div") {
+        // Container of blocks: flatten its block children into a paragraph-less
+        // pass-through is lossy, so represent as a List-less ContainerBlock is
+        // not in the model. Fall back to a paragraph holding the text.
+        std::vector<std::shared_ptr<docmodel::Inline>> inl;
+        const std::string t = collectInlineText(L, nodeIdx);
+        if (!t.empty()) inl.push_back(std::make_shared<docmodel::TextInline>(t, djotProv()));
+        return std::make_shared<docmodel::TextBlock>(
+            docmodel::Block::Type::Paragraph, std::move(inl), djotProv());
+    }
+
+    // thematic_break and other block tags carry no SemanticDocument
+    // representation — skip them (caller treats nullptr as "no block").
+    return nullptr;
+}
+
+// Walk a "section" node → docmodel::Section. The section's first child is the
+// heading (its title); remaining children are blocks or nested sections.
+static std::shared_ptr<docmodel::Section> walkSection(lua_State* L, int nodeIdx)
+{
+    std::string title;
+    std::vector<std::shared_ptr<docmodel::Block>> blocks;
+    std::vector<std::shared_ptr<docmodel::Section>> subs;
+
+    const int n = childCount(L, nodeIdx);
+    for (int i = 1; i <= n; ++i) {
+        if (!pushChild(L, nodeIdx, i)) continue;
+        const std::string ctag = nodeTag(L, -1);
+        if (i == 1 && ctag == "heading") {
+            // Section heading becomes the section title.
+            title = collectInlineText(L, -1);
+        } else if (ctag == "section") {
+            subs.push_back(walkSection(L, -1));
+        } else {
+            if (auto blk = walkBlock(L, -1)) blocks.push_back(std::move(blk));
+        }
+        lua_pop(L, 1);
+    }
+    return std::make_shared<docmodel::Section>(
+        std::move(title), std::move(blocks), std::move(subs), djotProv());
+}
+
 } // anonymous namespace
 
 // ---------------------------------------------------------------------------
@@ -305,12 +570,38 @@ std::unique_ptr<docmodel::SemanticDocument> LuaDjotCodec::djotToDocument(const s
         throw std::runtime_error("LuaDjotCodec: djot.parse failed: " + err);
     }
 
-    // For now, produce an empty document. Full AST walking will be
-    // implemented once the docmodel types are stable.
-    docmodel::Provenance prov;
+    // Stack top is the parsed "doc" AST node. Walk its children into a
+    // SemanticDocument. Top-level children are "section" nodes (produced by
+    // ast.lua add_sections wrapping headings) and/or loose blocks. Loose
+    // blocks that precede any heading are gathered into an implicit untitled
+    // leading section so no content is dropped.
+    std::vector<std::shared_ptr<docmodel::Section>> sections;
+    std::vector<std::shared_ptr<docmodel::Block>> leadingBlocks;
+
+    const int docIdx = lua_gettop(L);
+    const int n = childCount(L, docIdx);
+    for (int i = 1; i <= n; ++i) {
+        if (!pushChild(L, docIdx, i)) continue;
+        const std::string ctag = nodeTag(L, -1);
+        if (ctag == "section") {
+            sections.push_back(walkSection(L, -1));
+        } else {
+            if (auto blk = walkBlock(L, -1)) leadingBlocks.push_back(std::move(blk));
+        }
+        lua_pop(L, 1);
+    }
+
+    if (!leadingBlocks.empty()) {
+        // Wrap loose pre-heading blocks in an untitled section, preserving order
+        // ahead of any titled sections.
+        sections.insert(sections.begin(), std::make_shared<docmodel::Section>(
+            std::string{}, std::move(leadingBlocks),
+            std::vector<std::shared_ptr<docmodel::Section>>{}, djotProv()));
+    }
+
     auto doc = std::make_unique<docmodel::SemanticDocument>(
-        std::vector<std::shared_ptr<docmodel::Section>>{}, prov);
-    
+        std::move(sections), djotProv());
+
     lua_close(L);
     return doc;
 }

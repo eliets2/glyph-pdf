@@ -37,7 +37,7 @@ public:
 
 private:
     struct CharInfo {
-        QChar  ch;
+        QString ch;
         QRectF bbox;   // Qt user-space coordinates (origin top-left)
     };
 

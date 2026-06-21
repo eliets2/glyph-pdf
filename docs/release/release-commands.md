@@ -70,9 +70,10 @@ if ($expected -eq $actual) { "MATCH — release is good" } else { "MISMATCH — 
 
 ```bash
 # winget (PR to microsoft/winget-pkgs)
-# See docs/release/winget/ — fill SHA-256 + download URL first
+# Canonical manifests live in packaging/winget/ (Glyph.GlyphPDF.*.yaml).
+# Update InstallerSha256 in packaging/winget/Glyph.GlyphPDF.installer.yaml first.
 gh pr create --repo microsoft/winget-pkgs \
-  --title "New package: GlyphPDF version 1.0.0" \
+  --title "New package: Glyph.GlyphPDF version 1.0.0" \
   --body "Submitting GlyphPDF 1.0.0 (Apache-2.0 open-source PDF workstation)"
 
 # chocolatey

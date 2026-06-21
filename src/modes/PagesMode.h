@@ -2,6 +2,9 @@
 #pragma once
 #include <QWidget>
 #include <QList>
+#include <QFutureWatcher>
+#include <QImage>
+#include <memory>
 
 struct AppContext;
 class QListWidget;
@@ -11,6 +14,7 @@ class QLabel;
 class QListWidgetItem;
 class QRadioButton;
 class QComboBox;
+class IPdfRenderer;
 
 namespace gp {
 
@@ -18,6 +22,9 @@ class PagesMode : public QWidget {
     Q_OBJECT
 public:
     explicit PagesMode(QWidget* parent = nullptr);
+    // Out-of-line destructor: IPdfRenderer (held by unique_ptr) is only a
+    // complete type in PagesMode.cpp (which includes BackendRouter.h).
+    ~PagesMode();
 
     // Called by ModeController after construction (same pattern as BatchMode).
     void setAppContext(const AppContext* ctx);
@@ -44,6 +51,8 @@ private slots:
     void onApplyReorder();
     void onResetReorder();
     void onThumbnailSizeChanged();
+    // AR-7 D2: called on the GUI thread when the off-thread page-count query finishes.
+    void onPageCountReady();
 
 private:
     // Build sub-widgets
@@ -75,6 +84,24 @@ private:
     QList<int>    m_originalOrder;  // 0-based original page indices
 
     const AppContext* m_ctx = nullptr;
+
+    // AR-7 D2: worker for the page-count binary-search (avoids blocking the GUI thread).
+    QFutureWatcher<int>* m_pageCountWatcher{nullptr};
+
+    // AR-8 D5: real thumbnail rendering.
+    // A single PdfiumBackend (owned here) is reused across all per-page render
+    // futures so PDFium is initialised once per document load.
+    std::unique_ptr<IPdfRenderer> m_thumbRenderer;
+
+    // One watcher per page; each fires renderOneDone(int pageIndex, QImage) on
+    // the GUI thread when its background render completes.
+    QList<QFutureWatcher<QImage>*> m_thumbWatchers;
+
+    // Cancel in-flight thumbnail renders and clear m_thumbWatchers.
+    void cancelThumbnailRenders();
+
+private slots:
+    void onThumbnailReady(int pageIndex, const QImage& img);
 };
 
 } // namespace gp

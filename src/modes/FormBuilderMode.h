@@ -44,6 +44,7 @@ private slots:
     void onDeleteFieldClicked();
     void onTabOrderApplyClicked();
     void onEscapePressed();
+    void onFieldGeometryCommitted(const QRectF& newRect);
 
 private:
     void buildToolbar(class QVBoxLayout* col);
@@ -58,9 +59,10 @@ private:
     const AppContext*        m_ctx     = nullptr;
     PdfViewerWidget*         m_canvas  = nullptr;
 
-    // Toolbar field-type buttons (9 total — order matches ToolMode FormAddXxx enum run)
-    QToolButton* m_fieldBtns[9] = {};
-    static constexpr ToolMode k_fieldModes[9] = {
+    // Toolbar field-type buttons (10 total — order matches ToolMode FormAddXxx enum run)
+    static constexpr int k_fieldTypeCount = 10;
+    QToolButton* m_fieldBtns[k_fieldTypeCount] = {};
+    static constexpr ToolMode k_fieldModes[k_fieldTypeCount] = {
         ToolMode::FormAddText,
         ToolMode::FormAddCheckbox,
         ToolMode::FormAddRadio,
@@ -69,8 +71,12 @@ private:
         ToolMode::FormAddDate,
         ToolMode::FormAddNumeric,
         ToolMode::FormAddSignature,
-        ToolMode::FormAddButton
+        ToolMode::FormAddButton,
+        ToolMode::FormAddCalculated
     };
+
+    // Calculation-expression input, shown only when the Calculated field type is active.
+    QLineEdit* m_calcExprEdit = nullptr;
 
     QToolButton* m_autoDetectBtn  = nullptr;
     QToolButton* m_tabOrderBtn    = nullptr;

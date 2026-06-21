@@ -66,6 +66,10 @@ public:
     int inFlightCount(Lane lane) const;
     void setLaneCapacity(Lane lane, int capacity);
 
+    // Current CPU pool size — used by CrossPagePipeline to clamp backpressure
+    // below the pool size so admitted work is always guaranteed a thread.
+    int cpuPoolMaxThreads() const { return m_cpuPool.maxThreadCount(); }
+
     // Stop the GPU warm worker cleanly (call before destructor if needed).
     void shutdown();
 

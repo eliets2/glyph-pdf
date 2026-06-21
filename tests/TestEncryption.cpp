@@ -177,18 +177,28 @@ private slots:
         return out;
     }
 
-    static QByteArray aesCbcDecrypt(const QByteArray& fek, const QByteArray& ivPlusCt) {
-        if (ivPlusCt.size() < 32) return {};
-        const auto* iv = reinterpret_cast<const unsigned char*>(ivPlusCt.constData());
-        const auto* ct = iv + 16;
-        int ctLen = ivPlusCt.size() - 16;
-        QByteArray out(ctLen + 16, '\0');
+    static QByteArray aesGcmDecrypt(const QByteArray& fek, const QByteArray& in) {
+        constexpr uint8_t kVersionGCM = 0x02;
+        constexpr size_t kNonceLen = 12;
+        constexpr size_t kTagLen = 16;
+        if (in.size() < 1 + kNonceLen + kTagLen || in[0] != kVersionGCM) return {};
+
+        const unsigned char* nonce = reinterpret_cast<const unsigned char*>(in.constData()) + 1;
+        const unsigned char* tag = reinterpret_cast<const unsigned char*>(in.constData()) + in.size() - kTagLen;
+        const unsigned char* ciphertext = nonce + kNonceLen;
+        size_t cipherLen = in.size() - 1 - kNonceLen - kTagLen;
+
+        QByteArray out(cipherLen, '\0');
         EVP_CIPHER_CTX* c = EVP_CIPHER_CTX_new();
         int len = 0, total = 0; QByteArray result;
-        if (EVP_DecryptInit_ex(c, EVP_aes_256_cbc(), nullptr,
-                               reinterpret_cast<const unsigned char*>(fek.constData()), iv) == 1) {
+
+        if (EVP_DecryptInit_ex(c, EVP_aes_256_gcm(), nullptr, nullptr, nullptr) == 1 &&
+            EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_SET_IVLEN, kNonceLen, nullptr) == 1 &&
+            EVP_DecryptInit_ex(c, nullptr, nullptr, reinterpret_cast<const unsigned char*>(fek.constData()), nonce) == 1 &&
+            EVP_CIPHER_CTX_ctrl(c, EVP_CTRL_GCM_SET_TAG, kTagLen, const_cast<unsigned char*>(tag)) == 1) {
+            
             auto* op = reinterpret_cast<unsigned char*>(out.data());
-            if (EVP_DecryptUpdate(c, op, &len, ct, ctLen) == 1) {
+            if (EVP_DecryptUpdate(c, op, &len, ciphertext, cipherLen) == 1) {
                 total = len;
                 if (EVP_DecryptFinal_ex(c, op + total, &len) == 1) {
                     total += len;
@@ -318,7 +328,7 @@ private slots:
                     in.CopyTo(dev);
                 } catch (...) { continue; }
                 QByteArray ivCt(rawBuf.data(), (int)rawBuf.size());
-                QByteArray plain = aesCbcDecrypt(fek, ivCt);
+                QByteArray plain = aesGcmDecrypt(fek, ivCt);
                 if (plain.isEmpty()) continue;   // PKCS#7/AES failure ⇒ wrong key
                 ++decryptedStreams;
                 QByteArray inflated = zlibInflate(plain);
