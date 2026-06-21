@@ -56,11 +56,37 @@ void RenderCache::clear() {
 
     WriteLockGuard guard(m_lock);
     m_renderedPages.clear();
-    m_lruList.clear();
+    m_lruOrder.clear();
     m_totalBytes = 0;
     m_pageSizes.clear();
     m_textLayer.clear();
     m_pageCount = 0;
+}
+
+// O(1) move-to-front. Caller holds the write lock. (AR-6 D2)
+void RenderCache::touchLru(const RenderCacheKey &key, CacheValue &value) {
+    // splice is O(1) and preserves iterator validity of the moved element.
+    m_lruOrder.splice(m_lruOrder.begin(), m_lruOrder, value.lruIt);
+    value.lruIt = m_lruOrder.begin();
+    Q_UNUSED(key);
+}
+
+// O(1) insert-or-replace at the front. Caller holds the write lock. (AR-6 D2)
+void RenderCache::insertLocked(const RenderCacheKey &key, const QImage &image) {
+    qint64 bytes = imageSizeInBytes(image);
+    auto it = m_renderedPages.find(key);
+    if (it != m_renderedPages.end()) {
+        // Replace existing entry: adjust byte accounting, refresh LRU position.
+        m_totalBytes += bytes - it->bytes;
+        it->image = image;
+        it->bytes = bytes;
+        touchLru(key, *it);
+    } else {
+        m_lruOrder.push_front(key);
+        m_totalBytes += bytes;
+        m_renderedPages.insert(key, CacheValue{image, bytes, m_lruOrder.begin()});
+    }
+    evictIfNeeded();
 }
 
 void RenderCache::resetStats() {
@@ -148,12 +174,11 @@ QImage RenderCache::getOrRender(int page, qreal scale, IPdfRenderer* renderer) {
     // 1. Try to read and update LRU together (TOCTOU fix)
     {
         WriteLockGuard guard(m_lock);
-        if (m_renderedPages.contains(key)) {
+        auto it = m_renderedPages.find(key);
+        if (it != m_renderedPages.end()) {
             m_hits.fetchAndAddRelaxed(1);
-            QImage img = m_renderedPages.value(key).image;
-            m_lruList.removeOne(key);
-            m_lruList.prepend(key);
-            return img;
+            touchLru(key, *it);
+            return it->image;
         }
     }
 
@@ -168,16 +193,12 @@ QImage RenderCache::getOrRender(int page, qreal scale, IPdfRenderer* renderer) {
     // 3. Insert and evict
     {
         WriteLockGuard guard(m_lock);
-        if (m_renderedPages.contains(key)) {
-            return m_renderedPages.value(key).image;
+        auto it = m_renderedPages.find(key);
+        if (it != m_renderedPages.end()) {
+            touchLru(key, *it);
+            return it->image;
         }
-
-        qint64 bytes = imageSizeInBytes(rendered);
-        m_renderedPages.insert(key, {rendered, bytes});
-        m_lruList.removeOne(key);
-        m_lruList.prepend(key);
-        m_totalBytes += bytes;
-        evictIfNeeded();
+        insertLocked(key, rendered);
     }
 
     return rendered;
@@ -189,12 +210,11 @@ QImage RenderCache::getOrRenderTile(int page, qreal scale, const QRectF &subRect
     // 1. Try to read and update LRU together (TOCTOU fix)
     {
         WriteLockGuard guard(m_lock);
-        if (m_renderedPages.contains(key)) {
+        auto it = m_renderedPages.find(key);
+        if (it != m_renderedPages.end()) {
             m_hits.fetchAndAddRelaxed(1);
-            QImage img = m_renderedPages.value(key).image;
-            m_lruList.removeOne(key);
-            m_lruList.prepend(key);
-            return img;
+            touchLru(key, *it);
+            return it->image;
         }
     }
 
@@ -209,16 +229,12 @@ QImage RenderCache::getOrRenderTile(int page, qreal scale, const QRectF &subRect
     // 3. Insert and evict
     {
         WriteLockGuard guard(m_lock);
-        if (m_renderedPages.contains(key)) {
-            return m_renderedPages.value(key).image;
+        auto it = m_renderedPages.find(key);
+        if (it != m_renderedPages.end()) {
+            touchLru(key, *it);
+            return it->image;
         }
-
-        qint64 bytes = imageSizeInBytes(tileImg);
-        m_renderedPages.insert(key, {tileImg, bytes});
-        m_lruList.removeOne(key);
-        m_lruList.prepend(key);
-        m_totalBytes += bytes;
-        evictIfNeeded();
+        insertLocked(key, tileImg);
     }
 
     return tileImg;
@@ -227,23 +243,13 @@ QImage RenderCache::getOrRenderTile(int page, qreal scale, const QRectF &subRect
 void RenderCache::insertPage(int page, qreal scale, const QImage &image) {
     WriteLockGuard guard(m_lock);
     RenderCacheKey key{page, scale, false, QRectF()};
-    qint64 bytes = imageSizeInBytes(image);
-    m_renderedPages.insert(key, {image, bytes});
-    m_lruList.removeOne(key);
-    m_lruList.prepend(key);
-    m_totalBytes += bytes;
-    evictIfNeeded();
+    insertLocked(key, image);
 }
 
 void RenderCache::insertTile(int page, qreal scale, const QRectF &subRect, const QImage &image) {
     WriteLockGuard guard(m_lock);
     RenderCacheKey key{page, scale, true, subRect};
-    qint64 bytes = imageSizeInBytes(image);
-    m_renderedPages.insert(key, {image, bytes});
-    m_lruList.removeOne(key);
-    m_lruList.prepend(key);
-    m_totalBytes += bytes;
-    evictIfNeeded();
+    insertLocked(key, image);
 }
 
 void RenderCache::prefetchViewport(int centerPage, qreal scale, IPdfRenderer* renderer) {
@@ -301,12 +307,7 @@ void RenderCache::prefetchViewport(int centerPage, qreal scale, IPdfRenderer* re
                 if (!rendered.isNull()) {
                     WriteLockGuard guard(self->m_lock);
                     if (!self->m_renderedPages.contains(key)) {
-                        qint64 bytes = self->imageSizeInBytes(rendered);
-                        self->m_renderedPages.insert(key, {rendered, bytes});
-                        self->m_lruList.removeOne(key);
-                        self->m_lruList.prepend(key);
-                        self->m_totalBytes += bytes;
-                        self->evictIfNeeded();
+                        self->insertLocked(key, rendered);
                     }
                 }
             }
@@ -341,12 +342,15 @@ void RenderCache::insertText(int page, const QString &text) {
 void RenderCache::evictIfNeeded() {
     // Note: Assumes write lock is already held
     Q_ASSERT(t_writeLocked);
-    while (m_totalBytes > m_maxCacheSize && !m_lruList.isEmpty()) {
-        RenderCacheKey oldestKey = m_lruList.takeLast();
-        if (m_renderedPages.contains(oldestKey)) {
-            m_totalBytes -= m_renderedPages.value(oldestKey).bytes;
-            m_renderedPages.remove(oldestKey);
+    while (m_totalBytes > m_maxCacheSize && !m_lruOrder.empty()) {
+        // O(1) eviction: oldest is at the back of the intrusive LRU list.
+        const RenderCacheKey oldestKey = m_lruOrder.back();
+        auto it = m_renderedPages.find(oldestKey);
+        if (it != m_renderedPages.end()) {
+            m_totalBytes -= it->bytes;
+            m_renderedPages.erase(it);
         }
+        m_lruOrder.pop_back();
     }
 
 #ifndef QT_NO_DEBUG
@@ -404,11 +408,13 @@ void RenderCache::checkMemoryPressure() {
     WriteLockGuard guard(m_lock);
 
     // Aggressive eviction: shrink to AggressiveCacheLimit
-    while (m_totalBytes > MemoryGuard::AggressiveCacheLimit && !m_lruList.isEmpty()) {
-        RenderCacheKey oldestKey = m_lruList.takeLast();
-        if (m_renderedPages.contains(oldestKey)) {
-            m_totalBytes -= m_renderedPages.value(oldestKey).bytes;
-            m_renderedPages.remove(oldestKey);
+    while (m_totalBytes > MemoryGuard::AggressiveCacheLimit && !m_lruOrder.empty()) {
+        const RenderCacheKey oldestKey = m_lruOrder.back();
+        auto it = m_renderedPages.find(oldestKey);
+        if (it != m_renderedPages.end()) {
+            m_totalBytes -= it->bytes;
+            m_renderedPages.erase(it);
         }
+        m_lruOrder.pop_back();
     }
 }
