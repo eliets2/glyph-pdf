@@ -127,11 +127,31 @@ QSizeF RenderCache::pageSize(int page, IPdfRenderer* renderer) {
     }
 
     if (promisePtr) {
-        QSizeF size = renderer->pageSize(page);
+        // AR-6 D4: if renderer->pageSize() throws, the promise must STILL be
+        // fulfilled — otherwise fut.get() (here and on every concurrent waiter)
+        // blocks/throws on a broken promise forever, permanently poisoning this
+        // page's metadata cache. On failure we satisfy the promise with a safe
+        // default AND evict the cached future under the write lock so a later
+        // call can retry a real measurement.
+        QSizeF size;
+        bool failed = false;
+        try {
+            size = renderer->pageSize(page);
+        } catch (...) {
+            failed = true;
+        }
         if (!size.isValid()) {
             size = QSizeF(595.276, 841.890); // Default A4 size
         }
+        // Always set the value first so no waiter ever sees a broken promise.
         promisePtr->set_value(size);
+        if (failed) {
+            WriteLockGuard guard(m_lock);
+            // Only erase if it's still our (now-fulfilled-with-default) future,
+            // so a concurrent successful insert is not clobbered.
+            if (m_pageSizes.contains(page))
+                m_pageSizes.remove(page);
+        }
     }
 
     return fut.get();
