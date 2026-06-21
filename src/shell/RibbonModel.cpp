@@ -12,7 +12,8 @@ const QSet<QString>& RibbonModel::plannedTools() {
         // Home
         "snapshot", "findRep", "regex", "history",
         // View – panels and window management
-        "thumbs", "bookmarks", "comments", "layers", "rtl",
+        // "rtl" removed: AR-8 D6 shipped the RTL toggle (ViewController handles it).
+        "thumbs", "bookmarks", "comments", "layers",
         "splitWin", "newWin",
         // Edit – advanced text/object operations
         "insertText", "deleteText", "link", "attach", "delete",
