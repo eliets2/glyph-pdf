@@ -63,6 +63,7 @@ public:
     bool cropPage(const QString &, int, const QRectF &) override { return m_loaded; }
     bool resizePage(const QString &, int, const QSizeF &) override { return m_loaded; }
     bool reorderPages(const QString &, int, int) override { return m_loaded; }
+    bool reorderAllPages(const QString &, const QList<int> &) override { return m_loaded; }
     bool addHeaderFooter(const QString &, const HeaderFooterOptions &) override { return m_loaded; }
     bool applyBatesNumbering(const QString &, const BatesNumberingOptions &) override { return m_loaded; }
 

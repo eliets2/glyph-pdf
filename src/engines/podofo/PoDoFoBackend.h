@@ -57,6 +57,7 @@ public:
     bool cropPage(const QString &path, int pageIndex, const QRectF &cropRect);
     bool resizePage(const QString &path, int pageIndex, const QSizeF &size);
     bool reorderPages(const QString &path, int fromIndex, int toIndex);
+    bool reorderAllPages(const QString &path, const QList<int> &permutation);
 
     // Content Injection
     bool addHeaderFooter(const QString &path, const HeaderFooterOptions &options);
