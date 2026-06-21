@@ -84,11 +84,14 @@ PdfAValidationPanel::PdfAValidationPanel(QWidget* parent) : QFrame(parent) {
     col->addWidget(m_issuesList);
 
     // Action buttons
+    // AR-8 D3: "Fix Automatically" starts disabled and is conditionally enabled
+    // by updateDisplay() when a real export callback is wired — keep it.
     m_fixBtn = new QPushButton(tr("Fix Automatically"));
     m_fixBtn->setEnabled(false);
 
-    auto* conv = new QPushButton(tr("Convert to PDF/A-2B"));
-    conv->setStyleSheet("background:#ff8c42;color:#1a1b1e;border:1px solid #ff8c42;font-weight:600;padding:8px 12px;");
+    // AR-8 D3: "Convert to PDF/A-2B" button HIDDEN — it only showed a redirect
+    // MessageBox ("not available in this version"), making it a dead placeholder.
+    // The planned inline-convert feature is preserved; add it back here when wired.
 
     m_exportBtn = new QPushButton(tr("Export Report"));
 
@@ -96,25 +99,12 @@ PdfAValidationPanel::PdfAValidationPanel(QWidget* parent) : QFrame(parent) {
     m_readingOrderBtn->setToolTip(tr("Check tagged-PDF structure order against visual layout (accessibility)"));
 
     col->addWidget(m_fixBtn);
-    col->addWidget(conv);
     col->addWidget(m_exportBtn);
     col->addWidget(m_readingOrderBtn);
     col->addStretch(1);
 
     scroll->setWidget(body);
     outer->addWidget(scroll, 1);
-
-    // Wire buttons
-    connect(conv, &QPushButton::clicked, this, [this]() {
-        if (m_currentDocPath.isEmpty()) {
-            QMessageBox::information(this, tr("No Document"),
-                tr("Open a PDF document first, then switch to PDF/A validation mode."));
-        } else {
-            QMessageBox::information(this, tr("Convert to PDF/A-2B"),
-                tr("Use File > Export As PDF/A to convert the current document.\n"
-                   "Direct conversion from the validation panel is not available in this version."));
-        }
-    });
 
     connect(m_exportBtn, &QPushButton::clicked, this, &PdfAValidationPanel::onExportReportClicked);
     connect(m_readingOrderBtn, &QPushButton::clicked, this, &PdfAValidationPanel::onCheckReadingOrder);
