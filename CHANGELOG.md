@@ -2,6 +2,60 @@
 
 All notable changes to GlyphPDF are documented in this file.
 
+## [1.3.2] — 2026-06-21
+
+Security & correctness release closing the 2026-06-16 full-codebase audit
+(AR-PROMPT-1…12). The headline goal was to make the product's claims true and
+prove them on disk, not just in a green test suite.
+
+### Fixed (security / data-loss)
+- **Crashes & data loss**: watermark null-deref, render-prefetch use-after-free,
+  autosave-retry UAF, AIChat dangling pointer; Office import no longer force-kills
+  the user's other LibreOffice instances.
+- **Redaction**: unified to one true Edact-Ray pipeline (content excised, not
+  black boxes), chained document-level sanitize + GC save, with post-open
+  verification; writes to a new file preserving the original; page-range parse
+  failure is now an error, never "all pages".
+- **Signatures/PKI**: the OCSP-verification test hook is confined to
+  `GLYPHPDF_TESTING` and provably absent from shipped binaries; OCSP responder
+  delegation + freshness validated; shadow/incremental-save-attack detection
+  parses revisions instead of substring-matching.
+- **PDF backend**: no unescaped user string reaches a content stream (OCR/MRC
+  injection closed); every mutator persists through one signature-aware save;
+  image-dimension math is overflow-safe.
+- **Subprocess/IO/OCR**: shell-metacharacter rejection for external tools;
+  exporters verify bytes hit disk; per-session private temp dir; downloaded MSI
+  Authenticode publisher verified before msiexec.
+- **Secrets**: cross-platform `ISecretStore` (DPAPI + encrypted-file fallback) —
+  API keys are no longer silently dropped off Windows.
+
+### Changed
+- **Concurrency/perf**: O(1) intrusive RenderCache LRU with a consistent
+  hash/equality invariant; pipeline no longer parks a CPU-pool thread on the GPU
+  lane (latent-deadlock removed); broken-promise cache poisoning fixed.
+- **Djot interchange**: `djotToDocument` decode implemented (structural
+  round-trip); `ProvenanceGuard` is now a type-level chokepoint (the lossy
+  Semantic→PDF write requires a guard-minted token). The README "lossless" claim
+  was qualified to match exactly what round-trips.
+- **UI truth**: annotations are embedded into the PDF on Save/Save As (not just a
+  sidecar); long operations run off the UI thread with progress + cancel;
+  Save-on-exit prompt added; planned/future tools are hidden (definitions
+  preserved) rather than shown disabled; destructive actions are confirmed.
+
+### Release engineering
+- Authenticode signing wired into the MSI pipeline with a publish gate (unsigned
+  artifacts cannot be published); AGPL/GPL source offers + full upstream license
+  trees staged; license guards broadened and exercised in CI; binary-hardening
+  flags + default-Release configure; release builds fail on missing features.
+
+### Known remaining (tracked)
+- Real EV/OV code-signing certificate procurement and the signed-MSI publish (the
+  pipeline is wired and gated; the cert swap is one line). winget manifests are
+  staged at 1.3.2 pending the signed MSI's SHA-256.
+- Architecture refactor (AR-10 D1/D2: full god-interface decomposition and the
+  AppContext→DI migration across ~290 call sites) and SemanticDocument model
+  hygiene (AR-9 D3) landed partially and continue incrementally.
+
 ## [1.3.1] — 2026-06-16
 
 Maintenance release polishing the v1.3.0 feature set.
