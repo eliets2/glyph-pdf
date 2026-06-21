@@ -35,6 +35,10 @@ public:
     void reload();
     ToolMode toolMode() const { return m_toolMode; }
     void setToolMode(ToolMode mode);
+    // Read-only mode (e.g. for expired documents): blocks editing/annotation
+    // tool modes, allowing only viewing and text selection.
+    void setReadOnly(bool readOnly);
+    bool isReadOnly() const { return m_readOnly; }
     void setAnnotationColor(const QColor &color);
     void setAnnotationThickness(int thickness);
     void saveAnnotations();
@@ -43,7 +47,7 @@ public:
     void deleteSelectedAnnotation();
     QList<AnnotationItem> annotations() const;
     void searchDocument(const QString &text, bool forward, bool matchCase, bool wholeWords);
-    void redactAllMatches(const QString &text, bool matchCase, bool wholeWords);
+
     void setOcrResults(const QList<OcrResult> &results);
 
     // Page navigation
@@ -75,7 +79,7 @@ public:
     void deletePages(int from, int to, const QString &outputFile);
     void insertBlankPage(int index, const QString &outputFile);
     void rotatePages(int from, int to, int angle, const QString &outputFile);
-    void applyRedactions(const QString &outputFile);
+
     bool saveDocumentAs(const QString &outputFile);
     static void mergeDocuments(const QStringList &files, const QString &outputFile);
     void printDocument();
@@ -123,6 +127,7 @@ private:
     AnnotationLayer *m_annotationLayer;
     qreal m_zoomFactor;
     ToolMode m_toolMode;
+    bool m_readOnly = false;
     QString m_filePath;
     int m_rotation;
     QImage m_overlayImage;

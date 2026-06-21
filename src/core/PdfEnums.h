@@ -35,5 +35,6 @@ enum class ToolMode {
     FormAddDate,
     FormAddNumeric,
     FormAddSignature,
-    FormAddButton
+    FormAddButton,
+    FormAddCalculated
 };

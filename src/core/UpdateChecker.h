@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QString>
 #include <QUrl>
+#include <QNetworkAccessManager>
 
 class QNetworkAccessManager;
 class QNetworkReply;
@@ -55,6 +56,10 @@ public:
 
     static QString currentVersion();
 
+    /// Resolve the manifest URL for a release channel ("stable" or "beta").
+    /// Centralizes the channel→URL mapping so callers can't drift.
+    static QUrl manifestUrlForChannel(const QString& channel);
+
 public slots:
     /** Fetch manifest and compare versions. Non-blocking. */
     void checkForUpdates();
@@ -78,6 +83,15 @@ signals:
 
     void updateLaunched();   // MSI started — app should exit now
 
+#ifdef GLYPH_TESTING
+public:
+    void setNetworkAccessManager(QNetworkAccessManager* nam) {
+        if (m_nam) m_nam->deleteLater();
+        m_nam = nam;
+        nam->setParent(this);
+    }
+#endif
+
 private slots:
     void onManifestReply();
     void onDownloadProgress(qint64 received, qint64 total);
@@ -86,6 +100,12 @@ private slots:
 private:
     bool isNewerVersion(const QString& remote, const QString& local) const;
     bool verifySha256(const QString& filePath, const QString& expected) const;
+
+#ifdef Q_OS_WIN
+    // Returns true if the file at `path` has a valid Authenticode signature.
+    // Uses WinVerifyTrust from the Windows SDK.
+    static bool verifyAuthenticode(void* hFile, const QString& pathForLogging);
+#endif
 
     QNetworkAccessManager* m_nam = nullptr;
     QNetworkReply*         m_manifestReply = nullptr;
@@ -100,7 +120,7 @@ private:
     int  m_progressPct = 0;
 
     static constexpr const char* DefaultManifestUrl =
-        "https://glyphpdf.com/updates/latest.json";
+        "https://eliets2.github.io/glyph-pdf/updates/latest.json";
 };
 
 } // namespace gp

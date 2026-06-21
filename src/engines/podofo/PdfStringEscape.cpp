@@ -11,17 +11,6 @@ std::string pdfEscapeLiteralString(const std::string& input) {
     for (size_t i = 0; i < input.size(); ++i) {
         char c = input[i];
         
-        // Idempotency: if we see '\' followed by a character we escape, treat it as already escaped
-        if (c == '\\' && i + 1 < input.size()) {
-            char next = input[i + 1];
-            if (next == '(' || next == ')' || next == '\\' || next == 'n' || next == 'r' || next == 't' || next == 'b' || next == 'f') {
-                result += c;
-                result += next;
-                ++i;
-                continue;
-            }
-        }
-        
         if (c == '(' || c == ')' || c == '\\') {
             result += '\\';
             result += c;

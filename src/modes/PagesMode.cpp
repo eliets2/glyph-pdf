@@ -21,6 +21,9 @@
 #include "core/AppContext.h"
 #include "engines/DocumentSession.h"
 #include "core/interfaces/IPdfEditorEngine.h"
+#include "engines/BackendRouter.h"
+#include "commands/ReorderPermutationCommand.h"
+#include "core/interfaces/IPdfRenderer.h"
 
 #include "util/GpTheme.h"
 
@@ -43,8 +46,17 @@
 #include <QSplitter>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <QUndoStack>
+#include <QtConcurrent/QtConcurrent>
 
 namespace gp {
+
+// Out-of-line destructor: IPdfRenderer (unique_ptr member) is only a complete
+// type here (PagesMode.h only forward-declares it).
+PagesMode::~PagesMode()
+{
+    cancelThumbnailRenders();
+}
 
 // ── Static helpers ────────────────────────────────────────────────────────────
 
@@ -148,23 +160,11 @@ PagesMode::PagesMode(QWidget* parent) : QWidget(parent)
     modeLabel->setProperty("mono", true);
     tbLayout->addWidget(modeLabel);
 
-    const QStringList toolButtons {
-        PagesMode::tr("Insert Before"),
-        PagesMode::tr("Insert After"),
-        PagesMode::tr("Delete"),
-        PagesMode::tr("Extract"),
-        PagesMode::tr("Replace"),
-        PagesMode::tr("Rotate ↺"),
-        PagesMode::tr("Rotate ↻"),
-        PagesMode::tr("Split Here"),
-        PagesMode::tr("Merge")
-    };
-    for (const QString& label : toolButtons) {
-        auto* btn = new QToolButton;
-        btn->setText(label);
-        btn->setProperty("variant", "ghost");
-        tbLayout->addWidget(btn);
-    }
+    // AR-8 D3: the per-page action buttons (Insert Before/After, Delete, Extract,
+    // Replace, Rotate, Split Here, Merge) are HIDDEN until wired to engine actions.
+    // Their planned ToolId enum entries and engine method stubs are preserved;
+    // re-enable by connecting them in a future session.  Do NOT show disabled
+    // controls with "future release" tooltips (SCOPE LOCK §5).
     tbLayout->addStretch(1);
 
     for (const QString& s : QStringList{"S", "M", "L"}) {
@@ -427,6 +427,24 @@ void PagesMode::buildReorderPanel(QWidget* host)
 
 // ── setAppContext / refreshPageList ───────────────────────────────────────────
 
+void PagesMode::cancelThumbnailRenders()
+{
+    for (auto* w : m_thumbWatchers) {
+        w->cancel();
+        // Do NOT waitForFinished() here — the watcher callback is a queued
+        // connection; the watcher object is not safe to destroy until finished.
+        // We disconnect the signal so any pending callbacks are no-ops, then
+        // schedule deletion after the future completes.
+        w->disconnect();
+        if (w->isRunning())
+            connect(w, &QFutureWatcherBase::finished, w, &QObject::deleteLater);
+        else
+            w->deleteLater();
+    }
+    m_thumbWatchers.clear();
+    m_thumbRenderer.reset();
+}
+
 void PagesMode::setAppContext(const AppContext* ctx)
 {
     m_ctx = ctx;
@@ -435,6 +453,9 @@ void PagesMode::setAppContext(const AppContext* ctx)
 
 void PagesMode::refreshPageList()
 {
+    // Cancel any in-flight thumbnail renders from the previous document.
+    cancelThumbnailRenders();
+
     m_pageList->clear();
     m_reorderList->clear();
     m_originalOrder.clear();
@@ -456,39 +477,56 @@ void PagesMode::refreshPageList()
         return;
     }
 
-    // Ask the engine for page count via a page-property query.
-    // We derive pageCount from the engine's save-state; if unavailable fall back
-    // to an error state rather than showing fake data.
-    int pageCount = 0;
-    if (m_ctx->pdfEditor) {
-        // Load (may be a no-op if already loaded)
-        m_ctx->pdfEditor->loadDocumentForEditing(path);
-        // Count pages: PoDoFoBackend does not expose a standalone pageCount() on
-        // IPdfEditorEngine.  The safest proxy is to call extractPageAsBytes(path, 0)
-        // and binary-search upward — but that is expensive.  Instead, use the
-        // DocumentSession if it tracks page count, or fall back to a heuristic read.
-        //
-        // Practical approach: we use the document session's page count if available.
-        // DocumentSession::pageCount() is not in AppContext.h but the underlying
-        // loadDocumentForEditing already loaded the doc; check via a sentinel:
-        // extractPageAsBytes returns non-empty for valid pages, empty for out-of-range.
-        // Binary-search is O(log N) and safe.
+    // AR-7 D2: the page-count binary search issues multiple extractPageAsBytes()
+    // calls that each do engine I/O — run it on a worker thread so the GUI stays
+    // responsive, then populate the UI from onPageCountReady() on the GUI thread.
+    m_pageCountLabel->setText(PagesMode::tr("Loading…"));
+    if (m_splitAtSpin)    m_splitAtSpin->setRange(1, 1);
+    if (m_splitEverySpin) m_splitEverySpin->setRange(1, 1);
+
+    if (!m_ctx->pdfEditor) {
+        m_pageCountLabel->setText(PagesMode::tr("0 pages"));
+        return;
+    }
+
+    if (!m_pageCountWatcher) {
+        m_pageCountWatcher = new QFutureWatcher<int>(this);
+        connect(m_pageCountWatcher, &QFutureWatcher<int>::finished,
+                this, &PagesMode::onPageCountReady);
+    }
+
+    // Cancel any still-running query for a previous document.
+    if (m_pageCountWatcher->isRunning()) {
+        m_pageCountWatcher->cancel();
+        m_pageCountWatcher->waitForFinished();
+    }
+
+    std::weak_ptr<IPdfEditorEngine> weakEditor = m_ctx->pdfEditor;
+    m_pageCountWatcher->setFuture(QtConcurrent::run([weakEditor, path]() -> int {
+        auto engine = weakEditor.lock();
+        if (!engine) return 0;
+        engine->loadDocumentForEditing(path);
+        // O(log N) binary search: extractPageAsBytes returns non-empty for valid indices.
         int lo = 0, hi = 1;
-        // Expand hi until extractPageAsBytes returns empty
-        while (!m_ctx->pdfEditor->extractPageAsBytes(path, hi).isEmpty()) {
+        while (!engine->extractPageAsBytes(path, hi).isEmpty()) {
             hi *= 2;
-            if (hi > 4096) break; // safety cap
+            if (hi > 4096) break;
         }
-        // Binary search between lo and hi
         while (lo < hi) {
             const int mid = (lo + hi) / 2;
-            if (m_ctx->pdfEditor->extractPageAsBytes(path, mid).isEmpty())
+            if (engine->extractPageAsBytes(path, mid).isEmpty())
                 hi = mid;
             else
                 lo = mid + 1;
         }
-        pageCount = lo;
-    }
+        return lo;
+    }));
+}
+
+void PagesMode::onPageCountReady()
+{
+    if (!m_pageCountWatcher || m_pageCountWatcher->isCanceled()) return;
+    const int pageCount = m_pageCountWatcher->result();
 
     if (pageCount <= 0) {
         m_pageCountLabel->setText(PagesMode::tr("0 pages"));
@@ -502,11 +540,12 @@ void PagesMode::refreshPageList()
     if (m_splitEverySpin) m_splitEverySpin->setRange(1, pageCount);
 
     // Populate page list and reorder list
+    m_pageList->clear();
+    m_reorderList->clear();
+    m_originalOrder.clear();
+
+    // AR-8 D5: placeholder items filled with gray until real PDFium renders arrive.
     for (int i = 0; i < pageCount; ++i) {
-        // Page list item: gray placeholder icon + page number
-        // (Real thumbnail rendering requires a render backend path through AppContext;
-        //  that plumbing is deferred to when IPdfRenderBackend is added to AppContext.
-        //  For now, display a styled placeholder with the page number.)
         QPixmap thumb(100, 130);
         thumb.fill(QColor(220, 220, 220));
 
@@ -514,12 +553,70 @@ void PagesMode::refreshPageList()
         item->setIcon(QIcon(thumb));
         item->setText(PagesMode::tr("Page %1").arg(i + 1));
         item->setSizeHint(QSize(120, 160));
-        item->setData(Qt::UserRole, i); // store 0-based index
+        item->setData(Qt::UserRole, i);
         m_pageList->addItem(item);
 
         m_reorderList->addItem(PagesMode::tr("Page %1").arg(i + 1));
         m_originalOrder.append(i);
     }
+
+    // AR-8 D5: launch off-thread PDFium thumbnail renders.
+    // We build ONE renderer (PdfiumBackend loaded once), then spawn a lightweight
+    // future per page.  PdfiumBackend is mutex-protected so concurrent calls are safe.
+    if (!m_ctx || !m_ctx->document) return;
+    const QString docPath = m_ctx->document->path();
+    if (docPath.isEmpty()) return;
+
+#ifdef HAS_PDFIUM
+    // Build the renderer on the GUI thread (loadDocument is cheap) and keep it
+    // alive for the lifetime of the render jobs via shared_ptr.
+    auto sharedRenderer = std::shared_ptr<IPdfRenderer>(
+        BackendRouter::rendererFor(docPath).release());
+    if (!sharedRenderer) return;
+
+    // Keep a raw alias in m_thumbRenderer for cleanup; shared_ptr is captured
+    // by the futures so it outlives any individual watcher.
+    m_thumbRenderer = nullptr; // already reset in cancelThumbnailRenders
+
+    // Thumbnail DPI: 72 dpi × 100/130 ≈ 55pt page fits in 100px icon slot.
+    static constexpr int kThumbDpi = 55;
+
+    for (int pageIdx = 0; pageIdx < pageCount; ++pageIdx) {
+        auto* watcher = new QFutureWatcher<QImage>(this);
+        m_thumbWatchers.append(watcher);
+
+        // Capture by value: sharedRenderer (ref-counted), pageIdx.
+        QFuture<QImage> future = QtConcurrent::run(
+            [sharedRenderer, pageIdx]() -> QImage {
+                return sharedRenderer->renderPage(pageIdx, kThumbDpi);
+            });
+        watcher->setFuture(future);
+
+        const int idx = pageIdx; // capture for lambda
+        connect(watcher, &QFutureWatcher<QImage>::finished,
+                this, [this, watcher, idx]() {
+                    if (!watcher->isCanceled()) {
+                        onThumbnailReady(idx, watcher->result());
+                    }
+                    m_thumbWatchers.removeOne(watcher);
+                    watcher->deleteLater();
+                });
+    }
+#endif // HAS_PDFIUM
+}
+
+void PagesMode::onThumbnailReady(int pageIndex, const QImage& img)
+{
+    if (img.isNull()) return; // render failed — keep the gray placeholder
+    if (pageIndex < 0 || pageIndex >= m_pageList->count()) return;
+
+    auto* item = m_pageList->item(pageIndex);
+    if (!item) return;
+
+    const QSize iconSz = m_pageList->iconSize();
+    QPixmap pm = QPixmap::fromImage(img).scaled(
+        iconSz, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    item->setIcon(QIcon(pm));
 }
 
 // ── Thumbnail size toggle ─────────────────────────────────────────────────────
@@ -769,50 +866,44 @@ void PagesMode::onApplyReorder()
     const int count = m_reorderList->count();
     if (count <= 1) return; // nothing to reorder
 
-    // Build the current displayed order as a list of original 0-based indices.
-    // m_reorderList items store the original page number in their text "Page N".
-    // After drag-drop, the order in the list widget is the desired new order.
-    // We need to figure out the mapping and call reorderPages for each move.
-    // Simplest approach: apply bubble-sort steps tracking the current live order.
-
-    // Collect desired order (0-based original page indices from display text)
+    // Collect desired order (0-based original page indices from display text).
+    // Each item text is "Page N" (1-based); recover the 0-based original index.
     QList<int> desiredOrder;
     desiredOrder.reserve(count);
     for (int i = 0; i < count; ++i) {
-        // Item text is "Page N" (1-based); recover 0-based index
         const QString text = m_reorderList->item(i)->text();
         bool ok = false;
-        // Extract the number after "Page "
         const int pageNum = text.mid(text.lastIndexOf(' ') + 1).toInt(&ok);
         desiredOrder.append(ok ? pageNum - 1 : i);
     }
 
-    // Apply moves: simulate the desired permutation using sequential reorderPages calls.
-    // reorderPages(path, fromIndex, toIndex) moves one page in the current live document.
-    // We walk through desiredOrder and for each position, move the required page there.
-    QList<int> currentOrder = m_originalOrder; // tracks live document state
-    bool anyError = false;
+    // AR-8 D5 (atomic reorder): push a single ReorderPermutationCommand onto the
+    // undo stack.  This replaces the previous N sequential reorderPages() calls
+    // (each of which wrote to disk individually, creating N undo steps and a
+    // partial-failure window).  The new command applies the whole permutation in
+    // ONE reorderAllPages() call (one PoDoFo write), so:
+    //   – Undo collapses to a single Ctrl+Z.
+    //   – Partial failure leaves the document in its original state.
+    auto* cmd = new ReorderPermutationCommand(
+        m_ctx->pdfEditor.get(),
+        m_ctx->document.get(),
+        desiredOrder);
 
-    for (int targetPos = 0; targetPos < desiredOrder.size(); ++targetPos) {
-        const int wantOriginal = desiredOrder[targetPos];
-        int currentPos = currentOrder.indexOf(wantOriginal);
-        if (currentPos < 0 || currentPos == targetPos) continue;
-
-        if (!m_ctx->pdfEditor->reorderPages(path, currentPos, targetPos)) {
-            anyError = true;
-            break;
-        }
-        // Update our tracking list to reflect the move
-        currentOrder.move(currentPos, targetPos);
+    if (m_ctx->undoStack) {
+        m_ctx->undoStack->push(cmd); // push() calls redo() = reorderAllPages()
+    } else {
+        // No undo stack: execute directly and clean up.
+        cmd->redo();
+        delete cmd;
     }
 
-    if (anyError) {
+    // Check if the engine reported an error (reorderAllPages failed).
+    if (m_ctx->pdfEditor->lastError().severity >= ErrorInfo::Error) {
         QMessageBox::critical(this, PagesMode::tr("Reorder failed"),
             PagesMode::tr("An error occurred while reordering pages. "
-                          "The document may be in a partially-reordered state. "
-                          "Please undo (Ctrl+Z) to recover."));
+                          "The document has not been modified."));
     } else {
-        // Update the original order tracking so Reset works correctly
+        // Update the original order tracking so Reset works correctly.
         m_originalOrder = desiredOrder;
         QMessageBox::information(this, PagesMode::tr("Reorder complete"),
             PagesMode::tr("Page order applied successfully."));

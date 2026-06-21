@@ -14,13 +14,29 @@ public:
     }
 
     void redo() override {
+        // Capture snapshot BEFORE the edit so undo() can restore it.
+        // Guard: only capture on the first redo() call. On subsequent redo() calls
+        // (after an undo/redo cycle) m_originalPageBytes already holds the true
+        // pre-edit state; overwriting it would cause undo() to restore to the wrong
+        // page bytes. QByteArray is empty by default; extractPageAsBytes never
+        // returns empty for a real page, so isEmpty() is a reliable once-only guard.
+        if (m_originalPageBytes.isEmpty()) {
+            m_originalPageBytes = m_engine->extractPageAsBytes(m_doc->path(), m_page);
+        }
+
         m_engine->editTextInline(m_page, m_rect, m_newText, m_fontFamily, m_fontSize, m_color, m_bold, m_italic, m_alignment);
         m_doc->markReload();
     }
 
     void undo() override {
-        // Full structural undo not trivial without saving backup of original text,
-        // for now just triggering reload since it's hard to revert inline text accurately in PDF
+        if (m_originalPageBytes.isEmpty()) return;
+
+        // Insert saved snapshot at the same position, then remove the edited page
+        // that is now at m_page + 1
+        m_engine->insertPageFromBytes(m_doc->path(), m_page, m_originalPageBytes);
+        m_engine->deletePage(m_doc->path(), m_page + 1);
+
+        m_doc->markReload();
     }
 
     int id() const override { return 0x205; }
@@ -37,4 +53,5 @@ private:
     bool m_bold;
     bool m_italic;
     int m_alignment;
+    QByteArray m_originalPageBytes;
 };

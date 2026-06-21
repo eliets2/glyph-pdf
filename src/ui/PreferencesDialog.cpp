@@ -10,6 +10,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCoreApplication>
+#include <QDialogButtonBox>
 #include <QFile>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -101,8 +102,11 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
     auto* updateGroup = new QGroupBox(tr("Updates"));
     auto* updateLay = new QVBoxLayout(updateGroup);
 
+    // AR-8 D6: audit recommendation is default OFF (privacy preference).
+    // A first-run transparency notice was landed in v1.3.1 (GpMainWindow::initUpdateChecker).
+    // The default here matches the in-session preference: opt-in rather than opt-out.
     _autoUpdate = new QCheckBox(tr("Check for updates on startup"));
-    _autoUpdate->setChecked(settings.value("update/checkOnStartup", true).toBool());
+    _autoUpdate->setChecked(settings.value("update/checkOnStartup", false).toBool());
     _autoUpdate->setAccessibleName(tr("Automatically check for updates when the application starts"));
     updateLay->addWidget(_autoUpdate);
 
@@ -128,13 +132,13 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
     checkRow->addWidget(_checkNowBtn);
     _updateStatus = new QLabel;
     _updateStatus->setProperty("mono", true);
-    _updateStatus->setStyleSheet("font-size:10px; color:#888;");
+    _updateStatus->setStyleSheet("font-size:8pt; color:#888;");
     checkRow->addWidget(_updateStatus, 1);
     updateLay->addLayout(checkRow);
 
     auto* versionLabel = new QLabel(tr("Current version: %1").arg(UpdateChecker::currentVersion()));
     versionLabel->setProperty("mono", true);
-    versionLabel->setStyleSheet("font-size:10px; color:#666;");
+    versionLabel->setStyleSheet("font-size:8pt; color:#666;");
     updateLay->addWidget(versionLabel);
 
     col->addWidget(updateGroup);
@@ -157,7 +161,7 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
                              const QString& engineName, const QString& lockReason) {
         auto* lbl = new QLabel(QStringLiteral("<b>%1</b>").arg(engineName));
         lbl->setToolTip(lockReason);
-        auto* lockNote = new QLabel(QStringLiteral("<span style='color:#888;font-size:10px;'>%1</span>").arg(lockReason));
+        auto* lockNote = new QLabel(QStringLiteral("<span style='color:#888;font-size:8pt;'>%1</span>").arg(lockReason));
         lockNote->setWordWrap(true);
         auto* cell = new QWidget;
         auto* cellLay = new QVBoxLayout(cell);
@@ -257,7 +261,7 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
            "Ensemble mode runs both engines and merges results via ROVER voting; "
            "it is slower but more accurate on mixed-quality scans."));
     ocrNote->setWordWrap(true);
-    ocrNote->setStyleSheet(QStringLiteral("color:#888; font-size:10px;"));
+    ocrNote->setStyleSheet(QStringLiteral("color:#888; font-size:8pt;"));
     ocrEngForm->addRow(QString{}, ocrNote);
 
     engCol->addWidget(ocrEngGroup);
@@ -302,7 +306,7 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
     // Status label
     _aiStatusLabel = new QLabel;
     _aiStatusLabel->setProperty("mono", true);
-    _aiStatusLabel->setStyleSheet("font-size:10px; color:#888;");
+    _aiStatusLabel->setStyleSheet("font-size:8pt; color:#888;");
     aiCol->addWidget(_aiStatusLabel);
 
     // Privacy note
@@ -310,7 +314,7 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
                                  "No document content is sent to any external server. "
                                  "Start Ollama at the endpoint above before using AI Chat."));
     aiNote->setWordWrap(true);
-    aiNote->setStyleSheet("color:#888; font-size:10px;");
+    aiNote->setStyleSheet("color:#888; font-size:8pt;");
     aiCol->addWidget(aiNote);
 
     aiCol->addStretch();
@@ -322,19 +326,25 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
     tabs->addTab(aiTab, tr("AI"));
     refreshAiStatus();
 
-    // ── Footer ───────────────────────────────────────────────────────
-    auto* foot = new QHBoxLayout;
-    foot->addStretch();
-    auto* cancel = new QPushButton(tr("Cancel"));
-    cancel->setAccessibleName(tr("Cancel without saving"));
-    connect(cancel, &QPushButton::clicked, this, &QDialog::reject);
-    auto* ok = new QPushButton(tr("Save"));
-    ok->setAccessibleName(tr("Save preferences"));
-    ok->setDefault(true);
-    connect(ok, &QPushButton::clicked, this, &PreferencesDialog::saveSettings);
-    foot->addWidget(cancel);
-    foot->addWidget(ok);
-    outer->addLayout(foot);
+    // ── Footer — QDialogButtonBox for platform-consistent button order ────────
+    // AR-8 D6: use QDialogButtonBox so Cancel/OK ordering follows the platform
+    // style guide (Windows: OK left / Cancel right; macOS: Cancel left / OK right).
+    auto* btnBox = new QDialogButtonBox(
+        QDialogButtonBox::Save | QDialogButtonBox::Cancel, this);
+    btnBox->setAccessibleName(tr("Dialog buttons"));
+
+    // Use the Save role button as the "Save" action.
+    auto* saveBtn = btnBox->button(QDialogButtonBox::Save);
+    if (saveBtn) {
+        saveBtn->setAccessibleName(tr("Save preferences"));
+        saveBtn->setDefault(true);
+    }
+    auto* cancelBtn = btnBox->button(QDialogButtonBox::Cancel);
+    if (cancelBtn) cancelBtn->setAccessibleName(tr("Cancel without saving"));
+
+    connect(btnBox, &QDialogButtonBox::accepted, this, &PreferencesDialog::saveSettings);
+    connect(btnBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    outer->addWidget(btnBox);
 
     // ── Check Now connection ─────────────────────────────────────────
     connect(_checkNowBtn, &QPushButton::clicked, this, &PreferencesDialog::onCheckNow);
@@ -398,6 +408,12 @@ void PreferencesDialog::onCheckNow()
 
     auto* checker = new UpdateChecker(this);
 
+    // Honor the channel currently selected in the combo (even if not yet saved).
+    const QString channel = _updateChannel ? _updateChannel->currentData().toString()
+                                           : QStringLiteral("stable");
+    if (channel == QLatin1String("beta"))
+        checker->setManifestUrl(UpdateChecker::manifestUrlForChannel(channel));
+
     connect(checker, &UpdateChecker::updateAvailable, this, [this, checker](const UpdateChecker::UpdateInfo& info) {
         onUpdateResult(tr("Update available: v%1 (%2)").arg(info.version, info.releaseDate));
         checker->deleteLater();
@@ -446,10 +462,10 @@ void PreferencesDialog::onAiTestKey()
         watcher->deleteLater();
         if (r.ok) {
             _aiStatusLabel->setText(tr("✓ Ollama reachable — AI chat is ready"));
-            _aiStatusLabel->setStyleSheet("color:#4ec96d; font-size:10px;");
+            _aiStatusLabel->setStyleSheet("color:#4ec96d; font-size:8pt;");
         } else {
             _aiStatusLabel->setText(tr("✗ %1").arg(r.errorMsg));
-            _aiStatusLabel->setStyleSheet("color:#cc3333; font-size:10px;");
+            _aiStatusLabel->setStyleSheet("color:#cc3333; font-size:8pt;");
         }
     });
     watcher->setFuture(prov->chat(ping, opts));
@@ -473,7 +489,7 @@ void PreferencesDialog::refreshAiStatus()
     const QString model    = QSettings().value("ai/ollamaModel",
                                                QStringLiteral("llama3")).toString();
     _aiStatusLabel->setText(tr("Ollama endpoint: %1  ·  model: %2").arg(endpoint, model));
-    _aiStatusLabel->setStyleSheet("color:#888; font-size:10px;");
+    _aiStatusLabel->setStyleSheet("color:#888; font-size:8pt;");
 }
 
 } // namespace gp

@@ -36,6 +36,10 @@ public:
     void setSelectedImageName(const QString &name);
     QString selectedImageName() const { return m_selectedImageName; }
 
+    // AR-7 D5: paint a diff/overlay image on top of the annotation layer.
+    // Caller passes a null QImage to clear the overlay.
+    void setOverlayImage(const QImage &img);
+
 signals:
     void annotationsChanged();
     void selectionChanged(int index);
@@ -67,4 +71,6 @@ private:
     QString m_selectedImageName;
     int m_resizeHandle = -1;  // -1=none, 0-3=corners, 4-7=edges
     QPointF m_originalImagePos;
+    // AR-7 D5: overlay image (e.g. pixel-diff from CompareMode).
+    QImage m_overlayImage;
 };

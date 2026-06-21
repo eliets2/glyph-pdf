@@ -1,11 +1,12 @@
 /**
- * TestPagesMode — D4 headless tests for PagesMode wiring.
+ * TestPagesMode — headless tests for PagesMode wiring.
  *
  * Tests:
- *   testPageRangeParser  — parsePageRange() with expression "1-3,5,7-9"
- *   testSplitAtPage      — executeSplit(): 5-page doc split at page 3 → 2 parts
- *   testSplitEveryNPages — executeSplit(): 6-page doc split every 2 → 3 parts
- *   testReorderPages     — reorderPages() called in correct sequence
+ *   testPageRangeParser      — parsePageRange() with expression "1-3,5,7-9"
+ *   testSplitAtPage          — executeSplit(): 5-page doc split at page 3 → 2 parts
+ *   testSplitEveryNPages     — executeSplit(): 6-page doc split every 2 → 3 parts
+ *   testReorderPages         — legacy sequential reorderPages() logic (simulation)
+ *   testAtomicReorder        — AR-8 D5: reorderAllPages() called ONCE for whole permutation
  *
  * All tests run with QT_QPA_PLATFORM=offscreen (no display required).
  * The PdfEditorEngine is mocked; real disk I/O uses QTemporaryDir.
@@ -28,6 +29,7 @@
 #include "modes/PagesMode.h"
 #include "engines/DocumentSession.h"
 #include "mocks/MockPdfEditorEngine.h"
+#include "commands/ReorderPermutationCommand.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Extended mock that tracks reorderPages calls and simulates a multi-page doc.
@@ -83,6 +85,14 @@ public:
 
     bool reorderPages(const QString& /*path*/, int from, int to) override {
         m_reorderCalls.append({from, to});
+        return true;
+    }
+
+    // AR-8 D5: track atomic permutation calls.
+    QList<QList<int>> m_reorderAllCalls;
+
+    bool reorderAllPages(const QString& /*path*/, const QList<int>& permutation) override {
+        m_reorderAllCalls.append(permutation);
         return true;
     }
 };
@@ -172,6 +182,12 @@ private slots:
         gp::PagesMode mode;
         mode.setAppContext(&ctx);
 
+        // AR-7 D2: refreshPageList now runs the page-count binary-search on a worker
+        // thread (QtConcurrent). Wait for it to complete before resetting counters so
+        // the extract calls from the background query are not mixed with the executeSplit
+        // calls we are counting below.
+        QTest::qWait(200);
+
         // Reset counters after setAppContext (which calls refreshPageList and performs
         // a binary-search via extractPageAsBytes to determine page count).
         mock->m_extractCallCount = 0;
@@ -228,6 +244,9 @@ private slots:
 
         gp::PagesMode mode;
         mode.setAppContext(&ctx);
+
+        // AR-7 D2: wait for the async page-count query before resetting counters.
+        QTest::qWait(200);
 
         // Reset counters after setAppContext (refreshPageList uses extractPageAsBytes)
         mock->m_extractCallCount = 0;
@@ -311,6 +330,64 @@ private slots:
         // Verify first call moves original page 3 (at position 3) to position 0
         QCOMPARE(mock->m_reorderCalls[0].from, 3);
         QCOMPARE(mock->m_reorderCalls[0].to,   0);
+    }
+
+    // ── testAtomicReorder (AR-8 D5) ──────────────────────────────────────
+    // Verify that ReorderPermutationCommand calls reorderAllPages() EXACTLY ONCE
+    // (not N separate reorderPages() calls), and that undo() calls reorderAllPages()
+    // with the correct inverse permutation.
+    void testAtomicReorder() {
+        QTemporaryDir tmpDir;
+        QVERIFY(tmpDir.isValid());
+
+        const QString srcPath = tmpDir.path() + "/atomic.pdf";
+        QVERIFY(writeStubPdf(srcPath));
+
+        auto mock = std::make_shared<PagesMock>();
+        mock->m_pageCount = 4;
+        mock->m_loaded    = true;
+
+        auto session = std::make_shared<DocumentSession>();
+        session->setPath(srcPath);
+
+        auto undoStack = std::make_shared<QUndoStack>();
+
+        AppContext ctx;
+        ctx.pdfEditor = mock;
+        ctx.document  = session;
+        ctx.undoStack = undoStack;
+
+        // Desired permutation: [2, 0, 3, 1]
+        // Inverse must be:     [1, 3, 0, 2] (inverse[perm[i]] = i)
+        const QList<int> desired = {2, 0, 3, 1};
+        const QList<int> expectedInverse = {1, 3, 0, 2};
+
+        // Pre-fix check: reorderAllPages should NOT have been called yet.
+        QVERIFY(mock->m_reorderAllCalls.isEmpty());
+        // Pre-fix check: reorderPages (the old N-call path) also NOT called.
+        QVERIFY(mock->m_reorderCalls.isEmpty());
+
+        // Push the command (redo() is called immediately by QUndoStack::push).
+        auto* cmd = new ReorderPermutationCommand(
+            mock.get(), session.get(), desired);
+        undoStack->push(cmd);
+
+        // PASS check: reorderAllPages called ONCE with the desired permutation.
+        QCOMPARE(mock->m_reorderAllCalls.size(), 1);
+        QCOMPARE(mock->m_reorderAllCalls[0], desired);
+
+        // PASS check: the old N-call path was NOT used.
+        QVERIFY(mock->m_reorderCalls.isEmpty());
+
+        // Undo: should call reorderAllPages with the INVERSE permutation.
+        undoStack->undo();
+        QCOMPARE(mock->m_reorderAllCalls.size(), 2);
+        QCOMPARE(mock->m_reorderAllCalls[1], expectedInverse);
+
+        // Redo again: back to desired.
+        undoStack->redo();
+        QCOMPARE(mock->m_reorderAllCalls.size(), 3);
+        QCOMPARE(mock->m_reorderAllCalls[2], desired);
     }
 };
 

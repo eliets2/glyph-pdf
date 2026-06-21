@@ -1,23 +1,49 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "VeraPdfValidator.h"
 #include <QFile>
+#include <QFileInfo>
+#include <QDir>
 #include <QProcess>
+#include <QStandardPaths>
+#include <QCoreApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
 
-// VERAPDF_CLI_PATH is injected by CMake when -DVERAPDF_CLI_PATH=... is set.
-// Without it, isAvailable() returns false and validate() returns a "unavailable" report.
-#ifndef VERAPDF_CLI_PATH
-#define VERAPDF_CLI_PATH ""
-#endif
-
 namespace gp {
 
-static const QString kCliPath = QString::fromUtf8(VERAPDF_CLI_PATH);
+// Runtime discovery of the veraPDF CLI (AGPL-3.0 — invoked as a subprocess only,
+// never linked in-process). Detection happens at runtime, not build time, so the
+// shipped binary finds a veraPDF that is either bundled alongside GlyphPDF or
+// installed by the user — independent of what the build machine had.
+QString VeraPdfValidator::locateCli() {
+    const QString appDir = QCoreApplication::applicationDirPath();
+    // 1. Bundled next to the app (deploy.ps1 stages it under verapdf/).
+    const QStringList bundled = {
+        appDir + "/verapdf/verapdf",
+        appDir + "/verapdf/verapdf.bat",
+        appDir + "/verapdf",
+        appDir + "/verapdf.bat",
+    };
+    for (const QString& p : bundled) {
+        if (QFileInfo::exists(p))
+            return QDir::toNativeSeparators(p);
+    }
+    // 2. Explicit override via environment variable.
+    const QString envPath = qEnvironmentVariable("GLYPHPDF_VERAPDF");
+    if (!envPath.isEmpty() && QFileInfo::exists(envPath))
+        return QDir::toNativeSeparators(envPath);
+    // 3. On the PATH.
+    for (const QString& exe : {QStringLiteral("verapdf"), QStringLiteral("verapdf.bat")}) {
+        const QString onPath = QStandardPaths::findExecutable(exe);
+        if (!onPath.isEmpty())
+            return QDir::toNativeSeparators(onPath);
+    }
+    return QString();
+}
 
 bool VeraPdfValidator::isAvailable() {
-    return !kCliPath.isEmpty() && QFile::exists(kCliPath);
+    return !locateCli().isEmpty();
 }
 
 QString VeraPdfValidator::conformanceFlag(PdfAConformance level) {
@@ -35,22 +61,37 @@ PdfAValidationReport VeraPdfValidator::validate(const QString& pdfPath, PdfAConf
     PdfAValidationReport report;
     report.validatorAvailable = false;
 
-    if (!isAvailable()) {
+    if (pdfPath.contains('&') || pdfPath.contains('|') || pdfPath.contains('<') || pdfPath.contains('>')) {
+        report.errorMessage = "Invalid characters in PDF path";
+        return report;
+    }
+
+    const QString cliPath = locateCli();
+    if (cliPath.isEmpty()) {
         report.errorMessage = QStringLiteral(
-            "veraPDF validator not configured. "
-            "Build with -DVERAPDF_CLI_PATH=/path/to/verapdf to enable.");
+            "veraPDF validator not found. Install veraPDF (https://verapdf.org) "
+            "or place it next to GlyphPDF to enable PDF/A validation.");
         return report;
     }
 
     report.validatorAvailable = true;
 
     QProcess proc;
-    QStringList args = {
-        "--format", "json",
-        "--flavour", conformanceFlag(level),
-        pdfPath
-    };
-    proc.start(kCliPath, args);
+    QStringList args;
+    if (cliPath.endsWith(".bat", Qt::CaseInsensitive) || cliPath.endsWith(".cmd", Qt::CaseInsensitive)) {
+        args << "/c" << "call" << cliPath;
+        args << "--format" << "json" << "--flavour" << conformanceFlag(level) << pdfPath;
+        proc.start("cmd.exe", args);
+    } else {
+        args << "--format" << "json" << "--flavour" << conformanceFlag(level) << pdfPath;
+        proc.start(cliPath, args);
+    }
+
+    if (!proc.waitForStarted(5000)) {
+        report.errorMessage = "veraPDF failed to start";
+        return report;
+    }
+
     if (!proc.waitForFinished(30000)) { // 30s timeout
         proc.kill();
         report.errorMessage = QStringLiteral("veraPDF timed out after 30 seconds.");
@@ -58,7 +99,12 @@ PdfAValidationReport VeraPdfValidator::validate(const QString& pdfPath, PdfAConf
     }
 
     QByteArray output = proc.readAllStandardOutput();
-    return parseJson(output);
+    PdfAValidationReport r = parseJson(output);
+    r.validatorAvailable = true;
+    if (!r.errorMessage.isEmpty() && proc.exitCode() != 0) {
+        r.errorMessage = QStringLiteral("veraPDF tool error (exit code %1)").arg(proc.exitCode());
+    }
+    return r;
 }
 
 PdfAValidationReport VeraPdfValidator::parseJson(const QByteArray& jsonOutput) {

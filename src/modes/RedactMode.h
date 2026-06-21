@@ -40,7 +40,7 @@ private:
     void buildScopeSection(QWidget* host);
     QRegularExpression currentRegex() const;
     // Returns {startPage, endPage} 0-based, inclusive; -1 means invalid / whole-doc sentinel
-    std::pair<int,int> resolvePageRange() const;
+    QList<int> resolvePageRange() const;
     void showMatchCount(int count);
 
     // toolbar pills (stored so D4 can pre-check the pattern pill)

@@ -8,6 +8,7 @@
 #include <QFile>
 #include <QtConcurrent/QtConcurrent>
 #include <QFutureWatcher>
+#include <QPointer>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -106,19 +107,21 @@ void AutosaveManager::onTick()
                 emit autosaveCompleted(now);
             } else {
                 // Retry once after 250ms asynchronously
-                QTimer::singleShot(250, this, [this, tmpAutosavePath, finalAutosavePath]() {
+                QPointer<AutosaveManager> weakThis(this);
+                QTimer::singleShot(250, [weakThis, tmpAutosavePath, finalAutosavePath]() {
+                    if (!weakThis) return;
                     bool retryOk = atomicRename(tmpAutosavePath, finalAutosavePath);
                     if (retryOk) {
                         QDateTime now = QDateTime::currentDateTime();
-                        if (m_document) {
-                            m_document->setLastAutosave(now);
+                        if (weakThis->m_document) {
+                            weakThis->m_document->setLastAutosave(now);
                         }
-                        emit autosaveCompleted(now);
+                        emit weakThis->autosaveCompleted(now);
                     } else {
                         qWarning() << "Autosave failed: atomic rename failed from" << tmpAutosavePath << "to" << finalAutosavePath;
-                        emit autosaveFailed("Failed to rename temporary autosave file");
+                        emit weakThis->autosaveFailed("Failed to rename temporary autosave file");
                     }
-                    m_saving = false;
+                    weakThis->m_saving = false;
                 });
                 return; // Return early, m_saving = false will be handled in the timer
             }

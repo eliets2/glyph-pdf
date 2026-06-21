@@ -9,6 +9,7 @@
 #include <QImage>
 #include <QSizeF>
 #include <QMutex>
+#include "engines/pdfium/PdfiumEnvironment.h"
 
 #ifdef HAS_PDFIUM
 #include <fpdfview.h>
@@ -24,7 +25,7 @@ public:
     void closeDocument();
     bool isLoaded() const;
     int pageCount() const;
-    QSizeF pageSize(int pageIndex) const;
+    QSizeF pageSize(int pageIndex) const override;
     double pageHeight(int pageIndex) const;
 
     // IPdfRenderer interface
@@ -35,12 +36,13 @@ public:
     QList<QRectF> searchText(int pageIndex, const QString &query) override;
 
     // Text extraction
-    QString extractText(int pageIndex);
+    QString extractText(int pageIndex) override;
 
 private:
 #ifdef HAS_PDFIUM
     FPDF_DOCUMENT m_document = nullptr;
 #endif
+    PdfiumEnvironment m_env;
     QString m_filePath;
     mutable QMutex m_mutex;
 };

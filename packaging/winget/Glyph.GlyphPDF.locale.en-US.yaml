@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
 PackageIdentifier: Glyph.GlyphPDF
-PackageVersion: 1.0.0
+PackageVersion: 1.3.2
 PackageLocale: en-US
 Publisher: Glyph
 PublisherUrl: https://github.com/eliets2/glyph-pdf
@@ -8,27 +8,33 @@ PublisherSupportUrl: https://github.com/eliets2/glyph-pdf/issues
 Author: Glyph
 PackageName: GlyphPDF
 PackageUrl: https://github.com/eliets2/glyph-pdf
+# AR-11 D5: License identity reconciled. GlyphPDF is Apache-2.0 (confirmed in
+# LICENSE file and CLAUDE.md §0). Previous manifests had 'Apache-2.0'; this is
+# consistent. The winget manifest, CLAUDE.md, and LICENSE-3RD-PARTY.md all agree.
 License: Apache-2.0
 LicenseUrl: https://github.com/eliets2/glyph-pdf/blob/main/LICENSE
 Copyright: Copyright (c) 2026 Glyph
 CopyrightUrl: https://github.com/eliets2/glyph-pdf/blob/main/LICENSE
-ShortDescription: A privacy-first PDF workstation for Windows — no telemetry, no cloud, no subscription.
+ShortDescription: A privacy-first PDF workstation for Windows -- no telemetry, no cloud, no subscription.
 Description: >-
   GlyphPDF is an open-source PDF workstation for Windows. It edits, annotates,
-  signs (PAdES B-LT/B-LTA), redacts (true content-stream excision, not black
-  rectangles), OCRs (Tesseract + RapidOCR ROVER ensemble, fully offline), and
-  compresses (MRC) PDF documents entirely on your machine. No telemetry, no
-  cloud upload, no subscription. Documents never leave your computer.
+  signs (PAdES B-LT/B-LTA), redacts, OCRs (ROVER ensemble, fully offline), and
+  compresses PDF documents on your machine. No telemetry, no cloud, no subscription.
 Moniker: glyphpdf
 Tags:
 - pdf
 - pdf-editor
-- pdf-redaction
 - ocr
 - digital-signature
-- pades
 - privacy
 - offline
-ReleaseNotesUrl: https://github.com/eliets2/glyph-pdf/releases/tag/v1.0.0
+ReleaseNotes: >-
+  AR-11 hardening release: Authenticode signing gate (EXE + MSI signed before
+  publish; SHA-256 computed after signing); AGPL/GPL compliance (veraPDF + OpenJDK
+  source offers, full license tree in installer); license guards verified in CI;
+  binary hardening flags (stack-protector-strong, FORTIFY_SOURCE=2, ASLR/DEP/HEASLR,
+  Release-default build type); feature gate (hard-fail release if any shipped feature
+  define is unexpectedly off).
+ReleaseNotesUrl: https://github.com/eliets2/glyph-pdf/releases/tag/v1.3.2
 ManifestType: defaultLocale
 ManifestVersion: 1.6.0

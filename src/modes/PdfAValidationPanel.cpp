@@ -9,8 +9,12 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QStringList>
 #include <QTextStream>
 #include <QVBoxLayout>
+#include <algorithm>
+#include <QtConcurrent/QtConcurrent>
+#include <podofo/podofo.h>
 
 namespace gp {
 
@@ -80,36 +84,30 @@ PdfAValidationPanel::PdfAValidationPanel(QWidget* parent) : QFrame(parent) {
     col->addWidget(m_issuesList);
 
     // Action buttons
+    // AR-8 D3: "Fix Automatically" starts disabled and is conditionally enabled
+    // by updateDisplay() when a real export callback is wired — keep it.
     m_fixBtn = new QPushButton(tr("Fix Automatically"));
     m_fixBtn->setEnabled(false);
-    m_fixBtn->setToolTip(tr("Automatic fix is not available in this version."));
 
-    auto* conv = new QPushButton(tr("Convert to PDF/A-2B"));
-    conv->setStyleSheet("background:#ff8c42;color:#1a1b1e;border:1px solid #ff8c42;font-weight:600;padding:8px 12px;");
+    // AR-8 D3: "Convert to PDF/A-2B" button HIDDEN — it only showed a redirect
+    // MessageBox ("not available in this version"), making it a dead placeholder.
+    // The planned inline-convert feature is preserved; add it back here when wired.
 
     m_exportBtn = new QPushButton(tr("Export Report"));
 
+    m_readingOrderBtn = new QPushButton(tr("Check Reading Order"));
+    m_readingOrderBtn->setToolTip(tr("Check tagged-PDF structure order against visual layout (accessibility)"));
+
     col->addWidget(m_fixBtn);
-    col->addWidget(conv);
     col->addWidget(m_exportBtn);
+    col->addWidget(m_readingOrderBtn);
     col->addStretch(1);
 
     scroll->setWidget(body);
     outer->addWidget(scroll, 1);
 
-    // Wire buttons
-    connect(conv, &QPushButton::clicked, this, [this]() {
-        if (m_currentDocPath.isEmpty()) {
-            QMessageBox::information(this, tr("No Document"),
-                tr("Open a PDF document first, then switch to PDF/A validation mode."));
-        } else {
-            QMessageBox::information(this, tr("Convert to PDF/A-2B"),
-                tr("Use File > Export As PDF/A to convert the current document.\n"
-                   "Direct conversion from the validation panel is not available in this version."));
-        }
-    });
-
     connect(m_exportBtn, &QPushButton::clicked, this, &PdfAValidationPanel::onExportReportClicked);
+    connect(m_readingOrderBtn, &QPushButton::clicked, this, &PdfAValidationPanel::onCheckReadingOrder);
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +117,12 @@ void PdfAValidationPanel::setDocument(const QString& path, PdfAConformance level
     m_currentDocPath = path;
     m_currentConformance = level;
     runValidation();
+}
+
+void PdfAValidationPanel::setExportPdfACallback(
+    std::function<bool(const QString& outputPath, int conformanceLevel)> cb)
+{
+    m_exportPdfACallback = std::move(cb);
 }
 
 // ---------------------------------------------------------------------------
@@ -134,8 +138,30 @@ void PdfAValidationPanel::runValidation() {
 
     m_statusLabel->setText(tr("Validating…"));
 
-    auto report = VeraPdfValidator::validate(m_currentDocPath, m_currentConformance);
-    updateDisplay(report);
+    // AR-7 D2: veraPDF launches a Java subprocess and can block for several seconds.
+    // Run it on a worker thread via QtConcurrent so the GUI stays responsive.
+    if (!m_validationWatcher) {
+        m_validationWatcher = new QFutureWatcher<PdfAValidationReport>(this);
+        connect(m_validationWatcher, &QFutureWatcher<PdfAValidationReport>::finished,
+                this, &PdfAValidationPanel::onValidationFinished);
+    }
+
+    // Cancel any in-flight validation (new document opened while old one ran).
+    if (m_validationWatcher->isRunning()) {
+        m_validationWatcher->cancel();
+        m_validationWatcher->waitForFinished();
+    }
+
+    const QString path = m_currentDocPath;
+    const PdfAConformance level = m_currentConformance;
+    m_validationWatcher->setFuture(QtConcurrent::run([path, level]() {
+        return VeraPdfValidator::validate(path, level);
+    }));
+}
+
+void PdfAValidationPanel::onValidationFinished() {
+    if (!m_validationWatcher || m_validationWatcher->isCanceled()) return;
+    updateDisplay(m_validationWatcher->result());
 }
 
 // ---------------------------------------------------------------------------
@@ -153,14 +179,19 @@ void PdfAValidationPanel::updateDisplay(const PdfAValidationReport& report) {
 
     if (!report.validatorAvailable) {
         m_statusLabel->setText(
-            tr("Validator unavailable — build with -DVERAPDF_CLI_PATH=<path> to enable real validation."));
+            tr("PDF/A validation needs veraPDF, which isn't installed. "
+               "Download it free from verapdf.org — all other features work normally."));
         m_exportBtn->setEnabled(false);
+        m_fixBtn->setEnabled(false);
+        if (m_fixBtnConn) disconnect(m_fixBtnConn);
         return;
     }
 
     if (!report.errorMessage.isEmpty()) {
         m_statusLabel->setText(tr("Validation error: %1").arg(report.errorMessage));
         m_exportBtn->setEnabled(false);
+        m_fixBtn->setEnabled(false);
+        if (m_fixBtnConn) disconnect(m_fixBtnConn);
         return;
     }
 
@@ -171,6 +202,8 @@ void PdfAValidationPanel::updateDisplay(const PdfAValidationReport& report) {
             ? tr("PDF/A")
             : report.conformanceLevel;
         m_statusLabel->setText(tr("✓ Conforms to %1").arg(level));
+        m_fixBtn->setEnabled(false);
+        if (m_fixBtnConn) disconnect(m_fixBtnConn);
         return;
     }
 
@@ -190,6 +223,46 @@ void PdfAValidationPanel::updateDisplay(const PdfAValidationReport& report) {
             m_issuesLayout->addWidget(issueRow(v.ruleId, label, isError));
         }
         m_issuesList->show();
+
+        if (m_fixBtnConn) disconnect(m_fixBtnConn);
+
+        if (m_exportPdfACallback) {
+            m_fixBtn->setEnabled(true);
+            m_fixBtn->setToolTip(tr(
+                "Export a PDF/A-compliant copy of this document, "
+                "fixing the violations listed above."));
+
+            const QString docPath = m_currentDocPath;
+            const int conformance = static_cast<int>(m_currentConformance);
+            auto cb = m_exportPdfACallback;
+
+            m_fixBtnConn = connect(m_fixBtn, &QPushButton::clicked, this,
+                [this, docPath, conformance, cb]() {
+                    QFileInfo fi(docPath);
+                    const QString suggested =
+                        fi.dir().filePath(fi.completeBaseName() + "_fixed_pdfa.pdf");
+                    QString dest = QFileDialog::getSaveFileName(
+                        this,
+                        tr("Save Fixed PDF/A"),
+                        suggested,
+                        tr("PDF files (*.pdf);;All files (*)"));
+                    if (dest.isEmpty()) return;
+
+                    const bool ok = cb(dest, conformance);
+                    if (ok) {
+                        QMessageBox::information(this, tr("Fix Applied"),
+                            tr("PDF/A-compliant copy saved to:\n%1\n\nRe-validating…").arg(dest));
+                        setDocument(dest, static_cast<PdfAConformance>(conformance));
+                    } else {
+                        QMessageBox::warning(this, tr("Fix Failed"),
+                            tr("Could not export a compliant copy.\n"
+                               "Try File > Export As PDF/A for more options."));
+                    }
+                });
+        } else {
+            m_fixBtn->setEnabled(false);
+            m_fixBtn->setToolTip(tr("No export callback configured."));
+        }
     }
 }
 
@@ -250,6 +323,185 @@ void PdfAValidationPanel::onExportReportClicked() {
     file.close();
     QMessageBox::information(this, tr("Report Exported"),
         tr("Validation report written to:\n%1").arg(dest));
+}
+
+// ---------------------------------------------------------------------------
+// §9.14 Tagged-PDF reading-order check
+// ---------------------------------------------------------------------------
+namespace {
+
+struct StructElem {
+    QString type;
+    int     page   = -1;
+    double  topY   = 0.0;   // top edge from /BBox (if present), in PDF user space
+    bool    hasBBox = false;
+};
+
+struct ReadingOrderResult {
+    bool        tagged = false;
+    int         elementCount = 0;
+    QStringList issues;     // human-readable descriptions of out-of-order elements
+};
+
+const PoDoFo::PdfObject* resolveObj(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfObject* o) {
+    if (!o) return nullptr;
+    if (o->IsReference()) return doc.GetObjects().GetObject(o->GetReference());
+    return o;
+}
+
+double numberValue(const PoDoFo::PdfObject& o) {
+    if (o.IsNumberOrReal()) return o.GetReal();
+    return 0.0;
+}
+
+int pageIndexOf(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfObject* pg) {
+    pg = resolveObj(doc, pg);
+    if (!pg) return -1;
+    auto& pages = doc.GetPages();
+    for (unsigned i = 0; i < pages.GetCount(); ++i)
+        if (&pages.GetPageAt(i).GetObject() == pg) return static_cast<int>(i);
+    return -1;
+}
+
+// Extract /BBox top-edge from a struct element's /A layout attribute(s).
+void extractBBox(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfDictionary& d, StructElem& e) {
+    auto tryDict = [&](const PoDoFo::PdfObject* a) -> bool {
+        a = resolveObj(doc, a);
+        if (!a || !a->IsDictionary()) return false;
+        const PoDoFo::PdfObject* bb = a->GetDictionary().FindKey("BBox");
+        if (bb && bb->IsArray() && bb->GetArray().size() >= 4) {
+            const auto& arr = bb->GetArray();
+            e.topY = std::max(numberValue(arr[1]), numberValue(arr[3]));
+            e.hasBBox = true;
+            return true;
+        }
+        return false;
+    };
+    const PoDoFo::PdfObject* aObj = d.FindKey("A");
+    if (!aObj) return;
+    aObj = resolveObj(doc, aObj);
+    if (aObj && aObj->IsArray()) {
+        for (const auto& el : aObj->GetArray())
+            if (tryDict(&el)) break;
+    } else {
+        tryDict(aObj);
+    }
+}
+
+// Depth-first walk of the structure tree, collecting structure elements in
+// reading (document structure) order.
+void collectStructElems(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfObject* node,
+                        QList<StructElem>& out, int depth) {
+    if (!node || depth > 60) return;
+    node = resolveObj(doc, node);
+    if (!node) return;
+
+    if (node->IsArray()) {
+        for (const auto& child : node->GetArray())
+            collectStructElems(doc, &child, out, depth + 1);
+        return;
+    }
+    if (!node->IsDictionary()) return;  // e.g. a bare MCID integer — skip
+
+    const PoDoFo::PdfDictionary& d = node->GetDictionary();
+    const PoDoFo::PdfObject* sObj = d.FindKey("S");
+    if (sObj && sObj->IsName()) {
+        StructElem e;
+        e.type = QString::fromStdString(std::string(sObj->GetName().GetString()));
+        e.page = pageIndexOf(doc, d.FindKey("Pg"));
+        extractBBox(doc, d, e);
+        out.append(e);
+    }
+    if (const PoDoFo::PdfObject* k = d.FindKey("K"))
+        collectStructElems(doc, k, out, depth + 1);
+}
+
+ReadingOrderResult analyzeReadingOrder(const QString& path) {
+    ReadingOrderResult r;
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(path.toUtf8().constData());
+
+        const PoDoFo::PdfObject* root =
+            doc.GetCatalog().GetDictionary().FindKey("StructTreeRoot");
+        if (!root) return r;  // not tagged
+        r.tagged = true;
+
+        QList<StructElem> elems;
+        collectStructElems(doc, root, elems, 0);
+        r.elementCount = elems.size();
+        if (elems.size() < 2) return r;  // nothing meaningful to reorder
+
+        // Visual order: sort by (page, then top-of-page first). Elements without
+        // a /BBox keep their structural order within the page via a tiny
+        // struct-index nudge, so only BBox-bearing elements can be flagged.
+        const int n = elems.size();
+        QVector<int> structIdx(n);
+        for (int i = 0; i < n; ++i) structIdx[i] = i;
+
+        auto visualKey = [&](int i) -> double {
+            const StructElem& e = elems[i];
+            const int pg = (e.page < 0) ? 100000 : e.page;
+            const double y = e.hasBBox ? e.topY : (1.0e6 - static_cast<double>(i));
+            return static_cast<double>(pg) * 1.0e7 - y;  // lower sorts earlier
+        };
+
+        QVector<int> visualOrder = structIdx;
+        std::stable_sort(visualOrder.begin(), visualOrder.end(),
+                         [&](int a, int b) { return visualKey(a) < visualKey(b); });
+
+        // visualPos[structIndex] = position in visual order
+        QVector<int> visualPos(n, 0);
+        for (int pos = 0; pos < n; ++pos) visualPos[visualOrder[pos]] = pos;
+
+        // Flag elements more than 2 positions away from their visual position.
+        for (int i = 0; i < n; ++i) {
+            if (std::abs(i - visualPos[i]) > 2) {
+                const StructElem& e = elems[i];
+                r.issues << QObject::tr("\"%1\" at structure position %2 maps to visual position %3%4")
+                    .arg(e.type.isEmpty() ? QStringLiteral("Elem") : e.type)
+                    .arg(i + 1)
+                    .arg(visualPos[i] + 1)
+                    .arg(e.page >= 0 ? QObject::tr(" (page %1)").arg(e.page + 1) : QString());
+            }
+        }
+    } catch (const PoDoFo::PdfError& ex) {
+        qWarning() << "analyzeReadingOrder error:" << ex.what();
+    }
+    return r;
+}
+
+} // namespace
+
+void PdfAValidationPanel::onCheckReadingOrder() {
+    if (m_currentDocPath.isEmpty()) {
+        QMessageBox::information(this, tr("Reading Order"),
+            tr("No document loaded."));
+        return;
+    }
+
+    const ReadingOrderResult r = analyzeReadingOrder(m_currentDocPath);
+
+    if (!r.tagged) {
+        QMessageBox::information(this, tr("Reading Order"),
+            tr("Document is not tagged. Accessibility reading order cannot be verified."));
+        return;
+    }
+
+    QString msg;
+    if (r.issues.isEmpty()) {
+        msg = tr("Tagged PDF detected. %1 elements. Reading order: OK.").arg(r.elementCount);
+        QMessageBox::information(this, tr("Reading Order"), msg);
+    } else {
+        msg = tr("Tagged PDF detected. %1 elements. Reading order: %2 issue(s) found.\n\n")
+                  .arg(r.elementCount).arg(r.issues.size());
+        const int shown = std::min(static_cast<int>(r.issues.size()), 20);
+        for (int i = 0; i < shown; ++i)
+            msg += QStringLiteral("• ") + r.issues[i] + QLatin1Char('\n');
+        if (r.issues.size() > shown)
+            msg += tr("… and %1 more.").arg(r.issues.size() - shown);
+        QMessageBox::warning(this, tr("Reading Order"), msg);
+    }
 }
 
 } // namespace gp

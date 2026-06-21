@@ -1,4 +1,4 @@
-# GlyphPDF v1.0.0 — Professional PDF Workstation
+# GlyphPDF v1.3.1 — Professional PDF Workstation
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![CI](https://github.com/eliets2/glyph-pdf/actions/workflows/ci.yml/badge.svg)](https://github.com/eliets2/glyph-pdf/actions/workflows/ci.yml)
@@ -6,6 +6,24 @@
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078d4.svg)](https://github.com/eliets2/glyph-pdf/releases/latest)
 
 A high-performance desktop PDF editor built with C++17 and Qt 6. Designed for professional environments with a focus on precision, security, and direct document manipulation — with no telemetry, no subscription, and no cloud dependency.
+
+## Install
+
+**You need nothing but the app itself.** No MSYS2, no Qt, no compilers, no runtime to install separately — every dependency (Qt 6, the PDF/OCR engines, the C++ and Visual C++ runtimes, the OCR models) is **bundled inside the download**. Just get it and run it.
+
+| Option | Download | How to run |
+|--------|----------|------------|
+| **Installer** (recommended) | [`GlyphPDF-1.3.1-x64.msi`](https://github.com/eliets2/glyph-pdf/releases/latest) | Double-click → Next → Finish. Adds Start-menu & desktop shortcuts and a "PDF Document — GlyphPDF" Open-With entry. |
+| **Portable** (no install) | [`GlyphPDF-1.3.1-x64-portable.zip`](https://github.com/eliets2/glyph-pdf/releases/latest) | Unzip anywhere — including a USB stick — and run `GlyphPDF.exe`. Nothing is written to the registry. |
+
+Coming soon: `winget install Glyph.GlyphPDF` (pending Microsoft review).
+
+**System requirements:** Windows 10 (version 1607+) or Windows 11, 64-bit. 4 GB RAM recommended for OCR on large documents. That's the entire list.
+
+Every release is published with a `.sha256` file so you can verify the download integrity:
+```powershell
+Get-FileHash .\GlyphPDF-1.3.1-x64.msi -Algorithm SHA256
+```
 
 ## Features
 
@@ -77,9 +95,14 @@ pdfws_core (interfaces, ToolId, AppContext, commands base)
 
 **Dependencies:** PoDoFo, PDFium, qpdf, OpenSSL, Tesseract, Leptonica, LibXml2, Freetype, Zlib — all via MSYS2 ucrt64 pacman (except PDFium prebuilt + ONNX Runtime bundled)
 
-## Build Instructions
+## Building from Source (Developers only)
 
-### Prerequisites
+> **End users: skip this entire section.** Everything below is for compiling
+> GlyphPDF from source. If you just want to *use* the app, see [Install](#install)
+> above — the released MSI and portable ZIP already contain every dependency
+> listed here. Nothing in this section is something a user ever installs.
+
+### Prerequisites (build-time toolchain)
 - **MSYS2** installed at `C:\msys64\` (https://www.msys2.org/)
 - MSYS2 **ucrt64** environment with the following packages installed via pacman:
   ```bash
@@ -128,34 +151,36 @@ cmake -B build -G "Ninja"
 cmake --build build --parallel 8
 ```
 
-### Optional: PDF/A Validation (veraPDF)
+### Optional external tools (two features)
 
-Download [veraPDF](https://verapdf.org/home/#download) (AGPL-3.0 — invoked as subprocess only) and configure:
+Two **optional** features use external programs. Both are **detected at runtime** — the
+app finds them automatically if they're on the machine (bundled alongside GlyphPDF, on the
+PATH, in Program Files, or in the registry), with **no configuration**. Both degrade
+gracefully: the app runs fine without them and offers a one-click download when you first
+use the feature.
 
-```bash
-cmake -B build -DVERAPDF_CLI_PATH=/path/to/verapdf
-```
+| Feature | External tool | How it's found | Without it |
+|---------|--------------|----------------|------------|
+| PDF/A conformance validation | [veraPDF](https://verapdf.org/home/#download) (AGPL-3.0, subprocess only) | bundled `verapdf/`, `GLYPHPDF_VERAPDF` env var, or PATH | In-app prompt to download veraPDF |
+| Office → PDF import (`.docx`, `.xlsx`, `.pptx`, `.odt`) | LibreOffice (`soffice`) | bundled `libreoffice/`, PATH, Program Files, or registry | In-app prompt to download LibreOffice |
 
-Without this, `PdfAValidationPanel` shows "validator unavailable" — all other features work normally.
-
-**Optional: LibreOffice** for Office→PDF import (`.docx`, `.xlsx`, `.pptx`, `.odt`, etc.):
-```bash
-# Via MSYS2 (ucrt64)
-pacman -S --noconfirm mingw-w64-ucrt-x86_64-libreoffice-fresh
-# OR install the system LibreOffice installer (adds soffice.exe to PATH automatically)
-```
-CMake auto-detects soffice at configure time. Without LibreOffice, Office→PDF import shows
-a "LibreOffice not installed" message — all other features work normally.
+Neither is bundled in the default installer (veraPDF ships its own ~150 MB Java runtime;
+LibreOffice is ~400 MB). To bundle veraPDF anyway, drop its CLI tree at `third_party/verapdf/`
+before running `packaging/build-msi.bat` — `deploy.ps1` stages it and the app auto-detects it.
 
 ### Why MSYS2 ucrt64?
 GlyphPDF migrated from a hybrid Qt-installer + vcpkg setup to fully MSYS2-native in v1.0.0 development. This eliminates the libstdc++/libwinpthread ABI mismatch that previously required carefully-chosen DLL mixes in the build directory. Single coherent toolchain (GCC 16.x + Qt 6.11 + all deps from pacman), single source of truth for dependency versions, easier maintenance via `pacman -Syu`.
 
-### Installation (MSI)
+### Building the installer + portable ZIP
+To produce the distributable artifacts yourself (the same ones on the Releases page):
 ```bat
 cd packaging
 build-msi.bat
 ```
-The MSI installer registers `.pdf` file associations via OpenWithProgids (does not hijack the default handler).
+This runs the full pipeline — compile → `deploy.ps1` (stages **every** runtime DLL, the
+VC++ runtime, ONNX models and tessdata into a self-contained tree) → WiX MSI **and**
+portable ZIP, each with a SHA-256 checksum, written to `dist/`. The MSI registers `.pdf`
+file associations via OpenWithProgids (it does **not** hijack the default handler).
 
 ## Testing
 
@@ -201,11 +226,11 @@ ctest --output-on-failure
 | Ctrl+0 | Actual size |
 | Ctrl++ / Ctrl+- | Zoom in / out |
 
-## Architecture (post-Branch C SCOPE LOCK)
+## Architecture
 
-GlyphPDF v1.0.0 is on Branch C SCOPE LOCK (real public v1.0.0 ships in M8; current MSI is private/internal). The architecture integrates three workstreams committed per `ROADMAP.md`:
+GlyphPDF v1.3.1 is publicly released (Apache-2.0). The architecture integrates three workstreams committed per `ROADMAP.md`:
 
-- **Dual-Model Core** — Structural model (PDF object graph owned by PoDoFo + PDFium + qpdf — source of truth for sign/redact/forms/exact layout) ↔ Semantic model (`docmodel::SemanticDocument` — editing/interchange model). Djot ↔ Semantic = LOSSLESS; Semantic ↔ PDF = EXPLICITLY LOSSY both ways. `ProvenanceGuard` refuses Djot-edit-save-back for signed/born-PDF documents.
+- **Dual-Model Core** — Structural model (PDF object graph owned by PoDoFo + PDFium + qpdf — source of truth for sign/redact/forms/exact layout) ↔ Semantic model (`docmodel::SemanticDocument` — editing/interchange model). `LuaDjotCodec` encodes a `SemanticDocument` to Djot and decodes Djot back into a `SemanticDocument` by walking the vendored reference parser's AST. The round-trip is **structure-preserving for the document's section tree** — section nesting, titles, paragraph/list text, and inline emphasis/strong/code round-trip exactly (verified by `TestDjotRoundtrip::testStructuralRoundtrip` and per-seed section-count equality in `TestDjotFuzz`). It is **not yet a byte-exact round-trip for every block construct**: standalone heading blocks are promoted to sections on reparse and empty code blocks are dropped, so top-level block counts are not guaranteed to match (the decode never invents content — decoded block count ≤ original). Semantic ↔ PDF is EXPLICITLY LOSSY both ways and is gated: `applySemanticToPdf` requires a `ProvenanceToken` that only `ProvenanceGuard::mintApplyToken` can mint (compile-time chokepoint), and the guard refuses Djot-edit-save-back for signed documents.
 - **Heterogeneous LaneScheduler** — GPU lane (warm persistent worker, never spawn-per-page) + CPU lane (QtConcurrent, core-count) + cross-page pipelining (`layout(P+1) ‖ ocr(P) ‖ fusion(P-1)`). Reused by: OCR ensemble, MRC compression pipeline, future GPU workloads.
 - **Parallel Layout + OCR Ensemble (WS1)** — PP-DocLayoutV2 layout detector (+ Surya when license permits) with IoU reconciliation → per-region Tesseract + RapidOCR PP-OCRv5 fanout via LaneScheduler → word-level confidence-weighted ROVER fusion. Per-region redo + per-word confidence overlay in OCRMode.
 - **Djot Full Document Interchange (WS2)** — `docmodel` + `pdfws_djot` libraries; vendored Lua 5.4 reference parser (MIT); three roles: (a) OCR output mapping to SemanticDocument, (b) authoring input (Djot → Semantic → PoDoFo content stream), (c) annotation/comment rich text (Djot internal model, transcoded to /RC XHTML + /Contents plain text on save, original stashed in /PieceInfo for perfect GlyphPDF round-trip with Acrobat/Foxit interop).
@@ -239,7 +264,7 @@ FORBIDDEN: MuPDF (AGPL-3.0), Poppler (GPL-2.0+), DjVu output, veraPDF in-process
 
 ## License
 
-GlyphPDF is open source under **Apache-2.0** (or MIT — license decision finalized at M8 public launch).
+GlyphPDF is open source under **Apache-2.0**.
 
 **Architectural constraints (per ROADMAP "Forbidden Dependencies"):**
 - MuPDF (AGPL-3.0): **Never linked in-process** — CMake FATAL_ERROR guard enforces.

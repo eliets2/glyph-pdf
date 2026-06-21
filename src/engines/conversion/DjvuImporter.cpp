@@ -122,6 +122,15 @@ DjvuImportResult DjvuImporter::importFile(const QString& filePath, int dpi) cons
         if (renderW < 1) renderW = 1;
         if (renderH < 1) renderH = 1;
 
+        if (renderW > 16384 || renderH > 16384) {
+            ddjvu_page_release(page);
+            ddjvu_format_release(fmt);
+            ddjvu_document_release(doc);
+            ddjvu_context_release(ctx);
+            result.errorMessage = QStringLiteral("DjvuImporter: page dimensions exceed maximum allowed (16384x16384)");
+            return result;
+        }
+
         ddjvu_rect_t prect;
         prect.x = 0; prect.y = 0; prect.w = (unsigned)renderW; prect.h = (unsigned)renderH;
         ddjvu_rect_t rrect = prect;

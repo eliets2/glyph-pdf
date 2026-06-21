@@ -35,6 +35,7 @@ QString toolIdToString(ToolId id) {
         { ToolId::Fullscreen,     QStringLiteral("fullscreen") },
         { ToolId::DarkMode,       QStringLiteral("darkMode") },
         { ToolId::EyeCare,        QStringLiteral("eyeCare") },
+        { ToolId::RTL,            QStringLiteral("rtl") },
         // Edit
         { ToolId::Hand,           QStringLiteral("hand") },
         { ToolId::Select,         QStringLiteral("select") },
@@ -50,6 +51,9 @@ QString toolIdToString(ToolId id) {
         { ToolId::Squiggly,       QStringLiteral("squiggly") },
         { ToolId::Note,           QStringLiteral("note") },
         { ToolId::Comment,        QStringLiteral("comment") },
+        { ToolId::Stamp,          QStringLiteral("stamp") },
+        { ToolId::Callout,        QStringLiteral("callout") },
+        { ToolId::Erase,          QStringLiteral("erase") },
         { ToolId::Pencil,         QStringLiteral("pencil") },
         { ToolId::Freehand,       QStringLiteral("freehand") },
         { ToolId::TextBox,        QStringLiteral("textbox") },
@@ -97,6 +101,7 @@ QString toolIdToString(ToolId id) {
         { ToolId::CreateForm,     QStringLiteral("createForm") },
         { ToolId::ListBox,        QStringLiteral("listbox") },
         { ToolId::Button,         QStringLiteral("button") },
+        { ToolId::CalcField,      QStringLiteral("calcfield") },
         { ToolId::DateField,      QStringLiteral("dateField") },
         { ToolId::NumField,       QStringLiteral("numField") },
         { ToolId::SigField,       QStringLiteral("sigField") },
@@ -164,6 +169,7 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         add(ToolId::Fullscreen,     {"fullscreen"});
         add(ToolId::DarkMode,       {"darkMode", "darkmode"});
         add(ToolId::EyeCare,        {"eyeCare", "eyecare"});
+        add(ToolId::RTL,            {"rtl"});
 
         // ── Edit ──
         add(ToolId::Hand,           {"hand"});
@@ -180,6 +186,9 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         add(ToolId::Squiggly,       {"squiggly"});
         add(ToolId::Note,           {"note"});
         add(ToolId::Comment,        {"comment"});
+        add(ToolId::Stamp,          {"stamp"});
+        add(ToolId::Callout,        {"callout"});
+        add(ToolId::Erase,          {"erase", "eraser"});
         add(ToolId::Pencil,         {"pencil"});
         add(ToolId::Freehand,       {"freehand"});
         add(ToolId::TextBox,        {"textbox"});
@@ -230,6 +239,7 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         add(ToolId::CreateForm,     {"createForm", "createform"});
         add(ToolId::ListBox,        {"listbox"});
         add(ToolId::Button,         {"button"});
+        add(ToolId::CalcField,      {"calcField", "calcfield", "calc-field", "calculatedField"});
         add(ToolId::DateField,      {"dateField", "datefield"});
         add(ToolId::NumField,       {"numField", "numfield"});
         add(ToolId::SigField,       {"sigField", "sigfield"});

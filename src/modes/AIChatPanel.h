@@ -18,6 +18,8 @@ public:
     explicit AIChatPanel(QWidget* parent = nullptr);
     ~AIChatPanel() override;
 
+    void resetSession();
+
 private slots:
     void onSend();
     void onAiFinished();
@@ -33,6 +35,7 @@ private:
 
     QList<AiMessage>                           m_history;
     QFutureWatcher<AiResult>                   m_watcher;
+    int                                        m_cursorRow = -1;
 };
 
 } // namespace gp

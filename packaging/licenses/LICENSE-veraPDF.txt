@@ -1,0 +1,37 @@
+veraPDF — bundled third-party components
+========================================
+
+GlyphPDF bundles the veraPDF command-line validator and a minimal Java runtime
+so that PDF/A conformance validation works out of the box. These are SEPARATE
+programs, invoked by GlyphPDF only as a subprocess (never linked in-process).
+This is license-safe aggregation; GlyphPDF itself remains under Apache-2.0.
+
+-------------------------------------------------------------------------------
+1. veraPDF 1.30.2  (bin/cli-1.30.2.jar, verapdf.bat)
+-------------------------------------------------------------------------------
+Copyright (c) 2015-2026, veraPDF Consortium <info@verapdf.org>
+All rights reserved.
+
+veraPDF is dual-licensed under your choice of:
+  - The GNU General Public License v3 or later (GPLv3+)
+    https://www.gnu.org/licenses/gpl-3.0.en.html
+  - The Mozilla Public License v2 or later (MPLv2+)
+    https://www.mozilla.org/MPL/2.0/
+
+Complete corresponding source code is available from the veraPDF project:
+  https://github.com/veraPDF
+Obtained from the official distribution: https://software.verapdf.org/releases/
+
+GNU GENERAL PUBLIC LICENSE
+Version 3, 29 June 2007
+
+Copyright (C) 2007 Free Software Foundation, Inc. <https://fsf.org/>
+
+Everyone is permitted to copy and distribute verbatim copies of this license
+document, but changing it is not allowed.
+
+[Full text at https://www.gnu.org/licenses/gpl-3.0.txt]
+The complete corresponding machine-readable source code is available from
+https://github.com/veraPDF
+
+Source offer: See packaging/VERAPDF-SOURCE-OFFER.txt
