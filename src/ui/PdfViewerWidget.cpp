@@ -998,8 +998,11 @@ void PdfViewerWidget::printDocument()
 
 void PdfViewerWidget::setOcrResults(const QList<OcrResult> &results) { if (m_annotationLayer) m_annotationLayer->setOcrResults(results); }
 
+// AR-7 D5: forward the overlay image to the AnnotationLayer, which has a
+// real paintEvent and will draw it on top of all annotation content.
+// The m_overlayImage member is kept for reference (e.g. unit tests that inspect state).
 void PdfViewerWidget::setOverlayImage(const QImage &img) {
     m_overlayImage = img;
-    update();
+    if (m_annotationLayer) m_annotationLayer->setOverlayImage(img);
 }
 
