@@ -104,24 +104,26 @@ QWidget* Ribbon::buildBody(int tabIdx) {
         bodyRow->setContentsMargins(8, 4, 8, 2);
         bodyRow->setSpacing(2);
 
-        QVector<Tool> bigs, smalls;
-        for (const auto& t : grp.tools) (t.big ? bigs : smalls).append(t);
-
+        // AR-8 D3: planned tools are NOT rendered (hidden, not disabled).
+        // Their ToolId enum entries, RibbonModel definitions, and plannedTools()
+        // registry are all preserved — re-enable with one line by removing
+        // the id from plannedTools() when the feature ships.
         const QSet<QString>& planned = RibbonModel::plannedTools();
+
+        QVector<Tool> bigs, smalls;
+        for (const auto& t : grp.tools) {
+            if (planned.contains(t.id)) continue;  // hide, not disable
+            (t.big ? bigs : smalls).append(t);
+        }
 
         for (const auto& t : bigs) {
             auto* b = makeTool(t.id, t.label, t.icon, true);
             if (t.id == _activeTool) b->setProperty("active", true);
-            if (planned.contains(t.id)) {
-                b->setEnabled(false);
-                b->setToolTip(tr("Planned for a future release"));
-            } else {
-                const QString id = t.id;
-                connect(b, &QToolButton::clicked, this, [this, id]() {
-                    setActiveTool(id);
-                    emit toolActivated(id);
-                });
-            }
+            const QString id = t.id;
+            connect(b, &QToolButton::clicked, this, [this, id]() {
+                setActiveTool(id);
+                emit toolActivated(id);
+            });
             _buttons.insert(t.id, b);
             bodyRow->addWidget(b);
         }
@@ -135,16 +137,11 @@ QWidget* Ribbon::buildBody(int tabIdx) {
                 const auto& t = smalls.at(k);
                 auto* b = makeTool(t.id, t.label, t.icon, false);
                 if (t.id == _activeTool) b->setProperty("active", true);
-                if (planned.contains(t.id)) {
-                    b->setEnabled(false);
-                    b->setToolTip(tr("Planned for a future release"));
-                } else {
-                    const QString id = t.id;
-                    connect(b, &QToolButton::clicked, this, [this, id]() {
-                        setActiveTool(id);
-                        emit toolActivated(id);
-                    });
-                }
+                const QString id = t.id;
+                connect(b, &QToolButton::clicked, this, [this, id]() {
+                    setActiveTool(id);
+                    emit toolActivated(id);
+                });
                 _buttons.insert(t.id, b);
                 colLay->addWidget(b);
             }

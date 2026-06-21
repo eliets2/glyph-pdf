@@ -66,10 +66,11 @@ RedactMode::RedactMode(QWidget* parent) : QWidget(parent) {
     m_applyBtn->setProperty("variant", "danger");
     row->addWidget(m_applyBtn);
 
-    auto* exitBtn = new QToolButton;
-    exitBtn->setText(tr("Cancel"));
-    exitBtn->setProperty("variant", "ghost");
-    row->addWidget(exitBtn);
+    // AR-8 D3: "Cancel" button HIDDEN — its connection was a no-op lambda.
+    // Planned: emit exitRequested() signal to the shell's mode controller.
+    // Restore the button and wire exitRequested() when the mode-exit contract
+    // between RedactMode and ModeController is implemented.
+    // auto* exitBtn = new QToolButton; exitBtn->setText(tr("Cancel")); ← preserved
 
     col->addWidget(tb);
 
@@ -156,9 +157,7 @@ RedactMode::RedactMode(QWidget* parent) : QWidget(parent) {
     connect(m_applyBtn,   &QToolButton::clicked, this, &RedactMode::onApplyRedactions);
     connect(m_clearBtn,   &QToolButton::clicked, this, &RedactMode::onClearMarks);
 
-    connect(exitBtn, &QToolButton::clicked, this, [canvas]() {
-        Q_UNUSED(canvas);
-    });
+    // exitBtn removed (AR-8 D3) — connection removed with it.
 
     connect(m_scopeCurrentPage, &QRadioButton::toggled, this, &RedactMode::onScopeChanged);
     connect(m_scopeAllPages,    &QRadioButton::toggled, this, &RedactMode::onScopeChanged);
