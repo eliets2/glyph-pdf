@@ -140,9 +140,11 @@ void SecurityController::encryptDocument() {
         _ctx->undoStack->clear();
         _ctx->document->setPath(viewer->filePath());
 
-        auto* progress = new QProgressDialog(tr("Encrypting document..."), QString(), 0, 0, _mainWindow);
+        // AR-7 D3: show the dialog immediately with a real Cancel button.
+        auto* progress = new QProgressDialog(tr("Encrypting document..."), tr("Cancel"), 0, 0, _mainWindow);
         progress->setWindowModality(Qt::WindowModal);
         progress->setMinimumDuration(0);
+        progress->show();
 
         std::weak_ptr<IPdfEditorEngine> weakEngine = _ctx->pdfEditor;
         std::weak_ptr<DocumentSession> weakDoc = _ctx->document;
@@ -152,7 +154,7 @@ void SecurityController::encryptDocument() {
         perms.print = dlg.canPrint();
         perms.copy = dlg.canCopy();
         perms.modify = dlg.canModify();
-        
+
         QPointer<SecurityController> self(this);
         auto result = std::make_shared<std::atomic<bool>>(false);
 
@@ -432,7 +434,9 @@ void SecurityController::applyRedactions() {
 
     _mainWindow->statusBar()->showMessage(tr("Applying redactions..."));
 
-    auto* progress = new QProgressDialog(tr("Applying redactions asynchronously..."), QString(), 0, 0, _mainWindow);
+    // AR-7 D3: plain user-facing label; redaction cannot be safely interrupted
+    // mid-stream (it modifies content streams atomically), so no Cancel is offered.
+    auto* progress = new QProgressDialog(tr("Applying redactions..."), QString(), 0, 0, _mainWindow);
     progress->setWindowModality(Qt::WindowModal);
     progress->setMinimumDuration(0);
     progress->show();
@@ -513,16 +517,18 @@ void SecurityController::permissionsDocument() {
         _ctx->undoStack->clear();
         _ctx->document->setPath(viewer->filePath());
 
-        auto* progress = new QProgressDialog(tr("Encrypting document..."), QString(), 0, 0, _mainWindow);
+        // AR-7 D3: show the dialog immediately with a real Cancel button.
+        auto* progress = new QProgressDialog(tr("Updating document permissions..."), tr("Cancel"), 0, 0, _mainWindow);
         progress->setWindowModality(Qt::WindowModal);
         progress->setMinimumDuration(0);
+        progress->show();
 
         std::weak_ptr<IPdfEditorEngine> weakEngine = _ctx->pdfEditor;
         std::weak_ptr<DocumentSession> weakDoc = _ctx->document;
         const QString userPwd = dlg.userPassword();
         const QString ownerPwd = dlg.ownerPassword();
         const DocumentPermissions perms = dlg.permissions();
-        
+
         QPointer<SecurityController> self(this);
         auto result = std::make_shared<std::atomic<bool>>(false);
 
