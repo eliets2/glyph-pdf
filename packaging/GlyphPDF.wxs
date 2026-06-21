@@ -24,7 +24,7 @@
     Manufacturer="Glyph"
     Version="1.3.2.0"
     UpgradeCode="fb1fbe00-e1af-449c-8a58-2d2e308b9127"
-    ProductCode="<<GENERATE-NEW-GUID-FOR-1.3.2>>"
+    ProductCode="9DEC2F54-B9B9-4800-858D-77560039964F"
     Scope="perMachine"
     Language="1033"
     Compressed="yes">
@@ -40,7 +40,7 @@
            v1.2.1  70670D6B-02A3-4DB3-A7E0-6874D3376352
            v1.3.0  79DAC62D-3F70-45CD-AE85-05DCE56901D7
            v1.3.1  ACBE8FC8-FB58-4028-9BFB-FD86B4773D7F
-           v1.3.2  <<GENERATE-NEW-GUID-FOR-1.3.2>> (replace before release) -->
+           v1.3.2  9DEC2F54-B9B9-4800-858D-77560039964F -->
     <MajorUpgrade
       DowngradeErrorMessage="A newer version of [ProductName] is already installed."
       Schedule="afterInstallInitialize" />

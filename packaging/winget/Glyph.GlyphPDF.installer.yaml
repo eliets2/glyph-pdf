@@ -11,21 +11,16 @@ InstallModes:
 - silent
 - silentWithProgress
 UpgradeBehavior: install
-ProductCode: '{<<GENERATE-NEW-GUID-FOR-1.3.2>>}'
+ProductCode: '{9DEC2F54-B9B9-4800-858D-77560039964F}'
 ReleaseDate: 2026-06-21
 Installers:
 - Architecture: x64
   InstallerUrl: https://github.com/eliets2/glyph-pdf/releases/download/v1.3.2/GlyphPDF-1.3.2-x64.msi
-  # AR-11 D1/D5 PLACEHOLDER: This SHA-256 MUST be replaced with the hash of the
-  # SIGNED MSI before submitting to winget. The hash is computed by build-msi.ps1
-  # AFTER Authenticode signing (step [5/5]), printed as:
-  #   SHA256: <hash>  (of SIGNED artifact)
-  # and written to dist/GlyphPDF-1.3.2-x64.msi.sha256.
-  # Steps to fill this placeholder:
-  #   1. Run:  packaging\build-msi.ps1  (with GLYPHPDF_SIGN_CERT_PFX or GLYPHPDF_SIGN_THUMBPRINT set)
-  #   2. Read: dist\GlyphPDF-1.3.2-x64.msi.sha256
-  #   3. Replace <<PLACEHOLDER-SHA256-OF-SIGNED-MSI>> below with the actual hash.
-  #   4. Also generate a new ProductCode GUID and replace <<GENERATE-NEW-GUID-FOR-1.3.2>> above.
-  InstallerSha256: '<<PLACEHOLDER-SHA256-OF-SIGNED-MSI>>'
+  # SHA-256 of the published v1.3.2 MSI (dist/GlyphPDF-1.3.2-x64.msi.sha256).
+  # NOTE: this build is NOT yet Authenticode-signed (no code-signing cert available
+  # at release time). Before submitting to the public microsoft/winget-pkgs repo,
+  # rebuild WITH a code-signing cert (GLYPHPDF_SIGN_CERT_PFX/THUMBPRINT) and update
+  # this hash + ProductCode to match the signed MSI.
+  InstallerSha256: 'DE57774A7072E171F73955613CB778B011266D0C43F02CA5BB2DAF2230D195FB'
 ManifestType: installer
 ManifestVersion: 1.6.0
