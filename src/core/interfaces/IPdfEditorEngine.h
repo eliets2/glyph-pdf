@@ -185,6 +185,11 @@ public:
     virtual bool cropPage(const QString &path, int pageIndex, const QRectF &cropRect) = 0;
     virtual bool resizePage(const QString &path, int pageIndex, const QSizeF &size) = 0;
     virtual bool reorderPages(const QString &path, int fromIndex, int toIndex) = 0;
+    // AR-8 D5: apply a full page permutation in a single write, avoiding N partial
+    // disk writes and the partial-failure risk of N separate reorderPages() calls.
+    // 'permutation[i]' is the 0-based original page index that should appear at
+    // position i in the result.  Returns false if permutation is invalid or write fails.
+    virtual bool reorderAllPages(const QString &path, const QList<int> &permutation) = 0;
 
     // Content Injection
     virtual bool addHeaderFooter(const QString &path, const HeaderFooterOptions &options) = 0;
