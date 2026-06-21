@@ -170,6 +170,13 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
                 [this]{ _home->activate(ToolId::Open); });
         connect(_welcome, &WelcomeWidget::protectRequested, this,
                 [this]{ _home->activate(ToolId::Open); });
+        // Merge card → Combine tool (ConvertController). Combine is the one
+        // Convert tool that runs with no document open (it gathers its own
+        // file list), so route it through the registry rather than forcing an
+        // Open first. WelcomeWidget emits both mergeFilesRequested and the
+        // legacy mergeRequested alias; wire the canonical one.
+        connect(_welcome, &WelcomeWidget::mergeFilesRequested, this,
+                [this]{ _toolRegistry->activate(ToolId::Combine); });
         connect(_welcome, &WelcomeWidget::recentFileRequested, this,
                 [this](const QString& p){ openDocument(p); });
         connect(_welcome, &WelcomeWidget::removeRecentFileRequested, this,
