@@ -6,6 +6,8 @@
 class PdfViewerWidget;
 class FindBar;
 class QFrame;
+class WelcomeWidget;
+class QStackedWidget;
 
 namespace gp {
 
@@ -55,6 +57,10 @@ public:
     void updateTitle();
     MenuBar* menuBarWidget() const { return _menu; }
     void pruneMissingRecents();
+    // Welcome/start screen <-> workspace switching. Shown on launch and when no
+    // document is open; the workspace replaces it once a document loads.
+    void showWelcome();
+    void showWorkspace();
 
 public slots:
     void onScreenSelected(const QString& id);
@@ -94,6 +100,8 @@ private:
     Sidebar*        _left        = nullptr;
     Sidebar*        _right       = nullptr;
     ModeController* _modes       = nullptr;
+    QStackedWidget* _rootStack   = nullptr;   // [0]=welcome, [1]=workspace
+    WelcomeWidget*  _welcome     = nullptr;
     AIChatPanel*    _ai          = nullptr;
     SignaturesPanel* _sigPanel   = nullptr;
     PdfAValidationPanel* _pdfaPanel = nullptr;

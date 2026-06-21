@@ -9,6 +9,9 @@
 #include "shell/Sidebar.h"
 
 #include "modes/ModeController.h"
+#include "ui/WelcomeWidget.h"
+#include "core/ToolId.h"
+#include <QStackedWidget>
 #include "modes/AIChatPanel.h"
 #include "modes/SignaturesPanel.h"
 #include "modes/PdfAValidationPanel.h"
@@ -118,7 +121,18 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
     _screenNav = new ScreenNav(this);
     col->addWidget(_screenNav);
 
-    setCentralWidget(central);
+    // === Welcome/start screen wraps the workspace. The whole workspace host
+    // (ribbon + panels + viewer) lives at index 1; the welcome page at index 0 is
+    // shown on launch and whenever no document is open. A document load switches to
+    // the workspace (see openDocument()/showWorkspace()). Previously WelcomeWidget
+    // was compiled but never instantiated, so the app opened straight into the
+    // empty doc UI.
+    _welcome = new WelcomeWidget(this);
+    _rootStack = new QStackedWidget(this);
+    _rootStack->addWidget(_welcome);   // index 0
+    _rootStack->addWidget(central);    // index 1
+    _rootStack->setCurrentWidget(_welcome);
+    setCentralWidget(_rootStack);
 
     _status = new StatusBar(this);
     setStatusBar(_status);
@@ -140,6 +154,30 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
     _toolRegistry->registerController(_convert);
     _toolRegistry->registerController(_forms);
     _toolRegistry->registerController(_security);
+
+    // === Welcome-screen actions (route to the same handlers as the ribbon/menu).
+    if (_welcome && _home) {
+        _welcome->setRecentFiles(_home->recentFiles());
+        connect(_welcome, &WelcomeWidget::openFileRequested, this,
+                [this]{ _home->activate(ToolId::Open); });
+        connect(_welcome, &WelcomeWidget::importOfficeRequested, this,
+                [this]{ _home->activate(ToolId::ImportOffice); });
+        connect(_welcome, &WelcomeWidget::imagesToPdfRequested, this,
+                [this]{ _home->activate(ToolId::ImagesToPdf); });
+        // Convert/Protect operate on a loaded PDF and have no standalone screen —
+        // open a document first; the relevant tools then live in the ribbon.
+        connect(_welcome, &WelcomeWidget::convertRequested, this,
+                [this]{ _home->activate(ToolId::Open); });
+        connect(_welcome, &WelcomeWidget::protectRequested, this,
+                [this]{ _home->activate(ToolId::Open); });
+        connect(_welcome, &WelcomeWidget::recentFileRequested, this,
+                [this](const QString& p){ openDocument(p); });
+        connect(_welcome, &WelcomeWidget::removeRecentFileRequested, this,
+                [this](const QString& p){
+                    _home->removeFromRecents(p);
+                    _welcome->setRecentFiles(_home->recentFiles());
+                });
+    }
 
     _modeStrip->init(_ctx);
 
@@ -357,12 +395,25 @@ void MainWindow::updateTitle() {
     setWindowTitle(tr("Glyph PDF — %1%2").arg(name).arg(dirty ? " *" : ""));
 }
 
+void MainWindow::showWelcome() {
+    if (_rootStack && _welcome) {
+        if (_home) _welcome->setRecentFiles(_home->recentFiles());
+        _rootStack->setCurrentWidget(_welcome);
+    }
+}
+
+void MainWindow::showWorkspace() {
+    if (_rootStack && _rootStack->count() > 1)
+        _rootStack->setCurrentIndex(1);   // index 1 == workspace host
+}
+
 void MainWindow::openDocument(const QString& filePath) {
     if (filePath.isEmpty()) return;
     auto* viewer = pdfViewer();
     if (!viewer) return;
 
     if (viewer->loadDocument(filePath)) {
+        showWorkspace();   // leave the welcome screen now that a document is loaded
         if (_ctx && _ctx->document) {
             _ctx->document->setPath(filePath);
             _ctx->document->setClean();
