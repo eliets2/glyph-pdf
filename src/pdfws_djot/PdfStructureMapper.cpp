@@ -16,7 +16,21 @@
 //   stream text tokens.  Fine-grained heading/list/table detection and column
 //   re-flow are not performed.  Use OcrDjotMapper for layout-fidelity editing.
 
+// AR-9 D2 — type-level provenance chokepoint (compile-time evidence):
+//   applySemanticToPdf() takes `const ProvenanceToken&`. ProvenanceToken's
+//   constructor is private (friend: ProvenanceGuard), so the ONLY way to obtain
+//   one is ProvenanceGuard::mintApplyToken(), which throws ProvenanceViolation
+//   for the forbidden (signed + DjotThenSave) edit. Two facts were verified by
+//   compilation during AR-9:
+//     1. `mapper.applySemanticToPdf(doc, in, out)`  (no token) → does NOT compile
+//        ("no matching function … candidate requires const ProvenanceToken&").
+//     2. `ProvenanceToken t(...)`  (fabricate)       → does NOT compile
+//        ("constructor is private within this context").
+//   Hence no caller can reach this lossy full-rewrite path without first passing
+//   the guard. The guard is a type-level control, not a convention.
+
 #include "PdfStructureMapper.h"
+#include "pdfws_djot/ProvenanceGuard.h"
 #include "docmodel/SemanticDocument.h"
 #include "docmodel/Block.h"
 #include "docmodel/Inline.h"
@@ -208,15 +222,23 @@ PdfStructureMapper::mapPdfToSemantic(const std::string& pdfFilePath)
     return std::make_unique<docmodel::SemanticDocument>(std::move(sections), docProv);
 }
 
-bool PdfStructureMapper::applySemanticToPdf(const docmodel::SemanticDocument& /*doc*/,
-                                             const std::string& /*inputPdf*/,
-                                             const std::string& /*outputPdf*/)
+ApplyOutcome PdfStructureMapper::applySemanticToPdf(const docmodel::SemanticDocument& /*doc*/,
+                                                    const std::string& /*inputPdf*/,
+                                                    const std::string& /*outputPdf*/,
+                                                    const ProvenanceToken& /*token*/)
 {
-    // applySemanticToPdf for born-PDFs is intentionally not implemented.
-    // The ProvenanceGuard (wired in WP-3/D-05) refuses DjotThenSave on born-PDFs,
-    // so this path is never reached in production.  Returning false is correct
-    // and safe — callers must check the return value.
-    return false;
+    // applySemanticToPdf for born-PDFs is intentionally not implemented: a
+    // SemanticDocument produced by mapPdfToSemantic is page-granularity (one
+    // paragraph per page) and cannot be written back as a faithful structural
+    // edit without losing the original layout. Reaching this method at all
+    // already required a ProvenanceToken (AR-9 D2), so the signed-doc refusal
+    // has been enforced upstream by the guard.
+    //
+    // Return a DISTINCT NotSupported outcome instead of a bare `false` that
+    // conflated "unsupported" with "I/O failure" (audit: callers could not tell
+    // the difference and risked silently treating an unsupported edit as a
+    // transient failure to retry).
+    return ApplyOutcome::NotSupported;
 }
 
 } // namespace pdfws

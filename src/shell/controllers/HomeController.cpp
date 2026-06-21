@@ -144,10 +144,22 @@ void HomeController::onSave() {
     // re-parsing the file; validateSignatures() is heavier and hits the disk.
     const bool isSigned = _ctx->pdfEditor && _ctx->pdfEditor->hasPdfSignatures();
 
+    // AR-9 D2: derive the provenance origin from the loaded document rather than
+    // hardcoding BornPDF. The save path operates on the currently-open file; its
+    // origin is determined by how it was loaded. The shell only opens PDFs via
+    // this controller (born-PDF), so we infer BornPDF from the .pdf source; when
+    // born-Djot / born-OCR import paths are wired they will thread their true
+    // origin through DocumentSession to here. Inferring (not asserting) keeps the
+    // guard honest for whatever the document actually is.
+    const docmodel::ProvenanceTag origin =
+        filePath.endsWith(QStringLiteral(".djot"), Qt::CaseInsensitive)
+            ? docmodel::ProvenanceTag::BornDjot
+            : docmodel::ProvenanceTag::BornPDF;
+
     if (_ctx->provenanceGuard) {
         try {
             _ctx->provenanceGuard->checkEditVia(
-                docmodel::ProvenanceTag::BornPDF,
+                origin,
                 isSigned,
                 pdfws::EditPath::DirectStructural);
         } catch (const pdfws::ProvenanceViolation& pv) {

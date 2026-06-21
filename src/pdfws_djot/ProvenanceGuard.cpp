@@ -46,4 +46,18 @@ ProvenanceGuardResult ProvenanceGuard::checkEditVia(docmodel::ProvenanceTag orig
     return result;
 }
 
+ProvenanceToken ProvenanceGuard::mintApplyToken(docmodel::ProvenanceTag origin, bool isSigned, EditPath path) const {
+    // Re-run the policy. checkEditVia() throws ProvenanceViolation for the
+    // forbidden (signed + DjotThenSave) case, so a token is only ever minted
+    // for an edit the guard approves. (allowed is false only via exception in
+    // the current policy, but we re-check defensively in case the policy grows
+    // a non-throwing refusal in future.)
+    const ProvenanceGuardResult res = checkEditVia(origin, isSigned, path);
+    if (!res.allowed) {
+        throw ProvenanceViolation(
+            "ProvenanceGuard refused to mint an apply-token for this edit.");
+    }
+    return ProvenanceToken(origin, isSigned, path);
+}
+
 } // namespace pdfws
