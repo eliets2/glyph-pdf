@@ -146,6 +146,8 @@ add_library(pdfws_engines STATIC
     src/core/ErrorInfo.h             src/core/ErrorInfo.cpp
     src/core/TempFileManager.h       src/core/TempFileManager.cpp
     src/core/CredentialManager.h     src/core/CredentialManager.cpp
+    src/core/ISecretStore.h
+    src/core/EncryptedFileSecretStore.h src/core/EncryptedFileSecretStore.cpp
     src/engines/OcrEngine.h          src/engines/OcrEngine.cpp
     src/engines/PdfEditorEngine.h    src/engines/PdfEditorEngine.cpp
     src/engines/FormManager.h        src/engines/FormManager.cpp
@@ -686,6 +688,23 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRobustness.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 60
         LABELS "unit;security;robustness;qt;headless"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSecretStore.cpp")
+    add_executable(TestSecretStore
+        tests/TestSecretStore.cpp
+    )
+    target_include_directories(TestSecretStore PRIVATE src tests)
+    target_link_libraries(TestSecretStore PRIVATE
+        pdfws_engines pdfws_core
+        Qt6::Test Qt6::Core Qt6::Gui
+    )
+    add_test(NAME TestSecretStore COMMAND TestSecretStore)
+    set_tests_properties(TestSecretStore PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;security;secrets;privacy;qt;headless"
     )
 endif()
 
