@@ -24,7 +24,14 @@ AnnotationLayer::AnnotationLayer(QWidget *parent)
     , m_pageAtCallback(nullptr)
     , m_resizeHandle(-1)
 {
-    setAttribute(Qt::WA_TransparentForMouseEvents, false);
+    // The default mode is HandTool, which must let mouse events (clicks, wheel,
+    // drag-to-pan, text selection) fall through to the PDF viewer beneath this
+    // overlay. The old code hard-set this to `false` (intercept) regardless of the
+    // HandTool default, so on a freshly opened document — before any annotation tool
+    // is chosen — the layer swallowed EVERY mouse event and the viewer appeared
+    // completely unresponsive. Initialise transparency consistently with setMode().
+    setAttribute(Qt::WA_TransparentForMouseEvents,
+                 m_currentMode == ToolMode::HandTool || m_currentMode == ToolMode::SelectText);
     setMouseTracking(true);
     setAccessibleName(tr("Annotation canvas"));
     setAccessibleDescription(tr("Draw highlights, underlines, text boxes, and other annotations on the document"));
