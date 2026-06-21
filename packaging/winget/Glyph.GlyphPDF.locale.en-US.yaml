@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
 PackageIdentifier: Glyph.GlyphPDF
-PackageVersion: 1.3.1
+PackageVersion: 1.3.2
 PackageLocale: en-US
 Publisher: Glyph
 PublisherUrl: https://github.com/eliets2/glyph-pdf
@@ -8,6 +8,9 @@ PublisherSupportUrl: https://github.com/eliets2/glyph-pdf/issues
 Author: Glyph
 PackageName: GlyphPDF
 PackageUrl: https://github.com/eliets2/glyph-pdf
+# AR-11 D5: License identity reconciled. GlyphPDF is Apache-2.0 (confirmed in
+# LICENSE file and CLAUDE.md §0). Previous manifests had 'Apache-2.0'; this is
+# consistent. The winget manifest, CLAUDE.md, and LICENSE-3RD-PARTY.md all agree.
 License: Apache-2.0
 LicenseUrl: https://github.com/eliets2/glyph-pdf/blob/main/LICENSE
 Copyright: Copyright (c) 2026 Glyph
@@ -26,11 +29,12 @@ Tags:
 - privacy
 - offline
 ReleaseNotes: >-
-  Maintenance release: removed placeholder data from the OCR Verify screen;
-  in-app updates fully wired (on-launch banner + a polished update dialog with
-  release notes, progress, and SHA-256/signature verification); a branded MSI
-  installer wizard with a 'Launch GlyphPDF' finish option. Includes all v1.3.0
-  features and the v1.2.x stability/security fixes.
-ReleaseNotesUrl: https://github.com/eliets2/glyph-pdf/releases/tag/v1.3.1
+  AR-11 hardening release: Authenticode signing gate (EXE + MSI signed before
+  publish; SHA-256 computed after signing); AGPL/GPL compliance (veraPDF + OpenJDK
+  source offers, full license tree in installer); license guards verified in CI;
+  binary hardening flags (stack-protector-strong, FORTIFY_SOURCE=2, ASLR/DEP/HEASLR,
+  Release-default build type); feature gate (hard-fail release if any shipped feature
+  define is unexpectedly off).
+ReleaseNotesUrl: https://github.com/eliets2/glyph-pdf/releases/tag/v1.3.2
 ManifestType: defaultLocale
 ManifestVersion: 1.6.0
