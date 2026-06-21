@@ -41,6 +41,7 @@
 #include <QShortcut>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QCloseEvent>
 #include <QMimeData>
 #include <QRegularExpression>
 
@@ -592,6 +593,36 @@ void MainWindow::dropEvent(QDropEvent* event) {
         }
     }
     event->acceptProposedAction();
+}
+
+// AR-7 D4: prompt Save / Discard / Cancel when quitting with unsaved changes.
+void MainWindow::closeEvent(QCloseEvent* event) {
+    const bool dirty = _ctx && _ctx->document && _ctx->document->isDirty();
+    if (dirty) {
+        QMessageBox msgBox(this);
+        msgBox.setWindowTitle(tr("Unsaved Changes"));
+        msgBox.setText(tr("The document has unsaved changes."));
+        msgBox.setInformativeText(tr("Do you want to save before closing?"));
+        msgBox.setIcon(QMessageBox::Warning);
+        auto* saveBtn    = msgBox.addButton(tr("Save"),    QMessageBox::AcceptRole);
+        auto* discardBtn = msgBox.addButton(tr("Discard"), QMessageBox::DestructiveRole);
+        msgBox.addButton(tr("Cancel"), QMessageBox::RejectRole);
+        msgBox.setDefaultButton(saveBtn);
+        msgBox.exec();
+
+        if (msgBox.clickedButton() == saveBtn) {
+            if (_home) _home->activate(ToolId::Save);
+            // Accept the close — save was initiated (a failed save shows its own error dialog).
+            event->accept();
+        } else if (msgBox.clickedButton() == discardBtn) {
+            event->accept();
+        } else {
+            // Cancel pressed: do not close.
+            event->ignore();
+            return;
+        }
+    }
+    QMainWindow::closeEvent(event);
 }
 
 void MainWindow::initUpdateChecker() {
