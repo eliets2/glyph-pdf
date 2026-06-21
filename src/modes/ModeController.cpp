@@ -44,6 +44,11 @@ void ModeController::setScreen(const QString& id) {
             // Drive the real OCR pipeline from the screen's Run button, and refresh
             // the review panes when results arrive (host brokers to EditController).
             connect(om, &OCRMode::ocrRequested, this, &ModeController::ocrRunRequested);
+            // Review-workflow relays — mirror the ocrRequested broker so the host
+            // can give Accept / Reject / Re-OCR-region real behaviour.
+            connect(om, &OCRMode::reviewAccepted, this, &ModeController::ocrReviewAccepted);
+            connect(om, &OCRMode::reviewRejected, this, &ModeController::ocrReviewRejected);
+            connect(om, &OCRMode::reOcrRegionRequested, this, &ModeController::ocrReRunRegionRequested);
             target = om;
         }
         else if (id == "redact") {
