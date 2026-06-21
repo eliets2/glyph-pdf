@@ -392,7 +392,10 @@ void MainWindow::openDocument(const QString& filePath) {
         // Check if the engine reported a repair warning (D4)
         if (_ctx && _ctx->pdfEditor) {
             ErrorInfo err = _ctx->pdfEditor->lastError();
-            if (err && err.severity == ErrorInfo::Warning) {
+            // A repair warning carries a message but is not an error-level
+            // condition (isOk() is severity-based since AR-10 D3), so test the
+            // message presence explicitly rather than operator bool().
+            if (!err.userMessage.isEmpty() && err.severity == ErrorInfo::Warning) {
                 ErrorDialog::show(err, this);
                 _ctx->pdfEditor->clearError();
             }

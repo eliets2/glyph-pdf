@@ -38,6 +38,8 @@
 
 #include <podofo/podofo.h>
 
+#include <QtGlobal>
+
 #include <string>
 #include <string_view>
 #include <vector>
@@ -202,21 +204,16 @@ PdfStructureMapper::mapPdfToSemantic(const std::string& pdfFilePath)
                 pageProv));
         }
     } catch (const PoDoFo::PdfError& e) {
-        // Return a 1-section error document instead of empty.
-        docmodel::Provenance errProv;
-        errProv.tag         = docmodel::ProvenanceTag::BornPDF;
-        errProv.source_file = pdfFilePath;
-        errProv.page_index  = 0;
-        std::string errText = std::string("[PdfStructureMapper: load error] ") + e.what();
-        auto errInline = std::make_shared<docmodel::TextInline>(errText, errProv);
-        std::vector<std::shared_ptr<docmodel::Inline>> inlines;
-        inlines.push_back(std::move(errInline));
-        std::vector<std::shared_ptr<docmodel::Block>> blocks;
-        blocks.push_back(std::make_shared<docmodel::TextBlock>(
-            docmodel::Block::Type::Paragraph, std::move(inlines), errProv));
-        sections.push_back(std::make_shared<docmodel::Section>(
-            std::string{}, std::move(blocks),
-            std::vector<std::shared_ptr<docmodel::Section>>{}, errProv));
+        // AR-10 D3: do NOT encode the error as document content. The previous
+        // behaviour synthesised a 1-section document whose paragraph text was
+        // "[PdfStructureMapper: load error] ...", so a load failure looked like
+        // a successfully-parsed page and that error string could be edited,
+        // round-tripped through Djot, and written back into a real PDF.
+        // A failed load is signalled by a null result; the failure is logged so
+        // it is never silent.
+        qWarning("PdfStructureMapper::mapPdfToSemantic load error for %s: %s",
+                 pdfFilePath.c_str(), e.what());
+        return nullptr;
     }
 
     return std::make_unique<docmodel::SemanticDocument>(std::move(sections), docProv);
