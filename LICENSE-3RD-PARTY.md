@@ -20,5 +20,7 @@ This document lists the third-party dependencies used in GlyphPDF, along with th
 | **OpenJPEG** | 2.5.4 (MSYS2 ucrt64) | BSD-2-Clause | **Yes** | JPEG2000 encoder for MRC background layers. Already installed via MSYS2. |
 | **DjVuLibre** | 3.5.30 (MSYS2 ucrt64) | GPL-2.0+ | **Conditional** | Optional DjVu importer (`HAS_DJVU=OFF` default). When `HAS_DJVU=ON` the user accepts GPL-2.0+. Import-only — no DjVu output. |
 | **Leptonica** | 1.87.0 (MSYS2 ucrt64) | BSD-2-Clause | **Yes** | Image processing; required by jbig2enc. Already installed via MSYS2. |
+| **veraPDF** | 1.30.2 (bundled subprocess) | AGPL-3.0+ / MPL-2.0 | **Yes (subprocess)** | Invoked via subprocess ONLY (never linked in-process) for PDF/A validation. AGPL §6 source offer in `packaging/VERAPDF-SOURCE-OFFER.txt`. Full license text in `packaging/licenses/LICENSE-veraPDF.txt`. |
+| **OpenJDK 21** | 21 jlink image (bundled with veraPDF) | GPL-2.0+CPE | **Yes (subprocess)** | Minimal jlink runtime distributed with veraPDF subprocess. GPL-2.0 with Classpath Exception. Source offer in `packaging/VERAPDF-SOURCE-OFFER.txt`. Full license text in `packaging/licenses/LICENSE-OpenJDK.txt`. Module notices in `third_party/verapdf/jre/legal/`. |
 | **MuPDF** | ANY | **AGPL-3.0** | **FORBIDDEN** | **Incompatible.** Linking forces entire application to AGPL-3.0. |
 | **Poppler** | ANY | **GPL-2.0+** | **FORBIDDEN** | **Incompatible.** Linking forces entire application to GPL. |

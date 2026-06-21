@@ -1,0 +1,39 @@
+WRITTEN OFFER FOR SOURCE CODE — veraPDF + OpenJDK 21
+======================================================
+
+GlyphPDF bundles veraPDF (AGPL-3.0+) and OpenJDK 21 (GPL-2.0 with
+Classpath Exception) as a SEPARATE program invoked via subprocess only
+(never linked in-process). The bundled JRE is a jlink-produced minimal
+OpenJDK 21 runtime built from Temurin 21 sources.
+
+In accordance with AGPL-3.0 §6 and GPL-2.0 §3, Glyph offers to provide
+the corresponding source code for these components for a period of three
+(3) years from the date of distribution of this product.
+
+To receive the source code, contact:
+
+  Email: elietecovery@gmail.com
+  Subject: "GlyphPDF Source Offer — veraPDF + OpenJDK"
+
+You may also obtain the source directly:
+
+  veraPDF source:
+    https://github.com/veraPDF/veraPDF-library  (AGPL-3.0)
+    Tagged release: veraPDF 1.30.2
+
+  OpenJDK 21 source (Eclipse Temurin):
+    https://github.com/adoptium/temurin21-binaries/releases
+    https://github.com/openjdk/jdk21  (GPL-2.0 + CPE)
+
+The veraPDF license is reproduced in full in:
+  <install-dir>/verapdf/LICENSE.txt
+  packaging/licenses/LICENSE-veraPDF.txt
+
+The OpenJDK license notices are reproduced in:
+  <install-dir>/verapdf/jre/legal/
+  packaging/licenses/LICENSE-OpenJDK.txt
+
+THIS OFFER IS MADE BY:
+  Glyph / GlyphPDF project
+  https://github.com/eliets2/glyph-pdf
+  Date of offer: 2026-06-21
