@@ -82,6 +82,63 @@ private slots:
         QVERIFY(cache->cacheHits() + cache->cacheMisses() >= 8000);
     }
 
+    // AR-6 D2: hash/equality must be consistent. Two keys that compare equal
+    // (differing only by sub-quantization-grid double noise) MUST hash equal.
+    // Pre-fix this failed: hashing used exact double bits while equality used
+    // qFuzzyCompare, so equal keys could hash differently → duplicate tiles.
+    void testRenderCacheKeyHashEqualityInvariant() {
+        // Same page, scale differing by far less than one grid cell (1e-3).
+        RenderCacheKey a{3, 1.5, false, QRectF()};
+        RenderCacheKey b{3, 1.5 + 1e-7, false, QRectF()};
+        QVERIFY2(a == b, "keys within the scale grid must compare equal");
+        QCOMPARE(qHash(a), qHash(b)); // a == b  =>  qHash(a) == qHash(b)
+
+        // Tile keys: sub-rect noise below the rect grid must also be equal+equihash.
+        RenderCacheKey ta{5, 2.0, true, QRectF(10.0, 20.0, 100.0, 50.0)};
+        RenderCacheKey tb{5, 2.0, true, QRectF(10.0 + 1e-9, 20.0, 100.0, 50.0 - 1e-9)};
+        QVERIFY2(ta == tb, "tile keys within the rect grid must compare equal");
+        QCOMPARE(qHash(ta), qHash(tb));
+
+        // Distinct keys must NOT collapse: different page / scale / rect.
+        RenderCacheKey c{4, 1.5, false, QRectF()};
+        QVERIFY(!(a == c));
+        RenderCacheKey d{3, 2.0, false, QRectF()};
+        QVERIFY(!(a == d));
+        RenderCacheKey te{5, 2.0, true, QRectF(11.0, 20.0, 100.0, 50.0)};
+        QVERIFY(!(ta == te));
+    }
+
+    // AR-6 D2: scroll-stress must not produce duplicate tiles. Re-requesting the
+    // "same" page at slightly-perturbed scales (sub-grid noise) must hit the
+    // cache, not insert a second copy. Observable: misses == unique pages only,
+    // and the cache holds one entry per unique page (bounded, no dup waste).
+    void testRenderCacheNoDuplicateTilesUnderScroll() {
+        auto cache = std::make_shared<RenderCache>();
+        cache->setMaxCacheSize(256 * 1024 * 1024); // large: no eviction interference
+        cache->setPageCount(20);
+        cache->resetStats();
+
+        DummyRenderer renderer;
+
+        const int uniquePages = 5;
+        // Simulate scrolling back and forth across 5 pages, 40 passes, each pass
+        // perturbing the scale by sub-grid noise (well under 1/ScaleStep = 1e-3).
+        for (int pass = 0; pass < 40; ++pass) {
+            for (int p = 0; p < uniquePages; ++p) {
+                qreal jitter = (pass % 7) * 1e-6; // < 1e-3 grid cell
+                cache->getOrRender(p, 1.0 + jitter, &renderer);
+            }
+        }
+
+        const qint64 misses = cache->cacheMisses();
+        const qint64 hits   = cache->cacheHits();
+
+        // Exactly one miss (one real render) per unique page — no duplicates.
+        QCOMPARE(misses, static_cast<qint64>(uniquePages));
+        // Everything else was a hit.
+        QCOMPARE(hits, static_cast<qint64>(40 * uniquePages - uniquePages));
+    }
+
     void testPrefetchUAF() {
         auto cache = std::make_shared<RenderCache>();
         cache->setPageCount(100);
