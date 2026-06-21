@@ -64,7 +64,8 @@
 
 namespace gp {
 
-MainWindow::MainWindow(const AppContext* ctx, QWidget* parent) : QMainWindow(parent), _ctx(ctx) {
+MainWindow::MainWindow(AppContext ctx, QWidget* parent)
+    : QMainWindow(parent), _ownedCtx(std::move(ctx)), _ctx(&_ownedCtx) {
     setWindowTitle(tr("Glyph PDF — [No Document]"));
     setAccessibleName(tr("Glyph PDF main window"));
     resize(1480, 920);
@@ -102,10 +103,10 @@ MainWindow::MainWindow(const AppContext* ctx, QWidget* parent) : QMainWindow(par
     _left = new Sidebar(Sidebar::Left, this);
     _right = new Sidebar(Sidebar::Right, this);
     _modes = new ModeController(this);
-    _modes->setAppContext(ctx);
+    _modes->setAppContext(_ctx);
 
-    _left->init(ctx, _modes->viewer());
-    _right->init(ctx, _modes->viewer());
+    _left->init(_ctx, _modes->viewer());
+    _right->init(_ctx, _modes->viewer());
 
     rowLay->addWidget(_left);
     rowLay->addWidget(_modes, 1);
@@ -123,13 +124,13 @@ MainWindow::MainWindow(const AppContext* ctx, QWidget* parent) : QMainWindow(par
     setStatusBar(_status);
 
     // === Instantiate Controllers
-    _home = new HomeController(ctx, this, this);
-    _view = new ViewController(ctx, this, this);
-    _edit = new EditController(ctx, this, this);
-    _pages = new PagesController(ctx, this, this);
-    _convert = new ConvertController(ctx, this, this);
-    _forms = new FormsController(ctx, this, this);
-    _security = new SecurityController(ctx, this, this);
+    _home = new HomeController(_ctx, this, this);
+    _view = new ViewController(_ctx, this, this);
+    _edit = new EditController(_ctx, this, this);
+    _pages = new PagesController(_ctx, this, this);
+    _convert = new ConvertController(_ctx, this, this);
+    _forms = new FormsController(_ctx, this, this);
+    _security = new SecurityController(_ctx, this, this);
 
     _toolRegistry = new ToolRegistry(this);
     _toolRegistry->registerController(_home);
@@ -140,10 +141,10 @@ MainWindow::MainWindow(const AppContext* ctx, QWidget* parent) : QMainWindow(par
     _toolRegistry->registerController(_forms);
     _toolRegistry->registerController(_security);
 
-    _modeStrip->init(ctx);
+    _modeStrip->init(_ctx);
 
-    if (ctx && ctx->document) {
-        connect(ctx->document.get(), &DocumentSession::dirtyChanged, this, [this](bool dirty) {
+    if (_ctx && _ctx->document) {
+        connect(_ctx->document.get(), &DocumentSession::dirtyChanged, this, [this](bool dirty) {
             _status->updateUnsaved(dirty);
             if (!dirty) {
                 _modeStrip->setAutosaveTime(QDateTime::currentDateTime());
