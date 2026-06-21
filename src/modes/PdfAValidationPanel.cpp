@@ -13,6 +13,7 @@
 #include <QTextStream>
 #include <QVBoxLayout>
 #include <algorithm>
+#include <QtConcurrent/QtConcurrent>
 #include <podofo/podofo.h>
 
 namespace gp {
@@ -147,8 +148,30 @@ void PdfAValidationPanel::runValidation() {
 
     m_statusLabel->setText(tr("Validating…"));
 
-    auto report = VeraPdfValidator::validate(m_currentDocPath, m_currentConformance);
-    updateDisplay(report);
+    // AR-7 D2: veraPDF launches a Java subprocess and can block for several seconds.
+    // Run it on a worker thread via QtConcurrent so the GUI stays responsive.
+    if (!m_validationWatcher) {
+        m_validationWatcher = new QFutureWatcher<PdfAValidationReport>(this);
+        connect(m_validationWatcher, &QFutureWatcher<PdfAValidationReport>::finished,
+                this, &PdfAValidationPanel::onValidationFinished);
+    }
+
+    // Cancel any in-flight validation (new document opened while old one ran).
+    if (m_validationWatcher->isRunning()) {
+        m_validationWatcher->cancel();
+        m_validationWatcher->waitForFinished();
+    }
+
+    const QString path = m_currentDocPath;
+    const PdfAConformance level = m_currentConformance;
+    m_validationWatcher->setFuture(QtConcurrent::run([path, level]() {
+        return VeraPdfValidator::validate(path, level);
+    }));
+}
+
+void PdfAValidationPanel::onValidationFinished() {
+    if (!m_validationWatcher || m_validationWatcher->isCanceled()) return;
+    updateDisplay(m_validationWatcher->result());
 }
 
 // ---------------------------------------------------------------------------

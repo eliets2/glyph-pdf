@@ -2,6 +2,7 @@
 #pragma once
 #include <QWidget>
 #include <QList>
+#include <QFutureWatcher>
 
 struct AppContext;
 class QListWidget;
@@ -44,6 +45,8 @@ private slots:
     void onApplyReorder();
     void onResetReorder();
     void onThumbnailSizeChanged();
+    // AR-7 D2: called on the GUI thread when the off-thread page-count query finishes.
+    void onPageCountReady();
 
 private:
     // Build sub-widgets
@@ -75,6 +78,9 @@ private:
     QList<int>    m_originalOrder;  // 0-based original page indices
 
     const AppContext* m_ctx = nullptr;
+
+    // AR-7 D2: worker for the page-count binary-search (avoids blocking the GUI thread).
+    QFutureWatcher<int>* m_pageCountWatcher{nullptr};
 };
 
 } // namespace gp

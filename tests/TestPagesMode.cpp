@@ -172,6 +172,12 @@ private slots:
         gp::PagesMode mode;
         mode.setAppContext(&ctx);
 
+        // AR-7 D2: refreshPageList now runs the page-count binary-search on a worker
+        // thread (QtConcurrent). Wait for it to complete before resetting counters so
+        // the extract calls from the background query are not mixed with the executeSplit
+        // calls we are counting below.
+        QTest::qWait(200);
+
         // Reset counters after setAppContext (which calls refreshPageList and performs
         // a binary-search via extractPageAsBytes to determine page count).
         mock->m_extractCallCount = 0;
@@ -228,6 +234,9 @@ private slots:
 
         gp::PagesMode mode;
         mode.setAppContext(&ctx);
+
+        // AR-7 D2: wait for the async page-count query before resetting counters.
+        QTest::qWait(200);
 
         // Reset counters after setAppContext (refreshPageList uses extractPageAsBytes)
         mock->m_extractCallCount = 0;

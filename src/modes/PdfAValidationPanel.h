@@ -4,6 +4,7 @@
 #include <QString>
 #include "engines/VeraPdfValidator.h"
 #include <functional>
+#include <QFutureWatcher>
 
 namespace gp {
 
@@ -27,6 +28,9 @@ private:
     void onExportReportClicked();
     void onCheckReadingOrder();   // §9.14 tagged-PDF reading-order check
 
+    // AR-7 D2: slot called on GUI thread when the off-thread validation finishes.
+    void onValidationFinished();
+
     QString m_currentDocPath;
     PdfAConformance m_currentConformance{PdfAConformance::PDF_A_2B};
 
@@ -41,6 +45,9 @@ private:
     class QPushButton* m_fixBtn{nullptr};
     class QPushButton* m_exportBtn{nullptr};
     class QPushButton* m_readingOrderBtn{nullptr};
+
+    // AR-7 D2: off-thread veraPDF worker.
+    QFutureWatcher<PdfAValidationReport>* m_validationWatcher{nullptr};
 };
 
 } // namespace gp
