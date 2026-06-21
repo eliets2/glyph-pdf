@@ -520,7 +520,8 @@ void AnnotationLayer::mousePressEvent(QMouseEvent *event)
         m_currentMode == ToolMode::DrawRectangle || m_currentMode == ToolMode::DrawEllipse ||
         m_currentMode == ToolMode::DrawLine || m_currentMode == ToolMode::DrawArrow ||
         m_currentMode == ToolMode::Underline || m_currentMode == ToolMode::Strikeout ||
-        m_currentMode == ToolMode::Squiggly) {
+        m_currentMode == ToolMode::Squiggly ||
+        m_currentMode == ToolMode::Stamp || m_currentMode == ToolMode::Callout) {
         m_isDrawing = true;
         m_currentNote.mode = m_currentMode;
         if (m_pageAtCallback) {
