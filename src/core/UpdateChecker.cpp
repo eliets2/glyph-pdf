@@ -304,16 +304,18 @@ void UpdateChecker::applyUpdate() {
                               FILE_SHARE_READ,          // deny write/delete sharing while we hold it
                               nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (hMsi == INVALID_HANDLE_VALUE) {
-    // Re-verify SHA-256 after handle is opened to prevent TOCTOU
+        qWarning() << "N-2: could not open MSI for verification:" << m_downloadedPath;
+        emit checkFailed(tr("Update file could not be opened for signature verification."));
+        return;
+    }
+    // Re-verify SHA-256 after the handle is opened to close the download->apply TOCTOU
+    // window (AR-5 D5). This MUST run on the success path, before Authenticode — a prior
+    // bad merge nested it inside the INVALID_HANDLE_VALUE branch, so it never ran on a
+    // real install and CloseHandle() was called on an invalid handle.
     if (!verifySha256(m_downloadedPath, m_latest.sha256)) {
         CloseHandle(hMsi);
         qWarning() << "N-2: TOCTOU SHA-256 mismatch before apply for" << m_downloadedPath;
         emit checkFailed(tr("Update file integrity check failed at install time."));
-        return;
-    }
-
-        qWarning() << "N-2: could not open MSI for verification:" << m_downloadedPath;
-        emit checkFailed(tr("Update file could not be opened for signature verification."));
         return;
     }
     if (!verifyAuthenticode(hMsi, m_downloadedPath)) {
