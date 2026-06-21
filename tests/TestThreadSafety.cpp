@@ -46,6 +46,28 @@ public:
     }
 };
 
+// AR-6 D1: records the QThread priority seen during renderPage(), so a test can
+// prove background prefetch runs de-prioritised relative to a foreground render.
+class PriorityProbeRenderer : public IPdfRenderer {
+public:
+    QAtomicInt sawLowestPriority{0};
+    QAtomicInt renderCount{0};
+    QImage renderPage(int, int) override {
+        renderCount.fetchAndAddOrdered(1);
+        if (QThread::currentThread() &&
+            QThread::currentThread()->priority() == QThread::LowestPriority) {
+            sawLowestPriority.storeRelease(1);
+        }
+        QThread::msleep(2);
+        QImage img(50, 50, QImage::Format_ARGB32);
+        img.fill(Qt::white);
+        return img;
+    }
+    QImage renderTile(int, const QRectF &, int) override { return QImage(); }
+    QString extractText(int) override { return QString(); }
+    QSizeF pageSize(int) const override { return QSizeF(595, 842); }
+};
+
 class TestThreadSafety : public QObject {
     Q_OBJECT
 
@@ -182,6 +204,35 @@ private slots:
         // retries and gets the real size (200x300) from the now-OK renderer.
         QSizeF second = cache->pageSize(7, &renderer);
         QCOMPARE(second, QSizeF(200, 300));
+    }
+
+    // AR-6 D1: render is serial by design; background prefetch must run at the
+    // LOWEST thread priority so it cannot starve the foreground UI render. This
+    // verifies the prefetch worker actually lowers its priority before touching
+    // the (serialised) renderer. Pre-fix the prefetch ran at normal priority and
+    // contended with the foreground on equal footing.
+    void testPrefetchRunsAtLowestPriority() {
+        auto cache = std::make_shared<RenderCache>();
+        cache->setPageCount(100);
+        cache->setMaxCacheSize(256 * 1024 * 1024);
+        PriorityProbeRenderer renderer;
+
+        cache->prefetchViewport(50, 1.0, &renderer);
+
+        // Wait for the prefetch worker to render at least one page (bounded).
+        QElapsedTimer timer;
+        timer.start();
+        while (renderer.renderCount.loadRelaxed() == 0 && timer.elapsed() < 5000)
+            QThread::msleep(5);
+
+        // Let it run a couple of pages so the priority is observed.
+        QThread::msleep(50);
+
+        QVERIFY2(renderer.sawLowestPriority.loadAcquire() == 1,
+            "background prefetch must render at QThread::LowestPriority so it "
+            "cannot starve the foreground UI (AR-6 D1)");
+
+        cache->clear(); // cancel+join before renderer destruction
     }
 
     void testPrefetchUAF() {
