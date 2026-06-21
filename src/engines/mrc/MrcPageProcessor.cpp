@@ -324,22 +324,42 @@ static int otsuThreshold(const QImage& img)
     int W = mono.width();
     int H = mono.height();
 
-    // Convert QImage 1bpp to Leptonica PIX (1bpp, big-endian row bits).
-    // Leptonica uses 32-bit word storage per row; pixSetPixel handles the packing.
+    // Convert QImage 1bpp to Leptonica PIX (1bpp).
+    //
+    // AR-6 D5: pack whole 32-bit words instead of calling pixSetPixel() once per
+    // pixel (W*H function calls + per-call bounds checks = the MRC hot-path cost).
+    // Bit-order alignment makes this a near-memcpy:
+    //   - Qt QImage::Format_Mono: MSB-first within each byte; pixel 0 = bit 7 of
+    //     byte 0 (Qt normalises Mono to MSB order regardless of host endianness).
+    //   - Leptonica 1bpp: MSB-first within each 32-bit word; pixel 0 = bit
+    //     0x80000000 of word 0 (SET_DATA_BIT uses 0x80000000 >> (n & 31)).
+    // So four consecutive Qt bytes [b0 b1 b2 b3] form exactly one big-endian
+    // Leptonica word (b0<<24)|(b1<<16)|(b2<<8)|b3. We assemble words explicitly
+    // (not memcpy) so the result is correct on both little- and big-endian hosts.
     PIX* pix = pixCreate(W, H, 1);
     if (!pix) {
         qWarning() << "MrcPageProcessor: pixCreate failed";
         return QByteArray();
     }
 
+    l_uint32* pixData = pixGetData(pix);
+    const int wpl = pixGetWpl(pix); // 32-bit words per PIX row
+    const int qtBytesPerLine = mono.bytesPerLine();
+
     for (int y = 0; y < H; ++y) {
         const quint8* srcRow = mono.constScanLine(y);
-        // Qt Format_Mono: MSB of byte 0 = leftmost pixel
-        for (int x = 0; x < W; ++x) {
-            int byteIdx = x / 8;
-            int bitIdx  = 7 - (x % 8);
-            int bit     = (srcRow[byteIdx] >> bitIdx) & 1;
-            pixSetPixel(pix, x, y, bit);
+        l_uint32* dstRow = pixData + static_cast<size_t>(y) * wpl;
+        for (int w = 0; w < wpl; ++w) {
+            const int byteBase = w * 4;
+            l_uint32 word = 0;
+            // Only read bytes that exist in the Qt scanline; missing tail bytes
+            // (past the row's stored width) are treated as 0 (white).
+            for (int b = 0; b < 4; ++b) {
+                const int bi = byteBase + b;
+                if (bi < qtBytesPerLine)
+                    word |= static_cast<l_uint32>(srcRow[bi]) << (24 - 8 * b);
+            }
+            dstRow[w] = word;
         }
     }
 
