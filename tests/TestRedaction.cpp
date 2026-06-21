@@ -1,6 +1,9 @@
 #include <QtTest>
 #include <QTemporaryDir>
 #include <QFileInfo>
+#include <QFile>
+#include <QDir>
+#include <QCoreApplication>
 #include <podofo/podofo.h>
 #include "engines/PdfEditorEngine.h"
 #include "engines/SignatureManager.h"
@@ -798,18 +801,54 @@ private slots:
     // is absent from the CMakeLists default).
     void testOcspBypassNotCompiledInRelease()
     {
-#ifdef GLYPH_TESTING
-        // GLYPH_TESTING is defined — this should ONLY happen in an explicit test
-        // build. Emit a warning so the CI notice is clear.
-        qWarning() << "AR-12 D1: GLYPH_TESTING is defined — ensure this is a "
-                      "deliberate test build and NOT a release binary.";
-        // The presence of GLYPH_TESTING means the OCSP test-hook path is compiled
-        // in. This is acceptable in test builds but must never reach a release tag.
-        QVERIFY2(true, "GLYPH_TESTING present — expected in test builds, forbidden in release");
+        // AR-3 D1 / AR-12 D1 — build-time absence proof (the AR-3 evidence_gate asks
+        // for exactly this: "a build-time assert/test that the bypass symbol is absent
+        // unless GLYPHPDF_TESTING"). The OCSP local-DER load and the OCSP_basic_verify
+        // bypass in SignatureManager::fetchOcspResponse / buildDssDictionary are gated
+        // behind #ifdef GLYPHPDF_TESTING. The shipped build never defines that macro, so
+        // the distinctive literal used ONLY inside those guarded blocks must be ABSENT
+        // from the compiled application binary. A runtime QVERIFY cannot observe
+        // compiled-out code, so we scan the binary itself.
+        //
+        // NOTE: the correct macro is GLYPHPDF_TESTING (the prior version of this test
+        // referenced a non-existent GLYPH_TESTING and asserted QVERIFY2(true,...), i.e.
+        // it proved nothing — fixed here per AR-12 D4 "no vacuous assertions").
+        const QByteArray kBypassMarker = QByteArrayLiteral("revoked_ocsp_response.der");
+
+        // Locate the shipped application binary next to the test runner.
+        const QDir binDir(QCoreApplication::applicationDirPath());
+        QString appBinary;
+        for (const QString &cand : {QStringLiteral("PdfWorkstation.exe"),
+                                    QStringLiteral("PdfWorkstation")}) {
+            if (binDir.exists(cand)) { appBinary = binDir.filePath(cand); break; }
+        }
+        if (appBinary.isEmpty()) {
+            QSKIP("PdfWorkstation application binary not found next to the test runner "
+                  "— cannot perform the build-time bypass-absence scan.");
+        }
+
+        QFile f(appBinary);
+        QVERIFY2(f.open(QIODevice::ReadOnly),
+                 qPrintable("cannot open application binary for scan: " + appBinary));
+        const QByteArray bytes = f.readAll();
+        f.close();
+        QVERIFY2(!bytes.isEmpty(), "application binary read returned no bytes");
+
+#ifdef GLYPHPDF_TESTING
+        // This is an explicit GLYPHPDF_TESTING build: the hook is intentionally compiled
+        // in, so the marker is EXPECTED. Assert it is present (proving the scan works)
+        // and warn that such a binary must never be shipped.
+        qWarning() << "GLYPHPDF_TESTING build — OCSP test hook is compiled in; "
+                      "this binary must NEVER be released.";
+        QVERIFY2(bytes.contains(kBypassMarker),
+                 "GLYPHPDF_TESTING build should contain the OCSP test-hook marker "
+                 "(scan sanity check failed)");
 #else
-        // Production / default CI path: GLYPH_TESTING is absent.
-        // The OCSP test-hook path is compiled out — this is the correct release state.
-        QVERIFY2(true, "GLYPH_TESTING correctly absent — OCSP bypass not compiled into this build");
+        // Shipped/default build: the bypass must be compiled out.
+        QVERIFY2(!bytes.contains(kBypassMarker),
+                 "SECURITY: OCSP test-hook marker 'revoked_ocsp_response.der' found in the "
+                 "shipped application binary — the GLYPHPDF_TESTING bypass must NOT be "
+                 "compiled into a release build (AR-3 D1 / §6).");
 #endif
     }
 
