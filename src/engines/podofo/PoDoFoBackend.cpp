@@ -219,6 +219,7 @@ bool PoDoFoBackend::saveDocument(const QString &path) {
     if (!d->document) return false;
     try {
         d->document->Save(path.toUtf8().constData());
+
 #ifdef QT_DEBUG
         qDebug() << "PoDoFo Engine structurally saved document to:" << path;
 #endif
@@ -2670,10 +2671,189 @@ static ReviewState pdfNameToReviewState(const std::string& name)
 
 } // anonymous namespace
 
+// AR-7 D1: helper — apply in-memory AnnotationItem list to any PdfMemDocument.
+// Shared by the normal (backend-doc) and in-place (local-doc) paths.
+static void applyAnnotationsToDoc(PoDoFo::PdfMemDocument& doc,
+                                  const QList<AnnotationItem>& annotations)
+{
+    QMap<QString, PoDoFo::PdfObject*> idToObjectMap;
+    QList<AnnotationItem> commentsToLink;
+
+    QMap<int, QList<AnnotationItem>> pageAnnos;
+    for (const auto& anno : annotations)
+        pageAnnos[anno.pageIndex].append(anno);
+
+    for (auto it = pageAnnos.constBegin(); it != pageAnnos.constEnd(); ++it) {
+        int pageIdx = it.key();
+        if (pageIdx < 0 || static_cast<unsigned>(pageIdx) >= doc.GetPages().GetCount()) continue;
+
+        auto& page = doc.GetPages().GetPageAt(pageIdx);
+        double pageHeight = page.GetMediaBox().Height;
+
+        for (const auto& anno : it.value()) {
+            QRectF bounds = anno.rect;
+            if (anno.mode == ToolMode::DrawFreehand || anno.mode == ToolMode::AddSignature) {
+                if (!anno.points.isEmpty()) {
+                    bounds = QRectF(anno.points.first(), anno.points.first());
+                    for (const auto& p : anno.points) bounds = bounds.united(QRectF(p, p));
+                }
+            }
+            PoDoFo::Rect pdfRect(bounds.x(), pageHeight - bounds.y() - bounds.height(), bounds.width(), bounds.height());
+
+            PoDoFo::PdfAnnotationType annotType = PoDoFo::PdfAnnotationType::Text;
+            if (anno.mode == ToolMode::Strikeout)  annotType = PoDoFo::PdfAnnotationType::StrikeOut;
+            else if (anno.mode == ToolMode::Squiggly)  annotType = PoDoFo::PdfAnnotationType::Squiggly;
+            else if (anno.mode == ToolMode::Underline) annotType = PoDoFo::PdfAnnotationType::Underline;
+            else if (anno.mode == ToolMode::Highlight) annotType = PoDoFo::PdfAnnotationType::Highlight;
+            else if (anno.mode == ToolMode::Stamp)     annotType = PoDoFo::PdfAnnotationType::Stamp;
+            else if (anno.mode == ToolMode::Callout)   annotType = PoDoFo::PdfAnnotationType::FreeText;
+
+            auto& annot = page.GetAnnotations().CreateAnnot(annotType, pdfRect);
+            PoDoFo::PdfDictionary& dict = annot.GetDictionary();
+
+            // /Contents + /RC + /PieceInfo (Djot dual-write, M6-P4 D3)
+            const QString djot = !anno.djotSource.isEmpty() ? anno.djotSource : anno.text;
+            if (!djot.isEmpty()) {
+                const QString plain = !anno.djotSource.isEmpty()
+                                          ? pdfws_djot::djotToPlainText(anno.djotSource)
+                                          : anno.text;
+                dict.AddKey("Contents", PoDoFo::PdfString(plain.toStdString()));
+                if (!anno.djotSource.isEmpty()) {
+                    const QString rc = pdfws_djot::djotToXhtml(anno.djotSource);
+                    dict.AddKey("RC", PoDoFo::PdfString(rc.toStdString()));
+                }
+                writeDjotPieceInfo(doc, dict, anno.djotSource);
+            }
+            if (!anno.author.isEmpty())
+                dict.AddKey("T", PoDoFo::PdfString(anno.author.toStdString()));
+            if (!anno.creationDate.isEmpty()) {
+                QString dateStr = "D:" + anno.creationDate;
+                dict.AddKey("CreationDate", PoDoFo::PdfString(dateStr.toStdString()));
+            }
+
+            PoDoFo::PdfArray colorArr;
+            colorArr.Add(anno.color.redF());
+            colorArr.Add(anno.color.greenF());
+            colorArr.Add(anno.color.blueF());
+            dict.AddKey("C", colorArr);
+
+            if (!anno.id.isEmpty()) {
+                dict.AddKey("NM", PoDoFo::PdfString(anno.id.toStdString()));
+                idToObjectMap[anno.id] = &annot.GetObject();
+                if (!anno.parentId.isEmpty())
+                    commentsToLink.append(anno);
+                if (const char* stateName = reviewStateToPdfName(anno.reviewState)) {
+                    dict.AddKey("State", PoDoFo::PdfString(stateName));
+                    dict.AddKey("StateModel", PoDoFo::PdfString("Review"));
+                }
+            }
+
+            // Appearance streams for Stamp / Callout / Strikeout / Squiggly
+            if (anno.mode == ToolMode::Stamp || anno.mode == ToolMode::Callout ||
+                anno.mode == ToolMode::Strikeout || anno.mode == ToolMode::Squiggly) {
+                auto& streamObj = doc.GetObjects().CreateDictionaryObject();
+                streamObj.GetDictionary().AddKey("Type", PoDoFo::PdfName("XObject"));
+                streamObj.GetDictionary().AddKey("Subtype", PoDoFo::PdfName("Form"));
+                PoDoFo::PdfArray bboxArray;
+                bboxArray.Add(PoDoFo::PdfObject(static_cast<int64_t>(0)));
+                bboxArray.Add(PoDoFo::PdfObject(static_cast<int64_t>(0)));
+                bboxArray.Add(PoDoFo::PdfObject(static_cast<int64_t>(bounds.width())));
+                bboxArray.Add(PoDoFo::PdfObject(static_cast<int64_t>(bounds.height())));
+                streamObj.GetDictionary().AddKey("BBox", bboxArray);
+                std::string streamContent;
+                if (anno.mode == ToolMode::Strikeout) {
+                    double midY = bounds.height() / 2.0;
+                    streamContent = std::to_string(anno.color.redF()) + " " +
+                                    std::to_string(anno.color.greenF()) + " " +
+                                    std::to_string(anno.color.blueF()) + " RG\n";
+                    streamContent += "1 w\n0 " + std::to_string(midY) + " m\n" +
+                                     std::to_string(bounds.width()) + " " + std::to_string(midY) + " l\nS\n";
+                } else if (anno.mode == ToolMode::Squiggly) {
+                    streamContent = std::to_string(anno.color.redF()) + " " +
+                                    std::to_string(anno.color.greenF()) + " " +
+                                    std::to_string(anno.color.blueF()) + " RG\n";
+                    streamContent += "1 w\n0 2 m\n";
+                    for (double x = 2; x < bounds.width(); x += 2)
+                        streamContent += std::to_string(x) + " " +
+                                         (std::fmod(x, 4) == 0 ? "0" : "4") + " l\n";
+                    streamContent += "S\n";
+                } else {
+                    streamContent = "0.8 0.8 0.8 rg\n0 0 " + std::to_string(bounds.width()) + " " +
+                                    std::to_string(bounds.height()) + " re\nf\n";
+                    if (!anno.text.isEmpty())
+                        streamContent += "0 0 0 rg\nBT\n/Helv 12 Tf\n2 " +
+                                         std::to_string(bounds.height() - 14) + " Td\n(" +
+                                         pdfEscapeLiteralString(anno.text) + ") Tj\nET\n";
+                }
+                streamObj.GetOrCreateStream().SetData(
+                    PoDoFo::bufferview(streamContent.data(), streamContent.size()));
+                dict.AddKey("AP", PoDoFo::PdfDictionary());
+                auto* apDict = dict.FindKey("AP");
+                apDict->GetDictionary().AddKey("N", streamObj.GetIndirectReference());
+            }
+        }
+    }
+
+    // /IRT linking pass (M6-P5 D2)
+    for (const auto& anno : commentsToLink) {
+        if (idToObjectMap.contains(anno.id) && idToObjectMap.contains(anno.parentId)) {
+            PoDoFo::PdfObject* childObj  = idToObjectMap[anno.id];
+            PoDoFo::PdfObject* parentObj = idToObjectMap[anno.parentId];
+            childObj->GetDictionary().AddKeyIndirect("IRT", *parentObj);
+            childObj->GetDictionary().AddKey("RT", PoDoFo::PdfName("R"));
+        }
+    }
+}
+
 bool PoDoFoBackend::embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations)
 {
     QMutexLocker locker(&d->mutex);
     try {
+        // AR-7 D1: In-place save (inputPath == outputPath) requires a separate local
+        // PdfMemDocument so that the file handle is released before we overwrite the
+        // file. PoDoFo keeps the source file open for lazy object resolution; if we
+        // call Save() to the same path the backend's persistent doc was loaded from,
+        // Save() tries to re-read deferred objects from the file it is simultaneously
+        // overwriting — producing a corrupt "InvalidNumber" parse error. Using a fresh
+        // local doc (scoped block) guarantees the handle is closed before the rename.
+        const bool inPlace = !inputPath.isEmpty() && !outputPath.isEmpty() &&
+            QString::compare(inputPath, outputPath, Qt::CaseInsensitive) == 0;
+
+        if (inPlace) {
+            QString tmpPath;
+            {
+                const QFileInfo fi(outputPath);
+                QTemporaryFile tmp(fi.absolutePath() + QStringLiteral("/XXXXXX.pdf.tmp"));
+                tmp.setAutoRemove(false);
+                if (!tmp.open()) {
+                    qWarning() << "embedAnnotations: cannot create temp file alongside" << outputPath;
+                    return false;
+                }
+                tmpPath = tmp.fileName();
+                tmp.close(); // close QFile handle; PoDoFo will open tmpPath itself
+
+                PoDoFo::PdfMemDocument localDoc;
+                localDoc.Load(inputPath.toUtf8().constData());
+                applyAnnotationsToDoc(localDoc, annotations);
+                localDoc.Save(tmpPath.toUtf8().constData());
+                // localDoc destructor runs here → releases inputPath file handle
+            }
+            // Now it is safe to replace the original file.
+            if (QFile::exists(outputPath) && !QFile::remove(outputPath)) {
+                qCritical() << "embedAnnotations: cannot remove original for in-place replace:" << outputPath;
+                QFile::remove(tmpPath);
+                return false;
+            }
+            if (!QFile::rename(tmpPath, outputPath)) {
+                qCritical() << "embedAnnotations: rename temp->output failed:" << tmpPath << "->" << outputPath;
+                QFile::remove(tmpPath);
+                return false;
+            }
+            return true;
+        }
+
+        // Normal path (outputPath != inputPath): operate on the backend's member document
+        // so signature-aware writeUpdate() persists this doc (AR-4 D2 fix).
         // AR-4 D2 fix: operate on the resolved member document (lazy-loaded if nothing is
         // resident) so the signature-aware writeUpdate() below persists THIS doc. Previously
         // a fresh *local* copy was built while writeUpdate() saved the unrelated member doc
@@ -2681,167 +2861,7 @@ bool PoDoFoBackend::embedAnnotations(const QString &inputPath, const QString &ou
         // (uncaught std::runtime_error → terminate). Reusing the live member doc also honours
         // the anti-divergence guarantee — in-memory edits are not discarded.
         auto& doc = d->resolveDocument(inputPath);
-
-        QMap<QString, PoDoFo::PdfObject*> idToObjectMap;
-        QList<AnnotationItem> commentsToLink;
-        
-        // Group by page
-        QMap<int, QList<AnnotationItem>> pageAnnos;
-        for (const auto& anno : annotations) {
-            pageAnnos[anno.pageIndex].append(anno);
-        }
-        
-        for (auto it = pageAnnos.constBegin(); it != pageAnnos.constEnd(); ++it) {
-            int pageIdx = it.key();
-            if (pageIdx < 0 || static_cast<unsigned>(pageIdx) >= doc.GetPages().GetCount()) continue;
-            
-            auto& page = doc.GetPages().GetPageAt(pageIdx);
-            double pageHeight = page.GetMediaBox().Height;
-            
-            for (const auto& anno : it.value()) {
-                // Determine bounds
-                QRectF bounds = anno.rect;
-                if (anno.mode == ToolMode::DrawFreehand || anno.mode == ToolMode::AddSignature) {
-                    if (!anno.points.isEmpty()) {
-                        bounds = QRectF(anno.points.first(), anno.points.first());
-                        for (const auto& p : anno.points) bounds = bounds.united(QRectF(p, p));
-                    }
-                }
-                PoDoFo::Rect pdfRect(bounds.x(), pageHeight - bounds.y() - bounds.height(), bounds.width(), bounds.height());
-                
-                PoDoFo::PdfAnnotationType annotType = PoDoFo::PdfAnnotationType::Text;
-                if (anno.mode == ToolMode::Strikeout) annotType = PoDoFo::PdfAnnotationType::StrikeOut;
-                else if (anno.mode == ToolMode::Squiggly) annotType = PoDoFo::PdfAnnotationType::Squiggly;
-                else if (anno.mode == ToolMode::Underline) annotType = PoDoFo::PdfAnnotationType::Underline;
-                else if (anno.mode == ToolMode::Highlight) annotType = PoDoFo::PdfAnnotationType::Highlight;
-                else if (anno.mode == ToolMode::Stamp) annotType = PoDoFo::PdfAnnotationType::Stamp;
-                else if (anno.mode == ToolMode::Callout) annotType = PoDoFo::PdfAnnotationType::FreeText;
-                
-                auto& annot = page.GetAnnotations().CreateAnnot(annotType, pdfRect);
-                PoDoFo::PdfDictionary& dict = annot.GetDictionary();
-                
-                // ── M6-P4 D3: Djot dual-write (/Contents + /RC + /PieceInfo) ──
-                // Effective Djot source: explicit djotSource when present,
-                // otherwise derive a trivial Djot document from the plain text
-                // so older annotations still round-trip.
-                const QString djot = !anno.djotSource.isEmpty()
-                                         ? anno.djotSource
-                                         : anno.text;
-
-                if (!djot.isEmpty()) {
-                    // /Contents ← plain-text projection (spec-required fallback;
-                    // Acrobat/Foxit read this). Project from Djot so markup is
-                    // stripped rather than leaking '*'/'_' into plain text.
-                    const QString plain = !anno.djotSource.isEmpty()
-                                              ? pdfws_djot::djotToPlainText(anno.djotSource)
-                                              : anno.text;
-                    dict.AddKey("Contents",
-                                PoDoFo::PdfString(plain.toStdString()));
-
-                    // /RC ← restricted XHTML rich text per ISO 32000 §12.5.6.4.
-                    // Never store raw Djot here (non-negotiable). Only emit /RC
-                    // when there is genuine rich-text source to transcode.
-                    if (!anno.djotSource.isEmpty()) {
-                        const QString rc = pdfws_djot::djotToXhtml(anno.djotSource);
-                        dict.AddKey("RC", PoDoFo::PdfString(rc.toStdString()));
-                    }
-
-                    // /PieceInfo /GlyphPDF sidecar ← original Djot (escaped).
-                    // This preserves the perfect GlyphPDF roundtrip.
-                    writeDjotPieceInfo(doc, dict, anno.djotSource);
-                }
-                if (!anno.author.isEmpty()) {
-                    dict.AddKey("T", PoDoFo::PdfString(anno.author.toStdString()));
-                }
-                if (!anno.creationDate.isEmpty()) {
-                    // Approximate Date format
-                    QString dateStr = "D:" + anno.creationDate; // simplify
-                    dict.AddKey("CreationDate", PoDoFo::PdfString(dateStr.toStdString()));
-                }
-                
-                // Color array
-                PoDoFo::PdfArray colorArr;
-                colorArr.Add(anno.color.redF());
-                colorArr.Add(anno.color.greenF());
-                colorArr.Add(anno.color.blueF());
-                dict.AddKey("C", colorArr);
-                
-                // Review state logic & Linking
-                if (!anno.id.isEmpty()) {
-                    dict.AddKey("NM", PoDoFo::PdfString(anno.id.toStdString()));
-                    idToObjectMap[anno.id] = &annot.GetObject();
-                    if (!anno.parentId.isEmpty()) {
-                        commentsToLink.append(anno);
-                    }
-                    // M6-P5 D2: persist the review state on the annotation itself
-                    // via /State + /StateModel /Review (ISO 32000 §12.5.6.4) so it
-                    // round-trips for BOTH top-level comments and replies. (The
-                    // /IRT parent link is written in the linking pass below.)
-                    if (const char* stateName = reviewStateToPdfName(anno.reviewState)) {
-                        dict.AddKey("State", PoDoFo::PdfString(stateName));
-                        dict.AddKey("StateModel", PoDoFo::PdfString("Review"));
-                    }
-                }
-                
-                // Appearance Streams for specific types (simplified generation)
-                if (anno.mode == ToolMode::Stamp || anno.mode == ToolMode::Callout || anno.mode == ToolMode::Strikeout || anno.mode == ToolMode::Squiggly) {
-                    // Create the form XObject stream as an indirect object
-                    auto& streamObj = doc.GetObjects().CreateDictionaryObject();
-                    streamObj.GetDictionary().AddKey("Type", PoDoFo::PdfName("XObject"));
-                    streamObj.GetDictionary().AddKey("Subtype", PoDoFo::PdfName("Form"));
-                    
-                    PoDoFo::PdfArray bboxArray;
-                    bboxArray.Add(PoDoFo::PdfObject(static_cast<int64_t>(0)));
-                    bboxArray.Add(PoDoFo::PdfObject(static_cast<int64_t>(0)));
-                    bboxArray.Add(PoDoFo::PdfObject(static_cast<int64_t>(bounds.width())));
-                    bboxArray.Add(PoDoFo::PdfObject(static_cast<int64_t>(bounds.height())));
-                    streamObj.GetDictionary().AddKey("BBox", bboxArray);
-                    
-                    std::string streamContent;
-                    
-                    if (anno.mode == ToolMode::Strikeout) {
-                        double midY = bounds.height() / 2.0;
-                        streamContent = std::to_string(anno.color.redF()) + " " + std::to_string(anno.color.greenF()) + " " + std::to_string(anno.color.blueF()) + " RG\n";
-                        streamContent += "1 w\n0 " + std::to_string(midY) + " m\n" + std::to_string(bounds.width()) + " " + std::to_string(midY) + " l\nS\n";
-                    } else if (anno.mode == ToolMode::Squiggly) {
-                        streamContent = std::to_string(anno.color.redF()) + " " + std::to_string(anno.color.greenF()) + " " + std::to_string(anno.color.blueF()) + " RG\n";
-                        streamContent += "1 w\n0 2 m\n";
-                        for (double x = 2; x < bounds.width(); x += 2) {
-                            streamContent += std::to_string(x) + " " + (std::fmod(x, 4) == 0 ? "0" : "4") + " l\n";
-                        }
-                        streamContent += "S\n";
-                    } else {
-                        streamContent = "0.8 0.8 0.8 rg\n0 0 " + std::to_string(bounds.width()) + " " + std::to_string(bounds.height()) + " re\nf\n";
-                        if (!anno.text.isEmpty()) {
-                            streamContent += "0 0 0 rg\nBT\n/Helv 12 Tf\n2 " + std::to_string(bounds.height() - 14) + " Td\n(" + pdfEscapeLiteralString(anno.text) + ") Tj\nET\n";
-                        }
-                    }
-                    
-                    streamObj.GetOrCreateStream().SetData(PoDoFo::bufferview(streamContent.data(), streamContent.size()));
-                    
-                    // Build AP as a direct dictionary with N pointing to the stream object via indirect reference
-                    dict.AddKey("AP", PoDoFo::PdfDictionary());
-                    auto* apDict = dict.FindKey("AP");
-                    apDict->GetDictionary().AddKey("N", streamObj.GetIndirectReference());
-                }
-            }
-        }
-
-        // ── M6-P5 D2: /IRT (In Reply To) linking, ISO 32000 §12.5.6.4 ──────────
-        // A reply annotation points at its parent via an indirect reference in
-        // /IRT, with /RT /R marking it as a Reply (vs /Group). The review state
-        // (/State + /StateModel) is already written per-annotation above for both
-        // replies and top-level comments.
-        for (const auto& anno : commentsToLink) {
-            if (idToObjectMap.contains(anno.id) && idToObjectMap.contains(anno.parentId)) {
-                PoDoFo::PdfObject* childObj = idToObjectMap[anno.id];
-                PoDoFo::PdfObject* parentObj = idToObjectMap[anno.parentId];
-
-                childObj->GetDictionary().AddKeyIndirect("IRT", *parentObj);
-                childObj->GetDictionary().AddKey("RT", PoDoFo::PdfName("R"));
-            }
-        }
-        
+        applyAnnotationsToDoc(doc, annotations);
         if (!writeUpdate(outputPath)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (const PoDoFo::PdfError& e) {
