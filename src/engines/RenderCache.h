@@ -140,6 +140,13 @@ private:
     QAtomicInt m_prefetchCancelToken{0};
     QFuture<void> m_prefetchFuture;
 
+    // AR-6 D5: throttle the memory-pressure syscall. checkMemoryPressure() runs
+    // on every getOrRender()/getOrRenderTile() — calling GlobalMemoryStatusEx
+    // per tile during a scroll is a needless syscall storm. Only poll the OS
+    // once per MemoryPressurePollInterval calls.
+    static constexpr int MemoryPressurePollInterval = 32;
+    QAtomicInt m_memoryPressureTick{0};
+
     // Tier 1: Metadata
     int m_pageCount = 0;
     QHash<int, std::shared_future<QSizeF>> m_pageSizes;

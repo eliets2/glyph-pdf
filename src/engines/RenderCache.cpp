@@ -419,6 +419,14 @@ bool RenderCache::shouldAutoTile(int page, qreal scale, IPdfRenderer* renderer) 
 }
 
 void RenderCache::checkMemoryPressure() {
+    // AR-6 D5: throttle the OS poll. This runs on every getOrRender(); querying
+    // GlobalMemoryStatusEx per tile during a scroll is a syscall storm. Only
+    // actually poll once per MemoryPressurePollInterval calls. Eviction is not
+    // time-critical — a 32-call delay before reacting to low memory is fine, and
+    // the next interval re-checks. (fetchAndAdd wraps harmlessly.)
+    const int tick = m_memoryPressureTick.fetchAndAddRelaxed(1);
+    if ((tick % MemoryPressurePollInterval) != 0) return;
+
     if (!isSystemMemoryLow()) return;
 
     qWarning() << "RenderCache: system memory low (<"
