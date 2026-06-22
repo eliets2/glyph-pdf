@@ -127,9 +127,13 @@ jobs:
         run: |
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DGLYPHPDF_RELEASE_BUILD=ON \
+            -DGLYPHPDF_ENABLE_LTO=ON \
             2>&1 | tee /tmp/cmake_release_out.txt
           # cmake FATAL_ERROR exits non-zero when features are missing; tee above
           # would still print the error. The step fails automatically on non-zero exit.
+          # -DGLYPHPDF_ENABLE_LTO=ON: P5 fix — ship the binary with LTO enabled.
+          # The default is OFF (fast dev builds); the release CI is the right place
+          # to pay the link-time cost so the published MSI is actually LTO-optimised.
           echo "Configure passed — all shipped features confirmed present"
 
       - name: Build
