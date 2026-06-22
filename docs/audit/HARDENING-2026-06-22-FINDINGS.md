@@ -333,3 +333,108 @@ unchanged.
 passes single-pass: `ctest -R TestBatchMode` → 1/1). CMakeLists release flags and
 `.github/` were not touched (devops owns LTO); the PatternRedactor M-3 ReDoS cap
 and the redaction text-matrix logic were preserved. No `main` push performed.
+
+---
+
+## DevOps/CI fixes applied
+
+Branch: `main` (commits local-only, no push). Build: `cmake --build build`. Suite
+after changes: `QT_QPA_PLATFORM=offscreen ctest -j4` → **100% / 40 green** (same
+count as before — the fuzz guard is OFF by default and adds zero test targets).
+
+| # | Fix | Files | Commit |
+|---|-----|-------|--------|
+| 1 | P5 — LTO enabled in release CI | `.github/workflows/release.yml` line ~128 | see below |
+| 2 | Fuzz CI leg — copy workflow + CMakeLists guard | `.github/workflows/glyphpdf-fuzz.yml` (new), `CMakeLists.txt` | see below |
+| 3 | Release gate coherence verified | `.github/workflows/release.yml` | no change needed |
+
+### 1. P5 — LTO never enabled in the shipped binary
+
+**File/line:** `.github/workflows/release.yml`, the "Configure" step (~line 128).
+
+**What changed:** added `-DGLYPHPDF_ENABLE_LTO=ON` to the `cmake -B build -G Ninja
+...` invocation. The root `CMakeLists.txt` at line 76 already declares
+`option(GLYPHPDF_ENABLE_LTO ... OFF)` with the comment "release CI sets it ON", and
+lines 79-80 wire `-flto=auto` into both `add_compile_options` and `add_link_options`
+when the flag is true and the build type is not Debug. The release YAML configure
+step previously passed only `-DCMAKE_BUILD_TYPE=Release -DGLYPHPDF_RELEASE_BUILD=ON`
+— the `GLYPHPDF_ENABLE_LTO=ON` flag was simply never passed, so the published MSI
+was not LTO-optimised despite the comment claiming otherwise. The local dev default
+remains OFF for fast iteration builds. LTO is gated to non-Debug configurations by
+`$<$<NOT:$<CONFIG:Debug>>:-flto=auto>` generator expressions in CMakeLists.txt, so
+this change cannot regress debug builds.
+
+**Local build effect:** zero — the normal `cmake --build build` directory already
+has `GLYPHPDF_ENABLE_LTO=OFF` (it was configured without `-DGLYPHPDF_ENABLE_LTO=ON`).
+Re-running configure locally does not flip it unless explicitly passed. ctest: 40/40.
+
+### 2. Fuzz CI leg — workflow copy + CMakeLists guard
+
+**Files changed:**
+- `CMakeLists.txt` — inserted `option(GLYPHPDF_FUZZ ...)` + guarded
+  `add_subdirectory(fuzz)` block immediately before the Translations section
+  (after the last test target block). Default is `OFF`.
+- `.github/workflows/glyphpdf-fuzz.yml` — copied verbatim from
+  `fuzz/ci/clusterfuzzlite.yml` (the fuzz-harness agent wrote it there for the
+  owner to copy; it was not previously wired into GitHub Actions).
+
+**Why the guard is safe for the normal build:** `GLYPHPDF_FUZZ` defaults `OFF`, so
+the `add_subdirectory(fuzz)` line is never reached during a plain `cmake -B build`
+or the release gate configure. The fuzz `CMakeLists.txt` itself guards
+`redaction_driver` on `if(TARGET pdfws_engines)` and `djot_fuzzer` on
+`if(GLYPHPDF_FUZZ_LIBFUZZER AND ...)`, so even if someone accidentally sets only
+`-DGLYPHPDF_FUZZ=ON` without a clang toolchain, the libFuzzer target is silently
+skipped. A separate build directory (`fuzz/build/`) is required when
+`GLYPHPDF_FUZZ=ON` to prevent sanitizer flags from contaminating the test binaries.
+
+**Clang/libFuzzer availability:** per `fuzz/MANIFEST.md`, `clang` and `compiler-rt`
+are absent from the local MSYS2 ucrt64 toolchain. The `clusterfuzzlite.yml` workflow
+handles this correctly:
+- `redaction-oracles` job: runs on `windows-latest` with `msys2/ucrt64` + `gcc`
+  only — no clang required. The redaction driver is a plain g++ build.
+- `djot-libfuzzer` job: runs on `ubuntu-latest`, installs `clang` via `apt-get`.
+  The build step is `bash fuzz/build_clang/build_djot_clang.sh || echo "scaffolded;
+  see MANIFEST"` — the `|| echo` ensures the step does not hard-fail if the clang
+  recipe is still scaffolded. The fuzz run step is guarded by `if [ -x
+  fuzz/bin/djot_fuzzer ]`, so a scaffolded (non-built) harness produces a no-op
+  rather than a broken required check.
+- Both jobs trigger on `pull_request` (paths-filtered to `src/engines/podofo/**`,
+  `src/pdfws_djot/**`, `fuzz/**`), nightly `schedule`, and manual
+  `workflow_dispatch` — never a blocking required check on unrelated PRs.
+
+**YAML validation:** both `.github/workflows/release.yml` and
+`.github/workflows/glyphpdf-fuzz.yml` validated with `python3 -c "import yaml;
+yaml.safe_load(open(...))"` — both parse without error.
+
+**Local ctest after CMakeLists change:** `cmake --build build --parallel` rebuilt
+cleanly (the `option(GLYPHPDF_FUZZ)` line adds one option and the `if(GLYPHPDF_FUZZ)`
+block is never entered — zero new targets, zero new build steps). `QT_QPA_PLATFORM=offscreen
+ctest -j4` → **100% tests passed, 0 tests failed out of 40** (12.70 s wall time).
+Test count is unchanged: the fuzz guard adds nothing to the CTest registry when
+`GLYPHPDF_FUZZ=OFF`.
+
+### 3. Release gate coherence — verified, no change needed
+
+Confirmed the following by reading `.github/workflows/release.yml` in full:
+
+- The "Test" step (last step, ~line 151) runs `QT_QPA_PLATFORM=offscreen ctest
+  --output-on-failure -j4` from `build/`. This covers all 40 registered tests
+  including the new `TestMenuBarIntegrity` (added in the UI-wiring session) and
+  any security regression tests registered in `CMakeLists.txt`. No manual
+  exclusion list exists, so every test that is present in the build is gated.
+- `GLYPHPDF_RELEASE_BUILD=ON` is passed at configure time (line 129), which
+  triggers the AR-11 D5 hard-fail block if any of HAS_PDFIUM / HAS_TESSERACT /
+  HAS_RAPIDOCR / HAS_QPDF is absent.
+- The "Assert GLYPH_TESTING not defined" step checks `CMakeOutput.log` to ensure
+  the OCSP test-fixture bypass (`GLYPH_TESTING`) is not present in the release
+  binary (only `TestUpdateChecker` and `TestSignatureRealCrypto` define it, and
+  only when `GLYPHPDF_ENABLE_TEST_FIXTURES=ON`, which is never passed in the
+  release configure step).
+- `TestMenuBarIntegrity` and all other new tests require no special flags beyond
+  `QT_QPA_PLATFORM=offscreen` and `ctest` invocation — they are covered by the
+  existing Test step without any release.yml change.
+
+No changes were made to the release gate. It is coherent as-is, with P5 (LTO) being
+the only release.yml modification in this session.
+
+**All three fixes committed atomically. Local build: green. No push performed.**
