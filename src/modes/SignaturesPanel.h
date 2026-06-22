@@ -6,6 +6,7 @@
 class ISignatureManager;
 class QLabel;
 class QLineEdit;
+class QPushButton;
 
 namespace gp {
 
@@ -41,6 +42,9 @@ private:
 
     // Appearance preview (reflects the most recent real signer, else neutral).
     QLabel* m_previewText    = nullptr;
+
+    // "Place Signature" CTA — disabled until a document is loaded.
+    QPushButton* m_placeBtn  = nullptr;
 
     QString m_currentPath;
 };
