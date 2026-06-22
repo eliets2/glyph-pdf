@@ -112,3 +112,92 @@ parallel-repeat flakes; both pass single-pass).
 ---
 
 All six fixes built clean and left the suite at 100% / 39. No `main` push performed.
+
+---
+
+## UI-wiring fixes applied
+
+Scope: MenuBar dead/silent menu items + a durable integrity gate, plus the
+EncryptionDialog permissions-restriction logic. Files: `src/shell/MenuBar.{h,cpp}`,
+`src/core/ToolId.{h,cpp}`, `src/ui/EncryptionDialog.cpp`,
+`tests/TestMenuBarIntegrity.cpp` (+ its `CMakeLists.txt` registration).
+
+Background (emergence H-2): MenuBar dispatched toolId strings through
+`onToolActivated → ToolRegistry::activateFromString → toolIdFromString`, but
+several menu IDs resolved to no ToolId/alias/handler and silently no-op'd. Unlike
+the ribbon, the menu had no integrity test and was not gated by `plannedTools()`.
+
+Root-cause structural fix: the MenuBar now declares a single source of truth —
+`MenuBar::actionSpecs()` — classifying every actionable item as
+`Registry` (routed to a controller), `Local` (handled inline in MenuBar), or
+`Disabled` (intentionally greyed-out / planned). The constructor consults this
+table to auto-disable `Disabled` items (greyed with a "Planned for a future
+release." tooltip), and `TestMenuBarIntegrity` enumerates the same table so a
+future dead item cannot ship silently.
+
+1. **Dead Edit menu — DISABLED.** `MenuBar.cpp` Edit menu
+   `cut`/`copy`/`paste`/`delete`/`select-all` had no ToolId/handler. The viewer
+   exposes no clipboard slots (verified — no copy/cut/paste/selectAll in
+   `PdfViewerWidget.h`), so these are genuinely unshipped. Classified
+   `MenuDispatch::Disabled` → rendered greyed with a planned tooltip rather than
+   faked. Hide-don't-delete.
+
+2. **Forms aliases — WIRED.** `ToolId.cpp` added kebab aliases `"date-field"`→
+   `DateField`, `"num-field"`→`NumField`, `"signature-field"`→`SigField`
+   (FormsController already handles all three). Menu items
+   `date-field`/`num-field`/`signature-field` now dispatch correctly. Note:
+   `calc-field` resolves to `ToolId::CalcField` but FormsController has **no**
+   handler for it (PRD gap), so the `Add Calculated Field` item is classified
+   `Disabled` rather than left silently dead.
+
+3. **Document aliases — WIRED.** `ToolId.cpp` added `"extract-page"`→`Extract`
+   and `"headers-footers"`→`AddHeader` (PagesController handles both). Menu items
+   `extract-page` / `headers-footers` now dispatch correctly.
+
+4. **Measure items — DISABLED.** `measure-dist` / `measure-area` had no handler
+   and the ribbon already hides their equivalents via `plannedTools()`
+   (`"measure"`,`"distance"`,`"area"`). Classified `Disabled` to match the
+   ribbon's planned-tool treatment.
+
+5. **Window/misc stubs.**
+   - `close` — **WIRED** (Local) → `MainWindow::close()`.
+   - `save-copy` — **WIRED** (Local) → routes to the Save As flow via
+     `onToolActivated("saveAs")`.
+   - `find-replace` — **WIRED** (Local) → `toggleFindBar()` (the FindBar already
+     contains the replace inputs/buttons, so it is the same bar as Find; this
+     item previously no-op'd).
+   - `new-window`, `polyline`, `custom-stamp`, `toggle-comments`, `tile`,
+     `updates` — **DISABLED** (unshipped; ribbon equivalents `newWin`/`poly`/
+     `customStamp`/`comments` are already in `plannedTools()`; `updates` opt-in
+     lives under Preferences ▸ Updates). Greyed with a planned tooltip.
+
+6. **TestMenuBarIntegrity — ADDED (durable gate).** `tests/TestMenuBarIntegrity.cpp`
+   mirrors TestRibbonIntegrity: every `Registry` spec must resolve to a known
+   ToolId AND have a controller handler; every `Local` spec must be declared in
+   `MenuBar::localHandlerIds()`; specs must be non-empty and free of conflicting
+   dispatch classes. This would have caught findings 1–4. Registered in the root
+   `CMakeLists.txt` alongside TestRibbonIntegrity (offscreen, `LABELS
+   "unit;menubar;integrity;ui;qt;headless"`).
+
+7. **EncryptionDialog inverted logic (R-04) — FIXED.**
+   `EncryptionDialog.cpp:137-138`. The accept handler computed
+   `hasRestrictions = !print || !copy || !modify`. With the safe defaults
+   (print=on, copy=on, modify=**off**) the `!modify` term was always true, so
+   accepting with default permissions spuriously demanded an owner password.
+   Corrected to `!print || !copy || modify` — allowing modification is the
+   loosening that an owner password gates, matching the existing reset semantics
+   in the owner-password `textChanged` handler (`:86-88`). No dialog unit test
+   exists; the permissions group is also disabled until an owner password is
+   entered, so the regression path was specifically default-perms + no owner
+   password. Verified by inspection against the dialog's intended semantics.
+
+8. **(Optional) dead signals** — NOT TOUCHED. `navigationChanged` /
+   `pageOperationFinished` / `screenChanged` rewiring was judged out of the
+   smallest-correct-diff envelope for this pass and skipped (the listed items 1–7
+   were the silent-no-op and correctness issues). Left cleanly for a follow-up.
+
+**Verification:** `cmake --build build` clean (new TestMenuBarIntegrity target
+links via `pdfws_ui`). `ctest -j4` → 40/40 (was 39 + the new test); a parallel
+run intermittently shows the known TestBatchMode parallel-repeat flake, which
+passes single-pass (`ctest -R TestBatchMode` → 1/1 Passed). TestMenuBarIntegrity
+and TestRibbonIntegrity both Passed. No `main` push performed.
