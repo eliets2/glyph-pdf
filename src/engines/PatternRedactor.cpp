@@ -91,28 +91,23 @@ QStringList PatternRedactor::availablePatterns() {
 // PDFium per-character extraction
 // ---------------------------------------------------------------------------
 
+#ifdef HAS_PDFIUM
+// Extract per-character boxes for one page of an ALREADY-OPEN document.
+// Factored out so a batch caller can parse the PDF once and reuse the handle
+// across many pages instead of reloading the whole document per page.
+// Declared as a private static member (see header) so it can name CharInfo.
 QList<PatternRedactor::CharInfo>
-PatternRedactor::extractCharsWithPositions(const QString& pdfPath, int pageIndex) {
+PatternRedactor::extractCharsFromOpenDoc(void* docHandle, int pageIndex) {
     QList<CharInfo> result;
 
-#ifdef HAS_PDFIUM
-    PdfiumEnvironment env;
-
-    FPDF_DOCUMENT doc = FPDF_LoadDocument(pdfPath.toLocal8Bit().constData(), nullptr);
-    if (!doc) {
-        qWarning() << "PatternRedactor: could not open PDF" << pdfPath;
-        return result;
-    }
-
+    FPDF_DOCUMENT doc = static_cast<FPDF_DOCUMENT>(docHandle);
     const int pageCount = FPDF_GetPageCount(doc);
     if (pageIndex < 0 || pageIndex >= pageCount) {
-        FPDF_CloseDocument(doc);
         return result;
     }
 
     FPDF_PAGE page = FPDF_LoadPage(doc, pageIndex);
     if (!page) {
-        FPDF_CloseDocument(doc);
         return result;
     }
 
@@ -121,7 +116,6 @@ PatternRedactor::extractCharsWithPositions(const QString& pdfPath, int pageIndex
     FPDF_TEXTPAGE textPage = FPDFText_LoadPage(page);
     if (!textPage) {
         FPDF_ClosePage(page);
-        FPDF_CloseDocument(doc);
         return result;
     }
 
@@ -159,6 +153,25 @@ PatternRedactor::extractCharsWithPositions(const QString& pdfPath, int pageIndex
 
     FPDFText_ClosePage(textPage);
     FPDF_ClosePage(page);
+    return result;
+}
+#endif
+
+QList<PatternRedactor::CharInfo>
+PatternRedactor::extractCharsWithPositions(const QString& pdfPath, int pageIndex) {
+    QList<CharInfo> result;
+
+#ifdef HAS_PDFIUM
+    PdfiumEnvironment env;
+
+    FPDF_DOCUMENT doc = FPDF_LoadDocument(pdfPath.toLocal8Bit().constData(), nullptr);
+    if (!doc) {
+        qWarning() << "PatternRedactor: could not open PDF" << pdfPath;
+        return result;
+    }
+
+    result = extractCharsFromOpenDoc(static_cast<void*>(doc), pageIndex);
+
     FPDF_CloseDocument(doc);
 
 #else
@@ -226,25 +239,12 @@ QRectF PatternRedactor::mergeCharBoxes(const QList<CharInfo>& chars, int startId
 }
 
 // ---------------------------------------------------------------------------
-// Public API: findMatches
+// Regex matching against extracted chars (shared by both findMatches variants)
 // ---------------------------------------------------------------------------
 
-QList<QRectF> PatternRedactor::findMatches(const QString& pdfPath,
-                                            int             pageIndex,
-                                            const QRegularExpression& pattern) {
+QList<QRectF> PatternRedactor::matchChars(const QList<CharInfo>& chars,
+                                          const QRegularExpression& pattern) {
     QList<QRectF> results;
-
-    // Guard: invalid pattern
-    if (!pattern.isValid()) {
-        qWarning() << "PatternRedactor::findMatches — invalid pattern:"
-                   << pattern.errorString();
-        return results;
-    }
-    if (pattern.pattern().isEmpty()) {
-        return results;
-    }
-
-    const QList<CharInfo> chars = extractCharsWithPositions(pdfPath, pageIndex);
     if (chars.isEmpty()) {
         return results;
     }
@@ -272,7 +272,7 @@ QList<QRectF> PatternRedactor::findMatches(const QString& pdfPath,
     constexpr qint64 kMatchBudgetMs = 1500;       // wall-clock ceiling
 
     if (pageText.size() > kMaxRegexInput) {
-        qWarning() << "PatternRedactor::findMatches — page text truncated from"
+        qWarning() << "PatternRedactor::matchChars — page text truncated from"
                    << pageText.size() << "to" << kMaxRegexInput
                    << "chars to bound regex backtracking (M-3)";
         pageText.truncate(kMaxRegexInput);
@@ -285,7 +285,7 @@ QList<QRectF> PatternRedactor::findMatches(const QString& pdfPath,
     QRegularExpressionMatchIterator it = pattern.globalMatch(pageText);
     while (it.hasNext()) {
         if (timer.elapsed() > kMatchBudgetMs) {
-            qWarning() << "PatternRedactor::findMatches — regex match aborted after"
+            qWarning() << "PatternRedactor::matchChars — regex match aborted after"
                        << kMatchBudgetMs << "ms (possible ReDoS / pathological pattern, M-3);"
                        << "returning partial results";
             break;
@@ -302,4 +302,80 @@ QList<QRectF> PatternRedactor::findMatches(const QString& pdfPath,
     }
 
     return results;
+}
+
+// ---------------------------------------------------------------------------
+// Public API: findMatches (single page)
+// ---------------------------------------------------------------------------
+
+QList<QRectF> PatternRedactor::findMatches(const QString& pdfPath,
+                                            int             pageIndex,
+                                            const QRegularExpression& pattern) {
+    // Guard: invalid pattern
+    if (!pattern.isValid()) {
+        qWarning() << "PatternRedactor::findMatches — invalid pattern:"
+                   << pattern.errorString();
+        return {};
+    }
+    if (pattern.pattern().isEmpty()) {
+        return {};
+    }
+
+    const QList<CharInfo> chars = extractCharsWithPositions(pdfPath, pageIndex);
+    return matchChars(chars, pattern);
+}
+
+// ---------------------------------------------------------------------------
+// Public API: findMatches (batch — parses the PDF exactly once)
+// ---------------------------------------------------------------------------
+
+QHash<int, QList<QRectF>>
+PatternRedactor::findMatches(const QString& pdfPath,
+                             const QList<int>& pages,
+                             const QRegularExpression& pattern) {
+    QHash<int, QList<QRectF>> out;
+
+    // Guard: invalid / empty pattern (same contract as the single-page variant).
+    if (!pattern.isValid()) {
+        qWarning() << "PatternRedactor::findMatches(batch) — invalid pattern:"
+                   << pattern.errorString();
+        return out;
+    }
+    if (pattern.pattern().isEmpty() || pages.isEmpty()) {
+        return out;
+    }
+
+#ifdef HAS_PDFIUM
+    PdfiumEnvironment env;
+
+    // Open (parse) the document ONCE for the whole page set. Previously each
+    // page went through findMatches() -> extractCharsWithPositions() which called
+    // FPDF_LoadDocument()/FPDF_CloseDocument() per page; in BatchMode that was
+    // N_pages × N_patterns full parses. Now it is one parse per applyPatternRedactions.
+    FPDF_DOCUMENT doc = FPDF_LoadDocument(pdfPath.toLocal8Bit().constData(), nullptr);
+    if (!doc) {
+        qWarning() << "PatternRedactor::findMatches(batch) — could not open PDF" << pdfPath;
+        return out;
+    }
+
+    for (int pg : pages) {
+        const QList<CharInfo> chars = extractCharsFromOpenDoc(static_cast<void*>(doc), pg);
+        const QList<QRectF> rects = matchChars(chars, pattern);
+        if (!rects.isEmpty()) {
+            out.insert(pg, rects);
+        }
+    }
+
+    FPDF_CloseDocument(doc);
+#else
+    // No PDFium: fall back to the per-page path (which logs the unavailability).
+    for (int pg : pages) {
+        const QList<QRectF> rects = findMatches(pdfPath, pg, pattern);
+        if (!rects.isEmpty()) {
+            out.insert(pg, rects);
+        }
+    }
+#endif
+
+    return out;
 }
