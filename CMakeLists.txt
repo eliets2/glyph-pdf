@@ -1632,6 +1632,18 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestMrcPipeline.cpp")
     )
 endif()
 
+# ── Fuzz / verification rig (opt-in, NEVER part of the normal build) ─────────
+# Set -DGLYPHPDF_FUZZ=ON to wire in fuzz/CMakeLists.txt. Default is OFF so the
+# normal cmake --build build + ctest -j4 suite is completely unaffected.
+# Use a SEPARATE build directory for fuzz builds — never reuse build/ (the fuzz
+# harnesses carry sanitizer flags that would taint the test executables):
+#   cmake -S . -B fuzz/build -G Ninja -DGLYPHPDF_FUZZ=ON <same -D flags as main>
+#   cmake --build fuzz/build
+option(GLYPHPDF_FUZZ "Wire in fuzz/ apparatus (default OFF — never ship)" OFF)
+if(GLYPHPDF_FUZZ)
+    add_subdirectory(fuzz)
+endif()
+
 # ── Translations (Qt Linguist) ───────────────────────────────────────────
 if(Qt6LinguistTools_FOUND)
     set(TS_FILES
