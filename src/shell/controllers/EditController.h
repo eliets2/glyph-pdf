@@ -5,12 +5,14 @@
 #include <QString>
 #include <QRectF>
 #include <QList>
+#include <memory>
 #include "core/ToolId.h"
 #include "core/interfaces/IToolController.h"
 
 struct AppContext;
 struct MergedOcrWord;   // engines/ocr/OcrPipeline.h (fwd-declared to keep QtConcurrent out of this header)
 class EditToolBar;
+class IOcrEngine;
 
 namespace gp {
 
@@ -58,6 +60,18 @@ private:
     const AppContext* _ctx = nullptr;
     MainWindow* _mainWindow = nullptr;
     bool _ocrRunning = false;
+
+    // P4: cache the initialized OCR engine pair across runs. Constructing a fresh
+    // OcrEngine/RapidOcrEngine per call rebuilt 3 ONNX sessions (and the Tesseract
+    // API) from disk every time, defeating each engine's own init guard. We reuse
+    // one Tesseract + one RapidOCR instance, reinitializing only when the language
+    // changes. Access is serialized by _ocrRunning (one OCR run at a time), so no
+    // additional locking is required.
+    std::shared_ptr<IOcrEngine> _ocrTesseract;   // primary (Tesseract 5)
+    std::shared_ptr<IOcrEngine> _ocrRapid;        // RapidOCR / PP-OCRv5
+    QString _ocrTesseractLang;                    // language the cached Tesseract was init'd with
+    QString _ocrRapidLang;                        // language the cached RapidOCR was init'd with
+
     QString _selectedImageName;
     int _imageEditPage = -1;
     EditToolBar* _textToolBar = nullptr;
