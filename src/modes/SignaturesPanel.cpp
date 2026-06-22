@@ -99,13 +99,17 @@ SignaturesPanel::SignaturesPanel(QWidget* parent) : QFrame(parent) {
     appLay->addLayout(form);
     col->addWidget(appCard);
 
-    auto* place = new QPushButton(tr("Place Signature →"));
-    place->setStyleSheet(
+    m_placeBtn = new QPushButton(tr("Place Signature →"));
+    m_placeBtn->setStyleSheet(
         "QPushButton{background:#ff8c42;color:#1a1b1e;border:1px solid #ff8c42;"
         "font-weight:700;letter-spacing:0.6px;padding:10px 14px;}"
-        "QPushButton:hover{background:#ff9d5c;}");
-    connect(place, &QPushButton::clicked, this, &SignaturesPanel::placeSignatureRequested);
-    col->addWidget(place);
+        "QPushButton:hover{background:#ff9d5c;}"
+        "QPushButton:disabled{background:#5a5a5a;border-color:#5a5a5a;color:#888;}");
+    // O2: disabled until setDocument() receives a real, non-empty file path.
+    m_placeBtn->setEnabled(false);
+    m_placeBtn->setToolTip(tr("Open a document first"));
+    connect(m_placeBtn, &QPushButton::clicked, this, &SignaturesPanel::placeSignatureRequested);
+    col->addWidget(m_placeBtn);
 
     col->addStretch(1);
     scroll->setWidget(body);
@@ -125,6 +129,13 @@ void SignaturesPanel::showNoSignatures(const QString& reason) {
 
 void SignaturesPanel::setDocument(const QString& filePath, ISignatureManager* signing) {
     m_currentPath = filePath;
+
+    // O2: enable/disable "Place Signature" based on whether a document is loaded.
+    if (m_placeBtn) {
+        const bool hasDoc = !filePath.isEmpty();
+        m_placeBtn->setEnabled(hasDoc);
+        m_placeBtn->setToolTip(hasDoc ? QString() : tr("Open a document first"));
+    }
 
     if (filePath.isEmpty()) { showNoSignatures(tr("NO DOCUMENT")); return; }
     if (!signing)           { showNoSignatures(tr("UNAVAILABLE")); return; }
