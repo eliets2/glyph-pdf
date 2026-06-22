@@ -397,23 +397,23 @@ void EditController::runOcr() {
     QPointer<EditController> self(this);
     QPointer<PdfViewerWidget> viewerPtr(viewer);
 
-    QThread *worker = QThread::create([self, viewerPtr, filePath, page,
+    // P12: render the page on the GUI thread using the viewer's already-loaded
+    // QPdfDocument (and its render cache) instead of doing a second
+    // QPdfDocument::load(filePath) + render inside the worker. QPdfDocument is not
+    // thread-safe, so rendering must happen on its owning (GUI) thread anyway; the
+    // worker then only runs the (heavy, parallelizable) OCR over the QImage.
+    // renderPage(page, 2.0) reproduces the previous worker's scale exactly
+    // (pageSize * 2.0).
+    const QImage renderedPage = viewer->renderPage(page, 2.0);
+
+    QThread *worker = QThread::create([self, viewerPtr, filePath, page, renderedPage,
                                        wantRapid, wantEnsemble]() {
         QString error;
         QList<OcrResult> resultsArr;
         QList<MergedOcrWord> mergedWords;   // also surfaced to the OCR Verify screen
 
-        QPdfDocument document;
-        const auto loadError = document.load(filePath);
-        if (loadError != QPdfDocument::Error::None) {
-            error = QStringLiteral("OCR failed: could not load document.");
-        } else if (page < 0 || page >= document.pageCount()) {
-            error = QStringLiteral("OCR failed: page is no longer available.");
-        } else {
-            const QSizeF pageSize = document.pagePointSize(page);
-            const QSize imageSize(pageSize.width() * 2.0, pageSize.height() * 2.0);
-            QImage pageImg = document.render(page, imageSize, QPdfDocumentRenderOptions());
-
+        const QImage pageImg = renderedPage;
+        {
             if (pageImg.isNull()) {
                 error = QStringLiteral("OCR failed: could not render page.");
             } else if (!self) {
