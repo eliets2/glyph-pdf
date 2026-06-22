@@ -1207,6 +1207,17 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
     double textX = 0.0, textY = 0.0;
     bool inTextBlock = false;
     double leading = 0.0;
+
+    // F-02 fix: the scalar textX/textY cursor alone cannot model rotated/scaled/
+    // skewed text — "a b c d e f Tm" carries a full affine text matrix whose linear
+    // part (a,b,c,d) was previously discarded, letting non-axis-aligned glyph runs
+    // escape the redaction rect. We track the full text matrix (Tm) and text line
+    // matrix (Tlm) per PDF 9.4.2, plus a horizontal pen offset (sum of glyph advances
+    // since the line origin). A baseline point at pen offset t then maps to device as
+    // [t 0 1] x Tm x CTM (full affine), which is what isIntersectingSpan now tests.
+    RedactCtm tm;   // current text matrix (Tm)
+    RedactCtm tlm;  // current text line matrix (Tlm)
+    double penX = 0.0; // horizontal advance within the current line, in text space
     
     // Text state parameters
     double currentFontSize = 12.0;
@@ -1241,12 +1252,26 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
         return r;
     };
 
-    auto isIntersectingSpan = [&](double xStart, double xEnd, double y) -> bool {
-        double outX1 = ctm.a * xStart + ctm.c * y + ctm.e;
-        double outY1 = ctm.b * xStart + ctm.d * y + ctm.f;
-        double outX2 = ctm.a * xEnd   + ctm.c * y + ctm.e;
-        double outY2 = ctm.b * xEnd   + ctm.d * y + ctm.f;
-        
+    // F-02 fix: map text-space points through the FULL text matrix (Tm) and then
+    // the CTM — device = [x y 1] x Tm x CTM — instead of treating (x,y) as a
+    // horizontal span in CTM only. penStart/penEnd are horizontal pen offsets along
+    // the baseline (text space, line-relative); the glyph run's true device extent
+    // is the axis-aligned bbox of the two transformed endpoints. This correctly
+    // catches rotated/scaled/skewed runs that the scalar-cursor model let leak.
+    auto mapTextToDevice = [&](double x, double y, double& dx, double& dy) {
+        // text space -> page/canvas space via Tm
+        double px = tm.a * x + tm.c * y + tm.e;
+        double py = tm.b * x + tm.d * y + tm.f;
+        // page space -> device via CTM
+        dx = ctm.a * px + ctm.c * py + ctm.e;
+        dy = ctm.b * px + ctm.d * py + ctm.f;
+    };
+
+    auto isIntersectingSpan = [&](double penStart, double penEnd) -> bool {
+        double outX1, outY1, outX2, outY2;
+        mapTextToDevice(penStart, 0.0, outX1, outY1);
+        mapTextToDevice(penEnd,   0.0, outX2, outY2);
+
         double minX = std::min(outX1, outX2);
         double maxX = std::max(outX1, outX2);
         double minY = std::min(outY1, outY2);
@@ -1289,6 +1314,8 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
             if (kw == "BT") {
                 inTextBlock = true;
                 textX = 0.0; textY = 0.0;
+                // F-02: BT resets Tm and Tlm to identity (PDF 9.4.1).
+                tm = RedactCtm{}; tlm = RedactCtm{}; penX = 0.0;
                 newStream << "BT\n";
                 continue;
             }
@@ -1320,20 +1347,36 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
             }
             if (kw == "T*" && inTextBlock) {
                 textY -= leading;
+                // F-02: T* is equivalent to "0 -leading Td": Tlm = translate(0,-leading) x Tlm, Tm = Tlm.
+                RedactCtm tr; tr.e = 0.0; tr.f = -leading;
+                tlm = concat(tr, tlm); tm = tlm; penX = 0.0;
             }
             if (kw == "Tm" && stack.size() >= 6) {
                 // PdfVariantStack index 0 = top of stack = last pushed operand.
-                // "a b c d e f Tm" pushes in order a..f, so stack[0]=f (textY), stack[1]=e (textX).
+                // "a b c d e f Tm" pushes in order a..f, so stack[0]=f, stack[1]=e, ... stack[5]=a.
                 if (stack[1].IsNumberOrReal()) textX = stack[1].GetReal();
                 if (stack[0].IsNumberOrReal()) textY = stack[0].GetReal();
+                // F-02: capture the FULL text matrix (a,b,c,d,e,f). Tm sets both Tm and Tlm.
+                RedactCtm m;
+                if (stack[5].IsNumberOrReal()) m.a = stack[5].GetReal();
+                if (stack[4].IsNumberOrReal()) m.b = stack[4].GetReal();
+                if (stack[3].IsNumberOrReal()) m.c = stack[3].GetReal();
+                if (stack[2].IsNumberOrReal()) m.d = stack[2].GetReal();
+                if (stack[1].IsNumberOrReal()) m.e = stack[1].GetReal();
+                if (stack[0].IsNumberOrReal()) m.f = stack[0].GetReal();
+                tm = m; tlm = m; penX = 0.0;
             } else if ((kw == "Td" || kw == "TD") && stack.size() >= 2) {
-                // "tx ty Td" pushes tx first, ty second, so stack[0]=ty (textY), stack[1]=tx (textX).
-                if (stack[1].IsNumberOrReal()) textX += stack[1].GetReal();
+                // "tx ty Td" pushes tx first, ty second, so stack[0]=ty, stack[1]=tx.
+                double tx = 0.0, ty = 0.0;
+                if (stack[1].IsNumberOrReal()) { tx = stack[1].GetReal(); textX += tx; }
                 if (stack[0].IsNumberOrReal()) {
-                    double dy = stack[0].GetReal();
-                    textY += dy;
-                    if (kw == "TD") leading = -dy;
+                    ty = stack[0].GetReal();
+                    textY += ty;
+                    if (kw == "TD") leading = -ty;
                 }
+                // F-02: Td/TD: Tlm = translate(tx,ty) x Tlm, Tm = Tlm (PDF 9.4.2).
+                RedactCtm tr; tr.e = tx; tr.f = ty;
+                tlm = concat(tr, tlm); tm = tlm; penX = 0.0;
             }
             
             // Track Text State Parameters
@@ -1456,9 +1499,14 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                 
                 if (kw == "'" || kw == "\"") {
                     textY -= leading;
+                    // F-02: ' and " perform a T* (new line) before showing text.
+                    RedactCtm tr; tr.e = 0.0; tr.f = -leading;
+                    tlm = concat(tr, tlm); tm = tlm; penX = 0.0;
                 }
-                
-                if (inTextBlock && isIntersectingSpan(textX, textX + totalAdvance, textY)) {
+
+                // F-02: the glyph run occupies pen offsets [penX, penX+totalAdvance]
+                // along the baseline of the current text matrix Tm (full affine).
+                if (inTextBlock && isIntersectingSpan(penX, penX + totalAdvance)) {
                     // Record redacted MCID if active
                     if (currentMcid != -1) {
                         redactedMcids.insert(currentMcid);
@@ -1479,7 +1527,7 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                             newStream << stack[1].GetReal() << " Tc\n";
                             newStream << "T*\n";
                         }
-                        textX += totalAdvance;
+                        textX += totalAdvance; penX += totalAdvance;
                         continue;
                     }
 
@@ -1503,11 +1551,11 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                         newStream << "[ " << N << " ] TJ\n";
                     }
                     // totalAdvance ≈ 0 or scale ≈ 0: emit nothing (safe — no glyph, no cursor shift).
-                    textX += totalAdvance;
+                    textX += totalAdvance; penX += totalAdvance;
                     continue;
                 }
-                
-                textX += totalAdvance;
+
+                textX += totalAdvance; penX += totalAdvance;
             }
             
             if (kw == "Do" && stack.size() > 0 && stack[0].IsName()) {
