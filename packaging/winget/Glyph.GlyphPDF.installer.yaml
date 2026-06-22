@@ -21,6 +21,6 @@ Installers:
   # at release time). Before submitting to the public microsoft/winget-pkgs repo,
   # rebuild WITH a code-signing cert (GLYPHPDF_SIGN_CERT_PFX/THUMBPRINT) and update
   # this hash + ProductCode to match the signed MSI.
-  InstallerSha256: 'CDC167697F63D4D3A527407F3BDAAAD424F6E03D1DA453F339760013F667DC87'
+  InstallerSha256: '2D76485511E05A7744BD9A22E4750ABA1092C1F5A1134B54F7DF4E652F475E0B'
 ManifestType: installer
 ManifestVersion: 1.6.0
