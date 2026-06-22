@@ -12,8 +12,151 @@
 #include <QFileInfo>
 #include <QSettings>
 #include <QStatusBar>
+#include <QHash>
 
 namespace gp {
+
+// ── Single source of truth ───────────────────────────────────────────────
+// Every actionable menu item, classified by how it is dispatched. The
+// constructor consults this table (via the dispatch lookup below) to decide
+// which items must be rendered disabled, and TestMenuBarIntegrity enumerates
+// the same table to prove no item silently no-ops. When you add or remove a
+// menu item, update this table in the same commit.
+const QList<MenuActionSpec>& MenuBar::actionSpecs() {
+    static const QList<MenuActionSpec> specs = {
+        // ── File ──
+        { "new-window",   MenuDispatch::Disabled },  // multi-window not shipped (ribbon: "newWin")
+        { "open",         MenuDispatch::Registry },
+        { "close",        MenuDispatch::Local    },
+        { "save",         MenuDispatch::Registry },
+        { "saveAs",       MenuDispatch::Registry },
+        { "save-copy",    MenuDispatch::Local    },  // routed to SaveAs
+        { "printPreview", MenuDispatch::Registry },
+        { "pageSetup",    MenuDispatch::Registry },
+        { "print",        MenuDispatch::Registry },
+        { "exportPresets",MenuDispatch::Registry },
+        { "share",        MenuDispatch::Registry },
+        { "properties",   MenuDispatch::Registry },
+        { "exit",         MenuDispatch::Local    },
+
+        // ── Edit ──
+        { "undo",         MenuDispatch::Registry },
+        { "redo",         MenuDispatch::Registry },
+        { "cut",          MenuDispatch::Disabled },  // clipboard editing not shipped
+        { "copy",         MenuDispatch::Disabled },
+        { "paste",        MenuDispatch::Disabled },
+        { "delete",       MenuDispatch::Disabled },  // ribbon: "delete"
+        { "select-all",   MenuDispatch::Disabled },
+        { "find",         MenuDispatch::Local    },
+        { "find-replace", MenuDispatch::Local    },
+        { "preferences",  MenuDispatch::Local    },
+
+        // ── View ──
+        { "zoomIn",       MenuDispatch::Registry },
+        { "zoomOut",      MenuDispatch::Registry },
+        { "actual",       MenuDispatch::Registry },
+        { "fitPage",      MenuDispatch::Registry },
+        { "fitWidth",     MenuDispatch::Registry },
+        { "single",       MenuDispatch::Registry },
+        { "continuous",   MenuDispatch::Registry },
+        { "two-page",     MenuDispatch::Registry },
+        { "presentation", MenuDispatch::Registry },
+        { "fullscreen",   MenuDispatch::Local    },
+        { "darkMode",     MenuDispatch::Local    },
+        { "rulers",       MenuDispatch::Disabled },  // view guides not shipped
+        { "guides",       MenuDispatch::Disabled },
+        { "grid",         MenuDispatch::Disabled },
+
+        // ── Document ──
+        { "insert-page",     MenuDispatch::Registry },
+        { "delete-page",     MenuDispatch::Registry },
+        { "extract-page",    MenuDispatch::Registry },  // alias → Extract
+        { "rotate-cw",       MenuDispatch::Registry },
+        { "rotate-ccw",      MenuDispatch::Registry },
+        { "crop",            MenuDispatch::Registry },
+        { "resize",          MenuDispatch::Registry },
+        { "page-numbers",    MenuDispatch::Registry },
+        { "headers-footers", MenuDispatch::Registry },  // alias → AddHeader
+
+        // ── Tools ──
+        { "ocr",          MenuDispatch::Local    },
+        { "redact",       MenuDispatch::Local    },
+        { "compare",      MenuDispatch::Local    },
+        { "compress",     MenuDispatch::Registry },
+        { "watermark",    MenuDispatch::Registry },
+        { "measure-dist", MenuDispatch::Disabled },  // ribbon: "measure"/"distance"
+        { "measure-area", MenuDispatch::Disabled },  // ribbon: "area"
+
+        // ── Comments ──
+        { "highlight",       MenuDispatch::Registry },
+        { "underline",       MenuDispatch::Registry },
+        { "strike",          MenuDispatch::Registry },  // alias → Strikeout
+        { "squiggly",        MenuDispatch::Registry },
+        { "note",            MenuDispatch::Registry },
+        { "textbox",         MenuDispatch::Registry },
+        { "callout",         MenuDispatch::Registry },
+        { "custom-stamp",    MenuDispatch::Disabled },  // ribbon: "customStamp"
+        { "pencil",          MenuDispatch::Registry },
+        { "line",            MenuDispatch::Registry },
+        { "arrow",           MenuDispatch::Registry },
+        { "rect",            MenuDispatch::Registry },
+        { "oval",            MenuDispatch::Registry },
+        { "polyline",        MenuDispatch::Disabled },  // ribbon: "poly"
+        { "toggle-comments", MenuDispatch::Disabled },  // ribbon: "comments"
+
+        // ── Forms ──
+        { "text-field",      MenuDispatch::Registry },
+        { "checkbox",        MenuDispatch::Registry },
+        { "radio",           MenuDispatch::Registry },
+        { "dropdown",        MenuDispatch::Registry },
+        { "date-field",      MenuDispatch::Registry },  // alias → DateField
+        { "num-field",       MenuDispatch::Registry },  // alias → NumField
+        { "calc-field",      MenuDispatch::Disabled },  // CalcField has no handler yet (PRD gap)
+        { "signature-field", MenuDispatch::Registry },  // alias → SigField
+        { "button",          MenuDispatch::Registry },
+        { "autodetect",      MenuDispatch::Registry },
+        { "tab-order",       MenuDispatch::Registry },
+        { "import-data",     MenuDispatch::Registry },
+        { "export-data",     MenuDispatch::Registry },
+
+        // ── Window ──
+        { "minimize",     MenuDispatch::Local    },
+        { "maximize",     MenuDispatch::Local    },
+        { "tile",         MenuDispatch::Disabled },  // single-window app, no tiling
+
+        // ── Help ──
+        { "shortcuts",    MenuDispatch::Local    },
+        { "guide",        MenuDispatch::Local    },
+        { "updates",      MenuDispatch::Disabled },  // manual check via Preferences ▸ Updates
+        { "about",        MenuDispatch::Local    },
+    };
+    return specs;
+}
+
+const QList<QString>& MenuBar::localHandlerIds() {
+    // toolIds handled inline in the addActionToMenu lambda below (not via the
+    // ToolRegistry). Keep in lock-step with the lambda's if/else chain.
+    static const QList<QString> ids = {
+        "find", "find-replace", "exit", "close", "save-copy",
+        "minimize", "maximize", "fullscreen", "darkMode",
+        "ocr", "redact", "compare", "guide", "about",
+        "shortcuts", "preferences",
+    };
+    return ids;
+}
+
+namespace {
+// dispatch class for a given toolId, built once from actionSpecs().
+MenuDispatch dispatchFor(const QString& toolId) {
+    static const QHash<QString, MenuDispatch> map = []() {
+        QHash<QString, MenuDispatch> m;
+        for (const auto& s : MenuBar::actionSpecs())
+            m.insert(QString::fromLatin1(s.toolId), s.dispatch);
+        return m;
+    }();
+    return map.value(toolId, MenuDispatch::Registry);
+}
+} // namespace
 
 MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
     auto* mainWindow = qobject_cast<MainWindow*>(parent);
@@ -30,11 +173,29 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
             action->setCheckable(true);
             action->setChecked(checked);
         }
+
+        // Items with no shipped backing are rendered disabled rather than left
+        // as silent no-ops — mirrors the ribbon's plannedTools() treatment.
+        if (dispatchFor(toolId) == MenuDispatch::Disabled) {
+            action->setEnabled(false);
+            action->setToolTip(tr("Planned for a future release."));
+            action->setStatusTip(tr("Planned for a future release."));
+            return action;
+        }
+
         connect(action, &QAction::triggered, mainWindow, [mainWindow, toolId, action]() {
-            if (toolId == "find") {
+            if (toolId == "find" || toolId == "find-replace") {
+                // The FindBar contains both search and replace controls, so
+                // "Find & Replace" opens the same bar as "Find".
                 mainWindow->toggleFindBar();
             } else if (toolId == "exit") {
                 qApp->quit();
+            } else if (toolId == "close") {
+                mainWindow->close();
+            } else if (toolId == "save-copy") {
+                // "Save a Copy" reuses the Save As flow (writes to a new path
+                // without rebinding the open document).
+                mainWindow->onToolActivated("saveAs");
             } else if (toolId == "minimize") {
                 mainWindow->showMinimized();
             } else if (toolId == "maximize") {
@@ -54,7 +215,7 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
             } else if (toolId == "compare") {
                 mainWindow->onScreenSelected("compare");
             } else if (toolId == "guide") {
-                QMessageBox::information(mainWindow, tr("User Guide"), 
+                QMessageBox::information(mainWindow, tr("User Guide"),
                     tr("Glyph PDF Editor User Guide is available online at https://glyph.app/guide"));
             } else if (toolId == "about") {
                 // AR-8 D2: version is single-sourced from CMake PROJECT_VERSION via
@@ -91,7 +252,7 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
     auto* fileMenu = addMenu(tr("&File"));
     addActionToMenu(fileMenu, tr("&New Window"), "new-window");
     addActionToMenu(fileMenu, tr("&Open…"), "open", QKeySequence::Open);
-    
+
     m_recentMenu = fileMenu->addMenu(tr("Open &Recent"));
     refreshRecentFiles();
 
@@ -242,11 +403,11 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
     addActionToMenu(windowMenu, tr("&Maximize"), "maximize");
     addActionToMenu(windowMenu, tr("&Tile Windows"), "tile");
     windowMenu->addSeparator();
-    
+
     // Dynamic Active Document display
     auto* viewer = mainWindow->pdfViewer();
-    QString docName = (viewer && !viewer->filePath().isEmpty()) 
-                      ? QFileInfo(viewer->filePath()).fileName() 
+    QString docName = (viewer && !viewer->filePath().isEmpty())
+                      ? QFileInfo(viewer->filePath()).fileName()
                       : tr("[No Active Document]");
     auto* activeDocAct = windowMenu->addAction(docName);
     activeDocAct->setEnabled(false);
