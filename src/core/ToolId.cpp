@@ -206,12 +206,12 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         add(ToolId::RotateCCW,      {"rotL", "rotate-ccw", "rotl", "rotateccw"});
         add(ToolId::DeletePage,     {"deletePage", "delete-page", "deletepage"});
         add(ToolId::InsertPage,     {"insertPage", "insert-page", "insertpage"});
-        add(ToolId::Extract,        {"extract"});
+        add(ToolId::Extract,        {"extract", "extract-page", "extractpage"});
         add(ToolId::Split,          {"split"});
         add(ToolId::Reorder,        {"reorder"});
         add(ToolId::Crop,           {"crop"});
         add(ToolId::Resize,         {"resize"});
-        add(ToolId::AddHeader,      {"addHeader", "addheader", "header"});
+        add(ToolId::AddHeader,      {"addHeader", "addheader", "header", "headers-footers", "headersfooters"});
         add(ToolId::AddFooter,      {"addFooter", "addfooter", "footer"});
         add(ToolId::AddPageNumbers, {"addPageNumbers", "addpagenumbers", "page-numbers", "pageNums"});
         add(ToolId::BatesNumber,    {"batesNumber", "batesnumber", "bates"});
@@ -240,9 +240,9 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         add(ToolId::ListBox,        {"listbox"});
         add(ToolId::Button,         {"button"});
         add(ToolId::CalcField,      {"calcField", "calcfield", "calc-field", "calculatedField"});
-        add(ToolId::DateField,      {"dateField", "datefield"});
-        add(ToolId::NumField,       {"numField", "numfield"});
-        add(ToolId::SigField,       {"sigField", "sigfield"});
+        add(ToolId::DateField,      {"dateField", "datefield", "date-field"});
+        add(ToolId::NumField,       {"numField", "numfield", "num-field"});
+        add(ToolId::SigField,       {"sigField", "sigfield", "signature-field", "signaturefield"});
         add(ToolId::AutoDetect,     {"autoDetect", "autodetect"});
         add(ToolId::Tabs,           {"tabs", "tab-order", "taborder"});
         add(ToolId::ImportData,     {"importData", "importdata", "import-data", "import"});

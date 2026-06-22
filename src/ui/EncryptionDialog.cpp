@@ -134,8 +134,14 @@ EncryptionDialog::EncryptionDialog(QWidget *parent)
             m_userPasswordEdit->setFocus(Qt::OtherFocusReason);
             return;
         }
+        // R-04: a restriction tighter than the safe default exists when printing
+        // or copying has been turned OFF, or when modification has been turned ON
+        // (allowing modification is the loosening that an owner password gates).
+        // Must match the reset semantics in the owner-password textChanged handler
+        // above — using "!modify" here made the default permissions (print=on,
+        // copy=on, modify=off) spuriously demand an owner password.
         bool hasRestrictions = !m_printCheck->isChecked() || !m_copyCheck->isChecked()
-                               || !m_modifyCheck->isChecked();
+                               || m_modifyCheck->isChecked();
         if (ownerPassword.isEmpty() && hasRestrictions) {
             QMessageBox::warning(this, tr("Owner Password Required"),
                 tr("Set a permissions password when restricting printing, copying, or modification."));
