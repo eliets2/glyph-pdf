@@ -61,9 +61,21 @@ PdfAValidationReport VeraPdfValidator::validate(const QString& pdfPath, PdfAConf
     PdfAValidationReport report;
     report.validatorAvailable = false;
 
-    if (pdfPath.contains('&') || pdfPath.contains('|') || pdfPath.contains('<') || pdfPath.contains('>')) {
-        report.errorMessage = "Invalid characters in PDF path";
-        return report;
+    // H-1: the previous blocklist only rejected & | < >, but the validator runs a
+    // .bat via `cmd.exe /c call`, where %VAR% environment expansion and the ^ escape
+    // are ALSO interpreted by the shell, and ( ) " can break batch argument parsing.
+    // pdfPath is the user-opened document path, so a crafted name like
+    //   %SystemRoot%\..\evil & calc.bat
+    // could inject. Switch to a STRICT ALLOWLIST: reject any path containing a
+    // shell/batch metacharacter. Legitimate PDF paths never need these.
+    {
+        static const QString kForbidden = QStringLiteral("%^\"&|<>()");
+        for (const QChar c : pdfPath) {
+            if (kForbidden.contains(c)) {
+                report.errorMessage = "Invalid characters in PDF path";
+                return report;
+            }
+        }
     }
 
     const QString cliPath = locateCli();
