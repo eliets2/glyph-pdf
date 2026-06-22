@@ -22,9 +22,9 @@
   <Package
     Name="GlyphPDF"
     Manufacturer="Glyph"
-    Version="1.3.2.1"
+    Version="1.3.2.2"
     UpgradeCode="fb1fbe00-e1af-449c-8a58-2d2e308b9127"
-    ProductCode="A53839CB-7BF6-4A43-9739-A364784DB2F0"
+    ProductCode="2DA13856-42DE-474D-95E4-C8F91DE631FE"
     Scope="perMachine"
     Language="1033"
     Compressed="yes">

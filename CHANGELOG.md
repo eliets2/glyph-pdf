@@ -2,6 +2,37 @@
 
 All notable changes to GlyphPDF are documented in this file.
 
+## [1.3.2.2] — 2026-06-22
+
+UI/UX sweep — a full audit of the interface fixed a cluster of controls that
+looked functional but weren't wired, plus several label-honesty defects.
+
+### Fixed
+- **Thumbnail navigation**: clicking a page thumbnail now jumps to that page
+  (the click signal was connected to nothing).
+- **OCR Verify**: the Accept / Reject / Re-OCR buttons now do real work (they
+  were dead), and Accept/Reject are no longer enabled before results exist.
+- **Annotations**: the Stamp and Callout tools now actually create annotations
+  on the canvas.
+- **Welcome screen**: the "Merge PDFs" card is now wired to the merge tool.
+- **PDF/A**: each validation issue's "Jump" button navigates to its page (or is
+  hidden when no page is known) instead of being decorative.
+- **Signature status** no longer shows a green "✓ SIGNED" on unsigned or invalid
+  documents — it shows "UNSIGNED" or "✕ x of n valid".
+- **Encryption**: clearing the owner password now warns that permission
+  restrictions were dropped, instead of silently resetting them.
+- **Redaction**: "Current page" scope now targets the page you're actually on
+  (it was hardcoded to page 1); not-yet-implemented redaction modes are hidden.
+- **Flow guards**: "Place Signature" is disabled until a document is open;
+  Compare's prev/next are disabled until a comparison runs; batch processing
+  shows a plain-language message instead of an internal error.
+
+### Changed
+- Destructive buttons share one consistent "danger" style; empty (planned-only)
+  ribbon groups are hidden; the smallest fixed-pixel labels scale with the OS
+  display setting; the page footer shows "PDF --" rather than a guessed version
+  when a file's header can't be read.
+
 ## [1.3.2.1] — 2026-06-21
 
 Patch release on 1.3.2.
