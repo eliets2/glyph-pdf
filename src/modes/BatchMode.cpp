@@ -790,8 +790,9 @@ void BatchMode::onRunClicked() {
 
     // Guard: AppContext must be set for engine operations
     if (!m_ctx) {
-        QMessageBox::warning(this, tr("Engine Unavailable"),
-            tr("No AppContext available. Ensure the application is fully initialized."));
+        QMessageBox::warning(this, tr("Not Ready"),
+            tr("The processing engines are not yet available.\n\n"
+               "Please open a document first, then try again."));
         return;
     }
 
