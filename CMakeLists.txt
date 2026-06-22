@@ -1213,6 +1213,32 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRibbonIntegrity.cpp")
     )
 endif()
 
+# ── TestMenuBarIntegrity (UI-wiring hardening 2026-06-22) ────────────────
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestMenuBarIntegrity.cpp")
+    add_executable(TestMenuBarIntegrity
+        tests/TestMenuBarIntegrity.cpp
+    )
+    target_include_directories(TestMenuBarIntegrity PRIVATE src)
+    target_link_libraries(TestMenuBarIntegrity PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core
+        Qt6::Test Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestMenuBarIntegrity POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestMenuBarIntegrity>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestMenuBarIntegrity>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestMenuBarIntegrity"
+    )
+    add_test(NAME TestMenuBarIntegrity COMMAND TestMenuBarIntegrity)
+    set_tests_properties(TestMenuBarIntegrity PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;menubar;integrity;ui;qt;headless"
+    )
+endif()
+
 # ── Integration tests (Session 20) ───────────────────────────────────────
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestIntegration.cpp")
     add_executable(TestIntegration
