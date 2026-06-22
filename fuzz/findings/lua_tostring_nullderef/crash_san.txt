@@ -1,0 +1,10 @@
+  what():  basic_string: construction from null is not valid
+Thread 1 received signal ?, Unknown signal.
+#0  0x00007ffe06a1527e in ucrtbase!abort () from C:\WINDOWS\System32\ucrtbase.dll
+#1  0x00007ffd637db9cd in ?? () from C:\msys64\ucrt64\bin\libstdc++-6.dll
+#2  0x00007ffd637cad96 in ?? () from C:\msys64\ucrt64\bin\libstdc++-6.dll
+#3  0x00007ffd63930773 in ?? () from C:\msys64\ucrt64\bin\libstdc++-6.dll
+#4  0x00007ffd6392f19d in ?? () from C:\msys64\ucrt64\bin\libstdc++-6.dll
+#5  0x00007ffd639314d7 in ?? () from C:\msys64\ucrt64\bin\libstdc++-6.dll
+#6  0x00007ff74c19a050 in std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string<std::allocator<char> > (this=0x5ffdc0, __s=0x0, __a=...) at C:/msys64/ucrt64/include/c++/16.1.0/bits/basic_string.h:735
+#7  0x00007ff74c151650 in main (argc=2, argv=0x7b5aa0) at fuzz/harnesses/repro_lua_tostring.cpp:52

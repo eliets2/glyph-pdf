@@ -1,0 +1,13 @@
+{
+  "pdf": "C:/Users/User/Projects/pdf/fuzz/scratch/red_f02_sharp.pdf",
+  "secret": "VERTLEAK",
+  "qpdf_rc": 0,
+  "total_text_show_ops": 1,
+  "residual_show_ops_with_secret": [
+    {
+      "operator": "Tj",
+      "operand": "VERTLEAK"
+    }
+  ],
+  "verdict": "LEAK"
+}
