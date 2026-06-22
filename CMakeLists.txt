@@ -613,7 +613,6 @@ add_library(pdfws_ui STATIC
 
     src/ui/WelcomeWidget.h           src/ui/WelcomeWidget.cpp
     src/ui/FindBar.h                 src/ui/FindBar.cpp
-    src/ui/AnnotationToolBar.h       src/ui/AnnotationToolBar.cpp
     src/ui/ResizeDialog.h            src/ui/ResizeDialog.cpp
     src/ui/HeaderFooterDialog.h      src/ui/HeaderFooterDialog.cpp
     src/ui/BatesNumberingDialog.h    src/ui/BatesNumberingDialog.cpp
