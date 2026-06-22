@@ -116,6 +116,13 @@ QWidget* Ribbon::buildBody(int tabIdx) {
             (t.big ? bigs : smalls).append(t);
         }
 
+        // A1: if every tool in this group is planned/hidden, skip the entire
+        // group frame so an empty titled box is never shown.
+        if (bigs.isEmpty() && smalls.isEmpty()) {
+            delete group;
+            continue;
+        }
+
         for (const auto& t : bigs) {
             auto* b = makeTool(t.id, t.label, t.icon, true);
             if (t.id == _activeTool) b->setProperty("active", true);
