@@ -80,11 +80,27 @@ EncryptionDialog::EncryptionDialog(QWidget *parent)
     connect(m_ownerPasswordEdit, &QLineEdit::textChanged, this, [this](const QString& text) {
         m_permsGroup->setEnabled(!text.isEmpty());
         if (text.isEmpty()) {
-            // Reset to defaults when owner password is cleared — restrictions without
-            // an owner password are unenforceable.
+            // Check whether the user had tightened any restriction before clearing the
+            // owner password.  "Tight" means allow-printing or allow-copying was turned
+            // OFF, or allow-modification was turned ON (the opposite of the safe default).
+            const bool hadRestrictions = !m_printCheck->isChecked()
+                                         || !m_copyCheck->isChecked()
+                                         || m_modifyCheck->isChecked();
+            // Reset to defaults — restrictions without an owner password are
+            // unenforceable.
             m_printCheck->setChecked(true);
             m_copyCheck->setChecked(true);
             m_modifyCheck->setChecked(false);
+            // Warn the user only when their custom restrictions were actually dropped.
+            if (hadRestrictions) {
+                QMessageBox::information(
+                    this,
+                    tr("Permissions Reset"),
+                    tr("The permission restrictions have been reset to defaults because "
+                       "they require an owner password to be enforceable.\n\n"
+                       "Re-enter an owner password if you want to restrict printing, "
+                       "copying, or modification."));
+            }
         }
     });
 
