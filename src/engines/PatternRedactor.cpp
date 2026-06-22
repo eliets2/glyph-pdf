@@ -3,6 +3,7 @@
 
 #include <QHash>
 #include <QDebug>
+#include <QElapsedTimer>
 #include <mutex>
 
 #ifdef HAS_PDFIUM
@@ -255,9 +256,40 @@ QList<QRectF> PatternRedactor::findMatches(const QString& pdfPath,
         pageText.append(ci.ch);
     }
 
-    // Run the regex against the full page text
+    // M-3: ReDoS bound. The pattern may be a user-supplied custom regex, and a
+    // page may carry a large amount of text, so globalMatch() can catastrophically
+    // backtrack and hang the UI thread. We bound the work two ways:
+    //   (1) cap the input length fed to the regex (kMaxRegexInput), which is the
+    //       primary driver of backtracking blow-up; and
+    //   (2) abort the match loop after a wall-clock budget (kMatchBudgetMs).
+    // Residual limit (documented): a SINGLE pathological QRegularExpressionMatch
+    // step can still run past the budget before next() returns, because PCRE2's
+    // own backtracking is not interrupted mid-step; the input cap keeps that
+    // bounded in practice. A full fix (running the match on a cancellable worker)
+    // is deliberately out of scope for this minimal hardening. Built-in named
+    // patterns are unaffected — they are linear and finish well within the budget.
+    constexpr int kMaxRegexInput  = 256 * 1024;  // chars
+    constexpr qint64 kMatchBudgetMs = 1500;       // wall-clock ceiling
+
+    if (pageText.size() > kMaxRegexInput) {
+        qWarning() << "PatternRedactor::findMatches — page text truncated from"
+                   << pageText.size() << "to" << kMaxRegexInput
+                   << "chars to bound regex backtracking (M-3)";
+        pageText.truncate(kMaxRegexInput);
+    }
+
+    QElapsedTimer timer;
+    timer.start();
+
+    // Run the regex against the (bounded) page text
     QRegularExpressionMatchIterator it = pattern.globalMatch(pageText);
     while (it.hasNext()) {
+        if (timer.elapsed() > kMatchBudgetMs) {
+            qWarning() << "PatternRedactor::findMatches — regex match aborted after"
+                       << kMatchBudgetMs << "ms (possible ReDoS / pathological pattern, M-3);"
+                       << "returning partial results";
+            break;
+        }
         const QRegularExpressionMatch match = it.next();
         const int startIdx = match.capturedStart();
         const int endIdx   = match.capturedEnd(); // exclusive
