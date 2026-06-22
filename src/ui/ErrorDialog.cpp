@@ -81,7 +81,7 @@ void ErrorDialog::buildUi(const ErrorInfo& info) {
             ctx += tr("  ·  Page %1").arg(info.sourcePage + 1);
         auto* src = new QLabel(ctx);
         src->setProperty("mono", true);
-        src->setStyleSheet("font-size:10px; color:#888;");
+        src->setStyleSheet("font-size:8pt; color:#888;");
         bl->addWidget(src);
     }
 
@@ -89,7 +89,7 @@ void ErrorDialog::buildUi(const ErrorInfo& info) {
     if (!info.technicalDetails.isEmpty()) {
         m_toggleBtn = new QPushButton(tr("Show Details ▾"));
         m_toggleBtn->setFlat(true);
-        m_toggleBtn->setStyleSheet("text-align:left; padding:2px 0; color:#5b9bd5; font-size:11px;");
+        m_toggleBtn->setStyleSheet("text-align:left; padding:2px 0; color:#5b9bd5; font-size:9pt;");
         bl->addWidget(m_toggleBtn);
 
         m_details = new QTextEdit;
@@ -98,7 +98,7 @@ void ErrorDialog::buildUi(const ErrorInfo& info) {
         m_details->setMaximumHeight(120);
         m_details->setStyleSheet(
             "background:#1a1b1e; border:1px solid #393b40; font-family:'JetBrains Mono';"
-            "font-size:10px; padding:6px;");
+            "font-size:8pt; padding:6px;");
         m_details->setVisible(false);
         bl->addWidget(m_details);
 

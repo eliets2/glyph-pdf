@@ -193,7 +193,7 @@ CompressDialog::CompressDialog(const AppContext* ctx, QWidget* parent)
     _mrcEstLabel->setProperty("mono", true);
     // T-02: use fg2 token.
     _mrcEstLabel->setStyleSheet(
-        QString("font-size:10px; color:%1;").arg(gp::Theme::fg2().name()));
+        QString("font-size:8pt; color:%1;").arg(gp::Theme::fg2().name()));
     mf->addWidget(_mrcEstLabel);
 
     bl->addWidget(mrcFrame);
@@ -268,7 +268,7 @@ CompressDialog::CompressDialog(const AppContext* ctx, QWidget* parent)
     _detailLabel->setProperty("mono", true);
     // T-02: use fg2 token for dim detail text.
     _detailLabel->setStyleSheet(
-        QString("font-size:10px; color:%1;").arg(gp::Theme::fg2().name()));
+        QString("font-size:8pt; color:%1;").arg(gp::Theme::fg2().name()));
     badge->addWidget(_detailLabel);
     sl->addLayout(badge);
     bl->addWidget(sizeRow);
