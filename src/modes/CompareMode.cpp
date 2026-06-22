@@ -36,12 +36,15 @@ CompareMode::CompareMode(QWidget* parent) : QWidget(parent) {
     hrow->addWidget(mono(tr("COMPARE")));
     m_filesLabel = mono(tr("No files selected — use Compare Docs to open two PDFs"));
     hrow->addWidget(m_filesLabel);
-    auto* prev = new QToolButton; prev->setText(tr("← PREV")); prev->setProperty("variant","ghost");
-    prev->setToolTip(tr("Navigate to previous change"));
-    hrow->addWidget(prev);
-    auto* next = new QToolButton; next->setText(tr("NEXT →")); next->setProperty("variant","ghost");
-    next->setToolTip(tr("Navigate to next change"));
-    hrow->addWidget(next);
+    m_prevBtn = new QToolButton; m_prevBtn->setText(tr("← PREV")); m_prevBtn->setProperty("variant","ghost");
+    m_prevBtn->setToolTip(tr("Navigate to previous change"));
+    // O4: disabled until a diff completes and produces at least one change.
+    m_prevBtn->setEnabled(false);
+    hrow->addWidget(m_prevBtn);
+    m_nextBtn = new QToolButton; m_nextBtn->setText(tr("NEXT →")); m_nextBtn->setProperty("variant","ghost");
+    m_nextBtn->setToolTip(tr("Navigate to next change"));
+    m_nextBtn->setEnabled(false);
+    hrow->addWidget(m_nextBtn);
     m_statusLabel = mono(tr("CHANGE 0 OF 0"));
     hrow->addWidget(m_statusLabel);
     hrow->addStretch(1);
@@ -70,8 +73,8 @@ CompareMode::CompareMode(QWidget* parent) : QWidget(parent) {
     col->addWidget(m_compareWidget, 1);
 
     // Wire PREV/NEXT to CompareWidget navigation (captured after m_compareWidget exists)
-    connect(prev, &QToolButton::clicked, m_compareWidget, &CompareWidget::prevChange);
-    connect(next, &QToolButton::clicked, m_compareWidget, &CompareWidget::nextChange);
+    connect(m_prevBtn, &QToolButton::clicked, m_compareWidget, &CompareWidget::prevChange);
+    connect(m_nextBtn, &QToolButton::clicked, m_compareWidget, &CompareWidget::nextChange);
 
     // changes panel
     auto* changes = new QFrame;
@@ -102,6 +105,9 @@ void CompareMode::compareFiles(const QString& file1, const QString& file2) {
     m_statusLabel->setText(tr("COMPARING..."));
     m_tree->clear();
     if (m_exportBtn) m_exportBtn->setEnabled(false);
+    // O4: reset nav buttons while comparison is running.
+    if (m_prevBtn) m_prevBtn->setEnabled(false);
+    if (m_nextBtn) m_nextBtn->setEnabled(false);
 
     QFuture<DiffResult> future = QtConcurrent::run([file1, file2]() {
         DiffEngine engine;
@@ -117,8 +123,13 @@ void CompareMode::onDiffFinished() {
 
     if (m_lastResult.isIdentical) {
         m_statusLabel->setText(tr("FILES ARE IDENTICAL"));
+        // No changes — leave PREV/NEXT disabled.
         return;
     }
+
+    // O4: enable PREV/NEXT only now that we know there are actual changes.
+    if (m_prevBtn) m_prevBtn->setEnabled(true);
+    if (m_nextBtn) m_nextBtn->setEnabled(true);
 
     int totalChanges = 0;
     m_tree->clear();
