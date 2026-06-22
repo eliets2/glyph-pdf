@@ -13,6 +13,7 @@ extern "C" {
 #include <stdexcept>
 #include <sstream>
 #include <vector>
+#include <cstdlib>
 
 namespace pdfws {
 
@@ -49,6 +50,66 @@ static void sandboxLuaState(lua_State* L) {
         lua_setglobal(L, blocked[i]);
     }
 }
+
+// ---------------------------------------------------------------------------
+// M-1: DoS guard. djotToDocument parses attacker-influenced content with the
+// vendored djot.lua parser, which had no instruction or memory ceiling — a
+// pathological input could spin the Lua VM (or recurse) and hang/OOM the app.
+//
+// Install a count hook that fires every kHookInterval VM instructions and
+// raises a Lua error once the cumulative budget is exhausted. The error
+// propagates through the surrounding lua_pcall and is reported as a normal
+// parse failure (no crash, no hang). The budget is generous relative to any
+// legitimate document but bounds worst-case work to a constant.
+// ---------------------------------------------------------------------------
+namespace {
+constexpr int kHookInterval = 100000;        // instructions between hook calls
+constexpr long long kMaxInstructions = 2000000000LL; // ~20k hook calls ceiling
+
+struct LuaBudget { long long remaining = kMaxInstructions; };
+
+// Per-state budget storage. djotToDocument creates a fresh lua_State per call
+// and runs single-threaded, so a function-local LuaBudget addressed via the
+// hook is sufficient; we stash its pointer in the hook's lifetime below.
+LuaBudget* g_activeBudget = nullptr;
+
+void instructionLimitHook(lua_State* L, lua_Debug*) {
+    if (g_activeBudget) {
+        g_activeBudget->remaining -= kHookInterval;
+        if (g_activeBudget->remaining <= 0) {
+            luaL_error(L, "instruction budget exceeded (possible DoS input)");
+        }
+    }
+}
+
+// M-1: memory ceiling. A custom lua_Alloc tracks live bytes and refuses any
+// growth allocation past kMaxLuaBytes, so a pathological input cannot OOM the
+// host process; Lua surfaces the refusal as a normal "not enough memory" error.
+constexpr size_t kMaxLuaBytes = 256u * 1024u * 1024u; // 256 MiB hard cap
+
+struct LuaMem { size_t live = 0; };
+
+void* boundedAlloc(void* ud, void* ptr, size_t osize, size_t nsize) {
+    auto* m = static_cast<LuaMem*>(ud);
+    if (nsize == 0) {
+        std::free(ptr);
+        if (m && osize <= m->live) m->live -= osize;
+        return nullptr;
+    }
+    // Refuse growth that would exceed the ceiling (osize==0 for new blocks).
+    if (m && nsize > osize) {
+        size_t growth = nsize - osize;
+        if (m->live + growth > kMaxLuaBytes)
+            return nullptr; // Lua treats NULL as allocation failure
+    }
+    void* np = std::realloc(ptr, nsize);
+    if (np && m) {
+        m->live -= (osize <= m->live ? osize : m->live);
+        m->live += nsize;
+    }
+    return np;
+}
+} // namespace
 
 // ---------------------------------------------------------------------------
 // Djot emitter — C++ tree-walker producing Djot syntax from SemanticDocument.
@@ -527,10 +588,20 @@ std::string LuaDjotCodec::documentToDjot(const docmodel::SemanticDocument& doc)
 }
 
 std::unique_ptr<docmodel::SemanticDocument> LuaDjotCodec::djotToDocument(const std::string& djotText) {
-    // Create a fresh Lua state for each parse (simple & safe)
-    lua_State* L = luaL_newstate();
+    // M-1: create the state with a bounded allocator so parsing attacker-
+    // influenced content cannot OOM the process (256 MiB live ceiling).
+    LuaMem mem;
+    lua_State* L = lua_newstate(boundedAlloc, &mem);
     if (!L)
         throw std::runtime_error("LuaDjotCodec: could not create Lua state");
+
+    // M-1: install an instruction-count hook with a per-call budget so a
+    // pathological input cannot hang the VM. g_activeBudget is cleared on every
+    // exit path (including thrown exceptions) by this RAII guard.
+    LuaBudget budget;
+    g_activeBudget = &budget;
+    struct BudgetGuard { ~BudgetGuard() { g_activeBudget = nullptr; } } budgetGuard;
+    lua_sethook(L, instructionLimitHook, LUA_MASKCOUNT, kHookInterval);
 
     luaL_openlibs(L);
     // Restrict package.path BEFORE loading djot.lua so that submodule
@@ -547,7 +618,11 @@ std::unique_ptr<docmodel::SemanticDocument> LuaDjotCodec::djotToDocument(const s
     }
     lua_pushstring(L, "djot");
     if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
-        std::string err = lua_tostring(L, -1);
+        // lua_tostring returns NULL when the error value is not a string and has
+        // no __tostring metamethod (e.g. error(setmetatable({}, {}))); constructing
+        // std::string from NULL is UB and aborts under hardened libstdc++.
+        const char* e = lua_tostring(L, -1);
+        std::string err = e ? e : "unknown lua error";
         lua_close(L);
         throw std::runtime_error("LuaDjotCodec: failed to require djot: " + err);
     }
@@ -565,7 +640,8 @@ std::unique_ptr<docmodel::SemanticDocument> LuaDjotCodec::djotToDocument(const s
 
     lua_pushstring(L, djotText.c_str());
     if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
-        std::string err = lua_tostring(L, -1);
+        const char* e = lua_tostring(L, -1);
+        std::string err = e ? e : "unknown lua error";
         lua_close(L);
         throw std::runtime_error("LuaDjotCodec: djot.parse failed: " + err);
     }
