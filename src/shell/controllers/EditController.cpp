@@ -416,34 +416,56 @@ void EditController::runOcr() {
 
             if (pageImg.isNull()) {
                 error = QStringLiteral("OCR failed: could not render page.");
+            } else if (!self) {
+                error = QStringLiteral("OCR failed: editor was closed.");
             } else {
-                // Build primary + optional secondary engine from preference.
-                std::shared_ptr<IOcrEngine> primary = std::make_shared<OcrEngine>();
+                // P4: reuse cached engine instances instead of rebuilding them
+                // (and their ONNX/Tesseract sessions) on every OCR run. Engines are
+                // (re)initialized only when first used or when the language changes.
+                // Serialized by _ocrRunning, so accessing self's cached members from
+                // this worker thread is race-free.
+                const QString lang = QStringLiteral("eng");
+                std::shared_ptr<IOcrEngine> primary;
                 std::shared_ptr<IOcrEngine> secondary;
 
                 if (wantRapid || wantEnsemble) {
-                    auto rapid = std::make_shared<RapidOcrEngine>();
-                    if (!rapid->initialize(QStringLiteral("eng"))) {
+                    if (!self->_ocrRapid) {
+                        self->_ocrRapid = std::make_shared<RapidOcrEngine>();
+                        self->_ocrRapidLang.clear();
+                    }
+                    // initialize() is a no-op past the first successful call for the
+                    // same language thanks to RapidOcrEngine's own init guard.
+                    if (!self->_ocrRapid->initialize(lang)) {
                         // initialize() already logged the reason; surface it to the user.
+                        self->_ocrRapidLang.clear();
                         error = QStringLiteral(
                             "OCR failed: RapidOCR engine could not be initialised. "
                             "Check that the PP-OCRv5 ONNX models are installed correctly.");
-                    } else if (wantRapid) {
-                        // RapidOCR-only: use as primary, no secondary
-                        secondary = nullptr;
-                        primary   = rapid;  // replace primary
                     } else {
-                        // Ensemble: Tesseract primary, RapidOCR secondary (ROVER merge)
-                        secondary = rapid;
+                        self->_ocrRapidLang = lang;
+                        if (wantRapid) {
+                            // RapidOCR-only: use as primary, no secondary
+                            primary   = self->_ocrRapid;
+                            secondary = nullptr;
+                        } else {
+                            // Ensemble: Tesseract primary, RapidOCR secondary (ROVER merge)
+                            secondary = self->_ocrRapid;
+                        }
                     }
                 }
 
-                if (error.isEmpty()) {
-                    // Initialise Tesseract primary (unless replaced by rapid above)
-                    if (!wantRapid) {
-                        if (!primary->initialize(QStringLiteral("eng"))) {
-                            error = QStringLiteral("OCR failed: Tesseract English language data is unavailable.");
-                        }
+                if (error.isEmpty() && !wantRapid) {
+                    // Tesseract primary (cached). RapidOCR-only path skips this.
+                    if (!self->_ocrTesseract) {
+                        self->_ocrTesseract = std::make_shared<OcrEngine>();
+                        self->_ocrTesseractLang.clear();
+                    }
+                    if (!self->_ocrTesseract->initialize(lang)) {
+                        self->_ocrTesseractLang.clear();
+                        error = QStringLiteral("OCR failed: Tesseract English language data is unavailable.");
+                    } else {
+                        self->_ocrTesseractLang = lang;
+                        primary = self->_ocrTesseract;
                     }
                 }
 
