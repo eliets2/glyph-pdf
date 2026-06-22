@@ -158,9 +158,11 @@ private:
         QPixmap pixmap;
         qreal scaleFactor = 0.0;
         qint64 lastAccessed = 0;
+        qint64 bytes = 0;       // cached pixmap size; tracked so eviction needn't re-sum
     };
     mutable QHash<int, CachedPage> m_pageCache;
     mutable qint64 m_cacheAccessCounter = 0;
+    mutable qint64 m_cacheTotalBytes = 0;   // P9: running sum of all cached pixmap bytes
     static constexpr qint64 MaxCacheBytes = 256 * 1024 * 1024; // 256MB
 
     // Save debounce (Fix 7)

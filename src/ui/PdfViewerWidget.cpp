@@ -611,21 +611,25 @@ QImage PdfViewerWidget::renderPage(int page, qreal scaleFactor) const
     QPdfDocumentRenderOptions opts;
     QImage result = m_document->render(page, imageSize, opts);
 
-    // Store in cache
+    // Store in cache. P9: keep a running byte total instead of re-summing the
+    // whole cache on every insert. If this page already had an entry (e.g. cached
+    // at a different scale), discount its bytes before inserting the replacement.
     m_cacheAccessCounter++;
+    if (const auto old = m_pageCache.constFind(page); old != m_pageCache.constEnd()) {
+        m_cacheTotalBytes -= old->bytes;
+    }
     CachedPage item;
     item.pixmap = QPixmap::fromImage(result);
     item.scaleFactor = scaleFactor;
     item.lastAccessed = m_cacheAccessCounter;
+    item.bytes = pixmapSizeInBytes(item.pixmap);
+    m_cacheTotalBytes += item.bytes;
     m_pageCache.insert(page, item);
 
-    // LRU eviction based on memory budget
-    qint64 totalBytes = 0;
-    for (const auto &cached : m_pageCache) {
-        totalBytes += pixmapSizeInBytes(cached.pixmap);
-    }
-
-    while (totalBytes > MaxCacheBytes && !m_pageCache.isEmpty()) {
+    // LRU eviction based on memory budget. The running total avoids the O(n)
+    // re-sum per insert; each eviction is one linear scan for the LRU victim
+    // (eviction is rare relative to inserts, and evicts only a handful of pages).
+    while (m_cacheTotalBytes > MaxCacheBytes && !m_pageCache.isEmpty()) {
         int worstKey = -1;
         qint64 oldestAccess = std::numeric_limits<qint64>::max();
         for (auto it = m_pageCache.begin(); it != m_pageCache.end(); ++it) {
@@ -635,7 +639,7 @@ QImage PdfViewerWidget::renderPage(int page, qreal scaleFactor) const
             }
         }
         if (worstKey >= 0) {
-            totalBytes -= pixmapSizeInBytes(m_pageCache.value(worstKey).pixmap);
+            m_cacheTotalBytes -= m_pageCache.value(worstKey).bytes;
             m_pageCache.remove(worstKey);
         } else {
             break;
@@ -648,6 +652,7 @@ QImage PdfViewerWidget::renderPage(int page, qreal scaleFactor) const
 void PdfViewerWidget::clearPageCache()
 {
     m_pageCache.clear();
+    m_cacheTotalBytes = 0;
 }
 
 void PdfViewerWidget::extractPages(int from, int to, const QString &outputFile)
