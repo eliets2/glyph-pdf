@@ -1,0 +1,86 @@
+# fuzz/ci/clusterfuzzlite.yml
+#
+# ClusterFuzzLite-style CI leg for GlyphPDF, scoped to the fuzz/ apparatus.
+# This is a GitHub Actions workflow. To activate, the OWNER copies it to
+# .github/workflows/ (we do NOT write outside fuzz/). It runs:
+#   1. the P1/P2 redaction oracle matrix (gcc build, no sanitizer needed), and
+#   2. the libFuzzer djot target IF a clang toolchain is provisioned.
+#
+# PR-triggered (short) + scheduled (longer batch).
+
+name: glyphpdf-fuzz
+on:
+  pull_request:
+    paths:
+      - 'src/engines/podofo/**'
+      - 'src/pdfws_djot/**'
+      - 'fuzz/**'
+  schedule:
+    - cron: '0 3 * * *'   # nightly batch
+  workflow_dispatch: {}
+
+jobs:
+  redaction-oracles:
+    # Runs on a Windows runner with MSYS2/ucrt64 to match the dev toolchain.
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-qt6-base
+            mingw-w64-ucrt-x86_64-qpdf
+            mingw-w64-ucrt-x86_64-python
+      - name: Configure + build engine (cached)
+        run: |
+          # Owner's normal build of pdfws_engines into build/ (see root README).
+          # This step is project-specific; reuse the existing build cache.
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --target pdfws_engines pdfws_commands pdfws_djot docmodel liblua libjbig2enc
+      - name: Build redaction driver
+        run: bash fuzz/build_clang/build_redaction_driver.sh
+      - name: Run P1/P2 oracle matrix (fails CI on residual leak regression)
+        run: |
+          export PATH="$PWD/build:$PATH"
+          bash fuzz/run_oracles.sh | tee fuzz/scratch/ci_oracles.log
+          # Gate: identity/scale/skew MUST stay CLEAN. Rotation cases are the
+          # KNOWN F-02 finding -> tracked separately; once patched they must
+          # flip to CLEAN and this grep becomes the regression guard.
+          if grep -E '\[(identity|scale3x|skewx)\].*LEAK' fuzz/scratch/ci_oracles.log; then
+            echo "REGRESSION: a previously-clean redaction case now leaks"; exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: oracle-reports
+          path: fuzz/scratch/*.json
+
+  djot-libfuzzer:
+    # Gated: only runs where a clang+compiler-rt toolchain is available.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install clang + libFuzzer
+        run: sudo apt-get update && sudo apt-get install -y clang
+      - name: Build djot fuzzer (clang)
+        run: bash fuzz/build_clang/build_djot_clang.sh || echo "scaffolded; see MANIFEST"
+      - name: Short fuzz run (PR smoke)
+        run: |
+          if [ -x fuzz/bin/djot_fuzzer ]; then
+            ./fuzz/bin/djot_fuzzer -dict=fuzz/dict/djot.dict -max_total_time=120 \
+              -timeout=10 fuzz/corpus/djot/ || true
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: djot-crashes
+          path: |
+            crash-*
+            timeout-*

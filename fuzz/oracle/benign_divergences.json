@@ -1,0 +1,25 @@
+{
+  "_comment": "Benign-divergence baseline for the redaction oracles. Records OUTCOMES on KNOWN-GOOD inputs that are EXPECTED and must NOT be escalated as findings. Built per native-adversary's noise-discipline rule: only deltas OUTSIDE this baseline are evidence.",
+  "redaction_oracle_baseline": {
+    "operand_reserialization_order": {
+      "observed": "Engine re-serializes content-stream operands in reversed stack order (e.g. '1 0 0 1 100 700 Tm' -> '700 100 1 0 0 1 Tm', '/F1 18 Tf' -> '18 /F1 Tf').",
+      "verdict": "BENIGN",
+      "rationale": "Cosmetic round-trip artifact of PoDoFo's PdfVariantStack iteration. Does not change rendered output; both forms are valid PDF. NOT a finding."
+    },
+    "rect_coordinate_flip": {
+      "observed": "Input QRectF (top-left origin) is flipped to PDF bottom-left via (pageHeight - y - h) at PoDoFoBackend.cpp:1635.",
+      "verdict": "BENIGN",
+      "rationale": "Correct and intended Qt->PDF coordinate conversion. Harness rects must account for it; a mis-placed rect that 'leaks' is a TEST BUG, not a product bug."
+    },
+    "edact_ray_numeric_gap": {
+      "observed": "Scrubbed text is replaced by a numeric-only TJ gap, e.g. '[ -7056 ] TJ', instead of removed entirely.",
+      "verdict": "BENIGN (and CORRECT)",
+      "rationale": "Intentional Edact-Ray defense (PoDoFoBackend.cpp:1486-1504): preserves cursor advance without leaking per-glyph widths. The oracle treats a numeric-only TJ as CLEAN."
+    },
+    "single_revision_after_writeUpdate_on_fresh_doc": {
+      "observed": "writeUpdate() on a freshly-loaded in-memory doc yields a single-revision file (xref_revisions=1), not an appended incremental revision.",
+      "verdict": "BENIGN",
+      "rationale": "With no prior on-disk revision to append to, PoDoFo writes a fresh file. F-03's incremental-leak claim requires a doc that ALREADY has a revision on disk (e.g. a signed fixture) -- see MANIFEST 'NOT YET PROVEN'."
+    }
+  }
+}

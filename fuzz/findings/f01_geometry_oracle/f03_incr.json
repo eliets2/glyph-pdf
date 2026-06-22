@@ -1,0 +1,10 @@
+{
+  "pdf": "C:/Users/User/Projects/pdf/fuzz/scratch/f03_incr.pdf",
+  "secret": "F03SECRET",
+  "file_size": 1095,
+  "xref_revisions": 1,
+  "raw_body_hits": {},
+  "qdf_normalized_hits": {},
+  "qdf_rc": 0,
+  "verdict": "CLEAN"
+}
