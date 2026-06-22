@@ -201,3 +201,135 @@ links via `pdfws_ui`). `ctest -j4` → 40/40 (was 39 + the new test); a parallel
 run intermittently shows the known TestBatchMode parallel-repeat flake, which
 passes single-pass (`ctest -R TestBatchMode` → 1/1 Passed). TestMenuBarIntegrity
 and TestRibbonIntegrity both Passed. No `main` push performed.
+
+## Performance fixes applied
+
+Branch: `main` (commits local-only, no push). Build: `cmake --build build`.
+Suite after every fix: `QT_QPA_PLATFORM=offscreen ctest -j4` → **100% / 40**
+(TestBatchMode is a known parallel-repeat flake; passes single-pass). Each fix
+is behavior-preserving and was kept to the smallest correct diff; no test was
+weakened, and the M-3 ReDoS input cap in PatternRedactor and the redaction
+text-matrix logic were left intact.
+
+| # | ID | File | Commit |
+|---|----|------|--------|
+| 1 | P1 redaction full-parse-per-page | `src/engines/PatternRedactor.{h,cpp}`, `src/engines/PdfEditorEngine.cpp` | `e7d6e69` |
+| 2 | P4 OCR engine re-init per call | `src/shell/controllers/EditController.{h,cpp}` | `9ebd810` |
+| 3 | P9 viewer cache O(n) re-sum per insert | `src/ui/PdfViewerWidget.{h,cpp}` | `6d3377e` |
+| 4 | P12 OCR worker reloads open document | `src/shell/controllers/EditController.cpp` | `1625d62` |
+| 5 | P8 7-Zip packaging blocks GUI thread | `src/shell/controllers/HomeController.cpp` | `d316ffe` |
+
+### P1 — PatternRedactor parsed the whole PDF once per page per pattern
+
+`PatternRedactor::findMatches(path, pageIndex, pattern)` → `extractCharsWithPositions()`
+issued a full `FPDF_LoadDocument()`/`FPDF_CloseDocument()` on every call.
+`PdfEditorEngine::applyPatternRedactions` (`PdfEditorEngine.cpp:~1292`) called it
+once per page, and BatchMode calls `applyPatternRedactions` once per pattern, so
+the full-document parse cost was **O(N_pages × N_patterns)**.
+
+**Change:** added a batch overload `findMatches(path, pages, pattern) →
+QHash<int, QList<QRectF>>` (PatternRedactor.cpp:~330) that opens the
+`FPDF_DOCUMENT` exactly once and loops pages over the single open handle. The
+per-page extraction was refactored into `extractCharsFromOpenDoc(void* doc, …)`
+(PatternRedactor.cpp:~117, PDFium type kept behind `void*` so the header stays
+backend-agnostic), and the regex/M-3 logic into `matchChars()` so both code paths
+share one ReDoS bound. `applyPatternRedactions` now collects all matches in a
+single pass (`PdfEditorEngine.cpp:~1292`).
+
+**Cost:** document parse drops from **O(N_pages)** to **O(1)** per
+`applyPatternRedactions` call → from **O(N_pages × N_patterns)** to
+**O(N_patterns)** full parses across a BatchMode run. The single-page
+`findMatches` API is unchanged (still used by RedactMode preview and
+TestPatternRedact). **ctest: 40/40** (TestPatternRedact, TestRedaction,
+TestBatchMode all Passed).
+
+### P4 — OCR engines re-initialised (3 ONNX sessions + Tesseract) every run
+
+`EditController::runOcr` (`EditController.cpp:~421,425`) built a fresh `OcrEngine`
+and `RapidOcrEngine` per OCR action. `RapidOcrEngine::initialize` constructs three
+ONNX sessions (det/cls/rec) from disk and `OcrEngine::initialize` spins up the
+Tesseract API; because the instance was thrown away each call, each engine's own
+"already initialized" guard (RapidOcrEngine.cpp:54, OcrEngine.cpp:167) never fired.
+
+**Change:** cache one Tesseract + one RapidOCR instance on the controller
+(`EditController.h` members `_ocrTesseract`/`_ocrRapid` + tracked langs) and reuse
+them across runs; reinit only on a language change. Engine/strategy selection and
+the honest-availability checks are unchanged. Access from the OCR worker thread is
+race-free because runs are serialised by `_ocrRunning`.
+
+**Cost:** model/session load drops from **once per OCR run** to **once per
+process** (per engine). **ctest: 40/40** (TestRapidOcr, TestRover, TestControllers
+Passed).
+
+### P9 — viewer page-cache eviction re-summed all bytes per insert
+
+`PdfViewerWidget::renderPage` (`PdfViewerWidget.cpp:~622`) summed every cached
+pixmap's bytes on every insert (an **O(n)** re-walk on the UI thread) before the
+LRU victim scan.
+
+**Change:** store each entry's byte size on `CachedPage` and maintain a running
+`m_cacheTotalBytes`, updated on insert / same-page replace / evict / clear. The
+per-eviction linear scan for the LRU victim is kept (eviction is rare and removes
+few pages). 256 MB budget and LRU policy unchanged.
+
+**Cost:** per-insert accounting drops from **O(n)** to **O(1)** amortised.
+**ctest: 40/40.**
+
+### P12 — OCR worker reloaded the already-open document
+
+The OCR worker did a fresh `QPdfDocument::load(filePath)` + `render()`
+(`EditController.cpp:~406`) although the viewer already had the document loaded
+and the page rendered/cached.
+
+**Change:** render the page on the GUI thread via `viewer->renderPage(page, 2.0)`
+(reusing the viewer's `QPdfDocument` and render cache) and pass the `QImage` into
+the worker, which now only runs OCR. `renderPage(page, 2.0)` reproduces the
+worker's previous scale (`pageSize * 2.0`) exactly. This also removes a latent
+correctness bug: `QPdfDocument` is not thread-safe, so rendering it on the worker
+thread (separate from its owning GUI thread) was unsafe.
+
+**Cost:** eliminates a redundant full-document parse + render per OCR run and
+benefits from the viewer cache. **ctest: 40/40.**
+
+### P8 — 7-Zip packaging blocked the GUI thread
+
+`HomeController::createEncryptedPackage` (`HomeController.cpp:~377`) called
+`proc.waitForFinished(-1)` on the GUI thread, freezing the event loop for the
+entire 7-Zip run.
+
+**Change:** move the `QProcess` into a `QtConcurrent::run` worker and report via
+`QFutureWatcher` + `QProgressDialog` — the exact pattern the Office/Images-to-PDF
+converters in this file already use (`HomeController.cpp:~576,632`). Only a small
+result struct crosses back to the GUI thread; the success/failure dialogs are
+unchanged.
+
+**Cost:** GUI stays responsive (with a modal progress dialog) during packaging.
+**ctest: 40/40.**
+
+### Deferred (not attempted — reported for focused follow-up)
+
+- **P2 — thumbnails render on the UI thread during scroll** (`ThumbnailSidebar.cpp:~313`,
+  `m_renderCache->getOrRender(...)` inside `createThumbnailWidget`).
+  **Blocker:** `RenderCache` has no internal locking (verified — no mutex in
+  `RenderCache.{h,cpp}`) and the renderer is a GUI-thread object, so it cannot be
+  called from a worker as-is. A correct offload needs (a) making RenderCache
+  thread-safe, and (b) placeholder-then-swap via a queued signal keyed by page
+  index, guarded against the virtualized widgets being recycled/destroyed before
+  the render lands (stale render must not write to a reused widget). That is a
+  correctness-sensitive change needing new threading tests — out of the
+  smallest-correct-diff, stay-green envelope for this pass.
+- **P7 — print-preview render loop on the GUI thread** (`HomeController.cpp:~459-471`).
+  **Blocker:** `QPrintPreviewDialog::paintRequested` requires painting onto the
+  `QPrinter` synchronously inside the signal handler; `QPainter`-on-`QPrinter`
+  cannot move to a worker. Only the `doc->render()` calls are offloadable, and
+  only by pre-rendering all pages before the modal `preview.exec()` and caching
+  them — a larger restructure with its own lifetime concerns and marginal benefit.
+  Left for a focused pass.
+- **P3 — async document open.** As instructed, not attempted: it is a larger
+  load-flow change and is noted here for a dedicated follow-up.
+
+**Verification:** `cmake --build build` clean after every fix. `ctest -j4` →
+**40/40** after each of the five commits (TestBatchMode parallel-repeat flake
+passes single-pass: `ctest -R TestBatchMode` → 1/1). CMakeLists release flags and
+`.github/` were not touched (devops owns LTO); the PatternRedactor M-3 ReDoS cap
+and the redaction text-matrix logic were preserved. No `main` push performed.
