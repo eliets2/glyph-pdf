@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
 PackageIdentifier: Glyph.GlyphPDF
-PackageVersion: 1.3.2.2
+PackageVersion: 1.3.2.3
 PackageLocale: en-US
 Publisher: Glyph
 PublisherUrl: https://github.com/eliets2/glyph-pdf
@@ -35,6 +35,6 @@ ReleaseNotes: >-
   binary hardening flags (stack-protector-strong, FORTIFY_SOURCE=2, ASLR/DEP/HEASLR,
   Release-default build type); feature gate (hard-fail release if any shipped feature
   define is unexpectedly off).
-ReleaseNotesUrl: https://github.com/eliets2/glyph-pdf/releases/tag/v1.3.2.2
+ReleaseNotesUrl: https://github.com/eliets2/glyph-pdf/releases/tag/v1.3.2.3
 ManifestType: defaultLocale
 ManifestVersion: 1.6.0

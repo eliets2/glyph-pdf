@@ -2,6 +2,34 @@
 
 All notable changes to GlyphPDF are documented in this file.
 
+## [1.3.2.3] — 2026-06-22
+
+Security & hardening release from a full multi-agent audit (security, dead-code,
+performance, fresh UI/UX) with adversarial fuzzing.
+
+### Security
+- **Redaction now removes rotated/scaled text.** The redaction overlap test ignored
+  the text matrix's rotation/scale, so text drawn at an angle could remain
+  extractable under the black box. Redaction now honors the full text matrix
+  (confirmed by a fuzzing oracle).
+- **Redaction audit log no longer leaks.** The sidecar log written next to the file
+  (with exact regions + a hash of the un-redacted document) is now opt-in, stored in
+  your app-data folder, and no longer records coordinates or the original hash.
+- PDF/A validation rejects file paths containing shell metacharacters; the Djot parser
+  is hardened against malformed input (crash + denial-of-service); custom redaction
+  regexes are bounded against catastrophic backtracking.
+
+### Fixed
+- **Menu commands that did nothing now work or are correctly disabled** — Cut/Copy/Paste
+  and several Forms/Document items were silently no-ops; a new integrity test prevents
+  regressions. Encrypting with default permissions no longer wrongly demands an owner
+  password.
+
+### Performance
+- Pattern redaction parses the document once instead of once per page per pattern;
+  OCR engines are loaded once and reused; thumbnail/cache bookkeeping is O(1); secure
+  ZIP packaging no longer freezes the window. The shipped build is now LTO-optimized.
+
 ## [1.3.2.2] — 2026-06-22
 
 UI/UX sweep — a full audit of the interface fixed a cluster of controls that
