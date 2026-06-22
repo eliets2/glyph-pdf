@@ -25,6 +25,8 @@
 #include <QJsonArray>
 #include <QCryptographicHash>
 #include <QRandomGenerator>
+#include <QStandardPaths>
+#include <cstdlib>
 
 
 #ifndef M_PI
@@ -1666,14 +1668,18 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
     if (!d->document || pageIndex < 0 || (unsigned)pageIndex >= d->document->GetPages().GetCount()) return false;
 
     try {
-        QByteArray beforeHash;
-        if (!d->currentFile.isEmpty() && QFile::exists(d->currentFile)) {
-            QFile file(d->currentFile);
-            if (file.open(QIODevice::ReadOnly)) {
-                beforeHash = QCryptographicHash::hash(file.readAll(), QCryptographicHash::Sha256).toHex();
-                file.close();
-            }
-        }
+        // F-05: the audit log is OPT-IN and OFF by default. When co-located with
+        // the output it leaked the redacted-region coordinates and a SHA-256 of
+        // the UN-redacted source (a fingerprint that can confirm the original
+        // content) right next to the redacted file under the source's default
+        // ACL. We now only produce the log when the user explicitly enables it
+        // (env GLYPHPDF_REDACTION_AUDIT=1), write it to a per-user app-data dir
+        // rather than beside the source, and omit the pre-redaction hash and the
+        // exact coordinates (only the region count is recorded).
+        const bool auditLogEnabled = []() {
+            const char* v = std::getenv("GLYPHPDF_REDACTION_AUDIT");
+            return v && v[0] && v[0] != '0';
+        }();
 
         PoDoFo::PdfPage& page = d->document->GetPages().GetPageAt(pageIndex);
         double pageHeight = page.GetMediaBox().Height;
@@ -1802,55 +1808,56 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
             annos.RemoveAnnotAt(*it);
         }
 
-        // D4: Generate JSON sidecar audit log
-        if (!d->currentFile.isEmpty()) {
+        // F-05: JSON audit log — OPT-IN, OFF by default. When enabled, write to a
+        // per-user app-data location (NOT beside the source) and record only the
+        // region COUNT plus the after-hash. No before_sha256 and no exact
+        // coordinates, so the log cannot fingerprint the original or reveal what
+        // was hidden where.
+        if (auditLogEnabled && !d->currentFile.isEmpty()) {
             std::vector<char> afterBuffer;
             PoDoFo::VectorStreamDevice afterDevice(afterBuffer);
             d->document->Save(afterDevice);
             QByteArray afterHash = QCryptographicHash::hash(
-                QByteArray(afterBuffer.data(), static_cast<int>(afterBuffer.size())), 
+                QByteArray(afterBuffer.data(), static_cast<int>(afterBuffer.size())),
                 QCryptographicHash::Sha256).toHex();
 
-            QString logPath = d->currentFile + ".redaction-log.json";
-            QJsonArray logArray;
-            QFile logFile(logPath);
-            if (logFile.exists() && logFile.open(QIODevice::ReadOnly)) {
-                QJsonDocument doc = QJsonDocument::fromJson(logFile.readAll());
-                if (doc.isArray()) {
-                    logArray = doc.array();
+            QString logDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+            if (logDir.isEmpty())
+                logDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+            if (!logDir.isEmpty() && QDir().mkpath(logDir)) {
+                QString logPath = QDir(logDir).filePath("redaction-audit.json");
+                QJsonArray logArray;
+                QFile logFile(logPath);
+                if (logFile.exists() && logFile.open(QIODevice::ReadOnly)) {
+                    QJsonDocument doc = QJsonDocument::fromJson(logFile.readAll());
+                    if (doc.isArray()) {
+                        logArray = doc.array();
+                    }
+                    logFile.close();
                 }
-                logFile.close();
-            }
 
-            QJsonObject entry;
-            entry["timestamp"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
-            entry["page"] = pageIndex;
+                QJsonObject entry;
+                entry["timestamp"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+                entry["page"] = pageIndex;
+                // Identify the document by name only; do NOT store a hash of the
+                // un-redacted source.
+                entry["file"] = QFileInfo(d->currentFile).fileName();
+                entry["region_count"] = static_cast<int>(rects.size());
 
-            QJsonArray regionsJson;
-            for (const auto& r : rects) {
-                QJsonObject regObj;
-                regObj["x"] = r.x();
-                regObj["y"] = r.y();
-                regObj["width"] = r.width();
-                regObj["height"] = r.height();
-                regionsJson.append(regObj);
-            }
-            entry["regions"] = regionsJson;
+                QJsonArray ops;
+                ops.append("excised_text_operators");
+                if (!redactedMcids.empty()) {
+                    ops.append("scrubbed_structure_elements");
+                }
+                entry["operations"] = ops;
+                entry["after_sha256"] = QString(afterHash);
 
-            QJsonArray ops;
-            ops.append("excised_text_operators");
-            if (!redactedMcids.empty()) {
-                ops.append("scrubbed_structure_elements");
-            }
-            entry["operations"] = ops;
-            entry["before_sha256"] = QString(beforeHash);
-            entry["after_sha256"] = QString(afterHash);
+                logArray.append(entry);
 
-            logArray.append(entry);
-
-            if (logFile.open(QIODevice::WriteOnly)) {
-                logFile.write(QJsonDocument(logArray).toJson(QJsonDocument::Indented));
-                logFile.close();
+                if (logFile.open(QIODevice::WriteOnly)) {
+                    logFile.write(QJsonDocument(logArray).toJson(QJsonDocument::Indented));
+                    logFile.close();
+                }
             }
         }
 
