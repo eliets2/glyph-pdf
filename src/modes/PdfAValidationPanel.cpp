@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "PdfAValidationPanel.h"
+#include "GpMainWindow.h"
+#include "ui/PdfViewerWidget.h"
 #include "util/GpTheme.h"
 #include "util/Badge.h"
 
@@ -21,7 +23,12 @@ namespace gp {
 // ---------------------------------------------------------------------------
 // Helper: build a single violation row widget
 // ---------------------------------------------------------------------------
-static QWidget* issueRow(const QString& rule, const QString& descr, bool err) {
+// `panel` is the owning PdfAValidationPanel (used to reach the MainWindow's
+// viewer for the JUMP action). `pageNumber` is 1-based (veraPDF convention) or
+// -1 when the location is unknown — in that case the JUMP button is hidden so
+// it is never a dead control.
+static QWidget* issueRow(QWidget* panel, const QString& rule, const QString& descr,
+                         bool err, int pageNumber) {
     auto* w = new QFrame;
     w->setStyleSheet(QString("background:#1a1b1e; border:1px solid #393b40; border-left:3px solid %1; padding:8px 10px; margin-bottom:6px;")
         .arg(err ? "#c8442b" : "#ff8c42"));
@@ -38,6 +45,26 @@ static QWidget* issueRow(const QString& rule, const QString& descr, bool err) {
     h->addWidget(dot);
     h->addWidget(lbl, 1);
     h->addWidget(jump);
+
+    if (pageNumber >= 1) {
+        jump->setAccessibleName(QObject::tr("Jump to page %1").arg(pageNumber));
+        // Navigate the viewer to the violation's page. veraPDF page numbers are
+        // 1-based; goToPage() is 0-based.
+        const int targetPage = pageNumber - 1;
+        QObject::connect(jump, &QPushButton::clicked, panel, [panel, targetPage]() {
+            for (QWidget* p = panel; p; p = p->parentWidget()) {
+                if (auto* mw = qobject_cast<MainWindow*>(p)) {
+                    if (auto* viewer = mw->pdfViewer())
+                        viewer->goToPage(targetPage);
+                    break;
+                }
+            }
+        });
+    } else {
+        // No page information for this violation — hide rather than leave a
+        // button that does nothing.
+        jump->hide();
+    }
     return w;
 }
 
@@ -220,7 +247,7 @@ void PdfAValidationPanel::updateDisplay(const PdfAValidationReport& report) {
                 ? tr("%1 · Page %2").arg(v.description).arg(v.pageNumber)
                 : v.description;
             bool isError = (v.severity == "error");
-            m_issuesLayout->addWidget(issueRow(v.ruleId, label, isError));
+            m_issuesLayout->addWidget(issueRow(this, v.ruleId, label, isError, v.pageNumber));
         }
         m_issuesList->show();
 
