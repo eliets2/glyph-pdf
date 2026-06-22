@@ -4,6 +4,10 @@
 #include <QFile>
 #include <QDir>
 #include <QCoreApplication>
+#include <QStandardPaths>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 #include <podofo/podofo.h>
 #include "engines/PdfEditorEngine.h"
 #include "engines/SignatureManager.h"
@@ -295,26 +299,61 @@ private slots:
         QVERIFY2(streamStr.find(" ] TJ") != std::string::npos, "Should contain normalized TJ operator in the decoded content stream");
     }
 
+    // F-05: the audit log must be OPT-IN (default OFF), must never be co-located
+    // with the source, and must not leak the pre-redaction hash or exact region
+    // coordinates.
     void testAuditLogSidecar() {
+        // (a) Default OFF: no sidecar is written next to the source.
+        qunsetenv("GLYPHPDF_REDACTION_AUDIT");
         QString pdf = createTestPdfWithText("audit.pdf", "SECRET");
-        PdfEditorEngine engine;
-        QVERIFY(engine.loadDocumentForEditing(pdf));
-        QVERIFY(engine.applyRedactions(0, {QRectF(90, 90, 200, 30)}));
-        
+        {
+            PdfEditorEngine engine;
+            QVERIFY(engine.loadDocumentForEditing(pdf));
+            QVERIFY(engine.applyRedactions(0, {QRectF(90, 90, 200, 30)}));
+        }
         QString sidecar = pdf + ".redaction-log.json";
-        QVERIFY2(QFile::exists(sidecar), "Audit log sidecar should exist");
-        
-        QFile file(sidecar);
+        QVERIFY2(!QFile::exists(sidecar),
+                 "F-05: audit log must NOT be co-located with the source (default off)");
+
+        // (b) Opt-in: log is written to a per-user app-data location and contains
+        //     neither before_sha256 nor coordinate fields.
+        QString appData = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+        if (appData.isEmpty())
+            appData = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QString logPath = QDir(appData).filePath("redaction-audit.json");
+        QFile::remove(logPath); // start clean
+
+        qputenv("GLYPHPDF_REDACTION_AUDIT", "1");
+        QString pdf2 = createTestPdfWithText("audit2.pdf", "SECRET");
+        {
+            PdfEditorEngine engine;
+            QVERIFY(engine.loadDocumentForEditing(pdf2));
+            QVERIFY(engine.applyRedactions(0, {QRectF(90, 90, 200, 30)}));
+        }
+        qunsetenv("GLYPHPDF_REDACTION_AUDIT");
+
+        QVERIFY2(!QFile::exists(pdf2 + ".redaction-log.json"),
+                 "F-05: even when enabled the log must not sit beside the source");
+        QVERIFY2(QFile::exists(logPath),
+                 "F-05: opt-in audit log should be written to app-data");
+
+        QFile file(logPath);
         QVERIFY(file.open(QIODevice::ReadOnly));
-        QByteArray data = file.readAll();
-        QJsonDocument json = QJsonDocument::fromJson(data);
+        QJsonDocument json = QJsonDocument::fromJson(file.readAll());
+        file.close();
         QVERIFY2(json.isArray(), "Audit log should be a JSON array");
         auto arr = json.array();
         QVERIFY2(!arr.isEmpty(), "Audit log array should not be empty");
-        auto entry = arr.first().toObject();
-        QVERIFY(entry.contains("before_sha256"));
+        auto entry = arr.last().toObject();
+        QVERIFY2(!entry.contains("before_sha256"),
+                 "F-05: must not leak a hash of the un-redacted source");
+        QVERIFY2(!entry.contains("regions"),
+                 "F-05: must not leak exact redacted-region coordinates");
         QVERIFY(entry.contains("after_sha256"));
         QVERIFY(entry.contains("timestamp"));
+        QVERIFY(entry.contains("region_count"));
+
+        QFile::remove(logPath); // leave no test residue
     }
 
     void testOCRScrubbing() {
