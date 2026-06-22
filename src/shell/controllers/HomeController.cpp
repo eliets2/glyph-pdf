@@ -367,25 +367,55 @@ void HomeController::createEncryptedPackage(const QString& filePath) {
          << QDir::toNativeSeparators(outPath)
          << QDir::toNativeSeparators(filePath);
 
-    QProcess proc;
-    proc.start(sevenZip, args);
-    if (!proc.waitForStarted(5000)) {
-        QMessageBox::warning(_mainWindow, tr("Encrypted Package"),
-            tr("Could not launch 7-Zip."));
-        return;
-    }
-    proc.waitForFinished(-1);
+    // P8: run 7-Zip off the GUI thread. The previous proc.waitForFinished(-1)
+    // blocked the event loop for the entire (unbounded) packaging time, freezing
+    // the UI. Mirror the QFutureWatcher + QProgressDialog pattern used by the
+    // Office/Images converters below. The QProcess lives entirely inside the
+    // worker; only a small result struct crosses back to the GUI thread.
+    struct PackResult { bool launched = false; bool ok = false; int exitCode = 0; };
 
-    if (proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0
-        && QFileInfo::exists(outPath)) {
-        _mainWindow->statusBar()->showMessage(
-            tr("Encrypted package created: %1").arg(QFileInfo(outPath).fileName()), 5000);
-        QMessageBox::information(_mainWindow, tr("Encrypted Package"),
-            tr("AES-256 encrypted package created:\n%1").arg(outPath));
-    } else {
-        QMessageBox::warning(_mainWindow, tr("Encrypted Package"),
-            tr("7-Zip failed to create the package (exit code %1).").arg(proc.exitCode()));
-    }
+    auto* progress = new QProgressDialog(
+        tr("Creating encrypted package…"), QString(), 0, 0, _mainWindow);
+    progress->setWindowModality(Qt::WindowModal);
+    progress->setMinimumDuration(500);
+
+    auto* watcher = new QFutureWatcher<PackResult>(_mainWindow);
+    QObject::connect(watcher, &QFutureWatcher<PackResult>::finished, _mainWindow, [=]() {
+        progress->close();
+        progress->deleteLater();
+        const PackResult r = watcher->result();
+        watcher->deleteLater();
+
+        if (!r.launched) {
+            QMessageBox::warning(_mainWindow, tr("Encrypted Package"),
+                tr("Could not launch 7-Zip."));
+            return;
+        }
+        if (r.ok && QFileInfo::exists(outPath)) {
+            _mainWindow->statusBar()->showMessage(
+                tr("Encrypted package created: %1").arg(QFileInfo(outPath).fileName()), 5000);
+            QMessageBox::information(_mainWindow, tr("Encrypted Package"),
+                tr("AES-256 encrypted package created:\n%1").arg(outPath));
+        } else {
+            QMessageBox::warning(_mainWindow, tr("Encrypted Package"),
+                tr("7-Zip failed to create the package (exit code %1).").arg(r.exitCode));
+        }
+    });
+
+    watcher->setFuture(QtConcurrent::run([sevenZip, args]() -> PackResult {
+        PackResult r;
+        QProcess proc;
+        proc.start(sevenZip, args);
+        if (!proc.waitForStarted(5000)) {
+            return r;  // launched == false
+        }
+        r.launched = true;
+        proc.waitForFinished(-1);
+        r.exitCode = proc.exitCode();
+        r.ok = (proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0);
+        return r;
+    }));
+    progress->show();
 }
 
 void HomeController::onPrint() {
