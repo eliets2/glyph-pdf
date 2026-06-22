@@ -81,7 +81,7 @@ SignaturesPanel::SignaturesPanel(QWidget* parent) : QFrame(parent) {
     prevLay->addWidget(glyph);
     prevLay->addSpacing(12);
     m_previewText = new QLabel(
-        "<span style='color:#a8abb0; font-size:9px; letter-spacing:0.4px; font-family:JetBrains Mono'>"
+        "<span style='color:#a8abb0; font-size:8pt; letter-spacing:0.4px; font-family:JetBrains Mono'>"
         "Signature appearance preview.<br/>Loads signer identity from the<br/>selected certificate when you sign.</span>");
     m_previewText->setTextFormat(Qt::RichText);
     prevLay->addWidget(m_previewText, 1);
@@ -175,7 +175,7 @@ void SignaturesPanel::setDocument(const QString& filePath, ISignatureManager* si
 
     if (sigs.size() > 1) {
         m_previewText->setText(
-            tr("<span style='color:#a8abb0; font-size:9px; letter-spacing:0.4px; "
+            tr("<span style='color:#a8abb0; font-size:8pt; letter-spacing:0.4px; "
                "font-family:JetBrains Mono'>%1 signatures present.<br/>Showing the most "
                "recent below.</span>").arg(sigs.size()));
     }

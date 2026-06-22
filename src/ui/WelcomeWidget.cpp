@@ -42,7 +42,7 @@ static QPushButton* makeActionCard(QWidget* parent, const QString& iconName,
     auto* card = new QPushButton(parent);
     card->setObjectName("actionCard");
     card->setCursor(Qt::PointingHandCursor);
-    card->setFixedSize(140, 100);
+    card->setMinimumSize(140, 100);
 
     auto* layout = new QVBoxLayout(card);
     layout->setContentsMargins(0, 0, 0, 0);
