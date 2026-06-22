@@ -56,6 +56,13 @@ RedactMode::RedactMode(QWidget* parent) : QWidget(parent) {
     m_pillMarkPattern = makePill(tr("Mark by Pattern \xe2\x96\xbe")); // ▾
     m_pillMarkAll     = makePill(tr("Mark All Occurrences"));
 
+    // O1: "Mark Region" and "Mark All Occurrences" are not yet wired to a real
+    // engine action.  Hide them (consistent with the project hide-not-disable rule)
+    // until the region-selection and occurrence-search pipelines are implemented.
+    m_pillMarkRegion->setVisible(false);
+    m_pillMarkAll->setVisible(false);
+
+    // Only the wired pill is shown.
     row->addWidget(m_pillMarkRegion);
     row->addWidget(m_pillMarkPattern);
     row->addWidget(m_pillMarkAll);
@@ -224,6 +231,10 @@ void RedactMode::setAppContext(const AppContext* ctx) {
     m_ctx = ctx;
 }
 
+void RedactMode::setViewer(PdfViewerWidget* viewer) {
+    m_viewer = viewer;
+}
+
 void RedactMode::activateCustomRegex(const QString& initialPattern) {
     // Select the "Custom regex" item (last in combo)
     const int customIdx = m_patternCombo->count() - 1;
@@ -276,9 +287,10 @@ QList<int> RedactMode::resolvePageRange() const {
         return QList<int>();  // empty = all pages
     }
     if (m_scopeCurrentPage && m_scopeCurrentPage->isChecked()) {
-        // Current page — return page 0 as default.
-        // The caller (applyPatternRedactions) will act on whatever pages are listed.
-        return QList<int>{ 0 };
+        // Use the viewer's real current page (0-based).  Fall back to page 0 only
+        // when no viewer has been injected (e.g. unit-test context).
+        const int page = (m_viewer && m_viewer->isLoaded()) ? m_viewer->currentPage() : 0;
+        return QList<int>{ page };
     }
     if (m_pageRangeEdit) {
         const QString expr = m_pageRangeEdit->text().trimmed();
@@ -347,8 +359,11 @@ void RedactMode::onPreviewMatches() {
         return;
     }
 
-    // For preview: count matches across the requested scope (single page or first page if all)
-    int previewPage = 0;
+    // For preview: show matches on the explicitly requested page(s).
+    // When scope is "all pages" (empty list) or a custom range, preview the first
+    // page in the resolved set.  When scope is "current page" the list contains
+    // the real current page index from the viewer.
+    int previewPage = (m_viewer && m_viewer->isLoaded()) ? m_viewer->currentPage() : 0;
     if (!pages.isEmpty()) {
         previewPage = pages.first();
     }

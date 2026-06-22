@@ -54,6 +54,7 @@ void ModeController::setScreen(const QString& id) {
         else if (id == "redact") {
             auto* rm = new RedactMode(this);
             rm->setAppContext(_ctx);
+            rm->setViewer(_viewer);
             target = rm;
         }
         else if (id == "compare") target = new CompareMode(this);

@@ -4,6 +4,7 @@
 #include <QRegularExpression>
 
 struct AppContext;
+class PdfViewerWidget;
 class QComboBox;
 class QLineEdit;
 class QLabel;
@@ -23,6 +24,8 @@ public:
 
     // Called by ModeController after construction (same pattern as PagesMode/BatchMode).
     void setAppContext(const AppContext* ctx);
+    // Gives RedactMode visibility of the main viewer so "Current page" scope is real.
+    void setViewer(PdfViewerWidget* viewer);
 
     // Pre-select "Custom regex" and populate the regex line edit.
     void activateCustomRegex(const QString& initialPattern = {});
@@ -64,7 +67,8 @@ private:
     QToolButton* m_applyBtn    = nullptr;
     QToolButton* m_clearBtn    = nullptr;
 
-    const AppContext* m_ctx = nullptr;
+    const AppContext*  m_ctx    = nullptr;
+    PdfViewerWidget*   m_viewer = nullptr;
 };
 
 } // namespace gp
