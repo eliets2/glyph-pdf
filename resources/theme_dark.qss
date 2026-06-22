@@ -491,6 +491,15 @@ QLabel#thumbPageCountLabel {
     font-weight: 600;
     letter-spacing: 1.2px;
 }
+QPushButton[variant="danger"] {
+    background: #c8442b;
+    color: #ffffff;
+    border: 1px solid #c8442b;
+    font-weight: 600;
+    padding: 0 12px;
+    min-height: 22px;
+}
+QPushButton[variant="danger"]:hover { background: #d9533a; }
 QPushButton[variant="mini"] {
     background: #2b2d30;
     border: 1px solid #393b40;
