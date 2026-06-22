@@ -1,0 +1,10 @@
+# Scratch is ephemeral campaign output — never commit it.
+scratch/
+# Built binaries (reproducible from build_clang/*.sh).
+bin/*.exe
+bin/*.o
+build/
+build_clang/obj/
+# Live fuzzer state if AFL++/libFuzzer added later.
+findings/**/crash-*
+findings/**/timeout-*

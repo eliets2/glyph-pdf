@@ -1,0 +1,22 @@
+{
+  "b34b2f051c69": {
+    "count": 2,
+    "first_user_frame": "ucrtbase!abort",
+    "sample": "backtrace.txt",
+    "severity_hint": "LOW (null-deref/DoS)",
+    "frames": [
+      "ucrtbase!abort",
+      "??",
+      "??",
+      "??",
+      "??"
+    ]
+  },
+  "da39a3ee5e6b": {
+    "count": 1,
+    "first_user_frame": "?",
+    "sample": "repro_stdout.txt",
+    "severity_hint": "LOW (null-deref/DoS)",
+    "frames": []
+  }
+}
