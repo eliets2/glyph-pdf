@@ -74,8 +74,7 @@ FindBar::FindBar(QWidget *parent)
     btnReplace = new QPushButton(tr("Replace"), this);
     btnReplaceAll = new QPushButton(tr("Replace All"), this);
     btnRedactAll = new QPushButton(tr("Redact All"), this);
-    btnRedactAll->setObjectName("destructiveButton");
-    btnRedactAll->setStyleSheet("background-color: #800; color: white;");
+    btnRedactAll->setProperty("variant", "danger");
     btnReplace->setAccessibleName(tr("Replace current match"));
     btnReplaceAll->setAccessibleName(tr("Replace all matches"));
     btnRedactAll->setAccessibleName(tr("Redact all matches"));
