@@ -80,7 +80,7 @@ ModeStrip::ModeStrip(QWidget* parent) : QFrame(parent) {
     _syncLabel->setAccessibleName(tr("Sync status"));
     row->addWidget(_syncLabel);
 
-    _signLabel = new QLabel(tr("✓ SIGNED · 0 OF 0"));
+    _signLabel = new QLabel(tr("UNSIGNED"));
     _signLabel->setProperty("mono", true);
     _signLabel->setAccessibleName(tr("Digital signature status"));
     row->addWidget(_signLabel);
@@ -186,18 +186,26 @@ void ModeStrip::updateLabels() {
         }
 
         if (_cachedTotalSigs > 0) {
-            _signLabel->setText(tr("✓ SIGNED · %1 OF %2").arg(_cachedValidSigs).arg(_cachedTotalSigs));
-            _signLabel->setProperty("state", "valid");
+            if (_cachedValidSigs == _cachedTotalSigs) {
+                // All signatures are valid.
+                _signLabel->setText(tr("✓ SIGNED · %1 OF %2").arg(_cachedValidSigs).arg(_cachedTotalSigs));
+                _signLabel->setProperty("state", "valid");
+            } else {
+                // Some signatures present but not all valid.
+                _signLabel->setText(tr("✕ %1 OF %2 VALID").arg(_cachedValidSigs).arg(_cachedTotalSigs));
+                _signLabel->setProperty("state", "invalid");
+            }
             _signLabel->style()->unpolish(_signLabel);
             _signLabel->style()->polish(_signLabel);
         } else {
-            _signLabel->setText(tr("✓ SIGNED · 0 OF 0"));
+            // No signatures — show UNSIGNED, no check-mark glyph.
+            _signLabel->setText(tr("UNSIGNED"));
             _signLabel->setProperty("state", "");
             _signLabel->style()->unpolish(_signLabel);
             _signLabel->style()->polish(_signLabel);
         }
     } else {
-        _signLabel->setText(tr("✓ SIGNED · 0 OF 0"));
+        _signLabel->setText(tr("UNSIGNED"));
         _signLabel->setProperty("state", "");
         _signLabel->style()->unpolish(_signLabel);
         _signLabel->style()->polish(_signLabel);
@@ -234,12 +242,17 @@ void ModeStrip::setSignatureStatus(int signedCount, int totalCount) {
     _cachedValidSigs = signedCount;
     _cachedTotalSigs = totalCount;
     if (totalCount > 0) {
-        _signLabel->setText(tr("✓ SIGNED · %1 OF %2").arg(signedCount).arg(totalCount));
-        _signLabel->setProperty("state", "valid");
+        if (signedCount == totalCount) {
+            _signLabel->setText(tr("✓ SIGNED · %1 OF %2").arg(signedCount).arg(totalCount));
+            _signLabel->setProperty("state", "valid");
+        } else {
+            _signLabel->setText(tr("✕ %1 OF %2 VALID").arg(signedCount).arg(totalCount));
+            _signLabel->setProperty("state", "invalid");
+        }
         _signLabel->style()->unpolish(_signLabel);
         _signLabel->style()->polish(_signLabel);
     } else {
-        _signLabel->setText(tr("✓ SIGNED · 0 OF 0"));
+        _signLabel->setText(tr("UNSIGNED"));
         _signLabel->setProperty("state", "");
         _signLabel->style()->unpolish(_signLabel);
         _signLabel->style()->polish(_signLabel);
