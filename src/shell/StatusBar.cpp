@@ -124,7 +124,9 @@ void StatusBar::updateDocData(QPdfDocument* doc, const QString& filePath) {
         return;
     }
 
-    QString versionStr = QStringLiteral("PDF 1.7");
+    // A5: start with "PDF --"; only upgrade to a real version string when the
+    // header is actually present and parseable.
+    QString versionStr = QStringLiteral("PDF --");
     QFile file(filePath);
     if (file.open(QIODevice::ReadOnly)) {
         QByteArray header = file.read(8);
@@ -197,7 +199,9 @@ void StatusBar::updateFromDocument(IPdfEditorEngine* engine, const QString& file
         _ocrLang->setVisible(false);
     }
 
-    QString versionStr = QStringLiteral("PDF 1.7");
+    // A5: start with "PDF --"; only upgrade to a real version string when the
+    // header is actually present and parseable.
+    QString versionStr = QStringLiteral("PDF --");
     QFile file(filePath);
     if (file.open(QIODevice::ReadOnly)) {
         QByteArray header = file.read(8);
