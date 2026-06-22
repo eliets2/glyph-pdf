@@ -1289,14 +1289,26 @@ bool PdfEditorEngine::applyPatternRedactions(const QRegularExpression& pattern,
     bool anySuccess = false;
     bool anyFailure = false;
 
+    // Filter to in-range pages, then locate all matches in a SINGLE pass over the
+    // document. PatternRedactor::findMatches(batch) opens (parses) the PDF once
+    // instead of once per page, eliminating the N_pages × N_patterns full-parse
+    // cost that BatchMode incurred.
+    QList<int> validPages;
+    validPages.reserve(targetPages.size());
     for (int pg : targetPages) {
-        if (pg < 0 || pg >= totalPages) continue;
-        const QList<QRectF> matches = PatternRedactor::findMatches(pdfPath, pg, pattern);
-        if (matches.isEmpty()) continue;
+        if (pg >= 0 && pg < totalPages) validPages.append(pg);
+    }
+
+    const QHash<int, QList<QRectF>> matchesByPage =
+        PatternRedactor::findMatches(pdfPath, validPages, pattern);
+
+    for (int pg : validPages) {
+        const auto it = matchesByPage.constFind(pg);
+        if (it == matchesByPage.constEnd() || it->isEmpty()) continue;
 
         // Delegate to the existing applyRedactions path which carries the
         // Edact-Ray glyph-advance defense (wired in M2-P1).
-        const bool ok = d->backend->applyRedactions(pg, matches);
+        const bool ok = d->backend->applyRedactions(pg, *it);
         if (ok) {
             anySuccess = true;
         } else {

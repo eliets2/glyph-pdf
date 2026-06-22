@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include <QHash>
 #include <QList>
 #include <QRectF>
 #include <QRegularExpression>
@@ -35,6 +36,16 @@ public:
                                      int             pageIndex,
                                      const QRegularExpression& pattern);
 
+    /// Batch variant: find matches for a single pattern across many pages,
+    /// opening (parsing) the PDF exactly ONCE. Equivalent to calling the
+    /// single-page findMatches() for every entry in `pages`, but avoids the
+    /// FPDF_LoadDocument()-per-page cost. Returns a map from page index to the
+    /// rectangles found on that page (pages with no matches are omitted).
+    /// Coordinates are in Qt PDF user-space (origin top-left).
+    static QHash<int, QList<QRectF>> findMatches(const QString& pdfPath,
+                                                 const QList<int>& pages,
+                                                 const QRegularExpression& pattern);
+
 private:
     struct CharInfo {
         QString ch;
@@ -42,9 +53,19 @@ private:
     };
 
     /// Extract all characters with their per-character bounding boxes from a page.
-    /// Uses FPDFText_LoadPage / FPDFText_GetCharBox internally.
+    /// Uses FPDFText_LoadPage / FPDFText_GetCharBox internally. Opens the document.
     static QList<CharInfo> extractCharsWithPositions(const QString& pdfPath,
                                                       int            pageIndex);
+
+    /// Extract per-character boxes for one page of an already-open FPDF_DOCUMENT.
+    /// `docHandle` is an opaque FPDF_DOCUMENT (kept void* to avoid leaking PDFium
+    /// headers into this interface). Only defined when HAS_PDFIUM is set.
+    static QList<CharInfo> extractCharsFromOpenDoc(void* docHandle, int pageIndex);
+
+    /// Run `pattern` over the reconstructed text of a single page's chars,
+    /// returning the merged match rectangles. Carries the M-3 ReDoS bounds.
+    static QList<QRectF> matchChars(const QList<CharInfo>& chars,
+                                    const QRegularExpression& pattern);
 
     /// Merge per-character bounding boxes for the span [startIdx, endIdx) into one QRectF.
     static QRectF mergeCharBoxes(const QList<CharInfo>& chars, int startIdx, int endIdx);
