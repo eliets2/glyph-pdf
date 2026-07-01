@@ -7,7 +7,8 @@
 
 class PdfViewerWidget;
 struct AppContext;
-struct MergedOcrWord;   // engines/ocr/OcrPipeline.h (fwd-declared to keep QtConcurrent out of this header)
+#include "engines/ocr/OcrPipeline.h"      // MergedOcrWord, PageOcrResult — full include required by MOC (QList<T> signal param)
+#include "engines/ocr/OcrPreprocessor.h" // OcrPreprocessOptions — full include required by MOC (by-value signal param)
 
 namespace gp {
 
@@ -48,11 +49,11 @@ signals:
     void screenChanged(const QString& id);
     // Emitted when the OCR Verify screen's Run button is pressed; the host wires this
     // to the real OCR pipeline (EditController::runOcr).
-    void ocrRunRequested();
+    void ocrRunRequested(QRectF region, OcrPreprocessOptions opts);
     // OCR review-workflow relays (mirror ocrRunRequested): the host wires these
     // to real behaviour. Accept = keep applied results; Reject = drop pending
     // results; Re-run region = re-run OCR (whole page until region mapping ships).
-    void ocrReviewAccepted();
+    void ocrReviewAccepted(const QList<MergedOcrWord>& words, bool asEditableText);
     void ocrReviewRejected();
     void ocrReRunRegionRequested(QRectF regionBbox);
 

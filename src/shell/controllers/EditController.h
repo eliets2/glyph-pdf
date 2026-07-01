@@ -11,6 +11,7 @@
 
 struct AppContext;
 struct MergedOcrWord;   // engines/ocr/OcrPipeline.h (fwd-declared to keep QtConcurrent out of this header)
+#include "engines/ocr/OcrPreprocessor.h" // OcrPreprocessOptions
 class EditToolBar;
 class IOcrEngine;
 
@@ -39,7 +40,8 @@ public:
 public slots:
     // Run OCR on the viewer's current page (engine chosen per Preferences). Public so
     // the OCR Verify screen's Run button can drive the same real pipeline as the ribbon.
-    void runOcr();
+    void runOcr(QRectF region = QRectF(), OcrPreprocessOptions opts = OcrPreprocessOptions());
+    void acceptOcrResults(const QList<MergedOcrWord>& words, bool asEditableText = false);
 
 signals:
     // Emitted on the GUI thread when an OCR run finishes, carrying the recognised

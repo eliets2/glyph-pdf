@@ -137,6 +137,21 @@ PreprocessedImage OcrPreprocessor::process(const QImage &input, const OcrPreproc
         }
     }
 
+    // 2.5 Orient Detect
+    if (opts.orientDetect) {
+        double angle = 0.0;
+        QImage oriented = orient(working, &angle);
+        if (!oriented.isNull() && qAbs(angle) > 0.01) {
+            QPointF center(working.width() / 2.0, working.height() / 2.0);
+            QTransform fwd;
+            fwd.translate(center.x(), center.y());
+            fwd.rotate(-angle);
+            fwd.translate(-center.x(), -center.y());
+            result.inverseTransform = fwd.inverted() * result.inverseTransform;
+            working = oriented;
+        }
+    }
+
     // 3. Denoise
     if (opts.denoise) {
         working = denoise(working);
@@ -179,6 +194,46 @@ QImage OcrPreprocessor::deskew(const QImage &input, double *angleOut) const
     return input;
 #else
     // Qt-only fallback: no deskew without Leptonica
+    Q_UNUSED(input)
+    return input;
+#endif
+}
+
+QImage OcrPreprocessor::orient(const QImage &input, double *angleOut) const
+{
+    if (angleOut) *angleOut = 0.0;
+    if (input.isNull()) return input;
+
+#ifdef HAS_TESSERACT
+    Pix *pix = qimageToPix(input);
+    if (!pix) return input;
+
+    // pixOrientCorrect detects the text orientation (up/left/down/right)
+    // and returns a corrected PIX.  It binarizes internally.
+    //   minupconf  = 7.0  (minimum upward confidence to skip rotation)
+    //   minratio   = 2.5  (minimum ratio of best/second-best confidence)
+    l_float32 upconf = 0.f, leftconf = 0.f;
+    l_int32   rotation = 0;   // 0=up, 1=left, 2=down, 3=right (Leptonica convention)
+    Pix *corrected = pixOrientCorrect(pix, 7.0f, 2.5f,
+                                       &upconf, &leftconf, &rotation, 0);
+    pixDestroy(&pix);
+
+    if (corrected) {
+        // Map Leptonica rotation enum → degrees
+        static constexpr double kRotDeg[] = { 0.0, 90.0, 180.0, -90.0 };
+        double angle = (rotation >= 0 && rotation <= 3) ? kRotDeg[rotation] : 0.0;
+
+        if (angleOut) *angleOut = angle;
+
+        if (rotation != 0) {
+            QImage out = pixToQImage(corrected);
+            pixDestroy(&corrected);
+            return out;
+        }
+        pixDestroy(&corrected);
+    }
+    return input;
+#else
     Q_UNUSED(input)
     return input;
 #endif

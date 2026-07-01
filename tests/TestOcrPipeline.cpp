@@ -23,6 +23,8 @@
 #include "engines/scheduling/LaneScheduler.h"
 #include "core/interfaces/IOcrEngine.h"
 #include "core/OcrTypes.h"
+#include "engines/ocr/OcrPreprocessor.h"
+#include "engines/OcrEngine.h"
 
 // ── Stub OCR engine ───────────────────────────────────────────────────────────
 
@@ -261,6 +263,30 @@ private slots:
                  << "Sequential:" << seqMs << "ms |"
                  << "Pages:" << kPageCount
                  << "| Ratio:" << QString::number(double(pipeMs) / seqMs, 'f', 2);
+    }
+
+    // 8. Language pass-through
+    void testLanguagePassThrough()
+    {
+        OcrEngine engine;
+        // Valid language from allowedLanguages
+        bool ok = engine.initialize("eng", "");
+        // Depending on whether Tesseract is built-in and tessdata exists, this could return true or false.
+        // We just ensure it doesn't crash and we can call it.
+        // But we CAN assert that an invalid language is rejected.
+        QVERIFY(!engine.initialize("fake_language_123", ""));
+    }
+
+    // 9. Orientation correction
+    void testOrientationCorrection()
+    {
+        OcrPreprocessor prep;
+        OcrPreprocessOptions opts;
+        opts.orientDetect = true;
+        // We can't guarantee Leptonica detects a blank page orientation, but we can guarantee it doesn't crash.
+        QImage blank = makeBlankPage();
+        PreprocessedImage out = prep.process(blank, opts);
+        QVERIFY(!out.image.isNull());
     }
 };
 

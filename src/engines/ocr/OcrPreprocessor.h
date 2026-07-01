@@ -39,6 +39,9 @@ public:
     /// Convenience: only binarize (Sauvola).
     QImage binarize(const QImage &input) const;
 
+    /// Convenience: auto-rotate to 0/90/180/270.
+    QImage orient(const QImage &input, double *angleOut = nullptr) const;
+
     /// Convenience: only denoise.
     QImage denoise(const QImage &input) const;
 };

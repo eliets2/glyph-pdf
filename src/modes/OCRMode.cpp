@@ -138,9 +138,16 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     m_strategyCombo->setObjectName("ocrStrategyCombo");
     m_strategyCombo->addItem(tr("Primary Only"));
     m_strategyCombo->addItem(tr("Confidence Weighted"));
-    m_strategyCombo->addItem(tr("ROVER Vote"));
     m_strategyCombo->setProperty("variant", "ghost");
     row->addWidget(m_strategyCombo);
+
+    // ── Output Mode selector ─────────────────────────────────────────────
+    m_outputModeCombo = new QComboBox;
+    m_outputModeCombo->setObjectName("ocrOutputModeCombo");
+    m_outputModeCombo->addItem(tr("Searchable Image (MRC)"));
+    m_outputModeCombo->addItem(tr("Editable Text"));
+    m_outputModeCombo->setProperty("variant", "ghost");
+    row->addWidget(m_outputModeCombo);
 
     // ── Preprocessing toggles ───────────────────────────────────────────
     auto* sep1 = new QFrame; sep1->setFrameShape(QFrame::VLine);
@@ -164,6 +171,12 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     m_chkDenoise->setChecked(false);
     m_chkDenoise->setStyleSheet("color:#c0c0c0; spacing:4px;");
     row->addWidget(m_chkDenoise);
+
+    m_chkOrient = new QCheckBox(tr("Auto-Orient"));
+    m_chkOrient->setObjectName("ocrChkOrient");
+    m_chkOrient->setChecked(false);
+    m_chkOrient->setStyleSheet("color:#c0c0c0; spacing:4px;");
+    row->addWidget(m_chkOrient);
 
     row->addStretch(1);
 
@@ -214,6 +227,15 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     row->addWidget(exit);
 
     col->addWidget(tb);
+}
+
+OcrPreprocessOptions OCRMode::getPreprocessOptions() const {
+    OcrPreprocessOptions opts;
+    if (m_chkDeskew) opts.deskew = m_chkDeskew->isChecked();
+    if (m_chkBinarize) opts.binarize = m_chkBinarize->isChecked();
+    if (m_chkDenoise) opts.denoise = m_chkDenoise->isChecked();
+    if (m_chkOrient) opts.orientDetect = m_chkOrient->isChecked();
+    return opts;
 }
 
 // ── info strip ──────────────────────────────────────────────────────────────
@@ -397,14 +419,15 @@ void OCRMode::onRunOcr()
     m_lblAvgConf->setText(tr("AVG CONFIDENCE —"));
     m_lblLowWords->setText(tr("LOW-CONFIDENCE WORDS —"));
 
-    emit ocrRequested();
+    emit ocrRequested(QRectF(), getPreprocessOptions());
 }
 
 void OCRMode::onAcceptResults()
 {
     m_btnAccept->setEnabled(false);
     m_btnReject->setEnabled(false);
-    emit reviewAccepted();
+    bool asEditableText = m_outputModeCombo && m_outputModeCombo->currentIndex() == 1;
+    emit reviewAccepted(m_currentWords, asEditableText);
 }
 
 void OCRMode::onRejectResults()
@@ -452,7 +475,9 @@ void OCRMode::onImagePaneContextMenu(const QPoint &pos)
 
 void OCRMode::onReOcrRegion()
 {
-    emit reOcrRegionRequested(m_contextRegionBbox);
+    // R2: user clicked "Re-OCR this region" from the scan pane context menu.
+    // For now, m_contextRegionBbox is empty, so we re-OCR the whole page.
+    emit ocrRequested(m_contextRegionBbox, getPreprocessOptions());
 }
 
 // ── setOcrResults ─────────────────────────────────────────────────────────────
@@ -555,6 +580,19 @@ void OCRMode::updateInfoStrip()
         tr("AVG CONFIDENCE %1%").arg(static_cast<int>(std::round(avgConf))));
     m_lblLowWords->setText(
         tr("LOW-CONFIDENCE WORDS %1").arg(lowCount));
+
+    // Update engine label with active preprocessing
+    QStringList prep;
+    if (m_chkDeskew && m_chkDeskew->isChecked()) prep << tr("Deskew");
+    if (m_chkBinarize && m_chkBinarize->isChecked()) prep << tr("Binarize");
+    if (m_chkDenoise && m_chkDenoise->isChecked()) prep << tr("Denoise");
+    if (m_chkOrient && m_chkOrient->isChecked()) prep << tr("Auto-Orient");
+    if (prep.isEmpty()) prep << tr("None");
+
+    m_lblEngine->setText(tr("ENGINE: %1 · %2 · PREP: %3")
+        .arg(m_engineCombo->currentText(),
+             m_strategyCombo->currentText(),
+             prep.join(", ")));
 }
 
 // ── setSemanticDocument — Djot-aware review UI ────────────────────────────────

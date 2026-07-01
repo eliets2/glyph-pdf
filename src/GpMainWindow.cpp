@@ -216,14 +216,12 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
     // Reject: OCRMode has already cleared its overlay/results locally; surface a
     // status message. Re-OCR region: re-run OCR (whole page until per-region
     // bbox mapping ships — same EditController slot as the Run button).
-    connect(_modes, &ModeController::ocrReviewAccepted, this, [this]() {
-        statusBar()->showMessage(tr("OCR results accepted."), 3000);
-    });
+    connect(_modes, &ModeController::ocrReviewAccepted, _edit, &EditController::acceptOcrResults);
     connect(_modes, &ModeController::ocrReviewRejected, this, [this]() {
         statusBar()->showMessage(tr("OCR results rejected — overlay cleared."), 3000);
     });
     connect(_modes, &ModeController::ocrReRunRegionRequested, _edit,
-            [this](QRectF) { _edit->runOcr(); });
+            [this](QRectF region) { _edit->runOcr(region); });
 
     // FindBar wiring
     connect(_findBar, &FindBar::searchRequested,     _edit, &EditController::onSearchRequested);

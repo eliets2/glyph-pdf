@@ -9,6 +9,7 @@
 #include "core/interfaces/IOcrEngine.h"
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "ui/EditAnnotationCommand.h"
+#include "engines/ocr/OcrPreprocessor.h"
 #include "commands/MoveImageCommand.h"
 #include "commands/ResizeImageCommand.h"
 #include "commands/RotateImageCommand.h"
@@ -358,7 +359,7 @@ void EditController::onRedactAllRequested(const QString &text, bool matchCase, b
 
 // ── OCR ─────────────────────────────────────────────────────────────────────
 
-void EditController::runOcr() {
+void EditController::runOcr(QRectF region, OcrPreprocessOptions opts) {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || _ocrRunning) return;
 
@@ -422,9 +423,18 @@ void EditController::runOcr() {
     // worker then only runs the (heavy, parallelizable) OCR over the QImage.
     // renderPage(page, 2.0) reproduces the previous worker's scale exactly
     // (pageSize * 2.0).
-    const QImage renderedPage = viewer->renderPage(page, 2.0);
+    QImage renderedPage = viewer->renderPage(page, 2.0);
+    QRect cropRect;
+    if (!region.isEmpty()) {
+        // region is in 1.0 scale page coordinates. Scale to 2.0.
+        cropRect = QRectF(region.x() * 2.0, region.y() * 2.0, region.width() * 2.0, region.height() * 2.0).toRect();
+        cropRect = cropRect.intersected(renderedPage.rect());
+        if (!cropRect.isEmpty()) {
+            renderedPage = renderedPage.copy(cropRect);
+        }
+    }
 
-    QThread *worker = QThread::create([self, viewerPtr, filePath, page, renderedPage,
+    QThread *worker = QThread::create([self, viewerPtr, filePath, page, renderedPage, cropRect, opts,
                                        wantRapid, wantEnsemble]() {
         QString error;
         QList<OcrResult> resultsArr;
@@ -499,7 +509,15 @@ void EditController::runOcr() {
                         : OcrStrategy::PrimaryOnly;
                     OcrPipeline pipeline(primary, secondary);
                     pipeline.setStrategy(strategy);
+                    pipeline.setPreprocessing(opts);
                     mergedWords = pipeline.run(pageImg);
+
+                    // Translate if cropped
+                    if (!cropRect.isEmpty()) {
+                        for (auto& w : mergedWords) {
+                            w.boundingBox.translate(cropRect.x(), cropRect.y());
+                        }
+                    }
 
                     // Convert MergedOcrWord → OcrResult for the viewer layer
                     resultsArr.reserve(mergedWords.size());
@@ -535,6 +553,107 @@ void EditController::runOcr() {
             // for review instead of an empty/decorative panel.
             emit self->ocrResultsReady(mergedWords);
             self->_mainWindow->statusBar()->showMessage(tr("OCR Complete. %1 text blocks detected.").arg(resultsArr.size()), 5000);
+        }, Qt::QueuedConnection);
+    });
+
+    connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+    worker->start();
+}
+
+void EditController::acceptOcrResults(const QList<MergedOcrWord>& words, bool asEditableText) {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->pdfEditor) return;
+
+    QString outputPath = QFileDialog::getSaveFileName(_mainWindow, tr("Save OCR PDF As"),
+        viewer->filePath(), tr("PDF Files (*.pdf)"));
+    if (outputPath.isEmpty()) return;
+
+    if (asEditableText) {
+        // Fallback: embed as editable text using EditTextInlineCommand (or equivalent)
+        // Since the prompt asks for a lightweight choice (searchable image vs editable text),
+        // we can run a loop applying the text. For now, doing it via undo commands could be slow.
+        // A better approach is to rely on standard editable text embedding.
+        // I will implement a simpler block here and rely on _ctx->pdfEditor methods if available,
+        // or just apply inline text commands.
+        _ctx->pdfEditor->loadDocumentForEditing(viewer->filePath());
+        int page = viewer->currentPage();
+        _ctx->document->setPath(viewer->filePath());
+        _ctx->undoStack->beginMacro(tr("Apply OCR Text"));
+        for (const auto& w : words) {
+            // Re-scale bbox from 2.0x back to 1.0x PDF points for the command
+            QRectF ptBox(w.boundingBox.x() / 2.0, w.boundingBox.y() / 2.0,
+                         w.boundingBox.width() / 2.0, w.boundingBox.height() / 2.0);
+            _ctx->undoStack->push(new EditTextInlineCommand(_ctx->pdfEditor.get(), _ctx->document.get(), page, ptBox, w.text,
+                                                            "Helvetica", 12, Qt::black, false, false, 0));
+        }
+        _ctx->undoStack->endMacro();
+        _ctx->pdfEditor->saveDocument(outputPath);
+        viewer->loadDocument(outputPath);
+        _mainWindow->statusBar()->showMessage(tr("Saved as editable text to %1").arg(QFileInfo(outputPath).fileName()), 5000);
+        return;
+    }
+
+    _mainWindow->statusBar()->showMessage(tr("Exporting MRC PDF/A..."));
+
+    // Render all pages + exportMrcPdfA in a background thread.
+    // Pattern mirrors BatchMode.cpp: create a local QPdfDocument (not thread-safe
+    // to share) and render each page at 150 DPI, injecting the OCR words for the
+    // current page only.
+    QPointer<EditController> self(this);
+    QString inputPath = viewer->filePath();
+    int currentPage = viewer->currentPage();
+
+    QThread *worker = QThread::create([self, inputPath, outputPath, currentPage, words]() {
+        if (!self || !self->_ctx || !self->_ctx->pdfEditor) return;
+
+        QPdfDocument pdf;
+        pdf.load(inputPath);
+        if (pdf.status() != QPdfDocument::Status::Ready || pdf.pageCount() <= 0) {
+            QMetaObject::invokeMethod(QCoreApplication::instance(), [self]() {
+                if (self)
+                    self->_mainWindow->statusBar()->showMessage(tr("Failed to open PDF for MRC export"), 5000);
+            }, Qt::QueuedConnection);
+            return;
+        }
+
+        QList<QImage> images;
+        QList<PageOcrResult> pageResults;
+        const double dpi = 150.0;
+
+        for (int p = 0; p < pdf.pageCount(); ++p) {
+            const QSizeF pts = pdf.pagePointSize(p);
+            const QSize px(qMax(1, int(pts.width()  * dpi / 72.0)),
+                           qMax(1, int(pts.height() * dpi / 72.0)));
+            const QImage img = pdf.render(p, px);
+            images.append(img);
+
+            PageOcrResult pr;
+            pr.pageIndex = p;
+            pr.success = true;
+            if (p == currentPage) {
+                // Scale recognized words from viewer DPI (2.0× = 144 DPI) to export DPI (150)
+                double scaleFactor = dpi / 144.0;
+                QList<MergedOcrWord> scaledWords = words;
+                for (auto& w : scaledWords) {
+                    w.boundingBox = QRectF(w.boundingBox.x() * scaleFactor,
+                                           w.boundingBox.y() * scaleFactor,
+                                           w.boundingBox.width() * scaleFactor,
+                                           w.boundingBox.height() * scaleFactor);
+                }
+                pr.words = scaledWords;
+            }
+            pageResults.append(pr);
+        }
+
+        bool ok = self->_ctx->pdfEditor->exportMrcPdfA(outputPath, images, pageResults);
+
+        QMetaObject::invokeMethod(QCoreApplication::instance(), [self, ok, outputPath]() {
+            if (!self) return;
+            if (ok) {
+                self->_mainWindow->statusBar()->showMessage(tr("OCR PDF/A saved successfully to %1").arg(QFileInfo(outputPath).fileName()), 5000);
+            } else {
+                self->_mainWindow->statusBar()->showMessage(tr("Failed to save OCR PDF/A"), 5000);
+            }
         }, Qt::QueuedConnection);
     });
 

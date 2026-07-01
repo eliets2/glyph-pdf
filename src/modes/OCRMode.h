@@ -50,8 +50,8 @@ public:
                              const QString &djotLibPath = QString());
 
 signals:
-    void ocrRequested();
-    void reviewAccepted();
+    void ocrRequested(QRectF region = QRectF(), OcrPreprocessOptions opts = OcrPreprocessOptions());
+    void reviewAccepted(const QList<MergedOcrWord> &words, bool asEditableText);
     void reviewRejected();
     /// Emitted when the user requests re-OCR of a specific region.
     void reOcrRegionRequested(QRectF regionBbox);
@@ -64,6 +64,8 @@ private slots:
     void onReOcrRegion();
 
 private:
+    struct OcrPreprocessOptions getPreprocessOptions() const;
+
     void buildToolbar(QVBoxLayout* col);
     void buildInfoStrip(QVBoxLayout* col);
     void buildPanes(QVBoxLayout* col);
@@ -85,9 +87,11 @@ private:
     QComboBox*   m_engineCombo   = nullptr;
     QComboBox*   m_strategyCombo = nullptr;
     QComboBox*   m_langCombo     = nullptr;
+    QComboBox*   m_outputModeCombo = nullptr;
     QCheckBox*   m_chkDeskew     = nullptr;
     QCheckBox*   m_chkBinarize   = nullptr;
     QCheckBox*   m_chkDenoise    = nullptr;
+    QCheckBox*   m_chkOrient     = nullptr;
     QToolButton* m_btnRun        = nullptr;
     QToolButton* m_btnAccept     = nullptr;
     QToolButton* m_btnReject     = nullptr;
