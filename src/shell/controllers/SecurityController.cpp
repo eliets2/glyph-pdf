@@ -10,6 +10,7 @@
 #include "ui/MetadataDialog.h"
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "core/interfaces/ISignatureManager.h"
+#include "engines/PdfEditorEngine.h"
 #include "commands/EncryptDocumentHelper.h"
 #include "commands/SignDocumentHelper.h"
 #include "commands/SanitizeDocumentHelper.h"
@@ -33,6 +34,11 @@
 #include <QUndoStack>
 #include <QTemporaryFile>
 #include <QSettings>
+#include <QDialog>
+#include <QDateEdit>
+#include <QDialogButtonBox>
+#include <QVBoxLayout>
+#include <QLabel>
 #include <memory>
 #include <atomic>
 #include "shell/StatusBar.h"
@@ -48,7 +54,9 @@ QList<ToolId> SecurityController::handledTools() const {
         ToolId::ValidateSig, ToolId::Sanitize, ToolId::ApplyRedact,
         ToolId::ExportAnno, ToolId::ImportAnno,
         ToolId::Permissions, ToolId::RemoveSecurity, ToolId::Certify,
-        ToolId::Timestamp, ToolId::PatternRedact, ToolId::RegexRedact
+        ToolId::Timestamp, ToolId::PatternRedact, ToolId::RegexRedact,
+        // Wave 1A §9.11: date-picker entry point for setExpiryDate().
+        ToolId::SetExpiry
     };
 }
 
@@ -105,6 +113,9 @@ void SecurityController::activate(ToolId id) {
         if (auto* redactWidget = _mainWindow->findChild<gp::RedactMode*>()) {
             redactWidget->activateCustomRegex();
         }
+        break;
+    case ToolId::SetExpiry:
+        setExpiryDateDocument();
         break;
     default:
         break;
@@ -714,6 +725,87 @@ void SecurityController::timestampDocument() {
         } else {
             QMessageBox::critical(self->_mainWindow, tr("Timestamp Error"), tr("Failed to add document timestamp."));
             self->_mainWindow->statusBar()->showMessage(tr("Timestamp failed."), 5000);
+        }
+    });
+
+    connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+    worker->start();
+}
+
+// Wave 1A §9.11: date-picker UI for PdfEditorEngine::setExpiryDate(), a fully
+// implemented, tested engine method with zero UI callers before this. Prompts
+// for an expiry date via a small QDateEdit dialog (defaulting to the
+// document's existing expiry date if one is already set, else one year out),
+// then writes it to a chosen output path the same way Timestamp/Encrypt do.
+void SecurityController::setExpiryDateDocument() {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->pdfEditor) return;
+
+    const QString currentPath = viewer->filePath();
+    if (currentPath.isEmpty()) return;
+
+    const QDate existingExpiry = PdfEditorEngine::readExpiryDate(currentPath);
+
+    QDialog dlg(_mainWindow);
+    dlg.setWindowTitle(tr("Set Document Expiry Date"));
+    auto* layout = new QVBoxLayout(&dlg);
+    layout->addWidget(new QLabel(tr("The document will open read-only after this date:")));
+
+    auto* dateEdit = new QDateEdit(&dlg);
+    dateEdit->setCalendarPopup(true);
+    dateEdit->setDisplayFormat(QStringLiteral("yyyy-MM-dd"));
+    dateEdit->setMinimumDate(QDate::currentDate().addDays(1));
+    dateEdit->setDate(existingExpiry.isValid() && existingExpiry > QDate::currentDate()
+        ? existingExpiry : QDate::currentDate().addYears(1));
+    layout->addWidget(dateEdit);
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    layout->addWidget(buttons);
+
+    if (dlg.exec() != QDialog::Accepted) return;
+    const QDate expiryDate = dateEdit->date();
+
+    const QString outputPath = QFileDialog::getSaveFileName(
+        _mainWindow, tr("Save Document with Expiry Date"), currentPath, tr("PDF Files (*.pdf)"));
+    if (outputPath.isEmpty()) return;
+
+    auto* progress = new QProgressDialog(tr("Setting document expiry date..."), QString(), 0, 0, _mainWindow);
+    progress->setWindowModality(Qt::WindowModal);
+    progress->setMinimumDuration(0);
+    progress->show();
+
+    // setExpiryDate() is deliberately not part of IPdfEditorEngine (see the
+    // comment on its declaration in PdfEditorEngine.h), so downcast rather than
+    // widen the interface just for this one wiring path.
+    std::weak_ptr<PdfEditorEngine> weakEngine =
+        std::dynamic_pointer_cast<PdfEditorEngine>(_ctx->pdfEditor);
+    QPointer<SecurityController> self(this);
+    auto result = std::make_shared<std::atomic<bool>>(false);
+
+    QThread* worker = QThread::create([weakEngine, currentPath, expiryDate, outputPath, result]() {
+        auto engine = weakEngine.lock();
+        if (!engine) return;
+        result->store(engine->setExpiryDate(currentPath, expiryDate, outputPath));
+    });
+
+    connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, expiryDate, result]() {
+        progress->close();
+        progress->deleteLater();
+        if (!self) return;
+        if (result->load()) {
+            self->_mainWindow->statusBar()->showMessage(
+                tr("Expiry date set to %1, saved to %2")
+                    .arg(expiryDate.toString(Qt::ISODate), outputPath), 5000);
+            if (QMessageBox::question(self->_mainWindow, tr("Open Document"),
+                    tr("Expiry date set. Would you like to open the saved file?")) == QMessageBox::Yes) {
+                self->_mainWindow->openDocument(outputPath);
+            }
+        } else {
+            QMessageBox::critical(self->_mainWindow, tr("Set Expiry Date Failed"),
+                tr("Could not set the document expiry date. The original file was left unchanged."));
+            self->_mainWindow->statusBar()->showMessage(tr("Set expiry date failed."), 5000);
         }
     });
 

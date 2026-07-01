@@ -131,6 +131,9 @@ enum class ToolId {
     Timestamp,
     PatternRedact,
     RegexRedact,
+    // Wave 1A §9.11: wires the already-implemented PdfEditorEngine::setExpiryDate()
+    // to a UI entry point (a date picker) -- previously it had zero UI callers.
+    SetExpiry,
 
     COUNT  // sentinel for array sizing — must be last
 };

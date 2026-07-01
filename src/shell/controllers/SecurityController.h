@@ -33,6 +33,9 @@ private:
     void removeSecurity();
     void certifyDocument();
     void timestampDocument();
+    // Wave 1A §9.11: date-picker UI for the already-implemented
+    // PdfEditorEngine::setExpiryDate(), which previously had zero UI callers.
+    void setExpiryDateDocument();
 
     const AppContext* _ctx = nullptr;
     MainWindow* _mainWindow = nullptr;

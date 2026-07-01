@@ -106,7 +106,7 @@ static RibbonTabDef makeForms() {
 }
 static RibbonTabDef makeProtect() {
     return { "Protect", {
-        { "Security", {{ "password","Password","lock",true },{ "permissions","Permissions","lock",false },{ "encrypt","Encrypt","lock",false },{ "removeSec","Remove Sec.","lock",false }}},
+        { "Security", {{ "password","Password","lock",true },{ "permissions","Permissions","lock",false },{ "encrypt","Encrypt","lock",false },{ "removeSec","Remove Sec.","lock",false },{ "setExpiry","Set Expiry","lock",false }}},
         { "Redact", {{ "markRedact","Mark","redact",true },{ "applyRedact","Apply","redact",false },{ "patternRedact","Pattern","redact",false },{ "regexRedact","Regex","redact",false },{ "sanitize","Sanitize","redact",false }}},
         { "Sign", {{ "certify","Certify","signature",true },{ "sign","Sign","signature",false },{ "timestamp","Timestamp","signature",false },{ "validateSig","Validate","signature",false },{ "trust","Trust Store","lock",false }}},
     }};

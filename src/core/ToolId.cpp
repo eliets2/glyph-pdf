@@ -124,6 +124,7 @@ QString toolIdToString(ToolId id) {
         { ToolId::Timestamp,      QStringLiteral("timestamp") },
         { ToolId::PatternRedact,  QStringLiteral("patternRedact") },
         { ToolId::RegexRedact,    QStringLiteral("regexRedact") },
+        { ToolId::SetExpiry,      QStringLiteral("setExpiry") },
     };
     return map.value(id, QStringLiteral("unknown"));
 }
@@ -263,6 +264,7 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         add(ToolId::Timestamp,      {"timestamp"});
         add(ToolId::PatternRedact,  {"patternRedact", "patternredact"});
         add(ToolId::RegexRedact,    {"regexRedact", "regexredact"});
+        add(ToolId::SetExpiry,      {"setExpiry", "setexpiry", "expiryDate", "expirydate"});
 
         return m;
     }();
