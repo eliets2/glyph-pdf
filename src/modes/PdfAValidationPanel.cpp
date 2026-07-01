@@ -368,6 +368,12 @@ struct ReadingOrderResult {
     bool        tagged = false;
     int         elementCount = 0;
     QStringList issues;     // human-readable descriptions of out-of-order elements
+    // Wave 1A §9.14: parallel array (same index as `issues`) giving the 1-based
+    // page number each issue is on, or -1 if unknown -- same convention as
+    // PdfAValidationReport::Violation::pageNumber, so onCheckReadingOrder() can
+    // reuse the exact same issueRow() jump-to-page widget the veraPDF issue
+    // list already uses instead of a plain QMessageBox text dump.
+    QList<int>  issuePages;
 };
 
 const PoDoFo::PdfObject* resolveObj(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfObject* o) {
@@ -507,6 +513,8 @@ ReadingOrderResult analyzeReadingOrder(const QString& path) {
                     .arg(i + 1)
                     .arg(visualPos[i] + 1)
                     .arg(e.page >= 0 ? QObject::tr(" (page %1)").arg(e.page + 1) : QString());
+                // e.page is 0-based; issuePages uses veraPDF's 1-based convention.
+                r.issuePages << (e.page >= 0 ? e.page + 1 : -1);
             }
         }
     } catch (const PoDoFo::PdfError& ex) {
@@ -532,20 +540,33 @@ void PdfAValidationPanel::onCheckReadingOrder() {
         return;
     }
 
-    QString msg;
     if (r.issues.isEmpty()) {
-        msg = tr("Tagged PDF detected. %1 elements. Reading order: OK.").arg(r.elementCount);
-        QMessageBox::information(this, tr("Reading Order"), msg);
-    } else {
-        msg = tr("Tagged PDF detected. %1 elements. Reading order: %2 issue(s) found.\n\n")
-                  .arg(r.elementCount).arg(r.issues.size());
-        const int shown = std::min(static_cast<int>(r.issues.size()), 20);
-        for (int i = 0; i < shown; ++i)
-            msg += QStringLiteral("• ") + r.issues[i] + QLatin1Char('\n');
-        if (r.issues.size() > shown)
-            msg += tr("… and %1 more.").arg(r.issues.size() - shown);
-        QMessageBox::warning(this, tr("Reading Order"), msg);
+        QMessageBox::information(this, tr("Reading Order"),
+            tr("Tagged PDF detected. %1 elements. Reading order: OK.").arg(r.elementCount));
+        return;
     }
+
+    // Wave 1A §9.14: reuse the veraPDF issue-list pattern already in this same
+    // panel (issueRow() with a JUMP button that navigates the viewer to the
+    // violation's page) instead of dumping a plain, non-interactive text list
+    // into a QMessageBox. Each row's page number comes from r.issuePages
+    // (1-based, -1 = unknown, matching RuleViolation::pageNumber's convention),
+    // so clicking JUMP jumps straight to the mismatched element's page.
+    QLayoutItem* item;
+    while ((item = m_issuesLayout->takeAt(0)) != nullptr) {
+        delete item->widget();
+        delete item;
+    }
+    m_statusLabel->setText(
+        tr("Tagged PDF · %1 element(s) · %2 reading-order issue(s)")
+            .arg(r.elementCount).arg(r.issues.size()));
+    m_issuesHeading->setText(tr("READING ORDER ISSUES · %1").arg(r.issues.size()));
+    m_issuesHeading->show();
+    for (int i = 0; i < r.issues.size(); ++i) {
+        const int pageNumber = (i < r.issuePages.size()) ? r.issuePages[i] : -1;
+        m_issuesLayout->addWidget(issueRow(this, tr("READING-ORDER"), r.issues[i], /*err=*/false, pageNumber));
+    }
+    m_issuesList->show();
 }
 
 } // namespace gp
