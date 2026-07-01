@@ -537,6 +537,20 @@ void HomeController::onPageSetup() {
 
 void HomeController::onExportPresets() {
     ExportPresetsPanel panel(_mainWindow);
+    // Wave 1A §9.16: the preset's "linearized" checkbox was collected, saved,
+    // and even displayed back in the preset summary text -- but never actually
+    // applied anywhere. PdfEditorEngine::saveDocument() already reads a real
+    // "export/linearizeOnSave" QSettings flag (backed by qpdf's linearization,
+    // already a linked dependency) and performs real linearization on save; the
+    // preset panel's Apply button just never wrote that flag. Wire it here so
+    // choosing a preset with "linearized" checked actually takes effect on the
+    // next save, instead of being a control that implies a capability it
+    // doesn't deliver.
+    connect(&panel, &ExportPresetsPanel::presetSelected, this,
+            [](const ExportPresetsPanel::Preset& p) {
+                QSettings settings;
+                settings.setValue(QStringLiteral("export/linearizeOnSave"), p.linearized);
+            });
     panel.exec();
 }
 
