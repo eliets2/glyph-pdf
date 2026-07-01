@@ -418,8 +418,38 @@ void RedactMode::onApplyRedactions() {
     }
 }
 
+// Wave 1A §9.8: "Clear Marks" previously only reset the match-count label text --
+// it never touched a single placed redaction mark, despite its name promising
+// otherwise. Redaction marks are AnnotationItems with mode == ToolMode::Redact
+// (placed via the viewer's Redact tool / AnnotationLayer, same storage as every
+// other annotation type). Remove them for real and refresh the viewer.
 void RedactMode::onClearMarks() {
-    m_matchCountLabel->setText(tr("Select a pattern to preview matches."));
+    if (!m_viewer || !m_viewer->annotationLayer()) {
+        m_matchCountLabel->setText(tr("Select a pattern to preview matches."));
+        return;
+    }
+
+    AnnotationLayer* layer = m_viewer->annotationLayer();
+    const QList<AnnotationItem> current = layer->annotations();
+
+    QList<AnnotationItem> kept;
+    kept.reserve(current.size());
+    int removedCount = 0;
+    for (const auto& item : current) {
+        if (item.mode == ToolMode::Redact) {
+            ++removedCount;
+        } else {
+            kept.append(item);
+        }
+    }
+
+    if (removedCount > 0) {
+        layer->setAnnotations(kept);  // emits annotationsChanged() -> debounced autosave
+    }
+
+    m_matchCountLabel->setText(removedCount > 0
+        ? tr("Cleared %1 redaction mark(s).").arg(removedCount)
+        : tr("No redaction marks to clear."));
 }
 
 void RedactMode::onScopeChanged() {
