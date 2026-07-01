@@ -227,6 +227,13 @@ void HomeController::onSave() {
 void HomeController::onSaveAs() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer) return;
+    
+    if (viewer->isReadOnly()) {
+        QMessageBox::warning(_mainWindow, tr("Read-Only Document"),
+            tr("This document is read-only or expired. Saving a copy is not permitted."));
+        return;
+    }
+    
     QString fileName = QFileDialog::getSaveFileName(
         _mainWindow,
         tr("Save Document As"), QFileInfo(viewer->filePath()).fileName(),
@@ -350,6 +357,13 @@ void HomeController::shareViaEmail(const QString& filePath) {
 // Secure sharing (§9.11): bundle the PDF into an AES-256 encrypted ZIP using a
 // 7-Zip executable (PATH, common install dirs, or bundled next to the app).
 void HomeController::createEncryptedPackage(const QString& filePath) {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (viewer && viewer->isReadOnly()) {
+        QMessageBox::warning(_mainWindow, tr("Read-Only Document"),
+            tr("This document is read-only or expired. Creating an encrypted package is not permitted."));
+        return;
+    }
+
     QString sevenZip = QStandardPaths::findExecutable(QStringLiteral("7z"));
     if (sevenZip.isEmpty()) {
         const QStringList candidates = {

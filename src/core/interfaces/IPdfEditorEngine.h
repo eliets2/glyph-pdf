@@ -84,6 +84,36 @@ struct ImageWatermarkOptions {
     bool skipSigned = true;
 };
 
+// ── Sanitize options ─────────────────────────────────────────────────────────
+
+struct SanitizeOptions {
+    bool removeMetadata = true;         // /Info, /Metadata, /PieceInfo, /MarkInfo, etc.
+    bool removeHiddenText = true;       // ActualText, Alt, E from StructTree
+    bool removeOptionalContent = true;  // /OCProperties
+    bool removeBookmarks = true;        // /Outlines
+    bool removeEmbeddedFiles = true;    // /Names/EmbeddedFiles, /Collection
+    bool removeFormValues = true;       // AcroForm /V, /DV
+    bool removeAnnotations = true;      // Annotation Contents, RichMedia/Screen/Movie
+    bool removeDangerousActions = true; // JavaScript, OpenAction, AA, dangerous /A actions
+};
+
+struct SanitizeEstimate {
+    int metadataItems = 0;
+    int hiddenTextItems = 0;
+    int optionalContentItems = 0;
+    int bookmarks = 0;
+    int embeddedFiles = 0;
+    int formValues = 0;
+    int annotationsModified = 0;
+    int dangerousActions = 0;
+
+    int totalItems() const {
+        return metadataItems + hiddenTextItems + optionalContentItems +
+               bookmarks + embeddedFiles + formValues +
+               annotationsModified + dangerousActions;
+    }
+};
+
 // ── Optimization options ───────────────────────────────────────────────────
 
 struct OptimizeOptions {
@@ -134,7 +164,8 @@ public:
     virtual bool loadDocumentForEditing(const QString &filePath) = 0;
     virtual bool saveDocument(const QString &outputPath) = 0;
     virtual bool linearizeDocument(const QString &outputPath) = 0;
-    virtual bool sanitizeDocument(const QString &outputPath) = 0;
+    virtual bool sanitizeDocument(const QString &outputPath, const SanitizeOptions &options = SanitizeOptions()) = 0;
+    virtual SanitizeEstimate estimateSanitization(const SanitizeOptions &options = SanitizeOptions()) = 0;
     virtual bool getMetadata(PdfMetadata &outMetadata) = 0;
     virtual bool setMetadata(const PdfMetadata &metadata) = 0;
     virtual QString currentFile() const = 0;

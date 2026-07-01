@@ -9,7 +9,7 @@
 // belong on the QUndoStack.
 struct SanitizeDocumentHelper {
     static bool execute(IPdfEditorEngine* engine, DocumentSession* doc,
-                        const QString& outPath)
+                        const QString& outPath, const SanitizeOptions& options = SanitizeOptions())
     {
         if (!engine || !doc || doc->path().isEmpty() || outPath.isEmpty())
             return false;
@@ -28,6 +28,6 @@ struct SanitizeDocumentHelper {
         if (!engine->loadDocumentForEditing(doc->path()))
             return false;
 
-        return engine->sanitizeDocument(outPath);
+        return engine->sanitizeDocument(outPath, options);
     }
 };

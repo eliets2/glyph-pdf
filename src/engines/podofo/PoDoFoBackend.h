@@ -78,7 +78,8 @@ public:
     bool encryptDocument(const QString &userPassword, const QString &ownerPassword,
                          const DocumentPermissions& perms);
     bool removeEncryption(const QString &ownerPassword);
-    bool sanitizeDocument(const QString &outputPath);
+    bool sanitizeDocument(const QString &outputPath, const SanitizeOptions &options = SanitizeOptions());
+    SanitizeEstimate estimateSanitization(const SanitizeOptions &options = SanitizeOptions());
 
     // Image operations
     QList<PdfImageInfo> listImages(int pageIndex);
@@ -108,7 +109,7 @@ private:
     // responsible for saving (sanitizeDocument() does its own atomic
     // temp-file+qpdf+rename save; optimizeDocument() continues to its existing
     // writeUpdate() call).
-    void sanitizeDocumentInPlace();
+    void sanitizeDocumentInPlace(const SanitizeOptions &options = SanitizeOptions());
 
     class Private;
     std::unique_ptr<Private> d;

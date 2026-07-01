@@ -544,7 +544,7 @@ QStringList PoDoFoBackend::getLayers() {
     try {
         using namespace PoDoFo;
         auto& catalog = d->document->GetCatalog();
-        if (catalog.GetDictionary().HasKey(PdfName("OCProperties"))) {
+        if (options.removeOptionalContent && catalog.GetDictionary().HasKey(PdfName("OCProperties"))) {
             auto* ocgObj = catalog.GetDictionary().GetKey(PdfName("OCProperties"));
             if (ocgObj && ocgObj->IsDictionary()) {
                 auto* ocgsObj = ocgObj->GetDictionary().GetKey(PdfName("OCGs"));
@@ -1995,25 +1995,147 @@ bool PoDoFoBackend::removeEncryption(const QString &ownerPassword) {
 // comment in PoDoFoBackend.h for exactly what this removes. Caller must hold
 // d->mutex and have already verified d->document is non-null; this function
 // does not save -- it only mutates the in-memory document.
-void PoDoFoBackend::sanitizeDocumentInPlace() {
+
+SanitizeEstimate PoDoFoBackend::estimateSanitization(const SanitizeOptions &options) {
+    using namespace PoDoFo;
+    SanitizeEstimate est;
+    QMutexLocker locker(&d->mutex);
+    if (!d->document) return est;
+
+    auto& trailer = d->document->GetTrailer();
+    if (options.removeMetadata && trailer.GetDictionary().HasKey("Info")) est.metadataItems++;
+
+    auto& catalog = d->document->GetCatalog();
+    if (options.removeMetadata) {
+        if (catalog.GetDictionary().HasKey(PdfName("Metadata"))) est.metadataItems++;
+        if (catalog.GetDictionary().HasKey(PdfName("PieceInfo"))) est.metadataItems++;
+        if (catalog.GetDictionary().HasKey(PdfName("MarkInfo"))) est.metadataItems++;
+        if (catalog.GetDictionary().HasKey(PdfName("OutputIntents"))) est.metadataItems++;
+    }
+
+    if (catalog.GetDictionary().HasKey(PdfName("Names"))) {
+        auto* namesObj = catalog.GetDictionary().FindKey(PdfName("Names"));
+        if (namesObj && namesObj->IsReference()) {
+            namesObj = &d->document->GetObjects().MustGetObject(namesObj->GetReference());
+        }
+        if (namesObj && namesObj->IsDictionary()) {
+            auto& namesDict = namesObj->GetDictionary();
+            if (options.removeEmbeddedFiles && namesDict.HasKey(PdfName("EmbeddedFiles"))) est.embeddedFiles++;
+            if (options.removeDangerousActions && namesDict.HasKey(PdfName("JavaScript"))) est.dangerousActions++;
+        }
+    }
+
+    if (options.removeDangerousActions) {
+        if (catalog.GetDictionary().HasKey(PdfName("OpenAction"))) est.dangerousActions++;
+        if (catalog.GetDictionary().HasKey(PdfName("AA"))) est.dangerousActions++;
+    }
+
+    if (options.removeHiddenText) {
+        auto* structTreeRootObj = catalog.GetDictionary().FindKey("StructTreeRoot");
+        if (structTreeRootObj) {
+            std::function<void(PoDoFo::PdfObject*)> countAllStructElements = [&](PoDoFo::PdfObject* elem) {
+                if (!elem) return;
+                if (elem->IsReference()) elem = &d->document->GetObjects().MustGetObject(elem->GetReference());
+                if (!elem->IsDictionary()) return;
+
+                auto& dict = elem->GetDictionary();
+                if (dict.HasKey("ActualText")) est.hiddenTextItems++;
+                if (dict.HasKey("Alt")) est.hiddenTextItems++;
+                if (dict.HasKey("E")) est.hiddenTextItems++;
+
+                auto* kKey = dict.FindKey("K");
+                if (kKey) {
+                    if (kKey->IsArray()) {
+                        for (auto& kid : kKey->GetArray()) countAllStructElements(&kid);
+                    } else countAllStructElements(kKey);
+                }
+            };
+            countAllStructElements(structTreeRootObj);
+        }
+    }
+
+    if (options.removeOptionalContent && catalog.GetDictionary().HasKey(PdfName("OCProperties"))) est.optionalContentItems++;
+    if (options.removeBookmarks && catalog.GetDictionary().HasKey(PdfName("Outlines"))) est.bookmarks++;
+    if (options.removeEmbeddedFiles && catalog.GetDictionary().HasKey(PdfName("Collection"))) est.embeddedFiles++;
+
+    auto& pages = d->document->GetPages();
+    for (unsigned pi = 0; pi < pages.GetCount(); ++pi) {
+        auto& pg = pages.GetPageAt(pi);
+        if (options.removeDangerousActions && pg.GetDictionary().HasKey(PdfName("AA"))) est.dangerousActions++;
+        if (options.removeAnnotations && pg.GetDictionary().HasKey(PdfName("A"))) est.annotationsModified++;
+        
+        if (options.removeMetadata) {
+            if (pg.GetDictionary().HasKey(PdfName("PieceInfo"))) est.metadataItems++;
+            if (pg.GetDictionary().HasKey(PdfName("Thumb"))) est.metadataItems++;
+            if (pg.GetDictionary().HasKey(PdfName("Metadata"))) est.metadataItems++;
+        }
+
+        auto& annos = pg.GetAnnotations();
+        for (unsigned ai = 0; ai < annos.GetCount(); ++ai) {
+            auto& anno = annos.GetAnnotAt(ai);
+            auto& dict = anno.GetDictionary();
+            
+            if (options.removeAnnotations) {
+                if (dict.HasKey("Contents")) est.annotationsModified++;
+                if (dict.HasKey("RC")) est.annotationsModified++;
+                auto* subtypeObj = dict.FindKey("Subtype");
+                if (subtypeObj && subtypeObj->IsName()) {
+                    std::string subtypeName = std::string(subtypeObj->GetName().GetString());
+                    if (subtypeName == "RichMedia" || subtypeName == "Screen" || subtypeName == "Movie") {
+                        est.annotationsModified++;
+                    }
+                }
+            }
+            if (options.removeDangerousActions) {
+                if (dict.HasKey("AA")) est.dangerousActions++;
+                auto* actionObj = dict.FindKey("A");
+                if (actionObj) {
+                    PoDoFo::PdfObject* resolvedAction = actionObj;
+                    if (resolvedAction->IsReference()) resolvedAction = &d->document->GetObjects().MustGetObject(resolvedAction->GetReference());
+                    bool dangerous = true;
+                    if (resolvedAction && resolvedAction->IsDictionary()) {
+                        auto* sObj = resolvedAction->GetDictionary().FindKey("S");
+                        if (sObj && sObj->IsName()) {
+                            const std::string s = std::string(sObj->GetName().GetString());
+                            if (s == "GoTo") dangerous = false;
+                        }
+                    }
+                    if (dangerous) est.dangerousActions++;
+                }
+            }
+        }
+    }
+
+    if (options.removeFormValues) {
+        for (auto field : d->document->GetFieldsIterator()) {
+            auto& fieldDict = field->GetDictionary();
+            if (fieldDict.HasKey("V")) est.formValues++;
+            if (fieldDict.HasKey("DV")) est.formValues++;
+        }
+    }
+
+    return est;
+}
+
+void PoDoFoBackend::sanitizeDocumentInPlace(const SanitizeOptions &options) {
     using namespace PoDoFo;
 
     auto& trailer = d->document->GetTrailer();
-        if (trailer.GetDictionary().HasKey("Info")) {
+        if (options.removeMetadata && trailer.GetDictionary().HasKey("Info")) {
             trailer.GetDictionary().RemoveKey("Info");
         }
         
         auto& catalog = d->document->GetCatalog();
-        if (catalog.GetDictionary().HasKey(PdfName("Metadata"))) {
+        if (options.removeMetadata && catalog.GetDictionary().HasKey(PdfName("Metadata"))) {
             catalog.GetDictionary().RemoveKey(PdfName("Metadata"));
         }
-        if (catalog.GetDictionary().HasKey(PdfName("PieceInfo"))) {
+        if (options.removeMetadata && catalog.GetDictionary().HasKey(PdfName("PieceInfo"))) {
             catalog.GetDictionary().RemoveKey(PdfName("PieceInfo"));
         }
-        if (catalog.GetDictionary().HasKey(PdfName("MarkInfo"))) {
+        if (options.removeMetadata && catalog.GetDictionary().HasKey(PdfName("MarkInfo"))) {
             catalog.GetDictionary().RemoveKey(PdfName("MarkInfo"));
         }
-        if (catalog.GetDictionary().HasKey(PdfName("OutputIntents"))) {
+        if (options.removeMetadata && catalog.GetDictionary().HasKey(PdfName("OutputIntents"))) {
             catalog.GetDictionary().RemoveKey(PdfName("OutputIntents"));
         }
         
@@ -2024,24 +2146,25 @@ void PoDoFoBackend::sanitizeDocumentInPlace() {
             }
             if (namesObj && namesObj->IsDictionary()) {
                 auto& namesDict = namesObj->GetDictionary();
-                if (namesDict.HasKey(PdfName("EmbeddedFiles"))) {
+                if (options.removeEmbeddedFiles && namesDict.HasKey(PdfName("EmbeddedFiles"))) {
                     namesDict.RemoveKey(PdfName("EmbeddedFiles"));
                 }
-                if (namesDict.HasKey(PdfName("JavaScript"))) {
+                if (options.removeDangerousActions && namesDict.HasKey(PdfName("JavaScript"))) {
                     namesDict.RemoveKey(PdfName("JavaScript"));
                 }
             }
         }
 
-        if (catalog.GetDictionary().HasKey(PdfName("OpenAction"))) {
+        if (options.removeDangerousActions && catalog.GetDictionary().HasKey(PdfName("OpenAction"))) {
             catalog.GetDictionary().RemoveKey(PdfName("OpenAction"));
         }
-        if (catalog.GetDictionary().HasKey(PdfName("AA"))) {
+        if (options.removeDangerousActions && catalog.GetDictionary().HasKey(PdfName("AA"))) {
             catalog.GetDictionary().RemoveKey(PdfName("AA"));
         }
 
         // D5: Extended sanitization passes
-        // 16. Structure Tree Root sanitization: recursively walk and remove Alt, ActualText, E from all elements
+        // 16. Structure Tree Root sanitization
+        if (options.removeHiddenText) {: recursively walk and remove Alt, ActualText, E from all elements
         auto* structTreeRootObj = catalog.GetDictionary().FindKey("StructTreeRoot");
         if (structTreeRootObj) {
             std::function<void(PoDoFo::PdfObject*)> sanitizeAllStructElements = [&](PoDoFo::PdfObject* elem) {
@@ -2069,38 +2192,39 @@ void PoDoFoBackend::sanitizeDocumentInPlace() {
             };
             sanitizeAllStructElements(structTreeRootObj);
         }
+        }
 
         // 17. Flatten optional content layers by removing OCProperties
-        if (catalog.GetDictionary().HasKey(PdfName("OCProperties"))) {
+        if (options.removeOptionalContent && catalog.GetDictionary().HasKey(PdfName("OCProperties"))) {
             catalog.GetDictionary().RemoveKey(PdfName("OCProperties"));
         }
 
         // 18. Remove Outlines (bookmarks)
-        if (catalog.GetDictionary().HasKey(PdfName("Outlines"))) {
+        if (options.removeBookmarks && catalog.GetDictionary().HasKey(PdfName("Outlines"))) {
             catalog.GetDictionary().RemoveKey(PdfName("Outlines"));
         }
 
         // 20. Remove Collection portfolio
-        if (catalog.GetDictionary().HasKey(PdfName("Collection"))) {
+        if (options.removeEmbeddedFiles && catalog.GetDictionary().HasKey(PdfName("Collection"))) {
             catalog.GetDictionary().RemoveKey(PdfName("Collection"));
         }
 
         auto& pages = d->document->GetPages();
         for (unsigned pi = 0; pi < pages.GetCount(); ++pi) {
             auto& pg = pages.GetPageAt(pi);
-            if (pg.GetDictionary().HasKey(PdfName("AA"))) {
+            if (options.removeDangerousActions && pg.GetDictionary().HasKey(PdfName("AA"))) {
                 pg.GetDictionary().RemoveKey(PdfName("AA"));
             }
-            if (pg.GetDictionary().HasKey(PdfName("A"))) {
+            if (options.removeAnnotations && pg.GetDictionary().HasKey(PdfName("A"))) {
                 pg.GetDictionary().RemoveKey(PdfName("A"));
             }
-            if (pg.GetDictionary().HasKey(PdfName("PieceInfo"))) {
+            if (options.removeMetadata && pg.GetDictionary().HasKey(PdfName("PieceInfo"))) {
                 pg.GetDictionary().RemoveKey(PdfName("PieceInfo"));
             }
-            if (pg.GetDictionary().HasKey(PdfName("Thumb"))) {
+            if (options.removeMetadata && pg.GetDictionary().HasKey(PdfName("Thumb"))) {
                 pg.GetDictionary().RemoveKey(PdfName("Thumb"));
             }
-            if (pg.GetDictionary().HasKey(PdfName("Metadata"))) {
+            if (options.removeMetadata && pg.GetDictionary().HasKey(PdfName("Metadata"))) {
                 pg.GetDictionary().RemoveKey(PdfName("Metadata"));
             }
 
@@ -2111,8 +2235,10 @@ void PoDoFoBackend::sanitizeDocumentInPlace() {
                 auto& anno = annos.GetAnnotAt(ai);
                 auto& dict = anno.GetDictionary();
                 // 23. Remove annotation contents & rich text
-                if (dict.HasKey("Contents")) dict.RemoveKey("Contents");
-                if (dict.HasKey("RC")) dict.RemoveKey("RC");
+                if (options.removeAnnotations) {
+                    if (dict.HasKey("Contents")) dict.RemoveKey("Contents");
+                    if (dict.HasKey("RC")) dict.RemoveKey("RC");
+                }
 
                 // 24. Strip dangerous annotation actions. Link/Widget annotations
                 // carry actions in /A and additional actions in /AA. A /Launch,
@@ -2121,7 +2247,7 @@ void PoDoFoBackend::sanitizeDocumentInPlace() {
                 // vector, so remove /A entirely for those. /AA is always removed
                 // (it has no benign use in a sanitized document). Internal /GoTo
                 // navigation is preserved.
-                if (dict.HasKey("AA")) dict.RemoveKey("AA");
+                if (options.removeDangerousActions && dict.HasKey("AA")) dict.RemoveKey("AA");
                 auto* actionObj = dict.FindKey("A");
                 if (actionObj) {
                     PoDoFo::PdfObject* resolvedAction = actionObj;
@@ -2138,14 +2264,14 @@ void PoDoFoBackend::sanitizeDocumentInPlace() {
                             if (s == "GoTo") dangerous = false;
                         }
                     }
-                    if (dangerous) dict.RemoveKey("A");
+                    if (options.removeDangerousActions && dangerous) dict.RemoveKey("A");
                 }
 
                 // 19. Remove RichMedia, Movie, Screen annotations
                 auto* subtypeObj = dict.FindKey("Subtype");
                 if (subtypeObj && subtypeObj->IsName()) {
                     std::string subtypeName = std::string(subtypeObj->GetName().GetString());
-                    if (subtypeName == "RichMedia" || subtypeName == "Screen" || subtypeName == "Movie") {
+                    if (options.removeAnnotations && (subtypeName == "RichMedia" || subtypeName == "Screen" || subtypeName == "Movie")) {
                         toRemoveAnnos.push_back(ai);
                     }
                 }
@@ -2156,10 +2282,12 @@ void PoDoFoBackend::sanitizeDocumentInPlace() {
         }
 
         // 22. Clear AcroForm field values
+        if (options.removeFormValues) {
         for (auto field : d->document->GetFieldsIterator()) {
             auto& fieldDict = field->GetDictionary();
             if (fieldDict.HasKey("V")) fieldDict.RemoveKey("V");
             if (fieldDict.HasKey("DV")) fieldDict.RemoveKey("DV");
+        }
         }
 
         // 21. Trailer ID second element randomization
@@ -2185,7 +2313,7 @@ void PoDoFoBackend::sanitizeDocumentInPlace() {
         }
 }
 
-bool PoDoFoBackend::sanitizeDocument(const QString &outputPath) {
+bool PoDoFoBackend::sanitizeDocument(const QString &outputPath, const SanitizeOptions &options) {
     QMutexLocker locker(&d->mutex);
     if (!d->document || outputPath.isEmpty()) return false;
 
@@ -2205,7 +2333,7 @@ bool PoDoFoBackend::sanitizeDocument(const QString &outputPath) {
     }
 
     try {
-        sanitizeDocumentInPlace();
+        sanitizeDocumentInPlace(options);
 
         const QString outputDir = outputInfo.absoluteDir().absolutePath();
         QString tempPath;
@@ -3661,7 +3789,7 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
         // AcroForm field values, etc. all survived). Reuse the same full sweep
         // sanitizeDocument() uses instead of reimplementing a subset of it.
         if (options.stripMetadata) {
-            sanitizeDocumentInPlace();
+            sanitizeDocumentInPlace(options);
         }
 
         if (!writeUpdate(outputPath)) throw std::runtime_error("writeUpdate failed");

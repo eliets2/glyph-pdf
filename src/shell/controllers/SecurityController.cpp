@@ -14,6 +14,7 @@
 #include "commands/EncryptDocumentHelper.h"
 #include "commands/SignDocumentHelper.h"
 #include "commands/SanitizeDocumentHelper.h"
+#include "ui/SanitizeDialog.h"
 #include "commands/SetMetadataCommand.h"
 #include "core/AnnotationSerializer.h"
 
@@ -125,6 +126,12 @@ void SecurityController::activate(ToolId id) {
 void SecurityController::encryptDocument() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->pdfEditor) return;
+    if (viewer->isReadOnly()) {
+        QMessageBox::warning(_mainWindow, tr("Read-Only Document"),
+            tr("This document is read-only or expired. Security operations are not permitted."));
+        return;
+    }
+
 
     // ER-3: Re-encrypting a multi-recipient document changes the session key,
     // locking out other recipients whose envelopes were computed against the original FEK.
@@ -287,6 +294,18 @@ void SecurityController::sanitizeDocument() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->pdfEditor) return;
 
+    if (viewer->isReadOnly()) {
+        QMessageBox::warning(_mainWindow, tr("Read-Only Document"),
+            tr("This document is read-only or expired. Security operations are not permitted."));
+        return;
+    }
+
+    SanitizeDialog dlg(_ctx->pdfEditor.get(), _mainWindow);
+    if (dlg.exec() != QDialog::Accepted) {
+        return;
+    }
+    SanitizeOptions options = dlg.getOptions();
+
     QString outputPath = QFileDialog::getSaveFileName(_mainWindow, tr("Save Sanitized Document"), "", tr("PDF Files (*.pdf)"));
     if (outputPath.isEmpty()) return;
 
@@ -317,11 +336,11 @@ void SecurityController::sanitizeDocument() {
     QPointer<SecurityController> self(this);
     auto result = std::make_shared<std::atomic<bool>>(false);
 
-    QThread* worker = QThread::create([weakEngine, weakDoc, outputPath, result]() {
+    QThread* worker = QThread::create([weakEngine, weakDoc, outputPath, options, result]() {
         auto engine = weakEngine.lock();
         auto doc = weakDoc.lock();
         if (!engine || !doc) return;
-        result->store(SanitizeDocumentHelper::execute(engine.get(), doc.get(), outputPath));
+        result->store(SanitizeDocumentHelper::execute(engine.get(), doc.get(), outputPath, options));
     });
 
     connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result]() {
@@ -404,6 +423,12 @@ void SecurityController::importAnnotationPackage() {
 void SecurityController::applyRedactions() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->pdfEditor) return;
+    if (viewer->isReadOnly()) {
+        QMessageBox::warning(_mainWindow, tr("Read-Only Document"),
+            tr("This document is read-only or expired. Security operations are not permitted."));
+        return;
+    }
+
 
     auto annos = viewer->annotations();
     QMap<int, QList<QRectF>> redactionsByPage;
@@ -507,6 +532,12 @@ void SecurityController::applyRedactions() {
 void SecurityController::permissionsDocument() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->pdfEditor) return;
+    if (viewer->isReadOnly()) {
+        QMessageBox::warning(_mainWindow, tr("Read-Only Document"),
+            tr("This document is read-only or expired. Security operations are not permitted."));
+        return;
+    }
+
 
     // ER-3: Re-encrypting a multi-recipient document changes the session key,
     // locking out other recipients whose envelopes were computed against the original FEK.
@@ -580,6 +611,12 @@ void SecurityController::permissionsDocument() {
 void SecurityController::removeSecurity() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->pdfEditor) return;
+    if (viewer->isReadOnly()) {
+        QMessageBox::warning(_mainWindow, tr("Read-Only Document"),
+            tr("This document is read-only or expired. Security operations are not permitted."));
+        return;
+    }
+
 
     bool ok;
     QString pwd = QInputDialog::getText(_mainWindow, tr("Remove Security"),
@@ -616,6 +653,12 @@ void SecurityController::removeSecurity() {
 void SecurityController::certifyDocument() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->signing) return;
+    if (viewer->isReadOnly()) {
+        QMessageBox::warning(_mainWindow, tr("Read-Only Document"),
+            tr("This document is read-only or expired. Security operations are not permitted."));
+        return;
+    }
+
 
     SignatureDialog dlg(_mainWindow);
     dlg.setWindowTitle(tr("Certify Document"));
@@ -688,6 +731,12 @@ void SecurityController::certifyDocument() {
 void SecurityController::timestampDocument() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->signing) return;
+    if (viewer->isReadOnly()) {
+        QMessageBox::warning(_mainWindow, tr("Read-Only Document"),
+            tr("This document is read-only or expired. Security operations are not permitted."));
+        return;
+    }
+
 
     QString outputPath = QFileDialog::getSaveFileName(_mainWindow, tr("Save Timestamped Document"), "", tr("PDF Files (*.pdf)"));
     if (outputPath.isEmpty()) return;
@@ -740,6 +789,12 @@ void SecurityController::timestampDocument() {
 void SecurityController::setExpiryDateDocument() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->pdfEditor) return;
+    if (viewer->isReadOnly()) {
+        QMessageBox::warning(_mainWindow, tr("Read-Only Document"),
+            tr("This document is read-only or expired. Security operations are not permitted."));
+        return;
+    }
+
 
     const QString currentPath = viewer->filePath();
     if (currentPath.isEmpty()) return;

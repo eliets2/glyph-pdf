@@ -626,6 +626,7 @@ add_library(pdfws_ui STATIC
     src/ui/PermissionsDialog.h       src/ui/PermissionsDialog.cpp
     src/ui/SignatureDialog.h         src/ui/SignatureDialog.cpp
     src/ui/MetadataDialog.h          src/ui/MetadataDialog.cpp
+    src/ui/SanitizeDialog.h          src/ui/SanitizeDialog.cpp
     src/ui/AnnotationLayer.h         src/ui/AnnotationLayer.cpp
     src/ui/ThumbnailSidebar.h        src/ui/ThumbnailSidebar.cpp
     src/ui/ShortcutHelpDialog.h      src/ui/ShortcutHelpDialog.cpp
