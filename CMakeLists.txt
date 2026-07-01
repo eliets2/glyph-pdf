@@ -592,8 +592,6 @@ add_library(pdfws_commands STATIC
     src/commands/RotateImageCommand.h
     src/commands/ReplaceImageCommand.h
     src/commands/DeleteImageCommand.h
-    src/commands/ReorderPageCommand.h
-    src/commands/ReorderPageCommand.cpp
     src/commands/ReorderPermutationCommand.h
     src/commands/ReorderPermutationCommand.cpp
     src/commands/CropPageCommand.h

@@ -7,7 +7,7 @@
 #include "commands/DeletePageCommand.h"
 #include "commands/InsertPageCommand.h"
 #include "commands/CropPageCommand.h"
-#include "commands/ReorderPageCommand.h"
+#include "commands/ReorderPermutationCommand.h"
 #include "ui/PageManagementDialog.h"
 #include "ui/ResizeDialog.h"
 #include "ui/HeaderFooterDialog.h"
@@ -171,9 +171,30 @@ void PagesController::showPageManagement() {
 }
 
 void PagesController::onPageReordered(int from, int to) {
-    if (_ctx && _ctx->undoStack && _mainWindow->pdfViewer()) {
-        _ctx->document->setPath(_mainWindow->pdfViewer()->filePath());
-        _ctx->undoStack->push(new ReorderPageCommand(_ctx->pdfEditor.get(), _ctx->document.get(), from, to));
+    auto* viewer = _mainWindow->pdfViewer();
+    if (_ctx && _ctx->undoStack && viewer) {
+        // Wave 1A §9.9: consolidate onto the atomic ReorderPermutationCommand
+        // (a single reorderAllPages() call, one undo step) instead of the
+        // legacy single-swap ReorderPageCommand (a raw reorderPages(from, to)
+        // that flushes to disk once per move and required hand-derived,
+        // easy-to-get-wrong index arithmetic in its own undo() to reverse the
+        // shift). Two commands doing one conceptual operation meant a bug fix
+        // in one path (e.g. AR-8 D5's atomic-write fix) could silently not
+        // apply to the other -- exactly the correctness hazard the audit
+        // flagged. Build the equivalent permutation for a single from->to move:
+        // permutation[i] = original page index that should end up at position i.
+        const int pageCount = viewer->pageCount();
+        if (from < 0 || to < 0 || from >= pageCount || to >= pageCount || from == to) return;
+
+        QList<int> permutation;
+        permutation.reserve(pageCount);
+        for (int i = 0; i < pageCount; ++i) {
+            if (i != from) permutation.append(i);
+        }
+        permutation.insert(to, from);
+
+        _ctx->document->setPath(viewer->filePath());
+        _ctx->undoStack->push(new ReorderPermutationCommand(_ctx->pdfEditor.get(), _ctx->document.get(), permutation));
         _mainWindow->statusBar()->showMessage(tr("Reordered page %1 to %2.").arg(from + 1).arg(to + 1), 3000);
     }
 }
