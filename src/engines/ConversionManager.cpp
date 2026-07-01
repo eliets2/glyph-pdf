@@ -4,6 +4,8 @@
 #include <podofo/podofo.h>
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <cstring>
 #include <QDebug>
 #include <QFile>
 #include <QTextStream>
@@ -529,10 +531,31 @@ bool ConversionManager::exportToText(const QString &pdfPath, const QString &outp
     }
 }
 
+// Wave 1A §9.5: libzip defers actually reading/compressing each added entry's
+// data until zip_close() is called at the very end of exportToPowerPoint(), not
+// at the point zip_file_add() is called. The original code passed freep=0 to
+// zip_source_buffer(), meaning libzip only borrows the QByteArray's pointer and
+// never copies or frees it -- but nearly every caller here passes a QByteArray
+// that is local to (and destroyed at the end of) a per-page loop iteration or an
+// inner `{ }` scope, well before the eventual zip_close(). That is a real,
+// crash-causing use-after-free: this function intermittently segfaults inside
+// libzip's zip_close()->zip_source_buffer() memcpy on the freed heap block,
+// exactly the crash caught by TestOfficeExport::testExportToPowerPoint_*.
+//
+// Fix: give libzip its own heap copy (malloc'd, freep=1) so the source stays
+// valid regardless of when zip_close() actually consumes it, matching the
+// zip_source_buffer() contract for freep != 0 (libzip calls free() on it once
+// no longer needed).
 static void addZipFile(zip_t* za, const char* name, const QByteArray& data) {
-    zip_source_t* source = zip_source_buffer(za, data.constData(), data.size(), 0);
+    void* copy = data.isEmpty() ? nullptr : std::malloc(static_cast<size_t>(data.size()));
+    if (!copy && !data.isEmpty()) return;
+    if (copy) std::memcpy(copy, data.constData(), static_cast<size_t>(data.size()));
+
+    zip_source_t* source = zip_source_buffer(za, copy, data.size(), 1 /* freep: libzip frees `copy` */);
     if (source) {
         zip_file_add(za, name, source, ZIP_FL_OVERWRITE | ZIP_FL_ENC_UTF_8);
+    } else if (copy) {
+        std::free(copy);
     }
 }
 
