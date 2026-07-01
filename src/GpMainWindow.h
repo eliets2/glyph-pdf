@@ -52,6 +52,10 @@ public:
     // Navigate to a named screen (delegates to onScreenSelected).
     // Usable by controllers that hold a MainWindow* but not ModeController*.
     void activateScreen(const QString& id);
+    // Wave 1A §9.10: navigate to the Compare screen AND actually run the
+    // comparison (ModeController::requestCompare -> CompareMode::compareFiles).
+    // Usable by controllers that hold a MainWindow* but not ModeController*.
+    void compareDocuments(const QString& file1, const QString& file2);
     void toggleFindBar();
     void setFullScreenMode(bool fullscreen);
     void updateTitle();

@@ -443,6 +443,17 @@ void MainWindow::activateScreen(const QString& id) {
     onScreenSelected(id);
 }
 
+void MainWindow::compareDocuments(const QString& file1, const QString& file2) {
+    // Wave 1A §9.10: route "compare" screen activation through ModeController's
+    // requestCompare() instead of the bare onScreenSelected("compare") used
+    // elsewhere, so the already-implemented, already-tested DiffEngine/
+    // CompareMode::compareFiles() actually runs instead of leaving the panel
+    // permanently empty.
+    _screenNav->setActive(QStringLiteral("compare"));
+    _status->setScreen(QStringLiteral("compare"));
+    if (_modes) _modes->requestCompare(file1, file2);
+}
+
 void MainWindow::updateTitle() {
     auto* viewer = pdfViewer();
     if (!viewer || viewer->filePath().isEmpty()) {

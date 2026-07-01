@@ -36,6 +36,14 @@ public:
     // Forward recognised OCR words to the OCR Verify screen (if it has been created).
     void deliverOcrResults(const QList<MergedOcrWord>& words);
 
+    // Wave 1A §9.10: the single blocking defect in the whole Document Comparison
+    // feature was that nothing ever called CompareMode::compareFiles() -- every
+    // menu route landed on a permanently empty placeholder screen despite a
+    // fully-built, unit-tested Myers-diff engine underneath. Ensures the Compare
+    // screen widget exists (creating it via the same lazy-init path setScreen()
+    // uses) and runs the real comparison.
+    void requestCompare(const QString& file1, const QString& file2);
+
 signals:
     void screenChanged(const QString& id);
     // Emitted when the OCR Verify screen's Run button is pressed; the host wires this

@@ -87,5 +87,16 @@ void ModeController::deliverOcrResults(const QList<MergedOcrWord>& words) {
         om->setOcrResults(words);
 }
 
+void ModeController::requestCompare(const QString& file1, const QString& file2) {
+    // Wave 1A §9.10: setScreen() lazily creates the CompareMode widget via the
+    // same path every other screen uses and switches the stacked widget to it;
+    // once created, call the already-implemented, already-tested compareFiles()
+    // to actually run the comparison instead of leaving the panel empty.
+    setScreen(QStringLiteral("compare"));
+    if (auto* cm = qobject_cast<CompareMode*>(_byId.value(QStringLiteral("compare"), nullptr))) {
+        cm->compareFiles(file1, file2);
+    }
+}
+
 } // namespace gp
 

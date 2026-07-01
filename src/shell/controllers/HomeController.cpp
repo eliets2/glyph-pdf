@@ -107,9 +107,32 @@ void HomeController::activate(ToolId id) {
     case ToolId::Watermark:
         _mainWindow->onScreenSelected(QStringLiteral("watermark"));
         break;
-    case ToolId::Compare:
-        _mainWindow->onScreenSelected(QStringLiteral("compare"));
+    case ToolId::Compare: {
+        // Wave 1A §9.10: "Compare Documents..." real entry point. The previous
+        // handler only switched to the (permanently empty) Compare screen --
+        // nothing ever called CompareMode::compareFiles(), so the fully-built,
+        // unit-tested Myers-diff comparison engine was 100% unreachable from
+        // any menu. Prompt for the two files to compare, defaulting the first
+        // pick to the currently-open document for the common "compare this
+        // against another version" workflow, then run the real comparison.
+        auto* viewer = _mainWindow->pdfViewer();
+        const QString startDir = (viewer && !viewer->filePath().isEmpty())
+            ? QFileInfo(viewer->filePath()).absolutePath() : QString();
+
+        QString file1 = (viewer && !viewer->filePath().isEmpty()) ? viewer->filePath() : QString();
+        if (file1.isEmpty()) {
+            file1 = QFileDialog::getOpenFileName(_mainWindow, tr("Compare Documents — Select First File"),
+                                                 startDir, tr("PDF Files (*.pdf)"));
+            if (file1.isEmpty()) break;
+        }
+
+        const QString file2 = QFileDialog::getOpenFileName(_mainWindow, tr("Compare Documents — Select Second File"),
+                                                            QFileInfo(file1).absolutePath(), tr("PDF Files (*.pdf)"));
+        if (file2.isEmpty()) break;
+
+        _mainWindow->compareDocuments(file1, file2);
         break;
+    }
     default:
         break;
     }
