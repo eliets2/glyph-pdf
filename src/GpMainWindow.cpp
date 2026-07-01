@@ -249,7 +249,12 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
             if (path != _lastSignatureBadgePath) {
                 _lastSignatureBadgePath = path;
                 ISignatureManager* signing = _ctx ? _ctx->signing.get() : nullptr;
-                if (path.isEmpty() || !signing) {
+                // Only call validateSignatures() (which parses/verifies every
+                // /Contents byte range) when the document actually has
+                // signatures, so unsigned documents -- the overwhelming
+                // common case -- pay zero extra cost.
+                const bool hasSigs = signing && _ctx && _ctx->pdfEditor && _ctx->pdfEditor->hasPdfSignatures();
+                if (path.isEmpty() || !hasSigs) {
                     viewer->setSignatureValidityBadge(true, QString());
                 } else {
                     const QList<SignatureInfo> sigs = signing->validateSignatures(path);
@@ -507,28 +512,11 @@ void MainWindow::openDocument(const QString& filePath) {
             }
         }
 
-        // Wave 1A §9.7: on-page signature validity badge. Only call
-        // validateSignatures() (which parses/verifies every /Contents byte
-        // range) when the document actually has signatures, so unsigned
-        // documents -- the overwhelming common case -- pay zero extra cost on
-        // open. Presentation-layer only: reuses the same SignatureInfo data
-        // the Signatures side panel already computes.
-        if (_ctx && _ctx->pdfEditor && _ctx->signing && _ctx->pdfEditor->hasPdfSignatures()) {
-            const QList<SignatureInfo> sigs = _ctx->signing->validateSignatures(filePath);
-            if (!sigs.isEmpty()) {
-                int validCount = 0;
-                for (const auto &s : sigs) {
-                    if (s.isValid) ++validCount;
-                }
-                const bool allValid = (validCount == sigs.size());
-                const QString summary = tr("%1 of %2 signature(s) valid").arg(validCount).arg(sigs.size());
-                viewer->setSignatureValidityBadge(allValid, summary);
-            } else {
-                viewer->setSignatureValidityBadge(true, QString());
-            }
-        } else if (viewer) {
-            viewer->setSignatureValidityBadge(true, QString());
-        }
+        // Wave 1A §9.7: the on-page signature validity badge is refreshed by
+        // the pageChanged handler above (which also fires once on initial
+        // load) -- see its comment for why that's a better trigger point
+        // than here (de-dupes on _lastSignatureBadgePath so
+        // validateSignatures() isn't re-run on every page turn).
     } else {
         // Build error info — prefer engine detail, fall back to generic
         ErrorInfo err;

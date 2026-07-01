@@ -904,10 +904,15 @@ bool PdfViewerWidget::saveDocumentAs(const QString &outputFile)
 
 
 
-void PdfViewerWidget::mergeDocuments(const QStringList &files, const QString &outputFile)
+bool PdfViewerWidget::mergeDocuments(const QStringList &files, const QString &outputFile)
 {
-    if (!gp::mergeDocuments(files, outputFile))
+    // Wave 1A §9.9: propagate the real result instead of only logging it --
+    // ConvertController::mergePdfs() used to always show "Successfully merged"
+    // regardless of what happened here.
+    const bool ok = gp::mergeDocuments(files, outputFile);
+    if (!ok)
         qWarning() << "mergeDocuments: engine failed on" << outputFile;
+    return ok;
 }
 
 void PdfViewerWidget::printDocument()

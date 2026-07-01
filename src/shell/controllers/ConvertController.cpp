@@ -222,15 +222,26 @@ void ConvertController::mergePdfs() {
     progress->setMinimumDuration(0);
 
     QPointer<ConvertController> self(this);
+    // Wave 1A §9.9: capture the real success/failure of mergeDocuments() instead
+    // of assuming success once the worker thread finishes.
+    auto result = std::make_shared<std::atomic<bool>>(false);
 
-    QThread* worker = QThread::create([files, outputFile]() {
-        PdfViewerWidget::mergeDocuments(files, outputFile);
+    QThread* worker = QThread::create([files, outputFile, result]() {
+        result->store(PdfViewerWidget::mergeDocuments(files, outputFile));
     });
 
-    connect(worker, &QThread::finished, _mainWindow, [self, progress, files, outputFile]() {
+    connect(worker, &QThread::finished, _mainWindow, [self, progress, files, outputFile, result]() {
         progress->close();
         progress->deleteLater();
         if (!self) return;
+        const bool ok = result->load();
+        if (!ok) {
+            QMessageBox::critical(self->_mainWindow, QObject::tr("Merge Failed"),
+                QObject::tr("Could not merge %1 file(s) into %2. Check that every input "
+                            "file is a valid, readable PDF and that the output location "
+                            "is writable.").arg(files.size()).arg(outputFile));
+            return;
+        }
         self->_mainWindow->statusBar()->showMessage(
             QObject::tr("Successfully merged %1 files to %2").arg(files.size()).arg(outputFile), 5000);
         if (QMessageBox::question(self->_mainWindow, QObject::tr("Open Merged PDF"),

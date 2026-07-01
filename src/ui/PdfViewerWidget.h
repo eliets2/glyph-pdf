@@ -83,7 +83,12 @@ public:
     void rotatePages(int from, int to, int angle, const QString &outputFile);
 
     bool saveDocumentAs(const QString &outputFile);
-    static void mergeDocuments(const QStringList &files, const QString &outputFile);
+    // Wave 1A §9.9: returns the real success/failure of the underlying
+    // gp::mergeDocuments() engine call instead of only qWarning()-logging it.
+    // Callers (ConvertController::mergePdfs()) must check the result and show a
+    // real error dialog on failure instead of always reporting "Successfully
+    // merged".
+    static bool mergeDocuments(const QStringList &files, const QString &outputFile);
     void printDocument();
 
     // Accessors
