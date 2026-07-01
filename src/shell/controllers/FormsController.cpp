@@ -26,7 +26,12 @@ QList<ToolId> FormsController::handledTools() const {
         ToolId::TextField, ToolId::Checkbox, ToolId::Radio, ToolId::Dropdown,
         ToolId::CreateForm, ToolId::ListBox, ToolId::Button, ToolId::DateField,
         ToolId::NumField, ToolId::SigField, ToolId::AutoDetect, ToolId::Tabs,
-        ToolId::ImportData, ToolId::ExportData
+        ToolId::ImportData, ToolId::ExportData,
+        // Wave 1A §9.6: CalcField already works end-to-end via FormBuilderMode's
+        // canvas toolbar (ToolMode::FormAddCalculated); it just had no entry in any
+        // controller's handledTools(), which is what kept MenuBar's "Add Calculated
+        // Field" hard-disabled (see the paired MenuBar.cpp fix in this same commit).
+        ToolId::CalcField
     };
 }
 
@@ -76,6 +81,10 @@ void FormsController::activate(ToolId id) {
     case ToolId::SigField:
         _mainWindow->activateScreen("form");
         if (viewer) viewer->setToolMode(ToolMode::FormAddSignature);
+        break;
+    case ToolId::CalcField:
+        _mainWindow->activateScreen("form");
+        if (viewer) viewer->setToolMode(ToolMode::FormAddCalculated);
         break;
     case ToolId::AutoDetect:
         autoDetectFields();
