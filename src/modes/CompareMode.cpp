@@ -34,6 +34,17 @@ CompareMode::CompareMode(QWidget* parent) : QWidget(parent) {
     hrow->setContentsMargins(10,0,10,0); hrow->setSpacing(6);
     auto mono = [](const QString& s){ auto* l = new QLabel(s); l->setProperty("mono",true); return l; };
     hrow->addWidget(mono(tr("COMPARE")));
+
+    // Wave 1A §9.10: real "Compare Documents..." entry point. DiffEngine::compare
+    // is fully implemented and unit-tested (TestDiffEngine) but until now there
+    // was no way to actually reach it -- this screen only ever showed the
+    // "No files selected" label with no button to change that.
+    m_selectFilesBtn = new QToolButton;
+    m_selectFilesBtn->setText(tr("Select Files to Compare…"));
+    m_selectFilesBtn->setProperty("variant", "ghost");
+    connect(m_selectFilesBtn, &QToolButton::clicked, this, &CompareMode::onSelectFilesClicked);
+    hrow->addWidget(m_selectFilesBtn);
+
     m_filesLabel = mono(tr("No files selected — use Compare Docs to open two PDFs"));
     hrow->addWidget(m_filesLabel);
     m_prevBtn = new QToolButton; m_prevBtn->setText(tr("← PREV")); m_prevBtn->setProperty("variant","ghost");
@@ -114,6 +125,21 @@ void CompareMode::compareFiles(const QString& file1, const QString& file2) {
         return engine.compare(file1, file2, 150);
     });
     m_watcher.setFuture(future);
+}
+
+// Wave 1A §9.10: the real file-picker entry point. Prompts for the original
+// ("before") PDF, then the revised ("after") PDF, and calls the already-built,
+// already-unit-tested compareFiles()/DiffEngine::compare pipeline.
+void CompareMode::onSelectFilesClicked() {
+    const QString file1 = QFileDialog::getOpenFileName(
+        this, tr("Select Original Document"), QString(), tr("PDF Files (*.pdf)"));
+    if (file1.isEmpty()) return;
+
+    const QString file2 = QFileDialog::getOpenFileName(
+        this, tr("Select Revised Document"), QString(), tr("PDF Files (*.pdf)"));
+    if (file2.isEmpty()) return;
+
+    compareFiles(file1, file2);
 }
 
 void CompareMode::onDiffFinished() {

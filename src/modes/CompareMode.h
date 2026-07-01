@@ -21,6 +21,10 @@ public:
 private slots:
     void onDiffFinished();
     void onExportReport();
+    // Wave 1A §9.10: the single blocking defect in this whole feature --
+    // compareFiles() was fully implemented and unit-tested but had zero UI
+    // entry point. Prompts for two PDFs via QFileDialog and calls compareFiles().
+    void onSelectFilesClicked();
 
 private:
     QString buildHtmlReport() const;
@@ -31,6 +35,7 @@ private:
     QLabel* m_statusLabel;
     QLabel* m_filesLabel = nullptr;   // AR-8 D1: shows actual compared filenames
     QToolButton* m_exportBtn = nullptr;
+    QToolButton* m_selectFilesBtn = nullptr;  // Wave 1A §9.10: real entry point
     QToolButton* m_prevBtn   = nullptr;  // O4: disabled until diff produces changes
     QToolButton* m_nextBtn   = nullptr;  // O4: disabled until diff produces changes
     QFutureWatcher<DiffResult> m_watcher;
