@@ -1011,21 +1011,52 @@ void BatchMode::onRunClicked() {
                     ok = false;
                 } else {
                     ok = true;
+                    // Wave 1A §9.12: applyPatternRedactions() does a full
+                    // load/find-matches/redact/sanitize/save/reload cycle internally
+                    // (see PdfEditorEngine::applyPatternRedactions), so calling it
+                    // once per pattern meant N patterns == N full document
+                    // reloads/saves per file -- a real performance cost and a
+                    // corruption-window risk (each intermediate save/reload is a
+                    // point where a crash could leave a partially-redacted file).
+                    // Validate every pattern up front (preserving the existing
+                    // per-pattern "invalid regex" error message), then combine them
+                    // into a single non-capturing alternation and redact in ONE pass.
+                    QStringList validatedPatterns;
+                    validatedPatterns.reserve(capturedRedactPatterns.size());
                     for (const QString& patStr : capturedRedactPatterns) {
-                        QRegularExpression re(patStr.trimmed());
+                        const QString trimmed = patStr.trimmed();
+                        if (trimmed.isEmpty()) continue;
+                        QRegularExpression re(trimmed);
                         if (!re.isValid()) {
-                            techDetail = QStringLiteral("Invalid regex pattern: %1").arg(patStr.trimmed());
+                            techDetail = QStringLiteral("Invalid regex pattern: %1").arg(trimmed);
                             ok = false;
                             break;
                         }
-                        // startPage = endPage = -1 → redact all pages.
-                        if (!editor.applyPatternRedactions(re, QList<int>(), result.outputPath)) {
+                        validatedPatterns.append(trimmed);
+                    }
+
+                    if (ok && !validatedPatterns.isEmpty()) {
+                        QString combinedPattern;
+                        if (validatedPatterns.size() == 1) {
+                            combinedPattern = validatedPatterns.first();
+                        } else {
+                            QStringList grouped;
+                            grouped.reserve(validatedPatterns.size());
+                            for (const QString& p : validatedPatterns) {
+                                grouped.append(QStringLiteral("(?:%1)").arg(p));
+                            }
+                            combinedPattern = grouped.join(QStringLiteral("|"));
+                        }
+                        QRegularExpression combinedRe(combinedPattern);
+                        if (!combinedRe.isValid()) {
+                            techDetail = QStringLiteral("Invalid combined regex pattern: %1").arg(combinedPattern);
+                            ok = false;
+                        } else if (!editor.applyPatternRedactions(combinedRe, QList<int>(), result.outputPath)) {
                             techDetail = editor.lastError().technicalDetails;
                             ok = false;
-                            break;
                         }
+                        // applyPatternRedactions already saves via sanitizeDocument
                     }
-                    // applyPatternRedactions already saves via sanitizeDocument
                 }
             } else if (capturedOp == OpOCR) {
                 // Render each page, OCR it, then assemble a searchable MRC PDF/A
