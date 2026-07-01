@@ -12,6 +12,7 @@
 #include <QRadioButton>
 #include <QScrollArea>
 #include <QVBoxLayout>
+#include <QMessageBox>
 
 namespace gp {
 
@@ -111,6 +112,15 @@ SignaturesPanel::SignaturesPanel(QWidget* parent) : QFrame(parent) {
     connect(m_placeBtn, &QPushButton::clicked, this, &SignaturesPanel::placeSignatureRequested);
     col->addWidget(m_placeBtn);
 
+    // Wave 1A §9.7: "Validate All Signatures" -- the DIGITAL ID card above only
+    // ever shows the most recent signature; this surfaces every signature's
+    // already-computed isValid/integrityIntact/trustStatus at once.
+    m_validateAllBtn = new QPushButton(tr("Validate All Signatures"));
+    m_validateAllBtn->setEnabled(false);
+    m_validateAllBtn->setToolTip(tr("Open a signed document first"));
+    connect(m_validateAllBtn, &QPushButton::clicked, this, &SignaturesPanel::onValidateAllClicked);
+    col->addWidget(m_validateAllBtn);
+
     col->addStretch(1);
     scroll->setWidget(body);
     outer->addWidget(scroll, 1);
@@ -129,6 +139,7 @@ void SignaturesPanel::showNoSignatures(const QString& reason) {
 
 void SignaturesPanel::setDocument(const QString& filePath, ISignatureManager* signing) {
     m_currentPath = filePath;
+    m_currentSigning = signing;
 
     // O2: enable/disable "Place Signature" based on whether a document is loaded.
     if (m_placeBtn) {
@@ -141,6 +152,13 @@ void SignaturesPanel::setDocument(const QString& filePath, ISignatureManager* si
     if (!signing)           { showNoSignatures(tr("UNAVAILABLE")); return; }
 
     const QList<SignatureInfo> sigs = signing->validateSignatures(filePath);
+    // Wave 1A §9.7: "Validate All Signatures" only makes sense once there is at
+    // least one signature to validate.
+    if (m_validateAllBtn) {
+        const bool hasSigs = !sigs.isEmpty();
+        m_validateAllBtn->setEnabled(hasSigs);
+        m_validateAllBtn->setToolTip(hasSigs ? QString() : tr("Open a signed document first"));
+    }
     if (sigs.isEmpty()) { showNoSignatures(tr("UNSIGNED")); return; }
 
     // Show the most recent signature (last in document order is typically the
@@ -178,6 +196,70 @@ void SignaturesPanel::setDocument(const QString& filePath, ISignatureManager* si
             tr("<span style='color:#a8abb0; font-size:8pt; letter-spacing:0.4px; "
                "font-family:JetBrains Mono'>%1 signatures present.<br/>Showing the most "
                "recent below.</span>").arg(sigs.size()));
+    }
+}
+
+// Wave 1A §9.7: bulk-validate every signature in the document and show a
+// summary dialog. All fields come straight from ISignatureManager::
+// validateSignatures() (isValid/integrityIntact/trustStatus/hasDss/
+// hasDocTimestamp) -- no new validation logic, purely presentation.
+void SignaturesPanel::onValidateAllClicked() {
+    if (m_currentPath.isEmpty() || !m_currentSigning) {
+        QMessageBox::information(this, tr("Validate All Signatures"),
+            tr("Open a signed document first."));
+        return;
+    }
+
+    const QList<SignatureInfo> sigs = m_currentSigning->validateSignatures(m_currentPath);
+    if (sigs.isEmpty()) {
+        QMessageBox::information(this, tr("Validate All Signatures"),
+            tr("This document has no digital signatures."));
+        return;
+    }
+
+    int validCount = 0;
+    QStringList lines;
+    for (int i = 0; i < sigs.size(); ++i) {
+        const SignatureInfo& s = sigs.at(i);
+        QString statusIcon;
+        if (s.isValid && s.integrityIntact) {
+            statusIcon = QStringLiteral("✓ VALID");   // ✓
+            ++validCount;
+        } else if (s.integrityIntact) {
+            statusIcon = QStringLiteral("⚠ UNTRUSTED"); // ⚠
+        } else {
+            statusIcon = QStringLiteral("✕ INVALID");  // ✕
+        }
+
+        QString pades = QStringLiteral("B-B");
+        if (s.hasDocTimestamp)      pades = QStringLiteral("B-LTA");
+        else if (s.hasDss)          pades = QStringLiteral("B-LT");
+
+        const QString fieldLabel = s.fieldName.isEmpty()
+            ? tr("(unnamed field)") : s.fieldName;
+        const QString signerLabel = s.signerName.isEmpty()
+            ? tr("(unnamed)") : s.signerName;
+        const QString trustLabel = s.trustStatus.isEmpty()
+            ? tr("—") : s.trustStatus;
+
+        lines << tr("%1. %2 — %3\n   Signer: %4 | %5 | Trust: %6")
+                     .arg(i + 1)
+                     .arg(fieldLabel)
+                     .arg(statusIcon)
+                     .arg(signerLabel)
+                     .arg(pades)
+                     .arg(trustLabel);
+    }
+
+    const QString summary = tr("%1 of %2 signature(s) fully valid.\n\n%3")
+                                 .arg(validCount)
+                                 .arg(sigs.size())
+                                 .arg(lines.join("\n\n"));
+
+    if (validCount == sigs.size()) {
+        QMessageBox::information(this, tr("Validate All Signatures"), summary);
+    } else {
+        QMessageBox::warning(this, tr("Validate All Signatures"), summary);
     }
 }
 

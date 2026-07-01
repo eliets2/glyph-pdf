@@ -28,6 +28,14 @@ signals:
     /// to the same ribbon Sign flow (SecurityController::signDocument).
     void placeSignatureRequested();
 
+private slots:
+    // Wave 1A §9.7: the DIGITAL ID card only ever showed the most recent
+    // signature's status; a multi-signed document gave no way to see every
+    // signature's validity at once. SignatureInfo::isValid/integrityIntact/
+    // trustStatus are already fully computed by validateSignatures() -- this
+    // is presentation-layer only.
+    void onValidateAllClicked();
+
 private:
     void showNoSignatures(const QString& reason);
 
@@ -45,8 +53,12 @@ private:
 
     // "Place Signature" CTA — disabled until a document is loaded.
     QPushButton* m_placeBtn  = nullptr;
+    // Wave 1A §9.7: "Validate All Signatures" — disabled until a signed
+    // document is loaded (mirrors m_placeBtn's enable/disable pattern).
+    QPushButton* m_validateAllBtn = nullptr;
 
     QString m_currentPath;
+    ISignatureManager* m_currentSigning = nullptr;
 };
 
 } // namespace gp
