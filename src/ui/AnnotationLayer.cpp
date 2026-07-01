@@ -9,6 +9,7 @@
 #include <QMenu>
 #include <QContextMenuEvent>
 #include <QInputDialog>
+#include <QKeyEvent>
 #include <cmath>
 
 #ifndef M_PI
@@ -44,6 +45,9 @@ AnnotationLayer::AnnotationLayer(QWidget *parent)
     setMouseTracking(true);
     setAccessibleName(tr("Annotation canvas"));
     setAccessibleDescription(tr("Draw highlights, underlines, text boxes, and other annotations on the document"));
+    // Wave 1A §9.2: needed so keyPressEvent (Delete key for the selected image)
+    // actually receives events — QWidget defaults to Qt::NoFocus.
+    setFocusPolicy(Qt::StrongFocus);
 }
 
 void AnnotationLayer::setRotation(int rotation)
@@ -815,4 +819,20 @@ void AnnotationLayer::contextMenuEvent(QContextMenuEvent *event)
         emit imageDeleteRequested(name);
     }
     event->accept();
+}
+
+// Wave 1A §9.2: Delete/Backspace removes the selected image while in EditImage
+// mode — the other half of "Delete key + right-click menu" for image delete.
+// EditController::onImageDeleteRequested already prompts for confirmation and
+// pushes DeleteImageCommand, so this just forwards the same signal the context
+// menu's "Delete Image" action uses.
+void AnnotationLayer::keyPressEvent(QKeyEvent *event)
+{
+    if (m_currentMode == ToolMode::EditImage && !m_selectedImageName.isEmpty() &&
+        (event->key() == Qt::Key_Delete || event->key() == Qt::Key_Backspace)) {
+        emit imageDeleteRequested(m_selectedImageName);
+        event->accept();
+        return;
+    }
+    QWidget::keyPressEvent(event);
 }

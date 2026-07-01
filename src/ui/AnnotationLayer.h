@@ -60,6 +60,10 @@ protected:
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
     void contextMenuEvent(QContextMenuEvent *event) override;
+    // Wave 1A §9.2: Delete key removes the selected image while in EditImage mode
+    // (mirrors the existing right-click "Delete Image" menu entry). Requires focus,
+    // so the constructor sets Qt::StrongFocus.
+    void keyPressEvent(QKeyEvent *event) override;
 
 private:
     ToolMode m_currentMode;
