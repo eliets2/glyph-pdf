@@ -1989,29 +1989,16 @@ bool PoDoFoBackend::removeEncryption(const QString &ownerPassword) {
     }
 }
 
-bool PoDoFoBackend::sanitizeDocument(const QString &outputPath) {
-    QMutexLocker locker(&d->mutex);
-    if (!d->document || outputPath.isEmpty()) return false;
+// Wave 1A §9.13: extracted from sanitizeDocument() so optimizeDocument()'s
+// "Strip metadata" option can call the same full sweep instead of the thin
+// Info+Metadata-only subset it previously reimplemented. See the declaration
+// comment in PoDoFoBackend.h for exactly what this removes. Caller must hold
+// d->mutex and have already verified d->document is non-null; this function
+// does not save -- it only mutates the in-memory document.
+void PoDoFoBackend::sanitizeDocumentInPlace() {
+    using namespace PoDoFo;
 
-    const QFileInfo outputInfo(outputPath);
-    if (!d->currentFile.isEmpty()) {
-        const QFileInfo sourceInfo(d->currentFile);
-        const QString sourcePath = sourceInfo.canonicalFilePath().isEmpty()
-            ? sourceInfo.absoluteFilePath()
-            : sourceInfo.canonicalFilePath();
-        const QString targetPath = outputInfo.canonicalFilePath().isEmpty()
-            ? outputInfo.absoluteFilePath()
-            : outputInfo.canonicalFilePath();
-        if (QString::compare(sourcePath, targetPath, Qt::CaseInsensitive) == 0) {
-            qWarning() << "Refusing to sanitize in place:" << outputPath;
-            return false;
-        }
-    }
-
-    try {
-        using namespace PoDoFo;
-        
-        auto& trailer = d->document->GetTrailer();
+    auto& trailer = d->document->GetTrailer();
         if (trailer.GetDictionary().HasKey("Info")) {
             trailer.GetDictionary().RemoveKey("Info");
         }
@@ -2196,7 +2183,30 @@ bool PoDoFoBackend::sanitizeDocument(const QString &outputPath) {
                 }
             }
         }
-        
+}
+
+bool PoDoFoBackend::sanitizeDocument(const QString &outputPath) {
+    QMutexLocker locker(&d->mutex);
+    if (!d->document || outputPath.isEmpty()) return false;
+
+    const QFileInfo outputInfo(outputPath);
+    if (!d->currentFile.isEmpty()) {
+        const QFileInfo sourceInfo(d->currentFile);
+        const QString sourcePath = sourceInfo.canonicalFilePath().isEmpty()
+            ? sourceInfo.absoluteFilePath()
+            : sourceInfo.canonicalFilePath();
+        const QString targetPath = outputInfo.canonicalFilePath().isEmpty()
+            ? outputInfo.absoluteFilePath()
+            : outputInfo.canonicalFilePath();
+        if (QString::compare(sourcePath, targetPath, Qt::CaseInsensitive) == 0) {
+            qWarning() << "Refusing to sanitize in place:" << outputPath;
+            return false;
+        }
+    }
+
+    try {
+        sanitizeDocumentInPlace();
+
         const QString outputDir = outputInfo.absoluteDir().absolutePath();
         QString tempPath;
         {
@@ -3635,16 +3645,15 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
             }
         }
 
-        // Phase 3: Remove metadata if requested
+        // Phase 3: Remove metadata if requested. Wave 1A §9.13: previously only
+        // removed /Info and the catalog /Metadata stream -- a thin subset next
+        // to the real sanitizeDocument() pass, so "Strip metadata" in the
+        // Compress dialog didn't actually make GlyphPDF's privacy claim true
+        // (PieceInfo, embedded JavaScript, EmbeddedFiles, annotation actions,
+        // AcroForm field values, etc. all survived). Reuse the same full sweep
+        // sanitizeDocument() uses instead of reimplementing a subset of it.
         if (options.stripMetadata) {
-            auto* info = doc.GetTrailer().GetDictionary().FindKey("Info");
-            if (info) {
-                doc.GetTrailer().GetDictionary().RemoveKey("Info");
-            }
-            auto* catalog = doc.GetCatalog().GetDictionary().FindKey("Metadata");
-            if (catalog) {
-                doc.GetCatalog().GetDictionary().RemoveKey("Metadata");
-            }
+            sanitizeDocumentInPlace();
         }
 
         if (!writeUpdate(outputPath)) throw std::runtime_error("writeUpdate failed");

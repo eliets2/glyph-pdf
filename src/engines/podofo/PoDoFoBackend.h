@@ -97,6 +97,19 @@ public:
     bool optimizeDocument(const QString &outputPath, const OptimizeOptions &options);
 
 private:
+    // Wave 1A §9.13: the full in-memory metadata/hidden-data removal pass
+    // shared by sanitizeDocument() and optimizeDocument()'s "Strip metadata"
+    // option, so the Compress flow gets the same 20+ category sweep
+    // (PieceInfo/MarkInfo/OutputIntents/EmbeddedFiles/JavaScript/OpenAction/AA/
+    // StructTreeRoot Alt-ActualText-E/OCProperties/Outlines/Collection/page-level
+    // AA-A-PieceInfo-Thumb-Metadata/annotation Contents-RC-actions/AcroForm field
+    // values/trailer ID randomization) instead of only removing /Info and the
+    // catalog /Metadata stream. Mutates d->document in place; callers are
+    // responsible for saving (sanitizeDocument() does its own atomic
+    // temp-file+qpdf+rename save; optimizeDocument() continues to its existing
+    // writeUpdate() call).
+    void sanitizeDocumentInPlace();
+
     class Private;
     std::unique_ptr<Private> d;
 };
