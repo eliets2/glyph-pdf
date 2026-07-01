@@ -23,6 +23,12 @@ public:
     void setCurrentPage(int page);
     void rebuild();
 
+    // Wave 1A §9.15: thumbnail zoom +/- (previously visible, wired-looking
+    // buttons with no connect() call at all -- clicking them did nothing).
+    // Steps through a small set of discrete scale factors and rebuilds.
+    void zoomIn();
+    void zoomOut();
+
 signals:
     void pageClicked(int page);
     void pageReordered(int sourceIndex, int targetIndex);
@@ -39,8 +45,18 @@ private:
     QWidget* createThumbWidget(int pageIndex);
     void updateVisibleThumbnails();
 
-    static constexpr int ThumbItemHeight = 260; // estimated height per thumb widget
+    static constexpr int BaseThumbItemHeight = 260; // estimated height per thumb widget at 1.0x
     static constexpr int VisibleBuffer   = 2;   // extra widgets above/below viewport
+
+    // Wave 1A §9.15: current thumbnail zoom step and its scale factor. Index
+    // into kZoomSteps; ThumbItemHeight()/paper size/render DPI all derive from
+    // this so the +/- buttons have a real, visible effect.
+    static constexpr double kZoomSteps[] = {0.7, 0.85, 1.0, 1.2, 1.4, 1.6};
+    static constexpr int kDefaultZoomIndex = 2; // 1.0x
+    int m_zoomIndex = kDefaultZoomIndex;
+    int ThumbItemHeight() const {
+        return static_cast<int>(BaseThumbItemHeight * kZoomSteps[m_zoomIndex]);
+    }
 
     QScrollArea*         m_scroll;
     QWidget*             m_container;
@@ -61,7 +77,10 @@ private:
     // D2: real PDFium-rendered thumbnails cached at 75 DPI. The RenderCache
     // (LRU, memory-budgeted) holds rendered page images; ThumbnailRenderer is
     // an IPdfRenderer adapter over the viewer's PDFium-backed QPdfDocument.
-    static constexpr int ThumbnailDpi = 75;
+    static constexpr int BaseThumbnailDpi = 75;
+    int ThumbnailDpi() const {
+        return static_cast<int>(BaseThumbnailDpi * kZoomSteps[m_zoomIndex]);
+    }
     std::shared_ptr<RenderCache>       m_renderCache;
     std::unique_ptr<ThumbnailRenderer> m_renderer;
 };
