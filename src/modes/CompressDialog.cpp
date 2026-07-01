@@ -144,14 +144,24 @@ CompressDialog::CompressDialog(const AppContext* ctx, QWidget* parent)
 
     _chkDedup = new QCheckBox(tr("Deduplicate images"));
     _chkDedup->setChecked(true);
+    // Wave 1A §9.13: the backend currently only DETECTS duplicate image
+    // hashes; the XObject-reference rewiring that would actually drop the
+    // duplicate bytes on save is not implemented yet, so this checkbox does
+    // not yet affect the saved file size (tracked as a P1 follow-up). The
+    // size estimate above no longer counts phantom savings for this option.
+    _chkDedup->setToolTip(tr("Detects duplicate images today; does not yet remove them from the saved file."));
     af->addWidget(_chkDedup, 1, 0);
 
     _chkSubsetFonts = new QCheckBox(tr("Subset fonts"));
     _chkSubsetFonts->setChecked(true);
+    // Wave 1A §9.13: no font-subsetting pass exists in the write path yet.
+    _chkSubsetFonts->setToolTip(tr("Not yet implemented — has no effect on the saved file size."));
     af->addWidget(_chkSubsetFonts, 1, 1);
 
     _chkRemoveUnused = new QCheckBox(tr("Remove unused objects"));
     _chkRemoveUnused->setChecked(true);
+    // Wave 1A §9.13: no mark-and-sweep unused-object pass exists yet.
+    _chkRemoveUnused->setToolTip(tr("Not yet implemented — has no effect on the saved file size."));
     af->addWidget(_chkRemoveUnused, 2, 0);
 
     _chkStripMetadata = new QCheckBox(tr("Strip metadata"));
