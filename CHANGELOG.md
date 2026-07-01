@@ -146,7 +146,13 @@ Feature release closing nine PRD gaps.
 
 ### Added
 - Restored the **OCR Verify** review screen to navigation.
-- Annotation **Stamp, Callout, Erase** tools and comment **file attachments**.
+- Annotation **Stamp, Callout, Erase** tools.
+- **Sidebar file-attachment extraction** — view and save to disk any files already
+  embedded in a PDF's `/EmbeddedFiles` name tree. (Corrected 2026-07-01: this entry
+  previously read "comment file attachments," implying users could attach a file to
+  a comment/annotation from the UI. That capability does not exist — there is no
+  add-attachment entry point anywhere in the app; `AnnotationItem::attachmentPath`
+  is a dead, never-read/never-written field. See `docs/audit/COMPETITIVE-PARITY-AUDIT-2026-07-01.md` §9.3.)
 - **Calculated** AcroForm field — the 10th form-field type.
 - Batch **OCR, Merge, Redact** operations and **hot-folder watching**.
 - Compare **report export** (HTML/text) and **page-reorder detection**.

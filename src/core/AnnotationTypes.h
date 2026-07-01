@@ -25,6 +25,12 @@ struct AnnotationItem {
     QColor color = Qt::yellow;
     int thickness = 2;
     QString text;          // Plain-text fallback (PDF /Contents). Always kept.
+    // TODO(audit-2026-07-01, §9.3): dead field — never read or written anywhere in
+    // the codebase. No UI path lets a user attach a file to a comment/annotation;
+    // the real (extract-only) file-attachment feature lives in Sidebar.cpp via
+    // IPdfEditorEngine::getEmbeddedFiles()/extractEmbeddedFile() and does not use
+    // this field at all. Either wire a real "attach file to comment" feature that
+    // sets/reads this, or remove it. See docs/audit/COMPETITIVE-PARITY-AUDIT-2026-07-01.md.
     QString attachmentPath;// absolute path to attached file; empty = no attachment
     QString djotSource;    // Djot rich-text source (M6-P4). Internal authoring
                            // model; transcoded to /RC XHTML on save, original
