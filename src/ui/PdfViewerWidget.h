@@ -21,6 +21,8 @@ class QRubberBand;
 class QMouseEvent;
 QT_END_NAMESPACE
 
+namespace gp { class Badge; }
+
 
 class PdfViewerWidget : public QWidget
 {
@@ -92,6 +94,15 @@ public:
     AnnotationLayer* annotationLayer() const { return m_annotationLayer; }
     QString filePath() const { return m_filePath; }
 
+    // Wave 1A §9.7: on-page signature validity badge. `allValid` selects the
+    // Ok/Err badge styling; `summary` is the tooltip text (e.g. "2 of 2
+    // signatures valid"). Pass an empty summary to hide the badge (unsigned
+    // document, or no manager available). Presentation-layer only -- the
+    // underlying SignatureInfo::isValid/trustStatus data is already computed
+    // by ISignatureManager::validateSignatures(); this just surfaces it on the
+    // page instead of only inside the side Signatures panel.
+    void setSignatureValidityBadge(bool allValid, const QString &summary);
+
 signals:
     void pageChanged(int currentPage, int totalPages);
     void navigationChanged(bool canBack, bool canForward);
@@ -125,6 +136,9 @@ private:
     QPdfPageNavigator *m_pageNavigator;
     QPdfPageRenderer *m_pageRenderer;
     AnnotationLayer *m_annotationLayer;
+    // Wave 1A §9.7: floating on-page signature validity badge (top-right corner).
+    gp::Badge *m_signatureBadge = nullptr;
+    void repositionSignatureBadge();
     qreal m_zoomFactor;
     ToolMode m_toolMode;
     bool m_readOnly = false;

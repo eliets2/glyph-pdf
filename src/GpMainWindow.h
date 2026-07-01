@@ -109,6 +109,10 @@ private:
     QFrame*         _updateBar   = nullptr;
     bool            _aiVisible   = false;
     bool            _isDark      = true;
+    // Wave 1A §9.7: tracks which file the on-page signature validity badge was
+    // last computed for, so it's only recomputed on document change (not on
+    // every page turn -- validateSignatures() re-parses the PDF).
+    QString         _lastSignatureBadgePath;
 
     void applyTheme();
     void replaceRight(QWidget* w);

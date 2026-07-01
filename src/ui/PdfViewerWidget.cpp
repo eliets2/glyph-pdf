@@ -38,6 +38,7 @@
 #include <QGraphicsColorizeEffect>
 #include <QScrollArea>
 #include <QLabel>
+#include "util/Badge.h"
 
 PdfViewerWidget::PdfViewerWidget(QWidget *parent)
     : QWidget(parent)
@@ -105,6 +106,13 @@ PdfViewerWidget::PdfViewerWidget(QWidget *parent)
     QWidget *container = new QWidget(this);
     m_pdfView->setParent(container);
     m_annotationLayer->setParent(container);
+
+    // Wave 1A §9.7: on-page signature validity badge, floating in the
+    // top-right corner above the page content. Hidden until
+    // setSignatureValidityBadge() is called with a non-empty summary.
+    m_signatureBadge = new gp::Badge(QString(), gp::Badge::Info, container);
+    m_signatureBadge->hide();
+    m_signatureBadge->raise();
 
     // Setup TwoPage view
     m_twoPageScrollArea = new QScrollArea(container);
@@ -428,6 +436,32 @@ void PdfViewerWidget::resizeEvent(QResizeEvent *event)
             m_twoPageScrollArea->resize(size());
         }
     }
+    repositionSignatureBadge();
+}
+
+// Wave 1A §9.7: keep the floating signature badge pinned to the top-right
+// corner of the viewer regardless of viewport size.
+void PdfViewerWidget::repositionSignatureBadge()
+{
+    if (!m_signatureBadge || !m_signatureBadge->isVisible()) return;
+    m_signatureBadge->adjustSize();
+    const int margin = 12;
+    m_signatureBadge->move(width() - m_signatureBadge->width() - margin, margin);
+    m_signatureBadge->raise();
+}
+
+void PdfViewerWidget::setSignatureValidityBadge(bool allValid, const QString &summary)
+{
+    if (!m_signatureBadge) return;
+    if (summary.isEmpty()) {
+        m_signatureBadge->hide();
+        return;
+    }
+    m_signatureBadge->setText(allValid ? tr("SIGNATURES VALID") : tr("SIGNATURE ISSUES"));
+    m_signatureBadge->setKind(allValid ? gp::Badge::Ok : gp::Badge::Err);
+    m_signatureBadge->setToolTip(summary);
+    m_signatureBadge->show();
+    repositionSignatureBadge();
 }
 
 void PdfViewerWidget::setPageMode(QPdfView::PageMode mode)

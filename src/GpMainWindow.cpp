@@ -32,6 +32,7 @@
 #include "ui/FindBar.h"
 #include "engines/DocumentSession.h"
 #include "engines/PdfEditorEngine.h"
+#include "core/interfaces/ISignatureManager.h"
 #include "util/GpTheme.h"
 
 #include <QApplication>
@@ -237,6 +238,34 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
         auto* viewer = pdfViewer();
         if (viewer) {
             _status->updateFromDocument(_ctx->pdfEditor.get(), viewer->filePath());
+
+            // Wave 1A §9.7: refresh the on-page signature validity badge once per
+            // document (not per page -- validateSignatures() re-parses the whole
+            // PDF, and pageChanged fires on every navigation). Presentation-layer
+            // only: SignatureInfo::isValid/trustStatus are already computed by
+            // validateSignatures(); this just surfaces the aggregate result as a
+            // floating badge, matching SignaturesPanel's "Validate All Signatures".
+            const QString path = viewer->filePath();
+            if (path != _lastSignatureBadgePath) {
+                _lastSignatureBadgePath = path;
+                ISignatureManager* signing = _ctx ? _ctx->signing.get() : nullptr;
+                if (path.isEmpty() || !signing) {
+                    viewer->setSignatureValidityBadge(true, QString());
+                } else {
+                    const QList<SignatureInfo> sigs = signing->validateSignatures(path);
+                    if (sigs.isEmpty()) {
+                        viewer->setSignatureValidityBadge(true, QString());
+                    } else {
+                        int validCount = 0;
+                        for (const auto& s : sigs) {
+                            if (s.isValid && s.integrityIntact) ++validCount;
+                        }
+                        const bool allValid = (validCount == sigs.size());
+                        viewer->setSignatureValidityBadge(allValid,
+                            tr("%1 of %2 signature(s) valid").arg(validCount).arg(sigs.size()));
+                    }
+                }
+            }
         }
     });
 
@@ -476,6 +505,29 @@ void MainWindow::openDocument(const QString& filePath) {
                 ErrorDialog::show(err, this);
                 _ctx->pdfEditor->clearError();
             }
+        }
+
+        // Wave 1A §9.7: on-page signature validity badge. Only call
+        // validateSignatures() (which parses/verifies every /Contents byte
+        // range) when the document actually has signatures, so unsigned
+        // documents -- the overwhelming common case -- pay zero extra cost on
+        // open. Presentation-layer only: reuses the same SignatureInfo data
+        // the Signatures side panel already computes.
+        if (_ctx && _ctx->pdfEditor && _ctx->signing && _ctx->pdfEditor->hasPdfSignatures()) {
+            const QList<SignatureInfo> sigs = _ctx->signing->validateSignatures(filePath);
+            if (!sigs.isEmpty()) {
+                int validCount = 0;
+                for (const auto &s : sigs) {
+                    if (s.isValid) ++validCount;
+                }
+                const bool allValid = (validCount == sigs.size());
+                const QString summary = tr("%1 of %2 signature(s) valid").arg(validCount).arg(sigs.size());
+                viewer->setSignatureValidityBadge(allValid, summary);
+            } else {
+                viewer->setSignatureValidityBadge(true, QString());
+            }
+        } else if (viewer) {
+            viewer->setSignatureValidityBadge(true, QString());
         }
     } else {
         // Build error info — prefer engine detail, fall back to generic
