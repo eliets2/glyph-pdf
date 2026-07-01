@@ -3165,10 +3165,36 @@ bool PoDoFoBackend::addTextWatermark(const TextWatermarkOptions &options)
             PoDoFo::PdfPainter painter;
             painter.SetCanvas(page);
 
-            // Set graphics state for transparency
-            const PoDoFo::PdfFont* font = doc.GetFonts().SearchFont("Helvetica");
+            // Wave 1A §9.11: honour options.fontFamily instead of hardcoding
+            // Helvetica. Reuses the same standard-14 family-name mapping already
+            // used by the inline text-edit path above (editTextInline) so
+            // "Times"/"Times New Roman"/"Courier"/anything-else-falls-back-to-
+            // Helvetica behaves consistently across both features.
+            const std::string requestedFamily = options.fontFamily.isEmpty()
+                ? std::string("Helvetica") : options.fontFamily.toStdString();
+            PoDoFo::PdfStandard14FontType stdFontType = PoDoFo::PdfStandard14FontType::Helvetica;
+            std::string resolvedBaseFont = "Helvetica";
+            if (requestedFamily == "Times" || requestedFamily == "Times New Roman") {
+                stdFontType = PoDoFo::PdfStandard14FontType::TimesRoman;
+                resolvedBaseFont = "Times-Roman";
+            } else if (requestedFamily == "Courier") {
+                stdFontType = PoDoFo::PdfStandard14FontType::Courier;
+                resolvedBaseFont = "Courier";
+            } else if (requestedFamily != "Helvetica" && requestedFamily != "Arial") {
+                // Unknown family: try an exact-name search first (matches an
+                // already-embedded font of that name), else fall back to
+                // Helvetica -- same fallback contract as editTextInline.
+                resolvedBaseFont = requestedFamily;
+            }
+
+            const PoDoFo::PdfFont* font = doc.GetFonts().SearchFont(requestedFamily);
             if (!font) {
-                font = &doc.GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::Helvetica);
+                font = &doc.GetFonts().GetStandard14Font(stdFontType);
+                resolvedBaseFont = (stdFontType == PoDoFo::PdfStandard14FontType::TimesRoman) ? "Times-Roman"
+                                  : (stdFontType == PoDoFo::PdfStandard14FontType::Courier)    ? "Courier"
+                                                                                                : "Helvetica";
+            } else {
+                resolvedBaseFont = requestedFamily;
             }
             painter.TextState.SetFont(*font, static_cast<float>(options.fontSize));
             painter.GraphicsState.SetNonStrokingColor(PoDoFo::PdfColor(
@@ -3186,33 +3212,45 @@ bool PoDoFoBackend::addTextWatermark(const TextWatermarkOptions &options)
 
             std::string text = options.text.toStdString();
 
+            // Wave 1A §9.11: real font-metrics-based centering via PoDoFo's
+            // GetStringLength (glyph-advance API), replacing the previous crude
+            // text.size() * fontSize * 0.5 char-count estimate, which was
+            // systematically wrong for proportional fonts (and doubly wrong once
+            // a non-Helvetica font is actually honoured above).
+            PoDoFo::PdfTextState textState;
+            textState.Font = font;
+            textState.FontSize = static_cast<float>(options.fontSize);
+            double textWidth = font->GetStringLength(options.text.toUtf8().constData(), textState);
+
+            // Register the resolved font under a resource name derived from the
+            // requested family (not a hardcoded "Helvetica"), so the raw Tf
+            // operator below actually references the font that was resolved.
+            const std::string fontResourceName = "WM_" + resolvedBaseFont;
+
             std::ostringstream wm;
             wm << "q\n";
             wm << "/GS_WM gs\n";
             wm << "BT\n";
-            wm << "/Helvetica " << options.fontSize << " Tf\n";
+            wm << "/" << fontResourceName << " " << options.fontSize << " Tf\n";
             wm << options.color.redF() << " " << options.color.greenF() << " " << options.color.blueF() << " rg\n";
             wm << cosA << " " << sinA << " " << -sinA << " " << cosA << " " << cx << " " << cy << " Tm\n";
-            // Center the text roughly
-            double estimatedWidth = text.size() * options.fontSize * 0.5;
-            wm << -(estimatedWidth / 2.0) << " " << -(options.fontSize / 2.0) << " Td\n";
+            wm << -(textWidth / 2.0) << " " << -(options.fontSize / 2.0) << " Td\n";
             wm << "(" << pdfEscapeLiteralString(text) << ") Tj\n";
             wm << "ET\n";
             wm << "Q\n";
 
-            // Also register Helvetica in page fonts
+            // Register the resolved font in page resources under fontResourceName.
             auto* fontDict = resDict->GetDictionary().FindKey("Font");
             if (!fontDict) {
                 resDict->GetDictionary().AddKey("Font", PoDoFo::PdfDictionary());
                 fontDict = resDict->GetDictionary().FindKey("Font");
             }
-            if (!fontDict->GetDictionary().HasKey("Helvetica")) {
-                // Create a base-14 font reference
+            if (!fontDict->GetDictionary().HasKey(fontResourceName)) {
                 auto& fontObj = doc.GetObjects().CreateDictionaryObject();
                 fontObj.GetDictionary().AddKey("Type", PoDoFo::PdfName("Font"));
                 fontObj.GetDictionary().AddKey("Subtype", PoDoFo::PdfName("Type1"));
-                fontObj.GetDictionary().AddKey("BaseFont", PoDoFo::PdfName("Helvetica"));
-                fontDict->GetDictionary().AddKeyIndirect("Helvetica", fontObj);
+                fontObj.GetDictionary().AddKey("BaseFont", PoDoFo::PdfName(resolvedBaseFont));
+                fontDict->GetDictionary().AddKeyIndirect(fontResourceName, fontObj);
             }
 
             appendPageContent(doc, page, wm.str());
