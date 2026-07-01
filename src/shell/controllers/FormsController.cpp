@@ -139,12 +139,23 @@ void FormsController::onImportDataRequested() {
     if (dataPath.isEmpty()) return;
 
     QString outputPath = viewer->filePath() + ".tmp"; // Use temporary write or overwrite
-    if (_ctx->forms->importFormData(viewer->filePath(), dataPath, outputPath)) {
+    // Wave 1A §9.6: skippedFields surfaces any field whose type fillForm can't
+    // set (Radio/PushButton/Signature) instead of the previous silent qDebug-only
+    // drop, so a bulk import that partially fails no longer looks fully successful.
+    QStringList skippedFields;
+    if (_ctx->forms->importFormData(viewer->filePath(), dataPath, outputPath, &skippedFields)) {
         // Assume saving inplace or reloading the new path. In a real app we might load it back.
         viewer->loadDocument(outputPath);
         QFile::remove(viewer->filePath());
         QFile::rename(outputPath, viewer->filePath());
         _mainWindow->statusBar()->showMessage(tr("Successfully imported form data from %1").arg(QFileInfo(dataPath).fileName()), 5000);
+        if (!skippedFields.isEmpty()) {
+            QMessageBox::warning(_mainWindow, tr("Some Fields Skipped"),
+                tr("%1 field(s) could not be set because their type is not supported "
+                   "by import (e.g. radio buttons or push buttons):\n\n%2")
+                    .arg(skippedFields.size())
+                    .arg(skippedFields.join("\n")));
+        }
     } else {
         QMessageBox::warning(_mainWindow, tr("Import Failed"), tr("Could not import form data."));
     }

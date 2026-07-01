@@ -10,7 +10,11 @@ public:
         return m_extractResult;
     }
 
-    bool fillForm(const QString &pdfFilePath, const QVariantMap &fieldData, const QString &outputPath) override {
+    bool fillForm(const QString &pdfFilePath, const QVariantMap &fieldData,
+                 const QString &outputPath, bool lockAfterFill = false,
+                 QStringList *skippedFields = nullptr) override {
+        Q_UNUSED(lockAfterFill);
+        Q_UNUSED(skippedFields);
         m_lastFilePath = pdfFilePath;
         m_lastOutputPath = outputPath;
         m_lastFieldData = fieldData;

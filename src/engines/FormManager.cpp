@@ -44,7 +44,9 @@ bool FormManager::extractFormFields(const QString &pdfFilePath)
     }
 }
 
-bool FormManager::fillForm(const QString &pdfFilePath, const QVariantMap &fieldData, const QString &outputPath)
+bool FormManager::fillForm(const QString &pdfFilePath, const QVariantMap &fieldData,
+                           const QString &outputPath, bool lockAfterFill,
+                           QStringList *skippedFields)
 {
     qDebug() << "Filling form data at:" << outputPath;
     try {
@@ -62,6 +64,7 @@ bool FormManager::fillForm(const QString &pdfFilePath, const QVariantMap &fieldD
             if (!fieldData.contains(name)) continue;
 
             QVariant val = fieldData.value(name);
+            bool fieldWasSet = true;
 
             switch (field.GetType()) {
                 case PoDoFo::PdfFieldType::TextBox: {
@@ -99,11 +102,28 @@ bool FormManager::fillForm(const QString &pdfFilePath, const QVariantMap &fieldD
                     break;
                 }
                 default:
-                    qDebug() << "Skipping unsupported field type for:" << name;
+                    // Wave 1A §9.6: RadioButton/PushButton/Signature (and any future
+                    // PdfFieldType) land here. This used to be a silent qDebug()-only
+                    // skip -- a bulk CSV/FDF import targeting a radio field would
+                    // appear to succeed while quietly dropping the value. Promote to
+                    // qWarning() (visible by default, unlike qDebug) and report the
+                    // field name back to the caller so the UI can surface a real
+                    // warning instead of a false "success".
+                    fieldWasSet = false;
+                    qWarning() << "fillForm: field type not settable, value dropped for:" << name
+                               << "(type=" << static_cast<int>(field.GetType()) << ")";
+                    if (skippedFields) skippedFields->append(name);
                     break;
             }
 
-            field.SetReadOnly(true);
+            // Wave 1A §9.6: only lock fields we actually filled, and only when the
+            // caller explicitly asked for it (bulk import). Previously this ran
+            // unconditionally, so a properties-panel "set default value" edit (which
+            // calls fillForm with a single field and expects it to stay editable)
+            // silently made the field read-only as a side effect.
+            if (fieldWasSet && lockAfterFill) {
+                field.SetReadOnly(true);
+            }
         }
 
         doc.Save(outputPath.toUtf8().constData());
@@ -542,7 +562,8 @@ bool FormManager::exportFormData(const QString &pdfFilePath, const QString &outp
     }
 }
 
-bool FormManager::importFormData(const QString &pdfFilePath, const QString &dataFilePath, const QString &outputPath)
+bool FormManager::importFormData(const QString &pdfFilePath, const QString &dataFilePath,
+                                 const QString &outputPath, QStringList *skippedFields)
 {
     qDebug() << "Importing form data from" << dataFilePath << "into" << pdfFilePath << "saving to" << outputPath;
     
@@ -584,7 +605,11 @@ bool FormManager::importFormData(const QString &pdfFilePath, const QString &data
         }
     }
 
-    return fillForm(pdfFilePath, data, outputPath);
+    // Wave 1A §9.6: bulk import is the one call site that should still lock
+    // filled fields afterward (the historical behavior), and it can now
+    // report which fields (if any, e.g. Radio/PushButton) were silently
+    // unsupported and dropped.
+    return fillForm(pdfFilePath, data, outputPath, /*lockAfterFill=*/true, skippedFields);
 }
 
 bool FormManager::flattenForm(const QString &pdfFilePath, const QString &outputPath)

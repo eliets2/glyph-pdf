@@ -17,7 +17,24 @@ class IFormManager {
 public:
     virtual ~IFormManager() = default;
     virtual bool extractFormFields(const QString &pdfFilePath) = 0;
-    virtual bool fillForm(const QString &pdfFilePath, const QVariantMap &fieldData, const QString &outputPath) = 0;
+    /// Set field values. `lockAfterFill` controls whether filled fields are
+    /// marked read-only afterward:
+    ///   - false (default): a plain value/default-value edit. Used by the
+    ///     properties-panel "set default value" path -- the field must stay
+    ///     editable (Wave 1A §9.6: this used to unconditionally lock the field
+    ///     as a side effect of setting its default, which was surprising and
+    ///     is exactly what this parameter fixes).
+    ///   - true: bulk CSV/FDF import completing a filled document, where
+    ///     locking the filled fields against further edits is the intended,
+    ///     historical behavior of importFormData().
+    /// `skippedFields`, if non-null, is populated with the names of any fields
+    /// present in `fieldData` whose PDF field type isn't settable by fillForm
+    /// (e.g. RadioButton, PushButton, Signature) -- Wave 1A §9.6: this used to
+    /// be a silent qDebug()-only skip, so a bulk import could "succeed" while
+    /// quietly dropping values the caller has no way to detect.
+    virtual bool fillForm(const QString &pdfFilePath, const QVariantMap &fieldData,
+                          const QString &outputPath, bool lockAfterFill = false,
+                          QStringList *skippedFields = nullptr) = 0;
     virtual bool hasXfaForms(const QString &pdfFilePath) = 0;
     virtual bool addTextField(const QString &pdfFilePath, int pageIndex, const QRectF &rect,
                                const QString &fieldName, const QString &outputPath) = 0;
@@ -68,7 +85,10 @@ public:
 
     // Import / Export / Flatten
     virtual bool exportFormData(const QString &pdfFilePath, const QString &outputPath, const QString &format) = 0; // format: "FDF" or "CSV"
-    virtual bool importFormData(const QString &pdfFilePath, const QString &dataFilePath, const QString &outputPath) = 0;
+    /// `skippedFields`, if non-null, is populated with the names of any fields
+    /// in the CSV/FDF whose PDF field type isn't settable (see fillForm above).
+    virtual bool importFormData(const QString &pdfFilePath, const QString &dataFilePath,
+                                const QString &outputPath, QStringList *skippedFields = nullptr) = 0;
     virtual bool flattenForm(const QString &pdfFilePath, const QString &outputPath) = 0;
 protected:
     IFormManager() = default;
