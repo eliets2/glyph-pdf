@@ -859,10 +859,18 @@ bool ConversionManager::exportToPowerPoint(const QString &pdfPath, const QString
                     xml.writeAttribute("lang", "en-US");
                     xml.writeAttribute("sz", QString::number(pptxFontSize));
                     xml.writeAttribute("dirty", "0");
-                    // Nearly transparent text — visible for selection, invisible visually
+                    // Wave 1A §9.5: nearly transparent text — visible/selectable but
+                    // invisible over the rendered page image. The comment below always
+                    // claimed "1% opacity", but <a:srgbClr val="000000"/> with no alpha
+                    // child renders fully solid black (DrawingML's default alpha is
+                    // 100%), so exported PPTX showed visibly doubled black text on top
+                    // of the page-image background. DrawingML alpha is a child
+                    // <a:alpha val="N"/> element in per-mille (0-100000 = 0-100%), so
+                    // 1000 = 1%.
                     xml.writeStartElement("a:solidFill");
-                    xml.writeEmptyElement("a:srgbClr"); xml.writeAttribute("val", "000000");
-                    // Make text 1% opacity so it's selectable but invisible over image
+                    xml.writeStartElement("a:srgbClr"); xml.writeAttribute("val", "000000");
+                    xml.writeEmptyElement("a:alpha"); xml.writeAttribute("val", "1000");
+                    xml.writeEndElement(); // a:srgbClr
                     xml.writeEndElement(); // a:solidFill
                     // Font face
                     if (!el.fontName.isEmpty()) {

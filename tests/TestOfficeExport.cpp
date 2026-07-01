@@ -2,7 +2,9 @@
 #include <QtTest>
 #include <QTemporaryDir>
 #include <QFile>
+#include <QRegularExpression>
 #include <podofo/podofo.h>
+#include <zip.h>
 
 #include "engines/ConversionManager.h"
 #include "core/interfaces/IConversionEngine.h"
@@ -60,6 +62,32 @@ bool looksLikeZip(const QByteArray &data)
            static_cast<unsigned char>(data[1]) == 0x4B && // 'K'
            (static_cast<unsigned char>(data[2]) == 0x03 || static_cast<unsigned char>(data[2]) == 0x05 ||
             static_cast<unsigned char>(data[2]) == 0x07);
+}
+
+// Reads one entry out of a ZIP-based OOXML package (used to inspect
+// ppt/slides/slide1.xml for the Wave 1A §9.5 PPTX opacity fix). Returns an
+// empty QByteArray if the archive or entry cannot be opened.
+QByteArray readZipEntry(const QString &zipPath, const QString &entryName)
+{
+    int errorp = 0;
+    zip_t *za = zip_open(zipPath.toUtf8().constData(), ZIP_RDONLY, &errorp);
+    if (!za) return {};
+
+    zip_file_t *zf = zip_fopen(za, entryName.toUtf8().constData(), 0);
+    if (!zf) {
+        zip_close(za);
+        return {};
+    }
+
+    QByteArray out;
+    char buf[4096];
+    zip_int64_t n;
+    while ((n = zip_fread(zf, buf, sizeof(buf))) > 0) {
+        out.append(buf, static_cast<int>(n));
+    }
+    zip_fclose(zf);
+    zip_close(za);
+    return out;
 }
 
 } // namespace
@@ -186,6 +214,42 @@ private slots:
                                        m_tmpDir.filePath("missing.xlsx"),
                                        IConversionEngine::TargetFormat::Excel);
         QVERIFY2(!ok, "convertTo(Excel) should return false for a missing input PDF");
+    }
+
+    // Wave 1A §9.5: the PPTX text overlay must actually be low-alpha, not solid
+    // black. exportToPowerPoint's comment always claimed "make text 1% opacity",
+    // but the DrawingML <a:solidFill><a:srgbClr val="000000"/></a:solidFill> had
+    // no <a:alpha> child, which renders fully opaque per the DrawingML spec --
+    // exported PPTX would show visibly doubled black text on top of the
+    // page-image background. This test inspects the actual generated
+    // ppt/slides/slide1.xml to prove the alpha child is present and low.
+    void testExportToPowerPoint_textOverlayIsLowAlpha()
+    {
+        QVERIFY(m_tmpDir.isValid());
+        const QString pdfPath = createTextPdf(m_tmpDir, "pptx_src.pdf", "Overlay Opacity Check");
+        QVERIFY(!pdfPath.isEmpty());
+
+        const QString outPath = m_tmpDir.filePath("out.pptx");
+        ConversionManager mgr;
+        QVERIFY2(mgr.convertTo(pdfPath, outPath, IConversionEngine::TargetFormat::PowerPoint),
+                  "convertTo(PowerPoint) should succeed for a simple one-page text PDF");
+        QVERIFY(QFileInfo::exists(outPath));
+
+        const QByteArray slideXml = readZipEntry(outPath, "ppt/slides/slide1.xml");
+        QVERIFY2(!slideXml.isEmpty(), "Could not read ppt/slides/slide1.xml from the generated PPTX");
+
+        // The text run's solidFill must carry an explicit <a:alpha val="N"/>
+        // child with N well below 100000 (100%) -- solid black with no alpha
+        // child (or alpha == 100000) is exactly the regression this test guards.
+        QVERIFY2(slideXml.contains("<a:alpha"),
+                  "Text run color is missing an <a:alpha> child -- it will render fully opaque");
+
+        QRegularExpression alphaRe("<a:alpha val=\"(\\d+)\"");
+        auto match = alphaRe.match(QString::fromUtf8(slideXml));
+        QVERIFY2(match.hasMatch(), "Could not parse <a:alpha val=\"...\"/> from slide XML");
+        const int alphaVal = match.captured(1).toInt();
+        QVERIFY2(alphaVal > 0 && alphaVal <= 5000,
+                  qPrintable(QString("Text overlay alpha should be low (<=5%%, i.e. <=5000 per-mille), got %1").arg(alphaVal)));
     }
 };
 

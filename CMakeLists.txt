@@ -1628,7 +1628,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOfficeExport.cpp")
     target_compile_definitions(TestOfficeExport PRIVATE
         $<TARGET_PROPERTY:pdfws_engines,INTERFACE_COMPILE_DEFINITIONS>)
     target_link_libraries(TestOfficeExport PRIVATE
-        pdfws_engines pdfws_core podofo::podofo
+        pdfws_engines pdfws_core podofo::podofo libzip::zip
         Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
     )
     add_test(NAME TestOfficeExport COMMAND TestOfficeExport)
