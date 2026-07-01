@@ -37,6 +37,24 @@
 #include <QUndoStack>
 #include "shell/StatusBar.h"
 
+namespace {
+// Wave 1A §9.4: OCRMode's language combo persists the 2-letter UI code shown in
+// "EN · English" (see OCRMode.cpp's kOcrLanguageKey), but IOcrEngine::initialize()
+// (both Tesseract and RapidOCR) expects Tesseract's 3-letter ISO 639-2/B codes
+// ("eng", "deu", ...) per OcrEngine::allowedLanguages(). This mapping is the missing
+// link that let EditController::runOcr() hardcode "eng" regardless of the user's
+// selection. Unknown/unset codes fall back to "eng".
+QString ocrUiLanguageToTesseractCode(const QString &uiCode) {
+    static const QHash<QString, QString> map = {
+        {"EN", "eng"},     {"DE", "deu"},     {"FR", "fra"},
+        {"ES", "spa"},     {"IT", "ita"},     {"PT", "por"},
+        {"RU", "rus"},     {"ZH", "chi_sim"}, {"JA", "jpn"},
+        {"KO", "kor"},     {"AR", "ara"},     {"NL", "nld"},
+    };
+    return map.value(uiCode.trimmed().toUpper(), QStringLiteral("eng"));
+}
+}
+
 namespace gp {
 
 EditController::EditController(const AppContext* ctx, MainWindow* mainWindow, QObject* parent)
@@ -424,7 +442,11 @@ void EditController::runOcr() {
                 // (re)initialized only when first used or when the language changes.
                 // Serialized by _ocrRunning, so accessing self's cached members from
                 // this worker thread is race-free.
-                const QString lang = QStringLiteral("eng");
+                //
+                // Wave 1A §9.4: honour the OCRMode language combo (persisted under
+                // "ocr/language" as a 2-letter UI code) instead of hardcoding English.
+                const QString lang = ocrUiLanguageToTesseractCode(
+                    QSettings().value(QStringLiteral("ocr/language"), QStringLiteral("EN")).toString());
                 std::shared_ptr<IOcrEngine> primary;
                 std::shared_ptr<IOcrEngine> secondary;
 
