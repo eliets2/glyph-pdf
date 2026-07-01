@@ -584,6 +584,12 @@ void EditController::enterImageEditMode() {
             this, &EditController::onImageMoved, Qt::UniqueConnection);
     connect(viewer->annotationLayer(), &AnnotationLayer::imageResized,
             this, &EditController::onImageResized, Qt::UniqueConnection);
+    connect(viewer->annotationLayer(), &AnnotationLayer::imageRotateRequested,
+            this, &EditController::onImageRotateRequested, Qt::UniqueConnection);
+    connect(viewer->annotationLayer(), &AnnotationLayer::imageDeleteRequested,
+            this, &EditController::onImageDeleteRequested, Qt::UniqueConnection);
+    connect(viewer->annotationLayer(), &AnnotationLayer::imageReplaceRequested,
+            this, &EditController::onImageReplaceRequested, Qt::UniqueConnection);
 
     _mainWindow->statusBar()->showMessage(
         tr("Image Edit Mode. %1 images found. Click to select.").arg(images.size()), 5000);
@@ -624,6 +630,66 @@ void EditController::onImageResized(const QString &name, double newW, double new
     _ctx->document->setPath(viewer->filePath());
     _ctx->undoStack->push(new ResizeImageCommand(
         _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, oldW, oldH, newW, newH));
+}
+
+// Wave 1A §9.2: drag-rotate handle + right-click "Rotate" submenu wiring.
+// RotateImageCommand itself was already correct; it just had no UI caller.
+void EditController::onImageRotateRequested(const QString &name, double degrees) {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->pdfEditor || _imageEditPage < 0) return;
+    _ctx->document->setPath(viewer->filePath());
+    _ctx->undoStack->push(new RotateImageCommand(
+        _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, degrees));
+    // Rotation changes the image's on-page placement (via CTM), so refresh the
+    // overlay list from the engine rather than trying to compute the new rect here.
+    auto images = _ctx->pdfEditor->listImages(_imageEditPage);
+    viewer->annotationLayer()->setImageOverlays(images);
+    viewer->annotationLayer()->setSelectedImageName(name);
+    _mainWindow->statusBar()->showMessage(tr("Rotated image %1 by %2°").arg(name).arg(degrees), 3000);
+}
+
+// Wave 1A §9.2: right-click "Delete Image" wiring. DeleteImageCommand needs a
+// pre-op page snapshot (like EditTextInlineCommand/DeletePageCommand) so undo can
+// restore the deleted image; capture it here before invoking the command.
+void EditController::onImageDeleteRequested(const QString &name) {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->pdfEditor || _imageEditPage < 0) return;
+
+    auto reply = QMessageBox::question(_mainWindow, tr("Delete Image"),
+        tr("Delete image %1 from this page?").arg(name),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (reply != QMessageBox::Yes) return;
+
+    _ctx->document->setPath(viewer->filePath());
+    const QByteArray backup = _ctx->pdfEditor->extractPageAsBytes(viewer->filePath(), _imageEditPage);
+    _ctx->undoStack->push(new DeleteImageCommand(
+        _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, backup));
+
+    auto images = _ctx->pdfEditor->listImages(_imageEditPage);
+    viewer->annotationLayer()->setImageOverlays(images);
+    viewer->annotationLayer()->setSelectedImageName(QString());
+    _mainWindow->statusBar()->showMessage(tr("Deleted image %1").arg(name), 3000);
+}
+
+// Wave 1A §9.2: right-click "Replace Image…" wiring. Prompts for a new image file,
+// same pre-op backup pattern as delete.
+void EditController::onImageReplaceRequested(const QString &name) {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->pdfEditor || _imageEditPage < 0) return;
+
+    const QString newPath = QFileDialog::getOpenFileName(_mainWindow, tr("Replace Image"),
+        QString(), tr("Images (*.png *.jpg *.jpeg *.bmp *.tiff)"));
+    if (newPath.isEmpty()) return;
+
+    _ctx->document->setPath(viewer->filePath());
+    const QByteArray backup = _ctx->pdfEditor->extractPageAsBytes(viewer->filePath(), _imageEditPage);
+    _ctx->undoStack->push(new ReplaceImageCommand(
+        _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, newPath, backup));
+
+    auto images = _ctx->pdfEditor->listImages(_imageEditPage);
+    viewer->annotationLayer()->setImageOverlays(images);
+    viewer->annotationLayer()->setSelectedImageName(name);
+    _mainWindow->statusBar()->showMessage(tr("Replaced image %1").arg(name), 3000);
 }
 
 } // namespace gp

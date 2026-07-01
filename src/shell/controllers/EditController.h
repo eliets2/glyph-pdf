@@ -50,6 +50,11 @@ private slots:
     void onImageSelected(const QString &name, const QRectF &placement);
     void onImageMoved(const QString &name, double dx, double dy);
     void onImageResized(const QString &name, double newW, double newH);
+    // Wave 1A §9.2: rotate/delete/replace requested from AnnotationLayer's
+    // drag-rotate handle or right-click menu.
+    void onImageRotateRequested(const QString &name, double degrees);
+    void onImageDeleteRequested(const QString &name);
+    void onImageReplaceRequested(const QString &name);
     void onTextEditRequested(int pageIndex, QPointF pos);
     void onTextFormatChanged(const QString &fontFamily, int fontSize, const QColor &color, bool bold, bool italic, int alignment);
 

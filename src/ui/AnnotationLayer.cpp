@@ -6,11 +6,20 @@
 #include <QDebug>
 #include <QtMath>
 #include <QApplication>
+#include <QMenu>
+#include <QContextMenuEvent>
+#include <QInputDialog>
 #include <cmath>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
+
+namespace {
+// Distance in widget pixels from the top-center resize handle to the
+// drag-rotate grip (Wave 1A §9.2).
+constexpr double kRotateHandleOffset = 24.0;
+}
 
 AnnotationLayer::AnnotationLayer(QWidget *parent)
     : QWidget(parent)
@@ -399,7 +408,19 @@ void AnnotationLayer::paintEvent(QPaintEvent *event)
                 for (auto& e : edges) {
                     painter.drawRect(QRectF(e.x() - hs, e.y() - hs, hs*2, hs*2));
                 }
-                
+
+                // Wave 1A §9.2: drag-rotate handle — a circular grip on a stalk above
+                // the top-center resize handle, matching the common editor convention.
+                {
+                    const QPointF topCenter(r.center().x(), r.top());
+                    const QPointF rotateHandle(topCenter.x(), topCenter.y() - kRotateHandleOffset);
+                    painter.setPen(QPen(handleColor, 1.5));
+                    painter.drawLine(topCenter, rotateHandle);
+                    painter.setPen(Qt::NoPen);
+                    painter.setBrush(handleColor);
+                    painter.drawEllipse(rotateHandle, hs, hs);
+                }
+
                 // Draw image name label
                 painter.setPen(Qt::white);
                 painter.setBrush(QColor(0, 0, 0, 180));
@@ -434,13 +455,33 @@ void AnnotationLayer::mousePressEvent(QMouseEvent *event)
     }
 
     if (m_currentMode == ToolMode::EditImage) {
-        // Check resize handles first (if an image is selected)
+        // Check the rotate handle first (if an image is selected) — it sits above
+        // the top-center resize handle so it must be tested before the resize grid.
+        if (!m_selectedImageName.isEmpty()) {
+            for (const auto& img : m_imageOverlays) {
+                if (img.xobjectName != m_selectedImageName) continue;
+                const QRectF r = img.placement;
+                const QPointF topCenter(r.center().x(), r.top());
+                const QPointF rotateHandle(topCenter.x(), topCenter.y() - kRotateHandleOffset);
+                constexpr double rhs = 8.0;
+                if (QRectF(rotateHandle.x() - rhs, rotateHandle.y() - rhs, rhs * 2, rhs * 2).contains(pos)) {
+                    m_isRotatingImage = true;
+                    m_imageRotateAccum = 0.0;
+                    const QPointF center = r.center();
+                    m_imageRotateStartAngle = std::atan2(pos.y() - center.y(), pos.x() - center.x());
+                    return;
+                }
+                break;
+            }
+        }
+
+        // Check resize handles next (if an image is selected)
         if (!m_selectedImageName.isEmpty()) {
             for (const auto& img : m_imageOverlays) {
                 if (img.xobjectName != m_selectedImageName) continue;
                 QRectF r = img.placement;
                 constexpr double hs = 8.0;
-                
+
                 QPointF handles[] = {
                     r.topLeft(), r.topRight(), r.bottomRight(), r.bottomLeft(),
                     {r.center().x(), r.top()}, {r.right(), r.center().y()},
@@ -553,6 +594,20 @@ void AnnotationLayer::mouseMoveEvent(QMouseEvent *event)
         pos = trans.map(pos);
     }
 
+    if (m_currentMode == ToolMode::EditImage && m_isRotatingImage && !m_selectedImageName.isEmpty()) {
+        for (const auto& img : m_imageOverlays) {
+            if (img.xobjectName != m_selectedImageName) continue;
+            const QPointF center = img.placement.center();
+            const double angle = std::atan2(pos.y() - center.y(), pos.x() - center.x());
+            double deltaDeg = qRadiansToDegrees(angle - m_imageRotateStartAngle);
+            m_imageRotateStartAngle = angle;
+            m_imageRotateAccum += deltaDeg;
+            break;
+        }
+        update();
+        return;
+    }
+
     if (m_currentMode == ToolMode::EditImage && m_resizeHandle != -1 && !m_selectedImageName.isEmpty()) {
         QPointF delta = pos - m_lastDragPos;
         for (auto& img : m_imageOverlays) {
@@ -633,6 +688,15 @@ void AnnotationLayer::mouseMoveEvent(QMouseEvent *event)
 void AnnotationLayer::mouseReleaseEvent(QMouseEvent *event)
 {
     if (m_currentMode == ToolMode::EditImage) {
+        if (m_isRotatingImage) {
+            m_isRotatingImage = false;
+            if (!m_selectedImageName.isEmpty() && !qFuzzyIsNull(m_imageRotateAccum)) {
+                emit imageRotateRequested(m_selectedImageName, m_imageRotateAccum);
+            }
+            m_imageRotateAccum = 0.0;
+            update();
+            return;
+        }
         if (m_resizeHandle != -1) {
             m_resizeHandle = -1;
             for (const auto& img : m_imageOverlays) {
@@ -692,4 +756,63 @@ void AnnotationLayer::mouseReleaseEvent(QMouseEvent *event)
         }
         update(dirty.adjusted(-15, -15, 15, 15).toAlignedRect());
     }
+}
+
+// Wave 1A §9.2: right-click "Rotate"/Delete/Replace menu for the selected image in
+// EditImage mode. Rotate/Delete/Replace all had a fully-correct engine-level
+// command (RotateImageCommand/DeleteImageCommand/ReplaceImageCommand) with zero UI
+// entry point; this menu — plus the drag-rotate handle above — is that entry point.
+void AnnotationLayer::contextMenuEvent(QContextMenuEvent *event)
+{
+    if (m_currentMode != ToolMode::EditImage || m_selectedImageName.isEmpty()) {
+        event->ignore();
+        return;
+    }
+
+    // Re-resolve which image is under the cursor (or keep the current selection if
+    // the right-click landed on the already-selected image's bounds).
+    QPointF pos = event->pos();
+    bool onSelected = false;
+    for (const auto& img : m_imageOverlays) {
+        if (img.xobjectName == m_selectedImageName && img.placement.contains(pos)) {
+            onSelected = true;
+            break;
+        }
+    }
+    if (!onSelected) {
+        event->ignore();
+        return;
+    }
+
+    const QString name = m_selectedImageName;
+    QMenu menu(this);
+    QMenu* rotateMenu = menu.addMenu(tr("Rotate"));
+    QAction* rot90cw   = rotateMenu->addAction(tr("Rotate 90° Clockwise"));
+    QAction* rot90ccw  = rotateMenu->addAction(tr("Rotate 90° Counterclockwise"));
+    QAction* rot180    = rotateMenu->addAction(tr("Rotate 180°"));
+    QAction* rotCustom = rotateMenu->addAction(tr("Custom Angle…"));
+    menu.addSeparator();
+    QAction* replaceAction = menu.addAction(tr("Replace Image…"));
+    QAction* deleteAction  = menu.addAction(tr("Delete Image"));
+
+    QAction* chosen = menu.exec(event->globalPos());
+    if (chosen == rot90cw) {
+        emit imageRotateRequested(name, 90.0);
+    } else if (chosen == rot90ccw) {
+        emit imageRotateRequested(name, -90.0);
+    } else if (chosen == rot180) {
+        emit imageRotateRequested(name, 180.0);
+    } else if (chosen == rotCustom) {
+        bool ok = false;
+        double degrees = QInputDialog::getDouble(this, tr("Rotate Image"),
+            tr("Rotation angle (degrees, clockwise):"), 0.0, -3600.0, 3600.0, 1, &ok);
+        if (ok && !qFuzzyIsNull(degrees)) {
+            emit imageRotateRequested(name, degrees);
+        }
+    } else if (chosen == replaceAction) {
+        emit imageReplaceRequested(name);
+    } else if (chosen == deleteAction) {
+        emit imageDeleteRequested(name);
+    }
+    event->accept();
 }

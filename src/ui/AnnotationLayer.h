@@ -47,12 +47,19 @@ signals:
     void imageSelected(const QString &xobjectName, const QRectF &placement);
     void imageMoved(const QString &xobjectName, double dx, double dy);
     void imageResized(const QString &xobjectName, double newW, double newH);
+    // Wave 1A §9.2: rotate/delete/replace requested from the right-click menu or the
+    // drag-rotate handle. EditController owns the actual RotateImageCommand /
+    // DeleteImageCommand / ReplaceImageCommand invocation (needs engine + undo stack).
+    void imageRotateRequested(const QString &xobjectName, double degrees);
+    void imageDeleteRequested(const QString &xobjectName);
+    void imageReplaceRequested(const QString &xobjectName);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
+    void contextMenuEvent(QContextMenuEvent *event) override;
 
 private:
     ToolMode m_currentMode;
@@ -71,6 +78,14 @@ private:
     QString m_selectedImageName;
     int m_resizeHandle = -1;  // -1=none, 0-3=corners, 4-7=edges
     QPointF m_originalImagePos;
+    // Wave 1A §9.2: drag-rotate handle for the selected image (a small circular
+    // grip above the top-center resize handle). m_isRotatingImage is true while
+    // the user is actively dragging it; m_imageRotateStartAngle/m_imageRotateAccum
+    // track the running rotation for the current drag so imageRotateRequested can
+    // be emitted with a total delta on release (mirrors the move/resize pattern).
+    bool m_isRotatingImage = false;
+    double m_imageRotateStartAngle = 0.0;
+    double m_imageRotateAccum = 0.0;
     // AR-7 D5: overlay image (e.g. pixel-diff from CompareMode).
     QImage m_overlayImage;
 };
