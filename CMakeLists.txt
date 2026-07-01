@@ -1613,6 +1613,32 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOfficeImport.cpp")
     )
 endif()
 
+# Wave 1A §9.5: PDF -> Word/Excel export coverage for both the real-OOXML
+# (HAS_DUCKX/HAS_OPENXLSX) and fallback (HTML/CSV) code paths in
+# ConversionManager::exportToWord/exportToExcel. Previously untested by any CI
+# target -- a regression could silently reintroduce the fallback on a build
+# where the real libraries are linked with zero signal. See TestOfficeExport.cpp
+# for why the test sniffs output content instead of the (PRIVATE, not
+# test-visible) HAS_DUCKX/HAS_OPENXLSX macros.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOfficeExport.cpp")
+    add_executable(TestOfficeExport
+        tests/TestOfficeExport.cpp
+    )
+    target_include_directories(TestOfficeExport PRIVATE src tests)
+    target_compile_definitions(TestOfficeExport PRIVATE
+        $<TARGET_PROPERTY:pdfws_engines,INTERFACE_COMPILE_DEFINITIONS>)
+    target_link_libraries(TestOfficeExport PRIVATE
+        pdfws_engines pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+    )
+    add_test(NAME TestOfficeExport COMMAND TestOfficeExport)
+    set_tests_properties(TestOfficeExport PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;convert;office;export;ooxml;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestMrcPipeline.cpp")
     add_executable(TestMrcPipeline
         tests/TestMrcPipeline.cpp
