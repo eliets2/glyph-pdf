@@ -3496,7 +3496,23 @@ OptimizeEstimate PoDoFoBackend::estimateOptimization(const OptimizeOptions &opti
             }
         }
 
-        // Estimate savings
+        // Estimate savings.
+        //
+        // Wave 1A §9.13: this estimate must only claim savings for passes that
+        // optimizeDocument() (the actual write path, same file) really
+        // performs, or the number shown to the user overstates what Compress
+        // will deliver -- worse than no estimate at all per the audit. Cross-
+        // checked against optimizeDocument() above:
+        //   - downsampleImages: REAL (Phase 1 resamples image streams) — kept.
+        //   - deduplicateImages: Phase 2 only DETECTS duplicate image hashes;
+        //     the XObject-reference rewiring that would actually drop bytes is
+        //     explicitly not implemented yet ("we note duplicates but don't
+        //     modify references directly" — see the P1 backlog item to finish
+        //     this). Zeroed out below: claiming these bytes today is a lie.
+        //   - subsetFonts: OptimizeOptions::subsetFonts has NO corresponding
+        //     phase in optimizeDocument() at all. Zeroed out below.
+        //   - removeUnusedObjects: same — no mark-and-sweep phase exists yet.
+        //     Zeroed out below.
         qint64 savings = 0;
 
         if (options.downsampleImages && est.imageTotalBytes > 0) {
@@ -3506,19 +3522,11 @@ OptimizeEstimate PoDoFoBackend::estimateOptimization(const OptimizeOptions &opti
             savings += static_cast<qint64>(est.imageTotalBytes * (1.0 - areaRatio));
         }
 
-        if (options.deduplicateImages && est.duplicateImages > 0) {
-            qint64 avgImageSize = (est.imageCount > 0) ? est.imageTotalBytes / est.imageCount : 0;
-            savings += est.duplicateImages * avgImageSize;
-        }
-
-        if (options.subsetFonts && est.fontCount > 0) {
-            // Conservative: ~20% savings from font subsetting
-            savings += est.fontCount * 15000;
-        }
-
-        if (options.removeUnusedObjects) {
-            savings += est.originalBytes / 20; // ~5% from dead objects
-        }
+        // deduplicateImages / subsetFonts / removeUnusedObjects: no real bytes
+        // are saved by the current write path, so they contribute 0 here.
+        // est.duplicateImages and est.fontCount are still populated above so
+        // the UI can honestly say "N duplicate images / M fonts found" without
+        // implying any of that translates into savings yet.
 
         est.estimatedBytes = qMax(est.originalBytes - savings, est.originalBytes / 10);
         est.reductionPercent = 100.0 * (1.0 - static_cast<double>(est.estimatedBytes) / est.originalBytes);
