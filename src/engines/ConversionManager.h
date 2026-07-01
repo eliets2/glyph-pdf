@@ -44,6 +44,15 @@ public:
     // Convenience: true when an Office→PDF converter is available on this machine.
     static bool isOfficeImportAvailable() { return !locateSoffice().isEmpty(); }
 
+    // Wave 1A §9.16: reflects whether the MOST RECENT convertTo(Word/Excel/
+    // PowerPoint) call actually used the real OOXML library (HAS_DUCKX/
+    // HAS_OPENXLSX) or silently fell back to a relabeled HTML/CSV/plain-XML
+    // file under the requested extension. Previously a user could request
+    // .docx and get an HTML file renamed .doc with zero indication anything
+    // was different. Valid only immediately after a Word/Excel/PowerPoint
+    // convertTo() call; undefined (false) before the first such call.
+    bool lastExportUsedRealFormat() const { return m_lastExportUsedRealFormat; }
+
 private:
     bool exportToWord(const QString &outputPath, const QList<QList<TextElement>> &rows);
     bool exportToExcel(const QString &outputPath, const QList<QList<TextElement>> &rows);
@@ -55,4 +64,7 @@ private:
 
     class Private;
     std::unique_ptr<Private> d;
+
+    // Wave 1A §9.16: see lastExportUsedRealFormat() above.
+    bool m_lastExportUsedRealFormat = false;
 };

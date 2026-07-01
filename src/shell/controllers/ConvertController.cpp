@@ -5,6 +5,7 @@
 #include "ui/PdfViewerWidget.h"
 #include "core/interfaces/IConversionEngine.h"
 #include "core/interfaces/IPdfEditorEngine.h"
+#include "engines/ConversionManager.h"
 
 #include <QFile>
 #include <QFileDialog>
@@ -105,13 +106,28 @@ void ConvertController::exportToWord() {
         result->store(ok);
     });
 
-    connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result]() {
+    connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, conv, result]() {
         progress->close();
         progress->deleteLater();
         if (!self) return;
         bool ok = result->load();
         if (ok) {
-            self->_mainWindow->statusBar()->showMessage(tr("Export complete: %1").arg(outputPath), 5000);
+            // Wave 1A §9.16: tell the user which path actually ran instead of
+            // silently handing back an HTML file renamed .docx. The worker
+            // thread has already finished (QThread::finished), so reading
+            // lastExportUsedRealFormat() here on the GUI thread is race-free.
+            auto* mgr = dynamic_cast<ConversionManager*>(conv);
+            const bool usedFallback = mgr && !mgr->lastExportUsedRealFormat();
+            if (usedFallback) {
+                self->_mainWindow->statusBar()->showMessage(
+                    tr("Export complete: %1 (HTML fallback — real .docx support not available in this build)").arg(outputPath), 7000);
+                QMessageBox::warning(self->_mainWindow, tr("Export Used Fallback Format"),
+                    tr("This build does not have real .docx (OOXML) support linked in. "
+                       "The file at %1 is actually HTML content saved with a .docx extension — "
+                       "Word can open it, but it is not a true Word document.").arg(outputPath));
+            } else {
+                self->_mainWindow->statusBar()->showMessage(tr("Export complete: %1").arg(outputPath), 5000);
+            }
             if (QMessageBox::question(self->_mainWindow, tr("Export Success"), tr("Export to Word complete. Open file?")) == QMessageBox::Yes) {
                 QDesktopServices::openUrl(QUrl::fromLocalFile(outputPath));
             }
@@ -150,13 +166,26 @@ void ConvertController::exportToExcel() {
         result->store(ok);
     });
 
-    connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result]() {
+    connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, conv, result]() {
         progress->close();
         progress->deleteLater();
         if (!self) return;
         bool ok = result->load();
         if (ok) {
-            self->_mainWindow->statusBar()->showMessage(tr("Export complete: %1").arg(outputPath), 5000);
+            // Wave 1A §9.16: tell the user which path actually ran instead of
+            // silently handing back a CSV file renamed .xlsx.
+            auto* mgr = dynamic_cast<ConversionManager*>(conv);
+            const bool usedFallback = mgr && !mgr->lastExportUsedRealFormat();
+            if (usedFallback) {
+                self->_mainWindow->statusBar()->showMessage(
+                    tr("Export complete: %1 (CSV fallback — real .xlsx support not available in this build)").arg(outputPath), 7000);
+                QMessageBox::warning(self->_mainWindow, tr("Export Used Fallback Format"),
+                    tr("This build does not have real .xlsx (OOXML) support linked in. "
+                       "The file at %1 is actually CSV content saved with a .xlsx extension — "
+                       "Excel can open it, but it is not a true Excel workbook.").arg(outputPath));
+            } else {
+                self->_mainWindow->statusBar()->showMessage(tr("Export complete: %1").arg(outputPath), 5000);
+            }
             if (QMessageBox::question(self->_mainWindow, tr("Export Success"), tr("Export to Excel complete. Open file?")) == QMessageBox::Yes) {
                 QDesktopServices::openUrl(QUrl::fromLocalFile(outputPath));
             }

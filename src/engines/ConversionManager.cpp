@@ -194,6 +194,9 @@ QList<ConversionManager::TextElement> ConversionManager::Private::extractTextFro
 bool ConversionManager::exportToWord(const QString &outputPath, const QList<QList<TextElement>> &rows)
 {
 #ifdef HAS_DUCKX
+    // Wave 1A §9.16: record which path actually ran, so the UI can tell the
+    // user when a requested .docx silently became relabeled HTML.
+    m_lastExportUsedRealFormat = true;
     duckx::Document doc(outputPath.toStdString());
     doc.open();
     auto p = doc.append_paragraph();
@@ -210,6 +213,7 @@ bool ConversionManager::exportToWord(const QString &outputPath, const QList<QLis
     return QFileInfo(outputPath).size() > 0;
 #else
     // Fallback: Generate HTML-based DOC (Word can open it)
+    m_lastExportUsedRealFormat = false;
     QFile file(outputPath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return false;
     QTextStream out(&file);
@@ -230,6 +234,7 @@ bool ConversionManager::exportToWord(const QString &outputPath, const QList<QLis
 bool ConversionManager::exportToExcel(const QString &outputPath, const QList<QList<TextElement>> &rows)
 {
 #ifdef HAS_OPENXLSX
+    m_lastExportUsedRealFormat = true;
     OpenXLSX::XLDocument doc;
     doc.create(outputPath.toStdString());
     auto wks = doc.workbook().worksheet("Sheet1");
@@ -247,6 +252,7 @@ bool ConversionManager::exportToExcel(const QString &outputPath, const QList<QLi
     return QFileInfo(outputPath).size() > 0;
 #else
     // Fallback: Generate CSV
+    m_lastExportUsedRealFormat = false;
     QFile file(outputPath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return false;
     QTextStream out(&file);
@@ -560,6 +566,12 @@ static void addZipFile(zip_t* za, const char* name, const QByteArray& data) {
 }
 
 bool ConversionManager::exportToPowerPoint(const QString &pdfPath, const QString &outputPath, const QVariantMap &options) {
+    // Wave 1A §9.16: PPTX export has no fallback path (always a real ZIP/OOXML
+    // package via libzip), so this is unconditionally true here -- kept in
+    // sync with exportToWord/exportToExcel so UI code checking
+    // lastExportUsedRealFormat() after ANY convertTo() call gets a sane answer
+    // regardless of target format.
+    m_lastExportUsedRealFormat = true;
     PdfiumBackend backend;
     if (!backend.loadDocument(pdfPath)) return false;
 
