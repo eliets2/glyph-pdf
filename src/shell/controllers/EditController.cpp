@@ -484,7 +484,9 @@ void EditController::runOcr() {
                     }
                     if (!self->_ocrTesseract->initialize(lang)) {
                         self->_ocrTesseractLang.clear();
-                        error = QStringLiteral("OCR failed: Tesseract English language data is unavailable.");
+                        // Wave 1A §9.4: name the actually-selected language instead of
+                        // always blaming "English" regardless of what the user picked.
+                        error = QStringLiteral("OCR failed: Tesseract language data for '%1' is unavailable.").arg(lang);
                     } else {
                         self->_ocrTesseractLang = lang;
                         primary = self->_ocrTesseract;
