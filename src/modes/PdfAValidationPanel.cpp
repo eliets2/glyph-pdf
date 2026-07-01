@@ -417,30 +417,47 @@ void extractBBox(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfDictionary& d, St
 
 // Depth-first walk of the structure tree, collecting structure elements in
 // reading (document structure) order.
+//
+// Wave 1A §9.14: `inheritedPg` carries the nearest ancestor's /Pg down the
+// recursion. Per ISO 32000-2 §14.7.2, a structure element's page association
+// (/Pg) is inheritable -- a struct element with no /Pg of its own belongs to
+// whichever page its nearest ancestor (going up the structure tree) declared.
+// The previous version only ever checked the element's OWN dictionary for
+// /Pg and treated "missing" as page = -1 (pageIndexOf(doc, nullptr) short-
+// circuits to -1), which flags every child of a perfectly normal,
+// correctly-tagged PDF that sets /Pg once on a parent (a very common,
+// spec-legal authoring pattern) as a false-positive "unknown page" reorder
+// candidate. Now: if the element has its own /Pg, that becomes the page (and
+// the new inherited context for its children); otherwise it inherits
+// `inheritedPg` from its ancestor.
 void collectStructElems(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfObject* node,
-                        QList<StructElem>& out, int depth) {
+                        QList<StructElem>& out, int depth,
+                        const PoDoFo::PdfObject* inheritedPg = nullptr) {
     if (!node || depth > 60) return;
     node = resolveObj(doc, node);
     if (!node) return;
 
     if (node->IsArray()) {
         for (const auto& child : node->GetArray())
-            collectStructElems(doc, &child, out, depth + 1);
+            collectStructElems(doc, &child, out, depth + 1, inheritedPg);
         return;
     }
     if (!node->IsDictionary()) return;  // e.g. a bare MCID integer — skip
 
     const PoDoFo::PdfDictionary& d = node->GetDictionary();
+    const PoDoFo::PdfObject* ownPg = d.FindKey("Pg");
+    const PoDoFo::PdfObject* effectivePg = ownPg ? ownPg : inheritedPg;
+
     const PoDoFo::PdfObject* sObj = d.FindKey("S");
     if (sObj && sObj->IsName()) {
         StructElem e;
         e.type = QString::fromStdString(std::string(sObj->GetName().GetString()));
-        e.page = pageIndexOf(doc, d.FindKey("Pg"));
+        e.page = pageIndexOf(doc, effectivePg);
         extractBBox(doc, d, e);
         out.append(e);
     }
     if (const PoDoFo::PdfObject* k = d.FindKey("K"))
-        collectStructElems(doc, k, out, depth + 1);
+        collectStructElems(doc, k, out, depth + 1, effectivePg);
 }
 
 ReadingOrderResult analyzeReadingOrder(const QString& path) {
