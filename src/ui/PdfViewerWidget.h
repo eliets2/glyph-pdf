@@ -165,6 +165,16 @@ private:
     class QLabel *m_rightPageLabel = nullptr;
     void updateTwoPageView();
 
+    // Wave 1B #1: rotation-aware bitmap fallback for the primary interactive
+    // view. QPdfView (QtPdfWidgets) exposes no rotation API at all, so a
+    // session-only "rotate view" action can only take visible effect on the
+    // actual page pixels by switching away from QPdfView's native painting to
+    // a manual bitmap render (via the now rotation-aware renderPage()) while
+    // rotation is non-zero. Reverts to native QPdfView at rotation 0 for full
+    // scrolling/search/selection fidelity.
+    class QLabel *m_rotatedPageLabel = nullptr;
+    void updateRotatedPageView();
+
     // Form-builder field placement (M3-PROMPT-1)
     QRubberBand *m_formRubberBand = nullptr;
     QPoint m_formRubberBandOrigin;

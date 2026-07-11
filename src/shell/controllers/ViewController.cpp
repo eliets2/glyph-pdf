@@ -28,7 +28,10 @@ QList<ToolId> ViewController::handledTools() const {
         ToolId::SinglePage, ToolId::Continuous, ToolId::TwoPage,
         ToolId::Presentation, ToolId::Fullscreen,
         ToolId::DarkMode, ToolId::EyeCare,
-        ToolId::RTL  // AR-8 D6: shipped — toggles QApplication layout direction
+        ToolId::RTL,  // AR-8 D6: shipped — toggles QApplication layout direction
+        // Wave 1B #1: session-only view rotation. See PdfViewerWidget for
+        // the implementation (rotateClockwise/rotateCounterClockwise).
+        ToolId::RotateViewCW, ToolId::RotateViewCCW
     };
 }
 
@@ -82,6 +85,14 @@ void ViewController::activate(ToolId id) {
     case ToolId::EyeCare:
         if (viewer) viewer->toggleEyeCareMode();
         _mainWindow->statusBar()->showMessage(tr("Eye Care mode toggled."), 3000);
+        break;
+    case ToolId::RotateViewCW:
+        viewer->rotateClockwise();
+        _mainWindow->statusBar()->showMessage(tr("View rotated (not saved to file)."), 3000);
+        break;
+    case ToolId::RotateViewCCW:
+        viewer->rotateCounterClockwise();
+        _mainWindow->statusBar()->showMessage(tr("View rotated (not saved to file)."), 3000);
         break;
     case ToolId::RTL: {
         // AR-8 D6: toggle the application-wide layout direction.

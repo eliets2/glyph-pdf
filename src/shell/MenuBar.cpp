@@ -308,6 +308,12 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
     addActionToMenu(viewMenu, tr("&Two-Page View"), "two-page");
     addActionToMenu(viewMenu, tr("&Presentation Mode"), "presentation");
     viewMenu->addSeparator();
+    // Wave 1B #1: session-only view rotation (not saved to the file) -- see
+    // Document ▸ Rotate Clockwise/Counter-Clockwise below for the persisted,
+    // /Rotate-writing equivalent (PagesController::rotateLeft/rotateRight).
+    addActionToMenu(viewMenu, tr("Rotate &View Clockwise"), "rotateViewCW");
+    addActionToMenu(viewMenu, tr("Rotate View Co&unter-Clockwise"), "rotateViewCCW");
+    viewMenu->addSeparator();
     addActionToMenu(viewMenu, tr("&Full Screen"), "fullscreen", QKeySequence(Qt::Key_F11));
     viewMenu->addSeparator();
     addActionToMenu(viewMenu, tr("&Dark Mode"), "darkMode", QKeySequence(), true, true);

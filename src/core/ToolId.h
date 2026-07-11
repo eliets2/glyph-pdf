@@ -38,6 +38,11 @@ enum class ToolId {
     DarkMode,
     EyeCare,
     RTL,          // AR-8 D6: toggle right-to-left layout direction
+    // Wave 1B #1: session-only "rotate view" -- distinct from RotateCW/RotateCCW
+    // below (Pages group), which persist a real /Rotate change to the PDF file.
+    // These rotate only how the current viewer session displays the page.
+    RotateViewCW,
+    RotateViewCCW,
 
     // ── Edit ──
     Hand,

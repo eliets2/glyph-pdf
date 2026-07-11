@@ -167,6 +167,7 @@ void PdfViewerWidget::zoomIn()
 {
     m_zoomFactor *= 1.25;
     m_pdfView->setZoomFactor(m_zoomFactor);
+    if (m_rotation != 0) updateRotatedPageView();
 }
 
 void PdfViewerWidget::zoomOut()
@@ -174,6 +175,7 @@ void PdfViewerWidget::zoomOut()
     m_zoomFactor /= 1.25;
     if (m_zoomFactor < 0.1) m_zoomFactor = 0.1;
     m_pdfView->setZoomFactor(m_zoomFactor);
+    if (m_rotation != 0) updateRotatedPageView();
 }
 
 void PdfViewerWidget::zoomFitWidth()
@@ -191,6 +193,7 @@ void PdfViewerWidget::setZoomLevel(qreal level)
     m_zoomFactor = level;
     m_pdfView->setZoomMode(QPdfView::ZoomMode::Custom);
     m_pdfView->setZoomFactor(m_zoomFactor);
+    if (m_rotation != 0) updateRotatedPageView();
 }
 
 qreal PdfViewerWidget::zoomLevel() const
@@ -212,10 +215,72 @@ void PdfViewerWidget::rotateCounterClockwise()
 
 void PdfViewerWidget::updateRotation()
 {
-    // If we can't rotate the view directly, we'll wait for a backend that can,
-    // or use a more complex QGraphicsView setup. 
-    // For now, let's at least rotate the annotations which we CAN control.
+    // Wave 1B #1: this used to ONLY rotate AnnotationLayer's overlay while the
+    // actual page stayed upright underneath -- audit §9.1's headline
+    // correctness bug ("current behavior rotates only an invisible-until-
+    // annotated overlay while the page stays upright"). AnnotationLayer's own
+    // paint/hit-test rotation transform was already correct and designed to
+    // pair with a genuinely-rotated page; it was simply never given one.
     m_annotationLayer->setRotation(m_rotation);
+
+    // The page-bitmap cache is keyed by scale factor only (see renderPage()),
+    // so any bitmap rendered before this rotation change must be evicted --
+    // otherwise a stale, wrongly-oriented pixmap would be served back under
+    // the same scale factor.
+    clearPageCache();
+
+    if (m_twoPageMode) {
+        // updateTwoPageView() already renders through renderPage(), which is
+        // now rotation-aware -- nothing else needed here.
+        updateTwoPageView();
+    } else {
+        updateRotatedPageView();
+    }
+}
+
+// Wave 1B #1: QPdfView (QtPdfWidgets) exposes no rotation API at all -- see
+// header comment on m_rotatedPageLabel. While a non-zero view rotation is
+// active, replace the native QPdfView surface with a manual bitmap render of
+// the current page (through the now rotation-aware renderPage()), fit to the
+// same rect QPdfView would otherwise occupy so AnnotationLayer's existing
+// rotate-around-center transform stays visually aligned with it. Reverts to
+// native QPdfView at rotation 0.
+//
+// Known limitation (disclosed, not silently swept under the rug): unlike
+// QPdfView's native continuous scrolling, this fallback displays one
+// "fit-to-view" page at a time, so free pixel-scrolling is unavailable while
+// rotated -- page navigation (Next/Prev, page-number entry, keyboard
+// shortcuts) still works normally via goToPage()/onPageChanged().
+void PdfViewerWidget::updateRotatedPageView()
+{
+    if (m_rotation == 0) {
+        if (m_rotatedPageLabel) m_rotatedPageLabel->hide();
+        if (!m_twoPageMode) m_pdfView->show();
+        return;
+    }
+    if (m_twoPageMode || !m_document || m_document->pageCount() == 0) return;
+
+    if (!m_rotatedPageLabel) {
+        m_rotatedPageLabel = new QLabel(m_pdfView->parentWidget());
+        m_rotatedPageLabel->setAlignment(Qt::AlignCenter);
+    }
+
+    m_pdfView->hide();
+    m_rotatedPageLabel->setGeometry(m_pdfView->geometry());
+
+    const int page = currentPage();
+    const QSizeF pagePts = m_document->pagePointSize(page);
+    const bool swapped = (m_rotation == 90 || m_rotation == 270);
+    const qreal pageW = swapped ? pagePts.height() : pagePts.width();
+    const qreal pageH = swapped ? pagePts.width()  : pagePts.height();
+    const qreal availW = qMax(1, m_rotatedPageLabel->width());
+    const qreal availH = qMax(1, m_rotatedPageLabel->height());
+    const qreal fitScale = qMax(0.05, qMin(availW / qMax(pageW, 1.0), availH / qMax(pageH, 1.0)));
+
+    const QImage img = renderPage(page, fitScale);
+    m_rotatedPageLabel->setPixmap(QPixmap::fromImage(img));
+    m_rotatedPageLabel->show();
+    m_annotationLayer->raise();
 }
 
 // ---- Tool Mode ----
@@ -236,7 +301,7 @@ void PdfViewerWidget::setToolMode(ToolMode mode)
 
     m_toolMode = mode;
     m_annotationLayer->setMode(mode);
-    
+
     switch (mode) {
         case ToolMode::HandTool:
             m_pdfView->setCursor(Qt::OpenHandCursor);
@@ -423,6 +488,8 @@ void PdfViewerWidget::onPageChanged()
     m_pageChangeTimer->start();
     if (m_twoPageMode) {
         updateTwoPageView();
+    } else if (m_rotation != 0) {
+        updateRotatedPageView();
     }
 }
 
@@ -435,6 +502,9 @@ void PdfViewerWidget::resizeEvent(QResizeEvent *event)
         if (m_twoPageScrollArea) {
             m_twoPageScrollArea->resize(size());
         }
+    }
+    if (m_rotation != 0 && !m_twoPageMode) {
+        updateRotatedPageView();
     }
     repositionSignatureBadge();
 }
@@ -476,24 +546,26 @@ void PdfViewerWidget::setTwoPageMode(bool enabled)
     if (enabled) {
         m_pdfView->hide();
         m_annotationLayer->hide();
+        if (m_rotatedPageLabel) m_rotatedPageLabel->hide();
         m_twoPageScrollArea->show();
         updateTwoPageView();
     } else {
         m_twoPageScrollArea->hide();
         m_pdfView->show();
         m_annotationLayer->show();
+        if (m_rotation != 0) updateRotatedPageView();
     }
 }
 
 void PdfViewerWidget::updateTwoPageView()
 {
     if (!m_twoPageMode || !m_document || m_document->pageCount() == 0) return;
-    
+
     int current = currentPage();
     int leftPage = (current % 2 == 0) ? current : current - 1;
     if (leftPage < 0) leftPage = 0;
     int rightPage = leftPage + 1;
-    
+
     QImage leftImg = renderPage(leftPage, m_zoomFactor * 2.0);
     if (!leftImg.isNull()) {
         m_leftPageLabel->setPixmap(QPixmap::fromImage(leftImg));
@@ -501,7 +573,7 @@ void PdfViewerWidget::updateTwoPageView()
     } else {
         m_leftPageLabel->hide();
     }
-    
+
     if (rightPage < pageCount()) {
         QImage rightImg = renderPage(rightPage, m_zoomFactor * 2.0);
         if (!rightImg.isNull()) {
@@ -632,7 +704,10 @@ QImage PdfViewerWidget::renderPage(int page, qreal scaleFactor) const
     if (page < 0 || page >= m_document->pageCount())
         return QImage();
 
-    // Check cache (Fix 5) -- match scale factor exactly
+    // Check cache (Fix 5) -- match scale factor exactly. The cache is fully
+    // cleared on every rotation change (see updateRotation()), so a scale-only
+    // key remains correct -- entries never survive a rotation change to be
+    // served stale under the same scale factor.
     if (m_pageCache.contains(page) && qFuzzyCompare(m_pageCache.value(page).scaleFactor, scaleFactor)) {
         m_cacheAccessCounter++;
         m_pageCache[page].lastAccessed = m_cacheAccessCounter;
@@ -640,9 +715,23 @@ QImage PdfViewerWidget::renderPage(int page, qreal scaleFactor) const
     }
 
     QSizeF pageSize = m_document->pagePointSize(page);
-    QSize imageSize(pageSize.width() * scaleFactor, pageSize.height() * scaleFactor);
 
+    // Wave 1B #1: apply the real view rotation to the actual rendered bitmap
+    // instead of leaving the page upright (previously only AnnotationLayer's
+    // overlay rotated -- audit §9.1's headline correctness bug). A 90/270
+    // rotation swaps the effective output dimensions.
     QPdfDocumentRenderOptions opts;
+    const bool swapped = (m_rotation == 90 || m_rotation == 270);
+    switch (m_rotation) {
+        case 90:  opts.setRotation(QPdfDocumentRenderOptions::Rotation::Clockwise90);  break;
+        case 180: opts.setRotation(QPdfDocumentRenderOptions::Rotation::Clockwise180); break;
+        case 270: opts.setRotation(QPdfDocumentRenderOptions::Rotation::Clockwise270); break;
+        default:  break;
+    }
+    QSize imageSize = swapped
+        ? QSize(pageSize.height() * scaleFactor, pageSize.width() * scaleFactor)
+        : QSize(pageSize.width() * scaleFactor, pageSize.height() * scaleFactor);
+
     QImage result = m_document->render(page, imageSize, opts);
 
     // Store in cache. P9: keep a running byte total instead of re-summing the
@@ -1049,4 +1138,3 @@ void PdfViewerWidget::setOverlayImage(const QImage &img) {
     m_overlayImage = img;
     if (m_annotationLayer) m_annotationLayer->setOverlayImage(img);
 }
-
