@@ -223,12 +223,13 @@ bool PdfEditorEngine::saveDocument(const QString &outputPath)
 bool PdfEditorEngine::editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
                                      const QString &fontFamily, int fontSize,
                                      const QColor &color, bool bold,
-                                     bool italic, int alignment, double opacity)
+                                     bool italic, int alignment, double opacity,
+                                     double letterSpacing, double lineSpacing)
 {
     QMutexLocker locker(&d->mutex);
     d->clearErr();
     if (!d->backend) return d->noBackend("editTextInline");
-    bool ok = d->backend->editTextInline(pageIndex, rect, newText, fontFamily, fontSize, color, bold, italic, alignment, opacity);
+    bool ok = d->backend->editTextInline(pageIndex, rect, newText, fontFamily, fontSize, color, bold, italic, alignment, opacity, letterSpacing, lineSpacing);
     if (!ok) {
         d->setErr(ErrorInfo::Error,
                   QObject::tr("Failed to edit text on page %1. The text region may be part of an image or scanned content.").arg(pageIndex + 1),
@@ -1240,6 +1241,21 @@ bool PdfEditorEngine::setImageOpacity(int pageIndex, const QString &xobjectName,
         d->setErr(ErrorInfo::Error,
                   QObject::tr("Failed to set opacity for the image on page %1.").arg(pageIndex + 1),
                   QStringLiteral("setImageOpacity page=%1, obj=%2").arg(pageIndex).arg(xobjectName));
+        d->lastErr.sourcePage = pageIndex;
+    }
+    return ok;
+}
+
+bool PdfEditorEngine::setImageZOrder(int pageIndex, const QString &xobjectName, bool bringToFront)
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("setImageZOrder");
+    bool ok = d->backend->setImageZOrder(pageIndex, xobjectName, bringToFront);
+    if (!ok) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to change stacking order for the image on page %1.").arg(pageIndex + 1),
+                  QStringLiteral("setImageZOrder page=%1, obj=%2").arg(pageIndex).arg(xobjectName));
         d->lastErr.sourcePage = pageIndex;
     }
     return ok;

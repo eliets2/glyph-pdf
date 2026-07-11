@@ -284,7 +284,8 @@ void EditController::onReplaceRequested(const QString &searchText, const QString
         _ctx->document->setPath(viewer->filePath());
         _ctx->undoStack->push(new EditTextInlineCommand(
             _ctx->pdfEditor.get(), _ctx->document.get(), page, rect, replaceText,
-            _fontFamily, _fontSize, _fontColor, _fontBold, _fontItalic, _fontAlignment));
+            _fontFamily, _fontSize, _fontColor, _fontBold, _fontItalic, _fontAlignment,
+            _opacity, _letterSpacing, _lineSpacing));
     }
 
     _mainWindow->statusBar()->showMessage(
@@ -319,7 +320,8 @@ void EditController::onReplaceAllRequested(const QString &searchText, const QStr
         QRectF rect(loc.x(), loc.y() - 15, 200, 20);
         _ctx->pdfEditor->editTextInline(page, rect, replaceText,
                                         _fontFamily, _fontSize, _fontColor,
-                                        _fontBold, _fontItalic, _fontAlignment);
+                                        _fontBold, _fontItalic, _fontAlignment,
+                                        _opacity, _letterSpacing, _lineSpacing);
     }
 
     // R2-1 D2: route through incremental update when document is signed, so
@@ -576,6 +578,7 @@ void EditController::editPdfText() {
             _mainWindow->addToolBar(Qt::TopToolBarArea, _textToolBar);
             connect(_textToolBar, &EditToolBar::textFormatChanged, this, &EditController::onTextFormatChanged);
             connect(_textToolBar, &EditToolBar::opacityChanged, this, &EditController::onOpacityChanged, Qt::UniqueConnection);
+            connect(_textToolBar, &EditToolBar::spacingChanged, this, &EditController::onSpacingChanged, Qt::UniqueConnection);
             connect(viewer, &PdfViewerWidget::textEditRequested, this, &EditController::onTextEditRequested, Qt::UniqueConnection);
         }
         _textToolBar->setActiveMode(ToolMode::EditText);
@@ -590,6 +593,15 @@ void EditController::onTextFormatChanged(const QString &fontFamily, int fontSize
     _fontBold = bold;
     _fontItalic = italic;
     _fontAlignment = alignment;
+}
+
+// §9.2 Wave 2B item 4: letter-spacing/line-spacing for the next inline text
+// edit/replace. Natural sibling of onTextFormatChanged() above -- both just
+// record state consumed by onTextEditRequested/onReplaceRequested/
+// onReplaceAllRequested.
+void EditController::onSpacingChanged(double letterSpacing, double lineSpacing) {
+    _letterSpacing = letterSpacing;
+    _lineSpacing = lineSpacing;
 }
 
 void EditController::onTextEditRequested(int pageIndex, QPointF pos) {
@@ -675,6 +687,10 @@ void EditController::enterImageEditMode() {
             this, &EditController::onImageDeleteRequested, Qt::UniqueConnection);
     connect(viewer->annotationLayer(), &AnnotationLayer::imageReplaceRequested,
             this, &EditController::onImageReplaceRequested, Qt::UniqueConnection);
+    connect(viewer->annotationLayer(), &AnnotationLayer::imageBringToFrontRequested,
+            this, &EditController::onImageBringToFrontRequested, Qt::UniqueConnection);
+    connect(viewer->annotationLayer(), &AnnotationLayer::imageSendToBackRequested,
+            this, &EditController::onImageSendToBackRequested, Qt::UniqueConnection);
 
     // §9.2 Wave 2B item 3: same EditToolBar instance as editPdfText(), just
     // showing the opacity control instead of the text-format group.
@@ -786,6 +802,39 @@ void EditController::onImageReplaceRequested(const QString &name) {
     viewer->annotationLayer()->setImageOverlays(images);
     viewer->annotationLayer()->setSelectedImageName(name);
     _mainWindow->statusBar()->showMessage(tr("Replaced image %1").arg(name), 3000);
+}
+
+// §9.2 Wave 2C item 5: basic bring-to-front/send-to-back z-order, requested
+// from the right-click menu. Like opacity/eraser, this is a direct engine
+// call with no undo command -- a "basic" scope, not full z-order history.
+void EditController::onImageBringToFrontRequested(const QString &name) {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->pdfEditor || _imageEditPage < 0) return;
+
+    if (_ctx->pdfEditor->setImageZOrder(_imageEditPage, name, /*bringToFront=*/true)) {
+        if (_ctx->document) _ctx->document->markReload();
+        auto images = _ctx->pdfEditor->listImages(_imageEditPage);
+        viewer->annotationLayer()->setImageOverlays(images);
+        viewer->annotationLayer()->setSelectedImageName(name);
+        _mainWindow->statusBar()->showMessage(tr("Brought image %1 to front.").arg(name), 3000);
+    } else {
+        _mainWindow->statusBar()->showMessage(tr("Could not change the stacking order of image %1.").arg(name), 3000);
+    }
+}
+
+void EditController::onImageSendToBackRequested(const QString &name) {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->pdfEditor || _imageEditPage < 0) return;
+
+    if (_ctx->pdfEditor->setImageZOrder(_imageEditPage, name, /*bringToFront=*/false)) {
+        if (_ctx->document) _ctx->document->markReload();
+        auto images = _ctx->pdfEditor->listImages(_imageEditPage);
+        viewer->annotationLayer()->setImageOverlays(images);
+        viewer->annotationLayer()->setSelectedImageName(name);
+        _mainWindow->statusBar()->showMessage(tr("Sent image %1 to back.").arg(name), 3000);
+    } else {
+        _mainWindow->statusBar()->showMessage(tr("Could not change the stacking order of image %1.").arg(name), 3000);
+    }
 }
 
 // ── Cut / Copy / Delete (§9.2 Wave 1B) ─────────────────────────────────────

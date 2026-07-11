@@ -101,6 +101,29 @@ void EditToolBar::createActions()
     btnColor->setDefaultAction(colorAct);
     fmtLayout->addWidget(btnColor);
 
+    // §9.2 Wave 2B item 4: letter-spacing/line-spacing, natural siblings of
+    // the font/size/align controls above (EditText-only, like the rest of
+    // formatWidget).
+    QLabel *letterSpacingLabel = new QLabel(tr("Letter:"), formatWidget);
+    fmtLayout->addWidget(letterSpacingLabel);
+    letterSpacingCombo = new QComboBox(formatWidget);
+    letterSpacingCombo->addItem(tr("Normal"), 0.0);
+    letterSpacingCombo->addItem(tr("+1pt"), 1.0);
+    letterSpacingCombo->addItem(tr("+2pt"), 2.0);
+    letterSpacingCombo->addItem(tr("+4pt"), 4.0);
+    letterSpacingCombo->setToolTip(tr("Letter spacing applied to the next inline text edit"));
+    fmtLayout->addWidget(letterSpacingCombo);
+
+    QLabel *lineSpacingLabel = new QLabel(tr("Line:"), formatWidget);
+    fmtLayout->addWidget(lineSpacingLabel);
+    lineSpacingCombo = new QComboBox(formatWidget);
+    lineSpacingCombo->addItem(tr("1.0x"), 1.0);
+    lineSpacingCombo->addItem(tr("1.15x"), 1.15);
+    lineSpacingCombo->addItem(tr("1.5x"), 1.5);
+    lineSpacingCombo->addItem(tr("2.0x"), 2.0);
+    lineSpacingCombo->setToolTip(tr("Line spacing applied to the next inline text edit"));
+    fmtLayout->addWidget(lineSpacingCombo);
+
     addWidget(formatWidget);
     formatWidget->hide(); // hidden by default
 
@@ -130,6 +153,16 @@ void EditToolBar::createActions()
         const double opacity = opacityCombo->itemData(index).toInt() / 100.0;
         emit opacityChanged(opacity);
     });
+
+    // §9.2 Wave 2B item 4: emit the combined letter/line spacing whenever
+    // either combo changes.
+    auto emitSpacingChanged = [this]() {
+        const double letterSpacing = letterSpacingCombo->currentData().toDouble();
+        const double lineSpacing = lineSpacingCombo->currentData().toDouble();
+        emit spacingChanged(letterSpacing, lineSpacing);
+    };
+    connect(letterSpacingCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, emitSpacingChanged);
+    connect(lineSpacingCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, emitSpacingChanged);
 
     connect(this, &EditToolBar::activeToolChanged, this, &EditToolBar::updateFormatVisibility);
 

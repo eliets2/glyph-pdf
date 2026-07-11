@@ -57,6 +57,10 @@ signals:
     void imageRotateRequested(const QString &xobjectName, double degrees);
     void imageDeleteRequested(const QString &xobjectName);
     void imageReplaceRequested(const QString &xobjectName);
+    // §9.2 Wave 2C item 5: basic bring-to-front/send-to-back z-order,
+    // requested from the same right-click menu as Rotate/Replace/Delete.
+    void imageBringToFrontRequested(const QString &xobjectName);
+    void imageSendToBackRequested(const QString &xobjectName);
 
 protected:
     void paintEvent(QPaintEvent *event) override;

@@ -158,11 +158,16 @@ public:
     // opacity (§9.2 Wave 2B item 3): reuses the ExtGState /ca /CA mechanism
     // already built for watermarks. Defaults to fully opaque so every
     // pre-existing caller compiles and behaves unchanged.
+    // letterSpacing/lineSpacing (§9.2 Wave 2B item 4): letterSpacing is PDF
+    // character spacing (Tc, in points, added after every glyph);
+    // lineSpacing is a multiplier on the existing 1.2x-fontSize line advance,
+    // so 1.0 preserves the exact pre-existing line pitch.
     virtual bool editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
                                 const QString &fontFamily = "", int fontSize = 0,
                                 const QColor &color = Qt::black, bool bold = false,
                                 bool italic = false, int alignment = 0,
-                                double opacity = 1.0) = 0;
+                                double opacity = 1.0, double letterSpacing = 0.0,
+                                double lineSpacing = 1.0) = 0;
     virtual bool deleteObjectAt(int pageIndex, const QPointF &pos) = 0;
     virtual bool rotatePage(const QString &path, int pageIndex, int degrees) = 0;
     virtual QByteArray extractPageAsBytes(const QString &path, int pageIndex) = 0;
@@ -195,6 +200,11 @@ public:
     // the ExtGState /ca /CA mechanism already built for watermarks, scoped to
     // just this image's Do invocation via a q/gs/Do/Q wrap.
     virtual bool setImageOpacity(int pageIndex, const QString &xobjectName, double opacity) = 0;
+    // §9.2 Wave 2C item 5: basic bring-to-front/send-to-back z-order.
+    // Relocates the image's whole draw span (its enclosing q..Q block, or
+    // just the Do line if unwrapped) to the end/start of the page content
+    // stream -- later-painted content stacks visually on top in PDF.
+    virtual bool setImageZOrder(int pageIndex, const QString &xobjectName, bool bringToFront) = 0;
     virtual bool addTextWatermark(const TextWatermarkOptions &options) = 0;
     virtual bool addImageWatermark(const ImageWatermarkOptions &options) = 0;
 };

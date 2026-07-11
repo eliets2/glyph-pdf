@@ -50,7 +50,8 @@ public:
                         const QString &fontFamily = "", int fontSize = 0,
                         const QColor &color = Qt::black, bool bold = false,
                         bool italic = false, int alignment = 0,
-                        double opacity = 1.0);
+                        double opacity = 1.0, double letterSpacing = 0.0,
+                        double lineSpacing = 1.0);
     bool deleteObjectAt(int pageIndex, const QPointF &pos);
     bool applyRedactions(int pageIndex, const QList<QRectF> &rects);
 
@@ -92,6 +93,8 @@ public:
     // just this image's "/<name> Do" invocation in q/gs/Q with a fresh
     // per-image ExtGState (/ca /CA), same mechanism addImageWatermark() uses.
     bool setImageOpacity(int pageIndex, const QString &xobjectName, double opacity);
+    // §9.2 Wave 2C item 5: basic bring-to-front/send-to-back z-order.
+    bool setImageZOrder(int pageIndex, const QString &xobjectName, bool bringToFront);
 
     // Watermarking (Session 13)
     bool addTextWatermark(const TextWatermarkOptions &options);

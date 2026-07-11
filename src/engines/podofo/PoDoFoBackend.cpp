@@ -666,7 +666,8 @@ bool PoDoFoBackend::insertBlankPage(const QString &path, int atIndex) {
 bool PoDoFoBackend::editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
                                    const QString &fontFamily, int fontSize,
                                    const QColor &color, bool bold,
-                                   bool italic, int alignment, double opacity) {
+                                   bool italic, int alignment, double opacity,
+                                   double letterSpacing, double lineSpacing) {
     QMutexLocker locker(&d->mutex);
     if (!d->document || pageIndex < 0 || (unsigned)pageIndex >= d->document->GetPages().GetCount()) return false;
     
@@ -774,7 +775,15 @@ bool PoDoFoBackend::editTextInline(int pageIndex, const QRectF &rect, const QStr
         if (!font) font = &d->document->GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::Helvetica);
         
         painter.TextState.SetFont(*font, extractedFontSize);
-        
+
+        // §9.2 Wave 2B item 4: letter-spacing (PDF Tc, points added after every
+        // glyph) and line-spacing (multiplier on the existing 1.2x-fontSize
+        // line pitch below -- 1.0 reproduces the exact pre-existing advance).
+        if (!qFuzzyIsNull(letterSpacing)) {
+            painter.TextState.SetCharSpacing(letterSpacing);
+        }
+        const double effectiveLineSpacing = (lineSpacing > 0.0) ? lineSpacing : 1.0;
+
         QStringList lines = newText.split('\n');
         double currentY = pdfY + rect.height() - extractedFontSize;
         for (const QString& line : lines) {
@@ -784,6 +793,9 @@ bool PoDoFoBackend::editTextInline(int pageIndex, const QRectF &rect, const QStr
                 textState.Font = font;
                 textState.FontSize = extractedFontSize;
                 double textWidth = font->GetStringLength(line.toUtf8().constData(), textState);
+                // Approximate the extra advance letter-spacing adds so
+                // center/right alignment stays visually close.
+                textWidth += letterSpacing * line.length();
                 if (alignment == 1) { // Center
                     x += (rect.width() - textWidth) / 2.0;
                 } else if (alignment == 2) { // Right
@@ -791,7 +803,7 @@ bool PoDoFoBackend::editTextInline(int pageIndex, const QRectF &rect, const QStr
                 }
             }
             painter.DrawText(line.toUtf8().constData(), x, currentY);
-            currentY -= (extractedFontSize * 1.2);
+            currentY -= (extractedFontSize * 1.2 * effectiveLineSpacing);
         }
         painter.FinishDrawing();
         
@@ -2736,6 +2748,72 @@ bool PoDoFoBackend::setImageOpacity(int pageIndex, const QString &xobjectName, d
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "setImageOpacity error:" << e.what();
+        return false;
+    }
+}
+
+// §9.2 Wave 2C item 5: basic bring-to-front/send-to-back z-order. PDF paints
+// content stream operators in order, so later draws stack on top -- this
+// relocates the image's whole draw span (its enclosing q..Q block if present,
+// matching deleteImage()'s own enclosing-block lookup, else just the Do line)
+// to the end (front) or start (back) of the page content stream.
+// Known limitation ("basic", per the plan): this reasons about paint order
+// relative to the WHOLE page content, not specifically other images, and
+// does not attempt to parse nested q/Q depth beyond the single immediately-
+// enclosing block.
+bool PoDoFoBackend::setImageZOrder(int pageIndex, const QString &xobjectName, bool bringToFront) {
+    QMutexLocker locker(&d->mutex);
+    if (!d->document) return false;
+    try {
+        auto& page = d->document->GetPages().GetPageAt(pageIndex);
+        auto* contentsObj = page.GetContents();
+        if (!contentsObj) return false;
+
+        PoDoFo::charbuff streamBuf;
+        contentsObj->CopyTo(streamBuf);
+        std::string content(streamBuf.data(), streamBuf.size());
+
+        const std::string doTarget = "/" + xobjectName.toStdString() + " Do";
+        size_t doPos = content.find(doTarget);
+        if (doPos == std::string::npos) return false;
+
+        // Same enclosing-q..Q lookup deleteImage() uses, so the image's full
+        // draw call (including its positioning cm) moves as one unit.
+        size_t spanStart = content.rfind("\nq\n", doPos);
+        if (spanStart == std::string::npos) spanStart = content.rfind("\nq ", doPos);
+        size_t doEnd = doPos + doTarget.size();
+        size_t spanEnd = content.find("\nQ", doEnd);
+
+        std::string span;
+        if (spanStart != std::string::npos && spanEnd != std::string::npos) {
+            spanEnd += 2; // include "\nQ"
+            span = content.substr(spanStart, spanEnd - spanStart);
+            content.erase(spanStart, spanEnd - spanStart);
+        } else {
+            // No enclosing q/Q -- fall back to just the Do line itself.
+            size_t lineStart = content.rfind('\n', doPos);
+            lineStart = (lineStart == std::string::npos) ? 0 : lineStart + 1;
+            size_t lineEnd = content.find('\n', doPos);
+            if (lineEnd == std::string::npos) lineEnd = content.size();
+            span = content.substr(lineStart, lineEnd - lineStart + 1);
+            content.erase(lineStart, lineEnd - lineStart + 1);
+        }
+
+        if (bringToFront) {
+            if (!content.empty() && content.back() != '\n') content += '\n';
+            content += span;
+        } else {
+            content = span + content;
+        }
+
+        contentsObj->Reset();
+        auto& stream = contentsObj->GetObject().GetOrCreateStream();
+        stream.SetData(content);
+
+        if (!writeUpdate(d->currentFile)) throw std::runtime_error("writeUpdate failed");
+        return true;
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "setImageZOrder error:" << e.what();
         return false;
     }
 }

@@ -55,6 +55,9 @@ private slots:
     void onImageRotateRequested(const QString &name, double degrees);
     void onImageDeleteRequested(const QString &name);
     void onImageReplaceRequested(const QString &name);
+    // §9.2 Wave 2C item 5: basic bring-to-front/send-to-back z-order.
+    void onImageBringToFrontRequested(const QString &name);
+    void onImageSendToBackRequested(const QString &name);
     void onTextEditRequested(int pageIndex, QPointF pos);
     void onTextFormatChanged(const QString &fontFamily, int fontSize, const QColor &color, bool bold, bool italic, int alignment);
     // §9.2 Wave 1B: real eraser -- click-to-erase in Erase mode, wired to the
@@ -65,6 +68,10 @@ private slots:
     // immediately via setImageOpacity(); in EditText mode it just updates
     // _opacity for the next inline text edit/replace.
     void onOpacityChanged(double opacity);
+    // §9.2 Wave 2B item 4: letter-spacing/line-spacing for the next inline
+    // text edit/replace (EditText-only, like the rest of EditToolBar's
+    // format group).
+    void onSpacingChanged(double letterSpacing, double lineSpacing);
 
 private:
     void editPdfText();
@@ -107,6 +114,10 @@ private:
     // §9.2 Wave 2B item 3: opacity (0.0-1.0) applied to the next inline text
     // edit and, immediately, to the selected image in EditImage mode.
     double _opacity = 1.0;
+    // §9.2 Wave 2B item 4: letter-spacing (pt) / line-spacing (multiplier)
+    // applied to the next inline text edit/replace.
+    double _letterSpacing = 0.0;
+    double _lineSpacing = 1.0;
 
     // Search state for match navigation
     int _currentMatchIndex = -1;

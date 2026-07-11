@@ -802,6 +802,11 @@ void AnnotationLayer::contextMenuEvent(QContextMenuEvent *event)
     QAction* rot180    = rotateMenu->addAction(tr("Rotate 180°"));
     QAction* rotCustom = rotateMenu->addAction(tr("Custom Angle…"));
     menu.addSeparator();
+    // §9.2 Wave 2C item 5: basic z-order, same right-click surface as the
+    // other Wave 1A image operations.
+    QAction* bringToFrontAction = menu.addAction(tr("Bring to Front"));
+    QAction* sendToBackAction   = menu.addAction(tr("Send to Back"));
+    menu.addSeparator();
     QAction* replaceAction = menu.addAction(tr("Replace Image…"));
     QAction* deleteAction  = menu.addAction(tr("Delete Image"));
 
@@ -819,6 +824,10 @@ void AnnotationLayer::contextMenuEvent(QContextMenuEvent *event)
         if (ok && !qFuzzyIsNull(degrees)) {
             emit imageRotateRequested(name, degrees);
         }
+    } else if (chosen == bringToFrontAction) {
+        emit imageBringToFrontRequested(name);
+    } else if (chosen == sendToBackAction) {
+        emit imageSendToBackRequested(name);
     } else if (chosen == replaceAction) {
         emit imageReplaceRequested(name);
     } else if (chosen == deleteAction) {

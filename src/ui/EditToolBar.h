@@ -24,6 +24,10 @@ signals:
     // §9.2 Wave 2B item 3: opacity control shared by the text-edit and
     // image-edit toolbars (same widget, shown for both modes). 0.0-1.0.
     void opacityChanged(double opacity);
+    // §9.2 Wave 2B item 4: letter-spacing (points, PDF Tc) and line-spacing
+    // (multiplier on the existing line pitch), EditText-only siblings of the
+    // font/size/align controls.
+    void spacingChanged(double letterSpacing, double lineSpacing);
 
 private:
     void createActions();
@@ -46,6 +50,9 @@ private:
     QAction *alignRightAct;
     QAction *colorAct;
     QColor currentColor = Qt::black;
+    // §9.2 Wave 2B item 4: letter-spacing/line-spacing (EditText-only).
+    class QComboBox *letterSpacingCombo;
+    class QComboBox *lineSpacingCombo;
 
     QWidget *formatWidget;
 
