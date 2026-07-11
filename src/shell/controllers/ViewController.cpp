@@ -29,17 +29,18 @@ QList<ToolId> ViewController::handledTools() const {
         ToolId::Presentation, ToolId::Fullscreen,
         ToolId::DarkMode, ToolId::EyeCare,
         ToolId::RTL,  // AR-8 D6: shipped — toggles QApplication layout direction
-        // Wave 1B #1: session-only view rotation. See PdfViewerWidget for
-        // the implementation (rotateClockwise/rotateCounterClockwise).
-        ToolId::RotateViewCW, ToolId::RotateViewCCW
+        // Wave 1B #1 / Wave 2B #4: session-only view rotation + real
+        // content-level Night Mode. See PdfViewerWidget for implementations.
+        ToolId::RotateViewCW, ToolId::RotateViewCCW, ToolId::NightMode
     };
 }
 
 void ViewController::activate(ToolId id) {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer) {
-        // DarkMode, EyeCare, and RTL work without an open document.
-        if (id != ToolId::DarkMode && id != ToolId::EyeCare && id != ToolId::RTL) {
+        // DarkMode, EyeCare, RTL, and NightMode work without an open document.
+        if (id != ToolId::DarkMode && id != ToolId::EyeCare && id != ToolId::RTL
+            && id != ToolId::NightMode) {
             _mainWindow->statusBar()->showMessage(tr("No document is open."), 3000);
             return;
         }
@@ -93,6 +94,11 @@ void ViewController::activate(ToolId id) {
     case ToolId::RotateViewCCW:
         viewer->rotateCounterClockwise();
         _mainWindow->statusBar()->showMessage(tr("View rotated (not saved to file)."), 3000);
+        break;
+    case ToolId::NightMode:
+        if (viewer) viewer->toggleNightMode();
+        _mainWindow->statusBar()->showMessage(
+            (viewer && viewer->isNightMode()) ? tr("Night Mode on.") : tr("Night Mode off."), 3000);
         break;
     case ToolId::RTL: {
         // AR-8 D6: toggle the application-wide layout direction.

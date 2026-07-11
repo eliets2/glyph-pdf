@@ -43,6 +43,9 @@ enum class ToolId {
     // These rotate only how the current viewer session displays the page.
     RotateViewCW,
     RotateViewCCW,
+    // Wave 2B #4: real content-level Night Mode (color inversion) -- see
+    // PdfViewerWidget::toggleNightMode(). Distinct from DarkMode (chrome only).
+    NightMode,
 
     // ── Edit ──
     Hand,

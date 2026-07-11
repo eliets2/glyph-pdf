@@ -317,6 +317,9 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
     addActionToMenu(viewMenu, tr("&Full Screen"), "fullscreen", QKeySequence(Qt::Key_F11));
     viewMenu->addSeparator();
     addActionToMenu(viewMenu, tr("&Dark Mode"), "darkMode", QKeySequence(), true, true);
+    // Wave 2B #4: real content-level Night Mode (page-pixel color inversion),
+    // distinct from Dark Mode above (chrome only).
+    addActionToMenu(viewMenu, tr("&Night Mode"), "nightMode", QKeySequence(), true, false);
     addActionToMenu(viewMenu, tr("&Rulers"), "rulers", QKeySequence(), true, false);
     addActionToMenu(viewMenu, tr("&Guides"), "guides", QKeySequence(), true, false);
     addActionToMenu(viewMenu, tr("G&rid"), "grid", QKeySequence(), true, false);

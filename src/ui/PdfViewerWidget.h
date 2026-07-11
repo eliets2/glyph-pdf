@@ -74,6 +74,13 @@ public:
     void setPageMode(QPdfView::PageMode mode);
     void setTwoPageMode(bool enabled);
     void toggleEyeCareMode();
+    // Wave 2B #4: real content-level Night Mode (full color inversion of the
+    // rendered page pixels), distinct from chrome Dark Mode (ViewController /
+    // MainWindow::toggleTheme(), UI chrome only) and Eye Care (a warm sepia
+    // *tint* that leaves the page background glaring white -- see
+    // toggleEyeCareMode() above). Mutually exclusive with Eye Care.
+    void toggleNightMode();
+    bool isNightMode() const { return m_nightMode; }
     void setOverlayImage(const QImage &img);
 
     // Export
@@ -168,6 +175,7 @@ private:
     bool m_twoPageMode = false;
     bool m_eyeCareMode = false;
     class QGraphicsColorizeEffect *m_eyeCareEffect = nullptr;
+    bool m_nightMode = false;
     class QScrollArea *m_twoPageScrollArea = nullptr;
     class QLabel *m_leftPageLabel = nullptr;
     class QLabel *m_rightPageLabel = nullptr;

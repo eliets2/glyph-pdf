@@ -36,6 +36,7 @@
 #include "engines/podofo/PdfPageOps.h"
 #include <QMap>
 #include <QGraphicsColorizeEffect>
+#include <QGraphicsEffect>
 #include <QScrollArea>
 #include <QLabel>
 #include <QPdfLinkModel>
@@ -43,6 +44,32 @@
 #include <QUrl>
 #include <QCursor>
 #include "util/Badge.h"
+
+// Wave 2B #4: real content-level Night Mode. Qt ships no built-in "invert
+// colors" QGraphicsEffect (only blur/colorize/opacity/shadow), so this
+// subclasses QGraphicsEffect and inverts the source pixmap's RGB channels
+// directly -- the standard Qt technique for a full color-inversion filter.
+// Distinct from Eye Care (QGraphicsColorizeEffect sepia *tint* -- the page
+// stays white/glaring, only tinted) and Dark Mode (chrome-only, MainWindow::
+// toggleTheme()); this genuinely inverts the rendered page content pixels.
+namespace {
+class NightModeEffect : public QGraphicsEffect {
+public:
+    explicit NightModeEffect(QObject *parent = nullptr) : QGraphicsEffect(parent) {}
+protected:
+    void draw(QPainter *painter) override {
+        QPoint offset;
+        QPixmap pixmap = sourcePixmap(Qt::LogicalCoordinates, &offset, QGraphicsEffect::PadToEffectiveBoundingRect);
+        if (pixmap.isNull()) {
+            drawSource(painter);
+            return;
+        }
+        QImage img = pixmap.toImage().convertToFormat(QImage::Format_ARGB32);
+        img.invertPixels(QImage::InvertRgb); // preserves the alpha channel
+        painter->drawImage(offset, img);
+    }
+};
+}
 
 PdfViewerWidget::PdfViewerWidget(QWidget *parent)
     : QWidget(parent)
@@ -694,6 +721,10 @@ void PdfViewerWidget::toggleEyeCareMode()
 {
     m_eyeCareMode = !m_eyeCareMode;
     if (m_eyeCareMode) {
+        // Wave 2B #4: Eye Care and Night Mode are alternative reading filters;
+        // only one content-level effect is meaningful at a time.
+        if (m_nightMode) toggleNightMode();
+
         if (!m_eyeCareEffect) {
             m_eyeCareEffect = new QGraphicsColorizeEffect(this);
             m_eyeCareEffect->setColor(QColor(245, 222, 179)); // Warm Sepia
@@ -706,6 +737,43 @@ void PdfViewerWidget::toggleEyeCareMode()
     } else {
         m_pdfView->setGraphicsEffect(nullptr);
         m_twoPageScrollArea->setGraphicsEffect(nullptr);
+    }
+}
+
+// Wave 2B #4: real content-level Night Mode -- full RGB inversion of the
+// rendered page pixels via NightModeEffect (see top of file), distinct from:
+//   - Dark Mode (ToolId::DarkMode -> MainWindow::toggleTheme()): chrome-only,
+//     the page content itself stays untouched.
+//   - Eye Care (toggleEyeCareMode() above): a warm sepia *tint* layered on
+//     top of the still-white page -- the audit's literal complaint ("pages
+//     stay glaring white while only chrome darkens") applies to Eye Care too,
+//     since QGraphicsColorizeEffect blends a color, it does not invert.
+// Applied to the same widgets Eye Care uses (m_pdfView / m_twoPageScrollArea)
+// for scope parity with that sibling feature; the rotated-bitmap fallback
+// view (m_rotatedPageLabel) picks it up too since it is parented under
+// m_pdfView's container and QGraphicsEffect propagates to children when set
+// on a shared ancestor -- but m_pdfView is hidden while that fallback is
+// active, so the effect is applied directly to it as well for correctness.
+void PdfViewerWidget::toggleNightMode()
+{
+    m_nightMode = !m_nightMode;
+    if (m_nightMode) {
+        if (m_eyeCareMode) toggleEyeCareMode();
+
+        // A fresh effect instance per widget per toggle-on -- each
+        // QWidget::setGraphicsEffect() call takes ownership of exactly one
+        // effect object, so the same instance cannot be shared across widgets
+        // (matches the existing Eye Care code's own pattern for
+        // m_twoPageScrollArea, extended here to all three surfaces).
+        m_pdfView->setGraphicsEffect(new NightModeEffect(this));
+        m_twoPageScrollArea->setGraphicsEffect(new NightModeEffect(this));
+        if (m_rotatedPageLabel) {
+            m_rotatedPageLabel->setGraphicsEffect(new NightModeEffect(this));
+        }
+    } else {
+        m_pdfView->setGraphicsEffect(nullptr);
+        m_twoPageScrollArea->setGraphicsEffect(nullptr);
+        if (m_rotatedPageLabel) m_rotatedPageLabel->setGraphicsEffect(nullptr);
     }
 }
 
