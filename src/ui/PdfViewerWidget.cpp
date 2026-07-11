@@ -38,6 +38,10 @@
 #include <QGraphicsColorizeEffect>
 #include <QScrollArea>
 #include <QLabel>
+#include <QPdfLinkModel>
+#include <QDesktopServices>
+#include <QUrl>
+#include <QCursor>
 #include "util/Badge.h"
 
 PdfViewerWidget::PdfViewerWidget(QWidget *parent)
@@ -67,6 +71,15 @@ PdfViewerWidget::PdfViewerWidget(QWidget *parent)
     m_pdfView->setObjectName("pdfView");
     m_pdfView->setPageMode(QPdfView::PageMode::MultiPage);
     m_pdfView->setZoomMode(QPdfView::ZoomMode::Custom);
+
+    // Wave 1B #2: real hyperlink (URI + internal GoTo) click-navigation.
+    // QPdfView exposes no built-in link handling for QWidgets (unlike the Qt
+    // Quick PdfMultiPageView), so we index the current page's links via
+    // QPdfLinkModel ourselves and watch the viewport for hover/click.
+    m_linkModel = new QPdfLinkModel(this);
+    m_linkModel->setDocument(m_document);
+    m_pdfView->viewport()->installEventFilter(this);
+    m_pdfView->viewport()->setMouseTracking(true);
 
     m_annotationLayer->setMode(m_toolMode);
     m_annotationLayer->raise();
@@ -689,6 +702,70 @@ void PdfViewerWidget::mouseReleaseEvent(QMouseEvent *event)
     } else {
         QWidget::mouseReleaseEvent(event);
     }
+}
+
+// ---- Hyperlink click-navigation (Wave 1B #2) ----
+
+// Maps a click/hover position in m_pdfView's viewport (widget pixels) to a
+// QPdfLink via QPdfLinkModel, if any link covers that point. Uses the same
+// current-page + m_zoomFactor coordinate convention already established
+// elsewhere in this file for widget-to-page-point mapping (see the Crop and
+// form-field-placement handlers in mouseReleaseEvent() above, which use the
+// identical `pos / m_zoomFactor` approximation against the current page) --
+// exact in single-page mode, best-effort in continuous/multi-page scroll
+// where a click may land on a page other than the "current" one.
+QPdfLink PdfViewerWidget::linkAtViewportPos(const QPoint &viewportPos) const
+{
+    if (!m_linkModel || !m_document || m_document->pageCount() == 0)
+        return QPdfLink();
+
+    const int page = currentPage();
+    if (m_linkModel->page() != page)
+        m_linkModel->setPage(page);
+
+    const QPointF pagePoint(viewportPos.x() / m_zoomFactor, viewportPos.y() / m_zoomFactor);
+    return m_linkModel->linkAt(pagePoint);
+}
+
+// Opens a URI link in the system browser, or jumps to an internal GoTo
+// destination page (reusing the existing page-history-tracked goToPage()).
+void PdfViewerWidget::activateLink(const QPdfLink &link)
+{
+    if (!link.isValid()) return;
+
+    const QUrl url = link.url();
+    if (!url.isEmpty() && url.isValid()) {
+        QDesktopServices::openUrl(url);
+        return;
+    }
+    if (link.page() >= 0) {
+        goToPage(link.page());
+    }
+}
+
+bool PdfViewerWidget::eventFilter(QObject *watched, QEvent *event)
+{
+    if (m_pdfView && watched == m_pdfView->viewport() &&
+        m_toolMode == ToolMode::HandTool && !m_twoPageMode) {
+        if (event->type() == QEvent::MouseMove) {
+            auto *me = static_cast<QMouseEvent *>(event);
+            const bool onLink = linkAtViewportPos(me->pos()).isValid();
+            if (onLink != m_hoveringLink) {
+                m_hoveringLink = onLink;
+                m_pdfView->viewport()->setCursor(onLink ? Qt::PointingHandCursor : Qt::OpenHandCursor);
+            }
+        } else if (event->type() == QEvent::MouseButtonRelease) {
+            auto *me = static_cast<QMouseEvent *>(event);
+            if (me->button() == Qt::LeftButton) {
+                const QPdfLink link = linkAtViewportPos(me->pos());
+                if (link.isValid()) {
+                    activateLink(link);
+                    return true; // consume: avoid a stray pan/selection side effect
+                }
+            }
+        }
+    }
+    return QWidget::eventFilter(watched, event);
 }
 
 // ---- Export / Print ----

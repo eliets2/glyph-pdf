@@ -11,6 +11,7 @@
 #include <QPdfBookmarkModel>
 #include <QPdfPageNavigator>
 #include <QPdfPageRenderer>
+#include <QPdfLink>
 #include "core/PdfEnums.h"
 #include "ui/AnnotationLayer.h"
 
@@ -127,12 +128,17 @@ protected:
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
+    // Wave 1B #2: watches m_pdfView's viewport for hover (cursor feedback) and
+    // click (navigation) on hyperlink annotations -- see linkAtViewportPos().
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
     void onPageChanged();
     void updateRotation();
 
 private:
     void clearPageCache();
+    QPdfLink linkAtViewportPos(const QPoint &viewportPos) const;
+    void activateLink(const QPdfLink &link);
 
     QPdfDocument *m_document;
     QPdfView *m_pdfView;
@@ -140,6 +146,8 @@ private:
     QPdfBookmarkModel *m_bookmarkModel;
     QPdfPageNavigator *m_pageNavigator;
     QPdfPageRenderer *m_pageRenderer;
+    class QPdfLinkModel *m_linkModel = nullptr;
+    bool m_hoveringLink = false;
     AnnotationLayer *m_annotationLayer;
     // Wave 1A §9.7: floating on-page signature validity badge (top-right corner).
     gp::Badge *m_signatureBadge = nullptr;
