@@ -36,6 +36,13 @@ public:
     void setSelectedImageName(const QString &name);
     QString selectedImageName() const { return m_selectedImageName; }
 
+    // Wave 1C #3: search-result highlight rectangles (page-local, same
+    // coordinate space as AnnotationItem::rect) to keep two-page mode's
+    // search-highlight sync with the primary single-page view, which gets
+    // native highlighting for free from QPdfView's built-in search model
+    // binding. Pass an empty list to clear.
+    void setSearchHighlights(const QList<QRectF> &rects);
+
     // AR-7 D5: paint a diff/overlay image on top of the annotation layer.
     // Caller passes a null QImage to clear the overlay.
     void setOverlayImage(const QImage &img);
@@ -92,4 +99,6 @@ private:
     double m_imageRotateAccum = 0.0;
     // AR-7 D5: overlay image (e.g. pixel-diff from CompareMode).
     QImage m_overlayImage;
+    // Wave 1C #3: search-result highlight rects (see setSearchHighlights()).
+    QList<QRectF> m_searchHighlights;
 };

@@ -171,7 +171,10 @@ private:
     class QScrollArea *m_twoPageScrollArea = nullptr;
     class QLabel *m_leftPageLabel = nullptr;
     class QLabel *m_rightPageLabel = nullptr;
+    class AnnotationLayer *m_leftAnnotationLayer = nullptr;
+    class AnnotationLayer *m_rightAnnotationLayer = nullptr;
     void updateTwoPageView();
+    void syncPageOverlay(AnnotationLayer *overlay, QLabel *label, int page, qreal scale);
 
     // Wave 1B #1: rotation-aware bitmap fallback for the primary interactive
     // view. QPdfView (QtPdfWidgets) exposes no rotation API at all, so a

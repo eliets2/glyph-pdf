@@ -102,6 +102,21 @@ PdfViewerWidget::PdfViewerWidget(QWidget *parent)
         m_saveDebounceTimer->start();
     });
 
+    // Wave 1C #3: keep two-page mode's per-page overlays live -- refresh
+    // whenever the annotation set changes (drawn/edited/deleted in the
+    // primary single-page view) or the document's search results change
+    // (new search string, or async result population), instead of the
+    // previous "render once on toggle/page-change" static behavior.
+    connect(m_annotationLayer, &AnnotationLayer::annotationsChanged, this, [this]() {
+        if (m_twoPageMode) updateTwoPageView();
+    });
+    connect(m_searchModel, &QAbstractItemModel::modelReset, this, [this]() {
+        if (m_twoPageMode) updateTwoPageView();
+    });
+    connect(m_searchModel, &QAbstractItemModel::rowsInserted, this, [this]() {
+        if (m_twoPageMode) updateTwoPageView();
+    });
+
     // Page change coalescing (Fix 13)
     m_pageChangeTimer->setSingleShot(true);
     m_pageChangeTimer->setInterval(50);
@@ -139,6 +154,22 @@ PdfViewerWidget::PdfViewerWidget(QWidget *parent)
     m_twoPageScrollArea->setWidget(twoPageWidget);
     m_twoPageScrollArea->setWidgetResizable(true);
     m_twoPageScrollArea->hide();
+
+    // Wave 1C #3: two-page mode used to be a static, render-once bitmap pair
+    // with the shared AnnotationLayer hidden outright -- annotations and
+    // search matches silently disappeared with no warning the moment a user
+    // switched into two-page view. Give each visible page its own live
+    // AnnotationLayer overlay (same class the single-page view uses, so all
+    // existing paint/hit-test logic is reused, not reimplemented) so
+    // annotation visibility and search-result highlighting stay in sync with
+    // the primary view instead of going stale. Parented directly to each
+    // QLabel so their geometry always tracks that page's rendered bitmap.
+    m_leftAnnotationLayer = new AnnotationLayer(m_leftPageLabel);
+    m_rightAnnotationLayer = new AnnotationLayer(m_rightPageLabel);
+    for (AnnotationLayer *overlay : {m_leftAnnotationLayer, m_rightAnnotationLayer}) {
+        overlay->setMode(ToolMode::HandTool);          // read-only display for now (see report)
+        overlay->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    }
 
     // We'll manage sizes manually in resizeEvent for true overlap
     layout->addWidget(container);
@@ -180,7 +211,8 @@ void PdfViewerWidget::zoomIn()
 {
     m_zoomFactor *= 1.25;
     m_pdfView->setZoomFactor(m_zoomFactor);
-    if (m_rotation != 0) updateRotatedPageView();
+    if (m_twoPageMode) updateTwoPageView();
+    else if (m_rotation != 0) updateRotatedPageView();
 }
 
 void PdfViewerWidget::zoomOut()
@@ -188,7 +220,8 @@ void PdfViewerWidget::zoomOut()
     m_zoomFactor /= 1.25;
     if (m_zoomFactor < 0.1) m_zoomFactor = 0.1;
     m_pdfView->setZoomFactor(m_zoomFactor);
-    if (m_rotation != 0) updateRotatedPageView();
+    if (m_twoPageMode) updateTwoPageView();
+    else if (m_rotation != 0) updateRotatedPageView();
 }
 
 void PdfViewerWidget::zoomFitWidth()
@@ -206,7 +239,8 @@ void PdfViewerWidget::setZoomLevel(qreal level)
     m_zoomFactor = level;
     m_pdfView->setZoomMode(QPdfView::ZoomMode::Custom);
     m_pdfView->setZoomFactor(m_zoomFactor);
-    if (m_rotation != 0) updateRotatedPageView();
+    if (m_twoPageMode) updateTwoPageView();
+    else if (m_rotation != 0) updateRotatedPageView();
 }
 
 qreal PdfViewerWidget::zoomLevel() const
@@ -558,6 +592,14 @@ void PdfViewerWidget::setTwoPageMode(bool enabled)
     m_twoPageMode = enabled;
     if (enabled) {
         m_pdfView->hide();
+        // Wave 1C #3: previously the shared AnnotationLayer was unconditionally
+        // hidden here -- annotations (and, since it also covered search-result
+        // painting for the primary view, any sense of "what matched") silently
+        // vanished the instant a user switched into two-page view, with no
+        // warning. The per-page overlay layers (m_leftAnnotationLayer /
+        // m_rightAnnotationLayer) now take over visibility for the two visible
+        // pages, so this hide() is scoped correctly: only the single-page
+        // overlay -- which is meaningless in a two-up layout -- goes away.
         m_annotationLayer->hide();
         if (m_rotatedPageLabel) m_rotatedPageLabel->hide();
         m_twoPageScrollArea->show();
@@ -570,6 +612,36 @@ void PdfViewerWidget::setTwoPageMode(bool enabled)
     }
 }
 
+// Wave 1C #3: keeps one page's overlay AnnotationLayer showing exactly that
+// page's annotations and current search-result highlights, in the same pixel
+// coordinate space renderPage() just rendered `label`'s pixmap in (raw
+// m_zoomFactor pixels-per-point -- the same convention the primary single-
+// page AnnotationLayer already uses; like the primary view, annotation rects
+// here are not vector-rescaled on zoom change, only re-rendered at the then-
+// current zoom, which is why the two-page bitmap render below now uses
+// m_zoomFactor directly instead of the previous unrelated 2x factor).
+void PdfViewerWidget::syncPageOverlay(AnnotationLayer *overlay, QLabel *label, int page, qreal scale)
+{
+    if (!overlay || !label) return;
+    overlay->resize(label->size());
+
+    QList<AnnotationItem> pageItems;
+    for (const auto &item : m_annotationLayer->annotations()) {
+        if (item.pageIndex == page) pageItems.append(item);
+    }
+    overlay->setAnnotations(pageItems);
+
+    QList<QRectF> highlights;
+    if (m_searchModel) {
+        const auto results = m_searchModel->resultsOnPage(page);
+        for (const QPdfLink &link : results) {
+            for (const QRectF &r : link.rectangles())
+                highlights.append(QRectF(r.topLeft() * scale, r.size() * scale));
+        }
+    }
+    overlay->setSearchHighlights(highlights);
+}
+
 void PdfViewerWidget::updateTwoPageView()
 {
     if (!m_twoPageMode || !m_document || m_document->pageCount() == 0) return;
@@ -579,24 +651,42 @@ void PdfViewerWidget::updateTwoPageView()
     if (leftPage < 0) leftPage = 0;
     int rightPage = leftPage + 1;
 
-    QImage leftImg = renderPage(leftPage, m_zoomFactor * 2.0);
+    // Wave 1C #3: render at the real current zoom (m_zoomFactor), not the
+    // previous hardcoded *2.0, so the bitmap's pixel space matches the
+    // coordinate convention m_leftAnnotationLayer/m_rightAnnotationLayer (and
+    // AnnotationItem rects generally) already use -- required for the
+    // annotation overlays to land in the right place, not just be present.
+    const qreal scale = m_zoomFactor;
+
+    QImage leftImg = renderPage(leftPage, scale);
     if (!leftImg.isNull()) {
         m_leftPageLabel->setPixmap(QPixmap::fromImage(leftImg));
+        m_leftPageLabel->resize(leftImg.size());
         m_leftPageLabel->show();
+        syncPageOverlay(m_leftAnnotationLayer, m_leftPageLabel, leftPage, scale);
+        m_leftAnnotationLayer->show();
+        m_leftAnnotationLayer->raise();
     } else {
         m_leftPageLabel->hide();
+        m_leftAnnotationLayer->hide();
     }
 
     if (rightPage < pageCount()) {
-        QImage rightImg = renderPage(rightPage, m_zoomFactor * 2.0);
+        QImage rightImg = renderPage(rightPage, scale);
         if (!rightImg.isNull()) {
             m_rightPageLabel->setPixmap(QPixmap::fromImage(rightImg));
+            m_rightPageLabel->resize(rightImg.size());
             m_rightPageLabel->show();
+            syncPageOverlay(m_rightAnnotationLayer, m_rightPageLabel, rightPage, scale);
+            m_rightAnnotationLayer->show();
+            m_rightAnnotationLayer->raise();
         } else {
             m_rightPageLabel->hide();
+            m_rightAnnotationLayer->hide();
         }
     } else {
         m_rightPageLabel->hide();
+        m_rightAnnotationLayer->hide();
     }
 }
 

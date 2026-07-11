@@ -194,6 +194,13 @@ void AnnotationLayer::setOverlayImage(const QImage &img)
     update();
 }
 
+// Wave 1C #3: see header. Rects are page-local, same units as AnnotationItem::rect.
+void AnnotationLayer::setSearchHighlights(const QList<QRectF> &rects)
+{
+    m_searchHighlights = rects;
+    update();
+}
+
 void AnnotationLayer::paintEvent(QPaintEvent *event)
 {
     QPainter painter(this);
@@ -331,6 +338,18 @@ void AnnotationLayer::paintEvent(QPaintEvent *event)
             }
         }
         index++;
+    }
+
+    // Wave 1C #3: search-result highlight rects (yellow, matches the common
+    // find-bar highlight convention). Drawn beneath OCR/drawing-in-progress
+    // overlays so those remain visible when they intersect a match.
+    if (!m_searchHighlights.isEmpty()) {
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(255, 235, 0, 110));
+        for (const QRectF &r : m_searchHighlights) {
+            if (clipRect.intersects(r))
+                painter.drawRect(r);
+        }
     }
 
     // Draw OCR Results overlay with culling (Fix 3)
