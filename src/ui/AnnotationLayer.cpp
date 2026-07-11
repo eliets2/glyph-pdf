@@ -559,6 +559,12 @@ void AnnotationLayer::mousePressEvent(QMouseEvent *event)
         return;
     }
 
+    if (m_currentMode == ToolMode::Erase) {
+        int pageIndex = m_pageAtCallback ? m_pageAtCallback(event->pos()) : 0;
+        emit eraseRequested(pageIndex, pos);
+        return;
+    }
+
     if (m_currentMode == ToolMode::DrawFreehand || m_currentMode == ToolMode::Highlight || 
         m_currentMode == ToolMode::AddTextBox || m_currentMode == ToolMode::AddComment ||
         m_currentMode == ToolMode::Redact || m_currentMode == ToolMode::AddSignature ||

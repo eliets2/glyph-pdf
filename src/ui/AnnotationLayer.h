@@ -44,6 +44,10 @@ signals:
     void annotationsChanged();
     void selectionChanged(int index);
     void textEditRequested(int pageIndex, QPointF pos);
+    // §9.2 Wave 1B: real eraser -- a click in Erase mode reports the page index
+    // and click position so EditController can hit-test and excise whatever PDF
+    // content is at that point via IPageEditor::deleteObjectAt.
+    void eraseRequested(int pageIndex, QPointF pos);
     void imageSelected(const QString &xobjectName, const QRectF &placement);
     void imageMoved(const QString &xobjectName, double dx, double dy);
     void imageResized(const QString &xobjectName, double newW, double newH);
