@@ -155,10 +155,14 @@ public:
 class IPageEditor {
 public:
     virtual ~IPageEditor() = default;
+    // opacity (§9.2 Wave 2B item 3): reuses the ExtGState /ca /CA mechanism
+    // already built for watermarks. Defaults to fully opaque so every
+    // pre-existing caller compiles and behaves unchanged.
     virtual bool editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
                                 const QString &fontFamily = "", int fontSize = 0,
                                 const QColor &color = Qt::black, bool bold = false,
-                                bool italic = false, int alignment = 0) = 0;
+                                bool italic = false, int alignment = 0,
+                                double opacity = 1.0) = 0;
     virtual bool deleteObjectAt(int pageIndex, const QPointF &pos) = 0;
     virtual bool rotatePage(const QString &path, int pageIndex, int degrees) = 0;
     virtual QByteArray extractPageAsBytes(const QString &path, int pageIndex) = 0;
@@ -187,6 +191,10 @@ public:
     virtual bool rotateImage(int pageIndex, const QString &xobjectName, double degrees) = 0;
     virtual bool replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath) = 0;
     virtual bool deleteImage(int pageIndex, const QString &xobjectName) = 0;
+    // §9.2 Wave 2B item 3: opacity control for the image-edit toolbar. Reuses
+    // the ExtGState /ca /CA mechanism already built for watermarks, scoped to
+    // just this image's Do invocation via a q/gs/Do/Q wrap.
+    virtual bool setImageOpacity(int pageIndex, const QString &xobjectName, double opacity) = 0;
     virtual bool addTextWatermark(const TextWatermarkOptions &options) = 0;
     virtual bool addImageWatermark(const ImageWatermarkOptions &options) = 0;
 };

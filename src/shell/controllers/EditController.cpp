@@ -136,11 +136,17 @@ void EditController::activate(ToolId id) {
         enterImageEditMode();
         break;
     case ToolId::Erase:
-        // TODO(§9.3): annotation eraser needs a dedicated ToolMode + canvas
-        // hit-testing/removal path in AnnotationLayer. Until then, surface an
-        // honest placeholder rather than silently doing nothing.
-        QMessageBox::information(_mainWindow, tr("Eraser"),
-            tr("The annotation eraser is not yet implemented."));
+        // §9.2 Wave 1B: real erase. A click hit-tests page content at the
+        // clicked point and excises it via the already-correct
+        // PoDoFoBackend::deleteObjectAt (same pipeline applyRedactions uses).
+        if (_ctx && _ctx->pdfEditor) {
+            _ctx->pdfEditor->loadDocumentForEditing(viewer->filePath());
+        }
+        viewer->setToolMode(ToolMode::Erase);
+        connect(viewer->annotationLayer(), &AnnotationLayer::eraseRequested,
+                this, &EditController::onEraseRequested, Qt::UniqueConnection);
+        _mainWindow->statusBar()->showMessage(
+            tr("Eraser Mode. Click on page content to erase it."), 5000);
         break;
     default:
         if (toolModes.contains(id)) {
@@ -569,8 +575,10 @@ void EditController::editPdfText() {
             _textToolBar = new EditToolBar(tr("Text Edit"), _mainWindow);
             _mainWindow->addToolBar(Qt::TopToolBarArea, _textToolBar);
             connect(_textToolBar, &EditToolBar::textFormatChanged, this, &EditController::onTextFormatChanged);
+            connect(_textToolBar, &EditToolBar::opacityChanged, this, &EditController::onOpacityChanged, Qt::UniqueConnection);
             connect(viewer, &PdfViewerWidget::textEditRequested, this, &EditController::onTextEditRequested, Qt::UniqueConnection);
         }
+        _textToolBar->setActiveMode(ToolMode::EditText);
         _textToolBar->show();
     }
 }
@@ -595,7 +603,48 @@ void EditController::onTextEditRequested(int pageIndex, QPointF pos) {
         QRectF rect(pos.x(), pos.y(), 200, 50);
         _ctx->document->setPath(viewer->filePath());
         _ctx->undoStack->push(new EditTextInlineCommand(_ctx->pdfEditor.get(), _ctx->document.get(), pageIndex, rect, newText,
-                                                        _fontFamily, _fontSize, _fontColor, _fontBold, _fontItalic, _fontAlignment));
+                                                        _fontFamily, _fontSize, _fontColor, _fontBold, _fontItalic, _fontAlignment,
+                                                        _opacity));
+    }
+}
+
+// §9.2 Wave 1B: real eraser. deleteObjectAt() excises whatever content sits
+// under the click (via applyRedactions on a small hit-test rect) and writes
+// the result straight to disk (writeUpdate), so this handler just needs to
+// invoke it and refresh the view -- there is no separate save step and, like
+// the pre-existing deleteObjectAt() itself, no undo command for this path.
+void EditController::onEraseRequested(int pageIndex, QPointF pos) {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->pdfEditor) return;
+
+    if (_ctx->pdfEditor->deleteObjectAt(pageIndex, pos)) {
+        if (_ctx->document) _ctx->document->markReload();
+        viewer->loadDocument(viewer->filePath());
+        _mainWindow->statusBar()->showMessage(tr("Erased content at the clicked location."), 3000);
+    } else {
+        _mainWindow->statusBar()->showMessage(tr("Nothing to erase at that location."), 3000);
+    }
+}
+
+// §9.2 Wave 2B item 3: opacity control shared by the text-edit and image-edit
+// toolbars. In EditText mode this just records _opacity for the next inline
+// edit/replace (applied via EditTextInlineCommand -> editTextInline). In
+// EditImage mode with a selection, it applies immediately via
+// setImageOpacity() -- there is no undo command for this path, matching the
+// eraser's precedent of a minimal, non-undo-tracked direct engine call.
+void EditController::onOpacityChanged(double opacity) {
+    _opacity = opacity;
+
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || viewer->toolMode() != ToolMode::EditImage) return;
+    if (_selectedImageName.isEmpty() || _imageEditPage < 0 || !_ctx || !_ctx->pdfEditor) return;
+
+    if (_ctx->pdfEditor->setImageOpacity(_imageEditPage, _selectedImageName, opacity)) {
+        if (_ctx->document) _ctx->document->markReload();
+        _mainWindow->statusBar()->showMessage(
+            tr("Image opacity set to %1%.").arg(qRound(opacity * 100)), 3000);
+    } else {
+        _mainWindow->statusBar()->showMessage(tr("Could not set image opacity."), 3000);
     }
 }
 
@@ -626,6 +675,17 @@ void EditController::enterImageEditMode() {
             this, &EditController::onImageDeleteRequested, Qt::UniqueConnection);
     connect(viewer->annotationLayer(), &AnnotationLayer::imageReplaceRequested,
             this, &EditController::onImageReplaceRequested, Qt::UniqueConnection);
+
+    // §9.2 Wave 2B item 3: same EditToolBar instance as editPdfText(), just
+    // showing the opacity control instead of the text-format group.
+    if (!_textToolBar) {
+        _textToolBar = new EditToolBar(tr("Text Edit"), _mainWindow);
+        _mainWindow->addToolBar(Qt::TopToolBarArea, _textToolBar);
+        connect(_textToolBar, &EditToolBar::textFormatChanged, this, &EditController::onTextFormatChanged);
+        connect(_textToolBar, &EditToolBar::opacityChanged, this, &EditController::onOpacityChanged, Qt::UniqueConnection);
+    }
+    _textToolBar->setActiveMode(ToolMode::EditImage);
+    _textToolBar->show();
 
     _mainWindow->statusBar()->showMessage(
         tr("Image Edit Mode. %1 images found. Click to select.").arg(images.size()), 5000);

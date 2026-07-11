@@ -25,7 +25,7 @@ public:
     }
     bool editTextInline(int, const QRectF &, const QString &,
                         const QString & = {}, int = 0, const QColor & = Qt::black,
-                        bool = false, bool = false, int = 0) override { return m_loaded; }
+                        bool = false, bool = false, int = 0, double = 1.0) override { return m_loaded; }
     bool deleteObjectAt(int, const QPointF &) override { return m_loaded; }
     bool linearizeDocument(const QString &) override { return m_loaded; }
     bool exportPdfA(const QString &, int) override { return m_loaded; }
@@ -55,6 +55,7 @@ public:
     bool rotateImage(int, const QString &, double) override { return true; }
     bool replaceImage(int, const QString &, const QString &) override { return true; }
     bool deleteImage(int, const QString &) override { return true; }
+    bool setImageOpacity(int, const QString &, double) override { return true; }
     bool applyRedactions(int, const QList<QRectF> &) override { return m_loaded; }
     bool applyPatternRedactions(const QRegularExpression&, const QList<int>&, const QString&) override { return m_loaded; }
     bool embedAnnotations(const QString &, const QString &, const QList<AnnotationItem> &) override { return m_loaded; }

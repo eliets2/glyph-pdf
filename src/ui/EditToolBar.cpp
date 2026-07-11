@@ -11,6 +11,7 @@
 #include <QHBoxLayout>
 #include <QWidget>
 #include <QToolButton>
+#include <QLabel>
 
 EditToolBar::EditToolBar(const QString &title, QWidget *parent)
     : QToolBar(title, parent)
@@ -103,8 +104,35 @@ void EditToolBar::createActions()
     addWidget(formatWidget);
     formatWidget->hide(); // hidden by default
 
+    // §9.2 Wave 2B item 3: opacity control, shared by the text-edit and
+    // image-edit toolbars. Reuses the ExtGState /ca /CA mechanism already
+    // built for watermarks (PoDoFoBackend::editTextInline/setImageOpacity).
+    opacityWidget = new QWidget(this);
+    QHBoxLayout *opLayout = new QHBoxLayout(opacityWidget);
+    opLayout->setContentsMargins(0, 0, 0, 0);
+    opLayout->setSpacing(4);
+    QLabel *opacityLabel = new QLabel(tr("Opacity:"), opacityWidget);
+    opLayout->addWidget(opacityLabel);
+    opacityCombo = new QComboBox(opacityWidget);
+    opacityCombo->addItem(tr("100%"), 100);
+    opacityCombo->addItem(tr("90%"), 90);
+    opacityCombo->addItem(tr("75%"), 75);
+    opacityCombo->addItem(tr("50%"), 50);
+    opacityCombo->addItem(tr("25%"), 25);
+    opacityCombo->addItem(tr("10%"), 10);
+    opacityCombo->setCurrentIndex(0);
+    opacityCombo->setToolTip(tr("Opacity applied to newly edited text or the selected image"));
+    opLayout->addWidget(opacityCombo);
+    addWidget(opacityWidget);
+    opacityWidget->hide(); // hidden by default
+
+    connect(opacityCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
+        const double opacity = opacityCombo->itemData(index).toInt() / 100.0;
+        emit opacityChanged(opacity);
+    });
+
     connect(this, &EditToolBar::activeToolChanged, this, &EditToolBar::updateFormatVisibility);
-    
+
     // Connect format signals
     connect(fontFamilyCombo, &QFontComboBox::currentFontChanged, this, &EditToolBar::emitFormatChanged);
     connect(fontSizeCombo, &QComboBox::currentTextChanged, this, &EditToolBar::emitFormatChanged);
@@ -129,6 +157,19 @@ void EditToolBar::updateFormatVisibility(ToolMode mode)
     } else {
         formatWidget->hide();
     }
+
+    // §9.2 Wave 2B item 3: opacity is meaningful for both inline text edits
+    // and image placement, so it stays visible across both modes.
+    if (mode == ToolMode::EditText || mode == ToolMode::EditImage) {
+        opacityWidget->show();
+    } else {
+        opacityWidget->hide();
+    }
+}
+
+void EditToolBar::setActiveMode(ToolMode mode)
+{
+    updateFormatVisibility(mode);
 }
 
 void EditToolBar::emitFormatChanged()

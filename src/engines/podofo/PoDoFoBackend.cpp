@@ -666,7 +666,7 @@ bool PoDoFoBackend::insertBlankPage(const QString &path, int atIndex) {
 bool PoDoFoBackend::editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
                                    const QString &fontFamily, int fontSize,
                                    const QColor &color, bool bold,
-                                   bool italic, int alignment) {
+                                   bool italic, int alignment, double opacity) {
     QMutexLocker locker(&d->mutex);
     if (!d->document || pageIndex < 0 || (unsigned)pageIndex >= d->document->GetPages().GetCount()) return false;
     
@@ -727,7 +727,23 @@ bool PoDoFoBackend::editTextInline(int pageIndex, const QRectF &rect, const QStr
 
         PoDoFo::PdfPainter painter;
         painter.SetCanvas(page);
-        
+
+        // §9.2 Wave 2B item 3: opacity control for the text-edit toolbar. Same
+        // /ca /CA transparency mechanism addTextWatermark() writes by hand, but
+        // via PdfPainter's own ExtGState slot (which emits the "gs" operator
+        // automatically), since this path already owns a PdfPainter session.
+        // Kept alive for the whole function so the painter can reference it
+        // through every subsequent draw call below.
+        std::unique_ptr<PoDoFo::PdfExtGState> opacityExtGState;
+        if (opacity < 1.0) {
+            auto extDef = std::make_shared<PoDoFo::PdfExtGStateDefinition>();
+            const double a = qBound(0.0, opacity, 1.0);
+            extDef->NonStrokingAlpha = a;
+            extDef->StrokingAlpha = a;
+            opacityExtGState = d->document->CreateExtGState(extDef);
+            painter.GraphicsState.SetExtGState(*opacityExtGState);
+        }
+
         painter.GraphicsState.SetNonStrokingColor(PoDoFo::PdfColor(1.0, 1.0, 1.0));
         PoDoFo::Rect pageRect = page.GetMediaBox();
         double pdfY = pageRect.Height - (rect.y() + rect.height());
@@ -2663,6 +2679,63 @@ bool PoDoFoBackend::deleteImage(int pageIndex, const QString &xobjectName) {
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "deleteImage error:" << e.what();
+        return false;
+    }
+}
+
+// §9.2 Wave 2B item 3: opacity control for the image-edit toolbar. Locates the
+// image's "/<name> Do" invocation (same first-occurrence lookup deleteImage()
+// already uses) and wraps it in q/gs/Q with a fresh per-image ExtGState (/ca
+// /CA) registered in the page's Resources -- the same mechanism
+// addImageWatermark() writes by hand for the watermark's own opacity.
+bool PoDoFoBackend::setImageOpacity(int pageIndex, const QString &xobjectName, double opacity) {
+    QMutexLocker locker(&d->mutex);
+    if (!d->document) return false;
+    try {
+        auto& page = d->document->GetPages().GetPageAt(pageIndex);
+        auto* contentsObj = page.GetContents();
+        if (!contentsObj) return false;
+
+        PoDoFo::charbuff streamBuf;
+        contentsObj->CopyTo(streamBuf);
+        std::string content(streamBuf.data(), streamBuf.size());
+
+        const std::string doTarget = "/" + xobjectName.toStdString() + " Do";
+        size_t doPos = content.find(doTarget);
+        if (doPos == std::string::npos) return false;
+
+        const double a = qBound(0.0, opacity, 1.0);
+        auto& gsObj = d->document->GetObjects().CreateDictionaryObject();
+        gsObj.GetDictionary().AddKey("Type", PoDoFo::PdfName("ExtGState"));
+        gsObj.GetDictionary().AddKey("ca", a);
+        gsObj.GetDictionary().AddKey("CA", a);
+
+        auto* resDict = page.GetDictionary().FindKey("Resources");
+        if (!resDict) {
+            page.GetDictionary().AddKey("Resources", PoDoFo::PdfDictionary());
+            resDict = page.GetDictionary().FindKey("Resources");
+        }
+        auto* gsDict = resDict->GetDictionary().FindKey("ExtGState");
+        if (!gsDict) {
+            resDict->GetDictionary().AddKey("ExtGState", PoDoFo::PdfDictionary());
+            gsDict = resDict->GetDictionary().FindKey("ExtGState");
+        }
+        const std::string gsName = "GS_OP_" + xobjectName.toStdString();
+        gsDict->GetDictionary().AddKeyIndirect(PoDoFo::PdfName(gsName), gsObj);
+
+        // Wrap just this Do invocation: "q\n/GS_OP_<name> gs\n/<name> Do\nQ"
+        const size_t doEnd = doPos + doTarget.size();
+        content.insert(doEnd, "\nQ");
+        content.insert(doPos, "q\n/" + gsName + " gs\n");
+
+        contentsObj->Reset();
+        auto& stream = contentsObj->GetObject().GetOrCreateStream();
+        stream.SetData(content);
+
+        if (!writeUpdate(d->currentFile)) throw std::runtime_error("writeUpdate failed");
+        return true;
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "setImageOpacity error:" << e.what();
         return false;
     }
 }
