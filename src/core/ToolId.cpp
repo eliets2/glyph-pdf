@@ -40,6 +40,9 @@ QString toolIdToString(ToolId id) {
         { ToolId::Hand,           QStringLiteral("hand") },
         { ToolId::Select,         QStringLiteral("select") },
         { ToolId::SelectObject,   QStringLiteral("selectObj") },
+        { ToolId::Cut,            QStringLiteral("cut") },
+        { ToolId::Copy,           QStringLiteral("copy") },
+        { ToolId::Delete,         QStringLiteral("delete") },
         { ToolId::EditText,       QStringLiteral("editText") },
         { ToolId::EditObject,     QStringLiteral("editObject") },
         { ToolId::EditImage,      QStringLiteral("editImage") },
@@ -176,6 +179,9 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         add(ToolId::Hand,           {"hand"});
         add(ToolId::Select,         {"select"});
         add(ToolId::SelectObject,   {"selectObj", "selectobj"});
+        add(ToolId::Cut,            {"cut"});
+        add(ToolId::Copy,           {"copy"});
+        add(ToolId::Delete,         {"delete"});
         add(ToolId::EditText,       {"editText", "edit-text", "edittext"});
         add(ToolId::EditObject,     {"editObject", "editobject"});
         add(ToolId::EditImage,      {"editImage", "editimage"});

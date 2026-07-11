@@ -61,6 +61,14 @@ private slots:
 private:
     void editPdfText();
     void enterImageEditMode();
+    // §9.2 Wave 1B: minimal Cut/Copy/Delete for the object already selected via
+    // either image-edit mode (_selectedImageName) or EditObject-mode annotation
+    // selection (AnnotationLayer::selectedIndex()). Copy/Cut place a raster
+    // snapshot of the selection's bounding rect on the system clipboard; there
+    // is no full in-document paste.
+    void cutSelectedObject();
+    void copySelectedObject();
+    void deleteSelectedObject();
 
     const AppContext* _ctx = nullptr;
     MainWindow* _mainWindow = nullptr;

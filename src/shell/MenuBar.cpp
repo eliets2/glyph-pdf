@@ -42,10 +42,13 @@ const QList<MenuActionSpec>& MenuBar::actionSpecs() {
         // ── Edit ──
         { "undo",         MenuDispatch::Registry },
         { "redo",         MenuDispatch::Registry },
-        { "cut",          MenuDispatch::Disabled },  // clipboard editing not shipped
-        { "copy",         MenuDispatch::Disabled },
-        { "paste",        MenuDispatch::Disabled },
-        { "delete",       MenuDispatch::Disabled },  // ribbon: "delete"
+        // §9.2 Wave 1B: minimal Cut/Copy/Delete for the EditController-selected
+        // object (image-edit selection or EditObject-mode annotation selection).
+        // Copy places a raster snapshot on the clipboard; no in-document paste yet.
+        { "cut",          MenuDispatch::Registry },
+        { "copy",         MenuDispatch::Registry },
+        { "paste",        MenuDispatch::Disabled },  // clipboard paste not shipped
+        { "delete",       MenuDispatch::Registry },  // ribbon "delete" (Objects group) stays planned/disabled separately
         { "select-all",   MenuDispatch::Disabled },
         { "find",         MenuDispatch::Local    },
         { "find-replace", MenuDispatch::Local    },

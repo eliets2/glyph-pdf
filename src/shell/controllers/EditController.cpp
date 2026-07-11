@@ -35,6 +35,8 @@
 #include <QSettings>
 #include <QStandardPaths>
 #include <QUndoStack>
+#include <QGuiApplication>
+#include <QClipboard>
 #include "shell/StatusBar.h"
 
 namespace {
@@ -65,6 +67,7 @@ QList<ToolId> EditController::handledTools() const {
         ToolId::Search, ToolId::Ocr,
         ToolId::EditText, ToolId::Hand, ToolId::Select,
         ToolId::SelectObject, ToolId::EditObject,
+        ToolId::Cut, ToolId::Copy, ToolId::Delete,
         ToolId::Highlight, ToolId::Underline, ToolId::Strikeout, ToolId::Squiggly,
         ToolId::Pencil, ToolId::Freehand,
         ToolId::TextBox, ToolId::AddText,
@@ -118,6 +121,15 @@ void EditController::activate(ToolId id) {
         break;
     case ToolId::EditText:
         editPdfText();
+        break;
+    case ToolId::Cut:
+        cutSelectedObject();
+        break;
+    case ToolId::Copy:
+        copySelectedObject();
+        break;
+    case ToolId::Delete:
+        deleteSelectedObject();
         break;
     case ToolId::Image:
     case ToolId::EditImage:
@@ -714,6 +726,96 @@ void EditController::onImageReplaceRequested(const QString &name) {
     viewer->annotationLayer()->setImageOverlays(images);
     viewer->annotationLayer()->setSelectedImageName(name);
     _mainWindow->statusBar()->showMessage(tr("Replaced image %1").arg(name), 3000);
+}
+
+// ── Cut / Copy / Delete (§9.2 Wave 1B) ─────────────────────────────────────
+//
+// "The object EditController already selects" is one of two things depending
+// on the active tool: an image selected in EditImage mode (_selectedImageName,
+// placement looked up via listImages()) or an annotation/shape selected in
+// EditObject mode (AnnotationLayer::selectedIndex()). Both selection rects
+// share the same coordinate convention already used elsewhere in this file
+// (onImageMoved/onImageResized forward image placement deltas directly to the
+// PoDoFo engine with no separate widget->page transform), so renderPage()'s
+// fixed 2.0 scale factor (the same one runOcr() uses) is used to rasterize the
+// selection rect into clipboard pixels.
+
+void EditController::copySelectedObject() {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer) return;
+
+    QRectF rect;
+    int page = -1;
+
+    // Prefer an image selection (EditImage mode) if one is active.
+    if (!_selectedImageName.isEmpty() && _imageEditPage >= 0 && _ctx && _ctx->pdfEditor) {
+        const auto images = _ctx->pdfEditor->listImages(_imageEditPage);
+        for (const auto& img : images) {
+            if (img.xobjectName == _selectedImageName) {
+                rect = img.placement;
+                page = _imageEditPage;
+                break;
+            }
+        }
+    }
+
+    // Otherwise fall back to the EditObject-mode annotation selection.
+    if (page < 0) {
+        auto* layer = viewer->annotationLayer();
+        const int idx = layer ? layer->selectedIndex() : -1;
+        if (idx >= 0) {
+            const auto annos = layer->annotations();
+            if (idx < annos.size()) {
+                rect = annos.at(idx).rect;
+                page = annos.at(idx).pageIndex >= 0 ? annos.at(idx).pageIndex : viewer->currentPage();
+            }
+        }
+    }
+
+    if (page < 0 || rect.isEmpty()) {
+        _mainWindow->statusBar()->showMessage(tr("Nothing selected to copy."), 3000);
+        return;
+    }
+
+    const QImage full = viewer->renderPage(page, 2.0);
+    const QRect pixelRect(qRound(rect.x() * 2.0), qRound(rect.y() * 2.0),
+                          qRound(rect.width() * 2.0), qRound(rect.height() * 2.0));
+    const QImage snapshot = full.copy(pixelRect.intersected(full.rect()));
+    if (snapshot.isNull() || full.isNull()) {
+        _mainWindow->statusBar()->showMessage(tr("Could not create a snapshot of the selection."), 3000);
+        return;
+    }
+
+    QGuiApplication::clipboard()->setImage(snapshot);
+    _mainWindow->statusBar()->showMessage(tr("Copied selection as an image to the clipboard."), 3000);
+}
+
+void EditController::deleteSelectedObject() {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer) return;
+
+    // Image selection: reuse the existing (Wave 1A) confirm + DeleteImageCommand
+    // flow, identical to the right-click "Delete Image" menu entry.
+    if (!_selectedImageName.isEmpty() && _imageEditPage >= 0) {
+        onImageDeleteRequested(_selectedImageName);
+        return;
+    }
+
+    auto* layer = viewer->annotationLayer();
+    const int idx = layer ? layer->selectedIndex() : -1;
+    if (idx < 0) {
+        _mainWindow->statusBar()->showMessage(tr("Nothing selected to delete."), 3000);
+        return;
+    }
+
+    viewer->deleteSelectedAnnotation();
+    _mainWindow->statusBar()->showMessage(tr("Deleted selected object."), 3000);
+}
+
+void EditController::cutSelectedObject() {
+    // Minimal Cut = Copy (raster snapshot) then Delete. No in-document paste.
+    copySelectedObject();
+    deleteSelectedObject();
 }
 
 } // namespace gp

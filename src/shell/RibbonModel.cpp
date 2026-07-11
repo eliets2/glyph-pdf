@@ -16,7 +16,10 @@ const QSet<QString>& RibbonModel::plannedTools() {
         "thumbs", "bookmarks", "comments", "layers",
         "splitWin", "newWin",
         // Edit – advanced text/object operations
-        "insertText", "deleteText", "link", "attach", "delete",
+        // "delete" removed (§9.2 Wave 1B): ToolId::Delete is now wired in
+        // EditController (deleteSelectedObject()), so the ribbon's Objects>Delete
+        // button is a real handler, not a planned one.
+        "insertText", "deleteText", "link", "attach",
         "alignL", "alignC", "alignR", "distribute", "group", "layerOrder",
         "ocrVerify", "ocrLang", "ocrSettings",
         "measure", "distance", "area",

@@ -43,6 +43,13 @@ enum class ToolId {
     Hand,
     Select,
     SelectObject,
+    // §9.2 Wave 1B: minimal Cut/Copy/Delete for the object EditController
+    // already selects (image-edit selection or EditObject-mode annotation
+    // selection). Delete removes it; Copy places a raster snapshot on the
+    // clipboard; Cut does both. No full in-document paste.
+    Cut,
+    Copy,
+    Delete,
     EditText,
     EditObject,
     EditImage,
