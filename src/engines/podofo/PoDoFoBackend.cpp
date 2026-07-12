@@ -333,7 +333,86 @@ bool PoDoFoBackend::writeUpdate(const QString &path) {
     }
 
     if (!hasSignatures) {
-        // No signatures to protect — a full save is safe.
+        // §9.2 Wave 1B/2B/2C fix: PdfMemDocument can lazily re-read stream
+        // data from its ORIGINAL source file while Save() serializes the
+        // document. Saving directly in place -- to the exact path the
+        // document was loaded from, which is what every content-stream-
+        // mutating caller here does (deleteObjectAt, setImageOpacity,
+        // setImageZOrder, and the image move/resize/rotate/replace/delete
+        // commands) -- truncates that same file out from under Save()'s own
+        // in-progress read, which then fails with a PDF parse error
+        // ("Object and generation number cannot be read") and previously
+        // escaped as an uncaught exception via the throw/catch(PdfError&)
+        // antipattern at each call site. Route the in-place case through a
+        // temp-file-then-atomic-replace so Save() always reads the intact
+        // original while writing a brand new file.
+        if (!d->currentFile.isEmpty() && QString::compare(d->currentFile, path, Qt::CaseInsensitive) == 0) {
+            QTemporaryFile tmp(path + QStringLiteral(".XXXXXX.tmp"));
+            tmp.setAutoRemove(false);
+            if (!tmp.open()) {
+                qWarning() << "PoDoFoBackend::writeUpdate: could not create a temp file for in-place save of" << path;
+                return false;
+            }
+            const QString tmpPath = tmp.fileName();
+            tmp.close();
+
+            if (!saveDocument(tmpPath)) {
+                QFile::remove(tmpPath);
+                return false;
+            }
+
+            // Read the freshly-saved bytes back into memory, then release
+            // the document (PdfMemDocument keeps its load source open for
+            // the object's whole lifetime for on-demand stream reads, so
+            // Windows refuses to overwrite `path` while d->document is
+            // still alive) and truncate-write those bytes directly over the
+            // original file. A plain truncate-write avoids QFile::rename's
+            // "destination must not exist" requirement on Windows (and the
+            // remove-then-rename race that requires), which was itself
+            // failing here.
+            QFile tmpFile(tmpPath);
+            if (!tmpFile.open(QIODevice::ReadOnly)) {
+                qWarning() << "PoDoFoBackend::writeUpdate: could not reopen the saved temp file" << tmpPath;
+                QFile::remove(tmpPath);
+                return false;
+            }
+            const QByteArray savedBytes = tmpFile.readAll();
+            tmpFile.close();
+            QFile::remove(tmpPath);
+
+            d->document.reset();
+
+            QFile target(path);
+            if (!target.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                qWarning() << "PoDoFoBackend::writeUpdate: could not open" << path
+                           << "for in-place write:" << target.errorString();
+                loadDocument(path); // recover so the engine isn't left with a null document
+                return false;
+            }
+            const qint64 written = target.write(savedBytes);
+            target.close();
+            if (written != savedBytes.size()) {
+                qWarning() << "PoDoFoBackend::writeUpdate: short write to" << path
+                           << "(" << written << "of" << savedBytes.size() << "bytes)";
+                loadDocument(path);
+                return false;
+            }
+
+            // Reload so the engine's in-memory document stays usable for
+            // whatever the caller does next (some callers, e.g. repeated
+            // Erase-mode clicks, keep operating on the same PoDoFoBackend
+            // instance without an intervening loadDocumentForEditing() call).
+            if (!loadDocument(path)) {
+                qWarning() << "PoDoFoBackend::writeUpdate: saved" << path
+                           << "successfully but failed to reload it afterward.";
+                // The save itself succeeded; the caller's file on disk is
+                // correct even though this engine instance's in-memory
+                // document is now unset until the next loadDocument() call.
+            }
+            return true;
+        }
+        // No signatures, and writing to a path other than the one we loaded
+        // from — a direct full save is safe.
         return saveDocument(path);
     }
 
@@ -822,13 +901,16 @@ bool PoDoFoBackend::deleteObjectAt(int pageIndex, const QPointF &pos) {
     QRectF redactionRect(pos.x() - 5, pos.y() - 5, 10, 10);
     if (!applyRedactions(pageIndex, {redactionRect})) return false;
     if (d->currentFile.isEmpty()) return false;
-    try {
-        if (!writeUpdate(d->currentFile)) throw std::runtime_error("writeUpdate failed");
-        return true;
-    } catch (const PoDoFo::PdfError& e) {
-        qWarning() << "deleteObjectAt save error:" << e.what();
+    // writeUpdate() already returns bool and logs its own failure reason;
+    // check it directly instead of throw/catch(PdfError&) -- writeUpdate can
+    // fail for non-PdfError reasons (e.g. a filesystem exception saving in
+    // place), which a PdfError-only catch does not catch, previously letting
+    // the failure escape as an uncaught exception and crash the process.
+    if (!writeUpdate(d->currentFile)) {
+        qWarning() << "deleteObjectAt: writeUpdate failed for" << d->currentFile;
         return false;
     }
+    return true;
 }
 
 namespace {
@@ -2401,10 +2483,20 @@ QList<PdfImageInfo> PoDoFoBackend::listImages(int pageIndex) {
         auto resources = page.GetResources();
 
         auto* xobjectDict = resources.GetDictionary().FindKey("XObject");
+        // §9.2 Wave 2C item 5 fix: /XObject in Resources can itself be an
+        // indirect reference (not just its individual entries, which the loop
+        // below already resolves) -- previously unresolved here, so any page
+        // whose Resources dict stored /XObject that way listed zero images.
+        if (xobjectDict && xobjectDict->IsReference())
+            xobjectDict = &d->document->GetObjects().MustGetObject(xobjectDict->GetReference());
         if (!xobjectDict || !xobjectDict->IsDictionary()) return result;
 
+        // Keyed by the resolved object's identity (not its resource-dict name
+        // string): PdfContentStreamReader resolves "Do" into a DoXObject event
+        // carrying the already-resolved PdfXObject, not a raw name operand, so
+        // matching has to go through the same object graph rather than a string.
         struct XObjEntry { QString name; int w; int h; };
-        QMap<QString, XObjEntry> imageXObjects;
+        QMap<const void*, XObjEntry> imageXObjects;
 
         for (auto& kv : xobjectDict->GetDictionary()) {
             auto* obj = &kv.second;
@@ -2421,7 +2513,7 @@ QList<PdfImageInfo> PoDoFoBackend::listImages(int pageIndex) {
             auto* heightObj = dict.FindKey("Height");
             entry.w = widthObj && widthObj->IsNumber() ? static_cast<int>(widthObj->GetNumber()) : 0;
             entry.h = heightObj && heightObj->IsNumber() ? static_cast<int>(heightObj->GetNumber()) : 0;
-            imageXObjects[entry.name] = entry;
+            imageXObjects[static_cast<const void*>(obj)] = entry;
         }
 
         if (imageXObjects.isEmpty()) return result;
@@ -2462,13 +2554,22 @@ QList<PdfImageInfo> PoDoFoBackend::listImages(int pageIndex) {
                     cm.e = stack[4].IsNumberOrReal() ? stack[4].GetReal() : 0;
                     cm.f = stack[5].IsNumberOrReal() ? stack[5].GetReal() : 0;
                     ctm = multiply(cm, ctm);
-                } else if (kw == "Do" && stack.size() >= 1) {
-                    QString name = QString::fromStdString(std::string(stack[0].GetName().GetString()));
-                    if (imageXObjects.contains(name)) {
-                        auto& entry = imageXObjects[name];
+                }
+            } else if (content.GetType() == PoDoFo::PdfContentType::DoXObject) {
+                // PoDoFo's reader intercepts "Do" itself and hands back the
+                // already-resolved XObject here (PdfContentType::Operator with
+                // keyword "Do" is never issued) -- match by object identity
+                // against the resource-dict entries collected above, not by a
+                // name string the reader doesn't expose at this point.
+                const auto& xobj = content.GetXObject();
+                if (xobj) {
+                    const void* key = static_cast<const void*>(&xobj->GetObject());
+                    auto it = imageXObjects.constFind(key);
+                    if (it != imageXObjects.constEnd()) {
+                        const auto& entry = it.value();
                         PdfImageInfo info;
                         info.pageIndex = pageIndex;
-                        info.xobjectName = name;
+                        info.xobjectName = entry.name;
                         double w = std::sqrt(ctm.a * ctm.a + ctm.b * ctm.b);
                         double h = std::sqrt(ctm.c * ctm.c + ctm.d * ctm.d);
                         double rot = std::atan2(ctm.b, ctm.a) * 180.0 / M_PI;
@@ -2744,7 +2845,13 @@ bool PoDoFoBackend::setImageOpacity(int pageIndex, const QString &xobjectName, d
         auto& stream = contentsObj->GetObject().GetOrCreateStream();
         stream.SetData(content);
 
-        if (!writeUpdate(d->currentFile)) throw std::runtime_error("writeUpdate failed");
+        // See deleteObjectAt() for why this checks the bool return directly
+        // instead of throw/catch(PdfError&): writeUpdate() can fail for
+        // non-PdfError reasons, which that catch does not catch.
+        if (!writeUpdate(d->currentFile)) {
+            qWarning() << "setImageOpacity: writeUpdate failed for" << d->currentFile;
+            return false;
+        }
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "setImageOpacity error:" << e.what();
@@ -2806,11 +2913,33 @@ bool PoDoFoBackend::setImageZOrder(int pageIndex, const QString &xobjectName, bo
             content = span + content;
         }
 
+        // /Contents can be a single stream OR an array of streams (both legal
+        // per spec; PdfPainter-authored pages produce the array form). CopyTo()
+        // above reads either form transparently, but GetOrCreateStream() only
+        // works on an actual dictionary/stream object, not an array -- calling
+        // it directly on an array-form contents threw InvalidDataType ("Tried
+        // to get stream of non-dictionary object"). Same Reset()+IsArray()
+        // branch already used a few hundred lines up in this file (the
+        // addTextWatermark content-rewrite path) for the identical situation:
+        // Reset() always leaves contentsObj in array form, so collapse into a
+        // single fresh stream via CreateStreamForAppending() and write the
+        // full recombined content there.
         contentsObj->Reset();
-        auto& stream = contentsObj->GetObject().GetOrCreateStream();
-        stream.SetData(content);
+        if (contentsObj->GetObject().IsArray()) {
+            auto& stream = contentsObj->CreateStreamForAppending();
+            stream.SetData(content);
+        } else {
+            auto& stream = contentsObj->GetObject().GetOrCreateStream();
+            stream.SetData(content);
+        }
 
-        if (!writeUpdate(d->currentFile)) throw std::runtime_error("writeUpdate failed");
+        // See deleteObjectAt() for why this checks the bool return directly
+        // instead of throw/catch(PdfError&): writeUpdate() can fail for
+        // non-PdfError reasons, which that catch does not catch.
+        if (!writeUpdate(d->currentFile)) {
+            qWarning() << "setImageZOrder: writeUpdate failed for" << d->currentFile;
+            return false;
+        }
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "setImageZOrder error:" << e.what();

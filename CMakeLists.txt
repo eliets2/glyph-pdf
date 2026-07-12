@@ -1185,6 +1185,32 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestControllers.cpp")
     )
 endif()
 
+# ── TestEditingWave1B (§9.2 Wave 1B/2B/2C) ───────────────────────────────
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEditingWave1B.cpp")
+    add_executable(TestEditingWave1B
+        tests/TestEditingWave1B.cpp
+    )
+    target_include_directories(TestEditingWave1B PRIVATE src)
+    target_link_libraries(TestEditingWave1B PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestEditingWave1B POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestEditingWave1B>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestEditingWave1B>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestEditingWave1B"
+    )
+    add_test(NAME TestEditingWave1B COMMAND TestEditingWave1B)
+    set_tests_properties(TestEditingWave1B PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;controllers;editing;ui;qt;headless"
+    )
+endif()
+
 # ── TestRibbonIntegrity (R2-4 D5) ────────────────────────────────────────
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRibbonIntegrity.cpp")
     add_executable(TestRibbonIntegrity
