@@ -101,6 +101,9 @@ private slots:
 
     /** B4: Re-recognize reuses the per-region Re-OCR pathway. */
     void reRecognizeEmitsRegionRequest();
+
+    /** B14: Ctrl+Tab / Ctrl+Shift+Tab cycle pane focus. */
+    void ctrlTabCyclesPaneFocus();
 };
 void TestOcrVerify::noHighlightsWhenAllConfident()
 {
@@ -579,6 +582,44 @@ void TestOcrVerify::reRecognizeEmitsRegionRequest()
 
     QCOMPARE(spy.count(), 1);
     QCOMPARE(spy.first().at(0).toRectF(), QRectF(11, 22, 33, 44));
+}
+
+void TestOcrVerify::ctrlTabCyclesPaneFocus()
+{
+    gp::OCRMode mode;
+    QList<MergedOcrWord> words;
+    words << makeWord("alpha", 95);
+    mode.setOcrResults(words);
+    mode.resize(1200, 800);
+    mode.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&mode));
+
+    auto fireKey = [&mode](int modifiers, int key) {
+        const auto shortcuts = mode.findChildren<QShortcut*>();
+        for (QShortcut* sc : shortcuts) {
+            if (sc->key().matches(QKeySequence(modifiers | key)) !=
+                QKeySequence::NoMatch) {
+                emit sc->activated();
+                return;
+            }
+        }
+        QFAIL("shortcut not found");
+    };
+
+    auto* textEdit = mode.textPane();
+    QVERIFY(textEdit);
+
+    // Start in the text pane.
+    textEdit->setFocus();
+    QCOMPARE(mode.focusWidget(), textEdit);
+
+    // Ctrl+Tab cycles forward to the next focusable pane.
+    fireKey(Qt::ControlModifier, Qt::Key_Tab);
+    QVERIFY2(mode.focusWidget() != textEdit, "focus did not leave the text pane");
+
+    // Ctrl+Shift+Tab cycles back to the text pane.
+    fireKey(Qt::ControlModifier | Qt::ShiftModifier, Qt::Key_Tab);
+    QCOMPARE(mode.focusWidget(), textEdit);
 }
 
 QTEST_MAIN(TestOcrVerify)

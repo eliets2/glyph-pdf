@@ -677,6 +677,27 @@ void OCRMode::buildPanes(QVBoxLayout* col)
         }
         m_splitter->setSizes(sizes);
     });
+
+    // Ctrl+Tab / Ctrl+Shift+Tab — cycle focus next/previous pane.
+    const QList<QWidget*> focusOrder = { m_pageList, m_scanContentLabel,
+                                         m_textEdit, m_zoomMeta };
+    auto cycleFocus = [this, focusOrder](int dir) {
+        QWidget* current = focusWidget();
+        int idx = focusOrder.indexOf(current);
+        if (idx < 0) idx = (dir > 0) ? -1 : 0;
+        for (int step = 0; step < focusOrder.size(); ++step) {
+            idx = (idx + dir + focusOrder.size()) % focusOrder.size();
+            QWidget* w = focusOrder.at(idx);
+            if (w && w->isVisible() && w->focusPolicy() != Qt::NoFocus) {
+                w->setFocus(Qt::ShortcutFocusReason);
+                return;
+            }
+        }
+    };
+    auto* ctrlTab = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_Tab), this);
+    connect(ctrlTab, &QShortcut::activated, this, [cycleFocus]() { cycleFocus(+1); });
+    auto* ctrlShiftTab = new QShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Tab), this);
+    connect(ctrlShiftTab, &QShortcut::activated, this, [cycleFocus]() { cycleFocus(-1); });
 }
 
 // ── slots ───────────────────────────────────────────────────────────────────
