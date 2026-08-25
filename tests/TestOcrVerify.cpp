@@ -104,6 +104,9 @@ private slots:
 
     /** B14: Ctrl+Tab / Ctrl+Shift+Tab cycle pane focus. */
     void ctrlTabCyclesPaneFocus();
+
+    /** B6: zoom hotkeys adjust the magnification of the crop. */
+    void zoomHotkeysAdjustMagnification();
 };
 void TestOcrVerify::noHighlightsWhenAllConfident()
 {
@@ -620,6 +623,49 @@ void TestOcrVerify::ctrlTabCyclesPaneFocus()
     // Ctrl+Shift+Tab cycles back to the text pane.
     fireKey(Qt::ControlModifier | Qt::ShiftModifier, Qt::Key_Tab);
     QCOMPARE(mode.focusWidget(), textEdit);
+}
+
+void TestOcrVerify::zoomHotkeysAdjustMagnification()
+{
+    gp::OCRMode mode;
+    QList<MergedOcrWord> words;
+    MergedOcrWord w = makeWord("do1or", 42);
+    w.boundingBox = QRectF(10, 10, 30, 12);
+    words << w;
+    mode.setOcrResults(words);
+
+    QImage page(200, 80, QImage::Format_RGB32);
+    page.fill(Qt::white);
+    mode.setPageImage(page);
+    mode.findChild<QToolButton*>(QStringLiteral("ocrBtnNextUncertain"))->click();
+
+    auto zoomPixmap = [&mode]() -> QPixmap {
+        for (QLabel* l : mode.findChildren<QLabel*>()) {
+            const QPixmap pm = l->pixmap();
+            if (!pm.isNull()) return pm;
+        }
+        return QPixmap();
+    };
+    const QPixmap before = zoomPixmap();
+    QVERIFY(!before.isNull());
+
+    // Ctrl++ increases magnification → larger crop rendering.
+    const auto shortcuts = mode.findChildren<QShortcut*>();
+    auto fireKey = [&shortcuts](int modifiers, int key) {
+        for (QShortcut* sc : shortcuts)
+            if (sc->key().matches(QKeySequence(modifiers | key)) !=
+                QKeySequence::NoMatch) { emit sc->activated(); return; }
+        QFAIL("shortcut not found");
+    };
+    fireKey(Qt::ControlModifier, Qt::Key_Plus);
+    const QPixmap afterIn = zoomPixmap();
+    QVERIFY2(afterIn.width() > before.width(),
+             qPrintable(QString("expected growth: %1 -> %2")
+                            .arg(before.width()).arg(afterIn.width())));
+
+    // Ctrl+0 resets to the default factor.
+    fireKey(Qt::ControlModifier, Qt::Key_0);
+    QCOMPARE(zoomPixmap().width(), before.width());
 }
 
 QTEST_MAIN(TestOcrVerify)

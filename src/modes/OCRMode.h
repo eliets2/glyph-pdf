@@ -234,6 +234,9 @@ private:
     QSplitter* m_splitter = nullptr;
     int m_pagesWidth = 180;   // remembered pages-pane width for F5 restore
     int m_zoomWidth  = 200;   // remembered zoom-pane width for Ctrl+F5 restore
+
+    // B6: zoom-pane magnification factor (1..6), driven by Ctrl++/-/0.
+    qreal m_zoomFactor = 4.0;
 };
 
 } // namespace gp

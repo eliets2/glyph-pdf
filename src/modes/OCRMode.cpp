@@ -698,6 +698,23 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     connect(ctrlTab, &QShortcut::activated, this, [cycleFocus]() { cycleFocus(+1); });
     auto* ctrlShiftTab = new QShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Tab), this);
     connect(ctrlShiftTab, &QShortcut::activated, this, [cycleFocus]() { cycleFocus(-1); });
+
+    // B6: zoom-pane magnification hotkeys (FineReader's Ctrl++ / Ctrl+- / Ctrl+0).
+    auto* zoomIn = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_Plus), this);
+    connect(zoomIn, &QShortcut::activated, this, [this]() {
+        m_zoomFactor = qMin(6.0, m_zoomFactor + 1.0);
+        if (m_selectedWord >= 0) renderZoomCrop(m_selectedWord);
+    });
+    auto* zoomOut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_Minus), this);
+    connect(zoomOut, &QShortcut::activated, this, [this]() {
+        m_zoomFactor = qMax(1.0, m_zoomFactor - 1.0);
+        if (m_selectedWord >= 0) renderZoomCrop(m_selectedWord);
+    });
+    auto* zoomReset = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_0), this);
+    connect(zoomReset, &QShortcut::activated, this, [this]() {
+        m_zoomFactor = 4.0;
+        if (m_selectedWord >= 0) renderZoomCrop(m_selectedWord);
+    });
 }
 
 // ── slots ───────────────────────────────────────────────────────────────────
@@ -894,10 +911,17 @@ void OCRMode::renderZoomCrop(int wordIndex)
         crop = crop.intersected(m_pageImage.rect());
         if (!crop.isEmpty()) {
             const QImage cropped = m_pageImage.copy(crop);
-            const QPixmap mag = QPixmap::fromImage(cropped).scaled(
-                m_zoomBig->width() > 40 ? m_zoomBig->width()  - 8 : 168,
-                m_zoomBig->height() > 40 ? m_zoomBig->height() - 8 : 120,
+            // Scale by the user zoom factor, capped so it fits the pane.
+            const int targetW = int(cropped.width()  * m_zoomFactor);
+            const int targetH = int(cropped.height() * m_zoomFactor);
+            QPixmap mag = QPixmap::fromImage(cropped).scaled(
+                targetW, targetH,
                 Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            if (mag.width() > m_zoomBig->width() - 8 ||
+                mag.height() > m_zoomBig->height() - 8) {
+                mag = mag.scaled(m_zoomBig->width() - 8, m_zoomBig->height() - 8,
+                                 Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            }
             m_zoomBig->setPixmap(mag);
             return;
         }
