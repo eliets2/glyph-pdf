@@ -5,6 +5,7 @@
 #include <QString>
 #include <QRectF>
 #include <QList>
+#include <QImage>
 #include <memory>
 #include "core/ToolId.h"
 #include "core/interfaces/IToolController.h"
@@ -44,7 +45,7 @@ public slots:
 signals:
     // Emitted on the GUI thread when an OCR run finishes, carrying the recognised
     // words so the OCR Verify screen can display them for review.
-    void ocrResultsReady(const QList<MergedOcrWord>& words);
+    void ocrResultsReady(const QList<MergedOcrWord>& words, const QImage& pageImage);
 
 private slots:
     void onImageSelected(const QString &name, const QRectF &placement);

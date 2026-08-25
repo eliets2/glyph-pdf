@@ -508,8 +508,10 @@ void EditController::runOcr() {
             viewerPtr->setOcrResults(resultsArr);
             viewerPtr->setToolMode(ToolMode::SelectText);
             // Feed the OCR Verify screen (if open) so it shows real recognised words
-            // for review instead of an empty/decorative panel.
-            emit self->ocrResultsReady(mergedWords);
+            // for review instead of an empty/decorative panel.  A 2× page raster
+            // rides along so the Verify page can show magnified word crops (B6).
+            const QImage pageImage = viewerPtr->renderPage(page, 2.0);
+            emit self->ocrResultsReady(mergedWords, pageImage);
             self->_mainWindow->statusBar()->showMessage(tr("OCR Complete. %1 text blocks detected.").arg(resultsArr.size()), 5000);
         }, Qt::QueuedConnection);
     });

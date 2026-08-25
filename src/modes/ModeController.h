@@ -2,6 +2,7 @@
 #pragma once
 #include <QStackedWidget>
 #include <QHash>
+#include <QImage>
 #include <QList>
 #include <QRectF>
 
@@ -35,6 +36,8 @@ public:
 
     // Forward recognised OCR words to the OCR Verify screen (if it has been created).
     void deliverOcrResults(const QList<MergedOcrWord>& words);
+    /// Same, plus the page raster so the Verify page can show magnified crops.
+    void deliverOcrResults(const QList<MergedOcrWord>& words, const QImage& pageImage);
 
 signals:
     void screenChanged(const QString& id);

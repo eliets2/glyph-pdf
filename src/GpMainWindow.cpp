@@ -209,7 +209,9 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
     // OCR Verify screen <-> real OCR pipeline: the screen's Run button drives
     // EditController::runOcr, and recognised words flow back to the review panes.
     connect(_modes, &ModeController::ocrRunRequested, _edit, &EditController::runOcr);
-    connect(_edit, &EditController::ocrResultsReady, _modes, &ModeController::deliverOcrResults);
+    connect(_edit, &EditController::ocrResultsReady, _modes,
+            qOverload<const QList<MergedOcrWord>&, const QImage&>(
+                &ModeController::deliverOcrResults));
     // OCR review workflow. Accept: the recognised text was already delivered to
     // the review panes (and is applied via the OCR pipeline), so confirm it.
     // Reject: OCRMode has already cleared its overlay/results locally; surface a

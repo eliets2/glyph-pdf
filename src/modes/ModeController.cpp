@@ -83,8 +83,16 @@ void ModeController::setScreen(const QString& id) {
 }
 
 void ModeController::deliverOcrResults(const QList<MergedOcrWord>& words) {
-    if (auto* om = qobject_cast<OCRMode*>(_byId.value("ocr", nullptr)))
+    deliverOcrResults(words, QImage());
+}
+
+void ModeController::deliverOcrResults(const QList<MergedOcrWord>& words,
+                                       const QImage& pageImage) {
+    if (auto* om = qobject_cast<OCRMode*>(_byId.value("ocr", nullptr))) {
+        if (!pageImage.isNull())
+            om->setPageImage(pageImage);
         om->setOcrResults(words);
+    }
 }
 
 } // namespace gp
