@@ -282,6 +282,9 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     m_scanContentLabel->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_scanContentLabel, &QLabel::customContextMenuRequested,
             this, &OCRMode::onImagePaneContextMenu);
+    // B5: clicking a word in the scan pane selects it in the text pane.
+    connect(m_scanContentLabel, &QLabel::linkActivated,
+            this, &OCRMode::onScanWordLinkActivated);
 
     // Empty state until a document is OCR'd (replaced by updateConfidenceOverlay).
     m_scanContentLabel->setText(kOcrEmptyStateHtml);
@@ -326,6 +329,9 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     m_textEdit->setObjectName("ocrTextEdit");
     m_textEdit->setPlaceholderText(
         tr("Recognized text appears here after you run OCR on a document."));
+    // B5: caret moves drive image/zoom synchronization.
+    connect(m_textEdit, &QPlainTextEdit::cursorPositionChanged,
+            this, &OCRMode::onTextCursorMoved);
     txtLay->addWidget(m_textEdit, 1);
     split->addWidget(textPane);
 
@@ -430,6 +436,7 @@ void OCRMode::onRejectResults()
     m_currentWords.clear();
     m_wordRanges.clear();
     m_lowConfWords.clear();
+    m_selectedWord = -1;
     updateConfidenceOverlay();
     updateInfoStrip();
     if (m_textEdit) {
@@ -476,17 +483,83 @@ void OCRMode::onReOcrRegion()
     emit reOcrRegionRequested(m_contextRegionBbox);
 }
 
+// ── B5: image ↔ text ↔ zoom synchronization ─────────────────────────────────
+
+void OCRMode::onTextCursorMoved()
+{
+    if (m_syncing || !m_textEdit) return;
+    const int pos = m_textEdit->textCursor().position();
+
+    // Find the word whose [start, start+len) contains the caret.
+    for (int i = 0; i < m_wordRanges.size(); ++i) {
+        const int start = m_wordRanges.at(i).first;
+        const int len   = m_wordRanges.at(i).second;
+        if (pos >= start && pos <= start + len) {
+            syncWordTo(i);
+            return;
+        }
+    }
+}
+
+void OCRMode::onScanWordLinkActivated(const QString &link)
+{
+    if (!link.startsWith(QStringLiteral("ocrword:"))) return;
+    bool ok = false;
+    const int idx = link.mid(QStringLiteral("ocrword:").size()).toInt(&ok);
+    if (ok && idx >= 0 && idx < m_currentWords.size())
+        syncWordTo(idx);
+}
+
+void OCRMode::syncWordTo(int wordIndex)
+{
+    if (wordIndex < 0 || wordIndex >= m_currentWords.size()) return;
+    if (wordIndex == m_selectedWord) return;
+    m_selectedWord = wordIndex;
+
+    // 1. Scan pane: re-render so the selected word is outlined.
+    updateConfidenceOverlay();
+
+    // 2. Text pane: select the word's character range (drives the caret).
+    if (m_textEdit && wordIndex < m_wordRanges.size()) {
+        m_syncing = true;
+        QTextCursor c = m_textEdit->textCursor();
+        c.setPosition(m_wordRanges.at(wordIndex).first);
+        c.setPosition(m_wordRanges.at(wordIndex).first + m_wordRanges.at(wordIndex).second,
+                      QTextCursor::KeepAnchor);
+        m_textEdit->setTextCursor(c);
+        m_syncing = false;
+    }
+
+    // 3. Zoom pane: recognized string + provenance beside the magnified view.
+    const auto &w = m_currentWords.at(wordIndex);
+    m_zoomBig->setText(w.text.toHtmlEscaped());
+    m_zoomMeta->setText(tr("conf %1% · %2 · bbox (%3,%4 %5×%6)")
+                            .arg(w.confidence)
+                            .arg(w.sourceEngine)
+                            .arg(w.boundingBox.x(), 0, 'f', 0)
+                            .arg(w.boundingBox.y(), 0, 'f', 0)
+                            .arg(w.boundingBox.width(), 0, 'f', 0)
+                            .arg(w.boundingBox.height(), 0, 'f', 0));
+
+    emit wordSelected(wordIndex);
+}
+
 // ── setOcrResults ─────────────────────────────────────────────────────────────
 
 void OCRMode::setOcrResults(const QList<MergedOcrWord> &words)
 {
     m_currentWords = words;
+    m_selectedWord = -1;   // new results: nothing synchronized yet
     updateConfidenceOverlay();
     updateInfoStrip();
 
     // Populate plain-text editor with the recognized text, recording each
     // word's character range so low-confidence words can be highlighted (B1).
     if (m_textEdit) {
+        // Clear ranges first: setPlainText fires cursorPositionChanged and
+        // must not resolve against the PREVIOUS document's word index.
+        m_wordRanges.clear();
+        m_lowConfWords.clear();
         QStringList lines;
         for (const auto &w : words)
             lines.append(w.text);
@@ -527,7 +600,8 @@ void OCRMode::updateConfidenceOverlay()
     QString html;
     html.reserve(m_currentWords.size() * 80);
 
-    for (const auto &w : m_currentWords) {
+    for (int i = 0; i < m_currentWords.size(); ++i) {
+        const auto &w = m_currentWords.at(i);
         const int conf = w.confidence;
         QString bgColor, borderColor;
         if (conf >= 90) {
@@ -541,17 +615,26 @@ void OCRMode::updateConfidenceOverlay()
             borderColor = QStringLiteral("#ef444499");
         }
 
-        // Escape HTML special chars in the word text
+        // B5: the currently synchronized word gets a strong outline.
+        QString selStyle;
+        if (i == m_selectedWord)
+            selStyle = QStringLiteral("outline:2px solid #1d4ed8;background:#bfdbfe;");
+
+        // Escape HTML special chars in the word text.  Wrapped in an anchor so
+        // clicking it syncs the text/zoom panes (B5); href carries the index.
         QString escaped = w.text.toHtmlEscaped();
 
         html += QStringLiteral(
-            "<span style='background:%1;outline:1px solid %2;padding:1px;margin:1px;' "
-            "title='%3% | %4 | %5'>%6</span> ")
-            .arg(bgColor, borderColor)
-            .arg(conf)
-            .arg(w.sourceEngine)
-            .arg(w.boundingBox.x(), 0, 'f', 0)
-            .arg(escaped);
+            "<a href='ocrword:%1' style='text-decoration:none;'>"
+            "<span style='background:%5;%7outline:1px solid %6;padding:1px;margin:1px;' "
+            "title='%3% | %4 | word %1'>%8</span></a> ")
+            .arg(QString::number(i))   // %1 (both occurrences)
+            .arg(conf)                 // %3
+            .arg(w.sourceEngine)       // %4
+            .arg(bgColor)              // %5
+            .arg(borderColor)          // %6
+            .arg(selStyle)             // %7
+            .arg(escaped);             // %8 last: word text may contain '%'
     }
 
     m_scanContentLabel->setText(html);

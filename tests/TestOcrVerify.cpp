@@ -9,7 +9,9 @@
  */
 #include <QtTest/QtTest>
 #include <QApplication>
+#include <QLabel>
 #include <QPlainTextEdit>
+#include <QSignalSpy>
 #include <QToolButton>
 
 #include "modes/OCRMode.h"
@@ -40,6 +42,12 @@ private slots:
 
     /** Rejecting results clears counts and highlights. */
     void rejectClearsHighlightState();
+
+    /** B5: clicking a scan-pane word selects it in the text pane + zoom. */
+    void scanWordClickSyncsTextAndZoom();
+
+    /** B5: moving the text caret into a word emits wordSelected. */
+    void textCaretMoveEmitsWordSelected();
 };
 void TestOcrVerify::noHighlightsWhenAllConfident()
 {
@@ -100,6 +108,50 @@ void TestOcrVerify::rejectClearsHighlightState()
     QCOMPARE(mode.lowConfidenceWordCount(), 0);
     QCOMPARE(mode.uncertainHighlightCount(), 0);
     QVERIFY(mode.textPane()->toPlainText().isEmpty());
+}
+
+void TestOcrVerify::scanWordClickSyncsTextAndZoom()
+{
+    gp::OCRMode mode;
+    QList<MergedOcrWord> words;
+    words << makeWord("alpha", 95) << makeWord("b3ta", 40);
+    mode.setOcrResults(words);
+
+    QSignalSpy spy(&mode, &gp::OCRMode::wordSelected);
+
+    // Simulate clicking word 1 in the scan pane (QLabel link activation).
+    emit mode.findChild<QLabel*>(QStringLiteral("ocrScanContent"))->linkActivated(
+        QStringLiteral("ocrword:1"));
+
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy.first().at(0).toInt(), 1);
+    // Text pane selected the corresponding range.
+    QVERIFY(mode.textPane()->textCursor().hasSelection());
+    QCOMPARE(mode.textPane()->textCursor().selectedText(), QStringLiteral("b3ta"));
+    // Zoom pane shows the recognized word.
+    bool zoomPopulated = false;
+    const QList<QLabel*> labels = mode.findChildren<QLabel*>();
+    for (const QLabel* l : labels)
+        if (l->text().contains(QStringLiteral("conf 40%"))) zoomPopulated = true;
+    QVERIFY2(zoomPopulated, "zoom meta label not populated with word confidence");
+}
+
+void TestOcrVerify::textCaretMoveEmitsWordSelected()
+{
+    gp::OCRMode mode;
+    QList<MergedOcrWord> words;
+    words << makeWord("alpha", 95) << makeWord("b3ta", 40) << makeWord("gamma", 88);
+    mode.setOcrResults(words);
+
+    QSignalSpy spy(&mode, &gp::OCRMode::wordSelected);
+
+    // Move the caret into the second word ("b3ta" starts at char 6).
+    QTextCursor c = mode.textPane()->textCursor();
+    c.setPosition(7);
+    mode.textPane()->setTextCursor(c);
+
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy.first().at(0).toInt(), 1);
 }
 
 QTEST_MAIN(TestOcrVerify)

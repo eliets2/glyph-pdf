@@ -70,6 +70,9 @@ signals:
     void reviewRejected();
     /// Emitted when the user requests re-OCR of a specific region.
     void reOcrRegionRequested(QRectF regionBbox);
+    /// B5 sync: emitted when the selected word changes (text-pane caret move
+    /// or scan-pane word click). Index refers to m_currentWords order.
+    void wordSelected(int wordIndex);
 
 private slots:
     void onRunOcr();
@@ -77,6 +80,10 @@ private slots:
     void onRejectResults();
     void onImagePaneContextMenu(const QPoint &pos);
     void onReOcrRegion();
+    /// B5: caret moved in the text pane — resolve to a word and sync panes.
+    void onTextCursorMoved();
+    /// B5: an ocrword:<i> anchor was clicked in the scan pane.
+    void onScanWordLinkActivated(const QString &link);
 
 private:
     void buildToolbar(QVBoxLayout* col);
@@ -95,8 +102,15 @@ private:
     void rebuildTextWordIndex();
     void applyUncertainHighlights();
 
+    /// B5: select word i in all panes (text caret, scan outline, zoom crop).
+    void syncWordTo(int wordIndex);
+
     // Current OCR state
     QList<MergedOcrWord> m_currentWords;
+
+    // B5: currently synchronized word (-1 = none).
+    int  m_selectedWord   = -1;
+    bool m_syncing        = false;   // guards against caret<->selection loops
 
     // B1: char-range (start, length) of every word in the text pane, in order,
     // parallel to m_currentWords; plus the <70 subset used for highlighting.
