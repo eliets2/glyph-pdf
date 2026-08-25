@@ -92,6 +92,9 @@ private slots:
 
     /** B14: layout preset shortcuts reshape the splitter. */
     void layoutPresetsReshapeSplitter();
+
+    /** B11: reading-order badges + move-word-earlier/later reflow. */
+    void readingOrderMoveReflowsText();
 };
 void TestOcrVerify::noHighlightsWhenAllConfident()
 {
@@ -480,6 +483,30 @@ void TestOcrVerify::layoutPresetsReshapeSplitter()
     fireKey(Qt::ControlModifier, Qt::Key_F5);
     sizes = mode.findChild<QSplitter*>()->sizes();
     QVERIFY(sizes.at(3) > 0);
+}
+
+void TestOcrVerify::readingOrderMoveReflowsText()
+{
+    gp::OCRMode mode;
+    QList<MergedOcrWord> words;
+    words << makeWord("alpha", 95) << makeWord("beta", 90) << makeWord("gamma", 88);
+    mode.setOcrResults(words);
+    QCOMPARE(mode.textPane()->toPlainText(),
+             QStringLiteral("alpha beta gamma"));
+
+    // Select word 2 ('beta') via the scan-pane link, then move it earlier.
+    emit mode.findChild<QLabel*>(QStringLiteral("ocrScanContent"))->linkActivated(
+        QStringLiteral("ocrword:1"));
+    mode.moveWord(1, -1);
+
+    // Text pane reflowed to the new reading order.
+    QCOMPARE(mode.textPane()->toPlainText(),
+             QStringLiteral("beta alpha gamma"));
+
+    // Moving the first word earlier is a no-op.
+    mode.moveWord(0, -1);
+    QCOMPARE(mode.textPane()->toPlainText(),
+             QStringLiteral("beta alpha gamma"));
 }
 
 QTEST_MAIN(TestOcrVerify)

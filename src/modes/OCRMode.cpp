@@ -748,6 +748,21 @@ void OCRMode::onImagePaneContextMenu(const QPoint &pos)
     QAction *reOcrAction = menu.addAction(tr("Re-OCR this region"));
     connect(reOcrAction, &QAction::triggered, this, &OCRMode::onReOcrRegion);
 
+    // B11: reading-order editing for the currently selected word.
+    if (m_selectedWord >= 0 && m_selectedWord < m_currentWords.size()) {
+        menu.addSeparator();
+        QAction *earlier = menu.addAction(
+            tr("Move word %1 earlier").arg(m_selectedWord + 1));
+        connect(earlier, &QAction::triggered, this, [this]() {
+            moveWord(m_selectedWord, -1);
+        });
+        QAction *later = menu.addAction(
+            tr("Move word %1 later").arg(m_selectedWord + 1));
+        connect(later, &QAction::triggered, this, [this]() {
+            moveWord(m_selectedWord, +1);
+        });
+    }
+
     menu.addSeparator();
 
     // Per-region accept / reject workflow
@@ -969,6 +984,31 @@ void OCRMode::onVerifySkip(int wordIndex)
     syncWordTo(wordIndex); // show where we are; no state change
 }
 
+// ── B11: reading-order editing ───────────────────────────────────────────────
+
+void OCRMode::moveWord(int wordIndex, int delta)
+{
+    const int target = wordIndex + delta;
+    if (wordIndex < 0 || wordIndex >= m_currentWords.size()) return;
+    if (target < 0 || target >= m_currentWords.size()) return;
+
+    m_currentWords.swapItemsAt(wordIndex, target);
+
+    // Re-derive every view from the reordered model.
+    updateConfidenceOverlay();
+    if (m_textEdit) {
+        QStringList lines;
+        for (const auto &w : m_currentWords)
+            lines.append(w.text);
+        m_wordRanges.clear();
+        m_lowConfWords.clear();
+        m_textEdit->setPlainText(lines.join(QStringLiteral(" ")));
+        rebuildTextWordIndex();
+        applyUncertainHighlights();
+    }
+    updateInfoStrip();
+}
+
 // ── setOcrResults ─────────────────────────────────────────────────────────────
 
 void OCRMode::setOcrResults(const QList<MergedOcrWord> &words)
@@ -1056,7 +1096,8 @@ void OCRMode::updateConfidenceOverlay()
         html += QStringLiteral(
             "<a href='ocrword:%1' style='text-decoration:none;'>"
             "<span style='background:%5;%7outline:1px solid %6;padding:1px;margin:1px;' "
-            "title='%3% | %4 | word %1'>%8</span></a> ")
+            "title='%3% | %4 | word %1'>"
+            "<sup style='color:#666;font-size:9px;'>%1</sup>%8</span></a> ")
             .arg(QString::number(i))   // %1 (both occurrences)
             .arg(conf)                 // %3
             .arg(w.sourceEngine)       // %4

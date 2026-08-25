@@ -61,6 +61,9 @@ public:
     void setPageVerified(bool verified);
     bool isPageVerified() const { return m_pageVerified; }
 
+    /// B11: move a word one position earlier/later in reading order.
+    void moveWord(int wordIndex, int delta);
+
     // ── B10: per-language user dictionary ───────────────────────────────
     /// Path of the user dictionary file for a language code.
     static QString userDictionaryPath(const QString &langCode);
