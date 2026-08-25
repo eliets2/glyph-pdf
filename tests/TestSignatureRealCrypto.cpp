@@ -504,7 +504,7 @@ private slots:
                 int brEnd  = data.indexOf(']', cursor);
                 QList<QByteArray> parts = data.mid(cursor, brEnd - cursor).trimmed().split(' ');
                 if (parts.size() == 4) {
-                    qint64 off1 = parts[0].toLongLong();
+                    // qint64 off1 = parts[0].toLongLong();
                     qint64 off2 = parts[2].toLongLong();
                     // Flip a byte in segment 2 to break signature without breaking PDF syntax
                     qint64 tampPos = off2 + 2;

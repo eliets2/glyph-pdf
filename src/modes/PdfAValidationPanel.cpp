@@ -17,6 +17,9 @@
 #include <algorithm>
 #include <QtConcurrent/QtConcurrent>
 #include <podofo/podofo.h>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 
 namespace gp {
 
@@ -122,11 +125,15 @@ PdfAValidationPanel::PdfAValidationPanel(QWidget* parent) : QFrame(parent) {
 
     m_exportBtn = new QPushButton(tr("Export Report"));
 
+    m_exportReadingOrderBtn = new QPushButton(tr("Export Reading Order"));
+    m_exportReadingOrderBtn->hide();
+
     m_readingOrderBtn = new QPushButton(tr("Check Reading Order"));
     m_readingOrderBtn->setToolTip(tr("Check tagged-PDF structure order against visual layout (accessibility)"));
 
     col->addWidget(m_fixBtn);
     col->addWidget(m_exportBtn);
+    col->addWidget(m_exportReadingOrderBtn);
     col->addWidget(m_readingOrderBtn);
     col->addStretch(1);
 
@@ -134,6 +141,7 @@ PdfAValidationPanel::PdfAValidationPanel(QWidget* parent) : QFrame(parent) {
     outer->addWidget(scroll, 1);
 
     connect(m_exportBtn, &QPushButton::clicked, this, &PdfAValidationPanel::onExportReportClicked);
+    connect(m_exportReadingOrderBtn, &QPushButton::clicked, this, &PdfAValidationPanel::onExportReadingOrderClicked);
     connect(m_readingOrderBtn, &QPushButton::clicked, this, &PdfAValidationPanel::onCheckReadingOrder);
 }
 
@@ -203,6 +211,7 @@ void PdfAValidationPanel::updateDisplay(const PdfAValidationReport& report) {
     }
     m_issuesList->hide();
     m_issuesHeading->hide();
+    m_exportReadingOrderBtn->hide();
 
     if (!report.validatorAvailable) {
         m_statusLabel->setText(
@@ -355,20 +364,6 @@ void PdfAValidationPanel::onExportReportClicked() {
 // ---------------------------------------------------------------------------
 // §9.14 Tagged-PDF reading-order check
 // ---------------------------------------------------------------------------
-namespace {
-
-struct StructElem {
-    QString type;
-    int     page   = -1;
-    double  topY   = 0.0;   // top edge from /BBox (if present), in PDF user space
-    bool    hasBBox = false;
-};
-
-struct ReadingOrderResult {
-    bool        tagged = false;
-    int         elementCount = 0;
-    QStringList issues;     // human-readable descriptions of out-of-order elements
-};
 
 const PoDoFo::PdfObject* resolveObj(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfObject* o) {
     if (!o) return nullptr;
@@ -418,29 +413,33 @@ void extractBBox(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfDictionary& d, St
 // Depth-first walk of the structure tree, collecting structure elements in
 // reading (document structure) order.
 void collectStructElems(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfObject* node,
-                        QList<StructElem>& out, int depth) {
+                        QList<StructElem>& out, int depth,
+                        const PoDoFo::PdfObject* inheritedPg = nullptr) {
     if (!node || depth > 60) return;
     node = resolveObj(doc, node);
     if (!node) return;
 
     if (node->IsArray()) {
         for (const auto& child : node->GetArray())
-            collectStructElems(doc, &child, out, depth + 1);
+            collectStructElems(doc, &child, out, depth + 1, inheritedPg);
         return;
     }
     if (!node->IsDictionary()) return;  // e.g. a bare MCID integer — skip
 
     const PoDoFo::PdfDictionary& d = node->GetDictionary();
+    const PoDoFo::PdfObject* ownPg = d.FindKey("Pg");
+    const PoDoFo::PdfObject* effectivePg = ownPg ? ownPg : inheritedPg;
+
     const PoDoFo::PdfObject* sObj = d.FindKey("S");
     if (sObj && sObj->IsName()) {
         StructElem e;
         e.type = QString::fromStdString(std::string(sObj->GetName().GetString()));
-        e.page = pageIndexOf(doc, d.FindKey("Pg"));
+        e.page = pageIndexOf(doc, effectivePg);
         extractBBox(doc, d, e);
         out.append(e);
     }
     if (const PoDoFo::PdfObject* k = d.FindKey("K"))
-        collectStructElems(doc, k, out, depth + 1);
+        collectStructElems(doc, k, out, depth + 1, effectivePg);
 }
 
 ReadingOrderResult analyzeReadingOrder(const QString& path) {
@@ -481,15 +480,17 @@ ReadingOrderResult analyzeReadingOrder(const QString& path) {
         QVector<int> visualPos(n, 0);
         for (int pos = 0; pos < n; ++pos) visualPos[visualOrder[pos]] = pos;
 
-        // Flag elements more than 2 positions away from their visual position.
+        // Flag elements that drift too far from their visual position.
+        // Heuristic: kMaxVisualReorderDrift
         for (int i = 0; i < n; ++i) {
-            if (std::abs(i - visualPos[i]) > 2) {
+            if (std::abs(i - visualPos[i]) > kMaxVisualReorderDrift) {
                 const StructElem& e = elems[i];
                 r.issues << QObject::tr("\"%1\" at structure position %2 maps to visual position %3%4")
                     .arg(e.type.isEmpty() ? QStringLiteral("Elem") : e.type)
                     .arg(i + 1)
                     .arg(visualPos[i] + 1)
                     .arg(e.page >= 0 ? QObject::tr(" (page %1)").arg(e.page + 1) : QString());
+                r.issuePages << (e.page >= 0 ? e.page + 1 : -1);
             }
         }
     } catch (const PoDoFo::PdfError& ex) {
@@ -498,8 +499,6 @@ ReadingOrderResult analyzeReadingOrder(const QString& path) {
     return r;
 }
 
-} // namespace
-
 void PdfAValidationPanel::onCheckReadingOrder() {
     if (m_currentDocPath.isEmpty()) {
         QMessageBox::information(this, tr("Reading Order"),
@@ -507,28 +506,112 @@ void PdfAValidationPanel::onCheckReadingOrder() {
         return;
     }
 
-    const ReadingOrderResult r = analyzeReadingOrder(m_currentDocPath);
+    m_statusLabel->setText(tr("Analyzing reading order (heuristic)…"));
+    m_issuesHeading->hide();
+    m_issuesList->hide();
+    m_exportBtn->hide();
+    m_exportReadingOrderBtn->hide();
+    m_fixBtn->hide();
+
+    auto* watcher = new QFutureWatcher<ReadingOrderResult>(this);
+    connect(watcher, &QFutureWatcher<ReadingOrderResult>::finished,
+            this, &PdfAValidationPanel::onReadingOrderFinished);
+    
+    if (m_readingOrderWatcher) {
+        m_readingOrderWatcher->cancel();
+        m_readingOrderWatcher->waitForFinished();
+        m_readingOrderWatcher->deleteLater();
+    }
+    m_readingOrderWatcher = watcher;
+
+    const QString path = m_currentDocPath;
+    watcher->setFuture(QtConcurrent::run([path]() {
+        return analyzeReadingOrder(path);
+    }));
+}
+
+void PdfAValidationPanel::onReadingOrderFinished() {
+    auto* watcher = m_readingOrderWatcher;
+    if (!watcher || watcher->isCanceled()) return;
+    
+    const ReadingOrderResult r = watcher->result();
+    watcher->deleteLater();
+    m_readingOrderWatcher = nullptr;
 
     if (!r.tagged) {
-        QMessageBox::information(this, tr("Reading Order"),
-            tr("Document is not tagged. Accessibility reading order cannot be verified."));
+        m_statusLabel->setText(tr("Document is not tagged. Accessibility reading order cannot be verified."));
+        m_exportBtn->show(); // Restore state if appropriate, though there is no valid report
         return;
     }
 
-    QString msg;
-    if (r.issues.isEmpty()) {
-        msg = tr("Tagged PDF detected. %1 elements. Reading order: OK.").arg(r.elementCount);
-        QMessageBox::information(this, tr("Reading Order"), msg);
-    } else {
-        msg = tr("Tagged PDF detected. %1 elements. Reading order: %2 issue(s) found.\n\n")
-                  .arg(r.elementCount).arg(r.issues.size());
-        const int shown = std::min(static_cast<int>(r.issues.size()), 20);
-        for (int i = 0; i < shown; ++i)
-            msg += QStringLiteral("• ") + r.issues[i] + QLatin1Char('\n');
-        if (r.issues.size() > shown)
-            msg += tr("… and %1 more.").arg(r.issues.size() - shown);
-        QMessageBox::warning(this, tr("Reading Order"), msg);
+    QLayoutItem* item;
+    while ((item = m_issuesLayout->takeAt(0)) != nullptr) {
+        delete item->widget();
+        delete item;
     }
+
+    m_exportBtn->hide();
+    m_fixBtn->hide();
+
+    if (r.issues.isEmpty()) {
+        m_statusLabel->setText(tr("Tagged PDF detected. %1 elements. Reading order: OK.").arg(r.elementCount));
+        return;
+    }
+
+    m_statusLabel->setText(
+        tr("Tagged PDF · %1 element(s) · %2 reading-order issue(s) (Heuristic)")
+            .arg(r.elementCount).arg(r.issues.size()));
+    m_issuesHeading->setText(tr("HEURISTIC READING ORDER ISSUES · %1").arg(r.issues.size()));
+    m_issuesHeading->show();
+
+    for (int i = 0; i < r.issues.size(); ++i) {
+        const int pageNumber = (i < r.issuePages.size()) ? r.issuePages[i] : -1;
+        m_issuesLayout->addWidget(issueRow(this, tr("READING-ORDER"), r.issues[i], /*err=*/false, pageNumber));
+    }
+    m_issuesList->show();
+    m_exportReadingOrderBtn->show();
+}
+
+void PdfAValidationPanel::onExportReadingOrderClicked() {
+    if (m_currentDocPath.isEmpty()) return;
+
+    QString dest = QFileDialog::getSaveFileName(
+        this,
+        tr("Export Reading Order Report"),
+        QString(),
+        tr("JSON files (*.json);;Text files (*.txt);;All files (*)"));
+
+    if (dest.isEmpty()) return;
+
+    // Fast synchronous re-run for export
+    ReadingOrderResult r = analyzeReadingOrder(m_currentDocPath);
+
+    QFile file(dest);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, tr("Export Failed"),
+            tr("Could not write to %1").arg(dest));
+        return;
+    }
+
+    QTextStream out(&file);
+    out << "{\n";
+    out << "  \"tagged\": " << (r.tagged ? "true" : "false") << ",\n";
+    out << "  \"elementCount\": " << r.elementCount << ",\n";
+    out << "  \"issues\": [\n";
+    for (int i = 0; i < r.issues.size(); ++i) {
+        QString desc = r.issues[i];
+        desc.replace("\\", "\\\\").replace("\"", "\\\"");
+        out << "    {\n";
+        out << "      \"description\": \"" << desc << "\",\n";
+        out << "      \"pageNumber\": " << (i < r.issuePages.size() ? r.issuePages[i] : -1) << "\n";
+        out << "    }" << (i + 1 < r.issues.size() ? "," : "") << "\n";
+    }
+    out << "  ]\n";
+    out << "}\n";
+    file.close();
+
+    QMessageBox::information(this, tr("Report Exported"),
+        tr("Reading order report written to:\n%1").arg(dest));
 }
 
 } // namespace gp

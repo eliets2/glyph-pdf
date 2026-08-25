@@ -1289,6 +1289,21 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestVeraPdf.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAccessibility.cpp")
+    add_executable(TestAccessibility tests/TestAccessibility.cpp)
+    target_include_directories(TestAccessibility PRIVATE src tests)
+    target_link_libraries(TestAccessibility PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core
+        Qt6::Test Qt6::Widgets podofo::podofo
+    )
+    add_test(NAME TestAccessibility COMMAND TestAccessibility)
+    set_tests_properties(TestAccessibility PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;accessibility;podofo"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestLaneScheduler.cpp")
     add_executable(TestLaneScheduler tests/TestLaneScheduler.cpp)
     target_include_directories(TestLaneScheduler PRIVATE src tests)

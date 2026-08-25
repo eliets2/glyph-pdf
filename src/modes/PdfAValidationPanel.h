@@ -10,6 +10,24 @@ namespace gp {
 
 class PdfAValidationReport;
 
+constexpr int kMaxVisualReorderDrift = 2;
+
+struct StructElem {
+    QString type;
+    int     page   = -1;
+    double  topY   = 0.0;   // top edge from /BBox (if present), in PDF user space
+    bool    hasBBox = false;
+};
+
+struct ReadingOrderResult {
+    bool        tagged = false;
+    int         elementCount = 0;
+    QStringList issues;     // human-readable descriptions of out-of-order elements
+    QList<int>  issuePages; // 1-based page numbers for each issue, or -1
+};
+
+ReadingOrderResult analyzeReadingOrder(const QString& path);
+
 class PdfAValidationPanel : public QFrame {
     Q_OBJECT
 public:
@@ -30,6 +48,8 @@ private:
 
     // AR-7 D2: slot called on GUI thread when the off-thread validation finishes.
     void onValidationFinished();
+    void onReadingOrderFinished();
+    void onExportReadingOrderClicked();
 
     QString m_currentDocPath;
     PdfAConformance m_currentConformance{PdfAConformance::PDF_A_2B};
@@ -44,10 +64,14 @@ private:
     class QVBoxLayout* m_issuesLayout{nullptr};
     class QPushButton* m_fixBtn{nullptr};
     class QPushButton* m_exportBtn{nullptr};
+    class QPushButton* m_exportReadingOrderBtn{nullptr};
     class QPushButton* m_readingOrderBtn{nullptr};
 
     // AR-7 D2: off-thread veraPDF worker.
     QFutureWatcher<PdfAValidationReport>* m_validationWatcher{nullptr};
+    
+    // Wave 1B: off-thread reading order worker.
+    QFutureWatcher<ReadingOrderResult>* m_readingOrderWatcher{nullptr};
 };
 
 } // namespace gp
