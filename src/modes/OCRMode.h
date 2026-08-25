@@ -84,6 +84,9 @@ private slots:
     void onTextCursorMoved();
     /// B5: an ocrword:<i> anchor was clicked in the scan pane.
     void onScanWordLinkActivated(const QString &link);
+    /// B2: jump to the next/previous low-confidence word (Alt+Down / Alt+Up).
+    void gotoNextUncertain();
+    void gotoPrevUncertain();
 
 private:
     void buildToolbar(QVBoxLayout* col);
@@ -113,11 +116,16 @@ private:
     bool m_syncing        = false;   // guards against caret<->selection loops
 
     // B1: char-range (start, length) of every word in the text pane, in order,
-    // parallel to m_currentWords; plus the <70 subset used for highlighting.
+    // parallel to m_currentWords; plus indices of the <70 subset (B2 nav index).
     QList<QPair<int, int>> m_wordRanges;
-    QList<QPair<int, int>> m_lowConfWords;
+    QList<int>             m_lowConfWords;
+
+    // B2: current position within m_lowConfWords (-1 = not started).
+    int m_uncertainCursor = -1;
     bool m_uncertainEnabled = true;
     QToolButton* m_btnUncertainToggle = nullptr;
+    QToolButton* m_btnPrevUncertain   = nullptr;
+    QToolButton* m_btnNextUncertain   = nullptr;
 
     // Last right-clicked region bbox (used by onReOcrRegion)
     QRectF m_contextRegionBbox;

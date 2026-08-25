@@ -48,6 +48,9 @@ private slots:
 
     /** B5: moving the text caret into a word emits wordSelected. */
     void textCaretMoveEmitsWordSelected();
+
+    /** B2: Next/Prev walk the low-confidence index in order, wrapping. */
+    void uncertainNavigationWalksIndexInOrder();
 };
 void TestOcrVerify::noHighlightsWhenAllConfident()
 {
@@ -152,6 +155,36 @@ void TestOcrVerify::textCaretMoveEmitsWordSelected()
 
     QCOMPARE(spy.count(), 1);
     QCOMPARE(spy.first().at(0).toInt(), 1);
+}
+
+void TestOcrVerify::uncertainNavigationWalksIndexInOrder()
+{
+    gp::OCRMode mode;
+    QList<MergedOcrWord> words;
+    words << makeWord("alpha", 95) << makeWord("b3ta", 40)
+          << makeWord("gamma", 88) << makeWord("d1ta", 10);
+    mode.setOcrResults(words);
+
+    QSignalSpy spy(&mode, &gp::OCRMode::wordSelected);
+
+    // Next from "not started" lands on the first low-confidence word (index 1).
+    mode.findChild<QToolButton*>(QStringLiteral("ocrBtnNextUncertain"))->click();
+    QCOMPARE(spy.last().at(0).toInt(), 1);
+
+    // Next again reaches the second low-confidence word (index 3).
+    mode.findChild<QToolButton*>(QStringLiteral("ocrBtnNextUncertain"))->click();
+    QCOMPARE(spy.last().at(0).toInt(), 3);
+
+    // Next wraps around to the first low-confidence word.
+    mode.findChild<QToolButton*>(QStringLiteral("ocrBtnNextUncertain"))->click();
+    QCOMPARE(spy.last().at(0).toInt(), 1);
+
+    // Prev from "not started" starts at the last low-confidence word.
+    gp::OCRMode mode2;
+    mode2.setOcrResults(words);
+    QSignalSpy spy2(&mode2, &gp::OCRMode::wordSelected);
+    mode2.findChild<QToolButton*>(QStringLiteral("ocrBtnPrevUncertain"))->click();
+    QCOMPARE(spy2.last().at(0).toInt(), 3);
 }
 
 QTEST_MAIN(TestOcrVerify)

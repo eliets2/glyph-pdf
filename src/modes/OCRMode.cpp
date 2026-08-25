@@ -16,6 +16,7 @@
 #include <QMenu>
 #include <QPlainTextEdit>
 #include <QScrollArea>
+#include <QShortcut>
 #include <QSplitter>
 #include <QTextCharFormat>
 #include <QTextEdit>
@@ -309,6 +310,38 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     txtHeadRow->addWidget(monoLab(tr("RECOGNIZED · EDITABLE")));
     txtHeadRow->addStretch(1);
 
+    // B2: FineReader-style prev/next low-confidence navigation (Alt+Up/Down).
+    auto makeNavButton = [this](const char* objName, const QString& text,
+                                const QString& tip, const QKeySequence& key) {
+        auto* b = new QToolButton;
+        b->setObjectName(objName);
+        b->setText(text);
+        b->setToolTip(tip + QStringLiteral(" (%1)").arg(key.toString(QKeySequence::NativeText)));
+        connect(b, &QToolButton::clicked, this, [this, objName]() {
+            if (qstrcmp(objName, "ocrBtnNextUncertain") == 0)
+                gotoNextUncertain();
+            else
+                gotoPrevUncertain();
+        });
+        return b;
+    };
+    m_btnPrevUncertain = makeNavButton("ocrBtnPrevUncertain", tr("◀ Prev"),
+                                       tr("Previous low-confidence word"),
+                                       QKeySequence(Qt::ALT | Qt::Key_Up));
+    m_btnNextUncertain = makeNavButton("ocrBtnNextUncertain", tr("Next ▶"),
+                                       tr("Next low-confidence word"),
+                                       QKeySequence(Qt::ALT | Qt::Key_Down));
+    txtHeadRow->addWidget(m_btnPrevUncertain);
+    txtHeadRow->addWidget(m_btnNextUncertain);
+
+    // Alt+Down / Alt+Up — FineReader's Next/Previous Error hotkeys.
+    auto* nextShortcut = new QShortcut(QKeySequence(Qt::ALT | Qt::Key_Down), this);
+    nextShortcut->setObjectName("ocrScNextUncertain");
+    connect(nextShortcut, &QShortcut::activated, this, &OCRMode::gotoNextUncertain);
+    auto* prevShortcut = new QShortcut(QKeySequence(Qt::ALT | Qt::Key_Up), this);
+    prevShortcut->setObjectName("ocrScPrevUncertain");
+    connect(prevShortcut, &QShortcut::activated, this, &OCRMode::gotoPrevUncertain);
+
     // B1: FineReader-style "Uncertain characters" show/hide toggle.
     m_btnUncertainToggle = new QToolButton;
     m_btnUncertainToggle->setObjectName("ocrBtnUncertainToggle");
@@ -437,6 +470,7 @@ void OCRMode::onRejectResults()
     m_wordRanges.clear();
     m_lowConfWords.clear();
     m_selectedWord = -1;
+    m_uncertainCursor = -1;
     updateConfidenceOverlay();
     updateInfoStrip();
     if (m_textEdit) {
@@ -544,12 +578,31 @@ void OCRMode::syncWordTo(int wordIndex)
     emit wordSelected(wordIndex);
 }
 
+// ── B2: next/previous low-confidence word navigation ─────────────────────────
+
+void OCRMode::gotoNextUncertain()
+{
+    if (m_lowConfWords.isEmpty()) return;
+    // Wrap forward; starting from "not started" lands on the first item.
+    m_uncertainCursor = (m_uncertainCursor + 1) % m_lowConfWords.size();
+    syncWordTo(m_lowConfWords.at(m_uncertainCursor));
+}
+
+void OCRMode::gotoPrevUncertain()
+{
+    if (m_lowConfWords.isEmpty()) return;
+    m_uncertainCursor = (m_uncertainCursor <= 0)
+                            ? m_lowConfWords.size() - 1 : m_uncertainCursor - 1;
+    syncWordTo(m_lowConfWords.at(m_uncertainCursor));
+}
+
 // ── setOcrResults ─────────────────────────────────────────────────────────────
 
 void OCRMode::setOcrResults(const QList<MergedOcrWord> &words)
 {
     m_currentWords = words;
     m_selectedWord = -1;   // new results: nothing synchronized yet
+    m_uncertainCursor = -1;
     updateConfidenceOverlay();
     updateInfoStrip();
 
@@ -679,7 +732,8 @@ void OCRMode::rebuildTextWordIndex()
 
     const QString text = m_textEdit->toPlainText();
     int from = 0;
-    for (const auto &w : m_currentWords) {
+    for (int i = 0; i < m_currentWords.size(); ++i) {
+        const auto &w = m_currentWords.at(i);
         // Words were joined with single spaces in document order, so a
         // forward search always finds the next occurrence.
         const int idx = text.indexOf(w.text, from);
@@ -687,7 +741,7 @@ void OCRMode::rebuildTextWordIndex()
         const int len = w.text.length();
         m_wordRanges.append({idx, len});
         if (w.confidence < 70)
-            m_lowConfWords.append({idx, len});
+            m_lowConfWords.append(i); // B2: nav index = word position
         from = idx + len;
     }
 }
@@ -703,7 +757,9 @@ void OCRMode::applyUncertainHighlights()
         fmt.setBackground(QColor(QStringLiteral("#b9d7f2")));
 
         sels.reserve(m_lowConfWords.size());
-        for (const auto &r : m_lowConfWords) {
+        for (const int wi : m_lowConfWords) {
+            if (wi < 0 || wi >= m_wordRanges.size()) continue;
+            const auto &r = m_wordRanges.at(wi);
             QTextEdit::ExtraSelection sel;
             sel.cursor = QTextCursor(m_textEdit->document());
             sel.cursor.setPosition(r.first);
