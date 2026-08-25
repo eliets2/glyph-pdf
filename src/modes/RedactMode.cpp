@@ -419,7 +419,26 @@ void RedactMode::onApplyRedactions() {
 }
 
 void RedactMode::onClearMarks() {
-    m_matchCountLabel->setText(tr("Select a pattern to preview matches."));
+    // Audit 9.8 P0: make Clear Marks actually remove placed redaction marks
+    // (was a no-op that only reset the status label).
+    if (!m_viewer) {
+        m_matchCountLabel->setText(tr("No document open."));
+        return;
+    }
+    const QList<AnnotationItem> annos = m_viewer->annotations();
+    QList<AnnotationItem> remaining;
+    remaining.reserve(annos.size());
+    int removed = 0;
+    for (const auto& anno : annos) {
+        if (anno.mode == ToolMode::Redact) ++removed;
+        else remaining.append(anno);
+    }
+    if (removed == 0) {
+        m_matchCountLabel->setText(tr("No redaction marks to clear."));
+        return;
+    }
+    m_viewer->setAnnotations(remaining);
+    m_matchCountLabel->setText(tr("Cleared %1 redaction mark(s).").arg(removed));
 }
 
 void RedactMode::onScopeChanged() {
