@@ -69,6 +69,16 @@ OcrVerifyDialog::OcrVerifyDialog(QWidget* parent) : QDialog(parent)
     m_btnAddDict->setText(tr("Add to Dictionary"));
     btnRow->addWidget(m_btnAddDict);
 
+    // B4: session-wide skip / replace.
+    m_btnSkipAll = new QToolButton;
+    m_btnSkipAll->setObjectName("ocrVerifySkipAll");
+    m_btnSkipAll->setText(tr("Skip All"));
+    btnRow->addWidget(m_btnSkipAll);
+    m_btnReplAll = new QToolButton;
+    m_btnReplAll->setObjectName("ocrVerifyReplaceAll");
+    m_btnReplAll->setText(tr("Replace All"));
+    btnRow->addWidget(m_btnReplAll);
+
     btnRow->addStretch(1);
     lay->addLayout(btnRow);
 
@@ -76,6 +86,8 @@ OcrVerifyDialog::OcrVerifyDialog(QWidget* parent) : QDialog(parent)
     connect(m_btnSkip,    &QToolButton::clicked, this, &OcrVerifyDialog::onSkip);
     connect(m_btnAddDict, &QToolButton::clicked,
             this, &OcrVerifyDialog::onAddToDictionary);
+    connect(m_btnSkipAll, &QToolButton::clicked, this, &OcrVerifyDialog::onSkipAll);
+    connect(m_btnReplAll, &QToolButton::clicked, this, &OcrVerifyDialog::onReplaceAll);
 }
 
 void OcrVerifyDialog::setItems(const QList<Item> &items)
@@ -155,6 +167,31 @@ void OcrVerifyDialog::onAddToDictionary()
     if (m_cursor < 0 || m_cursor >= m_items.size()) return;
     // The corrected spelling (edit field) is what becomes known.
     emit addToDictionaryRequested(m_edit->text().trimmed());
+}
+
+void OcrVerifyDialog::onSkipAll()
+{
+    if (m_cursor < 0 || m_cursor >= m_items.size()) return;
+    const QString token = m_edit->text();
+    emit skipAllRequested(token);
+    // Every remaining occurrence of this token is now suppressed.
+    while (m_cursor < m_items.size() &&
+           m_items.at(m_cursor).text == token)
+        ++m_cursor;
+    showItem();
+}
+
+void OcrVerifyDialog::onReplaceAll()
+{
+    if (m_cursor < 0 || m_cursor >= m_items.size()) return;
+    const QString from = m_items.at(m_cursor).text;
+    const QString to   = m_edit->text();
+    emit replaceAllRequested(from, to);
+    // Remaining occurrences of `from` are all replaced in one go.
+    while (m_cursor < m_items.size() &&
+           m_items.at(m_cursor).text == from)
+        ++m_cursor;
+    showItem();
 }
 
 } // namespace gp

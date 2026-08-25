@@ -721,6 +721,7 @@ void OCRMode::onRejectResults()
     m_wordRanges.clear();
     m_lowConfWords.clear();
     m_verifiedWords.clear();
+    m_skipAllTokens.clear();
     m_selectedWord = -1;
     m_uncertainCursor = -1;
     setPageVerified(false);
@@ -921,6 +922,22 @@ void OCRMode::openVerifyDialog()
                     // Re-flag: the word (and all matches) stop being uncertain.
                     rebuildTextWordIndex();
                     applyUncertainHighlights();
+                });
+        connect(m_verifyDialog, &OcrVerifyDialog::skipAllRequested,
+                this, [this](const QString &token) {
+                    if (!m_skipAllTokens.contains(token))
+                        m_skipAllTokens.append(token);
+                    rebuildTextWordIndex();
+                    applyUncertainHighlights();
+                });
+        connect(m_verifyDialog, &OcrVerifyDialog::replaceAllRequested,
+                this, [this](const QString &from, const QString &to) {
+                    for (int i = 0; i < m_currentWords.size(); ++i) {
+                        if (m_currentWords.at(i).text == from) {
+                            onVerifyConfirm(i, to);
+                            markWordVerified(i);
+                        }
+                    }
                 });
     }
 
@@ -1210,7 +1227,8 @@ void OCRMode::rebuildTextWordIndex()
         const int len = w.text.length();
         m_wordRanges.append({idx, len});
         if (w.confidence < m_lowThreshold &&
-            !userDict.contains(w.text, Qt::CaseInsensitive))
+            !userDict.contains(w.text, Qt::CaseInsensitive) &&
+            !m_skipAllTokens.contains(w.text))
             m_lowConfWords.append(i); // B2: nav index = word position
         from = idx + len;
     }

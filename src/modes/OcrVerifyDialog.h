@@ -47,6 +47,10 @@ signals:
     void skipRequested(int wordIndex);
     /// B10: add the current word to the user dictionary.
     void addToDictionaryRequested(const QString &word);
+    /// B4: skip this exact token everywhere (session-level suppression).
+    void skipAllRequested(const QString &word);
+    /// B4: apply `to` in place of every occurrence of `from`.
+    void replaceAllRequested(const QString &from, const QString &to);
     /// The queue was exhausted (all items visited).
     void finished();
 
@@ -54,6 +58,8 @@ private slots:
     void onConfirm();
     void onSkip();
     void onAddToDictionary();
+    void onSkipAll();
+    void onReplaceAll();
 
 private:
     void showItem();
@@ -69,6 +75,8 @@ private:
     QToolButton* m_btnConfirm  = nullptr;
     QToolButton* m_btnSkip     = nullptr;
     QToolButton* m_btnAddDict  = nullptr;
+    QToolButton* m_btnSkipAll  = nullptr;
+    QToolButton* m_btnReplAll  = nullptr;
 };
 
 } // namespace gp

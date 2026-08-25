@@ -187,6 +187,9 @@ private:
     // B10: language code whose user dictionary gates flagging.
     QString m_dictLang = QStringLiteral("EN");
 
+    // B4: tokens suppressed for this session via Verify-dialog Skip All.
+    QStringList m_skipAllTokens;
+
     // B6: optional page raster backing the zoom pane's magnified crop.
     QImage m_pageImage;
     void renderZoomCrop(int wordIndex);

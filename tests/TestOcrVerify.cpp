@@ -95,6 +95,9 @@ private slots:
 
     /** B11: reading-order badges + move-word-earlier/later reflow. */
     void readingOrderMoveReflowsText();
+
+    /** B4: Skip All / Replace All act on every occurrence of the token. */
+    void skipAllAndReplaceAll();
 };
 void TestOcrVerify::noHighlightsWhenAllConfident()
 {
@@ -507,6 +510,52 @@ void TestOcrVerify::readingOrderMoveReflowsText()
     mode.moveWord(0, -1);
     QCOMPARE(mode.textPane()->toPlainText(),
              QStringLiteral("beta alpha gamma"));
+}
+
+void TestOcrVerify::skipAllAndReplaceAll()
+{
+    // Isolate the dictionary store (Replace All path marks words verified;
+    // Skip All must not depend on dictionary state from other tests).
+    QCoreApplication::setApplicationName(
+        QStringLiteral("ocr-verify-skipall-%1").arg(QCoreApplication::applicationPid()));
+    QStandardPaths::setTestModeEnabled(true);
+
+    QList<MergedOcrWord> words;
+    words << makeWord("do1or", 42) << makeWord("alpha", 95) << makeWord("do1or", 42);
+
+    // ── Skip All ──
+    {
+        gp::OCRMode mode;
+        mode.setOcrResults(words);
+        QCOMPARE(mode.lowConfidenceWordCount(), 2);
+        mode.findChild<QToolButton*>(QStringLiteral("ocrBtnVerify"))->click();
+        auto* dlg = mode.findChild<gp::OcrVerifyDialog*>();
+        QVERIFY(dlg);
+        QCOMPARE(dlg->remaining(), 2);
+
+        dlg->findChild<QToolButton*>(QStringLiteral("ocrVerifySkipAll"))->click();
+        QCOMPARE(dlg->remaining(), 0);          // both occurrences drained
+        QCOMPARE(mode.lowConfidenceWordCount(), 0); // session suppression
+        QCOMPARE(mode.uncertainHighlightCount(), 0);
+    }
+
+    // ── Replace All ──
+    {
+        gp::OCRMode mode;
+        mode.setOcrResults(words);
+        mode.findChild<QToolButton*>(QStringLiteral("ocrBtnVerify"))->click();
+        auto* dlg = mode.findChild<gp::OcrVerifyDialog*>();
+        QVERIFY(dlg);
+
+        auto* edit = dlg->findChild<QLineEdit*>(QStringLiteral("ocrVerifyEdit"));
+        edit->setText(QStringLiteral("dolor"));
+        dlg->findChild<QToolButton*>(QStringLiteral("ocrVerifyReplaceAll"))->click();
+
+        QCOMPARE(mode.textPane()->toPlainText(),
+                 QStringLiteral("dolor alpha dolor"));
+        QCOMPARE(dlg->remaining(), 0);
+        QCOMPARE(mode.verifiedPercent(), 67);   // both occurrences verified
+    }
 }
 
 QTEST_MAIN(TestOcrVerify)
