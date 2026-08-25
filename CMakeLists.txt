@@ -1602,6 +1602,22 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrLanguage.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRedactClearMarks.cpp")
+    add_executable(TestRedactClearMarks
+        tests/TestRedactClearMarks.cpp
+    )
+    target_include_directories(TestRedactClearMarks PRIVATE src tests)
+    target_link_libraries(TestRedactClearMarks PRIVATE
+        pdfws_ui pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_test(NAME TestRedactClearMarks COMMAND TestRedactClearMarks)
+    set_tests_properties(TestRedactClearMarks PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;redaction;security;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAnnotationDjot.cpp")
     add_executable(TestAnnotationDjot
         tests/TestAnnotationDjot.cpp
