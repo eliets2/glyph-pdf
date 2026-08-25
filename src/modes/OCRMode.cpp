@@ -180,6 +180,20 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     connect(m_btnRun, &QToolButton::clicked, this, &OCRMode::onRunOcr);
     row->addWidget(m_btnRun);
 
+    // B3: FineReader's "Verify Text" entry point (Ctrl+F7).
+    auto* btnVerify = new QToolButton;
+    btnVerify->setObjectName("ocrBtnVerify");
+    btnVerify->setText(tr("Verify Text"));
+    btnVerify->setProperty("variant", "ghost");
+    btnVerify->setToolTip(tr("Step through low-confidence words (Ctrl+F7)"));
+    connect(btnVerify, &QToolButton::clicked, this, &OCRMode::openVerifyDialog);
+    row->addWidget(btnVerify);
+
+    auto* verifyShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_F7), this);
+    verifyShortcut->setObjectName("ocrScVerifyDialog");
+    connect(verifyShortcut, &QShortcut::activated,
+            this, &OCRMode::openVerifyDialog);
+
     m_btnAccept = new QToolButton;
     m_btnAccept->setObjectName("ocrBtnAccept");
     m_btnAccept->setText(tr("✓ Accept"));
@@ -639,6 +653,73 @@ void OCRMode::gotoPrevUncertain()
     m_uncertainCursor = (m_uncertainCursor <= 0)
                             ? m_lowConfWords.size() - 1 : m_uncertainCursor - 1;
     syncWordTo(m_lowConfWords.at(m_uncertainCursor));
+}
+
+// ── B3/B4: Verify Text dialog ────────────────────────────────────────────────
+
+void OCRMode::openVerifyDialog()
+{
+    if (m_lowConfWords.isEmpty()) return; // nothing to verify
+
+    if (!m_verifyDialog) {
+        m_verifyDialog = new OcrVerifyDialog(this);
+        connect(m_verifyDialog, &OcrVerifyDialog::confirmRequested,
+                this, &OCRMode::onVerifyConfirm);
+        connect(m_verifyDialog, &OcrVerifyDialog::skipRequested,
+                this, &OCRMode::onVerifySkip);
+    }
+
+    QList<OcrVerifyDialog::Item> items;
+    for (const int wi : m_lowConfWords) {
+        OcrVerifyDialog::Item it;
+        it.wordIndex  = wi;
+        it.text       = m_currentWords.at(wi).text;
+        it.confidence = m_currentWords.at(wi).confidence;
+        if (!m_pageImage.isNull()) {
+            // Same magnified-crop treatment as the zoom pane (B6).
+            const QRectF r = m_currentWords.at(wi).boundingBox;
+            const qreal margin = 4.0;
+            QRect crop((r.left() - margin), (r.top() - margin),
+                       (r.width() + 2 * margin), (r.height() + 2 * margin));
+            crop = crop.intersected(m_pageImage.rect());
+            if (!crop.isEmpty())
+                it.crop = m_pageImage.copy(crop);
+        }
+        items.append(it);
+    }
+    m_verifyDialog->setItems(items);
+    m_verifyDialog->show();
+    m_verifyDialog->raise();
+    m_verifyDialog->activateWindow();
+}
+
+void OCRMode::onVerifyConfirm(int wordIndex, const QString &correctedText)
+{
+    if (wordIndex < 0 || wordIndex >= m_currentWords.size()) return;
+
+    // Apply the correction into the editable text pane at the word's range.
+    if (m_textEdit && wordIndex < m_wordRanges.size()) {
+        QTextCursor c = m_textEdit->textCursor();
+        const int start = m_wordRanges.at(wordIndex).first;
+        c.setPosition(start);
+        c.setPosition(start + m_wordRanges.at(wordIndex).second,
+                      QTextCursor::KeepAnchor);
+        c.insertText(correctedText);
+    }
+
+    // Keep the model in sync so later indices stay valid.
+    m_currentWords[wordIndex].text = correctedText;
+    markWordVerified(wordIndex);
+
+    // Ranges after this word shifted by the length delta — rebuild.
+    rebuildTextWordIndex();
+    applyUncertainHighlights();
+}
+
+void OCRMode::onVerifySkip(int wordIndex)
+{
+    if (wordIndex < 0 || wordIndex >= m_currentWords.size()) return;
+    syncWordTo(wordIndex); // show where we are; no state change
 }
 
 // ── setOcrResults ─────────────────────────────────────────────────────────────

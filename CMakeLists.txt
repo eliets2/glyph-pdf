@@ -670,6 +670,7 @@ add_library(pdfws_ui STATIC
     src/shell/Sidebar.h                     src/shell/Sidebar.cpp
     src/modes/ModeController.h              src/modes/ModeController.cpp
     src/modes/OCRMode.h                     src/modes/OCRMode.cpp
+    src/modes/OcrVerifyDialog.h             src/modes/OcrVerifyDialog.cpp
     src/modes/RedactMode.h                  src/modes/RedactMode.cpp
     src/modes/CompareMode.h                 src/modes/CompareMode.cpp
     src/modes/PagesMode.h                   src/modes/PagesMode.cpp

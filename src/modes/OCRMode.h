@@ -9,6 +9,7 @@
 #include "engines/ocr/OcrPipeline.h"       // MergedOcrWord, PageOcrResult
 #include "docmodel/SemanticDocument.h"       // SemanticDocument
 #include "pdfws_djot/LuaDjotCodec.h"         // documentToDjot (encode only)
+#include "modes/OcrVerifyDialog.h"           // B3: Verify Text dialog
 
 class QComboBox;
 class QCheckBox;
@@ -101,6 +102,12 @@ private slots:
     /// B2: jump to the next/previous low-confidence word (Alt+Down / Alt+Up).
     void gotoNextUncertain();
     void gotoPrevUncertain();
+    /// B3: open the Verify Text dialog (Ctrl+F7) over the low-conf index.
+    void openVerifyDialog();
+    /// B4: apply a confirmed correction from the Verify dialog.
+    void onVerifyConfirm(int wordIndex, const QString &correctedText);
+    /// B4: skip — just advance the selection, no state change.
+    void onVerifySkip(int wordIndex);
 
 private:
     void buildToolbar(QVBoxLayout* col);
@@ -149,6 +156,9 @@ private:
     // B6: optional page raster backing the zoom pane's magnified crop.
     QImage m_pageImage;
     void renderZoomCrop(int wordIndex);
+
+    // B3: floating Verify Text dialog (owned, created lazily).
+    OcrVerifyDialog* m_verifyDialog = nullptr;
 
     // Last right-clicked region bbox (used by onReOcrRegion)
     QRectF m_contextRegionBbox;

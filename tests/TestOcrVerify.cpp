@@ -10,6 +10,7 @@
 #include <QtTest/QtTest>
 #include <QApplication>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QSettings>
 #include <QSignalSpy>
@@ -68,6 +69,9 @@ private slots:
 
     /** B6: zoom pane shows a magnified crop when a page image is present. */
     void zoomPaneRendersMagnifiedCrop();
+
+    /** B3/B4: Verify dialog walks flagged words; Confirm applies edits. */
+    void verifyDialogWalksAndAppliesCorrections();
 };
 void TestOcrVerify::noHighlightsWhenAllConfident()
 {
@@ -280,6 +284,35 @@ void TestOcrVerify::zoomPaneRendersMagnifiedCrop()
     for (QLabel* l : labels)
         if (!l->pixmap().isNull()) foundPixmap = true;
     QVERIFY2(foundPixmap, "zoom pane did not render a magnified crop pixmap");
+}
+
+void TestOcrVerify::verifyDialogWalksAndAppliesCorrections()
+{
+    gp::OCRMode mode;
+    QList<MergedOcrWord> words;
+    words << makeWord("alpha", 95) << makeWord("do1or", 42)
+          << makeWord("gamma", 88);
+    mode.setOcrResults(words);
+
+    // Open the Verify Text dialog from the toolbar.
+    auto* btnVerify = mode.findChild<QToolButton*>(QStringLiteral("ocrBtnVerify"));
+    QVERIFY2(btnVerify, "Verify Text toolbar button not found");
+    btnVerify->click();
+
+    auto* dlg = mode.findChild<gp::OcrVerifyDialog*>();
+    QVERIFY2(dlg, "OcrVerifyDialog was not created");
+    QCOMPARE(dlg->remaining(), 1);           // one low-confidence word
+    auto* edit = dlg->findChild<QLineEdit*>(QStringLiteral("ocrVerifyEdit"));
+    QVERIFY(edit);
+    QCOMPARE(edit->text(), QStringLiteral("do1or"));
+
+    // Confirm a correction: the text pane must be updated in place.
+    edit->setText(QStringLiteral("dolor"));
+    dlg->findChild<QToolButton*>(QStringLiteral("ocrVerifyConfirm"))->click();
+    QCOMPARE(mode.textPane()->toPlainText(),
+             QStringLiteral("alpha dolor gamma"));
+    QCOMPARE(mode.verifiedPercent(), 33);    // 1 of 3 words verified
+    QCOMPARE(dlg->remaining(), 0);           // queue exhausted
 }
 
 QTEST_MAIN(TestOcrVerify)
