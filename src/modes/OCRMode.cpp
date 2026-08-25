@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "OCRMode.h"
 #include "engines/ocr/RapidOcrEngine.h"
+#include "core/OcrTypes.h"
 #include "util/GpTheme.h"
 #include "util/Badge.h"
 #include "docmodel/Block.h"
@@ -21,6 +22,7 @@
 #include <QVBoxLayout>
 #include <QStandardItemModel>
 #include <QSettings>
+#include <QCoreApplication>
 
 #include <algorithm>
 #include <cmath>
@@ -85,10 +87,10 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     // ── Language selector ───────────────────────────────────────────────
     m_langCombo = new QComboBox;
     m_langCombo->setObjectName("ocrLangCombo");
-    m_langCombo->addItems({"EN · English", "DE · Deutsch", "FR · Français",
-                           "ES · Español", "IT · Italiano", "PT · Português",
-                           "RU · Русский", "ZH · 中文 (简)", "JA · 日本語",
-                           "KO · 한국어", "AR · العربية", "NL · Nederlands"});
+    for (const auto& l : ocrLanguages()) {
+        m_langCombo->addItem(QStringLiteral("%1 · %2")
+                                 .arg(QLatin1String(l.uiCode), QCoreApplication::translate("OCRMode", l.displayName)));
+    }
     m_langCombo->setProperty("variant", "ghost");
 
     // Restore the previously-selected OCR language (code before " · ") and
