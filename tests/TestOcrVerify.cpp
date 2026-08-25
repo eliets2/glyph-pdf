@@ -9,6 +9,7 @@
  */
 #include <QtTest/QtTest>
 #include <QApplication>
+#include <QCheckBox>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -107,6 +108,9 @@ private slots:
 
     /** B6: zoom hotkeys adjust the magnification of the crop. */
     void zoomHotkeysAdjustMagnification();
+
+    /** B15: spell-check and verify-low-conf toggles behave per spec. */
+    void spellCheckAndLowConfVerifyToggles();
 };
 void TestOcrVerify::noHighlightsWhenAllConfident()
 {
@@ -673,6 +677,42 @@ void TestOcrVerify::zoomHotkeysAdjustMagnification()
     for (const QLabel* l : mode.findChildren<QLabel*>())
         if (l->text() == QStringLiteral("ZOOM 500%")) zoomCellUpdated = true;
     QVERIFY2(zoomCellUpdated, "ZOOM cell did not update to 500%");
+}
+
+void TestOcrVerify::spellCheckAndLowConfVerifyToggles()
+{
+    QCoreApplication::setApplicationName(
+        QStringLiteral("ocr-verify-b15-%1").arg(QCoreApplication::applicationPid()));
+    QStandardPaths::setTestModeEnabled(true);
+
+    gp::OCRMode mode;
+    QList<MergedOcrWord> words;
+    words << makeWord("alpha", 95) << makeWord("do1or", 42);
+    mode.setOcrResults(words);
+
+    // Defaults: only the low-confidence word is flagged.
+    QCOMPARE(mode.lowConfidenceWordCount(), 1);
+
+    // Spell-check on: 'alpha' (high conf, missing from dictionary) is flagged.
+    auto* chkSpell = mode.findChild<QCheckBox*>(QStringLiteral("ocrChkSpell"));
+    QVERIFY2(chkSpell, "spell-check checkbox not found");
+    chkSpell->setChecked(true);
+    QCOMPARE(mode.lowConfidenceWordCount(), 2);
+    QCOMPARE(mode.uncertainHighlightCount(), 2);
+
+    // Verify low-conf off: the dialog skips words flagged for low confidence
+    // (do1or); purely spell-flagged words (alpha) still queue. Highlights
+    // remain untouched in the text pane — FineReader's documented behavior.
+    auto* chkLow = mode.findChild<QCheckBox*>(QStringLiteral("ocrChkLowConf"));
+    QVERIFY2(chkLow, "verify-low-conf checkbox not found");
+    chkLow->setChecked(false);
+    mode.findChild<QToolButton*>(QStringLiteral("ocrBtnVerify"))->click();
+    auto* dlg = mode.findChild<gp::OcrVerifyDialog*>();
+    QVERIFY(dlg);
+    QCOMPARE(dlg->remaining(), 1);
+    auto* edit = dlg->findChild<QLineEdit*>(QStringLiteral("ocrVerifyEdit"));
+    QCOMPARE(edit->text(), QStringLiteral("alpha"));
+    QCOMPARE(mode.uncertainHighlightCount(), 2);
 }
 
 QTEST_MAIN(TestOcrVerify)

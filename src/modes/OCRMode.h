@@ -167,6 +167,10 @@ private:
     QList<QPair<int, int>> m_wordRanges;
     QList<int>             m_lowConfWords;
 
+    // B15: why each entry in m_lowConfWords was flagged (parallel list):
+    // bit 0 = low confidence, bit 1 = missing from user dictionary.
+    QList<int> m_flagReasons;
+
     // B2: current position within m_lowConfWords (-1 = not started).
     int m_uncertainCursor = -1;
     bool m_uncertainEnabled = true;
@@ -175,6 +179,12 @@ private:
     int m_lowThreshold  = 70;   // below this → uncertain (red)
     int m_highThreshold = 90;   // at/above this → high confidence (green)
     QToolButton* m_btnUncertainToggle = nullptr;
+
+    // B15: verification-option toggles (persisted to QSettings).
+    bool m_spellCheckEnabled    = false;  // flag words missing from the dictionary
+    bool m_lowConfVerifyEnabled = true;   // queue low-conf words in Verify Text
+    QCheckBox* m_chkSpell       = nullptr;
+    QCheckBox* m_chkLowConf     = nullptr;
     QToolButton* m_btnPrevUncertain   = nullptr;
     QToolButton* m_btnNextUncertain   = nullptr;
 

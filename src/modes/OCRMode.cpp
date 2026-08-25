@@ -320,6 +320,41 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     connect(m_spinLowThresh, &QSpinBox::valueChanged, this, onThresholdChanged);
     connect(m_spinHighThresh, &QSpinBox::valueChanged, this, onThresholdChanged);
 
+    // ── B15: verification-option toggles (persisted) ────────────────────
+    {
+        QSettings settings;
+        m_spellCheckEnabled    = settings.value("ocr/spellCheck", false).toBool();
+        m_lowConfVerifyEnabled = settings.value("ocr/lowConfVerify", true).toBool();
+    }
+    m_chkSpell = new QCheckBox(tr("Spell-check"));
+    m_chkSpell->setObjectName("ocrChkSpell");
+    m_chkSpell->setChecked(m_spellCheckEnabled);
+    m_chkSpell->setStyleSheet("color:#c0c0c0; spacing:4px;");
+    m_chkSpell->setToolTip(tr("Also flag words that are not in the user dictionary"));
+    row->addWidget(m_chkSpell);
+
+    m_chkLowConf = new QCheckBox(tr("Verify low-conf"));
+    m_chkLowConf->setObjectName("ocrChkLowConf");
+    m_chkLowConf->setChecked(m_lowConfVerifyEnabled);
+    m_chkLowConf->setStyleSheet("color:#c0c0c0; spacing:4px;");
+    m_chkLowConf->setToolTip(
+        tr("When off, Verify Text skips low-confidence words (they stay highlighted)"));
+    row->addWidget(m_chkLowConf);
+
+    connect(m_chkSpell, &QCheckBox::toggled, this, [this](bool on) {
+        m_spellCheckEnabled = on;
+        QSettings settings;
+        settings.setValue("ocr/spellCheck", on);
+        rebuildTextWordIndex();
+        applyUncertainHighlights();
+        updateInfoStrip();
+    });
+    connect(m_chkLowConf, &QCheckBox::toggled, this, [this](bool on) {
+        m_lowConfVerifyEnabled = on;
+        QSettings settings;
+        settings.setValue("ocr/lowConfVerify", on);
+    });
+
     row->addStretch(1);
 
     // ── Run / Review actions ────────────────────────────────────────────
@@ -763,6 +798,7 @@ void OCRMode::onRejectResults()
     m_currentWords.clear();
     m_wordRanges.clear();
     m_lowConfWords.clear();
+    m_flagReasons.clear();
     m_verifiedWords.clear();
     m_skipAllTokens.clear();
     m_selectedWord = -1;
@@ -1005,7 +1041,14 @@ void OCRMode::openVerifyDialog()
     for (const auto &w : m_currentWords)
         if (!vocabulary.contains(w.text)) vocabulary.append(w.text);
 
-    for (const int wi : m_lowConfWords) {
+    for (int li = 0; li < m_lowConfWords.size(); ++li) {
+        const int wi = m_lowConfWords.at(li);
+        // B15: with "Verify low-conf" off, the dialog skips words flagged
+        // for low confidence; purely spell-flagged words still queue.
+        if (!m_lowConfVerifyEnabled &&
+            li < m_flagReasons.size() &&
+            (m_flagReasons.at(li) & 0x1))
+            continue;
         OcrVerifyDialog::Item it;
         it.wordIndex  = wi;
         it.text       = m_currentWords.at(wi).text;
@@ -1080,6 +1123,7 @@ void OCRMode::moveWord(int wordIndex, int delta)
             lines.append(w.text);
         m_wordRanges.clear();
         m_lowConfWords.clear();
+        m_flagReasons.clear();
         m_textEdit->setPlainText(lines.join(QStringLiteral(" ")));
         rebuildTextWordIndex();
         applyUncertainHighlights();
@@ -1107,6 +1151,7 @@ void OCRMode::setOcrResults(const QList<MergedOcrWord> &words)
         // must not resolve against the PREVIOUS document's word index.
         m_wordRanges.clear();
         m_lowConfWords.clear();
+        m_flagReasons.clear();
         QStringList lines;
         for (const auto &w : words)
             lines.append(w.text);
@@ -1273,6 +1318,7 @@ void OCRMode::rebuildTextWordIndex()
 {
     m_wordRanges.clear();
     m_lowConfWords.clear();
+    m_flagReasons.clear();
     if (!m_textEdit) return;
 
     const QString text = m_textEdit->toPlainText();
@@ -1290,10 +1336,16 @@ void OCRMode::rebuildTextWordIndex()
         if (idx < 0) break; // user-edited or mismatched text — stop flagging
         const int len = w.text.length();
         m_wordRanges.append({idx, len});
-        if (w.confidence < m_lowThreshold &&
-            !userDict.contains(w.text, Qt::CaseInsensitive) &&
-            !m_skipAllTokens.contains(w.text))
+        const bool lowConf = w.confidence < m_lowThreshold;
+        const bool notInDict = !userDict.contains(w.text, Qt::CaseInsensitive);
+        const bool suppressed = m_skipAllTokens.contains(w.text);
+        // B15: flag on low confidence (unless suppressed/known), and
+        // optionally on spelling (word missing from the user dictionary).
+        if (((lowConf && notInDict) || (m_spellCheckEnabled && notInDict))
+            && !suppressed) {
             m_lowConfWords.append(i); // B2: nav index = word position
+            m_flagReasons.append((lowConf ? 1 : 0) | (notInDict ? 2 : 0));
+        }
         from = idx + len;
     }
 }
