@@ -229,13 +229,17 @@ void OCRMode::buildInfoStrip(QVBoxLayout* col)
     row->setSpacing(14);
 
     m_lblPage    = infoLab(tr("PAGE — OF —"));
+    m_lblLanguage= infoLab(tr("LANGUAGE —"));
     m_lblAvgConf = infoLab(tr("AVG CONFIDENCE —"));
-    m_lblLowWords= infoLab(tr("LOW-CONFIDENCE WORDS —"));
+    m_lblLowWords= infoLab(tr("UNCERTAIN —"));
+    m_lblVerified= infoLab(tr("VERIFIED —"));
     m_lblEngine  = infoLab(tr("ENGINE: Tesseract 5"));
 
     row->addWidget(m_lblPage);
+    row->addWidget(m_lblLanguage);
     row->addWidget(m_lblAvgConf);
     row->addWidget(m_lblLowWords);
+    row->addWidget(m_lblVerified);
     row->addWidget(m_lblEngine);
     row->addStretch(1);
 
@@ -450,7 +454,8 @@ void OCRMode::onRunOcr()
     // Confidence stats will be updated by setOcrResults() when results arrive.
     // Clear the stats now to avoid showing stale values while OCR runs.
     m_lblAvgConf->setText(tr("AVG CONFIDENCE —"));
-    m_lblLowWords->setText(tr("LOW-CONFIDENCE WORDS —"));
+    m_lblLowWords->setText(tr("UNCERTAIN —"));
+    m_lblVerified->setText(tr("VERIFIED —"));
 
     emit ocrRequested();
 }
@@ -469,6 +474,7 @@ void OCRMode::onRejectResults()
     m_currentWords.clear();
     m_wordRanges.clear();
     m_lowConfWords.clear();
+    m_verifiedWords.clear();
     m_selectedWord = -1;
     m_uncertainCursor = -1;
     updateConfidenceOverlay();
@@ -603,6 +609,8 @@ void OCRMode::setOcrResults(const QList<MergedOcrWord> &words)
     m_currentWords = words;
     m_selectedWord = -1;   // new results: nothing synchronized yet
     m_uncertainCursor = -1;
+    m_verifiedWords.clear();
+    for (int i = 0; i < words.size(); ++i) m_verifiedWords.append(false);
     updateConfidenceOverlay();
     updateInfoStrip();
 
@@ -697,9 +705,21 @@ void OCRMode::updateConfidenceOverlay()
 
 void OCRMode::updateInfoStrip()
 {
+    // B7: page indicator (set via setPageProgress; em-dash state when unset).
+    if (m_pageTotal > 0)
+        m_lblPage->setText(tr("PAGE %1 OF %2").arg(m_pageCurrent).arg(m_pageTotal));
+    else
+        m_lblPage->setText(tr("PAGE — OF —"));
+
+    // B7: recognition language, mirrored from the persisted OCR language.
+    QSettings settings;
+    const QString code = settings.value(kOcrLanguageKey, "EN").toString();
+    m_lblLanguage->setText(tr("LANGUAGE %1").arg(code));
+
     if (m_currentWords.isEmpty()) {
         m_lblAvgConf->setText(tr("AVG CONFIDENCE —"));
-        m_lblLowWords->setText(tr("LOW-CONFIDENCE WORDS —"));
+        m_lblLowWords->setText(tr("UNCERTAIN —"));
+        m_lblVerified->setText(tr("VERIFIED —"));
         return;
     }
 
@@ -714,7 +734,34 @@ void OCRMode::updateInfoStrip()
     m_lblAvgConf->setText(
         tr("AVG CONFIDENCE %1%").arg(static_cast<int>(std::round(avgConf))));
     m_lblLowWords->setText(
-        tr("LOW-CONFIDENCE WORDS %1").arg(lowCount));
+        tr("UNCERTAIN %1 REMAINING").arg(lowCount));
+    m_lblVerified->setText(
+        tr("VERIFIED %1%").arg(verifiedPercent()));
+}
+
+// ── B7: page progress + verification state ───────────────────────────────────
+
+void OCRMode::setPageProgress(int current, int total)
+{
+    m_pageCurrent = current;
+    m_pageTotal   = total;
+    updateInfoStrip();
+}
+
+void OCRMode::markWordVerified(int wordIndex)
+{
+    if (wordIndex < 0 || wordIndex >= m_verifiedWords.size()) return;
+    m_verifiedWords[wordIndex] = true;
+    updateInfoStrip();
+}
+
+int OCRMode::verifiedPercent() const
+{
+    const int total = m_verifiedWords.size();
+    if (total == 0) return 0;
+    int verified = 0;
+    for (bool v : m_verifiedWords) if (v) ++verified;
+    return static_cast<int>(std::lround(verified * 100.0 / total));
 }
 
 // ── B1: uncertain-word highlighting in the editable text pane ────────────────

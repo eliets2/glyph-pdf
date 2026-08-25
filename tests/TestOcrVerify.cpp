@@ -11,6 +11,7 @@
 #include <QApplication>
 #include <QLabel>
 #include <QPlainTextEdit>
+#include <QSettings>
 #include <QSignalSpy>
 #include <QToolButton>
 
@@ -31,6 +32,13 @@ class TestOcrVerify : public QObject {
     Q_OBJECT
 
 private slots:
+    /** Give QSettings a real scope so language persistence is testable. */
+    void initTestCase()
+    {
+        QCoreApplication::setOrganizationName(QStringLiteral("glyphpdf-tests"));
+        QCoreApplication::setApplicationName(QStringLiteral("ocr-verify-tests"));
+    }
+
     /** High-confidence-only input produces zero highlights. */
     void noHighlightsWhenAllConfident();
 
@@ -51,6 +59,12 @@ private slots:
 
     /** B2: Next/Prev walk the low-confidence index in order, wrapping. */
     void uncertainNavigationWalksIndexInOrder();
+
+    /** B7: page progress + language cells render in the info strip. */
+    void statusStripShowsPageAndLanguage();
+
+    /** B7: verified % tracks markWordVerified and resets on new results. */
+    void verifiedPercentTracksVerification();
 };
 void TestOcrVerify::noHighlightsWhenAllConfident()
 {
@@ -185,6 +199,60 @@ void TestOcrVerify::uncertainNavigationWalksIndexInOrder()
     QSignalSpy spy2(&mode2, &gp::OCRMode::wordSelected);
     mode2.findChild<QToolButton*>(QStringLiteral("ocrBtnPrevUncertain"))->click();
     QCOMPARE(spy2.last().at(0).toInt(), 3);
+}
+
+void TestOcrVerify::statusStripShowsPageAndLanguage()
+{
+    // Persist a language so the strip has a real value to show.
+    // sync() makes the buffered write visible to OCRMode's own QSettings
+    // instance (offscreen tests share the default store).
+    QSettings settings;
+    settings.setValue(QStringLiteral("ocr/language"), QStringLiteral("DE"));
+    settings.sync();
+
+    gp::OCRMode mode;
+    QList<MergedOcrWord> words;
+    words << makeWord("alpha", 95) << makeWord("b3ta", 40);
+    mode.setOcrResults(words);
+    mode.setPageProgress(2, 14);
+
+    QString pageCell, langCell, uncertainCell, verifiedCell;
+    const QList<QLabel*> labels = mode.findChildren<QLabel*>();
+    for (const QLabel* l : labels) {
+        const QString t = l->text();
+        if (t.startsWith(QStringLiteral("PAGE")))       pageCell = t;
+        if (t.startsWith(QStringLiteral("LANGUAGE")))   langCell = t;
+        if (t.startsWith(QStringLiteral("UNCERTAIN")))  uncertainCell = t;
+        if (t.startsWith(QStringLiteral("VERIFIED")))   verifiedCell = t;
+    }
+    QCOMPARE(pageCell, QStringLiteral("PAGE 2 OF 14"));
+    QCOMPARE(langCell, QStringLiteral("LANGUAGE DE"));
+    QCOMPARE(uncertainCell, QStringLiteral("UNCERTAIN 1 REMAINING"));
+    QCOMPARE(verifiedCell, QStringLiteral("VERIFIED 0%"));
+}
+
+void TestOcrVerify::verifiedPercentTracksVerification()
+{
+    gp::OCRMode mode;
+    QList<MergedOcrWord> words;
+    words << makeWord("a", 95) << makeWord("b", 40) << makeWord("c", 95) << makeWord("d", 10);
+    mode.setOcrResults(words);
+    QCOMPARE(mode.verifiedPercent(), 0);
+
+    mode.markWordVerified(0);
+    mode.markWordVerified(1);
+    QCOMPARE(mode.verifiedPercent(), 50); // 2 of 4
+
+    mode.markWordVerified(3);
+    QCOMPARE(mode.verifiedPercent(), 75);
+
+    // Out-of-range index is ignored.
+    mode.markWordVerified(99);
+    QCOMPARE(mode.verifiedPercent(), 75);
+
+    // Loading new results resets verification state.
+    mode.setOcrResults(words);
+    QCOMPARE(mode.verifiedPercent(), 0);
 }
 
 QTEST_MAIN(TestOcrVerify)

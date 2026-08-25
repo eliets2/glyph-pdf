@@ -45,6 +45,14 @@ public:
     /// The editable recognized-text pane (for tests and sibling-pane sync).
     QPlainTextEdit* textPane() const { return m_textEdit; }
 
+    // ── B7: status-strip stats ──────────────────────────────────────────
+    /// Set the page indicator ("PAGE x OF y"); y<=0 shows the em-dash state.
+    void setPageProgress(int current, int total);
+    /// Mark a word as human-verified (drives the VERIFIED % cell).
+    void markWordVerified(int wordIndex);
+    /// Fraction of loaded words marked verified, in percent (0 if none loaded).
+    int verifiedPercent() const;
+
     /// Load a completed OCR result into the mode for review.
     /// Call this after the OCR pipeline produces results.
     void setOcrResults(const QList<MergedOcrWord> &words);
@@ -127,6 +135,11 @@ private:
     QToolButton* m_btnPrevUncertain   = nullptr;
     QToolButton* m_btnNextUncertain   = nullptr;
 
+    // B7: verification progress + page indicator state.
+    QList<bool> m_verifiedWords;
+    int m_pageCurrent = 0;
+    int m_pageTotal   = 0;
+
     // Last right-clicked region bbox (used by onReOcrRegion)
     QRectF m_contextRegionBbox;
 
@@ -143,8 +156,10 @@ private:
 
     // Info strip labels
     QLabel* m_lblPage       = nullptr;
+    QLabel* m_lblLanguage   = nullptr;
     QLabel* m_lblAvgConf    = nullptr;
     QLabel* m_lblLowWords   = nullptr;
+    QLabel* m_lblVerified   = nullptr;
     QLabel* m_lblEngine     = nullptr;
 
     // Panes
