@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 #include <QList>
+#include <QPair>
 #include <QRectF>
 #include <QWidget>
 
@@ -25,10 +26,24 @@ namespace gp {
 ///   - Per-word confidence overlay (green ≥90 / yellow 70-89 / red <70)
 ///   - Right-click region → "Re-OCR this region"
 ///   - "Review before save" per-region accept/reject
+/// B1 (FineReader verify spec): low-confidence words (< 70, the same cutoff
+/// as the red scan-pane overlay) are highlighted with a light-blue background
+/// inside the editable text pane — FineReader's "uncertain characters"
+/// treatment. A checkable toggle in the text-pane header shows/hides it.
 class OCRMode : public QWidget {
     Q_OBJECT
 public:
     explicit OCRMode(QWidget* parent = nullptr);
+
+    /// Number of words flagged uncertain (confidence < 70) in the loaded results.
+    int lowConfidenceWordCount() const { return m_lowConfWords.size(); }
+
+    /// Number of ExtraSelection highlights currently applied to the text pane.
+    /// Mirrors the toggle state: 0 when highlighting is disabled.
+    int uncertainHighlightCount() const;
+
+    /// The editable recognized-text pane (for tests and sibling-pane sync).
+    QPlainTextEdit* textPane() const { return m_textEdit; }
 
     /// Load a completed OCR result into the mode for review.
     /// Call this after the OCR pipeline produces results.
@@ -75,8 +90,20 @@ private:
     /// Update info strip (avg confidence, low-confidence word count) from m_currentWords.
     void updateInfoStrip();
 
+    /// B1: record character offsets of each word while populating the text pane,
+    /// then (re)apply the uncertain-word ExtraSelection highlights.
+    void rebuildTextWordIndex();
+    void applyUncertainHighlights();
+
     // Current OCR state
     QList<MergedOcrWord> m_currentWords;
+
+    // B1: char-range (start, length) of every word in the text pane, in order,
+    // parallel to m_currentWords; plus the <70 subset used for highlighting.
+    QList<QPair<int, int>> m_wordRanges;
+    QList<QPair<int, int>> m_lowConfWords;
+    bool m_uncertainEnabled = true;
+    QToolButton* m_btnUncertainToggle = nullptr;
 
     // Last right-clicked region bbox (used by onReOcrRegion)
     QRectF m_contextRegionBbox;

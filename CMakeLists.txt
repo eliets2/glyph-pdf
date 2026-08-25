@@ -1632,6 +1632,32 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestMrcPipeline.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrVerify.cpp")
+    add_executable(TestOcrVerify
+        tests/TestOcrVerify.cpp
+    )
+    target_include_directories(TestOcrVerify PRIVATE src tests)
+    target_link_libraries(TestOcrVerify PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestOcrVerify POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestOcrVerify>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestOcrVerify>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestOcrVerify"
+    )
+    add_test(NAME TestOcrVerify COMMAND TestOcrVerify)
+    set_tests_properties(TestOcrVerify PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;modes;ocr;verify;ui;qt;headless"
+    )
+endif()
+
 # ── Fuzz / verification rig (opt-in, NEVER part of the normal build) ─────────
 # Set -DGLYPHPDF_FUZZ=ON to wire in fuzz/CMakeLists.txt. Default is OFF so the
 # normal cmake --build build + ctest -j4 suite is completely unaffected.

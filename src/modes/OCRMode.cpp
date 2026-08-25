@@ -17,6 +17,8 @@
 #include <QPlainTextEdit>
 #include <QScrollArea>
 #include <QSplitter>
+#include <QTextCharFormat>
+#include <QTextEdit>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QStandardItemModel>
@@ -303,6 +305,20 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     txtHeadRow->setContentsMargins(12,0,12,0);
     txtHeadRow->addWidget(monoLab(tr("RECOGNIZED · EDITABLE")));
     txtHeadRow->addStretch(1);
+
+    // B1: FineReader-style "Uncertain characters" show/hide toggle.
+    m_btnUncertainToggle = new QToolButton;
+    m_btnUncertainToggle->setObjectName("ocrBtnUncertainToggle");
+    m_btnUncertainToggle->setText(tr("Uncertain"));
+    m_btnUncertainToggle->setCheckable(true);
+    m_btnUncertainToggle->setChecked(true);
+    m_btnUncertainToggle->setToolTip(tr("Highlight low-confidence words in the text pane"));
+    connect(m_btnUncertainToggle, &QToolButton::toggled, this, [this](bool on) {
+        m_uncertainEnabled = on;
+        applyUncertainHighlights();
+    });
+    txtHeadRow->addWidget(m_btnUncertainToggle);
+
     txtHeadRow->addWidget(monoLab(tr("UTF-8")));
     txtLay->addWidget(txtHead);
 
@@ -412,9 +428,14 @@ void OCRMode::onRejectResults()
     // Reject clears the current OCR overlay/results so the page returns to its
     // pre-OCR state; the host is notified to drop any pending applied text.
     m_currentWords.clear();
+    m_wordRanges.clear();
+    m_lowConfWords.clear();
     updateConfidenceOverlay();
     updateInfoStrip();
-    if (m_textEdit) m_textEdit->clear();
+    if (m_textEdit) {
+        m_textEdit->clear();
+        m_textEdit->setExtraSelections({});
+    }
     m_btnAccept->setEnabled(false);
     m_btnReject->setEnabled(false);
     emit reviewRejected();
@@ -463,12 +484,15 @@ void OCRMode::setOcrResults(const QList<MergedOcrWord> &words)
     updateConfidenceOverlay();
     updateInfoStrip();
 
-    // Populate plain-text editor with the recognized text
+    // Populate plain-text editor with the recognized text, recording each
+    // word's character range so low-confidence words can be highlighted (B1).
     if (m_textEdit) {
         QStringList lines;
         for (const auto &w : words)
             lines.append(w.text);
         m_textEdit->setPlainText(lines.join(QStringLiteral(" ")));
+        rebuildTextWordIndex();
+        applyUncertainHighlights();
     }
 
     // Restore the Run button (it was disabled + relabelled while OCR ran).
@@ -555,6 +579,58 @@ void OCRMode::updateInfoStrip()
         tr("AVG CONFIDENCE %1%").arg(static_cast<int>(std::round(avgConf))));
     m_lblLowWords->setText(
         tr("LOW-CONFIDENCE WORDS %1").arg(lowCount));
+}
+
+// ── B1: uncertain-word highlighting in the editable text pane ────────────────
+
+int OCRMode::uncertainHighlightCount() const
+{
+    return m_textEdit ? m_textEdit->extraSelections().size() : 0;
+}
+
+void OCRMode::rebuildTextWordIndex()
+{
+    m_wordRanges.clear();
+    m_lowConfWords.clear();
+    if (!m_textEdit) return;
+
+    const QString text = m_textEdit->toPlainText();
+    int from = 0;
+    for (const auto &w : m_currentWords) {
+        // Words were joined with single spaces in document order, so a
+        // forward search always finds the next occurrence.
+        const int idx = text.indexOf(w.text, from);
+        if (idx < 0) break; // user-edited or mismatched text — stop flagging
+        const int len = w.text.length();
+        m_wordRanges.append({idx, len});
+        if (w.confidence < 70)
+            m_lowConfWords.append({idx, len});
+        from = idx + len;
+    }
+}
+
+void OCRMode::applyUncertainHighlights()
+{
+    if (!m_textEdit) return;
+
+    QList<QTextEdit::ExtraSelection> sels;
+    if (m_uncertainEnabled) {
+        // FineReader's light-blue "uncertain characters" background.
+        QTextCharFormat fmt;
+        fmt.setBackground(QColor(QStringLiteral("#b9d7f2")));
+
+        sels.reserve(m_lowConfWords.size());
+        for (const auto &r : m_lowConfWords) {
+            QTextEdit::ExtraSelection sel;
+            sel.cursor = QTextCursor(m_textEdit->document());
+            sel.cursor.setPosition(r.first);
+            sel.cursor.setPosition(r.first + r.second, QTextCursor::KeepAnchor);
+            sel.format = fmt;
+            sel.cursor.clearSelection();
+            sels.append(sel);
+        }
+    }
+    m_textEdit->setExtraSelections(sels);
 }
 
 // ── setSemanticDocument — Djot-aware review UI ────────────────────────────────
