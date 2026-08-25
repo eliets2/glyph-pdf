@@ -27,6 +27,7 @@
 #include <QRandomGenerator>
 #include <QStandardPaths>
 #include <cstdlib>
+#include <unordered_map>
 
 
 #ifndef M_PI
@@ -3142,6 +3143,33 @@ bool PoDoFoBackend::addTextWatermark(const TextWatermarkOptions &options)
         gsObj.GetDictionary().AddKey("ca", static_cast<double>(options.opacity));
         gsObj.GetDictionary().AddKey("CA", static_cast<double>(options.opacity));
 
+        // §9.11 P0: honor the user-selected font family instead of hard-coding
+        // Helvetica. Resolve order: installed/system font matching the family,
+        // then the PDF base-14 font of the same name (the WatermarkDialog offers
+        // exactly these PS names), then Helvetica — same fallback shape as
+        // addHeaderFooter.
+        constexpr const char* kFontResource = "GS_WM_Font";
+        std::string fontName = options.fontFamily.isEmpty() ? "Helvetica"
+                                                            : options.fontFamily.toStdString();
+        const PoDoFo::PdfFont* font = doc.GetFonts().SearchFont(fontName);
+        if (!font) {
+            // Map base-14 PostScript names to PoDoFo's guaranteed standard-14 set.
+            using S14 = PoDoFo::PdfStandard14FontType;
+            static const std::unordered_map<std::string, S14> kBase14 = {
+                {"Helvetica", S14::Helvetica},          {"Courier", S14::Courier},
+                {"Times-Roman", S14::TimesRoman},       {"Symbol", S14::Symbol},
+                {"ZapfDingbats", S14::ZapfDingbats},
+            };
+            auto it = kBase14.find(fontName);
+            if (it != kBase14.end()) {
+                font = &doc.GetFonts().GetStandard14Font(it->second);
+            }
+        }
+        if (!font) {
+            fontName = "Helvetica";
+            font = &doc.GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::Helvetica);
+        }
+
         for (int i = from; i <= to; ++i) {
             auto& page = doc.GetPages().GetPageAt(i);
             PoDoFo::Rect mediaBox = page.GetMediaBox();
@@ -3165,11 +3193,6 @@ bool PoDoFoBackend::addTextWatermark(const TextWatermarkOptions &options)
             PoDoFo::PdfPainter painter;
             painter.SetCanvas(page);
 
-            // Set graphics state for transparency
-            const PoDoFo::PdfFont* font = doc.GetFonts().SearchFont("Helvetica");
-            if (!font) {
-                font = &doc.GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::Helvetica);
-            }
             painter.TextState.SetFont(*font, static_cast<float>(options.fontSize));
             painter.GraphicsState.SetNonStrokingColor(PoDoFo::PdfColor(
                 options.color.redF(), options.color.greenF(), options.color.blueF()));
@@ -3184,36 +3207,26 @@ bool PoDoFoBackend::addTextWatermark(const TextWatermarkOptions &options)
             double cosA = std::cos(radians);
             double sinA = std::sin(radians);
 
-            std::string text = options.text.toStdString();
-
             std::ostringstream wm;
             wm << "q\n";
             wm << "/GS_WM gs\n";
             wm << "BT\n";
-            wm << "/Helvetica " << options.fontSize << " Tf\n";
+            wm << "/" << kFontResource << " " << options.fontSize << " Tf\n";
             wm << options.color.redF() << " " << options.color.greenF() << " " << options.color.blueF() << " rg\n";
             wm << cosA << " " << sinA << " " << -sinA << " " << cosA << " " << cx << " " << cy << " Tm\n";
-            // Center the text roughly
-            double estimatedWidth = text.size() * options.fontSize * 0.5;
-            wm << -(estimatedWidth / 2.0) << " " << -(options.fontSize / 2.0) << " Td\n";
-            wm << "(" << pdfEscapeLiteralString(text) << ") Tj\n";
+            // §9.11 P0: center using real glyph advances, not a char-count estimate.
+            const QByteArray wmUtf8 = options.text.toUtf8();
+            PoDoFo::PdfTextState ts;
+            ts.Font = font;
+            ts.FontSize = static_cast<double>(options.fontSize);
+            const double textWidth = font->GetStringLength(wmUtf8.constData(), ts);
+            wm << -(textWidth / 2.0) << " " << -(options.fontSize / 2.0) << " Td\n";
+            wm << "(" << pdfEscapeLiteralString(options.text) << ") Tj\n";
             wm << "ET\n";
             wm << "Q\n";
 
-            // Also register Helvetica in page fonts
-            auto* fontDict = resDict->GetDictionary().FindKey("Font");
-            if (!fontDict) {
-                resDict->GetDictionary().AddKey("Font", PoDoFo::PdfDictionary());
-                fontDict = resDict->GetDictionary().FindKey("Font");
-            }
-            if (!fontDict->GetDictionary().HasKey("Helvetica")) {
-                // Create a base-14 font reference
-                auto& fontObj = doc.GetObjects().CreateDictionaryObject();
-                fontObj.GetDictionary().AddKey("Type", PoDoFo::PdfName("Font"));
-                fontObj.GetDictionary().AddKey("Subtype", PoDoFo::PdfName("Type1"));
-                fontObj.GetDictionary().AddKey("BaseFont", PoDoFo::PdfName("Helvetica"));
-                fontDict->GetDictionary().AddKeyIndirect("Helvetica", fontObj);
-            }
+            // Register the resolved watermark font in page fonts (§9.11 P0).
+            ensureStandardFontResource(doc, page, kFontResource, fontName);
 
             appendPageContent(doc, page, wm.str());
         }

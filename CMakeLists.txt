@@ -1535,6 +1535,31 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestUpdateChecker.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestWatermarkFont.cpp")
+    add_executable(TestWatermarkFont
+        tests/TestWatermarkFont.cpp
+    )
+    target_include_directories(TestWatermarkFont PRIVATE src tests)
+    target_link_libraries(TestWatermarkFont PRIVATE
+        pdfws_engines pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET TestWatermarkFont POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestWatermarkFont>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestWatermarkFont>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestWatermarkFont"
+    )
+    add_test(NAME TestWatermarkFont COMMAND TestWatermarkFont)
+    set_tests_properties(TestWatermarkFont PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;security;watermark;font;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAnnotationDjot.cpp")
     add_executable(TestAnnotationDjot
         tests/TestAnnotationDjot.cpp
