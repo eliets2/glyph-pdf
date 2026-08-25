@@ -98,6 +98,9 @@ private slots:
 
     /** B4: Skip All / Replace All act on every occurrence of the token. */
     void skipAllAndReplaceAll();
+
+    /** B4: Re-recognize reuses the per-region Re-OCR pathway. */
+    void reRecognizeEmitsRegionRequest();
 };
 void TestOcrVerify::noHighlightsWhenAllConfident()
 {
@@ -556,6 +559,26 @@ void TestOcrVerify::skipAllAndReplaceAll()
         QCOMPARE(dlg->remaining(), 0);
         QCOMPARE(mode.verifiedPercent(), 67);   // both occurrences verified
     }
+}
+
+void TestOcrVerify::reRecognizeEmitsRegionRequest()
+{
+    gp::OCRMode mode;
+    QList<MergedOcrWord> words;
+    MergedOcrWord w = makeWord("do1or", 42);
+    w.boundingBox = QRectF(11, 22, 33, 44);
+    words << w;
+    mode.setOcrResults(words);
+
+    mode.findChild<QToolButton*>(QStringLiteral("ocrBtnVerify"))->click();
+    auto* dlg = mode.findChild<gp::OcrVerifyDialog*>();
+    QVERIFY(dlg);
+
+    QSignalSpy spy(&mode, &gp::OCRMode::reOcrRegionRequested);
+    dlg->findChild<QToolButton*>(QStringLiteral("ocrVerifyReRecognize"))->click();
+
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy.first().at(0).toRectF(), QRectF(11, 22, 33, 44));
 }
 
 QTEST_MAIN(TestOcrVerify)

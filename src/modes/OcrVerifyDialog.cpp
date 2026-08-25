@@ -79,6 +79,13 @@ OcrVerifyDialog::OcrVerifyDialog(QWidget* parent) : QDialog(parent)
     m_btnReplAll->setText(tr("Replace All"));
     btnRow->addWidget(m_btnReplAll);
 
+    // B4: re-run recognition on this word's region (reuses the existing
+    // per-region Re-OCR pathway).
+    m_btnReOcr = new QToolButton;
+    m_btnReOcr->setObjectName("ocrVerifyReRecognize");
+    m_btnReOcr->setText(tr("Re-recognize"));
+    btnRow->addWidget(m_btnReOcr);
+
     btnRow->addStretch(1);
     lay->addLayout(btnRow);
 
@@ -88,6 +95,10 @@ OcrVerifyDialog::OcrVerifyDialog(QWidget* parent) : QDialog(parent)
             this, &OcrVerifyDialog::onAddToDictionary);
     connect(m_btnSkipAll, &QToolButton::clicked, this, &OcrVerifyDialog::onSkipAll);
     connect(m_btnReplAll, &QToolButton::clicked, this, &OcrVerifyDialog::onReplaceAll);
+    connect(m_btnReOcr,   &QToolButton::clicked, this, [this]() {
+        if (m_cursor < 0 || m_cursor >= m_items.size()) return;
+        emit reRecognizeRequested(m_items.at(m_cursor).wordIndex);
+    });
 }
 
 void OcrVerifyDialog::setItems(const QList<Item> &items)

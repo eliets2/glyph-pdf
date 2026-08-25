@@ -51,6 +51,8 @@ signals:
     void skipAllRequested(const QString &word);
     /// B4: apply `to` in place of every occurrence of `from`.
     void replaceAllRequested(const QString &from, const QString &to);
+    /// B4: re-run recognition on the current word's region.
+    void reRecognizeRequested(int wordIndex);
     /// The queue was exhausted (all items visited).
     void finished();
 
@@ -77,6 +79,7 @@ private:
     QToolButton* m_btnAddDict  = nullptr;
     QToolButton* m_btnSkipAll  = nullptr;
     QToolButton* m_btnReplAll  = nullptr;
+    QToolButton* m_btnReOcr    = nullptr;
 };
 
 } // namespace gp

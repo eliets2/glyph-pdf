@@ -939,6 +939,13 @@ void OCRMode::openVerifyDialog()
                         }
                     }
                 });
+        connect(m_verifyDialog, &OcrVerifyDialog::reRecognizeRequested,
+                this, [this](int wordIndex) {
+                    if (wordIndex < 0 || wordIndex >= m_currentWords.size()) return;
+                    // Reuse the existing per-region Re-OCR pathway; the host
+                    // brokers reOcrRegionRequested to EditController.
+                    emit reOcrRegionRequested(m_currentWords.at(wordIndex).boundingBox);
+                });
     }
 
     QList<OcrVerifyDialog::Item> items;
