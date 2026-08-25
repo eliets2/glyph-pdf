@@ -36,6 +36,13 @@ CompareMode::CompareMode(QWidget* parent) : QWidget(parent) {
     hrow->addWidget(mono(tr("COMPARE")));
     m_filesLabel = mono(tr("No files selected — use Compare Docs to open two PDFs"));
     hrow->addWidget(m_filesLabel);
+    auto* pickBtn = new QToolButton;
+    pickBtn->setText(tr("Compare Docs…"));
+    pickBtn->setToolTip(tr("Choose two PDFs and compare them"));
+    // §9.10 P0: this entry point was built but never connected — the whole
+    // comparison feature was unreachable from the UI.
+    connect(pickBtn, &QToolButton::clicked, this, [this] { promptAndCompare(); });
+    hrow->addWidget(pickBtn);
     m_prevBtn = new QToolButton; m_prevBtn->setText(tr("← PREV")); m_prevBtn->setProperty("variant","ghost");
     m_prevBtn->setToolTip(tr("Navigate to previous change"));
     // O4: disabled until a diff completes and produces at least one change.
@@ -336,6 +343,42 @@ QString CompareMode::buildTextReport() const {
         o << "\n";
     }
     return out;
+}
+
+bool CompareMode::pathsAreComparable(const QString& a, const QString& b, QString* why) {
+    if (!QFileInfo::exists(a)) {
+        if (why) *why = tr("File not found: %1").arg(a);
+        return false;
+    }
+    if (!QFileInfo::exists(b)) {
+        if (why) *why = tr("File not found: %1").arg(b);
+        return false;
+    }
+    if (QFileInfo(a).canonicalFilePath() == QFileInfo(b).canonicalFilePath()) {
+        if (why) *why = tr("Please choose two different files to compare.");
+        return false;
+    }
+    return true;
+}
+
+bool CompareMode::startComparison(const QString& a, const QString& b) {
+    QString why;
+    if (!pathsAreComparable(a, b, &why)) {
+        QMessageBox::warning(this, tr("Compare Documents"), why);
+        return false;
+    }
+    compareFiles(a, b);
+    return true;
+}
+
+void CompareMode::promptAndCompare(const QString& suggested) {
+    const QString f1 = QFileDialog::getOpenFileName(this, tr("Select Original Document"), suggested,
+                                                    tr("PDF files (*.pdf);;All files (*)"));
+    if (f1.isEmpty()) return;
+    const QString f2 = QFileDialog::getOpenFileName(this, tr("Select Revised Document"), QString(),
+                                                    tr("PDF files (*.pdf);;All files (*)"));
+    if (f2.isEmpty()) return;
+    startComparison(f1, f2);
 }
 
 } // namespace gp

@@ -18,6 +18,12 @@ public:
     explicit CompareMode(QWidget* parent = nullptr);
     void compareFiles(const QString& file1, const QString& file2);
 
+    bool isBusy() const { return m_watcher.isRunning(); }
+    const DiffResult& lastResult() const { return m_lastResult; }
+    bool startComparison(const QString& a, const QString& b);
+    void promptAndCompare(const QString& suggested = QString());
+    static bool pathsAreComparable(const QString& a, const QString& b, QString* why = nullptr);
+
 private slots:
     void onDiffFinished();
     void onExportReport();
