@@ -7,6 +7,7 @@
 
 class QLabel;
 class QLineEdit;
+class QListWidget;
 class QToolButton;
 
 namespace gp {
@@ -30,6 +31,7 @@ public:
         QString text;          // recognized text
         int     confidence     = 0;
         QImage  crop;             // magnified crop (may be null)
+        QStringList suggestions; // B9: ranked correction candidates
     };
 
     /// Load the ordered list of flagged words and start at the first.
@@ -63,6 +65,7 @@ private:
     QLabel*      m_reasonLabel = nullptr;
     QLabel*      m_posLabel    = nullptr;
     QLineEdit*   m_edit        = nullptr;
+    QListWidget* m_suggestions = nullptr;
     QToolButton* m_btnConfirm  = nullptr;
     QToolButton* m_btnSkip     = nullptr;
     QToolButton* m_btnAddDict  = nullptr;

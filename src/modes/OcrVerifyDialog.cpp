@@ -4,6 +4,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -42,6 +43,15 @@ OcrVerifyDialog::OcrVerifyDialog(QWidget* parent) : QDialog(parent)
     m_edit = new QLineEdit;
     m_edit->setObjectName("ocrVerifyEdit");
     lay->addWidget(m_edit);
+
+    // B9: ranked correction candidates; picking one fills the edit field.
+    m_suggestions = new QListWidget;
+    m_suggestions->setObjectName("ocrVerifySuggestions");
+    m_suggestions->setMaximumHeight(96);
+    lay->addWidget(m_suggestions);
+    connect(m_suggestions, &QListWidget::itemClicked, this, [this](QListWidgetItem *it) {
+        if (it) m_edit->setText(it->text());
+    });
 
     auto* btnRow = new QHBoxLayout;
     m_btnConfirm = new QToolButton;
@@ -92,6 +102,8 @@ void OcrVerifyDialog::showItem()
         m_edit->setEnabled(false);
         m_btnConfirm->setEnabled(false);
         m_btnSkip->setEnabled(false);
+        m_btnAddDict->setEnabled(false);
+        m_suggestions->clear();
         emit finished();
         return;
     }
@@ -110,6 +122,13 @@ void OcrVerifyDialog::showItem()
     m_edit->setEnabled(true);
     m_btnConfirm->setEnabled(true);
     m_btnSkip->setEnabled(true);
+    m_btnAddDict->setEnabled(true);
+
+    // B9: show ranked suggestions for this word.
+    m_suggestions->clear();
+    for (const QString &s : it.suggestions)
+        m_suggestions->addItem(s);
+
     m_edit->selectAll();
     m_edit->setFocus();
 }

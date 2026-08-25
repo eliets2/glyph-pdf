@@ -67,6 +67,12 @@ public:
     /// Append a word to the user dictionary for a language.
     static bool addUserDictionaryWord(const QString &langCode, const QString &word);
 
+    /// B9: ranked correction candidates for `word` from `vocabulary`
+    /// (Damerau-Levenshtein ≤ 2; no external spell engine —
+    /// upgrade path: swap for Hunspell suggest() behind this seam).
+    static QStringList suggestCorrections(const QString &word,
+                                          const QStringList &vocabulary);
+
     /// B6: provide the page raster so the zoom pane can show a real magnified
     /// crop of the selected word. Optional — without it the zoom pane falls
     /// back to showing the recognized string in large type.

@@ -84,6 +84,47 @@ bool OCRMode::addUserDictionaryWord(const QString &langCode, const QString &word
     return true;
 }
 
+// B9: bounded Damerau-Levenshtein distance (optimal string alignment).
+static int editDistance(const QString &a, const QString &b)
+{
+    const int n = a.size(), m = b.size();
+    QVector<QVector<int>> d(n + 1, QVector<int>(m + 1, 0));
+    for (int i = 0; i <= n; ++i) d[i][0] = i;
+    for (int j = 0; j <= m; ++j) d[0][j] = j;
+    for (int i = 1; i <= n; ++i) {
+        for (int j = 1; j <= m; ++j) {
+            const int cost = (a.at(i - 1) == b.at(j - 1)) ? 0 : 1;
+            int best = std::min({ d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + cost });
+            if (i > 1 && j > 1 &&
+                a.at(i - 1) == b.at(j - 2) && a.at(i - 2) == b.at(j - 1))
+                best = std::min(best, d[i-2][j-2] + 1); // transposition
+            d[i][j] = best;
+        }
+    }
+    return d[n][m];
+}
+
+QStringList OCRMode::suggestCorrections(const QString &word,
+                                        const QStringList &vocabulary)
+{
+    // upgrade path: replace with Hunspell suggest() behind this same seam.
+    struct Cand { QString text; int dist; };
+    QList<Cand> cands;
+    for (const QString &v : vocabulary) {
+        if (v.isEmpty() || v.compare(word, Qt::CaseInsensitive) == 0) continue;
+        const int d = editDistance(word.toLower(), v.toLower());
+        if (d <= 2) cands.append({v, d});
+    }
+    std::stable_sort(cands.begin(), cands.end(),
+                     [](const Cand &a, const Cand &b) { return a.dist < b.dist; });
+    QStringList out;
+    for (const auto &c : cands) {
+        if (!out.contains(c.text, Qt::CaseInsensitive)) out.append(c.text);
+        if (out.size() >= 5) break;   // FineReader shows a short ranked list
+    }
+    return out;
+}
+
 // ── helpers ─────────────────────────────────────────────────────────────────
 
 static QFrame* makeStrip(const char* role, int h) {
@@ -746,11 +787,18 @@ void OCRMode::openVerifyDialog()
     }
 
     QList<OcrVerifyDialog::Item> items;
+
+    // B9: candidate pool = user dictionary + every word in the document.
+    QStringList vocabulary = loadUserDictionary(m_dictLang);
+    for (const auto &w : m_currentWords)
+        if (!vocabulary.contains(w.text)) vocabulary.append(w.text);
+
     for (const int wi : m_lowConfWords) {
         OcrVerifyDialog::Item it;
         it.wordIndex  = wi;
         it.text       = m_currentWords.at(wi).text;
         it.confidence = m_currentWords.at(wi).confidence;
+        it.suggestions = suggestCorrections(it.text, vocabulary);
         if (!m_pageImage.isNull()) {
             // Same magnified-crop treatment as the zoom pane (B6).
             const QRectF r = m_currentWords.at(wi).boundingBox;

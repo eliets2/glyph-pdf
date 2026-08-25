@@ -11,6 +11,7 @@
 #include <QApplication>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QPlainTextEdit>
 #include <QSettings>
 #include <QSignalSpy>
@@ -79,6 +80,9 @@ private slots:
 
     /** B10: user dictionary suppresses flagging and persists to disk. */
     void userDictionarySuppressesFlagging();
+
+    /** B9: ranked suggestions appear in the dialog and fill the edit field. */
+    void suggestionsRankedAndApplicable();
 };
 void TestOcrVerify::noHighlightsWhenAllConfident()
 {
@@ -368,6 +372,42 @@ void TestOcrVerify::userDictionarySuppressesFlagging()
     // 'do1or' is in the dictionary → only 'b3ta' stays flagged.
     QCOMPARE(mode.lowConfidenceWordCount(), 1);
     QCOMPARE(mode.uncertainHighlightCount(), 1);
+}
+
+void TestOcrVerify::suggestionsRankedAndApplicable()
+{
+    // Isolate from the B10 dictionary test running earlier in this process:
+    // a leftover 'do1or' entry would suppress flagging entirely.
+    QCoreApplication::setApplicationName(
+        QStringLiteral("ocr-verify-sugg-%1").arg(QCoreApplication::applicationPid()));
+    QStandardPaths::setTestModeEnabled(true);
+
+    // Unit level: distance-1 candidate ranks first; far words are excluded.
+    const QStringList vocab = {"dolor", "dollar", "gamma", "zebra"};
+    const QStringList sugg = gp::OCRMode::suggestCorrections(
+        QStringLiteral("do1or"), vocab);
+    QVERIFY2(!sugg.isEmpty(), "expected at least one suggestion");
+    QCOMPARE(sugg.first(), QStringLiteral("dolor"));
+    QVERIFY(!sugg.contains(QStringLiteral("zebra")));
+
+    // Dialog level: suggestions populate the list; clicking fills the edit.
+    gp::OCRMode mode;
+    QList<MergedOcrWord> words;
+    words << makeWord("do1or", 42) << makeWord("dolor", 95) << makeWord("dollar", 90);
+    mode.setOcrResults(words);
+    mode.findChild<QToolButton*>(QStringLiteral("ocrBtnVerify"))->click();
+
+    auto* dlg = mode.findChild<gp::OcrVerifyDialog*>();
+    QVERIFY(dlg);
+    auto* list = dlg->findChild<QListWidget*>(QStringLiteral("ocrVerifySuggestions"));
+    QVERIFY2(list, "suggestions list not found");
+    QVERIFY(list->count() >= 1);
+    QCOMPARE(list->item(0)->text(), QStringLiteral("dolor"));
+
+    list->item(0)->setSelected(true);
+    emit list->itemClicked(list->item(0));
+    auto* edit = dlg->findChild<QLineEdit*>(QStringLiteral("ocrVerifyEdit"));
+    QCOMPARE(edit->text(), QStringLiteral("dolor"));
 }
 
 QTEST_MAIN(TestOcrVerify)
