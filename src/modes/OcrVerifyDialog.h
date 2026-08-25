@@ -43,12 +43,15 @@ signals:
     void confirmRequested(int wordIndex, const QString &correctedText);
     /// User skipped the word without changes.
     void skipRequested(int wordIndex);
+    /// B10: add the current word to the user dictionary.
+    void addToDictionaryRequested(const QString &word);
     /// The queue was exhausted (all items visited).
     void finished();
 
 private slots:
     void onConfirm();
     void onSkip();
+    void onAddToDictionary();
 
 private:
     void showItem();
@@ -62,6 +65,7 @@ private:
     QLineEdit*   m_edit        = nullptr;
     QToolButton* m_btnConfirm  = nullptr;
     QToolButton* m_btnSkip     = nullptr;
+    QToolButton* m_btnAddDict  = nullptr;
 };
 
 } // namespace gp

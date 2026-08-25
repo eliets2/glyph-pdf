@@ -9,6 +9,9 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -16,8 +19,10 @@
 #include <QMenu>
 #include <QPlainTextEdit>
 #include <QScrollArea>
+#include <QSettings>
 #include <QShortcut>
 #include <QSplitter>
+#include <QStandardPaths>
 #include <QTextCharFormat>
 #include <QTextEdit>
 #include <QToolButton>
@@ -40,6 +45,44 @@ static const char* kOcrEmptyStateHtml =
     "<span style='color:#8a8a8a;font-size:13px;'>No OCR results yet.<br><br>"
     "Open a scanned PDF and run OCR to review the recognized text and "
     "per-word confidence here.</span>";
+
+// ── B10: per-language user dictionary ────────────────────────────────────────
+// One word per line under <AppDataLocation>/ocr-dict/<lang>.txt; consulted
+// before flagging so accepted words stop being flagged across sessions.
+
+QString OCRMode::userDictionaryPath(const QString &langCode)
+{
+    const QString base = QStandardPaths::writableLocation(
+                             QStandardPaths::AppDataLocation);
+    return QStringLiteral("%1/ocr-dict/%2.txt").arg(base, langCode);
+}
+
+QStringList OCRMode::loadUserDictionary(const QString &langCode)
+{
+    QFile f(userDictionaryPath(langCode));
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+    QStringList words;
+    while (!f.atEnd()) {
+        const QString line = QString::fromUtf8(f.readLine()).trimmed();
+        if (!line.isEmpty()) words.append(line);
+    }
+    return words;
+}
+
+bool OCRMode::addUserDictionaryWord(const QString &langCode, const QString &word)
+{
+    if (word.trimmed().isEmpty()) return false;
+    const QString path = userDictionaryPath(langCode);
+    QDir().mkpath(QFileInfo(path).absolutePath());
+
+    // Keep the list duplicate-free.
+    QStringList existing = loadUserDictionary(langCode);
+    if (existing.contains(word, Qt::CaseInsensitive)) return true;
+    QFile f(path);
+    if (!f.open(QIODevice::Append | QIODevice::Text)) return false;
+    f.write((word + QLatin1Char('\n')).toUtf8());
+    return true;
+}
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -99,6 +142,7 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     {
         QSettings settings;
         const QString savedCode = settings.value(kOcrLanguageKey, "EN").toString();
+        m_dictLang = savedCode;   // B10: dictionary language follows the OCR language
         for (int i = 0; i < m_langCombo->count(); ++i) {
             if (m_langCombo->itemText(i).section(QStringLiteral(" · "), 0, 0) == savedCode) {
                 m_langCombo->setCurrentIndex(i);
@@ -106,9 +150,16 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
             }
         }
     }
-    connect(m_langCombo, &QComboBox::currentTextChanged, this, [](const QString& text) {
+    connect(m_langCombo, &QComboBox::currentTextChanged, this, [this](const QString& text) {
+        const QString code = text.section(QStringLiteral(" · "), 0, 0);
         QSettings settings;
-        settings.setValue(kOcrLanguageKey, text.section(QStringLiteral(" · "), 0, 0));
+        settings.setValue(kOcrLanguageKey, code);
+        // B10: the user dictionary is per-language — re-flag on change.
+        if (m_dictLang != code) {
+            m_dictLang = code;
+            rebuildTextWordIndex();
+            applyUncertainHighlights();
+        }
     });
 
     row->addWidget(m_langCombo);
@@ -685,6 +736,13 @@ void OCRMode::openVerifyDialog()
                 this, &OCRMode::onVerifyConfirm);
         connect(m_verifyDialog, &OcrVerifyDialog::skipRequested,
                 this, &OCRMode::onVerifySkip);
+        connect(m_verifyDialog, &OcrVerifyDialog::addToDictionaryRequested,
+                this, [this](const QString &word) {
+                    addUserDictionaryWord(m_dictLang, word);
+                    // Re-flag: the word (and all matches) stop being uncertain.
+                    rebuildTextWordIndex();
+                    applyUncertainHighlights();
+                });
     }
 
     QList<OcrVerifyDialog::Item> items;
@@ -925,6 +983,11 @@ void OCRMode::rebuildTextWordIndex()
     if (!m_textEdit) return;
 
     const QString text = m_textEdit->toPlainText();
+
+    // B10: words in the per-language user dictionary are considered known
+    // and are not flagged as uncertain.
+    const QStringList userDict = loadUserDictionary(m_dictLang);
+
     int from = 0;
     for (int i = 0; i < m_currentWords.size(); ++i) {
         const auto &w = m_currentWords.at(i);
@@ -934,7 +997,7 @@ void OCRMode::rebuildTextWordIndex()
         if (idx < 0) break; // user-edited or mismatched text — stop flagging
         const int len = w.text.length();
         m_wordRanges.append({idx, len});
-        if (w.confidence < 70)
+        if (w.confidence < 70 && !userDict.contains(w.text, Qt::CaseInsensitive))
             m_lowConfWords.append(i); // B2: nav index = word position
         from = idx + len;
     }

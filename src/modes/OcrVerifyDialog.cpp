@@ -52,11 +52,20 @@ OcrVerifyDialog::OcrVerifyDialog(QWidget* parent) : QDialog(parent)
     m_btnSkip->setText(tr("Skip"));
     btnRow->addWidget(m_btnConfirm);
     btnRow->addWidget(m_btnSkip);
+
+    // B10: teach the checker this word (stops future flagging).
+    m_btnAddDict = new QToolButton;
+    m_btnAddDict->setObjectName("ocrVerifyAddDict");
+    m_btnAddDict->setText(tr("Add to Dictionary"));
+    btnRow->addWidget(m_btnAddDict);
+
     btnRow->addStretch(1);
     lay->addLayout(btnRow);
 
     connect(m_btnConfirm, &QToolButton::clicked, this, &OcrVerifyDialog::onConfirm);
     connect(m_btnSkip,    &QToolButton::clicked, this, &OcrVerifyDialog::onSkip);
+    connect(m_btnAddDict, &QToolButton::clicked,
+            this, &OcrVerifyDialog::onAddToDictionary);
 }
 
 void OcrVerifyDialog::setItems(const QList<Item> &items)
@@ -120,6 +129,13 @@ void OcrVerifyDialog::onSkip()
     emit skipRequested(m_items.at(m_cursor).wordIndex);
     ++m_cursor;
     showItem();
+}
+
+void OcrVerifyDialog::onAddToDictionary()
+{
+    if (m_cursor < 0 || m_cursor >= m_items.size()) return;
+    // The corrected spelling (edit field) is what becomes known.
+    emit addToDictionaryRequested(m_edit->text().trimmed());
 }
 
 } // namespace gp

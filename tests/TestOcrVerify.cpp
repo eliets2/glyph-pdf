@@ -14,6 +14,7 @@
 #include <QPlainTextEdit>
 #include <QSettings>
 #include <QSignalSpy>
+#include <QStandardPaths>
 #include <QToolButton>
 
 #include "modes/OCRMode.h"
@@ -75,6 +76,9 @@ private slots:
 
     /** B12: page-verified toggle state and its reset on new results. */
     void pageVerifiedToggleAndReset();
+
+    /** B10: user dictionary suppresses flagging and persists to disk. */
+    void userDictionarySuppressesFlagging();
 };
 void TestOcrVerify::noHighlightsWhenAllConfident()
 {
@@ -340,6 +344,30 @@ void TestOcrVerify::pageVerifiedToggleAndReset()
     QVERIFY(mode.isPageVerified());
     mode.setOcrResults(words);
     QVERIFY(!mode.isPageVerified());
+}
+
+void TestOcrVerify::userDictionarySuppressesFlagging()
+{
+    // Isolate the on-disk dictionary for this test process.
+    QCoreApplication::setApplicationName(
+        QStringLiteral("ocr-verify-dict-%1").arg(QCoreApplication::applicationPid()));
+    QStandardPaths::setTestModeEnabled(true);
+
+    const QString lang = QStringLiteral("EN");
+    QVERIFY(gp::OCRMode::loadUserDictionary(lang).isEmpty());
+    QVERIFY(gp::OCRMode::addUserDictionaryWord(lang, QStringLiteral("do1or")));
+    // Duplicate add is a no-op but still succeeds.
+    QVERIFY(gp::OCRMode::addUserDictionaryWord(lang, QStringLiteral("do1or")));
+    QCOMPARE(gp::OCRMode::loadUserDictionary(lang).size(), 1);
+
+    gp::OCRMode mode;
+    QList<MergedOcrWord> words;
+    words << makeWord("do1or", 42) << makeWord("b3ta", 10);
+    mode.setOcrResults(words);
+
+    // 'do1or' is in the dictionary → only 'b3ta' stays flagged.
+    QCOMPARE(mode.lowConfidenceWordCount(), 1);
+    QCOMPARE(mode.uncertainHighlightCount(), 1);
 }
 
 QTEST_MAIN(TestOcrVerify)

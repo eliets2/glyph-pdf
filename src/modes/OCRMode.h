@@ -59,6 +59,14 @@ public:
     void setPageVerified(bool verified);
     bool isPageVerified() const { return m_pageVerified; }
 
+    // ── B10: per-language user dictionary ───────────────────────────────
+    /// Path of the user dictionary file for a language code.
+    static QString userDictionaryPath(const QString &langCode);
+    /// Load the user dictionary for a language (empty if none yet).
+    static QStringList loadUserDictionary(const QString &langCode);
+    /// Append a word to the user dictionary for a language.
+    static bool addUserDictionaryWord(const QString &langCode, const QString &word);
+
     /// B6: provide the page raster so the zoom pane can show a real magnified
     /// crop of the selected word. Optional — without it the zoom pane falls
     /// back to showing the recognized string in large type.
@@ -160,6 +168,9 @@ private:
     // B12: explicit page-level verified state.
     bool m_pageVerified = false;
     QToolButton* m_btnPageVerified = nullptr;
+
+    // B10: language code whose user dictionary gates flagging.
+    QString m_dictLang = QStringLiteral("EN");
 
     // B6: optional page raster backing the zoom pane's magnified crop.
     QImage m_pageImage;
