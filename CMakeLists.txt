@@ -1586,6 +1586,22 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestWatermarkFont.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrLanguage.cpp")
+    add_executable(TestOcrLanguage
+        tests/TestOcrLanguage.cpp
+    )
+    target_include_directories(TestOcrLanguage PRIVATE src tests)
+    target_link_libraries(TestOcrLanguage PRIVATE
+        pdfws_core Qt6::Test Qt6::Core Qt6::Gui
+    )
+    add_test(NAME TestOcrLanguage COMMAND TestOcrLanguage)
+    set_tests_properties(TestOcrLanguage PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 30
+        LABELS "unit;ocr;language;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAnnotationDjot.cpp")
     add_executable(TestAnnotationDjot
         tests/TestAnnotationDjot.cpp

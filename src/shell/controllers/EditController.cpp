@@ -6,6 +6,7 @@
 #include "engines/OcrEngine.h"
 #include "engines/ocr/RapidOcrEngine.h"
 #include "engines/ocr/OcrPipeline.h"
+#include "core/OcrTypes.h"
 #include "core/interfaces/IOcrEngine.h"
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "ui/EditAnnotationCommand.h"
@@ -389,6 +390,12 @@ void EditController::runOcr() {
     }
 
     _ocrRunning = true;
+
+    // Audit 9.4 P0: honor the user's OCR language selection instead of a
+    // hard-coded "eng". Read + map on the GUI thread (QSettings is not
+    // thread-safe); the worker only uses the resolved engine code.
+    const QString ocrLang = ocrEngineLanguageCode(QSettings().value(
+        QStringLiteral("ocr/language"), QStringLiteral("EN")).toString());
     const QString engineLabel = wantEnsemble ? tr("Ensemble (Tesseract + RapidOCR)")
                               : wantRapid    ? tr("RapidOCR / PP-OCRv5")
                               :                tr("Tesseract 5");
@@ -407,7 +414,7 @@ void EditController::runOcr() {
     const QImage renderedPage = viewer->renderPage(page, 2.0);
 
     QThread *worker = QThread::create([self, viewerPtr, filePath, page, renderedPage,
-                                       wantRapid, wantEnsemble]() {
+                                       wantRapid, wantEnsemble, ocrLang]() {
         QString error;
         QList<OcrResult> resultsArr;
         QList<MergedOcrWord> mergedWords;   // also surfaced to the OCR Verify screen
@@ -424,7 +431,7 @@ void EditController::runOcr() {
                 // (re)initialized only when first used or when the language changes.
                 // Serialized by _ocrRunning, so accessing self's cached members from
                 // this worker thread is race-free.
-                const QString lang = QStringLiteral("eng");
+                const QString lang = ocrLang;
                 std::shared_ptr<IOcrEngine> primary;
                 std::shared_ptr<IOcrEngine> secondary;
 
@@ -462,7 +469,7 @@ void EditController::runOcr() {
                     }
                     if (!self->_ocrTesseract->initialize(lang)) {
                         self->_ocrTesseractLang.clear();
-                        error = QStringLiteral("OCR failed: Tesseract English language data is unavailable.");
+                        error = QStringLiteral("OCR failed: Tesseract language data for '%1' is unavailable.").arg(lang);
                     } else {
                         self->_ocrTesseractLang = lang;
                         primary = self->_ocrTesseract;
