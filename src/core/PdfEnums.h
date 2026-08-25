@@ -36,5 +36,7 @@ enum class ToolMode {
     FormAddNumeric,
     FormAddSignature,
     FormAddButton,
-    FormAddCalculated
+    FormAddCalculated,
+    // §9.3: annotation eraser (appended last; existing ordinals stay stable).
+    Erase
 };

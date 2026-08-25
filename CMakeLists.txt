@@ -1070,6 +1070,24 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestLayoutEnsemble.cpp")
     )
 endif()
 
+# ── TestEraseTool (PRD §9.3) ─────────────────────────────────────────────────
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEraseTool.cpp")
+    add_executable(TestEraseTool
+        tests/TestEraseTool.cpp
+    )
+    target_include_directories(TestEraseTool PRIVATE src tests)
+    target_link_libraries(TestEraseTool PRIVATE
+        pdfws_ui pdfws_engines pdfws_core
+        Qt6::Test Qt6::Widgets
+    )
+    add_test(NAME TestEraseTool COMMAND TestEraseTool)
+    set_tests_properties(TestEraseTool PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;ui;eraser;annotations;qt;headless"
+    )
+endif()
+
 # ── TestOcrPipeline (M5-P2 D7) ───────────────────────────────────────────────
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrPipeline.cpp")
     add_executable(TestOcrPipeline

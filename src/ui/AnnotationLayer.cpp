@@ -53,6 +53,9 @@ void AnnotationLayer::setMode(ToolMode mode)
     } else {
         setAttribute(Qt::WA_TransparentForMouseEvents, false);
     }
+    // §9.3: the eraser gets a precision crosshair; every other tool keeps the
+    // default arrow (explicitly restored here after leaving Erase).
+    setCursor(mode == ToolMode::Erase ? Qt::CrossCursor : Qt::ArrowCursor);
 }
 
 void AnnotationLayer::setColor(const QColor &color)
@@ -422,6 +425,35 @@ void AnnotationLayer::paintEvent(QPaintEvent *event)
     }
 }
 
+// §9.3: the single topmost hit-test shared by the select/move path and the
+// eraser. Freehand/signature strokes hit on any vertex within 10 px; straight
+// segments (DrawLine/DrawArrow) hit within 10 px of the painted segment —
+// their near-zero-area rect almost never contains() the cursor — and every
+// other annotation hits on its rect. Walks back-to-front to match paint
+// order, so the topmost annotation wins.
+int AnnotationLayer::annotationIndexAt(QPointF pos) const
+{
+    for (int i = m_annotations.size() - 1; i >= 0; --i) {
+        const auto& anno = m_annotations[i];
+        if (anno.mode == ToolMode::DrawFreehand || anno.mode == ToolMode::AddSignature) {
+            for (const auto& pt : anno.points) {
+                if (QLineF(pt, pos).length() < 10)
+                    return i;
+            }
+        } else if (anno.mode == ToolMode::DrawLine || anno.mode == ToolMode::DrawArrow) {
+            const QLineF seg(anno.rect.topLeft(), anno.rect.bottomRight());
+            const QPointF v = seg.p2() - seg.p1();
+            const qreal vv = QPointF::dotProduct(v, v);
+            const qreal t = vv > 0 ? qBound<qreal>(0.0, QPointF::dotProduct(pos - seg.p1(), v) / vv, 1.0) : 0.0;
+            if (QLineF(seg.p1() + t * v, pos).length() < 10)
+                return i;
+        } else if (anno.rect.contains(pos)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 void AnnotationLayer::mousePressEvent(QMouseEvent *event)
 {
     QPointF pos = event->position();
@@ -481,25 +513,8 @@ void AnnotationLayer::mousePressEvent(QMouseEvent *event)
     }
 
     if (m_currentMode == ToolMode::EditObject) {
-        int found = -1;
-        // Hit test from top to bottom
-        for (int i = m_annotations.size() - 1; i >= 0; --i) {
-            const auto& anno = m_annotations[i];
-            if (anno.mode == ToolMode::DrawFreehand || anno.mode == ToolMode::AddSignature) {
-                // Simple distance check for points
-                for (const auto& pt : anno.points) {
-                    if (QLineF(pt, pos).length() < 10) {
-                        found = i;
-                        break;
-                    }
-                }
-            } else {
-                if (anno.rect.contains(pos)) {
-                    found = i;
-                }
-            }
-            if (found != -1) break;
-        }
+        // §9.3: same shared topmost hit-test the eraser uses (one hit-test, not two).
+        int found = annotationIndexAt(pos);
         setSelectedIndex(found);
         if (found != -1) {
             m_isMoving = true;
@@ -511,6 +526,22 @@ void AnnotationLayer::mousePressEvent(QMouseEvent *event)
     if (m_currentMode == ToolMode::EditText) {
         int pageIndex = m_pageAtCallback ? m_pageAtCallback(event->pos()) : 0;
         emit textEditRequested(pageIndex, pos);
+        return;
+    }
+
+    if (m_currentMode == ToolMode::Erase) {
+        // §9.3: click-to-erase the topmost annotation under the cursor via the
+        // existing deleteAnnotation() (emits annotationsChanged() → repaint +
+        // the viewer's debounced save). Page correctness is inherent: the
+        // geometric topmost hit IS the annotation the click lands on, since
+        // annotations live in this layer's viewport coordinates.
+        int index = annotationIndexAt(pos);
+        if (index != -1 && !m_annotations.at(index).locked) {
+            deleteAnnotation(index);
+        }
+        // laziness: locked annotations are silently skipped (no user feedback yet);
+        // upgrade path: drag-to-erase swipe in mouseMoveEvent, and undo via
+        // EditAnnotationCommand once the layer gains an undo-stack hook.
         return;
     }
 

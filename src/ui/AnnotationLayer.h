@@ -55,6 +55,10 @@ protected:
     void mouseReleaseEvent(QMouseEvent *event) override;
 
 private:
+    // §9.3: the ONE topmost hit-test, shared by the select/move path and the
+    // eraser (root-cause rule: fix once at the shared boundary, not per-caller).
+    int annotationIndexAt(QPointF pos) const;
+
     ToolMode m_currentMode;
     QColor m_selectedColor;
     int m_selectedThickness;
