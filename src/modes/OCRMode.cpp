@@ -21,6 +21,7 @@
 #include <QScrollArea>
 #include <QSettings>
 #include <QShortcut>
+#include <QSpinBox>
 #include <QSplitter>
 #include <QStandardPaths>
 #include <QTextCharFormat>
@@ -259,6 +260,65 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     m_chkDenoise->setChecked(false);
     m_chkDenoise->setStyleSheet("color:#c0c0c0; spacing:4px;");
     row->addWidget(m_chkDenoise);
+
+    // ── B15: verification thresholds (persisted; drive flagging + colors) ──
+    {
+        QSettings settings;
+        m_lowThreshold  = settings.value("ocr/lowThreshold", 70).toInt();
+        m_highThreshold = settings.value("ocr/highThreshold", 90).toInt();
+        // Sanity: keep low < high within [0,100].
+        m_lowThreshold  = qBound(0, m_lowThreshold, 99);
+        m_highThreshold = qBound(m_lowThreshold + 1, m_highThreshold, 100);
+    }
+
+    auto* lblLow = monoLab(tr("LOW <"));
+    row->addWidget(lblLow);
+    m_spinLowThresh = new QSpinBox;
+    m_spinLowThresh->setObjectName("ocrSpinLowThresh");
+    m_spinLowThresh->setRange(0, 99);
+    m_spinLowThresh->setValue(m_lowThreshold);
+    m_spinLowThresh->setToolTip(tr("Words below this confidence are flagged uncertain"));
+    row->addWidget(m_spinLowThresh);
+
+    auto* lblHigh = monoLab(tr("HIGH ≥"));
+    row->addWidget(lblHigh);
+    m_spinHighThresh = new QSpinBox;
+    m_spinHighThresh->setObjectName("ocrSpinHighThresh");
+    m_spinHighThresh->setRange(1, 100);
+    m_spinHighThresh->setValue(m_highThreshold);
+    m_spinHighThresh->setToolTip(tr("Words at or above this confidence are high-confidence"));
+    row->addWidget(m_spinHighThresh);
+
+    auto onThresholdChanged = [this]() {
+        int low  = m_spinLowThresh->value();
+        int high = m_spinHighThresh->value();
+        // Keep the invariant low < high by adjusting the other spinbox.
+        if (low >= high) {
+            if (sender() == m_spinLowThresh) {
+                high = qMin(100, low + 1);
+                m_spinHighThresh->blockSignals(true);
+                m_spinHighThresh->setValue(high);
+                m_spinHighThresh->blockSignals(false);
+            } else {
+                low = qMax(0, high - 1);
+                m_spinLowThresh->blockSignals(true);
+                m_spinLowThresh->setValue(low);
+                m_spinLowThresh->blockSignals(false);
+            }
+        }
+        m_lowThreshold  = low;
+        m_highThreshold = high;
+        QSettings settings;
+        settings.setValue("ocr/lowThreshold", m_lowThreshold);
+        settings.setValue("ocr/highThreshold", m_highThreshold);
+        // Re-derive all threshold-driven UI from the current results.
+        updateConfidenceOverlay();
+        rebuildTextWordIndex();
+        applyUncertainHighlights();
+        updateInfoStrip();
+    };
+    connect(m_spinLowThresh, &QSpinBox::valueChanged, this, onThresholdChanged);
+    connect(m_spinHighThresh, &QSpinBox::valueChanged, this, onThresholdChanged);
 
     row->addStretch(1);
 
@@ -899,10 +959,10 @@ void OCRMode::updateConfidenceOverlay()
     }
 
     // Build a rich-text paragraph with per-word confidence coloring.
-    // Thresholds per M5-P2 D6 spec:
-    //   green (#22c55e): confidence ≥ 90
-    //   yellow (#eab308): confidence 70–89
-    //   red (#ef4444): confidence < 70
+    // Thresholds are user-editable (B15); defaults per M5-P2 D6 spec:
+    //   green: confidence ≥ highThreshold (default 90)
+    //   yellow: between the cutoffs
+    //   red: confidence < lowThreshold (default 70)
     QString html;
     html.reserve(m_currentWords.size() * 80);
 
@@ -910,10 +970,10 @@ void OCRMode::updateConfidenceOverlay()
         const auto &w = m_currentWords.at(i);
         const int conf = w.confidence;
         QString bgColor, borderColor;
-        if (conf >= 90) {
+        if (conf >= m_highThreshold) {
             bgColor     = QStringLiteral("#22c55e33");
             borderColor = QStringLiteral("#22c55e99");
-        } else if (conf >= 70) {
+        } else if (conf >= m_lowThreshold) {
             bgColor     = QStringLiteral("#eab30833");
             borderColor = QStringLiteral("#eab30899");
         } else {
@@ -972,7 +1032,7 @@ void OCRMode::updateInfoStrip()
     int lowCount     = 0;
     for (const auto &w : m_currentWords) {
         totalConf += w.confidence;
-        if (w.confidence < 70) ++lowCount;
+        if (w.confidence < m_lowThreshold) ++lowCount;
     }
     const double avgConf = totalConf / m_currentWords.size();
 
@@ -1045,7 +1105,8 @@ void OCRMode::rebuildTextWordIndex()
         if (idx < 0) break; // user-edited or mismatched text — stop flagging
         const int len = w.text.length();
         m_wordRanges.append({idx, len});
-        if (w.confidence < 70 && !userDict.contains(w.text, Qt::CaseInsensitive))
+        if (w.confidence < m_lowThreshold &&
+            !userDict.contains(w.text, Qt::CaseInsensitive))
             m_lowConfWords.append(i); // B2: nav index = word position
         from = idx + len;
     }

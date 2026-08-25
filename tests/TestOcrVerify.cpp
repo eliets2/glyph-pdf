@@ -15,6 +15,7 @@
 #include <QPlainTextEdit>
 #include <QSettings>
 #include <QSignalSpy>
+#include <QSpinBox>
 #include <QStandardPaths>
 #include <QToolButton>
 
@@ -83,6 +84,9 @@ private slots:
 
     /** B9: ranked suggestions appear in the dialog and fill the edit field. */
     void suggestionsRankedAndApplicable();
+
+    /** B15: threshold spinboxes drive flagging and persist. */
+    void thresholdsDriveFlaggingAndPersist();
 };
 void TestOcrVerify::noHighlightsWhenAllConfident()
 {
@@ -408,6 +412,32 @@ void TestOcrVerify::suggestionsRankedAndApplicable()
     emit list->itemClicked(list->item(0));
     auto* edit = dlg->findChild<QLineEdit*>(QStringLiteral("ocrVerifyEdit"));
     QCOMPARE(edit->text(), QStringLiteral("dolor"));
+}
+
+void TestOcrVerify::thresholdsDriveFlaggingAndPersist()
+{
+    // Isolate persisted settings for this test.
+    QCoreApplication::setApplicationName(
+        QStringLiteral("ocr-verify-thresh-%1").arg(QCoreApplication::applicationPid()));
+
+    gp::OCRMode mode;
+    QList<MergedOcrWord> words;
+    words << makeWord("alpha", 95) << makeWord("beta", 75) << makeWord("g1mma", 40);
+    mode.setOcrResults(words);
+
+    // Defaults: beta(75) is yellow, not flagged; g1mma(40) is flagged.
+    QCOMPARE(mode.lowConfidenceWordCount(), 1);
+
+    // Raise the low cutoff to 80: beta becomes uncertain too.
+    auto* spinLow = mode.findChild<QSpinBox*>(QStringLiteral("ocrSpinLowThresh"));
+    QVERIFY2(spinLow, "low-threshold spinbox not found");
+    spinLow->setValue(80);
+    QCOMPARE(mode.lowConfidenceWordCount(), 2);
+    QCOMPARE(mode.uncertainHighlightCount(), 2);
+
+    // The value persists to QSettings.
+    QSettings settings;
+    QCOMPARE(settings.value(QStringLiteral("ocr/lowThreshold")).toInt(), 80);
 }
 
 QTEST_MAIN(TestOcrVerify)

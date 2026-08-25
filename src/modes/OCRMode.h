@@ -14,6 +14,7 @@
 class QComboBox;
 class QCheckBox;
 class QMenu;
+class QSpinBox;
 class QToolButton;
 class QLabel;
 class QListWidget;
@@ -162,6 +163,10 @@ private:
     // B2: current position within m_lowConfWords (-1 = not started).
     int m_uncertainCursor = -1;
     bool m_uncertainEnabled = true;
+
+    // B15: user-editable confidence cutoffs (persisted to QSettings).
+    int m_lowThreshold  = 70;   // below this → uncertain (red)
+    int m_highThreshold = 90;   // at/above this → high confidence (green)
     QToolButton* m_btnUncertainToggle = nullptr;
     QToolButton* m_btnPrevUncertain   = nullptr;
     QToolButton* m_btnNextUncertain   = nullptr;
@@ -195,6 +200,8 @@ private:
     QCheckBox*   m_chkDeskew     = nullptr;
     QCheckBox*   m_chkBinarize   = nullptr;
     QCheckBox*   m_chkDenoise    = nullptr;
+    QSpinBox*    m_spinLowThresh = nullptr;   // B15: low-confidence cutoff
+    QSpinBox*    m_spinHighThresh= nullptr;   // B15: high-confidence cutoff
     QToolButton* m_btnRun        = nullptr;
     QToolButton* m_btnAccept     = nullptr;
     QToolButton* m_btnReject     = nullptr;
