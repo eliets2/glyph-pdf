@@ -2,6 +2,7 @@
 #pragma once
 #include <QList>
 #include <QPair>
+#include <QImage>
 #include <QRectF>
 #include <QWidget>
 
@@ -52,6 +53,11 @@ public:
     void markWordVerified(int wordIndex);
     /// Fraction of loaded words marked verified, in percent (0 if none loaded).
     int verifiedPercent() const;
+
+    /// B6: provide the page raster so the zoom pane can show a real magnified
+    /// crop of the selected word. Optional — without it the zoom pane falls
+    /// back to showing the recognized string in large type.
+    void setPageImage(const QImage &pageImage);
 
     /// Load a completed OCR result into the mode for review.
     /// Call this after the OCR pipeline produces results.
@@ -139,6 +145,10 @@ private:
     QList<bool> m_verifiedWords;
     int m_pageCurrent = 0;
     int m_pageTotal   = 0;
+
+    // B6: optional page raster backing the zoom pane's magnified crop.
+    QImage m_pageImage;
+    void renderZoomCrop(int wordIndex);
 
     // Last right-clicked region bbox (used by onReOcrRegion)
     QRectF m_contextRegionBbox;

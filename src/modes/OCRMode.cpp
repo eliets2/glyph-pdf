@@ -570,9 +570,10 @@ void OCRMode::syncWordTo(int wordIndex)
         m_syncing = false;
     }
 
-    // 3. Zoom pane: recognized string + provenance beside the magnified view.
+    // 3. Zoom pane: magnified crop of the word (B6) or recognized-string
+    //    fallback, plus provenance beside it.
     const auto &w = m_currentWords.at(wordIndex);
-    m_zoomBig->setText(w.text.toHtmlEscaped());
+    renderZoomCrop(wordIndex);
     m_zoomMeta->setText(tr("conf %1% · %2 · bbox (%3,%4 %5×%6)")
                             .arg(w.confidence)
                             .arg(w.sourceEngine)
@@ -582,6 +583,44 @@ void OCRMode::syncWordTo(int wordIndex)
                             .arg(w.boundingBox.height(), 0, 'f', 0));
 
     emit wordSelected(wordIndex);
+}
+
+// ── B6: zoom-pane magnified crop ─────────────────────────────────────────────
+
+void OCRMode::setPageImage(const QImage &pageImage)
+{
+    m_pageImage = pageImage;
+    // Re-render the current selection so the pane reflects the new raster.
+    if (m_selectedWord >= 0)
+        renderZoomCrop(m_selectedWord);
+}
+
+void OCRMode::renderZoomCrop(int wordIndex)
+{
+    if (!m_zoomBig || wordIndex < 0 || wordIndex >= m_currentWords.size()) return;
+
+    const auto &w = m_currentWords.at(wordIndex);
+    if (!m_pageImage.isNull()) {
+        // Crop the word's bbox with a small margin, then scale up 4×
+        // (smooth transform) for eyeballing ambiguous glyphs.
+        QRectF r = w.boundingBox;
+        const qreal margin = 4.0;
+        QRect crop((r.left() - margin), (r.top() - margin),
+                   (r.width() + 2 * margin), (r.height() + 2 * margin));
+        crop = crop.intersected(m_pageImage.rect());
+        if (!crop.isEmpty()) {
+            const QImage cropped = m_pageImage.copy(crop);
+            const QPixmap mag = QPixmap::fromImage(cropped).scaled(
+                m_zoomBig->width() > 40 ? m_zoomBig->width()  - 8 : 168,
+                m_zoomBig->height() > 40 ? m_zoomBig->height() - 8 : 120,
+                Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            m_zoomBig->setPixmap(mag);
+            return;
+        }
+    }
+
+    // Fallback: show the recognized string in large type.
+    m_zoomBig->setText(w.text.toHtmlEscaped());
 }
 
 // ── B2: next/previous low-confidence word navigation ─────────────────────────

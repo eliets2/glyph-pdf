@@ -65,6 +65,9 @@ private slots:
 
     /** B7: verified % tracks markWordVerified and resets on new results. */
     void verifiedPercentTracksVerification();
+
+    /** B6: zoom pane shows a magnified crop when a page image is present. */
+    void zoomPaneRendersMagnifiedCrop();
 };
 void TestOcrVerify::noHighlightsWhenAllConfident()
 {
@@ -253,6 +256,30 @@ void TestOcrVerify::verifiedPercentTracksVerification()
     // Loading new results resets verification state.
     mode.setOcrResults(words);
     QCOMPARE(mode.verifiedPercent(), 0);
+}
+
+void TestOcrVerify::zoomPaneRendersMagnifiedCrop()
+{
+    gp::OCRMode mode;
+    QList<MergedOcrWord> words;
+    MergedOcrWord w = makeWord("do1or", 42);
+    w.boundingBox = QRectF(10, 10, 30, 12);
+    words << w;
+    mode.setOcrResults(words);
+
+    // Without a page image the zoom pane falls back to text.
+    mode.findChild<QToolButton*>(QStringLiteral("ocrBtnNextUncertain"))->click();
+
+    // Provide a page raster: selecting a word now renders a magnified crop.
+    QImage page(100, 40, QImage::Format_RGB32);
+    page.fill(Qt::white);
+    mode.setPageImage(page);
+
+    bool foundPixmap = false;
+    const QList<QLabel*> labels = mode.findChildren<QLabel*>();
+    for (QLabel* l : labels)
+        if (!l->pixmap().isNull()) foundPixmap = true;
+    QVERIFY2(foundPixmap, "zoom pane did not render a magnified crop pixmap");
 }
 
 QTEST_MAIN(TestOcrVerify)
