@@ -435,6 +435,7 @@ void OCRMode::buildPanes(QVBoxLayout* col)
 {
     auto* split = new QSplitter(Qt::Horizontal);
     split->setHandleWidth(1);
+    m_splitter = split;   // B14: layout presets manipulate this splitter
 
     // ── Page list ───────────────────────────────────────────────────────
     // Populated by setOcrResults() from real document pages; starts empty.
@@ -614,6 +615,68 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     split->setStretchFactor(2, 3);
     split->setStretchFactor(3, 0);
     col->addWidget(split, 1);
+
+    // ── B14: FineReader layout presets ──────────────────────────────────
+    // F6 image only · F7 image+text · F8 text only · F5 pages pane ·
+    // Ctrl+F5 zoom pane. Presets collapse the other panes to zero width.
+    auto setPaneWidth = [this](int index) {
+        QList<int> sizes = m_splitter->sizes();
+        if (sizes.size() != 4) return;
+        const int total = qMax(400, m_splitter->width());
+        sizes[0] = 0;                    // hide pages
+        sizes[3] = 0;                    // hide zoom
+        sizes[index] = total;            // target takes everything
+        const int other = (index == 1) ? 2 : 1;
+        sizes[other] = 0;
+        m_splitter->setSizes(sizes);
+    };
+
+    auto* f6 = new QShortcut(QKeySequence(Qt::Key_F6), this);
+    connect(f6, &QShortcut::activated, this, [this, setPaneWidth]() {
+        setPaneWidth(1);   // image only
+    });
+    auto* f7 = new QShortcut(QKeySequence(Qt::Key_F7), this);
+    connect(f7, &QShortcut::activated, this, [this]() {
+        QList<int> sizes = m_splitter->sizes();
+        if (sizes.size() == 4) {
+            const int total = qMax(400, m_splitter->width());
+            sizes[0] = 0;                       // hide pages
+            sizes[1] = total / 2;               // image
+            sizes[2] = total - total / 2;       // text
+            sizes[3] = 0;                       // zoom stays hidden
+            m_splitter->setSizes(sizes);
+        }
+    });
+    auto* f8 = new QShortcut(QKeySequence(Qt::Key_F8), this);
+    connect(f8, &QShortcut::activated, this, [this, setPaneWidth]() {
+        setPaneWidth(2);   // text only
+    });
+
+    auto* f5 = new QShortcut(QKeySequence(Qt::Key_F5), this);
+    connect(f5, &QShortcut::activated, this, [this]() {
+        QList<int> sizes = m_splitter->sizes();
+        if (sizes.size() != 4) return;
+        if (sizes.at(0) > 0) {
+            m_pagesWidth = sizes.at(0);         // remember for restore
+            sizes[0] = 0;
+        } else {
+            sizes[0] = m_pagesWidth > 0 ? m_pagesWidth : 180;
+        }
+        m_splitter->setSizes(sizes);
+    });
+
+    auto* ctrlF5 = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_F5), this);
+    connect(ctrlF5, &QShortcut::activated, this, [this]() {
+        QList<int> sizes = m_splitter->sizes();
+        if (sizes.size() != 4) return;
+        if (sizes.at(3) > 0) {
+            m_zoomWidth = sizes.at(3);
+            sizes[3] = 0;
+        } else {
+            sizes[3] = m_zoomWidth > 0 ? m_zoomWidth : 200;
+        }
+        m_splitter->setSizes(sizes);
+    });
 }
 
 // ── slots ───────────────────────────────────────────────────────────────────

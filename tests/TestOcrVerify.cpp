@@ -14,8 +14,10 @@
 #include <QListWidget>
 #include <QPlainTextEdit>
 #include <QSettings>
+#include <QShortcut>
 #include <QSignalSpy>
 #include <QSpinBox>
+#include <QSplitter>
 #include <QStandardPaths>
 #include <QToolButton>
 
@@ -87,6 +89,9 @@ private slots:
 
     /** B15: threshold spinboxes drive flagging and persist. */
     void thresholdsDriveFlaggingAndPersist();
+
+    /** B14: layout preset shortcuts reshape the splitter. */
+    void layoutPresetsReshapeSplitter();
 };
 void TestOcrVerify::noHighlightsWhenAllConfident()
 {
@@ -438,6 +443,43 @@ void TestOcrVerify::thresholdsDriveFlaggingAndPersist()
     // The value persists to QSettings.
     QSettings settings;
     QCOMPARE(settings.value(QStringLiteral("ocr/lowThreshold")).toInt(), 80);
+}
+
+void TestOcrVerify::layoutPresetsReshapeSplitter()
+{
+    gp::OCRMode mode;
+    mode.resize(1200, 800);
+    mode.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&mode));
+
+    auto fireKey = [&mode](int modifiers, int key) {
+        const auto shortcuts = mode.findChildren<QShortcut*>();
+        for (QShortcut* sc : shortcuts) {
+            if (sc->key().matches(QKeySequence(modifiers | key)) !=
+                QKeySequence::NoMatch) {
+                emit sc->activated();
+                return;
+            }
+        }
+        QFAIL("shortcut not found");
+    };
+
+    // F7 = image + text only.
+    fireKey(Qt::NoModifier, Qt::Key_F7);
+    QList<int> sizes = mode.findChild<QSplitter*>()->sizes();
+    QCOMPARE(sizes.at(0), 0);
+    QCOMPARE(sizes.at(3), 0);
+    QVERIFY(sizes.at(1) > 0 && sizes.at(2) > 0);
+
+    // F5 toggles the pages pane back on.
+    fireKey(Qt::NoModifier, Qt::Key_F5);
+    sizes = mode.findChild<QSplitter*>()->sizes();
+    QVERIFY(sizes.at(0) > 0);
+
+    // Ctrl+F5 toggles the zoom pane on.
+    fireKey(Qt::ControlModifier, Qt::Key_F5);
+    sizes = mode.findChild<QSplitter*>()->sizes();
+    QVERIFY(sizes.at(3) > 0);
 }
 
 QTEST_MAIN(TestOcrVerify)

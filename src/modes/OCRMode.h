@@ -15,6 +15,7 @@ class QComboBox;
 class QCheckBox;
 class QMenu;
 class QSpinBox;
+class QSplitter;
 class QToolButton;
 class QLabel;
 class QListWidget;
@@ -222,6 +223,11 @@ private:
     QFrame*         m_zoomPane         = nullptr;
     QLabel*         m_zoomBig          = nullptr;
     QLabel*         m_zoomMeta         = nullptr;
+
+    // B14: layout presets (F5/F6/F7/F8/Ctrl+F5) drive splitter geometry.
+    QSplitter* m_splitter = nullptr;
+    int m_pagesWidth = 180;   // remembered pages-pane width for F5 restore
+    int m_zoomWidth  = 200;   // remembered zoom-pane width for Ctrl+F5 restore
 };
 
 } // namespace gp
