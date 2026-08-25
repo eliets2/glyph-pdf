@@ -87,6 +87,18 @@ private:
     // Search state for match navigation
     int _currentMatchIndex = -1;
     int _totalMatches = 0;
+
+    // §9.15: parallel match list for the regex / whole-word document-text
+    // search path (QPdfSearchModel is literal-only and has no whole-word
+    // support). Each entry pairs a 0-based page index with the merged
+    // character-box rectangle of one match, in Qt PDF user-space (origin
+    // top-left). Populated only by the regex path; every other search clears
+    // it so Replace never consumes stale matches.
+    struct DocMatch {
+        int page = -1;
+        QRectF rect;
+    };
+    QList<DocMatch> _docMatches;
 };
 
 } // namespace gp

@@ -8,6 +8,7 @@
 #include "engines/ocr/OcrPipeline.h"
 #include "core/interfaces/IOcrEngine.h"
 #include "core/interfaces/IPdfEditorEngine.h"
+#include "engines/PatternRedactor.h"
 #include "ui/EditAnnotationCommand.h"
 #include "commands/MoveImageCommand.h"
 #include "commands/ResizeImageCommand.h"
@@ -130,23 +131,70 @@ void EditController::onSearchRequested(const QString &text, bool forward, bool m
 
     // For document text scope, use QPdfSearchModel (fast PDFium-backed search)
     if (scope == FindBar::ScopeDocumentText || scope == FindBar::ScopeAll) {
-        viewer->searchDocument(text, forward, matchCase, wholeWords);
+        // §9.15: QPdfSearchModel is literal-only and has no whole-word support,
+        // so when either flag is set, route through PatternRedactor's PDFium
+        // regex matcher instead. Plain literal searches keep the fast path.
+        if (useRegex || wholeWords) {
+            // Whole-word with regex OFF wraps the escaped literal in \b...\b.
+            // With regex ON the user's pattern is respected verbatim (no double
+            // wrap) — callers who want word boundaries write \b themselves.
+            QString pattern = useRegex ? text : QRegularExpression::escape(text);
+            if (wholeWords && !useRegex) {
+                pattern = QStringLiteral("\\b") + pattern + QStringLiteral("\\b");
+            }
+            QRegularExpression::PatternOptions opts = QRegularExpression::NoPatternOption;
+            if (!matchCase) opts |= QRegularExpression::CaseInsensitiveOption;
+            QRegularExpression rx(pattern, opts);
 
-        auto* sm = viewer->searchModel();
-        if (sm) {
-            _totalMatches = sm->rowCount(QModelIndex());
+            _docMatches.clear();
+            if (rx.isValid()) {
+                QList<int> pages;
+                const int pageCount = viewer->pageCount();
+                pages.reserve(pageCount);
+                for (int p = 0; p < pageCount; ++p) pages.append(p);
+                // Named QList<int> argument: binds the batch findMatches overload
+                // (parses the PDF once), not the single-page int overload.
+                const auto perPage = PatternRedactor::findMatches(viewer->filePath(), pages, rx);
+                for (int p = 0; p < pageCount; ++p) {
+                    const auto rects = perPage.value(p);
+                    for (const QRectF &r : rects) {
+                        _docMatches.append({p, r});
+                    }
+                }
+            }
+
+            _totalMatches = _docMatches.size();
             if (_totalMatches > 0) {
                 _currentMatchIndex = forward
                     ? qMin(_currentMatchIndex + 1, _totalMatches - 1)
                     : qMax(_currentMatchIndex - 1, 0);
                 if (_currentMatchIndex < 0) _currentMatchIndex = 0;
-
-                // Navigate to the match
-                QModelIndex idx = sm->index(_currentMatchIndex, 0);
-                int page = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Page)).toInt();
-                viewer->goToPage(page);
+                viewer->goToPage(_docMatches.at(_currentMatchIndex).page);
             } else {
                 _currentMatchIndex = -1;
+            }
+        } else {
+            // Drop any stale regex-path matches so Replace never consumes them.
+            _docMatches.clear();
+
+            viewer->searchDocument(text, forward, matchCase, wholeWords);
+
+            auto* sm = viewer->searchModel();
+            if (sm) {
+                _totalMatches = sm->rowCount(QModelIndex());
+                if (_totalMatches > 0) {
+                    _currentMatchIndex = forward
+                        ? qMin(_currentMatchIndex + 1, _totalMatches - 1)
+                        : qMax(_currentMatchIndex - 1, 0);
+                    if (_currentMatchIndex < 0) _currentMatchIndex = 0;
+
+                    // Navigate to the match
+                    QModelIndex idx = sm->index(_currentMatchIndex, 0);
+                    int page = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Page)).toInt();
+                    viewer->goToPage(page);
+                } else {
+                    _currentMatchIndex = -1;
+                }
             }
         }
     }
@@ -234,16 +282,27 @@ void EditController::onReplaceRequested(const QString &searchText, const QString
 
     _ctx->pdfEditor->loadDocumentForEditing(viewer->filePath());
 
-    // Replace current match using PoDoFo content stream text substitution
-    auto* sm = viewer->searchModel();
-    if (!sm || _currentMatchIndex < 0 || _currentMatchIndex >= sm->rowCount(QModelIndex()))
-        return;
+    // Resolve the current match: the regex/whole-word path keeps a parallel
+    // match list (§9.15); the literal path reads QPdfSearchModel as before.
+    int page = -1;
+    QRectF rect;
+    if (!_docMatches.isEmpty()) {
+        if (_currentMatchIndex < 0 || _currentMatchIndex >= _docMatches.size())
+            return;
+        page = _docMatches.at(_currentMatchIndex).page;
+        rect = _docMatches.at(_currentMatchIndex).rect;
+    } else {
+        auto* sm = viewer->searchModel();
+        if (!sm || _currentMatchIndex < 0 || _currentMatchIndex >= sm->rowCount(QModelIndex()))
+            return;
 
-    QModelIndex idx = sm->index(_currentMatchIndex, 0);
-    int page = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Page)).toInt();
-    QPointF loc = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Location)).toPointF();
+        QModelIndex idx = sm->index(_currentMatchIndex, 0);
+        page = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Page)).toInt();
+        QPointF loc = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Location)).toPointF();
 
-    QRectF rect(loc.x(), loc.y() - 15, 200, 20);
+        rect = QRectF(loc.x(), loc.y() - 15, 200, 20);
+    }
+
     if (_ctx->undoStack) {
         _ctx->document->setPath(viewer->filePath());
         _ctx->undoStack->push(new EditTextInlineCommand(
@@ -265,23 +324,34 @@ void EditController::onReplaceAllRequested(const QString &searchText, const QStr
 
     _ctx->pdfEditor->loadDocumentForEditing(viewer->filePath());
 
-    auto* sm = viewer->searchModel();
-    if (!sm) return;
+    // Gather matches: the regex/whole-word path uses the parallel match list
+    // built by the last document-scope search (§9.15); the literal path reads
+    // QPdfSearchModel as before.
+    QList<DocMatch> matches;
+    if (!_docMatches.isEmpty()) {
+        matches = _docMatches;
+    } else {
+        auto* sm = viewer->searchModel();
+        if (!sm) return;
+        const int count = sm->rowCount(QModelIndex());
+        for (int i = 0; i < count; ++i) {
+            QModelIndex idx = sm->index(i, 0);
+            DocMatch m;
+            m.page = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Page)).toInt();
+            const QPointF loc = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Location)).toPointF();
+            m.rect = QRectF(loc.x(), loc.y() - 15, 200, 20);
+            matches.append(m);
+        }
+    }
 
-    int count = sm->rowCount(QModelIndex());
-    if (count == 0) {
+    if (matches.isEmpty()) {
         _mainWindow->statusBar()->showMessage(tr("No matches to replace."), 3000);
         return;
     }
 
     // Iterate all matches from last to first (reverse order to preserve positions)
-    for (int i = count - 1; i >= 0; --i) {
-        QModelIndex idx = sm->index(i, 0);
-        int page = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Page)).toInt();
-        QPointF loc = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Location)).toPointF();
-
-        QRectF rect(loc.x(), loc.y() - 15, 200, 20);
-        _ctx->pdfEditor->editTextInline(page, rect, replaceText,
+    for (int i = matches.size() - 1; i >= 0; --i) {
+        _ctx->pdfEditor->editTextInline(matches.at(i).page, matches.at(i).rect, replaceText,
                                         _fontFamily, _fontSize, _fontColor,
                                         _fontBold, _fontItalic, _fontAlignment);
     }
@@ -313,7 +383,7 @@ void EditController::onReplaceAllRequested(const QString &searchText, const QStr
     }
 
     _mainWindow->statusBar()->showMessage(
-        tr("Replaced %1 occurrences.").arg(count), 5000);
+        tr("Replaced %1 occurrences.").arg(matches.size()), 5000);
 
     // Reload to reflect changes
     viewer->loadDocument(viewer->filePath());

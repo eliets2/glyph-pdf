@@ -1026,6 +1026,23 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRedaction.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFindReplaceRegex.cpp")
+    add_executable(TestFindReplaceRegex
+        tests/TestFindReplaceRegex.cpp
+    )
+    target_include_directories(TestFindReplaceRegex PRIVATE src tests)
+    target_link_libraries(TestFindReplaceRegex PRIVATE
+        pdfws_engines pdfws_core
+        Qt6::Test Qt6::Widgets podofo::podofo
+    )
+    add_test(NAME TestFindReplaceRegex COMMAND TestFindReplaceRegex)
+    set_tests_properties(TestFindReplaceRegex PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;security;findreplace;regex;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRapidOcr.cpp" AND (onnxruntime_FOUND OR TARGET onnxruntime OR PKG_ONNXRUNTIME_FOUND))
     add_executable(TestRapidOcr
         tests/TestRapidOcr.cpp
