@@ -416,6 +416,7 @@ void OCRMode::buildInfoStrip(QVBoxLayout* col)
     m_lblAvgConf = infoLab(tr("AVG CONFIDENCE —"));
     m_lblLowWords= infoLab(tr("UNCERTAIN —"));
     m_lblVerified= infoLab(tr("VERIFIED —"));
+    m_lblZoom    = infoLab(tr("ZOOM 400%"));
     m_lblEngine  = infoLab(tr("ENGINE: Tesseract 5"));
 
     row->addWidget(m_lblPage);
@@ -423,6 +424,7 @@ void OCRMode::buildInfoStrip(QVBoxLayout* col)
     row->addWidget(m_lblAvgConf);
     row->addWidget(m_lblLowWords);
     row->addWidget(m_lblVerified);
+    row->addWidget(m_lblZoom);
     row->addWidget(m_lblEngine);
     row->addStretch(1);
 
@@ -704,16 +706,19 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     connect(zoomIn, &QShortcut::activated, this, [this]() {
         m_zoomFactor = qMin(6.0, m_zoomFactor + 1.0);
         if (m_selectedWord >= 0) renderZoomCrop(m_selectedWord);
+        updateInfoStrip();
     });
     auto* zoomOut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_Minus), this);
     connect(zoomOut, &QShortcut::activated, this, [this]() {
         m_zoomFactor = qMax(1.0, m_zoomFactor - 1.0);
         if (m_selectedWord >= 0) renderZoomCrop(m_selectedWord);
+        updateInfoStrip();
     });
     auto* zoomReset = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_0), this);
     connect(zoomReset, &QShortcut::activated, this, [this]() {
         m_zoomFactor = 4.0;
         if (m_selectedWord >= 0) renderZoomCrop(m_selectedWord);
+        updateInfoStrip();
     });
 }
 
@@ -1197,6 +1202,9 @@ void OCRMode::updateInfoStrip()
     QSettings settings;
     const QString code = settings.value(kOcrLanguageKey, "EN").toString();
     m_lblLanguage->setText(tr("LANGUAGE %1").arg(code));
+
+    // B6/B7: zoom-pane magnification.
+    m_lblZoom->setText(tr("ZOOM %1%").arg(int(m_zoomFactor * 100)));
 
     if (m_currentWords.isEmpty()) {
         m_lblAvgConf->setText(tr("AVG CONFIDENCE —"));

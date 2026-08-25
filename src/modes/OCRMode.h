@@ -57,6 +57,9 @@ public:
     /// Fraction of loaded words marked verified, in percent (0 if none loaded).
     int verifiedPercent() const;
 
+    /// B6/B7: current zoom-pane magnification factor (drives the ZOOM % cell).
+    qreal zoomFactor() const { return m_zoomFactor; }
+
     /// B12: explicit "this page is done" state (Ctrl+T / toolbar toggle).
     void setPageVerified(bool verified);
     bool isPageVerified() const { return m_pageVerified; }
@@ -219,6 +222,7 @@ private:
     QLabel* m_lblAvgConf    = nullptr;
     QLabel* m_lblLowWords   = nullptr;
     QLabel* m_lblVerified   = nullptr;
+    QLabel* m_lblZoom       = nullptr;
     QLabel* m_lblEngine     = nullptr;
 
     // Panes

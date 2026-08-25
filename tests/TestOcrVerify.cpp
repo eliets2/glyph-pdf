@@ -666,6 +666,13 @@ void TestOcrVerify::zoomHotkeysAdjustMagnification()
     // Ctrl+0 resets to the default factor.
     fireKey(Qt::ControlModifier, Qt::Key_0);
     QCOMPARE(zoomPixmap().width(), before.width());
+
+    // The status strip mirrors the magnification (B7).
+    fireKey(Qt::ControlModifier, Qt::Key_Plus);
+    bool zoomCellUpdated = false;
+    for (const QLabel* l : mode.findChildren<QLabel*>())
+        if (l->text() == QStringLiteral("ZOOM 500%")) zoomCellUpdated = true;
+    QVERIFY2(zoomCellUpdated, "ZOOM cell did not update to 500%");
 }
 
 QTEST_MAIN(TestOcrVerify)
