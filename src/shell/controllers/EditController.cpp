@@ -18,8 +18,10 @@
 #include "ui/AnnotationLayer.h"
 #include "ui/FindBar.h"
 #include "ui/EditToolBar.h"
+#include "engines/PatternRedactor.h"
 
 #include <QFileDialog>
+#include <QHash>
 #include <QInputDialog>
 #include <QMessageBox>
 #include <QThread>
@@ -128,25 +130,55 @@ void EditController::onSearchRequested(const QString &text, bool forward, bool m
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer) return;
 
-    // For document text scope, use QPdfSearchModel (fast PDFium-backed search)
+    // For document text scope, use QPdfSearchModel (fast PDFium-backed search).
+    // PRD 9.15: QPdfSearchModel is literal-only and has no whole-word support,
+    // so regex / whole-word searches take the PatternRedactor path below; the
+    // literal path is untouched when neither flag is set.
     if (scope == FindBar::ScopeDocumentText || scope == FindBar::ScopeAll) {
-        viewer->searchDocument(text, forward, matchCase, wholeWords);
-
-        auto* sm = viewer->searchModel();
-        if (sm) {
-            _totalMatches = sm->rowCount(QModelIndex());
-            if (_totalMatches > 0) {
-                _currentMatchIndex = forward
-                    ? qMin(_currentMatchIndex + 1, _totalMatches - 1)
-                    : qMax(_currentMatchIndex - 1, 0);
-                if (_currentMatchIndex < 0) _currentMatchIndex = 0;
-
-                // Navigate to the match
-                QModelIndex idx = sm->index(_currentMatchIndex, 0);
-                int page = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Page)).toInt();
-                viewer->goToPage(page);
-            } else {
+        if (useRegex || wholeWords) {
+            const QRegularExpression rx =
+                buildEffectivePattern(text, matchCase, wholeWords, useRegex);
+            if (!rx.isValid()) {
+                _regexMatches.clear();
                 _currentMatchIndex = -1;
+                _totalMatches = 0;
+                _mainWindow->statusBar()->showMessage(
+                    tr("Invalid regular expression: %1").arg(rx.errorString()), 5000);
+            } else {
+                rebuildRegexMatches(rx);
+                _totalMatches = _regexMatches.size();
+                if (_totalMatches > 0) {
+                    _currentMatchIndex = forward
+                        ? qMin(_currentMatchIndex + 1, _totalMatches - 1)
+                        : qMax(_currentMatchIndex - 1, 0);
+                    if (_currentMatchIndex < 0) _currentMatchIndex = 0;
+
+                    // Navigate to the match
+                    viewer->goToPage(_regexMatches.at(_currentMatchIndex).page);
+                } else {
+                    _currentMatchIndex = -1;
+                }
+            }
+        } else {
+            _regexMatches.clear();
+            viewer->searchDocument(text, forward, matchCase, wholeWords);
+
+            auto* sm = viewer->searchModel();
+            if (sm) {
+                _totalMatches = sm->rowCount(QModelIndex());
+                if (_totalMatches > 0) {
+                    _currentMatchIndex = forward
+                        ? qMin(_currentMatchIndex + 1, _totalMatches - 1)
+                        : qMax(_currentMatchIndex - 1, 0);
+                    if (_currentMatchIndex < 0) _currentMatchIndex = 0;
+
+                    // Navigate to the match
+                    QModelIndex idx = sm->index(_currentMatchIndex, 0);
+                    int page = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Page)).toInt();
+                    viewer->goToPage(page);
+                } else {
+                    _currentMatchIndex = -1;
+                }
             }
         }
     }
@@ -234,16 +266,27 @@ void EditController::onReplaceRequested(const QString &searchText, const QString
 
     _ctx->pdfEditor->loadDocumentForEditing(viewer->filePath());
 
-    // Replace current match using PoDoFo content stream text substitution
-    auto* sm = viewer->searchModel();
-    if (!sm || _currentMatchIndex < 0 || _currentMatchIndex >= sm->rowCount(QModelIndex()))
-        return;
+    // Replace current match using PoDoFo content stream text substitution.
+    // PRD 9.15: regex / whole-word matches live in _regexMatches (QPdfSearchModel
+    // cannot represent them); the literal path below is unchanged.
+    int page = -1;
+    QRectF rect;
+    if (!_regexMatches.isEmpty()) {
+        if (_currentMatchIndex < 0 || _currentMatchIndex >= _regexMatches.size())
+            return;
+        page = _regexMatches.at(_currentMatchIndex).page;
+        rect = _regexMatches.at(_currentMatchIndex).rect;
+    } else {
+        auto* sm = viewer->searchModel();
+        if (!sm || _currentMatchIndex < 0 || _currentMatchIndex >= sm->rowCount(QModelIndex()))
+            return;
 
-    QModelIndex idx = sm->index(_currentMatchIndex, 0);
-    int page = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Page)).toInt();
-    QPointF loc = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Location)).toPointF();
+        QModelIndex idx = sm->index(_currentMatchIndex, 0);
+        page = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Page)).toInt();
+        QPointF loc = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Location)).toPointF();
 
-    QRectF rect(loc.x(), loc.y() - 15, 200, 20);
+        rect = QRectF(loc.x(), loc.y() - 15, 200, 20);
+    }
     if (_ctx->undoStack) {
         _ctx->document->setPath(viewer->filePath());
         _ctx->undoStack->push(new EditTextInlineCommand(
@@ -265,10 +308,26 @@ void EditController::onReplaceAllRequested(const QString &searchText, const QStr
 
     _ctx->pdfEditor->loadDocumentForEditing(viewer->filePath());
 
-    auto* sm = viewer->searchModel();
-    if (!sm) return;
+    // Collect the match set: PRD 9.15 regex / whole-word matches come from
+    // _regexMatches; otherwise fall back to QPdfSearchModel as before.
+    struct DocMatch { int page; QRectF rect; };
+    QList<DocMatch> matches;
+    if (!_regexMatches.isEmpty()) {
+        for (const auto &m : _regexMatches)
+            matches.append({ m.page, m.rect });
+    } else {
+        auto* sm = viewer->searchModel();
+        if (!sm) return;
+        const int rowCount = sm->rowCount(QModelIndex());
+        for (int i = 0; i < rowCount; ++i) {
+            QModelIndex idx = sm->index(i, 0);
+            const int page = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Page)).toInt();
+            const QPointF loc = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Location)).toPointF();
+            matches.append({ page, QRectF(loc.x(), loc.y() - 15, 200, 20) });
+        }
+    }
 
-    int count = sm->rowCount(QModelIndex());
+    const int count = matches.size();
     if (count == 0) {
         _mainWindow->statusBar()->showMessage(tr("No matches to replace."), 3000);
         return;
@@ -276,12 +335,7 @@ void EditController::onReplaceAllRequested(const QString &searchText, const QStr
 
     // Iterate all matches from last to first (reverse order to preserve positions)
     for (int i = count - 1; i >= 0; --i) {
-        QModelIndex idx = sm->index(i, 0);
-        int page = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Page)).toInt();
-        QPointF loc = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Location)).toPointF();
-
-        QRectF rect(loc.x(), loc.y() - 15, 200, 20);
-        _ctx->pdfEditor->editTextInline(page, rect, replaceText,
+        _ctx->pdfEditor->editTextInline(matches.at(i).page, matches.at(i).rect, replaceText,
                                         _fontFamily, _fontSize, _fontColor,
                                         _fontBold, _fontItalic, _fontAlignment);
     }
@@ -317,6 +371,11 @@ void EditController::onReplaceAllRequested(const QString &searchText, const QStr
 
     // Reload to reflect changes
     viewer->loadDocument(viewer->filePath());
+
+    // Match positions are stale after the rewrite; reset navigation state.
+    _regexMatches.clear();
+    _currentMatchIndex = -1;
+    _totalMatches = 0;
 }
 
 void EditController::onRedactAllRequested(const QString &text, bool matchCase, bool wholeWords) {
@@ -335,6 +394,52 @@ void EditController::onRedactAllRequested(const QString &text, bool matchCase, b
             _mainWindow->statusBar()->showMessage(tr("Applied redactions to all search results for '%1'").arg(text), 5000);
             viewer->loadDocument(viewer->filePath());
         }
+    }
+}
+
+// --- PRD 9.15: regex / whole-word document-text search ----------------------
+
+QRegularExpression EditController::buildEffectivePattern(const QString &text, bool matchCase,
+                                                         bool wholeWords, bool useRegex) {
+    QRegularExpression::PatternOptions opts = QRegularExpression::NoPatternOption;
+    if (!matchCase) opts |= QRegularExpression::CaseInsensitiveOption;
+
+    QString pattern;
+    if (useRegex) {
+        // User-supplied regex is honoured verbatim; wholeWords is ignored so a
+        // pattern is never double-wrapped (FindBar disables W while .* is on).
+        pattern = text;
+    } else {
+        pattern = QRegularExpression::escape(text);
+        if (wholeWords) {
+            pattern = QStringLiteral("\\b") + pattern + QStringLiteral("\\b");
+        }
+    }
+    return QRegularExpression(pattern, opts);
+}
+
+void EditController::rebuildRegexMatches(const QRegularExpression &rx) {
+    _regexMatches.clear();
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !rx.isValid() || rx.pattern().isEmpty() || !viewer->isLoaded())
+        return;
+
+    const int pageCount = viewer->pageCount();
+    QList<int> pages;
+    pages.reserve(pageCount);
+    for (int p = 0; p < pageCount; ++p) pages.append(p);
+
+    // REUSE PatternRedactor's PDFium text + char-rect extraction: one document
+    // parse for the whole page set. Its M-3 guards (input cap + match budget)
+    // bound pathological user patterns to partial results instead of a hang.
+    const QHash<int, QList<QRectF>> perPage =
+        PatternRedactor::findMatches(viewer->filePath(), pages, rx);
+
+    for (int p = 0; p < pageCount; ++p) {
+        const auto it = perPage.constFind(p);
+        if (it == perPage.constEnd()) continue;
+        for (const QRectF &r : it.value())
+            _regexMatches.append({ p, r });
     }
 }
 

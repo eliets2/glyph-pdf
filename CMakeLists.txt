@@ -1274,6 +1274,21 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPerformance.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFindReplaceRegex.cpp")
+    add_executable(TestFindReplaceRegex tests/TestFindReplaceRegex.cpp)
+    target_include_directories(TestFindReplaceRegex PRIVATE src tests)
+    target_link_libraries(TestFindReplaceRegex PRIVATE
+        pdfws_engines pdfws_core
+        Qt6::Test Qt6::Widgets podofo::podofo
+    )
+    add_test(NAME TestFindReplaceRegex COMMAND TestFindReplaceRegex)
+    set_tests_properties(TestFindReplaceRegex PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;search;regex;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestVeraPdf.cpp")
     add_executable(TestVeraPdf tests/TestVeraPdf.cpp)
     target_include_directories(TestVeraPdf PRIVATE src tests)

@@ -5,6 +5,7 @@
 #include <QString>
 #include <QRectF>
 #include <QList>
+#include <QRegularExpression>
 #include <memory>
 #include "core/ToolId.h"
 #include "core/interfaces/IToolController.h"
@@ -87,6 +88,25 @@ private:
     // Search state for match navigation
     int _currentMatchIndex = -1;
     int _totalMatches = 0;
+
+    // PRD 9.15: regex / whole-word document-text search bypasses QPdfSearchModel
+    // (literal-only, no whole-word support), so those matches live here instead,
+    // flattened in reading order (pages ascending, then position on the page).
+    struct RegexMatch {
+        int page = -1;
+        QRectF rect;
+    };
+    QList<RegexMatch> _regexMatches;
+
+    // Document-text regex/whole-word pattern builder. A literal with wholeWords
+    // is wrapped in word boundaries; a user-supplied regex is honoured verbatim
+    // (never double-wrapped - FindBar disables W while .* is checked).
+    static QRegularExpression buildEffectivePattern(const QString &text, bool matchCase,
+                                                    bool wholeWords, bool useRegex);
+
+    // Rebuilds _regexMatches for the current document via PatternRedactor's
+    // PDFium char-rect extraction (one parse for all pages).
+    void rebuildRegexMatches(const QRegularExpression &rx);
 };
 
 } // namespace gp
