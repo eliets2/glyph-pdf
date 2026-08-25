@@ -72,6 +72,9 @@ private slots:
 
     /** B3/B4: Verify dialog walks flagged words; Confirm applies edits. */
     void verifyDialogWalksAndAppliesCorrections();
+
+    /** B12: page-verified toggle state and its reset on new results. */
+    void pageVerifiedToggleAndReset();
 };
 void TestOcrVerify::noHighlightsWhenAllConfident()
 {
@@ -313,6 +316,30 @@ void TestOcrVerify::verifyDialogWalksAndAppliesCorrections()
              QStringLiteral("alpha dolor gamma"));
     QCOMPARE(mode.verifiedPercent(), 33);    // 1 of 3 words verified
     QCOMPARE(dlg->remaining(), 0);           // queue exhausted
+}
+
+void TestOcrVerify::pageVerifiedToggleAndReset()
+{
+    gp::OCRMode mode;
+    QList<MergedOcrWord> words;
+    words << makeWord("alpha", 95);
+    mode.setOcrResults(words);
+    QVERIFY(!mode.isPageVerified());
+
+    auto* btn = mode.findChild<QToolButton*>(QStringLiteral("ocrBtnPageVerified"));
+    QVERIFY2(btn, "Page Verified toolbar button not found");
+    btn->click();
+    QVERIFY(mode.isPageVerified());
+
+    // Programmatic reset also syncs the button.
+    mode.setPageVerified(false);
+    QVERIFY(!btn->isChecked());
+
+    // Loading new results resets the state again.
+    btn->click();
+    QVERIFY(mode.isPageVerified());
+    mode.setOcrResults(words);
+    QVERIFY(!mode.isPageVerified());
 }
 
 QTEST_MAIN(TestOcrVerify)

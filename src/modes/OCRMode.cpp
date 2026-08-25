@@ -194,6 +194,23 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     connect(verifyShortcut, &QShortcut::activated,
             this, &OCRMode::openVerifyDialog);
 
+    // B12: FineReader's Ctrl+T "Mark Text as Verified".
+    m_btnPageVerified = new QToolButton;
+    m_btnPageVerified->setObjectName("ocrBtnPageVerified");
+    m_btnPageVerified->setText(tr("Page Verified"));
+    m_btnPageVerified->setCheckable(true);
+    m_btnPageVerified->setProperty("variant", "ghost");
+    m_btnPageVerified->setToolTip(tr("Mark this page as verified (Ctrl+T)"));
+    connect(m_btnPageVerified, &QToolButton::toggled,
+            this, [this](bool on) { setPageVerified(on); });
+    row->addWidget(m_btnPageVerified);
+
+    auto* pageVerifiedShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_T), this);
+    pageVerifiedShortcut->setObjectName("ocrScPageVerified");
+    connect(pageVerifiedShortcut, &QShortcut::activated, this, [this]() {
+        m_btnPageVerified->toggle();
+    });
+
     m_btnAccept = new QToolButton;
     m_btnAccept->setObjectName("ocrBtnAccept");
     m_btnAccept->setText(tr("✓ Accept"));
@@ -491,6 +508,7 @@ void OCRMode::onRejectResults()
     m_verifiedWords.clear();
     m_selectedWord = -1;
     m_uncertainCursor = -1;
+    setPageVerified(false);
     updateConfidenceOverlay();
     updateInfoStrip();
     if (m_textEdit) {
@@ -731,6 +749,7 @@ void OCRMode::setOcrResults(const QList<MergedOcrWord> &words)
     m_uncertainCursor = -1;
     m_verifiedWords.clear();
     for (int i = 0; i < words.size(); ++i) m_verifiedWords.append(false);
+    setPageVerified(false);   // B12: new results start unverified
     updateConfidenceOverlay();
     updateInfoStrip();
 
@@ -882,6 +901,14 @@ int OCRMode::verifiedPercent() const
     int verified = 0;
     for (bool v : m_verifiedWords) if (v) ++verified;
     return static_cast<int>(std::lround(verified * 100.0 / total));
+}
+
+void OCRMode::setPageVerified(bool verified)
+{
+    m_pageVerified = verified;
+    // Keep the toolbar toggle in sync when set programmatically.
+    if (m_btnPageVerified && m_btnPageVerified->isChecked() != verified)
+        m_btnPageVerified->setChecked(verified);
 }
 
 // ── B1: uncertain-word highlighting in the editable text pane ────────────────

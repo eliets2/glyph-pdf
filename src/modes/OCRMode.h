@@ -55,6 +55,10 @@ public:
     /// Fraction of loaded words marked verified, in percent (0 if none loaded).
     int verifiedPercent() const;
 
+    /// B12: explicit "this page is done" state (Ctrl+T / toolbar toggle).
+    void setPageVerified(bool verified);
+    bool isPageVerified() const { return m_pageVerified; }
+
     /// B6: provide the page raster so the zoom pane can show a real magnified
     /// crop of the selected word. Optional — without it the zoom pane falls
     /// back to showing the recognized string in large type.
@@ -152,6 +156,10 @@ private:
     QList<bool> m_verifiedWords;
     int m_pageCurrent = 0;
     int m_pageTotal   = 0;
+
+    // B12: explicit page-level verified state.
+    bool m_pageVerified = false;
+    QToolButton* m_btnPageVerified = nullptr;
 
     // B6: optional page raster backing the zoom pane's magnified crop.
     QImage m_pageImage;
