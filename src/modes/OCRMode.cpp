@@ -1010,6 +1010,10 @@ void OCRMode::moveWord(int wordIndex, int delta)
     if (target < 0 || target >= m_currentWords.size()) return;
 
     m_currentWords.swapItemsAt(wordIndex, target);
+    // The verified-state vector is parallel to m_currentWords, so it must move
+    // with the words — otherwise a reorder misaligns which words read as verified.
+    if (wordIndex < m_verifiedWords.size() && target < m_verifiedWords.size())
+        m_verifiedWords.swapItemsAt(wordIndex, target);
 
     // Re-derive every view from the reordered model.
     updateConfidenceOverlay();
