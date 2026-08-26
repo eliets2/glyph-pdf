@@ -1168,7 +1168,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestControllers.cpp")
     target_include_directories(TestControllers PRIVATE src)
     target_link_libraries(TestControllers PRIVATE
         pdfws_ui pdfws_engines pdfws_commands pdfws_core
-        Qt6::Test Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets
+        Qt6::Test Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets Qt6::Concurrent
     )
     # TestControllers uses QTEST_MAIN (QApplication), so it needs the offscreen
     # platform plugin at runtime. Deploy it next to the test executable.
@@ -1196,7 +1196,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRibbonIntegrity.cpp")
     target_include_directories(TestRibbonIntegrity PRIVATE src)
     target_link_libraries(TestRibbonIntegrity PRIVATE
         pdfws_ui pdfws_engines pdfws_commands pdfws_core
-        Qt6::Test Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets
+        Qt6::Test Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets Qt6::Concurrent
     )
     add_custom_command(TARGET TestRibbonIntegrity POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory
@@ -1222,7 +1222,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestMenuBarIntegrity.cpp")
     target_include_directories(TestMenuBarIntegrity PRIVATE src)
     target_link_libraries(TestMenuBarIntegrity PRIVATE
         pdfws_ui pdfws_engines pdfws_commands pdfws_core
-        Qt6::Test Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets
+        Qt6::Test Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets Qt6::Concurrent
     )
     add_custom_command(TARGET TestMenuBarIntegrity POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory
@@ -1609,7 +1609,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRedactClearMarks.cpp")
     )
     target_include_directories(TestRedactClearMarks PRIVATE src tests)
     target_link_libraries(TestRedactClearMarks PRIVATE
-        pdfws_ui pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets
+        pdfws_ui pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets Qt6::Concurrent
     )
     add_test(NAME TestRedactClearMarks COMMAND TestRedactClearMarks)
     set_tests_properties(TestRedactClearMarks PROPERTIES
@@ -1622,7 +1622,7 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestThumbnailZoom.cpp")
     add_executable(TestThumbnailZoom tests/TestThumbnailZoom.cpp)
     target_include_directories(TestThumbnailZoom PRIVATE src tests)
-    target_link_libraries(TestThumbnailZoom PRIVATE pdfws_ui pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets)
+    target_link_libraries(TestThumbnailZoom PRIVATE pdfws_ui pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets Qt6::Concurrent)
     add_test(NAME TestThumbnailZoom COMMAND TestThumbnailZoom)
     set_tests_properties(TestThumbnailZoom PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;search;navigation;qt;headless")
 endif()
@@ -1630,7 +1630,7 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestMergeSuccess.cpp")
     add_executable(TestMergeSuccess tests/TestMergeSuccess.cpp)
     target_include_directories(TestMergeSuccess PRIVATE src tests)
-    target_link_libraries(TestMergeSuccess PRIVATE pdfws_ui pdfws_engines pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets)
+    target_link_libraries(TestMergeSuccess PRIVATE pdfws_ui pdfws_engines pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets Qt6::Concurrent)
     add_test(NAME TestMergeSuccess COMMAND TestMergeSuccess)
     set_tests_properties(TestMergeSuccess PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;pages;merge;qt;headless")
 endif()
@@ -1756,7 +1756,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestValidateAllSignatures.cpp")
     add_executable(TestValidateAllSignatures tests/TestValidateAllSignatures.cpp)
     target_include_directories(TestValidateAllSignatures PRIVATE src tests)
     target_link_libraries(TestValidateAllSignatures PRIVATE
-        pdfws_ui pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+        pdfws_ui pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
     )
     add_test(NAME TestValidateAllSignatures COMMAND TestValidateAllSignatures)
     set_tests_properties(TestValidateAllSignatures PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;signatures;security;qt;headless")
@@ -1847,7 +1847,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEraseWiring.cpp")
     add_executable(TestEraseWiring tests/TestEraseWiring.cpp)
     target_include_directories(TestEraseWiring PRIVATE src tests)
     target_link_libraries(TestEraseWiring PRIVATE
-        pdfws_ui pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+        pdfws_ui pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
     )
     add_test(NAME TestEraseWiring COMMAND TestEraseWiring)
     set_tests_properties(TestEraseWiring PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;editing;erase;qt;headless")
@@ -1857,7 +1857,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAnnotationToolBar.cpp")
     add_executable(TestAnnotationToolBar tests/TestAnnotationToolBar.cpp)
     target_include_directories(TestAnnotationToolBar PRIVATE src tests)
     target_link_libraries(TestAnnotationToolBar PRIVATE
-        pdfws_ui pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+        pdfws_ui pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
     )
     add_test(NAME TestAnnotationToolBar COMMAND TestAnnotationToolBar)
     set_tests_properties(TestAnnotationToolBar PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;annotations;toolbar;qt;headless")
@@ -1867,10 +1867,20 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestViewerRotation.cpp")
     add_executable(TestViewerRotation tests/TestViewerRotation.cpp)
     target_include_directories(TestViewerRotation PRIVATE src tests)
     target_link_libraries(TestViewerRotation PRIVATE
-        pdfws_ui pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets
+        pdfws_ui pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets Qt6::Concurrent
     )
     add_test(NAME TestViewerRotation COMMAND TestViewerRotation)
     set_tests_properties(TestViewerRotation PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;viewing;rotation;qt;headless")
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrAcceptSeam.cpp")
+    add_executable(TestOcrAcceptSeam tests/TestOcrAcceptSeam.cpp)
+    target_include_directories(TestOcrAcceptSeam PRIVATE src tests)
+    target_link_libraries(TestOcrAcceptSeam PRIVATE
+        pdfws_ui pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+    )
+    add_test(NAME TestOcrAcceptSeam COMMAND TestOcrAcceptSeam)
+    set_tests_properties(TestOcrAcceptSeam PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;ocr;accept;qt;headless")
 endif()
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAnnotationDjot.cpp")
