@@ -10,6 +10,14 @@ namespace gp {
 
 class PdfAValidationReport;
 
+/// §9.14: tagged-PDF reading-order analysis (exposed for tests).
+struct ReadingOrderResult {
+    bool tagged = false;
+    int elementCount = 0;
+    QStringList issues;
+};
+ReadingOrderResult analyzeReadingOrder(const QString& path);
+
 class PdfAValidationPanel : public QFrame {
     Q_OBJECT
 public:
