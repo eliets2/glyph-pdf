@@ -118,6 +118,7 @@ const QList<MenuActionSpec>& MenuBar::actionSpecs() {
         { "tab-order",       MenuDispatch::Registry },
         { "import-data",     MenuDispatch::Registry },
         { "export-data",     MenuDispatch::Registry },
+        { "expiry-date",     MenuDispatch::Registry },  // alias → ExpiryDate (SecurityController)
 
         // ── Window ──
         { "minimize",     MenuDispatch::Local    },
@@ -338,6 +339,7 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
     addActionToMenu(toolsMenu, tr("&Compare Documents…"), "compare");
     addActionToMenu(toolsMenu, tr("C&ompress Document…"), "compress");
     addActionToMenu(toolsMenu, tr("&Watermark…"), "watermark");
+    addActionToMenu(toolsMenu, tr("Set E&xpiry Date…"), "expiry-date");
     toolsMenu->addSeparator();
     addActionToMenu(toolsMenu, tr("Measure &Distance"), "measure-dist");
     addActionToMenu(toolsMenu, tr("Measure &Area"), "measure-area");

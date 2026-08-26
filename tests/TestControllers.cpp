@@ -129,6 +129,8 @@ private slots:
         QVERIFY(tools.contains(ToolId::Certify));
         QVERIFY(tools.contains(ToolId::Timestamp));
         QVERIFY(tools.contains(ToolId::Permissions));
+        // §9.11 P0: expiry must be settable from the UI again.
+        QVERIFY(tools.contains(ToolId::ExpiryDate));
         QVERIFY(!tools.contains(ToolId::Open));
         QVERIFY(!tools.contains(ToolId::ZoomIn));
     }
@@ -191,6 +193,14 @@ private slots:
         auto parsed = toolIdFromString("save-as");
         QVERIFY(parsed.has_value());
         QCOMPARE(parsed.value(), ToolId::SaveAs);
+    }
+
+    void testExpiryDateToolIdWiring() {
+        // §9.11 P0: the ExpiryDate tool id must resolve from its menu alias.
+        auto parsed = toolIdFromString("expiry-date");
+        QVERIFY(parsed.has_value());
+        QCOMPARE(parsed.value(), ToolId::ExpiryDate);
+        QCOMPARE(toolIdToString(ToolId::ExpiryDate), QStringLiteral("expiryDate"));
     }
 };
 
