@@ -46,6 +46,24 @@ ConversionManager::ConversionManager(QObject *parent)
 
 ConversionManager::~ConversionManager() = default;
 
+bool ConversionManager::hasNativeWordExport()
+{
+#ifdef HAS_DUCKX
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool ConversionManager::hasNativeExcelExport()
+{
+#ifdef HAS_OPENXLSX
+    return true;
+#else
+    return false;
+#endif
+}
+
 bool ConversionManager::convertTo(const QString &pdfPath, const QString &outputPath, TargetFormat format, const QVariantMap &options)
 {
     if (format == TargetFormat::OfficeToPdf) {
@@ -192,6 +210,7 @@ QList<ConversionManager::TextElement> ConversionManager::Private::extractTextFro
 bool ConversionManager::exportToWord(const QString &outputPath, const QList<QList<TextElement>> &rows)
 {
 #ifdef HAS_DUCKX
+    m_lastWordEngine = ExportEngine::NativeOoxml;
     duckx::Document doc(outputPath.toStdString());
     doc.open();
     auto p = doc.append_paragraph();
@@ -208,6 +227,7 @@ bool ConversionManager::exportToWord(const QString &outputPath, const QList<QLis
     return QFileInfo(outputPath).size() > 0;
 #else
     // Fallback: Generate HTML-based DOC (Word can open it)
+    m_lastWordEngine = ExportEngine::Fallback;
     QFile file(outputPath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return false;
     QTextStream out(&file);
@@ -228,6 +248,7 @@ bool ConversionManager::exportToWord(const QString &outputPath, const QList<QLis
 bool ConversionManager::exportToExcel(const QString &outputPath, const QList<QList<TextElement>> &rows)
 {
 #ifdef HAS_OPENXLSX
+    m_lastExcelEngine = ExportEngine::NativeOoxml;
     OpenXLSX::XLDocument doc;
     doc.create(outputPath.toStdString());
     auto wks = doc.workbook().worksheet("Sheet1");
@@ -245,6 +266,7 @@ bool ConversionManager::exportToExcel(const QString &outputPath, const QList<QLi
     return QFileInfo(outputPath).size() > 0;
 #else
     // Fallback: Generate CSV
+    m_lastExcelEngine = ExportEngine::Fallback;
     QFile file(outputPath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return false;
     QTextStream out(&file);
