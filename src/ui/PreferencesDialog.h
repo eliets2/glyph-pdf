@@ -43,7 +43,7 @@ private:
     QComboBox*   _ocrEngineCombo = nullptr;
 
     // AI tab widgets
-    QLineEdit*   _aiKeyEdit       = nullptr;  // repurposed: Ollama endpoint
+    QLineEdit*   _ollamaEndpointEdit = nullptr;
     QPushButton* _aiTestBtn       = nullptr;
     QPushButton* _aiSaveBtn       = nullptr;
     QPushButton* _aiDeleteBtn     = nullptr;
