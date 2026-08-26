@@ -38,6 +38,10 @@
 #include <QGraphicsColorizeEffect>
 #include <QScrollArea>
 #include <QLabel>
+#include <QDesktopServices>
+#include <QUrl>
+#include <QScrollBar>
+#include "engines/podofo/PoDoFoBackend.h" // §9.1 P0: link extraction (URI + GoTo)
 
 PdfViewerWidget::PdfViewerWidget(QWidget *parent)
     : QWidget(parent)
@@ -121,6 +125,11 @@ PdfViewerWidget::PdfViewerWidget(QWidget *parent)
 
     // We'll manage sizes manually in resizeEvent for true overlap
     layout->addWidget(container);
+
+    // §9.1 P0: clickable hyperlinks — intercept clicks on the view's viewport.
+    m_pdfView->viewport()->installEventFilter(this);
+    connect(m_pageNavigator, &QPdfPageNavigator::currentPageChanged,
+            this, [this](int) { refreshPageLinks(); });
 }
 
 PdfViewerWidget::~PdfViewerWidget()
@@ -138,6 +147,7 @@ bool PdfViewerWidget::loadDocument(const QString &fileName)
     clearPageCache();
     m_document->load(fileName);
     if (isLoaded()) loadAnnotations();
+    refreshPageLinks(); // §9.1 P0: prime link cache for the opening page
     return isLoaded();
 }
 
@@ -217,6 +227,66 @@ void PdfViewerWidget::rotateCounterClockwise()
 void PdfViewerWidget::updateRotation()
 {
     m_annotationLayer->setRotation(m_rotation);
+}
+
+// ── §9.1 P0: clickable hyperlinks (URI + internal GoTo) ────────────────────
+void PdfViewerWidget::refreshPageLinks()
+{
+    m_pageLinks.clear();
+    if (m_filePath.isEmpty() || !isLoaded()) return;
+    const int page = m_pageNavigator ? m_pageNavigator->currentPage() : -1;
+    if (page < 0) return;
+    // PoDoFo parse of the on-disk file; cheap enough per page change and
+    // keeps the viewer decoupled from the editor engine.
+    m_pageLinks = PoDoFoBackend::extractLinks(m_filePath, page);
+}
+
+bool PdfViewerWidget::handleLinkClick(const QPoint &viewportPos)
+{
+    if (m_pageLinks.isEmpty()) return false;
+    if (!m_document || !isLoaded()) return false;
+
+    // Map viewport position → PDF user-space points for the current page.
+    // Single-page/fit layouts: the page is centered; use zoom + scroll offsets.
+    const QSizeF pageSize = m_document->pagePointSize(m_pageNavigator->currentPage());
+    const qreal zoom = m_zoomFactor > 0.0 ? m_zoomFactor : 1.0;
+    const qreal viewW = m_pdfView->viewport()->width();
+    const qreal viewH = m_pdfView->viewport()->height();
+    qreal pageW = pageSize.width() * zoom;
+    qreal pageH = pageSize.height() * zoom;
+    if (pageW <= 0 || pageH <= 0) return false;
+    const qreal originX = qMax<qreal>(0, (viewW - pageW) / 2.0) - m_pdfView->horizontalScrollBar()->value();
+    const qreal originY = qMax<qreal>(0, (viewH - pageH) / 2.0) - m_pdfView->verticalScrollBar()->value();
+    QPointF pdfPos((viewportPos.x() - originX) / zoom,
+                   (viewportPos.y() - originY) / zoom);
+    // Flip to bottom-left-origin PDF space.
+    pdfPos.setY(pageSize.height() - pdfPos.y());
+
+    for (const auto& link : m_pageLinks) {
+        if (link.rect.contains(pdfPos)) {
+            if (link.isUri && !link.uri.isEmpty()) {
+                QDesktopServices::openUrl(QUrl(link.uri));
+                return true;
+            }
+            if (link.targetPage >= 0) {
+                goToPage(link.targetPage);
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool PdfViewerWidget::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == m_pdfView->viewport() && event->type() == QEvent::MouseButtonRelease) {
+        auto* me = static_cast<QMouseEvent*>(event);
+        if (me->button() == Qt::LeftButton && m_toolMode == ToolMode::HandTool) {
+            if (handleLinkClick(me->pos()))
+                return true; // consumed — do not treat as canvas click
+        }
+    }
+    return QWidget::eventFilter(watched, event);
 }
 
 // ---- Tool Mode ----
