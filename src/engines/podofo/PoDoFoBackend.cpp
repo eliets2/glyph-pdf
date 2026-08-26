@@ -2804,6 +2804,15 @@ static void applyAnnotationsToDoc(PoDoFo::PdfMemDocument& doc,
             else if (anno.mode == ToolMode::Highlight) annotType = PoDoFo::PdfAnnotationType::Highlight;
             else if (anno.mode == ToolMode::Stamp)     annotType = PoDoFo::PdfAnnotationType::Stamp;
             else if (anno.mode == ToolMode::Callout)   annotType = PoDoFo::PdfAnnotationType::FreeText;
+            // §9.3 P0: shapes/freehand must persist as their REAL PDF subtypes
+            // (/Square, /Circle, /Line, /Ink) — they used to fall through to
+            // invisible Text notes, silently discarding visible work on save.
+            else if (anno.mode == ToolMode::DrawRectangle) annotType = PoDoFo::PdfAnnotationType::Square;
+            else if (anno.mode == ToolMode::DrawEllipse)   annotType = PoDoFo::PdfAnnotationType::Circle;
+            else if (anno.mode == ToolMode::DrawLine || anno.mode == ToolMode::DrawArrow)
+                annotType = PoDoFo::PdfAnnotationType::Line;
+            else if (anno.mode == ToolMode::DrawFreehand || anno.mode == ToolMode::AddSignature)
+                annotType = PoDoFo::PdfAnnotationType::Ink;
 
             auto& annot = page.GetAnnotations().CreateAnnot(annotType, pdfRect);
             PoDoFo::PdfDictionary& dict = annot.GetDictionary();
@@ -2833,6 +2842,34 @@ static void applyAnnotationsToDoc(PoDoFo::PdfMemDocument& doc,
             colorArr.Add(anno.color.greenF());
             colorArr.Add(anno.color.blueF());
             dict.AddKey("C", colorArr);
+
+            // §9.3 P0: subtype-specific geometry so the shapes survive save/reload.
+            if (annotType == PoDoFo::PdfAnnotationType::Ink) {
+                // /InkList: array of strokes; each stroke is an array of points
+                // in PDF user space (y flipped to bottom-left origin).
+                PoDoFo::PdfArray inkList;
+                PoDoFo::PdfArray stroke;
+                for (const auto& p : anno.points) {
+                    stroke.Add(p.x());
+                    stroke.Add(pageHeight - p.y());
+                }
+                inkList.Add(PoDoFo::PdfObject(stroke));
+                dict.AddKey("InkList", inkList);
+            } else if (annotType == PoDoFo::PdfAnnotationType::Line) {
+                // /L: line endpoints [x1 y1 x2 y2] in PDF user space.
+                QPointF p1 = bounds.topLeft();
+                QPointF p2 = bounds.bottomRight();
+                if (!anno.points.isEmpty()) {
+                    p1 = anno.points.first();
+                    p2  = anno.points.last();
+                }
+                PoDoFo::PdfArray lineArr;
+                lineArr.Add(p1.x());
+                lineArr.Add(pageHeight - p1.y());
+                lineArr.Add(p2.x());
+                lineArr.Add(pageHeight - p2.y());
+                dict.AddKey("L", lineArr);
+            }
 
             if (!anno.id.isEmpty()) {
                 dict.AddKey("NM", PoDoFo::PdfString(anno.id.toStdString()));
@@ -3011,6 +3048,12 @@ QList<AnnotationItem> PoDoFoBackend::extractAnnotations(const QString &inputPath
                         else if (s == "Stamp")     item.mode = ToolMode::Stamp;
                         else if (s == "FreeText")  item.mode = ToolMode::Callout;
                         else if (s == "Text")      item.mode = ToolMode::AddComment;
+                        // §9.3 P0: real shape/ink subtypes round-trip to their
+                        // original tools instead of degrading to comments.
+                        else if (s == "Square")    item.mode = ToolMode::DrawRectangle;
+                        else if (s == "Circle")    item.mode = ToolMode::DrawEllipse;
+                        else if (s == "Line")      item.mode = ToolMode::DrawLine;
+                        else if (s == "Ink")       item.mode = ToolMode::DrawFreehand;
                     }
                 }
 
@@ -3029,6 +3072,34 @@ QList<AnnotationItem> PoDoFoBackend::extractAnnotations(const QString &inputPath
                             const double w = x1 - x0;
                             const double h = y1 - y0;
                             item.rect = QRectF(x0, pageHeight - y1, w, h);
+                        }
+                    }
+                }
+
+                // ── §9.3 P0: shape/ink geometry round-trip ────────────────────
+                if (item.mode == ToolMode::DrawFreehand) {
+                    if (const auto* ink = dict.FindKey("InkList")) {
+                        if (ink->IsArray() && !ink->GetArray().IsEmpty()) {
+                            const auto& strokeObj = ink->GetArray()[0];
+                            if (strokeObj.IsArray()) {
+                                const auto& pts = strokeObj.GetArray();
+                                for (size_t k = 0; k + 1 < pts.size(); k += 2) {
+                                    if (pts[k].IsNumberOrReal() && pts[k+1].IsNumberOrReal())
+                                        item.points.append(QPointF(pts[k].GetReal(),
+                                                                   pageHeight - pts[k+1].GetReal()));
+                                }
+                            }
+                        }
+                    }
+                } else if (item.mode == ToolMode::DrawLine) {
+                    if (const auto* l = dict.FindKey("L")) {
+                        if (l->IsArray() && l->GetArray().size() == 4) {
+                            const auto& ln = l->GetArray();
+                            if (ln[0].IsNumberOrReal() && ln[1].IsNumberOrReal() &&
+                                ln[2].IsNumberOrReal() && ln[3].IsNumberOrReal()) {
+                                item.points.append(QPointF(ln[0].GetReal(), pageHeight - ln[1].GetReal()));
+                                item.points.append(QPointF(ln[2].GetReal(), pageHeight - ln[3].GetReal()));
+                            }
                         }
                     }
                 }
