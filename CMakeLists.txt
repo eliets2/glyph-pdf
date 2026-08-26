@@ -1752,6 +1752,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFieldMetadata.cpp")
     set_tests_properties(TestFieldMetadata PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;forms;form-fields;persistence;qt;headless")
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestValidateAllSignatures.cpp")
+    add_executable(TestValidateAllSignatures tests/TestValidateAllSignatures.cpp)
+    target_include_directories(TestValidateAllSignatures PRIVATE src tests)
+    target_link_libraries(TestValidateAllSignatures PRIVATE
+        pdfws_ui pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_test(NAME TestValidateAllSignatures COMMAND TestValidateAllSignatures)
+    set_tests_properties(TestValidateAllSignatures PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;signatures;security;qt;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAnnotationDjot.cpp")
     add_executable(TestAnnotationDjot
         tests/TestAnnotationDjot.cpp
