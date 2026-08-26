@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+// §9.9 P0 (audit 2026-07-01): RETIRED — no longer compiled into the build.
+// Superseded by ReorderPermutationCommand (atomic single-write reorder);
+// PagesController::onPageReordered now builds a permutation from the swap and
+// pushes the atomic command. Delete this file after human review.
+
 #include <QUndoCommand>
 #include <QString>
 #include "core/interfaces/IPdfEditorEngine.h"
