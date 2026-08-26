@@ -21,6 +21,11 @@ public:
     QList<ToolId> handledTools() const override;
     void activate(ToolId id) override;
 
+    // §9.9 P0: pure helper — convert a single move (from→to) into the full
+    // page permutation consumed by ReorderPermutationCommand. Exposed static
+    // so the consolidation is unit-testable without a MainWindow.
+    static QList<int> buildMovePermutation(int pageCount, int from, int to);
+
 public slots:
     void onPageReordered(int from, int to);
     void onCropRequested(int pageIndex, QRectF rect);

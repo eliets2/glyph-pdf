@@ -30,6 +30,7 @@
 #include "engines/DocumentSession.h"
 #include "mocks/MockPdfEditorEngine.h"
 #include "commands/ReorderPermutationCommand.h"
+#include "shell/controllers/PagesController.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Extended mock that tracks reorderPages calls and simulates a multi-page doc.
@@ -388,6 +389,43 @@ private slots:
         undoStack->redo();
         QCOMPARE(mock->m_reorderAllCalls.size(), 3);
         QCOMPARE(mock->m_reorderAllCalls[2], desired);
+    }
+
+    // ── §9.9 P0: single-swap → atomic permutation consolidation ─────────
+    // The legacy ReorderPageCommand path is retired; a drag-drop move must be
+    // expressible as one permutation driving ONE reorderAllPages() call.
+    void testMovePermutationConsolidation() {
+        // buildMovePermutation: moving page 0 to position 2 in a 4-page doc.
+        const QList<int> perm = gp::PagesController::buildMovePermutation(4, 0, 2);
+        QCOMPARE(perm, QList<int>({1, 2, 0, 3}));
+
+        // Invalid inputs yield an empty permutation (rejected by caller).
+        QVERIFY(gp::PagesController::buildMovePermutation(4, -1, 0).isEmpty());
+        QVERIFY(gp::PagesController::buildMovePermutation(4, 0, 4).isEmpty());
+        QVERIFY(gp::PagesController::buildMovePermutation(0, 0, 0).isEmpty());
+
+        // End-to-end through the command: exactly one reorderAllPages call,
+        // zero legacy reorderPages calls, undo restores original order.
+        QTemporaryDir tmpDir;
+        QVERIFY(tmpDir.isValid());
+        const QString srcPath = tmpDir.path() + "/consolidated.pdf";
+        QVERIFY(writeStubPdf(srcPath));
+
+        auto mock = std::make_shared<PagesMock>();
+        mock->m_pageCount = 4;
+        mock->m_loaded    = true;
+        auto session = std::make_shared<DocumentSession>();
+        session->setPath(srcPath);
+        auto undoStack = std::make_shared<QUndoStack>();
+
+        auto* cmd = new ReorderPermutationCommand(mock.get(), session.get(), perm);
+        undoStack->push(cmd);
+        QCOMPARE(mock->m_reorderAllCalls.size(), 1);
+        QVERIFY(mock->m_reorderCalls.isEmpty());
+        undoStack->undo();
+        QCOMPARE(mock->m_reorderAllCalls.size(), 2);
+        // Inverse of [1,2,0,3] is [2,0,1,3].
+        QCOMPARE(mock->m_reorderAllCalls[1], QList<int>({2, 0, 1, 3}));
     }
 };
 

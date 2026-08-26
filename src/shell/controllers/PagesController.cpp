@@ -7,7 +7,7 @@
 #include "commands/DeletePageCommand.h"
 #include "commands/InsertPageCommand.h"
 #include "commands/CropPageCommand.h"
-#include "commands/ReorderPageCommand.h"
+#include "commands/ReorderPermutationCommand.h"
 #include "ui/PageManagementDialog.h"
 #include "ui/ResizeDialog.h"
 #include "ui/HeaderFooterDialog.h"
@@ -170,10 +170,25 @@ void PagesController::showPageManagement() {
     }
 }
 
+QList<int> PagesController::buildMovePermutation(int pageCount, int from, int to) {
+    QList<int> perm;
+    if (pageCount <= 0 || from < 0 || from >= pageCount || to < 0 || to >= pageCount)
+        return perm; // empty = invalid input
+    for (int i = 0; i < pageCount; ++i) perm.append(i);
+    const int moved = perm.takeAt(from);
+    perm.insert(to, moved);
+    return perm;
+}
+
 void PagesController::onPageReordered(int from, int to) {
     if (_ctx && _ctx->undoStack && _mainWindow->pdfViewer()) {
-        _ctx->document->setPath(_mainWindow->pdfViewer()->filePath());
-        _ctx->undoStack->push(new ReorderPageCommand(_ctx->pdfEditor.get(), _ctx->document.get(), from, to));
+        auto* viewer = _mainWindow->pdfViewer();
+        _ctx->document->setPath(viewer->filePath());
+        // §9.9 P0: route through the atomic permutation command (single disk
+        // write, single undo step) instead of the legacy single-swap command.
+        const QList<int> perm = buildMovePermutation(viewer->pageCount(), from, to);
+        if (perm.isEmpty()) return;
+        _ctx->undoStack->push(new ReorderPermutationCommand(_ctx->pdfEditor.get(), _ctx->document.get(), perm));
         _mainWindow->statusBar()->showMessage(tr("Reordered page %1 to %2.").arg(from + 1).arg(to + 1), 3000);
     }
 }
