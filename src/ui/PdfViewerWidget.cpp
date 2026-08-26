@@ -4,6 +4,8 @@
 #include "shell/StatusBar.h"
 #include "core/AnnotationSerializer.h"
 #include <QDebug>
+#include <QDesktopServices>
+#include <QUrl>
 #include <QMessageBox>
 #include <QPdfDocument>
 #include <QPdfView>
@@ -241,6 +243,15 @@ void PdfViewerWidget::refreshPageLinks()
     m_pageLinks = PoDoFoBackend::extractLinks(m_filePath, page);
 }
 
+bool PdfViewerWidget::isSafeLinkScheme(const QString &uri)
+{
+    const QUrl url(uri, QUrl::TolerantMode);
+    const QString scheme = url.scheme().toLower();
+    return scheme == QStringLiteral("http")
+        || scheme == QStringLiteral("https")
+        || scheme == QStringLiteral("mailto");
+}
+
 bool PdfViewerWidget::handleLinkClick(const QPoint &viewportPos)
 {
     if (m_pageLinks.isEmpty()) return false;
@@ -265,8 +276,11 @@ bool PdfViewerWidget::handleLinkClick(const QPoint &viewportPos)
     for (const auto& link : m_pageLinks) {
         if (link.rect.contains(pdfPos)) {
             if (link.isUri && !link.uri.isEmpty()) {
-                QDesktopServices::openUrl(QUrl(link.uri));
-                return true;
+                // §9.1 P0 DEFECT 2(A): never open an arbitrary scheme from a
+                // PDF. Only http/https/mailto are safe to hand to the OS.
+                if (isSafeLinkScheme(link.uri))
+                    QDesktopServices::openUrl(QUrl(link.uri));
+                return true; // consumed either way — unsafe schemes are blocked
             }
             if (link.targetPage >= 0) {
                 goToPage(link.targetPage);
