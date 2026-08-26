@@ -1710,6 +1710,22 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestShapeInkPersistence.cpp")
     set_tests_properties(TestShapeInkPersistence PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;annotations;persistence;qt;headless")
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCompressStripSanitize.cpp")
+    add_executable(TestCompressStripSanitize tests/TestCompressStripSanitize.cpp)
+    target_include_directories(TestCompressStripSanitize PRIVATE src tests)
+    target_link_libraries(TestCompressStripSanitize PRIVATE
+        pdfws_engines pdfws_core podofo::podofo Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET TestCompressStripSanitize POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PODOFO_VENDOR_DLL}"
+            "$<TARGET_FILE_DIR:TestCompressStripSanitize>/libpodofo.dll"
+        COMMENT "Deploying podofo 1.1.0 DLL for TestCompressStripSanitize"
+    )
+    add_test(NAME TestCompressStripSanitize COMMAND TestCompressStripSanitize)
+    set_tests_properties(TestCompressStripSanitize PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;compression;sanitization;privacy;qt;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAnnotationDjot.cpp")
     add_executable(TestAnnotationDjot
         tests/TestAnnotationDjot.cpp
