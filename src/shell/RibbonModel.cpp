@@ -16,7 +16,8 @@ const QSet<QString>& RibbonModel::plannedTools() {
         "thumbs", "bookmarks", "comments", "layers",
         "splitWin", "newWin",
         // Edit – advanced text/object operations
-        "insertText", "deleteText", "link", "attach", "delete",
+        // ('delete' removed: §9.2 P0 wired DeleteSelection — see ToolId::DeleteSelection)
+        "insertText", "deleteText", "link", "attach",
         "alignL", "alignC", "alignR", "distribute", "group", "layerOrder",
         "ocrVerify", "ocrLang", "ocrSettings",
         "measure", "distance", "area",

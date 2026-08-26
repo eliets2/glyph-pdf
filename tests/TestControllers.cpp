@@ -77,8 +77,15 @@ private slots:
         QVERIFY(tools.contains(ToolId::Squiggly));
         QVERIFY(tools.contains(ToolId::Signature));
         QVERIFY(tools.contains(ToolId::Image));
+        // §9.2 P0: minimal clipboard editing is wired (Cut/Copy/Delete).
+        QVERIFY(tools.contains(ToolId::Cut));
+        QVERIFY(tools.contains(ToolId::Copy));
+        QVERIFY(tools.contains(ToolId::DeleteSelection));
         QVERIFY(!tools.contains(ToolId::Open));
         QVERIFY(!tools.contains(ToolId::Encrypt));
+        // Menu aliases resolve to the new ids.
+        QCOMPARE(toolIdFromString(QStringLiteral("copy")).value_or(ToolId::Open), ToolId::Copy);
+        QCOMPARE(toolIdFromString(QStringLiteral("delete")).value_or(ToolId::Open), ToolId::DeleteSelection);
     }
 
     void testPagesControllerHandles() {

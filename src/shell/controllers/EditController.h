@@ -56,6 +56,7 @@ private slots:
 private:
     void editPdfText();
     void enterImageEditMode();
+    bool copySelectionToClipboard();
 
     const AppContext* _ctx = nullptr;
     MainWindow* _mainWindow = nullptr;
