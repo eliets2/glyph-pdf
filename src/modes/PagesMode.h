@@ -83,6 +83,11 @@ private:
     QListWidget*  m_reorderList     = nullptr;
     QList<int>    m_originalOrder;  // 0-based original page indices
 
+    // §9.9 P0: grid drag-and-drop reorder state.
+    QList<int> m_dragSnapshot;      // visual order (original indices) at drag start
+    void finishGridReorder();
+    void rebuildFromOrder(const QList<int>& order);
+
     const AppContext* m_ctx = nullptr;
 
     // AR-7 D2: worker for the page-count binary-search (avoids blocking the GUI thread).

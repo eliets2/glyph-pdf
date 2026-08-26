@@ -235,8 +235,21 @@ void PagesMode::buildPageListPanel(QWidget* host)
     m_pageList->setSpacing(8);
     m_pageList->setIconSize(QSize(100, 130));
     m_pageList->setMovement(QListView::Snap);
-    m_pageList->setDragDropMode(QAbstractItemView::NoDragDrop);
+    m_pageList->setDragDropMode(QAbstractItemView::InternalMove);
+    m_pageList->setDefaultDropAction(Qt::MoveAction);
     m_pageList->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    // §9.9 P0: translate QListWidget internal moves into an atomic page
+    // reorder. Internal move = rows removed then re-inserted; snapshot the
+    // visual order when removal starts, then diff after insertion.
+    connect(m_pageList->model(), &QAbstractItemModel::rowsAboutToBeRemoved,
+            this, [this](const QModelIndex&, int, int) {
+        if (m_dragSnapshot.isEmpty()) {
+            for (int i = 0; i < m_pageList->count(); ++i)
+                m_dragSnapshot.append(m_pageList->item(i)->data(Qt::UserRole).toInt());
+        }
+    });
+    connect(m_pageList->model(), &QAbstractItemModel::rowsInserted,
+            this, [this]() { QMetaObject::invokeMethod(this, &PagesMode::finishGridReorder, Qt::QueuedConnection); });
     vLayout->addWidget(m_pageList, 1);
 }
 
@@ -919,6 +932,69 @@ void PagesMode::onResetReorder()
     }
     m_originalOrder.clear();
     for (int i = 0; i < m_pageList->count(); ++i) m_originalOrder.append(i);
+}
+
+// §9.9 P0: grid drag-and-drop → atomic page reorder.
+void PagesMode::finishGridReorder()
+{
+    if (m_dragSnapshot.isEmpty()) return;
+
+    QList<int> newOrder;
+    newOrder.reserve(m_pageList->count());
+    for (int i = 0; i < m_pageList->count(); ++i)
+        newOrder.append(m_pageList->item(i)->data(Qt::UserRole).toInt());
+
+    const QList<int> snapshot = m_dragSnapshot;
+    m_dragSnapshot.clear();
+    if (newOrder == snapshot) return; // drop with no net change
+
+    // Express the new visual order as a permutation over positions in the
+    // pre-drag order — exactly what ReorderPermutationCommand expects.
+    QList<int> perm;
+    perm.reserve(newOrder.size());
+    for (int idx : newOrder)
+        perm.append(snapshot.indexOf(idx));
+
+    if (!m_ctx || !m_ctx->document || !m_ctx->pdfEditor || m_ctx->document->path().isEmpty()) {
+        // No document: revert the visual move so the grid never lies.
+        rebuildFromOrder(snapshot);
+        return;
+    }
+
+    auto* cmd = new ReorderPermutationCommand(
+        m_ctx->pdfEditor.get(), m_ctx->document.get(), perm);
+    if (m_ctx->undoStack) {
+        m_ctx->undoStack->push(cmd);
+    } else {
+        cmd->redo();
+        delete cmd;
+    }
+
+    if (m_ctx->pdfEditor->lastError().severity >= ErrorInfo::Error) {
+        QMessageBox::critical(this, PagesMode::tr("Reorder failed"),
+            PagesMode::tr("An error occurred while reordering pages. "
+                          "The document has not been modified."));
+        rebuildFromOrder(snapshot);
+        return;
+    }
+
+    m_originalOrder = newOrder;
+    refreshPageList(); // re-render thumbnails in the new order
+}
+
+void PagesMode::rebuildFromOrder(const QList<int>& order)
+{
+    m_pageList->clear();
+    for (int pos = 0; pos < order.size(); ++pos) {
+        QPixmap thumb(100, 130);
+        thumb.fill(QColor(220, 220, 220));
+        auto* item = new QListWidgetItem;
+        item->setIcon(QIcon(thumb));
+        item->setText(PagesMode::tr("Page %1").arg(order[pos] + 1));
+        item->setSizeHint(QSize(120, 160));
+        item->setData(Qt::UserRole, order[pos]);
+        m_pageList->addItem(item);
+    }
 }
 
 } // namespace gp

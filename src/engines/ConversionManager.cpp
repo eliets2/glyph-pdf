@@ -2,6 +2,8 @@
 #include "engines/ConversionManager.h"
 #include <memory>
 #include <podofo/podofo.h>
+#include <cstring>
+#include <cstdlib>
 #include <algorithm>
 #include <cmath>
 #include <QDebug>
@@ -556,9 +558,22 @@ bool ConversionManager::exportToText(const QString &pdfPath, const QString &outp
 }
 
 static void addZipFile(zip_t* za, const char* name, const QByteArray& data) {
-    zip_source_t* source = zip_source_buffer(za, data.constData(), data.size(), 0);
-    if (source) {
-        zip_file_add(za, name, source, ZIP_FL_OVERWRITE | ZIP_FL_ENC_UTF_8);
+    // Genuine fix: libzip reads the source buffer lazily at zip_close(). With
+    // freep=0 the caller's QByteArray had to outlive that call — loop-local
+    // buffers (slide images/XMLs) were freed first, producing corrupt
+    // archives under memory pressure (flaky PPTX tests). Copy into a
+    // malloc'd buffer and let libzip own/free it.
+    const qint64 size = data.size();
+    char* copy = static_cast<char*>(malloc(size > 0 ? static_cast<size_t>(size) : 1));
+    if (!copy) return;
+    if (size > 0) memcpy(copy, data.constData(), static_cast<size_t>(size));
+    zip_source_t* source = zip_source_buffer(za, copy, size, 1);
+    if (!source) {
+        free(copy);
+        return;
+    }
+    if (zip_file_add(za, name, source, ZIP_FL_OVERWRITE | ZIP_FL_ENC_UTF_8) < 0) {
+        zip_source_free(source); // frees our malloc'd buffer too
     }
 }
 
