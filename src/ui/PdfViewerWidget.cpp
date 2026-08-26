@@ -259,6 +259,11 @@ bool PdfViewerWidget::handleLinkClick(const QPoint &viewportPos)
 
     // Map viewport position → PDF user-space points for the current page.
     // Single-page/fit layouts: the page is centered; use zoom + scroll offsets.
+    // laziness: this mapping assumes a single centered page. In MultiPage mode
+    // the page is laid out in a flow, so the centering math is approximate.
+    // upgrade path: use QPdfLinkModel (Qt 6.4+) for authoritative per-page
+    // link hit-testing across all page modes, or compute the page's actual
+    // viewport rect from QPdfView's layout.
     const QSizeF pageSize = m_document->pagePointSize(m_pageNavigator->currentPage());
     const qreal zoom = m_zoomFactor > 0.0 ? m_zoomFactor : 1.0;
     const qreal viewW = m_pdfView->viewport()->width();
