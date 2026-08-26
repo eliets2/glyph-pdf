@@ -90,16 +90,16 @@ ThumbnailSidebar::ThumbnailSidebar(QWidget* parent)
     tbLayout->addStretch();
 
     auto* zoomOutBtn = new QPushButton(QStringLiteral("\xE2\x88\x92")); // minus sign
-    zoomOutBtn->setFixedSize(20, 18);
+    zoomOutBtn->setObjectName(QString::fromLatin1("thumbZoomOutBtn"));    zoomOutBtn->setFixedSize(20, 18);
     zoomOutBtn->setProperty("variant", "mini");
     zoomOutBtn->setToolTip(QStringLiteral("Smaller thumbnails"));
     tbLayout->addWidget(zoomOutBtn);
 
     auto* zoomInBtn = new QPushButton(QStringLiteral("+"));
-    zoomInBtn->setFixedSize(20, 18);
+    zoomInBtn->setObjectName(QString::fromLatin1("thumbZoomInBtn"));    zoomInBtn->setFixedSize(20, 18);
     zoomInBtn->setProperty("variant", "mini");
     zoomInBtn->setToolTip(QStringLiteral("Larger thumbnails"));
-    tbLayout->addWidget(zoomInBtn);
+    tbLayout->addWidget(zoomInBtn);    connect(zoomOutBtn, &QPushButton::clicked, this, &ThumbnailSidebar::zoomOut);    connect(zoomInBtn, &QPushButton::clicked, this, &ThumbnailSidebar::zoomIn);
 
     mainLayout->addWidget(toolbar);
 
@@ -183,7 +183,7 @@ void ThumbnailSidebar::rebuild()
     m_pageCountLabel->setText(QStringLiteral("PAGES \xC2\xB7 %1").arg(m_totalPages));
 
     // Set total virtual height so the scrollbar is correct
-    int totalHeight = m_totalPages * ThumbItemHeight;
+    int totalHeight = m_totalPages * thumbItemHeight();
     m_topSpacer->changeSize(0, 0);
     m_bottomSpacer->changeSize(0, totalHeight);
     m_layout->invalidate();
@@ -204,8 +204,8 @@ void ThumbnailSidebar::updateVisibleThumbnails()
     int viewportH = m_scroll->viewport()->height();
 
     // Determine which page indices are visible
-    int firstVisible = qMax(0, scrollY / ThumbItemHeight - VisibleBuffer);
-    int lastVisible  = qMin(m_totalPages - 1, (scrollY + viewportH) / ThumbItemHeight + VisibleBuffer);
+    int firstVisible = qMax(0, scrollY / thumbItemHeight() - VisibleBuffer);
+    int lastVisible  = qMin(m_totalPages - 1, (scrollY + viewportH) / thumbItemHeight() + VisibleBuffer);
 
     // Remove widgets outside the visible range
     QList<int> toRemove;
@@ -237,7 +237,7 @@ void ThumbnailSidebar::updateVisibleThumbnails()
     m_layout->removeItem(m_bottomSpacer);
 
     // Top spacer covers pages [0, firstVisible)
-    int topH = firstVisible * ThumbItemHeight;
+    int topH = firstVisible * thumbItemHeight();
     m_topSpacer->changeSize(0, topH);
     m_layout->addSpacerItem(m_topSpacer);
 
@@ -249,7 +249,7 @@ void ThumbnailSidebar::updateVisibleThumbnails()
     }
 
     // Bottom spacer covers pages (lastVisible, totalPages)
-    int bottomH = qMax(0, (m_totalPages - lastVisible - 1) * ThumbItemHeight);
+    int bottomH = qMax(0, (m_totalPages - lastVisible - 1) * thumbItemHeight());
     m_bottomSpacer->changeSize(0, bottomH);
     m_layout->addSpacerItem(m_bottomSpacer);
 
@@ -291,7 +291,7 @@ QWidget* ThumbnailSidebar::createThumbWidget(int pageIndex)
     // Paper (8.5:11 aspect ratio container)
     auto* paper = new QWidget;
     paper->setObjectName("thumbPaper");
-    paper->setFixedSize(140, 181);
+    paper->setFixedSize(thumbPaperWidth(), thumbPaperHeight());
 
     // D2: real PDFium-rendered thumbnail (cached via RenderCache at 75 DPI),
     // replacing the former fake title/text/image block placeholders. The render
@@ -309,7 +309,7 @@ QWidget* ThumbnailSidebar::createThumbWidget(int pageIndex)
     if (m_renderCache && m_renderer) {
         // getOrRender's scale arg maps to DPI as dpi = scale * 72, so passing
         // 75/72 yields a 75-DPI render.
-        const qreal scale = static_cast<qreal>(ThumbnailDpi) / 72.0;
+        const qreal scale = static_cast<qreal>(ThumbnailDpi) * m_thumbZoom / 72.0;
         rendered = m_renderCache->getOrRender(pageIndex, scale, m_renderer.get());
     }
 
@@ -391,7 +391,7 @@ void ThumbnailSidebar::setCurrentPage(int page)
         m_scroll->ensureWidgetVisible(newWidget, 0, 40);
     } else {
         // Scroll to the page position so virtualization picks it up
-        int targetY = page * ThumbItemHeight;
+        int targetY = page * thumbItemHeight();
         m_scroll->verticalScrollBar()->setValue(targetY);
     }
 }
@@ -478,7 +478,7 @@ void ThumbnailSidebar::dropEvent(QDropEvent* event)
         
         // Find target index based on drop position in the scroll area
         QPoint pos = m_scroll->widget()->mapFrom(this, event->position().toPoint());
-        int targetIndex = qMax(0, qMin(m_totalPages - 1, pos.y() / ThumbItemHeight));
+        int targetIndex = qMax(0, qMin(m_totalPages - 1, pos.y() / thumbItemHeight()));
         
         if (sourceIndex != targetIndex) {
             emit pageReordered(sourceIndex, targetIndex);
@@ -488,3 +488,7 @@ void ThumbnailSidebar::dropEvent(QDropEvent* event)
     }
 }
 
+void ThumbnailSidebar::setZoom(double z) { z = qBound(kMinThumbZoom, z, kMaxThumbZoom); if (qFuzzyCompare(z, m_thumbZoom)) return; m_thumbZoom = z; updateZoomButtons(); rebuild(); emit zoomChanged(m_thumbZoom); }
+void ThumbnailSidebar::zoomIn() { setZoom(m_thumbZoom + 0.25); }
+void ThumbnailSidebar::zoomOut() { setZoom(m_thumbZoom - 0.25); }
+void ThumbnailSidebar::updateZoomButtons() { if (QWidget* tb = findChild<QWidget*>(QString::fromLatin1("thumbToolbar"))) { QPushButton* zin = tb->findChild<QPushButton*>(QString::fromLatin1("thumbZoomInBtn")); QPushButton* zout = tb->findChild<QPushButton*>(QString::fromLatin1("thumbZoomOutBtn")); if (zin) zin->setEnabled(m_thumbZoom < kMaxThumbZoom); if (zout) zout->setEnabled(m_thumbZoom > kMinThumbZoom); } }
