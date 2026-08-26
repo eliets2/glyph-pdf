@@ -1798,6 +1798,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRedactSanitizeBundle.cpp")
     set_tests_properties(TestRedactSanitizeBundle PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;redaction;sanitization;security;privacy;qt;headless")
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPptxOverlayAlpha.cpp")
+    add_executable(TestPptxOverlayAlpha tests/TestPptxOverlayAlpha.cpp)
+    target_include_directories(TestPptxOverlayAlpha PRIVATE src tests)
+    target_link_libraries(TestPptxOverlayAlpha PRIVATE
+        pdfws_engines pdfws_core zip Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_test(NAME TestPptxOverlayAlpha COMMAND TestPptxOverlayAlpha)
+    set_tests_properties(TestPptxOverlayAlpha PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;conversion;pptx;qt;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAnnotationDjot.cpp")
     add_executable(TestAnnotationDjot
         tests/TestAnnotationDjot.cpp
