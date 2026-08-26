@@ -3761,17 +3761,37 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
                 }
             }
 
-            // Replace references to duplicates in page XObject dictionaries
+            // §9.13 P0: complete the rewiring — every page /XObject entry that
+            // points at a duplicate image is rewritten to reference the
+            // canonical (first) copy. The duplicate objects then become
+            // unreferenced and are dropped by PoDoFo's save-time garbage
+            // collection.
             if (!duplicateMap.isEmpty()) {
                 unsigned int pc = doc.GetPages().GetCount();
                 for (unsigned int pi = 0; pi < pc; ++pi) {
                     auto& page = doc.GetPages().GetPageAt(pi);
                     auto* res = page.GetDictionary().FindKey("Resources");
                     if (!res) continue;
+                    if (res->IsReference())
+                        res = &doc.GetObjects().MustGetObject(res->GetReference());
+                    if (!res || !res->IsDictionary()) continue;
                     auto* xobjs = res->GetDictionary().FindKey("XObject");
                     if (!xobjs) continue;
-                    // We note duplicates but don't modify references directly
-                    // (PoDoFo indirect refs make this safe — the objects just won't be used)
+                    if (xobjs->IsReference())
+                        xobjs = &doc.GetObjects().MustGetObject(xobjs->GetReference());
+                    if (!xobjs || !xobjs->IsDictionary()) continue;
+
+                    for (auto& entry : xobjs->GetDictionary()) {
+                        PoDoFo::PdfObject* val = &entry.second;
+                        if (!val->IsReference()) continue;
+                        PoDoFo::PdfObject* target =
+                            &doc.GetObjects().MustGetObject(val->GetReference());
+                        auto it = duplicateMap.find(target);
+                        if (it != duplicateMap.end()) {
+                            xobjs->GetDictionary().AddKey(
+                                entry.first, it.value()->GetIndirectReference());
+                        }
+                    }
                 }
             }
         }
