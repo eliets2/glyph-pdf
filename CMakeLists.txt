@@ -592,8 +592,9 @@ add_library(pdfws_commands STATIC
     src/commands/RotateImageCommand.h
     src/commands/ReplaceImageCommand.h
     src/commands/DeleteImageCommand.h
-    src/commands/ReorderPageCommand.h
-    src/commands/ReorderPageCommand.cpp
+    # §9.9 P0: ReorderPageCommand retired — superseded by
+    # ReorderPermutationCommand (atomic, single disk write). Files kept on
+    # disk pending manual deletion.
     src/commands/ReorderPermutationCommand.h
     src/commands/ReorderPermutationCommand.cpp
     src/commands/CropPageCommand.h
