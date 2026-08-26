@@ -65,6 +65,11 @@ QString toolIdToString(ToolId id) {
         { ToolId::Signature,      QStringLiteral("signature") },
         { ToolId::Image,          QStringLiteral("image") },
         { ToolId::MarkRedact,     QStringLiteral("markRedact") },
+        { ToolId::Cut,            QStringLiteral("cut") },
+        { ToolId::Copy,           QStringLiteral("copy") },
+        { ToolId::Paste,          QStringLiteral("paste") },
+        { ToolId::DeleteSelection, QStringLiteral("deleteSelection") },
+        { ToolId::SelectAll,      QStringLiteral("selectAll") },
         // Pages
         { ToolId::RotateCW,       QStringLiteral("rotate") },
         { ToolId::RotateCCW,      QStringLiteral("rotL") },
@@ -201,6 +206,11 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         add(ToolId::Signature,      {"signature"});
         add(ToolId::Image,          {"image"});
         add(ToolId::MarkRedact,     {"markRedact", "markredact"});
+        add(ToolId::Cut,            {"cut"});
+        add(ToolId::Copy,           {"copy"});
+        add(ToolId::Paste,          {"paste"});
+        add(ToolId::DeleteSelection, {"deleteSelection", "deleteselection", "delete-selection", "delete"});
+        add(ToolId::SelectAll,      {"selectAll", "selectall", "select-all"});
 
         // ── Pages ──
         add(ToolId::RotateCW,       {"rotate", "rotR", "rotate-cw", "rotr", "rotatecw"});

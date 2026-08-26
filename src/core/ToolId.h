@@ -68,6 +68,11 @@ enum class ToolId {
     Signature,
     Image,
     MarkRedact,
+    Cut,
+    Copy,
+    Paste,
+    DeleteSelection,
+    SelectAll,
 
     // ── Pages ──
     RotateCW,
