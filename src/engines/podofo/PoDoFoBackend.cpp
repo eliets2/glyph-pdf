@@ -3203,6 +3203,92 @@ QList<AnnotationItem> PoDoFoBackend::extractAnnotations(const QString &inputPath
     return result;
 }
 
+// ── §9.1 P0: clickable link annotations (URI + internal GoTo) ──────────────
+QList<PdfLinkInfo> PoDoFoBackend::extractLinks(const QString &inputPath, int pageIndex)
+{
+    QList<PdfLinkInfo> links;
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(inputPath.toUtf8().constData());
+        if (pageIndex < 0 || static_cast<unsigned>(pageIndex) >= doc.GetPages().GetCount())
+            return links;
+
+        auto& page = doc.GetPages().GetPageAt(pageIndex);
+        const double pageHeight = page.GetMediaBox().Height;
+        auto& annos = page.GetAnnotations();
+
+        auto resolveDestPage = [&](const PoDoFo::PdfObject* dest) -> int {
+            // /Dest arrays look like [pageRef /XYZ x y z]; the page ref is
+            // element 0. Named destinations are not resolved here.
+            if (!dest || !dest->IsArray() || dest->GetArray().GetSize() < 1)
+                return -1;
+            const auto& first = dest->GetArray()[0];
+            if (!first.IsReference()) return -1;
+            const PoDoFo::PdfObject* target =
+                &doc.GetObjects().MustGetObject(first.GetReference());
+            if (!target || !target->IsDictionary()) return -1;
+            auto& pages = doc.GetPages();
+            for (unsigned i = 0; i < pages.GetCount(); ++i)
+                if (&pages.GetPageAt(i).GetObject() == target)
+                    return static_cast<int>(i);
+            return -1;
+        };
+
+        for (unsigned a = 0; a < annos.GetCount(); ++a) {
+            auto& annot = annos.GetAnnotAt(a);
+            const PoDoFo::PdfDictionary& dict = annot.GetDictionary();
+            auto* sub = dict.FindKey("Subtype");
+            if (!sub || !sub->IsName()
+                || std::string(sub->GetName().GetString()) != "Link")
+                continue;
+
+            PdfLinkInfo info;
+            if (const auto* rectObj = dict.FindKey("Rect"); rectObj && rectObj->IsArray()) {
+                const auto& r = rectObj->GetArray();
+                if (r.GetSize() == 4 && r[0].IsNumberOrReal() && r[1].IsNumberOrReal()
+                    && r[2].IsNumberOrReal() && r[3].IsNumberOrReal()) {
+                    const double x0 = r[0].GetReal(), y0 = r[1].GetReal();
+                    const double x1 = r[2].GetReal(), y1 = r[3].GetReal();
+                    info.rect = QRectF(x0, pageHeight - y1, x1 - x0, y1 - y0);
+                }
+            }
+            if (!info.rect.isValid()) continue;
+
+            // Action-based link (/A): URI or GoTo.
+            if (const auto* aObj = dict.FindKey("A")) {
+                const PoDoFo::PdfObject* action = aObj;
+                if (action->IsReference())
+                    action = &doc.GetObjects().MustGetObject(action->GetReference());
+                if (action && action->IsDictionary()) {
+                    auto& ad = action->GetDictionary();
+                    auto* s = ad.FindKey("S");
+                    if (s && s->IsName()) {
+                        const std::string stype(s->GetName().GetString());
+                        if (stype == "URI") {
+                            if (auto* uri = ad.FindKey("URI"); uri && uri->IsString()) {
+                                info.isUri = true;
+                                info.uri = QString::fromUtf8(uri->GetString().GetString().data(),
+                                                             static_cast<int>(uri->GetString().GetString().size()));
+                            }
+                        } else if (stype == "GoTo") {
+                            info.targetPage = resolveDestPage(ad.FindKey("D"));
+                        }
+                    }
+                }
+            }
+            // Direct destination (/Dest) when there is no /A GoTo.
+            if (!info.isUri && info.targetPage < 0)
+                info.targetPage = resolveDestPage(dict.FindKey("Dest"));
+
+            if (info.isUri || info.targetPage >= 0)
+                links.append(info);
+        }
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "extractLinks error:" << e.what();
+    }
+    return links;
+}
+
 // ── Watermarking (Session 13) ──────────────────────────────────────────────
 
 bool PoDoFoBackend::addTextWatermark(const TextWatermarkOptions &options)

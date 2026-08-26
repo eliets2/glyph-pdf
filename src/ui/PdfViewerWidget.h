@@ -115,6 +115,7 @@ protected:
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
     void onPageChanged();
     void updateRotation();
@@ -172,6 +173,11 @@ private:
 
     // Save debounce (Fix 7)
     QTimer *m_saveDebounceTimer;
+
+    // §9.1 P0: clickable hyperlinks (URI + internal GoTo) for the current page.
+    QList<PdfLinkInfo> m_pageLinks;
+    void refreshPageLinks();
+    bool handleLinkClick(const QPoint &viewportPos);
 
     // Page change coalescing (Fix 13)
     QTimer *m_pageChangeTimer = nullptr;

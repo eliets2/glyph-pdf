@@ -72,6 +72,9 @@ public:
     // the perfect GlyphPDF→PDF→GlyphPDF rich-text roundtrip.
     QList<AnnotationItem> extractAnnotations(const QString &inputPath);
 
+    // §9.1 P0: clickable link annotations on one page (URI + internal GoTo).
+    static QList<PdfLinkInfo> extractLinks(const QString &inputPath, int pageIndex);
+
     // Specialized conversion/security operations
     bool linearizeDocument(const QString &outputPath);
     bool exportPdfA(const QString &outputPath, int conformanceLevel);

@@ -18,6 +18,14 @@ enum class ReviewState {
     LastValue = Completed  // sentinel — update if new values are added
 };
 
+// §9.1 P0: a clickable link annotation on a page (URI or internal GoTo).
+struct PdfLinkInfo {
+    QRectF rect;        // click region in PDF user space (bottom-left origin)
+    bool   isUri = false;
+    QString uri;        // valid when isUri
+    int    targetPage = -1;  // 0-based page for internal GoTo links
+};
+
 struct AnnotationItem {
     int pageIndex = 0;
     ToolMode mode = ToolMode::HandTool;
