@@ -152,6 +152,50 @@ void EditController::onSearchRequested(const QString &text, bool forward, bool m
                 _currentMatchIndex = -1;
             }
         }
+
+        // §9.15 P0: Match Case / Whole Words / Regex were silently ignored by
+        // the document path. QPdfSearchModel only does case-insensitive
+        // substring search, so when any option is set, scan page text and
+        // navigate to matching pages, with an honest status note.
+        if (useRegex || wholeWords || matchCase) {
+            QRegularExpression rx;
+            if (useRegex) {
+                QRegularExpression::PatternOptions opts = QRegularExpression::NoPatternOption;
+                if (!matchCase) opts |= QRegularExpression::CaseInsensitiveOption;
+                rx.setPattern(wholeWords ? QStringLiteral("\\b(?:%1)\\b").arg(text) : text);
+                rx.setPatternOptions(opts);
+                if (!rx.isValid()) {
+                    _mainWindow->statusBar()->showMessage(tr("Invalid regular expression."), 4000);
+                    return;
+                }
+            }
+            QRegularExpression wordRx;
+            if (!useRegex) {
+                QRegularExpression::PatternOptions opts = QRegularExpression::NoPatternOption;
+                if (!matchCase) opts |= QRegularExpression::CaseInsensitiveOption;
+                wordRx.setPattern(QStringLiteral("\\b%1\\b").arg(QRegularExpression::escape(text)));
+                wordRx.setPatternOptions(opts);
+            }
+            int firstPage = -1;
+            int hitPages = 0;
+            const int pages = viewer->pageCount();
+            for (int p = 0; p < pages; ++p) {
+                const QString pageText = viewer->document()->getAllText(p).text();
+                const bool hit = useRegex ? rx.match(pageText).hasMatch()
+                                          : wordRx.match(pageText).hasMatch();
+                if (hit) {
+                    ++hitPages;
+                    if (firstPage < 0) firstPage = p;
+                }
+            }
+            if (firstPage >= 0)
+                viewer->goToPage(firstPage);
+            _mainWindow->statusBar()->showMessage(
+                tr("%1 page(s) match. Page-level navigation for Match Case / Whole Words / Regex; inline highlight unavailable.")
+                    .arg(hitPages),
+                5000);
+            return;
+        }
     }
 
     // For comments scope, search annotation text
