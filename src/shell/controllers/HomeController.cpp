@@ -514,6 +514,46 @@ void HomeController::onPageSetup() {
 
 void HomeController::onExportPresets() {
     ExportPresetsPanel panel(_mainWindow);
+    // §9.16 P0: actually execute the chosen preset instead of emitting into
+    // the void. Linearized → qpdf-backed linearizeDocument; PDF/A →
+    // exportPdfA; both operate on a Save-As copy of the open document.
+    connect(&panel, &ExportPresetsPanel::presetSelected, this,
+            [this](const ExportPresetsPanel::Preset& p) {
+        auto* viewer = _mainWindow->pdfViewer();
+        if (!viewer || !_ctx || !_ctx->pdfEditor) return;
+        if (viewer->filePath().isEmpty()) {
+            QMessageBox::information(_mainWindow, tr("Export Preset"),
+                tr("No document is open."));
+            return;
+        }
+        const QString base = QFileInfo(viewer->filePath()).completeBaseName();
+        const QString outPath = QFileDialog::getSaveFileName(
+            _mainWindow, tr("Save Preset Export"),
+            QFileInfo(viewer->filePath()).absolutePath() + QLatin1Char('/') + base + "_export.pdf",
+            tr("PDF Files (*.pdf)"));
+        if (outPath.isEmpty()) return;
+        if (!viewer->saveDocumentAs(outPath)) {
+            QMessageBox::critical(_mainWindow, tr("Export Preset"),
+                tr("Could not write %1").arg(outPath));
+            return;
+        }
+        // Reload the exported copy so engine operations target it.
+        _ctx->pdfEditor->loadDocumentForEditing(outPath);
+        QStringList applied;
+        if (p.linearized && _ctx->pdfEditor->linearizeDocument(outPath))
+            applied << tr("linearized");
+        if (p.pdfA) {
+            int level = 2; // 2b default; 3b when the preset says so.
+            if (p.pdfALevel.startsWith(QLatin1Char('3'))) level = 3;
+            if (_ctx->pdfEditor->exportPdfA(outPath, level))
+                applied << QStringLiteral("PDF/A-%1b").arg(level);
+        }
+        if (applied.isEmpty())
+            applied << tr("plain copy (no post-processing options enabled)");
+        _mainWindow->statusBar()->showMessage(
+            tr("Preset '%1' exported to %2 — %3")
+                .arg(p.name, outPath, applied.join(tr(", "))), 8000);
+    });
     panel.exec();
 }
 
