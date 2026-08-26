@@ -47,6 +47,8 @@ signals:
     void ocrReviewAccepted();
     void ocrReviewRejected();
     void ocrReRunRegionRequested(QRectF regionBbox);
+    // §9.8 P0: RedactMode status text relayed to the host's status bar.
+    void redactStatusMessage(const QString& message);
 
 private:
     QHash<QString, QWidget*> _byId;
