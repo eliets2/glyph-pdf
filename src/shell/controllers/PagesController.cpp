@@ -134,6 +134,16 @@ void PagesController::rotateRight() {
     }
 }
 
+void PagesController::onPageRotateRequested(int degrees) {
+    // §9.1 P0: viewer rotation requests land here — the real page bitmap
+    // rotates (engine-side /Rotate + reload), not just the overlay.
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->undoStack || !_ctx->pdfEditor) return;
+    _ctx->document->setPath(viewer->filePath());
+    _ctx->undoStack->push(new RotatePageCommand(
+        _ctx->pdfEditor.get(), _ctx->document.get(), viewer->currentPage(), degrees));
+}
+
 void PagesController::showPageManagement() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx) return;
