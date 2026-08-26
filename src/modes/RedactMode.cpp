@@ -10,6 +10,7 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QFileInfo>
 #include <QFrame>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -368,26 +369,24 @@ void RedactMode::onApplyRedactions() {
         QMessageBox::warning(this, tr("Redact"), tr("No document is open."));
         return;
     }
-
-    const QRegularExpression rx = currentRegex();
-    if (!rx.isValid()) {
-        QMessageBox::warning(this, tr("Redact"), tr("The regular expression is invalid:\n%1").arg(rx.errorString()));
-        return;
-    }
-    if (rx.pattern().isEmpty()) {
-        QMessageBox::warning(this, tr("Redact"), tr("Please select a pattern or enter a custom regular expression."));
+    if (!m_viewer) {
+        QMessageBox::warning(this, tr("Redact"), tr("No document is open."));
         return;
     }
 
-    const QString pdfPath = m_ctx->pdfEditor->currentFile();
-    if (pdfPath.isEmpty()) {
-        QMessageBox::warning(this, tr("Redact"), tr("No document path available."));
-        return;
+    // §9.8 P0 (DEFECT 1): "Apply All Redactions" must burn in EVERY placed mark
+    // (Mark Region / Mark All Occurrences), not just re-run the regex. The
+    // mark-based path is the single authoritative boundary — it gathers all
+    // ToolMode::Redact annotations, guards signed documents (ER-2), and excises
+    // via the same engine pipeline SecurityController uses.
+    const QList<AnnotationItem> marks = m_viewer->annotations();
+    bool hasMarks = false;
+    for (const auto& a : marks) {
+        if (a.mode == ToolMode::Redact) { hasMarks = true; break; }
     }
-
-    const QList<int> pages = resolvePageRange();
-    if (pages.size() == 1 && pages.first() == -2) {
-        QMessageBox::warning(this, tr("Redact"), tr("Invalid page range."));
+    if (!hasMarks) {
+        QMessageBox::warning(this, tr("Redact"),
+            tr("No redaction marks are placed. Use Mark Region or Mark All Occurrences first."));
         return;
     }
 
@@ -395,19 +394,58 @@ void RedactMode::onApplyRedactions() {
     const int answer = QMessageBox::question(
         this,
         tr("Apply Redactions"),
-        tr("This will permanently remove matched content. Redaction cannot be undone.\n\nContinue?"),
+        tr("This will permanently remove all marked content. Redaction cannot be undone.\n\nContinue?"),
         QMessageBox::Yes | QMessageBox::No,
         QMessageBox::No);
     if (answer != QMessageBox::Yes) return;
 
-    bool success = m_ctx->pdfEditor->applyPatternRedactions(rx, pages);
+    const QString pdfPath = m_ctx->pdfEditor->currentFile();
+    if (pdfPath.isEmpty()) {
+        QMessageBox::warning(this, tr("Redact"), tr("No document path available."));
+        return;
+    }
+
+    // ER-2: refuse to redact a signed document in place (leaks excised bytes
+    // into revision 1). The engine enforces this too; we surface it up front.
+    if (m_ctx->pdfEditor->hasPdfSignatures()) {
+        QMessageBox::critical(
+            this, tr("Cannot Redact Signed Document"),
+            tr("This document is digitally signed.\n\n"
+               "Applying redactions and saving in place would leave the original "
+               "content recoverable from the PDF revision history.\n\n"
+               "To redact permanently:\n"
+               "1. File > Save As — save an unsigned copy.\n"
+               "2. Open the copy and apply redactions."));
+        return;
+    }
+
+    bool success = m_ctx->pdfEditor->applyMarkRedactions(marks);
     if (!success) {
         QMessageBox::critical(this, tr("Redaction Failed"),
-            tr("Pattern redaction failed. The document has not been modified.\n\n%1")
+            tr("Redaction failed. The document has not been modified.\n\n%1")
                 .arg(m_ctx->pdfEditor->lastError().userMessage));
-    } else {
-        m_matchCountLabel->setText(tr("Redaction applied successfully."));
+        return;
     }
+
+    // Save the redacted result to a new file (never overwrite the source in place).
+    const QFileInfo fi(pdfPath);
+    const QString outPath = fi.absolutePath() + QLatin1Char('/')
+        + fi.completeBaseName() + QStringLiteral("_redacted.pdf");
+    if (!m_ctx->pdfEditor->saveDocument(outPath)) {
+        QMessageBox::critical(this, tr("Redaction Failed"),
+            tr("Redactions were applied but saving the result failed:\n\n%1")
+                .arg(m_ctx->pdfEditor->lastError().userMessage));
+        return;
+    }
+
+    // Clear the placed marks now that they are burned in.
+    QList<AnnotationItem> remaining;
+    for (const auto& a : marks) {
+        if (a.mode != ToolMode::Redact) remaining.append(a);
+    }
+    m_viewer->setAnnotations(remaining);
+    m_matchCountLabel->setText(tr("Redaction applied successfully to %1.").arg(QFileInfo(outPath).fileName()));
+    emit statusMessageRequested(tr("Redactions applied and saved to %1.").arg(QFileInfo(outPath).fileName()));
 }
 
 void RedactMode::onClearMarks() {

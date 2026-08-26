@@ -196,6 +196,12 @@ class IRedactor {
 public:
     virtual ~IRedactor() = default;
     virtual bool applyRedactions(int pageIndex, const QList<QRectF> &rects) = 0;
+    // Mark-based redaction: excise every ToolMode::Redact annotation rect from
+    // its page (gathered into per-page rect lists), guarding signed documents
+    // (ER-2). Returns false and leaves the document unmodified on any failure.
+    // This is the single authoritative path for "apply all placed marks" — the
+    // pattern path (applyPatternRedactions) is for regex-driven redaction only.
+    virtual bool applyMarkRedactions(const QList<AnnotationItem>& marks) = 0;
     // Pattern-based redaction: find all regex matches across the given pages
     // (0-based) and excise them from the content stream. Empty/`{-1}` pages
     // is interpreted per the implementation's documented contract.
