@@ -17,6 +17,7 @@
 #include <QPointer>
 #include <QMetaObject>
 #include <QCoreApplication>
+#include <atomic>
 #include <QFileInfo>
 #include "shell/StatusBar.h"
 #include "modes/CompressDialog.h"
@@ -222,15 +223,24 @@ void ConvertController::mergePdfs() {
     progress->setMinimumDuration(0);
 
     QPointer<ConvertController> self(this);
+    auto ok = std::make_shared<std::atomic<bool>>(false);
 
-    QThread* worker = QThread::create([files, outputFile]() {
-        PdfViewerWidget::mergeDocuments(files, outputFile);
+    QThread* worker = QThread::create([files, outputFile, ok]() {
+        ok->store(PdfViewerWidget::mergeDocuments(files, outputFile));
     });
 
-    connect(worker, &QThread::finished, _mainWindow, [self, progress, files, outputFile]() {
+    connect(worker, &QThread::finished, _mainWindow, [self, progress, files, outputFile, ok]() {
         progress->close();
         progress->deleteLater();
         if (!self) return;
+        if (!ok->load()) {
+            QMessageBox::critical(self->_mainWindow, QObject::tr("Merge Failed"),
+                QObject::tr("Merging %1 files failed. The output file was not written (or is incomplete).\n\n"
+                            "Check that the input files are valid PDFs and the output location is writable.")
+                    .arg(files.size()));
+            self->_mainWindow->statusBar()->showMessage(QObject::tr("Merge failed."), 5000);
+            return;
+        }
         self->_mainWindow->statusBar()->showMessage(
             QObject::tr("Successfully merged %1 files to %2").arg(files.size()).arg(outputFile), 5000);
         if (QMessageBox::question(self->_mainWindow, QObject::tr("Open Merged PDF"),

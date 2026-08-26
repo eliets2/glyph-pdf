@@ -1626,6 +1626,14 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestThumbnailZoom.cpp")
     set_tests_properties(TestThumbnailZoom PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;search;navigation;qt;headless")
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestMergeSuccess.cpp")
+    add_executable(TestMergeSuccess tests/TestMergeSuccess.cpp)
+    target_include_directories(TestMergeSuccess PRIVATE src tests)
+    target_link_libraries(TestMergeSuccess PRIVATE pdfws_ui pdfws_engines pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets)
+    add_test(NAME TestMergeSuccess COMMAND TestMergeSuccess)
+    set_tests_properties(TestMergeSuccess PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;pages;merge;qt;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAnnotationDjot.cpp")
     add_executable(TestAnnotationDjot
         tests/TestAnnotationDjot.cpp

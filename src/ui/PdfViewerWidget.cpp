@@ -870,10 +870,13 @@ bool PdfViewerWidget::saveDocumentAs(const QString &outputFile)
 
 
 
-void PdfViewerWidget::mergeDocuments(const QStringList &files, const QString &outputFile)
+bool PdfViewerWidget::mergeDocuments(const QStringList &files, const QString &outputFile)
 {
-    if (!gp::mergeDocuments(files, outputFile))
+    if (!gp::mergeDocuments(files, outputFile)) {
         qWarning() << "mergeDocuments: engine failed on" << outputFile;
+        return false;
+    }
+    return true;
 }
 
 void PdfViewerWidget::printDocument()
