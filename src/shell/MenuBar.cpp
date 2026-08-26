@@ -42,10 +42,10 @@ const QList<MenuActionSpec>& MenuBar::actionSpecs() {
         // ── Edit ──
         { "undo",         MenuDispatch::Registry },
         { "redo",         MenuDispatch::Registry },
-        { "cut",          MenuDispatch::Disabled },  // clipboard editing not shipped
-        { "copy",         MenuDispatch::Disabled },
-        { "paste",        MenuDispatch::Disabled },
-        { "delete",       MenuDispatch::Disabled },  // ribbon: "delete"
+        { "cut",          MenuDispatch::Registry },  // §9.2 P0: copy snapshot + delete
+        { "copy",         MenuDispatch::Registry },
+        { "paste",        MenuDispatch::Disabled },  // in-document paste not shipped
+        { "delete",       MenuDispatch::Registry },  // alias → DeleteSelection
         { "select-all",   MenuDispatch::Disabled },
         { "find",         MenuDispatch::Local    },
         { "find-replace", MenuDispatch::Local    },

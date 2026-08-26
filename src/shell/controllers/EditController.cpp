@@ -24,6 +24,8 @@
 #include <QInputDialog>
 #include <QMenu>
 #include <QCursor>
+#include <QApplication>
+#include <QClipboard>
 #include <QMessageBox>
 #include <QThread>
 #include <QPointer>
@@ -58,7 +60,8 @@ QList<ToolId> EditController::handledTools() const {
         ToolId::MarkRedact, ToolId::Signature,
         ToolId::Rectangle, ToolId::Oval,
         ToolId::Line, ToolId::Arrow,
-        ToolId::Image, ToolId::EditImage
+        ToolId::Image, ToolId::EditImage,
+        ToolId::Cut, ToolId::Copy, ToolId::DeleteSelection
     };
 }
 
@@ -114,6 +117,17 @@ void EditController::activate(ToolId id) {
         // honest placeholder rather than silently doing nothing.
         QMessageBox::information(_mainWindow, tr("Eraser"),
             tr("The annotation eraser is not yet implemented."));
+        break;
+    case ToolId::Copy:
+        copySelectionToClipboard();
+        break;
+    case ToolId::Cut:
+        if (copySelectionToClipboard())
+            viewer->deleteSelectedAnnotation();
+        break;
+    case ToolId::DeleteSelection:
+        viewer->deleteSelectedAnnotation();
+        _mainWindow->statusBar()->showMessage(tr("Deleted selected object."), 3000);
         break;
     default:
         if (toolModes.contains(id)) {
@@ -718,6 +732,33 @@ void EditController::onImageResized(const QString &name, double newW, double new
     _ctx->document->setPath(viewer->filePath());
     _ctx->undoStack->push(new ResizeImageCommand(
         _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, oldW, oldH, newW, newH));
+}
+
+// §9.2 P0: minimal clipboard support — Copy places a raster snapshot of the
+// selected object's region on the system clipboard (no in-document paste yet;
+// Paste stays honestly disabled).
+bool EditController::copySelectionToClipboard() {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer) return false;
+
+    const int sel = viewer->annotationLayer()->selectedIndex();
+    const auto annos = viewer->annotations();
+    if (sel < 0 || sel >= annos.size()) {
+        _mainWindow->statusBar()->showMessage(tr("Nothing selected to copy."), 3000);
+        return false;
+    }
+    const AnnotationItem& a = annos[sel];
+
+    // Render the page at 2x and crop to the annotation rect.
+    const QImage page = viewer->renderPage(a.pageIndex, 2.0);
+    if (page.isNull()) return false;
+    const qreal s = 2.0;
+    QRectF px(a.rect.x() * s, a.rect.y() * s,
+              qMax<qreal>(1, a.rect.width() * s), qMax<qreal>(1, a.rect.height() * s));
+    const QImage crop = page.copy(px.toRect());
+    QApplication::clipboard()->setImage(crop);
+    _mainWindow->statusBar()->showMessage(tr("Copied snapshot of selection to clipboard."), 3000);
+    return true;
 }
 
 } // namespace gp
