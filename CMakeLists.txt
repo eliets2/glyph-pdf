@@ -1618,6 +1618,14 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRedactClearMarks.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestThumbnailZoom.cpp")
+    add_executable(TestThumbnailZoom tests/TestThumbnailZoom.cpp)
+    target_include_directories(TestThumbnailZoom PRIVATE src tests)
+    target_link_libraries(TestThumbnailZoom PRIVATE pdfws_ui pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets)
+    add_test(NAME TestThumbnailZoom COMMAND TestThumbnailZoom)
+    set_tests_properties(TestThumbnailZoom PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;search;navigation;qt;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAnnotationDjot.cpp")
     add_executable(TestAnnotationDjot
         tests/TestAnnotationDjot.cpp

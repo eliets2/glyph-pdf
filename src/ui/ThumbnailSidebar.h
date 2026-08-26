@@ -21,11 +21,11 @@ public:
     ~ThumbnailSidebar() override;  // out-of-line: ThumbnailRenderer is opaque here
     void setViewer(PdfViewerWidget* viewer);
     void setCurrentPage(int page);
-    void rebuild();
+    void rebuild();    double thumbZoom() const { return m_thumbZoom; }    Q_INVOKABLE void zoomIn();    Q_INVOKABLE void zoomOut();
 
 signals:
     void pageClicked(int page);
-    void pageReordered(int sourceIndex, int targetIndex);
+    void pageReordered(int sourceIndex, int targetIndex);    void zoomChanged(double factor);
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -37,7 +37,7 @@ protected:
 
 private:
     QWidget* createThumbWidget(int pageIndex);
-    void updateVisibleThumbnails();
+    void updateVisibleThumbnails();    double m_thumbZoom = 1.0;    static constexpr double kMinThumbZoom = 0.5;    static constexpr double kMaxThumbZoom = 3.0;    int thumbItemHeight() const { return qRound(ThumbItemHeight * m_thumbZoom); }    int thumbPaperWidth() const { return qRound(140 * m_thumbZoom); }    int thumbPaperHeight() const { return qRound(181 * m_thumbZoom); }    Q_INVOKABLE void setZoom(double z);    void updateZoomButtons();
 
     static constexpr int ThumbItemHeight = 260; // estimated height per thumb widget
     static constexpr int VisibleBuffer   = 2;   // extra widgets above/below viewport
