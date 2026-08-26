@@ -1727,6 +1727,31 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCompressStripSanitize.cpp")
     set_tests_properties(TestCompressStripSanitize PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;compression;sanitization;privacy;qt;headless")
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFieldMetadata.cpp")
+    add_executable(TestFieldMetadata
+        tests/TestFieldMetadata.cpp
+        src/engines/DocumentSession.cpp
+    )
+    target_include_directories(TestFieldMetadata PRIVATE src tests)
+    target_link_libraries(TestFieldMetadata PRIVATE
+        pdfws_engines pdfws_core pdfws_commands podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET TestFieldMetadata POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestFieldMetadata>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestFieldMetadata>/platforms/qoffscreen.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PODOFO_VENDOR_DLL}"
+            "$<TARGET_FILE_DIR:TestFieldMetadata>/libpodofo.dll"
+        COMMENT "Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFieldMetadata"
+    )
+    add_test(NAME TestFieldMetadata COMMAND TestFieldMetadata)
+    set_tests_properties(TestFieldMetadata PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;forms;form-fields;persistence;qt;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAnnotationDjot.cpp")
     add_executable(TestAnnotationDjot
         tests/TestAnnotationDjot.cpp

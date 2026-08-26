@@ -46,6 +46,12 @@ public:
                                     const QString &expression,
                                     const QString &outputPath) = 0;
 
+    /// §9.6 P0: persist field metadata as real PDF dictionaries —
+    /// tooltip → /TU (read-only UI text), required → /Ff bit position 2.
+    virtual bool setFieldMetadata(const QString &pdfFilePath, const QString &fieldName,
+                                  const QString &tooltip, bool required,
+                                  const QString &outputPath) = 0;
+
     virtual QList<FieldSuggestion> autoDetectFields(const QString &pdfFilePath, int pageIndex) = 0;
 
     // Field mutation (persist changes to the PDF on disk)

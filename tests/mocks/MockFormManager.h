@@ -82,6 +82,18 @@ public:
         return m_addFieldResult;
     }
 
+    bool setFieldMetadata(const QString &pdfFilePath, const QString &fieldName,
+                          const QString &tooltip, bool required,
+                          const QString &outputPath) override {
+        m_lastFilePath = pdfFilePath;
+        m_lastFieldName = fieldName;
+        m_lastTooltip = tooltip;
+        m_lastRequired = required;
+        m_lastOutputPath = outputPath;
+        ++m_setMetadataCalls;
+        return m_setMetadataResult;
+    }
+
     // Test helpers -- configurable return values
     bool m_extractResult = true;
     bool m_fillResult = true;
@@ -98,6 +110,10 @@ public:
     QString m_lastExpression;
     QVariantMap m_lastFieldData;
     bool m_lastLockFields = true;
+    QString m_lastTooltip;
+    bool m_lastRequired = false;
+    int m_setMetadataCalls = 0;
+    bool m_setMetadataResult = true;
     QStringList m_lastOptions;
     QRectF m_lastRect;
     int m_lastPageIndex = -1;

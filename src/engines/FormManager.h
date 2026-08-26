@@ -35,6 +35,11 @@ public:
     bool addCalculatedField(const QString &pdfFilePath, int pageIndex, const QRectF &rect,
                             const QString &fieldName, const QString &expression,
                             const QString &outputPath) override;
+
+    /// §9.6 P0: persist tooltip (/TU) and required (/Ff bit 2) as real PDF data.
+    bool setFieldMetadata(const QString &pdfFilePath, const QString &fieldName,
+                          const QString &tooltip, bool required,
+                          const QString &outputPath) override;
     QList<FieldSuggestion> autoDetectFields(const QString &pdfFilePath, int pageIndex) override;
 
     bool removeFieldByName(const QString &pdfFilePath, const QString &fieldName, const QString &outputPath) override;

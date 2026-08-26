@@ -47,6 +47,10 @@ public:
             data[m_originalName] = m_newProps.defaultVal;
             m_engine->fillForm(m_doc->path(), data, m_doc->path(), /*lockFields=*/false);
         }
+        // §9.6 P0: persist Required + Tooltip as real PDF /Ff and /TU keys.
+        m_engine->setFieldMetadata(m_doc->path(), m_originalName,
+                                   m_newProps.tooltip, m_newProps.required,
+                                   m_doc->path());
         m_doc->markReload();
         setObsolete(false);
     }
@@ -59,6 +63,11 @@ public:
             data[m_originalName] = m_oldProps.defaultVal;
             m_engine->fillForm(m_doc->path(), data, m_doc->path(), /*lockFields=*/false);
         }
+        // §9.6 P0: restore old metadata (old values are not readable back from
+        // IFormManager in v1.0.0 — same undo-state limitation as defaultVal).
+        m_engine->setFieldMetadata(m_doc->path(), m_originalName,
+                                   m_oldProps.tooltip, m_oldProps.required,
+                                   m_doc->path());
         m_doc->markReload();
     }
 
