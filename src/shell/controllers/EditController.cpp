@@ -22,6 +22,8 @@
 
 #include <QFileDialog>
 #include <QInputDialog>
+#include <QMenu>
+#include <QCursor>
 #include <QMessageBox>
 #include <QThread>
 #include <QPointer>
@@ -599,13 +601,54 @@ void EditController::enterImageEditMode() {
 void EditController::onImageSelected(const QString &name, const QRectF &placement) {
     _selectedImageName = name;
     _mainWindow->statusBar()->showMessage(
-        tr("Selected: %1 (%2x%3 at %4,%5)")
+        tr("Selected: %1 (%2x%3 at %4,%5) — use the floating menu to edit.")
             .arg(name)
             .arg(placement.width(), 0, 'f', 1)
             .arg(placement.height(), 0, 'f', 1)
             .arg(placement.x(), 0, 'f', 1)
             .arg(placement.y(), 0, 'f', 1),
         5000);
+
+    // §9.2 P0: surface the fully-built but previously unreachable
+    // Rotate/Replace/Delete image backends as an immediate action menu on
+    // selection (right-click equivalent at the current cursor position).
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->pdfEditor || _imageEditPage < 0) return;
+
+    QMenu menu(viewer);
+    QAction* rotCw  = menu.addAction(tr("Rotate 90° Clockwise"));
+    QAction* rotCcw = menu.addAction(tr("Rotate 90° Counter-Clockwise"));
+    menu.addSeparator();
+    QAction* replaceAct = menu.addAction(tr("Replace…"));
+    QAction* deleteAct  = menu.addAction(tr("Delete"));
+
+    QAction* chosen = menu.exec(QCursor::pos());
+    if (!chosen) return; // selection alone is fine — no-op, honestly
+
+    if (chosen == rotCw || chosen == rotCcw) {
+        const double degrees = (chosen == rotCw) ? 90.0 : -90.0;
+        _ctx->document->setPath(viewer->filePath());
+        _ctx->undoStack->push(new RotateImageCommand(
+            _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, degrees));
+    } else if (chosen == replaceAct) {
+        const QString newPath = QFileDialog::getOpenFileName(
+            _mainWindow, tr("Replacement Image"), QString(),
+            tr("Images (*.png *.jpg *.jpeg *.bmp)"));
+        if (newPath.isEmpty()) return;
+        const QByteArray backup = _ctx->pdfEditor->extractPageAsBytes(viewer->filePath(), _imageEditPage);
+        _ctx->document->setPath(viewer->filePath());
+        _ctx->undoStack->push(new ReplaceImageCommand(
+            _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, newPath, backup));
+    } else if (chosen == deleteAct) {
+        const auto reply = QMessageBox::question(
+            _mainWindow, tr("Delete Image"),
+            tr("Delete image %1 from page %2?").arg(name).arg(_imageEditPage + 1));
+        if (reply != QMessageBox::Yes) return;
+        const QByteArray backup = _ctx->pdfEditor->extractPageAsBytes(viewer->filePath(), _imageEditPage);
+        _ctx->document->setPath(viewer->filePath());
+        _ctx->undoStack->push(new DeleteImageCommand(
+            _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, backup));
+    }
 }
 
 void EditController::onImageMoved(const QString &name, double dx, double dy) {
