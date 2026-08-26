@@ -1694,6 +1694,22 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestReadingOrderInheritance.cpp")
     set_tests_properties(TestReadingOrderInheritance PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;accessibility;qt;headless")
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestShapeInkPersistence.cpp")
+    add_executable(TestShapeInkPersistence tests/TestShapeInkPersistence.cpp)
+    target_include_directories(TestShapeInkPersistence PRIVATE src tests)
+    target_link_libraries(TestShapeInkPersistence PRIVATE
+        pdfws_engines pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET TestShapeInkPersistence POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PODOFO_VENDOR_DLL}"
+            "$<TARGET_FILE_DIR:TestShapeInkPersistence>/libpodofo.dll"
+        COMMENT "Deploying podofo 1.1.0 DLL for TestShapeInkPersistence"
+    )
+    add_test(NAME TestShapeInkPersistence COMMAND TestShapeInkPersistence)
+    set_tests_properties(TestShapeInkPersistence PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;annotations;persistence;qt;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAnnotationDjot.cpp")
     add_executable(TestAnnotationDjot
         tests/TestAnnotationDjot.cpp
