@@ -504,13 +504,34 @@ void SecurityController::applyRedactions() {
         return;
     }
 
-    if (QMessageBox::question(_mainWindow, tr("Confirm Redaction"),
+    bool sanitizeAfter = false;
+    QMessageBox::StandardButton reply =
+        QMessageBox::question(_mainWindow, tr("Confirm Redaction"),
         tr("Apply redaction marks to the open PDF?\n\n"
            "This operation permanently excises matched content from content streams, "
            "removes associated metadata (annotations, structure tree text, form data), "
-           "sanitizes the document, and saves to a new file.\n\n"
-           "The original file is preserved unmodified. This action cannot be undone.")) != QMessageBox::Yes) {
-        return;
+           "and saves to a new file.\n\n"
+           "The original file is preserved unmodified. This action cannot be undone."),
+        QMessageBox::Yes | QMessageBox::No);
+    if (reply != QMessageBox::Yes) return;
+
+    // §9.8 P0: offer the full hidden-data scrub alongside content excision —
+    // a black box is meaningless if PII survives in metadata, attachments,
+    // embedded JS, or the name tree. Default ON.
+    sanitizeAfter = QMessageBox::question(_mainWindow, tr("Sanitize Copy Too?"),
+        tr("Also produce an additional fully sanitized copy?\n\n"
+           "This removes document metadata, XMP, attachments, JavaScript actions, "
+           "bookmarks, and form values from a separate output file."),
+        QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes;
+    QString sanitizedPath;
+    if (sanitizeAfter) {
+        const QFileInfo fi(viewer->filePath());
+        sanitizedPath = QFileDialog::getSaveFileName(_mainWindow,
+            tr("Save Sanitized Copy"),
+            fi.absolutePath() + QLatin1Char('/') + fi.completeBaseName()
+                + QStringLiteral("_redacted_sanitized.pdf"),
+            tr("PDF Files (*.pdf)"));
+        if (sanitizedPath.isEmpty()) sanitizeAfter = false;
     }
 
     _mainWindow->statusBar()->showMessage(tr("Applying redactions..."));
@@ -527,7 +548,7 @@ void SecurityController::applyRedactions() {
     QPointer<SecurityController> self(this);
     auto result = std::make_shared<std::atomic<bool>>(false);
 
-    QThread* worker = QThread::create([weakEngine, filePath, redactionsByPage, result]() {
+    QThread* worker = QThread::create([weakEngine, filePath, sanitizedPath, redactionsByPage, result]() {
         auto engine = weakEngine.lock();
         if (!engine) return;
         if (!engine->loadDocumentForEditing(filePath)) {
@@ -544,16 +565,25 @@ void SecurityController::applyRedactions() {
         if (success && !engine->saveDocument(filePath)) {
             success = false;
         }
+        // §9.8 P0: optional full hidden-data scrub into a separate copy.
+        if (success && !sanitizedPath.isEmpty()) {
+            if (!engine->sanitizeDocument(sanitizedPath)) {
+                qWarning() << "post-redaction sanitize failed;" << sanitizedPath;
+            }
+        }
         result->store(success);
     });
 
-    connect(worker, &QThread::finished, _mainWindow, [self, progress, viewer, filePath, annos, result]() {
+    connect(worker, &QThread::finished, _mainWindow, [self, progress, viewer, filePath, annos, sanitizedPath, result]() {
         progress->close();
         progress->deleteLater();
         if (!self) return;
         bool ok = result->load();
         if (ok) {
-            self->_mainWindow->statusBar()->showMessage(tr("Redactions applied successfully."), 5000);
+            QString msg = tr("Redactions applied successfully.");
+            if (!sanitizedPath.isEmpty())
+                msg += tr(" Sanitized copy: %1").arg(QFileInfo(sanitizedPath).fileName());
+            self->_mainWindow->statusBar()->showMessage(msg, 8000);
             QList<AnnotationItem> remaining;
             for (const auto& anno : annos) {
                 if (anno.mode != ToolMode::Redact) remaining.append(anno);

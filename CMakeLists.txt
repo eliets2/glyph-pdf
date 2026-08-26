@@ -1782,6 +1782,22 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestImageEditWiring.cpp")
     set_tests_properties(TestImageEditWiring PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;editing;images;qt;headless")
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRedactSanitizeBundle.cpp")
+    add_executable(TestRedactSanitizeBundle tests/TestRedactSanitizeBundle.cpp)
+    target_include_directories(TestRedactSanitizeBundle PRIVATE src tests)
+    target_link_libraries(TestRedactSanitizeBundle PRIVATE
+        pdfws_engines pdfws_core podofo::podofo Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET TestRedactSanitizeBundle POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PODOFO_VENDOR_DLL}"
+            "$<TARGET_FILE_DIR:TestRedactSanitizeBundle>/libpodofo.dll"
+        COMMENT "Deploying podofo 1.1.0 DLL for TestRedactSanitizeBundle"
+    )
+    add_test(NAME TestRedactSanitizeBundle COMMAND TestRedactSanitizeBundle)
+    set_tests_properties(TestRedactSanitizeBundle PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;redaction;sanitization;security;privacy;qt;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAnnotationDjot.cpp")
     add_executable(TestAnnotationDjot
         tests/TestAnnotationDjot.cpp
