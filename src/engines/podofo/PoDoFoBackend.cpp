@@ -3767,6 +3767,7 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
             // unreferenced and are dropped by PoDoFo's save-time garbage
             // collection.
             if (!duplicateMap.isEmpty()) {
+                { QFile pd(QStringLiteral("dd_phase2.txt")); if (pd.open(QIODevice::WriteOnly|QIODevice::Text)) { QTextStream ts(&pd); ts << "dups=" << duplicateMap.size() << "\n"; } }
                 unsigned int pc = doc.GetPages().GetCount();
                 for (unsigned int pi = 0; pi < pc; ++pi) {
                     auto& page = doc.GetPages().GetPageAt(pi);
@@ -3781,17 +3782,20 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
                         xobjs = &doc.GetObjects().MustGetObject(xobjs->GetReference());
                     if (!xobjs || !xobjs->IsDictionary()) continue;
 
+                    // Collect first, then apply — mutating the dictionary while
+                    // iterating it is undefined behavior.
+                    QList<std::pair<PoDoFo::PdfName, PoDoFo::PdfReference>> rewrites;
                     for (auto& entry : xobjs->GetDictionary()) {
                         PoDoFo::PdfObject* val = &entry.second;
                         if (!val->IsReference()) continue;
                         PoDoFo::PdfObject* target =
                             &doc.GetObjects().MustGetObject(val->GetReference());
                         auto it = duplicateMap.find(target);
-                        if (it != duplicateMap.end()) {
-                            xobjs->GetDictionary().AddKey(
-                                entry.first, it.value()->GetIndirectReference());
-                        }
+                        if (it != duplicateMap.end())
+                            rewrites.append({entry.first, it.value()->GetIndirectReference()});
                     }
+                    for (const auto& rw : rewrites)
+                        xobjs->GetDictionary().AddKey(rw.first, PoDoFo::PdfObject(rw.second));
                 }
             }
         }
