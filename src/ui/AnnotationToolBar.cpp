@@ -43,6 +43,10 @@ void AnnotationToolBar::createActions()
     ellipseAct   = makeToolAction(tr("Ellipse"),   "circle",         toolGroup);
     lineAct      = makeToolAction(tr("Line"),      "minus",          toolGroup);
     arrowAct     = makeToolAction(tr("Arrow"),     "arrow-right",    toolGroup);
+    strikeoutAct = makeToolAction(tr("Strikeout"), "strike",         toolGroup);
+    squigglyAct  = makeToolAction(tr("Squiggly"),  "squiggly",       toolGroup);
+    stampAct     = makeToolAction(tr("Stamp"),     "stamp",          toolGroup);
+    calloutAct   = makeToolAction(tr("Callout"),   "callout",        toolGroup);
 
     // Update icon to accent when checked
     auto applyCheckedStyle = [](QAction *act, const QString &iconName) {
@@ -63,6 +67,10 @@ void AnnotationToolBar::createActions()
     applyCheckedStyle(ellipseAct,   "circle");
     applyCheckedStyle(lineAct,      "minus");
     applyCheckedStyle(arrowAct,     "arrow-right");
+    applyCheckedStyle(strikeoutAct, "strike");
+    applyCheckedStyle(squigglyAct,  "squiggly");
+    applyCheckedStyle(stampAct,     "stamp");
+    applyCheckedStyle(calloutAct,   "callout");
 
     deleteAct = new QAction(tr("Delete"), this);
     deleteAct->setIcon(gp::Icons::get("trash", gp::Theme::danger()));
@@ -81,6 +89,10 @@ void AnnotationToolBar::createActions()
     connect(ellipseAct,   &QAction::triggered, [this]{ emit activeToolChanged(ToolMode::DrawEllipse); });
     connect(lineAct,      &QAction::triggered, [this]{ emit activeToolChanged(ToolMode::DrawLine); });
     connect(arrowAct,     &QAction::triggered, [this]{ emit activeToolChanged(ToolMode::DrawArrow); });
+    connect(strikeoutAct, &QAction::triggered, [this]{ emit activeToolChanged(ToolMode::Strikeout); });
+    connect(squigglyAct,  &QAction::triggered, [this]{ emit activeToolChanged(ToolMode::Squiggly); });
+    connect(stampAct,     &QAction::triggered, [this]{ emit activeToolChanged(ToolMode::Stamp); });
+    connect(calloutAct,   &QAction::triggered, [this]{ emit activeToolChanged(ToolMode::Callout); });
     connect(deleteAct,    &QAction::triggered, this, &AnnotationToolBar::deleteRequested);
 
     addSeparator();
