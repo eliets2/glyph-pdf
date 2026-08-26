@@ -477,6 +477,52 @@ QList<FieldSuggestion> FormManager::autoDetectFields(const QString &pdfFilePath,
     return suggestions;
 }
 
+// §9.6 P0: persist the properties panel's Required flag and Tooltip as real
+// PDF metadata — /Ff bit position 2 (Required) and /TU (tooltip / UI text) —
+// so what the user sets in the panel survives save/reload and is honored by
+// other viewers. Previously these were collected by the UI but discarded.
+bool FormManager::setFieldMetadata(const QString &pdfFilePath, const QString &fieldName,
+                                   const QString &tooltip, bool required,
+                                   const QString &outputPath)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(pdfFilePath.toUtf8().constData());
+        auto* acroForm = doc.GetAcroForm();
+        if (!acroForm) return false;
+
+        bool found = false;
+        for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
+            auto& field = acroForm->GetFieldAt(i);
+            if (QString::fromStdString(field.GetFullName()) != fieldName) continue;
+            found = true;
+            PoDoFo::PdfDictionary& dict = field.GetDictionary();
+
+            // /TU — tooltip text for accessibility/UI (ISO 32000-1 §12.7.3.1).
+            if (!tooltip.isEmpty())
+                dict.AddKey(PoDoFo::PdfName("TU"), PoDoFo::PdfString(tooltip.toStdString()));
+            else
+                dict.RemoveKey("TU");
+
+            // /Ff bit position 2 (value 2) = Required.
+            int flags = 0;
+            const PoDoFo::PdfObject* ffObj = dict.FindKey("Ff");
+            if (ffObj && ffObj->IsNumber()) flags = static_cast<int>(ffObj->GetNumber());
+            if (required) flags |= (1 << 1);
+            else          flags &= ~(1 << 1);
+            dict.AddKey(PoDoFo::PdfName("Ff"), PoDoFo::PdfVariant(static_cast<int64_t>(flags)));
+            break;
+        }
+        if (!found) return false;
+
+        doc.Save(outputPath.toUtf8().constData());
+        return true;
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "Error setting field metadata:" << e.what();
+        return false;
+    }
+}
+
 
 bool FormManager::exportFormData(const QString &pdfFilePath, const QString &outputPath, const QString &format)
 {
