@@ -18,7 +18,7 @@ public:
     bool extractFormFields(const QString &pdfFilePath) override;
     
     // Fill out and flatten AcroForms
-    bool fillForm(const QString &pdfFilePath, const QVariantMap &fieldData, const QString &outputPath) override;
+    bool fillForm(const QString &pdfFilePath, const QVariantMap &fieldData, const QString &outputPath, bool lockFields = true) override;
     
     // Check if the document has XFA forms
     bool hasXfaForms(const QString &pdfFilePath) override;
