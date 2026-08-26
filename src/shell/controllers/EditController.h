@@ -52,6 +52,7 @@ private slots:
     void onImageResized(const QString &name, double newW, double newH);
     void onTextEditRequested(int pageIndex, QPointF pos);
     void onTextFormatChanged(const QString &fontFamily, int fontSize, const QColor &color, bool bold, bool italic, int alignment);
+    void onEraseRequested(int pageIndex, QPointF pos);
 
 private:
     void editPdfText();

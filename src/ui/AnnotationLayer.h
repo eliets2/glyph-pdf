@@ -44,6 +44,7 @@ signals:
     void annotationsChanged();
     void selectionChanged(int index);
     void textEditRequested(int pageIndex, QPointF pos);
+    void eraseRequested(int pageIndex, QPointF pos);
     void imageSelected(const QString &xobjectName, const QRectF &placement);
     void imageMoved(const QString &xobjectName, double dx, double dy);
     void imageResized(const QString &xobjectName, double newW, double newH);

@@ -6,6 +6,7 @@ enum class ToolMode {
     SelectText,
     EditText,
     EditObject,
+    Erase,
     Highlight,
     Underline,
     Strikeout,
