@@ -45,6 +45,12 @@ public:
     // Write a minimal valid one-page PDF stub (used by executeSplit + tests).
     static bool writeMinimalPdf(const QString& path);
 
+    // §9.9 P0 test seam: convert a drag result into an engine permutation.
+    // Returns the permutation over positions in `snapshot` that yields
+    // `newOrder`; empty when the two are equal or sizes differ.
+    static QList<int> gridMovePermutation(const QList<int>& snapshot,
+                                          const QList<int>& newOrder);
+
 private slots:
     void onPreviewSplit();
     void onSplit();

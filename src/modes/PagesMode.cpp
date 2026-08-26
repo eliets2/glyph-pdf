@@ -934,6 +934,22 @@ void PagesMode::onResetReorder()
     for (int i = 0; i < m_pageList->count(); ++i) m_originalOrder.append(i);
 }
 
+// §9.9 P0: pure helper — drag result → engine permutation.
+QList<int> PagesMode::gridMovePermutation(const QList<int>& snapshot,
+                                          const QList<int>& newOrder)
+{
+    if (snapshot.isEmpty() || snapshot.size() != newOrder.size()) return {};
+    if (snapshot == newOrder) return {}; // no net change
+    QList<int> perm;
+    perm.reserve(newOrder.size());
+    for (int idx : newOrder) {
+        const int pos = snapshot.indexOf(idx);
+        if (pos < 0) return {}; // inconsistent input — caller must not apply
+        perm.append(pos);
+    }
+    return perm;
+}
+
 // §9.9 P0: grid drag-and-drop → atomic page reorder.
 void PagesMode::finishGridReorder()
 {
@@ -946,14 +962,11 @@ void PagesMode::finishGridReorder()
 
     const QList<int> snapshot = m_dragSnapshot;
     m_dragSnapshot.clear();
-    if (newOrder == snapshot) return; // drop with no net change
 
     // Express the new visual order as a permutation over positions in the
     // pre-drag order — exactly what ReorderPermutationCommand expects.
-    QList<int> perm;
-    perm.reserve(newOrder.size());
-    for (int idx : newOrder)
-        perm.append(snapshot.indexOf(idx));
+    const QList<int> perm = gridMovePermutation(snapshot, newOrder);
+    if (perm.isEmpty()) return; // no net change or inconsistent input
 
     if (!m_ctx || !m_ctx->document || !m_ctx->pdfEditor || m_ctx->document->path().isEmpty()) {
         // No document: revert the visual move so the grid never lies.
