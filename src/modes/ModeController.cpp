@@ -55,6 +55,9 @@ void ModeController::setScreen(const QString& id) {
             auto* rm = new RedactMode(this);
             rm->setAppContext(_ctx);
             rm->setViewer(_viewer);
+            // §9.8 P0: relay user-facing status to the host status bar.
+            connect(rm, &RedactMode::statusMessageRequested,
+                    this, &ModeController::redactStatusMessage);
             target = rm;
         }
         else if (id == "compare") target = new CompareMode(this);

@@ -30,6 +30,10 @@ public:
     // Pre-select "Custom regex" and populate the regex line edit.
     void activateCustomRegex(const QString& initialPattern = {});
 
+signals:
+    /// §9.8 P0: user-facing status text surfaced on the main status bar.
+    void statusMessageRequested(const QString& message);
+
 private slots:
     void onPatternChanged(int index);
     void onRegexTextChanged(const QString& text);
@@ -37,6 +41,8 @@ private slots:
     void onApplyRedactions();
     void onClearMarks();
     void onScopeChanged();
+    void onMarkRegion();          // §9.8 P0
+    void onMarkAllOccurrences();  // §9.8 P0
 
 private:
     void buildPatternSection(QWidget* host);

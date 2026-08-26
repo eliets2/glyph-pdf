@@ -59,8 +59,8 @@ RedactMode::RedactMode(QWidget* parent) : QWidget(parent) {
     // O1: "Mark Region" and "Mark All Occurrences" are not yet wired to a real
     // engine action.  Hide them (consistent with the project hide-not-disable rule)
     // until the region-selection and occurrence-search pipelines are implemented.
-    m_pillMarkRegion->setVisible(false);
-    m_pillMarkAll->setVisible(false);
+    m_pillMarkRegion->setVisible(true);
+    m_pillMarkAll->setVisible(true);
 
     // Only the wired pill is shown.
     row->addWidget(m_pillMarkRegion);
@@ -144,17 +144,9 @@ RedactMode::RedactMode(QWidget* parent) : QWidget(parent) {
         }
     });
 
-    connect(m_pillMarkRegion, &QToolButton::clicked, this, [this]() {
-        m_pillMarkPattern->setChecked(false);
-        m_pillMarkAll->setChecked(false);
-        m_pillMarkRegion->setChecked(true);
-    });
+    connect(m_pillMarkRegion, &QToolButton::clicked, this, &RedactMode::onMarkRegion);
 
-    connect(m_pillMarkAll, &QToolButton::clicked, this, [this]() {
-        m_pillMarkPattern->setChecked(false);
-        m_pillMarkRegion->setChecked(false);
-        m_pillMarkAll->setChecked(true);
-    });
+    connect(m_pillMarkAll, &QToolButton::clicked, this, &RedactMode::onMarkAllOccurrences);
 
     connect(m_patternCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &RedactMode::onPatternChanged);
@@ -444,6 +436,60 @@ void RedactMode::onClearMarks() {
 void RedactMode::onScopeChanged() {
     const bool rangeSelected = m_scopeRange && m_scopeRange->isChecked();
     if (m_pageRangeEdit) m_pageRangeEdit->setEnabled(rangeSelected);
+}
+
+// §9.8 P0: Mark Region activates the canvas drag-placement path — the same
+// ToolMode::Redact drag used by the ribbon Mark button.
+void RedactMode::onMarkRegion() {
+    m_pillMarkPattern->setChecked(false);
+    m_pillMarkAll->setChecked(false);
+    m_pillMarkRegion->setChecked(true);
+    if (m_viewer) {
+        m_viewer->setToolMode(ToolMode::Redact);
+        emit statusMessageRequested(tr("Drag on the page to mark a redaction region."));
+    }
+}
+
+// §9.8 P0: Mark All Occurrences places redaction marks for every regex match
+// in the selected page range, via the same PatternRedactor geometry the Apply
+// pipeline consumes.
+void RedactMode::onMarkAllOccurrences() {
+    m_pillMarkPattern->setChecked(false);
+    m_pillMarkRegion->setChecked(false);
+    m_pillMarkAll->setChecked(true);
+    if (!m_viewer || !m_ctx) return;
+    const QString path = m_viewer->filePath();
+    if (path.isEmpty()) return;
+    const QRegularExpression rx = currentRegex();
+    if (!rx.isValid()) {
+        emit statusMessageRequested(tr("Invalid pattern — cannot mark occurrences."));
+        return;
+    }
+    QList<int> range = resolvePageRange();
+    int startPage = range.value(0, 0);
+    int endPage   = range.value(1, m_viewer->pageCount() - 1);
+    if (startPage < 0) startPage = 0;
+    if (endPage < startPage) endPage = m_viewer->pageCount() - 1;
+    QList<int> pages;
+    for (int p = startPage; p <= endPage; ++p) pages.append(p);
+
+    const auto matches = PatternRedactor::findMatches(path, pages, rx);
+    QList<AnnotationItem> annos = m_viewer->annotations();
+    int placed = 0;
+    for (auto it = matches.constBegin(); it != matches.constEnd(); ++it) {
+        for (const QRectF& r : it.value()) {
+            AnnotationItem a;
+            a.mode = ToolMode::Redact;
+            a.pageIndex = it.key();
+            a.rect = r;
+            annos.append(a);
+            ++placed;
+        }
+    }
+    m_viewer->setAnnotations(annos);
+    emit statusMessageRequested(
+        tr("Marked %1 occurrence(s) across %2 page(s). Review, then Apply.")
+            .arg(placed).arg(matches.size()));
 }
 
 } // namespace gp

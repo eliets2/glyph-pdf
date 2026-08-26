@@ -235,6 +235,9 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
     });
     connect(_modes, &ModeController::ocrReRunRegionRequested, _edit,
             [this](QRectF) { _edit->runOcr(); });
+    // §9.8 P0: RedactMode marking feedback lands on the status bar.
+    connect(_modes, &ModeController::redactStatusMessage, this,
+            [this](const QString& msg) { statusBar()->showMessage(msg, 6000); });
 
     // FindBar wiring
     connect(_findBar, &FindBar::searchRequested,     _edit, &EditController::onSearchRequested);
