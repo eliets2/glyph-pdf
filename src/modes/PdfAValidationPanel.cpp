@@ -364,12 +364,7 @@ struct StructElem {
     bool    hasBBox = false;
 };
 
-struct ReadingOrderResult {
-    bool        tagged = false;
-    int         elementCount = 0;
-    QStringList issues;     // human-readable descriptions of out-of-order elements
-};
-
+// ReadingOrderResult is declared in PdfAValidationPanel.h (shared with tests).
 const PoDoFo::PdfObject* resolveObj(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfObject* o) {
     if (!o) return nullptr;
     if (o->IsReference()) return doc.GetObjects().GetObject(o->GetReference());
@@ -389,6 +384,13 @@ int pageIndexOf(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfObject* pg) {
         if (&pages.GetPageAt(i).GetObject() == pg) return static_cast<int>(i);
     return -1;
 }
+
+// §9.14 P0: ISO 32000-2 §14.7.2 — a structure element's /Pg entry is
+// INHERITED from its nearest ancestor when absent. Coding a missing /Pg as
+// page -1 produced false "out of order" flags on correctly-tagged PDFs whose
+// child elements rely on inheritance from the parent's /Pg.
+void collectStructElems(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfObject* node,
+                        QList<StructElem>& out, int depth, int inheritedPage = -1);
 
 // Extract /BBox top-edge from a struct element's /A layout attribute(s).
 void extractBBox(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfDictionary& d, StructElem& e) {
@@ -418,30 +420,36 @@ void extractBBox(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfDictionary& d, St
 // Depth-first walk of the structure tree, collecting structure elements in
 // reading (document structure) order.
 void collectStructElems(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfObject* node,
-                        QList<StructElem>& out, int depth) {
+                        QList<StructElem>& out, int depth, int inheritedPage) {
     if (!node || depth > 60) return;
     node = resolveObj(doc, node);
     if (!node) return;
 
     if (node->IsArray()) {
         for (const auto& child : node->GetArray())
-            collectStructElems(doc, &child, out, depth + 1);
+            collectStructElems(doc, &child, out, depth + 1, inheritedPage);
         return;
     }
     if (!node->IsDictionary()) return;  // e.g. a bare MCID integer — skip
 
     const PoDoFo::PdfDictionary& d = node->GetDictionary();
+    // This element's effective page: explicit /Pg wins; otherwise inherit the
+    // nearest ancestor's page (ISO 32000-2 §14.7.2).
+    const PoDoFo::PdfObject* ownPg = d.FindKey("Pg");
+    const int elemPage = ownPg ? pageIndexOf(doc, ownPg) : inheritedPage;
     const PoDoFo::PdfObject* sObj = d.FindKey("S");
     if (sObj && sObj->IsName()) {
         StructElem e;
         e.type = QString::fromStdString(std::string(sObj->GetName().GetString()));
-        e.page = pageIndexOf(doc, d.FindKey("Pg"));
+        e.page = elemPage;
         extractBBox(doc, d, e);
         out.append(e);
     }
     if (const PoDoFo::PdfObject* k = d.FindKey("K"))
-        collectStructElems(doc, k, out, depth + 1);
+        collectStructElems(doc, k, out, depth + 1, elemPage);
 }
+
+} // namespace
 
 ReadingOrderResult analyzeReadingOrder(const QString& path) {
     ReadingOrderResult r;
@@ -497,8 +505,6 @@ ReadingOrderResult analyzeReadingOrder(const QString& path) {
     }
     return r;
 }
-
-} // namespace
 
 void PdfAValidationPanel::onCheckReadingOrder() {
     if (m_currentDocPath.isEmpty()) {
