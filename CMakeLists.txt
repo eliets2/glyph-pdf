@@ -1684,6 +1684,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFillFormNoOp.cpp")
     set_tests_properties(TestFillFormNoOp PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;forms;form-fields;persistence;qt;headless")
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestReadingOrderInheritance.cpp")
+    add_executable(TestReadingOrderInheritance tests/TestReadingOrderInheritance.cpp)
+    target_include_directories(TestReadingOrderInheritance PRIVATE src tests)
+    target_link_libraries(TestReadingOrderInheritance PRIVATE
+        pdfws_ui pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_test(NAME TestReadingOrderInheritance COMMAND TestReadingOrderInheritance)
+    set_tests_properties(TestReadingOrderInheritance PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;accessibility;qt;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAnnotationDjot.cpp")
     add_executable(TestAnnotationDjot
         tests/TestAnnotationDjot.cpp
