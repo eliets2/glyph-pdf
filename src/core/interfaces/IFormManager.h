@@ -17,7 +17,7 @@ class IFormManager {
 public:
     virtual ~IFormManager() = default;
     virtual bool extractFormFields(const QString &pdfFilePath) = 0;
-    virtual bool fillForm(const QString &pdfFilePath, const QVariantMap &fieldData, const QString &outputPath, bool lockFields = true) = 0;
+    virtual bool fillForm(const QString &pdfFilePath, const QVariantMap &fieldData, const QString &outputPath, bool lockFields = true, QStringList *unsupportedFields = nullptr) = 0;
     virtual bool hasXfaForms(const QString &pdfFilePath) = 0;
     virtual bool addTextField(const QString &pdfFilePath, int pageIndex, const QRectF &rect,
                                const QString &fieldName, const QString &outputPath) = 0;
@@ -68,7 +68,7 @@ public:
 
     // Import / Export / Flatten
     virtual bool exportFormData(const QString &pdfFilePath, const QString &outputPath, const QString &format) = 0; // format: "FDF" or "CSV"
-    virtual bool importFormData(const QString &pdfFilePath, const QString &dataFilePath, const QString &outputPath) = 0;
+    virtual bool importFormData(const QString &pdfFilePath, const QString &dataFilePath, const QString &outputPath, QStringList *unsupportedFields = nullptr) = 0;
     virtual bool flattenForm(const QString &pdfFilePath, const QString &outputPath) = 0;
 protected:
     IFormManager() = default;

@@ -143,12 +143,21 @@ void FormsController::onImportDataRequested() {
     if (dataPath.isEmpty()) return;
 
     QString outputPath = viewer->filePath() + ".tmp"; // Use temporary write or overwrite
-    if (_ctx->forms->importFormData(viewer->filePath(), dataPath, outputPath)) {
+    QStringList unsupported;
+    if (_ctx->forms->importFormData(viewer->filePath(), dataPath, outputPath, &unsupported)) {
         // Assume saving inplace or reloading the new path. In a real app we might load it back.
         viewer->loadDocument(outputPath);
         QFile::remove(viewer->filePath());
         QFile::rename(outputPath, viewer->filePath());
         _mainWindow->statusBar()->showMessage(tr("Successfully imported form data from %1").arg(QFileInfo(dataPath).fileName()), 5000);
+        // §9.6 P0: a bulk import that silently dropped values (radio/pushbutton
+        // targets, unknown names) must not read as success.
+        if (!unsupported.isEmpty()) {
+            QMessageBox::warning(_mainWindow, tr("Import Incomplete"),
+                tr("Form data was imported, but %1 field(s) could not be set and were skipped:\n\n%2\n\n"
+                   "Radio groups and push buttons cannot be filled by import; check that field names match the document.")
+                    .arg(unsupported.size()).arg(unsupported.join(", ")));
+        }
     } else {
         QMessageBox::warning(_mainWindow, tr("Import Failed"), tr("Could not import form data."));
     }
