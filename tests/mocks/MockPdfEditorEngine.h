@@ -52,7 +52,10 @@ public:
     QList<PdfImageInfo> listImages(int) override { return {}; }
     bool moveImage(int, const QString &, double, double) override { return true; }
     bool resizeImage(int, const QString &, double, double) override { return true; }
-    bool rotateImage(int, const QString &, double) override { return true; }
+    bool rotateImage(int pageIndex, const QString &name, double degrees) override {
+        m_lastRotatePage = pageIndex; m_lastRotateName = name; m_lastRotateDegrees = degrees;
+        ++m_rotateCalls; return true;
+    }
     bool replaceImage(int, const QString &, const QString &) override { return true; }
     bool deleteImage(int, const QString &) override { return true; }
     bool applyRedactions(int, const QList<QRectF> &) override { return m_loaded; }
@@ -99,4 +102,9 @@ public:
     QString m_lastWriteUpdatePath;
     QString m_file;
     PdfMetadata m_meta;
+    // §9.2 P0: image-rotate tracking
+    int m_rotateCalls = 0;
+    int m_lastRotatePage = -1;
+    QString m_lastRotateName;
+    double m_lastRotateDegrees = 0.0;
 };
