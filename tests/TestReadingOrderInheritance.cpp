@@ -15,6 +15,7 @@ private slots:
     void untaggedPdfIsReported();
     void inheritedPgIsNotFlagged();
     void taggedFixtureLoadsInPodofo();
+    void issuePagesParallelArray();
 private:
     static QString writeTaggedPdf(const QString& dir, const QString& name);
     static QString writePlainPdf(const QString& dir, const QString& name);
@@ -136,6 +137,18 @@ void TestReadingOrderInheritance::taggedFixtureLoadsInPodofo() {
         QFAIL(qPrintable(QStringLiteral("PoDoFo failed to load tagged fixture: %1")
                          .arg(QString::fromLatin1(e.what()))));
     }
+}
+
+void TestReadingOrderInheritance::issuePagesParallelArray() {
+    // issuePages must stay parallel to issues (§9.14 P0 jump-to-page wiring).
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = writeTaggedPdf(tmp.path(), "tagged_pages.pdf");
+    QVERIFY(!pdf.isEmpty());
+    const gp::ReadingOrderResult r = gp::analyzeReadingOrder(pdf);
+    QCOMPARE(r.issuePages.size(), r.issues.size());
+    for (int p : r.issuePages)
+        QVERIFY(p >= -1); // 0-based page or unknown(-1); never garbage
 }
 
 QTEST_MAIN(TestReadingOrderInheritance)
