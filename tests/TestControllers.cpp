@@ -112,6 +112,9 @@ private slots:
         QVERIFY(tools.contains(ToolId::Checkbox));
         QVERIFY(tools.contains(ToolId::Radio));
         QVERIFY(tools.contains(ToolId::Dropdown));
+        // §9.6 P0: CalcField must be routed through FormsController (was
+        // hard-disabled in MenuBar despite working end-to-end via canvas).
+        QVERIFY(tools.contains(ToolId::CalcField));
         QVERIFY(!tools.contains(ToolId::Open));
         QVERIFY(!tools.contains(ToolId::ZoomIn));
     }

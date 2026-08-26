@@ -111,7 +111,7 @@ const QList<MenuActionSpec>& MenuBar::actionSpecs() {
         { "dropdown",        MenuDispatch::Registry },
         { "date-field",      MenuDispatch::Registry },  // alias → DateField
         { "num-field",       MenuDispatch::Registry },  // alias → NumField
-        { "calc-field",      MenuDispatch::Disabled },  // CalcField has no handler yet (PRD gap)
+        { "calc-field",      MenuDispatch::Registry },  // alias → CalcField (FormsController)
         { "signature-field", MenuDispatch::Registry },  // alias → SigField
         { "button",          MenuDispatch::Registry },
         { "autodetect",      MenuDispatch::Registry },

@@ -26,7 +26,7 @@ QList<ToolId> FormsController::handledTools() const {
         ToolId::TextField, ToolId::Checkbox, ToolId::Radio, ToolId::Dropdown,
         ToolId::CreateForm, ToolId::ListBox, ToolId::Button, ToolId::DateField,
         ToolId::NumField, ToolId::SigField, ToolId::AutoDetect, ToolId::Tabs,
-        ToolId::ImportData, ToolId::ExportData
+        ToolId::ImportData, ToolId::ExportData, ToolId::CalcField
     };
 }
 
@@ -76,6 +76,10 @@ void FormsController::activate(ToolId id) {
     case ToolId::SigField:
         _mainWindow->activateScreen("form");
         if (viewer) viewer->setToolMode(ToolMode::FormAddSignature);
+        break;
+    case ToolId::CalcField:
+        _mainWindow->activateScreen("form");
+        if (viewer) viewer->setToolMode(ToolMode::FormAddCalculated);
         break;
     case ToolId::AutoDetect:
         autoDetectFields();
