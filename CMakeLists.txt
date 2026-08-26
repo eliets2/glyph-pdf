@@ -1863,6 +1863,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAnnotationToolBar.cpp")
     set_tests_properties(TestAnnotationToolBar PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;annotations;toolbar;qt;headless")
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestViewerRotation.cpp")
+    add_executable(TestViewerRotation tests/TestViewerRotation.cpp)
+    target_include_directories(TestViewerRotation PRIVATE src tests)
+    target_link_libraries(TestViewerRotation PRIVATE
+        pdfws_ui pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_test(NAME TestViewerRotation COMMAND TestViewerRotation)
+    set_tests_properties(TestViewerRotation PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;viewing;rotation;qt;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAnnotationDjot.cpp")
     add_executable(TestAnnotationDjot
         tests/TestAnnotationDjot.cpp

@@ -95,6 +95,10 @@ public:
 signals:
     void pageChanged(int currentPage, int totalPages);
     void navigationChanged(bool canBack, bool canForward);
+    // §9.1 P0: viewer rotation delegates to engine-side page rotation
+    // (degrees: +90 / -90) so the REAL rendered bitmap turns, not just the
+    // annotation overlay.
+    void requestPageRotation(int degrees);
     void annotationsChanged();
     void textEditRequested(int pageIndex, QPointF pos);
     void pageOperationFinished();
@@ -157,6 +161,7 @@ private:
     struct CachedPage {
         QPixmap pixmap;
         qreal scaleFactor = 0.0;
+        int rotation = 0;       // §9.1 P0: cache is rotation-aware
         qint64 lastAccessed = 0;
         qint64 bytes = 0;       // cached pixmap size; tracked so eviction needn't re-sum
     };
