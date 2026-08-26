@@ -470,10 +470,87 @@ bool FormManager::addCalculatedField(const QString &pdfFilePath, int pageIndex, 
 
 QList<FieldSuggestion> FormManager::autoDetectFields(const QString &pdfFilePath, int pageIndex)
 {
+    // §9.6 P0: real content-aware heuristic (replaces the former stub that
+    // returned three hardcoded dummy fields regardless of document content).
+    // Heuristic: scan the page's content stream for label-like text runs —
+    // ending in ':' or containing an underscore blank ('___') — and suggest
+    // a Text field positioned right after the label. Results are suggestions
+    // only: the UI places them for review before commit.
     QList<FieldSuggestion> suggestions;
-    suggestions.append({QRectF(100, 200, 200, 25), "Text", "AutoName"});
-    suggestions.append({QRectF(100, 250, 200, 25), "Date", "AutoDate"});
-    suggestions.append({QRectF(100, 300, 20, 20), "Checkbox", "AutoCheck"});
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(pdfFilePath.toUtf8().constData());
+        if (pageIndex < 0 || static_cast<unsigned>(pageIndex) >= doc.GetPages().GetCount())
+            return suggestions;
+
+        PoDoFo::PdfPage& page = doc.GetPages().GetPageAt(pageIndex);
+        PoDoFo::PdfContentStreamReader reader(page);
+
+        double currentX = 0, currentY = 0;
+        double currentFontSize = 10.0;
+        const double pageWidth = page.GetMediaBox().Width;
+        const double pageHeight = page.GetMediaBox().Height;
+        int autoIndex = 0;
+
+        PoDoFo::PdfContent content;
+        while (reader.TryReadNext(content)) {
+            if (content.GetType() != PoDoFo::PdfContentType::Operator) continue;
+            std::string_view kw = content.GetKeyword();
+            const auto& stack = content.GetStack();
+
+            if (kw == "Tm" && stack.size() >= 6) {
+                // PdfVariantStack is LIFO: for 'a b c d e f Tm', e=X and f=Y
+                // sit at stack[1] / stack[0].
+                if (stack[1].IsNumberOrReal()) currentX = stack[1].GetReal();
+                if (stack[0].IsNumberOrReal()) currentY = stack[0].GetReal();
+            } else if ((kw == "Td" || kw == "TD") && stack.size() >= 2) {
+                // 'tx ty Td': ty was pushed last → stack[0]; tx → stack[1].
+                if (stack[1].IsNumberOrReal()) currentX += stack[1].GetReal();
+                if (stack[0].IsNumberOrReal()) currentY += stack[0].GetReal();
+            } else if (kw == "Tf" && stack.size() >= 2) {
+                // 'name size Tf': size on top → stack[0].
+                if (stack[0].IsNumberOrReal()) currentFontSize = stack[0].GetReal();
+            } else {
+                QString text;
+                if (kw == "Tj" && stack.size() >= 1 && stack[0].IsString())
+                    text = QString::fromStdString(std::string(stack[0].GetString().GetString()));
+                else if (kw == "TJ" && stack.size() >= 1 && stack[0].IsArray()) {
+                    for (const auto& item : stack[0].GetArray())
+                        if (item.IsString())
+                            text += QString::fromStdString(std::string(item.GetString().GetString()));
+                }
+                if (text.isEmpty()) continue;
+
+                const bool isLabel = text.trimmed().endsWith(QLatin1Char(':'));
+                const bool hasBlank = text.contains(QStringLiteral("___"));
+                if (!isLabel && !hasBlank) continue;
+                if (autoIndex >= 20) break; // safety cap
+
+                FieldSuggestion s;
+                s.type = QStringLiteral("Text");
+                s.suggestedName = QStringLiteral("AutoField%1").arg(++autoIndex);
+                const double fieldW = qMin(180.0, qMax(80.0, pageWidth - currentX - currentFontSize * 2));
+                if (fieldW < 40.0) continue; // no room on this line
+                if (hasBlank) {
+                    // The underscores ARE the blank: replace that run in place.
+                    s.rect = QRectF(currentX, currentY,
+                                    qMax(fieldW, text.length() * currentFontSize * 0.55),
+                                    currentFontSize * 1.4);
+                } else {
+                    // Label ends with ':': place the entry box after it.
+                    s.rect = QRectF(currentX + text.length() * currentFontSize * 0.5,
+                                    currentY, fieldW, currentFontSize * 1.4);
+                }
+                // Clamp inside the page.
+                s.rect.setWidth(qMin(s.rect.width(), pageWidth - s.rect.x() - 4));
+                s.rect.setHeight(qMin(s.rect.height(), pageHeight - s.rect.y() - 4));
+                if (s.rect.width() < 20 || s.rect.height() < 8) continue;
+                suggestions.append(s);
+            }
+        }
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "autoDetectFields error:" << e.what();
+    }
     return suggestions;
 }
 

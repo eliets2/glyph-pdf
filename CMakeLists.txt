@@ -1808,6 +1808,31 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPptxOverlayAlpha.cpp")
     set_tests_properties(TestPptxOverlayAlpha PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;conversion;pptx;qt;headless")
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAutoDetectHeuristic.cpp")
+    add_executable(TestAutoDetectHeuristic
+        tests/TestAutoDetectHeuristic.cpp
+        src/engines/DocumentSession.cpp
+    )
+    target_include_directories(TestAutoDetectHeuristic PRIVATE src tests)
+    target_link_libraries(TestAutoDetectHeuristic PRIVATE
+        pdfws_engines pdfws_core pdfws_commands podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET TestAutoDetectHeuristic POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestAutoDetectHeuristic>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestAutoDetectHeuristic>/platforms/qoffscreen.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PODOFO_VENDOR_DLL}"
+            "$<TARGET_FILE_DIR:TestAutoDetectHeuristic>/libpodofo.dll"
+        COMMENT "Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestAutoDetectHeuristic"
+    )
+    add_test(NAME TestAutoDetectHeuristic COMMAND TestAutoDetectHeuristic)
+    set_tests_properties(TestAutoDetectHeuristic PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;forms;autodetect;qt;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAnnotationDjot.cpp")
     add_executable(TestAnnotationDjot
         tests/TestAnnotationDjot.cpp

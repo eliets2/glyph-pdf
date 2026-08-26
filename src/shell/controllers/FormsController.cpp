@@ -124,7 +124,8 @@ void FormsController::autoDetectFields() {
             count++;
         }
     }
-    _mainWindow->statusBar()->showMessage(tr("Auto-detected and placed %1 fields.").arg(count), 5000);
+    _mainWindow->statusBar()->showMessage(
+        tr("Auto-detect (experimental): placed %1 suggested field(s) for review — undo or adjust as needed.").arg(count), 8000);
 }
 
 void FormsController::editTabOrder() {
