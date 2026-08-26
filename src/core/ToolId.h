@@ -131,6 +131,7 @@ enum class ToolId {
     Timestamp,
     PatternRedact,
     RegexRedact,
+    ExpiryDate,
 
     COUNT  // sentinel for array sizing — must be last
 };
