@@ -498,6 +498,7 @@ ReadingOrderResult analyzeReadingOrder(const QString& path) {
                     .arg(i + 1)
                     .arg(visualPos[i] + 1)
                     .arg(e.page >= 0 ? QObject::tr(" (page %1)").arg(e.page + 1) : QString());
+                r.issuePages << e.page; // §9.14 P0: parallel page list for jump-to-page
             }
         }
     } catch (const PoDoFo::PdfError& ex) {
@@ -521,20 +522,41 @@ void PdfAValidationPanel::onCheckReadingOrder() {
         return;
     }
 
-    QString msg;
-    if (r.issues.isEmpty()) {
-        msg = tr("Tagged PDF detected. %1 elements. Reading order: OK.").arg(r.elementCount);
-        QMessageBox::information(this, tr("Reading Order"), msg);
-    } else {
-        msg = tr("Tagged PDF detected. %1 elements. Reading order: %2 issue(s) found.\n\n")
-                  .arg(r.elementCount).arg(r.issues.size());
-        const int shown = std::min(static_cast<int>(r.issues.size()), 20);
-        for (int i = 0; i < shown; ++i)
-            msg += QStringLiteral("• ") + r.issues[i] + QLatin1Char('\n');
-        if (r.issues.size() > shown)
-            msg += tr("… and %1 more.").arg(r.issues.size() - shown);
-        QMessageBox::warning(this, tr("Reading Order"), msg);
+    // Clear previous rows (same pattern as updateDisplay).
+    QLayoutItem* item;
+    while ((item = m_issuesLayout->takeAt(0)) != nullptr) {
+        delete item->widget();
+        delete item;
     }
+
+    if (r.issues.isEmpty()) {
+        m_statusLabel->setText(tr("✓ %1 elements. Reading order: OK.").arg(r.elementCount));
+        m_issuesHeading->hide();
+        m_issuesList->hide();
+        QMessageBox::information(this, tr("Reading Order"),
+            tr("Tagged PDF detected. %1 elements. Reading order: OK.").arg(r.elementCount));
+        return;
+    }
+
+    // §9.14 P0: report each mismatch as a JUMP-able row in the issues list —
+    // same interaction as the veraPDF violation list — instead of a static
+    // message box.
+    m_statusLabel->setText(tr("✗ %1 elements. %2 reading-order issue(s).").arg(r.elementCount).arg(r.issues.size()));
+    m_issuesHeading->setText(tr("READING ORDER · %1").arg(r.issues.size()));
+    m_issuesHeading->show();
+
+    const int shown = std::min(static_cast<int>(r.issues.size()), 20);
+    for (int i = 0; i < shown; ++i) {
+        const int page1 = (i < r.issuePages.size()) ? r.issuePages[i] + 1 : -1;
+        m_issuesLayout->addWidget(
+            issueRow(this, QStringLiteral("RO"), r.issues[i], /*err=*/true, page1));
+    }
+    if (r.issues.size() > shown) {
+        auto* more = new QLabel(tr("… and %1 more.").arg(r.issues.size() - shown));
+        more->setWordWrap(true);
+        m_issuesLayout->addWidget(more);
+    }
+    m_issuesList->show();
 }
 
 } // namespace gp

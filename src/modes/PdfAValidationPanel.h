@@ -15,6 +15,8 @@ struct ReadingOrderResult {
     bool tagged = false;
     int elementCount = 0;
     QStringList issues;
+    /// 0-based page for each issue (-1 when unknown); parallel to `issues`.
+    QList<int> issuePages;
 };
 ReadingOrderResult analyzeReadingOrder(const QString& path);
 
