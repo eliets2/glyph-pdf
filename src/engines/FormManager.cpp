@@ -44,7 +44,7 @@ bool FormManager::extractFormFields(const QString &pdfFilePath)
     }
 }
 
-bool FormManager::fillForm(const QString &pdfFilePath, const QVariantMap &fieldData, const QString &outputPath, bool lockFields)
+bool FormManager::fillForm(const QString &pdfFilePath, const QVariantMap &fieldData, const QString &outputPath, bool lockFields, QStringList *unsupportedFields)
 {
     qDebug() << "Filling form data at:" << outputPath;
     try {
@@ -56,10 +56,12 @@ bool FormManager::fillForm(const QString &pdfFilePath, const QVariantMap &fieldD
             return false;
         }
 
+        QStringList appliedNames;
         for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
             auto& field = acroForm->GetFieldAt(i);
             QString name = QString::fromStdString(field.GetFullName());
             if (!fieldData.contains(name)) continue;
+            appliedNames.append(name);
 
             QVariant val = fieldData.value(name);
 
@@ -100,6 +102,7 @@ bool FormManager::fillForm(const QString &pdfFilePath, const QVariantMap &fieldD
                 }
                 default:
                     qDebug() << "Skipping unsupported field type for:" << name;
+                    if (unsupportedFields) unsupportedFields->append(name);
                     break;
             }
 
@@ -107,6 +110,15 @@ bool FormManager::fillForm(const QString &pdfFilePath, const QVariantMap &fieldD
         }
 
         doc.Save(outputPath.toUtf8().constData());
+        // §9.6 P0: make silent no-ops visible — every requested field that was
+        // not applied (unknown name, or Radio/PushButton which fillForm cannot
+        // set) is reported back to the caller instead of vanishing quietly.
+        if (unsupportedFields) {
+            for (auto it = fieldData.constBegin(); it != fieldData.constEnd(); ++it) {
+                if (!appliedNames.contains(it.key()) && !unsupportedFields->contains(it.key()))
+                    unsupportedFields->append(it.key());
+            }
+        }
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "PoDoFo error during form fill:" << e.what();
@@ -542,7 +554,7 @@ bool FormManager::exportFormData(const QString &pdfFilePath, const QString &outp
     }
 }
 
-bool FormManager::importFormData(const QString &pdfFilePath, const QString &dataFilePath, const QString &outputPath)
+bool FormManager::importFormData(const QString &pdfFilePath, const QString &dataFilePath, const QString &outputPath, QStringList *unsupportedFields)
 {
     qDebug() << "Importing form data from" << dataFilePath << "into" << pdfFilePath << "saving to" << outputPath;
     
@@ -584,7 +596,7 @@ bool FormManager::importFormData(const QString &pdfFilePath, const QString &data
         }
     }
 
-    return fillForm(pdfFilePath, data, outputPath);
+    return fillForm(pdfFilePath, data, outputPath, /*lockFields=*/true, unsupportedFields);
 }
 
 bool FormManager::flattenForm(const QString &pdfFilePath, const QString &outputPath)

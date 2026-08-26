@@ -18,7 +18,7 @@ public:
     bool extractFormFields(const QString &pdfFilePath) override;
     
     // Fill out and flatten AcroForms
-    bool fillForm(const QString &pdfFilePath, const QVariantMap &fieldData, const QString &outputPath, bool lockFields = true) override;
+    bool fillForm(const QString &pdfFilePath, const QVariantMap &fieldData, const QString &outputPath, bool lockFields = true, QStringList *unsupportedFields = nullptr) override;
     
     // Check if the document has XFA forms
     bool hasXfaForms(const QString &pdfFilePath) override;
@@ -44,7 +44,7 @@ public:
     bool setTabOrder(const QString &pdfFilePath, const QStringList &orderedNames, const QString &outputPath) override;
 
     bool exportFormData(const QString &pdfFilePath, const QString &outputPath, const QString &format) override;
-    bool importFormData(const QString &pdfFilePath, const QString &dataFilePath, const QString &outputPath) override;
+    bool importFormData(const QString &pdfFilePath, const QString &dataFilePath, const QString &outputPath, QStringList *unsupportedFields = nullptr) override;
     bool flattenForm(const QString &pdfFilePath, const QString &outputPath) override;
 
 private:
