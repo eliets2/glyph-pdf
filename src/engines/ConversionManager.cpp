@@ -883,8 +883,13 @@ bool ConversionManager::exportToPowerPoint(const QString &pdfPath, const QString
                     xml.writeAttribute("dirty", "0");
                     // Nearly transparent text — visible for selection, invisible visually
                     xml.writeStartElement("a:solidFill");
-                    xml.writeEmptyElement("a:srgbClr"); xml.writeAttribute("val", "000000");
-                    // Make text 1% opacity so it's selectable but invisible over image
+                    xml.writeStartElement("a:srgbClr"); xml.writeAttribute("val", "000000");
+                    // §9.5 P0: actually apply the intended ~1% opacity. OOXML alpha
+                    // is in 1000ths of a percent (100000 = opaque); without this
+                    // child element the overlay rendered as solid black doubled text.
+                    xml.writeStartElement("a:alpha"); xml.writeAttribute("val", "1000");
+                    xml.writeEndElement(); // a:alpha
+                    xml.writeEndElement(); // a:srgbClr
                     xml.writeEndElement(); // a:solidFill
                     // Font face
                     if (!el.fontName.isEmpty()) {
