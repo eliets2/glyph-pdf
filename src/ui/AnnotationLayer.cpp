@@ -433,6 +433,14 @@ void AnnotationLayer::mousePressEvent(QMouseEvent *event)
         pos = trans.map(pos);
     }
 
+    if (m_currentMode == ToolMode::Erase) {
+        // §9.2 P0: real erase — report the page + position so the controller
+        // can run the deleteObjectAt pipeline on the underlying content.
+        int page = m_pageAtCallback ? m_pageAtCallback(event->pos()) : -1;
+        emit eraseRequested(page, pos);
+        return;
+    }
+
     if (m_currentMode == ToolMode::EditImage) {
         // Check resize handles first (if an image is selected)
         if (!m_selectedImageName.isEmpty()) {
