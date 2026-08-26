@@ -4,7 +4,6 @@
 
 class QLabel;
 class QSpinBox;
-class QPdfDocument;
 class IPdfEditorEngine;
 
 namespace gp {
@@ -20,7 +19,6 @@ public:
     void setSelection(const QString& sel);
     void setScreen(const QString& s);
 
-    void updateDocData(QPdfDocument* doc, const QString& filePath);
     void updateUnsaved(bool dirty);
     void updateFromDocument(IPdfEditorEngine* engine, const QString& filePath);
 

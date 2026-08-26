@@ -5,7 +5,6 @@
 #include <QLabel>
 #include <QLocale>
 #include <QSpinBox>
-#include <QPdfDocument>
 #include <QFile>
 #include <QFileInfo>
 #include <QSizeF>
@@ -114,54 +113,6 @@ void StatusBar::setPage(int c, int t) {
 void StatusBar::setZoom(int pct)             { _zoom->setText(tr("ZOOM %1%").arg(QLocale::system().toString(pct))); }
 void StatusBar::setSelection(const QString& s){ _sel->setText(tr("SEL %1").arg(s.isEmpty() ? QStringLiteral("—") : s)); }
 void StatusBar::setScreen(const QString& s)  { _screen->setText(tr("SCREEN %1").arg(s.isEmpty() ? tr("STANDARD") : s.toUpper())); }
-
-void StatusBar::updateDocData(QPdfDocument* doc, const QString& filePath) {
-    QLocale loc = QLocale::system();
-    if (!doc || filePath.isEmpty()) {
-        _pdfVersion->setText(tr("PDF --"));
-        _pageSize->setText(tr("A4 · --×--"));
-        _docInfo->setText(tr("0 P · 0.0 MB"));
-        return;
-    }
-
-    // A5: start with "PDF --"; only upgrade to a real version string when the
-    // header is actually present and parseable.
-    QString versionStr = QStringLiteral("PDF --");
-    QFile file(filePath);
-    if (file.open(QIODevice::ReadOnly)) {
-        QByteArray header = file.read(8);
-        if (header.startsWith("%PDF-")) {
-            versionStr = QStringLiteral("PDF ") + QString::fromLatin1(header.mid(5).trimmed());
-        }
-        file.close();
-    }
-    _pdfVersion->setText(versionStr);
-
-    QSizeF sz = doc->pagePointSize(0);
-    QString sizeName = tr("Custom");
-    int w = qRound(sz.width());
-    int h = qRound(sz.height());
-
-    if ((w >= 590 && w <= 600 && h >= 835 && h <= 847) ||
-        (w >= 835 && w <= 847 && h >= 590 && h <= 600)) {
-        sizeName = QStringLiteral("A4");
-    } else if ((w >= 605 && w <= 618 && h >= 785 && h <= 798) ||
-               (w >= 785 && w <= 798 && h >= 605 && h <= 618)) {
-        sizeName = tr("Letter");
-    } else if ((w >= 605 && w <= 618 && h >= 1000 && h <= 1015) ||
-               (w >= 1000 && w <= 1015 && h >= 605 && h <= 618)) {
-        sizeName = tr("Legal");
-    }
-
-    _pageSize->setText(tr("%1 · %2×%3").arg(sizeName).arg(loc.toString(w)).arg(loc.toString(h)));
-
-    int pages = doc->pageCount();
-    QFileInfo fi(filePath);
-    qint64 size = fi.size();
-    QString sizeStr = loc.formattedDataSize(size, 1, QLocale::DataSizeTraditionalFormat);
-
-    _docInfo->setText(tr("%1 P · %2").arg(loc.toString(pages)).arg(sizeStr));
-}
 
 void StatusBar::updateUnsaved(bool dirty) {
     if (dirty) {
