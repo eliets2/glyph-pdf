@@ -92,6 +92,11 @@ public:
     AnnotationLayer* annotationLayer() const { return m_annotationLayer; }
     QString filePath() const { return m_filePath; }
 
+    // §9.1 P0 DEFECT 2(A): only these URI schemes may be opened by a single
+    // click. Anything else (file://, javascript:, data:, ms-msdt:, UNC, ...) is
+    // a security risk and must not be handed to QDesktopServices::openUrl.
+    static bool isSafeLinkScheme(const QString &uri);
+
 signals:
     void pageChanged(int currentPage, int totalPages);
     void navigationChanged(bool canBack, bool canForward);
