@@ -330,6 +330,8 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
 
     // Page operations wiring
     connect(_modes->viewer(), &PdfViewerWidget::cropRequested, _pages, &PagesController::onCropRequested);
+    // §9.1 P0: viewer rotate buttons drive the real engine-side page rotation.
+    connect(_modes->viewer(), &PdfViewerWidget::requestPageRotation, _pages, &PagesController::onPageRotateRequested);
     if (auto* thumbSidebar = _left->findChild<ThumbnailSidebar*>()) {
         connect(thumbSidebar, &ThumbnailSidebar::pageReordered, _pages, &PagesController::onPageReordered);
     }

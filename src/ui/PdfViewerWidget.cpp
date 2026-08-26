@@ -193,20 +193,24 @@ qreal PdfViewerWidget::zoomLevel() const
 void PdfViewerWidget::rotateClockwise()
 {
     m_rotation = (m_rotation + 90) % 360;
-    updateRotation();
+    // §9.1 P0: QPdfView (this Qt build) exposes no render-options hook, so a
+    // view-local bitmap rotation is not achievable here. Instead of silently
+    // rotating only the invisible-until-annotated overlay, request the real
+    // engine-side page rotation (writes /Rotate + reload) — connected in
+    // GpMainWindow to PagesController.
+    emit requestPageRotation(90);
+    m_annotationLayer->setRotation(m_rotation);
 }
 
 void PdfViewerWidget::rotateCounterClockwise()
 {
     m_rotation = (m_rotation + 270) % 360;
-    updateRotation();
+    emit requestPageRotation(-90);
+    m_annotationLayer->setRotation(m_rotation);
 }
 
 void PdfViewerWidget::updateRotation()
 {
-    // If we can't rotate the view directly, we'll wait for a backend that can,
-    // or use a more complex QGraphicsView setup. 
-    // For now, let's at least rotate the annotations which we CAN control.
     m_annotationLayer->setRotation(m_rotation);
 }
 
@@ -606,8 +610,10 @@ QImage PdfViewerWidget::renderPage(int page, qreal scaleFactor) const
     if (page < 0 || page >= m_document->pageCount())
         return QImage();
 
-    // Check cache (Fix 5) -- match scale factor exactly
-    if (m_pageCache.contains(page) && qFuzzyCompare(m_pageCache.value(page).scaleFactor, scaleFactor)) {
+    // Check cache (Fix 5) -- match scale factor AND rotation exactly
+    if (m_pageCache.contains(page)
+        && qFuzzyCompare(m_pageCache.value(page).scaleFactor, scaleFactor)
+        && m_pageCache.value(page).rotation == m_rotation) {
         m_cacheAccessCounter++;
         m_pageCache[page].lastAccessed = m_cacheAccessCounter;
         return m_pageCache.value(page).pixmap.toImage();
@@ -617,6 +623,14 @@ QImage PdfViewerWidget::renderPage(int page, qreal scaleFactor) const
     QSize imageSize(pageSize.width() * scaleFactor, pageSize.height() * scaleFactor);
 
     QPdfDocumentRenderOptions opts;
+    // §9.1 P0: honor the viewer rotation in every snapshot we render
+    // (OCR input, clipboard copy, thumbnails) so downstream consumers see
+    // the same orientation as the user. For 90/270 the target bitmap must
+    // be sized with swapped dimensions.
+    if (m_rotation == 90 || m_rotation == 270) {
+        opts.setRotation(static_cast<QPdfDocumentRenderOptions::Rotation>(m_rotation / 90));
+        imageSize.transpose();
+    }
     QImage result = m_document->render(page, imageSize, opts);
 
     // Store in cache. P9: keep a running byte total instead of re-summing the
@@ -629,6 +643,7 @@ QImage PdfViewerWidget::renderPage(int page, qreal scaleFactor) const
     CachedPage item;
     item.pixmap = QPixmap::fromImage(result);
     item.scaleFactor = scaleFactor;
+    item.rotation = m_rotation;
     item.lastAccessed = m_cacheAccessCounter;
     item.bytes = pixmapSizeInBytes(item.pixmap);
     m_cacheTotalBytes += item.bytes;

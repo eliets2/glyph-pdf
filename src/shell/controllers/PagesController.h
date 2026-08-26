@@ -29,6 +29,9 @@ public:
 public slots:
     void onPageReordered(int from, int to);
     void onCropRequested(int pageIndex, QRectF rect);
+    // §9.1 P0: viewer rotation requests land here so the REAL page bitmap
+    // rotates (engine-side /Rotate + reload), not just the overlay.
+    void onPageRotateRequested(int degrees);
 
 private:
     void rotateLeft();
