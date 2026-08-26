@@ -33,6 +33,12 @@
 #include <QUndoStack>
 #include <QTemporaryFile>
 #include <QSettings>
+#include <QDateEdit>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QVBoxLayout>
+#include <QLabel>
+#include "engines/PdfEditorEngine.h"
 #include <memory>
 #include <atomic>
 #include "shell/StatusBar.h"
@@ -48,7 +54,8 @@ QList<ToolId> SecurityController::handledTools() const {
         ToolId::ValidateSig, ToolId::Sanitize, ToolId::ApplyRedact,
         ToolId::ExportAnno, ToolId::ImportAnno,
         ToolId::Permissions, ToolId::RemoveSecurity, ToolId::Certify,
-        ToolId::Timestamp, ToolId::PatternRedact, ToolId::RegexRedact
+        ToolId::Timestamp, ToolId::PatternRedact, ToolId::RegexRedact,
+        ToolId::ExpiryDate
     };
 }
 
@@ -106,8 +113,49 @@ void SecurityController::activate(ToolId id) {
             redactWidget->activateCustomRegex();
         }
         break;
+    case ToolId::ExpiryDate:
+        setExpiryDocument();
+        break;
     default:
         break;
+    }
+}
+
+void SecurityController::setExpiryDocument() {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->pdfEditor) return;
+    // §9.11 upgrade path: setExpiryDate lives on the concrete engine only;
+    // promote it to IPdfEditorEngine when a second caller appears.
+    auto* engine = dynamic_cast<PdfEditorEngine*>(_ctx->pdfEditor.get());
+    if (!engine) {
+        QMessageBox::warning(_mainWindow, tr("Document Expiry"),
+            tr("Expiry dates are not supported by this engine."));
+        return;
+    }
+
+    QDialog dlg(_mainWindow);
+    dlg.setWindowTitle(tr("Set Expiry Date"));
+    auto* lay = new QVBoxLayout(&dlg);
+    lay->addWidget(new QLabel(tr("After this date the document opens in read-only mode:"), &dlg));
+    auto* picker = new QDateEdit(QDate::currentDate().addMonths(1), &dlg);
+    picker->setCalendarPopup(true);
+    picker->setDisplayFormat(QStringLiteral("yyyy-MM-dd"));
+    lay->addWidget(picker);
+    auto* btns = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    connect(btns, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(btns, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    lay->addWidget(btns);
+    if (dlg.exec() != QDialog::Accepted) return;
+    const QDate date = picker->date();
+
+    const QString inputPath = viewer->filePath();
+    if (engine->setExpiryDate(inputPath, date, inputPath)) {
+        viewer->loadDocument(inputPath);
+        _mainWindow->statusBar()->showMessage(
+            tr("Document expiry set to %1").arg(date.toString(Qt::ISODate)), 5000);
+    } else {
+        QMessageBox::critical(_mainWindow, tr("Document Expiry"),
+            tr("Failed to write the expiry date into the document."));
     }
 }
 

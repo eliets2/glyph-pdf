@@ -33,6 +33,7 @@ private:
     void removeSecurity();
     void certifyDocument();
     void timestampDocument();
+    void setExpiryDocument();
 
     const AppContext* _ctx = nullptr;
     MainWindow* _mainWindow = nullptr;
