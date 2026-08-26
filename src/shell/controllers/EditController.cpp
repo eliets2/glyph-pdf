@@ -112,11 +112,12 @@ void EditController::activate(ToolId id) {
         enterImageEditMode();
         break;
     case ToolId::Erase:
-        // TODO(§9.3): annotation eraser needs a dedicated ToolMode + canvas
-        // hit-testing/removal path in AnnotationLayer. Until then, surface an
-        // honest placeholder rather than silently doing nothing.
-        QMessageBox::information(_mainWindow, tr("Eraser"),
-            tr("The annotation eraser is not yet implemented."));
+        // §9.2 P0: real erase via the deleteObjectAt pipeline.
+        viewer->setToolMode(ToolMode::Erase);
+        connect(viewer->annotationLayer(), &AnnotationLayer::eraseRequested,
+                this, &EditController::onEraseRequested, Qt::UniqueConnection);
+        _mainWindow->statusBar()->showMessage(
+            tr("Eraser active — click an object to delete it."), 4000);
         break;
     case ToolId::Copy:
         copySelectionToClipboard();
@@ -759,6 +760,19 @@ bool EditController::copySelectionToClipboard() {
     QApplication::clipboard()->setImage(crop);
     _mainWindow->statusBar()->showMessage(tr("Copied snapshot of selection to clipboard."), 3000);
     return true;
+}
+
+// §9.2 P0: erase — delete the content object under the click.
+void EditController::onEraseRequested(int pageIndex, QPointF pos) {
+    if (!_ctx || !_ctx->pdfEditor || pageIndex < 0) return;
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer) return;
+    if (_ctx->pdfEditor->deleteObjectAt(pageIndex, pos)) {
+        _mainWindow->statusBar()->showMessage(tr("Object erased."), 3000);
+        viewer->reload();
+    } else {
+        _mainWindow->statusBar()->showMessage(tr("Nothing to erase at that point."), 3000);
+    }
 }
 
 } // namespace gp

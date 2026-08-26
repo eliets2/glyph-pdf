@@ -1843,6 +1843,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestTextExtractionCoords.cpp")
     set_tests_properties(TestTextExtractionCoords PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;conversion;pptx;qt;headless")
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEraseWiring.cpp")
+    add_executable(TestEraseWiring tests/TestEraseWiring.cpp)
+    target_include_directories(TestEraseWiring PRIVATE src tests)
+    target_link_libraries(TestEraseWiring PRIVATE
+        pdfws_ui pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_test(NAME TestEraseWiring COMMAND TestEraseWiring)
+    set_tests_properties(TestEraseWiring PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;editing;erase;qt;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAnnotationDjot.cpp")
     add_executable(TestAnnotationDjot
         tests/TestAnnotationDjot.cpp
