@@ -317,7 +317,40 @@ void SecurityController::signDocument() {
 }
 
 void SecurityController::verifySignatures() {
+    // §9.7 P0: Validate All Signatures — surface the already-computed
+    // SignatureInfo data (isValid / trustStatus) as a bulk summary instead of
+    // only navigating to the signatures panel.
+    auto* viewer = _mainWindow->pdfViewer();
+    if (viewer && _ctx && _ctx->signing && !viewer->filePath().isEmpty()) {
+        const QList<SignatureInfo> infos = _ctx->signing->validateSignatures(viewer->filePath());
+        if (infos.isEmpty()) {
+            QMessageBox::information(_mainWindow, tr("Validate All Signatures"),
+                tr("This document has no digital signatures."));
+        } else {
+            QMessageBox::information(_mainWindow, tr("Validate All Signatures"),
+                                     buildValidationSummary(infos));
+        }
+    }
     _mainWindow->onScreenSelected("signature");
+}
+
+// §9.7 P0: pure summary builder — unit-testable without UI.
+QString SecurityController::buildValidationSummary(const QList<SignatureInfo>& infos)
+{
+    int valid = 0;
+    QStringList lines;
+    for (const auto& info : infos) {
+        if (info.isValid) ++valid;
+        const QString signer = info.signerName.isEmpty()
+            ? QObject::tr("(unknown signer)") : info.signerName;
+        lines << QObject::tr("• %1 — %2 (%3)")
+                 .arg(signer,
+                      info.isValid ? QObject::tr("VALID") : QObject::tr("INVALID"),
+                      info.trustStatus.isEmpty() ? QObject::tr("no trust check")
+                                                 : info.trustStatus);
+    }
+    return QObject::tr("%1 of %2 signature(s) are valid:\n\n%3")
+        .arg(valid).arg(infos.size()).arg(lines.join(QLatin1Char('\n')));
 }
 
 void SecurityController::sanitizeDocument() {

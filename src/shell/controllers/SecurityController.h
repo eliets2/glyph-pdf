@@ -5,6 +5,7 @@
 #include <QString>
 #include "core/ToolId.h"
 #include "core/interfaces/IToolController.h"
+#include "core/interfaces/ISignatureManager.h"
 
 struct AppContext;
 
@@ -20,6 +21,10 @@ public:
     // IToolController
     QList<ToolId> handledTools() const override;
     void activate(ToolId id) override;
+
+    // §9.7 P0: pure summary builder for Validate All Signatures — exposed
+    // static so the presentation logic is unit-testable without a MainWindow.
+    static QString buildValidationSummary(const QList<SignatureInfo>& infos);
 
 private:
     void encryptDocument();
