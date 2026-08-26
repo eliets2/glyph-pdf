@@ -8,9 +8,9 @@
 #include <memory>
 #include "core/ToolId.h"
 #include "core/interfaces/IToolController.h"
+#include "engines/ocr/OcrPipeline.h" // PageOcrResult / MergedOcrWord (§9.4 Accept seam)
 
 struct AppContext;
-struct MergedOcrWord;   // engines/ocr/OcrPipeline.h (fwd-declared to keep QtConcurrent out of this header)
 class EditToolBar;
 class IOcrEngine;
 
@@ -41,6 +41,9 @@ public slots:
     // the OCR Verify screen's Run button can drive the same real pipeline as the ribbon.
     void runOcr();
 
+    // §9.4 P0 test seam: assemble the per-page OCR payload for exportMrcPdfA.
+    static PageOcrResult buildPageOcrResult(int pageIndex, const QList<MergedOcrWord>& words);
+
 signals:
     // Emitted on the GUI thread when an OCR run finishes, carrying the recognised
     // words so the OCR Verify screen can display them for review.
@@ -62,6 +65,17 @@ private:
     const AppContext* _ctx = nullptr;
     MainWindow* _mainWindow = nullptr;
     bool _ocrRunning = false;
+
+    // §9.4 P0: inputs of the most recent interactive OCR run, cached so that
+    // Accept can persist a searchable MRC PDF/A copy (the PRD headline claim).
+    QImage m_lastOcrPageImage;
+    QList<MergedOcrWord> m_lastOcrWords;
+    int m_lastOcrPage = -1;
+    QString m_lastOcrSourcePath;
+public slots:
+    // Persist the accepted OCR results as a searchable MRC PDF/A copy.
+    void onOcrAcceptRequested();
+private:
 
     // P4: cache the initialized OCR engine pair across runs. Constructing a fresh
     // OcrEngine/RapidOcrEngine per call rebuilt 3 ONNX sessions (and the Tesseract
