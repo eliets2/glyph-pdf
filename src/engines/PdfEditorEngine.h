@@ -81,6 +81,7 @@ public:
     bool replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath) override;
     bool deleteImage(int pageIndex, const QString &xobjectName) override;
     bool applyRedactions(int pageIndex, const QList<QRectF> &rects) override;
+    bool applyMarkRedactions(const QList<AnnotationItem>& marks) override;
     bool applyPatternRedactions(const QRegularExpression& pattern,
                                 const QList<int>& pages = QList<int>(), const QString& outputPath = QString()) override;
     bool embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations) override;

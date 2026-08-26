@@ -59,6 +59,10 @@ public:
     bool replaceImage(int, const QString &, const QString &) override { return true; }
     bool deleteImage(int, const QString &) override { return true; }
     bool applyRedactions(int, const QList<QRectF> &) override { return m_loaded; }
+    bool applyMarkRedactions(const QList<AnnotationItem>& marks) override {
+        m_lastMarkRedactions = marks;
+        return m_loaded;
+    }
     bool applyPatternRedactions(const QRegularExpression&, const QList<int>&, const QString&) override { return m_loaded; }
     bool embedAnnotations(const QString &, const QString &, const QList<AnnotationItem> &) override { return m_loaded; }
 
@@ -107,4 +111,6 @@ public:
     int m_lastRotatePage = -1;
     QString m_lastRotateName;
     double m_lastRotateDegrees = 0.0;
+    // §9.8 P0: mark-based redaction tracking
+    QList<AnnotationItem> m_lastMarkRedactions;
 };

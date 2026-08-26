@@ -1255,6 +1255,52 @@ bool PdfEditorEngine::applyRedactions(int pageIndex, const QList<QRectF> &rects)
     return ok;
 }
 
+bool PdfEditorEngine::applyMarkRedactions(const QList<AnnotationItem>& marks)
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("applyMarkRedactions");
+
+    // Gather every ToolMode::Redact mark into per-page rect lists.
+    QMap<int, QList<QRectF>> redactionsByPage;
+    bool hasRedactions = false;
+    for (const auto& anno : marks) {
+        if (anno.mode == ToolMode::Redact) {
+            redactionsByPage[anno.pageIndex].append(anno.rect);
+            hasRedactions = true;
+        }
+    }
+    if (!hasRedactions) {
+        d->setErr(ErrorInfo::Warning,
+                  QObject::tr("No redaction marks found in the current document."),
+                  QStringLiteral("applyMarkRedactions: no ToolMode::Redact marks"));
+        return false;
+    }
+
+    // ER-2: Redacting a signed document via incremental save leaks excised bytes
+    // into revision 1. Refuse at the engine level as a hard guard — the caller
+    // must route the user to save an unsigned copy first.
+    if (d->backend->hasPdfSignatures()) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Cannot apply redactions to a signed document: "
+                              "incremental save would leave original content recoverable "
+                              "from PDF revision history. Save an unsigned copy first."),
+                  QStringLiteral("applyMarkRedactions blocked: document has signatures"));
+        return false;
+    }
+
+    for (auto it = redactionsByPage.begin(); it != redactionsByPage.end(); ++it) {
+        if (!d->backend->applyRedactions(it.key(), it.value())) {
+            d->setErr(ErrorInfo::Error,
+                      QObject::tr("Failed to apply redactions on page %1.").arg(it.key() + 1),
+                      QStringLiteral("applyMarkRedactions page=%1, rects=%2").arg(it.key()).arg(it.value().size()));
+            d->lastErr.sourcePage = it.key();
+            return false;
+        }
+    }
+    return true;
+}
+
 bool PdfEditorEngine::applyPatternRedactions(const QRegularExpression& pattern,
                                               const QList<int>& pages, const QString& outputPath)
 {
