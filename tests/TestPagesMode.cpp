@@ -427,6 +427,22 @@ private slots:
         // Inverse of [1,2,0,3] is [2,0,1,3].
         QCOMPARE(mock->m_reorderAllCalls[1], QList<int>({2, 0, 1, 3}));
     }
+
+    // ── §9.9 P0: thumbnail-grid drag-and-drop permutation math ──────────
+    void testGridMovePermutation() {
+        // Drag page 0 to the end of [0,1,2,3]: new visual order [1,2,3,0]
+        // → positions in snapshot: [1,2,3,0].
+        QCOMPARE(gp::PagesMode::gridMovePermutation({0, 1, 2, 3}, {1, 2, 3, 0}),
+                 QList<int>({1, 2, 3, 0}));
+        // Swap two pages.
+        QCOMPARE(gp::PagesMode::gridMovePermutation({0, 1, 2}, {1, 0, 2}),
+                 QList<int>({1, 0, 2}));
+        // No net change → empty (caller must not push a command).
+        QVERIFY(gp::PagesMode::gridMovePermutation({0, 1, 2}, {0, 1, 2}).isEmpty());
+        // Inconsistent input (unknown index / size mismatch) → empty.
+        QVERIFY(gp::PagesMode::gridMovePermutation({0, 1, 2}, {0, 5, 2}).isEmpty());
+        QVERIFY(gp::PagesMode::gridMovePermutation({0, 1}, {0}).isEmpty());
+    }
 };
 
 QTEST_MAIN(TestPagesMode)
