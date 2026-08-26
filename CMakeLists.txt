@@ -1883,6 +1883,22 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrAcceptSeam.cpp")
     set_tests_properties(TestOcrAcceptSeam PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;ocr;accept;qt;headless")
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestHyperlinkNavigation.cpp")
+    add_executable(TestHyperlinkNavigation tests/TestHyperlinkNavigation.cpp)
+    target_include_directories(TestHyperlinkNavigation PRIVATE src tests)
+    target_link_libraries(TestHyperlinkNavigation PRIVATE
+        pdfws_engines pdfws_core podofo::podofo Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET TestHyperlinkNavigation POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PODOFO_VENDOR_DLL}"
+            "$<TARGET_FILE_DIR:TestHyperlinkNavigation>/libpodofo.dll"
+        COMMENT "Deploying podofo 1.1.0 DLL for TestHyperlinkNavigation"
+    )
+    add_test(NAME TestHyperlinkNavigation COMMAND TestHyperlinkNavigation)
+    set_tests_properties(TestHyperlinkNavigation PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;viewing;links;qt;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAnnotationDjot.cpp")
     add_executable(TestAnnotationDjot
         tests/TestAnnotationDjot.cpp
