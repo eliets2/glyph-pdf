@@ -558,7 +558,7 @@ void EditController::runOcr() {
             }
         }
 
-        QMetaObject::invokeMethod(QCoreApplication::instance(), [self, viewerPtr, filePath, page, resultsArr, mergedWords, error]() {
+        QMetaObject::invokeMethod(QCoreApplication::instance(), [self, viewerPtr, filePath, page, pageImg, resultsArr, mergedWords, error]() {
             if (!self) return;
 
             self->_ocrRunning = false;
@@ -575,6 +575,11 @@ void EditController::runOcr() {
 
             viewerPtr->setOcrResults(resultsArr);
             viewerPtr->setToolMode(ToolMode::SelectText);
+            // §9.4 P0: cache this run so Accept can persist a searchable copy.
+            self->m_lastOcrPageImage = pageImg;
+            self->m_lastOcrWords = mergedWords;
+            self->m_lastOcrPage = page;
+            self->m_lastOcrSourcePath = filePath;
             // Feed the OCR Verify screen (if open) so it shows real recognised words
             // for review instead of an empty/decorative panel.
             emit self->ocrResultsReady(mergedWords);
@@ -773,6 +778,55 @@ void EditController::onEraseRequested(int pageIndex, QPointF pos) {
     } else {
         _mainWindow->statusBar()->showMessage(tr("Nothing to erase at that point."), 3000);
     }
+}
+
+// §9.4 P0 test seam: assemble the per-page OCR payload for exportMrcPdfA.
+PageOcrResult EditController::buildPageOcrResult(int pageIndex, const QList<MergedOcrWord>& words)
+{
+    PageOcrResult r;
+    r.pageIndex = pageIndex;
+    r.words = words;
+    r.success = !words.isEmpty();
+    return r;
+}
+
+// §9.4 P0: Accept persists the recognised text as a searchable MRC PDF/A
+// copy — the same production writer Batch Mode uses — instead of only
+// showing a status message while the searchable layer silently vanished.
+void EditController::onOcrAcceptRequested() {
+    if (!_ctx || !_ctx->pdfEditor) return;
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer) return;
+
+    const QString currentPath = viewer->filePath();
+    if (m_lastOcrPageImage.isNull() || m_lastOcrWords.isEmpty()
+        || m_lastOcrSourcePath != currentPath) {
+        _mainWindow->statusBar()->showMessage(
+            tr("No fresh OCR results to save — run OCR first."), 5000);
+        return;
+    }
+
+    const QFileInfo fi(currentPath);
+    const QString outPath = QFileDialog::getSaveFileName(
+        _mainWindow, tr("Save Searchable (OCR) Copy"),
+        fi.absolutePath() + QLatin1Char('/') + fi.completeBaseName()
+            + QStringLiteral("_ocr.pdf"),
+        tr("PDF Files (*.pdf)"));
+    if (outPath.isEmpty()) return;
+
+    const PageOcrResult pageResult = EditController::buildPageOcrResult(m_lastOcrPage, m_lastOcrWords);
+
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    const bool ok = _ctx->pdfEditor->exportMrcPdfA(
+        outPath, {m_lastOcrPageImage}, {pageResult});
+    QApplication::restoreOverrideCursor();
+
+    if (ok)
+        _mainWindow->statusBar()->showMessage(
+            tr("Searchable copy saved: %1").arg(QFileInfo(outPath).fileName()), 8000);
+    else
+        QMessageBox::warning(_mainWindow, tr("OCR Export Failed"),
+            tr("Could not write the searchable MRC PDF/A copy. See the application log."));
 }
 
 } // namespace gp

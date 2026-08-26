@@ -216,7 +216,10 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
     // status message. Re-OCR region: re-run OCR (whole page until per-region
     // bbox mapping ships — same EditController slot as the Run button).
     connect(_modes, &ModeController::ocrReviewAccepted, this, [this]() {
-        statusBar()->showMessage(tr("OCR results accepted."), 3000);
+        // §9.4 P0: Accept persists the searchable text layer via the same
+        // production MRC PDF/A writer Batch Mode uses — the PRD headline
+        // OCR promise, previously a silent no-op.
+        _edit->onOcrAcceptRequested();
     });
     connect(_modes, &ModeController::ocrReviewRejected, this, [this]() {
         statusBar()->showMessage(tr("OCR results rejected — overlay cleared."), 3000);
