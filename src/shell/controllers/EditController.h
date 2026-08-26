@@ -41,6 +41,11 @@ public slots:
     // the OCR Verify screen's Run button can drive the same real pipeline as the ribbon.
     void runOcr();
 
+    // §9.4 P0: persist the accepted OCR results as a searchable MRC PDF/A copy
+    // (called directly from MainWindow, but kept as a slot for consistency with
+    // the other EditController entry points wired to the OCR Verify screen).
+    void onOcrAcceptRequested();
+
     // §9.4 P0 test seam: assemble the per-page OCR payload for exportMrcPdfA.
     static PageOcrResult buildPageOcrResult(int pageIndex, const QList<MergedOcrWord>& words);
 
@@ -72,10 +77,6 @@ private:
     QList<MergedOcrWord> m_lastOcrWords;
     int m_lastOcrPage = -1;
     QString m_lastOcrSourcePath;
-public slots:
-    // Persist the accepted OCR results as a searchable MRC PDF/A copy.
-    void onOcrAcceptRequested();
-private:
 
     // P4: cache the initialized OCR engine pair across runs. Constructing a fresh
     // OcrEngine/RapidOcrEngine per call rebuilt 3 ONNX sessions (and the Tesseract
