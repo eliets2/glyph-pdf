@@ -144,6 +144,11 @@ bool PdfViewerWidget::loadDocument(const QString &fileName)
 void PdfViewerWidget::reload()
 {
     if (!m_filePath.isEmpty()) {
+        // §9.1 P0: after an engine-side page mutation the document itself now
+        // carries the orientation (/Rotate), so the viewer's own overlay
+        // rotation must reset to zero — otherwise snapshots would double-rotate.
+        m_rotation = 0;
+        m_annotationLayer->setRotation(0);
         loadDocument(m_filePath);
     }
 }
@@ -622,15 +627,11 @@ QImage PdfViewerWidget::renderPage(int page, qreal scaleFactor) const
     QSizeF pageSize = m_document->pagePointSize(page);
     QSize imageSize(pageSize.width() * scaleFactor, pageSize.height() * scaleFactor);
 
+    // §9.1 P0: no render-options rotation here — orientation lives in the
+    // document /Rotate after an engine-side rotate + reload, and PDFium
+    // applies it during render. Adding opts.setRotation on top would
+    // double-rotate every snapshot.
     QPdfDocumentRenderOptions opts;
-    // §9.1 P0: honor the viewer rotation in every snapshot we render
-    // (OCR input, clipboard copy, thumbnails) so downstream consumers see
-    // the same orientation as the user. For 90/270 the target bitmap must
-    // be sized with swapped dimensions.
-    if (m_rotation == 90 || m_rotation == 270) {
-        opts.setRotation(static_cast<QPdfDocumentRenderOptions::Rotation>(m_rotation / 90));
-        imageSize.transpose();
-    }
     QImage result = m_document->render(page, imageSize, opts);
 
     // Store in cache. P9: keep a running byte total instead of re-summing the

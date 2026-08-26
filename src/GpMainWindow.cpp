@@ -196,6 +196,15 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
             }
             updateTitle();
         });
+        // §9.1 P0 (priority defect): page-mutation commands (rotate/resize/
+        // header-footer/Bates/reorder/crop) call DocumentSession::markReload(),
+        // but the emitted reloadRequested() was connected nowhere — the visible
+        // QPdfView never reloaded and e.g. rotation only spun the overlay.
+        // Honor the signal once, here, for every command that trusts it.
+        connect(_ctx->document.get(), &DocumentSession::reloadRequested, this, [this]() {
+            if (auto* viewer = pdfViewer())
+                viewer->reload();
+        });
     }
 
     // === Wire signals
