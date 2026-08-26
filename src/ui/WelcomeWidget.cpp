@@ -177,10 +177,7 @@ void WelcomeWidget::setupUi()
     imgsCard->setAccessibleDescription(tr("Combine PNG, JPEG or TIFF images into a single PDF"));
 
     connect(openCard,    &QPushButton::clicked, this, &WelcomeWidget::openFileRequested);
-    connect(mergeCard,   &QPushButton::clicked, this, [this]() {
-        emit mergeRequested();
-        emit mergeFilesRequested();
-    });
+    connect(mergeCard, &QPushButton::clicked, this, &WelcomeWidget::mergeFilesRequested);
     connect(convertCard, &QPushButton::clicked, this, &WelcomeWidget::convertRequested);
     connect(protectCard, &QPushButton::clicked, this, &WelcomeWidget::protectRequested);
     connect(importCard,  &QPushButton::clicked, this, &WelcomeWidget::importOfficeRequested);

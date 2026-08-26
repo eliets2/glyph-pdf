@@ -173,8 +173,7 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
         // Merge card → Combine tool (ConvertController). Combine is the one
         // Convert tool that runs with no document open (it gathers its own
         // file list), so route it through the registry rather than forcing an
-        // Open first. WelcomeWidget emits both mergeFilesRequested and the
-        // legacy mergeRequested alias; wire the canonical one.
+        // Open first.
         connect(_welcome, &WelcomeWidget::mergeFilesRequested, this,
                 [this]{ _toolRegistry->activate(ToolId::Combine); });
         connect(_welcome, &WelcomeWidget::recentFileRequested, this,
