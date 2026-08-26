@@ -341,9 +341,16 @@ void PdfViewerWidget::setAnnotations(const QList<AnnotationItem> &items)
 
 void PdfViewerWidget::searchDocument(const QString &text, bool forward, bool matchCase, bool wholeWords)
 {
+    // §9.15 P0: QPdfSearchModel only supports case-insensitive substring
+    // search. Match Case / Whole Words / Regex are handled by EditController
+    // via a page-text scan (see onSearchRequested); forward is implicit in
+    // the model iteration there.
     if (m_searchModel->searchString() != text) {
         m_searchModel->setSearchString(text);
     }
+    Q_UNUSED(forward);
+    Q_UNUSED(matchCase);
+    Q_UNUSED(wholeWords);
 }
 
 // ---- Page Navigation ----
