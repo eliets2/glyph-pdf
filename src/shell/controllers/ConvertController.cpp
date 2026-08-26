@@ -20,6 +20,7 @@
 #include <atomic>
 #include <QFileInfo>
 #include "shell/StatusBar.h"
+#include "engines/ConversionManager.h"
 #include "modes/CompressDialog.h"
 
 namespace gp {
@@ -97,22 +98,35 @@ void ConvertController::exportToWord() {
     progress->show();
 
     IConversionEngine* conv = _ctx->conversion.get();
+    auto* convMgr = dynamic_cast<ConversionManager*>(conv);
     const QString inputPath = viewer->filePath();
     QPointer<ConvertController> self(this);
     auto result = std::make_shared<std::atomic<bool>>(false);
+    auto fallback = std::make_shared<std::atomic<bool>>(false);
 
-    QThread* worker = QThread::create([conv, inputPath, outputPath, result]() {
+    QThread* worker = QThread::create([conv, convMgr, inputPath, outputPath, result, fallback]() {
         bool ok = conv->convertTo(inputPath, outputPath, IConversionEngine::TargetFormat::Word);
         result->store(ok);
+        // §9.16 P0: detect whether the real OOXML writer or the mislabeled
+        // HTML fallback produced this file.
+        if (convMgr && ok)
+            fallback->store(convMgr->lastWordExportEngine() == ConversionManager::ExportEngine::Fallback);
     });
 
-    connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result]() {
+    connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result, fallback]() {
         progress->close();
         progress->deleteLater();
         if (!self) return;
         bool ok = result->load();
         if (ok) {
             self->_mainWindow->statusBar()->showMessage(tr("Export complete: %1").arg(outputPath), 5000);
+            if (fallback->load()) {
+                // Honest disclosure: the .docx is actually HTML bytes.
+                QMessageBox::warning(self->_mainWindow, tr("Export Format Notice"),
+                    tr("This build lacks the native Word (OOXML) writer, so the exported file\n%1\n"
+                       "contains HTML content under a .docx extension. Word may show a repair prompt.\n\n"
+                       "For best results, choose HTML export instead.").arg(outputPath));
+            }
             if (QMessageBox::question(self->_mainWindow, tr("Export Success"), tr("Export to Word complete. Open file?")) == QMessageBox::Yes) {
                 QDesktopServices::openUrl(QUrl::fromLocalFile(outputPath));
             }
@@ -142,22 +156,34 @@ void ConvertController::exportToExcel() {
     progress->show();
 
     IConversionEngine* conv = _ctx->conversion.get();
+    auto* convMgr = dynamic_cast<ConversionManager*>(conv);
     const QString inputPath = viewer->filePath();
     QPointer<ConvertController> self(this);
     auto result = std::make_shared<std::atomic<bool>>(false);
+    auto fallback = std::make_shared<std::atomic<bool>>(false);
 
-    QThread* worker = QThread::create([conv, inputPath, outputPath, result]() {
+    QThread* worker = QThread::create([conv, convMgr, inputPath, outputPath, result, fallback]() {
         bool ok = conv->convertTo(inputPath, outputPath, IConversionEngine::TargetFormat::Excel);
         result->store(ok);
+        // §9.16 P0: detect whether the real OOXML writer or the mislabeled
+        // CSV fallback produced this file.
+        if (convMgr && ok)
+            fallback->store(convMgr->lastExcelExportEngine() == ConversionManager::ExportEngine::Fallback);
     });
 
-    connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result]() {
+    connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result, fallback]() {
         progress->close();
         progress->deleteLater();
         if (!self) return;
         bool ok = result->load();
         if (ok) {
             self->_mainWindow->statusBar()->showMessage(tr("Export complete: %1").arg(outputPath), 5000);
+            if (fallback->load()) {
+                QMessageBox::warning(self->_mainWindow, tr("Export Format Notice"),
+                    tr("This build lacks the native Excel (OOXML) writer, so the exported file\n%1\n"
+                       "contains CSV content under a .xlsx extension. Excel may show a repair prompt.\n\n"
+                       "For best results, choose CSV export instead.").arg(outputPath));
+            }
             if (QMessageBox::question(self->_mainWindow, tr("Export Success"), tr("Export to Excel complete. Open file?")) == QMessageBox::Yes) {
                 QDesktopServices::openUrl(QUrl::fromLocalFile(outputPath));
             }

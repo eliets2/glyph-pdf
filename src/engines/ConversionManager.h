@@ -43,6 +43,9 @@ public:
 
     // Convenience: true when an Office→PDF converter is available on this machine.
     static bool isOfficeImportAvailable() { return !locateSoffice().isEmpty(); }
+    static bool hasNativeWordExport();
+    static bool hasNativeExcelExport();
+    enum class ExportEngine { Unknown, NativeOoxml, Fallback }; ExportEngine lastWordExportEngine() const { return m_lastWordEngine; } ExportEngine lastExcelExportEngine() const { return m_lastExcelEngine; }
 
 private:
     bool exportToWord(const QString &outputPath, const QList<QList<TextElement>> &rows);
@@ -55,4 +58,5 @@ private:
 
     class Private;
     std::unique_ptr<Private> d;
+    ExportEngine m_lastWordEngine = ExportEngine::Unknown; ExportEngine m_lastExcelEngine = ExportEngine::Unknown;
 };
