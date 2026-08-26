@@ -164,14 +164,18 @@ QList<ConversionManager::TextElement> ConversionManager::Private::extractTextFro
                 const auto& stack = content.GetStack();
                 
                 if (kw == "Tm" && stack.size() >= 6) {
-                    if (stack[4].IsNumberOrReal()) currentX = stack[4].GetReal();
-                    if (stack[5].IsNumberOrReal()) currentY = stack[5].GetReal();
+                    // PdfVariantStack is LIFO: for 'a b c d e f Tm', e=X and
+                    // f=Y sit at stack[1] / stack[0].
+                    if (stack[1].IsNumberOrReal()) currentX = stack[1].GetReal();
+                    if (stack[0].IsNumberOrReal()) currentY = stack[0].GetReal();
                 } else if ((kw == "Td" || kw == "TD") && stack.size() >= 2) {
-                    if (stack[0].IsNumberOrReal()) currentX += stack[0].GetReal();
-                    if (stack[1].IsNumberOrReal()) currentY += stack[1].GetReal();
+                    // 'tx ty Td': ty pushed last → stack[0]; tx → stack[1].
+                    if (stack[1].IsNumberOrReal()) currentX += stack[1].GetReal();
+                    if (stack[0].IsNumberOrReal()) currentY += stack[0].GetReal();
                 } else if (kw == "Tf" && stack.size() >= 2) {
-                    if (stack[0].IsName()) currentFontName = QString::fromStdString(std::string(stack[0].GetName().GetString()));
-                    if (stack[1].IsNumberOrReal()) currentFontSize = stack[1].GetReal();
+                    // 'name size Tf': LIFO → size on top (stack[0]), name below.
+                    if (stack[1].IsName()) currentFontName = QString::fromStdString(std::string(stack[1].GetName().GetString()));
+                    if (stack[0].IsNumberOrReal()) currentFontSize = stack[0].GetReal();
                 } else if (kw == "Tj" && stack.size() >= 1) {
                     if (stack[0].IsString()) {
                         TextElement el;
