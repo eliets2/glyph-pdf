@@ -1853,6 +1853,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEraseWiring.cpp")
     set_tests_properties(TestEraseWiring PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;editing;erase;qt;headless")
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAnnotationToolBar.cpp")
+    add_executable(TestAnnotationToolBar tests/TestAnnotationToolBar.cpp)
+    target_include_directories(TestAnnotationToolBar PRIVATE src tests)
+    target_link_libraries(TestAnnotationToolBar PRIVATE
+        pdfws_ui pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_test(NAME TestAnnotationToolBar COMMAND TestAnnotationToolBar)
+    set_tests_properties(TestAnnotationToolBar PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;annotations;toolbar;qt;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAnnotationDjot.cpp")
     add_executable(TestAnnotationDjot
         tests/TestAnnotationDjot.cpp

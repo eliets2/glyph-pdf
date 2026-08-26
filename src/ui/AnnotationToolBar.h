@@ -32,5 +32,9 @@ private:
     QAction *ellipseAct;
     QAction *lineAct;
     QAction *arrowAct;
+    QAction *strikeoutAct;
+    QAction *squigglyAct;
+    QAction *stampAct;
+    QAction *calloutAct;
     QAction *deleteAct;
 };
