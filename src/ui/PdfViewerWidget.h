@@ -81,7 +81,7 @@ public:
     void rotatePages(int from, int to, int angle, const QString &outputFile);
 
     bool saveDocumentAs(const QString &outputFile);
-    static void mergeDocuments(const QStringList &files, const QString &outputFile);
+    static bool mergeDocuments(const QStringList &files, const QString &outputFile);
     void printDocument();
 
     // Accessors
