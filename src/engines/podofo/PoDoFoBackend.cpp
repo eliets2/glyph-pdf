@@ -3661,6 +3661,47 @@ OptimizeEstimate PoDoFoBackend::estimateOptimization(const OptimizeOptions &opti
     }
 }
 
+// §9.13 P0 DEFECT 3: build a canonical serialization of the image-dictionary
+// parameters that determine how the raw stream bytes are interpreted. Two
+// images sharing stream bytes but differing in any of these params are NOT
+// equivalent and must not be deduplicated (e.g. the same image used once WITH
+// an /SMask and once without). /ColorSpace is resolved through references so
+// two names pointing at the same colorspace object collide, while different
+// colorspaces do not. /SMask is folded in by mask-object identity so a masked
+// and an unmasked copy of the same bytes never merge.
+static QByteArray imageDictFingerprint(PoDoFo::PdfObject& obj, PoDoFo::PdfIndirectObjectList& objects)
+{
+    auto& dict = obj.GetDictionary();
+    QByteArray fp;
+    const char* keys[] = {
+        "Width", "Height", "BitsPerComponent", "Decode", "Filter",
+        "ImageMask", "ColorSpace", "SMask", "Interpolate", "Intent"
+    };
+    for (const char* key : keys) {
+        fp.append(key);
+        fp.append('=');
+        auto* v = dict.FindKey(key);
+        if (!v) {
+            fp.append("(null)");
+            continue;
+        }
+        if (v->IsReference()) {
+            // Resolve references so two names pointing at the same object
+            // collide, but different objects do not.
+            try {
+                auto& target = objects.MustGetObject(v->GetReference());
+                fp.append(target.ToString());
+            } catch (...) {
+                fp.append(v->ToString());
+            }
+        } else {
+            fp.append(v->ToString());
+        }
+        fp.append(';');
+    }
+    return fp;
+}
+
 bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOptions &options)
 {
     QMutexLocker locker(&d->mutex);
@@ -3669,7 +3710,6 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
     try {
         auto& doc = *d->document;
         auto& objects = doc.GetObjects();
-
         // Phase 1: Downsample images
         if (options.downsampleImages) {
             for (auto obj : objects) {
@@ -3750,9 +3790,15 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
 
                 PoDoFo::charbuff buf;
                 obj->GetOrCreateStream().CopyTo(buf);
-                QByteArray hash = QCryptographicHash::hash(
-                    QByteArray(buf.data(), static_cast<int>(buf.size())),
-                    QCryptographicHash::Sha256);
+                // §9.13 P0 DEFECT 3: hash the stream bytes AND the image-dict
+                // params. Two images with identical bytes but different
+                // /ColorSpace, /SMask, /Width, /Height, /BitsPerComponent,
+                // /Decode, /Filter or /ImageMask are NOT equivalent and must
+                // not be merged (silent transparency/colorspace corruption).
+                QByteArray hashInput;
+                hashInput.append(QByteArray(buf.data(), static_cast<int>(buf.size())));
+                hashInput.append(imageDictFingerprint(*obj, objects));
+                QByteArray hash = QCryptographicHash::hash(hashInput, QCryptographicHash::Sha256);
 
                 if (hashToObj.contains(hash)) {
                     duplicateMap.insert(obj, hashToObj[hash]);
