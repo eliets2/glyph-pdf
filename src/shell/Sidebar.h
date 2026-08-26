@@ -5,7 +5,6 @@
 
 class QStackedWidget;
 class QTabBar;
-class QTreeView;
 class QListWidget;
 class ThumbnailSidebar;
 class CommentsWidget;
