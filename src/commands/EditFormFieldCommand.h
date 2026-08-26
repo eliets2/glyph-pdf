@@ -45,7 +45,7 @@ public:
         if (!m_newProps.defaultVal.isEmpty()) {
             QVariantMap data;
             data[m_originalName] = m_newProps.defaultVal;
-            m_engine->fillForm(m_doc->path(), data, m_doc->path());
+            m_engine->fillForm(m_doc->path(), data, m_doc->path(), /*lockFields=*/false);
         }
         m_doc->markReload();
         setObsolete(false);
@@ -57,7 +57,7 @@ public:
         if (!m_oldProps.defaultVal.isEmpty()) {
             QVariantMap data;
             data[m_originalName] = m_oldProps.defaultVal;
-            m_engine->fillForm(m_doc->path(), data, m_doc->path());
+            m_engine->fillForm(m_doc->path(), data, m_doc->path(), /*lockFields=*/false);
         }
         m_doc->markReload();
     }

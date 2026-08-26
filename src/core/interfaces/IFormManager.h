@@ -17,7 +17,7 @@ class IFormManager {
 public:
     virtual ~IFormManager() = default;
     virtual bool extractFormFields(const QString &pdfFilePath) = 0;
-    virtual bool fillForm(const QString &pdfFilePath, const QVariantMap &fieldData, const QString &outputPath) = 0;
+    virtual bool fillForm(const QString &pdfFilePath, const QVariantMap &fieldData, const QString &outputPath, bool lockFields = true) = 0;
     virtual bool hasXfaForms(const QString &pdfFilePath) = 0;
     virtual bool addTextField(const QString &pdfFilePath, int pageIndex, const QRectF &rect,
                                const QString &fieldName, const QString &outputPath) = 0;

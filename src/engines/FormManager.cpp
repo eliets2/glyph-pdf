@@ -44,7 +44,7 @@ bool FormManager::extractFormFields(const QString &pdfFilePath)
     }
 }
 
-bool FormManager::fillForm(const QString &pdfFilePath, const QVariantMap &fieldData, const QString &outputPath)
+bool FormManager::fillForm(const QString &pdfFilePath, const QVariantMap &fieldData, const QString &outputPath, bool lockFields)
 {
     qDebug() << "Filling form data at:" << outputPath;
     try {
@@ -103,7 +103,7 @@ bool FormManager::fillForm(const QString &pdfFilePath, const QVariantMap &fieldD
                     break;
             }
 
-            field.SetReadOnly(true);
+            if (lockFields) field.SetReadOnly(true); // §9.6 P0: only the explicit fill+lock path locks; default-value edits must not silently lock fields
         }
 
         doc.Save(outputPath.toUtf8().constData());

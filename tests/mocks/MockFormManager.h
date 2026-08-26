@@ -10,10 +10,11 @@ public:
         return m_extractResult;
     }
 
-    bool fillForm(const QString &pdfFilePath, const QVariantMap &fieldData, const QString &outputPath) override {
+    bool fillForm(const QString &pdfFilePath, const QVariantMap &fieldData, const QString &outputPath, bool lockFields) override {
         m_lastFilePath = pdfFilePath;
         m_lastOutputPath = outputPath;
         m_lastFieldData = fieldData;
+        m_lastLockFields = lockFields;
         ++m_fillCalls;
         return m_fillResult;
     }
@@ -96,6 +97,7 @@ public:
     QString m_lastFieldName;
     QString m_lastExpression;
     QVariantMap m_lastFieldData;
+    bool m_lastLockFields = true;
     QStringList m_lastOptions;
     QRectF m_lastRect;
     int m_lastPageIndex = -1;
