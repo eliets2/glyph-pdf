@@ -124,14 +124,10 @@ void SecurityController::activate(ToolId id) {
 void SecurityController::setExpiryDocument() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->pdfEditor) return;
-    // §9.11 upgrade path: setExpiryDate lives on the concrete engine only;
-    // promote it to IPdfEditorEngine when a second caller appears.
-    auto* engine = dynamic_cast<PdfEditorEngine*>(_ctx->pdfEditor.get());
-    if (!engine) {
-        QMessageBox::warning(_mainWindow, tr("Document Expiry"),
-            tr("Expiry dates are not supported by this engine."));
-        return;
-    }
+    // §9.11: setExpiryDate is on IPdfDocumentIO, so the controller goes through
+    // the interface — no concrete-engine dynamic_cast, and a mock engine can
+    // stand in for tests.
+    IPdfEditorEngine* engine = _ctx->pdfEditor.get();
 
     QDialog dlg(_mainWindow);
     dlg.setWindowTitle(tr("Set Expiry Date"));

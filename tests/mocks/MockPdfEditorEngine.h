@@ -91,6 +91,14 @@ public:
         m_lastWriteUpdatePath = path;
         return saveDocument(path);
     }
+    // §9.11: expiry marker (promoted onto IPdfDocumentIO)
+    bool setExpiryDate(const QString &pdfPath, const QDate &date, const QString &outputPath) override {
+        ++m_expiryCalls;
+        m_lastExpiryPath = pdfPath;
+        m_lastExpiryOut = outputPath;
+        m_lastExpiryDate = date;
+        return m_loaded && date.isValid();
+    }
     bool hasPdfSignatures() const override { return m_hasPdfSignatures; }
     int recipientCount() const override { return 0; }
 
@@ -114,4 +122,9 @@ public:
     double m_lastRotateDegrees = 0.0;
     // §9.8 P0: mark-based redaction tracking
     QList<AnnotationItem> m_lastMarkRedactions;
+    // §9.11: expiry tracking
+    int m_expiryCalls = 0;
+    QString m_lastExpiryPath;
+    QString m_lastExpiryOut;
+    QDate m_lastExpiryDate;
 };
