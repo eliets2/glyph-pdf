@@ -798,6 +798,25 @@ PageOcrResult EditController::buildPageOcrResult(int pageIndex, const QList<Merg
     return r;
 }
 
+// §9.4 honesty: the interactive Accept flow persists a ONE-PAGE MRC PDF/A
+// (runOcr recognises the current page only). The save dialog and the success
+// status must say so — a dialog titled "Save Searchable Copy" on a 40-page
+// document reads as a whole-document searchable export, which it is not.
+// Single-page documents need no scope note: the one-page copy IS the document.
+QString EditController::ocrSaveDialogTitle(int totalPages, int pageIndex) {
+    if (totalPages <= 1)
+        return EditController::tr("Save Searchable (OCR) Copy");
+    return EditController::tr("Save Searchable (OCR) Copy — Current Page Only (%1 of %2)")
+        .arg(pageIndex + 1).arg(totalPages);
+}
+
+QString EditController::ocrSavedStatus(int totalPages, int pageIndex, const QString& fileName) {
+    if (totalPages <= 1)
+        return EditController::tr("Searchable copy saved: %1").arg(fileName);
+    return EditController::tr("Searchable copy saved (current page %1 of %2 only): %3")
+        .arg(pageIndex + 1).arg(totalPages).arg(fileName);
+}
+
 // §9.4 P0: Accept persists the recognised text as a searchable MRC PDF/A
 // copy — the same production writer Batch Mode uses — instead of only
 // showing a status message while the searchable layer silently vanished.
@@ -815,8 +834,10 @@ void EditController::onOcrAcceptRequested() {
     }
 
     const QFileInfo fi(currentPath);
+    const int totalPages = viewer->pageCount();
+    const int pageIndex = viewer->currentPage();
     const QString outPath = QFileDialog::getSaveFileName(
-        _mainWindow, tr("Save Searchable (OCR) Copy"),
+        _mainWindow, ocrSaveDialogTitle(totalPages, pageIndex),
         fi.absolutePath() + QLatin1Char('/') + fi.completeBaseName()
             + QStringLiteral("_ocr.pdf"),
         tr("PDF Files (*.pdf)"));
@@ -831,7 +852,7 @@ void EditController::onOcrAcceptRequested() {
 
     if (ok)
         _mainWindow->statusBar()->showMessage(
-            tr("Searchable copy saved: %1").arg(QFileInfo(outPath).fileName()), 8000);
+            ocrSavedStatus(totalPages, pageIndex, QFileInfo(outPath).fileName()), 8000);
     else
         QMessageBox::warning(_mainWindow, tr("OCR Export Failed"),
             tr("Could not write the searchable MRC PDF/A copy. See the application log."));

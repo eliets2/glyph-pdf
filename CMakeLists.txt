@@ -2024,6 +2024,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestExportPresets.cpp")
     set_tests_properties(TestExportPresets PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;export;presets;qt;headless")
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrAcceptScope.cpp")
+    add_executable(TestOcrAcceptScope tests/TestOcrAcceptScope.cpp)
+    target_include_directories(TestOcrAcceptScope PRIVATE src tests)
+    target_link_libraries(TestOcrAcceptScope PRIVATE
+        pdfws_ui pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+    )
+    add_test(NAME TestOcrAcceptScope COMMAND TestOcrAcceptScope)
+    set_tests_properties(TestOcrAcceptScope PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;ocr;accept;honesty;qt;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestHyperlinkNavigation.cpp")
     add_executable(TestHyperlinkNavigation tests/TestHyperlinkNavigation.cpp)
     target_include_directories(TestHyperlinkNavigation PRIVATE src tests)

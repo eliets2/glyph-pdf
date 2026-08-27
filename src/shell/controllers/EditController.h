@@ -62,6 +62,14 @@ public slots:
     // §9.4 P0 test seam: assemble the per-page OCR payload for exportMrcPdfA.
     static PageOcrResult buildPageOcrResult(int pageIndex, const QList<MergedOcrWord>& words);
 
+    // §9.4 honesty seams: the interactive Accept flow persists a ONE-PAGE MRC
+    // PDF/A (runOcr recognises the current page only), so the save dialog and
+    // the success status must say so instead of implying a whole-document
+    // searchable copy. Single-page documents need no scope note — the one-page
+    // copy IS the document.
+    static QString ocrSaveDialogTitle(int totalPages, int pageIndex);
+    static QString ocrSavedStatus(int totalPages, int pageIndex, const QString& fileName);
+
 signals:
     // Emitted on the GUI thread when an OCR run finishes, carrying the recognised
     // words so the OCR Verify screen can display them for review.
