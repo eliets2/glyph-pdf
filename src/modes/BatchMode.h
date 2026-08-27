@@ -58,6 +58,9 @@ public:
     void onRunBatch()    { onRunClicked(); }
     void onCancelBatch() { onCancelClicked(); }
 
+    // Test seam: select the batch operation by index (matches m_opCombo order).
+    void setOperationForTest(int index);
+
 signals:
     // Emitted from onBatchFinished so tests can spy on completion.
     void batchFinished();
