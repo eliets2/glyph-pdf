@@ -38,7 +38,9 @@ using TargetFormat = IConversionEngine::TargetFormat;
 #include <QPdfDocument>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QSet>
 #include <QTimer>
+#include <algorithm>
 #include <QUrl>
 #include <QtConcurrent/QtConcurrent>
 
@@ -1034,6 +1036,10 @@ void BatchMode::onRunClicked() {
                     } else {
                         ok = capturedCtx->pdfEditor->exportMrcPdfA(result.outputPath, images, pageResults);
                         if (!ok) techDetail = capturedCtx->pdfEditor->lastError().technicalDetails;
+                        // §9.12 P0: surface OcrPipeline's confidence data — flag
+                        // low-confidence words for review instead of reporting a
+                        // bare pass/fail with zero visibility.
+                        if (ok) result.reviewNote = lowConfidenceNote(pageResults);
                     }
                 }
             }
@@ -1138,6 +1144,15 @@ void BatchMode::onRunClicked() {
         if (res.success) {
             ++m_successCount;
             appendFileResult(res.inputPath, true, res.outputPath);
+            // §9.12 P0: a successful file can still need review (low-confidence
+            // OCR words). Log it as a warning so it lands in the summary and
+            // the exportable error log — never a silent pass.
+            if (!res.reviewNote.isEmpty()) {
+                appendLog(QStringLiteral("  \xE2\x9A\xA0 %1").arg(res.reviewNote), "#d08b2c");
+                ErrorInfo warn = ErrorInfo::warning(res.reviewNote);
+                warn.sourceFile = res.inputPath;
+                m_errorLog.append(std::move(warn));
+            }
         } else {
             ++m_failCount;
             appendFileResult(res.inputPath, false, res.errorMessage);
@@ -1257,6 +1272,30 @@ void BatchMode::onBatchFinished() {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
+
+// §9.12 P0: single source of truth for the low-confidence review rule. Words
+// at or below `threshold` (0-100) are flagged for human review; the note names
+// the affected pages so a reviewer knows where to look. Pure function.
+QString BatchMode::lowConfidenceNote(const QList<PageOcrResult>& pages,
+                                     int confidenceThreshold) {
+    int lowWords = 0;
+    QSet<int> pagesAffected;
+    for (const auto& pr : pages) {
+        for (const auto& w : pr.words) {
+            if (w.confidence >= 0 && w.confidence <= confidenceThreshold) {
+                ++lowWords;
+                pagesAffected.insert(pr.pageIndex);
+            }
+        }
+    }
+    if (lowWords == 0) return QString();
+    QStringList pageList;
+    QList<int> sorted(pagesAffected.constBegin(), pagesAffected.constEnd());
+    std::sort(sorted.begin(), sorted.end());
+    for (int p : sorted) pageList << QString::number(p + 1);  // 1-based for users
+    return BatchMode::tr("%1 low-confidence word(s) on page(s) %2 — review recommended")
+        .arg(lowWords).arg(pageList.join(QStringLiteral(", ")));
+}
 
 void BatchMode::appendLog(const QString& text, const QString& color) {
     if (color.isEmpty())

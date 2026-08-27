@@ -1604,6 +1604,32 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchOcrLanguage.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchOcrConfidence.cpp")
+    add_executable(TestBatchOcrConfidence
+        tests/TestBatchOcrConfidence.cpp
+    )
+    target_include_directories(TestBatchOcrConfidence PRIVATE src tests)
+    target_link_libraries(TestBatchOcrConfidence PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestBatchOcrConfidence POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestBatchOcrConfidence>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestBatchOcrConfidence>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestBatchOcrConfidence"
+    )
+    add_test(NAME TestBatchOcrConfidence COMMAND TestBatchOcrConfidence)
+    set_tests_properties(TestBatchOcrConfidence PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;batch;ocr;confidence;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestInspector.cpp")
     add_executable(TestInspector
         tests/TestInspector.cpp
