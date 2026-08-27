@@ -99,6 +99,13 @@ public:
         m_lastExpiryDate = date;
         return m_loaded && date.isValid();
     }
+    // §9.1: link reader (promoted onto IPdfDocumentIO)
+    QList<PdfLinkInfo> extractLinks(const QString &pdfPath, int pageIndex) override {
+        ++m_linkCalls;
+        m_lastLinkPath = pdfPath;
+        m_lastLinkPage = pageIndex;
+        return m_links;
+    }
     bool hasPdfSignatures() const override { return m_hasPdfSignatures; }
     int recipientCount() const override { return 0; }
 
@@ -127,4 +134,9 @@ public:
     QString m_lastExpiryPath;
     QString m_lastExpiryOut;
     QDate m_lastExpiryDate;
+    // §9.1: link-reader tracking
+    int m_linkCalls = 0;
+    int m_lastLinkPage = -1;
+    QString m_lastLinkPath;
+    QList<PdfLinkInfo> m_links;
 };

@@ -11,6 +11,7 @@
 #include <QPdfBookmarkModel>
 #include <QPdfPageNavigator>
 #include <QPdfPageRenderer>
+#include <functional>
 #include "core/PdfEnums.h"
 #include "ui/AnnotationLayer.h"
 
@@ -95,6 +96,11 @@ public:
     // a security risk and must not be handed to QDesktopServices::openUrl.
     static bool isSafeLinkScheme(const QString &uri);
 
+    // §9.1: link-reader seam. The widget must not depend on a concrete PDF
+    // backend, so the app injects the engine's extractLinks here (wired once
+    // in GpMainWindow). Without a reader the viewer simply has no links.
+    void setLinkReader(std::function<QList<PdfLinkInfo>(const QString &path, int page)> reader);
+
 signals:
     void pageChanged(int currentPage, int totalPages);
     void navigationChanged(bool canBack, bool canForward);
@@ -177,8 +183,12 @@ private:
     QTimer *m_saveDebounceTimer;
 
     // §9.1 P0: clickable hyperlinks (URI + internal GoTo) for the current page.
+    // Fetched through the injected link-reader (engine seam) and cached per
+    // page; the cache is cleared whenever the document is (re)loaded.
     QList<PdfLinkInfo> m_pageLinks;
-    void refreshPageLinks();
+    int m_linksForPage = -1;   // page index m_pageLinks was fetched for
+    std::function<QList<PdfLinkInfo>(const QString &path, int page)> m_linkReader;
+    void refreshPageLinks(int page = -1);   // -1 = the navigator's current page
     bool handleLinkClick(const QPoint &viewportPos);
 
     // Page change coalescing (Fix 13)
