@@ -37,6 +37,7 @@ using TargetFormat = IConversionEngine::TargetFormat;
 #include <QFileInfo>
 #include <QPdfDocument>
 #include <QRegularExpression>
+#include <QSettings>
 #include <QTimer>
 #include <QUrl>
 #include <QtConcurrent/QtConcurrent>
@@ -375,6 +376,25 @@ void BatchMode::buildOperationPanel(QWidget* host) {
         note->setWordWrap(true);
         note->setStyleSheet("color:#71747a; font-size:10px;");
         lay->addWidget(note);
+
+        // §9.12 P0: expose the OCR language in Batch mode — batch OCR was
+        // hard-wired to English, a hard functional wall for any non-English
+        // document set. Same source of truth as the interactive OCR path
+        // (core/OcrTypes.h); the persisted "ocr/language" pref is the default.
+        lay->addWidget(new QLabel(tr("Language:")));
+        m_ocrLanguage = new QComboBox;
+        const QString savedUi = QSettings().value(QStringLiteral("ocr/language"),
+                                                  QStringLiteral("EN")).toString();
+        int savedIdx = 0;
+        for (int i = 0; i < ocrLanguages().size(); ++i) {
+            const auto& l = ocrLanguages()[i];
+            m_ocrLanguage->addItem(QString::fromUtf8(l.displayName),
+                                   QString::fromLatin1(l.uiCode));
+            if (savedUi.compare(QLatin1String(l.uiCode), Qt::CaseInsensitive) == 0)
+                savedIdx = i;
+        }
+        m_ocrLanguage->setCurrentIndex(savedIdx);
+        lay->addWidget(m_ocrLanguage);
 
         lay->addWidget(new QLabel(tr("Output Folder:")));
         auto* dirRow = new QHBoxLayout;
@@ -897,6 +917,11 @@ void BatchMode::onRunClicked() {
 
     // OCR config
     const QString capturedOcrOutDir = m_ocrOutDir ? m_ocrOutDir->text().trimmed() : QString();
+    // §9.12 P0: resolve the selected UI language code to the engine code on the
+    // GUI thread (QSettings/combos are GUI state; the worker only gets the value).
+    const QString capturedOcrLang = m_ocrLanguage
+        ? ocrEngineLanguageCode(m_ocrLanguage->currentData().toString())
+        : QStringLiteral("eng");
 
     // Redact config
     const QString capturedRedactOutDir = m_redactOutDir ? m_redactOutDir->text().trimmed() : QString();
@@ -983,7 +1008,7 @@ void BatchMode::onRunClicked() {
                     techDetail = QStringLiteral("Failed to open PDF for rendering: %1").arg(inputPath);
                     ok = false;
                 } else {
-                    capturedCtx->ocr->initialize(QStringLiteral("eng"));
+                    capturedCtx->ocr->initialize(capturedOcrLang);
                     OcrPipeline pipeline(capturedCtx->ocr);
                     pipeline.setStrategy(OcrStrategy::PrimaryOnly);
 
