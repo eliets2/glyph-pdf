@@ -1983,6 +1983,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrAcceptSeam.cpp")
     set_tests_properties(TestOcrAcceptSeam PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;ocr;accept;qt;headless")
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSearchFlags.cpp")
+    add_executable(TestSearchFlags tests/TestSearchFlags.cpp)
+    target_include_directories(TestSearchFlags PRIVATE src tests)
+    target_link_libraries(TestSearchFlags PRIVATE
+        pdfws_ui pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+    )
+    add_test(NAME TestSearchFlags COMMAND TestSearchFlags)
+    set_tests_properties(TestSearchFlags PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;search;flags;qt;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestHyperlinkNavigation.cpp")
     add_executable(TestHyperlinkNavigation tests/TestHyperlinkNavigation.cpp)
     target_include_directories(TestHyperlinkNavigation PRIVATE src tests)

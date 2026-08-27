@@ -141,6 +141,33 @@ void EditController::activate(ToolId id) {
 
 // ── Search ──────────────────────────────────────────────────────────────────
 
+// §9.15: single source of truth for the page-text matcher used by both the
+// document-text search path and the redact-all path. Previously the two
+// callers built their own QRegularExpression and had already drifted (the
+// redact path ignored useRegex entirely).
+EditController::PageTextPattern
+EditController::pageTextPattern(const QString &text, bool matchCase,
+                                bool wholeWords, bool useRegex) {
+    PageTextPattern out;
+    out.active = useRegex || wholeWords || matchCase;
+    if (!out.active) return out;
+
+    QRegularExpression::PatternOptions opts = QRegularExpression::NoPatternOption;
+    if (!matchCase) opts |= QRegularExpression::CaseInsensitiveOption;
+
+    if (useRegex) {
+        // Whole-words wraps the user's pattern in \b guards; the raw pattern is
+        // used as-is otherwise. Invalid patterns are surfaced by the caller.
+        out.rx.setPattern(wholeWords ? QStringLiteral("\\b(?:%1)\\b").arg(text) : text);
+    } else {
+        QString pattern = QRegularExpression::escape(text);
+        if (wholeWords) pattern = QStringLiteral("\\b%1\\b").arg(pattern);
+        out.rx.setPattern(pattern);
+    }
+    out.rx.setPatternOptions(opts);
+    return out;
+}
+
 void EditController::onSearchRequested(const QString &text, bool forward, bool matchCase,
                                        bool wholeWords, bool useRegex, int scope) {
     auto* viewer = _mainWindow->pdfViewer();
@@ -173,32 +200,18 @@ void EditController::onSearchRequested(const QString &text, bool forward, bool m
         // substring search, so when any option is set, scan page text and
         // navigate to matching pages, with an honest status note.
         if (useRegex || wholeWords || matchCase) {
-            QRegularExpression rx;
-            if (useRegex) {
-                QRegularExpression::PatternOptions opts = QRegularExpression::NoPatternOption;
-                if (!matchCase) opts |= QRegularExpression::CaseInsensitiveOption;
-                rx.setPattern(wholeWords ? QStringLiteral("\\b(?:%1)\\b").arg(text) : text);
-                rx.setPatternOptions(opts);
-                if (!rx.isValid()) {
-                    _mainWindow->statusBar()->showMessage(tr("Invalid regular expression."), 4000);
-                    return;
-                }
+            const PageTextPattern pt = pageTextPattern(text, matchCase, wholeWords, useRegex);
+            if (!pt.rx.isValid()) {
+                _mainWindow->statusBar()->showMessage(tr("Invalid regular expression."), 4000);
+                return;
             }
-            QRegularExpression wordRx;
-            if (!useRegex) {
-                QRegularExpression::PatternOptions opts = QRegularExpression::NoPatternOption;
-                if (!matchCase) opts |= QRegularExpression::CaseInsensitiveOption;
-                wordRx.setPattern(QStringLiteral("\\b%1\\b").arg(QRegularExpression::escape(text)));
-                wordRx.setPatternOptions(opts);
-            }
+            const QRegularExpression &rx = pt.rx;
             int firstPage = -1;
             int hitPages = 0;
             const int pages = viewer->pageCount();
             for (int p = 0; p < pages; ++p) {
                 const QString pageText = viewer->document()->getAllText(p).text();
-                const bool hit = useRegex ? rx.match(pageText).hasMatch()
-                                          : wordRx.match(pageText).hasMatch();
-                if (hit) {
+                if (rx.match(pageText).hasMatch()) {
                     ++hitPages;
                     if (firstPage < 0) firstPage = p;
                 }
@@ -384,16 +397,11 @@ void EditController::onReplaceAllRequested(const QString &searchText, const QStr
 void EditController::onRedactAllRequested(const QString &text, bool matchCase, bool wholeWords) {
     auto* viewer = _mainWindow->pdfViewer();
     if (viewer && _ctx && _ctx->pdfEditor) {
-        QRegularExpression::PatternOptions opts = QRegularExpression::NoPatternOption;
-        if (!matchCase) opts |= QRegularExpression::CaseInsensitiveOption;
-        
-        QString pattern = QRegularExpression::escape(text);
-        if (wholeWords) {
-            pattern = QStringLiteral("\\b") + pattern + QStringLiteral("\\b");
-        }
-        
-        QRegularExpression rx(pattern, opts);
-        if (_ctx->pdfEditor->applyPatternRedactions(rx, QList<int>())) {
+        // §9.15: reuse the shared page-text matcher. wholeWords-only is the
+        // historical behavior for this path (FindBar never sends useRegex here).
+        const PageTextPattern pt = pageTextPattern(text, matchCase, wholeWords, /*useRegex*/ false);
+        if (!pt.rx.isValid()) return;
+        if (_ctx->pdfEditor->applyPatternRedactions(pt.rx, QList<int>())) {
             _mainWindow->statusBar()->showMessage(tr("Applied redactions to all search results for '%1'").arg(text), 5000);
             viewer->loadDocument(viewer->filePath());
         }
