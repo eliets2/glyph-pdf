@@ -48,6 +48,8 @@ public:
     // Document expiry (§9.11) — local XMP marker on IPdfDocumentIO.
     // Writes <glyph:ExpiryDate>YYYY-MM-DD</glyph:ExpiryDate> into the catalog XMP.
     bool setExpiryDate(const QString& pdfPath, const QDate& date, const QString& outputPath) override;
+    // §9.1: clickable link annotations on one page (URI + internal GoTo).
+    QList<PdfLinkInfo> extractLinks(const QString& pdfPath, int pageIndex) override;
     // Returns the embedded expiry date, or an invalid QDate if none is present.
     static QDate readExpiryDate(const QString& pdfPath);
 

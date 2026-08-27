@@ -43,7 +43,8 @@
 #include <QDesktopServices>
 #include <QUrl>
 #include <QScrollBar>
-#include "engines/podofo/PoDoFoBackend.h" // §9.1 P0: link extraction (URI + GoTo)
+// §9.1: link extraction goes through the engine seam (setLinkReader) — the UI
+// must not include a concrete backend header (D-02 rule).
 
 PdfViewerWidget::PdfViewerWidget(QWidget *parent)
     : QWidget(parent)
@@ -136,6 +137,12 @@ PdfViewerWidget::PdfViewerWidget(QWidget *parent)
 
 PdfViewerWidget::~PdfViewerWidget()
 {
+    // §9.1: sever the page-change connection BEFORE member destruction begins.
+    // The constructor's currentPageChanged lambda touches members (link cache,
+    // document) that are already gone once ~QWidget tears down children, so a
+    // page jump followed by destruction would invoke it on a half-destroyed
+    // object ("Called object is not of the correct type").
+    disconnect(m_pageNavigator, &QPdfPageNavigator::currentPageChanged, this, nullptr);
     // Flush any pending debounced save (Fix 7)
     if (m_saveDebounceTimer->isActive()) {
         m_saveDebounceTimer->stop();
@@ -147,6 +154,7 @@ bool PdfViewerWidget::loadDocument(const QString &fileName)
 {
     m_filePath = fileName;
     clearPageCache();
+    m_linksForPage = -1;   // §9.1: document changed → link cache is stale
     m_document->load(fileName);
     if (isLoaded()) loadAnnotations();
     refreshPageLinks(); // §9.1 P0: prime link cache for the opening page
@@ -232,15 +240,27 @@ void PdfViewerWidget::updateRotation()
 }
 
 // ── §9.1 P0: clickable hyperlinks (URI + internal GoTo) ────────────────────
-void PdfViewerWidget::refreshPageLinks()
+void PdfViewerWidget::setLinkReader(
+        std::function<QList<PdfLinkInfo>(const QString &path, int page)> reader)
 {
+    m_linkReader = std::move(reader);
+    m_linksForPage = -1;   // reader changed → refetch on next refresh
+    refreshPageLinks();
+}
+
+void PdfViewerWidget::refreshPageLinks(int page)
+{
+    if (page < 0)
+        page = m_pageNavigator ? m_pageNavigator->currentPage() : -1;
+    if (page >= 0 && page == m_linksForPage)
+        return;   // cache hit — links already fetched for this page
     m_pageLinks.clear();
-    if (m_filePath.isEmpty() || !isLoaded()) return;
-    const int page = m_pageNavigator ? m_pageNavigator->currentPage() : -1;
-    if (page < 0) return;
-    // PoDoFo parse of the on-disk file; cheap enough per page change and
-    // keeps the viewer decoupled from the editor engine.
-    m_pageLinks = PoDoFoBackend::extractLinks(m_filePath, page);
+    m_linksForPage = -1;
+    if (m_filePath.isEmpty() || !isLoaded() || page < 0 || !m_linkReader) return;
+    // Engine-side PoDoFo parse of the on-disk file, injected via setLinkReader
+    // so the UI layer stays free of concrete-backend includes (D-02 rule).
+    m_pageLinks = m_linkReader(m_filePath, page);
+    m_linksForPage = page;
 }
 
 bool PdfViewerWidget::isSafeLinkScheme(const QString &uri)
@@ -463,6 +483,9 @@ void PdfViewerWidget::goToPage(int page)
             emit navigationChanged(canGoBack(), canGoForward());
         }
         m_pageNavigator->jump(page, QPointF());
+        // §9.1: prime the link cache for the target page now — the navigator's
+        // currentPageChanged may be deferred, and clicks must hit fresh links.
+        refreshPageLinks(page);
     }
 }
 

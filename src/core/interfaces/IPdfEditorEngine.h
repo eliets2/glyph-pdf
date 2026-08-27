@@ -155,6 +155,11 @@ public:
     // Writes to `outputPath` (may equal pdfPath for in-place update).
     virtual bool setExpiryDate(const QString &pdfPath, const QDate &date,
                                const QString &outputPath) = 0;
+    // §9.1: clickable link annotations on one page (URI + internal GoTo).
+    // Rects are in PDF user space (bottom-left origin) for `pdfPath`'s page
+    // `pageIndex` (0-based). Reads the on-disk file, so it works whether or
+    // not the engine has this document loaded for editing.
+    virtual QList<PdfLinkInfo> extractLinks(const QString &pdfPath, int pageIndex) = 0;
 };
 
 /// Page-level structural and text edits.
