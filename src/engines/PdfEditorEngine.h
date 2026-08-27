@@ -84,6 +84,9 @@ public:
     bool applyMarkRedactions(const QList<AnnotationItem>& marks) override;
     bool applyPatternRedactions(const QRegularExpression& pattern,
                                 const QList<int>& pages = QList<int>(), const QString& outputPath = QString()) override;
+    bool applyPatternRedactionsMulti(const QStringList& patterns,
+                                     const QList<int>& pages = QList<int>(),
+                                     const QString& outputPath = QString()) override;
     bool embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations) override;
 
     // Watermarking (Session 13)
