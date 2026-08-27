@@ -27,8 +27,6 @@ private slots:
 
     // AI tab slots
     void onAiTestKey();
-    void onAiSaveKey();
-    void onAiDeleteKey();
     void refreshAiStatus();
 
 private:
@@ -45,8 +43,6 @@ private:
     // AI tab widgets
     QLineEdit*   _ollamaEndpointEdit = nullptr;
     QPushButton* _aiTestBtn       = nullptr;
-    QPushButton* _aiSaveBtn       = nullptr;
-    QPushButton* _aiDeleteBtn     = nullptr;
     QLabel*      _aiStatusLabel   = nullptr;
 };
 

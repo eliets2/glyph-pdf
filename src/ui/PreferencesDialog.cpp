@@ -471,16 +471,6 @@ void PreferencesDialog::onAiTestKey()
     watcher->setFuture(prov->chat(ping, opts));
 }
 
-void PreferencesDialog::onAiSaveKey()
-{
-    // No-op: Ollama requires no API key. Settings saved via saveSettings().
-}
-
-void PreferencesDialog::onAiDeleteKey()
-{
-    // No-op: Ollama requires no API key.
-}
-
 void PreferencesDialog::refreshAiStatus()
 {
     if (!_aiStatusLabel) return;
