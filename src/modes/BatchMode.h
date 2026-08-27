@@ -2,6 +2,7 @@
 #pragma once
 #include "core/ErrorInfo.h"
 #include "core/AppContext.h"
+#include "core/OcrTypes.h" // ocrLanguages()/ocrEngineLanguageCode (§9.12 batch OCR language)
 
 #include <QWidget>
 #include <QFutureWatcher>
@@ -128,6 +129,7 @@ private:
 
     // OCR panel
     QLineEdit*          m_ocrOutDir      = nullptr;
+    QComboBox*          m_ocrLanguage    = nullptr;   // §9.12 P0: batch OCR language
 
     // Redact panel
     QLineEdit*          m_redactPatterns = nullptr;   // comma-separated regex patterns
