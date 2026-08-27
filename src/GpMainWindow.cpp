@@ -346,6 +346,16 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
     connect(_modes->viewer(), &PdfViewerWidget::cropRequested, _pages, &PagesController::onCropRequested);
     // §9.1 P0: viewer rotate buttons drive the real engine-side page rotation.
     connect(_modes->viewer(), &PdfViewerWidget::requestPageRotation, _pages, &PagesController::onPageRotateRequested);
+    // §9.1: inject the engine's link reader so the viewer can fetch clickable
+    // link annotations (URI + GoTo) without depending on a concrete backend.
+    if (_ctx && _ctx->pdfEditor) {
+        std::weak_ptr<IPdfEditorEngine> weakEngine = _ctx->pdfEditor;
+        _modes->viewer()->setLinkReader([weakEngine](const QString &path, int page) {
+            if (auto engine = weakEngine.lock())
+                return engine->extractLinks(path, page);
+            return QList<PdfLinkInfo>();
+        });
+    }
     if (auto* thumbSidebar = _left->findChild<ThumbnailSidebar*>()) {
         connect(thumbSidebar, &ThumbnailSidebar::pageReordered, _pages, &PagesController::onPageReordered);
     }

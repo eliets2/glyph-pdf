@@ -2034,6 +2034,17 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrAcceptScope.cpp")
     set_tests_properties(TestOcrAcceptScope PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;ocr;accept;honesty;qt;headless")
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestViewerLinkSeam.cpp")
+    add_executable(TestViewerLinkSeam tests/TestViewerLinkSeam.cpp)
+    target_include_directories(TestViewerLinkSeam PRIVATE src tests)
+    target_link_libraries(TestViewerLinkSeam PRIVATE
+        pdfws_ui pdfws_engines pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+        Qt6::Pdf Qt6::PdfWidgets Qt6::Concurrent
+    )
+    add_test(NAME TestViewerLinkSeam COMMAND TestViewerLinkSeam)
+    set_tests_properties(TestViewerLinkSeam PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;viewing;links;seam;qt;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestHyperlinkNavigation.cpp")
     add_executable(TestHyperlinkNavigation tests/TestHyperlinkNavigation.cpp)
     target_include_directories(TestHyperlinkNavigation PRIVATE src tests)

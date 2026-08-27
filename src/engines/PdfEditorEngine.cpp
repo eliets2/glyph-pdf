@@ -948,6 +948,15 @@ bool PdfEditorEngine::setExpiryDate(const QString& pdfPath, const QDate& date, c
     }
 }
 
+// §9.1: clickable link annotations on one page (URI + internal GoTo).
+// Delegates to the existing PoDoFoBackend static reader; the engine owns the
+// PoDoFo dependency so UI code never includes a concrete backend.
+QList<PdfLinkInfo> PdfEditorEngine::extractLinks(const QString& pdfPath, int pageIndex)
+{
+    QMutexLocker locker(&d->mutex);
+    return PoDoFoBackend::extractLinks(pdfPath, pageIndex);
+}
+
 QDate PdfEditorEngine::readExpiryDate(const QString& pdfPath)
 {
     try {
