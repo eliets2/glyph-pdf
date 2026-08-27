@@ -1091,6 +1091,34 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestDedupSMask.cpp")
     )
 endif()
 
+# Audit 9.13 P0 regression test: the size-estimate heuristics must not claim
+# savings for passes that don't run in the write path (subsetFonts /
+# removeUnusedObjects are not implemented in optimizeDocument).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOptimizeEstimate.cpp")
+    add_executable(TestOptimizeEstimate tests/TestOptimizeEstimate.cpp)
+    target_include_directories(TestOptimizeEstimate PRIVATE src tests)
+    target_link_libraries(TestOptimizeEstimate PRIVATE
+        pdfws_engines pdfws_core
+        Qt6::Test Qt6::Widgets podofo::podofo
+    )
+    if(WIN32)
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestOptimizeEstimate POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestOptimizeEstimate>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestOptimizeEstimate"
+            )
+        endif()
+    endif()
+    add_test(NAME TestOptimizeEstimate COMMAND TestOptimizeEstimate)
+    set_tests_properties(TestOptimizeEstimate PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;compression;estimate;regression;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRapidOcr.cpp" AND (onnxruntime_FOUND OR TARGET onnxruntime OR PKG_ONNXRUNTIME_FOUND))
     add_executable(TestRapidOcr
         tests/TestRapidOcr.cpp
