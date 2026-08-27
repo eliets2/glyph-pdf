@@ -514,7 +514,31 @@ void PdfAValidationPanel::onCheckReadingOrder() {
         return;
     }
 
-    const ReadingOrderResult r = analyzeReadingOrder(m_currentDocPath);
+    // §9.14: run the analysis off the GUI thread — same QFutureWatcher pattern
+    // the sibling veraPDF validation in this file already uses. The PoDoFo
+    // parse + structure-tree walk can take seconds on large/deeply-tagged
+    // documents and used to freeze the whole UI.
+    if (!m_readingOrderWatcher) {
+        m_readingOrderWatcher = new QFutureWatcher<ReadingOrderResult>(this);
+        connect(m_readingOrderWatcher, &QFutureWatcher<ReadingOrderResult>::finished,
+                this, &PdfAValidationPanel::onReadingOrderFinished);
+    }
+    if (m_readingOrderWatcher->isRunning()) {
+        m_readingOrderWatcher->cancel();
+        m_readingOrderWatcher->waitForFinished();
+    }
+    m_readingOrderBtn->setEnabled(false);
+    m_statusLabel->setText(tr("Analyzing reading order…"));
+    const QString path = m_currentDocPath;
+    m_readingOrderWatcher->setFuture(QtConcurrent::run([path]() {
+        return analyzeReadingOrder(path);
+    }));
+}
+
+void PdfAValidationPanel::onReadingOrderFinished() {
+    if (!m_readingOrderWatcher || m_readingOrderWatcher->isCanceled()) return;
+    m_readingOrderBtn->setEnabled(true);
+    const ReadingOrderResult r = m_readingOrderWatcher->result();
 
     if (!r.tagged) {
         QMessageBox::information(this, tr("Reading Order"),

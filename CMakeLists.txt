@@ -1403,6 +1403,22 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestVeraPdf.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestReadingOrderAsync.cpp")
+    add_executable(TestReadingOrderAsync tests/TestReadingOrderAsync.cpp)
+    target_include_directories(TestReadingOrderAsync PRIVATE src tests)
+    target_link_libraries(TestReadingOrderAsync PRIVATE
+        pdfws_ui pdfws_engines pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_test(NAME TestReadingOrderAsync COMMAND TestReadingOrderAsync)
+    set_tests_properties(TestReadingOrderAsync PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;pdfa;accessibility;reading-order;async;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestLaneScheduler.cpp")
     add_executable(TestLaneScheduler tests/TestLaneScheduler.cpp)
     target_include_directories(TestLaneScheduler PRIVATE src tests)

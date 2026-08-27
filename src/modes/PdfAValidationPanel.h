@@ -41,6 +41,12 @@ private:
     // AR-7 D2: slot called on GUI thread when the off-thread validation finishes.
     void onValidationFinished();
 
+    // §9.14: slot called on GUI thread when the off-thread reading-order
+    // analysis finishes (same async pattern as the veraPDF validation above —
+    // analyzeReadingOrder parses and walks the whole structure tree, which can
+    // freeze the UI on large/deeply-tagged documents).
+    void onReadingOrderFinished();
+
     QString m_currentDocPath;
     PdfAConformance m_currentConformance{PdfAConformance::PDF_A_2B};
 
@@ -58,6 +64,8 @@ private:
 
     // AR-7 D2: off-thread veraPDF worker.
     QFutureWatcher<PdfAValidationReport>* m_validationWatcher{nullptr};
+    // §9.14: off-thread reading-order worker.
+    QFutureWatcher<ReadingOrderResult>* m_readingOrderWatcher{nullptr};
 };
 
 } // namespace gp
