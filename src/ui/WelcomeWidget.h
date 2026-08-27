@@ -13,8 +13,6 @@ public:
 signals:
     void openFileRequested();
     void mergeFilesRequested();
-    // Keep full signal set for existing MainWindow wiring
-    void mergeRequested();
     void convertRequested();
     void protectRequested();
     void importOfficeRequested();

@@ -46,7 +46,6 @@ private:
     void buildUi(const ErrorInfo& info);
     void onExportLog(const ErrorInfo& info);
 
-    QLabel*      m_icon        = nullptr;
     QLabel*      m_message     = nullptr;
     QTextEdit*   m_details     = nullptr;
     QPushButton* m_toggleBtn   = nullptr;

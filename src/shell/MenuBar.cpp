@@ -406,15 +406,15 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
     addActionToMenu(windowMenu, tr("&Tile Windows"), "tile");
     windowMenu->addSeparator();
 
-    // Dynamic Active Document display
+    // Dynamic Active Document display — informational label only (never
+    // clickable, so no need for setCheckable/setChecked which would only
+    // render a stale checkbox next to a disabled entry).
     auto* viewer = mainWindow->pdfViewer();
     QString docName = (viewer && !viewer->filePath().isEmpty())
                       ? QFileInfo(viewer->filePath()).fileName()
                       : tr("[No Active Document]");
     auto* activeDocAct = windowMenu->addAction(docName);
     activeDocAct->setEnabled(false);
-    activeDocAct->setCheckable(true);
-    activeDocAct->setChecked(viewer && !viewer->filePath().isEmpty());
 
     // ==========================================
     // 9. HELP MENU
