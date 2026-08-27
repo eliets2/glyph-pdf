@@ -16,7 +16,6 @@
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QStackedWidget>
-#include <QTreeView>
 #include <QListWidget>
 #include <QVBoxLayout>
 #include <QPdfBookmarkModel>

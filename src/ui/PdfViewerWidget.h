@@ -39,8 +39,6 @@ public:
     // tool modes, allowing only viewing and text selection.
     void setReadOnly(bool readOnly);
     bool isReadOnly() const { return m_readOnly; }
-    void setAnnotationColor(const QColor &color);
-    void setAnnotationThickness(int thickness);
     void saveAnnotations();
     void loadAnnotations();
     void setAnnotations(const QList<AnnotationItem> &items);
@@ -140,7 +138,6 @@ private:
     bool m_readOnly = false;
     QString m_filePath;
     int m_rotation;
-    QImage m_overlayImage;
 
     // Crop selection
     QRubberBand *m_rubberBand = nullptr;
