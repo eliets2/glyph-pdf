@@ -3643,12 +3643,22 @@ OptimizeEstimate PoDoFoBackend::estimateOptimization(const OptimizeOptions &opti
         }
 
         if (options.subsetFonts && est.fontCount > 0) {
-            // Conservative: ~20% savings from font subsetting
-            savings += est.fontCount * 15000;
+            // §9.13 P0: font subsetting does NOT run in the write path
+            // (optimizeDocument) yet — only downsample, dedup and metadata
+            // stripping are implemented. Claiming savings here would overstate
+            // the estimate on every real PDF, so it is zeroed out until the
+            // pass actually runs. // upgrade path: re-enable when subsetFonts
+            // lands in optimizeDocument.
+            // savings += est.fontCount * 15000;
         }
 
         if (options.removeUnusedObjects) {
-            savings += est.originalBytes / 20; // ~5% from dead objects
+            // §9.13 P0: unused-object removal does NOT run in the write path
+            // (optimizeDocument) yet — PoDoFo's save-time GC may drop
+            // unreferenced objects, but the estimate must not claim a fixed 5%
+            // that the write path does not guarantee. Zeroed out until the pass
+            // actually runs. (0 = no contribution)
+            // savings += est.originalBytes / 20; // ~5% from dead objects
         }
 
         est.estimatedBytes = qMax(est.originalBytes - savings, est.originalBytes / 10);
