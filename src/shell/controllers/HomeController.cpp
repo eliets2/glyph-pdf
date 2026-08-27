@@ -517,6 +517,7 @@ void HomeController::onExportPresets() {
     // §9.16 P0: actually execute the chosen preset instead of emitting into
     // the void. Linearized → qpdf-backed linearizeDocument; PDF/A →
     // exportPdfA; both operate on a Save-As copy of the open document.
+    // planForExport() (pure, unit-tested) maps the preset onto the steps.
     connect(&panel, &ExportPresetsPanel::presetSelected, this,
             [this](const ExportPresetsPanel::Preset& p) {
         auto* viewer = _mainWindow->pdfViewer();
@@ -539,14 +540,13 @@ void HomeController::onExportPresets() {
         }
         // Reload the exported copy so engine operations target it.
         _ctx->pdfEditor->loadDocumentForEditing(outPath);
+        const ExportPlan plan = planForExport(p);
         QStringList applied;
-        if (p.linearized && _ctx->pdfEditor->linearizeDocument(outPath))
+        if (plan.linearize && _ctx->pdfEditor->linearizeDocument(outPath))
             applied << tr("linearized");
-        if (p.pdfA) {
-            int level = 2; // 2b default; 3b when the preset says so.
-            if (p.pdfALevel.startsWith(QLatin1Char('3'))) level = 3;
-            if (_ctx->pdfEditor->exportPdfA(outPath, level))
-                applied << QStringLiteral("PDF/A-%1b").arg(level);
+        if (plan.pdfALevel > 0) {
+            if (_ctx->pdfEditor->exportPdfA(outPath, plan.pdfALevel))
+                applied << QStringLiteral("PDF/A-%1b").arg(plan.pdfALevel);
         }
         if (applied.isEmpty())
             applied << tr("plain copy (no post-processing options enabled)");
@@ -555,6 +555,20 @@ void HomeController::onExportPresets() {
                 .arg(p.name, outPath, applied.join(tr(", "))), 8000);
     });
     panel.exec();
+}
+
+// §9.16: single source of truth for preset → post-processing mapping.
+// "2b"/"3b" style levels map to the engine's conformance-level int; anything
+// else (including an empty level) falls back to 2b, matching the previous
+// inline default.
+HomeController::ExportPlan
+HomeController::planForExport(const ExportPresetsPanel::Preset& p) {
+    ExportPlan plan;
+    plan.linearize = p.linearized;
+    if (p.pdfA) {
+        plan.pdfALevel = p.pdfALevel.startsWith(QLatin1Char('3')) ? 3 : 2;
+    }
+    return plan;
 }
 
 // ── Recent files ────────────────────────────────────────────────────────
