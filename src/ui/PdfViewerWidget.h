@@ -133,7 +133,6 @@ private:
     bool m_readOnly = false;
     QString m_filePath;
     int m_rotation;
-    QImage m_overlayImage;
 
     // Crop selection
     QRubberBand *m_rubberBand = nullptr;
