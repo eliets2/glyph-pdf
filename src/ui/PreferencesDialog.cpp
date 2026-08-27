@@ -278,12 +278,12 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
     auto* aiForm = new QFormLayout(aiGroup);
 
     // Ollama endpoint
-    _aiKeyEdit = new QLineEdit;
-    _aiKeyEdit->setPlaceholderText(tr("http://localhost:11434"));
-    _aiKeyEdit->setAccessibleName(tr("Ollama endpoint URL"));
-    _aiKeyEdit->setText(QSettings().value("ai/ollamaEndpoint",
-                                          QStringLiteral("http://localhost:11434")).toString());
-    aiForm->addRow(tr("Ollama endpoint:"), _aiKeyEdit);
+    _ollamaEndpointEdit = new QLineEdit;
+    _ollamaEndpointEdit->setPlaceholderText(tr("http://localhost:11434"));
+    _ollamaEndpointEdit->setAccessibleName(tr("Ollama endpoint URL"));
+    _ollamaEndpointEdit->setText(QSettings().value(QStringLiteral("ai/ollamaEndpoint"),
+                                                    QStringLiteral("http://localhost:11434")).toString());
+    aiForm->addRow(tr("Ollama endpoint:"), _ollamaEndpointEdit);
 
     // Ollama model
     auto* ollamaModelEdit = new QLineEdit;
@@ -378,8 +378,8 @@ void PreferencesDialog::saveSettings()
     }
 
     // D3: AI — Ollama endpoint and model
-    if (_aiKeyEdit) {
-        const QString endpoint = _aiKeyEdit->text().trimmed();
+    if (_ollamaEndpointEdit) {
+        const QString endpoint = _ollamaEndpointEdit->text().trimmed();
         if (!endpoint.isEmpty())
             settings.setValue("ai/ollamaEndpoint", endpoint);
     }
@@ -442,7 +442,7 @@ void PreferencesDialog::onUpdateResult(const QString& msg)
 
 void PreferencesDialog::onAiTestKey()
 {
-    const QString endpoint = _aiKeyEdit ? _aiKeyEdit->text().trimmed()
+    const QString endpoint = _ollamaEndpointEdit ? _ollamaEndpointEdit->text().trimmed()
                                         : QStringLiteral("http://localhost:11434");
     const QString model    = QSettings().value("ai/ollamaModel",
                                                QStringLiteral("llama3")).toString();
@@ -469,16 +469,6 @@ void PreferencesDialog::onAiTestKey()
         }
     });
     watcher->setFuture(prov->chat(ping, opts));
-}
-
-void PreferencesDialog::onAiSaveKey()
-{
-    // No-op: Ollama requires no API key. Settings saved via saveSettings().
-}
-
-void PreferencesDialog::onAiDeleteKey()
-{
-    // No-op: Ollama requires no API key.
 }
 
 void PreferencesDialog::refreshAiStatus()

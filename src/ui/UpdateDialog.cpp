@@ -15,7 +15,7 @@ namespace gp {
 UpdateDialog::UpdateDialog(UpdateChecker* checker,
                            const UpdateChecker::UpdateInfo& info,
                            QWidget* parent)
-    : QDialog(parent), m_checker(checker), m_info(info)
+    : QDialog(parent), m_checker(checker)
 {
     setWindowTitle(tr("Software Update"));
     setModal(true);

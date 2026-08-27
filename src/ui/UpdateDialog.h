@@ -22,7 +22,6 @@ public:
 
 private:
     UpdateChecker*              m_checker;
-    UpdateChecker::UpdateInfo   m_info;
     QLabel*       m_status     = nullptr;
     QProgressBar* m_progress   = nullptr;
     QPushButton*  m_primaryBtn = nullptr;   // Download → Install & Restart

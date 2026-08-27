@@ -14,7 +14,6 @@
 
 #include <algorithm>
 #include <iterator>
-#include <utility>
 
 namespace gp {
 
