@@ -218,6 +218,45 @@ private slots:
         QVERIFY(bm.errorLogCount() > 0);
     }
 
+    // ── T5b: Editor ops use a per-file engine (true parallelism) ─────────────
+    // §9.12 P0: Compress/Watermark/ExportPdfA/Redact must each get a FRESH
+    // per-file PdfEditorEngine instead of sharing one stateful engine behind a
+    // single mutex (which secretly serialized 5 of 7 "parallel" ops). This test
+    // drives the Compress op through the real engine and verifies the output
+    // file is produced.
+    void testCompressOpProducesOutput() {
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+
+        const QString src = createMinimalPdf(tmp.path(), "compress_src.pdf");
+        QVERIFY(QFile::exists(src));
+
+        // Real engine (not the mock) — the per-file engine path constructs a
+        // PdfEditorEngine internally, so the AppContext engine is unused here.
+        auto* editor = new MockPdfEditorEngine;
+        AppContext ctx;
+        ctx.pdfEditor = std::shared_ptr<IPdfEditorEngine>(editor, [](auto*){});
+
+        gp::BatchMode bm;
+        bm.setAppContext(&ctx);
+        bm.addFilesForTest({src});
+        bm.setOperationForTest(1); // OpCompress
+
+        bm.onRunBatch();
+        int waited = 0;
+        while (bm.isBatchRunning() && waited < 5000) {
+            QTest::qWait(50);
+            waited += 50;
+        }
+        QVERIFY2(!bm.isBatchRunning(), "Batch did not complete within 5 seconds");
+
+        QCOMPARE(bm.successCount(), 1);
+        QCOMPARE(bm.failCount(), 0);
+        // The per-file engine wrote a _compressed.pdf next to the source.
+        QVERIFY2(QFile::exists(tmp.path() + "/compress_src_compressed.pdf"),
+                 "Compress op must produce the output file via the per-file engine");
+    }
+
     // ── T5: Cancel — batch stops before all files processed ──────────────────
     // Start batch with 6 files using a slow mock, cancel, verify not all completed.
     void testCancelBatch() {

@@ -5,6 +5,7 @@
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "core/interfaces/IConversionEngine.h"
 #include "core/interfaces/IOcrEngine.h"
+#include "engines/PdfEditorEngine.h"
 #include "engines/ocr/OcrPipeline.h"
 #include "engines/podofo/PdfPageOps.h"
 
@@ -43,6 +44,10 @@ using TargetFormat = IConversionEngine::TargetFormat;
 namespace gp {
 
 // ── Constructor ───────────────────────────────────────────────────────────────
+
+void BatchMode::setOperationForTest(int index) {
+    if (m_opCombo) m_opCombo->setCurrentIndex(index);
+}
 
 BatchMode::BatchMode(QWidget* parent) : QWidget(parent) {
     setAcceptDrops(true);
@@ -964,15 +969,58 @@ void BatchMode::onRunClicked() {
             } else {
                 techDetail = QStringLiteral("IConversionEngine not available");
             }
-        } else {
-            // Editor operations: serialize via mutex (engine is a stateful load/save machine)
+        } else if (capturedOp == OpOCR) {
+            // OCR uses the SHARED engine (OcrEngine + OcrPipeline are not
+            // thread-safe), so it stays serialized behind the engine mutex.
             QMutexLocker locker(engineMutexPtr);
-            if (!capturedCtx || !capturedCtx->pdfEditor) {
-                result.errorMessage = QStringLiteral("PDF editor engine not available");
-                return result;
-            }
-            auto& editor = *capturedCtx->pdfEditor;
+            if (!capturedCtx || !capturedCtx->ocr) {
+                techDetail = QStringLiteral("OCR engine not available");
+                ok = false;
+            } else {
+                QPdfDocument pdf;
+                pdf.load(inputPath);
+                if (pdf.status() != QPdfDocument::Status::Ready || pdf.pageCount() <= 0) {
+                    techDetail = QStringLiteral("Failed to open PDF for rendering: %1").arg(inputPath);
+                    ok = false;
+                } else {
+                    capturedCtx->ocr->initialize(QStringLiteral("eng"));
+                    OcrPipeline pipeline(capturedCtx->ocr);
+                    pipeline.setStrategy(OcrStrategy::PrimaryOnly);
 
+                    QList<QImage> images;
+                    QList<PageOcrResult> pageResults;
+                    const double dpi = 150.0;
+                    for (int p = 0; p < pdf.pageCount(); ++p) {
+                        const QSizeF pts = pdf.pagePointSize(p);
+                        const QSize px(qMax(1, int(pts.width()  * dpi / 72.0)),
+                                       qMax(1, int(pts.height() * dpi / 72.0)));
+                        const QImage img = pdf.render(p, px);
+                        images.append(img);
+
+                        PageOcrResult pr;
+                        pr.pageIndex = p;
+                        pr.words     = img.isNull() ? QList<MergedOcrWord>() : pipeline.run(img);
+                        pr.success   = true;
+                        pageResults.append(pr);
+                    }
+                    if (!capturedCtx->pdfEditor) {
+                        techDetail = QStringLiteral("PDF editor engine not available");
+                        ok = false;
+                    } else {
+                        ok = capturedCtx->pdfEditor->exportMrcPdfA(result.outputPath, images, pageResults);
+                        if (!ok) techDetail = capturedCtx->pdfEditor->lastError().technicalDetails;
+                    }
+                }
+            }
+        } else {
+            // §9.12 P0: editor ops (Compress/Watermark/ExportPdfA/Redact) each
+            // get a FRESH per-file PdfEditorEngine so they run in TRUE parallel
+            // across the QtConcurrent pool. Previously all 5 non-Convert ops
+            // shared one stateful engine behind a single mutex, so 5 of 7
+            // "parallel" operations were secretly serialized. The engine is a
+            // self-contained load/save machine — no shared state — so no mutex
+            // is needed here.
+            PdfEditorEngine editor;
             if (capturedOp == OpCompress) {
                 if (!editor.loadDocumentForEditing(inputPath)) {
                     techDetail = editor.lastError().technicalDetails;
@@ -1019,43 +1067,8 @@ void BatchMode::onRunClicked() {
                                                             result.outputPath);
                     if (!ok) techDetail = editor.lastError().technicalDetails;
                 }
-            } else if (capturedOp == OpOCR) {
-                // Render each page, OCR it, then assemble a searchable MRC PDF/A
-                // (image background + invisible text layer from the OCR words).
-                if (!capturedCtx->ocr) {
-                    techDetail = QStringLiteral("OCR engine not available");
-                    ok = false;
-                } else {
-                    QPdfDocument pdf;
-                    pdf.load(inputPath);
-                    if (pdf.status() != QPdfDocument::Status::Ready || pdf.pageCount() <= 0) {
-                        techDetail = QStringLiteral("Failed to open PDF for rendering: %1").arg(inputPath);
-                        ok = false;
-                    } else {
-                        capturedCtx->ocr->initialize(QStringLiteral("eng"));
-                        OcrPipeline pipeline(capturedCtx->ocr);
-                        pipeline.setStrategy(OcrStrategy::PrimaryOnly);
-
-                        QList<QImage> images;
-                        QList<PageOcrResult> pageResults;
-                        const double dpi = 150.0;
-                        for (int p = 0; p < pdf.pageCount(); ++p) {
-                            const QSizeF pts = pdf.pagePointSize(p);
-                            const QSize px(qMax(1, int(pts.width()  * dpi / 72.0)),
-                                           qMax(1, int(pts.height() * dpi / 72.0)));
-                            const QImage img = pdf.render(p, px);
-                            images.append(img);
-
-                            PageOcrResult pr;
-                            pr.pageIndex = p;
-                            pr.words     = img.isNull() ? QList<MergedOcrWord>() : pipeline.run(img);
-                            pr.success   = true;
-                            pageResults.append(pr);
-                        }
-                        ok = editor.exportMrcPdfA(result.outputPath, images, pageResults);
-                        if (!ok) techDetail = editor.lastError().technicalDetails;
-                    }
-                }
+            } else {
+                techDetail = QStringLiteral("Unsupported editor operation");
             }
         }
 
