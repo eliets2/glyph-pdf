@@ -1063,6 +1063,34 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRedaction.cpp")
     )
 endif()
 
+# Audit 9.13 P0 regression test (DEFECT 3, commit 6c41e12): the duplicate-image
+# dedup hash folds in image-dict params. Two images with identical stream bytes
+# but different /SMask must NOT be merged.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestDedupSMask.cpp")
+    add_executable(TestDedupSMask tests/TestDedupSMask.cpp)
+    target_include_directories(TestDedupSMask PRIVATE src tests)
+    target_link_libraries(TestDedupSMask PRIVATE
+        pdfws_engines pdfws_core
+        Qt6::Test Qt6::Widgets podofo::podofo
+    )
+    if(WIN32)
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestDedupSMask POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestDedupSMask>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestDedupSMask"
+            )
+        endif()
+    endif()
+    add_test(NAME TestDedupSMask COMMAND TestDedupSMask)
+    set_tests_properties(TestDedupSMask PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;compression;dedup;regression;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRapidOcr.cpp" AND (onnxruntime_FOUND OR TARGET onnxruntime OR PKG_ONNXRUNTIME_FOUND))
     add_executable(TestRapidOcr
         tests/TestRapidOcr.cpp
