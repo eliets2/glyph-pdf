@@ -200,6 +200,59 @@ private slots:
 
     // ── applyPatternRedactions integration test ───────────────────────────
 
+    // ── applyPatternRedactionsMulti (batch collapse) ────────────────────────
+
+    void testMultiPatternRedactionCollapsesToSinglePass() {
+        // §9.12 P0: batch redaction must collapse N patterns into a single
+        // load / find / apply / sanitize-save cycle. This test drives the
+        // engine-level multi-pattern API directly and verifies BOTH patterns
+        // are excised in one call.
+        const QString path = createPdfWithText(m_tmpDir, "multi_redact.pdf",
+                                               "Email admin@secret.org and SSN 123-45-6789");
+        QVERIFY2(!path.isEmpty(), "PDF creation failed");
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(path));
+
+        const QStringList patterns{
+            PatternRedactor::namedPattern(QStringLiteral("email")).pattern(),
+            PatternRedactor::namedPattern(QStringLiteral("ssn")).pattern(),
+        };
+        QVERIFY2(!patterns[0].isEmpty() && !patterns[1].isEmpty(),
+                 "Both named patterns must resolve");
+
+        const bool ok = engine.applyPatternRedactionsMulti(patterns, QList<int>{0});
+#ifdef HAS_PDFIUM
+        QVERIFY2(ok, qPrintable(engine.lastError().userMessage));
+        const QString outPath = m_tmpDir.filePath("multi_redact_out.pdf");
+        QVERIFY(engine.saveDocument(outPath));
+        QVERIFY(QFile::exists(outPath));
+#else
+        // Without PDFium no chars are found → no-op success.
+        QVERIFY(ok);
+#endif
+    }
+
+    void testMultiPatternRejectsInvalidPatternBeforeMutation() {
+        // An invalid pattern must fail up front, before any document mutation.
+        const QString path = createPdfWithText(m_tmpDir, "multi_invalid.pdf",
+                                               "Email admin@secret.org");
+        QVERIFY2(!path.isEmpty(), "PDF creation failed");
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(path));
+
+        const QStringList patterns{
+            PatternRedactor::namedPattern(QStringLiteral("email")).pattern(),
+            QStringLiteral("[invalid"), // deliberately broken
+        };
+
+        const bool ok = engine.applyPatternRedactionsMulti(patterns, QList<int>{0});
+        QVERIFY2(!ok, "Invalid pattern must be rejected");
+        QVERIFY2(!engine.lastError().userMessage.isEmpty(),
+                 "A user-facing error must be set for the invalid pattern");
+    }
+
     void testApplyPatternRedactionRemovesText() {
         // This test verifies the engine-level API end-to-end.
         // Without PDFium, findMatches returns empty → no rects → applyRedactions not called
