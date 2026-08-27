@@ -361,16 +361,6 @@ bool PdfViewerWidget::isFormBuilderMode(ToolMode mode) {
     }
 }
 
-void PdfViewerWidget::setAnnotationColor(const QColor &color)
-{
-    m_annotationLayer->setColor(color);
-}
-
-void PdfViewerWidget::setAnnotationThickness(int thickness)
-{
-    m_annotationLayer->setThickness(thickness);
-}
-
 void PdfViewerWidget::deleteSelectedAnnotation()
 {
     m_annotationLayer->deleteSelected();
