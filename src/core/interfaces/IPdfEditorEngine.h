@@ -8,6 +8,7 @@
 #include <QRectF>
 #include <QPointF>
 #include <QColor>
+#include <QDate>
 #include <QRegularExpression>
 
 // Forward declarations to avoid circular includes
@@ -149,6 +150,11 @@ public:
     // Must be called instead of saveDocument() whenever the loaded document
     // has PDF signatures (see ISignatureAware::hasPdfSignatures()).
     virtual bool writeUpdate(const QString &outputPath) = 0;
+    // §9.11: write a local XMP expiry marker (<glyph:ExpiryDate> into the
+    // catalog /Metadata stream). After `date` the document opens read-only.
+    // Writes to `outputPath` (may equal pdfPath for in-place update).
+    virtual bool setExpiryDate(const QString &pdfPath, const QDate &date,
+                               const QString &outputPath) = 0;
 };
 
 /// Page-level structural and text edits.

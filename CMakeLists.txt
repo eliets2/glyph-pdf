@@ -824,6 +824,27 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPdfEditorInterface.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestExpiryInterface.cpp")
+    add_executable(TestExpiryInterface tests/TestExpiryInterface.cpp)
+    target_include_directories(TestExpiryInterface PRIVATE src tests)
+    target_link_libraries(TestExpiryInterface PRIVATE
+        pdfws_engines pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET TestExpiryInterface POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PODOFO_VENDOR_DLL}"
+            "$<TARGET_FILE_DIR:TestExpiryInterface>/libpodofo.dll"
+        COMMENT "Deploying podofo 1.1.0 DLL for TestExpiryInterface"
+    )
+    add_test(NAME TestExpiryInterface COMMAND TestExpiryInterface)
+    set_tests_properties(TestExpiryInterface PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;interfaces;security;expiry;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/smoke_test.cpp")
     add_executable(SmokeTest
         tests/smoke_test.cpp
