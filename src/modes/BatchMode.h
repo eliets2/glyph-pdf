@@ -3,6 +3,9 @@
 #include "core/ErrorInfo.h"
 #include "core/AppContext.h"
 #include "core/OcrTypes.h" // ocrLanguages()/ocrEngineLanguageCode (§9.12 batch OCR language)
+#include "engines/ocr/OcrPipeline.h" // PageOcrResult (§9.12 low-confidence seam)
+                                     // Safe here: BatchMode.h already requires
+                                     // Qt6::Concurrent (QFutureWatcher member).
 
 #include <QWidget>
 #include <QFutureWatcher>
@@ -38,6 +41,10 @@ struct BatchFileResult {
     bool    success = false;
     QString errorMessage;
     QString techDetail;
+    // §9.12 P0: non-fatal review note (e.g. low-confidence OCR words). The file
+    // succeeded, but the output needs human review; surfaced as a warning in
+    // the batch log + error log instead of being silently dropped.
+    QString reviewNote;
 };
 
 class BatchMode : public QWidget {
@@ -61,6 +68,13 @@ public:
 
     // Test seam: select the batch operation by index (matches m_opCombo order).
     void setOperationForTest(int index);
+
+    // §9.12 P0 test seam: build the review note for a batch OCR result.
+    // Returns an empty string when every word is at or above the confidence
+    // threshold; otherwise "N low-confidence word(s) on page(s) … need review".
+    // Pure function so the flagging rule is testable without running OCR.
+    static QString lowConfidenceNote(const QList<PageOcrResult>& pages,
+                                     int confidenceThreshold = 60);
 
 signals:
     // Emitted from onBatchFinished so tests can spy on completion.
