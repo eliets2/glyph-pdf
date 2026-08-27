@@ -39,8 +39,6 @@ public:
     // tool modes, allowing only viewing and text selection.
     void setReadOnly(bool readOnly);
     bool isReadOnly() const { return m_readOnly; }
-    void setAnnotationColor(const QColor &color);
-    void setAnnotationThickness(int thickness);
     void saveAnnotations();
     void loadAnnotations();
     void setAnnotations(const QList<AnnotationItem> &items);
