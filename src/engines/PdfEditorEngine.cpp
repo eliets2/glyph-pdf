@@ -243,6 +243,19 @@ bool PdfEditorEngine::deleteObjectAt(int pageIndex, const QPointF &pos)
     QMutexLocker locker(&d->mutex);
     d->clearErr();
     if (!d->backend) return d->noBackend("deleteObjectAt");
+    // ER-2: The eraser path routes through backend deleteObjectAt -> applyRedactions ->
+    // writeUpdate, an INCREMENTAL PoDoFo save. On a signed document that leaves the excised
+    // bytes recoverable in revision 1. Refuse at the engine level as a hard guard, exactly
+    // like applyRedactions/applyMarkRedactions — the caller must route the user to save an
+    // unsigned copy first.
+    if (d->backend->hasPdfSignatures()) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Cannot erase content from a signed document: "
+                              "incremental save would leave original content recoverable "
+                              "from PDF revision history. Save an unsigned copy first."),
+                  QStringLiteral("deleteObjectAt blocked: document has signatures"));
+        return false;
+    }
     bool ok = d->backend->deleteObjectAt(pageIndex, pos);
     if (!ok) {
         d->setErr(ErrorInfo::Error,

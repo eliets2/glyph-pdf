@@ -990,6 +990,42 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignatureRealCrypto.cpp")
     )
 endif()
 
+# Audit 9.2 P0 (ER-2): the eraser must not bypass the signed-document guard.
+# deleteObjectAt on a signed document must be refused (incremental save would
+# leak excised bytes into revision 1). Uses the real signing fixtures.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEraseSignedGuard.cpp")
+    add_executable(TestEraseSignedGuard tests/TestEraseSignedGuard.cpp)
+    target_include_directories(TestEraseSignedGuard PRIVATE src tests)
+    target_compile_definitions(TestEraseSignedGuard PRIVATE
+        SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    )
+    if(GLYPHPDF_ENABLE_TEST_FIXTURES)
+        target_compile_definitions(TestEraseSignedGuard PRIVATE GLYPH_TESTING=1)
+    endif()
+    target_link_libraries(TestEraseSignedGuard PRIVATE
+        pdfws_engines pdfws_core
+        OpenSSL::SSL OpenSSL::Crypto
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets podofo::podofo
+    )
+    if(WIN32)
+        target_link_libraries(TestEraseSignedGuard PRIVATE Crypt32)
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestEraseSignedGuard POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestEraseSignedGuard>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestEraseSignedGuard"
+            )
+        endif()
+    endif()
+    add_test(NAME TestEraseSignedGuard COMMAND TestEraseSignedGuard)
+    set_tests_properties(TestEraseSignedGuard PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "integration;security;signatures;erase;qt;headless"
+    )
+endif()
+
 # R2-1 CHAIN-1 closure tests (D3)
 # Tests only ProvenanceGuard logic — no pdfws_engines, no OpenSSL, no podofo.
 # This keeps TestChain1 runnable in all environments without DLL-path issues.
