@@ -207,6 +207,13 @@ public:
     // is interpreted per the implementation's documented contract.
     virtual bool applyPatternRedactions(const QRegularExpression& pattern,
                                         const QList<int>& pages = QList<int>(), const QString& outputPath = QString()) = 0;
+    // Multi-pattern variant for batch redaction: applies ALL patterns in a single
+    // load / find / apply / sanitize-save cycle instead of N full document
+    // reloads+saves (one per pattern). Each pattern still needs its own regex
+    // scan, but the document is parsed, mutated, and written exactly once.
+    virtual bool applyPatternRedactionsMulti(const QStringList& patterns,
+                                             const QList<int>& pages = QList<int>(),
+                                             const QString& outputPath = QString()) = 0;
 };
 
 /// Encryption / decryption (password + certificate).

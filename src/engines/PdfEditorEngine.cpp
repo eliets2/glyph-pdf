@@ -1409,6 +1409,111 @@ bool PdfEditorEngine::applyPatternRedactions(const QRegularExpression& pattern,
     return true;
 }
 
+bool PdfEditorEngine::applyPatternRedactionsMulti(const QStringList& patterns,
+                                                  const QList<int>& pages,
+                                                  const QString& outputPath)
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("applyPatternRedactionsMulti");
+
+    // Validate every pattern up front so a bad one fails before any mutation.
+    QList<QRegularExpression> compiled;
+    compiled.reserve(patterns.size());
+    for (const QString& patStr : patterns) {
+        const QString trimmed = patStr.trimmed();
+        if (trimmed.isEmpty()) continue;
+        QRegularExpression re(trimmed);
+        if (!re.isValid()) {
+            d->setErr(ErrorInfo::Error,
+                      QObject::tr("The pattern regular expression is invalid: %1").arg(trimmed),
+                      re.errorString());
+            return false;
+        }
+        compiled.append(re);
+    }
+    if (compiled.isEmpty()) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("No valid redaction patterns were provided."),
+                  QStringLiteral("applyPatternRedactionsMulti: no valid patterns"));
+        return false;
+    }
+
+    const QString pdfPath = d->backend->currentFile();
+    if (pdfPath.isEmpty()) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("No document is loaded."),
+                  QStringLiteral("applyPatternRedactionsMulti: currentFile() is empty"));
+        return false;
+    }
+
+    const int totalPages = static_cast<int>(d->backend->pageCount());
+    QList<int> targetPages = pages;
+    if (targetPages.isEmpty()) {
+        for (int i = 0; i < totalPages; ++i) targetPages.append(i);
+    }
+    QList<int> validPages;
+    validPages.reserve(targetPages.size());
+    for (int pg : targetPages) {
+        if (pg >= 0 && pg < totalPages) validPages.append(pg);
+    }
+
+    // Accumulate matches for ALL patterns into per-page rect lists, then apply
+    // them in ONE pass over the in-memory document. This collapses the former
+    // N_patterns × (load + find + apply + sanitize-save + reload) into a single
+    // load / find / apply / save cycle per file.
+    QHash<int, QList<QRectF>> matchesByPage;
+    for (const QRegularExpression& re : compiled) {
+        const QHash<int, QList<QRectF>> found =
+            PatternRedactor::findMatches(pdfPath, validPages, re);
+        for (auto it = found.constBegin(); it != found.constEnd(); ++it) {
+            matchesByPage[it.key()].append(it.value());
+        }
+    }
+
+    bool anySuccess = false;
+    bool anyFailure = false;
+    for (int pg : validPages) {
+        const auto it = matchesByPage.constFind(pg);
+        if (it == matchesByPage.constEnd() || it->isEmpty()) continue;
+        const bool ok = d->backend->applyRedactions(pg, *it);
+        if (ok) anySuccess = true;
+        else {
+            anyFailure = true;
+            qWarning() << "PatternRedactor: applyRedactions failed on page" << pg;
+        }
+    }
+
+    if (anyFailure) {
+        d->setErr(ErrorInfo::Warning,
+                  QObject::tr("Pattern redaction partially failed on one or more pages."),
+                  QStringLiteral("applyPatternRedactionsMulti: patterns=%1 pages count=%2")
+                      .arg(patterns.size()).arg(targetPages.size()));
+        d->backend->loadDocument(pdfPath);
+        return false;
+    }
+
+    if (!anySuccess) return true; // No matches found
+
+    QString outPath = outputPath;
+    if (outPath.isEmpty()) {
+        QFileInfo fi(pdfPath);
+        outPath = fi.absolutePath() + "/" + fi.completeBaseName() + "_redacted." + fi.suffix();
+    }
+
+    bool saved = d->backend->sanitizeDocument(outPath);
+    if (!saved) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to save sanitized redacted document."),
+                  QStringLiteral("applyPatternRedactionsMulti: sanitizeDocument failed on %1").arg(outPath));
+        d->backend->loadDocument(pdfPath);
+        return false;
+    }
+
+    d->backend->loadDocument(outPath);
+    return true;
+}
+
 bool PdfEditorEngine::embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations)
 {
     QMutexLocker locker(&d->mutex);

@@ -1010,22 +1010,14 @@ void BatchMode::onRunClicked() {
                     techDetail = editor.lastError().technicalDetails;
                     ok = false;
                 } else {
-                    ok = true;
-                    for (const QString& patStr : capturedRedactPatterns) {
-                        QRegularExpression re(patStr.trimmed());
-                        if (!re.isValid()) {
-                            techDetail = QStringLiteral("Invalid regex pattern: %1").arg(patStr.trimmed());
-                            ok = false;
-                            break;
-                        }
-                        // startPage = endPage = -1 → redact all pages.
-                        if (!editor.applyPatternRedactions(re, QList<int>(), result.outputPath)) {
-                            techDetail = editor.lastError().technicalDetails;
-                            ok = false;
-                            break;
-                        }
-                    }
-                    // applyPatternRedactions already saves via sanitizeDocument
+                    // §9.12 P0: collapse N patterns into a single load / find /
+                    // apply / sanitize-save cycle per file (previously N full
+                    // document reloads+saves). Invalid patterns are rejected
+                    // up front by the engine before any mutation.
+                    ok = editor.applyPatternRedactionsMulti(capturedRedactPatterns,
+                                                            QList<int>(),
+                                                            result.outputPath);
+                    if (!ok) techDetail = editor.lastError().technicalDetails;
                 }
             } else if (capturedOp == OpOCR) {
                 // Render each page, OCR it, then assemble a searchable MRC PDF/A

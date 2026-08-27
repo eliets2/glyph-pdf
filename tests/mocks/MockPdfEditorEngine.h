@@ -64,6 +64,7 @@ public:
         return m_loaded;
     }
     bool applyPatternRedactions(const QRegularExpression&, const QList<int>&, const QString&) override { return m_loaded; }
+    bool applyPatternRedactionsMulti(const QStringList&, const QList<int>&, const QString&) override { return m_loaded; }
     bool embedAnnotations(const QString &, const QString &, const QList<AnnotationItem> &) override { return m_loaded; }
 
     // Page geometry & content injection
