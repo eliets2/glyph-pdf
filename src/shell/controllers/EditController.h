@@ -5,6 +5,7 @@
 #include <QString>
 #include <QRectF>
 #include <QList>
+#include <QRegularExpression>
 #include <memory>
 #include "core/ToolId.h"
 #include "core/interfaces/IToolController.h"
@@ -35,6 +36,18 @@ public:
     void onReplaceAllRequested(const QString &searchText, const QString &replaceText,
                                bool matchCase, bool wholeWords, bool useRegex);
     void onRedactAllRequested(const QString &text, bool matchCase, bool wholeWords);
+
+    // §9.15 test seam: build the page-text matcher for the document-text search
+    // path. Returns an inactive pattern when the flags are all off (the caller
+    // then falls back to QPdfSearchModel's fast case-insensitive substring
+    // scan). Shared by onSearchRequested and onRedactAllRequested so the two
+    // callers cannot drift apart.
+    struct PageTextPattern {
+        QRegularExpression rx;   // invalid when the pattern itself is bad
+        bool active = false;     // true when any of matchCase/wholeWords/useRegex is set
+    };
+    static PageTextPattern pageTextPattern(const QString &text, bool matchCase,
+                                           bool wholeWords, bool useRegex);
 
 public slots:
     // Run OCR on the viewer's current page (engine chosen per Preferences). Public so
