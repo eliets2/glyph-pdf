@@ -158,6 +158,13 @@ private:
     class QLabel *m_leftPageLabel = nullptr;
     class QLabel *m_rightPageLabel = nullptr;
     void updateTwoPageView();
+    // §9.1 P0: two-page mode hides m_pdfView (the search-highlight painter) and
+    // m_annotationLayer (the annotation painter). To not silently hide what the
+    // user placed, updateTwoPageView composites the SAME models those paths
+    // consume — AnnotationLayer's AnnotationItem list for the given page and the
+    // live QPdfSearchModel results — onto each page's pixmap. Paints only; never
+    // stores a second copy of annotation state.
+    void paintTwoPageOverlays(QImage *pageImg, int pageIndex, qreal renderScale) const;
 
     // Form-builder field placement (M3-PROMPT-1)
     QRubberBand *m_formRubberBand = nullptr;

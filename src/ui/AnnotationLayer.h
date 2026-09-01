@@ -11,12 +11,22 @@
 #include "core/AnnotationTypes.h"
 #include "core/ImageTypes.h"
 
+QT_BEGIN_NAMESPACE
+class QPainter;
+QT_END_NAMESPACE
+
 class AnnotationLayer : public QWidget
 {
     Q_OBJECT
 
 public:
     explicit AnnotationLayer(QWidget *parent = nullptr);
+
+    // §9.1 P0: single source of truth for how one AnnotationItem is drawn.
+    // Used by AnnotationLayer::paintEvent (single-page overlay) AND by
+    // PdfViewerWidget's two-page composite, so the two paths can never
+    // diverge (no second painting implementation, no duplicated state).
+    static void paintShape(QPainter &painter, const AnnotationItem &anno);
 
     void setMode(ToolMode mode);
     void setColor(const QColor &color);
