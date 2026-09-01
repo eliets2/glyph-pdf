@@ -1112,6 +1112,34 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestDedupSMask.cpp")
     )
 endif()
 
+# Audit 9.13 P0 regression test: Compress Quality/DPI must do real work —
+# DCTDecode images decoded, downsampled and JPEG re-encoded honoring
+# jpegQuality; below-threshold/SMask/malformed images left untouched.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCompressJpegReencode.cpp")
+    add_executable(TestCompressJpegReencode tests/TestCompressJpegReencode.cpp)
+    target_include_directories(TestCompressJpegReencode PRIVATE src tests)
+    target_link_libraries(TestCompressJpegReencode PRIVATE
+        pdfws_engines pdfws_core
+        Qt6::Test Qt6::Widgets podofo::podofo
+    )
+    if(WIN32)
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestCompressJpegReencode POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestCompressJpegReencode>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestCompressJpegReencode"
+            )
+        endif()
+    endif()
+    add_test(NAME TestCompressJpegReencode COMMAND TestCompressJpegReencode)
+    set_tests_properties(TestCompressJpegReencode PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 300
+        LABELS "unit;compression;jpeg;regression;qt;headless"
+    )
+endif()
+
 # Audit 9.13 P0 regression test: the size-estimate heuristics must not claim
 # savings for passes that don't run in the write path (subsetFonts /
 # removeUnusedObjects are not implemented in optimizeDocument).
