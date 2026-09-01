@@ -57,9 +57,8 @@ RedactMode::RedactMode(QWidget* parent) : QWidget(parent) {
     m_pillMarkPattern = makePill(tr("Mark by Pattern \xe2\x96\xbe")); // ▾
     m_pillMarkAll     = makePill(tr("Mark All Occurrences"));
 
-    // O1: "Mark Region" and "Mark All Occurrences" are not yet wired to a real
-    // engine action.  Hide them (consistent with the project hide-not-disable rule)
-    // until the region-selection and occurrence-search pipelines are implemented.
+    // O1: "Mark Region" and "Mark All Occurrences" place real redaction marks
+    // (via PatternRedactor geometry) for the Apply pipeline to burn in.
     m_pillMarkRegion->setVisible(true);
     m_pillMarkAll->setVisible(true);
 
@@ -73,6 +72,18 @@ RedactMode::RedactMode(QWidget* parent) : QWidget(parent) {
     m_applyBtn->setText(tr("Apply All Redactions"));
     m_applyBtn->setProperty("variant", "danger");
     row->addWidget(m_applyBtn);
+
+    // §9.8 P0: a black box is meaningless if the same PII survives in
+    // metadata, attachments, embedded JavaScript, or the name tree — offer
+    // the full hidden-data scrub on the saved copy (default ON), running the
+    // same sanitizeDocument() pass as Security ▸ Sanitize Document.
+    m_chkSanitizeCopy = new QCheckBox(tr("Sanitize copy (metadata, attachments, JS)"));
+    m_chkSanitizeCopy->setObjectName(QStringLiteral("redactChkSanitizeCopy"));
+    m_chkSanitizeCopy->setChecked(true);
+    m_chkSanitizeCopy->setToolTip(tr(
+        "Runs the full hidden-data scrub on the saved copy: document metadata, "
+        "XMP, attachments, JavaScript actions, bookmarks and form values."));
+    row->addWidget(m_chkSanitizeCopy);
 
     // AR-8 D3: "Cancel" button HIDDEN — its connection was a no-op lambda.
     // Planned: emit exitRequested() signal to the shell's mode controller.
@@ -444,8 +455,30 @@ void RedactMode::onApplyRedactions() {
         if (a.mode != ToolMode::Redact) remaining.append(a);
     }
     m_viewer->setAnnotations(remaining);
-    m_matchCountLabel->setText(tr("Redaction applied successfully to %1.").arg(QFileInfo(outPath).fileName()));
-    emit statusMessageRequested(tr("Redactions applied and saved to %1.").arg(QFileInfo(outPath).fileName()));
+
+    // §9.8 P0: run the full hidden-data scrub on the saved copy when the
+    // user kept the checkbox on. The original file is untouched (the scrub
+    // re-saves the in-memory redacted document to the new path only).
+    bool sanitized = false;
+    if (m_chkSanitizeCopy && m_chkSanitizeCopy->isChecked()) {
+        sanitized = m_ctx->pdfEditor->sanitizeDocument(outPath);
+        if (!sanitized) {
+            QMessageBox::warning(this, tr("Sanitize Failed"),
+                tr("Redactions were applied and saved, but sanitizing the copy "
+                   "failed:\n\n%1\n\nThe redacted (unsanitized) file remains at %2.")
+                    .arg(m_ctx->pdfEditor->lastError().userMessage, outPath));
+        }
+    }
+
+    if (sanitized) {
+        m_matchCountLabel->setText(tr("Redacted and sanitized copy saved: %1.")
+                                       .arg(QFileInfo(outPath).fileName()));
+        emit statusMessageRequested(tr("Redactions applied; sanitized copy saved to %1.")
+                                        .arg(QFileInfo(outPath).fileName()));
+    } else {
+        m_matchCountLabel->setText(tr("Redaction applied successfully to %1.").arg(QFileInfo(outPath).fileName()));
+        emit statusMessageRequested(tr("Redactions applied and saved to %1.").arg(QFileInfo(outPath).fileName()));
+    }
 }
 
 void RedactMode::onClearMarks() {
