@@ -5,7 +5,11 @@
 // longer decorative toggles.
 #include <QtTest/QtTest>
 #include <QTemporaryDir>
+#include <QCheckBox>
 #include <QComboBox>
+#include <QMessageBox>
+#include <QTimer>
+#include <QApplication>
 #include <QFile>
 #include <QLineEdit>
 #include <QRadioButton>
@@ -26,6 +30,10 @@ private slots:
     // Apply), and an unparseable range must mark nothing at all.
     void rangeMarksExactlyTheListedPages();
     void invalidRangeMarksNothing();
+    // §9.8 P0: the Apply flow's sanitize checkbox must run the full hidden-
+    // data scrub on the saved copy (and stay off honestly when unchecked).
+    void sanitizeCopyCheckboxProducesCleanOutput();
+    void sanitizeUncheckedKeepsMetadata();
 private:
     static QString createPdfWithText(const QTemporaryDir& tmpDir,
                                      const QString& name, const QString& text);
@@ -214,5 +222,161 @@ void TestRedactMarkAll::invalidRangeMarksNothing() {
                  "an invalid range must mark nothing — falling through to 'all pages' "
                  "silently selects every page for irreversible destruction");
 }
+
+namespace {
+// A redactable document that also carries hidden data the sanitize pass must
+// remove: catalog OpenAction JS + XMP metadata (same risky content the
+// TestCompressStripSanitize fixture uses).
+QString createRiskyRedactablePdf(const QTemporaryDir& tmpDir, const QString& name) {
+    const QString path = tmpDir.filePath(name);
+    try {
+        PoDoFo::PdfMemDocument doc;
+        auto& page = doc.GetPages().CreatePage(
+            PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+        PoDoFo::PdfPainter painter;
+        painter.SetCanvas(page);
+        auto& font = doc.GetFonts().GetStandard14Font(
+            PoDoFo::PdfStandard14FontType::Helvetica);
+        painter.TextState.SetFont(font, 12.0);
+        painter.DrawText("Secret a@b.com", 50, 700);
+        painter.FinishDrawing();
+
+        auto& cat = doc.GetCatalog().GetDictionary();
+        PoDoFo::PdfDictionary oa;
+        oa.AddKey("S", PoDoFo::PdfName("JavaScript"));
+        oa.AddKey("JS", PoDoFo::PdfString("app.alert(1);"));
+        cat.AddKey("OpenAction", PoDoFo::PdfObject(oa));
+        auto& xmp = doc.GetObjects().CreateDictionaryObject();
+        xmp.GetOrCreateStream().SetData(PoDoFo::bufferview("<?xpacket xmp-secret?>"));
+        cat.AddKey("Metadata", PoDoFo::PdfObject(xmp.GetIndirectReference()));
+        doc.Save(path.toUtf8().constData());
+    } catch (const std::exception&) {
+        return {};
+    }
+    return path;
+}
+
+bool catalogHasKey(const QString& pdf, const char* key) {
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(pdf.toUtf8().constData());
+        return doc.GetCatalog().GetDictionary().HasKey(key);
+    } catch (...) {
+        return true; // treat unloadable output as "not clean"
+    }
+}
+
+bool contentContains(const QString& pdf, const QByteArray& needle, QString* err = nullptr) {
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(pdf.toUtf8().constData());
+        for (unsigned i = 0; i < doc.GetPages().GetCount(); ++i) {
+            auto* co = doc.GetPages().GetPageAt(i).GetContents();
+            if (!co) continue;
+            PoDoFo::charbuff buf;
+            co->CopyTo(buf);
+            if (QByteArray(buf.data(), static_cast<int>(buf.size())).contains(needle))
+                return true;
+        }
+        return false;
+    } catch (const std::exception& e) {
+        if (err) *err = QString::fromLatin1(e.what());
+        return true; // treat unloadable output as "not clean"
+    }
+}
+} // namespace
+
+namespace {
+// onApplyRedactions asks a modal Yes/No confirmation before burning marks in —
+// accept it from a queued callback so headless tests can drive the flow.
+void acceptApplyConfirmation() {
+    QTimer::singleShot(0, [] {
+        if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+            if (auto* yes = box->button(QMessageBox::Yes)) { yes->click(); return; }
+        }
+        if (QWidget* m = QApplication::activeModalWidget()) m->close();
+    });
+}
+} // namespace
+
+void TestRedactMarkAll::sanitizeCopyCheckboxProducesCleanOutput() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = createRiskyRedactablePdf(tmp, "risky_apply.pdf");
+    QVERIFY2(!pdf.isEmpty(), "risky fixture failed");
+
+    PdfEditorEngine engine;
+    QVERIFY(engine.loadDocumentForEditing(pdf));
+    AppContext ctx;
+    ctx.pdfEditor = std::shared_ptr<IPdfEditorEngine>(&engine, [](IPdfEditorEngine*){});
+
+    PdfViewerWidget viewer;
+    QVERIFY(viewer.loadDocument(pdf));
+    gp::RedactMode mode;
+    mode.setAppContext(&ctx);
+    mode.setViewer(&viewer);
+
+    // Default ON — the offer must not hide behind an opt-in.
+    auto* chk = mode.findChild<QCheckBox*>(QStringLiteral("redactChkSanitizeCopy"));
+    QVERIFY2(chk, "the Apply flow must expose the sanitize-copy checkbox");
+    QVERIFY2(chk->isChecked(), "sanitize copy must default to ON");
+
+    // Place a mark over the secret and apply.
+    AnnotationItem mark;
+    mark.mode = ToolMode::Redact;
+    mark.pageIndex = 0;
+    mark.rect = QRectF(40, 690, 300, 30); // covers the drawn text at (50,700)
+    viewer.setAnnotations({mark});
+    acceptApplyConfirmation();
+    QVERIFY(QMetaObject::invokeMethod(&mode, "onApplyRedactions"));
+
+    const QString out = tmp.filePath("risky_apply_redacted.pdf");
+    QVERIFY2(QFileInfo::exists(out), "the redacted copy must be written");
+    QVERIFY2(!contentContains(out, "a@b.com"),
+             "the secret must be excised from the redacted copy");
+    QVERIFY2(!catalogHasKey(out, "OpenAction"),
+             "OpenAction JS must be scrubbed from the sanitized copy");
+    QVERIFY2(!catalogHasKey(out, "Metadata"),
+             "XMP metadata must be scrubbed from the sanitized copy");
+}
+
+void TestRedactMarkAll::sanitizeUncheckedKeepsMetadata() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = createRiskyRedactablePdf(tmp, "risky_apply2.pdf");
+    QVERIFY(!pdf.isEmpty());
+
+    PdfEditorEngine engine;
+    QVERIFY(engine.loadDocumentForEditing(pdf));
+    AppContext ctx;
+    ctx.pdfEditor = std::shared_ptr<IPdfEditorEngine>(&engine, [](IPdfEditorEngine*){});
+
+    PdfViewerWidget viewer;
+    QVERIFY(viewer.loadDocument(pdf));
+    gp::RedactMode mode;
+    mode.setAppContext(&ctx);
+    mode.setViewer(&viewer);
+
+    auto* chk = mode.findChild<QCheckBox*>(QStringLiteral("redactChkSanitizeCopy"));
+    QVERIFY(chk);
+    chk->setChecked(false); // honest opt-out: only content excision runs
+
+    AnnotationItem mark;
+    mark.mode = ToolMode::Redact;
+    mark.pageIndex = 0;
+    mark.rect = QRectF(40, 690, 300, 30);
+    viewer.setAnnotations({mark});
+    acceptApplyConfirmation();
+    QVERIFY(QMetaObject::invokeMethod(&mode, "onApplyRedactions"));
+
+    const QString out = tmp.filePath("risky_apply2_redacted.pdf");
+    QVERIFY2(QFileInfo::exists(out), "the redacted copy must be written");
+    QVERIFY2(!contentContains(out, "a@b.com"),
+             "the secret must be excised even without sanitization");
+    QVERIFY2(catalogHasKey(out, "OpenAction"),
+             "with the checkbox off, hidden data is intentionally retained — "
+             "this documents the honest difference between the two modes");
+}
+
 QTEST_MAIN(TestRedactMarkAll)
 #include "TestRedactMarkAll.moc"
