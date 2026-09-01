@@ -508,7 +508,8 @@ void CompressDialog::onCompress() {
         accept();
     } else {
         QMessageBox::warning(this, tr("Optimization Failed"),
-            tr("Could not optimize the document. See application log for details."));
+            tr("Could not optimize the document.\n\n%1")
+                .arg(_ctx->pdfEditor->lastError().userMessage));
     }
 }
 
