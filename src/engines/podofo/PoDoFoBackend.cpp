@@ -26,6 +26,8 @@
 #include <QCryptographicHash>
 #include <QRandomGenerator>
 #include <QStandardPaths>
+#include <QBuffer>
+#include <QImageWriter>
 #include <cstdlib>
 #include <unordered_map>
 
@@ -3600,7 +3602,9 @@ OptimizeEstimate PoDoFoBackend::estimateOptimization(const OptimizeOptions &opti
 
                     if (obj->HasStream()) {
                         PoDoFo::charbuff buf;
-                        obj->GetOrCreateStream().CopyTo(buf);
+                        // Raw (encoded) bytes: CopyTo() cannot expand media
+                        // filters (/DCTDecode) and would throw on JPEG PDFs.
+                        obj->GetOrCreateStream().CopyTo(buf, /*raw=*/true);
                         qint64 streamSize = static_cast<qint64>(buf.size());
                         est.imageTotalBytes += streamSize;
 
@@ -3720,69 +3724,116 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
     try {
         auto& doc = *d->document;
         auto& objects = doc.GetObjects();
-        // Phase 1: Downsample images
+        // Phase 1: Downsample images. Two decodable cases — (a) JPEG
+        // (/DCTDecode): the raw stream bytes ARE a JPEG file, decoded via Qt
+        // and re-encoded honoring options.jpegQuality; (b) legacy uncompressed
+        // /DeviceRGB 8bpc pixels (previously written back as raw RGB, now also
+        // re-encoded to real JPEG). Media-filter streams are read with
+        // CopyTo(raw) — CopyTo() cannot expand DCTDecode and throws
+        // UnsupportedFilter. Everything else (CCITT, JPX, indexed, 16bpc,
+        // CMYK, /ImageMask, images carrying /SMask or /Mask — rescaling would
+        // desync the mask — or a /Decode array the re-encode would invalidate)
+        // is skipped untouched.
+        // upgrade path: downscale /SMask masks together with their base image
+        // instead of skipping masked images.
         if (options.downsampleImages) {
+            constexpr int64_t kMaxOptimizeDim = 10000;
+            auto asInt = [](const PoDoFo::PdfObject* o) -> int64_t {
+                return (o && o->IsNumberOrReal()) ? static_cast<int64_t>(o->GetReal()) : 0;
+            };
+            auto isName = [](const PoDoFo::PdfObject* o, const char* n) {
+                return o && o->IsName() && o->GetName().GetString() == n;
+            };
             for (auto obj : objects) {
-                if (!obj->IsDictionary()) continue;
+                if (!obj->IsDictionary() || !obj->HasStream()) continue;
                 auto& dict = obj->GetDictionary();
 
                 auto* subtype = dict.FindKey("Subtype");
                 if (!subtype || !subtype->IsName() || subtype->GetName().GetString() != "Image")
                     continue;
 
-                auto* widthObj = dict.FindKey("Width");
-                auto* heightObj = dict.FindKey("Height");
-                if (!widthObj || !heightObj) continue;
+                int64_t w = asInt(dict.FindKey("Width"));
+                int64_t h = asInt(dict.FindKey("Height"));
+                if (w <= 0 || h <= 0) continue;
+                // Cap to 10 000 px on each axis, matching the replaceImage()
+                // cap: a crafted PDF with w/h > INT_MAX would truncate in the
+                // int casts below and produce a mismatched-stride QImage.
+                if (w > kMaxOptimizeDim || h > kMaxOptimizeDim) continue;
 
-                int64_t w = widthObj->GetNumber();
-                int64_t h = heightObj->GetNumber();
+                auto* imObj = dict.FindKey("ImageMask");
+                if (imObj && imObj->IsBool() && imObj->GetBool()) continue;
+                if (dict.FindKey("SMask") || dict.FindKey("Mask") || dict.FindKey("Decode"))
+                    continue;
 
                 double estDpi = static_cast<double>(w) / 8.27;
                 if (estDpi <= options.targetDpi * 1.2) continue;
 
-                double ratio = static_cast<double>(options.targetDpi) / estDpi;
-                int64_t newW = static_cast<int64_t>(w * ratio);
-                int64_t newH = static_cast<int64_t>(h * ratio);
-                if (newW < 1) newW = 1;
-                if (newH < 1) newH = 1;
-
-                if (!obj->HasStream()) continue;
-
                 PoDoFo::charbuff buf;
-                obj->GetOrCreateStream().CopyTo(buf);
-
-                // Create QImage from raw RGB data for resampling
-                auto* csObj = dict.FindKey("ColorSpace");
-                bool isRgb = csObj && csObj->IsName() && csObj->GetName().GetString() == "DeviceRGB";
-                auto* bpcObj = dict.FindKey("BitsPerComponent");
-                int bpc = bpcObj ? static_cast<int>(bpcObj->GetNumber()) : 8;
-
-                // Guard: cap to 10 000 px on each axis before the int cast, matching
-                // the replaceImage() cap. A crafted PDF with w/h > INT_MAX would otherwise
-                // cause truncation in static_cast<int> and a mismatched-stride QImage.
-                constexpr int64_t kMaxOptimizeDim = 10000;
-                if (w > kMaxOptimizeDim || h > kMaxOptimizeDim) continue;
-
-                if (isRgb && bpc == 8 && static_cast<qint64>(buf.size()) >= w * h * 3) {
-                    QImage src(reinterpret_cast<const uchar*>(buf.data()),
-                               static_cast<int>(w), static_cast<int>(h),
-                               static_cast<int>(w * 3), QImage::Format_RGB888);
-                    QImage scaled = src.scaled(static_cast<int>(newW), static_cast<int>(newH),
-                                              Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-                    scaled = scaled.convertToFormat(QImage::Format_RGB888);
-
-                    QByteArray newData;
-                    newData.reserve(scaled.width() * scaled.height() * 3);
-                    for (int y = 0; y < scaled.height(); ++y) {
-                        const uchar* line = scaled.constScanLine(y);
-                        newData.append(reinterpret_cast<const char*>(line), scaled.width() * 3);
+                QImage src;
+                auto* filterObj = dict.FindKey("Filter");
+                bool isDct = isName(filterObj, "DCTDecode")
+                             || (filterObj && filterObj->IsArray()
+                                 && filterObj->GetArray().size() == 1
+                                 && isName(&filterObj->GetArray()[0], "DCTDecode"));
+                if (isDct) {
+                    // A re-encoded JPEG must stay /DeviceRGB or /DeviceGray;
+                    // CMYK JPEGs would silently change colors.
+                    auto* csObjDct = dict.FindKey("ColorSpace");
+                    if (!isName(csObjDct, "DeviceRGB") && !isName(csObjDct, "DeviceGray")) {
+                        qDebug() << "optimizeDocument: DCT image with unsupported colorspace, left untouched";
+                        continue;
                     }
-
-                    PoDoFo::charbuff newBuf(std::string_view(newData.constData(), newData.size()));
-                    obj->GetOrCreateStream().SetData(newBuf);
-                    dict.AddKey("Width", static_cast<int64_t>(newW));
-                    dict.AddKey("Height", static_cast<int64_t>(newH));
+                    obj->GetOrCreateStream().CopyTo(buf, /*raw=*/true);
+                    src.loadFromData(reinterpret_cast<const uchar*>(buf.data()),
+                                     static_cast<int>(buf.size()), "JPG");
+                } else {
+                    auto* csObj = dict.FindKey("ColorSpace");
+                    bool isRgb = isName(csObj, "DeviceRGB");
+                    auto* bpcObj = dict.FindKey("BitsPerComponent");
+                    int bpc = static_cast<int>(asInt(bpcObj) == 0 ? 8 : asInt(bpcObj));
+                    if (!isRgb || bpc != 8) continue;
+                    obj->GetOrCreateStream().CopyTo(buf);
+                    if (static_cast<qint64>(buf.size()) < w * h * 3) continue;
+                    src = QImage(reinterpret_cast<const uchar*>(buf.data()),
+                                 static_cast<int>(w), static_cast<int>(h),
+                                 static_cast<int>(w * 3), QImage::Format_RGB888);
                 }
+                if (src.isNull()) {
+                    qDebug() << "optimizeDocument: undecodable image, left untouched";
+                    continue;
+                }
+
+                double ratio = static_cast<double>(options.targetDpi) / estDpi;
+                int64_t newW = qMax<int64_t>(1, static_cast<int64_t>(w * ratio));
+                int64_t newH = qMax<int64_t>(1, static_cast<int64_t>(h * ratio));
+
+                QImage scaled = src.scaled(static_cast<int>(newW), static_cast<int>(newH),
+                                           Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+                                      .convertToFormat(QImage::Format_RGB888);
+
+                // Encode at the user-selected quality and write the bytes
+                // verbatim. The filters overload with raw=true is required:
+                // plain SetData(raw=true) clears /Filter unconditionally.
+                QByteArray jpeg;
+                {
+                    QBuffer jbuf(&jpeg);
+                    jbuf.open(QIODevice::WriteOnly);
+                    QImageWriter writer(&jbuf, "jpg");
+                    writer.setQuality(qBound(1, options.jpegQuality, 100));
+                    if (!writer.write(scaled)) {
+                        qDebug() << "optimizeDocument: JPEG re-encode failed, image left untouched";
+                        continue;
+                    }
+                }
+
+                PoDoFo::charbuff newBuf(std::string_view(jpeg.constData(), jpeg.size()));
+                obj->GetOrCreateStream().SetData(
+                    newBuf, PoDoFo::PdfFilterList{ PoDoFo::PdfFilterType::DCTDecode }, /*raw=*/true);
+                dict.AddKey("Width", static_cast<int64_t>(scaled.width()));
+                dict.AddKey("Height", static_cast<int64_t>(scaled.height()));
+                dict.AddKey("BitsPerComponent", static_cast<int64_t>(8));
+                dict.AddKey("ColorSpace", PoDoFo::PdfName("DeviceRGB"));
+                dict.RemoveKey("DecodeParms");
             }
         }
 
@@ -3799,7 +3850,11 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
                     continue;
 
                 PoDoFo::charbuff buf;
-                obj->GetOrCreateStream().CopyTo(buf);
+                // Raw (encoded) bytes: CopyTo() cannot expand media filters
+                // like /DCTDecode, and identical images have identical raw
+                // bytes anyway. The dict fingerprint below keeps differing
+                // encodings apart.
+                obj->GetOrCreateStream().CopyTo(buf, /*raw=*/true);
                 // §9.13 P0 DEFECT 3: hash the stream bytes AND the image-dict
                 // params. Two images with identical bytes but different
                 // /ColorSpace, /SMask, /Width, /Height, /BitsPerComponent,
