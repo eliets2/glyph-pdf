@@ -7,6 +7,7 @@
  * Run: QT_QPA_PLATFORM=offscreen ctest -R TestBatchMode --output-on-failure
  */
 #include <QtTest/QtTest>
+#include <atomic>
 #include <QApplication>
 #include <QTemporaryDir>
 #include <QFile>
@@ -25,7 +26,7 @@ public:
     bool convertTo(const QString& pdfPath, const QString& outputPath,
                    TargetFormat /*format*/, const QVariantMap& /*options*/ = {}) override
     {
-        ++m_callCount;
+        ++m_callCount; // atomic: incremented from parallel QtConcurrent workers
         m_lastInput = pdfPath;
         m_lastOutput = outputPath;
 
@@ -40,7 +41,7 @@ public:
         return true;
     }
 
-    int     m_callCount  = 0;
+    std::atomic<int> m_callCount{0};
     QString m_lastInput;
     QString m_lastOutput;
     bool    m_shouldFail = false;
@@ -156,7 +157,7 @@ private slots:
         QVERIFY2(!bm.isBatchRunning(), "Batch did not complete within 5 seconds");
 
         // convertTo called exactly once per input file
-        QCOMPARE(conv->m_callCount, 3);
+        QCOMPARE(conv->m_callCount.load(), 3);
         // All succeeded
         QCOMPARE(bm.successCount(), 3);
         QCOMPARE(bm.failCount(), 0);
@@ -189,7 +190,7 @@ private slots:
                 if (f.open(QIODevice::WriteOnly)) { f.write("ok"); f.close(); }
                 return true;
             }
-            int calls = 0;
+            std::atomic<int> calls{0};
         };
         auto* conv = new SelFailConv;
         AppContext ctx;
@@ -210,7 +211,7 @@ private slots:
         QVERIFY2(!bm.isBatchRunning(), "Batch did not complete within 5 seconds");
 
         // All 3 files processed (no abort on failure)
-        QCOMPARE(conv->calls, 3);
+        QCOMPARE(conv->calls.load(), 3);
         // 2 succeeded, 1 failed
         QCOMPARE(bm.successCount(), 2);
         QCOMPARE(bm.failCount(), 1);
@@ -280,7 +281,7 @@ private slots:
                 if (f.open(QIODevice::WriteOnly)) { f.write("ok"); f.close(); }
                 return true;
             }
-            int calls = 0;
+            std::atomic<int> calls{0};
         };
         auto* conv = new SlowConv;
         AppContext ctx;
