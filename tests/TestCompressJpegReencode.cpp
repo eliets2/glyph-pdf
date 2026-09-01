@@ -398,6 +398,114 @@ private slots:
         QVERIFY2(findImages(doc, 64, 64).size() == 1,
                  "ImageMask image must survive untouched");
     }
+
+    // A wrapped-JPEG filter chain [/FlateDecode /DCTDecode] must be SKIPPED by
+    // the downsample pass — reading such streams with the expanding CopyTo()
+    // throws UnsupportedFilter and used to abort the whole optimization. The
+    // image must be BIG enough (estDpi > targetDpi*1.2) to reach the decode.
+    void mediaFilterChainImageIsSkipped() {
+        const int W = 1240, H = 1754;
+        QByteArray jpeg = encodeJpeg(makeNoiseImage(W, H, 77), 85);
+        QVERIFY2(!jpeg.isEmpty(), "fixture JPEG encode failed");
+
+        QString pdf = tmpPath("chain.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            auto& page = doc.GetPages().CreatePage(
+                PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            auto& img = embedJpeg(doc, page, jpeg, W, H);
+            // Craft the chain AFTER the image is valid: wrapped-JPEG encoding.
+            PoDoFo::PdfArray chain;
+            chain.Add(PoDoFo::PdfName("FlateDecode"));
+            chain.Add(PoDoFo::PdfName("DCTDecode"));
+            img.GetDictionary().RemoveKey("Filter");
+            img.GetDictionary().AddKey("Filter", PoDoFo::PdfObject(chain));
+            doc.Save(pdf.toUtf8().constData());
+        }
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+        OptimizeOptions opts;
+        opts.downsampleImages = true;
+        opts.targetDpi = 72;
+        opts.jpegQuality = 50;
+        opts.deduplicateImages = false;
+        QString out = tmpPath("chain_out.pdf");
+        QVERIFY2(engine.optimizeDocument(out, opts),
+                 "a media-filter chain image must be skipped, not fail the pass");
+
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(out.toUtf8().constData());
+        auto imgs = findImages(doc);
+        QCOMPARE(imgs.size(), 1);
+        QVERIFY2(rawStream(*imgs[0].obj) == jpeg,
+                 "chain-filter image must be left byte-identical");
+    }
+
+    // A dangling /XObject reference must not make the dedup rewiring throw —
+    // unresolvable entries are skipped, the pass still succeeds.
+    void danglingXobjectRefDoesNotFailDedup() {
+        QString pdf = tmpPath("dangling.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            auto& page = doc.GetPages().CreatePage(
+                PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            auto& page2 = doc.GetPages().CreatePage(
+                PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            Q_UNUSED(page2);
+            // Craft a dangling reference in the page resources.
+            auto* res = page.GetDictionary().FindKey("Resources");
+            QVERIFY(res != nullptr);
+            res->GetDictionary().AddKey(
+                "XObject", PoDoFo::PdfObject(PoDoFo::PdfDictionary()));
+            auto* xobjs = res->GetDictionary().FindKey("XObject");
+            xobjs->GetDictionary().AddKey(
+                "Dangling", PoDoFo::PdfObject(PoDoFo::PdfReference(9999, 0)));
+            doc.Save(pdf.toUtf8().constData());
+        }
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+        OptimizeOptions opts;
+        opts.downsampleImages = false;
+        opts.deduplicateImages = true; // exercises the /XObject rewiring loop
+        QString out = tmpPath("dangling_out.pdf");
+        QVERIFY2(engine.optimizeDocument(out, opts),
+                 "a dangling /XObject reference must be skipped by the dedup rewiring");
+    }
+
+    // targetDpi <= 0 would invert the downsample ratio and clamp every image
+    // to 1x1 — the pass must refuse to destroy images instead.
+    void degenerateTargetDpiLeavesImagesUntouched() {
+        const int W = 1240, H = 1754;
+        QByteArray jpeg = encodeJpeg(makeNoiseImage(W, H, 55), 85);
+        QVERIFY2(!jpeg.isEmpty(), "fixture JPEG encode failed");
+
+        QString pdf = tmpPath("dpi0.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            auto& page = doc.GetPages().CreatePage(
+                PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            embedJpeg(doc, page, jpeg, W, H);
+            doc.Save(pdf.toUtf8().constData());
+        }
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+        OptimizeOptions opts;
+        opts.downsampleImages = true;
+        opts.targetDpi = 0; // crafted degenerate setting
+        opts.jpegQuality = 50;
+        QString out = tmpPath("dpi0_out.pdf");
+        QVERIFY2(engine.optimizeDocument(out, opts), "optimizeDocument must succeed");
+
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(out.toUtf8().constData());
+        auto imgs = findImages(doc, W, H);
+        QCOMPARE(imgs.size(), 1);
+        QVERIFY2(rawStream(*imgs[0].obj) == jpeg,
+                 "targetDpi=0 must not re-encode or destroy the image (no 1x1 clamp)");
+    }
 };
 
 QTEST_MAIN(TestCompressJpegReencode)

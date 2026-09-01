@@ -12,6 +12,7 @@ class TestCompressStripSanitize : public QObject {
     Q_OBJECT
 private slots:
     void stripMetadataRemovesHiddenData();
+    void cyclicStructTreeDoesNotBreakSanitize();
 private:
     static QString makeRiskyPdf(const QString& path);
 };
@@ -69,6 +70,42 @@ void TestCompressStripSanitize::stripMetadataRemovesHiddenData() {
         QFAIL(qPrintable(QStringLiteral("failed to reload optimized pdf: %1")
                          .arg(QString::fromLatin1(e.what()))));
     }
+}
+// §9.13 F3: a crafted StructTreeRoot whose /K references itself must not
+// overflow the stack in the sanitize walk — the recursion is depth-capped and
+// the pass still completes.
+void TestCompressStripSanitize::cyclicStructTreeDoesNotBreakSanitize() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString cyclic = tmp.filePath("cyclic_struct.pdf");
+    try {
+        PoDoFo::PdfMemDocument doc;
+        auto& page = doc.GetPages().CreatePage(PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+        Q_UNUSED(page);
+        auto& cat = doc.GetCatalog().GetDictionary();
+        PoDoFo::PdfDictionary markInfo;
+        markInfo.AddKey("Marked", PoDoFo::PdfObject(true));
+        cat.AddKey("MarkInfo", PoDoFo::PdfObject(markInfo));
+        auto& rootDict = cat.AddKey("StructTreeRoot", PoDoFo::PdfObject(PoDoFo::PdfDictionary())).GetDictionary();
+        rootDict.AddKey("Type", PoDoFo::PdfObject(PoDoFo::PdfName("StructTreeRoot")));
+        // Self-referential element: /K points back at the element itself.
+        auto& elObj = doc.GetObjects().CreateDictionaryObject();
+        elObj.GetDictionary().AddKey("S", PoDoFo::PdfObject(PoDoFo::PdfName("P")));
+        rootDict.AddKey("K", PoDoFo::PdfObject(elObj.GetIndirectReference()));
+        elObj.GetDictionary().AddKey("K", PoDoFo::PdfObject(elObj.GetIndirectReference()));
+        doc.Save(cyclic.toUtf8().constData());
+    } catch (...) {
+        QFAIL("failed to build cyclic-struct fixture");
+    }
+
+    PoDoFoBackend backend;
+    QVERIFY2(backend.loadDocument(cyclic), "loadDocument(cyclic) failed");
+
+    OptimizeOptions opts;
+    opts.stripMetadata = true;
+    const QString out = tmp.filePath("cyclic_out.pdf");
+    QVERIFY2(backend.optimizeDocument(out, opts),
+             "sanitize must survive a cyclic structure tree (depth-capped walk)");
 }
 QTEST_MAIN(TestCompressStripSanitize)
 #include "TestCompressStripSanitize.moc"
