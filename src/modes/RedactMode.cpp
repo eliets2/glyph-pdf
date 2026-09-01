@@ -503,13 +503,21 @@ void RedactMode::onMarkAllOccurrences() {
         emit statusMessageRequested(tr("Invalid pattern — cannot mark occurrences."));
         return;
     }
-    QList<int> range = resolvePageRange();
-    int startPage = range.value(0, 0);
-    int endPage   = range.value(1, m_viewer->pageCount() - 1);
-    if (startPage < 0) startPage = 0;
-    if (endPage < startPage) endPage = m_viewer->pageCount() - 1;
-    QList<int> pages;
-    for (int p = startPage; p <= endPage; ++p) pages.append(p);
+    // §9.8 F1: resolvePageRange returns an explicit LIST of 0-based pages
+    // ("1-3, 5" → {0,1,2,4}), not a [start,end] pair — treating it as a range
+    // marked (and later destroyed on Apply) pages the user never selected,
+    // and the {-2} invalid-range sentinel fell through to "all pages".
+    // Empty list = all-pages scope, expanded here because
+    // PatternRedactor::findMatches treats an empty list as "nothing to do".
+    QList<int> pages = resolvePageRange();
+    if (pages.size() == 1 && pages.first() == -2) {
+        emit statusMessageRequested(tr("Invalid page range — cannot mark occurrences."));
+        return;
+    }
+    if (pages.isEmpty()) {
+        const int pageCount = m_viewer->pageCount();
+        for (int p = 0; p < pageCount; ++p) pages.append(p);
+    }
 
     const auto matches = PatternRedactor::findMatches(path, pages, rx);
     QList<AnnotationItem> annos = m_viewer->annotations();
