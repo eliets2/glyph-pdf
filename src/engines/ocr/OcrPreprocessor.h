@@ -24,7 +24,7 @@ struct PreprocessedImage {
 };
 
 /// Applies image preprocessing to improve OCR accuracy.
-/// Uses Leptonica (under HAS_TESSERACT) for deskew & binarize,
+/// Uses Leptonica (under HAS_TESSERACT) for deskew, orientation & binarize,
 /// falls back to Qt-based operations otherwise.
 class OcrPreprocessor {
 public:

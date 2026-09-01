@@ -465,6 +465,11 @@ void EditController::runOcr() {
     // thread-safe); the worker only uses the resolved engine code.
     const QString ocrLang = ocrEngineLanguageCode(QSettings().value(
         QStringLiteral("ocr/language"), QStringLiteral("EN")).toString());
+    // §9.4 P0: Auto-Rotate (page-level orientation detection) preference —
+    // read on the GUI thread like ocr/language (QSettings is not thread-safe);
+    // the worker only uses the copied value.
+    const bool orientDetect = QSettings().value(
+        QStringLiteral("ocr/orientDetect"), false).toBool();
     const QString engineLabel = wantEnsemble ? tr("Ensemble (Tesseract + RapidOCR)")
                               : wantRapid    ? tr("RapidOCR / PP-OCRv5")
                               :                tr("Tesseract 5");
@@ -483,7 +488,7 @@ void EditController::runOcr() {
     const QImage renderedPage = viewer->renderPage(page, 2.0);
 
     QThread *worker = QThread::create([self, viewerPtr, filePath, page, renderedPage,
-                                       wantRapid, wantEnsemble, ocrLang]() {
+                                       wantRapid, wantEnsemble, ocrLang, orientDetect]() {
         QString error;
         QList<OcrResult> resultsArr;
         QList<MergedOcrWord> mergedWords;   // also surfaced to the OCR Verify screen
@@ -551,6 +556,13 @@ void EditController::runOcr() {
                         : OcrStrategy::PrimaryOnly;
                     OcrPipeline pipeline(primary, secondary);
                     pipeline.setStrategy(strategy);
+                    // §9.4 P0: honor Auto-Rotate for scans whose rotation is
+                    // baked into the content; word boxes still map back to the
+                    // original page via PreprocessedImage::inverseTransform.
+                    // The other options keep their defaults (current behavior).
+                    OcrPreprocessOptions preprocessOpts;
+                    preprocessOpts.orientDetect = orientDetect;
+                    pipeline.setPreprocessing(preprocessOpts);
                     mergedWords = pipeline.run(pageImg);
 
                     // Convert MergedOcrWord → OcrResult for the viewer layer

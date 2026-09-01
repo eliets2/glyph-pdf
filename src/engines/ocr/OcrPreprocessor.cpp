@@ -88,6 +88,57 @@ QImage pixToQImage(Pix *pix)
 } // namespace
 #endif // HAS_TESSERACT
 
+// ── Orientation detection ───────────────────────────────────────────────────
+
+#ifdef HAS_TESSERACT
+namespace {
+
+/// Confidence threshold for acting on pixOrientDetect's signal — the same
+/// guard used for pixFindSkew in deskew(): below it the ascender statistics
+/// are indistinguishable from noise, so the page is left as-is.
+constexpr l_float32 kOrientConfThreshold = 2.0f;
+
+/// Leptonica's orientation HMT sels expect roman text rasterized at
+/// 150-300 ppi; smaller inputs carry no signal and only produce error spew.
+constexpr int kMinOrientDimension = 32;
+
+/// Detect the clockwise rotation (0/90/180/270) needed to bring a rotated
+/// page upright, from Leptonica's roman-text ascender/descender statistics.
+/// Returns 0 whenever the signal is inconclusive.
+int uprightRotation(const QImage &input)
+{
+    if (input.isNull() || input.width() < kMinOrientDimension
+                       || input.height() < kMinOrientDimension)
+        return 0;
+
+    Pix *pix8 = qimageToPix(input);
+    if (!pix8) return 0;
+    Pix *pix1 = pixConvertTo1(pix8, 128); // dark text on light paper
+    pixDestroy(&pix8);
+    if (!pix1) return 0;
+
+    l_float32 upconf = 0.f, leftconf = 0.f;
+    const l_ok ok = pixOrientDetect(pix1, &upconf, &leftconf, 0, 0);
+    pixDestroy(&pix1);
+    if (ok != 0) return 0;
+
+    // Decision table from Leptonica flipdetect.c (pixOrientDetect note 5):
+    // the axis with the larger |confidence| carries the orientation and its
+    // sign gives the cw rotation to upright. Comparing magnitudes matters:
+    // for a sideways page upconf can also dip below the threshold, but
+    // |leftconf| then dominates.
+    if (qAbs(leftconf) > qAbs(upconf)) {
+        if (leftconf >  kOrientConfThreshold) return 90;
+        if (leftconf < -kOrientConfThreshold) return 270;
+    } else if (upconf < -kOrientConfThreshold) {
+        return 180;
+    }
+    return 0; // upright (or no usable signal) — no rotation
+}
+
+} // namespace
+#endif // HAS_TESSERACT
+
 // ── Public API ──────────────────────────────────────────────────────────────
 
 PreprocessedImage OcrPreprocessor::process(const QImage &input, const OcrPreprocessOptions &opts) const
@@ -121,7 +172,37 @@ PreprocessedImage OcrPreprocessor::process(const QImage &input, const OcrPreproc
         result.effectiveDpi = opts.targetDpi;
     }
 
-    // 2. Deskew
+    // 2. Orientation — page-level 0/90/180/270 detection. This must run
+    // BEFORE deskew: pixFindSkew only measures small angles, so a sideways
+    // page would defeat it, while an uprighted page deskews normally.
+    if (opts.orientDetect) {
+        // upgrade path: Tesseract's DetectOrientationScript (baseapi.h) is the
+        // script-aware replacement once osd.traineddata ships with installs;
+        // for now Leptonica's roman-text ascender statistics do the job.
+#ifdef HAS_TESSERACT
+        const int rotation = uprightRotation(working);
+        if (rotation != 0) {
+            // Forward transform: rotate, then re-anchor the mapped bbox at the
+            // origin (90: (x,y)→(h−y,x); 180: →(w−x,h−y); 270: →(y,w−x)) so
+            // QImage::transformed's output coords equal fwd.map(source coords)
+            // and the composed inverse stays exact. Orthogonal transforms take
+            // Qt's lossless path, so the pixels stay crisp.
+            QTransform fwd;
+            const int w = working.width(), h = working.height();
+            if (rotation == 90)       fwd.translate(h, 0);
+            else if (rotation == 180) fwd.translate(w, h);
+            else                      fwd.translate(0, w);
+            fwd.rotate(rotation);
+            QImage uprighted = working.transformed(fwd);
+            if (!uprighted.isNull()) {
+                result.inverseTransform = fwd.inverted() * result.inverseTransform;
+                working = uprighted;
+            }
+        }
+#endif
+    }
+
+    // 3. Deskew
     if (opts.deskew) {
         double angle = 0.0;
         QImage deskewed = deskew(working, &angle);
@@ -137,12 +218,12 @@ PreprocessedImage OcrPreprocessor::process(const QImage &input, const OcrPreproc
         }
     }
 
-    // 3. Denoise
+    // 4. Denoise
     if (opts.denoise) {
         working = denoise(working);
     }
 
-    // 4. Binarize
+    // 5. Binarize
     if (opts.binarize) {
         working = binarize(working);
     }
