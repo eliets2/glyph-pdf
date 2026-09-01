@@ -1582,6 +1582,19 @@ bool PdfEditorEngine::optimizeDocument(const QString &outputPath, const Optimize
     QMutexLocker locker(&d->mutex);
     d->clearErr();
     if (!d->backend) return d->noBackend("optimizeDocument");
+    // §9.13 F2: the optimize path writes via writeUpdate(), which routes signed
+    // documents to an incremental SaveUpdate — "stripped" metadata, attachments
+    // and XMP stay physically recoverable in revision 1 (and dedup/downsample
+    // gain nothing). Refuse at the engine level, mirroring the ER-2 redaction
+    // guard, so the guarantee matches the checkbox promise.
+    if (d->backend->hasPdfSignatures()) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Cannot optimize a signed document: incremental save "
+                              "would keep the original metadata and images recoverable "
+                              "from PDF revision history. Save an unsigned copy first."),
+                  QStringLiteral("optimizeDocument blocked: document has signatures"));
+        return false;
+    }
     bool ok = d->backend->optimizeDocument(outputPath, options);
     if (!ok)
         d->setErr(ErrorInfo::Error,
