@@ -88,6 +88,7 @@ private:
     QCheckBox*   m_chkDeskew     = nullptr;
     QCheckBox*   m_chkBinarize   = nullptr;
     QCheckBox*   m_chkDenoise    = nullptr;
+    QCheckBox*   m_chkOrientDetect = nullptr;  // §9.4: persisted Auto-Rotate pref
     QToolButton* m_btnRun        = nullptr;
     QToolButton* m_btnAccept     = nullptr;
     QToolButton* m_btnReject     = nullptr;

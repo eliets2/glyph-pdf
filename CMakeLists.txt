@@ -1230,6 +1230,24 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrPipeline.cpp")
     )
 endif()
 
+# ── TestOcrPreprocessor (audit §9.4 P0) ──────────────────────────────────────
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrPreprocessor.cpp")
+    add_executable(TestOcrPreprocessor
+        tests/TestOcrPreprocessor.cpp
+    )
+    target_include_directories(TestOcrPreprocessor PRIVATE src tests)
+    target_link_libraries(TestOcrPreprocessor PRIVATE
+        pdfws_engines pdfws_core
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+    )
+    add_test(NAME TestOcrPreprocessor COMMAND TestOcrPreprocessor)
+    set_tests_properties(TestOcrPreprocessor PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 180
+        LABELS "ocr;preprocess;orientation;qt;headless"
+    )
+endif()
+
 # ── TestOcrDjotMapper (M5-P4 D4) ─────────────────────────────────────────────
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrDjotMapper.cpp")
     add_executable(TestOcrDjotMapper

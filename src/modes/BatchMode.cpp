@@ -924,6 +924,10 @@ void BatchMode::onRunClicked() {
     const QString capturedOcrLang = m_ocrLanguage
         ? ocrEngineLanguageCode(m_ocrLanguage->currentData().toString())
         : QStringLiteral("eng");
+    // §9.4 P0: shared Auto-Rotate (page orientation detection) preference, read
+    // on the GUI thread for the same reason; the worker only gets a copy.
+    const bool capturedOcrOrientDetect = QSettings().value(
+        QStringLiteral("ocr/orientDetect"), false).toBool();
 
     // Redact config
     const QString capturedRedactOutDir = m_redactOutDir ? m_redactOutDir->text().trimmed() : QString();
@@ -1013,6 +1017,13 @@ void BatchMode::onRunClicked() {
                     capturedCtx->ocr->initialize(capturedOcrLang);
                     OcrPipeline pipeline(capturedCtx->ocr);
                     pipeline.setStrategy(OcrStrategy::PrimaryOnly);
+                    // §9.4 P0: correct scans whose rotation is baked into the
+                    // content; word boxes still map back through
+                    // PreprocessedImage::inverseTransform. The other options
+                    // keep their defaults (current behavior).
+                    OcrPreprocessOptions preprocessOpts;
+                    preprocessOpts.orientDetect = capturedOcrOrientDetect;
+                    pipeline.setPreprocessing(preprocessOpts);
 
                     QList<QImage> images;
                     QList<PageOcrResult> pageResults;
