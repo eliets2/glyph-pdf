@@ -34,6 +34,11 @@ namespace gp {
 // StatusBar reads the same key to display the real selected language.
 static const char* kOcrLanguageKey = "ocr/language";
 
+// Shared QSettings key for the Auto-Rotate toggle (page-level 0/90/180/270
+// orientation detection before OCR). EditController::runOcr and BatchMode read
+// the same key — OCRMode here only persists the preference.
+static const char* kOcrOrientDetectKey = "ocr/orientDetect";
+
 // Empty-state shown in the scan/confidence pane before any OCR has run.
 static const char* kOcrEmptyStateHtml =
     "<span style='color:#8a8a8a;font-size:13px;'>No OCR results yet.<br><br>"
@@ -166,6 +171,20 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     m_chkDenoise->setChecked(false);
     m_chkDenoise->setStyleSheet("color:#c0c0c0; spacing:4px;");
     row->addWidget(m_chkDenoise);
+
+    // §9.4 P0: Auto-Rotate — the only preprocessing toggle here that is wired
+    // through to the pipeline (via the shared QSettings key, which the
+    // EditController/BatchMode OCR paths read). Default off: zero behavior
+    // change unless the user asks for it.
+    m_chkOrientDetect = new QCheckBox(tr("Auto-Rotate"));
+    m_chkOrientDetect->setObjectName("ocrChkOrientDetect");
+    m_chkOrientDetect->setChecked(QSettings().value(kOcrOrientDetectKey, false).toBool());
+    m_chkOrientDetect->setStyleSheet("color:#c0c0c0; spacing:4px;");
+    connect(m_chkOrientDetect, &QCheckBox::toggled, this, [](bool checked) {
+        QSettings settings;
+        settings.setValue(kOcrOrientDetectKey, checked);
+    });
+    row->addWidget(m_chkOrientDetect);
 
     row->addStretch(1);
 
