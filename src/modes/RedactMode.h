@@ -6,6 +6,7 @@
 struct AppContext;
 class PdfViewerWidget;
 class QComboBox;
+class QCheckBox;
 class QLineEdit;
 class QLabel;
 class QToolButton;
@@ -72,6 +73,9 @@ private:
     QToolButton* m_previewBtn  = nullptr;
     QToolButton* m_applyBtn    = nullptr;
     QToolButton* m_clearBtn    = nullptr;
+
+    // §9.8 P0: bundle the full hidden-data scrub into the Apply flow
+    QCheckBox*   m_chkSanitizeCopy = nullptr;
 
     const AppContext*  m_ctx    = nullptr;
     PdfViewerWidget*   m_viewer = nullptr;
