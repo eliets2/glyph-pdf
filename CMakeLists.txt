@@ -2144,6 +2144,33 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestViewerRotation.cpp")
     set_tests_properties(TestViewerRotation PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;viewing;rotation;qt;headless")
 endif()
 
+# §9.1 P0 regression test: two-page mode must not silently hide annotations and
+# search highlights — the spread pixmaps composite the same AnnotationItem list
+# and the live QPdfSearchModel results the single-page overlay path consumes.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestTwoPageOverlay.cpp")
+    add_executable(TestTwoPageOverlay tests/TestTwoPageOverlay.cpp)
+    target_include_directories(TestTwoPageOverlay PRIVATE src tests)
+    target_link_libraries(TestTwoPageOverlay PRIVATE
+        pdfws_ui pdfws_engines pdfws_core podofo::podofo Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets
+    )
+    if(WIN32)
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestTwoPageOverlay POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestTwoPageOverlay>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestTwoPageOverlay"
+            )
+        endif()
+    endif()
+    add_test(NAME TestTwoPageOverlay COMMAND TestTwoPageOverlay)
+    set_tests_properties(TestTwoPageOverlay PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 300
+        LABELS "unit;viewing;twopage;regression;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrAcceptSeam.cpp")
     add_executable(TestOcrAcceptSeam tests/TestOcrAcceptSeam.cpp)
     target_include_directories(TestOcrAcceptSeam PRIVATE src tests)
