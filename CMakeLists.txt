@@ -1047,6 +1047,42 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEraseSignedGuard.cpp")
     )
 endif()
 
+# §9.13 F2 regression test: optimizeDocument (Compress / Strip metadata) must
+# refuse signed documents — writeUpdate's incremental SaveUpdate would keep the
+# "stripped" metadata recoverable in revision 1 while the dialog reports success.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOptimizeSignedGuard.cpp")
+    add_executable(TestOptimizeSignedGuard tests/TestOptimizeSignedGuard.cpp)
+    target_include_directories(TestOptimizeSignedGuard PRIVATE src tests)
+    target_compile_definitions(TestOptimizeSignedGuard PRIVATE
+        SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    )
+    if(GLYPHPDF_ENABLE_TEST_FIXTURES)
+        target_compile_definitions(TestOptimizeSignedGuard PRIVATE GLYPH_TESTING=1)
+    endif()
+    target_link_libraries(TestOptimizeSignedGuard PRIVATE
+        pdfws_engines pdfws_core
+        OpenSSL::SSL OpenSSL::Crypto
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets podofo::podofo
+    )
+    if(WIN32)
+        target_link_libraries(TestOptimizeSignedGuard PRIVATE Crypt32)
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestOptimizeSignedGuard POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestOptimizeSignedGuard>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestOptimizeSignedGuard"
+            )
+        endif()
+    endif()
+    add_test(NAME TestOptimizeSignedGuard COMMAND TestOptimizeSignedGuard)
+    set_tests_properties(TestOptimizeSignedGuard PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "integration;security;signatures;compression;qt;headless"
+    )
+endif()
+
 # R2-1 CHAIN-1 closure tests (D3)
 # Tests only ProvenanceGuard logic — no pdfws_engines, no OpenSSL, no podofo.
 # This keeps TestChain1 runnable in all environments without DLL-path issues.
