@@ -94,6 +94,17 @@ PdfViewerWidget::PdfViewerWidget(QWidget *parent)
     connect(m_annotationLayer, &AnnotationLayer::annotationsChanged, this, [this]() {
         m_saveDebounceTimer->start();
     });
+    // §9.1 P0: overlay content changed while two-page mode is active (e.g. a
+    // controller pushed new annotations via setAnnotations) — refresh the
+    // composite instead of showing stale marks.
+    connect(m_annotationLayer, &AnnotationLayer::annotationsChanged, this, [this]() {
+        if (m_twoPageMode) updateTwoPageView();
+    });
+    // §9.1 P0: search results arrive asynchronously; keep the two-page spread
+    // in sync with the same live QPdfSearchModel the single-page view paints.
+    connect(m_searchModel, &QPdfSearchModel::countChanged, this, [this]() {
+        if (m_twoPageMode) updateTwoPageView();
+    });
 
     // Page change coalescing (Fix 13)
     m_pageChangeTimer->setSingleShot(true);
@@ -119,7 +130,9 @@ PdfViewerWidget::PdfViewerWidget(QWidget *parent)
     QWidget *twoPageWidget = new QWidget();
     QHBoxLayout *twoPageLayout = new QHBoxLayout(twoPageWidget);
     m_leftPageLabel = new QLabel();
+    m_leftPageLabel->setObjectName("twoPageLeftLabel");
     m_rightPageLabel = new QLabel();
+    m_rightPageLabel->setObjectName("twoPageRightLabel");
     twoPageLayout->addWidget(m_leftPageLabel);
     twoPageLayout->addWidget(m_rightPageLabel);
     m_twoPageScrollArea->setWidget(twoPageWidget);
@@ -581,15 +594,19 @@ void PdfViewerWidget::updateTwoPageView()
     
     QImage leftImg = renderPage(leftPage, m_zoomFactor * 2.0);
     if (!leftImg.isNull()) {
+        // §9.1 P0: two-page mode must not silently hide annotations and search
+        // highlights — composite the page's overlay content before displaying.
+        paintTwoPageOverlays(&leftImg, leftPage, m_zoomFactor * 2.0);
         m_leftPageLabel->setPixmap(QPixmap::fromImage(leftImg));
         m_leftPageLabel->show();
     } else {
         m_leftPageLabel->hide();
     }
-    
+
     if (rightPage < pageCount()) {
         QImage rightImg = renderPage(rightPage, m_zoomFactor * 2.0);
         if (!rightImg.isNull()) {
+            paintTwoPageOverlays(&rightImg, rightPage, m_zoomFactor * 2.0);
             m_rightPageLabel->setPixmap(QPixmap::fromImage(rightImg));
             m_rightPageLabel->show();
         } else {
@@ -598,6 +615,72 @@ void PdfViewerWidget::updateTwoPageView()
     } else {
         m_rightPageLabel->hide();
     }
+}
+
+// ── §9.1 P0: two-page mode must not silently hide overlays ─────────────────
+// setTwoPageMode() hides m_pdfView (which paints search highlights) and
+// m_annotationLayer (which paints the user's annotations), so everything the
+// user placed used to vanish without warning on switching to two-page mode —
+// a trust/correctness gap (audit 2026-07-01), not a cosmetic one.
+//
+// Minimum honest fix (Option A): composite the SAME models the single-page
+// overlay path consumes onto each page's pixmap —
+//   * AnnotationLayer's AnnotationItem list, filtered per page and painted via
+//     AnnotationLayer::paintShape so both paths share one painter, and
+//   * the live QPdfSearchModel results (QPdfLink::rectangles()).
+// This paints only; it never stores a second copy of annotation state, and
+// entering/leaving two-page mode cannot drop or duplicate items.
+//
+// Coordinates: AnnotationItem::rect is stored in view space at the draw-time
+// zoom (the app-wide convention — see the crop mapping in mouseReleaseEvent:
+// page points = viewRect / m_zoomFactor). The two-page pixmaps are rendered at
+// renderScale = m_zoomFactor * 2, so the net view→pixmap factor is
+// renderScale / m_zoomFactor. QPdfLink::rectangles() are page points with the
+// origin at the page's TOP-LEFT (verified against PDFium text extraction for a
+// glyph drawn at PDF y=700 on an 842pt page → reported y≈133), so they map
+// directly by renderScale.
+//
+// Known boundary (same limitation as the single-page overlay): rects are kept
+// in view space, so marks do not re-anchor if the zoom changes after drawing;
+// here the overlay and the page pixmap are always rendered from the same
+// m_zoomFactor snapshot, so they stay aligned with each other.
+void PdfViewerWidget::paintTwoPageOverlays(QImage *pageImg, int pageIndex, qreal renderScale) const
+{
+    if (!pageImg || pageImg->isNull() || pageIndex < 0 || renderScale <= 0)
+        return;
+    // Never paint into the shared render-cache buffer.
+    pageImg->detach();
+
+    QPainter painter(pageImg);
+    painter.setRenderHint(QPainter::Antialiasing);
+
+    // Search highlights first: on-screen (single-page) QPdfView paints them
+    // under m_annotationLayer, so the composite keeps the same stacking.
+    if (m_searchModel) {
+        QColor fill = palette().color(QPalette::Highlight);
+        fill.setAlpha(127);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(fill);
+        const QList<QPdfLink> results = m_searchModel->resultsOnPage(pageIndex);
+        for (const auto &result : results) {
+            for (const QRectF &r : result.rectangles()) {
+                if (r.isValid() && r.width() > 0 && r.height() > 0)
+                    painter.drawRect(QRectF(r.x() * renderScale, r.y() * renderScale,
+                                            r.width() * renderScale, r.height() * renderScale));
+            }
+        }
+    }
+
+    const qreal viewToPixmap = renderScale / qMax<qreal>(m_zoomFactor, 0.01);
+    painter.save();
+    painter.scale(viewToPixmap, viewToPixmap);
+    const QList<AnnotationItem> items = m_annotationLayer->annotations();
+    for (const auto &anno : items) {
+        if (anno.pageIndex != pageIndex)
+            continue;
+        AnnotationLayer::paintShape(painter, anno);
+    }
+    painter.restore();
 }
 
 void PdfViewerWidget::toggleEyeCareMode()

@@ -181,6 +181,100 @@ void AnnotationLayer::setOverlayImage(const QImage &img)
     update();
 }
 
+// §9.1 P0: the per-shape rendering lives here so the single-page overlay
+// (paintEvent) and the two-page composite (PdfViewerWidget) draw every shape
+// identically from the same AnnotationItem list — never a second painter.
+void AnnotationLayer::paintShape(QPainter &painter, const AnnotationItem &anno)
+{
+    painter.save();
+    painter.setPen(QPen(anno.color, anno.thickness, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+
+    if (anno.mode == ToolMode::DrawFreehand) {
+        for (int i = 0; i < anno.points.size() - 1; ++i) {
+            painter.drawLine(anno.points[i], anno.points[i+1]);
+        }
+    } else if (anno.mode == ToolMode::Highlight) {
+        QColor highColor = anno.color;
+        highColor.setAlpha(100);
+        painter.fillRect(anno.rect, highColor);
+    } else if (anno.mode == ToolMode::Underline) {
+        painter.setPen(QPen(anno.color, anno.thickness));
+        painter.drawLine(anno.rect.bottomLeft(), anno.rect.bottomRight());
+    } else if (anno.mode == ToolMode::Strikeout) {
+        painter.setPen(QPen(anno.color, anno.thickness));
+        QPointF midLeft(anno.rect.left(), anno.rect.center().y());
+        QPointF midRight(anno.rect.right(), anno.rect.center().y());
+        painter.drawLine(midLeft, midRight);
+    } else if (anno.mode == ToolMode::Squiggly) {
+        painter.setPen(QPen(anno.color, anno.thickness));
+        QPainterPath path;
+        path.moveTo(anno.rect.bottomLeft());
+        int waves = qMax(1, static_cast<int>(anno.rect.width() / 4));
+        qreal step = anno.rect.width() / waves;
+        for (int w = 0; w < waves; ++w) {
+            qreal x = anno.rect.left() + w * step;
+            qreal y = anno.rect.bottom();
+            path.quadTo(x + step / 4, y - 2, x + step / 2, y);
+            path.quadTo(x + 3 * step / 4, y + 2, x + step, y);
+        }
+        painter.drawPath(path);
+    } else if (anno.mode == ToolMode::Stamp) {
+        painter.setPen(QPen(anno.color, 3, Qt::SolidLine));
+        painter.drawRect(anno.rect);
+        painter.setFont(QFont("Arial", 16, QFont::Bold));
+        painter.drawText(anno.rect, Qt::AlignCenter, anno.text.isEmpty() ? "STAMP" : anno.text);
+    } else if (anno.mode == ToolMode::Callout) {
+        painter.setPen(QPen(anno.color, anno.thickness));
+        // For Callout, rect is the text box, points[0] is the leader line end (pointing to something)
+        painter.drawRect(anno.rect);
+        painter.drawText(anno.rect, Qt::AlignLeft | Qt::AlignTop, anno.text);
+        if (!anno.points.isEmpty()) {
+            QPointF start = anno.rect.center();
+            QPointF end = anno.points.first();
+            painter.drawLine(start, end);
+        }
+    } else if (anno.mode == ToolMode::AddComment) {
+        // Draw a sticky note icon
+        painter.setBrush(anno.color);
+        painter.setPen(Qt::black);
+        painter.drawRect(anno.rect.topLeft().x(), anno.rect.topLeft().y(), 24, 24);
+        painter.drawLine(anno.rect.topLeft().x() + 4, anno.rect.topLeft().y() + 6, anno.rect.topLeft().x() + 20, anno.rect.topLeft().y() + 6);
+        painter.drawLine(anno.rect.topLeft().x() + 4, anno.rect.topLeft().y() + 12, anno.rect.topLeft().x() + 20, anno.rect.topLeft().y() + 12);
+        painter.drawLine(anno.rect.topLeft().x() + 4, anno.rect.topLeft().y() + 18, anno.rect.topLeft().x() + 14, anno.rect.topLeft().y() + 18);
+    } else if (anno.mode == ToolMode::AddTextBox) {
+        painter.setPen(QPen(anno.color, 1));
+        painter.drawRect(anno.rect);
+        painter.drawText(anno.rect, Qt::AlignLeft | Qt::AlignTop, anno.text);
+    } else if (anno.mode == ToolMode::Redact) {
+        painter.setBrush(Qt::black);
+        painter.setPen(Qt::NoPen);
+        painter.drawRect(anno.rect);
+    } else if (anno.mode == ToolMode::DrawRectangle) {
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRect(anno.rect);
+    } else if (anno.mode == ToolMode::DrawEllipse) {
+        painter.setBrush(Qt::NoBrush);
+        painter.drawEllipse(anno.rect);
+    } else if (anno.mode == ToolMode::DrawLine) {
+        painter.drawLine(anno.rect.topLeft(), anno.rect.bottomRight());
+    } else if (anno.mode == ToolMode::DrawArrow) {
+        QLineF line(anno.rect.topLeft(), anno.rect.bottomRight());
+        painter.drawLine(line);
+        qreal angle = std::atan2(-line.dy(), line.dx());
+        QPointF arrowP1 = line.p2() - QPointF(std::cos(angle + M_PI / 6) * 12, -std::sin(angle + M_PI / 6) * 12);
+        QPointF arrowP2 = line.p2() - QPointF(std::cos(angle - M_PI / 6) * 12, -std::sin(angle - M_PI / 6) * 12);
+        painter.setBrush(anno.color);
+        painter.drawPolygon(QPolygonF() << line.p2() << arrowP1 << arrowP2);
+    } else if (anno.mode == ToolMode::AddSignature) {
+        painter.setPen(QPen(Qt::darkBlue, 2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        for (int i = 0; i < anno.points.size() - 1; ++i) {
+            painter.drawLine(anno.points[i], anno.points[i+1]);
+        }
+    }
+
+    painter.restore();
+}
+
 void AnnotationLayer::paintEvent(QPaintEvent *event)
 {
     QPainter painter(this);
@@ -215,8 +309,6 @@ void AnnotationLayer::paintEvent(QPaintEvent *event)
             continue;
         }
 
-        painter.setPen(QPen(anno.color, anno.thickness, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-
         // Draw selection highlight if selected.
         // T-10: use QPalette::Highlight instead of hardcoded Qt::blue so the
         // selection ring is visible in High-Contrast theme (yellow on HC palette).
@@ -235,88 +327,9 @@ void AnnotationLayer::paintEvent(QPaintEvent *event)
             painter.restore();
         }
 
-        if (anno.mode == ToolMode::DrawFreehand) {
-            for (int i = 0; i < anno.points.size() - 1; ++i) {
-                painter.drawLine(anno.points[i], anno.points[i+1]);
-            }
-        } else if (anno.mode == ToolMode::Highlight) {
-            QColor highColor = anno.color;
-            highColor.setAlpha(100);
-            painter.fillRect(anno.rect, highColor);
-        } else if (anno.mode == ToolMode::Underline) {
-            painter.setPen(QPen(anno.color, anno.thickness));
-            painter.drawLine(anno.rect.bottomLeft(), anno.rect.bottomRight());
-        } else if (anno.mode == ToolMode::Strikeout) {
-            painter.setPen(QPen(anno.color, anno.thickness));
-            QPointF midLeft(anno.rect.left(), anno.rect.center().y());
-            QPointF midRight(anno.rect.right(), anno.rect.center().y());
-            painter.drawLine(midLeft, midRight);
-        } else if (anno.mode == ToolMode::Squiggly) {
-            painter.setPen(QPen(anno.color, anno.thickness));
-            QPainterPath path;
-            path.moveTo(anno.rect.bottomLeft());
-            int waves = qMax(1, static_cast<int>(anno.rect.width() / 4));
-            qreal step = anno.rect.width() / waves;
-            for (int w = 0; w < waves; ++w) {
-                qreal x = anno.rect.left() + w * step;
-                qreal y = anno.rect.bottom();
-                path.quadTo(x + step / 4, y - 2, x + step / 2, y);
-                path.quadTo(x + 3 * step / 4, y + 2, x + step, y);
-            }
-            painter.drawPath(path);
-        } else if (anno.mode == ToolMode::Stamp) {
-            painter.setPen(QPen(anno.color, 3, Qt::SolidLine));
-            painter.drawRect(anno.rect);
-            painter.setFont(QFont("Arial", 16, QFont::Bold));
-            painter.drawText(anno.rect, Qt::AlignCenter, anno.text.isEmpty() ? "STAMP" : anno.text);
-        } else if (anno.mode == ToolMode::Callout) {
-            painter.setPen(QPen(anno.color, anno.thickness));
-            // For Callout, rect is the text box, points[0] is the leader line end (pointing to something)
-            painter.drawRect(anno.rect);
-            painter.drawText(anno.rect, Qt::AlignLeft | Qt::AlignTop, anno.text);
-            if (!anno.points.isEmpty()) {
-                QPointF start = anno.rect.center();
-                QPointF end = anno.points.first();
-                painter.drawLine(start, end);
-            }
-        } else if (anno.mode == ToolMode::AddComment) {
-            // Draw a sticky note icon
-            painter.setBrush(anno.color);
-            painter.setPen(Qt::black);
-            painter.drawRect(anno.rect.topLeft().x(), anno.rect.topLeft().y(), 24, 24);
-            painter.drawLine(anno.rect.topLeft().x() + 4, anno.rect.topLeft().y() + 6, anno.rect.topLeft().x() + 20, anno.rect.topLeft().y() + 6);
-            painter.drawLine(anno.rect.topLeft().x() + 4, anno.rect.topLeft().y() + 12, anno.rect.topLeft().x() + 20, anno.rect.topLeft().y() + 12);
-            painter.drawLine(anno.rect.topLeft().x() + 4, anno.rect.topLeft().y() + 18, anno.rect.topLeft().x() + 14, anno.rect.topLeft().y() + 18);
-        } else if (anno.mode == ToolMode::AddTextBox) {
-            painter.setPen(QPen(anno.color, 1));
-            painter.drawRect(anno.rect);
-            painter.drawText(anno.rect, Qt::AlignLeft | Qt::AlignTop, anno.text);
-        } else if (anno.mode == ToolMode::Redact) {
-            painter.setBrush(Qt::black);
-            painter.setPen(Qt::NoPen);
-            painter.drawRect(anno.rect);
-        } else if (anno.mode == ToolMode::DrawRectangle) {
-            painter.setBrush(Qt::NoBrush);
-            painter.drawRect(anno.rect);
-        } else if (anno.mode == ToolMode::DrawEllipse) {
-            painter.setBrush(Qt::NoBrush);
-            painter.drawEllipse(anno.rect);
-        } else if (anno.mode == ToolMode::DrawLine) {
-            painter.drawLine(anno.rect.topLeft(), anno.rect.bottomRight());
-        } else if (anno.mode == ToolMode::DrawArrow) {
-            QLineF line(anno.rect.topLeft(), anno.rect.bottomRight());
-            painter.drawLine(line);
-            qreal angle = std::atan2(-line.dy(), line.dx());
-            QPointF arrowP1 = line.p2() - QPointF(std::cos(angle + M_PI / 6) * 12, -std::sin(angle + M_PI / 6) * 12);
-            QPointF arrowP2 = line.p2() - QPointF(std::cos(angle - M_PI / 6) * 12, -std::sin(angle - M_PI / 6) * 12);
-            painter.setBrush(anno.color);
-            painter.drawPolygon(QPolygonF() << line.p2() << arrowP1 << arrowP2);
-        } else if (anno.mode == ToolMode::AddSignature) {
-            painter.setPen(QPen(Qt::darkBlue, 2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-            for (int i = 0; i < anno.points.size() - 1; ++i) {
-                painter.drawLine(anno.points[i], anno.points[i+1]);
-            }
-        }
+        // §9.1 P0: shared per-shape painter (see paintShape above) — the
+        // two-page composite draws this exact same code path.
+        paintShape(painter, anno);
         index++;
     }
 
