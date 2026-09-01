@@ -8,6 +8,8 @@
 #include <QFile>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QApplication>
+#include <QTimer>
 #include <podofo/podofo.h>
 #include "modes/PdfAValidationPanel.h"
 
@@ -56,18 +58,20 @@ QString TestReadingOrderAsync::writeTaggedPdfWithIssues(const QString& dir, cons
         rootDict.AddKey("Type", PoDoFo::PdfObject(PoDoFo::PdfName("StructTreeRoot")));
         rootDict.AddKey("Pg", doc.GetPages().GetPageAt(0).GetObject());
         PoDoFo::PdfArray kids;
-        // 11 elements, each with a /A layout dict whose /BBox top edge DESCENDS
-        // with structure index → visual order is the reverse of structure
-        // order → most elements are far from their visual position.
+        // 11 elements, each with a /A layout dict whose /BBox top edge ASCENDS
+        // with structure index (element 0 sits at the bottom of the page). The
+        // analyzer sorts top-of-page first, so visual order is the REVERSE of
+        // structure order — most elements are far (>2 slots) from their visual
+        // position and must be reported as issues.
         for (int i = 0; i < 11; ++i) {
             auto& elObj = doc.GetObjects().CreateDictionaryObject();
             elObj.GetDictionary().AddKey("S", PoDoFo::PdfObject(PoDoFo::PdfName("P")));
             elObj.GetDictionary().AddKey("Pg", doc.GetPages().GetPageAt(0).GetObject());
             PoDoFo::PdfArray bbox;
-            bbox.Add(static_cast<double>(792 - i * 50));  // y1 (top edge, descending)
+            bbox.Add(static_cast<double>(92 + i * 50));  // y1 (top edge, ascending)
             bbox.Add(0.0);
             bbox.Add(612.0);
-            bbox.Add(static_cast<double>(792 - i * 50 - 20));  // y0
+            bbox.Add(static_cast<double>(72 + i * 50));  // y0
             auto& attrObj = doc.GetObjects().CreateDictionaryObject();
             attrObj.GetDictionary().AddKey("BBox", PoDoFo::PdfObject(bbox));
             elObj.GetDictionary().AddKey("A", PoDoFo::PdfObject(attrObj.GetIndirectReference()));
@@ -110,9 +114,11 @@ void TestReadingOrderAsync::checkRunsAsynchronouslyAndDelivers() {
              "onCheckReadingOrder must not block the GUI thread");
 
     // The worker finishes and re-enables the button (onReadingOrderFinished).
+    // Wait WHILE DISABLED — the button is disabled synchronously by the click,
+    // so the loop must wait for the re-enable, not for the disable.
     const int deadline = 10000;
     int waited = 0;
-    while (roBtn->isEnabled() && waited < deadline) {
+    while (!roBtn->isEnabled() && waited < deadline) {
         QTest::qWait(50);
         waited += 50;
     }
@@ -122,7 +128,11 @@ void TestReadingOrderAsync::checkRunsAsynchronouslyAndDelivers() {
 
 void TestReadingOrderAsync::noDocumentShowsMessageWithoutWorker() {
     gp::PdfAValidationPanel panel;
-    // Must not crash and must not leave a worker running.
+    // Must not crash and must not leave a worker running. The panel surfaces
+    // the "no document" notice as a modal information box, so the click enters
+    // a nested exec() — close the modal from a queued callback and capture it
+    // to assert the message path ran (the no-document branch returns BEFORE
+    // any QFutureWatcher is created, i.e. no worker is spawned).
     const QList<QPushButton*> buttons = panel.findChildren<QPushButton*>();
     QPushButton* roBtn = nullptr;
     const QRegularExpression rxCheck(QStringLiteral("Check Reading Order"),
@@ -131,8 +141,14 @@ void TestReadingOrderAsync::noDocumentShowsMessageWithoutWorker() {
         if (rxCheck.match(b->text()).hasMatch()) { roBtn = b; break; }
     }
     QVERIFY(roBtn);
+
+    QWidget* modal = nullptr;
+    QTimer::singleShot(0, [&modal]() {
+        modal = QApplication::activeModalWidget();
+        if (modal) modal->close();
+    });
     roBtn->click();
-    QTest::qWait(100);
+    QVERIFY2(modal, "no-document click must show the message dialog without spawning a worker");
 }
 
 QTEST_MAIN(TestReadingOrderAsync)
