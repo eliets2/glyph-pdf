@@ -72,9 +72,10 @@ QList<AnnotationItem> AnnotationSerializer::fromJson(const QJsonDocument& doc)
         int modeInt = obj["mode"].toInt();
         // §9.7 P0: the gate used to stop at EditImage, silently dropping every
         // ordinal added after it (Stamp, Callout, Crop, … and the new
-        // signature-picker modes). The enum is now explicitly bounded at its
-        // last value; anything outside is a corrupt sidecar, not a mode.
-        if (modeInt < static_cast<int>(ToolMode::HandTool) || modeInt > static_cast<int>(ToolMode::AddSignatureUpload)) {
+        // signature-picker modes). The bound lives in PdfEnums.h
+        // (kPersistedToolModeMax) so appending a mode updates one constant;
+        // anything outside is a corrupt sidecar, not a mode.
+        if (modeInt < static_cast<int>(ToolMode::HandTool) || modeInt > kPersistedToolModeMax) {
             qWarning() << "Skipping annotation with invalid ToolMode:" << modeInt;
             continue;
         }
