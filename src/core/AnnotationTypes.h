@@ -2,6 +2,7 @@
 #pragma once
 
 #include "core/PdfEnums.h"
+#include <QImage>
 #include <QList>
 #include <QPointF>
 #include <QColor>
@@ -42,7 +43,11 @@ struct AnnotationItem {
                            // model; transcoded to /RC XHTML on save, original
                            // stashed in /PieceInfo. Empty => plain-text only.
     QRectF rect;
-    
+    // §9.7 P0 (audit 2026-07-01): raster ink for the signature picker's Type
+    // and Upload modes (typed text rendered by SignatureContent::renderTyped,
+    // or the decoded image from SignatureContent::loadUploaded). Null for all
+    // other modes. Persisted inside the PDF as an image appearance stream.
+    QImage image;
     // Appearance
     double opacity = 1.0;
     QString blendMode = "Normal";

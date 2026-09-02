@@ -19,6 +19,7 @@
 #include "ui/AnnotationLayer.h"
 #include "ui/FindBar.h"
 #include "ui/EditToolBar.h"
+#include "ui/SignaturePicker.h" // §9.7 P0: Draw/Type/Upload signature picker
 
 #include <QFileDialog>
 #include <QInputDialog>
@@ -130,6 +131,36 @@ void EditController::activate(ToolId id) {
         viewer->deleteSelectedAnnotation();
         _mainWindow->statusBar()->showMessage(tr("Deleted selected object."), 3000);
         break;
+    case ToolId::Signature: {
+        // §9.7 P0: a Draw/Type/Upload picker replaces the silent draw-only
+        // default. Draw keeps the existing freehand flow; Type/Upload render
+        // or decode the signature image here, then arm the matching placement
+        // mode — cancel leaves everything untouched.
+        SignaturePickerDialog picker(_mainWindow);
+        if (picker.exec() != QDialog::Accepted)
+            break;
+        switch (picker.acceptedKind()) {
+        case SignatureContent::Kind::Draw:
+            viewer->setToolMode(ToolMode::AddSignature);
+            _mainWindow->statusBar()->showMessage(
+                tr("Signature: draw on the page with the mouse."), 5000);
+            break;
+        case SignatureContent::Kind::Typed:
+        case SignatureContent::Kind::Upload: {
+            const bool typed = picker.acceptedKind() == SignatureContent::Kind::Typed;
+            // Order matters: arm the placement mode FIRST, then set the image
+            // (AnnotationLayer::setMode discards a pending image for any
+            // non-signature tool).
+            viewer->setToolMode(typed ? ToolMode::AddSignatureTyped
+                                      : ToolMode::AddSignatureUpload);
+            viewer->setPendingSignatureImage(picker.acceptedImage());
+            _mainWindow->statusBar()->showMessage(
+                tr("Signature ready — click or drag on the page to place it."), 5000);
+            break;
+        }
+        }
+        break;
+    }
     default:
         if (toolModes.contains(id)) {
             viewer->setToolMode(toolModes.value(id));
