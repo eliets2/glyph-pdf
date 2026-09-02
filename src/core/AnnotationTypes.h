@@ -34,11 +34,6 @@ struct AnnotationItem {
     QColor color = Qt::yellow;
     int thickness = 2;
     QString text;          // Plain-text fallback (PDF /Contents). Always kept.
-    // §9.3 P0 (audit 2026-07-01): DEAD FIELD — never set or read anywhere.
-    // CHANGELOG v1.3.0 wrongly claimed comment file attachments shipped; the
-    // claim was corrected in docs/audit/CORRECTIONS-2026-07-01.md. Implement
-    // file attachments or remove this field before claiming the capability.
-    QString attachmentPath;// absolute path to attached file; empty = no attachment
     QString djotSource;    // Djot rich-text source (M6-P4). Internal authoring
                            // model; transcoded to /RC XHTML on save, original
                            // stashed in /PieceInfo. Empty => plain-text only.
