@@ -2063,7 +2063,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestExportPathBadge.cpp")
     add_executable(TestExportPathBadge tests/TestExportPathBadge.cpp)
     target_include_directories(TestExportPathBadge PRIVATE src tests)
     target_link_libraries(TestExportPathBadge PRIVATE
-        pdfws_engines pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+        pdfws_ui pdfws_engines pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
     )
     add_test(NAME TestExportPathBadge COMMAND TestExportPathBadge)
     set_tests_properties(TestExportPathBadge PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;conversion;export;qt;headless")
