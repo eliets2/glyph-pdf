@@ -38,6 +38,11 @@ static const char* kOcrLanguageKey = "ocr/language";
 // orientation detection before OCR). EditController::runOcr and BatchMode read
 // the same key — OCRMode here only persists the preference.
 static const char* kOcrOrientDetectKey = "ocr/orientDetect";
+// §9.4: the preprocessing checkboxes are persisted prefs — the pipeline reads
+// them (via EditController/BatchMode) instead of ignoring them.
+static const char* kOcrPreprocessDeskewKey   = "ocr/preprocessDeskew";
+static const char* kOcrPreprocessBinarizeKey = "ocr/preprocessBinarize";
+static const char* kOcrPreprocessDenoiseKey  = "ocr/preprocessDenoise";
 
 // Empty-state shown in the scan/confidence pane before any OCR has run.
 static const char* kOcrEmptyStateHtml =
@@ -154,22 +159,38 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     sep1->setFixedWidth(1); sep1->setStyleSheet("color:#ffffff20;");
     row->addWidget(sep1);
 
+    // Defaults match OcrPreprocessOptions' long-standing pipeline behavior
+    // (deskew/binarize/denoise all on) so wiring the prefs is behavior-neutral
+    // until the user changes something — previously the Denoise checkbox
+    // showed "off" while the pipeline denoised anyway.
     m_chkDeskew = new QCheckBox(tr("Deskew"));
     m_chkDeskew->setObjectName("ocrChkDeskew");
-    m_chkDeskew->setChecked(true);
+    m_chkDeskew->setChecked(QSettings().value(kOcrPreprocessDeskewKey, true).toBool());
     m_chkDeskew->setStyleSheet("color:#c0c0c0; spacing:4px;");
+    connect(m_chkDeskew, &QCheckBox::toggled, this, [](bool checked) {
+        QSettings settings;
+        settings.setValue(kOcrPreprocessDeskewKey, checked);
+    });
     row->addWidget(m_chkDeskew);
 
     m_chkBinarize = new QCheckBox(tr("Binarize"));
     m_chkBinarize->setObjectName("ocrChkBinarize");
-    m_chkBinarize->setChecked(true);
+    m_chkBinarize->setChecked(QSettings().value(kOcrPreprocessBinarizeKey, true).toBool());
     m_chkBinarize->setStyleSheet("color:#c0c0c0; spacing:4px;");
+    connect(m_chkBinarize, &QCheckBox::toggled, this, [](bool checked) {
+        QSettings settings;
+        settings.setValue(kOcrPreprocessBinarizeKey, checked);
+    });
     row->addWidget(m_chkBinarize);
 
     m_chkDenoise = new QCheckBox(tr("Denoise"));
     m_chkDenoise->setObjectName("ocrChkDenoise");
-    m_chkDenoise->setChecked(false);
+    m_chkDenoise->setChecked(QSettings().value(kOcrPreprocessDenoiseKey, true).toBool());
     m_chkDenoise->setStyleSheet("color:#c0c0c0; spacing:4px;");
+    connect(m_chkDenoise, &QCheckBox::toggled, this, [](bool checked) {
+        QSettings settings;
+        settings.setValue(kOcrPreprocessDenoiseKey, checked);
+    });
     row->addWidget(m_chkDenoise);
 
     // §9.4 P0: Auto-Rotate — the only preprocessing toggle here that is wired
