@@ -592,9 +592,6 @@ add_library(pdfws_commands STATIC
     src/commands/RotateImageCommand.h
     src/commands/ReplaceImageCommand.h
     src/commands/DeleteImageCommand.h
-    # §9.9 P0: ReorderPageCommand retired — superseded by
-    # ReorderPermutationCommand (atomic, single disk write). Files kept on
-    # disk pending manual deletion.
     src/commands/ReorderPermutationCommand.h
     src/commands/ReorderPermutationCommand.cpp
     src/commands/CropPageCommand.h
@@ -1684,6 +1681,34 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchOcrLanguage.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 60
         LABELS "unit;batch;ocr;language;qt;headless"
+    )
+endif()
+
+# §9.4 regression test: the OCR preprocessing checkboxes (Deskew/Binarize/
+# Denoise) are persisted prefs honored by the pipeline — previously dead UI.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrPreprocessPrefs.cpp")
+    add_executable(TestOcrPreprocessPrefs
+        tests/TestOcrPreprocessPrefs.cpp
+    )
+    target_include_directories(TestOcrPreprocessPrefs PRIVATE src tests)
+    target_link_libraries(TestOcrPreprocessPrefs PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestOcrPreprocessPrefs POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestOcrPreprocessPrefs>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestOcrPreprocessPrefs>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestOcrPreprocessPrefs"
+    )
+    add_test(NAME TestOcrPreprocessPrefs COMMAND TestOcrPreprocessPrefs)
+    set_tests_properties(TestOcrPreprocessPrefs PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;ocr;preprocess;persistence;qt;headless"
     )
 endif()
 
