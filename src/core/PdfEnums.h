@@ -45,3 +45,10 @@ enum class ToolMode {
     AddSignatureTyped,
     AddSignatureUpload
 };
+
+// §9.7 hardening: AnnotationSerializer bounds persisted sidecar ordinals with
+// this constant instead of hardcoding the last enumerator's name — appending
+// a new ToolMode requires updating exactly ONE place, and the all-modes
+// round-trip test (TestAnnotationDjot::allToolModesRoundTripThroughSidecar)
+// fails if a mode is added without extending the serializer contract.
+inline constexpr int kPersistedToolModeMax = static_cast<int>(ToolMode::AddSignatureUpload);
