@@ -3909,6 +3909,11 @@ static QByteArray imageDictFingerprint(PoDoFo::PdfObject& obj, PoDoFo::PdfIndire
         }
         fp.append(';');
     }
+    // upgrade path: fold stream-bearing targets (/SMask, ICCBased) by object
+    // IDENTITY instead of content so many-to-one mask sharing costs O(1) per
+    // image. Empirically the content serialization does not mutate streams
+    // (pinned by TestDedupSMask::fingerprintingDoesNotMutateStreams) and the
+    // amplification only matters for very large shared masks.
     return fp;
 }
 
