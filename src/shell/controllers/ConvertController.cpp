@@ -25,6 +25,11 @@
 
 namespace gp {
 
+QString ConvertController::localProcessingNotice()
+{
+    return QObject::tr("Processed 100% locally — no internet, no upload.");
+}
+
 ConvertController::ConvertController(const AppContext* ctx, MainWindow* mainWindow, QObject* parent)
     : QObject(parent), _ctx(ctx), _mainWindow(mainWindow) {}
 
@@ -119,7 +124,7 @@ void ConvertController::exportToWord() {
         if (!self) return;
         bool ok = result->load();
         if (ok) {
-            self->_mainWindow->statusBar()->showMessage(tr("Export complete: %1").arg(outputPath), 5000);
+            self->_mainWindow->statusBar()->showMessage(tr("Export complete: %1 · %2").arg(outputPath, localProcessingNotice()), 5000);
             if (fallback->load()) {
                 // Honest disclosure: the .docx is actually HTML bytes.
                 QMessageBox::warning(self->_mainWindow, tr("Export Format Notice"),
@@ -177,7 +182,7 @@ void ConvertController::exportToExcel() {
         if (!self) return;
         bool ok = result->load();
         if (ok) {
-            self->_mainWindow->statusBar()->showMessage(tr("Export complete: %1").arg(outputPath), 5000);
+            self->_mainWindow->statusBar()->showMessage(tr("Export complete: %1 · %2").arg(outputPath, localProcessingNotice()), 5000);
             if (fallback->load()) {
                 QMessageBox::warning(self->_mainWindow, tr("Export Format Notice"),
                     tr("This build lacks the native Excel (OOXML) writer, so the exported file\n%1\n"
@@ -228,7 +233,7 @@ void ConvertController::exportToCsv() {
         if (!self) return;
         bool ok = result->load();
         if (ok) {
-            self->_mainWindow->statusBar()->showMessage(tr("Export complete: %1").arg(outputPath), 5000);
+            self->_mainWindow->statusBar()->showMessage(tr("Export complete: %1 · %2").arg(outputPath, localProcessingNotice()), 5000);
         } else {
             QMessageBox::critical(self->_mainWindow, tr("Export Error"), tr("Failed to extract data to CSV."));
         }
@@ -422,7 +427,7 @@ void ConvertController::exportToHtml() {
         if (!self) return;
         bool ok = result->load();
         if (ok) {
-            self->_mainWindow->statusBar()->showMessage(tr("Export complete: %1").arg(outputPath), 5000);
+            self->_mainWindow->statusBar()->showMessage(tr("Export complete: %1 · %2").arg(outputPath, localProcessingNotice()), 5000);
             if (QMessageBox::question(self->_mainWindow, tr("Export Success"), tr("Export to HTML complete. Open file?")) == QMessageBox::Yes) {
                 QDesktopServices::openUrl(QUrl::fromLocalFile(outputPath));
             }
@@ -467,7 +472,7 @@ void ConvertController::exportToText() {
         if (!self) return;
         bool ok = result->load();
         if (ok) {
-            self->_mainWindow->statusBar()->showMessage(tr("Export complete: %1").arg(outputPath), 5000);
+            self->_mainWindow->statusBar()->showMessage(tr("Export complete: %1 · %2").arg(outputPath, localProcessingNotice()), 5000);
             if (QMessageBox::question(self->_mainWindow, tr("Export Success"), tr("Export to Text complete. Open file?")) == QMessageBox::Yes) {
                 QDesktopServices::openUrl(QUrl::fromLocalFile(outputPath));
             }
@@ -512,7 +517,7 @@ void ConvertController::exportToPowerPoint() {
         if (!self) return;
         bool ok = result->load();
         if (ok) {
-            self->_mainWindow->statusBar()->showMessage(tr("Export complete: %1").arg(outputPath), 5000);
+            self->_mainWindow->statusBar()->showMessage(tr("Export complete: %1 · %2").arg(outputPath, localProcessingNotice()), 5000);
             if (QMessageBox::question(self->_mainWindow, tr("Export Success"), tr("Export to PowerPoint complete. Open file?")) == QMessageBox::Yes) {
                 QDesktopServices::openUrl(QUrl::fromLocalFile(outputPath));
             }
@@ -557,7 +562,7 @@ void ConvertController::exportToImage() {
         if (!self) return;
         bool ok = result->load();
         if (ok) {
-            self->_mainWindow->statusBar()->showMessage(tr("Export complete: %1").arg(outputPath), 5000);
+            self->_mainWindow->statusBar()->showMessage(tr("Export complete: %1 · %2").arg(outputPath, localProcessingNotice()), 5000);
             if (QMessageBox::question(self->_mainWindow, tr("Export Success"), tr("Export to image complete. Open file?")) == QMessageBox::Yes) {
                 QDesktopServices::openUrl(QUrl::fromLocalFile(outputPath));
             }

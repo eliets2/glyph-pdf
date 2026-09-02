@@ -6,12 +6,14 @@
 #include <QTemporaryDir>
 #include <QFile>
 #include "engines/ConversionManager.h"
+#include "shell/controllers/ConvertController.h"
 
 class TestExportPathBadge : public QObject {
     Q_OBJECT
 private slots:
     void capabilityFlagsAreConsistent();
     void wordExportTracksEngineUsed();
+    void localProcessingNoticeStatesPrivacy();
 };
 static QString createMinimalPdf(const QString& dir, const QString& name) {
     const QString path = dir + "/" + name;
@@ -64,6 +66,18 @@ void TestExportPathBadge::wordExportTracksEngineUsed() {
     } else {
         QCOMPARE(mgr.lastWordExportEngine(), ConversionManager::ExportEngine::Fallback);
     }
+}
+// §9.16 P0: the local-processing badge must exist and make an honest,
+// factual claim (every conversion runs on-device; imports use a local
+// LibreOffice subprocess — no network anywhere in these paths).
+void TestExportPathBadge::localProcessingNoticeStatesPrivacy() {
+    const QString notice = gp::ConvertController::localProcessingNotice();
+    QVERIFY2(notice.contains(QStringLiteral("no upload"), Qt::CaseInsensitive),
+             qPrintable(QStringLiteral("badge must state 'no upload': %1").arg(notice)));
+    QVERIFY2(notice.contains(QStringLiteral("no internet"), Qt::CaseInsensitive),
+             qPrintable(QStringLiteral("badge must state 'no internet': %1").arg(notice)));
+    QVERIFY2(notice.contains(QStringLiteral("locally"), Qt::CaseInsensitive),
+             qPrintable(QStringLiteral("badge must state the processing is local: %1").arg(notice)));
 }
 QTEST_MAIN(TestExportPathBadge)
 #include "TestExportPathBadge.moc"
