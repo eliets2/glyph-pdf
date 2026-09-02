@@ -628,6 +628,7 @@ add_library(pdfws_ui STATIC
     src/ui/EncryptionDialog.h        src/ui/EncryptionDialog.cpp
     src/ui/PermissionsDialog.h       src/ui/PermissionsDialog.cpp
     src/ui/SignatureDialog.h         src/ui/SignatureDialog.cpp
+    src/ui/SignaturePicker.h         src/ui/SignaturePicker.cpp
     src/ui/MetadataDialog.h          src/ui/MetadataDialog.cpp
     src/ui/AnnotationLayer.h         src/ui/AnnotationLayer.cpp
     src/ui/ThumbnailSidebar.h        src/ui/ThumbnailSidebar.cpp
@@ -2168,6 +2169,33 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestTwoPageOverlay.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 300
         LABELS "unit;viewing;twopage;regression;qt;headless"
+    )
+endif()
+
+# §9.7 P0 regression test: the signature tool must grow Draw/Type/Upload modes
+# that feed the SAME annotation persistence as Draw (typed/uploaded signatures
+# persist as real PDF annotations and survive a save/reload round-trip).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignaturePicker.cpp")
+    add_executable(TestSignaturePicker tests/TestSignaturePicker.cpp)
+    target_include_directories(TestSignaturePicker PRIVATE src tests)
+    target_link_libraries(TestSignaturePicker PRIVATE
+        pdfws_ui pdfws_engines pdfws_core podofo::podofo Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets
+    )
+    if(WIN32)
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestSignaturePicker POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestSignaturePicker>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestSignaturePicker"
+            )
+        endif()
+    endif()
+    add_test(NAME TestSignaturePicker COMMAND TestSignaturePicker)
+    set_tests_properties(TestSignaturePicker PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 300
+        LABELS "unit;signatures;picker;regression;qt;headless"
     )
 endif()
 

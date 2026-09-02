@@ -386,6 +386,8 @@ void PdfViewerWidget::setToolMode(ToolMode mode)
         case ToolMode::FormAddSignature:
         case ToolMode::FormAddButton:
         case ToolMode::FormAddCalculated:
+        case ToolMode::AddSignatureTyped:   // §9.7 P0: placement crosshair
+        case ToolMode::AddSignatureUpload:
             m_pdfView->setCursor(Qt::CrossCursor);
             break;
         default:
@@ -457,6 +459,15 @@ void PdfViewerWidget::setAnnotations(const QList<AnnotationItem> &items)
 {
     if (m_annotationLayer)
         m_annotationLayer->setAnnotations(items);
+}
+
+void PdfViewerWidget::setPendingSignatureImage(const QImage &img)
+{
+    // §9.7 P0: must come AFTER setToolMode() armed the signature placement
+    // mode — AnnotationLayer::setMode() discards the pending image for any
+    // non-signature tool.
+    if (m_annotationLayer)
+        m_annotationLayer->setPendingSignatureImage(img);
 }
 
 // ---- Search ----
