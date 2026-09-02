@@ -104,6 +104,92 @@ private slots:
         QVERIFY2(withSMask >= 1, "the /SMask image must survive with its mask intact");
         QVERIFY2(withoutSMask >= 1, "the plain image must survive without an /SMask");
     }
+
+    // §9.13 F4: fingerprinting must fold stream-bearing targets (/SMask) by
+    // object IDENTITY, never by serializing their content — ToString() copied
+    // whole streams into the hash (memory amplification when many images share
+    // one mask) AND PoDoFo's write recompresses unfiltered streams in place,
+    // mutating the document mid-hash. An UNFILTERED mask stream must survive a
+    // dedup pass byte-identical.
+    void fingerprintingDoesNotMutateStreams() {
+        QString pdf = tmpPath("unfiltered_mask.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            auto& page = doc.GetPages().CreatePage(
+                PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+
+            const int W = 64, H = 64;
+            auto img = doc.CreateImage();
+            QByteArray pixels;
+            for (int i = 0; i < W * H; ++i) {
+                pixels.append('\x12'); pixels.append('\x34'); pixels.append('\x56');
+            }
+            img->SetData(PoDoFo::bufferview(pixels.constData(), pixels.size()),
+                         W, H, PoDoFo::PdfPixelFormat::RGB24);
+
+            // Unfiltered mask: SetDataRaw writes the bytes verbatim (no /Filter),
+            // exactly the shape ToString() would recompress in place.
+            auto mask = doc.CreateImage();
+            QByteArray maskPixels;
+            for (int i = 0; i < W * H; ++i) maskPixels.append(char(i & 0xFF));
+            PoDoFo::PdfImageInfo info;
+            info.Width = W;
+            info.Height = H;
+            info.BitsPerComponent = 8;
+            info.Filters = PoDoFo::PdfFilterList{}; // explicitly NO filter
+            info.ColorSpace = PoDoFo::PdfColorSpaceInitializer(PoDoFo::PdfColorSpaceType::DeviceGray);
+            mask->SetDataRaw(PoDoFo::bufferview(maskPixels.constData(), maskPixels.size()), info);
+
+            img->GetDictionary().AddKey("SMask", mask->GetObject().GetIndirectReference());
+
+            PoDoFo::PdfPainter painter;
+            painter.SetCanvas(page);
+            painter.DrawImage(*img, 100, 700, 40.0, 40.0);
+            painter.FinishDrawing();
+            doc.Save(pdf.toUtf8().constData());
+        }
+        QVERIFY2(QFileInfo::exists(pdf), "source PDF must be written");
+
+        // Capture the mask's raw (encoded) stream bytes from the source.
+        auto findMaskRaw = [](const QString& path) -> QByteArray {
+            PoDoFo::PdfMemDocument doc;
+            doc.Load(path.toUtf8().constData());
+            for (auto it = doc.GetObjects().begin(); it != doc.GetObjects().end(); ++it) {
+                PoDoFo::PdfObject* o = *it;
+                if (!o->IsDictionary() || !o->HasStream()) continue;
+                if (!o->GetDictionary().HasKey("SMask")) continue;
+                auto* sm = o->GetDictionary().FindKey("SMask");
+                if (!sm) continue;
+                // After a save/load round-trip the mask may come back inline
+                // (direct object) or as a reference — handle both shapes.
+                PoDoFo::PdfObject* m = sm->IsReference()
+                    ? doc.GetObjects().GetObject(sm->GetReference()) : sm;
+                if (!m || !m->HasStream()) continue;
+                PoDoFo::charbuff buf;
+                m->GetOrCreateStream().CopyTo(buf, /*raw=*/true);
+                return QByteArray(buf.data(), static_cast<int>(buf.size()));
+            }
+            return {};
+        };
+        const QByteArray before = findMaskRaw(pdf);
+        QVERIFY2(!before.isEmpty(), "unfiltered mask stream must be readable from the source");
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+        OptimizeOptions opts;
+        opts.downsampleImages = false;
+        opts.deduplicateImages = true;
+        opts.stripMetadata = false;
+        QString out = tmpPath("unfiltered_mask_out.pdf");
+        QVERIFY2(engine.optimizeDocument(out, opts), "optimizeDocument must succeed");
+
+        const QByteArray after = findMaskRaw(out);
+        QVERIFY2(!after.isEmpty(), "mask stream must survive the dedup pass");
+        QVERIFY2(after == before,
+                 qPrintable(QStringLiteral("fingerprinting must not mutate stream bytes "
+                                          "(mask raw stream changed: %1 → %2 bytes)")
+                                .arg(before.size()).arg(after.size())));
+    }
 };
 
 QTEST_MAIN(TestDedupSMask)
