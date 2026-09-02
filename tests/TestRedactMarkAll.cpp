@@ -6,6 +6,7 @@
 #include <QtTest/QtTest>
 #include <QTemporaryDir>
 #include <QCheckBox>
+#include <QLabel>
 #include <QComboBox>
 #include <QMessageBox>
 #include <QTimer>
@@ -33,6 +34,7 @@ private slots:
     // §9.8 P0: the Apply flow's sanitize checkbox must run the full hidden-
     // data scrub on the saved copy (and stay off honestly when unchecked).
     void sanitizeCopyCheckboxProducesCleanOutput();
+    void redactPanelShowsLocalClaim();
     void sanitizeUncheckedKeepsMetadata();
 private:
     static QString createPdfWithText(const QTemporaryDir& tmpDir,
@@ -378,5 +380,13 @@ void TestRedactMarkAll::sanitizeUncheckedKeepsMetadata() {
              "this documents the honest difference between the two modes");
 }
 
+void TestRedactMarkAll::redactPanelShowsLocalClaim() {
+    // §9.8 P0: the redaction surface must state the compliance differentiator.
+    gp::RedactMode mode;
+    auto* label = mode.findChild<QLabel*>(QStringLiteral("redactLocalClaimLabel"));
+    QVERIFY2(label, "RedactMode must display the local-first claim label");
+    QVERIFY2(label->text().contains(QStringLiteral("no upload"), Qt::CaseInsensitive),
+             qPrintable(QStringLiteral("claim must state no-upload: %1").arg(label->text())));
+}
 QTEST_MAIN(TestRedactMarkAll)
 #include "TestRedactMarkAll.moc"

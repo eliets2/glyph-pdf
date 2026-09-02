@@ -85,6 +85,15 @@ RedactMode::RedactMode(QWidget* parent) : QWidget(parent) {
         "XMP, attachments, JavaScript actions, bookmarks and form values."));
     row->addWidget(m_chkSanitizeCopy);
 
+    // §9.8 P0: state the compliance differentiator on the redaction surface
+    // (muted, one line — the whole pipeline is in-process).
+    auto* localClaim = new QLabel(PagesMode::localFirstClaim());
+    localClaim->setObjectName("redactLocalClaimLabel");
+    localClaim->setWordWrap(true);
+    localClaim->setStyleSheet(QString("color:%1; font-size:8pt;")
+                                  .arg(gp::Theme::fg2().name()));
+    col->addWidget(localClaim);
+
     // AR-8 D3: "Cancel" button HIDDEN — its connection was a no-op lambda.
     // Planned: emit exitRequested() signal to the shell's mode controller.
     // Restore the button and wire exitRequested() when the mode-exit contract

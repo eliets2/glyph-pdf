@@ -36,6 +36,11 @@ public:
     // Parse "1-3,5,7-9" into 0-based indices [0,1,2,4,6,7,8].
     static QList<int> parsePageRange(const QString& expr, int pageCount);
 
+    // §9.8+§9.9 P0: the local-first differentiator, shared by the Pages and
+    // Redaction panels and the About dialog — one source of truth for the
+    // claim (factual: all of these features run in-process on this machine).
+    static QString localFirstClaim();
+
     // Execute split without UI: returns paths of produced files.
     QStringList executeSplit(const QString& sourcePath,
                              const QList<QList<int>>& groups,

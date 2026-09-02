@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "MenuBar.h"
+#include "modes/PagesMode.h"
 #include "GpMainWindow.h"
 #include "ui/PdfViewerWidget.h"
 #include "ui/ShortcutHelpDialog.h"
@@ -227,13 +228,14 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
                        "<p>Version %1</p>"
                        "<p>A privacy-first PDF workstation for Windows. "
                        "No telemetry, no cloud, no subscription.</p>"
+                       "<p>%2</p>"
                        "<p>Built with C++17, Qt 6.11, PoDoFo 1.1, and PDFium.</p>"
                        "<p>&copy; 2026 Glyph. Licensed under the "
                        "<a href=\"https://www.apache.org/licenses/LICENSE-2.0\">Apache License 2.0</a>.</p>"
                        "<p>This product bundles open-source components under the "
                        "MIT, Apache-2.0, BSD, and LGPL licenses. Full notices are in "
                        "<b>LICENSE-3RD-PARTY.md</b>, installed alongside the application.</p>")
-                    .arg(UpdateChecker::currentVersion()));
+                    .arg(UpdateChecker::currentVersion(), PagesMode::localFirstClaim()));
             } else if (toolId == "shortcuts") {
                 ShortcutHelpDialog dlg(mainWindow);
                 dlg.exec();

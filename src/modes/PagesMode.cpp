@@ -142,6 +142,13 @@ QList<int> PagesMode::parsePageRange(const QString& expr, int pageCount)
 
 // ── PagesMode construction ────────────────────────────────────────────────────
 
+QString PagesMode::localFirstClaim()
+{
+    // Factual: merge/split/Bates/redaction/OCR are all in-process engines.
+    return PagesMode::tr("100% local processing — merging, Bates numbering and "
+                         "redaction never leave this machine. No internet, no upload.");
+}
+
 PagesMode::PagesMode(QWidget* parent) : QWidget(parent)
 {
     auto* mainLayout = new QVBoxLayout(this);
@@ -227,6 +234,15 @@ void PagesMode::buildPageListPanel(QWidget* host)
     m_pageCountLabel->setProperty("mono", true);
     hdrLayout->addWidget(m_pageCountLabel);
     vLayout->addWidget(header);
+
+    // §9.9 P0: the offline differentiator stated on the page-management
+    // surface itself (muted, one line — factual, not marketing fluff).
+    auto* localClaim = new QLabel(PagesMode::localFirstClaim());
+    localClaim->setObjectName("pagesLocalClaimLabel");
+    localClaim->setWordWrap(true);
+    localClaim->setStyleSheet(QString("color:%1; font-size:8pt;")
+                                  .arg(gp::Theme::fg2().name()));
+    vLayout->addWidget(localClaim);
 
     // Page list widget — grid / icon mode so thumbnails display naturally
     m_pageList = new QListWidget;
