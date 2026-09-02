@@ -42,6 +42,11 @@ public:
     void setOcrResults(const QList<OcrResult> &results);
     void setPageAtCallback(std::function<int(QPoint)> callback);
 
+    // §9.7 P0: the signature image produced by the Draw/Type/Upload picker
+    // (SignaturePickerDialog). Armed by the controller for the Type/Upload
+    // placement modes; consumed when the user clicks/drags on the page.
+    void setPendingSignatureImage(const QImage &img);
+
     void setImageOverlays(const QList<PdfImageInfo> &images);
     void setSelectedImageName(const QString &name);
     QString selectedImageName() const { return m_selectedImageName; }
@@ -84,4 +89,6 @@ private:
     QPointF m_originalImagePos;
     // AR-7 D5: overlay image (e.g. pixel-diff from CompareMode).
     QImage m_overlayImage;
+    // §9.7 P0: pending signature image for the Type/Upload placement modes.
+    QImage m_pendingSignatureImage;
 };

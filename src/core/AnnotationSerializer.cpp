@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "core/AnnotationSerializer.h"
+#include <QBuffer>
 #include <QDebug>
 
 QJsonDocument AnnotationSerializer::toJson(const QList<AnnotationItem>& items)
@@ -38,6 +39,17 @@ QJsonDocument AnnotationSerializer::toJson(const QList<AnnotationItem>& items)
             points.append(pt);
         }
         obj["points"] = points;
+
+        // §9.7 P0: cache signature-picker raster ink (typed/uploaded modes) in
+        // the sidecar so the overlay survives an app restart before the PDF is
+        // saved. PNG keeps it small; an oversized raster is skipped rather
+        // than stalling autosave (the authoritative PDF embed still carries it).
+        if (!anno.image.isNull()) {
+            QBuffer pngBuf;
+            pngBuf.open(QIODevice::WriteOnly);
+            if (anno.image.save(&pngBuf, "PNG") && pngBuf.size() <= 4 * 1024 * 1024)
+                obj["image_png"] = QString::fromLatin1(pngBuf.data().toBase64());
+        }
         array.append(obj);
     }
     return QJsonDocument(array);
@@ -58,7 +70,11 @@ QList<AnnotationItem> AnnotationSerializer::fromJson(const QJsonDocument& doc)
         QJsonObject obj = array[i].toObject();
         AnnotationItem item;
         int modeInt = obj["mode"].toInt();
-        if (modeInt < static_cast<int>(ToolMode::HandTool) || modeInt > static_cast<int>(ToolMode::EditImage)) {
+        // §9.7 P0: the gate used to stop at EditImage, silently dropping every
+        // ordinal added after it (Stamp, Callout, Crop, … and the new
+        // signature-picker modes). The enum is now explicitly bounded at its
+        // last value; anything outside is a corrupt sidecar, not a mode.
+        if (modeInt < static_cast<int>(ToolMode::HandTool) || modeInt > static_cast<int>(ToolMode::AddSignatureUpload)) {
             qWarning() << "Skipping annotation with invalid ToolMode:" << modeInt;
             continue;
         }
@@ -91,6 +107,14 @@ QList<AnnotationItem> AnnotationSerializer::fromJson(const QJsonDocument& doc)
         for (int j = 0; j < points.size(); ++j) {
             QJsonObject pt = points[j].toObject();
             item.points.append(QPointF(pt["x"].toDouble(), pt["y"].toDouble()));
+        }
+
+        // §9.7 P0: restore the cached signature raster (typed/uploaded modes).
+        if (obj.contains("image_png")) {
+            const QByteArray raw =
+                QByteArray::fromBase64(obj["image_png"].toString().toLatin1());
+            if (!raw.isEmpty())
+                item.image = QImage::fromData(raw, "PNG");
         }
         items.append(item);
     }

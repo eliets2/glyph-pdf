@@ -1124,6 +1124,8 @@ void InspectorWidget::refreshProperties()
             case ToolMode::AddComment:    name = "COMMENT";    break;
             case ToolMode::Redact:        name = "REDACTION";  break;
             case ToolMode::AddSignature:  name = "SIGNATURE";  break;
+            case ToolMode::AddSignatureTyped:  name = "SIGNATURE (TYPED)";  break;
+            case ToolMode::AddSignatureUpload: name = "SIGNATURE (IMAGE)"; break;
             default:                      name = "ANNOTATION"; break;
         }
         typeName->setText(name);

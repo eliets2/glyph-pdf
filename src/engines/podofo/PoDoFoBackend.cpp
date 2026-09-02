@@ -2829,6 +2829,11 @@ static void applyAnnotationsToDoc(PoDoFo::PdfMemDocument& doc,
                 annotType = PoDoFo::PdfAnnotationType::Line;
             else if (anno.mode == ToolMode::DrawFreehand || anno.mode == ToolMode::AddSignature)
                 annotType = PoDoFo::PdfAnnotationType::Ink;
+            // §9.7 P0: signature-picker Type/Upload modes persist as /Stamp
+            // annotations carrying a real image appearance stream (below) —
+            // the closest standard subtype to "a graphic placed on the page".
+            else if (anno.mode == ToolMode::AddSignatureTyped || anno.mode == ToolMode::AddSignatureUpload)
+                annotType = PoDoFo::PdfAnnotationType::Stamp;
 
             auto& annot = page.GetAnnotations().CreateAnnot(annotType, pdfRect);
             PoDoFo::PdfDictionary& dict = annot.GetDictionary();
@@ -2887,6 +2892,79 @@ static void applyAnnotationsToDoc(PoDoFo::PdfMemDocument& doc,
                 dict.AddKey("L", lineArr);
             }
 
+            // ── §9.7 P0: signature-picker Type/Upload image appearance ─────
+            // The signature raster becomes a PDF image XObject (alpha kept via
+            // an 8-bit /SMask), drawn by a form appearance stream that
+            // letterboxes it inside the placed rect — the same math as
+            // AnnotationLayer's fitInsideRect, so reload matches the screen.
+            // /GlyphSigMode drives the inverse mapping in extractAnnotations;
+            // other readers ignore the private key. A failure here must not
+            // abort the save — the annot still persists, visibility degrades
+            // to the gray-box AP written for image-less stamps below.
+            const bool sigImageAnno =
+                (anno.mode == ToolMode::AddSignatureTyped || anno.mode == ToolMode::AddSignatureUpload);
+            bool sigImageApWritten = false;
+            if (sigImageAnno) {
+                dict.AddKey("GlyphSigMode",
+                            PoDoFo::PdfName(anno.mode == ToolMode::AddSignatureTyped ? "Typed" : "Upload"));
+                const QImage rgba = anno.image.convertToFormat(QImage::Format_RGBA8888);
+                const int imgW = rgba.width();
+                const int imgH = rgba.height();
+                if (imgW > 0 && imgH > 0) {
+                    try {
+                        // Pack RGB24 + a separate alpha plane (replaceImage
+                        // packs scanlines the same way — PdfImage has no
+                        // stride-per-pixel concept for RGBA source buffers).
+                        std::vector<char> rgb(static_cast<size_t>(imgW) * imgH * 3);
+                        std::vector<char> alpha(static_cast<size_t>(imgW) * imgH);
+                        for (int y = 0; y < imgH; ++y) {
+                            const uchar *line = rgba.constScanLine(y);
+                            for (int x = 0; x < imgW; ++x) {
+                                const size_t o = static_cast<size_t>(y) * imgW + x;
+                                rgb[o * 3 + 0] = static_cast<char>(line[x * 4 + 0]);
+                                rgb[o * 3 + 1] = static_cast<char>(line[x * 4 + 1]);
+                                rgb[o * 3 + 2] = static_cast<char>(line[x * 4 + 2]);
+                                alpha[o]       = static_cast<char>(line[x * 4 + 3]);
+                            }
+                        }
+                        auto image = doc.CreateImage();
+                        image->SetData(PoDoFo::bufferview(rgb.data(), rgb.size()),
+                                       static_cast<unsigned>(imgW), static_cast<unsigned>(imgH),
+                                       PoDoFo::PdfPixelFormat::RGB24, imgW * 3);
+                        auto mask = doc.CreateImage();
+                        mask->SetData(PoDoFo::bufferview(alpha.data(), alpha.size()),
+                                      static_cast<unsigned>(imgW), static_cast<unsigned>(imgH),
+                                      PoDoFo::PdfPixelFormat::Grayscale, imgW);
+                        image->SetSoftMask(*mask);
+
+                        // §9.7: draw through PdfPainter — form contents and
+                        // resource registration are painter-managed (the
+                        // direct AddResource/GetOrCreateContentsStream APIs
+                        // are private in PoDoFo 1.1).
+                        const double W = bounds.width();
+                        const double H = bounds.height();
+                        const double scale = (W > 0.0 && H > 0.0)
+                            ? std::min(W / imgW, H / imgH) : 1.0;
+                        const double fw = imgW * scale;
+                        const double fh = imgH * scale;
+                        const double ox = (W - fw) / 2.0;
+                        const double oy = (H - fh) / 2.0;
+                        auto form = doc.CreateXObjectForm(
+                            PoDoFo::Rect(0, 0, W, H));
+                        {
+                            PoDoFo::PdfPainter painter;
+                            painter.SetCanvas(*form);
+                            painter.DrawImage(*image, ox, oy, fw / imgW, fh / imgH);
+                            painter.FinishDrawing();
+                        }
+                        annot.SetAppearanceStream(*form);
+                        sigImageApWritten = true;
+                    } catch (const std::exception &e) {
+                        qWarning() << "signature image appearance stream:" << e.what();
+                    }
+                }
+            }
+
             if (!anno.id.isEmpty()) {
                 dict.AddKey("NM", PoDoFo::PdfString(anno.id.toStdString()));
                 idToObjectMap[anno.id] = &annot.GetObject();
@@ -2898,9 +2976,12 @@ static void applyAnnotationsToDoc(PoDoFo::PdfMemDocument& doc,
                 }
             }
 
-            // Appearance streams for Stamp / Callout / Strikeout / Squiggly
+            // Appearance streams for Stamp / Callout / Strikeout / Squiggly —
+            // and the gray-box fallback for signature-image annots whose image
+            // was missing or failed to embed (§9.7: visible, never invisible).
             if (anno.mode == ToolMode::Stamp || anno.mode == ToolMode::Callout ||
-                anno.mode == ToolMode::Strikeout || anno.mode == ToolMode::Squiggly) {
+                anno.mode == ToolMode::Strikeout || anno.mode == ToolMode::Squiggly ||
+                (sigImageAnno && !sigImageApWritten)) {
                 auto& streamObj = doc.GetObjects().CreateDictionaryObject();
                 streamObj.GetDictionary().AddKey("Type", PoDoFo::PdfName("XObject"));
                 streamObj.GetDictionary().AddKey("Subtype", PoDoFo::PdfName("Form"));
@@ -3061,7 +3142,19 @@ QList<AnnotationItem> PoDoFoBackend::extractAnnotations(const QString &inputPath
                         else if (s == "Squiggly")  item.mode = ToolMode::Squiggly;
                         else if (s == "Underline") item.mode = ToolMode::Underline;
                         else if (s == "Highlight") item.mode = ToolMode::Highlight;
-                        else if (s == "Stamp")     item.mode = ToolMode::Stamp;
+                        else if (s == "Stamp") {
+                            item.mode = ToolMode::Stamp;
+                            // §9.7 P0: signature-picker Type/Upload annots are
+                            // /Stamp with a /GlyphSigMode marker; map them back
+                            // to their real tools. Other writers never set it.
+                            if (const auto* gk = dict.FindKey("GlyphSigMode")) {
+                                if (gk->IsName()) {
+                                    const std::string gs{gk->GetName().GetString()};
+                                    if (gs == "Typed")  item.mode = ToolMode::AddSignatureTyped;
+                                    if (gs == "Upload") item.mode = ToolMode::AddSignatureUpload;
+                                }
+                            }
+                        }
                         else if (s == "FreeText")  item.mode = ToolMode::Callout;
                         else if (s == "Text")      item.mode = ToolMode::AddComment;
                         // §9.3 P0: real shape/ink subtypes round-trip to their
@@ -3115,6 +3208,104 @@ QList<AnnotationItem> PoDoFoBackend::extractAnnotations(const QString &inputPath
                                 ln[2].IsNumberOrReal() && ln[3].IsNumberOrReal()) {
                                 item.points.append(QPointF(ln[0].GetReal(), pageHeight - ln[1].GetReal()));
                                 item.points.append(QPointF(ln[2].GetReal(), pageHeight - ln[3].GetReal()));
+                            }
+                        }
+                    }
+                }
+
+                // ── §9.7 P0: restore the signature raster from the appearance ─
+                // The AP form's /Resources /XObject "Im0" is the image we
+                // embedded (DeviceRGB + 8-bit /SMask). Untrusted input is
+                // handled defensively: dimensions are sanity-capped and any
+                // mismatch simply leaves item.image null (the layer then paints
+                // its dashed placeholder — the annot itself still round-trips).
+                if (item.mode == ToolMode::AddSignatureTyped || item.mode == ToolMode::AddSignatureUpload) {
+                    auto resolveObj = [&doc](const PoDoFo::PdfObject *obj)
+                        -> const PoDoFo::PdfObject * {
+                        while (obj && obj->IsReference())
+                            obj = doc.GetObjects().GetObject(obj->GetReference());
+                        return obj;
+                    };
+                    if (const PoDoFo::PdfObject *apObj = resolveObj(
+                            annot.GetAppearanceStream(PoDoFo::PdfAppearanceType::Normal))) {
+                        if (apObj->IsDictionary()) {
+                            const PoDoFo::PdfObject *res =
+                                resolveObj(apObj->GetDictionary().FindKey("Resources"));
+                            const PoDoFo::PdfObject *xobjs =
+                                res && res->IsDictionary()
+                                    ? resolveObj(res->GetDictionary().FindKey("XObject"))
+                                    : nullptr;
+                            // The embedded signature raster is the AP form's
+                            // image XObject — writers name the resource key
+                            // differently (our painter picks its own name,
+                            // other viewers arbitrary), so scan for the first
+                            // entry whose target is /Subtype /Image instead of
+                            // hardcoding a key.
+                            const PoDoFo::PdfObject *imgObj = nullptr;
+                            if (xobjs && xobjs->IsDictionary()) {
+                                for (const auto &entry : xobjs->GetDictionary()) {
+                                    const PoDoFo::PdfObject *cand =
+                                        resolveObj(&entry.second);
+                                    if (cand && cand->IsDictionary()) {
+                                        const PoDoFo::PdfObject *st =
+                                            cand->GetDictionary().FindKey("Subtype");
+                                        if (st && st->IsName()
+                                            && st->GetName().GetString() == "Image") {
+                                            imgObj = cand;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            if (imgObj && imgObj->IsDictionary()) {
+                                const PoDoFo::PdfDictionary &idict = imgObj->GetDictionary();
+                                const auto num = [&idict](const char *key) -> int64_t {
+                                    if (const PoDoFo::PdfObject *o = idict.FindKey(key);
+                                        o && o->IsNumber())
+                                        return o->GetNumber();
+                                    return 0;
+                                };
+                                const int64_t imgW = num("Width");
+                                const int64_t imgH = num("Height");
+                                const int64_t bpc  = num("BitsPerComponent");
+                                // Defensive caps: extraction parses untrusted
+                                // files; never allocate for absurd dimensions.
+                                if (imgW > 0 && imgH > 0 && imgW <= 10000 && imgH <= 10000 && bpc == 8) {
+                                    try {
+                                        const PoDoFo::charbuff rgb = imgObj->GetStream()->GetCopy();
+                                        if (rgb.size() == static_cast<size_t>(imgW) * imgH * 3) {
+                                            QImage restored(static_cast<int>(imgW),
+                                                            static_cast<int>(imgH),
+                                                            QImage::Format_RGBA8888);
+                                            for (int y = 0; y < static_cast<int>(imgH); ++y) {
+                                                uchar *dst = restored.scanLine(y);
+                                                std::copy(rgb.data() + static_cast<size_t>(y) * imgW * 3,
+                                                          rgb.data() + static_cast<size_t>(y + 1) * imgW * 3,
+                                                          dst);
+                                                for (int x = 0; x < static_cast<int>(imgW); ++x)
+                                                    dst[x * 4 + 3] = 255;  // opaque until /SMask says otherwise
+                                            }
+                                            if (const PoDoFo::PdfObject *smObj =
+                                                    resolveObj(idict.FindKey("SMask"))) {
+                                                if (smObj->IsDictionary()) {
+                                                    const PoDoFo::charbuff alpha =
+                                                        smObj->GetStream()->GetCopy();
+                                                    if (alpha.size() == static_cast<size_t>(imgW) * imgH) {
+                                                        for (int y = 0; y < static_cast<int>(imgH); ++y) {
+                                                            uchar *dst = restored.scanLine(y);
+                                                            for (int x = 0; x < static_cast<int>(imgW); ++x)
+                                                                dst[x * 4 + 3] =
+                                                                    static_cast<uchar>(alpha[static_cast<size_t>(y) * imgW + x]);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            item.image = restored;
+                                        }
+                                    } catch (const std::exception &e) {
+                                        qWarning() << "signature image restore:" << e.what();
+                                    }
+                                }
                             }
                         }
                     }

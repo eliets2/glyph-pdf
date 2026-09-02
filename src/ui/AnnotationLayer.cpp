@@ -12,6 +12,27 @@
 #define M_PI 3.14159265358979323846
 #endif
 
+// §9.7 P0: letterbox `inner` inside `outer`, centered — keeps signature ink
+// undistorted no matter what aspect the user dragged. The PDF appearance
+// stream written by PoDoFoBackend uses the same math (PDF y is bottom-up, but
+// centering makes the offsets identical), so a reloaded document paints the
+// signature exactly where it was placed on screen.
+static QRectF fitInsideRect(const QRectF &outer, const QSizeF &inner)
+{
+    if (outer.isEmpty() || inner.isEmpty() || inner.width() <= 0.0 || inner.height() <= 0.0)
+        return outer;
+    const qreal scale = qMin(outer.width() / inner.width(), outer.height() / inner.height());
+    const qreal w = inner.width() * scale;
+    const qreal h = inner.height() * scale;
+    return QRectF(outer.left() + (outer.width() - w) / 2.0,
+                  outer.top() + (outer.height() - h) / 2.0, w, h);
+}
+
+bool isSignatureImageMode(ToolMode mode)
+{
+    return mode == ToolMode::AddSignatureTyped || mode == ToolMode::AddSignatureUpload;
+}
+
 AnnotationLayer::AnnotationLayer(QWidget *parent)
     : QWidget(parent)
     , m_currentMode(ToolMode::HandTool)
@@ -46,6 +67,11 @@ void AnnotationLayer::setRotation(int rotation)
 void AnnotationLayer::setMode(ToolMode mode)
 {
     m_currentMode = mode;
+    // §9.7 P0: a pending signature image only makes sense while a Type/Upload
+    // placement mode is armed; switching to any other tool discards it so a
+    // stale signature is never placed by a later unrelated drag.
+    if (!isSignatureImageMode(mode))
+        m_pendingSignatureImage = QImage();
     // If not in a drawing mode, we might want to pass events through, 
     // but for now let's just ignore them in those modes.
     if (mode == ToolMode::HandTool || mode == ToolMode::SelectText) {
@@ -131,6 +157,11 @@ void AnnotationLayer::setSelectedIndex(int index)
 void AnnotationLayer::setPageAtCallback(std::function<int(QPoint)> callback)
 {
     m_pageAtCallback = callback;
+}
+
+void AnnotationLayer::setPendingSignatureImage(const QImage &img)
+{
+    m_pendingSignatureImage = img;
 }
 
 void AnnotationLayer::setOcrResults(const QList<OcrResult> &results)
@@ -270,6 +301,21 @@ void AnnotationLayer::paintShape(QPainter &painter, const AnnotationItem &anno)
         for (int i = 0; i < anno.points.size() - 1; ++i) {
             painter.drawLine(anno.points[i], anno.points[i+1]);
         }
+    } else if (isSignatureImageMode(anno.mode)) {
+        // §9.7 P0: typed/uploaded signature images, letterboxed into the
+        // placed rect so the ink is never distorted. A null image (e.g. a
+        // sidecar-restored item whose PNG cache was skipped) degrades to a
+        // dashed placeholder — visible and selectable, never invisible.
+        if (!anno.image.isNull()) {
+            painter.drawImage(fitInsideRect(anno.rect.normalized(),
+                                            QSizeF(anno.image.size())),
+                              anno.image);
+        } else {
+            painter.setPen(QPen(anno.color, 1, Qt::DashLine));
+            painter.drawRect(anno.rect.normalized());
+            painter.setFont(QFont("Arial", 16, QFont::Bold));
+            painter.drawText(anno.rect.normalized(), Qt::AlignCenter, "SIGNATURE");
+        }
     }
 
     painter.restore();
@@ -353,6 +399,14 @@ void AnnotationLayer::paintEvent(QPaintEvent *event)
 
             for (int i = 0; i < m_currentNote.points.size() - 1; ++i) {
                 painter.drawLine(m_currentNote.points[i], m_currentNote.points[i+1]);
+            }
+        } else if (isSignatureImageMode(m_currentMode)) {
+            // §9.7 P0: live preview of the pending signature image while the
+            // user drags the placement rect.
+            const QRectF preview = m_currentNote.rect.normalized();
+            if (!m_pendingSignatureImage.isNull() && !preview.isEmpty()) {
+                painter.drawImage(fitInsideRect(preview, QSizeF(m_pendingSignatureImage.size())),
+                                  m_pendingSignatureImage);
             }
         } else if (m_currentMode == ToolMode::Highlight) {
             QColor highColor = m_currentNote.color;
@@ -535,14 +589,15 @@ void AnnotationLayer::mousePressEvent(QMouseEvent *event)
         return;
     }
 
-    if (m_currentMode == ToolMode::DrawFreehand || m_currentMode == ToolMode::Highlight || 
+    if (m_currentMode == ToolMode::DrawFreehand || m_currentMode == ToolMode::Highlight ||
         m_currentMode == ToolMode::AddTextBox || m_currentMode == ToolMode::AddComment ||
         m_currentMode == ToolMode::Redact || m_currentMode == ToolMode::AddSignature ||
         m_currentMode == ToolMode::DrawRectangle || m_currentMode == ToolMode::DrawEllipse ||
         m_currentMode == ToolMode::DrawLine || m_currentMode == ToolMode::DrawArrow ||
         m_currentMode == ToolMode::Underline || m_currentMode == ToolMode::Strikeout ||
         m_currentMode == ToolMode::Squiggly ||
-        m_currentMode == ToolMode::Stamp || m_currentMode == ToolMode::Callout) {
+        m_currentMode == ToolMode::Stamp || m_currentMode == ToolMode::Callout ||
+        isSignatureImageMode(m_currentMode)) {
         m_isDrawing = true;
         m_currentNote.mode = m_currentMode;
         if (m_pageAtCallback) {
@@ -555,6 +610,9 @@ void AnnotationLayer::mousePressEvent(QMouseEvent *event)
         m_currentNote.rect = QRectF(pos, pos);
         m_currentNote.color = m_selectedColor;
         m_currentNote.thickness = m_selectedThickness;
+        // §9.7 P0: the signature image armed by the picker travels with the
+        // placement gesture and lands on the item committed at mouse release.
+        m_currentNote.image = m_pendingSignatureImage;
         if (m_currentMode == ToolMode::Highlight) {
             m_currentNote.color = Qt::yellow; // Default highlight
             m_currentNote.thickness = 10;
@@ -700,6 +758,19 @@ void AnnotationLayer::mouseReleaseEvent(QMouseEvent *event)
 
     if (m_isDrawing) {
         m_isDrawing = false;
+        // §9.7 P0: a plain click (no drag) still places the pending signature
+        // — at its natural aspect with a comfortable default height instead of
+        // an invisible zero-sized rect.
+        if (isSignatureImageMode(m_currentNote.mode) && !m_currentNote.image.isNull()) {
+            QRectF r = m_currentNote.rect.normalized();
+            if (r.width() < 2.0 || r.height() < 2.0) {
+                constexpr qreal kDefaultSigHeight = 60.0;
+                const qreal w = kDefaultSigHeight * m_currentNote.image.width()
+                                    / qMax<qreal>(1.0, m_currentNote.image.height());
+                r = QRectF(r.topLeft(), QSizeF(w, kDefaultSigHeight));
+            }
+            m_currentNote.rect = r;
+        }
         m_annotations.append(m_currentNote);
         emit annotationsChanged();
         // Dirty-rect update for the newly finished annotation (Fix 3)

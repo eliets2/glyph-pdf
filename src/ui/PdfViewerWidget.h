@@ -43,6 +43,9 @@ public:
     void saveAnnotations();
     void loadAnnotations();
     void setAnnotations(const QList<AnnotationItem> &items);
+    // §9.7 P0: arm the pending signature image produced by the Draw/Type/Upload
+    // picker (SignaturePickerDialog) for the AddSignatureTyped/Upload modes.
+    void setPendingSignatureImage(const QImage &img);
     void deleteSelectedAnnotation();
     QList<AnnotationItem> annotations() const;
     void searchDocument(const QString &text, bool forward, bool matchCase, bool wholeWords);
