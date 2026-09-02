@@ -24,9 +24,21 @@ public:
     void promptAndCompare(const QString& suggested = QString());
     static bool pathsAreComparable(const QString& a, const QString& b, QString* why = nullptr);
 
+    // ── §9.10: change-type filter for the CHANGES tree ──────────────────────────
+    // Pure seam: how many tree rows (per-page change rows + page-move rows) the
+    // view would show with the given toggles. Display-layer only — never
+    // mutates the diff result.
+    static int rowsVisibleForFilters(const DiffResult& result, bool showText,
+                                     bool showMove, bool showPixel, bool showPageMove);
+    // Populate the CHANGES tree from a diff result and apply the current filter
+    // toggles. Split out of onDiffFinished so tests can drive it without the
+    // async watcher (no modal dialogs, no real files needed).
+    void showDiffResult(const DiffResult& result);
+
 private slots:
     void onDiffFinished();
     void onExportReport();
+    void applyChangeTypeFilters();
 
 private:
     QString buildHtmlReport() const;
@@ -39,6 +51,10 @@ private:
     QToolButton* m_exportBtn = nullptr;
     QToolButton* m_prevBtn   = nullptr;  // O4: disabled until diff produces changes
     QToolButton* m_nextBtn   = nullptr;  // O4: disabled until diff produces changes
+    QToolButton* m_filterText     = nullptr;  // §9.10: change-type toggles
+    QToolButton* m_filterMove     = nullptr;
+    QToolButton* m_filterPixel    = nullptr;
+    QToolButton* m_filterPageMove = nullptr;
     QFutureWatcher<DiffResult> m_watcher;
     DiffResult m_lastResult;
     QString m_file1;

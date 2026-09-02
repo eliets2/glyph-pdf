@@ -22,6 +22,13 @@
 
 namespace gp {
 
+// §9.10: data roles tagging each CHANGES row with the change types it contains,
+// so the filter toggles can hide/show rows without touching the diff data.
+static constexpr int kHasTextRole    = static_cast<int>(Qt::UserRole) + 1;
+static constexpr int kHasMoveRole    = static_cast<int>(Qt::UserRole) + 2;
+static constexpr int kHasPixelRole   = static_cast<int>(Qt::UserRole) + 3;
+static constexpr int kIsPageMoveRole = static_cast<int>(Qt::UserRole) + 4;
+
 CompareMode::CompareMode(QWidget* parent) : QWidget(parent) {
     auto* col = new QVBoxLayout(this);
     col->setContentsMargins(0,0,0,0); col->setSpacing(0);
@@ -90,9 +97,32 @@ CompareMode::CompareMode(QWidget* parent) : QWidget(parent) {
     auto* ch = new QFrame; ch->setProperty("role","modeToolbar"); ch->setFixedHeight(26);
     auto* chr = new QHBoxLayout(ch); chr->setContentsMargins(12,0,12,0);
     auto* chl = new QLabel(CompareMode::tr("CHANGES")); chl->setProperty("mono",true); chr->addWidget(chl); chr->addStretch(1);
+    // §9.10: change-type filter toggles. The diff engine already tags every
+    // change as text / move / pixel / page-move; these gate which rows the
+    // tree SHOWS (view-level only — the diff result itself is never altered).
+    // All default checked = pre-filter behaviour.
+    auto addFilterToggle = [this, chr](QToolButton*& slot, const char* objectName,
+                                       const QString& label, const QString& tip) {
+        auto* b = new QToolButton;
+        b->setObjectName(QString::fromLatin1(objectName));
+        b->setText(label);
+        b->setToolTip(tip);
+        b->setCheckable(true);
+        b->setChecked(true);
+        b->setAutoRaise(true);
+        b->setFixedHeight(20);
+        connect(b, &QToolButton::toggled, this, &CompareMode::applyChangeTypeFilters);
+        chr->addWidget(b);
+        slot = b;
+    };
+    addFilterToggle(m_filterText,     "cmpFilterText",     tr("Text"),       tr("Show text added/removed changes"));
+    addFilterToggle(m_filterMove,     "cmpFilterMove",     tr("Moves"),      tr("Show moved-word changes"));
+    addFilterToggle(m_filterPixel,    "cmpFilterPixel",    tr("Pixels"),     tr("Show pixel-difference changes"));
+    addFilterToggle(m_filterPageMove, "cmpFilterPageMove", tr("Page moves"), tr("Show whole-page reorder changes"));
     cl->addWidget(ch);
 
     m_tree = new QTreeWidget;
+    m_tree->setObjectName("cmpChangesTree");  // §9.10: testable handle for the tree
     m_tree->setHeaderLabels({CompareMode::tr("#"), CompareMode::tr("Page"), CompareMode::tr("Description")});
     m_tree->setRootIsDecorated(false);
     cl->addWidget(m_tree, 1);
@@ -124,9 +154,13 @@ void CompareMode::compareFiles(const QString& file1, const QString& file2) {
 }
 
 void CompareMode::onDiffFinished() {
-    m_lastResult = m_watcher.result();
-    m_compareWidget->setDiffResult(m_lastResult);
+    const DiffResult result = m_watcher.result();
+    m_compareWidget->setDiffResult(result);
     if (m_exportBtn) m_exportBtn->setEnabled(true);
+
+    // §9.10: showDiffResult stores m_lastResult, rebuilds the CHANGES tree and
+    // re-applies the current filter toggles.
+    showDiffResult(result);
 
     if (m_lastResult.isIdentical) {
         m_statusLabel->setText(tr("FILES ARE IDENTICAL"));
@@ -137,10 +171,16 @@ void CompareMode::onDiffFinished() {
     // O4: enable PREV/NEXT only now that we know there are actual changes.
     if (m_prevBtn) m_prevBtn->setEnabled(true);
     if (m_nextBtn) m_nextBtn->setEnabled(true);
+}
+
+// §9.10: tree population split out of onDiffFinished so the change-type filter
+// can be exercised (and re-applied) independently of the async watcher.
+void CompareMode::showDiffResult(const DiffResult& result) {
+    m_lastResult = result;
 
     int totalChanges = 0;
     m_tree->clear();
-    for (const auto& page : m_lastResult.pages) {
+    for (const auto& page : result.pages) {
         const int textChanges = page.textAdded.size() + page.textRemoved.size()
                                 + page.moves.size();
         const int changes = textChanges + (page.pixelDiffCount > 0 ? 1 : 0);
@@ -155,6 +195,11 @@ void CompareMode::onDiffFinished() {
                 {QString::number(totalChanges),
                  QString("p.%1").arg(page.pageIndex + 1),
                  desc});
+            // §9.10: tag the row with the change types it actually contains.
+            item->setData(0, kHasTextRole,
+                          !page.textAdded.isEmpty() || !page.textRemoved.isEmpty());
+            item->setData(0, kHasMoveRole, !page.moves.isEmpty());
+            item->setData(0, kHasPixelRole, page.pixelDiffCount > 0);
             // Colour code items that have moves
             if (!page.moves.isEmpty())
                 item->setForeground(2, QColor("#d97c00"));  // orange for moves
@@ -162,16 +207,63 @@ void CompareMode::onDiffFinished() {
     }
 
     // Page-level reorder entries (whole pages that moved position).
-    for (const auto& mv : m_lastResult.pageMoves) {
+    for (const auto& mv : result.pageMoves) {
         ++totalChanges;
         auto* item = new QTreeWidgetItem(m_tree,
             {QString::number(totalChanges),
              QString("p.%1 \xE2\x86\x92 p.%2").arg(mv.fromPage + 1).arg(mv.toPage + 1),
              tr("Page %1 moved to position %2").arg(mv.fromPage + 1).arg(mv.toPage + 1)});
         item->setForeground(2, QColor("#7a4cc8"));  // purple for page moves
+        item->setData(0, kIsPageMoveRole, true);
     }
 
     m_statusLabel->setText(tr("%1 CHANGES").arg(totalChanges));
+    // Respect the toggles the user has already set (re-apply to the fresh rows).
+    applyChangeTypeFilters();
+}
+
+// ── §9.10: change-type filter (display-layer only) ──────────────────────────────
+
+void CompareMode::applyChangeTypeFilters() {
+    if (!m_tree)
+        return;
+    const bool showText     = !m_filterText     || m_filterText->isChecked();
+    const bool showMove     = !m_filterMove     || m_filterMove->isChecked();
+    const bool showPixel    = !m_filterPixel    || m_filterPixel->isChecked();
+    const bool showPageMove = !m_filterPageMove || m_filterPageMove->isChecked();
+    for (int i = 0; i < m_tree->topLevelItemCount(); ++i) {
+        auto* item = m_tree->topLevelItem(i);
+        bool show;
+        if (item->data(0, kIsPageMoveRole).toBool()) {
+            show = showPageMove;
+        } else {
+            // A page row carries several change types; it stays visible while
+            // ANY of its (still-checked) tags matches.
+            show = (item->data(0, kHasTextRole).toBool() && showText)
+                || (item->data(0, kHasMoveRole).toBool() && showMove)
+                || (item->data(0, kHasPixelRole).toBool() && showPixel);
+        }
+        item->setHidden(!show);
+    }
+}
+
+int CompareMode::rowsVisibleForFilters(const DiffResult& result, bool showText,
+                                       bool showMove, bool showPixel, bool showPageMove) {
+    int visible = 0;
+    for (const auto& page : result.pages) {
+        const int changes = page.textAdded.size() + page.textRemoved.size()
+                            + page.moves.size() + (page.pixelDiffCount > 0 ? 1 : 0);
+        if (changes <= 0)
+            continue;
+        const bool hasText  = !page.textAdded.isEmpty() || !page.textRemoved.isEmpty();
+        const bool hasMove  = !page.moves.isEmpty();
+        const bool hasPixel = page.pixelDiffCount > 0;
+        if ((hasText && showText) || (hasMove && showMove) || (hasPixel && showPixel))
+            ++visible;
+    }
+    if (showPageMove)
+        visible += result.pageMoves.size();
+    return visible;
 }
 
 // ── Report export ───────────────────────────────────────────────────────────────
