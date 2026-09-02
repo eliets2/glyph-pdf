@@ -501,6 +501,14 @@ void EditController::runOcr() {
     // the worker only uses the copied value.
     const bool orientDetect = QSettings().value(
         QStringLiteral("ocr/orientDetect"), false).toBool();
+    // §9.4: the OCRMode preprocessing checkboxes are persisted prefs — the
+    // pipeline honors all four (defaults match the struct's long-standing
+    // behavior: deskew/binarize/denoise on).
+    OcrPreprocessOptions preprocessPrefs;
+    preprocessPrefs.deskew   = QSettings().value(QStringLiteral("ocr/preprocessDeskew"), true).toBool();
+    preprocessPrefs.binarize = QSettings().value(QStringLiteral("ocr/preprocessBinarize"), true).toBool();
+    preprocessPrefs.denoise  = QSettings().value(QStringLiteral("ocr/preprocessDenoise"), true).toBool();
+    preprocessPrefs.orientDetect = orientDetect;
     const QString engineLabel = wantEnsemble ? tr("Ensemble (Tesseract + RapidOCR)")
                               : wantRapid    ? tr("RapidOCR / PP-OCRv5")
                               :                tr("Tesseract 5");
@@ -519,7 +527,7 @@ void EditController::runOcr() {
     const QImage renderedPage = viewer->renderPage(page, 2.0);
 
     QThread *worker = QThread::create([self, viewerPtr, filePath, page, renderedPage,
-                                       wantRapid, wantEnsemble, ocrLang, orientDetect]() {
+                                       wantRapid, wantEnsemble, ocrLang, preprocessPrefs]() {
         QString error;
         QList<OcrResult> resultsArr;
         QList<MergedOcrWord> mergedWords;   // also surfaced to the OCR Verify screen
@@ -587,13 +595,10 @@ void EditController::runOcr() {
                         : OcrStrategy::PrimaryOnly;
                     OcrPipeline pipeline(primary, secondary);
                     pipeline.setStrategy(strategy);
-                    // §9.4 P0: honor Auto-Rotate for scans whose rotation is
-                    // baked into the content; word boxes still map back to the
+                    // §9.4 P0: honor the persisted preprocessing prefs
+                    // (Auto-Rotate included); word boxes still map back to the
                     // original page via PreprocessedImage::inverseTransform.
-                    // The other options keep their defaults (current behavior).
-                    OcrPreprocessOptions preprocessOpts;
-                    preprocessOpts.orientDetect = orientDetect;
-                    pipeline.setPreprocessing(preprocessOpts);
+                    pipeline.setPreprocessing(preprocessPrefs);
                     mergedWords = pipeline.run(pageImg);
 
                     // Convert MergedOcrWord → OcrResult for the viewer layer
