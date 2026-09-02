@@ -16,6 +16,7 @@
  */
 
 #include <QtTest/QtTest>
+#include <QLabel>
 #include <QApplication>
 #include <QTemporaryDir>
 #include <QFile>
@@ -117,6 +118,9 @@ class TestPagesMode : public QObject {
     Q_OBJECT
 
 private slots:
+    // §9.8+§9.9 P0: the local-first differentiator must be a single shared
+    // seam and must actually be displayed on the page-management surface.
+    void localFirstClaimSeamAndPanelLabel();
 
     // ── testPageRangeParser ────────────────────────────────────────────────
     void testPageRangeParser() {
@@ -445,5 +449,17 @@ private slots:
     }
 };
 
+void TestPagesMode::localFirstClaimSeamAndPanelLabel() {
+    const QString claim = gp::PagesMode::localFirstClaim();
+    QVERIFY2(claim.contains(QStringLiteral("100% local"), Qt::CaseInsensitive),
+             qPrintable(QStringLiteral("seam must state 100%% local: %1").arg(claim)));
+    QVERIFY2(claim.contains(QStringLiteral("no upload"), Qt::CaseInsensitive),
+             qPrintable(QStringLiteral("seam must state no-upload: %1").arg(claim)));
+
+    gp::PagesMode mode;
+    auto* label = mode.findChild<QLabel*>(QStringLiteral("pagesLocalClaimLabel"));
+    QVERIFY2(label, "PagesMode must display the local-first claim label");
+    QCOMPARE(label->text(), claim);
+}
 QTEST_MAIN(TestPagesMode)
 #include "TestPagesMode.moc"
