@@ -21,6 +21,11 @@ public:
     QList<ToolId> handledTools() const override;
     void activate(ToolId id) override;
 
+    // §9.16 P0: surfaced on export/import completions — every conversion
+    // runs on-device (in-process engines or a local LibreOffice/qpdf
+    // subprocess), so the privacy claim is factual, not marketing.
+    static QString localProcessingNotice();
+
 private:
     void exportToWord();
     void exportToExcel();

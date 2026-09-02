@@ -175,6 +175,11 @@ void WelcomeWidget::setupUi()
     importCard->setAccessibleDescription(tr("Convert a Word, Excel or PowerPoint file to PDF via LibreOffice"));
     imgsCard->setAccessibleName(tr("Images to PDF"));
     imgsCard->setAccessibleDescription(tr("Combine PNG, JPEG or TIFF images into a single PDF"));
+    // §9.16 P0: the privacy badge at the exact moment users compare us to
+    // upload-based converters — both conversions run on this machine.
+    const QString localNotice = tr("Processed 100% locally — no internet, no upload.");
+    importCard->setToolTip(localNotice);
+    imgsCard->setToolTip(localNotice);
 
     connect(openCard,    &QPushButton::clicked, this, &WelcomeWidget::openFileRequested);
     connect(mergeCard, &QPushButton::clicked, this, &WelcomeWidget::mergeFilesRequested);
