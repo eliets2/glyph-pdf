@@ -3,6 +3,7 @@
 #include "util/GpTheme.h"
 #include "util/Badge.h"
 #include "core/interfaces/ISignatureManager.h"
+#include "ui/PdfViewerWidget.h"   // §9.7 P0: SignatureBadgeSpec / SignatureBadgeState (badge seam payload)
 
 #include <QFormLayout>
 #include <QHBoxLayout>
@@ -14,6 +15,53 @@
 #include <QVBoxLayout>
 
 namespace gp {
+
+namespace {
+
+// ── §9.7 P0: SignatureInfo → on-page badge state (binding mapping) ──────────
+//   no validation data at all            → Unknown (gray)
+//   integrityIntact == false             → ModifiedAfterSigning (red)
+//   integrity intact + valid + trusted   → ValidTrusted (green)
+//   integrity intact, untrusted chain    → UntrustedChain (amber)
+SignatureBadgeState gpBadgeStateFor(const SignatureInfo &s)
+{
+    const bool noData = s.trustStatus.isEmpty() && s.signerName.isEmpty()
+                        && s.fieldName.isEmpty() && !s.date.isValid();
+    if (noData)
+        return SignatureBadgeState::Unknown;
+    if (!s.integrityIntact)
+        return SignatureBadgeState::ModifiedAfterSigning;
+    // Trusted chain per the engine's trustStatus vocabulary: "Valid" /
+    // "ValidWithDSS" (see SignatureManager::validateSignatures). Anything else
+    // — UntrustedChain, CertExpired, WeakKey, InvalidEKU, ... — is a chain the
+    // viewer must NOT paint green.
+    const bool trusted =
+        s.trustStatus.compare(QStringLiteral("Valid"), Qt::CaseInsensitive) == 0
+        || s.trustStatus.compare(QStringLiteral("ValidWithDSS"), Qt::CaseInsensitive) == 0;
+    if (s.isValid && trusted)
+        return SignatureBadgeState::ValidTrusted;
+    return SignatureBadgeState::UntrustedChain;
+}
+
+// Tooltip = signer name + status detail (§9.7 P0 design).
+QString gpBadgeTooltipFor(const SignatureInfo &s)
+{
+    const QString name = s.signerName.isEmpty() ? QStringLiteral("(unnamed signer)") : s.signerName;
+    const bool noData = s.trustStatus.isEmpty() && s.signerName.isEmpty()
+                        && s.fieldName.isEmpty() && !s.date.isValid();
+    if (noData)
+        return QStringLiteral("%1 — not validated").arg(name);
+    if (!s.integrityIntact)
+        return QStringLiteral("%1 — MODIFIED AFTER SIGNING (integrity check failed)").arg(name);
+    const bool trusted =
+        s.trustStatus.compare(QStringLiteral("Valid"), Qt::CaseInsensitive) == 0
+        || s.trustStatus.compare(QStringLiteral("ValidWithDSS"), Qt::CaseInsensitive) == 0;
+    if (s.isValid && trusted)
+        return QStringLiteral("%1 — VALID (trust: %2)").arg(name, s.trustStatus);
+    return QStringLiteral("%1 — signature intact, chain NOT trusted (%2)").arg(name, s.trustStatus);
+}
+
+} // namespace
 
 SignaturesPanel::SignaturesPanel(QWidget* parent) : QFrame(parent) {
     setObjectName("rightSidebar");
@@ -137,11 +185,31 @@ void SignaturesPanel::setDocument(const QString& filePath, ISignatureManager* si
         m_placeBtn->setToolTip(hasDoc ? QString() : tr("Open a document first"));
     }
 
-    if (filePath.isEmpty()) { showNoSignatures(tr("NO DOCUMENT")); return; }
-    if (!signing)           { showNoSignatures(tr("UNAVAILABLE")); return; }
+    // §9.7 P0: badges are pushed on EVERY setDocument path — an empty list
+    // clears any stale on-page badges when the document has no signatures.
+    QList<SignatureBadgeSpec> badges;
+
+    if (filePath.isEmpty()) { showNoSignatures(tr("NO DOCUMENT")); emit signatureBadgesChanged(badges); return; }
+    if (!signing)           { showNoSignatures(tr("UNAVAILABLE")); emit signatureBadgesChanged(badges); return; }
 
     const QList<SignatureInfo> sigs = signing->validateSignatures(filePath);
-    if (sigs.isEmpty()) { showNoSignatures(tr("UNSIGNED")); return; }
+    if (sigs.isEmpty()) { showNoSignatures(tr("UNSIGNED")); emit signatureBadgesChanged(badges); return; }
+
+    // §9.7 P0: one badge per signature, mapped from the validation flow's
+    // outcome (gpBadgeStateFor). SignatureInfo carries NO page / field rect —
+    // the on-page anchor (pageIndex + fieldRect) must be resolved by the
+    // consumer that owns the field geometry; the panel contributes the
+    // validated state and the signer/status tooltip. Unanchored specs are
+    // stored by the viewer but only painted once anchored.
+    badges.reserve(sigs.size());
+    for (const SignatureInfo& s : sigs) {
+        SignatureBadgeSpec b;
+        b.pageIndex = -1;        // page unknown at this seam (no /Rect in SignatureInfo)
+        b.state = gpBadgeStateFor(s);
+        b.tooltip = gpBadgeTooltipFor(s);
+        badges.append(b);
+    }
+    emit signatureBadgesChanged(badges);
 
     // Show the most recent signature (last in document order is typically the
     // newest incremental update). All values come straight from the validator.

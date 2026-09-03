@@ -43,8 +43,114 @@
 #include <QDesktopServices>
 #include <QUrl>
 #include <QScrollBar>
+#include <QToolTip>
+#include <QHelpEvent>
+#include <QPainterPath>
 // §9.1: link extraction goes through the engine seam (setLinkReader) — the UI
 // must not include a concrete backend header (D-02 rule).
+
+// ── §9.7 P0: on-page signature validity badges (view-layer only) ────────────
+// The badge is a viewer-drawn overlay: ISO 32000-2 forbids validation status
+// inside the field appearance and Acrobat's ribbon is viewer-drawn too, so
+// nothing here is ever written into the PDF or the .ann sidecar.
+namespace {
+// 16px disc (design: 14–18px), centered on the field rect's top-right corner.
+constexpr qreal kBadgeRadius = 8.0;
+
+void gpDrawSignatureBadge(QPainter &p, const QPointF &center, SignatureBadgeState state, qreal radius)
+{
+    p.save();
+    p.setRenderHint(QPainter::Antialiasing, true);
+    // White halo ring keeps the disc legible on any page background.
+    QPen halo(Qt::white, qMax<qreal>(1.5, radius * 0.22));
+    halo.setJoinStyle(Qt::RoundJoin);
+    p.setPen(halo);
+    p.setBrush(PdfViewerWidget::signatureBadgeColor(state));
+    p.drawEllipse(center, radius, radius);
+
+    const qreal g = radius * 0.45;   // glyph half-extent
+    switch (state) {
+    case SignatureBadgeState::ValidTrusted: {
+        // Check mark (✓): two round-capped strokes.
+        QPen pen(Qt::white, qMax<qreal>(1.4, radius * 0.22),
+                 Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+        p.setPen(pen);
+        p.setBrush(Qt::NoBrush);
+        QPainterPath check;
+        check.moveTo(center.x() - g * 0.9, center.y() + g * 0.05);
+        check.lineTo(center.x() - g * 0.15, center.y() + g * 0.8);
+        check.lineTo(center.x() + g, center.y() - g * 0.7);
+        p.drawPath(check);
+        break;
+    }
+    case SignatureBadgeState::ModifiedAfterSigning: {
+        // X (✕): two round-capped strokes.
+        QPen pen(Qt::white, qMax<qreal>(1.4, radius * 0.22),
+                 Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+        p.setPen(pen);
+        p.setBrush(Qt::NoBrush);
+        p.drawLine(QPointF(center.x() - g, center.y() - g), QPointF(center.x() + g, center.y() + g));
+        p.drawLine(QPointF(center.x() + g, center.y() - g), QPointF(center.x() - g, center.y() + g));
+        break;
+    }
+    case SignatureBadgeState::UntrustedChain:
+    case SignatureBadgeState::Unknown: {
+        // "?" glyph (Acrobat-style unknown/untrusted marker), white on the disc.
+        QFont f = p.font();
+        f.setBold(true);
+        f.setPixelSize(qMax(9, qRound(radius * 1.4)));
+        p.setFont(f);
+        p.setPen(Qt::white);
+        p.drawText(QRectF(center.x() - radius, center.y() - radius, radius * 2.0, radius * 2.0),
+                   Qt::AlignCenter, QStringLiteral("?"));
+        break;
+    }
+    }
+    p.restore();
+}
+} // namespace
+
+// The mouse-transparent child widget that paints the badges over the PDF view
+// in single-page mode (two-page mode composites them via paintTwoPageOverlays).
+class SignatureBadgeOverlay : public QWidget {
+public:
+    explicit SignatureBadgeOverlay(PdfViewerWidget *viewer)
+        : QWidget(viewer), m_viewer(viewer)
+    {
+        setObjectName(QStringLiteral("signatureBadgeOverlay"));
+        // Clicks, hover and drags must fall through to the PDF view and the
+        // annotation layer beneath — the badge layer is paint-only.
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        setFocusPolicy(Qt::NoFocus);
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        if (!m_viewer || !m_viewer->m_pdfView || !m_viewer->m_document)
+            return;
+        // Two-page mode paints badges into the page pixmaps instead; this
+        // overlay is hidden there (grabbing a hidden overlay must stay empty).
+        if (m_viewer->m_twoPageMode)
+            return;
+        QPdfView *view = m_viewer->m_pdfView;
+        const QRect vp = view->viewport()->geometry();
+        const int page = m_viewer->m_pageNavigator ? m_viewer->m_pageNavigator->currentPage() : -1;
+        const qreal zoom = qMax<qreal>(m_viewer->m_zoomFactor, 0.01);
+
+        QPainter p(this);
+        p.translate(vp.topLeft());
+        p.setClipRect(vp);
+        for (const SignatureBadgeSpec &spec : m_viewer->m_badges) {
+            if (spec.pageIndex != page || !spec.fieldRect.isValid())
+                continue;   // not anchored to the visible page → nothing to draw
+            const QPointF center = m_viewer->badgeViewportCenter(spec, vp.size(), zoom);
+            gpDrawSignatureBadge(p, center, spec.state, kBadgeRadius);
+        }
+    }
+
+private:
+    PdfViewerWidget *m_viewer = nullptr;
+};
 
 PdfViewerWidget::PdfViewerWidget(QWidget *parent)
     : QWidget(parent)
@@ -139,6 +245,25 @@ PdfViewerWidget::PdfViewerWidget(QWidget *parent)
     m_twoPageScrollArea->setWidgetResizable(true);
     m_twoPageScrollArea->hide();
 
+    // §9.7 P0: badge overlay — stacked above the PDF view and the annotation
+    // layer, mouse-transparent so every interaction keeps working unchanged.
+    m_badgeOverlay = new SignatureBadgeOverlay(this);
+    m_badgeOverlay->setParent(container);
+    m_annotationLayer->raise();
+    m_badgeOverlay->raise();
+    // Scroll/zoom/content-size changes move the page under the badge anchor —
+    // repaint so badges stay pinned to the field rect's corner. rangeChanged
+    // also catches zoom-mode presets (FitToWidth/FitInView), which change the
+    // zoom factor without going through zoomIn/zoomOut/setZoomLevel.
+    connect(m_pdfView->horizontalScrollBar(), &QScrollBar::valueChanged,
+            m_badgeOverlay, qOverload<>(&QWidget::update));
+    connect(m_pdfView->verticalScrollBar(), &QScrollBar::valueChanged,
+            m_badgeOverlay, qOverload<>(&QWidget::update));
+    connect(m_pdfView->horizontalScrollBar(), &QScrollBar::rangeChanged,
+            m_badgeOverlay, qOverload<>(&QWidget::update));
+    connect(m_pdfView->verticalScrollBar(), &QScrollBar::rangeChanged,
+            m_badgeOverlay, qOverload<>(&QWidget::update));
+
     // We'll manage sizes manually in resizeEvent for true overlap
     layout->addWidget(container);
 
@@ -197,6 +322,7 @@ void PdfViewerWidget::zoomIn()
 {
     m_zoomFactor *= 1.25;
     m_pdfView->setZoomFactor(m_zoomFactor);
+    if (m_badgeOverlay) m_badgeOverlay->update();   // §9.7 P0: badges follow zoom
 }
 
 void PdfViewerWidget::zoomOut()
@@ -204,6 +330,7 @@ void PdfViewerWidget::zoomOut()
     m_zoomFactor /= 1.25;
     if (m_zoomFactor < 0.1) m_zoomFactor = 0.1;
     m_pdfView->setZoomFactor(m_zoomFactor);
+    if (m_badgeOverlay) m_badgeOverlay->update();   // §9.7 P0: badges follow zoom
 }
 
 void PdfViewerWidget::zoomFitWidth()
@@ -221,6 +348,7 @@ void PdfViewerWidget::setZoomLevel(qreal level)
     m_zoomFactor = level;
     m_pdfView->setZoomMode(QPdfView::ZoomMode::Custom);
     m_pdfView->setZoomFactor(m_zoomFactor);
+    if (m_badgeOverlay) m_badgeOverlay->update();   // §9.7 P0: badges follow zoom
 }
 
 qreal PdfViewerWidget::zoomLevel() const
@@ -336,6 +464,18 @@ bool PdfViewerWidget::eventFilter(QObject *watched, QEvent *event)
         if (me->button() == Qt::LeftButton && m_toolMode == ToolMode::HandTool) {
             if (handleLinkClick(me->pos()))
                 return true; // consumed — do not treat as canvas click
+        }
+    }
+    // §9.7 P0: badge tooltips. The overlay is mouse-transparent, so the ToolTip
+    // event arrives at the viewport; hit-test the badge layer here. (In
+    // annotation-editing modes the annotation layer is no longer
+    // mouse-transparent and keeps precedence — badges are a viewing feature.)
+    if (watched == m_pdfView->viewport() && event->type() == QEvent::ToolTip) {
+        auto *he = static_cast<QHelpEvent *>(event);
+        const QString tip = signatureBadgeTooltipAt(he->pos());
+        if (!tip.isEmpty()) {
+            QToolTip::showText(he->globalPos(), tip, m_pdfView->viewport());
+            return true;
         }
     }
     return QWidget::eventFilter(watched, event);
@@ -556,6 +696,7 @@ int PdfViewerWidget::pageCount() const
 void PdfViewerWidget::onPageChanged()
 {
     m_pageChangeTimer->start();
+    if (m_badgeOverlay) m_badgeOverlay->update();   // §9.7 P0: badges follow the visible page
     if (m_twoPageMode) {
         updateTwoPageView();
     }
@@ -571,6 +712,14 @@ void PdfViewerWidget::resizeEvent(QResizeEvent *event)
             m_twoPageScrollArea->resize(size());
         }
     }
+    // §9.7 P0: keep the badge overlay covering the PDF view.
+    syncBadgeOverlayGeometry();
+}
+
+void PdfViewerWidget::syncBadgeOverlayGeometry()
+{
+    if (m_badgeOverlay && m_pdfView)
+        m_badgeOverlay->setGeometry(m_pdfView->geometry());
 }
 
 void PdfViewerWidget::setPageMode(QPdfView::PageMode mode)
@@ -585,12 +734,17 @@ void PdfViewerWidget::setTwoPageMode(bool enabled)
     if (enabled) {
         m_pdfView->hide();
         m_annotationLayer->hide();
+        m_badgeOverlay->hide();   // §9.7 P0: two-page mode paints badges into the pixmaps
         m_twoPageScrollArea->show();
         updateTwoPageView();
     } else {
         m_twoPageScrollArea->hide();
         m_pdfView->show();
         m_annotationLayer->show();
+        // §9.7 P0: restore the badge overlay over the (possibly resized) view.
+        syncBadgeOverlayGeometry();
+        m_badgeOverlay->show();
+        m_badgeOverlay->update();
     }
 }
 
@@ -692,6 +846,18 @@ void PdfViewerWidget::paintTwoPageOverlays(QImage *pageImg, int pageIndex, qreal
         AnnotationLayer::paintShape(painter, anno);
     }
     painter.restore();
+
+    // §9.7 P0: signature badges — page points with the TOP-LEFT origin scale
+    // directly by renderScale (the same convention as the search rectangles
+    // above). The disc is scaled by viewToPixmap so it reads at the same
+    // on-screen size as the single-page overlay.
+    for (const SignatureBadgeSpec &spec : m_badges) {
+        if (spec.pageIndex != pageIndex || !spec.fieldRect.isValid())
+            continue;
+        const QPointF center(spec.fieldRect.right() * renderScale,
+                             spec.fieldRect.top() * renderScale);
+        gpDrawSignatureBadge(painter, center, spec.state, kBadgeRadius * viewToPixmap);
+    }
 }
 
 void PdfViewerWidget::toggleEyeCareMode()
@@ -1230,5 +1396,73 @@ void PdfViewerWidget::setOcrResults(const QList<OcrResult> &results) { if (m_ann
 // real paintEvent and will draw it on top of all annotation content.
 void PdfViewerWidget::setOverlayImage(const QImage &img) {
     if (m_annotationLayer) m_annotationLayer->setOverlayImage(img);
+}
+
+// ── §9.7 P0: on-page signature validity badges (view-layer only) ────────────
+
+void PdfViewerWidget::setSignatureBadges(const QList<SignatureBadgeSpec> &badges)
+{
+    m_badges = badges;
+    if (m_badgeOverlay)
+        m_badgeOverlay->update();
+    // Two-page mode composites badges into the page pixmaps, so refresh those.
+    if (m_twoPageMode)
+        updateTwoPageView();
+}
+
+QList<SignatureBadgeSpec> PdfViewerWidget::signatureBadges() const
+{
+    return m_badges;
+}
+
+QColor PdfViewerWidget::signatureBadgeColor(SignatureBadgeState state)
+{
+    switch (state) {
+    case SignatureBadgeState::ValidTrusted:
+        return QColor(0x2e, 0x9e, 0x44);   // green — trusted signature
+    case SignatureBadgeState::UntrustedChain:
+        return QColor(0xf2, 0xa3, 0x3c);   // amber — integrity ok, untrusted chain
+    case SignatureBadgeState::ModifiedAfterSigning:
+        return QColor(0xd9, 0x30, 0x25);   // red — modified after signing
+    case SignatureBadgeState::Unknown:
+        break;
+    }
+    return QColor(0x8a, 0x8d, 0x91);       // gray — unknown / not validated
+}
+
+QPointF PdfViewerWidget::badgeViewportCenter(const SignatureBadgeSpec &spec,
+                                             const QSize &vpSize, qreal zoom) const
+{
+    // Same viewport mapping as handleLinkClick: the page is centered in the
+    // viewport and offset by the scrollbar values; fieldRect is in top-left
+    // origin page space, so the anchor is the field rect's top-right corner.
+    // Known limitation (shared with link clicks): the centering math is
+    // approximate in MultiPage flow layouts.
+    const QSizeF pageSize = m_document->pagePointSize(spec.pageIndex);
+    const qreal originX = qMax<qreal>(0, (vpSize.width() - pageSize.width() * zoom) / 2.0)
+                        - m_pdfView->horizontalScrollBar()->value();
+    const qreal originY = qMax<qreal>(0, (vpSize.height() - pageSize.height() * zoom) / 2.0)
+                        - m_pdfView->verticalScrollBar()->value();
+    return QPointF(originX + spec.fieldRect.right() * zoom,
+                   originY + spec.fieldRect.top() * zoom);
+}
+
+QString PdfViewerWidget::signatureBadgeTooltipAt(const QPoint &viewportPos) const
+{
+    if (!m_pdfView || !m_document || !isLoaded() || m_twoPageMode)
+        return QString();
+    const int page = m_pageNavigator ? m_pageNavigator->currentPage() : -1;
+    if (page < 0 || m_badges.isEmpty())
+        return QString();
+    const qreal zoom = qMax<qreal>(m_zoomFactor, 0.01);
+    const QSize vpSize = m_pdfView->viewport()->size();
+    for (const SignatureBadgeSpec &spec : m_badges) {
+        if (spec.pageIndex != page || !spec.fieldRect.isValid() || spec.tooltip.isEmpty())
+            continue;
+        const QPointF center = badgeViewportCenter(spec, vpSize, zoom);
+        if (QLineF(viewportPos, center).length() <= kBadgeRadius + 3.0)
+            return spec.tooltip;
+    }
+    return QString();
 }
 

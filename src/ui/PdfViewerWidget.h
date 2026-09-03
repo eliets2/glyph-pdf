@@ -22,6 +22,31 @@ class QRubberBand;
 class QMouseEvent;
 QT_END_NAMESPACE
 
+// ── §9.7 P0: on-page signature validity badges (VIEW-LAYER ONLY) ────────────
+// ISO 32000-2 forbids embedding validation status inside the field appearance
+// and Acrobat's ribbon is viewer-drawn, so badges are never written into the
+// PDF (nor the .ann sidecar): they live exclusively in this widget's paint
+// path. Four states map from the validation flow's SignatureInfo:
+//   integrityIntact==false                  → ModifiedAfterSigning (red X)
+//   integrityIntact && isValid && trusted   → ValidTrusted          (green ✓)
+//   integrityIntact && untrusted chain      → UntrustedChain        (amber ?)
+//   no validation data                      → Unknown               (gray ?)
+enum class SignatureBadgeState {
+    ValidTrusted,           ///< Green check — integrity intact, chain trusted.
+    UntrustedChain,         ///< Amber "?" — integrity intact, chain untrusted.
+    ModifiedAfterSigning,   ///< Red X — integrity check failed.
+    Unknown                 ///< Gray "?" — not validated / no data.
+};
+
+/// One on-page badge. `fieldRect` is in PAGE space with the TOP-LEFT origin
+/// (points) — the same convention as QPdfLink::rectangles().
+struct SignatureBadgeSpec {
+    int pageIndex = -1;      ///< 0-based page; -1 = not anchored to a page.
+    QRectF fieldRect;        ///< Signature field rect in page points (top-left origin).
+    SignatureBadgeState state = SignatureBadgeState::Unknown;
+    QString tooltip;         ///< Signer name + status detail.
+};
+
 
 class PdfViewerWidget : public QWidget
 {
@@ -51,6 +76,21 @@ public:
     void searchDocument(const QString &text, bool forward, bool matchCase, bool wholeWords);
 
     void setOcrResults(const QList<OcrResult> &results);
+
+    // ── §9.7 P0: on-page signature validity badge overlay ───────────────────
+    // View-layer only: replaces the whole badge set and repaints (an EMPTY
+    // list clears every badge). Callers feed {pageIndex, fieldRect, state,
+    // tooltip}; specs without a valid page index / rect are stored but not
+    // painted (they carry no on-page anchor).
+    void setSignatureBadges(const QList<SignatureBadgeSpec> &badges);
+    QList<SignatureBadgeSpec> signatureBadges() const;
+    /// Badge fill color per state — single source of truth for the painter,
+    /// the tooltip layer and the tests.
+    static QColor signatureBadgeColor(SignatureBadgeState state);
+    /// Tooltip of the badge whose 16px disc contains `viewportPos` (viewport
+    /// coordinates of the PDF view), or an empty string. Backs the ToolTip
+    /// event handling for the mouse-transparent badge overlay.
+    QString signatureBadgeTooltipAt(const QPoint &viewportPos) const;
 
     // Page navigation
     void goToPage(int page);
@@ -208,4 +248,17 @@ private:
     QList<int> m_pageHistory;
     int m_historyIndex = -1;
     bool m_navigatingHistory = false;
+
+    // ── §9.7 P0: on-page signature validity badges ──────────────────────────
+    // m_badgeOverlay is a mouse-transparent child stacked above the annotation
+    // layer; it paints the badges for the current page in single-page mode.
+    // Two-page mode instead composites them into the page pixmaps via
+    // paintTwoPageOverlays(). Nothing here is ever serialized.
+    friend class SignatureBadgeOverlay;
+    class SignatureBadgeOverlay *m_badgeOverlay = nullptr;
+    QList<SignatureBadgeSpec> m_badges;
+    void syncBadgeOverlayGeometry();
+    /// Viewport-coordinate center of the badge disc for `spec` (top-right
+    /// corner of the field rect mapped like handleLinkClick's page mapping).
+    QPointF badgeViewportCenter(const SignatureBadgeSpec &spec, const QSize &vpSize, qreal zoom) const;
 };
