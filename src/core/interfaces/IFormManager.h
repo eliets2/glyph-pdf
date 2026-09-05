@@ -13,6 +13,36 @@ struct FieldSuggestion {
     QString suggestedName;
 };
 
+/// R02 (audit F09): complete snapshot of one AcroForm field's supported,
+/// user-editable state, read BEFORE the first mutation so undo can restore
+/// exactly what was there.
+///
+/// Documented meanings (engine and UI must agree on one):
+///   - `value` / `valuePresent`  → the field's CURRENT value, PDF /V. The
+///     properties panel's "Default" row edits /V (it has always been applied
+///     through fillForm's SetText), so the panel's "default value" IS /V.
+///   - `defaultValue` / `defaultPresent` → the PDF /DV default-value key.
+///     /DV is captured and restored losslessly by undo but is NOT edited by
+///     the properties panel.
+///   - `tooltip` / `tooltipPresent` → /TU (read-only UI text).
+///   - `required` → /Ff bit position 2.
+///   - a `*Present == false` member means the key is ABSENT — distinct from
+///     an explicitly empty string (present but zero length).
+/// Non-text fields: `value` is captured as a raw string ("Yes"/"Off" for
+/// checkbox state); applyFieldSnapshot rewrites /V only for text boxes and
+/// checkboxes, which are the types the properties panel edits.
+struct FormFieldSnapshot {
+    bool found = false;              ///< explicit missing-field resolution
+    QString name;                    ///< full name at capture time
+    bool tooltipPresent = false;
+    QString tooltip;
+    bool required = false;
+    bool valuePresent = false;
+    QString value;
+    bool defaultPresent = false;
+    QString defaultValue;
+};
+
 class IFormManager {
 public:
     virtual ~IFormManager() = default;
@@ -51,6 +81,21 @@ public:
     virtual bool setFieldMetadata(const QString &pdfFilePath, const QString &fieldName,
                                   const QString &tooltip, bool required,
                                   const QString &outputPath) = 0;
+
+    /// R02 (F09): read the complete supported property snapshot of the named
+    /// field. If the document has no such field the returned snapshot has
+    /// found == false (explicit resolution). Duplicate full names are a spec
+    /// violation; the FIRST occurrence wins and is the one later mutations
+    /// address.
+    virtual FormFieldSnapshot captureFieldSnapshot(const QString &pdfFilePath, const QString &fieldName) = 0;
+
+    /// R02 (F09): apply value (/V), tooltip (/TU) and required (/Ff bit 2)
+    /// from `target` as ONE transactional mutation persisted through the R01
+    /// safe-save boundary — value and metadata cannot partially persist.
+    /// A snapshot with valuePresent == false clears /V (absent), an explicitly
+    /// empty `value` writes /V as "". Returns false (writing nothing) when the
+    /// field is missing or the save fails.
+    virtual bool applyFieldSnapshot(const QString &pdfFilePath, const FormFieldSnapshot &target, const QString &outputPath) = 0;
 
     virtual QList<FieldSuggestion> autoDetectFields(const QString &pdfFilePath, int pageIndex) = 0;
 

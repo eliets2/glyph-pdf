@@ -2107,6 +2107,31 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormSafety.cpp")
     set_tests_properties(TestFormSafety PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120 LABELS "unit;forms;form-fields;persistence;qt;headless")
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormUndo.cpp")
+    add_executable(TestFormUndo
+        tests/TestFormUndo.cpp
+        src/engines/DocumentSession.cpp
+    )
+    target_include_directories(TestFormUndo PRIVATE src tests)
+    target_link_libraries(TestFormUndo PRIVATE
+        pdfws_engines pdfws_core pdfws_commands podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET TestFormUndo POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestFormUndo>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestFormUndo>/platforms/qoffscreen.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PODOFO_VENDOR_DLL}"
+            "$<TARGET_FILE_DIR:TestFormUndo>/libpodofo.dll"
+        COMMENT "Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFormUndo"
+    )
+    add_test(NAME TestFormUndo COMMAND TestFormUndo)
+    set_tests_properties(TestFormUndo PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120 LABELS "unit;forms;form-fields;undo;persistence;qt;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestValidateAllSignatures.cpp")
     add_executable(TestValidateAllSignatures tests/TestValidateAllSignatures.cpp)
     target_include_directories(TestValidateAllSignatures PRIVATE src tests)
