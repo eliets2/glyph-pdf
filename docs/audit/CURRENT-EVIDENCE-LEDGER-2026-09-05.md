@@ -56,6 +56,7 @@ Dated corrections to stale historical claims (superseded by HEAD):
 | ID | Surface | Scope | Status |
 |----|---------|-------|--------|
 | U01 | Welcome | Responsive card grid, theme tokens, no clipping | implemented-awaiting-review — geometric overflow/reflow tests; DPI-matrix + live re-skin checks manual |
+| U07 | Comments | Active-filter summary, count, clear, table view, CSV export over existing records | implemented-awaiting-review — 7 tests incl. numeric page-sort defect fix + reply-nesting regression; CSV escaping pinned; page-level navigation only (geometry focus API is a follow-up) |
 | U02 | Navigation | One clear entry per task; honest status bar | open |
 | U03 | OCR verify | Source-image review workflow; one confidence function (dep R05-R08) | open |
 | U04 | Compare | Results drive both views (dep R11) | open |
