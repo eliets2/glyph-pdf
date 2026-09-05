@@ -55,7 +55,7 @@ Dated corrections to stale historical claims (superseded by HEAD):
 
 | ID | Surface | Scope | Status |
 |----|---------|-------|--------|
-| U01 | Welcome | Responsive card grid, theme tokens, no clipping | open |
+| U01 | Welcome | Responsive card grid, theme tokens, no clipping | implemented-awaiting-review — geometric overflow/reflow tests; DPI-matrix + live re-skin checks manual |
 | U02 | Navigation | One clear entry per task; honest status bar | open |
 | U03 | OCR verify | Source-image review workflow; one confidence function (dep R05-R08) | open |
 | U04 | Compare | Results drive both views (dep R11) | open |
