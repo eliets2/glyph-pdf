@@ -165,7 +165,15 @@ QList<ConversionManager::TextElement> ConversionManager::Private::extractTextFro
                 std::string_view kw = content.GetKeyword();
                 const auto& stack = content.GetStack();
                 
-                if (kw == "Tm" && stack.size() >= 6) {
+                // ISO 32000-2 §9.4.1: BT sets the text line matrix to the
+                // identity — without resetting here, relative Td offsets
+                // ACCUMULATE across text objects and every block after the
+                // first gets a y below the page (inverting row order in the
+                // Word/Excel/CSV exports).
+                if (kw == "BT") {
+                    currentX = 0;
+                    currentY = 0;
+                } else if (kw == "Tm" && stack.size() >= 6) {
                     // PdfVariantStack is LIFO: for 'a b c d e f Tm', e=X and
                     // f=Y sit at stack[1] / stack[0].
                     if (stack[1].IsNumberOrReal()) currentX = stack[1].GetReal();
@@ -232,22 +240,9 @@ bool ConversionManager::exportToWord(const QString &outputPath, const QList<QLis
     doc.save();
     return QFileInfo(outputPath).size() > 0;
 #else
-    // Fallback: Generate HTML-based DOC (Word can open it)
-    m_lastWordEngine = ExportEngine::Fallback;
-    QFile file(outputPath);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return false;
-    QTextStream out(&file);
-    out << "<html><body>";
-    for (const auto &row : rows) {
-        out << "<p>";
-        for (const auto &el : row) {
-            out << el.text.toHtmlEscaped() << " ";
-        }
-        out << "</p>";
-    }
-    out << "</body></html>";
-    file.close();
-    return QFileInfo(outputPath).size() > 0;
+    // §9.5 P0: no duckx in this build — produce REAL OOXML in-house instead of
+    // the old mislabeled HTML-as-.docx fallback (audit §9.5, research Lane C).
+    return exportToWordInHouse(outputPath, rows);
 #endif
 }
 
@@ -271,27 +266,10 @@ bool ConversionManager::exportToExcel(const QString &outputPath, const QList<QLi
     doc.save();
     return QFileInfo(outputPath).size() > 0;
 #else
-    // Fallback: Generate CSV
-    m_lastExcelEngine = ExportEngine::Fallback;
-    QFile file(outputPath);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return false;
-    QTextStream out(&file);
-    for (const auto &row : rows) {
-        QStringList line;
-        for (const auto &el : row) {
-            QString escaped = el.text;
-            escaped.replace("\"", "\"\"");
-            line << "\"" + escaped + "\"";
-        }
-        out << line.join(",") << "\n";
-    }
-    out.flush();
-    // AR-5 D2 (corrected): success = the write completed without an IO error. A text-less
-    // PDF (e.g. the smoke-test blank page) legitimately yields an empty CSV — emptiness is
-    // NOT a conversion failure, whereas a disk/permission error is. Check status, not size.
-    const bool writeOk = out.status() == QTextStream::Ok && file.error() == QFileDevice::NoError;
-    file.close();
-    return writeOk && QFileInfo::exists(outputPath);
+    // §9.5 P0: no OpenXLSX in this build — produce REAL OOXML in-house instead
+    // of the old CSV-under-.xlsx fallback (audit §9.5, research Lane C).
+    // (Plain CSV stays available as its own honestly-labeled TargetFormat::Csv.)
+    return exportToExcelInHouse(outputPath, rows);
 #endif
 }
 
@@ -575,6 +553,253 @@ static void addZipFile(zip_t* za, const char* name, const QByteArray& data) {
     if (zip_file_add(za, name, source, ZIP_FL_OVERWRITE | ZIP_FL_ENC_UTF_8) < 0) {
         zip_source_free(source); // frees our malloc'd buffer too
     }
+}
+
+// ── §9.5 P0: in-house OOXML writers (Word/.docx, Excel/.xlsx) ───────────────
+// Same plumbing as the PPTX writer above: libzip for the package, QXmlStreamWriter
+// for the parts, canonical http://schemas.openxmlformats.org/... URIs. They exist
+// so a build without the optional duckx/OpenXLSX libs still ships real OOXML
+// under the .docx/.xlsx extensions instead of mislabeled HTML/CSV bytes.
+// Corruption checklist (each item pinned by tests/TestExportPathBadge.cpp):
+//   1. [Content_Types].xml: Default for rels+xml, Override per written part.
+//   2. XML-escape all text (QXmlStreamWriter) + strip C0 control chars
+//      (invalid in XML 1.0) except the legal whitespace \t \n \r.
+//   3. Relationship rIds present and monotonic; every r:id resolves — no dangles.
+//   4. xlsx rows/cells carry present, monotonic A1-style r="..." references.
+//   5. w:t carries xml:space="preserve" (leading/trailing spaces survive).
+//   6. zip entry names with forward slashes, no duplicates (libzip + literal names).
+
+// XML 1.0 forbids most C0 control characters anywhere in a document. Strip every
+// C0 control except the three legal whitespace chars (\t \n \r); also drop DEL.
+// QXmlStreamWriter would otherwise happily embed raw control bytes, and Word /
+// Excel would then demand a repair.
+static QString sanitizeTextForXml(const QString &raw)
+{
+    QString out;
+    out.reserve(raw.size());
+    for (const QChar &ch : raw) {
+        const char16_t c = ch.unicode();
+        if (c == 0x09 || c == 0x0A || c == 0x0D) { out += ch; continue; } // legal XML whitespace
+        if (c < 0x20)  continue; // other C0 controls: invalid in XML 1.0
+        if (c == 0x7F) continue; // DEL: never meaningful in extracted PDF text
+        out += ch;
+    }
+    return out;
+}
+
+// 1-based column index -> spreadsheet column name: 1..26 -> A..Z, 27 -> AA, ...
+static QString xlsxColumnName(int col)
+{
+    QString name;
+    while (col > 0) {
+        const int rem = (col - 1) % 26;
+        name.prepend(QChar(u'A' + rem));
+        col = (col - 1) / 26;
+    }
+    return name;
+}
+
+// Minimal WordprocessingML package: [Content_Types].xml + _rels/.rels +
+// word/document.xml. styles.xml / settings.xml / numbering are optional per the
+// Open XML spec (MS Learn "Structure of a WordprocessingML document") and are
+// intentionally skipped — Word opens the result without a repair prompt.
+bool ConversionManager::exportToWordInHouse(const QString &outputPath, const QList<QList<TextElement>> &rows)
+{
+    m_lastWordEngine = ExportEngine::InHouseOoxml;
+
+    int errorp = 0;
+    zip_t *za = zip_open(outputPath.toUtf8().constData(), ZIP_CREATE | ZIP_TRUNCATE, &errorp);
+    if (!za) return false;
+
+    // 1. [Content_Types].xml — Defaults (rels, xml) + Override for the document part.
+    QByteArray contentTypes;
+    {
+        QXmlStreamWriter xml(&contentTypes);
+        xml.writeStartDocument();
+        xml.writeStartElement("Types");
+        xml.writeAttribute("xmlns", "http://schemas.openxmlformats.org/package/2006/content-types");
+        xml.writeEmptyElement("Default"); xml.writeAttribute("Extension", "rels"); xml.writeAttribute("ContentType", "application/vnd.openxmlformats-package.relationships+xml");
+        xml.writeEmptyElement("Default"); xml.writeAttribute("Extension", "xml"); xml.writeAttribute("ContentType", "application/xml");
+        xml.writeEmptyElement("Override"); xml.writeAttribute("PartName", "/word/document.xml"); xml.writeAttribute("ContentType", "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml");
+        xml.writeEndElement();
+        xml.writeEndDocument();
+    }
+    addZipFile(za, "[Content_Types].xml", contentTypes);
+
+    // 2. _rels/.rels — the officeDocument relationship pointing at word/document.xml.
+    QByteArray rootRels;
+    {
+        QXmlStreamWriter xml(&rootRels);
+        xml.writeStartDocument();
+        xml.writeStartElement("Relationships");
+        xml.writeAttribute("xmlns", "http://schemas.openxmlformats.org/package/2006/relationships");
+        xml.writeEmptyElement("Relationship");
+        xml.writeAttribute("Id", "rId1");
+        xml.writeAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument");
+        xml.writeAttribute("Target", "word/document.xml");
+        xml.writeEndElement();
+        xml.writeEndDocument();
+    }
+    addZipFile(za, "_rels/.rels", rootRels);
+
+    // 3. word/document.xml — one w:p paragraph per extracted row (same content
+    //    contract the HTML fallback had: row elements joined with a space).
+    QByteArray documentXml;
+    {
+        QXmlStreamWriter xml(&documentXml);
+        xml.writeStartDocument();
+        xml.writeStartElement("w:document");
+        xml.writeAttribute("xmlns:w", "http://schemas.openxmlformats.org/wordprocessingml/2006/main");
+        xml.writeStartElement("w:body");
+        for (const auto &row : rows) {
+            QStringList parts;
+            for (const auto &el : row) {
+                const QString text = sanitizeTextForXml(el.text);
+                if (!text.isEmpty()) parts << text;
+            }
+            xml.writeStartElement("w:p");
+            xml.writeStartElement("w:r");
+            xml.writeStartElement("w:t");
+            xml.writeAttribute("xml:space", "preserve");
+            xml.writeCharacters(parts.join(QLatin1Char(' ')));
+            xml.writeEndElement(); // w:t
+            xml.writeEndElement(); // w:r
+            xml.writeEndElement(); // w:p
+        }
+        xml.writeEndElement(); // w:body
+        xml.writeEndElement(); // w:document
+        xml.writeEndDocument();
+    }
+    addZipFile(za, "word/document.xml", documentXml);
+
+    if (zip_close(za) != 0) return false;
+    return QFileInfo(outputPath).size() > 0;
+}
+
+// Minimal SpreadsheetML package: [Content_Types].xml + _rels/.rels +
+// xl/workbook.xml + xl/_rels/workbook.xml.rels + xl/worksheets/sheet1.xml.
+// Strings are written as t="inlineStr" cells (<is><t>) — a first-class cell
+// type per ECMA-376 — which eliminates sharedStrings.xml entirely (and with it
+// the classic count/uniqueCount corruption pitfall).
+bool ConversionManager::exportToExcelInHouse(const QString &outputPath, const QList<QList<TextElement>> &rows)
+{
+    m_lastExcelEngine = ExportEngine::InHouseOoxml;
+
+    int errorp = 0;
+    zip_t *za = zip_open(outputPath.toUtf8().constData(), ZIP_CREATE | ZIP_TRUNCATE, &errorp);
+    if (!za) return false;
+
+    // 1. [Content_Types].xml — Defaults (rels, xml) + Overrides (workbook, sheet).
+    QByteArray contentTypes;
+    {
+        QXmlStreamWriter xml(&contentTypes);
+        xml.writeStartDocument();
+        xml.writeStartElement("Types");
+        xml.writeAttribute("xmlns", "http://schemas.openxmlformats.org/package/2006/content-types");
+        xml.writeEmptyElement("Default"); xml.writeAttribute("Extension", "rels"); xml.writeAttribute("ContentType", "application/vnd.openxmlformats-package.relationships+xml");
+        xml.writeEmptyElement("Default"); xml.writeAttribute("Extension", "xml"); xml.writeAttribute("ContentType", "application/xml");
+        xml.writeEmptyElement("Override"); xml.writeAttribute("PartName", "/xl/workbook.xml"); xml.writeAttribute("ContentType", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml");
+        xml.writeEmptyElement("Override"); xml.writeAttribute("PartName", "/xl/worksheets/sheet1.xml"); xml.writeAttribute("ContentType", "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml");
+        xml.writeEndElement();
+        xml.writeEndDocument();
+    }
+    addZipFile(za, "[Content_Types].xml", contentTypes);
+
+    // 2. _rels/.rels — the officeDocument relationship pointing at xl/workbook.xml.
+    QByteArray rootRels;
+    {
+        QXmlStreamWriter xml(&rootRels);
+        xml.writeStartDocument();
+        xml.writeStartElement("Relationships");
+        xml.writeAttribute("xmlns", "http://schemas.openxmlformats.org/package/2006/relationships");
+        xml.writeEmptyElement("Relationship");
+        xml.writeAttribute("Id", "rId1");
+        xml.writeAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument");
+        xml.writeAttribute("Target", "xl/workbook.xml");
+        xml.writeEndElement();
+        xml.writeEndDocument();
+    }
+    addZipFile(za, "_rels/.rels", rootRels);
+
+    // 3. xl/workbook.xml — one sheet, r:id="rId1" (resolved by the part below).
+    QByteArray workbookXml;
+    {
+        QXmlStreamWriter xml(&workbookXml);
+        xml.writeStartDocument();
+        xml.writeStartElement("workbook");
+        xml.writeAttribute("xmlns", "http://schemas.openxmlformats.org/spreadsheetml/2006/main");
+        xml.writeAttribute("xmlns:r", "http://schemas.openxmlformats.org/officeDocument/2006/relationships");
+        xml.writeStartElement("sheets");
+        xml.writeEmptyElement("sheet");
+        xml.writeAttribute("name", "Sheet1");
+        xml.writeAttribute("sheetId", "1");
+        xml.writeAttribute("r:id", "rId1");
+        xml.writeEndElement(); // sheets
+        xml.writeEndElement(); // workbook
+        xml.writeEndDocument();
+    }
+    addZipFile(za, "xl/workbook.xml", workbookXml);
+
+    // 4. xl/_rels/workbook.xml.rels — rId1 -> worksheets/sheet1.xml.
+    QByteArray workbookRels;
+    {
+        QXmlStreamWriter xml(&workbookRels);
+        xml.writeStartDocument();
+        xml.writeStartElement("Relationships");
+        xml.writeAttribute("xmlns", "http://schemas.openxmlformats.org/package/2006/relationships");
+        xml.writeEmptyElement("Relationship");
+        xml.writeAttribute("Id", "rId1");
+        xml.writeAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet");
+        xml.writeAttribute("Target", "worksheets/sheet1.xml");
+        xml.writeEndElement();
+        xml.writeEndDocument();
+    }
+    addZipFile(za, "xl/_rels/workbook.xml.rels", workbookRels);
+
+    // 5. xl/worksheets/sheet1.xml — rows/cells in list order, so the r="A1"
+    //    references are present and monotonically increasing by construction.
+    QByteArray sheetXml;
+    {
+        QXmlStreamWriter xml(&sheetXml);
+        xml.writeStartDocument();
+        xml.writeStartElement("worksheet");
+        xml.writeAttribute("xmlns", "http://schemas.openxmlformats.org/spreadsheetml/2006/main");
+        xml.writeStartElement("sheetData");
+        int rowIdx = 0;
+        for (const auto &row : rows) {
+            ++rowIdx;
+            xml.writeStartElement("row");
+            xml.writeAttribute("r", QString::number(rowIdx));
+            // §9.5: extraction emits positionally-grouped elements, many of
+            // them empty — writing them would pad the sheet with hundreds of
+            // blank inlineStr cells (and push the first real cell off A1).
+            // Empty elements are skipped; column letters stay monotonic.
+            int colIdx = 0;
+            for (const auto &el : row) {
+                const QString text = sanitizeTextForXml(el.text);
+                if (text.isEmpty()) continue;
+                ++colIdx;
+                xml.writeStartElement("c");
+                xml.writeAttribute("r", xlsxColumnName(colIdx) + QString::number(rowIdx));
+                xml.writeAttribute("t", "inlineStr");
+                xml.writeStartElement("is");
+                xml.writeStartElement("t");
+                xml.writeAttribute("xml:space", "preserve");
+                xml.writeCharacters(text);
+                xml.writeEndElement(); // t
+                xml.writeEndElement(); // is
+                xml.writeEndElement(); // c
+            }
+            xml.writeEndElement(); // row
+        }
+        xml.writeEndElement(); // sheetData
+        xml.writeEndElement(); // worksheet
+        xml.writeEndDocument();
+    }
+    addZipFile(za, "xl/worksheets/sheet1.xml", sheetXml);
+
+    if (zip_close(za) != 0) return false;
+    return QFileInfo(outputPath).size() > 0;
 }
 
 bool ConversionManager::exportToPowerPoint(const QString &pdfPath, const QString &outputPath, const QVariantMap &options) {
