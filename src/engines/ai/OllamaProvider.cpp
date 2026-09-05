@@ -9,6 +9,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QHostAddress>
 #include <QPromise>
 #include <QTimer>
 #include <QtConcurrent/QtConcurrent>
@@ -19,12 +20,51 @@ namespace gp {
 
 // N-1 FIX: Only localhost/loopback or HTTPS endpoints are permitted.
 // This prevents document content from being exfiltrated over cleartext HTTP to remote hosts.
+//
+// R04 (2026-09-05 plan, finding F03): the host decision is PARSED, not prefix-
+// matched. The previous `host.startsWith("127.")` accepted hosts such as
+// `127.audit.invalid`, a domain an attacker can register and point anywhere.
+// The rules below are pinned by TestOllamaProvider's endpoint matrix:
+//   * HTTP: the exact `localhost` spelling (QUrl case-folds the host), or a
+//     host that PARSES as a literal IP address whose isLoopback() is true
+//     (QHostAddress — 127.0.0.0/8, ::1, IPv4-mapped ::ffff:127.0.0.1). QUrl's
+//     WHATWG host parser normalizes unusual numeric spellings (2130706433,
+//     0x7f000001, 0177.0.0.1, 127.1) to their canonical dotted-quad before we
+//     see the host, so those arrive as real loopback literals; hosts with a
+//     trailing dot or an out-of-range octet do not parse and are rejected.
+//   * user-info (http://user@…) is rejected outright: it is not part of the
+//     Ollama endpoint contract, and it kills `http://<loopback>@attacker/`
+//     display spoofs at the root (the parse would see host=attacker anyway).
+//   * HTTPS keeps the SECFIX-5 explicit host allowlist and the opt-in
+//     trust-any-HTTPS override.
+//   * missing hosts and non-HTTP(S) schemes are rejected.
 static bool isAllowedEndpoint(const QUrl& url)
 {
-    if (!url.isValid()) return false;
+    if (!url.isValid()) {
+        qWarning() << "R04: Blocked invalid endpoint URL:" << url.toString();
+        return false;
+    }
 
     const QString scheme = url.scheme().toLower();
-    const QString host   = url.host().toLower();
+
+    if (scheme != QLatin1String("http") && scheme != QLatin1String("https")) {
+        qWarning() << "R04: Blocked unsupported scheme:" << scheme;
+        return false;
+    }
+
+    // User-info is never part of an Ollama endpoint — reject before any
+    // host-based decision can be confused by it.
+    if (!url.userInfo().isEmpty()) {
+        qWarning() << "R04: Blocked endpoint with user-info (not part of the"
+                      " Ollama endpoint contract):" << url.toString();
+        return false;
+    }
+
+    const QString host = url.host();
+    if (host.isEmpty()) {
+        qWarning() << "R04: Blocked endpoint without a host:" << url.toString();
+        return false;
+    }
 
     // SECFIX-5: HTTPS must also pass a host allowlist - scheme alone does NOT prove
     // the destination is trusted. A tampered endpoint setting could otherwise
@@ -40,36 +80,38 @@ static bool isAllowedEndpoint(const QUrl& url)
                         QStringLiteral("::1")}).toStringList();
         if (allowed.contains(host, Qt::CaseInsensitive))
             return true;
-        qWarning() << "N-1/SECFIX-5: Blocked HTTPS endpoint to non-allowlisted host:" << host;
+        qWarning() << "R04/SECFIX-5: Blocked HTTPS endpoint to non-allowlisted host:" << host;
         return false;
     }
 
-    // HTTP only to loopback addresses
-    if (scheme == QLatin1String("http")) {
-        if (host == QLatin1String("localhost")  ||
-            host == QLatin1String("127.0.0.1")  ||
-            host == QLatin1String("::1")         ||
-            host.startsWith(QLatin1String("127."))) { // 127.x.x.x range
-            return true;
-        }
-        qWarning() << "N-1: Blocked cleartext HTTP endpoint to non-loopback host:" << host;
+    // HTTP only to loopback: the exact `localhost` spelling, or a parsed
+    // literal loopback address. No name resolution, no prefix match.
+    if (host == QLatin1String("localhost"))
+        return true;
+
+    const QHostAddress address(host);
+    if (address.isNull() || !address.isLoopback()) {
+        qWarning() << "R04: Blocked cleartext HTTP endpoint to non-loopback host:"
+                   << host;
         return false;
     }
-
-    qWarning() << "N-1: Blocked unsupported scheme:" << scheme;
-    return false;
+    return true;
 }
 
 static QString resolveEndpoint(const QString& supplied) {
     if (!supplied.isEmpty()) {
-        QUrl u(supplied);
-        if (isAllowedEndpoint(u)) return supplied;
+        // R04: an invalid user-supplied endpoint must fail loudly — silently
+        // connecting to the stored/default endpoint instead would be a
+        // misleading connection to an endpoint the user never chose.
+        if (isAllowedEndpoint(QUrl(supplied)))
+            return supplied;
+        return QString();
     }
     const QString storedEndpoint = QSettings().value("ai/ollamaEndpoint",
                              QStringLiteral("http://localhost:11434")).toString();
     const QUrl endpointUrl(storedEndpoint);
     if (!isAllowedEndpoint(endpointUrl)) {
-        qWarning() << "N-1: Stored Ollama endpoint is not allowed:" << storedEndpoint
+        qWarning() << "R04: Stored Ollama endpoint is not allowed:" << storedEndpoint
                    << "— falling back to http://localhost:11434";
         return QStringLiteral("http://localhost:11434");
     }
@@ -88,10 +130,21 @@ QFuture<AiResult> OllamaProvider::chat(const QList<AiMessage>& history,
 {
     const QString endpoint = resolveEndpoint(m_endpoint);
     const QUrl endpointUrl(endpoint);
-    if (!isAllowedEndpoint(endpointUrl)) {
-        qWarning() << "N-1: Request blocked — endpoint failed runtime validation:" << endpoint;
-        return QtConcurrent::run([]() -> AiResult {
-            return {false, {}, "Ollama endpoint is not permitted (must be localhost or HTTPS)"};
+    if (endpoint.isEmpty() || !isAllowedEndpoint(endpointUrl)) {
+        qWarning() << "R04: Request blocked — endpoint failed validation:"
+                   << m_endpoint;
+        const QString supplied = m_endpoint;
+        return QtConcurrent::run([supplied]() -> AiResult {
+            if (supplied.isEmpty())
+                return {false, {},
+                        QStringLiteral("Ollama endpoint is not configured "
+                                       "(HTTP must be loopback — localhost, 127.x.x.x "
+                                       "or [::1]; HTTPS must be an allowlisted host)")};
+            return {false, {},
+                    QStringLiteral("Ollama endpoint is not permitted: %1 "
+                                   "(HTTP must be loopback — localhost, 127.x.x.x "
+                                   "or [::1]; HTTPS must be an allowlisted host)")
+                        .arg(supplied)};
         });
     }
 
@@ -193,6 +246,12 @@ QFuture<AiResult> OllamaProvider::chat(const QList<AiMessage>& history,
 
             QNetworkRequest req(QUrl(endpoint + QStringLiteral("/api/chat")));
             req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+            // R04: automatic redirects are DISABLED. Qt 6's default redirect
+            // policy would follow an http→http redirect to ANY host, so a
+            // malicious/compromised local server could move a document-
+            // content request to a remote destination. A 3xx is reported as
+            // a terminal error instead (handled in the finished branch below).
+            nam.setRedirectPolicy(QNetworkRequest::ManualRedirectPolicy);
             QNetworkReply* reply = nam.post(req, QJsonDocument(body).toJson(
                                                        QJsonDocument::Compact));
 
@@ -214,6 +273,18 @@ QFuture<AiResult> OllamaProvider::chat(const QList<AiMessage>& history,
                             QStringLiteral("Ollama not reachable at %1: %2")
                                 .arg(endpoint, reply->errorString())});
                     }
+                    return;
+                }
+                // R04: redirects are disabled (ManualRedirectPolicy above) — the
+                // 3xx arrives as a plain response. Report it instead of
+                // following it or mis-parsing its body as malformed JSON.
+                if (status.isValid() && status.toInt() / 100 == 3) {
+                    const QUrl target = reply->attribute(
+                        QNetworkRequest::RedirectionTargetAttribute).toUrl();
+                    finishOnce(AiResult{false, {},
+                        QStringLiteral("Ollama endpoint %1 redirected to %2 — "
+                                       "automatic redirects are disabled")
+                            .arg(endpoint, target.toString(QUrl::FullyEncoded))});
                     return;
                 }
                 const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
