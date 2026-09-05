@@ -1012,6 +1012,41 @@ endif()
 # Audit 9.2 P0 (ER-2): the eraser must not bypass the signed-document guard.
 # deleteObjectAt on a signed document must be refused (incremental save would
 # leak excised bytes into revision 1). Uses the real signing fixtures.
+# §9.7 P0 regression test: the cryptographic signing path must write a visible
+# signature appearance (/AP /N form XObject, ETSI layout, auto-fit).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignatureAppearance.cpp")
+    add_executable(TestSignatureAppearance tests/TestSignatureAppearance.cpp)
+    target_include_directories(TestSignatureAppearance PRIVATE src tests)
+    target_compile_definitions(TestSignatureAppearance PRIVATE
+        SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    )
+    if(GLYPHPDF_ENABLE_TEST_FIXTURES)
+        target_compile_definitions(TestSignatureAppearance PRIVATE GLYPH_TESTING=1)
+    endif()
+    target_link_libraries(TestSignatureAppearance PRIVATE
+        pdfws_engines pdfws_core
+        OpenSSL::SSL OpenSSL::Crypto
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets podofo::podofo
+    )
+    if(WIN32)
+        target_link_libraries(TestSignatureAppearance PRIVATE Crypt32)
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestSignatureAppearance POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestSignatureAppearance>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestSignatureAppearance"
+            )
+        endif()
+    endif()
+    add_test(NAME TestSignatureAppearance COMMAND TestSignatureAppearance)
+    set_tests_properties(TestSignatureAppearance PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "integration;security;signatures;appearance;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEraseSignedGuard.cpp")
     add_executable(TestEraseSignedGuard tests/TestEraseSignedGuard.cpp)
     target_include_directories(TestEraseSignedGuard PRIVATE src tests)
@@ -1773,6 +1808,35 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrPreprocessPrefs.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 60
         LABELS "unit;ocr;preprocess;persistence;qt;headless"
+    )
+endif()
+
+# U07 comments review: active-filter summary + result count + clear action,
+# a table view over the SAME annotation records, and CSV export of the
+# displayed scope with RFC-4180 escaping (no second markup store).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCommentsReview.cpp")
+    add_executable(TestCommentsReview
+        tests/TestCommentsReview.cpp
+    )
+    target_include_directories(TestCommentsReview PRIVATE src tests)
+    target_link_libraries(TestCommentsReview PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestCommentsReview POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestCommentsReview>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestCommentsReview>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestCommentsReview"
+    )
+    add_test(NAME TestCommentsReview COMMAND TestCommentsReview)
+    set_tests_properties(TestCommentsReview PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;comments;review;qt;headless"
     )
 endif()
 
