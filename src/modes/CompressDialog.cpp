@@ -24,6 +24,15 @@
 
 namespace gp {
 
+// ── R12 honesty seam ─────────────────────────────────────────────────────────
+
+QString CompressDialog::unsupportedPassExplanation()
+{
+    return tr("Not available in this build: the compression engine does not "
+              "implement font subsetting or unused-object removal, so these "
+              "passes would not run.");
+}
+
 // ── Preset card helper ────────────────────────────────────────────────────────
 
 static QToolButton* presetCard(const QString& name, const QString& spec,
@@ -146,12 +155,23 @@ CompressDialog::CompressDialog(const AppContext* ctx, QWidget* parent)
     _chkDedup->setChecked(true);
     af->addWidget(_chkDedup, 1, 0);
 
+    // R12: the backend implements neither font subsetting nor unused-object
+    // removal (no subsetter, no object GC in this build). The checkboxes stay
+    // visible but are disabled and unchecked, with the availability explanation
+    // as tooltip/status tip, so the UI never promises a pass that would not
+    // run. See unsupportedPassExplanation().
     _chkSubsetFonts = new QCheckBox(tr("Subset fonts"));
-    _chkSubsetFonts->setChecked(true);
+    _chkSubsetFonts->setChecked(false);
+    _chkSubsetFonts->setEnabled(false);
+    _chkSubsetFonts->setToolTip(unsupportedPassExplanation());
+    _chkSubsetFonts->setStatusTip(unsupportedPassExplanation());
     af->addWidget(_chkSubsetFonts, 1, 1);
 
     _chkRemoveUnused = new QCheckBox(tr("Remove unused objects"));
-    _chkRemoveUnused->setChecked(true);
+    _chkRemoveUnused->setChecked(false);
+    _chkRemoveUnused->setEnabled(false);
+    _chkRemoveUnused->setToolTip(unsupportedPassExplanation());
+    _chkRemoveUnused->setStatusTip(unsupportedPassExplanation());
     af->addWidget(_chkRemoveUnused, 2, 0);
 
     _chkStripMetadata = new QCheckBox(tr("Strip metadata"));
@@ -339,8 +359,8 @@ void CompressDialog::onPresetChanged(int id) {
         _qualitySpin->setValue(50);
         _chkDownsample->setChecked(true);
         _chkDedup->setChecked(true);
-        _chkSubsetFonts->setChecked(true);
-        _chkRemoveUnused->setChecked(true);
+        _chkSubsetFonts->setChecked(false);   // R12: pass not implemented
+        _chkRemoveUnused->setChecked(false);  // R12: pass not implemented
         _chkStripMetadata->setChecked(true);
         break;
     case 1: // Ebook
@@ -348,8 +368,8 @@ void CompressDialog::onPresetChanged(int id) {
         _qualitySpin->setValue(75);
         _chkDownsample->setChecked(true);
         _chkDedup->setChecked(true);
-        _chkSubsetFonts->setChecked(true);
-        _chkRemoveUnused->setChecked(true);
+        _chkSubsetFonts->setChecked(false);   // R12: pass not implemented
+        _chkRemoveUnused->setChecked(false);  // R12: pass not implemented
         _chkStripMetadata->setChecked(false);
         break;
     case 2: // Printer
@@ -357,8 +377,8 @@ void CompressDialog::onPresetChanged(int id) {
         _qualitySpin->setValue(85);
         _chkDownsample->setChecked(true);
         _chkDedup->setChecked(true);
-        _chkSubsetFonts->setChecked(true);
-        _chkRemoveUnused->setChecked(true);
+        _chkSubsetFonts->setChecked(false);   // R12: pass not implemented
+        _chkRemoveUnused->setChecked(false);  // R12: pass not implemented
         _chkStripMetadata->setChecked(false);
         break;
     case 3: // Custom — leave controls as-is
@@ -372,6 +392,13 @@ void CompressDialog::onPresetChanged(int id) {
     _chkSubsetFonts->blockSignals(false);
     _chkRemoveUnused->blockSignals(false);
     _chkStripMetadata->blockSignals(false);
+
+    // R12: no preset may re-enable or re-check the unimplemented passes — the
+    // checkboxes stay disabled and off regardless of the selected preset.
+    _chkSubsetFonts->setEnabled(false);
+    _chkSubsetFonts->setChecked(false);
+    _chkRemoveUnused->setEnabled(false);
+    _chkRemoveUnused->setChecked(false);
 
     // Enable/disable advanced controls for non-custom presets
     bool custom = (id == 3);
@@ -403,8 +430,11 @@ void CompressDialog::refreshEstimate() {
     opts.targetDpi          = _dpiSpin->value();
     opts.jpegQuality        = _qualitySpin->value();
     opts.deduplicateImages  = _chkDedup->isChecked();
-    opts.subsetFonts        = _chkSubsetFonts->isChecked();
-    opts.removeUnusedObjects= _chkRemoveUnused->isChecked();
+    // R12: these passes are not implemented in this build. The disabled
+    // checkboxes already read false, but pin them here so the estimate can
+    // never claim savings from a pass the engine will not run.
+    opts.subsetFonts        = false;
+    opts.removeUnusedObjects= false;
     opts.stripMetadata      = _chkStripMetadata->isChecked();
 
     OptimizeEstimate est = _ctx->pdfEditor->estimateOptimization(opts);
@@ -420,8 +450,10 @@ void CompressDialog::refreshEstimate() {
         _estBar->setValue(0);
     }
 
-    // Reduction badge
-    QString redText = QString::fromUtf8("\xe2\x86\x93 ") // ↓
+    // Reduction badge — a prediction from the estimator, so label it as an
+    // estimate (R12: do not present predicted savings as achieved).
+    QString redText = tr("EST. ")
+        + QString::fromUtf8("\xe2\x86\x93 ") // ↓
         + QString::number(est.reductionPercent, 'f', 0) + "% REDUCTION";
     _reductBadge->setText(redText);
     _reductBadge->setKind(est.reductionPercent > 20 ? Badge::Ok : Badge::Info);
@@ -494,17 +526,29 @@ void CompressDialog::onCompress() {
     opts.targetDpi          = _dpiSpin->value();
     opts.jpegQuality        = _qualitySpin->value();
     opts.deduplicateImages  = _chkDedup->isChecked();
-    opts.subsetFonts        = _chkSubsetFonts->isChecked();
-    opts.removeUnusedObjects= _chkRemoveUnused->isChecked();
+    // R12: mirror refreshEstimate — never request the unimplemented passes,
+    // regardless of what the disabled checkboxes would read.
+    opts.subsetFonts        = false;
+    opts.removeUnusedObjects= false;
     opts.stripMetadata      = _chkStripMetadata->isChecked();
 
     success = _ctx->pdfEditor->optimizeDocument(outPath, opts);
 
     if (success) {
         QFileInfo fi(outPath);
-        QMessageBox::information(this, tr("Optimization Complete"),
-            tr("Document optimized successfully.\n\nSaved to: %1\nNew size: %2")
-            .arg(fi.fileName(), formatBytes(fi.size())));
+        // R12: report the measured output size against the original and say so
+        // explicitly when compression did not shrink the document (the result
+        // can legitimately be larger than the input, e.g. re-encoded JPEGs).
+        const qint64 newSize  = fi.size();
+        const qint64 origSize = QFileInfo(currentFile).size();
+        QString msg = tr("Document optimized successfully.\n\nSaved to: %1\n"
+                         "Original size: %2\nNew size: %3 (measured)")
+            .arg(fi.fileName(), formatBytes(origSize), formatBytes(newSize));
+        if (origSize > 0 && newSize >= origSize) {
+            msg += tr("\n\nNote: the result is not smaller than the original — "
+                      "compression did not reduce this document's size.");
+        }
+        QMessageBox::information(this, tr("Optimization Complete"), msg);
         accept();
     } else {
         QMessageBox::warning(this, tr("Optimization Failed"),

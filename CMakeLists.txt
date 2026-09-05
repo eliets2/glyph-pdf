@@ -2057,6 +2057,37 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCompressStripSanitize.cpp")
     set_tests_properties(TestCompressStripSanitize PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;compression;sanitization;privacy;qt;headless")
 endif()
 
+# R12 regression test: CompressDialog's "Subset fonts" / "Remove unused objects"
+# checkboxes shipped CHECKED while the backend implements neither pass. Pins the
+# UI-honesty contract: the controls stay visible but disabled+unchecked with the
+# availability explanation, presets never re-check them, and the OptimizeOptions
+# reaching the engine never request either unsupported pass.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCompressDialogHonesty.cpp")
+    add_executable(TestCompressDialogHonesty
+        tests/TestCompressDialogHonesty.cpp
+    )
+    target_include_directories(TestCompressDialogHonesty PRIVATE src tests)
+    target_link_libraries(TestCompressDialogHonesty PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestCompressDialogHonesty POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestCompressDialogHonesty>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestCompressDialogHonesty>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestCompressDialogHonesty"
+    )
+    add_test(NAME TestCompressDialogHonesty COMMAND TestCompressDialogHonesty)
+    set_tests_properties(TestCompressDialogHonesty PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;compression;honesty;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFieldMetadata.cpp")
     add_executable(TestFieldMetadata
         tests/TestFieldMetadata.cpp

@@ -20,6 +20,13 @@ class CompressDialog : public QDialog {
 public:
     explicit CompressDialog(const AppContext* ctx, QWidget* parent = nullptr);
 
+    // R12 honesty seam: single source of truth for the availability text
+    // explaining that the "Subset fonts" / "Remove unused objects" passes are
+    // not implemented by the compression engine in this build (no font
+    // subsetter, no object garbage collector), so their checkboxes are
+    // disabled and unchecked instead of promising work that never runs.
+    static QString unsupportedPassExplanation();
+
 private slots:
     void onPresetChanged(int id);
     void refreshEstimate();
