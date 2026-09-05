@@ -10,6 +10,25 @@
 #include <leptonica/allheaders.h>
 #endif
 
+// ── Helper: DPI metadata ────────────────────────────────────────────────────
+
+namespace {
+
+/// Freshly constructed QImages carry Qt's 96 dpi default instead of the
+/// source's resolution. Propagate the source's DPI metadata so output images
+/// keep sensible DPI through the pipeline (F05 acceptance).
+void preserveDpi(const QImage &source, QImage *dest)
+{
+    if (!dest || dest->isNull() || source.isNull())
+        return;
+    if (source.dotsPerMeterX() > 0)
+        dest->setDotsPerMeterX(source.dotsPerMeterX());
+    if (source.dotsPerMeterY() > 0)
+        dest->setDotsPerMeterY(source.dotsPerMeterY());
+}
+
+} // namespace
+
 // ── Helper: QImage ↔ Leptonica Pix ──────────────────────────────────────────
 
 #ifdef HAS_TESSERACT
@@ -54,15 +73,20 @@ QImage pixToQImage(Pix *pix)
     }
 
     if (d == 1) {
-        // Binary: 0 = black, 1 = white in Leptonica convention
+        // Binary. Leptonica's 1 bpp convention is ON (1) = black ink,
+        // OFF (0) = white paper — verified against this build by converting
+        // an all-ON 1 bpp pix to 8 bpp (all zeros). Ink must therefore map to
+        // 0 and paper to 255 so a white page stays white through binarization
+        // (F05: the previous `val ? 255 : 0` mapping reversed polarity and
+        // turned white paper into a black page).
         QImage out(w, h, QImage::Format_Grayscale8);
-        out.fill(0);
+        out.fill(255);
         for (int y = 0; y < h; ++y) {
             uchar *dst = out.scanLine(y);
             for (int x = 0; x < w; ++x) {
                 l_uint32 val = 0;
                 pixGetPixel(pix, x, y, &val);
-                dst[x] = val ? 255 : 0;
+                dst[x] = val ? 0 : 255;
             }
         }
         return out;
@@ -252,6 +276,7 @@ QImage OcrPreprocessor::deskew(const QImage &input, double *angleOut) const
         if (rotated) {
             QImage out = pixToQImage(rotated);
             pixDestroy(&rotated);
+            preserveDpi(input, &out);
             return out;
         }
         return input;
@@ -279,6 +304,7 @@ QImage OcrPreprocessor::binarize(const QImage &input) const
         QImage out = pixToQImage(binPix);
         pixDestroy(&binPix);
         pixDestroy(&pix);
+        preserveDpi(input, &out);
         return out;
     }
     pixDestroy(&pix);
@@ -324,5 +350,6 @@ QImage OcrPreprocessor::denoise(const QImage &input) const
             dst[x] = window[4];
         }
     }
+    preserveDpi(input, &out);
     return out;
 }
