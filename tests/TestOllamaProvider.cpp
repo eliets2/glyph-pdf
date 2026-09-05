@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// R03 — bound AI request lifetimes (implementation plan 2026-09-05, finding F02).
+// R03+R04 — bound AI request lifetimes and parsed endpoint policy
+// (implementation plan 2026-09-05, findings F02/F03).
 //
 // The original OllamaProvider::chat queued a GUI-thread callback capturing
 // worker-stack variables (replyData/replyOk/replyError) and a QSemaphore by
@@ -8,7 +9,10 @@
 // there was no I/O abort, no cancellation path, and malformed JSON was
 // indistinguishable from an empty response.
 //
-// This suite pins the new contract:
+// The original endpoint guard prefix-matched `127.` (F03: http://127.audit.invalid
+// passed), so this suite also pins the parsed loopback policy:
+//
+// R03 contract pinned here:
 //   * every request is owned end-to-end by one worker thread — the network
 //     manager, reply, deadline timer and event loop all live inside it;
 //   * a test-configurable short deadline (QSettings "ai/ollamaTimeoutMs");
@@ -20,6 +24,17 @@
 //   * provider destruction mid-work is safe;
 //   * request-content restrictions are preserved (32 KiB system-prompt cap,
 //     stream=false, model round-trip).
+//
+// R04 contract pinned here:
+//   * HTTP: exact localhost spelling or a host that parses as a literal
+//     loopback address (QHostAddress::isLoopback) — no prefix matching;
+//   * the full acceptance matrix (allowed and rejected spellings, trailing
+//     dots, user-info, numeric spellings, IPv4-mapped IPv6), both supplied
+//     and stored endpoints;
+//   * HTTPS allowlist / trust-any-HTTPS override with isolated settings;
+//   * invalid user-supplied endpoints fail intelligently instead of falling
+//     back to a different endpoint;
+//   * redirects are disabled and reported, never followed.
 //
 // The server is a local QTcpServer stub on the loopback interface only — no
 // external network.
@@ -59,7 +74,8 @@ public:
         Malformed,      // 200 + not-JSON payload
         Status500,      // 500 + JSON error body
         Silent,         // accept and never answer
-        DelayedSuccess  // answer Success after delayMs (after any deadline)
+        DelayedSuccess, // answer Success after delayMs (after any deadline)
+        Redirect        // 302 to a remote Location — must NOT be followed
     };
 
     StubOllamaServer()
@@ -133,6 +149,18 @@ private:
             break;
         case Mode::Silent:
             break;
+        case Mode::Redirect:
+        {
+            // A remote-looking Location on a host that must never be dialed:
+            // the request must terminate here, not follow the redirect.
+            QByteArray head;
+            head += "HTTP/1.1 302 Found\r\n";
+            head += "Location: http://audit.invalid:11434/\r\n";
+            head += "Content-Length: 0\r\n";
+            head += "Connection: close\r\n\r\n";
+            s->write(head);
+            break;
+        }
         case Mode::DelayedSuccess:
             QTimer::singleShot(delayMs, s, [s] {
                 if (s->state() == QAbstractSocket::ConnectedState) {
@@ -557,7 +585,287 @@ private slots:
         QCOMPARE(future.resultCount(), 1);
     }
 
-    // R04: endpoint policy matrix is appended in the R04 package.
+    // ── R04: endpoint policy — parsed loopback validation ──────────────────
+    //
+    // Acceptance matrix (plan R04): permit canonical localhost, 127.0.0.1,
+    // other valid 127.x.x.x literals and [::1]; reject 127.audit.invalid,
+    // localhost.audit.invalid, 0.0.0.0, private LAN, public HTTP, missing
+    // hosts and non-HTTP(S) schemes; pin trailing dots, user-info, unusual
+    // numeric spellings and IPv4-mapped IPv6; exercise stored AND directly
+    // supplied endpoints. Every rejected row must be blocked BEFORE any
+    // network I/O (stub connection count stays 0) with an intelligible error
+    // naming the endpoint.
+
+    void endpointPolicyMatrixHttp_data()
+    {
+        QTest::addColumn<QString>("endpointTemplate"); // %1 = stub port
+        QTest::addColumn<bool>("allowed");
+        QTest::addColumn<bool>("viaStored");           // exercise stored setting
+
+        // ── allowed: canonical loopback spellings, through the stub ───────
+        const char* allowedTemplates[] = {
+            "http://localhost:%1",
+            "http://LOCALHOST:%1",             // QUrl case-folds the host
+            "http://127.0.0.1:%1",
+            "http://127.42.0.7:%1",            // another valid 127.x.x.x literal
+            "http://[::1]:%1",
+            "http://[::ffff:127.0.0.1]:%1",    // IPv4-mapped loopback: pinned ALLOW
+            "http://127.1:%1",                 // numeric spelling → QUrl normalizes to 127.0.0.1
+            "http://2130706433:%1",            // decimal spelling → QUrl normalizes to 127.0.0.1
+        };
+        for (const char* t : allowedTemplates) {
+            QTest::newRow(qPrintable(QStringLiteral("supplied:%1").arg(t)))
+                << QString::fromLatin1(t) << true << false;
+            QTest::newRow(qPrintable(QStringLiteral("stored:%1").arg(t)))
+                << QString::fromLatin1(t) << true << true;
+        }
+
+        // ── rejected: never dispatched, intelligible error ─────────────────
+        const char* rejectedTemplates[] = {
+            "http://127.audit.invalid:%1",     // the F03 probe — prefix match passed this
+            "http://localhost.audit.invalid:%1",
+            "http://0.0.0.0:%1",
+            "http://192.168.1.10:%1",          // private LAN
+            "http://10.0.0.5:%1",              // private LAN
+            "http://172.16.4.9:%1",            // private LAN
+            "http://example.com:%1",           // public HTTP
+            "http://[::ffff:192.168.1.10]:%1", // IPv4-mapped private: pinned REJECT
+            "http://:%1",                      // missing host
+            "http:///api",                     // missing host
+            "localhost:%1",                    // no scheme → parses as scheme, no host
+            "ftp://127.0.0.1:%1",              // non-HTTP(S) scheme
+            "file:///tmp/x",                   // non-HTTP(S) scheme
+            "http://127.0.0.1.:%1",            // trailing dot on a literal
+            "http://localhost.:%1",            // trailing dot on a name
+            "http://127.0.0.256:%1",           // out-of-range octet — not a parseable literal
+            "http://user@127.0.0.1:%1",        // user-info pinned REJECT
+            "http://user:pw@localhost:%1",     // user-info pinned REJECT
+            "http://127.0.0.1@evil.example:%1" // classic spoof: host is evil.example
+        };
+        for (const char* t : rejectedTemplates)
+            QTest::newRow(qPrintable(QStringLiteral("supplied:%1").arg(t)))
+                << QString::fromLatin1(t) << false << false;
+    }
+
+    void endpointPolicyMatrixHttp()
+    {
+        QFETCH(QString, endpointTemplate);
+        QFETCH(bool, allowed);
+        QFETCH(bool, viaStored);
+
+        StubOllamaServer server;
+        QVERIFY(server.start());
+        setDeadlineMs(3000);
+        const QString endpoint = endpointTemplate.arg(server.port());
+
+        gp::OllamaProvider provider(viaStored ? QString() : endpoint);
+        if (viaStored)
+            QSettings().setValue(QStringLiteral("ai/ollamaEndpoint"), endpoint);
+
+        QFuture<gp::AiResult> future =
+            provider.chat({ { QStringLiteral("user"), QStringLiteral("ping") } });
+        const gp::AiResult r = waitResult(future, 10000);
+        drainEvents();
+
+        if (allowed) {
+            QVERIFY2(r.ok, qPrintable(QStringLiteral("endpoint %1 must be allowed, got: ")
+                                      .arg(endpoint) + r.errorMsg));
+            QCOMPARE(r.text, QStringLiteral("hello from local ollama"));
+            QVERIFY2(server.connections >= 1,
+                     "an allowed endpoint must have been dispatched to the stub");
+            QCOMPARE(future.resultCount(), 1);
+            QVERIFY(!future.isCanceled());
+            drainEvents();
+            QCOMPARE(future.resultCount(), 1);
+        } else {
+            QVERIFY2(!r.ok, qPrintable(QStringLiteral("endpoint %1 must be rejected")
+                                       .arg(endpoint)));
+            QVERIFY2(r.errorMsg.contains(QStringLiteral("not permitted")),
+                     qPrintable(QStringLiteral("expected an intelligible policy "
+                                              "rejection, got: ") + r.errorMsg));
+            QVERIFY2(r.errorMsg.contains(endpoint),
+                     "the rejection must name the offending endpoint");
+            QCOMPARE(server.connections, 0); // blocked BEFORE any network I/O
+            QCOMPARE(future.resultCount(), 1);
+            drainEvents();
+            QCOMPARE(future.resultCount(), 1);
+        }
+    }
+
+    // HTTPS: the SECFIX-5 allowlist and the opt-in trust-any override must
+    // survive the R04 rework, with isolated settings. Dispatched rows prove
+    // the policy let the request through (TLS to a plain stub stalls into the
+    // deadline — the point is that it was NOT policy-rejected and DID dial);
+    // denied rows must be blocked before any I/O.
+    void endpointPolicyHttps_data()
+    {
+        QTest::addColumn<QString>("endpointTemplate");
+        QTest::addColumn<QString>("allowlist");  // "@default" → remove key; else the list
+        QTest::addColumn<bool>("trustAny");
+        QTest::addColumn<bool>("expectDispatch");
+
+        QTest::newRow("https:default-allowlist:localhost")
+            << QString::fromLatin1("https://localhost:%1") << QStringLiteral("@default") << false << true;
+        QTest::newRow("https:default-allowlist:loopback-v6")
+            << QString::fromLatin1("https://[::1]:%1") << QStringLiteral("@default") << false << true;
+        QTest::newRow("https:restricted-allowlist:denies-127.0.0.1")
+            << QString::fromLatin1("https://127.0.0.1:%1")
+            << QStringLiteral("my-ollama.internal") << false << false;
+        QTest::newRow("https:empty-allowlist:denies-everything")
+            << QString::fromLatin1("https://localhost:%1") << QString() << false << false;
+        QTest::newRow("https:restricted-allowlist:override-dispatches")
+            << QString::fromLatin1("https://127.0.0.1:%1")
+            << QStringLiteral("my-ollama.internal") << true << true;
+        QTest::newRow("https:non-allowlisted-host:denied")
+            << QString::fromLatin1("https://my-ollama.example:%1") << QStringLiteral("@default") << false << false;
+        QTest::newRow("https:user-info:denied-even-with-override")
+            << QString::fromLatin1("https://user@127.0.0.1:%1") << QStringLiteral("@default") << true << false;
+    }
+
+    void endpointPolicyHttps()
+    {
+        QFETCH(QString, endpointTemplate);
+        QFETCH(QString, allowlist);
+        QFETCH(bool, trustAny);
+        QFETCH(bool, expectDispatch);
+
+        StubOllamaServer server;
+        QVERIFY(server.start());
+        server.mode = StubOllamaServer::Mode::Silent;
+        setDeadlineMs(800);
+        if (allowlist == QLatin1String("@default"))
+            QSettings().remove(QStringLiteral("ai/ollamaAllowedHosts"));
+        else
+            QSettings().setValue(QStringLiteral("ai/ollamaAllowedHosts"),
+                                 allowlist.split(QLatin1Char(';'), Qt::SkipEmptyParts));
+        QSettings().setValue(QStringLiteral("ai/ollamaTrustAnyHttps"), trustAny);
+
+        const QString endpoint = endpointTemplate.arg(server.port());
+        gp::OllamaProvider provider(endpoint);
+        QFuture<gp::AiResult> future =
+            provider.chat({ { QStringLiteral("user"), QStringLiteral("ping") } });
+        const gp::AiResult r = waitResult(future, 10000);
+        drainEvents();
+
+        QCOMPARE(future.resultCount(), 1);
+        if (expectDispatch) {
+            QVERIFY2(server.connections >= 1,
+                     "an HTTPS-allowed endpoint must have been dispatched");
+            QVERIFY2(!r.errorMsg.contains(QStringLiteral("not permitted")),
+                     qPrintable(QStringLiteral("HTTPS-allowed endpoint must not be "
+                                              "policy-rejected, got: ") + r.errorMsg));
+        } else {
+            QVERIFY2(!r.ok, qPrintable(QStringLiteral("endpoint %1 must be rejected")
+                                       .arg(endpoint)));
+            QVERIFY2(r.errorMsg.contains(QStringLiteral("not permitted")),
+                     qPrintable(QStringLiteral("expected a policy rejection, got: ")
+                                + r.errorMsg));
+            QCOMPARE(server.connections, 0);
+        }
+    }
+
+    // An invalid DIRECTLY-SUPPLIED endpoint must fail intelligently — never
+    // fall back to a connection with some other (stored/default) endpoint —
+    // and isReady() must reflect it.
+    void invalidSuppliedEndpointFailsInsteadOfFallback()
+    {
+        StubOllamaServer server;
+        QVERIFY(server.start());
+        setDeadlineMs(3000);
+
+        const QStringList invalid = {
+            QStringLiteral("http://0.0.0.0:9"),
+            QStringLiteral("http://127.audit.invalid:11434"),
+            QStringLiteral("localhost:11434"),           // no scheme → no host
+            QStringLiteral("http://user@127.0.0.1:%1").arg(server.port()),
+        };
+        for (const QString& bad : invalid) {
+            gp::OllamaProvider provider(bad);
+            QVERIFY2(!provider.isReady(),
+                     qPrintable(QStringLiteral("isReady must be false for %1").arg(bad)));
+            QFuture<gp::AiResult> future =
+                provider.chat({ { QStringLiteral("user"), QStringLiteral("ping") } });
+            const gp::AiResult r = waitResult(future, 10000);
+            QVERIFY2(!r.ok, qPrintable(QStringLiteral("%1 must fail").arg(bad)));
+            QVERIFY2(r.errorMsg.contains(QStringLiteral("not permitted")),
+                     qPrintable(QStringLiteral("expected intelligible rejection for %1, got: ")
+                                .arg(bad) + r.errorMsg));
+            QVERIFY2(r.errorMsg.contains(bad),
+                     "the rejection must name the supplied endpoint");
+            QCOMPARE(future.resultCount(), 1);
+        }
+        // Nothing may have been dialed, including the default localhost:11434.
+        QCOMPARE(server.connections, 0);
+
+        // Contrast: a valid supplied endpoint is ready and dispatches.
+        gp::OllamaProvider good(endpointFor(server));
+        QVERIFY(good.isReady());
+        const gp::AiResult r = waitResult(
+            good.chat({ { QStringLiteral("user"), QStringLiteral("ping") } }), 10000);
+        QVERIFY2(r.ok, qPrintable(r.errorMsg));
+    }
+
+    // An invalid STORED endpoint keeps the documented fallback to the app
+    // default (http://localhost:11434) — it must NOT be reported as a policy
+    // rejection and must never contact the invalid endpoint.
+    void storedInvalidEndpointFallsBackToDefaultEndpoint()
+    {
+        StubOllamaServer server; // on a random port — NOT the fallback target
+        QVERIFY(server.start());
+        setDeadlineMs(800);
+        QSettings().setValue(QStringLiteral("ai/ollamaEndpoint"),
+                             QStringLiteral("http://0.0.0.0:9"));
+
+        gp::OllamaProvider provider; // no supplied endpoint → stored path
+        QFuture<gp::AiResult> future =
+            provider.chat({ { QStringLiteral("user"), QStringLiteral("ping") } });
+        const gp::AiResult r = waitResult(future, 10000);
+        drainEvents();
+
+        QCOMPARE(future.resultCount(), 1);
+        QVERIFY2(!r.errorMsg.contains(QStringLiteral("not permitted")),
+                 "stored-invalid fallback must not be a policy rejection");
+        QVERIFY2(!r.errorMsg.contains(QStringLiteral("0.0.0.0")),
+                 "the invalid stored endpoint must never be contacted or named");
+        QVERIFY2(r.ok || r.errorMsg.contains(QStringLiteral("localhost:11434"))
+                     || r.errorMsg.contains(QStringLiteral("Empty response")),
+                 qPrintable(QStringLiteral("failure must implicate the default fallback "
+                                          "endpoint (or a live default-endpoint server), "
+                                          "got: ") + r.errorMsg));
+        QCOMPARE(server.connections, 0);
+    }
+
+    // Redirects are DISABLED: a 302 must terminate the request with an
+    // intelligible error, never follow the Location (nothing may dial the
+    // redirect target) and never leak a second result.
+    void redirectsAreDisabledAndReported()
+    {
+        StubOllamaServer server;
+        QVERIFY(server.start());
+        server.mode = StubOllamaServer::Mode::Redirect;
+        setDeadlineMs(3000);
+
+        gp::OllamaProvider provider(endpointFor(server));
+        QFuture<gp::AiResult> future =
+            provider.chat({ { QStringLiteral("user"), QStringLiteral("ping") } });
+
+        const gp::AiResult r = waitResult(future, 10000);
+        QVERIFY2(!r.ok, "a redirect must not be reported as success");
+        QVERIFY2(r.errorMsg.contains(QStringLiteral("redirect"), Qt::CaseInsensitive),
+                 qPrintable(QStringLiteral("expected the redirect to be reported, got: ")
+                            + r.errorMsg));
+        QVERIFY2(r.errorMsg.contains(QStringLiteral("audit.invalid")),
+                 "the redirect target must be named in the error");
+        QCOMPARE(future.resultCount(), 1);
+
+        // The Location target must never be dialed: exactly one connection to
+        // the stub, and the target host is non-loopback so a follow attempt
+        // would also surface as a second stub-visible or DNS event.
+        QTest::qWait(300);
+        drainEvents();
+        QCOMPARE(server.connections, 1);
+        QCOMPARE(future.resultCount(), 1);
+    }
 };
 
 QTEST_GUILESS_MAIN(TestOllamaProvider)
