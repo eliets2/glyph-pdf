@@ -1738,6 +1738,36 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrPreprocessPrefs.cpp")
     )
 endif()
 
+# U01 layout regression: the welcome screen's six action cards sat in one row
+# needing 900px inside a 600px column (final cards clipped) and never reflowed.
+# The test pins geometric overflow at 1280x720 and the responsive 3/2/1-column
+# reflow headlessly; pixel-level spacing/palette checks remain manual (plan §U01).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestWelcomeLayout.cpp")
+    add_executable(TestWelcomeLayout
+        tests/TestWelcomeLayout.cpp
+    )
+    target_include_directories(TestWelcomeLayout PRIVATE src tests)
+    target_link_libraries(TestWelcomeLayout PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestWelcomeLayout POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestWelcomeLayout>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestWelcomeLayout>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestWelcomeLayout"
+    )
+    add_test(NAME TestWelcomeLayout COMMAND TestWelcomeLayout)
+    set_tests_properties(TestWelcomeLayout PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "ui;welcome;layout;qt;headless"
+    )
+endif()
+
 # §9.7 P0 audit item: on-page signature validity badges. The badge layer is a
 # Qt VIEW-LAYER overlay only (never persisted into the PDF); the test pins the
 # state→color mapping, the on-page anchor (field rect top-right corner),
