@@ -60,7 +60,7 @@ Dated corrections to stale historical claims (superseded by HEAD):
 | U03 | OCR verify | Source-image review workflow; one confidence function (dep R05-R08) | open |
 | U04 | Compare | Results drive both views (dep R11) | open |
 | U05 | Redaction | Explicit output/failure states; one controller flow | open |
-| U06 | Pages | Selection visibility, insertion indicator, keyboard moves | open |
+| U06 | Pages | Selection visibility, insertion indicator, keyboard moves | implemented-awaiting-review — PLUS fixed a probe-verified defect: Qt InternalMove inserts-before-removing, so the drag snapshot captured the duplicate and the atomic permutation command never fired (drag reorder was silently dead in the live path); capture moved to rowsAboutToBeInserted + removal reconciliation. 6 new tests |
 | U07 | Comments | Filter summary, count, clear action on the existing records | open |
 | U08 | Capabilities | Pre-execution capability/scope disclosure across workflows | open |
 
