@@ -28,6 +28,10 @@
 #include <QUndoStack>
 #include <QPalette>
 #include <QApplication>
+#include <QTableWidget>
+#include <QHeaderView>
+#include <QFileDialog>
+#include <QFile>
 #include <functional>
 #include <QToolButton>
 #include <QTextCursor>
@@ -101,6 +105,34 @@ QColor reviewStateColor(ReviewState s)
     }
 }
 
+// U07: human type label for the table presentation / CSV export. The review
+// tools manage AddComment records today; the switch keeps the table honest if
+// the filtered scope is ever broadened to other persisted markup modes.
+QString annotationTypeLabel(ToolMode m)
+{
+    switch (m) {
+    case ToolMode::AddComment:   return QObject::tr("Comment");
+    case ToolMode::AddTextBox:   return QObject::tr("Text box");
+    case ToolMode::Highlight:    return QObject::tr("Highlight");
+    case ToolMode::DrawFreehand: return QObject::tr("Ink");
+    default:                     return QObject::tr("Annotation");
+    }
+}
+
+// U07: the Page column must sort numerically — the default QTableWidgetItem
+// string comparison orders a 10+ page document as "1", "10", "2", which is
+// wrong exactly for the larger reviews the table presentation targets. The
+// 0-based pageIndex is already carried in Qt::UserRole + 1, so compare that.
+class PageSortItem final : public QTableWidgetItem
+{
+public:
+    using QTableWidgetItem::QTableWidgetItem;
+    bool operator<(const QTableWidgetItem &other) const override
+    {
+        return data(Qt::UserRole + 1).toInt() < other.data(Qt::UserRole + 1).toInt();
+    }
+};
+
 } // anonymous namespace
 
 CommentsWidget::CommentsWidget(QWidget *parent)
@@ -119,13 +151,16 @@ CommentsWidget::CommentsWidget(QWidget *parent)
 
     auto *filterLayout = new QHBoxLayout();
     m_filterStatus = new QComboBox(this);
+    m_filterStatus->setObjectName(QStringLiteral("commentsFilterStatus"));
     m_filterStatus->addItems({tr("All"), tr("Open"), tr("Accepted"),
                               tr("Rejected"), tr("Completed"), tr("Cancelled")});
     m_filterAuthor = new QComboBox(this);
+    m_filterAuthor->setObjectName(QStringLiteral("commentsFilterAuthor"));
     m_filterAuthor->addItem(tr("All Authors"));
     // M6-P5 D1: date filter — recency buckets computed against the annotation's
     // ISO-8601 creationDate. "All Dates" disables the filter.
     m_filterDate = new QComboBox(this);
+    m_filterDate->setObjectName(QStringLiteral("commentsFilterDate"));
     m_filterDate->addItems({tr("All Dates"), tr("Today"), tr("Last 7 days"),
                             tr("Last 30 days")});
     filterLayout->addWidget(m_filterStatus);
@@ -133,10 +168,59 @@ CommentsWidget::CommentsWidget(QWidget *parent)
     filterLayout->addWidget(m_filterDate);
     layout->addLayout(filterLayout);
 
+    // ── U07: active-filter summary, view-mode toggle, clear + export ─────
+    // The summary always names the active-filter count and the displayed
+    // result count ("2 filters · 5 of 12 shown"); the clear action resets
+    // every combo; the toggle switches between two presentations of the SAME
+    // records; Export CSV writes the displayed scope only.
+    auto *summaryLayout = new QHBoxLayout();
+    m_summaryLabel = new QLabel(this);
+    m_summaryLabel->setObjectName(QStringLiteral("commentsSummaryLabel"));
+    m_summaryLabel->setForegroundRole(QPalette::PlaceholderText);
+    summaryLayout->addWidget(m_summaryLabel);
+    summaryLayout->addStretch();
+
+    m_viewMode = new QComboBox(this);
+    m_viewMode->setObjectName(QStringLiteral("commentsViewToggle"));
+    m_viewMode->setToolTip(tr("Switch between the thread list and the summary table"));
+    m_viewMode->addItems({tr("List"), tr("Table")});
+    summaryLayout->addWidget(m_viewMode);
+
+    m_clearBtn = new QPushButton(tr("Clear Filters"), this);
+    m_clearBtn->setObjectName(QStringLiteral("commentsClearFilters"));
+    m_clearBtn->setToolTip(tr("Reset status, author and date filters"));
+    m_clearBtn->setEnabled(false);
+    summaryLayout->addWidget(m_clearBtn);
+
+    auto *exportBtn = new QToolButton(this);
+    exportBtn->setText(tr("Export CSV\u2026"));
+    exportBtn->setObjectName(QStringLiteral("commentsExportCsv"));
+    exportBtn->setToolTip(tr("Export the displayed comments to a CSV file"));
+    summaryLayout->addWidget(exportBtn);
+    layout->addLayout(summaryLayout);
+
     m_tree = new QTreeWidget(this);
     m_tree->setHeaderHidden(true);
     m_tree->setWordWrap(true);
     layout->addWidget(m_tree, 1);
+
+    // U07: table presentation of the SAME filtered annotation records —
+    // page/type/status/author (+ date/text) columns over AnnotationItem, not
+    // a second markup store.
+    m_table = new QTableWidget(this);
+    m_table->setObjectName(QStringLiteral("commentsTable"));
+    m_table->setColumnCount(6);
+    m_table->setHorizontalHeaderLabels({tr("Page"), tr("Type"), tr("Status"),
+                                        tr("Author"), tr("Date"), tr("Text")});
+    m_table->verticalHeader()->setVisible(false);
+    m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_table->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_table->setWordWrap(false);
+    m_table->setColumnWidth(0, 44);
+    m_table->horizontalHeader()->setStretchLastSection(true);
+    m_table->hide();
+    layout->addWidget(m_table, 1);
 
     // T-01: composer background and input colors use palette roles so they adapt
     // to Light and High-Contrast themes instead of the former hardcoded dark hex.
@@ -251,6 +335,41 @@ CommentsWidget::CommentsWidget(QWidget *parent)
     connect(m_filterAuthor, &QComboBox::currentTextChanged, this, &CommentsWidget::refreshList);
     connect(m_filterDate, &QComboBox::currentIndexChanged, this, &CommentsWidget::refreshList);
 
+    // ── U07 wiring ─────────────────────────────────────────────────────────
+    // View-mode toggle: rebuild only the active presentation, preserving the
+    // selected annotation id across the switch. The combo index has already
+    // flipped when this fires, so the selection is read from the OUTGOING
+    // presentation explicitly.
+    connect(m_viewMode, &QComboBox::currentIndexChanged, this, [this](int index) {
+        const bool incomingTable = (index == 1);
+        const QString selId = selectionId(!incomingTable);
+        m_table->setVisible(incomingTable);
+        m_tree->setVisible(!incomingTable);
+        rebuildActiveView();
+        restoreSelection(selId);
+        updateFilterSummary();
+    });
+    connect(m_clearBtn, &QPushButton::clicked, this, &CommentsWidget::clearFilters);
+    connect(exportBtn, &QToolButton::clicked, this, [this]() {
+        if (m_lastFiltered.isEmpty()) return;
+        const QString path = QFileDialog::getSaveFileName(
+            this, tr("Export Comments CSV"),
+            QStringLiteral("comments.csv"),
+            tr("CSV files (*.csv);;All files (*)"));
+        if (path.isEmpty()) return;
+        exportDisplayedCsv(path);
+    });
+    // Table activation reuses the SAME navigation plumbing as the list:
+    // commentDoubleClicked(pageIndex) → Sidebar → viewer->goToPage().
+    connect(m_table, &QTableWidget::cellDoubleClicked, this, [this](int row, int column) {
+        Q_UNUSED(column)
+        if (!m_table->item(row, 0)) return;
+        bool ok = false;
+        const int page = m_table->item(row, 0)->data(Qt::UserRole + 1).toInt(&ok);
+        if (ok && page >= 0)
+            emit commentDoubleClicked(page);
+    });
+
     m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_tree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
         auto *item = m_tree->itemAt(pos);
@@ -289,6 +408,10 @@ CommentsWidget::CommentsWidget(QWidget *parent)
             emit commentDoubleClicked(p);
         }
     });
+
+    // U07: seed the summary before the first reload so the label never reads
+    // as empty (e.g. a widget constructed without a viewer).
+    updateFilterSummary();
 }
 
 void CommentsWidget::setViewer(PdfViewerWidget *viewer)
@@ -314,9 +437,23 @@ void CommentsWidget::setCurrentPage(int page)
 
 void CommentsWidget::reloadAnnotations()
 {
-    if (m_viewer) {
-        buildTree(m_viewer->annotations());
+    if (!m_viewer) return;
+    // U07: preserve the selection across the rebuild (e.g. after a review
+    // state change or a composer post).
+    const QString selId = selectedAnnotationId();
+
+    m_allComments.clear();
+    const QList<AnnotationItem> items = m_viewer->annotations();
+    for (const auto &anno : items) {
+        if (anno.mode == ToolMode::AddComment)
+            m_allComments.append(anno);
     }
+    m_totalComments = m_allComments.size();
+    m_lastFiltered = applyFilters();
+
+    rebuildActiveView();
+    restoreSelection(selId);
+    updateFilterSummary();
 }
 
 void CommentsWidget::refreshList()
@@ -355,7 +492,35 @@ static bool datePasses(int dateIndex, const QString &creationDate)
     }
 }
 
-void CommentsWidget::buildTree(const QList<AnnotationItem> &items)
+// U07: run the status/author/date filters over the cached AddComment records.
+// All three filters combine with AND semantics; "All"/"All Authors"/"All
+// Dates" disable their respective clause.
+QList<AnnotationItem> CommentsWidget::applyFilters() const
+{
+    const QString statusFilter = m_filterStatus ? m_filterStatus->currentText() : QString();
+    const QString authorFilter = m_filterAuthor ? m_filterAuthor->currentText() : QString();
+    const int dateIndex = m_filterDate ? m_filterDate->currentIndex() : 0;
+
+    QList<AnnotationItem> out;
+    for (const auto &anno : m_allComments) {
+        if (!statusPasses(statusFilter, anno.reviewState)) continue;
+        if (authorFilter != tr("All Authors") && authorFilter != anno.author) continue;
+        if (!datePasses(dateIndex, anno.creationDate)) continue;
+        out.append(anno);
+    }
+    return out;
+}
+
+void CommentsWidget::rebuildActiveView()
+{
+    const bool tableMode = m_viewMode && m_viewMode->currentIndex() == 1;
+    if (tableMode)
+        rebuildTable();
+    else
+        buildTree();
+}
+
+void CommentsWidget::buildTree()
 {
     m_tree->clear();
     m_filterAuthor->blockSignals(true);
@@ -366,50 +531,43 @@ void CommentsWidget::buildTree(const QList<AnnotationItem> &items)
     QSet<QString> authors;
     QMap<QString, QTreeWidgetItem*> itemMap;
 
-    const QString statusFilter = m_filterStatus->currentText();
-    const int dateIndex = m_filterDate ? m_filterDate->currentIndex() : 0;
-
-    for (const auto &anno : items) {
-        if (anno.mode != ToolMode::AddComment) continue;
+    // The author combo always offers every author in the document, even when
+    // the author filter currently hides some of them.
+    for (const auto &anno : m_allComments) {
         if (!anno.author.isEmpty()) authors.insert(anno.author);
+    }
 
-        const bool statusMatch = statusPasses(statusFilter, anno.reviewState);
-        const bool authorMatch = (currentAuthor == tr("All Authors") || currentAuthor == anno.author);
-        const bool dateMatch   = datePasses(dateIndex, anno.creationDate);
+    for (const auto &anno : m_lastFiltered) {
+        auto *node = new QTreeWidgetItem();
 
-        if (statusMatch && authorMatch && dateMatch) {
-            auto *node = new QTreeWidgetItem();
+        // Generate circular avatar icon
+        QPixmap avatar = generateAvatar(anno.author);
+        node->setIcon(0, QIcon(avatar));
 
-            // Generate circular avatar icon
-            QPixmap avatar = generateAvatar(anno.author);
-            node->setIcon(0, QIcon(avatar));
+        // Build rich display text with review state badge
+        const QString stateTag = reviewStateLabel(anno.reviewState);
+        const QString display = QString("%1  \u2022  %2  [%3]\n%4")
+            .arg(anno.author, anno.creationDate, stateTag, anno.text);
+        node->setText(0, display);
 
-            // Build rich display text with review state badge
-            const QString stateTag = reviewStateLabel(anno.reviewState);
-            const QString display = QString("%1  \u2022  %2  [%3]\n%4")
-                .arg(anno.author, anno.creationDate, stateTag, anno.text);
-            node->setText(0, display);
+        // Tint the row toward the review-state color so Open/Accepted/
+        // Rejected/etc. are distinguishable at a glance (depth dimming
+        // below may override this for nested replies).
+        node->setForeground(0, QBrush(reviewStateColor(anno.reviewState)));
+        node->setToolTip(0, reviewStateLabel(anno.reviewState));
 
-            // Tint the row toward the review-state color so Open/Accepted/
-            // Rejected/etc. are distinguishable at a glance (depth dimming
-            // below may override this for nested replies).
-            node->setForeground(0, QBrush(reviewStateColor(anno.reviewState)));
-            node->setToolTip(0, reviewStateLabel(anno.reviewState));
-
-            node->setData(0, Qt::UserRole, anno.id);
-            node->setData(0, Qt::UserRole + 1, anno.pageIndex);
-            node->setData(0, Qt::UserRole + 2, static_cast<int>(anno.reviewState));
-            node->setData(0, Qt::UserRole + 3, anno.parentId);
-            itemMap.insert(anno.id, node);
-        }
+        node->setData(0, Qt::UserRole, anno.id);
+        node->setData(0, Qt::UserRole + 1, anno.pageIndex);
+        node->setData(0, Qt::UserRole + 2, static_cast<int>(anno.reviewState));
+        node->setData(0, Qt::UserRole + 3, anno.parentId);
+        itemMap.insert(anno.id, node);
     }
 
     // Parent/child assembly. A reply nests under its parent when the parent
     // also survived the filter; otherwise it is promoted to a top-level node
     // so a matching reply is never hidden by a filtered-out parent.
     QList<QTreeWidgetItem*> roots;
-    for (const auto &anno : items) {
-        if (anno.mode != ToolMode::AddComment) continue;
+    for (const auto &anno : m_lastFiltered) {
         if (!itemMap.contains(anno.id)) continue;
         if (!anno.parentId.isEmpty() && itemMap.contains(anno.parentId)) {
             itemMap[anno.parentId]->addChild(itemMap[anno.id]);
@@ -444,6 +602,201 @@ void CommentsWidget::buildTree(const QList<AnnotationItem> &items)
     m_filterAuthor->setCurrentText(currentAuthor);
     m_filterAuthor->blockSignals(false);
     m_tree->expandAll();
+}
+
+// U07: the table presentation renders the SAME filtered records as the list —
+// page/type/status/author (+ date/text) columns over the AnnotationItem set.
+// Row item data mirrors the tree contract: col 0 carries the annotation id in
+// Qt::UserRole and the 0-based pageIndex in Qt::UserRole + 1.
+void CommentsWidget::rebuildTable()
+{
+    if (!m_table) return;
+    m_table->setSortingEnabled(false);
+    m_table->setRowCount(0);
+
+    for (const auto &anno : m_lastFiltered) {
+        const int row = m_table->rowCount();
+        m_table->insertRow(row);
+
+        auto *pageItem = new PageSortItem(QString::number(anno.pageIndex + 1));
+        pageItem->setData(Qt::UserRole, anno.id);
+        pageItem->setData(Qt::UserRole + 1, anno.pageIndex);
+        m_table->setItem(row, 0, pageItem);
+        m_table->setItem(row, 1, new QTableWidgetItem(annotationTypeLabel(anno.mode)));
+        m_table->setItem(row, 2, new QTableWidgetItem(reviewStateLabel(anno.reviewState)));
+        m_table->setItem(row, 3, new QTableWidgetItem(anno.author));
+        m_table->setItem(row, 4, new QTableWidgetItem(anno.creationDate));
+        m_table->setItem(row, 5, new QTableWidgetItem(anno.text));
+    }
+    m_table->setSortingEnabled(true);
+}
+
+void CommentsWidget::updateFilterSummary()
+{
+    if (!m_summaryLabel) return;
+    const int active = activeFilterCount();
+    const int shown = visibleCommentCount();
+    if (active == 1)
+        m_summaryLabel->setText(tr("1 filter \u00B7 %1 of %2 shown")
+                                    .arg(shown).arg(m_totalComments));
+    else
+        m_summaryLabel->setText(tr("%1 filters \u00B7 %2 of %3 shown")
+                                    .arg(active).arg(shown).arg(m_totalComments));
+    if (m_clearBtn)
+        m_clearBtn->setEnabled(active > 0);
+}
+
+int CommentsWidget::visibleCommentCount() const
+{
+    const bool tableMode = m_viewMode && m_viewMode->currentIndex() == 1;
+    if (tableMode && m_table)
+        return m_table->rowCount();
+    if (!m_tree)
+        return 0;
+    int n = 0;
+    QList<QTreeWidgetItem*> stack;
+    for (int i = 0; i < m_tree->topLevelItemCount(); ++i)
+        stack.append(m_tree->topLevelItem(i));
+    while (!stack.isEmpty()) {
+        QTreeWidgetItem *it = stack.takeFirst();
+        ++n;
+        for (int c = 0; c < it->childCount(); ++c)
+            stack.append(it->child(c));
+    }
+    return n;
+}
+
+int CommentsWidget::activeFilterCount() const
+{
+    int n = 0;
+    if (m_filterStatus && m_filterStatus->currentIndex() > 0) ++n;
+    if (m_filterAuthor && m_filterAuthor->currentIndex() > 0) ++n;
+    if (m_filterDate && m_filterDate->currentIndex() > 0) ++n;
+    return n;
+}
+
+QString CommentsWidget::activeFilterSummary() const
+{
+    return m_summaryLabel ? m_summaryLabel->text() : QString();
+}
+
+void CommentsWidget::clearFilters()
+{
+    if (m_filterStatus) m_filterStatus->setCurrentIndex(0);
+    if (m_filterDate) m_filterDate->setCurrentIndex(0);
+    if (m_filterAuthor) {
+        m_filterAuthor->blockSignals(true);
+        m_filterAuthor->setCurrentIndex(0);
+        m_filterAuthor->blockSignals(false);
+    }
+    reloadAnnotations();
+}
+
+QString CommentsWidget::selectedAnnotationId() const
+{
+    const bool tableMode = m_viewMode && m_viewMode->currentIndex() == 1;
+    return selectionId(tableMode);
+}
+
+// Reads the current-row annotation id from ONE specific presentation. The
+// view-mode toggle uses this to grab the selection from the OUTGOING view
+// (the combo index has already flipped when the toggled signal fires).
+QString CommentsWidget::selectionId(bool tableMode) const
+{
+    if (tableMode && m_table) {
+        const int row = m_table->currentRow();
+        if (row < 0 || !m_table->item(row, 0)) return QString();
+        return m_table->item(row, 0)->data(Qt::UserRole).toString();
+    }
+    if (m_tree && m_tree->currentItem())
+        return m_tree->currentItem()->data(0, Qt::UserRole).toString();
+    return QString();
+}
+
+void CommentsWidget::restoreSelection(const QString &annoId)
+{
+    if (annoId.isEmpty()) return;
+    const bool tableMode = m_viewMode && m_viewMode->currentIndex() == 1;
+    if (tableMode && m_table) {
+        for (int r = 0; r < m_table->rowCount(); ++r) {
+            if (m_table->item(r, 0)
+                && m_table->item(r, 0)->data(Qt::UserRole).toString() == annoId) {
+                // setCurrentCell (not selectRow) so the current index moves
+                // with the selection under the SelectRows behavior.
+                m_table->setCurrentCell(r, 0);
+                m_table->scrollToItem(m_table->item(r, 0));
+                return;
+            }
+        }
+        return;
+    }
+    if (!m_tree) return;
+    QList<QTreeWidgetItem*> stack;
+    for (int i = 0; i < m_tree->topLevelItemCount(); ++i)
+        stack.append(m_tree->topLevelItem(i));
+    while (!stack.isEmpty()) {
+        QTreeWidgetItem *it = stack.takeFirst();
+        if (it->data(0, Qt::UserRole).toString() == annoId) {
+            m_tree->setCurrentItem(it);
+            m_tree->scrollToItem(it);
+            return;
+        }
+        for (int c = 0; c < it->childCount(); ++c)
+            stack.append(it->child(c));
+    }
+}
+
+// U07: RFC-4180 field escaping — fields containing '"', ',' or a newline are
+// double-quoted with inner quotes doubled. Public so the escaping contract is
+// directly testable.
+QString CommentsWidget::csvEscapeField(const QString &raw)
+{
+    const bool needsQuoting = raw.contains(QLatin1Char('"'))
+                           || raw.contains(QLatin1Char(','))
+                           || raw.contains(QLatin1Char('\n'))
+                           || raw.contains(QLatin1Char('\r'));
+    if (!needsQuoting) return raw;
+    QString escaped = raw;
+    escaped.replace(QLatin1Char('"'), QStringLiteral("\"\""));
+    return QLatin1Char('"') + escaped + QLatin1Char('"');
+}
+
+// CSV of the DISPLAYED scope only. Columns use the persisted fields confirmed
+// in AnnotationSerializer::toJson: pageIndex, mode, reviewState, author,
+// creationDate and text. modificationDate is NOT persisted by the serializer
+// and is therefore deliberately not exported. Page numbers are 1-based to
+// match what the reviewer sees in the table.
+QString CommentsWidget::displayedCsv() const
+{
+    const QStringList header = {QStringLiteral("Page"), QStringLiteral("Type"),
+                                QStringLiteral("Status"), QStringLiteral("Author"),
+                                QStringLiteral("Date"), QStringLiteral("Text")};
+    QStringList lines;
+    lines.append(header.join(QLatin1Char(',')));
+    for (const auto &anno : m_lastFiltered) {
+        QStringList row;
+        row.append(QString::number(anno.pageIndex + 1));
+        row.append(csvEscapeField(annotationTypeLabel(anno.mode)));
+        row.append(csvEscapeField(reviewStateLabel(anno.reviewState)));
+        row.append(csvEscapeField(anno.author));
+        row.append(csvEscapeField(anno.creationDate));
+        row.append(csvEscapeField(anno.text));
+        lines.append(row.join(QLatin1Char(',')));
+    }
+    return lines.join(QStringLiteral("\r\n")) + QStringLiteral("\r\n");
+}
+
+bool CommentsWidget::exportDisplayedCsv(const QString &filePath) const
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return false;
+    const QByteArray payload = displayedCsv().toUtf8();
+    if (file.write(payload) != payload.size()) {
+        file.close();
+        return false;
+    }
+    file.close();
+    return true;
 }
 
 void CommentsWidget::addComment()
