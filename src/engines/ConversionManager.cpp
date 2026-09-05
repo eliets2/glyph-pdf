@@ -56,22 +56,17 @@ ConversionManager::ConversionManager(QObject *parent)
 
 ConversionManager::~ConversionManager() = default;
 
+// R10 (F08): truthful capability. Both writers exist unconditionally (vendored
+// lib when compiled in, in-house OOXML otherwise), so Word/Excel export is
+// always genuinely available — see the header contract and ExportEngine.
 bool ConversionManager::hasNativeWordExport()
 {
-#ifdef HAS_DUCKX
     return true;
-#else
-    return false;
-#endif
 }
 
 bool ConversionManager::hasNativeExcelExport()
 {
-#ifdef HAS_OPENXLSX
     return true;
-#else
-    return false;
-#endif
 }
 
 bool ConversionManager::convertTo(const QString &pdfPath, const QString &outputPath, TargetFormat format, const QVariantMap &options)

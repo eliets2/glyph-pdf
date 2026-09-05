@@ -11,6 +11,9 @@
 //   * XML-escaping of &<>'" in extracted text, C0 control chars stripped
 //   * engine badge: in-house output is real OOXML -> the ConvertController
 //     "HTML-as-docx / CSV-as-xlsx" warning must NOT fire.
+// R10 extension: the capability queries must reflect the in-house writers
+// truthfully (real Word/Excel export in EVERY build), and the engine must
+// reject an unloadable input BEFORE opening or truncating the destination.
 #include <QtTest/QtTest>
 #include <QTemporaryDir>
 #include <QFile>
@@ -22,7 +25,7 @@
 class TestExportPathBadge : public QObject {
     Q_OBJECT
 private slots:
-    void capabilityFlagsAreConsistent();
+    void capabilityQueriesReflectInHouseWriters();
     void wordExportTracksEngineUsed();
     void excelExportTracksEngineUsed();
     void wordDocxIsRealOoxmlPackage();
@@ -32,6 +35,7 @@ private slots:
     void excelSheetParsesInlineStrCells();
     void excelCellEscapesSpecialChars();
     void inHouseExportSuppressesFallbackWarning();
+    void failedInputDoesNotTruncateDestination();
     void localProcessingNoticeStatesPrivacy();
 private:
     static QString createMinimalPdf(const QString& dir, const QString& name);
@@ -269,17 +273,37 @@ bool collectInlineStrCells(const QByteArray& sheetXml, QList<QPair<QString, QStr
 }
 } // namespace
 
-void TestExportPathBadge::capabilityFlagsAreConsistent() {
-    // The flags must compile-time match the availability of the OOXML libs.
+// R10 (F08): the capability queries must reflect the in-house writers
+// truthfully — real Word/Excel export exists in EVERY build (vendored lib
+// when compiled in, in-house OOXML writer otherwise), so the old
+// "returns false in lib-less builds" claim was a capability gap that no
+// longer exists. The truth about WHICH writer ran stays in the engine badge.
+void TestExportPathBadge::capabilityQueriesReflectInHouseWriters() {
+    QVERIFY2(ConversionManager::hasNativeWordExport(),
+             "Word (.docx) export must report available — the in-house writer is real OOXML");
+    QVERIFY2(ConversionManager::hasNativeExcelExport(),
+             "Excel (.xlsx) export must report available — the in-house writer is real OOXML");
+
+    // The capability is not a bare claim: actual exports must succeed.
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = createTextPdf(tmp.path(), "in.pdf", {"Capability probe"});
+    QVERIFY(!pdf.isEmpty());
+
+    ConversionManager mgr;
+    QVERIFY(mgr.convertTo(pdf, tmp.filePath("cap.docx"), IConversionEngine::TargetFormat::Word));
+    QVERIFY(mgr.convertTo(pdf, tmp.filePath("cap.xlsx"), IConversionEngine::TargetFormat::Excel));
+
+    // ... and the engine badge must keep telling the truth about the writer.
 #ifdef HAS_DUCKX
-    QVERIFY(ConversionManager::hasNativeWordExport());
+    QCOMPARE(mgr.lastWordExportEngine(), ConversionManager::ExportEngine::NativeOoxml);
 #else
-    QVERIFY(!ConversionManager::hasNativeWordExport());
+    QCOMPARE(mgr.lastWordExportEngine(), ConversionManager::ExportEngine::InHouseOoxml);
 #endif
 #ifdef HAS_OPENXLSX
-    QVERIFY(ConversionManager::hasNativeExcelExport());
+    QCOMPARE(mgr.lastExcelExportEngine(), ConversionManager::ExportEngine::NativeOoxml);
 #else
-    QVERIFY(!ConversionManager::hasNativeExcelExport());
+    QCOMPARE(mgr.lastExcelExportEngine(), ConversionManager::ExportEngine::InHouseOoxml);
 #endif
 }
 void TestExportPathBadge::wordExportTracksEngineUsed() {
@@ -295,14 +319,15 @@ void TestExportPathBadge::wordExportTracksEngineUsed() {
     const bool ok = mgr.convertTo(pdf, out, IConversionEngine::TargetFormat::Word);
     QVERIFY(ok);
 
-    // Whichever path ran must be reported truthfully.
-    if (ConversionManager::hasNativeWordExport()) {
-        QCOMPARE(mgr.lastWordExportEngine(), ConversionManager::ExportEngine::NativeOoxml);
-    } else {
-        // §9.5 P0: no duckx -> the in-house OOXML writer ran (never the old
-        // HTML fallback, which used to be reported as Fallback).
-        QCOMPARE(mgr.lastWordExportEngine(), ConversionManager::ExportEngine::InHouseOoxml);
-    }
+    // Whichever path ran must be reported truthfully (R10: branch on the
+    // build flavor — the capability query is now unconditionally true).
+#ifdef HAS_DUCKX
+    QCOMPARE(mgr.lastWordExportEngine(), ConversionManager::ExportEngine::NativeOoxml);
+#else
+    // §9.5 P0: no duckx -> the in-house OOXML writer ran (never the old
+    // HTML fallback, which used to be reported as Fallback).
+    QCOMPARE(mgr.lastWordExportEngine(), ConversionManager::ExportEngine::InHouseOoxml);
+#endif
 }
 void TestExportPathBadge::excelExportTracksEngineUsed() {
     QTemporaryDir tmp;
@@ -317,13 +342,13 @@ void TestExportPathBadge::excelExportTracksEngineUsed() {
     const bool ok = mgr.convertTo(pdf, out, IConversionEngine::TargetFormat::Excel);
     QVERIFY(ok);
 
-    if (ConversionManager::hasNativeExcelExport()) {
-        QCOMPARE(mgr.lastExcelExportEngine(), ConversionManager::ExportEngine::NativeOoxml);
-    } else {
-        // §9.5 P0: no OpenXLSX -> the in-house OOXML writer ran (never the old
-        // CSV-under-.xlsx fallback).
-        QCOMPARE(mgr.lastExcelExportEngine(), ConversionManager::ExportEngine::InHouseOoxml);
-    }
+#ifdef HAS_OPENXLSX
+    QCOMPARE(mgr.lastExcelExportEngine(), ConversionManager::ExportEngine::NativeOoxml);
+#else
+    // §9.5 P0: no OpenXLSX -> the in-house OOXML writer ran (never the old
+    // CSV-under-.xlsx fallback).
+    QCOMPARE(mgr.lastExcelExportEngine(), ConversionManager::ExportEngine::InHouseOoxml);
+#endif
 }
 
 // §9.5 P0: a .docx from a lib-less build must be a real OPC package holding
@@ -543,9 +568,11 @@ void TestExportPathBadge::excelCellEscapesSpecialChars() {
                                 .arg(cells.size())));
 }
 
-// §9.5 P0/§9.16: after an in-house (real OOXML) export the ConvertController
-// warning seam — `lastXExportEngine() == ExportEngine::Fallback` — must be
-// false, so the "HTML-as-docx / CSV-as-xlsx" repair-prompt warning cannot fire.
+// §9.5 P0/§9.16/R10: after an in-house (real OOXML) export the
+// ConvertController warning seam — `lastXExportEngine() == ExportEngine::Fallback`
+// — must be false, so the "HTML-as-docx / CSV-as-xlsx" repair-prompt warning
+// cannot fire for in-house output (that warning only ever matched the dead
+// mislabeled-fallback state).
 void TestExportPathBadge::inHouseExportSuppressesFallbackWarning() {
     QTemporaryDir tmp;
     QVERIFY(tmp.isValid());
@@ -558,19 +585,55 @@ void TestExportPathBadge::inHouseExportSuppressesFallbackWarning() {
     const QString xlsx = tmp.filePath("out.xlsx");
     QVERIFY(mgr.convertTo(pdf, xlsx, IConversionEngine::TargetFormat::Excel));
 
-    if (!ConversionManager::hasNativeWordExport()) {
-        QCOMPARE(mgr.lastWordExportEngine(), ConversionManager::ExportEngine::InHouseOoxml);
-        const bool wordWarningWouldFire =
-            mgr.lastWordExportEngine() == ConversionManager::ExportEngine::Fallback;
-        QVERIFY2(!wordWarningWouldFire,
-                 "in-house OOXML output must not trigger the HTML-as-docx warning");
-    }
-    if (!ConversionManager::hasNativeExcelExport()) {
-        QCOMPARE(mgr.lastExcelExportEngine(), ConversionManager::ExportEngine::InHouseOoxml);
-        const bool excelWarningWouldFire =
-            mgr.lastExcelExportEngine() == ConversionManager::ExportEngine::Fallback;
-        QVERIFY2(!excelWarningWouldFire,
-                 "in-house OOXML output must not trigger the CSV-as-xlsx warning");
+#ifndef HAS_DUCKX
+    QCOMPARE(mgr.lastWordExportEngine(), ConversionManager::ExportEngine::InHouseOoxml);
+#endif
+#ifndef HAS_OPENXLSX
+    QCOMPARE(mgr.lastExcelExportEngine(), ConversionManager::ExportEngine::InHouseOoxml);
+#endif
+    QVERIFY2(mgr.lastWordExportEngine() != ConversionManager::ExportEngine::Fallback,
+             "in-house OOXML output must not trigger the HTML-as-docx warning");
+    QVERIFY2(mgr.lastExcelExportEngine() != ConversionManager::ExportEngine::Fallback,
+             "in-house OOXML output must not trigger the CSV-as-xlsx warning");
+}
+
+// R10 (F08): the engine must reject an unloadable input BEFORE opening or
+// truncating the output — UI gating alone is insufficient because batch and
+// future callers bypass it. Every format's handler validates the input first,
+// so a pre-existing destination must survive byte-for-byte.
+void TestExportPathBadge::failedInputDoesNotTruncateDestination() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString missing = tmp.filePath("missing-input.pdf");
+
+    const QList<IConversionEngine::TargetFormat> formats = {
+        IConversionEngine::TargetFormat::Word,
+        IConversionEngine::TargetFormat::Excel,
+        IConversionEngine::TargetFormat::Csv,
+        IConversionEngine::TargetFormat::Text,
+        IConversionEngine::TargetFormat::Html,
+    };
+    const QStringList suffixes = {".docx", ".xlsx", ".csv", ".txt", ".html"};
+
+    for (int i = 0; i < formats.size(); ++i) {
+        const QString out = tmp.filePath(QStringLiteral("destination") + suffixes.at(i));
+        const QByteArray sentinel = "PRESERVE-ME" + suffixes.at(i).toLatin1();
+        {
+            QFile f(out);
+            QVERIFY2(f.open(QIODevice::WriteOnly | QIODevice::Truncate),
+                     qPrintable(QStringLiteral("could not create sentinel %1").arg(out)));
+            f.write(sentinel);
+        }
+
+        ConversionManager mgr;
+        const bool ok = mgr.convertTo(missing, out, formats.at(i));
+        QVERIFY2(!ok, qPrintable(QStringLiteral(
+            "convertTo must reject an unloadable input for %1").arg(suffixes.at(i))));
+
+        QFile after(out);
+        QVERIFY2(after.open(QIODevice::ReadOnly),
+                 qPrintable(QStringLiteral("destination %1 must still exist").arg(out)));
+        QCOMPARE(after.readAll(), sentinel);
     }
 }
 

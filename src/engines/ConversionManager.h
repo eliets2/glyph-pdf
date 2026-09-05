@@ -43,9 +43,15 @@ public:
 
     // Convenience: true when an Office→PDF converter is available on this machine.
     static bool isOfficeImportAvailable() { return !locateSoffice().isEmpty(); }
-    // Compile-time availability of the optional third-party OOXML libs (duckx /
-    // OpenXLSX). Word/Excel export itself is ALWAYS available since §9.5 P0 — the
-    // in-house writers produce real OOXML when these libs are absent.
+    // R10 (F08) truthful capability queries: real Word/Excel export is
+    // AVAILABLE in every build of this project — a vendored OOXML lib writes
+    // the file when compiled in (ExportEngine::NativeOoxml), and GlyphPDF's
+    // in-house WordprocessingML/SpreadsheetML writers produce real OOXML
+    // otherwise (ExportEngine::InHouseOoxml). The names are historical (they
+    // once reported duckx/OpenXLSX compile-time availability and returned
+    // false while mislabeled HTML/CSV fallbacks ran under .docx/.xlsx — that
+    // state no longer exists). Callers must NOT disable Word/Excel UI based on
+    // these queries; use lastXExportEngine() to tell the user WHICH writer ran.
     static bool hasNativeWordExport();
     static bool hasNativeExcelExport();
     // Which writer produced the last Word/Excel export (audit §9.16/§9.5 seam):
