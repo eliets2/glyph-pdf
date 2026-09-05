@@ -38,7 +38,15 @@
 class ConversionManager::Private {
 public:
     PoDoFo::PdfMemDocument *document = nullptr;
-    QList<ConversionManager::TextElement> extractTextFromPage(int pageIndex, PoDoFo::PdfMemDocument &doc);
+    // R09 (F07): extraction goes through PDFium's decoded text path (via the
+    // backend boundary) instead of interpreting Tj/TJ bytes directly —
+    // subset-font glyph codes must never leak into Word/Excel/CSV/Text output.
+    QList<ConversionManager::TextElement> extractTextFromPage(PdfiumBackend &backend, int pageIndex);
+    // Deterministic ordering: cluster runs into visual lines, order lines
+    // top-to-bottom with a strict-weak-ordering-safe sort. Never re-sorts runs
+    // inside a line (keeps logical order for RTL/bidi content).
+    static QList<QList<ConversionManager::TextElement>> clusterIntoRows(
+        const QList<ConversionManager::TextElement> &elements);
 };
 
 ConversionManager::ConversionManager(QObject *parent)
@@ -89,41 +97,21 @@ bool ConversionManager::convertTo(const QString &pdfPath, const QString &outputP
     }
 
     try {
-        PoDoFo::PdfMemDocument doc;
-        doc.Load(pdfPath.toUtf8().constData());
+        // R09 (F07): a per-operation backend — the document/page/text handles
+        // live inside this call and are never shared with the live viewer or
+        // other threads. The load also validates the input BEFORE any output
+        // file is opened or truncated (R10).
+        PdfiumBackend backend;
+        if (!backend.loadDocument(pdfPath)) {
+            qWarning() << "Conversion: PDFium failed to load document:" << pdfPath;
+            return false;
+        }
 
         QList<QList<TextElement>> allRows;
 
-        for (unsigned i = 0; i < doc.GetPages().GetCount(); ++i) {
-            QList<TextElement> pageElements = d->extractTextFromPage(i, doc);
-            
-            // Text Flow Heuristic: Group into rows
-            // PDF coordinates: Y increases upwards. We want top-to-bottom.
-            std::sort(pageElements.begin(), pageElements.end(), [](const TextElement &a, const TextElement &b) {
-                // If Y is close enough, they are on the same line. Sort by X.
-                if (std::abs(a.rect.y() - b.rect.y()) < (std::min(a.fontSize, b.fontSize) * 0.5)) {
-                    return a.rect.x() < b.rect.x();
-                }
-                // Otherwise, higher Y (top of page) comes first
-                return a.rect.y() > b.rect.y();
-            });
-
-            QList<TextElement> currentRow;
-            for (const auto &el : pageElements) {
-                if (currentRow.isEmpty()) {
-                    currentRow.append(el);
-                } else {
-                    double yDiff = std::abs(currentRow.last().rect.y() - el.rect.y());
-                    if (yDiff < el.fontSize * 0.8) {
-                        currentRow.append(el);
-                    } else {
-                        allRows.append(currentRow);
-                        currentRow.clear();
-                        currentRow.append(el);
-                    }
-                }
-            }
-            if (!currentRow.isEmpty()) allRows.append(currentRow);
+        for (int i = 0; i < backend.pageCount(); ++i) {
+            QList<TextElement> pageElements = d->extractTextFromPage(backend, i);
+            allRows.append(Private::clusterIntoRows(pageElements));
         }
 
         if (format == TargetFormat::Word) {
@@ -148,77 +136,76 @@ bool ConversionManager::convertTo(const QString &pdfPath, const QString &outputP
     }
 }
 
-QList<ConversionManager::TextElement> ConversionManager::Private::extractTextFromPage(int pageIndex, PoDoFo::PdfMemDocument &doc)
+// R09 (F07): decoded text + baseline geometry straight from the backend's
+// page-text-with-boxes method. Runs arrive in PDFium char order (content
+// stream / logical order) with user-space rects normalized once by the
+// backend; this mapping does no reordering of its own.
+QList<ConversionManager::TextElement> ConversionManager::Private::extractTextFromPage(PdfiumBackend &backend, int pageIndex)
 {
     QList<TextElement> elements;
-    try {
-        PoDoFo::PdfPage& page = doc.GetPages().GetPageAt(pageIndex);
-        PoDoFo::PdfContentStreamReader reader(page);
-        
-        double currentX = 0, currentY = 0;
-        double currentFontSize = 10.0;
-        QString currentFontName = "Helvetica";
-        
-        PoDoFo::PdfContent content;
-        while (reader.TryReadNext(content)) {
-            if (content.GetType() == PoDoFo::PdfContentType::Operator) {
-                std::string_view kw = content.GetKeyword();
-                const auto& stack = content.GetStack();
-                
-                // ISO 32000-2 §9.4.1: BT sets the text line matrix to the
-                // identity — without resetting here, relative Td offsets
-                // ACCUMULATE across text objects and every block after the
-                // first gets a y below the page (inverting row order in the
-                // Word/Excel/CSV exports).
-                if (kw == "BT") {
-                    currentX = 0;
-                    currentY = 0;
-                } else if (kw == "Tm" && stack.size() >= 6) {
-                    // PdfVariantStack is LIFO: for 'a b c d e f Tm', e=X and
-                    // f=Y sit at stack[1] / stack[0].
-                    if (stack[1].IsNumberOrReal()) currentX = stack[1].GetReal();
-                    if (stack[0].IsNumberOrReal()) currentY = stack[0].GetReal();
-                } else if ((kw == "Td" || kw == "TD") && stack.size() >= 2) {
-                    // 'tx ty Td': ty pushed last → stack[0]; tx → stack[1].
-                    if (stack[1].IsNumberOrReal()) currentX += stack[1].GetReal();
-                    if (stack[0].IsNumberOrReal()) currentY += stack[0].GetReal();
-                } else if (kw == "Tf" && stack.size() >= 2) {
-                    // 'name size Tf': LIFO → size on top (stack[0]), name below.
-                    if (stack[1].IsName()) currentFontName = QString::fromStdString(std::string(stack[1].GetName().GetString()));
-                    if (stack[0].IsNumberOrReal()) currentFontSize = stack[0].GetReal();
-                } else if (kw == "Tj" && stack.size() >= 1) {
-                    if (stack[0].IsString()) {
-                        TextElement el;
-                        el.text = QString::fromStdString(std::string(stack[0].GetString().GetString()));
-                        el.rect = QRectF(currentX, currentY, el.text.length() * currentFontSize * 0.6, currentFontSize);
-                        el.fontSize = currentFontSize;
-                        el.fontName = currentFontName;
-                        elements.append(el);
-                    }
-                } else if (kw == "TJ" && stack.size() >= 1) {
-                    if (stack[0].IsArray()) {
-                        QString fullText;
-                        for (const auto& item : stack[0].GetArray()) {
-                            if (item.IsString()) {
-                                fullText += QString::fromStdString(std::string(item.GetString().GetString()));
-                            }
-                        }
-                        TextElement el;
-                        el.text = fullText;
-                        el.rect = QRectF(currentX, currentY, el.text.length() * currentFontSize * 0.6, currentFontSize);
-                        el.fontSize = currentFontSize;
-                        el.fontName = currentFontName;
-                        elements.append(el);
-                    }
-                }
-            }
-        }
-    } catch (const std::exception& e) {
-        qWarning() << __func__ << "swallowed exception:" << e.what();
-    } catch (...) {
-        qWarning() << __func__ << "swallowed unknown exception";
+    const QList<PdfiumBackend::TextRun> runs = backend.extractPageTextRuns(pageIndex);
+    elements.reserve(runs.size());
+    for (const PdfiumBackend::TextRun &run : runs) {
+        if (run.text.isEmpty()) continue; // empty-element skipping (452bfa2 behavior kept)
+        TextElement el;
+        el.text = run.text;
+        el.rect = run.rect;
+        el.fontSize = run.fontSize;
+        el.fontName = run.fontName;
+        elements.append(el);
     }
     return elements;
+}
+
+// R09: deterministic ordering pipeline, replacing the previous
+// "close enough in Y" comparator INSIDE std::sort — a pairwise,
+// non-transitive predicate that violates the strict-weak-ordering contract
+// (real UB / crash risk). Now:
+//   1. runs arrive from the backend in extracted (logical) order;
+//   2. cluster them into visual lines: a run joins the first line whose
+//      baseline is within the documented tolerance (half the larger font
+//      size, 1pt floor) of the run's baseline; otherwise it starts a new line;
+//   3. order LINES top-to-bottom with std::stable_sort on the pure numeric
+//      line baseline (descending Y) — exact numeric keys, valid strict weak
+//      ordering, and stable order breaks any exact tie deterministically;
+//   4. runs within a line KEEP extracted order — never re-sorted by X, which
+//      preserves the Unicode logical order PDFium already computed for
+//      RTL/bidi/mixed-direction content (x-order alone is insufficient there).
+QList<QList<ConversionManager::TextElement>> ConversionManager::Private::clusterIntoRows(
+    const QList<ConversionManager::TextElement> &elements)
+{
+    struct LineGroup {
+        double baselineY;
+        double maxFont;
+        QList<TextElement> els;
+    };
+    QList<LineGroup> groups;
+    for (const TextElement &el : elements) {
+        bool placed = false;
+        for (LineGroup &g : groups) {
+            const double tol = qMax(1.0, 0.5 * qMax(el.fontSize, g.maxFont));
+            if (std::fabs(el.rect.y() - g.baselineY) <= tol) {
+                g.els.append(el);
+                g.maxFont = qMax(g.maxFont, el.fontSize);
+                placed = true;
+                break;
+            }
+        }
+        if (!placed) {
+            groups.append({el.rect.y(), el.fontSize, {el}});
+        }
+    }
+    // Lines only, well separated by construction: exact numeric keys are a
+    // valid strict weak ordering. stable_sort = deterministic tie order.
+    std::stable_sort(groups.begin(), groups.end(),
+                     [](const LineGroup &a, const LineGroup &b) {
+                         return a.baselineY > b.baselineY;
+                     });
+    QList<QList<TextElement>> rows;
+    rows.reserve(groups.size());
+    for (const LineGroup &g : groups)
+        rows.append(g.els);
+    return rows;
 }
 
 bool ConversionManager::exportToWord(const QString &outputPath, const QList<QList<TextElement>> &rows)
@@ -296,18 +283,18 @@ bool ConversionManager::exportToHtml(const QString &pdfPath, const QString &outp
         QSizeF size = backend.pageSize(i);
         out << QString("<div class=\"page\" style=\"width: %1pt; height: %2pt;\">\n").arg(size.width()).arg(size.height());
 
-        try {
-            PoDoFo::PdfMemDocument doc;
-            doc.Load(pdfPath.toUtf8().constData());
-            QList<TextElement> elements = d->extractTextFromPage(i, doc);
-            for (const auto &el : elements) {
-                // PDF coordinates: Y is from bottom. HTML Y is from top.
-                double htmlY = size.height() - el.rect.y() - el.fontSize;
-                out << QString("<div class=\"text\" style=\"left: %1pt; top: %2pt; font-size: %3pt; font-family: '%4';\">%5</div>\n")
-                           .arg(el.rect.x()).arg(htmlY).arg(el.fontSize).arg(el.fontName).arg(el.text.toHtmlEscaped());
-            }
-        } catch(...) {}
-        
+        // R09 (F07): decoded text with real glyph geometry from the same
+        // backend instance (no second, raw-byte extraction pass).
+        const QList<TextElement> elements = d->extractTextFromPage(backend, i);
+        for (const auto &el : elements) {
+            // PDF coordinates: Y is from bottom. HTML Y is from top.
+            // el.rect.y() is the run's baseline origin; the font size lifts
+            // the box to its top, matching the pre-R09 anchor contract.
+            double htmlY = size.height() - el.rect.y() - el.fontSize;
+            out << QString("<div class=\"text\" style=\"left: %1pt; top: %2pt; font-size: %3pt; font-family: '%4';\">%5</div>\n")
+                       .arg(el.rect.x()).arg(htmlY).arg(el.fontSize).arg(el.fontName).arg(el.text.toHtmlEscaped());
+        }
+
         out << "</div>\n";
     }
     out << "</body></html>\n";
@@ -500,33 +487,26 @@ bool ConversionManager::convertOfficeToPdf(const QString &officePath, const QStr
 
 bool ConversionManager::exportToText(const QString &pdfPath, const QString &outputPath) {
     try {
-        PoDoFo::PdfMemDocument doc;
-        doc.Load(pdfPath.toUtf8().constData());
-        
+        // R09 (F07): PDFium-decoded text via a per-operation backend; the
+        // document is validated BEFORE the output file is opened (R10).
+        PdfiumBackend backend;
+        if (!backend.loadDocument(pdfPath)) return false;
+
         QFile file(outputPath);
         if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return false;
         QTextStream out(&file);
 
-        for (unsigned i = 0; i < doc.GetPages().GetCount(); ++i) {
-            QList<TextElement> elements = d->extractTextFromPage(i, doc);
-            std::sort(elements.begin(), elements.end(), [](const TextElement &a, const TextElement &b) {
-                if (std::abs(a.rect.y() - b.rect.y()) < (std::min(a.fontSize, b.fontSize) * 0.5)) {
-                    return a.rect.x() < b.rect.x();
+        for (int i = 0; i < backend.pageCount(); ++i) {
+            QList<TextElement> elements = d->extractTextFromPage(backend, i);
+            const QList<QList<TextElement>> rows = Private::clusterIntoRows(elements);
+            for (const QList<TextElement> &row : rows) {
+                QStringList parts;
+                for (const auto &el : row) {
+                    if (!el.text.isEmpty()) parts << el.text;
                 }
-                return a.rect.y() > b.rect.y();
-            });
-
-            double lastY = -1;
-            for (const auto &el : elements) {
-                if (lastY != -1 && std::abs(lastY - el.rect.y()) > el.fontSize * 0.8) {
-                    out << "\n";
-                } else if (lastY != -1) {
-                    out << " ";
-                }
-                out << el.text;
-                lastY = el.rect.y();
+                if (!parts.isEmpty()) out << parts.join(QLatin1Char(' ')) << "\n";
             }
-            out << "\n\n";
+            out << "\n";
         }
         file.close();
         return QFileInfo(outputPath).size() > 0;
@@ -806,14 +786,6 @@ bool ConversionManager::exportToPowerPoint(const QString &pdfPath, const QString
     PdfiumBackend backend;
     if (!backend.loadDocument(pdfPath)) return false;
 
-    // Also load via PoDoFo for text extraction
-    PoDoFo::PdfMemDocument doc;
-    try {
-        doc.Load(pdfPath.toUtf8().constData());
-    } catch (...) {
-        return false;
-    }
-
     int errorp = 0;
     zip_t *za = zip_open(outputPath.toUtf8().constData(), ZIP_CREATE | ZIP_TRUNCATE, &errorp);
     if (!za) return false;
@@ -988,12 +960,9 @@ bool ConversionManager::exportToPowerPoint(const QString &pdfPath, const QString
         addZipFile(za, QString("ppt/media/image%1.jpeg").arg(i+1).toUtf8().constData(), imgData);
 
         // Extract text elements from this page
-        QList<TextElement> textElements;
-        try {
-            textElements = d->extractTextFromPage(i, doc);
-        } catch (...) {
-            // If text extraction fails, we still have the image
-        }
+        // R09 (F07): decoded Unicode + real glyph geometry from the backend's
+        // page-text-with-boxes method (was: raw Tj/TJ byte interpretation).
+        QList<TextElement> textElements = d->extractTextFromPage(backend, i);
 
         // Build the slide XML
         QByteArray slideXml;

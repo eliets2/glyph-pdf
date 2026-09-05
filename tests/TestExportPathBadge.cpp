@@ -36,10 +36,12 @@ private slots:
 private:
     static QString createMinimalPdf(const QString& dir, const QString& name);
     // Multi-line text PDF, hand-built with an unembedded standard Helvetica
-    // font. ConversionManager's extraction reads Tj/TJ string bytes raw (no
-    // font-encoding handling), so only unembedded standard fonts yield
-    // byte-exact text; QPdfWriter output (embedded subset fonts) extracts as
-    // garbage and would test nothing.
+    // font carrying an explicit WinAnsiEncoding, so the bytes in the Tj
+    // strings decode as intended by any encoding-aware extractor (R09: the
+    // conversion path decodes through PDFium; the old raw-byte path ignored
+    // encodings entirely). QPdfWriter output (embedded subset fonts) also
+    // extracts correctly now and would work here too, but the hand-built PDF
+    // keeps the fixture dependency-free and byte-exact.
     static QString createTextPdf(const QString& dir, const QString& name,
                                  const QStringList& lines);
     // Hand-built PDF whose content stream holds a *raw* string literal, so the
@@ -89,7 +91,8 @@ QString TestExportPathBadge::createTextPdf(const QString& dir, const QString& na
         "/Resources<</Font<</F1 5 0 R>>>>>>endobj\n",
         "4 0 obj<</Length " + QByteArray::number(content.size()) + ">>stream\n"
             + content + "endstream endobj\n",
-        "5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n",
+        "5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica"
+        "/Encoding/WinAnsiEncoding>>endobj\n",
     };
     QByteArray pdf = "%PDF-1.4\n";
     QList<qint64> offsets;
