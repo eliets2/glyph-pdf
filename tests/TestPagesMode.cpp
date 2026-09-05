@@ -7,6 +7,16 @@
  *   testSplitEveryNPages     — executeSplit(): 6-page doc split every 2 → 3 parts
  *   testReorderPages         — legacy sequential reorderPages() logic (simulation)
  *   testAtomicReorder        — AR-8 D5: reorderAllPages() called ONCE for whole permutation
+ *   testMovePermutationConsolidation — §9.9 P0: single move = one permutation command
+ *   testGridMovePermutation  — §9.9 P0: drag result → engine permutation math
+ *   internalMovePushesAtomicPermutation — U06: a real InternalMove sequence commits
+ *                              exactly one atomic command (snapshot captured before
+ *                              the drop copy is inserted) and no spurious reload command
+ *   keyboardMoveUsesDragCommandPath  — U06 (a): Ctrl+Shift+Up/Down == equivalent drag
+ *   selectionAndCurrentPageRestoredAfterUndo — U06 (b): undo restores order+selection+current
+ *   selectionCountLabelReflectsSelection — U06 (c): "N pages selected · pages X-Y" label
+ *   pageItemLabelsStayReadable — U06: page labels use the theme-token foreground
+ *   gridContextMenuReusesExistingCommands — U06: context menu = same commands, no destructive entries
  *
  * All tests run with QT_QPA_PLATFORM=offscreen (no display required).
  * The PdfEditorEngine is mocked; real disk I/O uses QTemporaryDir.
@@ -24,6 +34,13 @@
 #include <QStringList>
 #include <QSharedPointer>
 #include <QUndoStack>
+#include <QMimeData>
+#include <QListWidget>
+#include <QMenu>
+#include <QAction>
+#include <algorithm>
+
+#include "util/GpTheme.h"
 
 #include "core/AppContext.h"
 #include "core/interfaces/IPdfEditorEngine.h"
@@ -108,6 +125,62 @@ static bool writeStubPdf(const QString& path) {
     // Use the same logic as PagesMode::writeMinimalPdf by calling it via a
     // PagesMode instance (it is a public static method).
     return gp::PagesMode::writeMinimalPdf(path);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// U06 harness: real PagesMode + PagesMock context with N pages loaded. Returns
+// the thumbnail grid (objectName "pagesGrid") once the async page-count query
+// has populated it, or nullptr on failure.
+// ─────────────────────────────────────────────────────────────────────────────
+static QListWidget* setupPagesHarness(int pageCount, const QString& stem,
+                                      QTemporaryDir& tmpDir,
+                                      std::shared_ptr<PagesMock>& mock,
+                                      std::shared_ptr<DocumentSession>& session,
+                                      std::shared_ptr<QUndoStack>& undoStack,
+                                      AppContext& ctx,
+                                      gp::PagesMode& mode) {
+    if (!tmpDir.isValid()) return nullptr;
+    const QString srcPath = tmpDir.path() + "/" + stem;
+    if (!writeStubPdf(srcPath)) return nullptr;
+
+    mock = std::make_shared<PagesMock>();
+    mock->m_pageCount = pageCount;
+    mock->m_loaded    = true;
+
+    session = std::make_shared<DocumentSession>();
+    session->setPath(srcPath);
+    undoStack = std::make_shared<QUndoStack>();
+
+    ctx.pdfEditor = mock;
+    ctx.document  = session;
+    ctx.undoStack = undoStack;
+
+    mode.setAppContext(&ctx);
+
+    // The thumbnail grid is the one QListWidget in IconMode (the page list —
+    // the preview and reorder lists use ListMode). Located by property, not by
+    // a test-only objectName, so pre-fix runs fail on real behavior.
+    QListWidget* grid = nullptr;
+    for (QListWidget* lw : mode.findChildren<QListWidget*>()) {
+        if (lw->viewMode() == QListView::IconMode) { grid = lw; break; }
+    }
+    if (!grid) return nullptr;
+    // Wait for the async page-count query to populate the grid (QTRY_* macros
+    // expand to a bare return, so they cannot be used in this QListWidget* fn).
+    for (int i = 0; i < 100 && grid->count() != pageCount; ++i)
+        QTest::qWait(50);
+    if (grid->count() != pageCount) return nullptr;
+    return grid;
+}
+
+// Sorted rows of the grid's current selection.
+static QList<int> selectedRows(QListWidget* grid) {
+    QList<int> rows;
+    if (!grid || !grid->selectionModel()) return rows;
+    for (const QModelIndex& idx : grid->selectionModel()->selectedIndexes())
+        rows.append(idx.row());
+    std::sort(rows.begin(), rows.end());
+    return rows;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -430,6 +503,239 @@ private slots:
         QCOMPARE(mock->m_reorderAllCalls.size(), 2);
         // Inverse of [1,2,0,3] is [2,0,1,3].
         QCOMPARE(mock->m_reorderAllCalls[1], QList<int>({2, 0, 1, 3}));
+    }
+
+    // ── U06: Qt's InternalMove inserts the drop copy BEFORE removing the ──
+    // source rows, so a snapshot captured at first removal contains the
+    // duplicate and the permutation never computes. The grid must capture the
+    // pre-drag order at the first model mutation (rowsAboutToBeInserted) and
+    // the drag must land as ONE atomic reorderAllPages() call — with no
+    // spurious second command from the reload.
+    void internalMovePushesAtomicPermutation() {
+        std::shared_ptr<PagesMock> mock;
+        std::shared_ptr<DocumentSession> session;
+        std::shared_ptr<QUndoStack> undoStack;
+        AppContext ctx;
+        QTemporaryDir tmpDir;
+        gp::PagesMode mode;
+        QListWidget* grid = setupPagesHarness(
+            4, "drag.pdf", tmpDir, mock, session, undoStack, ctx, mode);
+        QVERIFY(grid);
+
+        QVERIFY(mock->m_reorderAllCalls.isEmpty()); // pre-condition: load pushed nothing
+
+        // Simulate QAbstractItemView::startDrag for InternalMove: encode row 0,
+        // drop it at the end (insert), then remove the source rows.
+        const QModelIndex src = grid->model()->index(0, 0);
+        QMimeData* md = grid->model()->mimeData({src});
+        QVERIFY(md != nullptr);
+        QVERIFY(grid->model()->dropMimeData(md, Qt::MoveAction, -1, 0, QModelIndex()));
+        QVERIFY(grid->model()->removeRows(0, 1));
+
+        // finishGridReorder runs queued — the drag must commit exactly once.
+        QTRY_COMPARE(mock->m_reorderAllCalls.size(), 1);
+        QCOMPARE(mock->m_reorderAllCalls[0], QList<int>({1, 2, 3, 0}));
+        QVERIFY(mock->m_reorderCalls.isEmpty()); // legacy N-call path unused
+
+        // The post-command reload must not push a second (spurious) command.
+        QTest::qWait(150);
+        QCOMPARE(mock->m_reorderAllCalls.size(), 1);
+        QCOMPARE(undoStack->count(), 1);
+    }
+
+    // ── U06 (a): keyboard moves produce the SAME permutation as the ──────
+    // equivalent drag and travel through the same atomic command path.
+    void keyboardMoveUsesDragCommandPath() {
+        std::shared_ptr<PagesMock> mock;
+        std::shared_ptr<DocumentSession> session;
+        std::shared_ptr<QUndoStack> undoStack;
+        AppContext ctx;
+        QTemporaryDir tmpDir;
+        gp::PagesMode mode;
+        QListWidget* grid = setupPagesHarness(
+            4, "kbd.pdf", tmpDir, mock, session, undoStack, ctx, mode);
+        QVERIFY(grid);
+        QVERIFY(mock->m_reorderAllCalls.isEmpty());
+
+        // Move the page at row 1 down by one (Ctrl+Shift+Down handler).
+        grid->setCurrentRow(1);
+        // The equivalent drag: snapshot [0,1,2,3] → new visual order [0,2,1,3].
+        const QList<int> expected =
+            gp::PagesMode::gridMovePermutation({0, 1, 2, 3}, {0, 2, 1, 3});
+        QCOMPARE(expected, QList<int>({0, 2, 1, 3}));
+
+        QVERIFY(QMetaObject::invokeMethod(&mode, "moveSelectedPagesBy", Q_ARG(int, 1)));
+        QCOMPARE(mock->m_reorderAllCalls.size(), 1);
+        QCOMPARE(mock->m_reorderAllCalls[0], expected);
+        QVERIFY(mock->m_reorderCalls.isEmpty());   // legacy N-call path unused
+        QCOMPARE(undoStack->count(), 1);           // exactly one atomic command
+
+        // After the reload the moved page stays selected at its new row…
+        QTRY_COMPARE(grid->currentRow(), 2);
+        QCOMPARE(selectedRows(grid), QList<int>({2}));
+        // …and the reload pushed no second (spurious) command.
+        QCOMPARE(mock->m_reorderAllCalls.size(), 1);
+        QCOMPARE(undoStack->count(), 1);
+
+        // Nonadjacent selection (plan acceptance): rows {0,2} move down.
+        grid->selectionModel()->select(grid->model()->index(0, 0), QItemSelectionModel::Select);
+        grid->selectionModel()->select(grid->model()->index(2, 0), QItemSelectionModel::Select);
+        const QList<int> expected2 =
+            gp::PagesMode::gridMovePermutation({0, 1, 2, 3}, {1, 0, 3, 2});
+        QCOMPARE(expected2, QList<int>({1, 0, 3, 2}));
+        QVERIFY(QMetaObject::invokeMethod(&mode, "moveSelectedPagesBy", Q_ARG(int, 1)));
+        QCOMPARE(mock->m_reorderAllCalls.size(), 2);
+        QCOMPARE(mock->m_reorderAllCalls[1], expected2);
+        QTRY_VERIFY(grid->count() == 4);           // reload completed
+        QTRY_COMPARE(grid->selectionModel()->selectedIndexes().size(), 2);
+        QCOMPARE(selectedRows(grid), QList<int>({1, 3})); // pages followed the move
+    }
+
+    // ── U06 (b): undo of a grid reorder restores the page order, the ─────
+    // selection, and the current page across the undo-triggered reload.
+    void selectionAndCurrentPageRestoredAfterUndo() {
+        std::shared_ptr<PagesMock> mock;
+        std::shared_ptr<DocumentSession> session;
+        std::shared_ptr<QUndoStack> undoStack;
+        AppContext ctx;
+        QTemporaryDir tmpDir;
+        gp::PagesMode mode;
+        QListWidget* grid = setupPagesHarness(
+            4, "undo.pdf", tmpDir, mock, session, undoStack, ctx, mode);
+        QVERIFY(grid);
+
+        // Select the top two pages and move them down: [2,0,1,3].
+        grid->setCurrentRow(0);
+        grid->selectionModel()->select(grid->model()->index(1, 0), QItemSelectionModel::Select);
+        QVERIFY(QMetaObject::invokeMethod(&mode, "moveSelectedPagesBy", Q_ARG(int, 1)));
+        QCOMPARE(mock->m_reorderAllCalls.size(), 1);
+        QCOMPARE(mock->m_reorderAllCalls[0], QList<int>({2, 0, 1, 3}));
+
+        // Selection and current page followed the move across the reload.
+        QTRY_COMPARE(grid->selectionModel()->selectedIndexes().size(), 2);
+        QCOMPARE(selectedRows(grid), QList<int>({1, 2}));
+        QCOMPARE(grid->currentRow(), 1);
+
+        // UNDO — document reverts via the command's inverse permutation…
+        const int callsAfterMove = mock->m_reorderAllCalls.size();
+        undoStack->undo();
+        QCOMPARE(mock->m_reorderAllCalls.size(), callsAfterMove + 1);
+        QCOMPARE(mock->m_reorderAllCalls[callsAfterMove], QList<int>({1, 2, 0, 3}));
+
+        // …and the coalesced reload restores grid, selection, and current page.
+        // (Wait on the rows themselves: the pre-undo selection also has size 2.)
+        QTRY_COMPARE(selectedRows(grid), QList<int>({0, 1})); // the same two pages
+        QCOMPARE(grid->currentRow(), 0);
+        for (int i = 0; i < grid->count(); ++i)
+            QCOMPARE(grid->item(i)->data(Qt::UserRole).toInt(), i); // original order
+
+        // The undo-triggered reload pushed no extra command.
+        QCOMPARE(mock->m_reorderAllCalls.size(), callsAfterMove + 1);
+    }
+
+    // ── U06 (c): the PAGE LIST header shows the selected-page count and ──
+    // the affected range, live off the grid's selection.
+    void selectionCountLabelReflectsSelection() {
+        std::shared_ptr<PagesMock> mock;
+        std::shared_ptr<DocumentSession> session;
+        std::shared_ptr<QUndoStack> undoStack;
+        AppContext ctx;
+        QTemporaryDir tmpDir;
+        gp::PagesMode mode;
+        QListWidget* grid = setupPagesHarness(
+            4, "label.pdf", tmpDir, mock, session, undoStack, ctx, mode);
+        QVERIFY(grid);
+        auto* label = mode.findChild<QLabel*>(QStringLiteral("pagesSelectionLabel"));
+        QVERIFY2(label, "PagesMode must display a pagesSelectionLabel in the PAGE LIST header");
+
+        QCOMPARE(label->text(), QString());          // nothing selected
+        grid->setCurrentRow(3);
+        QCOMPARE(label->text(), QStringLiteral("1 page selected · page 4"));
+        grid->clearSelection();
+        grid->selectionModel()->select(grid->model()->index(0, 0), QItemSelectionModel::Select);
+        grid->selectionModel()->select(grid->model()->index(2, 0), QItemSelectionModel::Select);
+        QCOMPARE(label->text(), QStringLiteral("2 pages selected · pages 1-3"));
+        grid->clearSelection();
+        QCOMPARE(label->text(), QString());
+    }
+
+    // ── U06: page-number labels use the theme-token foreground so they ───
+    // stay readable on every theme background.
+    void pageItemLabelsStayReadable() {
+        std::shared_ptr<PagesMock> mock;
+        std::shared_ptr<DocumentSession> session;
+        std::shared_ptr<QUndoStack> undoStack;
+        AppContext ctx;
+        QTemporaryDir tmpDir;
+        gp::PagesMode mode;
+        QListWidget* grid = setupPagesHarness(
+            3, "labels.pdf", tmpDir, mock, session, undoStack, ctx, mode);
+        QVERIFY(grid);
+        for (int i = 0; i < grid->count(); ++i) {
+            const QListWidgetItem* it = grid->item(i);
+            QCOMPARE(it->text(), QString("Page %1").arg(i + 1));
+            QCOMPARE(it->foreground().color(), gp::Theme::fg0());
+        }
+    }
+
+    // ── U06: thumbnail context actions reuse the grid's existing command ─
+    // path and carry no destructive entries.
+    void gridContextMenuReusesExistingCommands() {
+        std::shared_ptr<PagesMock> mock;
+        std::shared_ptr<DocumentSession> session;
+        std::shared_ptr<QUndoStack> undoStack;
+        AppContext ctx;
+        QTemporaryDir tmpDir;
+        gp::PagesMode mode;
+        QListWidget* grid = setupPagesHarness(
+            4, "menu.pdf", tmpDir, mock, session, undoStack, ctx, mode);
+        QVERIFY(grid);
+
+        QMenu menu;
+        QVERIFY(QMetaObject::invokeMethod(&mode, "fillGridContextMenu", Q_ARG(QMenu*, &menu)));
+        QStringList texts;
+        for (QAction* a : menu.actions())
+            if (!a->isSeparator()) texts << a->text();
+        QVERIFY(texts.contains(QStringLiteral("Move Up")));
+        QVERIFY(texts.contains(QStringLiteral("Move Down")));
+        QVERIFY(texts.contains(QStringLiteral("Select All")));
+        QVERIFY(texts.contains(QStringLiteral("Clear Selection")));
+        for (const QString& t : texts) {
+            QVERIFY2(!t.contains(QStringLiteral("Delete"), Qt::CaseInsensitive),
+                     qPrintable(QStringLiteral("unexpected destructive entry: %1").arg(t)));
+            QVERIFY2(!t.contains(QStringLiteral("Merge"), Qt::CaseInsensitive),
+                     qPrintable(QStringLiteral("unexpected destructive entry: %1").arg(t)));
+            QVERIFY2(!t.contains(QStringLiteral("Rotate"), Qt::CaseInsensitive),
+                     qPrintable(QStringLiteral("unexpected destructive entry: %1").arg(t)));
+        }
+
+        // Without a selection the move actions are inert (no incidental clicks).
+        grid->clearSelection();
+        QMenu emptyMenu;
+        QVERIFY(QMetaObject::invokeMethod(&mode, "fillGridContextMenu", Q_ARG(QMenu*, &emptyMenu)));
+        for (QAction* a : emptyMenu.actions()) {
+            if (a->text() == QStringLiteral("Move Up") ||
+                a->text() == QStringLiteral("Move Down"))
+                QVERIFY2(!a->isEnabled(),
+                         qPrintable(QStringLiteral("%1 must be disabled without a selection")
+                                        .arg(a->text())));
+        }
+
+        // "Move Up" drives the SAME atomic command path as drag/keyboard.
+        grid->setCurrentRow(2);
+        QMenu selMenu;
+        QVERIFY(QMetaObject::invokeMethod(&mode, "fillGridContextMenu", Q_ARG(QMenu*, &selMenu)));
+        QAction* moveUp = nullptr;
+        for (QAction* a : selMenu.actions())
+            if (a->text() == QStringLiteral("Move Up")) moveUp = a;
+        QVERIFY(moveUp);
+        QVERIFY(moveUp->isEnabled());
+        moveUp->trigger();
+        QCOMPARE(mock->m_reorderAllCalls.size(), 1);
+        QCOMPARE(mock->m_reorderAllCalls[0],
+                 gp::PagesMode::gridMovePermutation({0, 1, 2, 3}, {0, 2, 1, 3}));
+        QTRY_VERIFY(grid->count() == 4); // reload settled without extra commands
+        QCOMPARE(mock->m_reorderAllCalls.size(), 1);
     }
 
     // ── §9.9 P0: thumbnail-grid drag-and-drop permutation math ──────────

@@ -7,6 +7,13 @@
  *     destination folder + filename-preview + progress + confirmation on overwrite.
  * D3: Reorder panel — drag-drop QListWidget + Apply (reorderPages) + Reset.
  *
+ * U06: page organization around the existing thumbnail grid — visible
+ * selected-page count/range ("pagesSelectionLabel"), a clear insertion
+ * indicator during InternalMove drags, theme-token page-number labels,
+ * Ctrl+Shift+Up/Down and context-menu moves through the SAME atomic
+ * permutation command as drag (commitGridOrder), and selection +
+ * current-page restore across undo-triggered reloads.
+ *
  * Split implementation strategy (no splitDocument() on engine):
  *   For each output part (a QList<int> of 0-based page indices):
  *     1. Write a minimal valid PDF stub to the output path.
@@ -48,6 +55,18 @@
 #include <QVBoxLayout>
 #include <QUndoStack>
 #include <QtConcurrent/QtConcurrent>
+
+// U06: selection visibility, insertion indicator, keyboard moves, undo restore.
+#include <QAction>
+#include <QBrush>
+#include <QCursor>
+#include <QItemSelectionModel>
+#include <QKeyEvent>
+#include <QMenu>
+#include <QPainter>
+#include <QSet>
+#include <algorithm>
+#include <functional>
 
 namespace gp {
 
@@ -149,6 +168,125 @@ QString PagesMode::localFirstClaim()
                          "redaction never leave this machine. No internet, no upload.");
 }
 
+// ── U06 file-local helpers ────────────────────────────────────────────────────
+
+namespace {
+
+// Map a QAbstractItemView::DropIndicatorPosition (as int: 0=OnItem, 1=AboveItem,
+// 2=BelowItem, 3=OnViewport) plus the hovered row to the 0-based insertion index
+// where the dragged page(s) will land; `count` means "append at the end".
+int insertionRowForDrop(int dropPosition, int row, int count)
+{
+    if (count <= 0) return -1;
+    int insertion;
+    switch (dropPosition) {
+    case 1:  insertion = row;      break; // AboveItem — land before the hovered page
+    case 2:  insertion = row + 1;  break; // BelowItem — land after the hovered page
+    case 3:  insertion = count;    break; // OnViewport — append after the last page
+    default: insertion = row + 1;  break; // OnItem — treat as landing after it
+    }
+    return qBound(0, insertion, count);
+}
+
+// Shift the selected rows by delta (-1 = up, +1 = down), keeping the selected
+// pages' relative order and clamping at the edges. Pure helper so keyboard
+// moves are trivially reviewable; the result feeds the same commit path as drag.
+QList<int> movedOrder(const QList<int>& order, const QList<int>& selRowsIn, int delta)
+{
+    QList<int> selRows = selRowsIn;
+    std::sort(selRows.begin(), selRows.end());
+    if (order.size() <= 1 || selRows.isEmpty() || delta == 0) return order;
+    QSet<int> selValues;
+    for (int r : selRows) {
+        if (r < 0 || r >= order.size()) return order; // invalid — refuse to guess
+        selValues.insert(order[r]);
+    }
+    QList<int> result = order;
+    if (delta < 0) {
+        for (int r : selRows) {                        // ascending
+            if (r - 1 < 0) continue;
+            if (selValues.contains(result[r - 1])) continue; // block member already placed
+            result.move(r, r - 1);
+        }
+    } else {
+        for (int i = selRows.size() - 1; i >= 0; --i) { // descending
+            const int r = selRows[i];
+            if (r + 1 >= result.size()) continue;
+            if (selValues.contains(result[r + 1])) continue;
+            result.move(r, r + 1);
+        }
+    }
+    return result;
+}
+
+/**
+ * U06: the thumbnail grid — a QListWidget that draws a clear insertion
+ * indicator while an InternalMove drag is in progress (where the dragged
+ * page(s) will land) and routes Ctrl+Shift+Up/Down to the keyboard-move seam.
+ */
+class PagesGridWidget final : public QListWidget {
+public:
+    explicit PagesGridWidget(QWidget* parent = nullptr) : QListWidget(parent) {}
+
+    std::function<void(int)> keyMoveRequested; // set by PagesMode (moveSelectedPagesBy)
+
+protected:
+    void paintEvent(QPaintEvent* event) override
+    {
+        QListWidget::paintEvent(event);
+        paintInsertionIndicator();
+    }
+
+    void keyPressEvent(QKeyEvent* event) override
+    {
+        const Qt::KeyboardModifiers mods = event->modifiers();
+        if (keyMoveRequested
+                && (mods & Qt::ControlModifier) && (mods & Qt::ShiftModifier)
+                && !(mods & ~(Qt::ControlModifier | Qt::ShiftModifier))) {
+            if (event->key() == Qt::Key_Up)   { keyMoveRequested(-1); event->accept(); return; }
+            if (event->key() == Qt::Key_Down) { keyMoveRequested(1);  event->accept(); return; }
+        }
+        QListWidget::keyPressEvent(event);
+    }
+
+private:
+    void paintInsertionIndicator()
+    {
+        if (!(state() & QAbstractItemView::DraggingState)) return;
+        const int count = model() ? model()->rowCount() : 0;
+        if (count <= 0) return;
+
+        const QPoint pos = viewport()->mapFromGlobal(QCursor::pos());
+        const QModelIndex hovered = indexAt(pos);
+        const int insertion = insertionRowForDrop(
+            int(dropIndicatorPosition()), hovered.isValid() ? hovered.row() : -1, count);
+        if (insertion < 0) return;
+
+        const bool appendAtEnd = (insertion >= count);
+        const QRect target =
+            visualRect(model()->index(appendAtEnd ? count - 1 : insertion, 0));
+        if (!target.isValid()) return;
+
+        QPainter painter(viewport());
+        const QColor accent = gp::Theme::accent(); // theme token, all three themes
+
+        if (!appendAtEnd && insertion > 0) {
+            const QRect prev = visualRect(model()->index(insertion - 1, 0));
+            if (prev.isValid() && prev.top() == target.top()) {
+                // Same visual row: mark the gap between the two thumbnails.
+                const int x = target.left() - spacing() / 2 - 2;
+                painter.fillRect(x, target.top() - 2, 4, target.height() + 4, accent);
+                return;
+            }
+        }
+        // Row boundary (or append at the very end): a full-width accent bar.
+        const int y = appendAtEnd ? target.bottom() - 1 : target.top() - 1;
+        painter.fillRect(0, y, width(), 4, accent);
+    }
+};
+
+} // namespace
+
 PagesMode::PagesMode(QWidget* parent) : QWidget(parent)
 {
     auto* mainLayout = new QVBoxLayout(this);
@@ -230,6 +368,11 @@ void PagesMode::buildPageListPanel(QWidget* host)
     hdrLabel->setProperty("mono", true);
     hdrLayout->addWidget(hdrLabel);
     hdrLayout->addStretch(1);
+    // U06: selected-page count and affected range stay visible while working.
+    m_selectionLabel = new QLabel;
+    m_selectionLabel->setObjectName("pagesSelectionLabel");
+    m_selectionLabel->setProperty("mono", true);
+    hdrLayout->addWidget(m_selectionLabel);
     m_pageCountLabel = new QLabel;
     m_pageCountLabel->setProperty("mono", true);
     hdrLayout->addWidget(m_pageCountLabel);
@@ -245,7 +388,8 @@ void PagesMode::buildPageListPanel(QWidget* host)
     vLayout->addWidget(localClaim);
 
     // Page list widget — grid / icon mode so thumbnails display naturally
-    m_pageList = new QListWidget;
+    m_pageList = new PagesGridWidget;
+    m_pageList->setObjectName("pagesGrid");
     m_pageList->setViewMode(QListView::IconMode);
     m_pageList->setResizeMode(QListView::Adjust);
     m_pageList->setSpacing(8);
@@ -254,18 +398,52 @@ void PagesMode::buildPageListPanel(QWidget* host)
     m_pageList->setDragDropMode(QAbstractItemView::InternalMove);
     m_pageList->setDefaultDropAction(Qt::MoveAction);
     m_pageList->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    // §9.9 P0: translate QListWidget internal moves into an atomic page
-    // reorder. Internal move = rows removed then re-inserted; snapshot the
-    // visual order when removal starts, then diff after insertion.
+    static_cast<PagesGridWidget*>(m_pageList)->keyMoveRequested =
+        [this](int delta) { moveSelectedPagesBy(delta); };
+    // U06: translate QListWidget internal moves into an atomic page reorder.
+    // Qt's InternalMove inserts the drop COPY (rowsInserted) before removing
+    // the source rows (rowsAboutToBeRemoved), so the pre-drag order must be
+    // captured at the FIRST model mutation (rowsAboutToBeInserted — before the
+    // copy exists). The previous first-removal capture stored the duplicate
+    // too, so every snapshot/newOrder size pair mismatched and
+    // gridMovePermutation returned empty: drags silently committed nothing.
+    connect(m_pageList->model(), &QAbstractItemModel::rowsAboutToBeInserted,
+            this, [this](const QModelIndex&, int, int) {
+        if (m_gridRebuildGuard) return;
+        if (!m_dragSnapshot.isEmpty()) return;
+        for (int i = 0; i < m_pageList->count(); ++i)
+            m_dragSnapshot.append(m_pageList->item(i)->data(Qt::UserRole).toInt());
+    });
+    // A removal with no captured snapshot means rows left the grid outside an
+    // internal move (e.g. drag-out to another widget): capture and reconcile
+    // so the grid never lies about the document order.
     connect(m_pageList->model(), &QAbstractItemModel::rowsAboutToBeRemoved,
             this, [this](const QModelIndex&, int, int) {
+        if (m_gridRebuildGuard) return;
         if (m_dragSnapshot.isEmpty()) {
             for (int i = 0; i < m_pageList->count(); ++i)
                 m_dragSnapshot.append(m_pageList->item(i)->data(Qt::UserRole).toInt());
         }
+        QMetaObject::invokeMethod(this, &PagesMode::finishGridReorder, Qt::QueuedConnection);
     });
     connect(m_pageList->model(), &QAbstractItemModel::rowsInserted,
-            this, [this]() { QMetaObject::invokeMethod(this, &PagesMode::finishGridReorder, Qt::QueuedConnection); });
+            this, [this]() {
+        if (m_gridRebuildGuard) return;
+        QMetaObject::invokeMethod(this, &PagesMode::finishGridReorder, Qt::QueuedConnection);
+    });
+    // U06: selection drives the visible count/range label and the snapshot
+    // used to restore the selection across undo-triggered reloads.
+    connect(m_pageList, &QListWidget::itemSelectionChanged,
+            this, &PagesMode::onGridSelectionChanged);
+    // U06: context actions reuse the grid's own commands — no destructive
+    // entries near incidental thumbnail clicks (those stay ribbon/controller-owned).
+    m_pageList->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_pageList, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        QMenu menu(this);
+        fillGridContextMenu(&menu);
+        if (!menu.isEmpty())
+            menu.exec(m_pageList->viewport()->mapToGlobal(pos));
+    });
     vLayout->addWidget(m_pageList, 1);
 }
 
@@ -477,6 +655,17 @@ void PagesMode::cancelThumbnailRenders()
 void PagesMode::setAppContext(const AppContext* ctx)
 {
     m_ctx = ctx;
+    // U06: reset the undo-mapping state — a previous context's command pointer
+    // must never alias the new stack's commands.
+    m_lastGridCmd = nullptr;
+    m_lastGridSnapshot.clear();
+    m_lastGridNewOrder.clear();
+    // U06: undo/redo anywhere (including other modes' commands) can change the
+    // page order this grid displays. Reload on index changes and restore the
+    // selection + current page across the reload.
+    if (m_ctx && m_ctx->undoStack)
+        connect(m_ctx->undoStack.get(), &QUndoStack::indexChanged,
+                this, &PagesMode::onUndoStackIndexChanged, Qt::UniqueConnection);
     refreshPageList();
 }
 
@@ -485,8 +674,15 @@ void PagesMode::refreshPageList()
     // Cancel any in-flight thumbnail renders from the previous document.
     cancelThumbnailRenders();
 
+    // Programmatic rebuild: the drag-signal machinery must not fire.
+    m_gridRebuildGuard = true;
     m_pageList->clear();
     m_reorderList->clear();
+    m_gridRebuildGuard = false;
+    // The old load generation's selection no longer exists; undo/commit flows
+    // re-arm m_pendingSelection before triggering a reload.
+    m_selectedPages.clear();
+    m_currentPageData = -1;
     m_originalOrder.clear();
 
     if (!m_ctx || !m_ctx->document) {
@@ -495,6 +691,7 @@ void PagesMode::refreshPageList()
         // Update split spin limits
         if (m_splitAtSpin)    m_splitAtSpin->setRange(1, 1);
         if (m_splitEverySpin) m_splitEverySpin->setRange(1, 1);
+        restorePendingSelection(); // U06: drop stale pending rows — nothing to restore into
         return;
     }
 
@@ -503,6 +700,7 @@ void PagesMode::refreshPageList()
         m_pageCountLabel->setText(PagesMode::tr("No document"));
         if (m_splitAtSpin)    m_splitAtSpin->setRange(1, 1);
         if (m_splitEverySpin) m_splitEverySpin->setRange(1, 1);
+        restorePendingSelection();
         return;
     }
 
@@ -515,6 +713,7 @@ void PagesMode::refreshPageList()
 
     if (!m_ctx->pdfEditor) {
         m_pageCountLabel->setText(PagesMode::tr("0 pages"));
+        restorePendingSelection();
         return;
     }
 
@@ -561,6 +760,7 @@ void PagesMode::onPageCountReady()
         m_pageCountLabel->setText(PagesMode::tr("0 pages"));
         if (m_splitAtSpin)    m_splitAtSpin->setRange(1, 1);
         if (m_splitEverySpin) m_splitEverySpin->setRange(1, 1);
+        restorePendingSelection(); // U06: nothing to restore into an empty grid
         return;
     }
 
@@ -569,25 +769,23 @@ void PagesMode::onPageCountReady()
     if (m_splitEverySpin) m_splitEverySpin->setRange(1, pageCount);
 
     // Populate page list and reorder list
+    m_gridRebuildGuard = true;
     m_pageList->clear();
     m_reorderList->clear();
     m_originalOrder.clear();
 
-    // AR-8 D5: placeholder items filled with gray until real PDFium renders arrive.
+    // AR-8 D5 + U06: placeholder items (gray until real PDFium renders arrive)
+    // built through makePageItem — theme-token label foreground, stable identity.
     for (int i = 0; i < pageCount; ++i) {
-        QPixmap thumb(100, 130);
-        thumb.fill(QColor(220, 220, 220));
-
-        auto* item = new QListWidgetItem;
-        item->setIcon(QIcon(thumb));
-        item->setText(PagesMode::tr("Page %1").arg(i + 1));
-        item->setSizeHint(QSize(120, 160));
-        item->setData(Qt::UserRole, i);
-        m_pageList->addItem(item);
+        m_pageList->addItem(makePageItem(i));
 
         m_reorderList->addItem(PagesMode::tr("Page %1").arg(i + 1));
         m_originalOrder.append(i);
     }
+    m_gridRebuildGuard = false;
+    // U06: reselect the tracked pages (and current page) across undo- or
+    // command-triggered reloads — before the thumbnail-launch early returns.
+    restorePendingSelection();
 
     // AR-8 D5: launch off-thread PDFium thumbnail renders.
     // We build ONE renderer (PdfiumBackend loaded once), then spawn a lightweight
@@ -966,21 +1164,48 @@ QList<int> PagesMode::gridMovePermutation(const QList<int>& snapshot,
     return perm;
 }
 
-// §9.9 P0: grid drag-and-drop → atomic page reorder.
+// §9.9 P0 + U06: grid drag-and-drop → atomic page reorder.
+// The pre-drag order is captured at the first model mutation of the drag (see
+// buildPageListPanel), so snapshot and newOrder always have equal sizes.
 void PagesMode::finishGridReorder()
 {
     if (m_dragSnapshot.isEmpty()) return;
+
+    const QList<int> snapshot = m_dragSnapshot;
+    m_dragSnapshot.clear();
 
     QList<int> newOrder;
     newOrder.reserve(m_pageList->count());
     for (int i = 0; i < m_pageList->count(); ++i)
         newOrder.append(m_pageList->item(i)->data(Qt::UserRole).toInt());
 
-    const QList<int> snapshot = m_dragSnapshot;
-    m_dragSnapshot.clear();
+    if (newOrder.size() != snapshot.size()) {
+        // Rows left the grid outside an internal move (e.g. drag-out to
+        // another widget): restore the captured order so the grid never lies.
+        rebuildFromOrder(snapshot);
+        return;
+    }
 
+    // The selected pages keep their identity (UserRole data) across the
+    // post-command reload — map them to their new rows for the restore.
+    QList<int> pendingSel;
+    for (int v : m_selectedPages) {
+        const int pos = newOrder.indexOf(v);
+        if (pos >= 0) pendingSel.append(pos);
+    }
+    const int pendingCur = m_currentPageData >= 0
+        ? newOrder.indexOf(m_currentPageData) : -1;
+
+    commitGridOrder(snapshot, newOrder, pendingSel, pendingCur);
+}
+
+// U06: shared commit tail — the ONE command path for drag, keyboard, and
+// context-menu moves: gridMovePermutation → ReorderPermutationCommand → reload.
+void PagesMode::commitGridOrder(const QList<int>& snapshot, const QList<int>& newOrder,
+                                const QList<int>& pendingSelection, int pendingCurrent)
+{
     // Express the new visual order as a permutation over positions in the
-    // pre-drag order — exactly what ReorderPermutationCommand expects.
+    // pre-move order — exactly what ReorderPermutationCommand expects.
     const QList<int> perm = gridMovePermutation(snapshot, newOrder);
     if (perm.isEmpty()) return; // no net change or inconsistent input
 
@@ -990,40 +1215,287 @@ void PagesMode::finishGridReorder()
         return;
     }
 
+    m_pendingSelection = pendingSelection;
+    m_pendingCurrentPage = pendingCurrent;
+
     auto* cmd = new ReorderPermutationCommand(
         m_ctx->pdfEditor.get(), m_ctx->document.get(), perm);
+    m_lastGridCmd = cmd;
+    m_ownPush = true; // our own indexChanged must not trigger the undo reload
     if (m_ctx->undoStack) {
-        m_ctx->undoStack->push(cmd);
+        m_ctx->undoStack->push(cmd); // push() calls redo() = reorderAllPages()
     } else {
         cmd->redo();
         delete cmd;
+        m_lastGridCmd = nullptr;
     }
+    m_ownPush = false;
 
     if (m_ctx->pdfEditor->lastError().severity >= ErrorInfo::Error) {
         QMessageBox::critical(this, PagesMode::tr("Reorder failed"),
             PagesMode::tr("An error occurred while reordering pages. "
                           "The document has not been modified."));
+        m_lastGridCmd = nullptr;
+        m_pendingSelection.clear();
+        m_pendingCurrentPage = -1;
         rebuildFromOrder(snapshot);
         return;
     }
 
+    m_lastGridSnapshot = snapshot;
+    m_lastGridNewOrder = newOrder;
     m_originalOrder = newOrder;
-    refreshPageList(); // re-render thumbnails in the new order
+    refreshPageList(); // re-render thumbnails in the new order; restores selection
+}
+
+// U06: one grid item — placeholder thumbnail, "Page N" label with a
+// theme-token foreground (readable on every theme background), and the page
+// identity in Qt::UserRole.
+QListWidgetItem* PagesMode::makePageItem(int pageData)
+{
+    QPixmap thumb(100, 130);
+    thumb.fill(QColor(220, 220, 220));
+
+    auto* item = new QListWidgetItem;
+    item->setIcon(QIcon(thumb));
+    item->setText(PagesMode::tr("Page %1").arg(pageData + 1));
+    item->setSizeHint(QSize(120, 160));
+    item->setData(Qt::UserRole, pageData);
+    item->setForeground(QBrush(Theme::fg0()));
+    return item;
+}
+
+// U06: keyboard/context move of the selected page(s) by delta (-1 up, +1 down)
+// through the SAME command path as drag (commitGridOrder). No new mutation
+// implementation — the atomic ReorderPermutationCommand does the work.
+void PagesMode::moveSelectedPagesBy(int delta)
+{
+    if (delta == 0 || !m_pageList || m_gridRebuildGuard) return;
+    if (!m_ctx || !m_ctx->document || !m_ctx->pdfEditor || m_ctx->document->path().isEmpty())
+        return;
+    const int count = m_pageList->count();
+    if (count <= 1) return;
+
+    QList<int> order;
+    order.reserve(count);
+    for (int i = 0; i < count; ++i)
+        order.append(m_pageList->item(i)->data(Qt::UserRole).toInt());
+
+    QList<int> selRows;
+    const QModelIndexList selected = m_pageList->selectionModel()->selectedIndexes();
+    for (const QModelIndex& idx : selected) selRows.append(idx.row());
+    std::sort(selRows.begin(), selRows.end());
+    if (selRows.isEmpty()) return;
+
+    const QList<int> newOrder = movedOrder(order, selRows, delta);
+    if (newOrder == order) return; // clamped at an edge — nothing to move
+
+    // The moved pages stay selected at their new rows after the reload.
+    QList<int> pendingSel;
+    int pendingCur = -1;
+    const int currentRow = m_pageList->currentRow();
+    for (int row : selRows) {
+        const int newPos = newOrder.indexOf(order[row]);
+        if (newPos < 0) continue;
+        pendingSel.append(newPos);
+        if (row == currentRow) pendingCur = newPos;
+    }
+    if (pendingCur < 0 && currentRow >= 0 && currentRow < count)
+        pendingCur = newOrder.indexOf(order[currentRow]);
+
+    commitGridOrder(order, newOrder, pendingSel, pendingCur);
+}
+
+// U06: thumbnail context menu — the same existing commands the grid already
+// exposes (keyboard/drag permutation path and view selection). Deliberately
+// no destructive entries: per-page delete/rotate/extract stay in the
+// ribbon/controller where the existing engine commands live.
+void PagesMode::fillGridContextMenu(QMenu* menu)
+{
+    if (!menu || !m_pageList) return;
+    const bool hasSelection = !m_pageList->selectedItems().isEmpty();
+    QAction* moveUp = menu->addAction(PagesMode::tr("Move Up"),
+                                      this, [this]() { moveSelectedPagesBy(-1); });
+    QAction* moveDown = menu->addAction(PagesMode::tr("Move Down"),
+                                        this, [this]() { moveSelectedPagesBy(1); });
+    moveUp->setEnabled(hasSelection);
+    moveDown->setEnabled(hasSelection);
+    menu->addSeparator();
+    menu->addAction(PagesMode::tr("Select All"), m_pageList, &QListWidget::selectAll);
+    menu->addAction(PagesMode::tr("Clear Selection"), m_pageList, &QListWidget::clearSelection);
+}
+
+// U06: keep the visible selection label and the identity snapshot in step.
+void PagesMode::onGridSelectionChanged()
+{
+    updateSelectionLabel();
+    if (m_gridRebuildGuard) return; // restore helpers re-track explicitly
+    m_selectedPages.clear();
+    m_currentPageData = -1;
+    if (!m_pageList) return;
+    const QModelIndexList selected = m_pageList->selectionModel()->selectedIndexes();
+    for (const QModelIndex& idx : selected)
+        m_selectedPages.append(idx.data(Qt::UserRole).toInt());
+    if (m_pageList->currentItem())
+        m_currentPageData = m_pageList->currentItem()->data(Qt::UserRole).toInt();
+}
+
+// U06: "N pages selected · pages X-Y" (affected 1-based row range) or empty.
+void PagesMode::updateSelectionLabel()
+{
+    if (!m_selectionLabel) return;
+    QList<int> rows;
+    if (m_pageList && m_pageList->selectionModel()) {
+        const QModelIndexList selected = m_pageList->selectionModel()->selectedIndexes();
+        for (const QModelIndex& idx : selected) rows.append(idx.row());
+    }
+    std::sort(rows.begin(), rows.end());
+    rows.erase(std::unique(rows.begin(), rows.end()), rows.end());
+    if (rows.isEmpty()) {
+        m_selectionLabel->clear();
+        return;
+    }
+    if (rows.size() == 1)
+        m_selectionLabel->setText(
+            PagesMode::tr("1 page selected · page %1").arg(rows.first() + 1));
+    else
+        m_selectionLabel->setText(
+            PagesMode::tr("%1 pages selected · pages %2-%3")
+                .arg(rows.size()).arg(rows.first() + 1).arg(rows.last() + 1));
+}
+
+// U06: reselect tracked rows (position-based) after a fresh load generation,
+// where item data == row. Drops the pending state once applied.
+void PagesMode::restorePendingSelection()
+{
+    const QList<int> pending = m_pendingSelection;
+    const int pendingCurrent = m_pendingCurrentPage;
+    m_pendingSelection.clear();
+    m_pendingCurrentPage = -1;
+
+    QList<int> restoredRows;
+    QItemSelection sel;
+    if (m_pageList) {
+        for (int pos : pending) {
+            if (pos < 0 || pos >= m_pageList->count()) continue;
+            const QModelIndex idx = m_pageList->model()->index(pos, 0);
+            sel.select(idx, idx);
+            restoredRows.append(pos);
+        }
+        if (!sel.isEmpty())
+            m_pageList->selectionModel()->select(sel, QItemSelectionModel::ClearAndSelect);
+        if (pendingCurrent >= 0 && pendingCurrent < m_pageList->count())
+            m_pageList->selectionModel()->setCurrentIndex(
+                m_pageList->model()->index(pendingCurrent, 0), QItemSelectionModel::NoUpdate);
+    }
+    // Re-track explicitly (selection signals may be skipped during rebuilds).
+    m_selectedPages = restoredRows;
+    m_currentPageData = pendingCurrent >= 0 && pendingCurrent < m_pageList->count()
+        ? pendingCurrent
+        : (restoredRows.isEmpty() ? -1 : restoredRows.first());
+    updateSelectionLabel();
+}
+
+// U06: reselect tracked pages (identity-based) after a visual revert, where
+// items are rebuilt with their original UserRole data.
+void PagesMode::restoreSelectionByData()
+{
+    const QList<int> wanted = m_selectedPages;
+    const int wantedCurrent = m_currentPageData;
+    QList<int> restoredRows;
+    QItemSelection sel;
+    int currentRow = -1;
+    if (m_pageList) {
+        for (int i = 0; i < m_pageList->count(); ++i) {
+            const int itemData = m_pageList->item(i)->data(Qt::UserRole).toInt();
+            if (wanted.contains(itemData)) {
+                const QModelIndex idx = m_pageList->model()->index(i, 0);
+                sel.select(idx, idx);
+                restoredRows.append(i);
+            }
+            if (itemData == wantedCurrent) currentRow = i;
+        }
+        if (!sel.isEmpty())
+            m_pageList->selectionModel()->select(sel, QItemSelectionModel::ClearAndSelect);
+        if (currentRow >= 0)
+            m_pageList->selectionModel()->setCurrentIndex(
+                m_pageList->model()->index(currentRow, 0), QItemSelectionModel::NoUpdate);
+    }
+    m_selectedPages = restoredRows;
+    m_currentPageData = currentRow >= 0 ? currentRow
+        : (restoredRows.isEmpty() ? -1 : restoredRows.first());
+    updateSelectionLabel();
+}
+
+// U06: coalesce bursts of QUndoStack::indexChanged signals into one reload.
+void PagesMode::scheduleUndoRefresh()
+{
+    if (m_undoRefreshScheduled) return;
+    m_undoRefreshScheduled = true;
+    QMetaObject::invokeMethod(this, [this]() {
+        m_undoRefreshScheduled = false;
+        refreshPageList();
+    }, Qt::QueuedConnection);
+}
+
+// U06: undo/redo can change the page order this grid displays. Reload and
+// restore the selection + current page, mapping page identities through our
+// last grid permutation when the affected command is ours.
+void PagesMode::onUndoStackIndexChanged(int index)
+{
+    if (m_ownPush || m_gridRebuildGuard) return;
+    if (!m_ctx || !m_ctx->undoStack || !m_ctx->document) return;
+    if (m_ctx->document->path().isEmpty() || m_pageList->count() == 0) return;
+
+    const QUndoStack* stack = m_ctx->undoStack.get();
+    const bool undoneOurs = m_lastGridCmd && stack->command(index) == m_lastGridCmd;
+    const bool redoneOurs = m_lastGridCmd && index > 0
+        && stack->command(index - 1) == m_lastGridCmd;
+
+    const bool haveMapping = !m_lastGridSnapshot.isEmpty() && !m_lastGridNewOrder.isEmpty();
+    if (undoneOurs && haveMapping) {
+        // Document went from m_lastGridNewOrder order back to m_lastGridSnapshot
+        // order; the tracked rows are positions in the newOrder generation.
+        QList<int> mapped;
+        for (int v : m_selectedPages) {
+            const int identity = m_lastGridNewOrder.value(v, -1);
+            const int pos = identity >= 0 ? m_lastGridSnapshot.indexOf(identity) : -1;
+            if (pos >= 0) mapped.append(pos);
+        }
+        const int identity = m_currentPageData >= 0
+            ? m_lastGridNewOrder.value(m_currentPageData, -1) : -1;
+        m_pendingSelection = mapped;
+        m_pendingCurrentPage = identity >= 0 ? m_lastGridSnapshot.indexOf(identity) : -1;
+    } else if (redoneOurs && haveMapping) {
+        // Document went from m_lastGridSnapshot order to m_lastGridNewOrder
+        // order; the tracked rows are positions in the snapshot generation.
+        QList<int> mapped;
+        for (int v : m_selectedPages) {
+            const int identity = m_lastGridSnapshot.value(v, -1);
+            const int pos = identity >= 0 ? m_lastGridNewOrder.indexOf(identity) : -1;
+            if (pos >= 0) mapped.append(pos);
+        }
+        const int identity = m_currentPageData >= 0
+            ? m_lastGridSnapshot.value(m_currentPageData, -1) : -1;
+        m_pendingSelection = mapped;
+        m_pendingCurrentPage = identity >= 0 ? m_lastGridNewOrder.indexOf(identity) : -1;
+    } else {
+        // Unrelated command (rotate, delete, …): best effort — keep the same
+        // page positions selected across the reload.
+        m_pendingSelection = m_selectedPages;
+        m_pendingCurrentPage = m_currentPageData;
+    }
+    scheduleUndoRefresh();
 }
 
 void PagesMode::rebuildFromOrder(const QList<int>& order)
 {
+    m_gridRebuildGuard = true;
     m_pageList->clear();
-    for (int pos = 0; pos < order.size(); ++pos) {
-        QPixmap thumb(100, 130);
-        thumb.fill(QColor(220, 220, 220));
-        auto* item = new QListWidgetItem;
-        item->setIcon(QIcon(thumb));
-        item->setText(PagesMode::tr("Page %1").arg(order[pos] + 1));
-        item->setSizeHint(QSize(120, 160));
-        item->setData(Qt::UserRole, order[pos]);
-        m_pageList->addItem(item);
-    }
+    for (int pos = 0; pos < order.size(); ++pos)
+        m_pageList->addItem(makePageItem(order[pos]));
+    m_gridRebuildGuard = false;
+    restoreSelectionByData(); // U06: keep the user's pages selected across reverts
 }
 
 } // namespace gp
