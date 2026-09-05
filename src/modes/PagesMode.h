@@ -15,6 +15,8 @@ class QListWidgetItem;
 class QRadioButton;
 class QComboBox;
 class IPdfRenderer;
+class QMenu;
+class QUndoCommand;
 
 namespace gp {
 
@@ -65,6 +67,18 @@ private slots:
     // AR-7 D2: called on the GUI thread when the off-thread page-count query finishes.
     void onPageCountReady();
 
+    // U06: keyboard/context moves of the selected page(s) by delta (-1 up,
+    // +1 down) through the SAME atomic command path as drag.
+    void moveSelectedPagesBy(int delta);
+    // U06: fill the thumbnail context menu (Move Up/Down, Select All,
+    // Clear Selection — no destructive entries) from the grid's own commands.
+    void fillGridContextMenu(QMenu* menu);
+    // U06: keep the selection label and the selection snapshot in step.
+    void onGridSelectionChanged();
+    // U06: undo/redo anywhere can change the page order this grid displays —
+    // reload coalesced and restore selection + current page across it.
+    void onUndoStackIndexChanged(int index);
+
 private:
     // Build sub-widgets
     void buildPageListPanel(QWidget* host);
@@ -98,6 +112,33 @@ private:
     QList<int> m_dragSnapshot;      // visual order (original indices) at drag start
     void finishGridReorder();
     void rebuildFromOrder(const QList<int>& order);
+
+    // ── U06: selection visibility, readable labels, keyboard moves, ───────
+    // insertion indicator, and selection/current-page restore after undo.
+    QLabel*    m_selectionLabel   = nullptr;  // "N pages selected · pages X-Y"
+    QList<int> m_selectedPages;             // selected items' UserRole data values
+    int        m_currentPageData    = -1;     // current item's UserRole data value
+    QList<int> m_pendingSelection;            // rows to reselect after next repopulation
+    int        m_pendingCurrentPage = -1;     // row to make current after next repopulation
+    bool       m_gridRebuildGuard   = false;  // suppress drag-signal machinery during programmatic rebuilds
+    bool       m_ownPush            = false;  // suppress undo-index reaction during our own command push
+    bool       m_undoRefreshScheduled = false;
+    QUndoCommand* m_lastGridCmd     = nullptr; // our last pushed grid command (identity only, never dereferenced)
+    QList<int> m_lastGridSnapshot;            // pre-push visual order
+    QList<int> m_lastGridNewOrder;            // post-push visual order
+
+    // Shared tail for drag (finishGridReorder) and keyboard/context moves:
+    // gridMovePermutation → ReorderPermutationCommand → reload. The selected
+    // rows are reselected (pendingSelection/pendingCurrent) after the reload.
+    void commitGridOrder(const QList<int>& snapshot, const QList<int>& newOrder,
+                         const QList<int>& pendingSelection, int pendingCurrent);
+    // One thumbnail-grid item: placeholder icon, "Page N" label, identity in
+    // Qt::UserRole, and a theme-token foreground so the label stays readable.
+    static QListWidgetItem* makePageItem(int pageData);
+    void updateSelectionLabel();
+    void restorePendingSelection();   // position-based (after a fresh load generation)
+    void restoreSelectionByData();    // identity-based (after a visual revert)
+    void scheduleUndoRefresh();
 
     const AppContext* m_ctx = nullptr;
 
