@@ -441,13 +441,66 @@ void EditController::onRedactAllRequested(const QString &text, bool matchCase, b
 
 // ── OCR ─────────────────────────────────────────────────────────────────────
 
+// R07 (F11): pre-dispatch validation as a pure seam so the "no document" exit
+// is testable without the application shell. Empty string == dispatchable.
+QString EditController::ocrDispatchBlocker(const QString& filePath, int page)
+{
+    if (filePath.isEmpty() || page < 0)
+        return EditController::tr("OCR needs an open document — open a PDF and run OCR again.");
+    return QString();
+}
+
+// R07 (F11): one classification for every terminal outcome of a dispatched job.
+// Order matters: a superseded generation wins (the newer job owns the user's
+// attention), then the worker error, then source-identity staleness.
+EditController::OcrJobVerdict EditController::classifyOcrJobCompletion(
+    qint64 jobGeneration, qint64 currentGeneration,
+    const QString& jobSourcePath, int jobPage,
+    const QString& currentSourcePath, int currentPage,
+    const QString& workerError, QString* messageOut)
+{
+    const auto setMessage = [messageOut](const QString& m) {
+        if (messageOut) *messageOut = m;
+    };
+
+    // 1) A newer request supersedes this job's results entirely.
+    if (jobGeneration != currentGeneration) {
+        setMessage(EditController::tr("OCR run superseded by a newer request — discarding its results."));
+        return OcrJobVerdict::Stale;
+    }
+    // 2) Worker failure (missing language/model data, render failure, engine error).
+    if (!workerError.isEmpty()) {
+        setMessage(workerError);
+        return OcrJobVerdict::Failed;
+    }
+    // 3) The viewer/editor disappeared or the source identity changed.
+    if (currentSourcePath.isEmpty() || currentPage < 0) {
+        setMessage(EditController::tr("OCR finished, but the editor was closed — results discarded."));
+        return OcrJobVerdict::Stale;
+    }
+    if (currentSourcePath != jobSourcePath) {
+        setMessage(EditController::tr("OCR finished, but the document changed — results discarded."));
+        return OcrJobVerdict::Stale;
+    }
+    if (currentPage != jobPage) {
+        setMessage(EditController::tr("OCR finished, but the page changed — results discarded."));
+        return OcrJobVerdict::Stale;
+    }
+    return OcrJobVerdict::Deliver;
+}
+
 void EditController::runOcr() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || _ocrRunning) return;
 
     const QString filePath = viewer->filePath();
     const int page = viewer->currentPage();
-    if (filePath.isEmpty() || page < 0) return;
+
+    // R07 (F11): a blocked dispatch must still complete the panel's lifecycle —
+    // emit ocrRunFailed so the review screen returns to a retryable state
+    // (previously these early returns left Run disabled forever).
+    const QString blocker = ocrDispatchBlocker(filePath, page);
+    if (!blocker.isEmpty()) { emit ocrRunFailed(blocker); return; }
 
     // Read the pref at call-time so changes take effect without restart (D2 guardrail 3).
     // Default is "auto": prefer the ROVER ensemble when the PP-OCRv5 models are
@@ -481,15 +534,21 @@ void EditController::runOcr() {
 
     // Honest availability check for an EXPLICIT RapidOCR/Ensemble selection: fail
     // loudly rather than silently downgrade (audit §7 Pattern 5). The auto path
-    // already guaranteed availability above, so it is exempt.
+    // already guaranteed availability above, so it is exempt. R07: emit the
+    // failure so the review panel recovers instead of staying in Running.
     if (!autoSelect && (wantRapid || wantEnsemble) && !onnxAvailable) {
-        _mainWindow->statusBar()->showMessage(
+        emit ocrRunFailed(
             tr("OCR failed: PP-OCRv5 ONNX models not found. "
-               "Change the OCR engine in Preferences → Engines, or install the models."), 7000);
+               "Change the OCR engine in Preferences → Engines, or install the models."));
         return;
     }
 
     _ocrRunning = true;
+
+    // R07: generation identity of this job — the completion callback drops the
+    // results if a newer request was issued in the meantime.
+    ++_ocrJobGeneration;
+    const qint64 jobGeneration = _ocrJobGeneration;
 
     // Audit 9.4 P0: honor the user's OCR language selection instead of a
     // hard-coded "eng". Read + map on the GUI thread (QSettings is not
@@ -527,7 +586,8 @@ void EditController::runOcr() {
     const QImage renderedPage = viewer->renderPage(page, 2.0);
 
     QThread *worker = QThread::create([self, viewerPtr, filePath, page, renderedPage,
-                                       wantRapid, wantEnsemble, ocrLang, preprocessPrefs]() {
+                                       wantRapid, wantEnsemble, ocrLang, preprocessPrefs,
+                                       jobGeneration]() {
         QString error;
         QList<OcrResult> resultsArr;
         QList<MergedOcrWord> mergedWords;   // also surfaced to the OCR Verify screen
@@ -614,18 +674,29 @@ void EditController::runOcr() {
             }
         }
 
-        QMetaObject::invokeMethod(QCoreApplication::instance(), [self, viewerPtr, filePath, page, pageImg, resultsArr, mergedWords, error]() {
+        QMetaObject::invokeMethod(QCoreApplication::instance(), [self, viewerPtr, filePath, page, pageImg, resultsArr, mergedWords, error, jobGeneration]() {
+            // R07: a destroyed controller (and its panels) receives no callbacks.
             if (!self) return;
 
+            // Every terminal path restores job dispatch exactly once, first.
             self->_ocrRunning = false;
 
-            if (!error.isEmpty()) {
-                self->_mainWindow->statusBar()->showMessage(error, 7000);
+            // R07 (F11): classify this completion — success, worker failure, or
+            // stale/cancelled — and drive the matching recovery path. Widget
+            // updates happen via the signals' host lambdas on the UI thread.
+            QString message;
+            const QString currentPath    = viewerPtr ? viewerPtr->filePath() : QString();
+            const int currentPage        = viewerPtr ? viewerPtr->currentPage() : -1;
+            const OcrJobVerdict verdict  = classifyOcrJobCompletion(
+                jobGeneration, self->_ocrJobGeneration, filePath, page,
+                currentPath, currentPage, error, &message);
+
+            if (verdict == OcrJobVerdict::Failed) {
+                emit self->ocrRunFailed(message);
                 return;
             }
-
-            if (!viewerPtr || viewerPtr->filePath() != filePath || viewerPtr->currentPage() != page) {
-                self->_mainWindow->statusBar()->showMessage(tr("OCR complete, but the page changed before results could be applied."), 5000);
+            if (verdict == OcrJobVerdict::Stale) {
+                emit self->ocrRunAbandoned(message);
                 return;
             }
 
@@ -868,16 +939,26 @@ QString EditController::ocrSavedStatus(int totalPages, int pageIndex, const QStr
 // §9.4 P0: Accept persists the recognised text as a searchable MRC PDF/A
 // copy — the same production writer Batch Mode uses — instead of only
 // showing a status message while the searchable layer silently vanished.
+// R07 (F11): every exit reports its outcome via ocrSaveFinished so the
+// review panel's Saving state always completes (cancelled saves retain the
+// review edits and re-enable Accept; failed saves retain data for retry).
 void EditController::onOcrAcceptRequested() {
-    if (!_ctx || !_ctx->pdfEditor) return;
+    if (!_ctx || !_ctx->pdfEditor) {
+        emit ocrSaveFinished(false, false, tr("No document is open — nothing to save."));
+        return;
+    }
     auto* viewer = _mainWindow->pdfViewer();
-    if (!viewer) return;
+    if (!viewer) {
+        emit ocrSaveFinished(false, false, tr("No document is open — nothing to save."));
+        return;
+    }
 
     const QString currentPath = viewer->filePath();
     if (m_lastOcrPageImage.isNull() || m_lastOcrWords.isEmpty()
         || m_lastOcrSourcePath != currentPath) {
-        _mainWindow->statusBar()->showMessage(
-            tr("No fresh OCR results to save — run OCR first."), 5000);
+        // Validation failure is a completion too — the panel must recover.
+        emit ocrSaveFinished(false, false,
+            tr("No fresh OCR results to save — run OCR first."));
         return;
     }
 
@@ -889,7 +970,11 @@ void EditController::onOcrAcceptRequested() {
         fi.absolutePath() + QLatin1Char('/') + fi.completeBaseName()
             + QStringLiteral("_ocr.pdf"),
         tr("PDF Files (*.pdf)"));
-    if (outPath.isEmpty()) return;
+    if (outPath.isEmpty()) {
+        // Cancelled save: nothing written, review edits retained.
+        emit ocrSaveFinished(false, true, QString());
+        return;
+    }
 
     const PageOcrResult pageResult = EditController::buildPageOcrResult(m_lastOcrPage, m_lastOcrWords);
 
@@ -899,10 +984,10 @@ void EditController::onOcrAcceptRequested() {
     QApplication::restoreOverrideCursor();
 
     if (ok)
-        _mainWindow->statusBar()->showMessage(
-            ocrSavedStatus(totalPages, pageIndex, QFileInfo(outPath).fileName()), 8000);
+        emit ocrSaveFinished(true, false,
+            ocrSavedStatus(totalPages, pageIndex, QFileInfo(outPath).fileName()));
     else
-        QMessageBox::warning(_mainWindow, tr("OCR Export Failed"),
+        emit ocrSaveFinished(false, false,
             tr("Could not write the searchable MRC PDF/A copy. See the application log."));
 }
 

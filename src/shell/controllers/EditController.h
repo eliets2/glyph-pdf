@@ -49,6 +49,32 @@ public:
     static PageTextPattern pageTextPattern(const QString &text, bool matchCase,
                                            bool wholeWords, bool useRegex);
 
+    // ── R07 (F11): OCR lifecycle classification seams ────────────────────────
+    // Terminal verdict of one dispatched OCR job. Every completion — success,
+    // empty result, validation failure, worker failure, cancellation — maps to
+    // exactly one verdict, and each verdict drives a distinct recovery path.
+    enum class OcrJobVerdict {
+        Deliver,   // results are fresh for the current document+page: deliver
+        Stale,     // superseded/cancelled (newer job, page/doc switch, closed editor)
+        Failed     // worker error (missing data, render/engine failure)
+    };
+    Q_ENUM(OcrJobVerdict)
+
+    /// Pure seam: why a dispatch cannot start (empty string == dispatchable).
+    /// Covers the "no document" exit so the panel can recover instead of being
+    /// left with Run disabled forever.
+    static QString ocrDispatchBlocker(const QString& filePath, int page);
+
+    /// Pure seam: classify one job completion. jobGeneration != currentGeneration
+    /// means a newer request superseded it; an empty currentSourcePath means the
+    /// viewer/editor was gone. The human-readable recovery message is written to
+    /// messageOut when non-null.
+    static OcrJobVerdict classifyOcrJobCompletion(
+        qint64 jobGeneration, qint64 currentGeneration,
+        const QString& jobSourcePath, int jobPage,
+        const QString& currentSourcePath, int currentPage,
+        const QString& workerError, QString* messageOut);
+
 public slots:
     // Run OCR on the viewer's current page (engine chosen per Preferences). Public so
     // the OCR Verify screen's Run button can drive the same real pipeline as the ribbon.
@@ -75,6 +101,19 @@ signals:
     // words so the OCR Verify screen can display them for review.
     void ocrResultsReady(const QList<MergedOcrWord>& words);
 
+    // ── R07 (F11): lifecycle completion signals ──────────────────────────────
+    // Worker/validation failure (missing language data, ONNX models, render or
+    // engine failure, blocked dispatch). The host relays it to the review panel
+    // so Run is restored for retry.
+    void ocrRunFailed(const QString& message);
+    // Cancellation: the job was abandoned (newer request, page/document switch,
+    // editor closed) and its results were dropped.
+    void ocrRunAbandoned(const QString& message);
+    // Save outcome after Accept: every path (success, dialog cancellation,
+    // write failure, validation failure) is reported exactly once so the panel
+    // can leave the Saving state and re-enable Save/Accept.
+    void ocrSaveFinished(bool saved, bool canceled, const QString& message);
+
 private slots:
     void onImageSelected(const QString &name, const QRectF &placement);
     void onImageMoved(const QString &name, double dx, double dy);
@@ -91,6 +130,11 @@ private:
     const AppContext* _ctx = nullptr;
     MainWindow* _mainWindow = nullptr;
     bool _ocrRunning = false;
+
+    // R07: monotonically increasing identity of the dispatched OCR job. The
+    // completion callback captures its generation and drops results when a
+    // newer request has been issued in the meantime.
+    qint64 _ocrJobGeneration = 0;
 
     // §9.4 P0: inputs of the most recent interactive OCR run, cached so that
     // Accept can persist a searchable MRC PDF/A copy (the PRD headline claim).

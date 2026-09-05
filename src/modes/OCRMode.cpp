@@ -418,16 +418,61 @@ void OCRMode::buildPanes(QVBoxLayout* col)
 
 // ── slots ───────────────────────────────────────────────────────────────────
 
+// R07: ONE state-transition helper. Every completion path lands here, so the
+// user-visible controls are restored consistently on the UI thread:
+//   - Running/Saving disable everything,
+//   - Idle/ReviewReady restore Run (review only when words exist),
+//   - RecoverableError restores Run for retry but NEVER re-enables review from
+//     stale content — only a fresh setOcrResults() may enable Accept again
+//     ("a stale completion must not re-enable another document's save").
+void OCRMode::transitionTo(ReviewState state, const QString& message)
+{
+    m_reviewState = state;
+    m_lastLifecycleMessage = message;
+
+    const bool hasWords = !m_currentWords.isEmpty();
+    auto setRun = [this](bool enabled, const QString& text) {
+        if (!m_btnRun) return;
+        m_btnRun->setEnabled(enabled);
+        m_btnRun->setText(text);
+    };
+    auto setReview = [this](bool enabled) {
+        if (m_btnAccept) m_btnAccept->setEnabled(enabled);
+        if (m_btnReject) m_btnReject->setEnabled(enabled);
+    };
+
+    switch (state) {
+    case ReviewState::Idle:
+        setRun(true, tr("Run OCR"));
+        setReview(false);
+        break;
+    case ReviewState::Running:
+        setRun(false, tr("Running…"));
+        setReview(false);
+        break;
+    case ReviewState::ReviewReady:
+        setRun(true, tr("Run OCR"));
+        setReview(hasWords);
+        break;
+    case ReviewState::Saving:
+        setRun(false, tr("Run OCR"));
+        setReview(false);
+        break;
+    case ReviewState::RecoverableError:
+        setRun(true, tr("Run OCR"));
+        setReview(false);
+        break;
+    }
+    emit reviewStateChanged(state);
+}
+
 void OCRMode::onRunOcr()
 {
     // R2: do NOT pre-enable Accept/Reject here. They must stay disabled until
     // setOcrResults() actually delivers recognised words — otherwise the user
     // can "accept" a result that does not exist yet. Show a processing state
-    // instead and let setOcrResults() enable the review buttons on arrival.
-    m_btnRun->setEnabled(false);
-    m_btnRun->setText(tr("Running…"));
-    m_btnAccept->setEnabled(false);
-    m_btnReject->setEnabled(false);
+    // instead and let the completion paths restore the controls.
+    transitionTo(ReviewState::Running, QString());
 
     // Update engine label
     m_lblEngine->setText(tr("ENGINE: %1 · %2")
@@ -444,8 +489,11 @@ void OCRMode::onRunOcr()
 
 void OCRMode::onAcceptResults()
 {
-    m_btnAccept->setEnabled(false);
-    m_btnReject->setEnabled(false);
+    if (m_reviewState != ReviewState::ReviewReady) return;  // nothing reviewable
+    // R07: Accept moves the panel to Saving BEFORE the save dialog opens; the
+    // save outcome (success/cancel/failure) always arrives via
+    // notifySaveFinished() and restores the review controls.
+    transitionTo(ReviewState::Saving, QString());
     emit reviewAccepted();
 }
 
@@ -457,9 +505,35 @@ void OCRMode::onRejectResults()
     updateConfidenceOverlay();
     updateInfoStrip();
     if (m_textEdit) m_textEdit->clear();
-    m_btnAccept->setEnabled(false);
-    m_btnReject->setEnabled(false);
+    transitionTo(ReviewState::Idle, tr("OCR results rejected."));
     emit reviewRejected();
+}
+
+// ── R07 completion paths (wired from EditController via the host) ────────────
+
+void OCRMode::notifyOcrFailed(const QString& message)
+{
+    // Worker/validation failure (missing language data, ONNX models, render or
+    // engine failure): recoverable — Run is restored for retry.
+    transitionTo(ReviewState::RecoverableError, message);
+}
+
+void OCRMode::notifyOcrCanceled(const QString& message)
+{
+    // Cancellation: the job was abandoned (page/document changed or editor
+    // closed before results could apply). Same recovery contract as failure.
+    transitionTo(ReviewState::RecoverableError, message);
+}
+
+void OCRMode::notifySaveFinished(bool saved, bool canceled, const QString& message)
+{
+    // A cancelled or failed save retains the review edits (m_currentWords is
+    // untouched) so the user can retry; success also returns to a reviewable
+    // state (the result can be saved again to another destination).
+    Q_UNUSED(saved);
+    Q_UNUSED(canceled);
+    transitionTo(m_currentWords.isEmpty() ? ReviewState::Idle : ReviewState::ReviewReady,
+                 message);
 }
 
 // ── Context menu (right-click on scan pane) ──────────────────────────────────
@@ -472,22 +546,22 @@ void OCRMode::onImagePaneContextMenu(const QPoint &pos)
 
     QMenu menu(this);
 
-    QAction *reOcrAction = menu.addAction(tr("Re-OCR this region"));
+    // U03 honesty note: until region operations exist, these actions act on the
+    // WHOLE page — the labels say so instead of implying a bounded region.
+    QAction *reOcrAction = menu.addAction(tr("Re-OCR entire page"));
     connect(reOcrAction, &QAction::triggered, this, &OCRMode::onReOcrRegion);
 
     menu.addSeparator();
 
     // Per-region accept / reject workflow
-    QAction *acceptRegion = menu.addAction(tr("Accept this region"));
-    connect(acceptRegion, &QAction::triggered, this, [this]() {
-        // Accept: mark region as reviewed (future: remove yellow/red overlay for this region)
-        // For now: enable accept/reject buttons so user can confirm the full page
-        m_btnAccept->setEnabled(true);
-        m_btnReject->setEnabled(true);
-    });
+    QAction *acceptRegion = menu.addAction(tr("Accept entire page"));
+    connect(acceptRegion, &QAction::triggered, this, &OCRMode::onAcceptResults);
 
-    QAction *rejectRegion = menu.addAction(tr("Reject this region"));
+    QAction *rejectRegion = menu.addAction(tr("Reject entire page"));
     connect(rejectRegion, &QAction::triggered, this, &OCRMode::onRejectResults);
+
+    QAction *scopeNote = menu.addAction(tr("Regional actions act on the whole page until region OCR ships"));
+    scopeNote->setEnabled(false);
 
     menu.exec(m_scanContentLabel->mapToGlobal(pos));
 }
@@ -505,7 +579,7 @@ void OCRMode::setOcrResults(const QList<MergedOcrWord> &words)
     updateConfidenceOverlay();
     updateInfoStrip();
 
-    // Populate plain-text editor with the recognized text
+    // Populate plain-text editor with the recognized text (preview pane).
     if (m_textEdit) {
         QStringList lines;
         for (const auto &w : words)
@@ -513,16 +587,14 @@ void OCRMode::setOcrResults(const QList<MergedOcrWord> &words)
         m_textEdit->setPlainText(lines.join(QStringLiteral(" ")));
     }
 
-    // Restore the Run button (it was disabled + relabelled while OCR ran).
-    if (m_btnRun) {
-        m_btnRun->setEnabled(true);
-        m_btnRun->setText(tr("Run OCR"));
-    }
-
-    // Enable review buttons only when there is something to review.
-    const bool hasWords = !words.isEmpty();
-    if (m_btnAccept) m_btnAccept->setEnabled(hasWords);
-    if (m_btnReject) m_btnReject->setEnabled(hasWords);
+    // R07: one completion path each. A non-empty delivery is the success path
+    // (ReviewReady); an empty recognition completes the run as Idle — retryable,
+    // with nothing to review — instead of silently leaving stale stats.
+    if (words.isEmpty())
+        transitionTo(ReviewState::Idle,
+                     tr("OCR complete — no text recognized on this page."));
+    else
+        transitionTo(ReviewState::ReviewReady, QString());
 }
 
 // ── updateConfidenceOverlay ───────────────────────────────────────────────────
@@ -775,9 +847,13 @@ void OCRMode::setSemanticDocument(const docmodel::SemanticDocument &doc,
         }
     }
 
-    // 3. Enable the review buttons (accept/reject) — per-region workflow
+    // 3. Enable the review buttons (accept/reject) — per-region workflow.
+    //    R07: keep the explicit lifecycle state truthful for this path too.
     if (m_btnAccept) m_btnAccept->setEnabled(true);
     if (m_btnReject) m_btnReject->setEnabled(true);
+    m_reviewState = ReviewState::ReviewReady;
+    m_lastLifecycleMessage = QString();
+    emit reviewStateChanged(m_reviewState);
 }
 
 } // namespace gp
