@@ -21,7 +21,7 @@ Dated corrections to stale historical claims (superseded by HEAD):
 | F01/R01 | forms | Failed form write leaves source PDF byte-identical; same-file add survives reopen | implemented-awaiting-review | FormManager.cpp save boundary, AddFormFieldCommand | TestFormSafety | runtime repro (15,257→0 bytes) | 5c8e111 | — |
 | F09/R02 | forms | Undo restores original value/tooltip/required incl. empty states | implemented-awaiting-review | IFormManager readFieldSnapshot/applyFieldSnapshot, FormManager, EditFormFieldCommand | TestFormUndo | trace | 5c8e111 | rename/placeholder/regex persistence contract out of scope |
 | F02/R03 | AI | Timeout/destroy cannot produce late callback access; exactly one result | implemented-awaiting-review | OllamaProvider.cpp owned worker state | TestOllamaProvider | trace | 9d53957 | no sanitizer run claimed |
-| F03/R04 | AI | Loopback guard parses hosts; 127.audit.invalid rejected | open | OllamaProvider isAllowedEndpoint | pending | validator probe | — | — |
+| F03/R04 | AI | Loopback guard parses hosts; 127.audit.invalid rejected | implemented-awaiting-review | OllamaProvider isAllowedEndpoint/resolveEndpoint | TestOllamaProvider (45 R04 cases) | validator probe | 8133f58 | redirects disabled (ManualRedirectPolicy); no sanitizer run claimed |
 | F05/R05 | OCR | 1-bit binarization keeps paper light, strokes dark | open | OcrPreprocessor.cpp:56-65 | pending | runtime repro | — | — |
 | F10/R06 | OCR | Deskew estimates on 1bpp; inverse transform maps boxes back | open (dep R05) | OcrPreprocessor deskew | pending | runtime repro ("pixs not 1 bpp") | — | — |
 | F11/R07 | OCR | Every terminal OCR outcome leaves the panel in a recoverable state | open | OCRMode.cpp:421-526, EditController | pending | trace | — | — |
