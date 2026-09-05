@@ -57,6 +57,7 @@ static QByteArray extractCmsFromContents(const QByteArray& fileData, qint64 off1
 #include <QDir>
 #include <QCoreApplication>
 #include <QSemaphore>
+#include <QMutex>
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
 #include <QNetworkReply>
@@ -920,6 +921,278 @@ SignOutcome SignatureManager::signDocument(const QString &inputPath,
 }
 
 // ---------------------------------------------------------------------------
+// §9.7 P0 — visible signature appearance (ETSI EN 319 142-6 §5.2, Acrobat
+// convention). One /AP /N form XObject, optional signature image left, text
+// right, drawn BEFORE SignDocument() so the appearance lands in the same
+// incremental update (or SaveOnSigning full save) as the /Contents digest.
+// Never touched again after signing — a post-signing AP edit would invalidate
+// the signature. No validation status and no TSA time is ever rendered here
+// (ISO 32000-2 §12.7.5.5 forbids it inside a field appearance).
+// ---------------------------------------------------------------------------
+namespace {
+
+constexpr double kAppearancePad = 4.0;            // inner padding, pt
+constexpr double kAppearanceLineLeading = 1.25;   // leading multiplier
+constexpr double kAppearanceTinyRectW = 120.0;    // "name-only below ~120x36pt"
+constexpr double kAppearanceTinyRectH = 36.0;
+constexpr double kAppearanceAbsoluteFloor = 4.0;  // last-resort identity floor
+
+// Shrink ladder: 9..6pt is the main fit range (~6pt floor per the binding
+// design); name-only mode may go below it so the identity line always draws.
+const double kAppearanceSizes[] = { 9.0, 8.0, 7.0, 6.0 };
+const double kAppearanceNameOnlySizes[] = { 9.0, 8.0, 7.0, 6.0, 5.0, 4.0 };
+
+QString formatAppearanceDate(const QDateTime &claimedLocal)
+{
+    const int offSecs = claimedLocal.offsetFromUtc();
+    const int offMin = qAbs(offSecs) / 60;
+    const QString sign = offSecs < 0 ? QStringLiteral("-") : QStringLiteral("+");
+    return QStringLiteral("Date: %1 UTC%2%3:%4")
+        .arg(claimedLocal.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")),
+             sign,
+             QString::number(offMin / 60).rightJustified(2, QLatin1Char('0')),
+             QString::number(offMin % 60).rightJustified(2, QLatin1Char('0')));
+}
+
+// The ETSI/Acrobat line set: identity (from the certificate CN), claimed
+// local time (never the TSA time), Reason/Location ONLY when set. No DN, no
+// logo, no validation status.
+QStringList appearanceLines(const QString &signerName, const QDateTime &claimedLocalTime,
+                            const QString &reason, const QString &location)
+{
+    QStringList lines;
+    if (!signerName.isEmpty())
+        lines << (QStringLiteral("Digitally signed by ") + signerName);
+    lines << formatAppearanceDate(claimedLocalTime);
+    if (!reason.isEmpty())
+        lines << (QStringLiteral("Reason: ") + reason);
+    if (!location.isEmpty())
+        lines << (QStringLiteral("Location: ") + location);
+    return lines;
+}
+
+bool appearanceFits(const QStringList &lines, double fontSize,
+                    double textW, double textH,
+                    const SignatureManager::AppearanceMeasureFn &measure)
+{
+    if (lines.isEmpty())
+        return true;
+    for (const QString &line : lines) {
+        if (measure(line, fontSize) > textW)
+            return false;
+    }
+    return lines.size() * kAppearanceLineLeading * fontSize <= textH;
+}
+
+} // namespace
+
+SignatureManager::SignatureAppearancePlan SignatureManager::planSignatureAppearance(
+    double rectWidthPt, double rectHeightPt,
+    const QString &signerName,
+    const QDateTime &claimedLocalTime,
+    const QString &reason, const QString &location,
+    bool hasSignatureImage,
+    const AppearanceMeasureFn &measureTextWidth)
+{
+    SignatureAppearancePlan plan;
+    plan.imageLeft = hasSignatureImage && rectWidthPt > 0.0 && rectHeightPt > 0.0;
+
+    const double pad = kAppearancePad;
+    // Image panel on the left: ~30% of the rect width, clamped to a usable
+    // strip so a wide image can never squeeze the text out entirely.
+    const double imagePanelW = plan.imageLeft
+        ? qBound(24.0, 0.30 * rectWidthPt, 0.45 * rectWidthPt)
+        : 0.0;
+    const double textW = rectWidthPt - 2.0 * pad - imagePanelW;
+    const double textH = rectHeightPt - 2.0 * pad;
+    if (textW <= 0.0 || textH <= 0.0) {
+        // Degenerate rect: draw the image (if any), no text. ETSI §5.2 makes
+        // zero-area widget rects non-conformant anyway; placement code guards.
+        plan.nameOnly = true;
+        return plan;
+    }
+
+    auto tryFit = [&](const QStringList &lines) -> double {
+        for (double size : kAppearanceSizes) {
+            if (appearanceFits(lines, size, textW, textH, measureTextWidth))
+                return size;
+        }
+        return 0.0;
+    };
+
+    auto finishWith = [&](const QStringList &lines, double size) {
+        plan.lines = lines;
+        plan.fontSize = size;
+    };
+
+    // Rects below ~120x36pt go straight to the name-only fallback.
+    if (rectWidthPt >= kAppearanceTinyRectW && rectHeightPt >= kAppearanceTinyRectH) {
+        // 1) full line set
+        if (double s = tryFit(appearanceLines(signerName, claimedLocalTime, reason, location)); s > 0.0) {
+            finishWith(appearanceLines(signerName, claimedLocalTime, reason, location), s);
+            return plan;
+        }
+        // 2) drop Reason first, 3) then Location
+        if (double s = tryFit(appearanceLines(signerName, claimedLocalTime, QString(), location)); s > 0.0) {
+            finishWith(appearanceLines(signerName, claimedLocalTime, QString(), location), s);
+            return plan;
+        }
+        if (double s = tryFit(appearanceLines(signerName, claimedLocalTime, QString(), QString())); s > 0.0) {
+            finishWith(appearanceLines(signerName, claimedLocalTime, QString(), QString()), s);
+            return plan;
+        }
+    }
+
+    // 4) name-only fallback: identity line only, shrinking to the absolute
+    // floor so the signer identity is never silently lost.
+    plan.nameOnly = true;
+    const QStringList nameLine = signerName.isEmpty()
+        ? QStringList()
+        : QStringList{ QStringLiteral("Digitally signed by ") + signerName };
+    if (nameLine.isEmpty())
+        return plan; // nothing drawable
+    for (double size : kAppearanceNameOnlySizes) {
+        if (appearanceFits(nameLine, size, textW, textH, measureTextWidth)) {
+            finishWith(nameLine, size);
+            return plan;
+        }
+    }
+    finishWith(nameLine, kAppearanceAbsoluteFloor);
+    return plan;
+}
+
+// Dialog -> engine handoff for the optional signature image. Mutex-guarded
+// because signing runs on a worker thread while the dialog runs on the GUI
+// thread. Consume-once: the next signing call drains the slot.
+namespace {
+QMutex g_pendingAppearanceImageMutex;
+QImage g_pendingAppearanceImage;
+} // namespace
+
+void SignatureManager::setPendingAppearanceImage(const QImage &image)
+{
+    QMutexLocker locker(&g_pendingAppearanceImageMutex);
+    g_pendingAppearanceImage = image;
+}
+
+QImage SignatureManager::takePendingAppearanceImage()
+{
+    QMutexLocker locker(&g_pendingAppearanceImageMutex);
+    QImage taken = g_pendingAppearanceImage;
+    g_pendingAppearanceImage = QImage();
+    return taken;
+}
+
+namespace {
+
+// Draws the planned appearance into a single /AP /N form XObject and attaches
+// it to the signature widget. Throws are caught by the caller: the appearance
+// is cosmetic relative to the cryptographic core and must never abort signing.
+void drawSignatureAppearance(PdfMemDocument &doc, PdfSignature &signature,
+                             const QString &signerCN, const QString &reason,
+                             const QString &location, const QImage &image)
+{
+    if (!signature.GetWidget())
+        return;
+    const Rect widgetRect = signature.GetWidget()->GetRect();
+    if (widgetRect.Width <= 0.0 || widgetRect.Height <= 0.0) {
+        qWarning() << "SignatureManager: signature widget rect is degenerate"
+                   << widgetRect.Width << "x" << widgetRect.Height
+                   << "- skipping appearance (ETSI EN 319 142-6 §5.2 requires w,h > 0)";
+        return;
+    }
+
+    // Standard-14 Helvetica with an explicit WinAnsi encoding: the appearance
+    // content stream then carries literal (searchable, verifiable) text.
+    // WinAnsi is Latin-only — non-Latin signer names, reasons and locations
+    // will not render correctly. Embedding an open-licensed TTF via
+    // GetOrCreateFontFromBuffer (PoDoFo embeds imported fonts by default) is
+    // the documented upgrade path; it requires a bundled font asset and is
+    // deferred. Metrics from this font drive the auto-fit, so measurement and
+    // rendering agree exactly (ETSI EN 319 142-6 §5.2 fit = shall).
+    PdfFontCreateParams fontParams;
+    fontParams.Encoding = PdfEncoding(PdfEncodingMapFactory::GetWinAnsiEncodingInstancePtr());
+    fontParams.Flags = PdfFontCreateFlags::DontEmbed;
+    PdfFont &font = doc.GetFonts().GetStandard14Font(PdfStandard14FontType::Helvetica, fontParams);
+
+    auto measure = [&font](const QString &text, double fontSize) -> double {
+        PdfTextState state;
+        state.Font = &font;
+        state.FontSize = fontSize;
+        return font.GetStringLength(text.toUtf8().constData(), state);
+    };
+
+    // Claimed signing time (local clock, with UTC offset). The TSA timestamp
+    // is validation information and must never appear in the appearance.
+    const QDateTime claimedLocal = QDateTime::currentDateTime();
+    const SignatureManager::SignatureAppearancePlan plan = SignatureManager::planSignatureAppearance(
+        widgetRect.Width, widgetRect.Height, signerCN, claimedLocal,
+        reason, location, !image.isNull(), measure);
+
+    auto form = doc.CreateXObjectForm(Rect(0.0, 0.0, widgetRect.Width, widgetRect.Height));
+
+    PdfImage *pdfImage = nullptr;
+    QImage rgbImage;
+    std::unique_ptr<PdfImage> pdfImageOwner;
+    if (!image.isNull()) {
+        rgbImage = image.convertToFormat(QImage::Format_RGB888);
+        if (!rgbImage.isNull()) {
+            pdfImageOwner = doc.CreateImage();
+            pdfImage = pdfImageOwner.get();
+            pdfImage->SetData(bufferview(reinterpret_cast<const char *>(rgbImage.constBits()),
+                                         static_cast<size_t>(rgbImage.sizeInBytes())),
+                              static_cast<unsigned>(rgbImage.width()),
+                              static_cast<unsigned>(rgbImage.height()),
+                              PdfPixelFormat::RGB24,
+                              rgbImage.bytesPerLine());
+        }
+    }
+
+    PdfPainter painter;
+    painter.SetCanvas(*form);
+
+    // Light background + hairline border (Acrobat convention, Lane A).
+    painter.GraphicsState.SetNonStrokingColor(PdfColor(1.0, 1.0, 1.0));
+    painter.DrawRectangle(0.0, 0.0, widgetRect.Width, widgetRect.Height, PdfPathDrawMode::Fill);
+    painter.GraphicsState.SetStrokingColor(PdfColor(0.55, 0.55, 0.55));
+    painter.DrawRectangle(0.0, 0.0, widgetRect.Width, widgetRect.Height, PdfPathDrawMode::Stroke);
+
+    if (pdfImage) {
+        const double boxX = kAppearancePad;
+        const double boxY = kAppearancePad;
+        const double boxW = qBound(24.0, 0.30 * widgetRect.Width, 0.45 * widgetRect.Width);
+        const double boxH = widgetRect.Height - 2.0 * kAppearancePad;
+        const double imgW = static_cast<double>(rgbImage.width());
+        const double imgH = static_cast<double>(rgbImage.height());
+        if (imgW > 0.0 && imgH > 0.0 && boxW > 0.0 && boxH > 0.0) {
+            const double scale = qMin(boxW / imgW, boxH / imgH);
+            const double drawW = imgW * scale;
+            const double drawH = imgH * scale;
+            const double drawY = boxY + (boxH - drawH) / 2.0; // center vertically
+            painter.DrawImage(*pdfImage, boxX, drawY, drawW / imgW, drawH / imgH);
+        }
+    }
+
+    if (!plan.lines.isEmpty() && plan.fontSize > 0.0) {
+        painter.TextState.SetFont(font, plan.fontSize);
+        painter.GraphicsState.SetNonStrokingColor(PdfColor(0.0, 0.0, 0.0));
+        const double textX = kAppearancePad + (plan.imageLeft
+            ? qBound(24.0, 0.30 * widgetRect.Width, 0.45 * widgetRect.Width)
+            : 0.0);
+        double baselineY = widgetRect.Height - kAppearancePad - plan.fontSize;
+        for (const QString &line : plan.lines) {
+            painter.DrawText(line.toUtf8().constData(), textX, baselineY);
+            baselineY -= kAppearanceLineLeading * plan.fontSize;
+        }
+    }
+
+    painter.FinishDrawing();
+    signature.GetWidget()->SetAppearanceStream(*form, PdfAppearanceType::Normal);
+}
+
+} // namespace
+
+// ---------------------------------------------------------------------------
 // Shared signing core. certificationLevel: 0 = ordinary approval signature;
 // 1/2/3 = certification (author) signature with a /DocMDP transform whose
 // permission is NoPerms/FormFill/Annotations respectively. For a certification
@@ -938,6 +1211,10 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
     try {
         PdfMemDocument doc;
         doc.Load(inputPath.toStdString());
+
+        // §9.7 P0: drain the dialog's optional signature-image slot up front
+        // so a failed signing attempt can never leak it into a later signature.
+        const QImage appearanceImage = takePendingAppearanceImage();
 
         charbuff certData;
         EVP_PKEY *pkeyRaw = nullptr;
@@ -1095,6 +1372,36 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
 
         if (!reason.isEmpty())   signature->SetSignatureReason(PdfString(reason.toStdString()));
         if (!location.isEmpty()) signature->SetSignatureLocation(PdfString(location.toStdString()));
+
+        // §9.7 P0: draw the visible appearance BEFORE SignDocument so the
+        // /AP /N form XObject is written in the SAME incremental update (or
+        // SaveOnSigning full save) as the /Contents digest — a post-signing
+        // appearance edit would invalidate the signature. Signer identity is
+        // derived from the certificate CN (ETSI EN 319 142-6 §5.1), not from
+        // user-typed data. An appearance failure must not abort the
+        // cryptographic signing; the signature is then written without /AP.
+        {
+            QString signerCN;
+            if (leafCert) {
+                char cnBuf[256] = { 0 };
+                X509_NAME *subjectName = X509_get_subject_name(leafCert);
+                if (subjectName &&
+                    X509_NAME_get_text_by_NID(subjectName, NID_commonName, cnBuf, sizeof(cnBuf)) > 0) {
+                    signerCN = QString::fromUtf8(cnBuf).trimmed();
+                }
+            }
+            try {
+                drawSignatureAppearance(doc, *signature, signerCN, reason, location, appearanceImage);
+            } catch (const PdfError &e) {
+                qWarning() << "SignatureManager: appearance drawing failed (signing continues without /AP):"
+                           << e.what();
+            } catch (const std::exception &e) {
+                qWarning() << "SignatureManager: appearance drawing failed (signing continues without /AP):"
+                           << e.what();
+            } catch (...) {
+                qWarning() << "SignatureManager: appearance drawing failed (signing continues without /AP).";
+            }
+        }
 
         // E-01: certification (author) signature — write the /DocMDP transform that
         // restricts subsequent modifications. certificationLevel 1/2/3 maps to

@@ -1045,6 +1045,44 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEraseSignedGuard.cpp")
     )
 endif()
 
+# §9.7 P0: visible signature appearance for the cryptographic signing path.
+# Pins the pure planning seam (auto-fit ladder, ETSI line set) and the
+# end-to-end signing path: /AP /N form XObject written in the same incremental
+# update as the digest, Reason/Location only when set, name-only in tiny rects,
+# optional signature image embedded as an /Image XObject.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignatureAppearance.cpp")
+    add_executable(TestSignatureAppearance tests/TestSignatureAppearance.cpp)
+    target_include_directories(TestSignatureAppearance PRIVATE src tests)
+    target_compile_definitions(TestSignatureAppearance PRIVATE
+        SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    )
+    if(GLYPHPDF_ENABLE_TEST_FIXTURES)
+        target_compile_definitions(TestSignatureAppearance PRIVATE GLYPH_TESTING=1)
+    endif()
+    target_link_libraries(TestSignatureAppearance PRIVATE
+        pdfws_engines pdfws_core
+        OpenSSL::SSL OpenSSL::Crypto
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets podofo::podofo
+    )
+    if(WIN32)
+        target_link_libraries(TestSignatureAppearance PRIVATE Crypt32)
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestSignatureAppearance POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestSignatureAppearance>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestSignatureAppearance"
+            )
+        endif()
+    endif()
+    add_test(NAME TestSignatureAppearance COMMAND TestSignatureAppearance)
+    set_tests_properties(TestSignatureAppearance PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "integration;security;signatures;appearance;qt;headless"
+    )
+endif()
+
 # §9.13 F2 regression test: optimizeDocument (Compress / Strip metadata) must
 # refuse signed documents — writeUpdate's incremental SaveUpdate would keep the
 # "stripped" metadata recoverable in revision 1 while the dialog reports success.
