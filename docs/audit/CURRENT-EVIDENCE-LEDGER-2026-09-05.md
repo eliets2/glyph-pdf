@@ -28,7 +28,7 @@ Dated corrections to stale historical claims (superseded by HEAD):
 | F04/R08 | OCR | Reviewed word survives saved-PDF text extraction; correct page saved | open (dep R05-R07) | OCRMode, EditController, MergedOcrWord | pending | trace | — | whole-document OCR separate; arbitrary text editing separate |
 | F07/R09 | conv | Subset-font/Unicode text extracts correctly for Word/Excel/CSV | open | ConversionManager extractTextFromPage → PDFium | pending | runtime repro | — | — |
 | F08/R10 | conv | Unavailable native format fails before writing; UI+batch gating consistent | partial | ConversionManager, ConvertController | TestExportPathBadge | runtime repro | 452bfa2 | in-house OOXML writers landed (452bfa2) — capability gating review pending; HTML/CSV alternatives keep their true names |
-| F06/R11 | compare | Added/removed pages appear in tree, navigation, report | open | DiffEngine, CompareMode, CompareWidget | pending | runtime repro | — | middle-insertion alignment explicitly open |
+| F06/R11 | compare | Added/removed pages appear in tree, navigation, report | implemented-awaiting-review | DiffEngine PageChange model, CompareMode tree/filters/reports, CompareWidget anchors | TestDiffEngine (+7), TestCompareEntry (+6) | runtime repro | 83e7c8a | middle-insertion alignment explicitly open; repeated-identical tie-break documented |
 | F12/R12 | compression | Unsupported passes cannot be selected or claimed run | implemented-awaiting-review | CompressDialog unsupportedPassExplanation seam + gating | TestCompressDialogHonesty (5) | trace | f2fab98 | completion-message honesty source-verified only; estimate stays an estimate by design |
 
 ## Already-landed parity work on this branch (July audit P0 items — selected rows)
