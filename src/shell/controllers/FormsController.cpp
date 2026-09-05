@@ -112,20 +112,34 @@ void FormsController::autoDetectFields() {
     }
 
     int count = 0;
+    int failed = 0;
     for (const auto& s : suggestions) {
+        // R01 (F01): the add operation's result is checked — a failed save
+        // leaves the document untouched and must not be counted as placed.
+        AddFormFieldCommand::FieldType type = AddFormFieldCommand::FieldType::Text;
         if (s.type == "Text") {
-            AddFormFieldCommand(_ctx->forms.get(), _ctx->document.get(), AddFormFieldCommand::FieldType::Text, viewer->currentPage(), s.rect, s.suggestedName).redo();
-            count++;
+            type = AddFormFieldCommand::FieldType::Text;
         } else if (s.type == "Date") {
-            AddFormFieldCommand(_ctx->forms.get(), _ctx->document.get(), AddFormFieldCommand::FieldType::Date, viewer->currentPage(), s.rect, s.suggestedName).redo();
-            count++;
+            type = AddFormFieldCommand::FieldType::Date;
         } else if (s.type == "Checkbox") {
-            AddFormFieldCommand(_ctx->forms.get(), _ctx->document.get(), AddFormFieldCommand::FieldType::Checkbox, viewer->currentPage(), s.rect, s.suggestedName).redo();
-            count++;
+            type = AddFormFieldCommand::FieldType::Checkbox;
+        } else {
+            continue;
         }
+        AddFormFieldCommand cmd(_ctx->forms.get(), _ctx->document.get(), type,
+                                viewer->currentPage(), s.rect, s.suggestedName);
+        cmd.redo();
+        if (cmd.succeeded()) count++;
+        else failed++;
     }
-    _mainWindow->statusBar()->showMessage(
-        tr("Auto-detect (experimental): placed %1 suggested field(s) for review — undo or adjust as needed.").arg(count), 8000);
+    if (failed > 0) {
+        _mainWindow->statusBar()->showMessage(
+            tr("Auto-detect (experimental): placed %1 suggested field(s); %2 could not be saved — document unchanged.")
+                .arg(count).arg(failed), 8000);
+    } else {
+        _mainWindow->statusBar()->showMessage(
+            tr("Auto-detect (experimental): placed %1 suggested field(s) for review — undo or adjust as needed.").arg(count), 8000);
+    }
 }
 
 void FormsController::editTabOrder() {

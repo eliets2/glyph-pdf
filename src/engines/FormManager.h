@@ -14,6 +14,18 @@ public:
     FormManager();
     ~FormManager() override;
 
+    // ── R01 test seam: deterministic save-boundary failure injection ────────
+    // Every form mutator persists through ONE shared transactional boundary:
+    // serialize to a unique temp candidate, close the writer, reopen and
+    // validate the candidate, then commit to the destination (QSaveFile).
+    // Tests can force the boundary to fail at a given stage without relying
+    // on filesystem permissions. The setting is sticky for the process;
+    // tests must reset it to None. Failure at any stage leaves the
+    // destination file byte-identical and the operation returns false.
+    enum class SaveFault { None = 0, CandidateSave, Validation, Commit };
+    static void setSaveFaultForTesting(SaveFault fault);
+    static SaveFault saveFaultForTesting();
+
     // Map AcroForm dictionaries to UI Widgets using PoDoFo/qpdf
     bool extractFormFields(const QString &pdfFilePath) override;
     
