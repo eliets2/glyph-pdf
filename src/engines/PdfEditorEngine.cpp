@@ -13,6 +13,7 @@
 #include <podofo/podofo.h>
 #include "engines/podofo/PdfStringEscape.h"
 #include <QDate>
+#include <QMap>
 #include <QMutexLocker>
 #include <QRecursiveMutex>
 #include <QSettings>
@@ -408,6 +409,39 @@ bool PdfEditorEngine::exportMrcPdfA(
         return false;
     }
 
+    // ── R08: reviewed OCR words are Unicode; the text layer must be too ────
+    // The Helvetica/WinAnsi literal-string path can only encode ASCII
+    // correctly (raw UTF-8 bytes under WinAnsi garble everything else), so
+    // words containing non-ASCII characters are written as UTF-16BE hex
+    // strings against a Type0 /Identity-H font with a ToUnicode CMap. The
+    // text layer is invisible (3 Tr), so no font program needs to be embedded
+    // for rendering; extraction (PDFium et al.) reads the ToUnicode CMap.
+    // Pages with ASCII-only words keep the exact previous object layout.
+    auto wordNeedsUnicode = [](const QString& text) {
+        for (const QChar ch : text)
+            if (ch.unicode() < 0x20 || ch.unicode() > 0x7E) return true;
+        return false;
+    };
+    bool needUnicode = false;
+    QMap<uint, uint> unicodeCids;   // Unicode codepoint → CID (Identity-H)
+    for (const auto& layers : allLayers) {
+        for (const auto& w : layers.mrc.sandwichText) {
+            if (!wordNeedsUnicode(w.text)) continue;
+            needUnicode = true;
+            for (int i = 0; i < w.text.size(); ++i) {
+                uint cp = w.text.at(i).unicode();
+                if (QChar::isHighSurrogate(w.text.at(i).unicode())
+                    && i + 1 < w.text.size()
+                    && QChar::isLowSurrogate(w.text.at(i + 1).unicode())) {
+                    cp = QChar::surrogateToUcs4(w.text.at(i), w.text.at(i + 1));
+                    ++i;
+                }
+                if (!unicodeCids.contains(cp))
+                    unicodeCids.insert(cp, unicodeCids.size() + 1);
+            }
+        }
+    }
+
     // Object numbering plan:
     //   1: Catalog
     //   2: Pages (array of page refs)
@@ -420,12 +454,17 @@ bool PdfEditorEngine::exportMrcPdfA(
     //     base+2: Foreground JBIG2 mask XObject (or empty stream if no JBIG2)
     //     base+3: Content stream
     //   After all pages:
-    //     last+1: Helvetica font (for sandwich text)
+    //     fontObj: Helvetica font (for sandwich text)
+    //     [needUnicode] +4 objects: Type0 font, CIDFont, descriptor, ToUnicode
 
     int numPages = allLayers.size();
     int objBase  = 5;          // first page block starts here
     int fontObj  = objBase + numPages * 4;  // after all page blocks
-    int totalObj = fontObj + 1;             // +1 for font dict itself
+    int uniFontObj    = fontObj + 1;
+    int uniCidFontObj = fontObj + 2;
+    int uniDescObj    = fontObj + 3;
+    int uniCmapObj    = fontObj + 4;
+    int totalObj = (needUnicode ? uniCmapObj : fontObj) + 1;
 
     QList<qint64> offsets;  // offset[objNum-1] = byte offset of "objNum 0 obj"
     offsets.resize(totalObj);
@@ -440,9 +479,13 @@ bool PdfEditorEngine::exportMrcPdfA(
     auto streamObj = [&](int objNum, const QByteArray& dict, const QByteArray& data) {
         offsets[objNum - 1] = out.pos();
         out.write(QByteArray::number(objNum) + " 0 obj\n");
-        // Insert /Length into the dict
         QByteArray fullDict = dict;
-        int ins = fullDict.lastIndexOf('>');
+        // Insert /Length into the dict. R08 fix: insert before the closing
+        // ">>" — the previous lastIndexOf('>') landed BETWEEN the two angle
+        // brackets, producing malformed dicts like "<<> /Length N>" that
+        // PDFium cannot parse (the sandwich text layer was invisible to text
+        // extraction even though the raw operators were present).
+        int ins = fullDict.lastIndexOf(">>");
         if (ins >= 0) {
             fullDict.insert(ins, " /Length " + QByteArray::number(data.size()));
         }
@@ -587,12 +630,36 @@ bool PdfEditorEngine::exportMrcPdfA(
                 // Scale font to fit the word box height
                 double fs = qMax(1.0, bh);
 
-                // Escape PDF string special characters
-                cs += pdfReal(fs) + " Tf\n";
-                cs += pdfReal(bw / (w.text.length() > 0 ? w.text.length() : 1)) + " Tz\n";
-                cs += pdfReal(x) + " " + pdfReal(y) + " Td\n";
-                cs += "(" + QByteArray::fromStdString(pdfEscapeLiteralString(w.text)) + ") Tj\n";
-                cs += "0 0 Td\n";
+                const bool uni = wordNeedsUnicode(w.text);
+                // Select the per-word font (visible only through extraction —
+                // the whole run is invisible via 3 Tr).
+                cs += (uni ? "/F2 " : "/F1 ") + pdfReal(fs) + " Tf\n";
+
+                if (uni) {
+                    // R08: UTF-16BE hex string over Identity-H CIDs; ToUnicode
+                    // maps them back to the reviewed Unicode text.
+                    QByteArray hex;
+                    for (int i = 0; i < w.text.size(); ++i) {
+                        uint cp = w.text.at(i).unicode();
+                        if (QChar::isHighSurrogate(w.text.at(i).unicode())
+                            && i + 1 < w.text.size()
+                            && QChar::isLowSurrogate(w.text.at(i + 1).unicode())) {
+                            cp = QChar::surrogateToUcs4(w.text.at(i), w.text.at(i + 1));
+                            ++i;
+                        }
+                        hex += QByteArray::number(unicodeCids.value(cp), 16)
+                                   .rightJustified(4, '0');
+                    }
+                    cs += pdfReal(x) + " " + pdfReal(y) + " Td\n";
+                    cs += "<" + hex + "> Tj\n";
+                    cs += "0 0 Td\n";
+                } else {
+                    // Escape PDF string special characters
+                    cs += pdfReal(bw / (w.text.length() > 0 ? w.text.length() : 1)) + " Tz\n";
+                    cs += pdfReal(x) + " " + pdfReal(y) + " Td\n";
+                    cs += "(" + QByteArray::fromStdString(pdfEscapeLiteralString(w.text)) + ") Tj\n";
+                    cs += "0 0 Td\n";
+                }
             }
             cs += "ET\n";
         }
@@ -600,13 +667,18 @@ bool PdfEditorEngine::exportMrcPdfA(
         streamObj(csObj, "<<>>", cs);  // Raw (uncompressed) content stream
 
         // ── base+0: Page dict ─────────────────────────────────────────────
+        QByteArray fontRefs =
+            " /Font << /F1 " + pdfInt(fontObj) + " 0 R";
+        if (needUnicode)
+            fontRefs += " /F2 " + pdfInt(uniFontObj) + " 0 R";
+        fontRefs += " >> >>";
         QByteArray pageDict =
             "<< /Type /Page"
             " /Parent 2 0 R"
             " /MediaBox [0 0 " + pdfReal(pageW) + " " + pdfReal(pageH) + "]"
             " /Resources << /XObject << /Img1 " + pdfInt(bgObj) + " 0 R"
-            "                             /Img2 " + pdfInt(fgObj) + " 0 R >>"
-            "               /Font << /F1 " + pdfInt(fontObj) + " 0 R >> >>"
+            "                             /Img2 " + pdfInt(fgObj) + " 0 R >>" +
+            fontRefs +
             " /Contents " + pdfInt(csObj) + " 0 R"
             " >>";
         writeObj(base, pageDict);
@@ -617,6 +689,55 @@ bool PdfEditorEngine::exportMrcPdfA(
     writeObj(fontObj,
         "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica"
         " /Encoding /WinAnsiEncoding >>");
+
+    // ── R08: Unicode font family (Type0 / Identity-H + ToUnicode CMap) ─────
+    // Emitted only when at least one word needs it, so ASCII-only exports
+    // keep the exact previous object layout. The font program is intentionally
+    // not embedded: the text layer is invisible (3 Tr) and extraction reads
+    // the ToUnicode CMap.
+    if (needUnicode) {
+        writeObj(uniDescObj,
+            "<< /Type /FontDescriptor /FontName /GlyphOcrSans"
+            " /Flags 4 /FontBBox [0 -200 1000 900] /ItalicAngle 0"
+            " /Ascent 900 /Descent -200 /CapHeight 700 /StemV 80 >>");
+        writeObj(uniCidFontObj,
+            "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /GlyphOcrSans"
+            " /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>"
+            " /FontDescriptor " + pdfInt(uniDescObj) + " 0 R"
+            " /DW 1000 /CIDToGIDMap /Identity >>");
+        writeObj(uniFontObj,
+            "<< /Type /Font /Subtype /Type0 /BaseFont /GlyphOcrSans"
+            " /Encoding /Identity-H"
+            " /DescendantFonts [" + pdfInt(uniCidFontObj) + " 0 R]"
+            " /ToUnicode " + pdfInt(uniCmapObj) + " 0 R >>");
+
+        QByteArray cmap =
+            "/CIDInit /ProcSet findresource begin\n"
+            "12 dict begin\n"
+            "begincmap\n"
+            "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n"
+            "/CMapName /Adobe-Identity-UCS def\n"
+            "/CMapType 2 def\n"
+            "1 begincodespacerange\n"
+            "<0000> <FFFF>\n"
+            "endcodespacerange\n";
+        cmap += QByteArray::number(unicodeCids.size()) + " beginbfchar\n";
+        for (auto it = unicodeCids.constBegin(); it != unicodeCids.constEnd(); ++it) {
+            // ToUnicode target: UTF-16BE of the mapped codepoint.
+            QString utf16 = QString::fromUcs4(reinterpret_cast<const char32_t*>(&it.key()), 1);
+            QByteArray hexTarget;
+            for (const QChar ch : utf16)
+                hexTarget += QByteArray::number(ch.unicode(), 16).rightJustified(4, '0');
+            cmap += "<" + QByteArray::number(it.value(), 16).rightJustified(4, '0') + ">"
+                  + " <" + hexTarget + ">\n";
+        }
+        cmap += "endbfchar\n"
+                "endcmap\n"
+                "CMapName currentdict /CMap defineresource pop\n"
+                "end\n"
+                "end\n";
+        streamObj(uniCmapObj, "<<>>", cmap);
+    }
 
     // ── Object 2: Pages ─────────────────────────────────────────────────────
     writeObj(2,

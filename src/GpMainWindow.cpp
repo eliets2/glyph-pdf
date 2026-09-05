@@ -249,7 +249,14 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
         // §9.4 P0: Accept persists the searchable text layer via the same
         // production MRC PDF/A writer Batch Mode uses — the PRD headline
         // OCR promise, previously a silent no-op.
-        _edit->onOcrAcceptRequested();
+        // R08 (F04): the review panel's reviewed word records travel with
+        // acceptance — corrections are authoritative, the plain-text pane is
+        // only a preview — and the controller validates the session's source
+        // identity/page before exporting.
+        QList<OcrReviewedWord> reviewed;
+        if (auto* om = _modes->findChild<OCRMode*>())
+            reviewed = om->reviewedWords();
+        _edit->onOcrAcceptRequested(reviewed);
     });
     connect(_modes, &ModeController::ocrReviewRejected, this, [this]() {
         statusBar()->showMessage(tr("OCR results rejected — overlay cleared."), 3000);

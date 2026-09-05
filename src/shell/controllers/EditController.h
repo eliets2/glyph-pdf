@@ -10,6 +10,7 @@
 #include "core/ToolId.h"
 #include "core/interfaces/IToolController.h"
 #include "engines/ocr/OcrPipeline.h" // PageOcrResult / MergedOcrWord (§9.4 Accept seam)
+#include "modes/OcrReviewSession.h"  // R08: review session + reviewed word records
 
 struct AppContext;
 class EditToolBar;
@@ -75,6 +76,26 @@ public:
         const QString& currentSourcePath, int currentPage,
         const QString& workerError, QString* messageOut);
 
+    // ── R08 (F04): reviewed-word authority seams ─────────────────────────────
+    /// Pure seam: may this review session still be saved against the live
+    /// viewer? Rejects stale sessions after a source change (different
+    /// document) or a revision change (page count differs). Writes a
+    /// human-readable reason to reasonOut when non-null.
+    static bool ocrSessionIsExportable(const OcrReviewSession& session,
+                                       const QString& currentSourcePath,
+                                       int currentPageCount,
+                                       QString* reasonOut = nullptr);
+
+    /// Pure seam: merge the panel's reviewed records into the session and
+    /// build the per-page export payload. The payload's pageIndex is the
+    /// SESSION's reviewed page (never the currently displayed page). Records
+    /// must align 1:1 with the session words (same count, same stable IDs) —
+    /// otherwise a stale-interaction error is written to errorOut. An empty
+    /// record list reviews the session unedited.
+    static PageOcrResult buildReviewedPageOcrResult(const OcrReviewSession& session,
+                                                    const QList<OcrReviewedWord>& reviewedWords,
+                                                    QString* errorOut = nullptr);
+
 public slots:
     // Run OCR on the viewer's current page (engine chosen per Preferences). Public so
     // the OCR Verify screen's Run button can drive the same real pipeline as the ribbon.
@@ -83,7 +104,10 @@ public slots:
     // §9.4 P0: persist the accepted OCR results as a searchable MRC PDF/A copy
     // (called directly from MainWindow, but kept as a slot for consistency with
     // the other EditController entry points wired to the OCR Verify screen).
-    void onOcrAcceptRequested();
+    // R08: the host passes the review panel's reviewed records; the reviewed
+    // words are authoritative for the export.
+    void onOcrAcceptRequested(const QList<OcrReviewedWord>& reviewedWords);
+    void onOcrAcceptRequested();   // legacy entry: no panel records (unedited review)
 
     // §9.4 P0 test seam: assemble the per-page OCR payload for exportMrcPdfA.
     static PageOcrResult buildPageOcrResult(int pageIndex, const QList<MergedOcrWord>& words);
@@ -136,12 +160,11 @@ private:
     // newer request has been issued in the meantime.
     qint64 _ocrJobGeneration = 0;
 
-    // §9.4 P0: inputs of the most recent interactive OCR run, cached so that
-    // Accept can persist a searchable MRC PDF/A copy (the PRD headline claim).
-    QImage m_lastOcrPageImage;
-    QList<MergedOcrWord> m_lastOcrWords;
-    int m_lastOcrPage = -1;
-    QString m_lastOcrSourcePath;
+    // R08: the review session of the most recent delivered OCR run — source
+    // identity/revision, the page image the words belong to, and the words
+    // with stable IDs. Acceptance validates it against the live viewer, merges
+    // the panel's reviewed records, and exports the reviewed text.
+    OcrReviewSession m_reviewSession;
 
     // P4: cache the initialized OCR engine pair across runs. Constructing a fresh
     // OcrEngine/RapidOcrEngine per call rebuilt 3 ONNX sessions (and the Tesseract

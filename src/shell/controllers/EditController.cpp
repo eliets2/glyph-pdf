@@ -489,6 +489,82 @@ EditController::OcrJobVerdict EditController::classifyOcrJobCompletion(
     return OcrJobVerdict::Deliver;
 }
 
+// ── R08 (F04) review-session seams ──────────────────────────────────────────
+
+// May this review session still be saved against the live viewer? A stale
+// session (source changed, or the document revision changed) is rejected with
+// a reason instead of exporting the wrong page/document.
+bool EditController::ocrSessionIsExportable(const OcrReviewSession& session,
+                                            const QString& currentSourcePath,
+                                            int currentPageCount,
+                                            QString* reasonOut)
+{
+    const auto reject = [reasonOut](const QString& r) {
+        if (reasonOut) *reasonOut = r;
+        return false;
+    };
+
+    if (!session.isValid())
+        return reject(EditController::tr("No OCR results to save — run OCR first."));
+    if (session.sourcePath != currentSourcePath)
+        return reject(EditController::tr(
+            "The reviewed page belongs to another document — run OCR on the current document before saving."));
+    if (currentPageCount >= 0 && session.sourcePageCount != currentPageCount)
+        return reject(EditController::tr(
+            "The document changed since this OCR run (page count differs) — run OCR again."));
+    return true;
+}
+
+// Merge the panel's reviewed records into the session and build the export
+// payload. Reviewed words are authoritative; deleted/empty words are dropped;
+// the source box of every kept word is the ORIGINAL recognized box.
+PageOcrResult EditController::buildReviewedPageOcrResult(
+    const OcrReviewSession& session,
+    const QList<OcrReviewedWord>& reviewedWords,
+    QString* errorOut)
+{
+    PageOcrResult r;
+    r.pageIndex = session.sourcePage;
+    const auto fail = [errorOut](const QString& e) {
+        if (errorOut) *errorOut = e;
+        return PageOcrResult{};
+    };
+
+    if (!session.isValid())
+        return fail(EditController::tr("No OCR results to save — run OCR first."));
+
+    // Stale-interaction guard: the panel's records must describe the same
+    // delivery as the session. An empty list means "unedited review".
+    QList<OcrReviewedWord> effective = reviewedWords;
+    if (!effective.isEmpty()) {
+        if (effective.size() != session.words.size())
+            return fail(EditController::tr(
+                "The review no longer matches the recognized page — run OCR again."));
+        for (int i = 0; i < effective.size(); ++i) {
+            if (effective[i].stableId != session.words[i].stableId)
+                return fail(EditController::tr(
+                    "The review no longer matches the recognized page — run OCR again."));
+        }
+    } else {
+        effective = session.words;
+    }
+
+    r.words.reserve(effective.size());
+    for (const auto& rec : effective) {
+        if (rec.deleted || rec.reviewedText.trimmed().isEmpty()) continue;
+        MergedOcrWord w;
+        // Reviewed text wins; the box is the ORIGINAL source box (review
+        // edits never move, split or invent coordinates).
+        w.text         = rec.reviewedText;
+        w.boundingBox  = rec.boundingBox;
+        w.confidence   = rec.confidence;
+        w.sourceEngine = rec.sourceEngine;
+        r.words.append(w);
+    }
+    r.success = !r.words.isEmpty();
+    return r;
+}
+
 void EditController::runOcr() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || _ocrRunning) return;
@@ -546,9 +622,12 @@ void EditController::runOcr() {
     _ocrRunning = true;
 
     // R07: generation identity of this job — the completion callback drops the
-    // results if a newer request was issued in the meantime.
+    // results if a newer request was issued in the meantime. R08: the page
+    // count snapshot is the session's cheap revision proxy (page insert/delete
+    // invalidates the session at accept time).
     ++_ocrJobGeneration;
     const qint64 jobGeneration = _ocrJobGeneration;
+    const int sourcePageCount = viewer->pageCount();
 
     // Audit 9.4 P0: honor the user's OCR language selection instead of a
     // hard-coded "eng". Read + map on the GUI thread (QSettings is not
@@ -587,7 +666,7 @@ void EditController::runOcr() {
 
     QThread *worker = QThread::create([self, viewerPtr, filePath, page, renderedPage,
                                        wantRapid, wantEnsemble, ocrLang, preprocessPrefs,
-                                       jobGeneration]() {
+                                       jobGeneration, sourcePageCount]() {
         QString error;
         QList<OcrResult> resultsArr;
         QList<MergedOcrWord> mergedWords;   // also surfaced to the OCR Verify screen
@@ -674,7 +753,7 @@ void EditController::runOcr() {
             }
         }
 
-        QMetaObject::invokeMethod(QCoreApplication::instance(), [self, viewerPtr, filePath, page, pageImg, resultsArr, mergedWords, error, jobGeneration]() {
+        QMetaObject::invokeMethod(QCoreApplication::instance(), [self, viewerPtr, filePath, page, pageImg, resultsArr, mergedWords, error, jobGeneration, sourcePageCount]() {
             // R07: a destroyed controller (and its panels) receives no callbacks.
             if (!self) return;
 
@@ -702,11 +781,28 @@ void EditController::runOcr() {
 
             viewerPtr->setOcrResults(resultsArr);
             viewerPtr->setToolMode(ToolMode::SelectText);
-            // §9.4 P0: cache this run so Accept can persist a searchable copy.
-            self->m_lastOcrPageImage = pageImg;
-            self->m_lastOcrWords = mergedWords;
-            self->m_lastOcrPage = page;
-            self->m_lastOcrSourcePath = filePath;
+            // R08: cache the review session — source identity/revision, the
+            // page image the words belong to, and the words with stable IDs.
+            // Acceptance merges the panel's reviewed records into this.
+            OcrReviewSession session;
+            session.generation      = jobGeneration;
+            session.sourcePath      = filePath;
+            session.sourcePage      = page;
+            session.sourcePageCount = sourcePageCount;
+            session.pageImage       = pageImg;
+            session.words.reserve(mergedWords.size());
+            for (int i = 0; i < mergedWords.size(); ++i) {
+                OcrReviewedWord rec;
+                rec.stableId      = i;
+                rec.originalText  = mergedWords[i].text;
+                rec.reviewedText  = mergedWords[i].text;
+                rec.deleted       = false;
+                rec.boundingBox   = mergedWords[i].boundingBox;
+                rec.confidence    = mergedWords[i].confidence;
+                rec.sourceEngine  = mergedWords[i].sourceEngine;
+                session.words.append(rec);
+            }
+            self->m_reviewSession = session;
             // Feed the OCR Verify screen (if open) so it shows real recognised words
             // for review instead of an empty/decorative panel.
             emit self->ocrResultsReady(mergedWords);
@@ -942,29 +1038,48 @@ QString EditController::ocrSavedStatus(int totalPages, int pageIndex, const QStr
 // R07 (F11): every exit reports its outcome via ocrSaveFinished so the
 // review panel's Saving state always completes (cancelled saves retain the
 // review edits and re-enable Accept; failed saves retain data for retry).
-void EditController::onOcrAcceptRequested() {
+// R08 (F04): the REVIEWED words are authoritative for the export; the save
+// dialog and the payload both use the session's REVIEWED page index, so the
+// displayed page can no longer differ from the page being saved.
+void EditController::onOcrAcceptRequested(const QList<OcrReviewedWord>& reviewedWords) {
     if (!_ctx || !_ctx->pdfEditor) {
         emit ocrSaveFinished(false, false, tr("No document is open — nothing to save."));
         return;
     }
     auto* viewer = _mainWindow->pdfViewer();
-    if (!viewer) {
-        emit ocrSaveFinished(false, false, tr("No document is open — nothing to save."));
+
+    // R08: validate the review session against the live viewer BEFORE doing
+    // any work — a stale session (source/revision change) is a validation
+    // failure, and the panel's Saving state must recover from it.
+    QString reason;
+    const QString currentPath = viewer ? viewer->filePath() : QString();
+    const int currentCount    = viewer ? viewer->pageCount() : -1;
+    if (!ocrSessionIsExportable(m_reviewSession, currentPath, currentCount, &reason)) {
+        emit ocrSaveFinished(false, false, reason);
         return;
     }
 
-    const QString currentPath = viewer->filePath();
-    if (m_lastOcrPageImage.isNull() || m_lastOcrWords.isEmpty()
-        || m_lastOcrSourcePath != currentPath) {
-        // Validation failure is a completion too — the panel must recover.
+    // R08: merge the panel's reviewed records into the session.
+    QString mergeError;
+    const PageOcrResult pageResult =
+        buildReviewedPageOcrResult(m_reviewSession, reviewedWords, &mergeError);
+    if (!mergeError.isEmpty()) {
+        emit ocrSaveFinished(false, false, mergeError);
+        return;
+    }
+    if (pageResult.words.isEmpty()) {
+        // Every word was removed (or nothing was recognized) — nothing
+        // searchable to write; the review stays editable for retry.
         emit ocrSaveFinished(false, false,
-            tr("No fresh OCR results to save — run OCR first."));
+            tr("No reviewed words remain to save — restore the removed words or run OCR again."));
         return;
     }
 
-    const QFileInfo fi(currentPath);
-    const int totalPages = viewer->pageCount();
-    const int pageIndex = viewer->currentPage();
+    // R07/R08: dialog title and payload identity come from the REVIEWED
+    // session (page + page count snapshot), never from the displayed page.
+    const QFileInfo fi(m_reviewSession.sourcePath);
+    const int totalPages  = m_reviewSession.sourcePageCount;
+    const int pageIndex   = m_reviewSession.sourcePage;
     const QString outPath = QFileDialog::getSaveFileName(
         _mainWindow, ocrSaveDialogTitle(totalPages, pageIndex),
         fi.absolutePath() + QLatin1Char('/') + fi.completeBaseName()
@@ -976,11 +1091,12 @@ void EditController::onOcrAcceptRequested() {
         return;
     }
 
-    const PageOcrResult pageResult = EditController::buildPageOcrResult(m_lastOcrPage, m_lastOcrWords);
-
     QApplication::setOverrideCursor(Qt::WaitCursor);
+    // R08: the original page image from the session is exported (never a
+    // re-render of the currently displayed page), with the reviewed words as
+    // the searchable text layer (Unicode).
     const bool ok = _ctx->pdfEditor->exportMrcPdfA(
-        outPath, {m_lastOcrPageImage}, {pageResult});
+        outPath, {m_reviewSession.pageImage}, {pageResult});
     QApplication::restoreOverrideCursor();
 
     if (ok)
@@ -989,6 +1105,10 @@ void EditController::onOcrAcceptRequested() {
     else
         emit ocrSaveFinished(false, false,
             tr("Could not write the searchable MRC PDF/A copy. See the application log."));
+}
+
+void EditController::onOcrAcceptRequested() {
+    onOcrAcceptRequested({});   // no panel records: unedited review
 }
 
 } // namespace gp
