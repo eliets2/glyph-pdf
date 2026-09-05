@@ -22,12 +22,8 @@
 
 namespace gp {
 
-// §9.10: data roles tagging each CHANGES row with the change types it contains,
-// so the filter toggles can hide/show rows without touching the diff data.
-static constexpr int kHasTextRole    = static_cast<int>(Qt::UserRole) + 1;
-static constexpr int kHasMoveRole    = static_cast<int>(Qt::UserRole) + 2;
-static constexpr int kHasPixelRole   = static_cast<int>(Qt::UserRole) + 3;
-static constexpr int kIsPageMoveRole = static_cast<int>(Qt::UserRole) + 4;
+// §9.10/R11: the CHANGES-row data roles live in CompareMode.h (shared with the
+// tests that pin the filter seam).
 
 CompareMode::CompareMode(QWidget* parent) : QWidget(parent) {
     auto* col = new QVBoxLayout(this);
@@ -60,6 +56,7 @@ CompareMode::CompareMode(QWidget* parent) : QWidget(parent) {
     m_nextBtn->setEnabled(false);
     hrow->addWidget(m_nextBtn);
     m_statusLabel = mono(tr("CHANGE 0 OF 0"));
+    m_statusLabel->setObjectName(QStringLiteral("cmpStatusLabel"));  // R11: testable total
     hrow->addWidget(m_statusLabel);
     hrow->addStretch(1);
 
@@ -119,6 +116,10 @@ CompareMode::CompareMode(QWidget* parent) : QWidget(parent) {
     addFilterToggle(m_filterMove,     "cmpFilterMove",     tr("Moves"),      tr("Show moved-word changes"));
     addFilterToggle(m_filterPixel,    "cmpFilterPixel",    tr("Pixels"),     tr("Show pixel-difference changes"));
     addFilterToggle(m_filterPageMove, "cmpFilterPageMove", tr("Page moves"), tr("Show whole-page reorder changes"));
+    // R11: pages added to / removed from the documents get their own gate so
+    // structural rows can be filtered independently of whole-page reorders.
+    addFilterToggle(m_filterPageAddRemove, "cmpFilterPageAddRemove", tr("Add/Rm pages"),
+                    tr("Show pages added to or removed from the documents"));
     cl->addWidget(ch);
 
     m_tree = new QTreeWidget;
@@ -127,6 +128,18 @@ CompareMode::CompareMode(QWidget* parent) : QWidget(parent) {
     m_tree->setRootIsDecorated(false);
     cl->addWidget(m_tree, 1);
     col->addWidget(changes);
+
+    // R11: selecting a structural CHANGES row jumps the one shared change
+    // sequence (text panel anchor + viewer pages). Rows that map into the
+    // sequence carry kAnchorIndexRole; token-level page rows keep their
+    // per-token anchors reachable through next/previous.
+    connect(m_tree, &QTreeWidget::currentItemChanged, this,
+            [this](QTreeWidgetItem* current, QTreeWidgetItem*) {
+        if (!current) return;
+        const QVariant anchor = current->data(0, kAnchorIndexRole);
+        if (anchor.isValid())
+            m_compareWidget->scrollToChange(anchor.toInt());
+    });
 
     connect(&m_watcher, &QFutureWatcher<DiffResult>::finished, this, &CompareMode::onDiffFinished);
 }
@@ -206,15 +219,43 @@ void CompareMode::showDiffResult(const DiffResult& result) {
         }
     }
 
-    // Page-level reorder entries (whole pages that moved position).
-    for (const auto& mv : result.pageMoves) {
+    // R11: structural page changes, in the one canonical order (pageChanges).
+    // Moved pages appear exactly once as PageMoved entries — pageMoves is kept
+    // populated by the engine for backward compatibility but is NOT emitted
+    // separately, so nothing is double-counted. Added/removed rows carry
+    // kIsPageAddRemoveRole (their own filter gate) and their sequence index so
+    // tree selection jumps the shared next/previous sequence.
+    int structuralAnchor = 0;
+    for (const auto& ch : result.pageChanges) {
         ++totalChanges;
-        auto* item = new QTreeWidgetItem(m_tree,
-            {QString::number(totalChanges),
-             QString("p.%1 \xE2\x86\x92 p.%2").arg(mv.fromPage + 1).arg(mv.toPage + 1),
-             tr("Page %1 moved to position %2").arg(mv.fromPage + 1).arg(mv.toPage + 1)});
-        item->setForeground(2, QColor("#7a4cc8"));  // purple for page moves
-        item->setData(0, kIsPageMoveRole, true);
+        QTreeWidgetItem* item = nullptr;
+        switch (ch.type) {
+        case DiffResult::PageChangeType::PageAdded:
+            item = new QTreeWidgetItem(m_tree,
+                {QString::number(totalChanges),
+                 QString("p.%1 (new)").arg(ch.newPage + 1),
+                 tr("Page %1 added in revised document").arg(ch.newPage + 1)});
+            item->setForeground(2, QColor("#1f8a44"));  // green for additions
+            item->setData(0, kIsPageAddRemoveRole, true);
+            break;
+        case DiffResult::PageChangeType::PageRemoved:
+            item = new QTreeWidgetItem(m_tree,
+                {QString::number(totalChanges),
+                 QString("p.%1 (removed)").arg(ch.oldPage + 1),
+                 tr("Page %1 removed from original document").arg(ch.oldPage + 1)});
+            item->setForeground(2, QColor("#c8442b"));  // red for removals
+            item->setData(0, kIsPageAddRemoveRole, true);
+            break;
+        case DiffResult::PageChangeType::PageMoved:
+            item = new QTreeWidgetItem(m_tree,
+                {QString::number(totalChanges),
+                 QString("p.%1 \xE2\x86\x92 p.%2").arg(ch.oldPage + 1).arg(ch.newPage + 1),
+                 tr("Page %1 moved to position %2").arg(ch.oldPage + 1).arg(ch.newPage + 1)});
+            item->setForeground(2, QColor("#7a4cc8"));  // purple for page moves
+            item->setData(0, kIsPageMoveRole, true);
+            break;
+        }
+        item->setData(0, kAnchorIndexRole, structuralAnchor++);
     }
 
     m_statusLabel->setText(tr("%1 CHANGES").arg(totalChanges));
@@ -231,11 +272,15 @@ void CompareMode::applyChangeTypeFilters() {
     const bool showMove     = !m_filterMove     || m_filterMove->isChecked();
     const bool showPixel    = !m_filterPixel    || m_filterPixel->isChecked();
     const bool showPageMove = !m_filterPageMove || m_filterPageMove->isChecked();
+    // R11: pages added/removed between the documents have their own gate.
+    const bool showPageAddRemove = !m_filterPageAddRemove || m_filterPageAddRemove->isChecked();
     for (int i = 0; i < m_tree->topLevelItemCount(); ++i) {
         auto* item = m_tree->topLevelItem(i);
         bool show;
         if (item->data(0, kIsPageMoveRole).toBool()) {
             show = showPageMove;
+        } else if (item->data(0, kIsPageAddRemoveRole).toBool()) {
+            show = showPageAddRemove;
         } else {
             // A page row carries several change types; it stays visible while
             // ANY of its (still-checked) tags matches.
@@ -248,7 +293,8 @@ void CompareMode::applyChangeTypeFilters() {
 }
 
 int CompareMode::rowsVisibleForFilters(const DiffResult& result, bool showText,
-                                       bool showMove, bool showPixel, bool showPageMove) {
+                                       bool showMove, bool showPixel, bool showPageMove,
+                                       bool showPageAddRemove) {
     int visible = 0;
     for (const auto& page : result.pages) {
         const int changes = page.textAdded.size() + page.textRemoved.size()
@@ -261,8 +307,17 @@ int CompareMode::rowsVisibleForFilters(const DiffResult& result, bool showText,
         if ((hasText && showText) || (hasMove && showMove) || (hasPixel && showPixel))
             ++visible;
     }
-    if (showPageMove)
-        visible += result.pageMoves.size();
+    // R11: structural rows come from the single canonical pageChanges sequence.
+    // Moved pages appear exactly once there, so the legacy pageMoves list is
+    // NOT counted separately (no double counting).
+    for (const auto& ch : result.pageChanges) {
+        if (ch.type == DiffResult::PageChangeType::PageMoved) {
+            if (showPageMove)
+                ++visible;
+        } else if (showPageAddRemove) {
+            ++visible;
+        }
+    }
     return visible;
 }
 
@@ -310,6 +365,16 @@ QString CompareMode::buildHtmlReport() const {
     }
     const int totalChanges = totalAdded + totalRemoved + totalMoved;
 
+    // R11: structural page changes, summarised per type.
+    int pagesAdded = 0, pagesRemoved = 0, pagesMoved = 0;
+    for (const auto& ch : m_lastResult.pageChanges) {
+        switch (ch.type) {
+        case DiffResult::PageChangeType::PageAdded:   ++pagesAdded;   break;
+        case DiffResult::PageChangeType::PageRemoved: ++pagesRemoved; break;
+        case DiffResult::PageChangeType::PageMoved:   ++pagesMoved;   break;
+        }
+    }
+
     QString html;
     QTextStream o(&html);
     o << "<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n";
@@ -339,6 +404,8 @@ QString CompareMode::buildHtmlReport() const {
     o << "<tr><td><b>Total changes</b></td><td>" << totalChanges
       << " (" << totalAdded << " added, " << totalRemoved << " removed, "
       << totalMoved << " moved across " << changedPages << " pages)</td></tr>\n";
+    o << "<tr><td><b>Page changes</b></td><td>" << pagesAdded << " added, "
+      << pagesRemoved << " removed, " << pagesMoved << " moved</td></tr>\n";
     o << "</table>\n";
 
     if (m_lastResult.isIdentical) {
@@ -347,11 +414,30 @@ QString CompareMode::buildHtmlReport() const {
         return html;
     }
 
-    if (!m_lastResult.pageMoves.isEmpty()) {
-        o << "<h2>Page moves</h2>\n<ul>\n";
-        for (const auto& mv : m_lastResult.pageMoves)
-            o << "<li class=\"moved\">Page " << (mv.fromPage + 1) << " moved to position "
-              << (mv.toPage + 1) << " <span class=\"unchanged\">" << esc(mv.excerpt) << "</span></li>\n";
+    // R11: structural page changes — every entry names the page and the side
+    // it lives on (or moved between). Single canonical sequence (pageChanges);
+    // the legacy pageMoves list is not emitted separately.
+    if (!m_lastResult.pageChanges.isEmpty()) {
+        o << "<h2>Structural page changes</h2>\n<ul>\n";
+        for (const auto& ch : m_lastResult.pageChanges) {
+            switch (ch.type) {
+            case DiffResult::PageChangeType::PageAdded:
+                o << "<li class=\"added\">Page " << (ch.newPage + 1)
+                  << " added in revised document";
+                break;
+            case DiffResult::PageChangeType::PageRemoved:
+                o << "<li class=\"removed\">Page " << (ch.oldPage + 1)
+                  << " removed from original document";
+                break;
+            case DiffResult::PageChangeType::PageMoved:
+                o << "<li class=\"moved\">Page " << (ch.oldPage + 1)
+                  << " moved to position " << (ch.newPage + 1);
+                break;
+            }
+            if (!ch.excerpt.isEmpty())
+                o << " <span class=\"unchanged\">" << esc(ch.excerpt) << "</span>";
+            o << "</li>\n";
+        }
         o << "</ul>\n";
     }
 
@@ -396,6 +482,16 @@ QString CompareMode::buildTextReport() const {
         totalMoved   += page.moves.size();
     }
 
+    // R11: structural page-change counts for the summary line.
+    int pagesAdded = 0, pagesRemoved = 0, pagesMoved = 0;
+    for (const auto& ch : m_lastResult.pageChanges) {
+        switch (ch.type) {
+        case DiffResult::PageChangeType::PageAdded:   ++pagesAdded;   break;
+        case DiffResult::PageChangeType::PageRemoved: ++pagesRemoved; break;
+        case DiffResult::PageChangeType::PageMoved:   ++pagesMoved;   break;
+        }
+    }
+
     o << "GlyphPDF Comparison Report\n";
     o << "==========================\n";
     o << "Original: " << m_file1 << "\n";
@@ -404,17 +500,36 @@ QString CompareMode::buildTextReport() const {
     o << "Pages:    " << m_lastResult.pageCount1 << " -> " << m_lastResult.pageCount2 << "\n";
     o << "Changes:  " << (totalAdded + totalRemoved + totalMoved)
       << " (" << totalAdded << " added, " << totalRemoved << " removed, "
-      << totalMoved << " moved)\n\n";
+      << totalMoved << " moved)\n";
+    o << "Page changes: " << pagesAdded << " added, " << pagesRemoved
+      << " removed, " << pagesMoved << " moved\n\n";
 
     if (m_lastResult.isIdentical) {
         o << "The documents are identical.\n";
         return out;
     }
 
-    if (!m_lastResult.pageMoves.isEmpty()) {
-        o << "Page moves:\n";
-        for (const auto& mv : m_lastResult.pageMoves)
-            o << "  Page " << (mv.fromPage + 1) << " moved to position " << (mv.toPage + 1) << "\n";
+    // R11: structural page changes — page and side named explicitly; the
+    // legacy pageMoves list is not emitted separately (single sequence).
+    if (!m_lastResult.pageChanges.isEmpty()) {
+        o << "Structural page changes:\n";
+        for (const auto& ch : m_lastResult.pageChanges) {
+            switch (ch.type) {
+            case DiffResult::PageChangeType::PageAdded:
+                o << "  Page " << (ch.newPage + 1) << " added in revised document";
+                break;
+            case DiffResult::PageChangeType::PageRemoved:
+                o << "  Page " << (ch.oldPage + 1) << " removed from original document";
+                break;
+            case DiffResult::PageChangeType::PageMoved:
+                o << "  Page " << (ch.oldPage + 1) << " moved to position "
+                  << (ch.newPage + 1);
+                break;
+            }
+            if (!ch.excerpt.isEmpty())
+                o << " (" << ch.excerpt << ")";
+            o << "\n";
+        }
         o << "\n";
     }
 

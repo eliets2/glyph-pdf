@@ -46,6 +46,7 @@ CompareWidget::CompareWidget(QWidget *parent)
     navRow->addWidget(navTitle);
     navRow->addStretch(1);
     m_navLabel = new QLabel("", navBar);
+    m_navLabel->setObjectName(QStringLiteral("cmpNavLabel"));  // R11: testable navigation state
     m_navLabel->setStyleSheet("color:#71747a; font-size:10px; font-family:monospace;");
     navRow->addWidget(m_navLabel);
     col->addWidget(navBar);
@@ -57,7 +58,6 @@ CompareWidget::CompareWidget(QWidget *parent)
         "QTextBrowser { background:#1a1b1e; color:#dfe1e5; "
         "font-family:monospace; font-size:11px; border:none; padding:4px; }");
     col->addWidget(m_textDiff, 1);  // 25% of space
-
     // Sync viewer scrollbars
     QTimer::singleShot(100, this, [this]() {
         auto* v1 = m_viewerLeft->findChild<QAbstractScrollArea*>();
@@ -121,6 +121,50 @@ QString CompareWidget::buildHtml() const
 
     int anchorIdx = 0;
 
+    // R11: structural page changes lead the shared change sequence (page-level
+    // before token-level). Each one gets an anchor so next/previous and
+    // CHANGES-tree selection reach it, and carries its old/new page positions
+    // so the viewers follow the selected change.
+    for (const DiffResult::PageChange& ch : m_diffResult.pageChanges) {
+        const QString aid = QString("chg%1").arg(anchorIdx++);
+        const_cast<CompareWidget*>(this)->m_anchors.append({aid, ch.oldPage, ch.newPage});
+        QString line;
+        switch (ch.type) {
+        case DiffResult::PageChangeType::PageAdded:
+            line = QString("<p><a name='%1'/><span style='color:%2'>+</span> "
+                           "<span style='color:%2'>Page %3 added in revised document</span>%4</p>")
+                       .arg(aid, CLR_ADD)
+                       .arg(ch.newPage + 1)
+                       .arg(ch.excerpt.isEmpty()
+                                ? QString()
+                                : QStringLiteral(" <span style='color:%1'>%2</span>")
+                                      .arg(CLR_KEEP, ch.excerpt.toHtmlEscaped()));
+            break;
+        case DiffResult::PageChangeType::PageRemoved:
+            line = QString("<p><a name='%1'/><span style='color:%2'>&minus;</span> "
+                           "<span style='color:%2;text-decoration:line-through'>Page %3 removed from original document</span>%4</p>")
+                       .arg(aid, CLR_DEL)
+                       .arg(ch.oldPage + 1)
+                       .arg(ch.excerpt.isEmpty()
+                                ? QString()
+                                : QStringLiteral(" <span style='color:%1'>%2</span>")
+                                      .arg(CLR_KEEP, ch.excerpt.toHtmlEscaped()));
+            break;
+        case DiffResult::PageChangeType::PageMoved:
+            line = QString("<p><a name='%1'/><span style='color:%2'>&#x21c4;</span> "
+                           "<span style='color:%2'>Page %3 moved to position %4</span>%5</p>")
+                       .arg(aid, CLR_MOV)
+                       .arg(ch.oldPage + 1)
+                       .arg(ch.newPage + 1)
+                       .arg(ch.excerpt.isEmpty()
+                                ? QString()
+                                : QStringLiteral(" <span style='color:%1'>%2</span>")
+                                      .arg(CLR_KEEP, ch.excerpt.toHtmlEscaped()));
+            break;
+        }
+        html += line;
+    }
+
     for (const PageDiff& page : m_diffResult.pages) {
         const bool hasText  = !page.textAdded.isEmpty() || !page.textRemoved.isEmpty()
                               || !page.moves.isEmpty();
@@ -132,7 +176,7 @@ QString CompareWidget::buildHtml() const
         // Moves (orange)
         for (const MoveOperation& mv : page.moves) {
             const QString aid = QString("chg%1").arg(anchorIdx++);
-            const_cast<CompareWidget*>(this)->m_anchors.append(aid);
+            const_cast<CompareWidget*>(this)->m_anchors.append({aid, page.pageIndex, page.pageIndex});
             html += QString("<p><a name='%1'/>"
                             "<span style='color:%2'>&#x2194;</span> "
                             "<span style='color:%2;text-decoration:underline'>%3</span> "
@@ -147,7 +191,7 @@ QString CompareWidget::buildHtml() const
         // Additions (green)
         for (const QString& tok : page.textAdded) {
             const QString aid = QString("chg%1").arg(anchorIdx++);
-            const_cast<CompareWidget*>(this)->m_anchors.append(aid);
+            const_cast<CompareWidget*>(this)->m_anchors.append({aid, page.pageIndex, page.pageIndex});
             html += QString("<p><a name='%1'/>"
                             "<span style='color:%2'>+</span> "
                             "<span style='color:%2'>%3</span></p>")
@@ -157,7 +201,7 @@ QString CompareWidget::buildHtml() const
         // Deletions (red)
         for (const QString& tok : page.textRemoved) {
             const QString aid = QString("chg%1").arg(anchorIdx++);
-            const_cast<CompareWidget*>(this)->m_anchors.append(aid);
+            const_cast<CompareWidget*>(this)->m_anchors.append({aid, page.pageIndex, page.pageIndex});
             html += QString("<p><a name='%1'/>"
                             "<span style='color:%2'>−</span> "
                             "<span style='color:%2;text-decoration:line-through'>%3</span></p>")
@@ -180,25 +224,41 @@ QString CompareWidget::buildHtml() const
 // Navigation
 // ---------------------------------------------------------------------------
 
+// R11: one shared change sequence. Every anchor scrolls the text panel AND
+// moves each viewer to the page the change lives on; a side without that page
+// (added/removed page) simply stays where it is.
+void CompareWidget::applyAnchor(int index)
+{
+    const ChangeAnchor& anchor = m_anchors[index];
+    m_textDiff->scrollToAnchor(anchor.id);
+    m_navLabel->setText(
+        QString("change %1 of %2  |  ← → to navigate")
+            .arg(index + 1)
+            .arg(m_anchors.size()));
+    if (anchor.oldPage >= 0 && anchor.oldPage < m_viewerLeft->pageCount())
+        m_viewerLeft->goToPage(anchor.oldPage);
+    if (anchor.newPage >= 0 && anchor.newPage < m_viewerRight->pageCount())
+        m_viewerRight->goToPage(anchor.newPage);
+}
+
 void CompareWidget::nextChange()
 {
     if (m_anchors.isEmpty()) return;
     m_currentAnchor = (m_currentAnchor + 1) % m_anchors.size();
-    m_textDiff->scrollToAnchor(m_anchors[m_currentAnchor]);
-    m_navLabel->setText(
-        QString("change %1 of %2  |  ← → to navigate")
-            .arg(m_currentAnchor + 1)
-            .arg(m_anchors.size()));
+    applyAnchor(m_currentAnchor);
 }
 
 void CompareWidget::prevChange()
 {
     if (m_anchors.isEmpty()) return;
     m_currentAnchor = (m_currentAnchor - 1 + m_anchors.size()) % m_anchors.size();
-    m_textDiff->scrollToAnchor(m_anchors[m_currentAnchor]);
-    m_navLabel->setText(
-        QString("change %1 of %2  |  ← → to navigate")
-            .arg(m_currentAnchor + 1)
-            .arg(m_anchors.size()));
+    applyAnchor(m_currentAnchor);
+}
+
+void CompareWidget::scrollToChange(int index)
+{
+    if (index < 0 || index >= m_anchors.size()) return;
+    m_currentAnchor = index;
+    applyAnchor(index);
 }
 

@@ -9,6 +9,7 @@
 #include <QRegularExpression>
 #include <QSet>
 #include <QVector>
+#include <algorithm>
 
 DiffEngine::DiffEngine() {}
 DiffEngine::~DiffEngine() {}
@@ -184,7 +185,11 @@ DiffResult DiffEngine::compare(const QString &file1, const QString &file2, int d
         }
 
         // A doc2 page outside the alignment that still matches an (also-unaligned)
-        // doc1 page at a different index is a moved page.
+        // doc1 page at a different index is a moved page. A match at the SAME
+        // index (LCS tie-break artifact with repeated pages) is consumed as an
+        // aligned pair without a move record, so a matched pair is never
+        // re-reported as an add+remove below (R11: no double counting).
+        QSet<int> movedB;
         for (int b = 0; b < n2; ++b) {
             if (alignedB.contains(b)) continue;
             int    bestA   = -1;
@@ -194,14 +199,63 @@ DiffResult DiffEngine::compare(const QString &file1, const QString &file2, int d
                 const double s = similarity(ws1[a], ws2[b]);
                 if (s >= kSame && s > bestSim) { bestSim = s; bestA = a; }
             }
-            if (bestA >= 0 && bestA != b) {
-                DiffResult::PageMove mv;
-                mv.fromPage = bestA;
-                mv.toPage   = b;
-                mv.excerpt  = fp2[b].left(60);
-                result.pageMoves.append(mv);
+            if (bestA >= 0) {
                 alignedA.insert(bestA);  // consume so it isn't reused
+                if (bestA != b) {
+                    DiffResult::PageMove mv;
+                    mv.fromPage = bestA;
+                    mv.toPage   = b;
+                    mv.excerpt  = fp2[b].left(60);
+                    result.pageMoves.append(mv);
+                    movedB.insert(b);
+                } else {
+                    alignedB.insert(b);  // same-index fallback pair: aligned, not moved
+                }
             }
+        }
+
+        // ── R11: explicit structural changes for everything the alignment ─────
+        // left unmatched. Pages present on exactly one side are added/removed
+        // (missing side = -1, never a page-zero sentinel); pages consumed by
+        // the move pass appear here once as PageMoved. pageChanges is the
+        // single canonical sequence read by the CHANGES tree, the change-type
+        // filters, the next/previous sequence, the status totals and the
+        // exported reports; pageMoves stays populated for backward compat.
+        for (const auto& mv : result.pageMoves) {
+            DiffResult::PageChange ch;
+            ch.type    = DiffResult::PageChangeType::PageMoved;
+            ch.oldPage = mv.fromPage;
+            ch.newPage = mv.toPage;
+            ch.excerpt = mv.excerpt;
+            result.pageChanges.append(ch);
+        }
+        for (int a = 0; a < n1; ++a) {
+            if (alignedA.contains(a)) continue;
+            DiffResult::PageChange ch;
+            ch.type    = DiffResult::PageChangeType::PageRemoved;  // doc1 only
+            ch.oldPage = a;
+            ch.excerpt = fp1[a].left(60);
+            result.pageChanges.append(ch);
+        }
+        for (int b = 0; b < n2; ++b) {
+            if (alignedB.contains(b) || movedB.contains(b)) continue;
+            DiffResult::PageChange ch;
+            ch.type    = DiffResult::PageChangeType::PageAdded;    // doc2 only
+            ch.newPage = b;
+            ch.excerpt = fp2[b].left(60);
+            result.pageChanges.append(ch);
+        }
+        if (!result.pageChanges.isEmpty()) {
+            result.isIdentical = false;  // surplus pages are changes (defensive)
+            // Deterministic reading order: anchor each change on the side where
+            // the page lives (doc2 position when it exists, doc1 otherwise).
+            std::stable_sort(result.pageChanges.begin(), result.pageChanges.end(),
+                             [](const DiffResult::PageChange& l,
+                                const DiffResult::PageChange& r) {
+                                 const int la = l.hasNewSide() ? l.newPage : l.oldPage;
+                                 const int ra = r.hasNewSide() ? r.newPage : r.oldPage;
+                                 return la < ra;
+                             });
         }
     }
 
