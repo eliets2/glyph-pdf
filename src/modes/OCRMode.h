@@ -5,6 +5,7 @@
 #include <QWidget>
 
 #include "engines/ocr/OcrPipeline.h"       // MergedOcrWord, PageOcrResult
+#include "modes/OcrReviewSession.h"         // OcrReviewedWord (R08 review records)
 #include "docmodel/SemanticDocument.h"       // SemanticDocument
 #include "pdfws_djot/LuaDjotCodec.h"         // documentToDjot (encode only)
 
@@ -13,6 +14,7 @@ class QCheckBox;
 class QMenu;
 class QToolButton;
 class QLabel;
+class QLineEdit;
 class QListWidget;
 class QPlainTextEdit;
 class QFrame;
@@ -48,6 +50,28 @@ public:
     /// R07: last lifecycle message shown for the current state (failure,
     /// cancellation, or save outcome). Empty until something is reported.
     const QString& lastLifecycleMessage() const { return m_lastLifecycleMessage; }
+
+    // ── R08 (F04): reviewed words are authoritative ──────────────────────────
+    /// The reviewed records for the words currently displayed: stable IDs,
+    /// original text, per-word reviewed text, deleted flags, and the ORIGINAL
+    /// source boxes. These travel with acceptance into the searchable-PDF
+    /// export; the plain-text page view is only a preview.
+    const QList<OcrReviewedWord>& reviewedWords() const { return m_reviewWords; }
+
+    /// Word-based correction (the first supported correction interaction):
+    /// updates the record's reviewed text WITHOUT changing its source box.
+    /// Empty/whitespace text marks the word removed. Returns false for
+    /// unknown stable IDs (stale interaction).
+    bool applyWordCorrection(int stableId, const QString& text);
+
+    /// Mark a word deleted (kept in the record so the overlay can show it as
+    /// struck-through until a fresh recognition replaces it). Returns false
+    /// for unknown stable IDs.
+    bool markWordDeleted(int stableId);
+
+    /// Select a word from the scan pane's word link (href "word:<id>"):
+    /// highlights it in both panes and loads it into the correction field.
+    void activateWordLink(const QString& link);
 
     /// Load a completed OCR result into the mode for review.
     /// Call this after the OCR pipeline produces results.
@@ -102,6 +126,8 @@ public slots:
 private slots:
     void onImagePaneContextMenu(const QPoint &pos);
     void onReOcrRegion();
+    /// Scan-pane word link activation (QLabel::linkActivated) → select word.
+    void onWordLinkActivated(const QString& link);
 
 private:
     void buildToolbar(QVBoxLayout* col);
@@ -112,6 +138,9 @@ private:
     /// lifecycle message and the user-visible controls in ONE place so every
     /// completion path restores the correct buttons (UI thread only).
     void transitionTo(ReviewState state, const QString& message);
+
+    /// R08: refresh the zoom pane for the currently selected word.
+    void updateWordInspector();
 
     /// Build confidence-colored HTML for the scan pane from current word results.
     /// Green (#22c55e): confidence ≥ 90.  Yellow (#eab308): 70-89.  Red (#ef4444): < 70.
@@ -126,6 +155,12 @@ private:
     // R07: explicit lifecycle state + last user-visible lifecycle message.
     ReviewState m_reviewState = ReviewState::Idle;
     QString m_lastLifecycleMessage;
+
+    // R08: reviewed word records (stable ids + per-word reviewed text + the
+    // immutable source boxes). Authoritative for the export; m_currentWords is
+    // the raw recognition delivery and the plain-text pane is only a preview.
+    QList<OcrReviewedWord> m_reviewWords;
+    int m_selectedWordId = -1;
 
     // Last right-clicked region bbox (used by onReOcrRegion)
     QRectF m_contextRegionBbox;
@@ -156,6 +191,9 @@ private:
     QFrame*         m_zoomPane         = nullptr;
     QLabel*         m_zoomBig          = nullptr;
     QLabel*         m_zoomMeta         = nullptr;
+    // R08: word inspector — the first supported correction interaction.
+    QLineEdit*      m_wordEdit         = nullptr;
+    QToolButton*    m_btnDeleteWord    = nullptr;
 };
 
 } // namespace gp

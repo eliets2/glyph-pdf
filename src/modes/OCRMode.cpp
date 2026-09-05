@@ -13,6 +13,7 @@
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QMenu>
 #include <QPlainTextEdit>
@@ -322,6 +323,10 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     m_scanContentLabel->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_scanContentLabel, &QLabel::customContextMenuRequested,
             this, &OCRMode::onImagePaneContextMenu);
+    // R08: each recognized word is a link; clicking selects its stable record
+    // (the first supported correction interaction is word-based).
+    connect(m_scanContentLabel, &QLabel::linkActivated,
+            this, &OCRMode::onWordLinkActivated);
 
     // Empty state until a document is OCR'd (replaced by updateConfidenceOverlay).
     m_scanContentLabel->setText(kOcrEmptyStateHtml);
@@ -335,7 +340,10 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     impLay->addWidget(scrollArea, 1);
     split->addWidget(m_imagePane);
 
-    // ── Text pane (editable) ────────────────────────────────────────────
+    // ── Text pane (plain-text page view: PREVIEW only) ──────────────────
+    // R08 (F04): this pane used to be labelled editable but was never read
+    // back — Accept exported the cached original words. It is now honestly
+    // labelled a preview; word corrections (word inspector) are authoritative.
     auto* textPane = new QFrame;
     auto* txtLay = new QVBoxLayout(textPane);
     txtLay->setContentsMargins(0,0,0,0); txtLay->setSpacing(0);
@@ -343,9 +351,9 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     auto* txtHead = makeStrip("modeToolbar", 24);
     auto* txtHeadRow = new QHBoxLayout(txtHead);
     txtHeadRow->setContentsMargins(12,0,12,0);
-    txtHeadRow->addWidget(monoLab(tr("RECOGNIZED · EDITABLE")));
+    txtHeadRow->addWidget(monoLab(tr("RECOGNIZED · PREVIEW")));
     txtHeadRow->addStretch(1);
-    txtHeadRow->addWidget(monoLab(tr("UTF-8")));
+    txtHeadRow->addWidget(monoLab(tr("word corrections are saved, not this text")));
     txtLay->addWidget(txtHead);
 
     m_textEdit = new QPlainTextEdit;
@@ -381,6 +389,33 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     m_zoomMeta->setStyleSheet("padding:8px 12px;");
     m_zoomMeta->setAlignment(Qt::AlignLeft);
     zLay->addWidget(m_zoomMeta);
+
+    // ── R08: word inspector — the first supported correction interaction ──
+    // Editing the selected word updates its stable record (reviewed text);
+    // the source box never moves, so export coordinates stay truthful.
+    auto* wordRow = new QHBoxLayout;
+    wordRow->setContentsMargins(12, 0, 12, 0);
+    m_wordEdit = new QLineEdit;
+    m_wordEdit->setObjectName("ocrWordEdit");
+    m_wordEdit->setPlaceholderText(tr("Correct the selected word"));
+    m_wordEdit->setEnabled(false);
+    m_wordEdit->setToolTip(tr(
+        "Edits the selected word record; the original text box is kept. "
+        "Clear the text to remove the word from the saved text layer."));
+    connect(m_wordEdit, &QLineEdit::returnPressed, this, [this]() {
+        applyWordCorrection(m_selectedWordId, m_wordEdit->text());
+    });
+    wordRow->addWidget(m_wordEdit, 1);
+    m_btnDeleteWord = new QToolButton;
+    m_btnDeleteWord->setObjectName("ocrBtnDeleteWord");
+    m_btnDeleteWord->setText(tr("✕"));
+    m_btnDeleteWord->setToolTip(tr("Remove the selected word from the saved text layer"));
+    m_btnDeleteWord->setEnabled(false);
+    connect(m_btnDeleteWord, &QToolButton::clicked, this, [this]() {
+        markWordDeleted(m_selectedWordId);
+    });
+    wordRow->addWidget(m_btnDeleteWord);
+    zLay->addLayout(wordRow);
 
     // ── Confidence legend ───────────────────────────────────────────────
     auto* legend = new QFrame;
@@ -430,7 +465,7 @@ void OCRMode::transitionTo(ReviewState state, const QString& message)
     m_reviewState = state;
     m_lastLifecycleMessage = message;
 
-    const bool hasWords = !m_currentWords.isEmpty();
+    const bool hasWords = !m_reviewWords.isEmpty();
     auto setRun = [this](bool enabled, const QString& text) {
         if (!m_btnRun) return;
         m_btnRun->setEnabled(enabled);
@@ -502,6 +537,9 @@ void OCRMode::onRejectResults()
     // Reject clears the current OCR overlay/results so the page returns to its
     // pre-OCR state; the host is notified to drop any pending applied text.
     m_currentWords.clear();
+    m_reviewWords.clear();
+    m_selectedWordId = -1;
+    updateWordInspector();
     updateConfidenceOverlay();
     updateInfoStrip();
     if (m_textEdit) m_textEdit->clear();
@@ -532,7 +570,7 @@ void OCRMode::notifySaveFinished(bool saved, bool canceled, const QString& messa
     // state (the result can be saved again to another destination).
     Q_UNUSED(saved);
     Q_UNUSED(canceled);
-    transitionTo(m_currentWords.isEmpty() ? ReviewState::Idle : ReviewState::ReviewReady,
+    transitionTo(m_reviewWords.isEmpty() ? ReviewState::Idle : ReviewState::ReviewReady,
                  message);
 }
 
@@ -576,10 +614,31 @@ void OCRMode::onReOcrRegion()
 void OCRMode::setOcrResults(const QList<MergedOcrWord> &words)
 {
     m_currentWords = words;
+
+    // R08: build the reviewed word records — stable IDs are the delivery
+    // order, reviewed text starts as the original text, source boxes are the
+    // recognized boxes and are never changed by review edits.
+    m_reviewWords.clear();
+    m_reviewWords.reserve(words.size());
+    for (int i = 0; i < words.size(); ++i) {
+        OcrReviewedWord rec;
+        rec.stableId      = i;
+        rec.originalText  = words[i].text;
+        rec.reviewedText  = words[i].text;
+        rec.deleted       = false;
+        rec.boundingBox   = words[i].boundingBox;
+        rec.confidence    = words[i].confidence;
+        rec.sourceEngine  = words[i].sourceEngine;
+        m_reviewWords.append(rec);
+    }
+    m_selectedWordId = -1;
+
+    updateWordInspector();
     updateConfidenceOverlay();
     updateInfoStrip();
 
-    // Populate plain-text editor with the recognized text (preview pane).
+    // Populate the plain-text PREVIEW pane with the recognized text (preview
+    // only — corrections in the word inspector are what gets saved).
     if (m_textEdit) {
         QStringList lines;
         for (const auto &w : words)
@@ -597,13 +656,94 @@ void OCRMode::setOcrResults(const QList<MergedOcrWord> &words)
         transitionTo(ReviewState::ReviewReady, QString());
 }
 
+// ── R08: word-based review (reviewed words are authoritative) ────────────────
+
+bool OCRMode::applyWordCorrection(int stableId, const QString& text)
+{
+    if (stableId < 0 || stableId >= m_reviewWords.size()) return false;
+    OcrReviewedWord& rec = m_reviewWords[stableId];
+    if (text.trimmed().isEmpty()) {
+        // Clearing the text removes the word from the saved text layer.
+        rec.deleted = true;
+        rec.reviewedText.clear();
+    } else {
+        rec.deleted = false;
+        rec.reviewedText = text;
+    }
+    // The source box (rec.boundingBox) is deliberately untouched.
+    updateConfidenceOverlay();
+    updateWordInspector();
+    return true;
+}
+
+bool OCRMode::markWordDeleted(int stableId)
+{
+    if (stableId < 0 || stableId >= m_reviewWords.size()) return false;
+    OcrReviewedWord& rec = m_reviewWords[stableId];
+    rec.deleted = true;
+    rec.reviewedText.clear();
+    updateConfidenceOverlay();
+    updateWordInspector();
+    return true;
+}
+
+void OCRMode::activateWordLink(const QString& link)
+{
+    // Links are emitted as "word:<stableId>" by the scan-pane overlay.
+    if (!link.startsWith(QStringLiteral("word:"))) return;
+    bool ok = false;
+    const int id = QStringView(link).mid(5).toInt(&ok);
+    if (!ok || id < 0 || id >= m_reviewWords.size()) return;
+    m_selectedWordId = id;
+    updateConfidenceOverlay();   // re-highlight the selected word
+    updateWordInspector();
+}
+
+void OCRMode::onWordLinkActivated(const QString& link)
+{
+    activateWordLink(link);
+}
+
+void OCRMode::updateWordInspector()
+{
+    const bool valid = m_selectedWordId >= 0 && m_selectedWordId < m_reviewWords.size();
+    if (m_wordEdit) {
+        m_wordEdit->setEnabled(valid);
+        m_wordEdit->setText(valid ? m_reviewWords[m_selectedWordId].reviewedText
+                                  : QString());
+    }
+    if (m_btnDeleteWord) m_btnDeleteWord->setEnabled(valid);
+    if (m_zoomBig) {
+        m_zoomBig->setText(valid ? m_reviewWords[m_selectedWordId].reviewedText
+                                 : QStringLiteral("\xE2\x80\x94"));
+    }
+    if (m_zoomMeta) {
+        if (!valid) {
+            m_zoomMeta->setText(tr("No word selected"));
+        } else {
+            const OcrReviewedWord& rec = m_reviewWords[m_selectedWordId];
+            QString state;
+            if (rec.deleted || rec.reviewedText.trimmed().isEmpty())
+                state = tr("removed");
+            else if (rec.reviewedText != rec.originalText)
+                state = tr("corrected");
+            else
+                state = tr("unreviewed");
+            m_zoomMeta->setText(tr("word %1 · %2% · %3 · %4")
+                .arg(rec.stableId)
+                .arg(rec.confidence)
+                .arg(rec.sourceEngine, state));
+        }
+    }
+}
+
 // ── updateConfidenceOverlay ───────────────────────────────────────────────────
 
 void OCRMode::updateConfidenceOverlay()
 {
     if (!m_scanContentLabel) return;
 
-    if (m_currentWords.isEmpty()) {
+    if (m_reviewWords.isEmpty()) {
         // No results yet — show the empty state, not stale content.
         m_scanContentLabel->setText(kOcrEmptyStateHtml);
         return;
@@ -614,11 +754,13 @@ void OCRMode::updateConfidenceOverlay()
     //   green (#22c55e): confidence ≥ 90
     //   yellow (#eab308): confidence 70–89
     //   red (#ef4444): confidence < 70
+    // R08: each word is a link carrying its stable ID; corrected words show
+    // their reviewed text with a marker, removed words are struck through.
     QString html;
-    html.reserve(m_currentWords.size() * 80);
+    html.reserve(m_reviewWords.size() * 110);
 
-    for (const auto &w : m_currentWords) {
-        const int conf = w.confidence;
+    for (const auto &rec : m_reviewWords) {
+        const int conf = rec.confidence;
         QString bgColor, borderColor;
         if (conf >= 90) {
             bgColor     = QStringLiteral("#22c55e33");
@@ -631,16 +773,39 @@ void OCRMode::updateConfidenceOverlay()
             borderColor = QStringLiteral("#ef444499");
         }
 
+        const bool removed = rec.deleted || rec.reviewedText.trimmed().isEmpty();
+        const bool corrected = !removed && rec.reviewedText != rec.originalText;
+        const QString shown = removed ? rec.originalText
+                                      : (rec.reviewedText.isEmpty() ? rec.originalText
+                                                                    : rec.reviewedText);
+        QString style = QStringLiteral("background:%1;outline:1px solid %2;padding:1px;margin:1px;")
+                            .arg(bgColor, borderColor);
+        if (m_selectedWordId == rec.stableId) {
+            style += QStringLiteral("border:2px solid #2563eb;");
+        }
+        if (corrected) {
+            style += QStringLiteral("outline:2px solid #2563eb99;");
+        }
+        QString extra;
+        if (removed) {
+            style += QStringLiteral("text-decoration:line-through;color:#777;");
+            extra = tr(" | removed");
+        } else if (corrected) {
+            extra = tr(" | corrected to: %1").arg(rec.reviewedText);
+        }
+
         // Escape HTML special chars in the word text
-        QString escaped = w.text.toHtmlEscaped();
+        QString escaped = shown.toHtmlEscaped();
 
         html += QStringLiteral(
-            "<span style='background:%1;outline:1px solid %2;padding:1px;margin:1px;' "
-            "title='%3% | %4 | %5'>%6</span> ")
-            .arg(bgColor, borderColor)
+            "<a href='word:%1' style='%2' "
+            "title='%3% | %4 | %5%6'>%7</a> ")
+            .arg(rec.stableId)
+            .arg(style)
             .arg(conf)
-            .arg(w.sourceEngine)
-            .arg(w.boundingBox.x(), 0, 'f', 0)
+            .arg(rec.sourceEngine)
+            .arg(rec.boundingBox.x(), 0, 'f', 0)
+            .arg(extra)
             .arg(escaped);
     }
 
@@ -651,19 +816,26 @@ void OCRMode::updateConfidenceOverlay()
 
 void OCRMode::updateInfoStrip()
 {
-    if (m_currentWords.isEmpty()) {
+    // R08: review stats come from the reviewed records; removed words no longer
+    // count toward the page text (confidence itself stays the engine estimate —
+    // corrections do not turn a model estimate into 100%).
+    int counted = 0;
+    double totalConf = 0.0;
+    int lowCount     = 0;
+    for (const auto &rec : m_reviewWords) {
+        if (rec.deleted || rec.reviewedText.trimmed().isEmpty()) continue;
+        ++counted;
+        totalConf += rec.confidence;
+        if (rec.confidence < 70) ++lowCount;
+    }
+
+    if (counted == 0) {
         m_lblAvgConf->setText(tr("AVG CONFIDENCE —"));
         m_lblLowWords->setText(tr("LOW-CONFIDENCE WORDS —"));
         return;
     }
 
-    double totalConf = 0.0;
-    int lowCount     = 0;
-    for (const auto &w : m_currentWords) {
-        totalConf += w.confidence;
-        if (w.confidence < 70) ++lowCount;
-    }
-    const double avgConf = totalConf / m_currentWords.size();
+    const double avgConf = totalConf / counted;
 
     m_lblAvgConf->setText(
         tr("AVG CONFIDENCE %1%").arg(static_cast<int>(std::round(avgConf))));
@@ -827,6 +999,12 @@ static QString semanticDocToHtml(const docmodel::SemanticDocument& doc)
 void OCRMode::setSemanticDocument(const docmodel::SemanticDocument &doc,
                                   const QString &djotLibPath)
 {
+    // R08: this Djot review path delivers no word records — clear any stale
+    // reviewed records so they can never be pulled into an export.
+    m_reviewWords.clear();
+    m_selectedWordId = -1;
+    updateWordInspector();
+
     // 1. Render SemanticDocument → inline-styled HTML for the scan pane
     if (m_scanContentLabel) {
         const QString html = semanticDocToHtml(doc);
