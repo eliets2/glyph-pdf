@@ -112,8 +112,10 @@ void ConvertController::exportToWord() {
     QThread* worker = QThread::create([conv, convMgr, inputPath, outputPath, result, fallback]() {
         bool ok = conv->convertTo(inputPath, outputPath, IConversionEngine::TargetFormat::Word);
         result->store(ok);
-        // §9.16 P0: detect whether the real OOXML writer or the mislabeled
-        // HTML fallback produced this file.
+        // §9.16 P0 / §9.5 P0: detect whether a mislabeled fallback produced
+        // this file. Only ExportEngine::Fallback warns — NativeOoxml (duckx)
+        // and InHouseOoxml (built-in WordprocessingML writer) are both real
+        // OOXML, so the HTML-as-docx warning must not fire for them.
         if (convMgr && ok)
             fallback->store(convMgr->lastWordExportEngine() == ConversionManager::ExportEngine::Fallback);
     });
@@ -170,8 +172,10 @@ void ConvertController::exportToExcel() {
     QThread* worker = QThread::create([conv, convMgr, inputPath, outputPath, result, fallback]() {
         bool ok = conv->convertTo(inputPath, outputPath, IConversionEngine::TargetFormat::Excel);
         result->store(ok);
-        // §9.16 P0: detect whether the real OOXML writer or the mislabeled
-        // CSV fallback produced this file.
+        // §9.16 P0 / §9.5 P0: detect whether a mislabeled fallback produced
+        // this file. Only ExportEngine::Fallback warns — NativeOoxml
+        // (OpenXLSX) and InHouseOoxml (built-in SpreadsheetML writer) are both
+        // real OOXML, so the CSV-as-xlsx warning must not fire for them.
         if (convMgr && ok)
             fallback->store(convMgr->lastExcelExportEngine() == ConversionManager::ExportEngine::Fallback);
     });
