@@ -9,6 +9,7 @@
 #include "shell/Sidebar.h"
 
 #include "modes/ModeController.h"
+#include "modes/OCRMode.h"   // R07: lifecycle recovery is relayed to the review panel
 #include "ui/WelcomeWidget.h"
 #include "core/ToolId.h"
 #include <QStackedWidget>
@@ -218,6 +219,27 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
     // EditController::runOcr, and recognised words flow back to the review panes.
     connect(_modes, &ModeController::ocrRunRequested, _edit, &EditController::runOcr);
     connect(_edit, &EditController::ocrResultsReady, _modes, &ModeController::deliverOcrResults);
+    // R07 (F11): every terminal OCR outcome reaches the review panel so
+    // Run/Accept are never left stuck. The panel is located at emit time (it is
+    // created lazily by ModeController); a destroyed panel is simply not found,
+    // so it can never receive a callback.
+    connect(_edit, &EditController::ocrRunFailed, this, [this](const QString& message) {
+        statusBar()->showMessage(message, 7000);
+        if (auto* om = _modes->findChild<OCRMode*>())
+            om->notifyOcrFailed(message);
+    });
+    connect(_edit, &EditController::ocrRunAbandoned, this, [this](const QString& message) {
+        statusBar()->showMessage(message, 5000);
+        if (auto* om = _modes->findChild<OCRMode*>())
+            om->notifyOcrCanceled(message);
+    });
+    connect(_edit, &EditController::ocrSaveFinished, this,
+            [this](bool saved, bool canceled, const QString& message) {
+        if (!message.isEmpty())
+            statusBar()->showMessage(message, saved ? 8000 : 7000);
+        if (auto* om = _modes->findChild<OCRMode*>())
+            om->notifySaveFinished(saved, canceled, message);
+    });
     // OCR review workflow. Accept: the recognised text was already delivered to
     // the review panes (and is applied via the OCR pipeline), so confirm it.
     // Reject: OCRMode has already cleared its overlay/results locally; surface a

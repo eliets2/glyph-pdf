@@ -1264,6 +1264,32 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrPipeline.cpp")
     )
 endif()
 
+# ── TestOcrReviewLifecycle (R07/R08 — OCR lifecycle + reviewed-word authority) ──
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrReviewLifecycle.cpp")
+    add_executable(TestOcrReviewLifecycle
+        tests/TestOcrReviewLifecycle.cpp
+    )
+    target_include_directories(TestOcrReviewLifecycle PRIVATE src tests)
+    target_link_libraries(TestOcrReviewLifecycle PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+    )
+    add_custom_command(TARGET TestOcrReviewLifecycle POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestOcrReviewLifecycle>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestOcrReviewLifecycle>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestOcrReviewLifecycle"
+    )
+    add_test(NAME TestOcrReviewLifecycle COMMAND TestOcrReviewLifecycle)
+    set_tests_properties(TestOcrReviewLifecycle PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;ocr;lifecycle;review;qt;headless"
+    )
+endif()
+
 # ── TestOcrPreprocessor (audit §9.4 P0) ──────────────────────────────────────
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrPreprocessor.cpp")
     add_executable(TestOcrPreprocessor
