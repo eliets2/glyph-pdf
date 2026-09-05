@@ -236,6 +236,196 @@ FormManager::SaveFault FormManager::saveFaultForTesting()
     return g_saveFaultForTesting;
 }
 
+// ── R02 (F09): complete field snapshots ──────────────────────────────────────
+// `defaultVal` in the properties panel means the field's CURRENT value (/V) —
+// the panel has always applied it through fillForm's SetText. The PDF /DV key
+// is captured and restored losslessly by undo, but nothing in the UI edits it.
+
+FormFieldSnapshot FormManager::captureFieldSnapshot(const QString &pdfFilePath, const QString &fieldName)
+{
+    FormFieldSnapshot snap;
+    snap.name = fieldName;
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(pdfFilePath.toUtf8().constData());
+        auto* acroForm = doc.GetAcroForm();
+        if (!acroForm) return snap; // found == false: explicit missing-field resolution
+        for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
+            auto& field = acroForm->GetFieldAt(i);
+            if (QString::fromStdString(field.GetFullName()) != fieldName) continue;
+            snap.found = true;
+
+            const PoDoFo::PdfDictionary& dict = (field.GetObject)().GetDictionary();
+            if (const PoDoFo::PdfObject* tu = dict.FindKey("TU"); tu && tu->IsString()) {
+                snap.tooltipPresent = true;
+                snap.tooltip = QString::fromUtf8(tu->GetString().GetString().data(),
+                                                 static_cast<int>(tu->GetString().GetString().size()));
+            }
+            if (const PoDoFo::PdfObject* ff = dict.FindKey("Ff"); ff && ff->IsNumber())
+                snap.required = (ff->GetNumber() & 2) != 0;
+            if (const PoDoFo::PdfObject* dv = dict.FindKey("DV"); dv && dv->IsString()) {
+                snap.defaultPresent = true;
+                snap.defaultValue = QString::fromUtf8(dv->GetString().GetString().data(),
+                                                      static_cast<int>(dv->GetString().GetString().size()));
+            }
+
+            // Current value /V — type-specific so the merged field/widget
+            // dictionary lookup follows PoDoFo's own semantics.
+            switch (field.GetType()) {
+                case PoDoFo::PdfFieldType::TextBox: {
+                    if (auto* t = dynamic_cast<PoDoFo::PdfTextBox*>(&field)) {
+                        auto v = t->GetText(); // nullable: non-const accessors
+                        snap.valuePresent = v.has_value();
+                        if (snap.valuePresent)
+                            snap.value = QString::fromUtf8(v.value().GetString().data(),
+                                                           static_cast<int>(v.value().GetString().size()));
+                    }
+                    break;
+                }
+                case PoDoFo::PdfFieldType::CheckBox: {
+                    if (auto* c = dynamic_cast<PoDoFo::PdfCheckBox*>(&field)) {
+                        snap.valuePresent = dict.HasKey("V");
+                        snap.value = c->IsChecked() ? QStringLiteral("Yes") : QStringLiteral("Off");
+                    }
+                    break;
+                }
+                default: {
+                    // Other types: capture the raw /V string form when present.
+                    if (const PoDoFo::PdfObject* v = dict.FindKey("V"); v && v->IsString()) {
+                        snap.valuePresent = true;
+                        snap.value = QString::fromUtf8(v->GetString().GetString().data(),
+                                                       static_cast<int>(v->GetString().GetString().size()));
+                    }
+                    break;
+                }
+            }
+            break; // duplicates: first occurrence wins (documented policy)
+        }
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "captureFieldSnapshot error:" << e.what();
+        snap.found = false;
+    }
+    return snap;
+}
+
+bool FormManager::applyFieldSnapshot(const QString &pdfFilePath, const FormFieldSnapshot &target, const QString &outputPath)
+{
+    if (!target.found) {
+        qWarning() << "applyFieldSnapshot: refusing to apply a not-found snapshot for" << target.name;
+        return false;
+    }
+    QString err;
+    const bool ok = runFormSaveTransaction(
+        pdfFilePath, outputPath,
+        [&](PoDoFo::PdfMemDocument& doc) {
+            auto* acroForm = doc.GetAcroForm();
+            if (!acroForm)
+                throw SaveAbort{QStringLiteral("no AcroForm in %1").arg(pdfFilePath)};
+
+            bool found = false;
+            for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
+                auto& field = acroForm->GetFieldAt(i);
+                if (QString::fromStdString(field.GetFullName()) != target.name) continue;
+                found = true;
+                PoDoFo::PdfDictionary& dict = field.GetDictionary();
+
+                // /TU — present in the snapshot wins; absence removes the key.
+                if (target.tooltipPresent)
+                    dict.AddKey(PoDoFo::PdfName("TU"), PoDoFo::PdfString(target.tooltip.toStdString()));
+                else
+                    dict.RemoveKey("TU");
+
+                // /Ff bit 2 — read-modify-write so unrelated flag bits survive.
+                int flags = 0;
+                if (const PoDoFo::PdfObject* ffObj = dict.FindKey("Ff"); ffObj && ffObj->IsNumber())
+                    flags = static_cast<int>(ffObj->GetNumber());
+                if (target.required) flags |= (1 << 1);
+                else                 flags &= ~(1 << 1);
+                dict.AddKey(PoDoFo::PdfName("Ff"), PoDoFo::PdfVariant(static_cast<int64_t>(flags)));
+
+                // /V — one transactional write for the types the panel edits;
+                // absence vs explicitly-empty is preserved exactly.
+                switch (field.GetType()) {
+                    case PoDoFo::PdfFieldType::TextBox: {
+                        if (auto* t = dynamic_cast<PoDoFo::PdfTextBox*>(&field)) {
+                            if (target.valuePresent)
+                                t->SetText(PoDoFo::PdfString(target.value.toStdString()));
+                            else
+                                dict.RemoveKey("V");
+                        }
+                        break;
+                    }
+                    case PoDoFo::PdfFieldType::CheckBox: {
+                        if (auto* c = dynamic_cast<PoDoFo::PdfCheckBox*>(&field)) {
+                            if (target.valuePresent)
+                                c->SetChecked(target.value == QLatin1String("Yes"));
+                            else
+                                dict.RemoveKey("V");
+                        }
+                        break;
+                    }
+                    default:
+                        break; // documented: /V of other field types is not rewritten
+                }
+                break; // duplicates: first occurrence wins (documented policy)
+            }
+            if (!found)
+                throw SaveAbort{QStringLiteral("field not found: %1").arg(target.name)};
+        },
+        [&](PoDoFo::PdfMemDocument& reopened) {
+            const PoDoFo::PdfField* f = findFieldByName(reopened, target.name);
+            if (!f) return false;
+            const PoDoFo::PdfDictionary& dict = (f->GetObject)().GetDictionary();
+
+            if (target.tooltipPresent) {
+                const PoDoFo::PdfObject* tu = dict.FindKey("TU");
+                if (!tu || !tu->IsString()
+                    || std::string(tu->GetString().GetString().data(), tu->GetString().GetString().size())
+                           != target.tooltip.toStdString()) return false;
+            } else if (dict.HasKey("TU")) {
+                return false;
+            }
+
+            const int flags = [&] {
+                const PoDoFo::PdfObject* ff = dict.FindKey("Ff");
+                return (ff && ff->IsNumber()) ? static_cast<int>(ff->GetNumber()) : 0;
+            }();
+            if (((flags & (1 << 1)) != 0) != target.required) return false;
+
+            switch (f->GetType()) {
+                case PoDoFo::PdfFieldType::TextBox: {
+                    auto* t = dynamic_cast<const PoDoFo::PdfTextBox*>(f);
+                    if (!t) return false;
+                    auto v = t->GetText(); // nullable: non-const accessors
+                    if (target.valuePresent) {
+                        if (!v.has_value()
+                            || std::string(v.value().GetString().data(), v.value().GetString().size())
+                                   != target.value.toStdString()) return false;
+                    } else if (v.has_value()) {
+                        return false; // /V must be absent
+                    }
+                    break;
+                }
+                case PoDoFo::PdfFieldType::CheckBox: {
+                    auto* c = dynamic_cast<const PoDoFo::PdfCheckBox*>(f);
+                    if (!c) return false;
+                    if (target.valuePresent) {
+                        if (c->IsChecked() != (target.value == QLatin1String("Yes"))) return false;
+                    } else if (dict.HasKey("V")) {
+                        return false;
+                    }
+                    break;
+                }
+                default:
+                    break;
+            }
+            return true;
+        },
+        &err);
+    if (!ok) qWarning() << "applyFieldSnapshot error:" << err;
+    return ok;
+}
+
 FormManager::FormManager() : d(std::make_unique<Private>())
 {
 }

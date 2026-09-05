@@ -339,8 +339,11 @@ void TestFormSafety::injectedFaultsLeaveOriginalIntact() {
 }
 
 // A failed AddFormFieldCommand must not leave a success-looking undo entry:
-// no reload signal, command obsolete (skipped by stack traversal), file
-// byte-identical.
+// no reload signal, no undoable entry, file byte-identical.
+// Qt 6.11 QUndoStack::push() DELETES a command that marks itself obsolete
+// during the initial redo(), so the stack itself enforces "no entry" —
+// command-state inspection therefore happens via a direct redo() outside any
+// stack, and the stack-level behavior is asserted via count()/index().
 void TestFormSafety::failedAddCommandLeavesNoSuccessUndoEntry() {
     QTemporaryDir tmp;
     QVERIFY(tmp.isValid());
@@ -353,20 +356,32 @@ void TestFormSafety::failedAddCommandLeavesNoSuccessUndoEntry() {
     QUndoStack stack;
     QSignalSpy reloadSpy(&doc, &DocumentSession::reloadRequested);
 
+    // Command-state probe (no stack ownership involved).
     FormManager::setSaveFaultForTesting(FormManager::SaveFault::CandidateSave);
-    auto* cmd = new AddFormFieldCommand(&fm, &doc, AddFormFieldCommand::FieldType::Text,
-                                        0, QRectF(72, 150, 140, 30),
-                                        QStringLiteral("never_field"));
-    stack.push(cmd); // runs redo(), which fails and marks the command obsolete
+    {
+        AddFormFieldCommand probe(&fm, &doc, AddFormFieldCommand::FieldType::Text,
+                                  0, QRectF(72, 150, 140, 30),
+                                  QStringLiteral("never_field"));
+        probe.redo();
+        QVERIFY2(!probe.succeeded(), "failed command must report failure");
+        QVERIFY2(probe.isObsolete(), "failed command must be marked obsolete");
+    }
+
+    // Stack-level: pushing the failing command must not create an undo entry.
+    {
+        auto* pushed = new AddFormFieldCommand(&fm, &doc, AddFormFieldCommand::FieldType::Text,
+                                               0, QRectF(72, 150, 140, 30),
+                                               QStringLiteral("never_field"));
+        stack.push(pushed); // marked obsolete in redo() -> deleted by the stack
+    }
     FormManager::setSaveFaultForTesting(FormManager::SaveFault::None);
 
-    QVERIFY2(!cmd->succeeded(), "failed command must report failure");
-    QVERIFY2(cmd->isObsolete(), "failed command must be marked obsolete");
+    QCOMPARE(stack.count(), 0);
+    QCOMPARE(stack.index(), 0);
     QCOMPARE(reloadSpy.count(), 0);            // no success-looking reload signal
     QCOMPARE(sha256(pdf), shaBefore);          // document untouched
 
-    // QUndoStack traversal skips the obsolete entry (ownership respected,
-    // no crash, no bogus undo of a change that never happened).
+    // Stack traversal is a no-op: nothing was ever added.
     stack.undo();
     QCOMPARE(stack.index(), 0);
     QCOMPARE(sha256(pdf), shaBefore);

@@ -52,6 +52,11 @@ public:
     bool setFieldMetadata(const QString &pdfFilePath, const QString &fieldName,
                           const QString &tooltip, bool required,
                           const QString &outputPath) override;
+
+    /// R02 (F09): full property snapshot + one transactional apply.
+    FormFieldSnapshot captureFieldSnapshot(const QString &pdfFilePath, const QString &fieldName) override;
+    bool applyFieldSnapshot(const QString &pdfFilePath, const FormFieldSnapshot &target, const QString &outputPath) override;
+
     QList<FieldSuggestion> autoDetectFields(const QString &pdfFilePath, int pageIndex) override;
 
     bool removeFieldByName(const QString &pdfFilePath, const QString &fieldName, const QString &outputPath) override;
