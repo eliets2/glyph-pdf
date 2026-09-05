@@ -2423,6 +2423,26 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAiProvider.cpp")
     )
 endif()
 
+# R03/R04 (2026-09-05 plan): OllamaProvider request-lifetime and endpoint-policy
+# regression suite. Local QTcpServer stub on the loopback only — no external
+# network; the deadline is test-configurable via QSettings ai/ollamaTimeoutMs.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOllamaProvider.cpp")
+    add_executable(TestOllamaProvider
+        tests/TestOllamaProvider.cpp
+    )
+    target_include_directories(TestOllamaProvider PRIVATE src tests)
+    target_link_libraries(TestOllamaProvider PRIVATE
+        pdfws_ui pdfws_engines pdfws_core
+        Qt6::Test Qt6::Core Qt6::Network Qt6::Concurrent
+    )
+    add_test(NAME TestOllamaProvider COMMAND TestOllamaProvider)
+    set_tests_properties(TestOllamaProvider PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;ai;ollama;provider;lifetime;endpoint;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestDiffEngine.cpp")
     add_executable(TestDiffEngine
         tests/TestDiffEngine.cpp

@@ -9,9 +9,10 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QPromise>
+#include <QTimer>
 #include <QtConcurrent/QtConcurrent>
 #include <QSettings>
-#include <QSemaphore>
 #include <QCoreApplication>
 
 namespace gp {
@@ -136,52 +137,136 @@ QFuture<AiResult> OllamaProvider::chat(const QList<AiMessage>& history,
                    << "to" << totalBytes() << "bytes (cap" << kMaxTotalBytes << ") before sending to Ollama";
     }
 
-    return QtConcurrent::run([endpoint, model, safeHistory, sysPrompt]() -> AiResult {
-        // Build Ollama /api/chat messages array
-        QJsonArray msgs;
-        if (!sysPrompt.isEmpty())
-            msgs.append(QJsonObject{{"role","system"},{"content",sysPrompt}});
-        for (const AiMessage& m : safeHistory)
-            msgs.append(QJsonObject{{"role",m.role},{"content",m.content}});
+    // R03: test-configurable deadline (QSettings "ai/ollamaTimeoutMs", default
+    // 20 s), bounded so a corrupt setting can neither busy-loop nor hang us.
+    const int timeoutMs = qBound(50,
+        QSettings().value(QStringLiteral("ai/ollamaTimeoutMs"), 20000).toInt(),
+        600000);
 
-        QJsonObject body;
-        body["model"]    = model;
-        body["messages"] = msgs;
-        body["stream"]   = false;  // single-shot response
+    return QtConcurrent::run(
+        [endpoint, model, safeHistory, sysPrompt, timeoutMs](QPromise<AiResult>& promise) {
+            if (promise.isCanceled())
+                return; // canceled while queued: no I/O, no result
 
-        // Run the network call on the main thread (QNAM is not thread-safe)
-        QByteArray replyData;
-        bool replyOk = false;
-        QString replyError;
-        QSemaphore sem(0);
-        QMetaObject::invokeMethod(qApp, [&]() {
-            static QNetworkAccessManager s_nam;
+            // Build Ollama /api/chat messages array
+            QJsonArray msgs;
+            if (!sysPrompt.isEmpty())
+                msgs.append(QJsonObject{{"role","system"},{"content",sysPrompt}});
+            for (const AiMessage& m : safeHistory)
+                msgs.append(QJsonObject{{"role",m.role},{"content",m.content}});
+
+            QJsonObject body;
+            body["model"]    = model;
+            body["messages"] = msgs;
+            body["stream"]   = false;  // single-shot response
+
+            // ── R03: bounded request lifetime, fully owned by this worker ──
+            // The old implementation queued a GUI-thread callback capturing
+            // worker-stack variables and a semaphore by reference behind a
+            // fixed 20 s wait: a timeout could return while that pending
+            // closure could still run against dead stack memory, and pending
+            // I/O was never aborted. The network manager, reply, deadline
+            // timer and event loop now live INSIDE the worker that owns the
+            // whole request (Qt network objects need thread affinity and an
+            // event loop — not the GUI thread). Every connection is loop-
+            // local, terminates at most once via the `done` flag, and the
+            // reply is aborted and destroyed in this thread before we return,
+            // so no queued closure can outlive this stack frame.
+            QNetworkAccessManager nam;
+            QEventLoop loop;
+            QTimer deadline;
+            deadline.setSingleShot(true);
+            QTimer cancelPoll;
+
+            struct TerminalState {
+                bool     done   = false;
+                AiResult result;
+            } state;
+
+            auto finishOnce = [&state, &loop](AiResult r) {
+                if (state.done)
+                    return;
+                state.done   = true;
+                state.result = std::move(r);
+                loop.quit();
+            };
+
             QNetworkRequest req(QUrl(endpoint + QStringLiteral("/api/chat")));
             req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-            QNetworkReply *reply = s_nam.post(req, QJsonDocument(body).toJson(QJsonDocument::Compact));
-            QObject::connect(reply, &QNetworkReply::finished, qApp, [&, reply]() {
-                replyOk = (reply->error() == QNetworkReply::NoError);
-                if (replyOk)
-                    replyData = reply->readAll();
-                else
-                    replyError = reply->errorString();
+            QNetworkReply* reply = nam.post(req, QJsonDocument(body).toJson(
+                                                       QJsonDocument::Compact));
+
+            // Completion: reply finished before the deadline/cancel.
+            QObject::connect(reply, &QNetworkReply::finished, &loop, [&]() {
+                if (state.done)
+                    return; // timeout/cancellation already terminated the request
                 reply->deleteLater();
-                sem.release();
+                const QVariant status = reply->attribute(
+                    QNetworkRequest::HttpStatusCodeAttribute);
+                if (reply->error() != QNetworkReply::NoError) {
+                    if (status.isValid()) {
+                        finishOnce(AiResult{false, {},
+                            QStringLiteral("Ollama server error at %1: HTTP %2 — %3")
+                                .arg(endpoint).arg(status.toInt())
+                                .arg(reply->errorString())});
+                    } else {
+                        finishOnce(AiResult{false, {},
+                            QStringLiteral("Ollama not reachable at %1: %2")
+                                .arg(endpoint, reply->errorString())});
+                    }
+                    return;
+                }
+                const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+                if (!doc.isObject()) {
+                    finishOnce(AiResult{false, {},
+                        QStringLiteral("Ollama returned malformed JSON from %1")
+                            .arg(endpoint)});
+                    return;
+                }
+                const QString text = doc.object().value(QStringLiteral("message"))
+                                           .toObject().value(QStringLiteral("content"))
+                                           .toString();
+                if (text.isEmpty())
+                    finishOnce(AiResult{false, {}, QStringLiteral("Empty response from Ollama")});
+                else
+                    finishOnce(AiResult{true, text, {}});
             });
-        }, Qt::QueuedConnection);
-        if (!sem.tryAcquire(1, 20000)) {
-            return AiResult{false, {}, QStringLiteral("Ollama request timed out (20s) — main event loop may be blocked")};
-        }
 
-        if (!replyOk) {
-            // Likely no local Ollama server running
-            return {false, {}, QStringLiteral("Ollama not reachable at %1: %2").arg(endpoint, replyError)};
-        }
+            // Deadline: abort pending I/O, then terminate exactly once.
+            QObject::connect(&deadline, &QTimer::timeout, &loop, [&]() {
+                finishOnce(AiResult{false, {},
+                    QStringLiteral("Ollama request timed out after %1 ms — endpoint %2")
+                        .arg(timeoutMs).arg(endpoint)});
+                reply->abort(); // the finished handler above is a no-op once done
+            });
 
-        const QJsonDocument doc = QJsonDocument::fromJson(replyData);
-        const QString text = doc["message"]["content"].toString();
-        return text.isEmpty() ? AiResult{false,{},"Empty response from Ollama"} : AiResult{true,text,{}};
-    });
+            // Caller-side cancellation (QFuture::cancel): poll and abort I/O.
+            QObject::connect(&cancelPoll, &QTimer::timeout, &loop, [&]() {
+                if (!promise.isCanceled())
+                    return;
+                finishOnce(AiResult{false, {}, QStringLiteral("Ollama request canceled")});
+                reply->abort();
+            });
+
+            deadline.start(timeoutMs);
+            cancelPoll.start(qBound(20, timeoutMs / 4, 100));
+            loop.exec();
+
+            // ── Teardown in the OWNING thread, while every local is alive ──
+            deadline.stop();
+            cancelPoll.stop();
+            reply->disconnect();  // no reply signal can fire past this point
+            reply->deleteLater();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            // `nam` leaves scope here and destroys any remaining reply on this
+            // same thread — after all callbacks were disconnected and the loop
+            // is no longer running. Nothing queued can reference this stack.
+            (void)nam;
+
+            if (promise.isCanceled())
+                return; // cancellation wins: the future carries no result
+            promise.addResult(state.result);
+        });
 }
 
 } // namespace gp
