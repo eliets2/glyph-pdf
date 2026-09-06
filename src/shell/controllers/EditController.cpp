@@ -146,8 +146,12 @@ void EditController::activate(ToolId id) {
                 tr("Signature: draw on the page with the mouse."), 5000);
             break;
         case SignatureContent::Kind::Typed:
+        case SignatureContent::Kind::Initials:
         case SignatureContent::Kind::Upload: {
-            const bool typed = picker.acceptedKind() == SignatureContent::Kind::Typed;
+            // §9.7 P1: Initials shares the TYPED placement path — the variant
+            // is only a different render of the same image-stamp annotation
+            // (no new ToolMode; PdfEnums.h ordinals are frozen).
+            const bool typed = picker.acceptedKind() != SignatureContent::Kind::Upload;
             // Order matters: arm the placement mode FIRST, then set the image
             // (AnnotationLayer::setMode discards a pending image for any
             // non-signature tool).

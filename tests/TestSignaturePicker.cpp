@@ -20,6 +20,7 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QSpinBox>
+#include <QTabWidget>
 #include "core/AnnotationSerializer.h"
 #include "engines/podofo/PoDoFoBackend.h"
 #include "ui/AnnotationLayer.h"
@@ -90,6 +91,10 @@ private slots:
     void placedImagePaintsThroughAnnotationLayer();
     void pickerDialogGatesEmptyTextAndCancel();
     void hugeUploadedImageIsCapped();
+    // §9.7 P1: initials variant — a 4th picker kind that derives the ink from
+    // the user's full name ("John Hancock" → "JH") at a smaller default size.
+    void initialsVariantRendersCompactInk();
+    void initialsTabAndPlacementUseTypedPath();
 };
 
 void TestSignaturePicker::typedSignatureRendersInkAndPersists()
@@ -308,6 +313,92 @@ void TestSignaturePicker::hugeUploadedImageIsCapped()
                                       "got %2x%3")
                            .arg(SignatureContent::kMaxImageDim)
                            .arg(capped.width()).arg(capped.height())));
+}
+
+// ── §9.7 P1: the initials variant ───────────────────────────────────────────
+
+void TestSignaturePicker::initialsVariantRendersCompactInk()
+{
+    // String seam: the first letter of each whitespace-separated token,
+    // uppercased. Blank names produce no initials at all.
+    QCOMPARE(SignatureContent::initialsForName(QStringLiteral("John Hancock")),
+             QStringLiteral("JH"));
+    QCOMPARE(SignatureContent::initialsForName(QStringLiteral("jean-luc picard")),
+             QStringLiteral("JP"));
+    QCOMPARE(SignatureContent::initialsForName(QStringLiteral("   ")), QString());
+    QCOMPARE(SignatureContent::initialsForName(QStringLiteral("madonna")), QStringLiteral("M"));
+
+    // Image seam: blank name is rejected exactly like a cancelled dialog;
+    // a real name renders actual ink.
+    QImage blank = SignatureContent::initialsFromName(QStringLiteral("   "),
+                                                      QStringLiteral("Arial"), Qt::darkBlue);
+    QVERIFY2(blank.isNull(), "a blank name must produce a null initials image");
+    const QImage ink = SignatureContent::initialsFromName(QStringLiteral("John Hancock"),
+                                                          QStringLiteral("Arial"),
+                                                          Qt::darkBlue);
+    QVERIFY2(!ink.isNull(), "a real name must render to a real initials image");
+    QVERIFY2(hasInkPixel(ink), "the initials canvas must contain visible ink pixels");
+
+    // The initials default (24pt) is smaller than the Type default (36pt) and
+    // the render must actually be derived from the initials at that size.
+    QCOMPARE(SignatureContent::kInitialsPointSizeDefault, 24);
+    QCOMPARE(SignatureContent::kTypedPointSizeDefault, 36);
+    const QImage sameSize = SignatureContent::renderTyped(
+        QStringLiteral("JH"), QStringLiteral("Arial"),
+        SignatureContent::kInitialsPointSizeDefault, Qt::darkBlue);
+    QCOMPARE(ink.size(), sameSize.size());
+    const QImage fullName = SignatureContent::renderTyped(
+        QStringLiteral("John Hancock"), QStringLiteral("Arial"),
+        SignatureContent::kInitialsPointSizeDefault, Qt::darkBlue);
+    QVERIFY2(ink.width() < fullName.width(),
+             "initials must render the derived monogram, not the full name");
+}
+
+void TestSignaturePicker::initialsTabAndPlacementUseTypedPath()
+{
+    // Dialog: a 4th tab gates on a non-empty name and produces the initials
+    // image (with the full name kept as the searchable /Contents text).
+    SignaturePickerDialog dlg;
+    QCOMPARE(dlg.findChild<QTabWidget *>()->count(), 4);
+    dlg.showTab(SignatureContent::Kind::Initials);
+    QCOMPARE(dlg.findChild<QTabWidget *>()->currentIndex(), 3);
+    QVERIFY2(!dlg.isAcceptEnabled(),
+             "OK must stay disabled while the initials name is blank");
+    auto *nameEdit = dlg.findChild<QLineEdit *>(QStringLiteral("signatureInitialsEdit"));
+    QVERIFY2(nameEdit, "initials tab must expose its name field");
+    nameEdit->setText(QStringLiteral("John Hancock"));
+    QVERIFY2(dlg.isAcceptEnabled(),
+             "OK must enable once a non-empty name is typed");
+    auto *buttons = dlg.findChild<QDialogButtonBox *>();
+    buttons->button(QDialogButtonBox::Ok)->click();
+    QCOMPARE(dlg.result(), static_cast<int>(QDialog::Accepted));
+    QCOMPARE(dlg.acceptedKind(), SignatureContent::Kind::Initials);
+    QCOMPARE(dlg.acceptedText(), QStringLiteral("John Hancock"));
+    QVERIFY2(!dlg.acceptedImage().isNull(), "an accepted Initials tab must carry the rendered image");
+    QVERIFY2(hasInkPixel(dlg.acceptedImage()), "the accepted initials image must carry ink");
+
+    // Placement seam: Initials reuses the EXISTING typed ToolMode (ordinal 35
+    // — PdfEnums.h is frozen, so no new ordinal is minted for the variant).
+    AnnotationItem anno = SignatureContent::makeAnnotation(
+        SignatureContent::Kind::Initials, 0, QRectF(60, 500, 120, 60),
+        dlg.acceptedImage(), QStringLiteral("John Hancock"));
+    QCOMPARE(static_cast<int>(anno.mode), kAddSignatureTypedOrdinal);
+    QVERIFY(!anno.image.isNull());
+    QCOMPARE(anno.text, QStringLiteral("John Hancock"));
+
+    // Persistence: the initials stamp survives as the same typed annotation.
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString seed = makeSeedPdf(tmp.filePath("seed4.pdf"));
+    QVERIFY(!seed.isEmpty());
+    PoDoFoBackend backend;
+    const QString out = tmp.filePath("initials.pdf");
+    QVERIFY(backend.embedAnnotations(seed, out, { anno }));
+    const QList<AnnotationItem> restored = backend.extractAnnotations(out);
+    const AnnotationItem *back = findByMode(restored, kAddSignatureTypedOrdinal);
+    QVERIFY2(back, "initials signature must survive a save/reload round-trip");
+    QCOMPARE(back->text, QStringLiteral("John Hancock"));
+    QVERIFY2(!back->image.isNull(), "initials image must be persisted inside the PDF");
 }
 
 QTEST_MAIN(TestSignaturePicker)

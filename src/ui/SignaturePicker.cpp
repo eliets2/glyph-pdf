@@ -12,6 +12,7 @@
 #include <QLineEdit>
 #include <QPainter>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QSpinBox>
 #include <QTabWidget>
 #include <QVBoxLayout>
@@ -46,6 +47,34 @@ QImage renderTyped(const QString &text, const QString &fontFamily,
     p.drawText(img.rect().adjusted(pad, pad, -pad, -pad), Qt::AlignCenter, trimmed);
     p.end();
     return img;
+}
+
+QString initialsForName(const QString &name)
+{
+    // First letter of every whitespace-separated token, uppercased. Letters
+    // after a leading punctuation ("'van Gogh") still count; tokens without
+    // any letter contribute nothing. Empty result for a blank name.
+    QString initials;
+    const QStringList tokens =
+        name.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+    for (const QString &token : tokens) {
+        for (const QChar &ch : token) {
+            if (ch.isLetter()) {
+                initials.append(ch.toUpper());
+                break;
+            }
+        }
+    }
+    return initials;
+}
+
+QImage initialsFromName(const QString &name, const QString &fontFamily,
+                        const QColor &color)
+{
+    // 24pt monogram vs the Type tab's 36pt full name — the paraph is meant to
+    // be placed smaller than a written-out signature.
+    return renderTyped(initialsForName(name), fontFamily,
+                       kInitialsPointSizeDefault, color);
 }
 
 QImage loadUploaded(const QString &path, QString *error)
@@ -84,6 +113,10 @@ AnnotationItem makeAnnotation(Kind kind, int pageIndex, const QRectF &rect,
     anno.thickness = 2;
     switch (kind) {
     case Kind::Typed:
+    case Kind::Initials:
+        // §9.7 P1: the initials variant shares the TYPED persistence —
+        // PdfEnums.h ordinals are frozen, so no new ToolMode is minted; the
+        // monogram image + the /Contents name carry the difference.
         anno.mode = ToolMode::AddSignatureTyped;
         break;
     case Kind::Upload:
@@ -108,7 +141,7 @@ SignaturePickerDialog::SignaturePickerDialog(QWidget *parent)
     setWindowTitle(tr("Adopt a signature"));
     setAccessibleName(tr("Signature picker"));
     setAccessibleDescription(tr("Choose how to create your signature: draw it, "
-                                "type it, or upload an image"));
+                                "type it, upload an image, or use your initials"));
 
     m_tabs = new QTabWidget(this);
     m_tabs->setAccessibleName(tr("Signature source"));
@@ -144,7 +177,7 @@ SignaturePickerDialog::SignaturePickerDialog(QWidget *parent)
     m_sizeSpin = new QSpinBox(typeTab);
     m_sizeSpin->setAccessibleName(tr("Signature text size"));
     m_sizeSpin->setRange(8, 96);
-    m_sizeSpin->setValue(36);
+    m_sizeSpin->setValue(SignatureContent::kTypedPointSizeDefault);
     m_typePreview = new QLabel(typeTab);
     m_typePreview->setObjectName(QStringLiteral("typePreview"));
     m_typePreview->setAccessibleName(tr("Signature preview"));
@@ -159,6 +192,26 @@ SignaturePickerDialog::SignaturePickerDialog(QWidget *parent)
     typeLayout->addLayout(fontRow);
     typeLayout->addWidget(m_typePreview, 1);
     m_tabs->addTab(typeTab, tr("Type"));
+
+    // ── Initials tab (§9.7 P1) ──────────────────────────────────────────────
+    // Derives a compact 24pt monogram from the full name — a faster variant of
+    // the Type tab for people who sign with initials.
+    auto *initialsTab = new QWidget(this);
+    auto *initialsLayout = new QVBoxLayout(initialsTab);
+    m_initialsEdit = new QLineEdit(initialsTab);
+    m_initialsEdit->setObjectName(QStringLiteral("signatureInitialsEdit"));
+    m_initialsEdit->setAccessibleName(tr("Full name for initials"));
+    m_initialsEdit->setPlaceholderText(tr("Type your full name…"));
+    m_initialsPreview = new QLabel(initialsTab);
+    m_initialsPreview->setObjectName(QStringLiteral("initialsPreview"));
+    m_initialsPreview->setAccessibleName(tr("Initials preview"));
+    m_initialsPreview->setMinimumHeight(84);
+    m_initialsPreview->setAlignment(Qt::AlignCenter);
+    m_initialsPreview->setFrameStyle(QFrame::StyledPanel);
+    initialsLayout->addWidget(new QLabel(tr("Your full name:"), initialsTab));
+    initialsLayout->addWidget(m_initialsEdit);
+    initialsLayout->addWidget(m_initialsPreview, 1);
+    m_tabs->addTab(initialsTab, tr("Initials"));
 
     // ── Upload tab ──────────────────────────────────────────────────────────
     auto *uploadTab = new QWidget(this);
@@ -199,7 +252,10 @@ SignaturePickerDialog::SignaturePickerDialog(QWidget *parent)
     connect(m_typeEdit, &QLineEdit::textChanged, this, &SignaturePickerDialog::updateAccept);
     connect(m_typeEdit, &QLineEdit::textChanged, this, &SignaturePickerDialog::updateTypePreview);
     connect(m_fontCombo, &QComboBox::currentTextChanged, this, &SignaturePickerDialog::updateTypePreview);
+    connect(m_fontCombo, &QComboBox::currentTextChanged, this, &SignaturePickerDialog::updateInitialsPreview);
     connect(m_sizeSpin, &QSpinBox::valueChanged, this, &SignaturePickerDialog::updateTypePreview);
+    connect(m_initialsEdit, &QLineEdit::textChanged, this, &SignaturePickerDialog::updateAccept);
+    connect(m_initialsEdit, &QLineEdit::textChanged, this, &SignaturePickerDialog::updateInitialsPreview);
     connect(m_browseButton, &QPushButton::clicked, this, [this] {
         const QString file = QFileDialog::getOpenFileName(
             this, tr("Choose signature image"), {},
@@ -218,15 +274,17 @@ SignaturePickerDialog::SignaturePickerDialog(QWidget *parent)
     connect(m_buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
     updateTypePreview();
+    updateInitialsPreview();
     updateAccept();
 }
 
 void SignaturePickerDialog::showTab(SignatureContent::Kind kind)
 {
     switch (kind) {
-    case SignatureContent::Kind::Draw:   m_tabs->setCurrentIndex(0); break;
-    case SignatureContent::Kind::Typed:  m_tabs->setCurrentIndex(1); break;
-    case SignatureContent::Kind::Upload: m_tabs->setCurrentIndex(2); break;
+    case SignatureContent::Kind::Draw:     m_tabs->setCurrentIndex(0); break;
+    case SignatureContent::Kind::Typed:    m_tabs->setCurrentIndex(1); break;
+    case SignatureContent::Kind::Upload:   m_tabs->setCurrentIndex(2); break;
+    case SignatureContent::Kind::Initials: m_tabs->setCurrentIndex(3); break;
     }
 }
 
@@ -240,7 +298,7 @@ void SignaturePickerDialog::updateTypePreview()
     const QImage ink = SignatureContent::renderTyped(
         m_typeEdit ? m_typeEdit->text() : QString(),
         m_fontCombo ? m_fontCombo->currentText() : QString(),
-        m_sizeSpin ? m_sizeSpin->value() : 36, Qt::darkBlue);
+        m_sizeSpin ? m_sizeSpin->value() : SignatureContent::kTypedPointSizeDefault, Qt::darkBlue);
     if (ink.isNull()) {
         m_typePreview->setPixmap(QPixmap());
         m_typePreview->setText(tr("Type your signature to see a preview"));
@@ -249,6 +307,22 @@ void SignaturePickerDialog::updateTypePreview()
         m_typePreview->setPixmap(QPixmap::fromImage(ink)
                                      .scaled(m_typePreview->size(), Qt::KeepAspectRatio,
                                              Qt::SmoothTransformation));
+    }
+}
+
+void SignaturePickerDialog::updateInitialsPreview()
+{
+    const QImage ink = SignatureContent::initialsFromName(
+        m_initialsEdit ? m_initialsEdit->text() : QString(),
+        m_fontCombo ? m_fontCombo->currentText() : QString(), Qt::darkBlue);
+    if (ink.isNull()) {
+        m_initialsPreview->setPixmap(QPixmap());
+        m_initialsPreview->setText(tr("Type your full name to see your initials"));
+    } else {
+        m_initialsPreview->setText({});
+        m_initialsPreview->setPixmap(QPixmap::fromImage(ink)
+                                         .scaled(m_initialsPreview->size(), Qt::KeepAspectRatio,
+                                                 Qt::SmoothTransformation));
     }
 }
 
@@ -272,6 +346,9 @@ void SignaturePickerDialog::updateAccept()
     case 1:  // Type — blank text must not be acceptable
         ok = !m_typeEdit->text().trimmed().isEmpty();
         break;
+    case 3:  // Initials — a blank name yields no monogram to place
+        ok = !m_initialsEdit->text().trimmed().isEmpty();
+        break;
     case 2:  // Upload — an unreadable image must not be acceptable
         ok = !m_uploadImage.isNull();
         break;
@@ -290,6 +367,12 @@ void SignaturePickerDialog::onAccepted()
         m_typedText = m_typeEdit->text().trimmed();
         m_image = SignatureContent::renderTyped(m_typedText, m_fontCombo->currentText(),
                                                 m_sizeSpin->value(), Qt::darkBlue);
+        break;
+    case 3:
+        m_kind = SignatureContent::Kind::Initials;
+        m_typedText = m_initialsEdit->text().trimmed();
+        m_image = SignatureContent::initialsFromName(m_typedText, m_fontCombo->currentText(),
+                                                     Qt::darkBlue);
         break;
     case 2:
         m_kind = SignatureContent::Kind::Upload;
