@@ -27,6 +27,7 @@
 #include "ui/PdfViewerWidget.h"
 #include "modes/SignaturesPanel.h"
 #include "mocks/MockSignatureManager.h"
+#include "engines/SignatureManager.h"
 
 #ifdef SOURCE_DIR
 static const QString kFixtureDir = QStringLiteral(SOURCE_DIR "/tests/fixtures/signing");
@@ -424,6 +425,65 @@ private:
                             - area->verticalScrollBar()->value();
         return vpTopLeft + QPointF(originX + field.right() * zoom, originY + field.top() * zoom);
     }
+private slots:
+    // ── §9.7 badge anchoring: real field page + rect from the engine ────────
+    void engineResolvesFieldAnchorsOnSignedFixture() {
+        if (!QFileInfo::exists(kInputPdf) || !QFileInfo::exists(kFixtureDir + "/test_signer.p12"))
+            QSKIP("signing fixtures missing");
+
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        const QString signedPdf = tmp.filePath("anchored.pdf");
+        SignatureManager mgr;
+        QVERIFY2(mgr.signDocument(kInputPdf, signedPdf, kFixtureDir + "/test_signer.p12",
+                                  QStringLiteral("test"), QStringLiteral("AnchorTest"),
+                                  QString()) == SignOutcome::Success,
+                 "signDocument must succeed with the test P12");
+
+        const auto anchors = mgr.signatureFieldAnchors(signedPdf);
+        QVERIFY2(anchors.size() == 1,
+                 qPrintable(QStringLiteral("signed fixture must expose exactly 1 anchor, got %1")
+                                .arg(anchors.size())));
+        const auto &a = anchors.first();
+        QCOMPARE(a.pageIndex, 0);
+        QVERIFY2(!a.fieldName.isEmpty(), "the anchor must carry the field name");
+        QVERIFY2(a.rect.width() > 50 && a.rect.height() > 20,
+                 qPrintable(QStringLiteral("anchor rect must be the real widget rect: %1x%2")
+                                .arg(a.rect.width()).arg(a.rect.height())));
+
+        // The validator's fieldName and the anchor must describe the SAME field —
+        // this equality is what the panel matches on.
+        const auto sigs = mgr.validateSignatures(signedPdf);
+        QVERIFY2(!sigs.isEmpty() && sigs.first().fieldName == a.fieldName,
+                 qPrintable(QStringLiteral("fieldName mismatch: validator='%1' anchor='%2'")
+                                .arg(sigs.isEmpty() ? QStringLiteral("<none>") : sigs.first().fieldName,
+                                        a.fieldName)));
+    }
+
+    void panelAnchorsSpecsThroughMockAnchors() {
+        PanelPush p;
+        SignatureInfo s;
+        s.fieldName = QStringLiteral("Sig1");
+        s.signerName = QStringLiteral("Alice");
+        s.integrityIntact = true;
+        s.isValid = true;
+        s.trustStatus = QStringLiteral("Valid");
+        p.mock.m_signatures = {s};
+        // The engine side supplies the on-page anchor for THAT field name.
+        ISignatureManager::SignatureFieldAnchor a;
+        a.fieldName = QStringLiteral("Sig1");
+        a.pageIndex = 2;
+        a.rect = QRectF(100, 650, 200, 100);
+        p.mock.m_anchors = {a};
+
+        p.panel.setDocument(QStringLiteral("mock.pdf"), &p.mock);
+        QCOMPARE(p.viewer.signatureBadges().size(), 1);
+        const SignatureBadgeSpec b = p.viewer.signatureBadges().first();
+        QCOMPARE(b.pageIndex, 2);
+        QCOMPARE(b.fieldRect, QRectF(100, 650, 200, 100));
+        QVERIFY(b.state == SignatureBadgeState::ValidTrusted); // state mapping unaffected
+    }
+
 };
 
 QTEST_MAIN(TestSignatureBadges)

@@ -3,6 +3,7 @@
 #include <QString>
 #include <QList>
 #include <QDateTime>
+#include <QRectF>
 
 struct SignatureInfo {
     QString fieldName;
@@ -70,6 +71,17 @@ public:
     virtual bool addDocTimeStamp(const QString &inputPath, const QString &outputPath) = 0;
 
     virtual QList<SignatureInfo> validateSignatures(const QString &filePath) = 0;
+
+    // §9.7 P0 (badge anchoring): on-page anchor for every signature field —
+    // fieldName matches SignatureInfo::fieldName; rect is the widget /Rect in
+    // viewer top-left convention (PDF y flipped). Empty list when the document
+    // has no signature fields or cannot be read.
+    struct SignatureFieldAnchor {
+        QString fieldName;
+        int pageIndex = -1;
+        QRectF rect;
+    };
+    virtual QList<SignatureFieldAnchor> signatureFieldAnchors(const QString &filePath) = 0;
 
 protected:
     ISignatureManager() = default;
