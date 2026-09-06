@@ -15,6 +15,7 @@ class DocumentSession;
 class AutosaveManager;
 
 namespace gp { class LaneScheduler; }
+namespace gp { class CapabilityRegistry; }   // U08: capability probes (core/Capability.h)
 
 namespace pdfws {
     class IDjotCodec;
@@ -37,4 +38,10 @@ struct AppContext {
     std::shared_ptr<pdfws::IDjotCodec>      djotCodec;
     std::shared_ptr<pdfws::IDjotMapper>     djotMapper;
     std::shared_ptr<pdfws::ProvenanceGuard> provenanceGuard;
+
+    // U08: the ONE capability registry ("available? why not? what
+    // alternative?"). Probes are registered in Bootstrapper::createContext
+    // next to the engines; may be null in tests — consumers fall back to
+    // their pre-existing wording when absent.
+    std::shared_ptr<gp::CapabilityRegistry> capabilities;
 };

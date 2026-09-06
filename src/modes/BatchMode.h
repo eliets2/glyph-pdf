@@ -61,6 +61,24 @@ public:
     int  successCount()  const { return m_successCount; }
     int  failCount()     const { return m_failCount; }
     int  errorLogCount() const { return m_errorLog.count(); }
+    // U08: success + failed + remaining summaries — files still being
+    // processed (or dropped by cancel) without miscounting them as done.
+    int  remainingCount() const { return qMax(0, fileCount() - successCount() - failCount()); }
+
+    // U08: per-item pre-flight, run on the GUI thread BEFORE the worker starts
+    // (probes are cached and GUI-affine). Returns a non-empty whyNot when
+    // `inputPath` cannot be processed by operation `opIndex`; empty = runnable.
+    // Blocked items are staged as failed BatchFileResults so the summary stays
+    // truthful — never a silent skip, never a claimed completion.
+    static QString preFlightBlocker(int opIndex, const QString& inputPath,
+                                    const gp::CapabilityRegistry* capabilities);
+
+    // U08: report intentionally unsupported batch options (plan U08) instead
+    // of silently diverging from the interactive path. Pure function of the
+    // persisted prefs + capabilities; empty when every interactive option
+    // applies to the batch run. Surfaced via BatchFileResult::reviewNote.
+    static QString preFlightReviewNote(int opIndex,
+                                       const gp::CapabilityRegistry* capabilities);
 
     // Programmatic run/cancel triggers (bypass UI state guards for tests)
     void onRunBatch()    { onRunClicked(); }

@@ -30,6 +30,31 @@ QString ConvertController::localProcessingNotice()
     return QObject::tr("Processed 100% locally — no internet, no upload.");
 }
 
+// ── U08 pre-execution capability disclosure ──────────────────────────────────
+
+bool ConvertController::gateExport(gp::CapId id)
+{
+    // No registry (tests, early boot) → previous unconditional behavior.
+    if (!_ctx || !_ctx->capabilities) return true;
+    const gp::Capability c = _ctx->capabilities->query(id);
+    if (c.status == gp::Availability::Available) return true;
+
+    // Unavailable*: the format is never offered — explain why not and name a
+    // supported alternative BEFORE any file dialog or worker thread exists.
+    const QString explanation = gp::CapabilityRegistry::combineWhyNot(c);
+    _mainWindow->statusBar()->showMessage(explanation, 8000);
+    QMessageBox::information(_mainWindow, tr("Not Available"), explanation);
+    return false;
+}
+
+QString ConvertController::exportFormatNotice(gp::CapId id) const
+{
+    if (!_ctx || !_ctx->capabilities) return {};
+    const gp::Capability c = _ctx->capabilities->query(id);
+    if (c.status == gp::Availability::Available) return c.detail;
+    return gp::CapabilityRegistry::combineWhyNot(c);
+}
+
 ConvertController::ConvertController(const AppContext* ctx, MainWindow* mainWindow, QObject* parent)
     : QObject(parent), _ctx(ctx), _mainWindow(mainWindow) {}
 
@@ -90,10 +115,21 @@ void ConvertController::activate(ToolId id) {
 void ConvertController::exportToWord() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->conversion) return;
+    // U08: gate + format disclosure BEFORE the file dialog — the user learns
+    // which writer will run (§9.16 honest badge) before picking a
+    // destination. The post-write Fallback warning below stays as the
+    // last-resort net until the degraded path is proven unreachable.
+    if (!gateExport(gp::CapId::WordExport)) return;
+    const QString formatNotice = exportFormatNotice(gp::CapId::WordExport);
+    if (!formatNotice.isEmpty())
+        _mainWindow->statusBar()->showMessage(formatNotice);
     QString outputPath = QFileDialog::getSaveFileName(_mainWindow, tr("Export to Word"),
         QFileInfo(viewer->filePath()).path() + "/" + QFileInfo(viewer->filePath()).baseName() + ".docx",
         tr("Word Documents (*.docx)"));
-    if (outputPath.isEmpty()) return;
+    if (outputPath.isEmpty()) {
+        _mainWindow->statusBar()->clearMessage();
+        return;
+    }
 
     _mainWindow->statusBar()->showMessage(tr("Converting to Word..."));
 
@@ -150,10 +186,18 @@ void ConvertController::exportToWord() {
 void ConvertController::exportToExcel() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->conversion) return;
+    // U08: gate + pre-dialog writer disclosure, mirroring exportToWord.
+    if (!gateExport(gp::CapId::ExcelExport)) return;
+    const QString formatNotice = exportFormatNotice(gp::CapId::ExcelExport);
+    if (!formatNotice.isEmpty())
+        _mainWindow->statusBar()->showMessage(formatNotice);
     QString outputPath = QFileDialog::getSaveFileName(_mainWindow, tr("Export to Excel"),
         QFileInfo(viewer->filePath()).path() + "/" + QFileInfo(viewer->filePath()).baseName() + ".xlsx",
         tr("Excel Workbooks (*.xlsx)"));
-    if (outputPath.isEmpty()) return;
+    if (outputPath.isEmpty()) {
+        _mainWindow->statusBar()->clearMessage();
+        return;
+    }
 
     _mainWindow->statusBar()->showMessage(tr("Converting to Excel..."));
 
@@ -209,6 +253,7 @@ void ConvertController::exportToExcel() {
 void ConvertController::exportToCsv() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->conversion) return;
+    if (!gateExport(gp::CapId::CsvExport)) return;
     QString outputPath = QFileDialog::getSaveFileName(_mainWindow, tr("Export to CSV"),
         QFileInfo(viewer->filePath()).path() + "/" + QFileInfo(viewer->filePath()).baseName() + ".csv",
         tr("CSV Files (*.csv)"));
@@ -290,6 +335,7 @@ void ConvertController::mergePdfs() {
 void ConvertController::linearizeDocument() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->pdfEditor) return;
+    if (!gateExport(gp::CapId::Linearize)) return;
     QString outputPath = QFileDialog::getSaveFileName(_mainWindow, tr("Save Linearized (Web-Optimized) PDF"),
         QFileInfo(viewer->filePath()).path() + "/" + QFileInfo(viewer->filePath()).baseName() + "_optimized.pdf",
         tr("PDF Files (*.pdf)"));
@@ -341,6 +387,7 @@ void ConvertController::linearizeDocument() {
 void ConvertController::exportAsPdfA() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->pdfEditor) return;
+    if (!gateExport(gp::CapId::PdfAExport)) return;
     QStringList levels;
     levels << tr("PDF/A-1b (ISO 19005-1)") << tr("PDF/A-2b (ISO 19005-2)") << tr("PDF/A-3b (ISO 19005-3)");
     bool ok;
@@ -403,6 +450,7 @@ void ConvertController::exportAsPdfA() {
 void ConvertController::exportToHtml() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->conversion) return;
+    if (!gateExport(gp::CapId::HtmlExport)) return;
     QString outputPath = QFileDialog::getSaveFileName(_mainWindow, tr("Export to HTML"),
         QFileInfo(viewer->filePath()).path() + "/" + QFileInfo(viewer->filePath()).baseName() + ".html",
         tr("HTML Files (*.html)"));
@@ -448,6 +496,7 @@ void ConvertController::exportToHtml() {
 void ConvertController::exportToText() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->conversion) return;
+    if (!gateExport(gp::CapId::TextExport)) return;
     QString outputPath = QFileDialog::getSaveFileName(_mainWindow, tr("Export to Text"),
         QFileInfo(viewer->filePath()).path() + "/" + QFileInfo(viewer->filePath()).baseName() + ".txt",
         tr("Text Files (*.txt)"));
@@ -493,6 +542,7 @@ void ConvertController::exportToText() {
 void ConvertController::exportToPowerPoint() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->conversion) return;
+    if (!gateExport(gp::CapId::PptExport)) return;
     QString outputPath = QFileDialog::getSaveFileName(_mainWindow, tr("Export to PowerPoint"),
         QFileInfo(viewer->filePath()).path() + "/" + QFileInfo(viewer->filePath()).baseName() + ".pptx",
         tr("PowerPoint Presentations (*.pptx)"));
@@ -538,9 +588,26 @@ void ConvertController::exportToPowerPoint() {
 void ConvertController::exportToImage() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->conversion) return;
+    if (!gateExport(gp::CapId::ImageExport)) return;
+
+    // U08: capability-derived filter (fileFilterFor) replaces the hand-built
+    // string — only formats this build can actually produce reach the dialog.
+    // With ImageExport available in every build the output equals the previous
+    // hand-built filter, byte for byte.
+    QString imageFilter = tr("PNG Images (*.png);;JPEG Images (*.jpg);;TIFF Images (*.tif)");
+    if (_ctx && _ctx->capabilities) {
+        const QList<QPair<QString, gp::CapId>> clauses = {
+            { tr("PNG Images (*.png)"),  gp::CapId::ImageExport },
+            { tr("JPEG Images (*.jpg)"), gp::CapId::ImageExport },
+            { tr("TIFF Images (*.tif)"), gp::CapId::ImageExport },
+        };
+        const QString built = _ctx->capabilities->fileFilterFor(clauses);
+        if (!built.isEmpty()) imageFilter = built;
+    }
+
     QString outputPath = QFileDialog::getSaveFileName(_mainWindow, tr("Export to Image"),
         QFileInfo(viewer->filePath()).path() + "/" + QFileInfo(viewer->filePath()).baseName() + ".png",
-        tr("PNG Images (*.png);;JPEG Images (*.jpg);;TIFF Images (*.tif)"));
+        imageFilter);
     if (outputPath.isEmpty()) return;
 
     _mainWindow->statusBar()->showMessage(tr("Exporting to image..."));
