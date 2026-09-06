@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "ui/SignaturePicker.h"
+#include "core/Capability.h"   // U08: signature-kind disclosure wording
 
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -182,8 +183,17 @@ SignaturePickerDialog::SignaturePickerDialog(QWidget *parent)
     m_buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     m_buttons->setAccessibleName(tr("Signature picker actions"));
 
+    // U08: label the flow by KIND before the user commits — Draw/Type/Upload
+    // produce a graphic stamp; a certificate-backed (P12) digital signature
+    // with its validation outcome is a different flow. Wording is owned by
+    // the CapabilityRegistry (visibleSignatureKindDisclosure).
+    auto *kindLabel = new QLabel(gp::visibleSignatureKindDisclosure(), this);
+    kindLabel->setObjectName(QStringLiteral("signatureKindDisclosure"));
+    kindLabel->setWordWrap(true);
+
     auto *layout = new QVBoxLayout(this);
     layout->addWidget(m_tabs);
+    layout->addWidget(kindLabel);
     layout->addWidget(m_buttons);
 
     connect(m_typeEdit, &QLineEdit::textChanged, this, &SignaturePickerDialog::updateAccept);

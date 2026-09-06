@@ -21,6 +21,8 @@
 #include <zip.h>
 #include "engines/ConversionManager.h"
 #include "shell/controllers/ConvertController.h"
+#include "core/Capability.h"
+#include "modes/CompressDialog.h"
 
 class TestExportPathBadge : public QObject {
     Q_OBJECT
@@ -37,6 +39,10 @@ private slots:
     void inHouseExportSuppressesFallbackWarning();
     void failedInputDoesNotTruncateDestination();
     void localProcessingNoticeStatesPrivacy();
+    // U08: capability-registry integration for the conversion flows.
+    void registryExportProbesNameTheWriterThatWillRun();
+    void registryImageFileFilterMatchesPreviousHandBuiltFilter();
+    void compressDialogWordingRoundTripsThroughRegistry();
 private:
     static QString createMinimalPdf(const QString& dir, const QString& name);
     // Multi-line text PDF, hand-built with an unembedded standard Helvetica
@@ -648,6 +654,75 @@ void TestExportPathBadge::localProcessingNoticeStatesPrivacy() {
              qPrintable(QStringLiteral("badge must state 'no internet': %1").arg(notice)));
     QVERIFY2(notice.contains(QStringLiteral("locally"), Qt::CaseInsensitive),
              qPrintable(QStringLiteral("badge must state the processing is local: %1").arg(notice)));
+}
+
+// ── U08: capability-registry integration for the conversion flows ───────────
+
+// The pre-dialog disclosure (ConvertController::exportFormatNotice) is fed by
+// the registry's export probes: they must be Available in every build and
+// name the writer that WILL run — the honest badge, moved before the dialog.
+void TestExportPathBadge::registryExportProbesNameTheWriterThatWillRun() {
+    gp::CapabilityRegistry reg;
+    reg.registerEngineProbes();
+
+    const gp::Capability word = reg.query(gp::CapId::WordExport);
+    QVERIFY2(word.status == gp::Availability::Available,
+             "Word export is available in every build (in-house OOXML writer)");
+    QVERIFY2(word.detail.contains(QStringLiteral("WordprocessingML")),
+             qPrintable(QStringLiteral("Word disclosure must name the writer; got '%1'")
+                                .arg(word.detail)));
+
+    const gp::Capability excel = reg.query(gp::CapId::ExcelExport);
+    QVERIFY2(excel.status == gp::Availability::Available,
+             "Excel export is available in every build (in-house OOXML writer)");
+    QVERIFY2(excel.detail.contains(QStringLiteral("SpreadsheetML")),
+             qPrintable(QStringLiteral("Excel disclosure must name the writer; got '%1'")
+                                .arg(excel.detail)));
+
+    // The actual exports must keep succeeding — a capability claim without a
+    // working writer is exactly the old fake-availability bug class.
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = createTextPdf(tmp.path(), "in.pdf", {"registry probe"});
+    QVERIFY(!pdf.isEmpty());
+    ConversionManager mgr;
+    QVERIFY(mgr.convertTo(pdf, tmp.filePath("probe.docx"), IConversionEngine::TargetFormat::Word));
+    QVERIFY(mgr.convertTo(pdf, tmp.filePath("probe.xlsx"), IConversionEngine::TargetFormat::Excel));
+}
+
+// The hand-built image filter at the old ConvertController.cpp:543 is now
+// derived via CapabilityRegistry::fileFilterFor; with ImageExport available in
+// every build the derived filter must equal the previous string byte for byte
+// (pure consolidation — no user-visible change).
+void TestExportPathBadge::registryImageFileFilterMatchesPreviousHandBuiltFilter() {
+    gp::CapabilityRegistry reg;
+    reg.registerEngineProbes();
+
+    const gp::Capability image = reg.query(gp::CapId::ImageExport);
+    QCOMPARE(image.status, gp::Availability::Available);
+
+    const QList<QPair<QString, gp::CapId>> clauses = {
+        { QStringLiteral("PNG Images (*.png)"),  gp::CapId::ImageExport },
+        { QStringLiteral("JPEG Images (*.jpg)"), gp::CapId::ImageExport },
+        { QStringLiteral("TIFF Images (*.tif)"), gp::CapId::ImageExport },
+    };
+    QCOMPARE(reg.fileFilterFor(clauses),
+             QStringLiteral("PNG Images (*.png);;JPEG Images (*.jpg);;TIFF Images (*.tif)"));
+}
+
+// The disabled-checkbox wording in CompressDialog (pinned by
+// TestCompressDialogHonesty) must stay byte-identical to the registry's R12
+// probe whyNot — one source of truth, no drift.
+void TestExportPathBadge::compressDialogWordingRoundTripsThroughRegistry() {
+    gp::CapabilityRegistry reg;
+    reg.registerEngineProbes();
+
+    QCOMPARE(gp::CompressDialog::unsupportedPassExplanation(),
+             gp::r12UnsupportedPassExplanation());
+    QCOMPARE(reg.query(gp::CapId::CompressSubsetFonts).whyNot,
+             gp::CompressDialog::unsupportedPassExplanation());
+    QCOMPARE(reg.query(gp::CapId::CompressRemoveUnused).whyNot,
+             gp::CompressDialog::unsupportedPassExplanation());
 }
 QTEST_MAIN(TestExportPathBadge)
 #include "TestExportPathBadge.moc"
