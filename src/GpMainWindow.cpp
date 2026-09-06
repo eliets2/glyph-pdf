@@ -282,6 +282,15 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
     // §9.8 P0: RedactMode marking feedback lands on the status bar.
     connect(_modes, &ModeController::redactStatusMessage, this,
             [this](const QString& msg) { statusBar()->showMessage(msg, 6000); });
+    // §9.8 P1: RedactMode's Cancel/Exit returns to the standard canvas — the
+    // same "back" contract the modal task surfaces use after their dialog
+    // closes (onScreenSelected("") → setScreen("") + one-writer state sync).
+    // Placed marks stay on the viewer; the message says so honestly.
+    connect(_modes, &ModeController::redactExitRequested, this, [this]() {
+        activateScreen(QString());
+        statusBar()->showMessage(
+            tr("Redaction closed — placed marks are kept on the document."), 6000);
+    });
 
     // FindBar wiring
     connect(_findBar, &FindBar::searchRequested,     _edit, &EditController::onSearchRequested);

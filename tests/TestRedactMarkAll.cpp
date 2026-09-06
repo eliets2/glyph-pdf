@@ -4,6 +4,7 @@
 // Mark Region activates the canvas drag-placement mode — the pills are no
 // longer decorative toggles.
 #include <QtTest/QtTest>
+#include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QCheckBox>
 #include <QLabel>
@@ -16,6 +17,7 @@
 #include <QPushButton>
 #include <QRadioButton>
 #include <QTextStream>
+#include <QToolButton>
 #include <podofo/podofo.h>
 #include "modes/RedactMode.h"
 #include "modes/RedactApplyDialog.h"
@@ -46,6 +48,11 @@ private slots:
     void sanitizeCopyCheckboxProducesCleanOutput();
     void redactPanelShowsLocalClaim();
     void sanitizeUncheckedKeepsMetadata();
+    // §9.8 P1: the panel needs an honest Cancel/Exit affordance — the AR-8 D3
+    // plan removed the broken button instead of fixing the missing control.
+    // Cancel must emit exitRequested() (the mode-exit contract) and must NOT
+    // touch the placed marks (they live on the viewer and stay recoverable).
+    void cancelControlEmitsExitRequestedAndKeepsMarks();
 private:
     static QString createPdfWithText(const QTemporaryDir& tmpDir,
                                      const QString& name, const QString& text);
@@ -463,5 +470,32 @@ void TestRedactMarkAll::redactPanelShowsLocalClaim() {
     QVERIFY2(label->text().contains(QStringLiteral("no upload"), Qt::CaseInsensitive),
              qPrintable(QStringLiteral("claim must state no-upload: %1").arg(label->text())));
 }
+
+// §9.8 P1: the Cancel/Exit control restored and honestly wired — clicking it
+// emits exitRequested() (relayed by ModeController to the host, which returns
+// to the standard canvas) and leaves the placed redaction marks on the viewer.
+void TestRedactMarkAll::cancelControlEmitsExitRequestedAndKeepsMarks() {
+    PdfViewerWidget viewer;
+    gp::RedactMode mode;
+    mode.setViewer(&viewer);
+
+    // Place a mark first: cancel must keep it recoverable on the viewer.
+    AnnotationItem mark;
+    mark.mode = ToolMode::Redact;
+    mark.pageIndex = 0;
+    mark.rect = QRectF(40, 130, 300, 30);
+    viewer.setAnnotations({mark});
+
+    auto* btn = mode.findChild<QToolButton*>(QStringLiteral("redactBtnCancel"));
+    QVERIFY2(btn, "RedactMode must expose a Cancel/Exit control (redactBtnCancel)");
+
+    QSignalSpy exitSpy(&mode, &gp::RedactMode::exitRequested);
+    btn->click();
+    QCOMPARE(exitSpy.count(), 1);
+
+    // The placed marks live on the viewer — cancel must not clear them.
+    QCOMPARE(redactMarkCount(viewer), 1);
+}
+
 QTEST_MAIN(TestRedactMarkAll)
 #include "TestRedactMarkAll.moc"

@@ -58,6 +58,9 @@ void ModeController::setScreen(const QString& id) {
             // §9.8 P0: relay user-facing status to the host status bar.
             connect(rm, &RedactMode::statusMessageRequested,
                     this, &ModeController::redactStatusMessage);
+            // §9.8 P1: relay the panel's Cancel/Exit control to the host.
+            connect(rm, &RedactMode::exitRequested,
+                    this, &ModeController::redactExitRequested);
             target = rm;
         }
         else if (id == "compare") target = new CompareMode(this);

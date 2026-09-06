@@ -59,6 +59,9 @@ signals:
     void ocrReRunRegionRequested(QRectF regionBbox);
     // §9.8 P0: RedactMode status text relayed to the host's status bar.
     void redactStatusMessage(const QString& message);
+    // §9.8 P1: RedactMode's Cancel/Exit control — relayed to the host, which
+    // returns to the standard canvas (mirrors redactStatusMessage).
+    void redactExitRequested();
 
 private:
     QHash<QString, QWidget*> _byId;

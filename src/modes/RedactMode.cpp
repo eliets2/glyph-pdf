@@ -96,11 +96,20 @@ RedactMode::RedactMode(QWidget* parent) : QWidget(parent) {
                                   .arg(gp::Theme::fg2().name()));
     col->addWidget(localClaim);
 
-    // AR-8 D3: "Cancel" button HIDDEN — its connection was a no-op lambda.
-    // Planned: emit exitRequested() signal to the shell's mode controller.
-    // Restore the button and wire exitRequested() when the mode-exit contract
-    // between RedactMode and ModeController is implemented.
-    // auto* exitBtn = new QToolButton; exitBtn->setText(tr("Cancel")); ← preserved
+    // §9.8 P1: the Cancel/Exit control is RESTORED and honestly wired (AR-8 D3
+    // had only hidden the button whose connection was a no-op lambda — the
+    // missing affordance stayed missing). Clicking emits exitRequested(); the
+    // host returns to the standard canvas via ModeController's relay. Placed
+    // redaction marks are NOT touched — they live on the viewer and remain
+    // recoverable when the user re-enters the mode.
+    auto* exitBtn = new QToolButton;
+    exitBtn->setObjectName(QStringLiteral("redactBtnCancel"));
+    exitBtn->setText(tr("Cancel"));
+    exitBtn->setProperty("variant", "ghost");
+    exitBtn->setToolTip(tr(
+        "Exit redaction. Placed marks are kept on the document — reopen the "
+        "Redaction task to review or apply them."));
+    row->addWidget(exitBtn);
 
     col->addWidget(tb);
 
@@ -179,7 +188,10 @@ RedactMode::RedactMode(QWidget* parent) : QWidget(parent) {
     connect(m_applyBtn,   &QToolButton::clicked, this, &RedactMode::onApplyRedactions);
     connect(m_clearBtn,   &QToolButton::clicked, this, &RedactMode::onClearMarks);
 
-    // exitBtn removed (AR-8 D3) — connection removed with it.
+    // §9.8 P1: Cancel exits the mode via the exitRequested contract (the host
+    // snaps navigation back to the standard canvas); the viewer's marks and
+    // the tool state stay exactly as they are.
+    connect(exitBtn, &QToolButton::clicked, this, &RedactMode::exitRequested);
 
     connect(m_scopeCurrentPage, &QRadioButton::toggled, this, &RedactMode::onScopeChanged);
     connect(m_scopeAllPages,    &QRadioButton::toggled, this, &RedactMode::onScopeChanged);
