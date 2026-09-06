@@ -21,7 +21,12 @@ CommitFaultForTesting g_commitFaultForTesting = CommitFaultForTesting::None;
 // file exclusively. (Verbatim semantics from FormManager.cpp:79-90.)
 bool makeUniqueCandidate(QString* out, QString* err)
 {
-    QTemporaryFile tmp(QDir::tempPath() + QStringLiteral("/glyphpdf-XXXXXX.pdf"));
+    // Dedicated subdirectory: keeps the operation's candidates isolated from
+    // the shared temp root, so tests can assert "nothing left behind" without
+    // cross-process debris (killed runs, concurrent lanes) polluting the scan.
+    QDir candidateDir(QDir::tempPath() + QStringLiteral("/glyphpdf-candidates"));
+    if (!candidateDir.exists()) QDir().mkpath(candidateDir.absolutePath());
+    QTemporaryFile tmp(candidateDir.absoluteFilePath(QStringLiteral("glyphpdf-XXXXXX.pdf")));
     tmp.setAutoRemove(false);
     if (!tmp.open()) {
         if (err) *err = QStringLiteral("could not create unique candidate PDF: %1").arg(tmp.errorString());

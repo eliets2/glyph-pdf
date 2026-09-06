@@ -114,7 +114,10 @@ private:
 
     // Leftover R01 candidate files in the system temp dir (must always be 0).
     static int leftoverCandidates() {
-        return QDir(QDir::tempPath()).entryList(
+        // Scan ONLY the dedicated candidate dir (SafeSave creates it) — the
+        // shared temp root accumulates debris from killed/concurrent processes
+        // and races with parallel lanes' transient candidates.
+        return QDir(QDir::tempPath() + QStringLiteral("/glyphpdf-candidates")).entryList(
             QStringList() << QStringLiteral("glyphpdf-*.pdf"), QDir::Files).size();
     }
 
