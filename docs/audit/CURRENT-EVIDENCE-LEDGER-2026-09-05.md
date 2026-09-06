@@ -66,6 +66,14 @@ Dated corrections to stale historical claims (superseded by HEAD):
 | U07 | Comments | Filter summary, count, clear action on the existing records | implemented-awaiting-review — summary+count+clear, table view of the same records, RFC-4180 CSV export, numeric page-sort defect fixed; page-level navigation only (geometry focus is a follow-up) |
 | U08 | Capabilities | Pre-execution capability/scope disclosure across workflows | implemented-awaiting-review — CapabilityRegistry (CapId probes, cache/invalidate, whyNot+alternative enforced in query) in src/core/Capability, injected via AppContext/Bootstrapper; consumers: CompressDialog (registry wording + applyToWidget MRC gate), ConvertController disclosure at selection, BatchMode per-item pre-flight, SignaturePicker kind label; 16+3 tests; 101/101 suite |
 
+## July-parity P1 follow-ups (post-September wave)
+
+| ID | § | Item | Status | Commit |
+|----|---|------|--------|--------|
+| §9.8-a | §9.8 | Cancel/Back control in RedactMode (exitRequested contract, marks kept) | implemented-awaiting-review | bcef6ad |
+| §9.8-b | §9.8 | Optional overlay text on burn-in boxes (7pt white, centered, skip-too-small; candidate swap fix for in-place save corruption) | implemented-awaiting-review | 24c479d |
+| §9.8-c | §9.8 | Word-list import for pattern redaction (256KB cap, escaped alternation, review-before-mark) | implemented-awaiting-review | a9a3eda |
+
 ## Newly discovered engine defect (exposed by U05 fixtures)
 
 | ID | Surface | Finding | Status | Evidence |
