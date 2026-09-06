@@ -9,6 +9,13 @@
  *   testAtomicReorder        — AR-8 D5: reorderAllPages() called ONCE for whole permutation
  *   testMovePermutationConsolidation — §9.9 P0: single move = one permutation command
  *   testGridMovePermutation  — §9.9 P0: drag result → engine permutation math
+ *   splitRangeExpressionProducesOnePreviewEntryPerSegment — §9.9 P1: range
+ *                              expression "1-3,4-6,7" → one output part per
+ *                              comma-separated segment (preview path)
+ *   testPageRangeSegments_*   — §9.9 P1: parsePageRangeSegments() per-segment
+ *                              groups (multi/single/invalid/overlap-clamp)
+ *   splitRangeSegmentsWriteOneFilePerSegment — §9.9 P1: seam-derived groups
+ *                              write one file per segment (sentinel content)
  *   internalMovePushesAtomicPermutation — U06: a real InternalMove sequence commits
  *                              exactly one atomic command (snapshot captured before
  *                              the drop copy is inserted) and no spurious reload command
@@ -28,6 +35,8 @@
 #include <QtTest/QtTest>
 #include <QLabel>
 #include <QApplication>
+#include <QLineEdit>
+#include <QRadioButton>
 #include <QTemporaryDir>
 #include <QFile>
 #include <QList>
@@ -752,6 +761,171 @@ private slots:
         // Inconsistent input (unknown index / size mismatch) → empty.
         QVERIFY(gp::PagesMode::gridMovePermutation({0, 1, 2}, {0, 5, 2}).isEmpty());
         QVERIFY(gp::PagesMode::gridMovePermutation({0, 1}, {0}).isEmpty());
+    }
+
+    // ── §9.9 P1: a range expression "1-3,4-6,7" must produce ONE output ──
+    // part per comma-separated segment (single-page segments included), not
+    // one merged part for the whole expression. Verified through the real
+    // preview slot so the contract covers computeSplitGroups, not just math.
+    void splitRangeExpressionProducesOnePreviewEntryPerSegment() {
+        std::shared_ptr<PagesMock> mock;
+        std::shared_ptr<DocumentSession> session;
+        std::shared_ptr<QUndoStack> undoStack;
+        AppContext ctx;
+        QTemporaryDir tmpDir;
+        gp::PagesMode mode;
+        QListWidget* grid = setupPagesHarness(
+            10, "split.pdf", tmpDir, mock, session, undoStack, ctx, mode);
+        QVERIFY(grid);
+
+        // Select "Split by range" and enter a three-segment expression.
+        QRadioButton* rangeRadio = nullptr;
+        for (QRadioButton* rb : mode.findChildren<QRadioButton*>())
+            if (rb->text() == QStringLiteral("Split by range:")) rangeRadio = rb;
+        QVERIFY2(rangeRadio, "PagesMode must expose the 'Split by range:' radio");
+        rangeRadio->setChecked(true);
+
+        QLineEdit* rangeEdit = nullptr;
+        for (QLineEdit* le : mode.findChildren<QLineEdit*>())
+            if (le->placeholderText().startsWith(QStringLiteral("e.g. 1-3")))
+                rangeEdit = le;
+        QVERIFY2(rangeEdit, "PagesMode must expose the range expression edit");
+        rangeEdit->setText(QStringLiteral("1-3,4-6,7"));
+
+        // Drive the real preview slot; the preview list is the ListMode list
+        // that displays the produced "…_part{n}.pdf" entries.
+        QVERIFY(QMetaObject::invokeMethod(&mode, "onPreviewSplit"));
+        QListWidget* preview = nullptr;
+        for (QListWidget* lw : mode.findChildren<QListWidget*>()) {
+            if (lw->viewMode() == QListView::ListMode && lw->count() > 0 &&
+                lw->item(0)->text().contains(QStringLiteral("_part"))) {
+                preview = lw;
+                break;
+            }
+        }
+        QVERIFY2(preview, "preview list must show the produced part files");
+        QCOMPARE(preview->count(), 3); // one output per segment: 1-3 | 4-6 | 7
+        QVERIFY(preview->item(0)->text().contains(QStringLiteral("split_part1.pdf")));
+        QVERIFY(preview->item(1)->text().contains(QStringLiteral("split_part2.pdf")));
+        QVERIFY(preview->item(2)->text().contains(QStringLiteral("split_part3.pdf")));
+    }
+
+    // ── §9.9 P1: per-segment range parser (pure seam) ─────────────────────
+    void testPageRangeSegments_multi() {
+        // "1-3,4-6,7" with 10 pages → three groups in segment order.
+        const QList<QList<int>> groups =
+            gp::PagesMode::parsePageRangeSegments("1-3,4-6,7", 10);
+        QCOMPARE(groups.size(), 3);
+        QCOMPARE(groups[0], QList<int>({0, 1, 2}));
+        QCOMPARE(groups[1], QList<int>({3, 4, 5}));
+        QCOMPARE(groups[2], QList<int>({6}));
+    }
+
+    void testPageRangeSegments_singleSegment() {
+        // One segment behaves like the old single-output split.
+        const QList<QList<int>> groups =
+            gp::PagesMode::parsePageRangeSegments("1-5", 10);
+        QCOMPARE(groups.size(), 1);
+        QCOMPARE(groups[0], QList<int>({0, 1, 2, 3, 4}));
+    }
+
+    void testPageRangeSegments_skipsInvalidAndEmpty() {
+        // Invalid segments yield no group; valid neighbours survive.
+        const QList<QList<int>> groups =
+            gp::PagesMode::parsePageRangeSegments("1-3,junk,5", 10);
+        QCOMPARE(groups.size(), 2);
+        QCOMPARE(groups[0], QList<int>({0, 1, 2}));
+        QCOMPARE(groups[1], QList<int>({4}));
+        QVERIFY(gp::PagesMode::parsePageRangeSegments("", 10).isEmpty());
+        QVERIFY(gp::PagesMode::parsePageRangeSegments("junk", 10).isEmpty());
+        QVERIFY(gp::PagesMode::parsePageRangeSegments("1-3", 0).isEmpty());
+    }
+
+    void testPageRangeSegments_overlapAndClamp() {
+        // Overlapping segments are allowed (per-segment dedupe only) and
+        // out-of-range values clamp per segment.
+        const QList<QList<int>> groups =
+            gp::PagesMode::parsePageRangeSegments("1-2,2-4,100", 4);
+        QCOMPARE(groups.size(), 3);
+        QCOMPARE(groups[0], QList<int>({0, 1}));
+        QCOMPARE(groups[1], QList<int>({1, 2, 3}));
+        QCOMPARE(groups[2], QList<int>({3}));
+    }
+
+    // ── §9.9 P1: end-to-end — seam-derived groups write one file per ─────
+    // segment through the SAME extract/insert/atomic machinery as before.
+    void splitRangeSegmentsWriteOneFilePerSegment() {
+        QTemporaryDir tmpDir;
+        QVERIFY(tmpDir.isValid());
+
+        const QString srcPath = tmpDir.path() + "/range.pdf";
+        QVERIFY(writeStubPdf(srcPath));
+
+        auto mock = std::make_shared<PagesMock>();
+        mock->m_pageCount = 10;
+        mock->m_loaded    = true;
+
+        auto session = std::make_shared<DocumentSession>();
+        session->setPath(srcPath);
+        auto undoStack = std::make_shared<QUndoStack>();
+
+        AppContext ctx;
+        ctx.pdfEditor = mock;
+        ctx.document  = session;
+        ctx.undoStack = undoStack;
+
+        gp::PagesMode mode;
+        mode.setAppContext(&ctx);
+
+        // AR-7 D2: let the async page-count query finish, then reset counters.
+        QTest::qWait(200);
+        mock->m_extractCallCount = 0;
+        mock->m_insertCallCount  = 0;
+        mock->m_deleteCallCount  = 0;
+
+        // "1-3,4-6,7" → 3 groups → 3 output files.
+        const QList<QList<int>> groups =
+            gp::PagesMode::parsePageRangeSegments("1-3,4-6,7", 10);
+        QCOMPARE(groups.size(), 3);
+
+        const QStringList produced = mode.executeSplit(
+            srcPath, groups, tmpDir.path(), "{stem}_part{n}.pdf");
+        QCOMPARE(produced.size(), 3);
+
+        const QString part1 = tmpDir.path() + "/range_part1.pdf";
+        const QString part2 = tmpDir.path() + "/range_part2.pdf";
+        const QString part3 = tmpDir.path() + "/range_part3.pdf";
+        QCOMPARE(produced, QStringList({part1, part2, part3}));
+
+        // Each part carries exactly its segment's pages (PagesMock appends a
+        // "page_<idx>" sentinel per inserted page).
+        QFile f1(part1), f2(part2), f3(part3);
+        QVERIFY(f1.open(QIODevice::ReadOnly));
+        const QByteArray b1 = f1.readAll();
+        f1.close();
+        QVERIFY(b1.contains("page_0"));
+        QVERIFY(b1.contains("page_1"));
+        QVERIFY(b1.contains("page_2"));
+        QVERIFY(!b1.contains("page_3"));
+
+        QVERIFY(f2.open(QIODevice::ReadOnly));
+        const QByteArray b2 = f2.readAll();
+        f2.close();
+        QVERIFY(b2.contains("page_3"));
+        QVERIFY(b2.contains("page_4"));
+        QVERIFY(b2.contains("page_5"));
+        QVERIFY(!b2.contains("page_6"));
+
+        QVERIFY(f3.open(QIODevice::ReadOnly));
+        const QByteArray b3 = f3.readAll();
+        f3.close();
+        QVERIFY(b3.contains("page_6"));
+        QVERIFY(!b3.contains("page_5"));
+
+        // 7 extracts/inserts total (3+3+1), one stub delete per output file.
+        QCOMPARE(mock->m_extractCallCount, 7);
+        QCOMPARE(mock->m_insertCallCount, 7);
+        QCOMPARE(mock->m_deleteCallCount, 3);
     }
 };
 
