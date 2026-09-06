@@ -287,6 +287,7 @@ add_subdirectory(src/pdfws_djot)
 add_library(pdfws_engines STATIC
     src/core/AnnotationSerializer.h  src/core/AnnotationSerializer.cpp
     src/core/ErrorInfo.h             src/core/ErrorInfo.cpp
+    src/core/PageLabels.h            src/core/PageLabels.cpp
     src/core/Capability.h            src/core/Capability.cpp
     src/core/TempFileManager.h       src/core/TempFileManager.cpp
     src/core/CredentialManager.h     src/core/CredentialManager.cpp
@@ -1727,6 +1728,27 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPagesMode.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 60
         LABELS "unit;modes;pages;ui;qt;headless"
+    )
+endif()
+
+# §9.9 P1 groundwork: pure /PageLabels seam — number-tree entries + label
+# strings (Decimal/UppercaseRoman/LowercaseRoman/letters) for a future
+# Page-Labels mode. Compiles its own copy of the seam (TestUpdateChecker
+# precedent); no document I/O, no GUI, no offscreen plugin needed.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPageLabels.cpp")
+    add_executable(TestPageLabels
+        tests/TestPageLabels.cpp
+        src/core/PageLabels.h  src/core/PageLabels.cpp
+    )
+    target_include_directories(TestPageLabels PRIVATE src tests)
+    target_link_libraries(TestPageLabels PRIVATE
+        Qt6::Test Qt6::Core
+    )
+    add_test(NAME TestPageLabels COMMAND TestPageLabels)
+    set_tests_properties(TestPageLabels PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 30
+        LABELS "unit;pages;pagelabels;core;qt;headless"
     )
 endif()
 
