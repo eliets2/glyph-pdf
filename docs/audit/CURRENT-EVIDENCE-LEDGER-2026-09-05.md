@@ -61,10 +61,16 @@ Dated corrections to stale historical claims (superseded by HEAD):
 | U02 | Navigation | One clear entry per task; honest status bar | open |
 | U03 | OCR verify | Source-image review workflow; one confidence function | implemented-awaiting-review — 15 tests (confidence boundary matrix, magnifier pixel-identity, selection funnel, lifecycle-following nav); real-engine e2e run UNVERIFIED (needs GUI+models) |
 | U04 | Compare | Results drive both views (dep R11) | open |
-| U05 | Redaction | Explicit output/failure states; one controller flow | open |
+| U05 | Redaction | Explicit output/failure states; one controller flow | implemented-awaiting-review — RedactOperation transaction (7 stages, 4 outcomes), SafeSave shared primitive, pre-mutation dialog; 13 transaction tests + SHA-256 source invariance; 96/96 suite |
 | U06 | Pages | Selection visibility, insertion indicator, keyboard moves | implemented-awaiting-review — PLUS fixed a probe-verified defect: Qt InternalMove inserts-before-removing, so the drag snapshot captured the duplicate and the atomic permutation command never fired (drag reorder was silently dead in the live path); capture moved to rowsAboutToBeInserted + removal reconciliation. 6 new tests |
 | U07 | Comments | Filter summary, count, clear action on the existing records | open |
 | U08 | Capabilities | Pre-execution capability/scope disclosure across workflows | open |
+
+## Newly discovered engine defect (exposed by U05 fixtures)
+
+| ID | Surface | Finding | Status | Evidence |
+|----|---------|---------|--------|----------|
+| E-1 | redaction excision backend | Redacting one line corrupts a byte-ADJACENT same-stream Tj: the following line's glyph bytes are overwritten (observed 'PUBLIC_KEEP_TEXT' -> 'PUBLIC_KEEP_XEXX' — the two 0x54 'T' bytes became 0x58 — while a line 150pt away in the same stream was also hit; a second-page line survives). Both the mark-based and operation paths share PoDoFoBackend::applyRedactions/redactCanvasRecursively, so this is PRE-EXISTING (all prior fixtures were single-line and could not see it) | open — engine fix needed in redactCanvasRecursively text surgery; U05 fixture pins per-PAGE survival honestly | TestRedactMarkAll two-page fixture, 436aaa8 |
 
 ## Known test-infrastructure facts (Q02)
 
