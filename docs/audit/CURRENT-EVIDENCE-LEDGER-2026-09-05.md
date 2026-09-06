@@ -76,6 +76,9 @@ Dated corrections to stale historical claims (superseded by HEAD):
 | §9.12-a | §9.12 | Named redaction presets (Email/Phone-US/SSN checkboxes) + configurable Optimize DPI (Low/Medium/High presets, clamped 36-600) | implemented-awaiting-review | b43ef08 |
 | §9.14-a | §9.14 | Reading-order tolerance named (kReadingOrderSlotTolerance=2) with honest heuristic framing + boundary tests (displacement 2 not flagged, 3 flagged) | implemented-awaiting-review | c862307 |
 | §9.16-a | §9.16 | Bookmark/hyperlink round-trip contract pinned: plain saves preserve outlines+links; sanitize stripping is intentional-and-visible, never silent | implemented-awaiting-review (tests-only characterization) | 28e8df6 |
+| §9.7-a | §9.7 | Initials variant (monogram seam, 4th picker tab, typed-placement reuse) | implemented-awaiting-review | be47cce → 8dae489 |
+| §9.7-b | §9.7 | Session signature cache (reuse-last checkbox, cleared on document switch) | implemented-awaiting-review | 706a60c (merged c2e127b) |
+| §9.7-c | §9.7 | SignOutcome degradation surfaced at signing time (DSS/B-LTA missing-piece wording, Retry) | implemented-awaiting-review | 22a7b66 (merged c2e127b) |
 
 ## Newly discovered engine defect (exposed by U05 fixtures)
 
