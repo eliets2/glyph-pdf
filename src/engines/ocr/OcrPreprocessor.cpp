@@ -31,8 +31,21 @@ Pix* qimageToPix(const QImage &img)
     return pix;
 }
 
-/// Convert Leptonica Pix (1 or 8 bpp) → QImage.
-QImage pixToQImage(Pix *pix)
+/// Copy resolution metadata from \p meta into \p out when present, so
+/// freshly built QImages (pixToQImage, the denoise buffer) keep the input's
+/// DPI instead of resetting it to the Qt default (F05 acceptance: preserve
+/// DPI metadata through preprocessing).
+void carryResolution(const QImage &meta, QImage &out)
+{
+    if (out.isNull() || meta.isNull()) return;
+    if (meta.dotsPerMeterX() > 0) out.setDotsPerMeterX(meta.dotsPerMeterX());
+    if (meta.dotsPerMeterY() > 0) out.setDotsPerMeterY(meta.dotsPerMeterY());
+}
+
+/// Convert Leptonica Pix (1 or 8 bpp) → QImage. Resolution metadata (DPI) is
+/// carried over from \p meta when it has any, so a fresh QImage built from a
+/// Pix does not silently report the Qt default of 72 dpi.
+QImage pixToQImage(Pix *pix, const QImage &meta = {})
 {
     if (!pix) return {};
 
@@ -50,21 +63,28 @@ QImage pixToQImage(Pix *pix)
                 dst[x] = static_cast<uchar>(val);
             }
         }
+        carryResolution(meta, out);
         return out;
     }
 
     if (d == 1) {
-        // Binary: 0 = black, 1 = white in Leptonica convention
+        // Binary: Leptonica 1 bpp convention (measured against the linked
+        // lept build): ON (1) = black ink, OFF (0) = white paper —
+        // pixConvertTo8() of an all-ON 1 bpp pix is all zeros. Map 1 → 0 and
+        // 0 → 255 so dark ink stays dark and paper stays light (F05: the old
+        // `val ? 255 : 0` inverted the polarity — a white page came out
+        // black). The 8-bit and RGB paths below keep their own mapping; this
+        // is not a global inversion of the input.
         QImage out(w, h, QImage::Format_Grayscale8);
-        out.fill(0);
         for (int y = 0; y < h; ++y) {
             uchar *dst = out.scanLine(y);
             for (int x = 0; x < w; ++x) {
                 l_uint32 val = 0;
                 pixGetPixel(pix, x, y, &val);
-                dst[x] = val ? 255 : 0;
+                dst[x] = val ? 0 : 255;
             }
         }
+        carryResolution(meta, out);
         return out;
     }
 
@@ -82,6 +102,7 @@ QImage pixToQImage(Pix *pix)
             dst[x] = qRgb(r, g, b);
         }
     }
+    carryResolution(meta, out);
     return out;
 }
 
@@ -250,7 +271,7 @@ QImage OcrPreprocessor::deskew(const QImage &input, double *angleOut) const
                                  L_ROTATE_AREA_MAP, L_BRING_IN_WHITE, 0, 0);
         pixDestroy(&pix);
         if (rotated) {
-            QImage out = pixToQImage(rotated);
+            QImage out = pixToQImage(rotated, input);
             pixDestroy(&rotated);
             return out;
         }
@@ -276,7 +297,7 @@ QImage OcrPreprocessor::binarize(const QImage &input) const
     // Sauvola binarization: window 8, reduction factor 0, k=0.34
     Pix *binPix = nullptr;
     if (pixSauvolaBinarize(pix, 8, 0.34f, 1, nullptr, nullptr, nullptr, &binPix) == 0 && binPix) {
-        QImage out = pixToQImage(binPix);
+        QImage out = pixToQImage(binPix, input);
         pixDestroy(&binPix);
         pixDestroy(&pix);
         return out;
@@ -305,6 +326,7 @@ QImage OcrPreprocessor::denoise(const QImage &input) const
     // 3×3 median filter (Qt-only, works everywhere)
     QImage gray = input.convertToFormat(QImage::Format_Grayscale8);
     QImage out(gray.size(), QImage::Format_Grayscale8);
+    carryResolution(input, out);
     int w = gray.width(), h = gray.height();
 
     for (int y = 0; y < h; ++y) {
