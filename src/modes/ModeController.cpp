@@ -90,5 +90,14 @@ void ModeController::deliverOcrResults(const QList<MergedOcrWord>& words) {
         om->setOcrResults(words);
 }
 
+// U03: the full review session — source page image + word boxes + metadata —
+// reaches the OCR Verify screen, so the scan pane shows the real source image
+// the words were recognized on. Mirrors deliverOcrResults; the session image
+// travels by QImage implicit sharing (no re-render, no per-widget copy).
+void ModeController::deliverOcrReview(const gp::OcrReviewSession& session) {
+    if (auto* om = qobject_cast<OCRMode*>(_byId.value("ocr", nullptr)))
+        om->setReviewSession(session);
+}
+
 } // namespace gp
 

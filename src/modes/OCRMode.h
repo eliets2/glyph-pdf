@@ -19,8 +19,12 @@ class QListWidget;
 class QPlainTextEdit;
 class QFrame;
 class QVBoxLayout;
+class QStackedLayout;
 
 namespace gp {
+
+class OcrScanCanvas;
+class OcrWordMagnifier;
 
 /// OCR Verification Mode: top toolbar + info strip + 4-pane splitter.
 /// M5-P2 additions:
@@ -94,6 +98,33 @@ public:
     void setSemanticDocument(const docmodel::SemanticDocument &doc,
                              const QString &djotLibPath = QString());
 
+    // ── U03: the source-and-correction loop ─────────────────────────────────
+    /// Deliver the FULL review session (source identity/revision, the rendered
+    /// page image the words were recognized on, and the words with stable IDs).
+    /// The session image is handed to the scan canvas and the word magnifier
+    /// via QImage implicit sharing — one buffer, no re-render, no per-widget
+    /// copy. The review records come from session.words (authoritative).
+    void setReviewSession(const gp::OcrReviewSession& session);
+
+    /// THE one selection funnel: word links, canvas clicks and the uncertain-
+    /// word navigation all land here, so scan-pane highlight, correction
+    /// field, magnifier crop and review state can never disagree.
+    void selectWord(int stableId);
+
+    /// Wrap-around iterator over the uncertain words (see isUncertain) starting
+    /// after (forward) or before (!forward) fromId. Returns the stableId, or
+    /// -1 when no record qualifies. Pure seam — testable without a GUI.
+    int nextUncertainWord(int fromId, bool forward) const;
+
+    /// The review session currently loaded (invalid when none).
+    const gp::OcrReviewSession& reviewSession() const { return m_session; }
+
+    /// Uncertain = still needs human eyes: LOW confidence band, not removed.
+    /// A correction does NOT turn the model's confidence estimate into a high
+    /// one — a corrected low-confidence word stays in the navigation (the
+    /// source-engine provenance is separate from review status).
+    static bool isUncertain(const OcrReviewedWord& w);
+
 signals:
     void ocrRequested();
     void reviewAccepted();
@@ -103,6 +134,9 @@ signals:
     /// R07: emitted on every state transition so hosts/tests can observe the
     /// lifecycle without polling widgets.
     void reviewStateChanged(gp::OCRMode::ReviewState state);
+    /// U03: emitted by selectWord() — the single selection funnel — so hosts
+    /// can observe which stable word record is under inspection.
+    void selectedWordChanged(int stableId);
 
 public slots:
     // Lifecycle entries. Run/Accept/Reject stay enabled only in the states that
@@ -142,8 +176,20 @@ private:
     /// R08: refresh the zoom pane for the currently selected word.
     void updateWordInspector();
 
+    // ── U03 helpers ─────────────────────────────────────────────────────────
+    /// Show the source-image canvas when a session image is loaded, else the
+    /// rich-text word list (accessibility/text fallback).
+    void updateScanPaneView();
+    /// The zoom header shows the magnifier's COMPUTED magnification ("×N.N"),
+    /// never a static multiplier claim.
+    void updateZoomHeader();
+    /// Next/prev-uncertain buttons follow the same lifecycle discipline as
+    /// Accept/Reject: enabled only in ReviewReady when something is uncertain.
+    void updateNavigationButtons();
+
     /// Build confidence-colored HTML for the scan pane from current word results.
-    /// Green (#22c55e): confidence ≥ 90.  Yellow (#eab308): 70-89.  Red (#ef4444): < 70.
+    /// Bands and colors come from THE one classifier (modes/OcrConfidence.h):
+    /// OcrConfidence::bandFor + bandColor — green ≥ 90, yellow 70–89, red < 70.
     void updateConfidenceOverlay();
 
     /// Update info strip (avg confidence, low-confidence word count) from m_currentWords.
@@ -161,6 +207,11 @@ private:
     // the raw recognition delivery and the plain-text pane is only a preview.
     QList<OcrReviewedWord> m_reviewWords;
     int m_selectedWordId = -1;
+
+    // U03: the review session of the delivered OCR run (source identity +
+    // revision + the page image the words belong to). One copy lives here;
+    // the scan canvas and the word magnifier share its image implicitly.
+    OcrReviewSession m_session;
 
     // Last right-clicked region bbox (used by onReOcrRegion)
     QRectF m_contextRegionBbox;
@@ -187,13 +238,19 @@ private:
     QListWidget*    m_pageList         = nullptr;
     QFrame*         m_imagePane        = nullptr;
     QLabel*         m_scanContentLabel = nullptr;  // rich-text confidence overlay
+    OcrScanCanvas*  m_scanCanvas       = nullptr;  // U03: real source image + word boxes
+    QStackedLayout* m_scanStack        = nullptr;  // canvas <-> text fallback
     QPlainTextEdit* m_textEdit         = nullptr;
     QFrame*         m_zoomPane         = nullptr;
-    QLabel*         m_zoomBig          = nullptr;
+    QLabel*         m_zoomHeader       = nullptr;  // U03: computed "ZOOM · ×N.N"
+    OcrWordMagnifier* m_magnifier      = nullptr;  // U03: magnified source crop
     QLabel*         m_zoomMeta         = nullptr;
     // R08: word inspector — the first supported correction interaction.
     QLineEdit*      m_wordEdit         = nullptr;
     QToolButton*    m_btnDeleteWord    = nullptr;
+    // U03: uncertain-word navigation (wrap-around, next/prev).
+    QToolButton*    m_btnNextUncertain = nullptr;
+    QToolButton*    m_btnPrevUncertain = nullptr;
 };
 
 } // namespace gp

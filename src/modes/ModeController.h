@@ -10,6 +10,10 @@ struct AppContext;
 struct MergedOcrWord;   // engines/ocr/OcrPipeline.h (fwd-declared to keep QtConcurrent out of this header)
 
 namespace gp {
+struct OcrReviewSession;   // modes/OcrReviewSession.h (R08/U03 review session)
+}
+
+namespace gp {
 
 class OCRMode;
 class RedactMode;
@@ -35,6 +39,12 @@ public:
 
     // Forward recognised OCR words to the OCR Verify screen (if it has been created).
     void deliverOcrResults(const QList<MergedOcrWord>& words);
+
+    // U03: forward the FULL review session (source page image + word boxes +
+    // metadata) to the OCR Verify screen, so the scan pane can show the real
+    // source image the words were recognized on. Mirrors deliverOcrResults;
+    // the session image travels by implicit sharing (no re-render, no copy).
+    void deliverOcrReview(const gp::OcrReviewSession& session);
 
 signals:
     void screenChanged(const QString& id);

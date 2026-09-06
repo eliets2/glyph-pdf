@@ -125,6 +125,13 @@ signals:
     // words so the OCR Verify screen can display them for review.
     void ocrResultsReady(const QList<MergedOcrWord>& words);
 
+    // U03: emitted right after ocrResultsReady with the FULL review session —
+    // source identity/revision, the rendered page image the words belong to,
+    // and the words with stable IDs. The host relays it (via
+    // ModeController::deliverOcrReview) to the OCR Verify screen so the scan
+    // pane shows the real source image instead of text-only word links.
+    void ocrReviewReady(const gp::OcrReviewSession& session);
+
     // ── R07 (F11): lifecycle completion signals ──────────────────────────────
     // Worker/validation failure (missing language data, ONNX models, render or
     // engine failure, blocked dispatch). The host relays it to the review panel
