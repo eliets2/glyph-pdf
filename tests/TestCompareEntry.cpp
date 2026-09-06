@@ -13,8 +13,11 @@
 #include <QtTest>
 #include <QLabel>
 #include <QPainter>
+#include <QScrollBar>
+#include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QPdfWriter>
+#include <QPdfView>
 #include <QTreeWidget>
 #include <QSplitter>
 #include <QTextBrowser>
@@ -108,6 +111,16 @@ class TestCompareEntry : public QObject
     //   page 3: text+pixel  (mixed row must stay visible while EITHER of its
     //                        tags is still checked)
     // plus one whole-page reorder (page-move row).
+    // U04: every page also carries a DISTINCT diffImage (red/green/blue/white)
+    // so the per-change overlay tests can pin exactly which page's image the
+    // overlay pushes for a given selected change.
+    static QImage solidImage(int r, int g, int b)
+    {
+        QImage img(4, 4, QImage::Format_ARGB32);
+        img.fill(QColor(r, g, b));
+        return img;
+    }
+
     static DiffResult makeSampleResult()
     {
         DiffResult r;
@@ -119,22 +132,26 @@ class TestCompareEntry : public QObject
         textOnly.pageIndex = 0;
         textOnly.textAdded << QStringLiteral("gamma");
         textOnly.textRemoved << QStringLiteral("delta");
+        textOnly.diffImage = solidImage(255, 0, 0);
         r.pages << textOnly;
 
         PageDiff moveOnly;
         moveOnly.pageIndex = 1;
         moveOnly.moves << MoveOperation{QStringLiteral("alpha"), 3, 1};
+        moveOnly.diffImage = solidImage(0, 255, 0);
         r.pages << moveOnly;
 
         PageDiff pixelOnly;
         pixelOnly.pageIndex = 2;
         pixelOnly.pixelDiffCount = 42;
+        pixelOnly.diffImage = solidImage(0, 0, 255);
         r.pages << pixelOnly;
 
         PageDiff textAndPixel;
         textAndPixel.pageIndex = 3;
         textAndPixel.textAdded << QStringLiteral("omega");
         textAndPixel.pixelDiffCount = 7;
+        textAndPixel.diffImage = solidImage(255, 255, 255);
         r.pages << textAndPixel;
 
         r.pageMoves << DiffResult::PageMove{0, 2, QStringLiteral("excerpt")};
@@ -518,6 +535,531 @@ private slots:
         // QPdfPageNavigator page updates may be deferred — process events.
         QTRY_COMPARE(right->currentPage(), 1);
         QCOMPARE(left->currentPage(), 0);
+    }
+
+    // ── U04: the one filtered change sequence drives everything ────────────
+
+    // U04 acceptance: "Filtered counts and navigation must agree." The
+    // widget's filtered change count must equal CompareMode's pure
+    // rowsVisibleForFilters() seam for EVERY toggle combination, on both a
+    // token-mixed and a structural-only fixture — so the tree and the
+    // navigable sequence can never drift apart.
+    void filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations()
+    {
+        CompareWidget widget;
+        const DiffResult sample = makeSampleResult();
+        const DiffResult structural = makeStructuralResult();
+
+        for (int mask = 0; mask < 32; ++mask) {
+            CompareChangeFilter f;
+            f.showText          = mask & 1;
+            f.showMove          = mask & 2;
+            f.showPixel         = mask & 4;
+            f.showPageMove      = mask & 8;
+            f.showPageAddRemove = mask & 16;
+
+            widget.setDiffResult(sample);
+            widget.setChangeFilter(f);
+            const int expected = gp::CompareMode::rowsVisibleForFilters(
+                sample, f.showText, f.showMove, f.showPixel,
+                f.showPageMove, f.showPageAddRemove);
+            QVERIFY2(widget.changeCount() == expected,
+                     qPrintable(QStringLiteral(
+                                    "sample mask %1 (T%d M%d P%d PM%d AR%d): "
+                                    "changeCount %2 != rowsVisibleForFilters %3")
+                                    .arg(mask)
+                                    .arg(f.showText).arg(f.showMove).arg(f.showPixel)
+                                    .arg(f.showPageMove).arg(f.showPageAddRemove)
+                                    .arg(widget.changeCount())
+                                    .arg(expected)));
+
+            widget.setDiffResult(structural);
+            widget.setChangeFilter(f);
+            const int expectedS = gp::CompareMode::rowsVisibleForFilters(
+                structural, f.showText, f.showMove, f.showPixel,
+                f.showPageMove, f.showPageAddRemove);
+            QVERIFY2(widget.changeCount() == expectedS,
+                     qPrintable(QStringLiteral(
+                                    "structural mask %1: changeCount %2 != rowsVisible %3")
+                                    .arg(mask)
+                                    .arg(widget.changeCount())
+                                    .arg(expectedS)));
+        }
+    }
+
+    // Anchor order: structural changes lead the sequence (canonical
+    // pageChanges order), then one entry per visible page row in pages order;
+    // filtered-out changes are skipped and the survivors renumber
+    // contiguously.
+    void filteredAnchorOrderIsStructuralFirstThenVisiblePages()
+    {
+        CompareWidget widget;
+        widget.setDiffResult(makeSampleResult());
+
+        // All-on: [structural PageMoved(0→2), page0, page1, page2, page3].
+        QCOMPARE(widget.changeCount(), 5);
+        QCOMPARE(widget.anchorAt(0).structuralIndex, 0);
+        QCOMPARE(widget.anchorAt(0).pageDiffIndex, -1);
+        QCOMPARE(widget.anchorAt(0).oldPage, 0);   // R11 exact old/new sides
+        QCOMPARE(widget.anchorAt(0).newPage, 2);
+        for (int j = 1; j <= 4; ++j) {
+            QCOMPARE(widget.anchorAt(j).structuralIndex, -1);
+            QCOMPARE(widget.anchorAt(j).pageDiffIndex, j - 1);
+            QCOMPARE(widget.anchorAt(j).oldPage, j - 1);
+            QCOMPARE(widget.anchorAt(j).newPage, j - 1);
+        }
+
+        // Page-move gate off: the structural anchor disappears, page anchors
+        // keep their relative order and renumber from 0.
+        CompareChangeFilter noPageMove;
+        noPageMove.showPageMove = false;
+        widget.setChangeFilter(noPageMove);
+        QCOMPARE(widget.changeCount(), 4);
+        QCOMPARE(widget.anchorIndexForStructuralChange(0), -1);
+        for (int j = 0; j < 4; ++j)
+            QCOMPARE(widget.anchorAt(j).pageDiffIndex, j);
+
+        // Add/remove + page-move off: only token page rows remain.
+        CompareChangeFilter tokensOnly;
+        tokensOnly.showPageMove = false;
+        tokensOnly.showPageAddRemove = false;
+        widget.setChangeFilter(tokensOnly);
+        QCOMPARE(widget.changeCount(), 4);
+        QCOMPARE(widget.anchorIndexForPage(2), 2);
+
+        // Pixel-only off: page2's row drops, page3 survives on its text tag.
+        CompareChangeFilter noPixel;
+        noPixel.showPixel = false;
+        widget.setChangeFilter(noPixel);
+        QCOMPARE(widget.changeCount(), 4);
+        QCOMPARE(widget.anchorIndexForPage(2), -1);
+        QCOMPARE(widget.anchorIndexForPage(3), 3);
+    }
+
+    // U04 acceptance: "A zero-results filter says no changes match the filter
+    // without claiming the files are identical." Pinned on the nav label, the
+    // text diff panel and the toolbar status.
+    void zeroFilterSaysNoMatchNeverIdentical()
+    {
+        CompareWidget widget;
+        widget.setDiffResult(makeSampleResult());
+
+        CompareChangeFilter none;
+        none.showText = none.showMove = none.showPixel = false;
+        none.showPageMove = none.showPageAddRemove = false;
+        widget.setChangeFilter(none);
+        QCOMPARE(widget.changeCount(), 0);
+
+        auto* nav = widget.findChild<QLabel*>(QStringLiteral("cmpNavLabel"));
+        QVERIFY2(nav, "CompareWidget nav label must carry objectName cmpNavLabel");
+        QVERIFY2(nav->text().contains(QStringLiteral("match the filter"), Qt::CaseInsensitive),
+                 qPrintable(QStringLiteral("nav label: %1").arg(nav->text())));
+        QVERIFY2(!nav->text().contains(QStringLiteral("identical"), Qt::CaseInsensitive),
+                 qPrintable("zero-results filter must never claim the files are identical"));
+
+        auto* browser = widget.findChild<QTextBrowser*>();
+        QVERIFY2(browser, "CompareWidget must own its text diff browser");
+        const QString panel = browser->toPlainText();
+        QVERIFY2(panel.contains(QStringLiteral("match the filter"), Qt::CaseInsensitive),
+                 qPrintable(QStringLiteral("text panel: %1").arg(panel)));
+        QVERIFY2(!panel.contains(QStringLiteral("identical"), Qt::CaseInsensitive),
+                 "text panel must not claim identical on a zero-results filter");
+
+        // The toolbar status mirrors the same rule (existing-API half).
+        gp::CompareMode mode;
+        mode.showDiffResult(makeSampleResult());
+        for (const char* name : {"cmpFilterText", "cmpFilterMove", "cmpFilterPixel",
+                                 "cmpFilterPageMove", "cmpFilterPageAddRemove"}) {
+            auto* b = filterButton(mode, name);
+            QVERIFY2(b, qPrintable(QStringLiteral("%1 not found").arg(name)));
+            b->setChecked(false);
+        }
+        auto* status = mode.findChild<QLabel*>(QStringLiteral("cmpStatusLabel"));
+        QVERIFY2(status, "status label must carry objectName cmpStatusLabel");
+        QVERIFY2(status->text().contains(QStringLiteral("MATCH THE FILTER")),
+                 qPrintable(QStringLiteral("status: %1").arg(status->text())));
+        QVERIFY2(!status->text().contains(QStringLiteral("IDENTICAL")),
+                 qPrintable("status must not claim IDENTICAL on a zero-results filter"));
+    }
+
+    // The pixel overlay follows the SELECTED change (replaces the old
+    // pages.first() shortcut), and the overlay toggle remains the one owner:
+    // switching it off clears whatever a change selection set.
+    void overlayFollowsSelectedChangeAndClearsWithToggle()
+    {
+        CompareWidget widget;
+        widget.setDiffResult(makeSampleResult());
+
+        widget.setShowPixelDiff(true);
+        // No selection yet: the overlay falls back to the FIRST change of the
+        // shared sequence — the structural PageMoved (0→2) maps to the revised
+        // page 3's diff image (pageIndex 2), not pages.first().
+        QCOMPARE(widget.currentOverlayImage(), makeSampleResult().pages[2].diffImage);
+
+        widget.showOverlayForChange(1);   // page 0 (text-only) anchor → red
+        QCOMPARE(widget.currentOverlayImage(), makeSampleResult().pages[0].diffImage);
+        widget.showOverlayForChange(2);   // page 1 (move-only) anchor → green
+        QCOMPARE(widget.currentOverlayImage(), makeSampleResult().pages[1].diffImage);
+        widget.showOverlayForChange(3);   // page 2 (pixel-only) anchor → blue
+        QCOMPARE(widget.currentOverlayImage(), makeSampleResult().pages[2].diffImage);
+
+        // Toggle off clears; a change selection while off cannot re-set it.
+        widget.setShowPixelDiff(false);
+        QVERIFY(widget.currentOverlayImage().isNull());
+        widget.showOverlayForChange(1);
+        QVERIFY(widget.currentOverlayImage().isNull());
+
+        // Selection-driven: select page 1's anchor, re-enable → its image.
+        widget.scrollToChange(2);
+        widget.setShowPixelDiff(true);
+        QCOMPARE(widget.currentOverlayImage(), makeSampleResult().pages[1].diffImage);
+    }
+
+    // Added/removed pages stay navigable with an explanatory placeholder on
+    // the missing side (never a stale page); selecting an anchor whose page
+    // exists on both sides clears both placeholders.
+    void placeholdersExplainMissingSidesAndClearOnBothSideAnchors()
+    {
+        const QString base = createPagePdf("ph_base.pdf", {"First page"});
+        const QString extended =
+            createPagePdf("ph_ext.pdf", {"First page", "Appendix page"});
+        QVERIFY(!base.isEmpty() && !extended.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult added = engine.compare(base, extended);
+        QCOMPARE(added.pageChanges.size(), 1);
+        QCOMPARE(added.pageChanges.first().type, DiffResult::PageChangeType::PageAdded);
+
+        CompareWidget widget;
+        QVERIFY(widget.loadDocuments(base, extended));
+        widget.setDiffResult(added);
+
+        auto* leftPh  = widget.findChild<QLabel*>(QStringLiteral("cmpLeftPlaceholder"));
+        auto* rightPh = widget.findChild<QLabel*>(QStringLiteral("cmpRightPlaceholder"));
+        QVERIFY2(leftPh, "cmpLeftPlaceholder must exist");
+        QVERIFY2(rightPh, "cmpRightPlaceholder must exist");
+        QVERIFY(!leftPh->isVisibleTo(&widget));
+        QVERIFY(!rightPh->isVisibleTo(&widget));
+
+        // Select the added page: the ORIGINAL side has no page 2 — it must
+        // explain itself instead of showing a stale page; the revised side
+        // follows the change exactly.
+        widget.scrollToChange(0);
+        QVERIFY2(leftPh->isVisibleTo(&widget),
+                 "added page must show the missing-side placeholder on the original viewer");
+        QVERIFY(!rightPh->isVisibleTo(&widget));
+        QVERIFY2(leftPh->text().contains(QStringLiteral("added in the revised document")),
+                 qPrintable(QStringLiteral("left placeholder: %1").arg(leftPh->text())));
+
+        auto* split = widget.findChild<QSplitter*>();
+        QVERIFY2(split, "CompareWidget must own the side-by-side viewer splitter");
+        auto* left  = qobject_cast<PdfViewerWidget*>(split->widget(0));
+        auto* right = qobject_cast<PdfViewerWidget*>(split->widget(1));
+        QVERIFY(left && right);
+        QTRY_COMPARE(right->currentPage(), 1);
+        QCOMPARE(left->currentPage(), 0);   // no bogus page navigation
+
+        // A both-sides anchor (token change on page 1) clears the placeholder.
+        DiffResult mixed = added;
+        PageDiff token;
+        token.pageIndex = 0;
+        token.textAdded << QStringLiteral("extra");
+        mixed.pages << token;
+        widget.setDiffResult(mixed);
+        QVERIFY(!leftPh->isVisibleTo(&widget));   // fresh result resets selection
+        widget.scrollToChange(1);                 // page 0's token anchor
+        QVERIFY(!leftPh->isVisibleTo(&widget));
+        QVERIFY(!rightPh->isVisibleTo(&widget));
+
+        // Removed page: the REVISED side explains itself.
+        const DiffResult removed = engine.compare(extended, base);
+        CompareWidget w2;
+        QVERIFY(w2.loadDocuments(extended, base));
+        w2.setDiffResult(removed);
+        auto* rph2 = w2.findChild<QLabel*>(QStringLiteral("cmpRightPlaceholder"));
+        auto* lph2 = w2.findChild<QLabel*>(QStringLiteral("cmpLeftPlaceholder"));
+        QVERIFY(rph2 && lph2);
+        w2.scrollToChange(0);
+        QVERIFY2(rph2->isVisibleTo(&w2),
+                 "removed page must show the missing-side placeholder on the revised viewer");
+        QVERIFY(!lph2->isVisibleTo(&w2));
+        QVERIFY2(rph2->text().contains(QStringLiteral("removed from the original document")),
+                 qPrintable(QStringLiteral("right placeholder: %1").arg(rph2->text())));
+    }
+
+    // Linked scrolling maps the leader's scroll RATIO onto the follower
+    // (page-index mapping), works both directions, and unlinking stops the
+    // follow. Driven through the production seam (mapLinkedScroll) so the
+    // assertions don't depend on offscreen layout.
+    void linkedScrollMapsRatioToFollowerPage()
+    {
+        const QString three = createPagePdf("ls_three.pdf", {"p1", "p2", "p3"});
+        const QString seven =
+            createPagePdf("ls_seven.pdf", {"a", "b", "c", "d", "e", "f", "g"});
+        QVERIFY(!three.isEmpty() && !seven.isEmpty());
+
+        CompareWidget widget;
+        QVERIFY(widget.loadDocuments(three, seven));
+        QVERIFY2(widget.isLinkedScrolling(), "linked scrolling must default ON");
+        auto* split = widget.findChild<QSplitter*>();
+        QVERIFY(split);
+        auto* left  = qobject_cast<PdfViewerWidget*>(split->widget(0));
+        auto* right = qobject_cast<PdfViewerWidget*>(split->widget(1));
+        QVERIFY(left && right);
+        QCOMPARE(left->pageCount(), 3);
+        QCOMPARE(right->pageCount(), 7);
+
+        // Ratio 0.5 over 7 follower pages → page index 3 (int(0.5 * 7)).
+        widget.mapLinkedScroll(left, 5, 10);
+        QTRY_COMPARE(right->currentPage(), 3);
+        // Ratio 0.9 → int(6.3) = 6.
+        widget.mapLinkedScroll(left, 9, 10);
+        QTRY_COMPARE(right->currentPage(), 6);
+        // Reverse direction: ratio 0.5 over 3 follower pages → page 1.
+        widget.mapLinkedScroll(right, 5, 10);
+        QTRY_COMPARE(left->currentPage(), 1);
+
+        // Unlinked: the follower stays put.
+        widget.setLinkedScrolling(false);
+        QVERIFY(!widget.isLinkedScrolling());
+        const int rightBefore = right->currentPage();
+        widget.mapLinkedScroll(left, 0, 10);
+        QCOMPARE(right->currentPage(), rightBefore);
+
+        // Relinking resumes the follow.
+        widget.setLinkedScrolling(true);
+        widget.mapLinkedScroll(left, 0, 10);
+        QTRY_COMPARE(right->currentPage(), 0);
+    }
+
+    // The guard pins: one leader change moves the follower at most once and
+    // never fights back into the leader (no ping-pong). Uses the REAL
+    // scrollbar connections, so the widget is shown offscreen to get real
+    // scroll ranges.
+    void linkedScrollGuardPreventsPingPong()
+    {
+        const QString three = createPagePdf("g_three.pdf", {"p1", "p2", "p3"});
+        const QString seven =
+            createPagePdf("g_seven.pdf", {"a", "b", "c", "d", "e", "f", "g"});
+        QVERIFY(!three.isEmpty() && !seven.isEmpty());
+
+        CompareWidget widget;
+        QVERIFY(widget.loadDocuments(three, seven));
+        widget.resize(900, 700);
+        widget.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&widget));
+
+        auto* split = widget.findChild<QSplitter*>();
+        QVERIFY(split);
+        auto* left  = qobject_cast<PdfViewerWidget*>(split->widget(0));
+        auto* right = qobject_cast<PdfViewerWidget*>(split->widget(1));
+        QVERIFY(left && right);
+        auto* leftBar =
+            left->findChild<QPdfView*>(QStringLiteral("pdfView"))->verticalScrollBar();
+        auto* rightBar =
+            right->findChild<QPdfView*>(QStringLiteral("pdfView"))->verticalScrollBar();
+        QVERIFY(leftBar && rightBar);
+        QTRY_VERIFY(leftBar->maximum() > 0);
+        QTRY_VERIFY(rightBar->maximum() > 0);
+        QTest::qWait(100);   // let layout settle before snapshotting ranges
+
+        const int leftMax = leftBar->maximum();
+        const int rightMax = rightBar->maximum();
+        QVERIFY(leftMax > 0 && rightMax > 0);
+
+        // Real path: leader scrollbar moves → follower maps proportionally.
+        leftBar->setValue(leftMax / 2);
+        const qreal ratio = qreal(leftMax / 2) / leftMax;
+        QTRY_COMPARE(rightBar->value(), qRound(ratio * rightMax));
+        const int leftStable = leftBar->value();
+        QTest::qWait(60);    // an unguarded echo would move the leader here
+        QCOMPARE(leftBar->value(), leftStable);
+
+        // Seam-driven: exactly one follower movement per leader change.
+        QSignalSpy rightSpy(rightBar, &QScrollBar::valueChanged);
+        widget.mapLinkedScroll(left, leftMax / 4, leftMax);
+        QTRY_COMPARE(rightBar->value(),
+                     qRound(qreal(leftMax / 4) / leftMax * rightMax));
+        QTest::qWait(60);
+        QVERIFY2(rightSpy.count() <= 1,
+                 qPrintable(QStringLiteral(
+                                "follower scrollbar moved %1 times for one "
+                                "leader change — re-entrancy guard is broken")
+                                .arg(rightSpy.count())));
+    }
+
+    // Status counter: the filtered change count IS the status total, and it
+    // moves live with the toggles. (Existing-API test — pins the CompareMode
+    // wiring without touching the new widget API.)
+    void statusCounterMatchesFilteredChangeCount()
+    {
+        gp::CompareMode mode;
+        mode.showDiffResult(makeSampleResult());
+        auto* status = mode.findChild<QLabel*>(QStringLiteral("cmpStatusLabel"));
+        QVERIFY2(status, "status label must carry objectName cmpStatusLabel");
+        QVERIFY2(status->text().contains(QStringLiteral("5 CHANGES")),
+                 qPrintable(QStringLiteral("initial status: %1").arg(status->text())));
+
+        auto* pixelBtn = filterButton(mode, "cmpFilterPixel");
+        QVERIFY(pixelBtn);
+        pixelBtn->setChecked(false);
+        QVERIFY2(status->text().contains(QStringLiteral("4 CHANGES")),
+                 qPrintable(QStringLiteral("status after pixel filter: %1").arg(status->text())));
+        pixelBtn->setChecked(true);
+        QVERIFY2(status->text().contains(QStringLiteral("5 CHANGES")),
+                 qPrintable(QStringLiteral("status after re-check: %1").arg(status->text())));
+
+        gp::CompareMode mode2;
+        mode2.showDiffResult(makeStructuralResult());
+        auto* status2 = mode2.findChild<QLabel*>(QStringLiteral("cmpStatusLabel"));
+        QVERIFY(status2);
+        QVERIFY2(status2->text().contains(QStringLiteral("3 CHANGES")),
+                 qPrintable(QStringLiteral("structural status: %1").arg(status2->text())));
+        auto* addRmBtn = filterButton(mode2, "cmpFilterPageAddRemove");
+        QVERIFY(addRmBtn);
+        addRmBtn->setChecked(false);
+        QVERIFY2(status2->text().contains(QStringLiteral("1 CHANGES")),
+                 qPrintable(QStringLiteral("structural status filtered: %1").arg(status2->text())));
+    }
+
+    // EVERY CHANGES tree row — token page rows included, not just structural
+    // rows — maps into the filtered shared sequence via kAnchorIndexRole, and
+    // selecting it navigates that same sequence. Filtering re-maps the roles
+    // (hidden rows drop to -1; survivors renumber).
+    void everyVisibleTreeRowMapsIntoFilteredSharedSequence()
+    {
+        gp::CompareMode mode;
+        mode.showDiffResult(makeSampleResult());
+        auto* tree = mode.findChild<QTreeWidget*>(QStringLiteral("cmpChangesTree"));
+        QVERIFY2(tree, "CHANGES tree must carry objectName cmpChangesTree");
+        QCOMPARE(tree->topLevelItemCount(), 5);
+
+        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+            const QVariant anchor = tree->topLevelItem(i)->data(0, gp::CompareMode::kAnchorIndexRole);
+            QVERIFY2(anchor.isValid() && anchor.toInt() >= 0,
+                     qPrintable(QStringLiteral("tree row %1 must map into the shared sequence")
+                                    .arg(i)));
+        }
+
+        auto* widget = mode.findChild<CompareWidget*>();
+        QVERIFY2(widget, "CompareMode must own a CompareWidget");
+        auto* nav = widget->findChild<QLabel*>(QStringLiteral("cmpNavLabel"));
+        QVERIFY2(nav, "CompareWidget nav label must carry objectName cmpNavLabel");
+
+        // Tree row 2 is the pixel-only page (p.3) — the 4th change of the
+        // shared sequence (structural first). Selecting it must drive the
+        // sequence, not sit still.
+        tree->setCurrentItem(tree->topLevelItem(2));
+        QVERIFY2(nav->text().contains(QStringLiteral("change 4 of 5")),
+                 qPrintable(QStringLiteral("nav label after page-row selection: %1").arg(nav->text())));
+
+        // Text off: the text-only row hides and drops to -1; the pixel row
+        // re-numbers from 3 to 2 in the 4-change sequence.
+        filterButton(mode, "cmpFilterText")->setChecked(false);
+        QVERIFY(tree->topLevelItem(0)->isHidden());
+        QCOMPARE(tree->topLevelItem(0)->data(0, gp::CompareMode::kAnchorIndexRole).toInt(), -1);
+        QCOMPARE(tree->topLevelItem(2)->data(0, gp::CompareMode::kAnchorIndexRole).toInt(), 2);
+        QCOMPARE(widget->changeCount(), 4);
+
+        // Re-checking restores the mapping.
+        filterButton(mode, "cmpFilterText")->setChecked(true);
+        QVERIFY(!tree->topLevelItem(0)->isHidden());
+        QCOMPARE(tree->topLevelItem(0)->data(0, gp::CompareMode::kAnchorIndexRole).toInt(), 1);
+        QCOMPARE(widget->changeCount(), 5);
+    }
+
+    // Export honors the same selected scope and filter state the UI
+    // describes: filtered-out changes drop from the report, and a zero-scope
+    // report says "no changes match" — never "identical".
+    void exportReportsHonorCurrentFilter()
+    {
+        gp::CompareMode mode;
+        mode.showDiffResult(makeSampleResult());
+
+        // Backward compatibility: the no-arg overloads still produce the full
+        // report for the default (all-on) filter.
+        QVERIFY2(mode.buildTextReport().contains(QStringLiteral("gamma")),
+                 "full text report must contain the text-only page tokens");
+        QVERIFY2(mode.buildHtmlReport().contains(QStringLiteral("gamma")),
+                 "full html report must contain the text-only page tokens");
+
+        CompareChangeFilter noText;
+        noText.showText = false;
+        const QString txt = mode.buildTextReport(noText);
+        QVERIFY2(!txt.contains(QStringLiteral("gamma")) && !txt.contains(QStringLiteral("delta")),
+                 qPrintable(QStringLiteral("text-filtered report leaked text-only tokens: %1").arg(txt)));
+        QVERIFY2(txt.contains(QStringLiteral("alpha")),
+                 "move content stays in scope with text off");
+        QVERIFY2(txt.contains(QStringLiteral("pixels differ")),
+                 "pixel note stays in scope with text off");
+        // The sample fixture's structural PageMoved is (old 0 → new 2).
+        QVERIFY2(txt.contains(QStringLiteral("Page 1 moved to position 3")),
+                 "structural entries stay in scope with text off");
+
+        const QString html = mode.buildHtmlReport(noText);
+        QVERIFY2(!html.contains(QStringLiteral("gamma")),
+                 "html-filtered report leaked text-only tokens");
+        QVERIFY2(html.contains(QStringLiteral("alpha")),
+                 "html report keeps move content in scope");
+
+        CompareChangeFilter none;
+        none.showText = none.showMove = none.showPixel = false;
+        none.showPageMove = none.showPageAddRemove = false;
+        const QString emptyTxt = mode.buildTextReport(none);
+        QVERIFY2(emptyTxt.contains(QStringLiteral("no changes match the filter"),
+                                   Qt::CaseInsensitive),
+                 qPrintable(QStringLiteral("empty text report: %1").arg(emptyTxt)));
+        QVERIFY2(!emptyTxt.contains(QStringLiteral("identical"), Qt::CaseInsensitive),
+                 "empty report must never claim the files are identical");
+        const QString emptyHtml = mode.buildHtmlReport(none);
+        QVERIFY2(emptyHtml.contains(QStringLiteral("no changes match the filter"),
+                                    Qt::CaseInsensitive),
+                 qPrintable("empty html report must say no changes match"));
+        QVERIFY2(!emptyHtml.contains(QStringLiteral("identical"), Qt::CaseInsensitive),
+                 "empty html report must never claim identical");
+    }
+
+    // Toolbar: linked-scroll toggle (on by default, drives the widget seam),
+    // swap action, and the Old/New files label surfacing page counts.
+    void toolbarSurfacesLinkToggleSwapAndPageCounts()
+    {
+        const QString a = createPagePdf("tb_a.pdf", {"a1", "a2", "a3", "a4"});
+        const QString b = createPagePdf("tb_b.pdf", {"b1", "b2", "b3", "b4"});
+        QVERIFY(!a.isEmpty() && !b.isEmpty());
+
+        gp::CompareMode mode;
+        auto* link = filterButton(mode, "cmpBtnLinkScroll");
+        QVERIFY2(link, "cmpBtnLinkScroll toggle must exist");
+        QVERIFY(link->isCheckable() && link->isChecked());
+        auto* widget = mode.findChild<CompareWidget*>();
+        QVERIFY2(widget, "CompareMode must own a CompareWidget");
+        QVERIFY(widget->isLinkedScrolling());
+        link->setChecked(false);
+        QVERIFY(!widget->isLinkedScrolling());
+        link->setChecked(true);
+        QVERIFY(widget->isLinkedScrolling());
+
+        auto* swap = mode.findChild<QToolButton*>(QStringLiteral("cmpSwapButton"));
+        QVERIFY2(swap, "cmpSwapButton must exist");
+
+        auto* files = mode.findChild<QLabel*>(QStringLiteral("cmpFilesLabel"));
+        QVERIFY2(files, "files label must carry objectName cmpFilesLabel");
+        mode.compareFiles(a, b);
+        const QString label = files->text();
+        QVERIFY2(label.contains(QStringLiteral("tb_a.pdf")) && label.contains(QStringLiteral("tb_b.pdf")),
+                 qPrintable(QStringLiteral("files label: %1").arg(label)));
+        QVERIFY2(label.contains(QStringLiteral("(4 pp)")),
+                 qPrintable(QStringLiteral("files label must surface page counts: %1").arg(label)));
+
+        // Swap re-runs the comparison with the sides exchanged (enabled once
+        // the running comparison finishes).
+        QTRY_VERIFY2(swap->isEnabled(), "swap re-enables once the comparison finishes");
+        swap->click();
+        const QString swapped = files->text();
+        QVERIFY2(swapped.indexOf(QStringLiteral("tb_b.pdf"))
+                     < swapped.indexOf(QStringLiteral("tb_a.pdf")),
+                 qPrintable(QStringLiteral("swapped label: %1").arg(swapped)));
+        QTRY_VERIFY(!mode.isBusy());   // clean shutdown before the test ends
     }
 };
 

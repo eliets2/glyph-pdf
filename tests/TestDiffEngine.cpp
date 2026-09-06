@@ -432,6 +432,58 @@ private slots:
         QVERIFY(r.isIdentical);
         QVERIFY(r.pageChanges.isEmpty());
     }
+
+    // U04 contract: pageChanges is THE canonical sequence the filtered change
+    // navigation walks, so a mixed diff (reorder + appended page) must appear
+    // there once per structural change, each entry carrying its exact
+    // old/new sides, in the deterministic doc2 reading order (moved pages
+    // anchor on their new position, added pages follow).
+    void mixedMoveAndAddYieldOrderedCanonicalSequence() {
+        const QString a =
+            createPagePdf(m_dir.path(), "mix_a.pdf", {"Alpha page", "Beta page"});
+        const QString b = createPagePdf(m_dir.path(), "mix_b.pdf",
+                                        {"Beta page", "Alpha page", "Epsilon page"});
+        QVERIFY(!a.isEmpty() && !b.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(a, b);
+
+        QVERIFY2(!r.isIdentical, "reorder + appended page must clear isIdentical");
+        // Legacy move list stays populated exactly once for the reorder.
+        QCOMPARE(r.pageMoves.size(), 1);
+        QCOMPARE(r.pageMoves.first().fromPage, 1);
+        QCOMPARE(r.pageMoves.first().toPage, 0);
+
+        // One entry per structural change in the unified sequence: the
+        // swapped page as PageMoved (both sides), the appended page as
+        // PageAdded (no old side).
+        QCOMPARE(r.pageChanges.size(), 2);
+        int moved = -1, added = -1;
+        for (int i = 0; i < r.pageChanges.size(); ++i) {
+            const DiffResult::PageChange& ch = r.pageChanges.at(i);
+            if (ch.type == DiffResult::PageChangeType::PageMoved) {
+                QVERIFY2(moved == -1, "the reorder must appear exactly once");
+                moved = i;
+                QVERIFY(ch.hasOldSide() && ch.hasNewSide());
+                QCOMPARE(ch.oldPage, 1);
+                QCOMPARE(ch.newPage, 0);
+            } else {
+                QVERIFY2(ch.type == DiffResult::PageChangeType::PageAdded,
+                         "no spurious structural entry for aligned pages");
+                QVERIFY2(added == -1, "the appended page must appear exactly once");
+                added = i;
+                QVERIFY2(!ch.hasOldSide(), "an added page has no old-side position");
+                QVERIFY(ch.hasNewSide());
+                QCOMPARE(ch.newPage, 2);
+            }
+        }
+        QVERIFY2(moved >= 0 && added >= 0, "both structural changes must be present");
+        // Deterministic reading order (sorted by the page's doc2 position:
+        // the moved page anchors at new position 0, the added page at 2).
+        QVERIFY2(moved < added,
+                 qPrintable(QStringLiteral("canonical order: moved@%1 added@%2")
+                                .arg(moved).arg(added)));
+    }
 };
 
 QTEST_MAIN(TestDiffEngine)

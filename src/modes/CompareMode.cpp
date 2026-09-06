@@ -38,6 +38,7 @@ CompareMode::CompareMode(QWidget* parent) : QWidget(parent) {
     auto mono = [](const QString& s){ auto* l = new QLabel(s); l->setProperty("mono",true); return l; };
     hrow->addWidget(mono(tr("COMPARE")));
     m_filesLabel = mono(tr("No files selected — use Compare Docs to open two PDFs"));
+    m_filesLabel->setObjectName(QStringLiteral("cmpFilesLabel"));  // U04: testable Old/New surface
     hrow->addWidget(m_filesLabel);
     auto* pickBtn = new QToolButton;
     pickBtn->setText(tr("Compare Docs…"));
@@ -68,6 +69,39 @@ CompareMode::CompareMode(QWidget* parent) : QWidget(parent) {
     });
     hrow->addWidget(toggleDiff);
 
+    // U04: linked scrolling — on by default (Acrobat-style linked compare);
+    // the objectName is the test handle for the toggle.
+    m_linkScrollBtn = new QToolButton;
+    m_linkScrollBtn->setObjectName(QStringLiteral("cmpBtnLinkScroll"));
+    m_linkScrollBtn->setText(tr("Link Scroll"));
+    m_linkScrollBtn->setToolTip(
+        tr("Scroll both documents together (proportional page mapping)"));
+    m_linkScrollBtn->setCheckable(true);
+    m_linkScrollBtn->setChecked(true);
+    m_linkScrollBtn->setAutoRaise(true);
+    connect(m_linkScrollBtn, &QToolButton::toggled, this, [this](bool linked) {
+        m_compareWidget->setLinkedScrolling(linked);
+    });
+    hrow->addWidget(m_linkScrollBtn);
+
+    // U04: swap original/revised sides and compare again.
+    m_swapBtn = new QToolButton;
+    m_swapBtn->setObjectName(QStringLiteral("cmpSwapButton"));
+    m_swapBtn->setText(tr("\xE2\x87\x84 Swap Sides"));
+    m_swapBtn->setToolTip(tr("Swap the original and revised documents and compare again"));
+    m_swapBtn->setProperty("variant", "ghost");
+    m_swapBtn->setEnabled(false);
+    connect(m_swapBtn, &QToolButton::clicked, this, [this] {
+        if (m_watcher.isRunning() || m_file1.isEmpty() || m_file2.isEmpty())
+            return;
+        // Copy first: compareFiles takes const refs, which would bind
+        // directly to these members and alias the m_file1 = file1 store.
+        const QString original = m_file1;
+        const QString revised  = m_file2;
+        compareFiles(revised, original);
+    });
+    hrow->addWidget(m_swapBtn);
+
     m_exportBtn = new QToolButton;
     m_exportBtn->setText(tr("Export Report"));
     m_exportBtn->setProperty("variant","ghost");
@@ -81,15 +115,28 @@ CompareMode::CompareMode(QWidget* parent) : QWidget(parent) {
     col->addWidget(tb);
 
     m_compareWidget = new CompareWidget(this);
-    col->addWidget(m_compareWidget, 1);
 
     // Wire PREV/NEXT to CompareWidget navigation (captured after m_compareWidget exists)
     connect(m_prevBtn, &QToolButton::clicked, m_compareWidget, &CompareWidget::prevChange);
     connect(m_nextBtn, &QToolButton::clicked, m_compareWidget, &CompareWidget::nextChange);
 
+    // U04: one counter — the toolbar status tracks the selected change in the
+    // shared sequence so tree, counter, next/previous and the views always
+    // refer to the same change.
+    connect(m_compareWidget, &CompareWidget::currentChangeChanged, this,
+            [this](int index) {
+        if (index < 0 || m_lastResult.isIdentical)
+            return;
+        m_statusLabel->setText(
+            tr("CHANGE %1 OF %2").arg(index + 1).arg(m_compareWidget->changeCount()));
+    });
+
     // changes panel
     auto* changes = new QFrame;
-    changes->setFixedHeight(160);
+    // U04: the lower details area is resizable via the splitter below — the
+    // old fixed 160px height becomes a floor (the text browser's own 80px
+    // minimum still protects the inner pane).
+    changes->setMinimumHeight(120);
     auto* cl = new QVBoxLayout(changes); cl->setContentsMargins(0,0,0,0); cl->setSpacing(0);
     auto* ch = new QFrame; ch->setProperty("role","modeToolbar"); ch->setFixedHeight(26);
     auto* chr = new QHBoxLayout(ch); chr->setContentsMargins(12,0,12,0);
@@ -127,7 +174,19 @@ CompareMode::CompareMode(QWidget* parent) : QWidget(parent) {
     m_tree->setHeaderLabels({CompareMode::tr("#"), CompareMode::tr("Page"), CompareMode::tr("Description")});
     m_tree->setRootIsDecorated(false);
     cl->addWidget(m_tree, 1);
-    col->addWidget(changes);
+
+    // U04: the lower details area (document views vs changes list) is a
+    // splitter — the user can give the change list more room instead of the
+    // old fixed 160px band. Neither pane collapses away.
+    auto* detailsSplit = new QSplitter(Qt::Vertical, this);
+    detailsSplit->setObjectName(QStringLiteral("cmpDetailsSplitter"));
+    detailsSplit->addWidget(m_compareWidget);
+    detailsSplit->addWidget(changes);
+    detailsSplit->setStretchFactor(0, 3);
+    detailsSplit->setStretchFactor(1, 1);
+    detailsSplit->setSizes({720, 200});
+    detailsSplit->setChildrenCollapsible(false);
+    col->addWidget(detailsSplit, 1);
 
     // R11: selecting a structural CHANGES row jumps the one shared change
     // sequence (text panel anchor + viewer pages). Rows that map into the
@@ -148,9 +207,14 @@ void CompareMode::compareFiles(const QString& file1, const QString& file2) {
     m_file1 = file1;
     m_file2 = file2;
     m_compareWidget->loadDocuments(file1, file2);
-    // Update the toolbar label to show the actual file names being compared.
+    // Update the toolbar label: actual Old/New filenames AND page counts
+    // (U04 — the compared scope is visible before the diff finishes).
     if (m_filesLabel) {
-        m_filesLabel->setText(QFileInfo(file1).fileName() + "   ↔   " + QFileInfo(file2).fileName());
+        m_filesLabel->setText(QStringLiteral("%1 (%2 pp)   \xE2\x86\x94   %3 (%4 pp)")
+                                  .arg(QFileInfo(file1).fileName())
+                                  .arg(m_compareWidget->leftPageCount())
+                                  .arg(QFileInfo(file2).fileName())
+                                  .arg(m_compareWidget->rightPageCount()));
     }
     m_statusLabel->setText(tr("COMPARING..."));
     m_tree->clear();
@@ -158,6 +222,7 @@ void CompareMode::compareFiles(const QString& file1, const QString& file2) {
     // O4: reset nav buttons while comparison is running.
     if (m_prevBtn) m_prevBtn->setEnabled(false);
     if (m_nextBtn) m_nextBtn->setEnabled(false);
+    if (m_swapBtn) m_swapBtn->setEnabled(false);   // U04: no swap mid-flight
 
     QFuture<DiffResult> future = QtConcurrent::run([file1, file2]() {
         DiffEngine engine;
@@ -184,6 +249,7 @@ void CompareMode::onDiffFinished() {
     // O4: enable PREV/NEXT only now that we know there are actual changes.
     if (m_prevBtn) m_prevBtn->setEnabled(true);
     if (m_nextBtn) m_nextBtn->setEnabled(true);
+    if (m_swapBtn) m_swapBtn->setEnabled(true);   // U04: sides swappable again
 }
 
 // §9.10: tree population split out of onDiffFinished so the change-type filter
@@ -191,9 +257,15 @@ void CompareMode::onDiffFinished() {
 void CompareMode::showDiffResult(const DiffResult& result) {
     m_lastResult = result;
 
+    // U04: the CompareWidget owns the one shared change sequence — give it
+    // the result BEFORE the tree is built so every row's kAnchorIndexRole
+    // maps into the live sequence (onDiffFinished drives the same order).
+    m_compareWidget->setDiffResult(result);
+
     int totalChanges = 0;
     m_tree->clear();
-    for (const auto& page : result.pages) {
+    for (int pageIdx = 0; pageIdx < result.pages.size(); ++pageIdx) {
+        const auto& page = result.pages.at(pageIdx);
         const int textChanges = page.textAdded.size() + page.textRemoved.size()
                                 + page.moves.size();
         const int changes = textChanges + (page.pixelDiffCount > 0 ? 1 : 0);
@@ -213,6 +285,9 @@ void CompareMode::showDiffResult(const DiffResult& result) {
                           !page.textAdded.isEmpty() || !page.textRemoved.isEmpty());
             item->setData(0, kHasMoveRole, !page.moves.isEmpty());
             item->setData(0, kHasPixelRole, page.pixelDiffCount > 0);
+            // U04: remember the row's raw position in DiffResult::pages so
+            // the filtered anchor index can be recomputed on every toggle.
+            item->setData(0, kPageDiffIndexRole, pageIdx);
             // Colour code items that have moves
             if (!page.moves.isEmpty())
                 item->setForeground(2, QColor("#d97c00"));  // orange for moves
@@ -255,41 +330,89 @@ void CompareMode::showDiffResult(const DiffResult& result) {
             item->setData(0, kIsPageMoveRole, true);
             break;
         }
+        // U04: raw position in the canonical pageChanges sequence.
+        item->setData(0, kPageChangeIndexRole, structuralAnchor);
+        // Build-time mapping (unfiltered index); applyChangeTypeFilters()
+        // recomputes it against the live filtered sequence.
         item->setData(0, kAnchorIndexRole, structuralAnchor++);
     }
 
-    m_statusLabel->setText(tr("%1 CHANGES").arg(totalChanges));
+    // U04: the status total is the FILTERED change count — set by
+    // applyChangeTypeFilters() below from the widget's shared sequence, so
+    // the counter always matches what the tree shows.
     // Respect the toggles the user has already set (re-apply to the fresh rows).
     applyChangeTypeFilters();
 }
 
-// ── §9.10: change-type filter (display-layer only) ──────────────────────────────
+// ── §9.10/U04: change-type filter — the ONE funnel ──────────────────────────────
+// The toggles drive: (1) the widget's filtered change sequence (which
+// next/prev, the viewers, the overlay and the counter read), (2) tree row
+// visibility, (3) every row's kAnchorIndexRole mapping, and (4) the status
+// total. One funnel, so the views cannot disagree.
+
+CompareChangeFilter CompareMode::currentFilter() const {
+    CompareChangeFilter f;
+    f.showText          = !m_filterText     || m_filterText->isChecked();
+    f.showMove          = !m_filterMove     || m_filterMove->isChecked();
+    f.showPixel         = !m_filterPixel    || m_filterPixel->isChecked();
+    f.showPageMove      = !m_filterPageMove || m_filterPageMove->isChecked();
+    f.showPageAddRemove = !m_filterPageAddRemove || m_filterPageAddRemove->isChecked();
+    return f;
+}
 
 void CompareMode::applyChangeTypeFilters() {
     if (!m_tree)
         return;
-    const bool showText     = !m_filterText     || m_filterText->isChecked();
-    const bool showMove     = !m_filterMove     || m_filterMove->isChecked();
-    const bool showPixel    = !m_filterPixel    || m_filterPixel->isChecked();
-    const bool showPageMove = !m_filterPageMove || m_filterPageMove->isChecked();
-    // R11: pages added/removed between the documents have their own gate.
-    const bool showPageAddRemove = !m_filterPageAddRemove || m_filterPageAddRemove->isChecked();
+    const CompareChangeFilter filter = currentFilter();
+    // U04: the widget owns the shared filtered sequence (rebuilds anchors,
+    // clamps the selection, refreshes overlay/nav).
+    m_compareWidget->setChangeFilter(filter);
+
     for (int i = 0; i < m_tree->topLevelItemCount(); ++i) {
         auto* item = m_tree->topLevelItem(i);
         bool show;
+        bool structural = false;
         if (item->data(0, kIsPageMoveRole).toBool()) {
-            show = showPageMove;
+            show = filter.showPageMove;
+            structural = true;
         } else if (item->data(0, kIsPageAddRemoveRole).toBool()) {
-            show = showPageAddRemove;
+            show = filter.showPageAddRemove;
+            structural = true;
         } else {
             // A page row carries several change types; it stays visible while
             // ANY of its (still-checked) tags matches.
-            show = (item->data(0, kHasTextRole).toBool() && showText)
-                || (item->data(0, kHasMoveRole).toBool() && showMove)
-                || (item->data(0, kHasPixelRole).toBool() && showPixel);
+            show = (item->data(0, kHasTextRole).toBool() && filter.showText)
+                || (item->data(0, kHasMoveRole).toBool() && filter.showMove)
+                || (item->data(0, kHasPixelRole).toBool() && filter.showPixel);
         }
         item->setHidden(!show);
+        // U04: EVERY row maps into the filtered shared sequence (token page
+        // rows navigate their page's anchor); rows the filter hides drop to
+        // -1 so a stale selection can never jump a hidden change.
+        const int anchorIndex = structural
+            ? m_compareWidget->anchorIndexForStructuralChange(
+                  item->data(0, kPageChangeIndexRole).toInt())
+            : m_compareWidget->anchorIndexForPage(
+                  item->data(0, kPageDiffIndexRole).toInt());
+        item->setData(0, kAnchorIndexRole, anchorIndex);
     }
+
+    // A filter change can hide the current row or invalidate its mapping —
+    // drop the selection so the tree and the widget's clamped position agree.
+    QTreeWidgetItem* current = m_tree->currentItem();
+    if (current && (current->isHidden()
+                    || current->data(0, kAnchorIndexRole).toInt() < 0))
+        m_tree->setCurrentItem(nullptr);
+
+    // U04: the status total is the widget's filtered change count (pinned
+    // equal to rowsVisibleForFilters by the tests). A zero-results filter
+    // says so — never "identical" (engine-owned wording).
+    if (m_lastResult.isIdentical)
+        m_statusLabel->setText(tr("FILES ARE IDENTICAL"));
+    else if (m_compareWidget->changeCount() == 0)
+        m_statusLabel->setText(tr("NO CHANGES MATCH THE FILTER"));
+    else
+        m_statusLabel->setText(tr("%1 CHANGES").arg(m_compareWidget->changeCount()));
 }
 
 int CompareMode::rowsVisibleForFilters(const DiffResult& result, bool showText,
@@ -335,7 +458,9 @@ void CompareMode::onExportReport() {
     if (!asText && !path.endsWith(QLatin1String(".html"), Qt::CaseInsensitive))
         path += QStringLiteral(".html");
 
-    const QString content = asText ? buildTextReport() : buildHtmlReport();
+    // U04: export the SAME selected scope and filter state the UI describes.
+    const CompareChangeFilter filter = currentFilter();
+    const QString content = asText ? buildTextReport(filter) : buildHtmlReport(filter);
 
     QFile f(path);
     if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
@@ -352,26 +477,41 @@ void CompareMode::onExportReport() {
 }
 
 QString CompareMode::buildHtmlReport() const {
+    return buildHtmlReport(CompareChangeFilter{});
+}
+
+QString CompareMode::buildHtmlReport(const CompareChangeFilter& filter) const {
     auto esc = [](const QString& s) { return s.toHtmlEscaped(); };
+    // U04: gates mirror the widget's filtered sequence — a structural change
+    // shows behind its page-level toggle; a page shows while ANY of its
+    // still-checked tags matches (same rule as rowsVisibleForFilters).
+    auto pageVisible = [&filter](const PageDiff& page) {
+        const bool hasText = !page.textAdded.isEmpty() || !page.textRemoved.isEmpty();
+        const bool hasMove = !page.moves.isEmpty();
+        const bool hasPixel = page.pixelDiffCount > 0;
+        return (hasText && filter.showText) || (hasMove && filter.showMove)
+               || (hasPixel && filter.showPixel);
+    };
 
     int totalAdded = 0, totalRemoved = 0, totalMoved = 0, changedPages = 0;
     for (const auto& page : m_lastResult.pages) {
+        if (!pageVisible(page))
+            continue;
         totalAdded   += page.textAdded.size();
         totalRemoved += page.textRemoved.size();
         totalMoved   += page.moves.size();
-        if (!page.textAdded.isEmpty() || !page.textRemoved.isEmpty()
-            || !page.moves.isEmpty() || page.pixelDiffCount > 0)
-            ++changedPages;
+        ++changedPages;
     }
     const int totalChanges = totalAdded + totalRemoved + totalMoved;
 
-    // R11: structural page changes, summarised per type.
+    // R11: structural page changes, summarised per type (filtered).
     int pagesAdded = 0, pagesRemoved = 0, pagesMoved = 0;
     for (const auto& ch : m_lastResult.pageChanges) {
-        switch (ch.type) {
-        case DiffResult::PageChangeType::PageAdded:   ++pagesAdded;   break;
-        case DiffResult::PageChangeType::PageRemoved: ++pagesRemoved; break;
-        case DiffResult::PageChangeType::PageMoved:   ++pagesMoved;   break;
+        if (ch.type == DiffResult::PageChangeType::PageMoved) {
+            if (filter.showPageMove) ++pagesMoved;
+        } else if (filter.showPageAddRemove) {
+            if (ch.type == DiffResult::PageChangeType::PageAdded)   ++pagesAdded;
+            if (ch.type == DiffResult::PageChangeType::PageRemoved) ++pagesRemoved;
         }
     }
 
@@ -414,12 +554,23 @@ QString CompareMode::buildHtmlReport() const {
         return html;
     }
 
-    // R11: structural page changes — every entry names the page and the side
-    // it lives on (or moved between). Single canonical sequence (pageChanges);
-    // the legacy pageMoves list is not emitted separately.
-    if (!m_lastResult.pageChanges.isEmpty()) {
+    // R11/U04: structural page changes — every entry names the page and the
+    // side it lives on (or moved between). Single canonical sequence
+    // (pageChanges), gated by the filter; the legacy pageMoves list is not
+    // emitted separately.
+    bool hasStructural = false;
+    for (const auto& ch : m_lastResult.pageChanges) {
+        if (ch.type == DiffResult::PageChangeType::PageMoved
+                ? !filter.showPageMove : !filter.showPageAddRemove)
+            continue;
+        hasStructural = true;
+    }
+    if (hasStructural) {
         o << "<h2>Structural page changes</h2>\n<ul>\n";
         for (const auto& ch : m_lastResult.pageChanges) {
+            if (ch.type == DiffResult::PageChangeType::PageMoved
+                    ? !filter.showPageMove : !filter.showPageAddRemove)
+                continue;
             switch (ch.type) {
             case DiffResult::PageChangeType::PageAdded:
                 o << "<li class=\"added\">Page " << (ch.newPage + 1)
@@ -442,9 +593,7 @@ QString CompareMode::buildHtmlReport() const {
     }
 
     for (const auto& page : m_lastResult.pages) {
-        const bool changed = !page.textAdded.isEmpty() || !page.textRemoved.isEmpty()
-                             || !page.moves.isEmpty() || page.pixelDiffCount > 0;
-        if (!changed) continue;
+        if (!pageVisible(page)) continue;
 
         o << "<h2>Page " << (page.pageIndex + 1) << "</h2>\n";
         o << "<table class=\"diff\"><tr><th>Removed</th><th>Added</th></tr>\n";
@@ -467,28 +616,49 @@ QString CompareMode::buildHtmlReport() const {
             o << "<p class=\"unchanged\">~" << page.pixelDiffCount << " pixels differ visually.</p>\n";
     }
 
+    // U04: a filter that empties the report says so — never "identical"
+    // (that wording stays engine-owned via isIdentical above).
+    if (!hasStructural && changedPages == 0)
+        o << "<p class=\"unchanged\">No changes match the filter.</p>\n";
+
     o << "</body></html>\n";
     return html;
 }
 
 QString CompareMode::buildTextReport() const {
+    return buildTextReport(CompareChangeFilter{});
+}
+
+QString CompareMode::buildTextReport(const CompareChangeFilter& filter) const {
+    // U04: gates mirror the widget's filtered sequence (see buildHtmlReport).
+    auto pageVisible = [&filter](const PageDiff& page) {
+        const bool hasText = !page.textAdded.isEmpty() || !page.textRemoved.isEmpty();
+        const bool hasMove = !page.moves.isEmpty();
+        const bool hasPixel = page.pixelDiffCount > 0;
+        return (hasText && filter.showText) || (hasMove && filter.showMove)
+               || (hasPixel && filter.showPixel);
+    };
+
     QString out;
     QTextStream o(&out);
 
     int totalAdded = 0, totalRemoved = 0, totalMoved = 0;
     for (const auto& page : m_lastResult.pages) {
+        if (!pageVisible(page))
+            continue;
         totalAdded   += page.textAdded.size();
         totalRemoved += page.textRemoved.size();
         totalMoved   += page.moves.size();
     }
 
-    // R11: structural page-change counts for the summary line.
+    // R11: structural page-change counts for the summary line (filtered).
     int pagesAdded = 0, pagesRemoved = 0, pagesMoved = 0;
     for (const auto& ch : m_lastResult.pageChanges) {
-        switch (ch.type) {
-        case DiffResult::PageChangeType::PageAdded:   ++pagesAdded;   break;
-        case DiffResult::PageChangeType::PageRemoved: ++pagesRemoved; break;
-        case DiffResult::PageChangeType::PageMoved:   ++pagesMoved;   break;
+        if (ch.type == DiffResult::PageChangeType::PageMoved) {
+            if (filter.showPageMove) ++pagesMoved;
+        } else if (filter.showPageAddRemove) {
+            if (ch.type == DiffResult::PageChangeType::PageAdded)   ++pagesAdded;
+            if (ch.type == DiffResult::PageChangeType::PageRemoved) ++pagesRemoved;
         }
     }
 
@@ -509,11 +679,22 @@ QString CompareMode::buildTextReport() const {
         return out;
     }
 
-    // R11: structural page changes — page and side named explicitly; the
-    // legacy pageMoves list is not emitted separately (single sequence).
-    if (!m_lastResult.pageChanges.isEmpty()) {
+    // R11/U04: structural page changes — page and side named explicitly;
+    // single canonical sequence (pageChanges), gated by the filter; the
+    // legacy pageMoves list is not emitted separately.
+    bool hasStructural = false;
+    for (const auto& ch : m_lastResult.pageChanges) {
+        if (ch.type == DiffResult::PageChangeType::PageMoved
+                ? !filter.showPageMove : !filter.showPageAddRemove)
+            continue;
+        hasStructural = true;
+    }
+    if (hasStructural) {
         o << "Structural page changes:\n";
         for (const auto& ch : m_lastResult.pageChanges) {
+            if (ch.type == DiffResult::PageChangeType::PageMoved
+                    ? !filter.showPageMove : !filter.showPageAddRemove)
+                continue;
             switch (ch.type) {
             case DiffResult::PageChangeType::PageAdded:
                 o << "  Page " << (ch.newPage + 1) << " added in revised document";
@@ -534,9 +715,7 @@ QString CompareMode::buildTextReport() const {
     }
 
     for (const auto& page : m_lastResult.pages) {
-        const bool changed = !page.textAdded.isEmpty() || !page.textRemoved.isEmpty()
-                             || !page.moves.isEmpty() || page.pixelDiffCount > 0;
-        if (!changed) continue;
+        if (!pageVisible(page)) continue;
 
         o << "--- Page " << (page.pageIndex + 1) << " ---\n";
         for (const QString& w : page.textRemoved)
@@ -549,6 +728,11 @@ QString CompareMode::buildTextReport() const {
             o << "  (~" << page.pixelDiffCount << " pixels differ visually)\n";
         o << "\n";
     }
+
+    // U04: a filter that empties the report says so — never "identical".
+    if (!hasStructural && (totalAdded + totalRemoved + totalMoved) == 0
+        && pagesAdded + pagesRemoved + pagesMoved == 0)
+        o << "No changes match the filter.\n";
     return out;
 }
 
