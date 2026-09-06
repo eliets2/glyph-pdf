@@ -114,10 +114,11 @@ QImage pixToQImage(Pix *pix, const QImage &meta = {})
 #ifdef HAS_TESSERACT
 namespace {
 
-/// Confidence threshold for acting on pixOrientDetect's signal — the same
-/// guard used for pixFindSkew in deskew(): below it the ascender statistics
-/// are indistinguishable from noise, so the page is left as-is.
-constexpr l_float32 kOrientConfThreshold = 2.0f;
+/// Confidence threshold for acting on Leptonica's statistics — shared by
+/// pixOrientDetect (orientation) and pixFindSkew (deskew): below it the
+/// measured signal is indistinguishable from noise, so the page is left
+/// as-is (documented no-op).
+constexpr l_float32 kSignalConfThreshold = 2.0f;
 
 /// Leptonica's orientation HMT sels expect roman text rasterized at
 /// 150-300 ppi; smaller inputs carry no signal and only produce error spew.
@@ -149,9 +150,9 @@ int uprightRotation(const QImage &input)
     // for a sideways page upconf can also dip below the threshold, but
     // |leftconf| then dominates.
     if (qAbs(leftconf) > qAbs(upconf)) {
-        if (leftconf >  kOrientConfThreshold) return 90;
-        if (leftconf < -kOrientConfThreshold) return 270;
-    } else if (upconf < -kOrientConfThreshold) {
+        if (leftconf >  kSignalConfThreshold) return 90;
+        if (leftconf < -kSignalConfThreshold) return 270;
+    } else if (upconf < -kSignalConfThreshold) {
         return 180;
     }
     return 0; // upright (or no usable signal) — no rotation
@@ -223,16 +224,28 @@ PreprocessedImage OcrPreprocessor::process(const QImage &input, const OcrPreproc
 #endif
     }
 
-    // 3. Deskew
+    // 3. Deskew. deskew() measures the angle on a temporary 1-bit estimator
+    // image (pixFindSkew needs 1 bpp — F10) and rotates the actual image by
+    // that angle; it returns the input untouched (with *angleOut = 0) for
+    // blank pages, unreliable estimates and already-level pages, in which
+    // case this block stays a documented no-op.
     if (opts.deskew) {
         double angle = 0.0;
         QImage deskewed = deskew(working, &angle);
         if (!deskewed.isNull() && qAbs(angle) > 0.01) {
-            // Build inverse rotation around center
+            // The forward step rotated the content by `angle` degrees about
+            // the image centre (pixRotate(+θ) is clockwise-on-screen, the
+            // same direction as QTransform::rotate(+θ) — measured; the old
+            // code composed the inverse from rotate(−angle), which mapped
+            // word boxes twice as skewed as the scan instead of upright).
+            // pixRotate samples output pixel q from input position
+            // rotate(−θ)(q), so a box in deskewed coords maps back onto
+            // pre-deskew coords by the coordinate rotation rotate(−angle)
+            // about the same centre — exactly fwd.inverted() below.
             QPointF center(working.width() / 2.0, working.height() / 2.0);
             QTransform fwd;
             fwd.translate(center.x(), center.y());
-            fwd.rotate(-angle);
+            fwd.rotate(angle);
             fwd.translate(-center.x(), -center.y());
             result.inverseTransform = fwd.inverted() * result.inverseTransform;
             working = deskewed;
@@ -259,25 +272,57 @@ QImage OcrPreprocessor::deskew(const QImage &input, double *angleOut) const
     if (input.isNull()) return input;
 
 #ifdef HAS_TESSERACT
+    // F10/R06: pixFindSkew requires 1 bpp — it used to be handed the 8-bit
+    // Pix directly, errored out with "pixs not 1 bpp" and always reported
+    // angle 0, so tilted scans were returned unchanged. The measurement now
+    // runs on a temporary 1-bit estimator image; the correction itself is
+    // applied to the 8-bit image so the area-map resampling stays on
+    // grayscale data (the 1-bit estimator is thrown away).
+    static constexpr int kMinSkewDimension = 64; // pixFindSkew reduces by 4 internally
+    if (input.width() < kMinSkewDimension || input.height() < kMinSkewDimension)
+        return input;
+
     Pix *pix = qimageToPix(input);
     if (!pix) return input;
 
-    l_float32 angle = 0.f;
-    l_float32 conf  = 0.f;
-    // pixFindSkew returns 0 on success
-    if (pixFindSkew(pix, &angle, &conf) == 0 && conf > 2.0f) {
-        if (angleOut) *angleOut = static_cast<double>(angle);
-        Pix *rotated = pixRotate(pix, static_cast<l_float32>(angle * (M_PI / 180.0)),
-                                 L_ROTATE_AREA_MAP, L_BRING_IN_WHITE, 0, 0);
+    Pix *estimator = pixConvertTo1(pix, 128); // dark ink → ON (see pixToQImage)
+    if (!estimator) {
         pixDestroy(&pix);
-        if (rotated) {
-            QImage out = pixToQImage(rotated, input);
-            pixDestroy(&rotated);
-            return out;
-        }
         return input;
     }
+
+    l_float32 angle = 0.f;
+    l_float32 conf  = 0.f;
+    const l_ok ok = pixFindSkew(estimator, &angle, &conf);
+    pixDestroy(&estimator);
+
+    // Documented no-op for blank pages (pixFindSkew reports an error or zero
+    // confidence on a page without ON pixels), unreliable estimates (leptonica
+    // confidence at or below the shared signal threshold) and already-level
+    // pages (estimates below the 0.1° gate are resampling noise — measured
+    // baseline of a level page is ±0.08°): the input is returned untouched
+    // and *angleOut stays 0.
+    if (ok != 0 || conf <= kSignalConfThreshold || qAbs(angle) < 0.1f) {
+        pixDestroy(&pix);
+        return input;
+    }
+
+    if (angleOut) *angleOut = static_cast<double>(angle);
+
+    // Sign convention (measured with a probe against the linked lept build):
+    // pixRotate(+θ) rotates the content clockwise on screen — the same
+    // direction as QTransform::rotate(+θ) — and pixFindSkew reports the
+    // angle whose pixRotate() deskews the scan (negative for content skewed
+    // clockwise, e.g. ≈ −3° for a +3° clockwise tilt). Rotating by the
+    // reported angle reduces a 3° tilt to the ±0.08° level-page baseline.
+    Pix *rotated = pixRotate(pix, static_cast<l_float32>(angle * (M_PI / 180.0)),
+                             L_ROTATE_AREA_MAP, L_BRING_IN_WHITE, 0, 0);
     pixDestroy(&pix);
+    if (rotated) {
+        QImage out = pixToQImage(rotated, input);
+        pixDestroy(&rotated);
+        return out;
+    }
     return input;
 #else
     // Qt-only fallback: no deskew without Leptonica
@@ -308,6 +353,7 @@ QImage OcrPreprocessor::binarize(const QImage &input) const
     // Qt-only fallback: simple threshold
     QImage gray = input.convertToFormat(QImage::Format_Grayscale8);
     QImage out(gray.size(), QImage::Format_Grayscale8);
+    carryResolution(input, out);
     for (int y = 0; y < gray.height(); ++y) {
         const uchar *src = gray.constScanLine(y);
         uchar *dst = out.scanLine(y);
