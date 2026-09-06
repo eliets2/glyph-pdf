@@ -73,6 +73,9 @@ Dated corrections to stale historical claims (superseded by HEAD):
 | §9.8-a | §9.8 | Cancel/Back control in RedactMode (exitRequested contract, marks kept) | implemented-awaiting-review | bcef6ad |
 | §9.8-b | §9.8 | Optional overlay text on burn-in boxes (7pt white, centered, skip-too-small; candidate swap fix for in-place save corruption) | implemented-awaiting-review | 24c479d |
 | §9.8-c | §9.8 | Word-list import for pattern redaction (256KB cap, escaped alternation, review-before-mark) | implemented-awaiting-review | a9a3eda |
+| §9.12-a | §9.12 | Named redaction presets (Email/Phone-US/SSN checkboxes) + configurable Optimize DPI (Low/Medium/High presets, clamped 36-600) | implemented-awaiting-review | b43ef08 |
+| §9.14-a | §9.14 | Reading-order tolerance named (kReadingOrderSlotTolerance=2) with honest heuristic framing + boundary tests (displacement 2 not flagged, 3 flagged) | implemented-awaiting-review | c862307 |
+| §9.16-a | §9.16 | Bookmark/hyperlink round-trip contract pinned: plain saves preserve outlines+links; sanitize stripping is intentional-and-visible, never silent | implemented-awaiting-review (tests-only characterization) | 28e8df6 |
 
 ## Newly discovered engine defect (exposed by U05 fixtures)
 
