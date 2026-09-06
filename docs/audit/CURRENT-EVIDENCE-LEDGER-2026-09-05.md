@@ -82,6 +82,8 @@ Dated corrections to stale historical claims (superseded by HEAD):
 | §9.9-a | §9.9 | Split: one output per comma-separated range segment (<stem>_part{n}.pdf) | implemented-awaiting-review (parsePageRangeSegments seam; overlap duplicates tested; single-segment unchanged) | c7fc7ef |
 | §9.9-b | §9.9 | Page Labels groundwork: pure seam (styleName D/r/R/a/A, labelsFor, numberTreeEntries) + 11 tests; writer/UI deferred with scoping note | implemented-awaiting-review (groundwork) | d2f4484 |
 | §9.12-b | §9.12 | exportPdfA maps PDF/A-2U/3-U for real (combo levels were silently downgraded to 1B) | implemented-awaiting-review | 0364f48 |
+| §9.13-a | §9.13 | Measured before/after size readout (formatCompletionReport seam; delta + not-smaller note; larger-than-input fallthrough bug caught pre-commit) | implemented-awaiting-review — dialog wiring source-verified (modal not headlessly drivable) | a21ecc8 |
+| §9.10-a | §9.10 | End-to-end compare integration tests on real DiffEngine+Widget+Mode (identical/edit/added-page/reports/filters; alignment-similarity and PDFium-NUL behaviors pinned as designed) | implemented-awaiting-review (tests-only) | bc27cf2 |
 
 ## Newly discovered engine defect (exposed by U05 fixtures)
 
