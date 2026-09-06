@@ -121,6 +121,11 @@ public:
     // E-02: outcome of the most recent signing call so the UI can tell a partial
     // (core-signed but LTV-missing) result apart from a total failure.
     SignOutcome lastOutcome = SignOutcome::NotRun;
+    // §9.7 P1: exactly WHICH long-term-validation piece was missing when
+    // lastOutcome == PartialLtvMissing. Both reset at the start of every
+    // signing attempt.
+    bool dssMissing = false;
+    bool docTimestampMissing = false;
 
     // -----------------------------------------------------------------------
     // Populate X509_STORE with trust roots
@@ -1208,6 +1213,9 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
 {
     // E-02: assume failure until we know the core signature bytes were written.
     d->lastOutcome = SignOutcome::Failed;
+    // §9.7 P1: a fresh attempt starts with a clean degradation slate.
+    d->dssMissing = false;
+    d->docTimestampMissing = false;
     try {
         PdfMemDocument doc;
         doc.Load(inputPath.toStdString());
@@ -1569,6 +1577,7 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
             bool dssOk = d->buildDssDictionary(outputPath, certChain, ocsps, {}, sigContentsRaw);
             if (!dssOk) {
                 overallOk = false;
+                d->dssMissing = true;   // §9.7 P1: pin WHICH piece degraded
                 qWarning() << "B-LT: DSS dictionary build failed — signature bytes written but long-term-validation"
                            << "data is INCOMPLETE.";
             }
@@ -1584,6 +1593,7 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
         if (d->level >= PAdESLevel::B_LTA) {
             if (!d->addDocTimestamp(outputPath)) {
                 overallOk = false;
+                d->docTimestampMissing = true;   // §9.7 P1: pin WHICH piece degraded
                 qWarning() << "B-LTA: document timestamp failed — signature bytes written but archival timestamp"
                            << "is MISSING. The caller MUST inform the user that B-LTA archival assurances are not"
                            << "in effect for this document.";
@@ -1646,6 +1656,17 @@ SignOutcome SignatureManager::certifyDocument(const QString &inputPath,
     }
     return signDocumentImpl(inputPath, outputPath, certPath, password,
                             certificationLevel, reason, location);
+}
+
+// §9.7 P1: surface exactly which long-term-validation piece degraded, so the
+// UI can warn "signed but the archive timestamp is missing" instead of a bare
+// partial outcome with no actionable content.
+SignatureOutcomeDetail SignatureManager::lastSignOutcomeDetail()
+{
+    SignatureOutcomeDetail detail;
+    detail.dssMissing = d->dssMissing;
+    detail.docTimestampMissing = d->docTimestampMissing;
+    return detail;
 }
 
 bool SignatureManager::addDocTimeStamp(const QString &inputPath, const QString &outputPath)

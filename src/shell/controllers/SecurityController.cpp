@@ -24,6 +24,8 @@
 #include <QJsonObject>
 #include <QFileDialog>
 #include <QMessageBox>
+#include <QAbstractButton>
+#include <QPushButton>
 #include <QProgressDialog>
 #include <QThread>
 #include <QPointer>
@@ -46,6 +48,121 @@
 #include "shell/StatusBar.h"
 
 namespace gp {
+
+// §9.7 P1: capture of ONE signing/certifying request — everything the
+// RESTARTABLE worker needs to re-run the exact same crypto operation after a
+// PartialLtvMissing "Retry", without re-prompting for certificate/password.
+struct SecurityController::SigningRequest {
+    bool certify = false;
+    int certLevel = 1;
+    QString outputPath;
+    QString certPath;
+    QString pwd;
+    QString reason;
+    QString location;
+};
+
+// §9.7 P1: shared signing/certifying execution for signDocument() and
+// certifyDocument(). On PartialLtvMissing the user gets a warning naming the
+// EXACT missing piece plus a Continue/Retry dialog; Retry re-enters
+// runSigning() with the same request.
+void SecurityController::runSigning(const SigningRequest &req)
+{
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->signing) return;
+
+    auto* progress = new QProgressDialog(req.certify ? tr("Certifying document...")
+                                                     : tr("Signing document..."),
+                                         QString(), 0, 0, _mainWindow);
+    progress->setWindowModality(Qt::WindowModal);
+    progress->setMinimumDuration(0);
+    progress->show();
+
+    std::weak_ptr<ISignatureManager> weakSigning = _ctx->signing;
+    std::weak_ptr<DocumentSession> weakDoc = _ctx->document;
+    QPointer<SecurityController> self(this);
+    auto result = std::make_shared<std::atomic<int>>(static_cast<int>(SignOutcome::NotRun));
+
+    QThread* worker = QThread::create([weakSigning, weakDoc, req, result]() {
+        auto signing = weakSigning.lock();
+        auto doc = weakDoc.lock();
+        if (!signing || !doc) return;
+        SignOutcome outcome;
+        if (req.certify) {
+            outcome = signing->certifyDocument(doc->path(), req.outputPath, req.certPath,
+                                               req.pwd, req.certLevel, req.reason, req.location);
+            if (outcome == SignOutcome::Success || outcome == SignOutcome::PartialLtvMissing)
+                doc->markReload();
+        } else {
+            // SignDocumentHelper itself marks the session for reload on
+            // anything better than Failed.
+            outcome = SignDocumentHelper::execute(signing.get(), doc.get(), req.outputPath,
+                                                  req.certPath, req.pwd, req.reason, req.location);
+        }
+        result->store(static_cast<int>(outcome));
+    });
+
+    connect(worker, &QThread::finished, _mainWindow, [self, progress, req, result, weakSigning]() {
+        progress->close();
+        progress->deleteLater();
+        if (!self) return;
+        const auto outcome = static_cast<SignOutcome>(result->load());
+
+        if (outcome == SignOutcome::Success) {
+            self->_mainWindow->statusBar()->showMessage(
+                req.certify ? tr("Document certified and saved to %1").arg(req.outputPath)
+                            : tr("Document signed and saved to %1").arg(req.outputPath), 5000);
+            if (QMessageBox::question(self->_mainWindow,
+                                      req.certify ? tr("Open Certified PDF") : tr("Open Signed PDF"),
+                                      req.certify ? tr("Certification complete. Would you like to open the certified file?")
+                                                  : tr("Signing complete. Would you like to open the signed file?"))
+                == QMessageBox::Yes) {
+                self->_mainWindow->openDocument(req.outputPath);
+            }
+            return;
+        }
+
+        if (outcome == SignOutcome::PartialLtvMissing) {
+            // E-02: the signature bytes ARE on disk — never tell the user the
+            // signing failed. §9.7 P1: name EXACTLY which piece degraded.
+            SignatureOutcomeDetail detail;
+            if (auto signing = weakSigning.lock())
+                detail = signing->lastSignOutcomeDetail();
+            QMessageBox box(QMessageBox::Warning,
+                            tr("Long-Term Validation Incomplete"),
+                            buildSigningOutcomeWarning(outcome, req.outputPath, detail, req.certify),
+                            QMessageBox::NoButton, self->_mainWindow);
+            QAbstractButton *retry = box.addButton(tr("Retry Signing"), QMessageBox::ActionRole);
+            box.addButton(req.certify ? tr("Keep Certified File") : tr("Keep Signed File"),
+                          QMessageBox::AcceptRole);
+            box.exec();
+            if (box.clickedButton() == retry) {
+                self->runSigning(req);    // restartable worker: re-run the SAME request
+                return;
+            }
+            self->_mainWindow->statusBar()->showMessage(
+                req.certify ? tr("Certified (long-term validation data missing).")
+                            : tr("Signed (long-term validation data missing)."), 5000);
+            if (QMessageBox::question(self->_mainWindow,
+                                      req.certify ? tr("Open Certified PDF") : tr("Open Signed PDF"),
+                                      req.certify ? tr("Would you like to open the certified file?")
+                                                  : tr("Would you like to open the signed file?"))
+                == QMessageBox::Yes) {
+                self->_mainWindow->openDocument(req.outputPath);
+            }
+            return;
+        }
+
+        QMessageBox::critical(self->_mainWindow,
+                              req.certify ? tr("Certification Error") : tr("Signing Error"),
+                              req.certify ? tr("Failed to certify document.") : tr("Failed to sign document."));
+        self->_mainWindow->statusBar()->showMessage(
+            req.certify ? tr("Certification failed.") : tr("Signing failed."), 5000);
+    });
+
+    connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+    worker->start();
+}
 
 SecurityController::SecurityController(const AppContext* ctx, MainWindow* mainWindow, QObject* parent)
     : QObject(parent), _ctx(ctx), _mainWindow(mainWindow) {}
@@ -255,62 +372,16 @@ void SecurityController::signDocument() {
         _ctx->undoStack->clear();
         _ctx->document->setPath(viewer->filePath());
 
-        auto* progress = new QProgressDialog(tr("Signing document..."), QString(), 0, 0, _mainWindow);
-        progress->setWindowModality(Qt::WindowModal);
-        progress->setMinimumDuration(0);
-        progress->show();
-
-        std::weak_ptr<ISignatureManager> weakSigning = _ctx->signing;
-        std::weak_ptr<DocumentSession> weakDoc = _ctx->document;
-        const QString certPath = dlg.certificatePath();
-        const QString pwd = dlg.password();
-        const QString reason = dlg.reason();
-        const QString location = dlg.location();
-
-        QPointer<SecurityController> self(this);
-        auto result = std::make_shared<std::atomic<int>>(static_cast<int>(SignOutcome::NotRun));
-
-        QThread* worker = QThread::create([weakSigning, weakDoc, outputPath, certPath, pwd, reason, location, result]() {
-            auto signing = weakSigning.lock();
-            auto doc = weakDoc.lock();
-            if (!signing || !doc) return;
-            SignOutcome ok = SignDocumentHelper::execute(
-                signing.get(), doc.get(), outputPath, certPath, pwd, reason, location);
-            result->store(static_cast<int>(ok));
-        });
-
-        connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result]() {
-            progress->close();
-            progress->deleteLater();
-            if (!self) return;
-            const auto sigOutcome = static_cast<SignOutcome>(result->load());
-            if (sigOutcome == SignOutcome::Success) {
-                self->_mainWindow->statusBar()->showMessage(tr("Document signed and saved to %1").arg(outputPath), 5000);
-                if (QMessageBox::question(self->_mainWindow, tr("Open Signed PDF"), tr("Signing complete. Would you like to open the signed file?")) == QMessageBox::Yes) {
-                    self->_mainWindow->openDocument(outputPath);
-                }
-            } else if (sigOutcome == SignOutcome::PartialLtvMissing) {
-                // E-02: the signature bytes ARE on disk — do NOT tell the user signing
-                // failed (which would make them discard a validly-signed file). Warn
-                // that only the long-term-validation enhancement could not be added.
-                QMessageBox::warning(self->_mainWindow, tr("Signature Applied — Long-Term Validation Incomplete"),
-                    tr("The document was signed and saved to %1, but the long-term "
-                       "validation data (DSS / archive timestamp) could not be embedded. "
-                       "The signature is valid now; please verify the TSA/OCSP "
-                       "configuration if you require B-LT/B-LTA archival assurances.")
-                        .arg(outputPath));
-                self->_mainWindow->statusBar()->showMessage(tr("Signed (long-term validation data missing)."), 5000);
-                if (QMessageBox::question(self->_mainWindow, tr("Open Signed PDF"), tr("Would you like to open the signed file?")) == QMessageBox::Yes) {
-                    self->_mainWindow->openDocument(outputPath);
-                }
-            } else {
-                QMessageBox::critical(self->_mainWindow, tr("Signing Error"), tr("Failed to sign document."));
-                self->_mainWindow->statusBar()->showMessage(tr("Signing failed."), 5000);
-            }
-        });
-
-        connect(worker, &QThread::finished, worker, &QObject::deleteLater);
-        worker->start();
+        // §9.7 P1: the request is captured so a PartialLtvMissing "Retry" can
+        // re-run the EXACT same signing without re-prompting.
+        SigningRequest req;
+        req.certify = false;
+        req.outputPath = outputPath;
+        req.certPath = dlg.certificatePath();
+        req.pwd = dlg.password();
+        req.reason = dlg.reason();
+        req.location = dlg.location();
+        runSigning(req);
     }
 }
 
@@ -349,6 +420,30 @@ QString SecurityController::buildValidationSummary(const QList<SignatureInfo>& i
     }
     return QObject::tr("%1 of %2 signature(s) are valid:\n\n%3")
         .arg(valid).arg(infos.size()).arg(lines.join(QLatin1Char('\n')));
+}
+
+// §9.7 P1: pure degradation-wording builder — unit-testable without UI. For a
+// PartialLtvMissing outcome it names EXACTLY which long-term-validation piece
+// is missing (DSS dictionary and/or archive timestamp); every other outcome
+// yields no warning at all.
+QString SecurityController::buildSigningOutcomeWarning(SignOutcome outcome,
+                                                       const QString &outputPath,
+                                                       const SignatureOutcomeDetail &detail,
+                                                       bool certified)
+{
+    if (outcome != SignOutcome::PartialLtvMissing)
+        return {};
+    QStringList missing;
+    if (detail.dssMissing)
+        missing << QObject::tr("the DSS dictionary (B-LT)");
+    if (detail.docTimestampMissing)
+        missing << QObject::tr("the archive timestamp (B-LTA)");
+    return QObject::tr("The document was %1 and saved to %2, but %3 could not be embedded. "
+                       "The cryptographic signature itself is valid and the file is usable "
+                       "now — retry signing to embed the missing long-term validation data, "
+                       "or keep the file as-is.")
+        .arg(certified ? QObject::tr("certified") : QObject::tr("signed"),
+             outputPath, missing.join(QObject::tr(" and ")));
 }
 
 void SecurityController::sanitizeDocument() {
@@ -711,57 +806,19 @@ void SecurityController::certifyDocument() {
         _ctx->undoStack->clear();
         _ctx->document->setPath(viewer->filePath());
 
-        auto* progress = new QProgressDialog(tr("Certifying document..."), QString(), 0, 0, _mainWindow);
-        progress->setWindowModality(Qt::WindowModal);
-        progress->setMinimumDuration(0);
-        progress->show();
-
-        std::weak_ptr<ISignatureManager> weakSigning = _ctx->signing;
-        std::weak_ptr<DocumentSession> weakDoc = _ctx->document;
-        const QString certPath = dlg.certificatePath();
-        const QString pwd = dlg.password();
-        const QString reason = dlg.reason();
-        const QString location = dlg.location();
+        // §9.7 P1: same restartable worker as the sign flow — and the certify
+        // PartialLtvMissing dialog gets the EXACT degradation wording (which
+        // B-LT/B-LTA piece is missing) instead of the old one-liner.
+        SigningRequest req;
+        req.certify = true;
         // Just hardcode level 1 (no changes allowed) for now since UI doesn't expose it
-        int certLevel = 1;
-
-        QPointer<SecurityController> self(this);
-        auto result = std::make_shared<std::atomic<int>>(static_cast<int>(SignOutcome::NotRun));
-
-        QThread* worker = QThread::create([weakSigning, weakDoc, outputPath, certPath, pwd, certLevel, reason, location, result]() {
-            auto signing = weakSigning.lock();
-            auto doc = weakDoc.lock();
-            if (!signing || !doc) return;
-            SignOutcome outcome = signing->certifyDocument(doc->path(), outputPath, certPath, pwd, certLevel, reason, location);
-            if (outcome == SignOutcome::Success || outcome == SignOutcome::PartialLtvMissing) doc->markReload();
-            result->store(static_cast<int>(outcome));
-        });
-
-        connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result]() {
-            progress->close();
-            progress->deleteLater();
-            if (!self) return;
-            const auto certOutcome = static_cast<SignOutcome>(result->load());
-            if (certOutcome == SignOutcome::Success) {
-                self->_mainWindow->statusBar()->showMessage(tr("Document certified and saved to %1").arg(outputPath), 5000);
-                if (QMessageBox::question(self->_mainWindow, tr("Open Certified PDF"), tr("Certification complete. Would you like to open the certified file?")) == QMessageBox::Yes) {
-                    self->_mainWindow->openDocument(outputPath);
-                }
-            } else if (certOutcome == SignOutcome::PartialLtvMissing) {
-                QMessageBox::warning(self->_mainWindow, tr("Certified — Long-Term Validation Incomplete"),
-                    tr("The document was certified and saved to %1, but long-term validation data could not be embedded.").arg(outputPath));
-                self->_mainWindow->statusBar()->showMessage(tr("Certified (LTV data missing)."), 5000);
-                if (QMessageBox::question(self->_mainWindow, tr("Open Certified PDF"), tr("Would you like to open the certified file?")) == QMessageBox::Yes) {
-                    self->_mainWindow->openDocument(outputPath);
-                }
-            } else {
-                QMessageBox::critical(self->_mainWindow, tr("Certification Error"), tr("Failed to certify document."));
-                self->_mainWindow->statusBar()->showMessage(tr("Certification failed."), 5000);
-            }
-        });
-
-        connect(worker, &QThread::finished, worker, &QObject::deleteLater);
-        worker->start();
+        req.certLevel = 1;
+        req.outputPath = outputPath;
+        req.certPath = dlg.certificatePath();
+        req.pwd = dlg.password();
+        req.reason = dlg.reason();
+        req.location = dlg.location();
+        runSigning(req);
     }
 }
 

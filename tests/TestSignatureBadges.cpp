@@ -28,6 +28,7 @@
 #include "modes/SignaturesPanel.h"
 #include "mocks/MockSignatureManager.h"
 #include "engines/SignatureManager.h"
+#include "shell/controllers/SecurityController.h" // §9.7 P1: pure outcome-warning builder
 
 #ifdef SOURCE_DIR
 static const QString kFixtureDir = QStringLiteral(SOURCE_DIR "/tests/fixtures/signing");
@@ -482,6 +483,83 @@ private slots:
         QCOMPARE(b.pageIndex, 2);
         QCOMPARE(b.fieldRect, QRectF(100, 650, 200, 100));
         QVERIFY(b.state == SignatureBadgeState::ValidTrusted); // state mapping unaffected
+    }
+
+private slots:
+    // ── §9.7 P1: SignOutcome degradation surfaced at signing time ───────────
+    // Pure wording builder: the warning must name EXACTLY which long-term-
+    // validation piece is missing (DSS dictionary / archive timestamp), embed
+    // the output path, and stay empty for anything that is not a
+    // PartialLtvMissing degradation.
+    void signingOutcomeWarningNamesExactMissingPieces() {
+        SignatureOutcomeDetail both;
+        both.dssMissing = true;
+        both.docTimestampMissing = true;
+        const QString bothText = gp::SecurityController::buildSigningOutcomeWarning(
+            SignOutcome::PartialLtvMissing, QStringLiteral("out.pdf"), both, false);
+        QVERIFY2(bothText.contains(QStringLiteral("out.pdf")),
+                 "the warning must tell the user WHERE the signed file is");
+        QVERIFY2(bothText.contains(QStringLiteral("was signed")),
+                 "the sign flow wording must say the document was signed");
+        QVERIFY2(bothText.contains(QStringLiteral("DSS dictionary (B-LT)")),
+                 "both-missing wording must name the DSS dictionary (B-LT)");
+        QVERIFY2(bothText.contains(QStringLiteral("archive timestamp (B-LTA)")),
+                 "both-missing wording must name the archive timestamp (B-LTA)");
+
+        SignatureOutcomeDetail dssOnly;
+        dssOnly.dssMissing = true;
+        const QString dssText = gp::SecurityController::buildSigningOutcomeWarning(
+            SignOutcome::PartialLtvMissing, QStringLiteral("out.pdf"), dssOnly, false);
+        QVERIFY2(dssText.contains(QStringLiteral("DSS dictionary (B-LT)")),
+                 "dss-only wording must name the DSS dictionary (B-LT)");
+        QVERIFY2(!dssText.contains(QStringLiteral("archive timestamp")),
+                 "dss-only wording must NOT claim the archive timestamp is missing");
+
+        SignatureOutcomeDetail tsOnly;
+        tsOnly.docTimestampMissing = true;
+        const QString tsText = gp::SecurityController::buildSigningOutcomeWarning(
+            SignOutcome::PartialLtvMissing, QStringLiteral("out.pdf"), tsOnly, false);
+        QVERIFY2(tsText.contains(QStringLiteral("archive timestamp (B-LTA)")),
+                 "timestamp-only wording must name the archive timestamp (B-LTA)");
+        QVERIFY2(!tsText.contains(QStringLiteral("DSS")),
+                 "timestamp-only wording must NOT claim the DSS is missing");
+    }
+
+    // The certify flow gets the SAME exact wording with the right verb, and
+    // non-degradation outcomes never raise the warning.
+    void signingOutcomeWarningVerbAndNonDegradation() {
+        SignatureOutcomeDetail both;
+        both.dssMissing = true;
+        both.docTimestampMissing = true;
+        const QString cert = gp::SecurityController::buildSigningOutcomeWarning(
+            SignOutcome::PartialLtvMissing, QStringLiteral("out.pdf"), both, true);
+        QVERIFY2(cert.contains(QStringLiteral("certified")),
+                 "certify flow must say the document was certified");
+        QVERIFY2(!cert.contains(QStringLiteral("was signed")),
+                 "certify wording must not say the document was signed");
+        QVERIFY2(cert.contains(QStringLiteral("DSS dictionary (B-LT)")) &&
+                     cert.contains(QStringLiteral("archive timestamp (B-LTA)")),
+                 "certify flow gets the exact same detail wording");
+
+        SignatureOutcomeDetail clean;
+        QVERIFY2(gp::SecurityController::buildSigningOutcomeWarning(
+                     SignOutcome::Success, QStringLiteral("out.pdf"), clean, false).isEmpty(),
+                 "Success must not produce a degradation warning");
+        QVERIFY2(gp::SecurityController::buildSigningOutcomeWarning(
+                     SignOutcome::Failed, QStringLiteral("out.pdf"), clean, false).isEmpty(),
+                 "Failed must not produce the partial-degradation warning");
+        QVERIFY2(gp::SecurityController::buildSigningOutcomeWarning(
+                     SignOutcome::NotRun, QStringLiteral("out.pdf"), clean, false).isEmpty(),
+                 "NotRun must not produce a degradation warning");
+    }
+
+    // The interface ships a NON-pure default so existing implementations —
+    // including this test mock, compiled UNCHANGED — keep linking.
+    void mockManagerCompilesWithDefaultDetail() {
+        MockSignatureManager mock;
+        const SignatureOutcomeDetail d = mock.lastSignOutcomeDetail();
+        QVERIFY2(!d.dssMissing && !d.docTimestampMissing,
+                 "the default detail must report no missing pieces");
     }
 
 };

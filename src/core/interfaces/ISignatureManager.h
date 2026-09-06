@@ -49,6 +49,15 @@ enum class SignOutcome {
     PartialLtvMissing   ///< Core signature written, but B-LT/B-LTA data is missing.
 };
 
+/// §9.7 P1: WHY the most recent outcome was PartialLtvMissing — exactly which
+/// long-term-validation enhancement could not be embedded. A partial result
+/// with NO flagged piece is impossible; at least one flag is set whenever the
+/// outcome is PartialLtvMissing.
+struct SignatureOutcomeDetail {
+    bool dssMissing = false;          ///< B-LT: the DSS dictionary could not be built/embedded
+    bool docTimestampMissing = false; ///< B-LTA: the /DocTimeStamp could not be added
+};
+
 class ISignatureManager {
 public:
     virtual ~ISignatureManager() = default;
@@ -71,6 +80,15 @@ public:
     virtual bool addDocTimeStamp(const QString &inputPath, const QString &outputPath) = 0;
 
     virtual QList<SignatureInfo> validateSignatures(const QString &filePath) = 0;
+
+    /// §9.7 P1: detail of the most recent signDocument/certifyDocument outcome.
+    /// Deliberately NON-pure with this default body: implementations that do
+    /// not track degradation detail (including test mocks) compile unchanged
+    /// and simply report "no detail" instead of being forced to stub it.
+    virtual SignatureOutcomeDetail lastSignOutcomeDetail()
+    {
+        return {};   // no degradation detail known by this implementation
+    }
 
     // §9.7 P0 (badge anchoring): on-page anchor for every signature field —
     // fieldName matches SignatureInfo::fieldName; rect is the widget /Rect in
