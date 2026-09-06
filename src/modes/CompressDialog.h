@@ -27,6 +27,16 @@ public:
     // disabled and unchecked instead of promising work that never runs.
     static QString unsupportedPassExplanation();
 
+    // §9.13 measured-completion seam: builds the post-completion message from
+    // the two MEASURED on-disk sizes (untouched original vs committed output,
+    // both read after the write) — never the pre-execution estimate. Reports
+    // the delta, and says so explicitly when the result is not smaller than
+    // the original (R12 honesty precedent at the completion site). Static and
+    // pure so TestCompressDialogHonesty can pin the exact wording without
+    // driving the modal save dialog.
+    static QString formatCompletionReport(qint64 originalBytes, qint64 newBytes,
+                                          const QString& outputFileName);
+
 private slots:
     void onPresetChanged(int id);
     void refreshEstimate();

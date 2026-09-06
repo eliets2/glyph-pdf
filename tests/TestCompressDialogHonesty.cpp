@@ -14,6 +14,7 @@
 //   5. the size row stays explicitly labeled as an estimate.
 #include <QtTest/QtTest>
 #include <QCheckBox>
+#include <QDebug>
 #include <QLabel>
 #include <QToolButton>
 
@@ -171,6 +172,79 @@ private slots:
         }
         QVERIFY2(foundEstimateLabel,
                  "the predicted size row must be labeled as an estimate");
+    }
+
+    // ── §9.13: post-compression completion report is MEASURED ────────────────
+    // After a successful optimizeDocument the completion message must report
+    // the MEASURED sizes (both read from disk after the write), the delta,
+    // and stay clearly distinct from the pre-execution estimate row.
+
+    // A genuine reduction: both byte figures plus the saved-delta appear, the
+    // result is labeled "(measured)", and no not-smaller caveat is shown.
+    void completionReportCarriesMeasuredFiguresAndDelta() {
+        const QString msg = gp::CompressDialog::formatCompletionReport(
+            1536, 512, QStringLiteral("report_out.pdf"));
+
+        qDebug() << "completion report (smaller):" << msg;
+
+        QVERIFY2(msg.contains(QStringLiteral("Saved to: report_out.pdf")),
+                 qPrintable(QStringLiteral("missing output name: %1").arg(msg)));
+        QVERIFY2(msg.contains(QStringLiteral("Original size: 1.5 KB")),
+                 qPrintable(QStringLiteral("missing measured original: %1").arg(msg)));
+        QVERIFY2(msg.contains(QStringLiteral("New size: 512 B (measured)")),
+                 qPrintable(QStringLiteral("missing measured result: %1").arg(msg)));
+        // Delta: 1536 - 512 = 1024 bytes saved = 66.7% of the original.
+        QVERIFY2(msg.contains(QStringLiteral("1.0 KB")),
+                 qPrintable(QStringLiteral("missing measured delta: %1").arg(msg)));
+        QVERIFY2(msg.contains(QStringLiteral("66.7%")),
+                 qPrintable(QStringLiteral("missing measured reduction percent: %1").arg(msg)));
+        QVERIFY2(!msg.contains(QStringLiteral("did not reduce"), Qt::CaseInsensitive),
+                 qPrintable(QStringLiteral("a real reduction must not carry the "
+                                          "not-smaller caveat: %1").arg(msg)));
+    }
+
+    // R12 precedent at the same site: when the measured result is equal to or
+    // LARGER than the original, the report says so honestly instead of
+    // spinning a reduction that did not happen — and never prints a
+    // "size reduction" line with a non-positive delta.
+    void completionReportNotesWhenNotSmallerOrEqual() {
+        // Equal sizes.
+        const QString equal = gp::CompressDialog::formatCompletionReport(
+            2048, 2048, QStringLiteral("equal.pdf"));
+        qDebug() << "completion report (equal):" << equal;
+        QVERIFY2(equal.contains(
+                     QStringLiteral("compression did not reduce this document's size")),
+                 qPrintable(QStringLiteral("equal result must carry the honesty note: %1")
+                                .arg(equal)));
+        QVERIFY2(!equal.contains(QStringLiteral("Size reduction"), Qt::CaseInsensitive),
+                 qPrintable("an equal result must not claim a size reduction"));
+
+        // Larger than the input (e.g. re-encoded JPEGs can grow the file).
+        const QString larger = gp::CompressDialog::formatCompletionReport(
+            1024, 4096, QStringLiteral("larger.pdf"));
+        qDebug() << "completion report (larger):" << larger;
+        QVERIFY2(larger.contains(QStringLiteral("New size: 4.0 KB (measured)")),
+                 qPrintable(QStringLiteral("missing measured larger result: %1").arg(larger)));
+        QVERIFY2(larger.contains(
+                     QStringLiteral("compression did not reduce this document's size")),
+                 qPrintable(QStringLiteral("larger result must carry the honesty note: %1")
+                                .arg(larger)));
+        QVERIFY2(!larger.contains(QStringLiteral("Size reduction"), Qt::CaseInsensitive),
+                 qPrintable("a larger result must not claim a size reduction"));
+    }
+
+    // Estimate-vs-measured labeling stays distinct: the completion message is
+    // explicitly "(measured)" and never borrows the estimate vocabulary the
+    // pre-execution row uses.
+    void completionReportStaysDistinctFromEstimateLabeling() {
+        const QString msg = gp::CompressDialog::formatCompletionReport(
+            1536, 512, QStringLiteral("distinct.pdf"));
+        QVERIFY2(msg.contains(QStringLiteral("measured"), Qt::CaseInsensitive),
+                 qPrintable(QStringLiteral("completion must be labeled measured: %1").arg(msg)));
+        QVERIFY2(!msg.contains(QStringLiteral("ESTIMAT"), Qt::CaseInsensitive)
+                     && !msg.contains(QStringLiteral("estimat"), Qt::CaseInsensitive),
+                 qPrintable(QStringLiteral("completion message must not use the "
+                                          "estimate vocabulary: %1").arg(msg)));
     }
 };
 
