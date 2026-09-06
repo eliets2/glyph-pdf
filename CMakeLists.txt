@@ -1815,6 +1815,35 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrPreprocessPrefs.cpp")
     )
 endif()
 
+# §9.14 P1: the reading-order heuristic threshold is a NAMED, documented
+# constant (kReadingOrderSlotTolerance) with boundary tests — displacement of
+# exactly 2 slots is not flagged, exactly 3 is.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestReadingOrderThreshold.cpp")
+    add_executable(TestReadingOrderThreshold
+        tests/TestReadingOrderThreshold.cpp
+    )
+    target_include_directories(TestReadingOrderThreshold PRIVATE src tests)
+    target_link_libraries(TestReadingOrderThreshold PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestReadingOrderThreshold POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestReadingOrderThreshold>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestReadingOrderThreshold>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestReadingOrderThreshold"
+    )
+    add_test(NAME TestReadingOrderThreshold COMMAND TestReadingOrderThreshold)
+    set_tests_properties(TestReadingOrderThreshold PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;accessibility;pdfa;reading-order;qt;headless"
+    )
+endif()
+
 # ── TestCapabilityRegistry (U08 — the ONE capability registry) ───────────────
 # Cache/invalidate behavior, UnavailableBuild vs UnavailableRuntime, the
 # non-empty whyNot/alternative rule, applyToWidget and fileFilterFor, and the
