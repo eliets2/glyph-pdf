@@ -7,6 +7,8 @@
 #include "shell/ScreenNav.h"
 #include "shell/StatusBar.h"
 #include "shell/Sidebar.h"
+#include "shell/TaskNav.h"
+#include "shell/TaskStateSync.h"
 
 #include "modes/ModeController.h"
 #include "modes/OCRMode.h"   // R07: lifecycle recovery is relayed to the review panel
@@ -213,7 +215,16 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
     connect(_modeStrip, &ModeStrip::modeChanged,         this, &MainWindow::onModeChanged);
     connect(_modeStrip, &ModeStrip::themeToggleRequested, this, &MainWindow::toggleTheme);
     connect(_modeStrip, &ModeStrip::aiToggleRequested,    this, &MainWindow::toggleAi);
+    connect(_modeStrip, &ModeStrip::taskSelected,         this, &MainWindow::activateScreen);
     connect(_screenNav, &ScreenNav::screenSelected,       this, &MainWindow::onScreenSelected);
+
+    // === U02: one writer for visible navigation state.
+    // The sync object owns every ScreenNav checked-state / status current-task
+    // line / ModeStrip pill / Ribbon tab update from here on. Applying Standard
+    // once at startup replaces the widgets' divergent defaults with one
+    // coherent reading state.
+    _taskSync = new TaskStateSync(_screenNav, _status, _modeStrip, _ribbon, this);
+    _taskSync->apply(_modes->currentScreen());
 
     // OCR Verify screen <-> real OCR pipeline: the screen's Run button drives
     // EditController::runOcr, and recognised words flow back to the review panes.
@@ -584,8 +595,35 @@ void MainWindow::setFullScreenMode(bool fullscreen) {
 }
 
 void MainWindow::onToolActivated(const QString& id) {
+    const auto tool = toolIdFromString(id);
+
+    // U02 — one behavior per task. Entry-route tools ARE task entries: every
+    // chrome layer that activates them lands on the task's one screen and the
+    // raw controller action is NOT also dispatched. This is the documented
+    // decision for the verified defect where the ribbon OCR button ran the
+    // pipeline (EditController::activate(ToolId::Ocr) → runOcr) while the
+    // menu and ScreenNav opened the OCR Verify screen: an OCR entry now opens
+    // the verify screen everywhere, and running a recognition stays inside it
+    // (the screen's Run button drives EditController::runOcr). Compare,
+    // Compress and Watermark entries route the same way, so the modal task
+    // surfaces open exactly once through onScreenSelected.
+    if (tool && TaskNav::isEntryRoute(*tool)) {
+        _status->setTool(id);
+        activateScreen(TaskNav::screenForTool(*tool));
+        return;
+    }
+
     _status->setTool(id);
-    _toolRegistry->activateFromString(id);
+    _toolRegistry->activateFromString(id);   // behavior source — unchanged
+
+    // U02: after a real tool action ran, make visible state agree everywhere
+    // (e.g. ribbon Mark-Redact lands on the Redaction screen, form-field
+    // tools land on the Form Builder). Tools with no screen cause no sync.
+    if (tool) {
+        const QString screen = TaskNav::screenForTool(*tool);
+        if (!screen.isEmpty())
+            activateScreen(screen);
+    }
 }
 
 void MainWindow::onTabChanged(const QString& tab) {
@@ -593,7 +631,11 @@ void MainWindow::onTabChanged(const QString& tab) {
 }
 
 void MainWindow::onModeChanged(const QString& m) {
-    _status->setMode(m);
+    // U02: the Form pill is a real navigation entry — it must land on the
+    // Form Builder screen (which names "form" as its modePill), not merely
+    // change text somewhere. Other pills stay mode-local in stage 1.
+    if (m == QLatin1String("form"))
+        activateScreen(QStringLiteral("form"));
 }
 
 void MainWindow::onScreenSelected(const QString& id) {
@@ -622,7 +664,12 @@ void MainWindow::onScreenSelected(const QString& id) {
     }
 
     _modes->setScreen(id);
-    _status->setScreen(id);
+
+    // U02: the sync object is the single writer of the visible state — nav
+    // check-state, status current-task line, mode pill, ribbon tab. (The old
+    // hand-written triplet missed ScreenNav on menu/ribbon-initiated
+    // navigation; the funnel can no longer drift.)
+    _taskSync->apply(id);
 
     // Swap right panel for screens that own it.
     if (id == "signature") {

@@ -14,12 +14,15 @@ struct AppContext;
 namespace gp {
 
 // View/Edit/Comment/Form/Protect pills + status meta on the right.
+// U02: the right cluster also carries the compact "Tools" chooser — every
+// specialized task, built from the TaskNav table (one list, zero drift).
 class ModeStrip : public QFrame {
     Q_OBJECT
 public:
     explicit ModeStrip(QWidget* parent = nullptr);
     void init(const AppContext* ctx);
     void setMode(const QString& id);
+    QString mode() const { return _active; }
     void setTheme(int themeMode); // 0=Dark 1=Light
 
     void updateLabels();
@@ -32,6 +35,8 @@ signals:
     void modeChanged(const QString& id);
     void themeToggleRequested();
     void aiToggleRequested();
+    /// A task was chosen in the "Tools" chooser (host routes to activateScreen).
+    void taskSelected(const QString& id);
 
 private:
     QHash<QString, QToolButton*> _pills;
