@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "Bootstrapper.h"
 #include "core/AppContext.h"
+#include "core/Capability.h"
 
 #include "engines/scheduling/LaneScheduler.h"
 #include "engines/OcrEngine.h"
@@ -48,6 +49,14 @@ AppContext Bootstrapper::createContext() {
     ctx.djotCodec       = std::make_shared<pdfws::LuaDjotCodec>(djotPath);
     ctx.djotMapper      = std::make_shared<pdfws::PdfStructureMapper>();
     ctx.provenanceGuard = std::make_shared<pdfws::ProvenanceGuard>();
+
+    // U08: the ONE capability registry, registered next to the engines whose
+    // truth the probes wrap (OfficeImport→ConversionManager::locateSoffice,
+    // OcrRapidModels→the ppocrv5 path probe, R12 compression passes, export
+    // writers, signature kinds, veraPDF). Cached per (id, param); consumers
+    // invalidate after environment changes ("Download LibreOffice…", prefs).
+    ctx.capabilities = std::make_shared<gp::CapabilityRegistry>();
+    ctx.capabilities->registerEngineProbes();
 
     return ctx;
 }

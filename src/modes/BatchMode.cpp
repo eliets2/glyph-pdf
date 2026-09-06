@@ -2,6 +2,7 @@
 #include "BatchMode.h"
 #include "util/GpTheme.h"
 
+#include "core/Capability.h"
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "core/interfaces/IConversionEngine.h"
 #include "core/interfaces/IOcrEngine.h"
@@ -524,6 +525,28 @@ void BatchMode::buildProgressPanel(QWidget* host) {
 
 void BatchMode::setAppContext(const AppContext* ctx) {
     m_ctx = ctx;
+
+    // U08: mark OCR language items whose traineddata is missing. A supported
+    // language is never disabled outright — the data is seeded from the
+    // bundled copy or downloaded on first use (Degraded → tooltip disclosure,
+    // mirroring OcrEngine::initialize's actual behavior); only an unsupported
+    // language becomes a disabled-with-explanation item. The user's selection
+    // is never silently switched.
+    if (m_ctx && m_ctx->capabilities && m_ocrLanguage) {
+        auto* model = qobject_cast<QStandardItemModel*>(m_ocrLanguage->model());
+        for (int i = 0; i < m_ocrLanguage->count(); ++i) {
+            QStandardItem* item = model ? model->item(i) : nullptr;
+            if (!item) continue;
+            const gp::Capability c = m_ctx->capabilities->query(
+                gp::CapId::OcrLanguageData, m_ocrLanguage->itemData(i).toString());
+            if (c.status == gp::Availability::UnavailableRuntime) {
+                item->setEnabled(false);
+                item->setToolTip(gp::CapabilityRegistry::combineWhyNot(c));
+            } else if (c.status == gp::Availability::Degraded) {
+                item->setToolTip(gp::CapabilityRegistry::combineWhyNot(c));
+            }
+        }
+    }
 }
 
 // ── Drag-drop (D1) ────────────────────────────────────────────────────────────
@@ -924,10 +947,25 @@ void BatchMode::onRunClicked() {
     const QString capturedOcrLang = m_ocrLanguage
         ? ocrEngineLanguageCode(m_ocrLanguage->currentData().toString())
         : QStringLiteral("eng");
-    // §9.4 P0: shared Auto-Rotate (page orientation detection) preference, read
-    // on the GUI thread for the same reason; the worker only gets a copy.
-    const bool capturedOcrOrientDetect = QSettings().value(
+    // §9.4 P0 / U08: the SAME preprocessing options as the interactive path —
+    // deskew/binarize/denoise/orientDetect are persisted prefs read on the GUI
+    // thread (QSettings is not thread-safe); the worker only gets a copy.
+    // Previously batch honored Auto-Rotate only, silently diverging from the
+    // interactive panel's persisted preprocessing choices.
+    OcrPreprocessOptions capturedOcrPreprocess;
+    capturedOcrPreprocess.deskew   = QSettings().value(
+        QStringLiteral("ocr/preprocessDeskew"), true).toBool();
+    capturedOcrPreprocess.binarize = QSettings().value(
+        QStringLiteral("ocr/preprocessBinarize"), true).toBool();
+    capturedOcrPreprocess.denoise  = QSettings().value(
+        QStringLiteral("ocr/preprocessDenoise"), true).toBool();
+    capturedOcrPreprocess.orientDetect = QSettings().value(
         QStringLiteral("ocr/orientDetect"), false).toBool();
+    // U08: report intentionally unsupported batch options (engine selection)
+    // instead of silently diverging from the interactive path; captured on the
+    // GUI thread because it reads QSettings.
+    const QString capturedOcrReviewNote =
+        preFlightReviewNote(capturedOp, m_ctx ? m_ctx->capabilities.get() : nullptr);
 
     // Redact config
     const QString capturedRedactOutDir = m_redactOutDir ? m_redactOutDir->text().trimmed() : QString();
@@ -1017,12 +1055,10 @@ void BatchMode::onRunClicked() {
                     capturedCtx->ocr->initialize(capturedOcrLang);
                     OcrPipeline pipeline(capturedCtx->ocr);
                     pipeline.setStrategy(OcrStrategy::PrimaryOnly);
-                    // §9.4 P0: correct scans whose rotation is baked into the
-                    // content; word boxes still map back through
-                    // PreprocessedImage::inverseTransform. The other options
-                    // keep their defaults (current behavior).
-                    OcrPreprocessOptions preprocessOpts;
-                    preprocessOpts.orientDetect = capturedOcrOrientDetect;
+                    // §9.4 P0 / U08: the SAME preprocessing options the
+                    // interactive path honors (GUI-thread-captured prefs) —
+                    // deskew/binarize/denoise/orientDetect, no divergence.
+                    OcrPreprocessOptions preprocessOpts = capturedOcrPreprocess;
                     pipeline.setPreprocessing(preprocessOpts);
 
                     QList<QImage> images;
@@ -1050,7 +1086,19 @@ void BatchMode::onRunClicked() {
                         // §9.12 P0: surface OcrPipeline's confidence data — flag
                         // low-confidence words for review instead of reporting a
                         // bare pass/fail with zero visibility.
-                        if (ok) result.reviewNote = lowConfidenceNote(pageResults);
+                        if (ok) {
+                            result.reviewNote = lowConfidenceNote(pageResults);
+                            // U08: report the intentionally unsupported batch
+                            // engine option alongside the confidence note —
+                            // never a silent divergence from the interactive
+                            // path.
+                            if (!capturedOcrReviewNote.isEmpty()) {
+                                result.reviewNote = result.reviewNote.isEmpty()
+                                    ? capturedOcrReviewNote
+                                    : capturedOcrReviewNote + QLatin1Char(' ')
+                                          + result.reviewNote;
+                            }
+                        }
                     }
                 }
             }
@@ -1193,7 +1241,49 @@ void BatchMode::onRunClicked() {
     }, Qt::QueuedConnection); // Deduplication is enforced by the preceding disconnect call
 
 
-    QFuture<BatchFileResult> future = QtConcurrent::mapped(capturedFiles, processFileReal);
+    // U08 per-item pre-flight (GUI thread — probes are cached and GUI-affine):
+    // every file is checked BEFORE the worker starts. Blocked items are staged
+    // as failed BatchFileResults (log + error log + failCount) so the summary
+    // reports success + failed + remaining truthfully — a skipped file is
+    // never reported as completed. The future maps only the runnable files;
+    // this reuses the existing QtConcurrent pipeline, no new scheduler.
+    int preFlightBlocked = 0;
+    QStringList runnableFiles;
+    const gp::CapabilityRegistry* caps = m_ctx ? m_ctx->capabilities.get() : nullptr;
+    for (const QString& f : capturedFiles) {
+        const QString blocker = preFlightBlocker(capturedOp, f, caps);
+        if (blocker.isEmpty()) {
+            runnableFiles << f;
+            continue;
+        }
+        ++preFlightBlocked;
+        ++m_failCount;
+        appendFileResult(f, false, blocker);
+        ErrorInfo err = ErrorInfo::error(
+            tr("Not processed: %1").arg(QFileInfo(f).fileName()),
+            blocker, ErrorInfo::Skip);
+        err.sourceFile = f;
+        m_errorLog.append(std::move(err));
+    }
+    if (preFlightBlocked > 0) {
+        appendLog(tr("Pre-flight: %1 of %2 file(s) cannot be processed with the "
+                     "selected operation — see the reasons above.")
+                      .arg(preFlightBlocked).arg(capturedFiles.size()), "#c8a000");
+    }
+    if (runnableFiles.isEmpty()) {
+        // Everything was blocked pre-flight: no worker is started. Finish the
+        // batch UI state truthfully (0 runnable files remain).
+        m_overallProgress->setValue(100);
+        m_fileProgress->setValue(100);
+        m_runBtn->setEnabled(true);
+        m_cancelBtn->setEnabled(false);
+        m_etaLabel->clear();
+        showSummary();
+        emit batchFinished();
+        return;
+    }
+
+    QFuture<BatchFileResult> future = QtConcurrent::mapped(runnableFiles, processFileReal);
     m_watcher.setFuture(future);
 }
 
@@ -1308,6 +1398,52 @@ QString BatchMode::lowConfidenceNote(const QList<PageOcrResult>& pages,
         .arg(lowWords).arg(pageList.join(QStringLiteral(", ")));
 }
 
+// ── U08 pre-flight seams ──────────────────────────────────────────────────────
+
+// Pure function: a non-empty result blocks the file BEFORE any worker runs.
+// Capability answers come from the registry (cached, GUI-thread probed); the
+// input-existence check mirrors the engine's own first validation so a bad
+// path fails at disclosure time instead of inside the pipeline.
+QString BatchMode::preFlightBlocker(int opIndex, const QString& inputPath,
+                                    const gp::CapabilityRegistry* capabilities) {
+    if (!QFileInfo::exists(inputPath))
+        return BatchMode::tr("Input file not found: %1").arg(inputPath);
+
+    if (opIndex == OpOCR && capabilities) {
+        // Batch OCR runs the Tesseract pipeline (PrimaryOnly) — apply the same
+        // honest engine-availability gate the interactive path applies.
+        const gp::Capability tesseract = capabilities->query(gp::CapId::OcrTesseract);
+        if (tesseract.status != gp::Availability::Available)
+            return gp::CapabilityRegistry::combineWhyNot(tesseract);
+    }
+    return QString();
+}
+
+// Pure function of the persisted prefs + capabilities (QSettings read happens
+// on the GUI thread at capture time in onRunClicked). Reports the ONE batch
+// option that intentionally does not apply: the engine selection. Batch OCR
+// always runs Tesseract PrimaryOnly, while the interactive path may use
+// RapidOCR/ensemble (either explicitly, or via "auto" when the PP-OCRv5
+// models are installed).
+QString BatchMode::preFlightReviewNote(int opIndex,
+                                       const gp::CapabilityRegistry* capabilities) {
+    if (opIndex != OpOCR)
+        return QString();
+
+    const QString engineKey = QSettings().value(
+        QStringLiteral("ocr/engine"), QStringLiteral("auto")).toString();
+    const bool autoSelect = engineKey.isEmpty() || engineKey == QStringLiteral("auto");
+    const bool rapidPreferred =
+        engineKey == QStringLiteral("rapidocr")
+        || engineKey == QStringLiteral("ensemble")
+        || (autoSelect && capabilities && capabilities->available(gp::CapId::OcrRapidModels));
+    if (!rapidPreferred)
+        return QString();
+
+    return BatchMode::tr("Batch OCR runs the Tesseract engine only — the "
+                         "RapidOCR/ensemble engine selection is not applied in batch.");
+}
+
 void BatchMode::appendLog(const QString& text, const QString& color) {
     if (color.isEmpty())
         m_logView->append(text);
@@ -1328,12 +1464,17 @@ void BatchMode::appendFileResult(const QString& file, bool success, const QStrin
 void BatchMode::showSummary() {
     int total    = m_successCount + m_failCount;
     int warnings = m_errorLog.warningCount();
+    // U08: remaining = files neither succeeded nor failed (mid-run this is the
+    // in-flight tail; after a cancel these were NOT processed — say so).
+    const int remaining = remainingCount();
 
     QString summary = tr("BATCH COMPLETE — %1 of %2 succeeded").arg(m_successCount).arg(total);
     if (m_failCount > 0)
         summary += tr(", %1 failed").arg(m_failCount);
     if (warnings > 0)
         summary += tr(", %1 warnings").arg(warnings);
+    if (remaining > 0)
+        summary += tr(", %1 not processed").arg(remaining);
     if (m_watcher.isCanceled())
         summary += tr(" [CANCELLED]");
 

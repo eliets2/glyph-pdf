@@ -122,6 +122,15 @@ private:
     }
 
 private slots:
+    // The candidate dir is GlyphPDF's own operation namespace (SafeSave owns
+    // it) — sweep debris from killed processes at start, then every assertion
+    // is delta-based: this operation leaves nothing NEW behind.
+    void initTestCase() {
+        const QDir dir(QDir::tempPath() + QStringLiteral("/glyphpdf-candidates"));
+        const auto debris = dir.entryList(
+            QStringList() << QStringLiteral("glyphpdf-*.pdf"), QDir::Files);
+        for (const QString& f : debris) QFile::remove(dir.absoluteFilePath(f));
+    }
     void sameFileAddPreservesTextAndContent();
     void separateDestinationPreservesSource();
     void occupiedDestinationHandleFailsKeepingOriginal();
@@ -340,10 +349,11 @@ void TestFormSafety::injectedFaultsLeaveOriginalIntact() {
     QVERIFY(tmp.isValid());
     const QString pdf = makeTextPdf(tmp.path(), "after.pdf", {"After probe"});
     FormManager fm;
+    const int candidatesBeforeSanity = leftoverCandidates();
     QVERIFY(fm.addTextField(pdf, 0, QRectF(72, 150, 140, 30),
                             QStringLiteral("ok_field"), pdf));
     QVERIFY(pdfHasField(pdf, QStringLiteral("ok_field")));
-    QCOMPARE(leftoverCandidates(), 0);
+    QCOMPARE(leftoverCandidates(), candidatesBeforeSanity);
 }
 
 // A failed AddFormFieldCommand must not leave a success-looking undo entry:

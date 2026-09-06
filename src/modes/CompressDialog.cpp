@@ -3,6 +3,7 @@
 #include "util/GpTheme.h"
 #include "util/Badge.h"
 #include "core/AppContext.h"
+#include "core/Capability.h"
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "engines/mrc/MrcPageProcessor.h"
 
@@ -19,6 +20,7 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSpinBox>
+#include <QStandardItemModel>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -28,9 +30,11 @@ namespace gp {
 
 QString CompressDialog::unsupportedPassExplanation()
 {
-    return tr("Not available in this build: the compression engine does not "
-              "implement font subsetting or unused-object removal, so these "
-              "passes would not run.");
+    // U08: the canonical wording lives in the CapabilityRegistry (the
+    // CompressSubsetFonts / CompressRemoveUnused probes carry the same
+    // string); this static remains the UI anchor TestCompressDialogHonesty
+    // pins.
+    return r12UnsupportedPassExplanation();
 }
 
 // ── Preset card helper ────────────────────────────────────────────────────────
@@ -155,23 +159,34 @@ CompressDialog::CompressDialog(const AppContext* ctx, QWidget* parent)
     _chkDedup->setChecked(true);
     af->addWidget(_chkDedup, 1, 0);
 
-    // R12: the backend implements neither font subsetting nor unused-object
+    // R12/U08: the backend implements neither font subsetting nor unused-object
     // removal (no subsetter, no object GC in this build). The checkboxes stay
     // visible but are disabled and unchecked, with the availability explanation
     // as tooltip/status tip, so the UI never promises a pass that would not
-    // run. See unsupportedPassExplanation().
+    // run. The wording now comes from the CapabilityRegistry probes (the same
+    // string the registry hands to any other consumer); the exact whyNot is
+    // pinned by TestCompressDialogHonesty, so the disable stays local instead
+    // of going through applyToWidget's combined whyNot+alternative tooltip.
+    const gp::CapabilityRegistry* caps = _ctx ? _ctx->capabilities.get() : nullptr;
+    const QString subsetWhyNot = caps
+        ? caps->query(gp::CapId::CompressSubsetFonts).whyNot
+        : unsupportedPassExplanation();
+    const QString removeWhyNot = caps
+        ? caps->query(gp::CapId::CompressRemoveUnused).whyNot
+        : unsupportedPassExplanation();
+
     _chkSubsetFonts = new QCheckBox(tr("Subset fonts"));
     _chkSubsetFonts->setChecked(false);
     _chkSubsetFonts->setEnabled(false);
-    _chkSubsetFonts->setToolTip(unsupportedPassExplanation());
-    _chkSubsetFonts->setStatusTip(unsupportedPassExplanation());
+    _chkSubsetFonts->setToolTip(subsetWhyNot);
+    _chkSubsetFonts->setStatusTip(subsetWhyNot);
     af->addWidget(_chkSubsetFonts, 1, 1);
 
     _chkRemoveUnused = new QCheckBox(tr("Remove unused objects"));
     _chkRemoveUnused->setChecked(false);
     _chkRemoveUnused->setEnabled(false);
-    _chkRemoveUnused->setToolTip(unsupportedPassExplanation());
-    _chkRemoveUnused->setStatusTip(unsupportedPassExplanation());
+    _chkRemoveUnused->setToolTip(removeWhyNot);
+    _chkRemoveUnused->setStatusTip(removeWhyNot);
     af->addWidget(_chkRemoveUnused, 2, 0);
 
     _chkStripMetadata = new QCheckBox(tr("Strip metadata"));
@@ -207,6 +222,25 @@ CompressDialog::CompressDialog(const AppContext* ctx, QWidget* parent)
     _mrcModeCombo->setToolTip(tr(
         "Balanced: best size/quality trade-off for archival.\n"
         "Aggressive: maximum compression; may introduce artefacts in photo regions."));
+
+    // U08: MRC is a Degraded capability here — it needs OCR-pipeline page
+    // images this dialog does not have. The non-Off entries become a
+    // disabled-with-explanation state (pre-execution disclosure from the
+    // registry) instead of the old mid-run info dialog + silent fallback to
+    // standard compression; the combo itself stays enabled and reachable for
+    // discoverability (Off remains selectable).
+    if (caps) {
+        const gp::Capability mrc = caps->query(gp::CapId::MrcCompression);
+        const QString mrcExplanation = gp::CapabilityRegistry::combineWhyNot(mrc);
+        auto* mrcModel = qobject_cast<QStandardItemModel*>(_mrcModeCombo->model());
+        for (int i = 1; i < _mrcModeCombo->count(); ++i) {
+            QStandardItem* item = mrcModel ? mrcModel->item(i) : nullptr;
+            if (!item) continue;
+            item->setEnabled(false);
+            item->setToolTip(mrcExplanation);
+        }
+        caps->applyToWidget(_mrcModeCombo, gp::CapId::MrcCompression);
+    }
     mf->addWidget(_mrcModeCombo, 1);
 
     _mrcEstLabel = new QLabel(tr("MRC: off"));
@@ -492,6 +526,33 @@ void CompressDialog::onCompress() {
         return;
     }
 
+    // Check MRC mode BEFORE asking for a destination (U08: disclose before
+    // anything runs). The MRC entries are disabled-with-explanation since this
+    // dialog has no OCR-pipeline page images, so this path is normally
+    // unreachable from the UI; if it is ever reached, say what is unavailable,
+    // offer the supported alternative, and stop — never silently substitute
+    // standard compression for an explicitly chosen MRC mode, and never write
+    // a file the user did not agree to under a substituted pipeline.
+    MrcMode mrcMode = MrcMode::Off;
+    if (_mrcModeCombo)
+        mrcMode = (MrcMode)_mrcModeCombo->currentData().toInt();
+
+    if (mrcMode != MrcMode::Off) {
+        const gp::CapabilityRegistry* caps = _ctx ? _ctx->capabilities.get() : nullptr;
+        const QString explanation = caps
+            ? gp::CapabilityRegistry::combineWhyNot(caps->query(gp::CapId::MrcCompression))
+            : tr("MRC (Mixed Raster Content) export requires the document to have been "
+                 "processed through the OCR pipeline first.\n\n"
+                 "To use MRC compression:\n"
+                 "1. Run OCR on the document (OCR mode)\n"
+                 "2. Use Export \u2192 MRC PDF/A from the File menu.");
+        QMessageBox::information(this, tr("MRC Export"),
+            explanation + QLatin1Char('\n')
+            + tr("\nNothing was written. Choose \u201COff (standard compression)\u201D "
+                 "to compress this document without MRC."));
+        return;
+    }
+
     // Ask user where to save the optimized file
     QString outPath = QFileDialog::getSaveFileName(
         this, tr("Save Optimized PDF"),
@@ -501,25 +562,7 @@ void CompressDialog::onCompress() {
 
     if (outPath.isEmpty()) return;
 
-    // Check MRC mode
-    MrcMode mrcMode = MrcMode::Off;
-    if (_mrcModeCombo)
-        mrcMode = (MrcMode)_mrcModeCombo->currentData().toInt();
-
     bool success = false;
-
-    if (mrcMode != MrcMode::Off) {
-        // MRC path: requires page images from OCR pipeline.
-        // In this dialog, we don't have pre-rendered images — show informational dialog.
-        QMessageBox::information(this, tr("MRC Export"),
-            tr("MRC (Mixed Raster Content) export requires the document to have been "
-               "processed through the OCR pipeline first.\n\n"
-               "To use MRC compression:\n"
-               "1. Run OCR on the document (OCR mode)\n"
-               "2. Use Export → MRC PDF/A from the File menu.\n\n"
-               "Falling back to standard compression for this export."));
-        mrcMode = MrcMode::Off;
-    }
 
     OptimizeOptions opts;
     opts.downsampleImages   = _chkDownsample->isChecked();

@@ -287,6 +287,7 @@ add_subdirectory(src/pdfws_djot)
 add_library(pdfws_engines STATIC
     src/core/AnnotationSerializer.h  src/core/AnnotationSerializer.cpp
     src/core/ErrorInfo.h             src/core/ErrorInfo.cpp
+    src/core/Capability.h            src/core/Capability.cpp
     src/core/TempFileManager.h       src/core/TempFileManager.cpp
     src/core/CredentialManager.h     src/core/CredentialManager.cpp
     src/core/ISecretStore.h
@@ -1811,6 +1812,35 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrPreprocessPrefs.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 60
         LABELS "unit;ocr;preprocess;persistence;qt;headless"
+    )
+endif()
+
+# ── TestCapabilityRegistry (U08 — the ONE capability registry) ───────────────
+# Cache/invalidate behavior, UnavailableBuild vs UnavailableRuntime, the
+# non-empty whyNot/alternative rule, applyToWidget and fileFilterFor, and the
+# truthfulness of the engine probes registered at boot.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCapabilityRegistry.cpp")
+    add_executable(TestCapabilityRegistry
+        tests/TestCapabilityRegistry.cpp
+    )
+    target_include_directories(TestCapabilityRegistry PRIVATE src tests)
+    target_link_libraries(TestCapabilityRegistry PRIVATE
+        pdfws_engines pdfws_core
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET TestCapabilityRegistry POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestCapabilityRegistry>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestCapabilityRegistry>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestCapabilityRegistry"
+    )
+    add_test(NAME TestCapabilityRegistry COMMAND TestCapabilityRegistry)
+    set_tests_properties(TestCapabilityRegistry PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;capability;u08;qt;headless"
     )
 endif()
 
