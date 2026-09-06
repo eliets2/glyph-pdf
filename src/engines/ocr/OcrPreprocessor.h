@@ -17,6 +17,10 @@ struct OcrPreprocessOptions {
 
 /// Result of preprocessing: the cleaned image + an inverse transform
 /// that maps coordinates in the preprocessed image back to the original.
+/// The inverse is the exact inverse of the composed forward pipeline
+/// (dpiNormalize scale → optional orientDetect rotation → optional deskew
+/// rotation, each about its documented origin), so word boxes measured on
+/// the preprocessed image map back onto original scan coordinates.
 struct PreprocessedImage {
     QImage image;
     QTransform inverseTransform;  // preprocessed-coords → original-coords
@@ -33,7 +37,13 @@ public:
     /// Run the full preprocessing pipeline on a page image.
     PreprocessedImage process(const QImage &input, const OcrPreprocessOptions &opts = {}) const;
 
-    /// Convenience: only deskew.
+    /// Convenience: only deskew. The angle is measured by Leptonica's
+    /// pixFindSkew on a temporary 1-bit estimator image (pixFindSkew requires
+    /// 1 bpp) and the correction is applied to the 8-bit image. Blank pages,
+    /// unreliable estimates (confidence ≤ 2.0) and already-level pages
+    /// (|angle| < 0.1°) are returned unchanged with *angleOut = 0 — a
+    /// documented no-op. Without Leptonica (no HAS_TESSERACT) the input is
+    /// always returned unchanged.
     QImage deskew(const QImage &input, double *angleOut = nullptr) const;
 
     /// Convenience: only binarize (Sauvola).
