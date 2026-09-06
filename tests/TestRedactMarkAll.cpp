@@ -53,6 +53,12 @@ private slots:
     // Cancel must emit exitRequested() (the mode-exit contract) and must NOT
     // touch the placed marks (they live on the viewer and stay recoverable).
     void cancelControlEmitsExitRequestedAndKeepsMarks();
+    // §9.8 P1: Foxit-style word-list import — a .txt file becomes an escaped
+    // alternation pattern shown in the custom-regex edit for review, with a
+    // hard size cap and an honest error.
+    void wordListImportBuildsEscapedAlternation();
+    void wordListImportRefusesOversizedFile();
+    void importListButtonSitsNextToRegexEdit();
 private:
     static QString createPdfWithText(const QTemporaryDir& tmpDir,
                                      const QString& name, const QString& text);
@@ -495,6 +501,88 @@ void TestRedactMarkAll::cancelControlEmitsExitRequestedAndKeepsMarks() {
 
     // The placed marks live on the viewer — cancel must not clear them.
     QCOMPARE(redactMarkCount(viewer), 1);
+}
+
+// §9.8 P1: word-list import — the pure seams.
+void TestRedactMarkAll::wordListImportBuildsEscapedAlternation() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString path = tmp.filePath("terms.txt");
+    {
+        QFile f(path);
+        QVERIFY2(f.open(QIODevice::WriteOnly | QIODevice::Text), "list file must be writable");
+        // Blank lines are skipped; regex metacharacters must arrive ESCAPED.
+        f.write("Alice Wonder\nBob+Smith\n\n   \nCarol(QA)\nBob+Smith\n");
+    }
+
+    QString err;
+    const QStringList terms = gp::RedactMode::readWordList(path, 256 * 1024, &err);
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+    QCOMPARE(terms.size(), 3);
+    QCOMPARE(terms.at(0), QStringLiteral("Alice Wonder"));
+    QCOMPARE(terms.at(1), QStringLiteral("Bob+Smith"));
+    QCOMPARE(terms.at(2), QStringLiteral("Carol(QA)"));
+
+    const QString pattern = gp::RedactMode::wordListToPattern(terms);
+    // QRegularExpression::escape escapes every non-word character — including
+    // the space — so the branch is "Alice\ Wonder".
+    QCOMPARE(pattern, QStringLiteral("Alice\\ Wonder|Bob\\+Smith|Carol\\(QA\\)"));
+
+    // The combined pattern must match the literal terms — including the ones
+    // whose metacharacters would otherwise act as regex syntax — and must not
+    // treat '+' as a quantifier.
+    QRegularExpression rx(pattern);
+    QVERIFY2(rx.isValid(), qPrintable(rx.errorString()));
+    QVERIFY(rx.match(QStringLiteral("Bob+Smith signed")).hasMatch());
+    QVERIFY(rx.match(QStringLiteral("contact Carol(QA) now")).hasMatch());
+    QVERIFY(!rx.match(QStringLiteral("BobSmith")).hasMatch());
+    QVERIFY(!rx.match(QStringLiteral("BobxACSmith")).hasMatch());
+}
+
+void TestRedactMarkAll::wordListImportRefusesOversizedFile() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString path = tmp.filePath("huge.txt");
+    {
+        QFile f(path);
+        QVERIFY2(f.open(QIODevice::WriteOnly | QIODevice::Text), "list file must be writable");
+        f.write(QByteArray(300 * 1024, 'x'));
+    }
+    QString err;
+    const QStringList terms = gp::RedactMode::readWordList(path, 256 * 1024, &err);
+    QVERIFY2(terms.isEmpty(), "an oversized list must yield no terms");
+    QVERIFY2(err.contains(QStringLiteral("large")), qPrintable(QStringLiteral("honest error expected: %1").arg(err)));
+
+    // A missing file is an honest error too — never a silent empty pattern.
+    QString missingErr;
+    QVERIFY(gp::RedactMode::readWordList(tmp.filePath("nope.txt"), 256 * 1024, &missingErr).isEmpty());
+    QVERIFY2(!missingErr.isEmpty(), "a missing file must report an error");
+}
+
+void TestRedactMarkAll::importListButtonSitsNextToRegexEdit() {
+    gp::RedactMode mode;
+    auto* btn = mode.findChild<QToolButton*>(QStringLiteral("redactBtnImportList"));
+    QVERIFY2(btn, "RedactMode must expose the word-list import control (redactBtnImportList)");
+
+    // The control appears together with the custom-regex edit it feeds.
+    QVERIFY2(btn->isHidden(), "import must be hidden until Custom regex is selected");
+
+    auto* combo = mode.findChild<QComboBox*>();
+    QVERIFY(combo);
+    combo->setCurrentIndex(combo->count() - 1); // "Custom regex …"
+
+    QVERIFY2(!btn->isHidden(), "import must be visible once Custom regex is selected");
+
+    // The import path lands the combined pattern in the regex edit for review
+    // (activateCustomRegex is the same seam the import handler uses).
+    mode.activateCustomRegex(QStringLiteral("Alice\\ Wonder|Bob\\+Smith"));
+    QLineEdit* regexEdit = nullptr;
+    const auto edits = mode.findChildren<QLineEdit*>();
+    for (QLineEdit* e : edits)
+        if (e->placeholderText().contains(QStringLiteral("regular expression")))
+            regexEdit = e;
+    QVERIFY2(regexEdit, "the custom-regex edit must exist");
+    QCOMPARE(regexEdit->text(), QStringLiteral("Alice\\ Wonder|Bob\\+Smith"));
 }
 
 QTEST_MAIN(TestRedactMarkAll)
