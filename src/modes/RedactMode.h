@@ -2,9 +2,11 @@
 #pragma once
 #include <QWidget>
 #include <QRegularExpression>
+#include "engines/RedactOperation.h"
 
 struct AppContext;
 class PdfViewerWidget;
+class QProgressDialog;
 class QComboBox;
 class QCheckBox;
 class QLineEdit;
@@ -52,6 +54,10 @@ private:
     // Returns {startPage, endPage} 0-based, inclusive; -1 means invalid / whole-doc sentinel
     QList<int> resolvePageRange() const;
     void showMatchCount(int count);
+    // U05: run the ONE transactional redaction operation behind this entry
+    // path — progress + cancel between pages, marks cleared only after the
+    // output is committed and kept (shared with SecurityController's path).
+    void runRedactOperation(const gp::RedactRequest& request);
 
     // toolbar pills (stored so D4 can pre-check the pattern pill)
     QToolButton* m_pillMarkRegion  = nullptr;
@@ -76,6 +82,13 @@ private:
 
     // §9.8 P0: bundle the full hidden-data scrub into the Apply flow
     QCheckBox*   m_chkSanitizeCopy = nullptr;
+
+    // U05: progress dialog of the running transactional redaction. Deleted only
+    // when the NEXT operation starts (or with this widget) — never from the
+    // operation's finished handler: a modal QProgressDialog::setValue() pumps
+    // the event loop, so a deleteLater delivered inside that pump frees the
+    // dialog under the still-executing setValue frame (use-after-free).
+    QProgressDialog* m_redactProgress = nullptr;
 
     const AppContext*  m_ctx    = nullptr;
     PdfViewerWidget*   m_viewer = nullptr;

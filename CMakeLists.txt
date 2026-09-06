@@ -294,6 +294,8 @@ add_library(pdfws_engines STATIC
     src/engines/OcrEngine.h          src/engines/OcrEngine.cpp
     src/engines/PdfEditorEngine.h    src/engines/PdfEditorEngine.cpp
     src/engines/FormManager.h        src/engines/FormManager.cpp
+    src/engines/SafeSave.h           src/engines/SafeSave.cpp
+    src/engines/RedactOperation.h    src/engines/RedactOperation.cpp
     src/engines/SignatureManager.h   src/engines/SignatureManager.cpp
     src/engines/ConversionManager.h  src/engines/ConversionManager.cpp
     src/engines/DocumentSession.h    src/engines/DocumentSession.cpp
@@ -673,6 +675,7 @@ add_library(pdfws_ui STATIC
     src/ui/OcrScanCanvas.h                  src/ui/OcrScanCanvas.cpp
     src/ui/OcrWordMagnifier.h               src/ui/OcrWordMagnifier.cpp
     src/modes/RedactMode.h                  src/modes/RedactMode.cpp
+    src/modes/RedactApplyDialog.h           src/modes/RedactApplyDialog.cpp
     src/modes/CompareMode.h                 src/modes/CompareMode.cpp
     src/modes/PagesMode.h                   src/modes/PagesMode.cpp
     src/modes/BatchMode.h                   src/modes/BatchMode.cpp
@@ -1015,41 +1018,10 @@ endif()
 # Audit 9.2 P0 (ER-2): the eraser must not bypass the signed-document guard.
 # deleteObjectAt on a signed document must be refused (incremental save would
 # leak excised bytes into revision 1). Uses the real signing fixtures.
-# §9.7 P0 regression test: the cryptographic signing path must write a visible
-# signature appearance (/AP /N form XObject, ETSI layout, auto-fit).
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignatureAppearance.cpp")
-    add_executable(TestSignatureAppearance tests/TestSignatureAppearance.cpp)
-    target_include_directories(TestSignatureAppearance PRIVATE src tests)
-    target_compile_definitions(TestSignatureAppearance PRIVATE
-        SOURCE_DIR="${CMAKE_SOURCE_DIR}"
-    )
-    if(GLYPHPDF_ENABLE_TEST_FIXTURES)
-        target_compile_definitions(TestSignatureAppearance PRIVATE GLYPH_TESTING=1)
-    endif()
-    target_link_libraries(TestSignatureAppearance PRIVATE
-        pdfws_engines pdfws_core
-        OpenSSL::SSL OpenSSL::Crypto
-        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets podofo::podofo
-    )
-    if(WIN32)
-        target_link_libraries(TestSignatureAppearance PRIVATE Crypt32)
-        if(EXISTS "${PODOFO_VENDOR_DLL}")
-            add_custom_command(TARGET TestSignatureAppearance POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${PODOFO_VENDOR_DLL}"
-                    "$<TARGET_FILE_DIR:TestSignatureAppearance>/libpodofo.dll"
-                COMMENT "Deploying podofo 1.1.0 DLL for TestSignatureAppearance"
-            )
-        endif()
-    endif()
-    add_test(NAME TestSignatureAppearance COMMAND TestSignatureAppearance)
-    set_tests_properties(TestSignatureAppearance PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
-        TIMEOUT 120
-        LABELS "integration;security;signatures;appearance;qt;headless"
-    )
-endif()
-
+# NOTE: a byte-identical duplicate of the TestSignatureAppearance block (re-added
+# by cec39a7, "lost to a concurrent CMakeLists edit", while the canonical block
+# further down survived) was removed here — the twin target broke configure with
+# a CMP0002 duplicate-target error for every lane sharing this tree.
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEraseSignedGuard.cpp")
     add_executable(TestEraseSignedGuard tests/TestEraseSignedGuard.cpp)
     target_include_directories(TestEraseSignedGuard PRIVATE src tests)
@@ -2394,6 +2366,40 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRedactSanitizeBundle.cpp")
     )
     add_test(NAME TestRedactSanitizeBundle COMMAND TestRedactSanitizeBundle)
     set_tests_properties(TestRedactSanitizeBundle PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;redaction;sanitization;security;privacy;qt;headless")
+endif()
+
+# ── TestRedactTransaction (U05 — one transactional redaction operation) ──────
+# Pins the R01 safe-save transaction behind both redaction entry paths: the
+# source PDF is byte-identical after every failure/cancel, the committed output
+# is verified with an independent extractor (Pdfium), the ER-2 signed refusal
+# fires at Preflight, and sanitize failure yields the labeled partial state.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRedactTransaction.cpp")
+    add_executable(TestRedactTransaction tests/TestRedactTransaction.cpp)
+    target_include_directories(TestRedactTransaction PRIVATE src tests)
+    target_compile_definitions(TestRedactTransaction PRIVATE
+        SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    )
+    target_link_libraries(TestRedactTransaction PRIVATE
+        pdfws_ui pdfws_engines pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET TestRedactTransaction POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestRedactTransaction>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestRedactTransaction>/platforms/qoffscreen.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PODOFO_VENDOR_DLL}"
+            "$<TARGET_FILE_DIR:TestRedactTransaction>/libpodofo.dll"
+        COMMENT "Deploying qoffscreen platform plugin and podofo DLL for TestRedactTransaction"
+    )
+    add_test(NAME TestRedactTransaction COMMAND TestRedactTransaction)
+    set_tests_properties(TestRedactTransaction PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 180
+        LABELS "unit;redaction;transaction;security;privacy;qt;headless"
+    )
 endif()
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPptxOverlayAlpha.cpp")

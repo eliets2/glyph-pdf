@@ -1208,8 +1208,7 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
     PdfContentStreamReader reader(device);
     PdfContent content;
     std::ostringstream newStream;
-    
-    double textX = 0.0, textY = 0.0;
+
     bool inTextBlock = false;
     double leading = 0.0;
 
@@ -1318,7 +1317,6 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
             
             if (kw == "BT") {
                 inTextBlock = true;
-                textX = 0.0; textY = 0.0;
                 // F-02: BT resets Tm and Tlm to identity (PDF 9.4.1).
                 tm = RedactCtm{}; tlm = RedactCtm{}; penX = 0.0;
                 newStream << "BT\n";
@@ -1351,7 +1349,6 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                 if (stack[0].IsNumberOrReal()) leading = stack[0].GetReal();
             }
             if (kw == "T*" && inTextBlock) {
-                textY -= leading;
                 // F-02: T* is equivalent to "0 -leading Td": Tlm = translate(0,-leading) x Tlm, Tm = Tlm.
                 RedactCtm tr; tr.e = 0.0; tr.f = -leading;
                 tlm = concat(tr, tlm); tm = tlm; penX = 0.0;
@@ -1359,8 +1356,6 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
             if (kw == "Tm" && stack.size() >= 6) {
                 // PdfVariantStack index 0 = top of stack = last pushed operand.
                 // "a b c d e f Tm" pushes in order a..f, so stack[0]=f, stack[1]=e, ... stack[5]=a.
-                if (stack[1].IsNumberOrReal()) textX = stack[1].GetReal();
-                if (stack[0].IsNumberOrReal()) textY = stack[0].GetReal();
                 // F-02: capture the FULL text matrix (a,b,c,d,e,f). Tm sets both Tm and Tlm.
                 RedactCtm m;
                 if (stack[5].IsNumberOrReal()) m.a = stack[5].GetReal();
@@ -1373,10 +1368,9 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
             } else if ((kw == "Td" || kw == "TD") && stack.size() >= 2) {
                 // "tx ty Td" pushes tx first, ty second, so stack[0]=ty, stack[1]=tx.
                 double tx = 0.0, ty = 0.0;
-                if (stack[1].IsNumberOrReal()) { tx = stack[1].GetReal(); textX += tx; }
+                if (stack[1].IsNumberOrReal()) { tx = stack[1].GetReal(); }
                 if (stack[0].IsNumberOrReal()) {
                     ty = stack[0].GetReal();
-                    textY += ty;
                     if (kw == "TD") leading = -ty;
                 }
                 // F-02: Td/TD: Tlm = translate(tx,ty) x Tlm, Tm = Tlm (PDF 9.4.2).
@@ -1386,11 +1380,16 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
             
             // Track Text State Parameters
             if (kw == "Tf" && stack.size() >= 2) {
-                if (stack[0].IsName()) {
-                    currentFontName = stack[0].GetName().GetString();
+                // "font size Tf": the font NAME is pushed first (stack[1]), the
+                // size is pushed last (stack[0]). The previous slot order read the
+                // size as the font name and skipped both (guards failed), silently
+                // keeping the Helvetica/12 defaults for every font and size — the
+                // basis of the excision-gap advance computation.
+                if (stack[1].IsName()) {
+                    currentFontName = stack[1].GetName().GetString();
                 }
-                if (stack[1].IsNumberOrReal()) {
-                    currentFontSize = stack[1].GetReal();
+                if (stack[0].IsNumberOrReal()) {
+                    currentFontSize = stack[0].GetReal();
                 }
             } else if (kw == "Tc" && stack.size() >= 1) {
                 if (stack[0].IsNumberOrReal()) currentCharSpacing = stack[0].GetReal();
@@ -1503,7 +1502,6 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                 }
                 
                 if (kw == "'" || kw == "\"") {
-                    textY -= leading;
                     // F-02: ' and " perform a T* (new line) before showing text.
                     RedactCtm tr; tr.e = 0.0; tr.f = -leading;
                     tlm = concat(tr, tlm); tm = tlm; penX = 0.0;
@@ -1532,10 +1530,9 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                             newStream << stack[1].GetReal() << " Tc\n";
                             newStream << "T*\n";
                         }
-                        textX += totalAdvance; penX += totalAdvance;
+                        penX += totalAdvance;
                         continue;
                     }
-
                     // Edact-Ray defense (PETS 2023, Bland et al.): emit numeric-only TJ gap.
                     // [N] TJ moves cursor by -(N/1000)*fontSize*fontScale text-space units.
                     // N = -totalAdvance * 1000 / scale gives exact sum-of-advances, no glyph emitted.
@@ -1556,11 +1553,11 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                         newStream << "[ " << N << " ] TJ\n";
                     }
                     // totalAdvance ≈ 0 or scale ≈ 0: emit nothing (safe — no glyph, no cursor shift).
-                    textX += totalAdvance; penX += totalAdvance;
+                    penX += totalAdvance;
                     continue;
                 }
 
-                textX += totalAdvance; penX += totalAdvance;
+                penX += totalAdvance;
             }
             
             if (kw == "Do" && stack.size() > 0 && stack[0].IsName()) {
@@ -1639,9 +1636,18 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                 }
             }
             
-            for (const auto& op : stack) {
+            // Re-emit operands in ORIGINAL source order. PdfVariantStack's
+            // begin()/end() iterate from the TOP of the operand stack (index 0 ==
+            // last-pushed operand), so the previous forward range-for REVERSED the
+            // operands of every multi-operand operator ("50 700 Td" was re-emitted
+            // as "700 50 Td", "/F1 12 Tf" as "12 /F1 Tf"). That corrupted every
+            // redacted content stream — text jumped to the wrong position and
+            // Pdfium text extraction failed outright on the saved output. rbegin()
+            // walks the stack bottom-up, i.e. the order the operands appeared in
+            // the source stream.
+            for (auto it = stack.rbegin(); it != stack.rend(); ++it) {
                 std::string out;
-                op.ToString(out);
+                it->ToString(out);
                 newStream << out << " ";
             }
             newStream << kw << "\n";
