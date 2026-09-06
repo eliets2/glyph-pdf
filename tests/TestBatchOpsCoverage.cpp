@@ -397,13 +397,10 @@ private slots:
 #endif
     }
 
-    // ── 5. FINDING (characterization, expected-fail): PDF/A "U" levels lie ────
-    // The Export PDF/A panel offers PDF/A-2U (data 4) and PDF/A-3U (data 5),
-    // but PoDoFoBackend::exportPdfA maps only levels 2 and 3 — everything else
-    // falls through to the PDF/A-1B default. Selecting 2U therefore silently
-    // produces a PDF/A-1B document. Production fix (BatchMode.cpp panel data or
-    // the exportPdfA switch) is outside this lane's ownership — recorded here
-    // as an XFAIL so the moment it is fixed, unhook the QEXPECT_FAIL.
+    // ── 5. PDF/A "U" levels are honored ──────────────────────────────────────
+    // The Export PDF/A panel offers PDF/A-2U (data 4) and PDF/A-3U (data 5);
+    // exportPdfA now maps them for real (previously everything except 2/3
+    // silently produced PDF/A-1B — see the §9.12 finding in the ledger).
     void pdfaTwoUComboLevelFallsThroughToL1B() {
         const QString src = createMultiPageTextPdf(
             m_tmpDir.path(), QStringLiteral("pdfa_u_src.pdf"),
@@ -430,14 +427,6 @@ private slots:
             PoDoFo::PdfMemDocument check;
             check.Load(out.toUtf8().constData());
             const PoDoFo::PdfALevel reported = check.GetMetadata().GetPdfALevel();
-            qWarning() << "FINDING §9.12: PDF/A-2U combo selection produced PdfALevel"
-                       << static_cast<int>(reported) << "(L1B=1, L2U=5)";
-            // DESIRED behavior — currently fails (L1B is produced instead).
-            QEXPECT_FAIL("", "FINDING §9.12 P1: the Export PDF/A combo offers "
-                             "PDF/A-2U/3U (data 4/5) but exportPdfA maps only 2/3 — "
-                             "2U silently exports PDF/A-1B. Remove this QEXPECT_FAIL "
-                             "when the mapping is fixed.",
-                         Continue);
             QCOMPARE(static_cast<int>(reported), static_cast<int>(PoDoFo::PdfALevel::L2U));
         } catch (const std::exception& e) {
             QFAIL(qPrintable(QStringLiteral("PDF/A output failed to open in PoDoFo: %1")
