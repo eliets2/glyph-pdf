@@ -42,6 +42,11 @@ public:
         return m_signResult;
     }
 
+    QList<SignatureFieldAnchor> signatureFieldAnchors(const QString &filePath) override {
+        Q_UNUSED(filePath);
+        return m_anchors;
+    }
+    QList<SignatureFieldAnchor> m_anchors;
     QList<SignatureInfo> validateSignatures(const QString &filePath) override {
         m_lastInputPath = filePath;
         ++m_validateCalls;

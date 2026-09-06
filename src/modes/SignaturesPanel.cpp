@@ -202,11 +202,20 @@ void SignaturesPanel::setDocument(const QString& filePath, ISignatureManager* si
     // validated state and the signer/status tooltip. Unanchored specs are
     // stored by the viewer but only painted once anchored.
     badges.reserve(sigs.size());
+    // §9.7 badge anchoring: the engine resolves each signature field's on-page
+    // anchor (widget /Rect, top-left convention); match by fieldName.
+    const auto anchors = signing->signatureFieldAnchors(filePath);
     for (const SignatureInfo& s : sigs) {
         SignatureBadgeSpec b;
-        b.pageIndex = -1;        // page unknown at this seam (no /Rect in SignatureInfo)
         b.state = gpBadgeStateFor(s);
         b.tooltip = gpBadgeTooltipFor(s);
+        for (const auto& a : anchors) {
+            if (a.fieldName == s.fieldName) {
+                b.pageIndex = a.pageIndex;
+                b.fieldRect = a.rect;
+                break;
+            }
+        }
         badges.append(b);
     }
     emit signatureBadgesChanged(badges);

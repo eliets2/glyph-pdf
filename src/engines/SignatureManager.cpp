@@ -1809,6 +1809,34 @@ bool SignatureManager::isLegitimateIncrementalAppend(const QByteArray& trailingB
     return true;
 }
 
+QList<ISignatureManager::SignatureFieldAnchor> SignatureManager::signatureFieldAnchors(const QString &filePath)
+{
+    QList<SignatureFieldAnchor> out;
+    if (filePath.isEmpty()) return out;
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(filePath.toUtf8().constData());
+        for (const auto *field : doc.GetFieldsIterator()) {
+            if (!field || field->GetType() != PoDoFo::PdfFieldType::Signature) continue;
+            const auto *widget = field->GetWidget();
+            if (!widget) continue;
+            const PoDoFo::PdfPage *page = widget->GetPage(); // const overload returns the page pointer directly
+            if (!page) continue;
+            const Rect r = widget->GetRect();
+            const double pageHeight = page->GetMediaBox().Height;
+            SignatureFieldAnchor a;
+            a.fieldName = QString::fromStdString(field->GetFullName());
+            a.pageIndex = static_cast<int>(page->GetIndex());
+            // Viewer top-left convention (same flip as applyRedactions).
+            a.rect = QRectF(r.X, pageHeight - r.Y - r.Height, r.Width, r.Height);
+            out.append(a);
+        }
+    } catch (const PoDoFo::PdfError &e) {
+        qWarning() << "signatureFieldAnchors:" << e.what();
+    }
+    return out;
+}
+
 QList<SignatureInfo> SignatureManager::validateSignatures(const QString &filePath)
 {
     QList<SignatureInfo> results;

@@ -96,6 +96,7 @@ public:
      * @return List of signature information.
      */
     QList<SignatureInfo> validateSignatures(const QString &filePath) override;
+    QList<SignatureFieldAnchor> signatureFieldAnchors(const QString &filePath) override;
 
 private:
     static bool isLegitimateIncrementalAppend(const QByteArray& trailingBytes,
