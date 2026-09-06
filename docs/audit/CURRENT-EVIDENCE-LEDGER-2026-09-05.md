@@ -64,7 +64,7 @@ Dated corrections to stale historical claims (superseded by HEAD):
 | U05 | Redaction | Explicit output/failure states; one controller flow | implemented-awaiting-review — RedactOperation transaction (7 stages, 4 outcomes), SafeSave shared primitive, pre-mutation dialog; 13 transaction tests + SHA-256 source invariance; 96/96 suite |
 | U06 | Pages | Selection visibility, insertion indicator, keyboard moves | implemented-awaiting-review — PLUS fixed a probe-verified defect: Qt InternalMove inserts-before-removing, so the drag snapshot captured the duplicate and the atomic permutation command never fired (drag reorder was silently dead in the live path); capture moved to rowsAboutToBeInserted + removal reconciliation. 6 new tests |
 | U07 | Comments | Filter summary, count, clear action on the existing records | open |
-| U08 | Capabilities | Pre-execution capability/scope disclosure across workflows | open |
+| U08 | Capabilities | Pre-execution capability/scope disclosure across workflows | implemented-awaiting-review — CapabilityRegistry (CapId probes, cache/invalidate, whyNot+alternative enforced in query) in src/core/Capability, injected via AppContext/Bootstrapper; consumers: CompressDialog (registry wording + applyToWidget MRC gate), ConvertController disclosure at selection, BatchMode per-item pre-flight, SignaturePicker kind label; 16+3 tests; 101/101 suite |
 
 ## Newly discovered engine defect (exposed by U05 fixtures)
 
