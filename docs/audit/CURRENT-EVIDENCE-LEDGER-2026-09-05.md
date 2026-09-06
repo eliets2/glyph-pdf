@@ -42,7 +42,7 @@ Dated corrections to stale historical claims (superseded by HEAD):
 | §9.8 page-list redaction | redaction | Mark All honors explicit page list; invalid range marks nothing | implemented-awaiting-review | fa3b957 | TestRedactMarkAll |
 | §9.8 sanitize bundle | redaction | Apply flow offers default-ON sanitize of the saved copy | implemented-awaiting-review | b64aef2 | TestRedactMarkAll |
 | §9.7 signature picker | signatures | Draw/Type/Upload modes persist as real PDF annots | implemented-awaiting-review | 8a278db | TestSignaturePicker |
-| §9.7 validity badges | signatures | On-page per-signature state badge (view-layer only) | implemented-awaiting-review | 10efbd5 | TestSignatureBadges |
+| §9.7 validity badges | signatures | On-page per-signature state badge (view-layer only) | implemented-awaiting-review — badges now ANCHORED to real field rects via signatureFieldAnchors | 10efbd5 + badge-anchoring commit | TestSignatureBadges (15) |
 | §9.7 signature appearance | signatures | Cryptographic signature renders visible /AP /N (ETSI layout, auto-fit, cert CN/date/reason/location) | implemented-awaiting-review — full-suite run was disk-blocked (62 Not Run); 13/13 own tests + signing-lane suites green | 61fac01/cec39a7 | TestSignatureAppearance (13) |
 | §9.1 two-page overlays | viewing | Annotations + search highlights visible in two-page mode | implemented-awaiting-review | ef02541 | TestTwoPageOverlay |
 | §9.10 change filter | compare | Change-type toggles gate the CHANGES tree | implemented-awaiting-review | 65395da | TestCompareEntry |
