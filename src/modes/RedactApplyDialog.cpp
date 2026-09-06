@@ -133,6 +133,24 @@ void RedactApplyDialog::buildUi()
     m_sanitizeCheck->setChecked(m_plan.sanitize);
     col->addWidget(m_sanitizeCheck);
 
+    // ── §9.8 P1: optional overlay text printed on the burn-in boxes ────────
+    // Legal/FOIA reviewers expect the WHY on the box itself. Empty edit =
+    // plain black boxes (the previous behavior, unchanged).
+    auto* overlayRow = new QHBoxLayout;
+    auto* overlayLab = new QLabel(tr("Overlay text:"), this);
+    overlayLab->setMinimumWidth(150);
+    overlayRow->addWidget(overlayLab);
+    m_overlayEdit = new QLineEdit(this);
+    m_overlayEdit->setObjectName(QStringLiteral("redactApplyOverlayEdit"));
+    m_overlayEdit->setPlaceholderText(
+        tr("Optional — e.g. a reason code, printed on each black box"));
+    m_overlayEdit->setToolTip(tr(
+        "Printed centered in white (7pt) on every redaction box in the saved "
+        "output. Boxes too small to fit the text stay plain. Leave empty for "
+        "black boxes with no label."));
+    overlayRow->addWidget(m_overlayEdit, 1);
+    col->addLayout(overlayRow);
+
     // ── Validation feedback + buttons ──────────────────────────────────────
     m_warningLabel = new QLabel(this);
     m_warningLabel->setObjectName(QStringLiteral("redactApplyWarningLabel"));
@@ -211,6 +229,14 @@ void RedactApplyDialog::setDestinationPath(const QString& path) { m_destinationE
 void RedactApplyDialog::setSanitizedDestinationPath(const QString& path) { m_sanitizedDestinationEdit->setText(path); }
 void RedactApplyDialog::setSanitizeChecked(bool on) { m_sanitizeCheck->setChecked(on); }
 
+// §9.8 P1: the overlay text is optional and never validated — any non-empty
+// value is carried onto the boxes; whitespace-only collapses to empty (no
+// overlay) in the operation itself.
+void RedactApplyDialog::setOverlayText(const QString& text)
+{
+    if (m_overlayEdit) m_overlayEdit->setText(text);
+}
+
 QString RedactApplyDialog::summaryText() const
 {
     if (!m_summaryLabel) return QString();
@@ -225,6 +251,7 @@ RedactApplyPlan RedactApplyDialog::plan() const
     p.destinationPath = m_destinationEdit->text().trimmed();
     p.sanitizedDestinationPath = m_sanitizedDestinationEdit->text().trimmed();
     p.sanitize = m_sanitizeCheck->isChecked();
+    p.overlayText = m_overlayEdit ? m_overlayEdit->text().trimmed() : QString();
     return p;
 }
 

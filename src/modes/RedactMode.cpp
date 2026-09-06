@@ -478,6 +478,9 @@ void RedactMode::onApplyRedactions() {
     }
     request.sanitize = chosen.sanitize;
     request.sanitizedDestinationPath = chosen.sanitizedDestinationPath;
+    // §9.8 P1: optional reason text printed on the burn-in boxes (empty =
+    // current behavior).
+    request.overlayText = chosen.overlayText;
 
     runRedactOperation(request);
 }

@@ -58,6 +58,11 @@ struct RedactRequest {
     QMap<int, QList<QRectF>> redactionsByPage;   // 0-based page -> rects
     bool sanitize = false;
     QString sanitizedDestinationPath;            // required when sanitize
+    // §9.8 P1: optional reason/label drawn in white, centered, on every
+    // burn-in box (7pt, skipped where a box is too small — appearance
+    // auto-fit precedent). Empty = plain black boxes (current behavior).
+    // Burn-in paint only: excision semantics are untouched.
+    QString overlayText;
 };
 
 enum class RedactStage  { Preflight, Redacting, SavingCandidate, Validating, Committing, Sanitizing, Done };

@@ -126,6 +126,14 @@ private slots:
     void dialogPresentsSummaryDefaultsAndRefusesSourceDestination();
     void presenterTextIsExplicitForEveryOutcome();
 
+    // ── §9.8 P1: optional overlay text on the burn-in boxes ────────────────
+    // Legal/FOIA users expect to see WHY something was redacted printed on the
+    // box. Overlay is burn-in paint only — excision semantics stay untouched;
+    // an empty overlay must preserve the current behavior exactly.
+    void overlayTextIsPrintedOnBurnedInBoxes();
+    void emptyOverlayTextPreservesCurrentBehavior();
+    void overlaySkippedWhenBoxTooSmall();
+
 private:
     QTemporaryDir m_tmpDir;
 
@@ -522,6 +530,12 @@ void TestRedactTransaction::dialogPresentsSummaryDefaultsAndRefusesSourceDestina
     dlg.setDestinationPath(m_tmpDir.filePath("elsewhere.pdf"));
     QCOMPARE(dlg.plan().destinationPath, m_tmpDir.filePath("elsewhere.pdf"));
 
+    // The plan's optional overlay text rides the plan struct (§9.8 P1) — empty
+    // default, user-adjustable, carried back out of plan().
+    QCOMPARE(dlg.plan().overlayText, QString());
+    dlg.setOverlayText(QStringLiteral("FOIA-2026-114"));
+    QCOMPARE(dlg.plan().overlayText, QStringLiteral("FOIA-2026-114"));
+
     // A destination equal to the SOURCE must be refused (the old controller
     // path saved over the original — U05 forbids that).
     dlg.setDestinationPath(plan.sourcePath);
@@ -578,6 +592,75 @@ void TestRedactTransaction::presenterTextIsExplicitForEveryOutcome() {
     canceled.outcome = RedactOutcome::Canceled;
     const QString canceledText = RedactResultPresenter::detailText(canceled);
     QVERIFY2(canceledText.contains(QLatin1String("No output")), qPrintable(canceledText));
+}
+
+// ── §9.8 P1: optional overlay text printed on the burn-in boxes ──────────────
+void TestRedactTransaction::overlayTextIsPrintedOnBurnedInBoxes() {
+    const QString src = createPdf("overlay.pdf", 2);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QString dest = m_tmpDir.filePath("overlay_redacted.pdf");
+
+    RedactRequest req = makeRequest(src, dest, {0, 1}, false);
+    req.overlayText = QStringLiteral("CLASSIFIED");
+    RedactOperation op(req);
+    const RedactResult r = runOp(&op);
+    QVERIFY2(r.outcome == RedactOutcome::Completed, qPrintable(errText(r)));
+
+    // The reason code is PRINTED ON the black boxes — independently
+    // extractable on every redacted page — while the excision contract is
+    // untouched: the secret is gone, the public line survives.
+    for (int p = 0; p < 2; ++p) {
+        const QString text = pageText(dest, p);
+        QVERIFY2(text.contains(QLatin1String("CLASSIFIED")),
+                 qPrintable(QStringLiteral("overlay text missing on page %1: %2").arg(p).arg(text)));
+        QVERIFY2(!text.contains(QLatin1String("TOPSECRET_DATA")),
+                 qPrintable(QStringLiteral("secret survived on page %1: %2").arg(p).arg(text)));
+        QVERIFY2(text.contains(QLatin1String("PUBLIC_KEEP_TEXT")),
+                 qPrintable(QStringLiteral("public text lost on page %1").arg(p)));
+    }
+}
+
+void TestRedactTransaction::emptyOverlayTextPreservesCurrentBehavior() {
+    const QString src = createPdf("nooverlay.pdf", 1);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QString dest = m_tmpDir.filePath("nooverlay_redacted.pdf");
+
+    RedactRequest req = makeRequest(src, dest, {0}, false);
+    QVERIFY2(req.overlayText.isEmpty(), "overlayText must default to empty");
+    RedactOperation op(req);
+    const RedactResult r = runOp(&op);
+    QVERIFY2(r.outcome == RedactOutcome::Completed, qPrintable(errText(r)));
+
+    // Empty overlay = exactly the current behavior: excision happens, no
+    // overlay text is added to the page.
+    const QString text = pageText(dest, 0);
+    QVERIFY2(!text.contains(QLatin1String("TOPSECRET_DATA")), qPrintable(text));
+    QVERIFY2(text.contains(QLatin1String("PUBLIC_KEEP_TEXT")), qPrintable(text));
+}
+
+void TestRedactTransaction::overlaySkippedWhenBoxTooSmall() {
+    const QString src = createPdf("smalloverlay.pdf", 1);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QString dest = m_tmpDir.filePath("smalloverlay_redacted.pdf");
+
+    // An 8pt-tall band that still crosses the secret's baseline (pdf
+    // y 699..707 contains y=700 — the engine excises on baseline-span
+    // intersection): the box IS burned in, but it is too small to carry 7pt
+    // overlay text, so the overlay must be skipped (appearance auto-fit
+    // precedent), never squeezed in or drawn outside the box.
+    RedactRequest req = makeRequest(src, dest, {0}, false);
+    req.redactionsByPage.clear();
+    req.redactionsByPage[0].append(QRectF(40, 135, 300, 8));
+    req.overlayText = QStringLiteral("CLASSIFIED");
+    RedactOperation op(req);
+    const RedactResult r = runOp(&op);
+    QVERIFY2(r.outcome == RedactOutcome::Completed, qPrintable(errText(r)));
+
+    const QString text = pageText(dest, 0);
+    QVERIFY2(!text.contains(QLatin1String("CLASSIFIED")),
+             qPrintable(QStringLiteral("overlay must be skipped on an 8pt-tall box: %1").arg(text)));
+    QVERIFY2(!text.contains(QLatin1String("TOPSECRET_DATA")),
+             qPrintable(QStringLiteral("excision must not depend on overlay fit: %1").arg(text)));
 }
 
 QTEST_MAIN(TestRedactTransaction)
