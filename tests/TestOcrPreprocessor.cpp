@@ -87,6 +87,51 @@ void verifyInverseMapsToScanCenter(const PreprocessedImage &pp, const QImage &sc
 
 } // namespace
 
+// ── R05 fixtures: polarity through binarization ─────────────────────────────
+namespace {
+
+// Flat page of a single colour with 300 dpi metadata (R05 polarity inputs:
+// all-white, all-black, colored paper). Takes QColor: a QRgb parameter would
+// silently accept Qt::GlobalColor as its raw enum value (Qt::white == 3).
+QImage makeSolidPage(QColor color, int dpm = kDotsPerMeter)
+{
+    QImage img(400, 300, QImage::Format_RGB888);
+    img.fill(color);
+    img.setDotsPerMeterX(dpm);
+    img.setDotsPerMeterY(dpm);
+    return img;
+}
+
+// Deterministic document page: light paper, five 12 px ink bars standing in
+// for text lines plus four 9x9 isolated marker squares at known positions.
+// The bars/markers are deliberately thin: Leptonica's Sauvola binarizer
+// reclasses the interior of thick dark regions as background (measured: the
+// middle of a 100x100 black box comes out background), which would make
+// interior-pixel and centroid assertions flaky.
+// Marker squares: (140,140), (701,140), (140,951), (701,951); each 9x9.
+// Ink bars: x in [120, 730], y = 194 + 200*i .. 205 + 200*i, i in [0,4].
+QImage makeDocumentPage(QColor paper = Qt::white, QColor ink = Qt::black,
+                        int dpm = kDotsPerMeter,
+                        QImage::Format format = QImage::Format_RGB888)
+{
+    QImage img(850, 1100, format);
+    img.fill(paper);
+    img.setDotsPerMeterX(dpm);
+    img.setDotsPerMeterY(dpm);
+    QPainter painter(&img);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(ink);
+    for (int i = 0; i < 5; ++i)
+        painter.drawRect(QRect(120, 194 + 200 * i, 610, 12));
+    for (const QPointF &m : {QPointF(140, 140), QPointF(701, 140),
+                             QPointF(140, 951), QPointF(701, 951)})
+        painter.drawRect(QRectF(m.x(), m.y(), 9, 9));
+    painter.end();
+    return img;
+}
+
+} // namespace
+
 class TestOcrPreprocessor : public QObject
 {
     Q_OBJECT
@@ -194,6 +239,100 @@ private slots:
         const PreprocessedImage pp = OcrPreprocessor().process(tiny, orientOnlyOptions());
         QCOMPARE(pp.image.size(), tiny.size());
         QVERIFY(pp.inverseTransform.isIdentity());
+    }
+
+    // ── R05: black text must stay black and paper light through binarization ──
+    //
+    // Leptonica 1 bpp convention (measured against the linked lept build):
+    // ON (1) = black ink, OFF (0) = white paper — pixConvertTo8() of an
+    // all-ON 1 bpp pix is all zeros. The 1-bit Pix→QImage conversion must
+    // therefore map 1 → 0 and 0 → 255; the pre-fix `val ? 255 : 0` inverted
+    // polarity (F05: a white page came out black).
+
+    // Isolated binarizer on a flat white page: paper must stay light.
+    void binarizeAllWhiteStaysLight()
+    {
+        const QImage white = makeSolidPage(Qt::white);
+        const QImage out = OcrPreprocessor().binarize(white);
+        QVERIFY(!out.isNull());
+        QCOMPARE(out.size(), white.size());
+        QCOMPARE(out.format(), QImage::Format_Grayscale8);
+        QCOMPARE(out.pixel(200, 150), QRgb(0xffffffff));
+        QCOMPARE(out.pixel(10, 10), QRgb(0xffffffff));
+    }
+
+    // Flat black page: Leptonica's Sauvola classes flat regions as background
+    // (measured), so the conversion must come out light — not the inverted
+    // all-black the pre-fix mapping produced.
+    void binarizeAllBlackComesOutLightPerLeptonicaSemantics()
+    {
+        const QImage black = makeSolidPage(Qt::black);
+        const QImage out = OcrPreprocessor().binarize(black);
+        QVERIFY(!out.isNull());
+        QCOMPARE(out.size(), black.size());
+        QCOMPARE(out.pixel(200, 150), QRgb(0xffffffff));
+        QCOMPARE(out.pixel(10, 10), QRgb(0xffffffff));
+    }
+
+    // Isolated binarizer on a document page: paper stays light, ink stays dark
+    // at known interior pixels.
+    void binarizedDocumentKeepsDarkInkOnLightPaper()
+    {
+        const QImage page = makeDocumentPage();
+        const QImage out = OcrPreprocessor().binarize(page);
+        QVERIFY(!out.isNull());
+        QCOMPARE(out.format(), QImage::Format_Grayscale8);
+        // paper interior: light
+        QCOMPARE(out.pixel(60, 60), QRgb(0xffffffff));
+        QCOMPARE(out.pixel(800, 60), QRgb(0xffffffff));
+        QCOMPARE(out.pixel(60, 1060), QRgb(0xffffffff));
+        // bar interiors: dark
+        for (int i = 0; i < 5; ++i)
+            QCOMPARE(out.pixel(400, 200 + 200 * i), QRgb(0xff000000));
+    }
+
+    // The full pipeline with production defaults (dpiNormalize + deskew +
+    // denoise + binarize) must preserve the same polarity.
+    void processDefaultsKeepDarkInkOnLightPaper()
+    {
+        const QImage page = makeDocumentPage();
+        const PreprocessedImage pp = OcrPreprocessor().process(page, {});
+
+        QCOMPARE(pp.image.format(), QImage::Format_Grayscale8);
+        QCOMPARE(pp.image.pixel(60, 60), QRgb(0xffffffff));
+        QCOMPARE(pp.image.pixel(800, 60), QRgb(0xffffffff));
+        for (int i = 0; i < 5; ++i)
+            QCOMPARE(pp.image.pixel(400, 200 + 200 * i), QRgb(0xff000000));
+    }
+
+    // Grayscale and colored inputs keep their polarity too (dark strokes on
+    // light paper in, dark strokes on light paper out); dimensions and format
+    // are preserved through the binarizer.
+    void binarizeGrayscaleAndColoredInputsPreservePolarity()
+    {
+        const QImage grayPage = makeDocumentPage(QColor(0xffcdcdcd), QColor(0xff0a0a0a),
+                                                 kDotsPerMeter, QImage::Format_Grayscale8);
+        const QImage coloredPage = makeDocumentPage(QColor(0xffe8e850), QColor(0xff1e3cb4));
+
+        for (const QImage &page : {grayPage, coloredPage}) {
+            const QImage out = OcrPreprocessor().binarize(page);
+            QVERIFY(!out.isNull());
+            QCOMPARE(out.size(), page.size());
+            QCOMPARE(out.format(), QImage::Format_Grayscale8);
+            QCOMPARE(out.pixel(60, 60), QRgb(0xffffffff));
+            for (int i = 0; i < 5; ++i)
+                QCOMPARE(out.pixel(400, 200 + 200 * i), QRgb(0xff000000));
+        }
+    }
+
+    // DPI metadata: the binarizer builds a fresh QImage, it must carry the
+    // input's resolution over (F05 acceptance: preserve DPI metadata).
+    void binarizePreservesDpiMetadata()
+    {
+        const QImage page = makeDocumentPage();
+        const QImage out = OcrPreprocessor().binarize(page);
+        QCOMPARE(out.dotsPerMeterX(), page.dotsPerMeterX());
+        QCOMPARE(out.dotsPerMeterY(), page.dotsPerMeterY());
     }
 };
 
