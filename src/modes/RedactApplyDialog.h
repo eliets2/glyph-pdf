@@ -20,6 +20,10 @@ struct RedactApplyPlan {
     QMap<int, int> marksPerPage;         // 0-based page -> mark count
     int sourcePageCount = 0;             // 0 when unknown (not loaded)
     bool sanitize = false;               // preset from the caller's checkbox
+    // §9.8 P1: optional text drawn centered (white, 7pt) on every burn-in
+    // box in the saved output — e.g. a redaction reason code. Empty = plain
+    // black boxes (current behavior). Burn-in paint only; excision untouched.
+    QString overlayText;
 };
 
 // Acrobat-shaped Apply step: mark/page counts, the actual sanitization choice,
@@ -37,6 +41,7 @@ public:
     void setDestinationPath(const QString& path);
     void setSanitizedDestinationPath(const QString& path);
     void setSanitizeChecked(bool on);
+    void setOverlayText(const QString& text);   // §9.8 P1
     QString summaryText() const;
 
 private slots:
@@ -56,6 +61,7 @@ private:
     QCheckBox*   m_sanitizeCheck = nullptr;
     QLineEdit*   m_destinationEdit = nullptr;
     QLineEdit*   m_sanitizedDestinationEdit = nullptr;
+    QLineEdit*   m_overlayEdit = nullptr;      // §9.8 P1: optional overlay text
     QLabel*      m_warningLabel = nullptr;      // reason the plan is invalid (or empty)
     QPushButton* m_okButton = nullptr;
 };

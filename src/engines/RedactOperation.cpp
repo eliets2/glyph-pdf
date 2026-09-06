@@ -8,6 +8,12 @@
 #include <QThread>
 #include <podofo/podofo.h>
 
+// Windows headers pulled in transitively define `#define DrawText DrawTextW`,
+// which would rewrite the PoDoFo painter calls below.
+#ifdef DrawText
+#undef DrawText
+#endif
+
 namespace gp {
 
 std::atomic<RedactOperation::Fault> RedactOperation::s_faultForTesting{RedactOperation::Fault::None};
@@ -65,6 +71,94 @@ QString redactStageName(RedactStage stage)
     }
     return QStringLiteral("Unknown");
 }
+
+// ── §9.8 P1: optional overlay text on the burn-in boxes ─────────────────────
+namespace {
+// 6–8pt band (Acrobat uses ~6pt for its reason codes); 7pt reads cleanly.
+constexpr double kOverlayFontSize = 7.0;
+// Auto-fit precedent (signature appearance): a box shorter than the text's
+// point size plus leading cannot carry the label honestly — skip it rather
+// than draw outside or clip.
+constexpr double kOverlayMinBoxHeight = 9.0;
+
+// Burn-in paint ONLY: runs on the saved CANDIDATE after the engine's content
+// surgery is complete, so excision semantics are untouched. Each redaction
+// rect (still in viewer top-down coordinates) is flipped the same way
+// PoDoFoBackend::applyRedactions flips it, and the overlay text is drawn
+// centered in white. Boxes too small to fit the text are skipped.
+bool drawOverlayTextOnCandidate(const QString& candidatePath,
+                                const QMap<int, QList<QRectF>>& redactionsByPage,
+                                const QString& rawOverlayText,
+                                QString* err)
+{
+    QString overlayText = rawOverlayText;
+    overlayText.replace(QLatin1Char('\r'), QLatin1Char(' '));
+    overlayText.replace(QLatin1Char('\n'), QLatin1Char(' '));
+    overlayText = overlayText.simplified();
+    if (overlayText.isEmpty()) return true; // empty = current behavior
+
+    QString overlayOut;
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(candidatePath.toUtf8().constData());
+        auto& pages = doc.GetPages();
+
+        const QByteArray utf8 = overlayText.toUtf8();
+        for (auto it = redactionsByPage.constBegin();
+             it != redactionsByPage.constEnd(); ++it) {
+            if (it.key() < 0 || it.key() >= static_cast<int>(pages.GetCount()))
+                continue; // preflight already rejected out-of-range pages
+            PoDoFo::PdfPage& page = pages.GetPageAt(it.key());
+            const double pageHeight = page.GetMediaBox().Height;
+
+            PoDoFo::PdfPainter painter;
+            painter.SetCanvas(page);
+            auto& font = doc.GetFonts().GetStandard14Font(
+                PoDoFo::PdfStandard14FontType::Helvetica);
+            painter.TextState.SetFont(font, kOverlayFontSize);
+            // Text paints with the NON-stroking color (SignatureManager
+            // appearance precedent) — white on the black box.
+            painter.GraphicsState.SetNonStrokingColor(PoDoFo::PdfColor(1.0, 1.0, 1.0));
+
+            PoDoFo::PdfTextState measure;
+            measure.Font = &font;
+            measure.FontSize = kOverlayFontSize;
+            const double textWidth = font.GetStringLength(utf8.constData(), measure);
+
+            for (const QRectF& r : it.value()) {
+                if (r.height() < kOverlayMinBoxHeight) continue; // too small
+                if (r.width() < textWidth) continue;             // no horizontal fit
+                const double pdfY = pageHeight - r.y() - r.height();
+                const double x = r.x() + (r.width() - textWidth) / 2.0;
+                const double baselineY = pdfY + r.height() / 2.0 + kOverlayFontSize * 0.35;
+                (painter.DrawText)(utf8.constData(), x, baselineY);
+            }
+            painter.FinishDrawing();
+        }
+        // Save to a SIBLING file, never over the candidate in place: the
+        // loaded PdfMemDocument keeps its input device open for lazy object
+        // reads, and overwriting that same file mid-save corrupts the reads
+        // (PoDoFo throws "Object and generation number cannot be read").
+        overlayOut = candidatePath + QStringLiteral(".ovl");
+        doc.Save(overlayOut.toUtf8().constData());
+    } catch (const std::exception& e) {
+        if (!overlayOut.isEmpty()) QFile::remove(overlayOut);
+        if (err) *err = QString::fromLatin1(e.what());
+        return false;
+    }
+    // The document (and its input device) is closed above — now swap the
+    // overlaid file in as the candidate. The CandidateFileGuard still owns
+    // the candidate path for every later failure.
+    QFile::remove(candidatePath);
+    if (!QFile::rename(overlayOut, candidatePath)) {
+        if (err) *err = QStringLiteral("could not replace the candidate with the "
+                                       "overlaid copy");
+        QFile::remove(overlayOut);
+        return false;
+    }
+    return true;
+}
+} // namespace
 
 void RedactOperation::setFaultForTesting(Fault fault)
 {
@@ -262,6 +356,18 @@ void RedactOperation::run()
                          QStringLiteral("Saving the redacted candidate failed: %1. The original "
                                         "document was not modified.")
                              .arg(engine->lastError().userMessage));
+                } else if (!m_request.overlayText.isEmpty()) {
+                    // §9.8 P1: part of producing the candidate — burn-in paint
+                    // on the already-excised boxes, before validation/commit.
+                    // Deliberately NOT a new pipeline stage: the stage order
+                    // contract (and its progress reporting) is unchanged.
+                    QString overlayErr;
+                    if (!drawOverlayTextOnCandidate(candidate, m_request.redactionsByPage,
+                                                    m_request.overlayText, &overlayErr)) {
+                        fail(RedactStage::SavingCandidate,
+                             QStringLiteral("Drawing the overlay text failed: %1. The original "
+                                            "document was not modified.").arg(overlayErr));
+                    }
                 }
             }
         }
