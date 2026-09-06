@@ -79,6 +79,9 @@ Dated corrections to stale historical claims (superseded by HEAD):
 | §9.7-a | §9.7 | Initials variant (monogram seam, 4th picker tab, typed-placement reuse) | implemented-awaiting-review | be47cce → 8dae489 |
 | §9.7-b | §9.7 | Session signature cache (reuse-last checkbox, cleared on document switch) | implemented-awaiting-review | 706a60c (merged c2e127b) |
 | §9.7-c | §9.7 | SignOutcome degradation surfaced at signing time (DSS/B-LTA missing-piece wording, Retry) | implemented-awaiting-review | 22a7b66 (merged c2e127b) |
+| §9.9-a | §9.9 | Split: one output per comma-separated range segment (<stem>_part{n}.pdf) | implemented-awaiting-review (parsePageRangeSegments seam; overlap duplicates tested; single-segment unchanged) | c7fc7ef |
+| §9.9-b | §9.9 | Page Labels groundwork: pure seam (styleName D/r/R/a/A, labelsFor, numberTreeEntries) + 11 tests; writer/UI deferred with scoping note | implemented-awaiting-review (groundwork) | d2f4484 |
+| §9.12-b | §9.12 | exportPdfA maps PDF/A-2U/3-U for real (combo levels were silently downgraded to 1B) | implemented-awaiting-review | 0364f48 |
 
 ## Newly discovered engine defect (exposed by U05 fixtures)
 
