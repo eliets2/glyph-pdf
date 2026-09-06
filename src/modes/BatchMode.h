@@ -94,6 +94,33 @@ public:
     static QString lowConfidenceNote(const QList<PageOcrResult>& pages,
                                      int confidenceThreshold = 60);
 
+    // ── §9.12 P1: Compress/Optimize target DPI ────────────────────────────────
+    // The batch Compress op used to hard-code targetDpi = 150 with only a
+    // static "150 DPI" note in the UI. The supported engine range and default
+    // are named so the boundary is documented and testable.
+    static constexpr int kMinTargetDpi    = 36;
+    static constexpr int kMaxTargetDpi    = 600;
+    static constexpr int kDefaultTargetDpi = 150;  // the previous hard-coded value
+    // Pure seam: clamp a user-chosen target DPI into [kMinTargetDpi,
+    // kMaxTargetDpi]. The worker applies this before OptimizeOptions so an
+    // out-of-range spin value can never reach the engine.
+    static int resolveCompressTargetDpi(int requestedDpi);
+
+    // ── §9.12 P1: named PII redaction presets ────────────────────────────────
+    // Pure seam: the effective redaction pattern list — the regex bodies of
+    // the named presets (resolved through PatternRedactor::namedPattern, the
+    // SAME built-in keys the interactive Redact mode offers: "email",
+    // "phone-us", "ssn", …) followed by the free-form comma-separated
+    // entries. Empty, unresolvable, and duplicate patterns are dropped, so a
+    // span is never excised twice. Empty result = nothing to redact.
+    static QStringList effectiveRedactPatterns(const QStringList& presetKeys,
+                                               const QStringList& freeFormPatterns);
+
+    // Test seam: the preset keys of the currently checked named-PII preset
+    // checkboxes ("email", "phone-us", …), in panel order. GUI read — only
+    // call from the GUI thread (tests, or onRunClicked's capture phase).
+    QStringList checkedRedactPresetKeys() const;
+
 signals:
     // Emitted from onBatchFinished so tests can spy on completion.
     void batchFinished();
@@ -145,6 +172,8 @@ private:
     // Compress panel
     QSlider*            m_qualitySlider  = nullptr;
     QLabel*             m_qualityLabel   = nullptr;
+    QComboBox*          m_dpiPresetCombo = nullptr;   // §9.12 P1: Low/Medium/High quick picks
+    QSpinBox*           m_dpiSpin        = nullptr;   // §9.12 P1: the source of truth the worker captures
     QLineEdit*          m_compressOutDir = nullptr;
 
     // Watermark panel
@@ -165,6 +194,7 @@ private:
 
     // Redact panel
     QLineEdit*          m_redactPatterns = nullptr;   // comma-separated regex patterns
+    QList<class QCheckBox*> m_redactPresets;             // §9.12 P1: named PII quick picks
     QLineEdit*          m_redactOutDir   = nullptr;
 
     // Progress
