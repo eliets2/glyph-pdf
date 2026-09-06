@@ -11,6 +11,7 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QFileDialog>
 #include <QFileInfo>
 #include <QFrame>
 #include <QGroupBox>
@@ -23,6 +24,7 @@
 #include <QPushButton>
 #include <QRadioButton>
 #include <QRegularExpression>
+#include <QSet>
 #include <QStackedWidget>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -184,6 +186,8 @@ RedactMode::RedactMode(QWidget* parent) : QWidget(parent) {
             this, &RedactMode::onPatternChanged);
     connect(m_regexEdit, &QLineEdit::textChanged,
             this, &RedactMode::onRegexTextChanged);
+    // §9.8 P1: word-list import feeds the custom-regex edit.
+    connect(m_importListBtn, &QToolButton::clicked, this, &RedactMode::onImportWordList);
     connect(m_previewBtn, &QToolButton::clicked, this, &RedactMode::onPreviewMatches);
     connect(m_applyBtn,   &QToolButton::clicked, this, &RedactMode::onApplyRedactions);
     connect(m_clearBtn,   &QToolButton::clicked, this, &RedactMode::onClearMarks);
@@ -220,11 +224,27 @@ void RedactMode::buildPatternSection(QWidget* host) {
     patternRow->addWidget(m_patternCombo, 1);
     layout->addLayout(patternRow);
 
-    // Custom regex entry — hidden until "custom" is selected
+    // Custom regex entry — hidden until "custom" is selected. The §9.8 P1
+    // word-list import sits beside it: a .txt file becomes an escaped
+    // alternation pattern placed IN THE EDIT for review before any marking.
     m_regexEdit = new QLineEdit;
     m_regexEdit->setPlaceholderText(tr("Enter regular expression (Qt syntax)"));
     m_regexEdit->setVisible(false);
-    layout->addWidget(m_regexEdit);
+
+    m_importListBtn = new QToolButton;
+    m_importListBtn->setObjectName(QStringLiteral("redactBtnImportList"));
+    m_importListBtn->setText(tr("Import list\xe2\x80\xa6"));
+    m_importListBtn->setToolTip(tr(
+        "Build the pattern from a text file, one term per line (max 256 KB). "
+        "Each line is regex-escaped and joined with |; the combined pattern "
+        "lands in the edit for review."));
+    m_importListBtn->setVisible(false);
+
+    auto* regexRow = new QHBoxLayout;
+    regexRow->setContentsMargins(0, 0, 0, 0);
+    regexRow->addWidget(m_regexEdit, 1);
+    regexRow->addWidget(m_importListBtn);
+    layout->addLayout(regexRow);
 }
 
 void RedactMode::buildScopeSection(QWidget* host) {
@@ -281,6 +301,8 @@ void RedactMode::onPatternChanged(int index) {
     const QString key = m_patternCombo->itemData(index).toString();
     const bool isCustom = (key == QLatin1String("custom"));
     if (m_regexEdit) m_regexEdit->setVisible(isCustom);
+    // §9.8 P1: the import control lives wherever the custom-regex edit lives.
+    if (m_importListBtn) m_importListBtn->setVisible(isCustom);
     m_matchCountLabel->setText(tr("Select a pattern to preview matches."));
 }
 
@@ -634,6 +656,77 @@ void RedactMode::onMarkAllOccurrences() {
     emit statusMessageRequested(
         tr("Marked %1 occurrence(s) across %2 page(s). Review, then Apply.")
             .arg(placed).arg(matches.size()));
+}
+
+// ── §9.8 P1: multi-term / word-list import for pattern redaction ────────────
+QStringList RedactMode::readWordList(const QString& path, qint64 maxBytes, QString* errorOut)
+{
+    if (errorOut) errorOut->clear();
+    const QFileInfo fi(path);
+    if (!fi.exists() || fi.isDir()) {
+        if (errorOut) *errorOut = tr("File not found: %1").arg(path);
+        return {};
+    }
+    // Hard size cap with an honest error — a multi-megabyte list would freeze
+    // the UI and produce an unreviewable pattern.
+    if (fi.size() > maxBytes) {
+        if (errorOut) *errorOut = tr("The word list is too large (%1 KB) — the limit is %2 KB.")
+                                      .arg((fi.size() + 1023) / 1024).arg(maxBytes / 1024);
+        return {};
+    }
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        if (errorOut) *errorOut = tr("Could not open %1 for reading.").arg(path);
+        return {};
+    }
+    QStringList terms;
+    QSet<QString> seen;
+    const QStringList lines = QString::fromUtf8(f.readAll())
+                                  .split(QRegularExpression(QStringLiteral("[\r\n]+")), Qt::SkipEmptyParts);
+    for (QString line : lines) {
+        line = line.trimmed();
+        if (line.isEmpty() || seen.contains(line)) continue;
+        seen.insert(line);
+        terms.append(line);
+    }
+    return terms;
+}
+
+QString RedactMode::wordListToPattern(const QStringList& terms)
+{
+    QStringList escaped;
+    escaped.reserve(terms.size());
+    for (const QString& t : terms)
+        escaped << QRegularExpression::escape(t);
+    return escaped.join(QLatin1Char('|'));
+}
+
+// Import handler: pick a .txt, build the escaped alternation, and drop it in
+// the custom-regex edit for REVIEW — nothing is marked automatically.
+void RedactMode::onImportWordList()
+{
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Import word list"), QString(),
+        tr("Text files (*.txt);;All files (*)"));
+    if (path.isEmpty()) return;
+
+    QString err;
+    const QStringList terms = readWordList(path, 256 * 1024, &err);
+    if (!err.isEmpty()) {
+        QMessageBox::warning(this, tr("Redact"), err);
+        emit statusMessageRequested(err);
+        return;
+    }
+    if (terms.isEmpty()) {
+        const QString msg = tr("The word list contains no terms.");
+        QMessageBox::information(this, tr("Redact"), msg);
+        emit statusMessageRequested(msg);
+        return;
+    }
+    activateCustomRegex(wordListToPattern(terms));
+    emit statusMessageRequested(
+        tr("Imported %1 term(s) — review the combined pattern, then Mark All Occurrences.")
+            .arg(terms.size()));
 }
 
 } // namespace gp
