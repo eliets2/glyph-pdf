@@ -3,10 +3,12 @@
 
 #include <QDialog>
 #include <QImage>
+#include <QObject>
 #include <QString>
 #include "core/AnnotationTypes.h"
 #include "core/PdfEnums.h"
 
+class QCheckBox;
 class QComboBox;
 class QDialogButtonBox;
 class QLabel;
@@ -72,6 +74,40 @@ AnnotationItem makeAnnotation(Kind kind, int pageIndex, const QRectF &rect,
 
 } // namespace SignatureContent
 
+// §9.7 P1: per-session memory of the last ACCEPTED signature. One cache is
+// parented to the DocumentSession (file-local helper in EditController.cpp),
+// so its lifetime IS the document session's and no extra teardown wiring is
+// needed. Scoped to one document: noteDocument() clears the stored signature
+// when the document path switches. The app has no close-to-welcome transition
+// (showWelcome() has zero call sites), so the document path IS the session
+// identity here.
+class SignatureSessionCache : public QObject {
+    Q_OBJECT
+public:
+    explicit SignatureSessionCache(QObject *parent = nullptr);
+
+    // EditController calls this each time the picker is about to open.
+    // Same path as last time → keep the signature; different path → clear it.
+    void noteDocument(const QString &path);
+
+    bool hasSignature() const { return !m_image.isNull(); }
+
+    // Remember the last accepted signature. A null image (Kind::Draw has no
+    // image form) is ignored — freehand strokes are not reusable here.
+    void store(SignatureContent::Kind kind, const QImage &image,
+               const QString &typedText);
+
+    SignatureContent::Kind kind() const { return m_kind; }
+    QImage image() const { return m_image; }
+    QString typedText() const { return m_typedText; }
+
+private:
+    QString m_docPath;
+    SignatureContent::Kind m_kind = SignatureContent::Kind::Upload;
+    QImage m_image;
+    QString m_typedText;
+};
+
 // The dialog itself: 4 tabs (Draw / Type / Upload / Initials). Draw keeps the
 // existing freehand flow — pressing OK simply returns Kind::Draw and the
 // controller arms ToolMode::AddSignature as before. Type, Upload and Initials
@@ -95,6 +131,12 @@ public:
     // Switch tabs programmatically (the UI uses the tab bar).
     void showTab(SignatureContent::Kind kind);
 
+    // §9.7 P1: attach the DocumentSession's cache. When it holds a signature
+    // the "Reuse last signature" checkbox is offered and default-checked;
+    // accepting with it checked delivers the cached signature unchanged, and
+    // a fresh acceptance updates the cache for the next activation.
+    void setSessionCache(SignatureSessionCache *cache);
+
 private:
     void updateTypePreview();
     void updateUploadPreview();
@@ -112,7 +154,9 @@ private:
     QLabel *m_uploadPreview = nullptr;
     QLabel *m_uploadError = nullptr;
     QPushButton *m_browseButton = nullptr;
+    QCheckBox *m_reuseCheck = nullptr;
     QDialogButtonBox *m_buttons = nullptr;
+    SignatureSessionCache *m_cache = nullptr;
 
     QImage m_uploadImage;
     SignatureContent::Kind m_kind = SignatureContent::Kind::Draw;
