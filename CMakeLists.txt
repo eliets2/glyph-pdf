@@ -1837,6 +1837,40 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrPreprocessPrefs.cpp")
     )
 endif()
 
+# §9.12 P1: gap-only automated coverage for the batch operations —
+# watermark stamps every page, Export-PDF/A carries structural identification,
+# merge preserves page count + list order, and a preset checkbox alone excises
+# its matches (plus one expected-fail characterization finding for the 2U/3U
+# conformance fall-through).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchOpsCoverage.cpp")
+    add_executable(TestBatchOpsCoverage
+        tests/TestBatchOpsCoverage.cpp
+    )
+    target_include_directories(TestBatchOpsCoverage PRIVATE src tests)
+    target_link_libraries(TestBatchOpsCoverage PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestBatchOpsCoverage POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestBatchOpsCoverage>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestBatchOpsCoverage>/platforms/qoffscreen.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PODOFO_VENDOR_DLL}"
+            "$<TARGET_FILE_DIR:TestBatchOpsCoverage>"
+        COMMENT "Deploying qoffscreen platform plugin for TestBatchOpsCoverage"
+    )
+    add_test(NAME TestBatchOpsCoverage COMMAND TestBatchOpsCoverage)
+    set_tests_properties(TestBatchOpsCoverage PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;batch;watermark;pdfa;merge;redact;qt;headless"
+    )
+endif()
+
 # §9.14 P1: the reading-order heuristic threshold is a NAMED, documented
 # constant (kReadingOrderSlotTolerance) with boundary tests — displacement of
 # exactly 2 slots is not flagged, exactly 3 is.
