@@ -1844,6 +1844,35 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestReadingOrderThreshold.cpp")
     )
 endif()
 
+# §9.16 P1: round-trip CONTRACT test — plain saveDocument preserves outline
+# bookmarks + URI/GoTo links; the sanitize path's stripping (Outlines, URI
+# actions) is pinned as intentional-and-visible, never silent.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestLinkBookmarkRoundTrip.cpp")
+    add_executable(TestLinkBookmarkRoundTrip
+        tests/TestLinkBookmarkRoundTrip.cpp
+    )
+    target_include_directories(TestLinkBookmarkRoundTrip PRIVATE src tests)
+    target_link_libraries(TestLinkBookmarkRoundTrip PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestLinkBookmarkRoundTrip POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestLinkBookmarkRoundTrip>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestLinkBookmarkRoundTrip>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestLinkBookmarkRoundTrip"
+    )
+    add_test(NAME TestLinkBookmarkRoundTrip COMMAND TestLinkBookmarkRoundTrip)
+    set_tests_properties(TestLinkBookmarkRoundTrip PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;conversion;sanitize;links;roundtrip;qt;headless"
+    )
+endif()
+
 # ── TestCapabilityRegistry (U08 — the ONE capability registry) ───────────────
 # Cache/invalidate behavior, UnavailableBuild vs UnavailableRuntime, the
 # non-empty whyNot/alternative rule, applyToWidget and fileFilterFor, and the
