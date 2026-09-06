@@ -1902,6 +1902,17 @@ bool PoDoFoBackend::exportPdfA(const QString &outputPath, int conformanceLevel) 
                 pdfaLevel = PdfALevel::L3B;
                 pdfVersion = PdfVersion::V2_0;
                 break;
+            // §9.12 finding (TestBatchOpsCoverage): the batch combo offers
+            // PDF/A-2U/3U; silently downgrading them to L1B was an
+            // availability lie — map them for real.
+            case 4:
+                pdfaLevel = PdfALevel::L2U;
+                pdfVersion = PdfVersion::V1_7;
+                break;
+            case 5:
+                pdfaLevel = PdfALevel::L3U;
+                pdfVersion = PdfVersion::V2_0;
+                break;
             default:
                 pdfaLevel = PdfALevel::L1B;
                 pdfVersion = PdfVersion::V1_4;
