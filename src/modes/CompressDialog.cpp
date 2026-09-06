@@ -450,6 +450,36 @@ static QString formatBytes(qint64 bytes) {
     return QString::number(bytes / (1024.0 * 1024.0), 'f', 1) + " MB";
 }
 
+// ── §9.13: measured completion report ────────────────────────────────────────
+
+QString CompressDialog::formatCompletionReport(qint64 originalBytes, qint64 newBytes,
+                                               const QString& outputFileName)
+{
+    // Both sizes are MEASURED (QFileInfo::size() on the committed output and
+    // the untouched original, read after the write) and plainly labeled so
+    // they can never be confused with the pre-execution ESTIMATED row.
+    QString msg = tr("Document optimized successfully.\n\nSaved to: %1\n"
+                     "Original size: %2\nNew size: %3 (measured)")
+        .arg(outputFileName, formatBytes(originalBytes), formatBytes(newBytes));
+
+    const qint64 savedBytes = originalBytes - newBytes;   // > 0 = smaller
+    if (originalBytes > 0 && savedBytes > 0) {
+        msg += tr("\nSize reduction: %1 (%2% smaller, measured)")
+            .arg(formatBytes(savedBytes),
+                 QString::number(100.0 * savedBytes / originalBytes, 'f', 1));
+    } else if (originalBytes > 0) {
+        // Equal-or-larger results happen legitimately (e.g. re-encoded
+        // JPEGs). Say so instead of spinning a reduction that did not happen
+        // — the R12 honesty precedent at this exact completion site. Never
+        // print a reduction line with a non-positive delta.
+        msg += tr("\n\nNote: the result is not smaller than the original — "
+                  "compression did not reduce this document's size.");
+    }
+    // originalBytes == 0: no honest delta exists against a missing/empty
+    // original; the two measured figures above still stand on their own.
+    return msg;
+}
+
 void CompressDialog::refreshEstimate() {
     if (!_ctx || !_ctx->pdfEditor) {
         _origVal->setText("— MB");
@@ -579,19 +609,14 @@ void CompressDialog::onCompress() {
 
     if (success) {
         QFileInfo fi(outPath);
-        // R12: report the measured output size against the original and say so
+        // R12/§9.13: report the MEASURED output size against the original —
+        // both read from disk after the write — with the delta, and say so
         // explicitly when compression did not shrink the document (the result
         // can legitimately be larger than the input, e.g. re-encoded JPEGs).
         const qint64 newSize  = fi.size();
         const qint64 origSize = QFileInfo(currentFile).size();
-        QString msg = tr("Document optimized successfully.\n\nSaved to: %1\n"
-                         "Original size: %2\nNew size: %3 (measured)")
-            .arg(fi.fileName(), formatBytes(origSize), formatBytes(newSize));
-        if (origSize > 0 && newSize >= origSize) {
-            msg += tr("\n\nNote: the result is not smaller than the original — "
-                      "compression did not reduce this document's size.");
-        }
-        QMessageBox::information(this, tr("Optimization Complete"), msg);
+        QMessageBox::information(this, tr("Optimization Complete"),
+            formatCompletionReport(origSize, newSize, fi.fileName()));
         accept();
     } else {
         QMessageBox::warning(this, tr("Optimization Failed"),
