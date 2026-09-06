@@ -27,6 +27,15 @@ public:
     // static so the presentation logic is unit-testable without a MainWindow.
     static QString buildValidationSummary(const QList<SignatureInfo>& infos);
 
+    // §9.7 P1: pure degradation-wording builder for a PARTIAL signing outcome.
+    // Names EXACTLY which long-term-validation piece is missing (DSS
+    // dictionary / archive timestamp) so the warning is actionable; returns an
+    // empty string for every non-degradation outcome. `certified` picks the
+    // verb — the certify flow gets the same exact wording.
+    static QString buildSigningOutcomeWarning(SignOutcome outcome, const QString &outputPath,
+                                              const SignatureOutcomeDetail &detail,
+                                              bool certified = false);
+
 private:
     void encryptDocument();
     void signDocument();
@@ -40,6 +49,13 @@ private:
     void certifyDocument();
     void timestampDocument();
     void setExpiryDocument();
+
+    // §9.7 P1: capture of ONE signing/certifying request (defined in the .cpp)
+    // — everything runSigning() needs to RE-RUN the exact same crypto
+    // operation after a PartialLtvMissing "Retry" without re-prompting for
+    // the certificate/password.
+    struct SigningRequest;
+    void runSigning(const SigningRequest &request);
 
     const AppContext* _ctx = nullptr;
     MainWindow* _mainWindow = nullptr;

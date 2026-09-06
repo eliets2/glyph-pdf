@@ -98,6 +98,10 @@ public:
     QList<SignatureInfo> validateSignatures(const QString &filePath) override;
     QList<SignatureFieldAnchor> signatureFieldAnchors(const QString &filePath) override;
 
+    // §9.7 P1: exact degradation detail (which B-LT/B-LTA piece is missing)
+    // for the most recent signDocument/certifyDocument call.
+    SignatureOutcomeDetail lastSignOutcomeDetail() override;
+
 private:
     static bool isLegitimateIncrementalAppend(const QByteArray& trailingBytes,
                                               const QByteArray& baseDocument,

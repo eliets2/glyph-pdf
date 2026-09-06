@@ -106,6 +106,11 @@ private slots:
         QVERIFY2(ok, "B_T signDocument should succeed with valid P12");
         QVERIFY2(QFileInfo::exists(output), "Output PDF must exist after signing");
 
+        // §9.7 P1: a fully-successful sign must carry NO missing-piece detail.
+        const SignatureOutcomeDetail okDetail = mgr.lastSignOutcomeDetail();
+        QVERIFY2(!okDetail.dssMissing && !okDetail.docTimestampMissing,
+                 "a successful B_T sign must report no missing long-term-validation pieces");
+
         // Validate using the test CA store
         X509_STORE *store = buildTestStore();
         QVERIFY(store);
@@ -177,6 +182,11 @@ private slots:
         QVERIFY(!results.isEmpty());
         QVERIFY2(results.first().hasDss, "B_LT: DSS dictionary must be present");
 
+        // §9.7 P1: the DSS built fine — the outcome detail must NOT flag it.
+        const SignatureOutcomeDetail bltDetail = mgr.lastSignOutcomeDetail();
+        QVERIFY2(!bltDetail.dssMissing, "B_LT success must not flag dssMissing");
+        QVERIFY2(!bltDetail.docTimestampMissing, "B_LT success must not flag docTimestampMissing");
+
         // Verify VRI key appears in the PDF (as /VRI /<SHA1HEX> dict)
         QByteArray vriEntry = "/" + expectedVriKey;
         QVERIFY2(pdfData.contains(vriEntry),
@@ -212,6 +222,14 @@ private slots:
         // the outcome must be PartialLtvMissing (not Failed) so the UI can warn
         // instead of telling the user signing failed and making them discard it.
         QCOMPARE(outcome, SignOutcome::PartialLtvMissing);
+
+        // §9.7 P1: the outcome must carry EXACT degradation detail — the doc
+        // timestamp is missing, the DSS is not.
+        const SignatureOutcomeDetail bltaDetail = mgr.lastSignOutcomeDetail();
+        QVERIFY2(bltaDetail.docTimestampMissing,
+                 "B_LTA without TSA: docTimestampMissing must be flagged");
+        QVERIFY2(!bltaDetail.dssMissing,
+                 "B_LTA without TSA: the DSS itself must NOT be flagged missing");
 
         // E-06: an empty TSA token must NOT have been written as a 4-null-byte
         // /DocTimeStamp. The signed file must still load + validate cleanly (i.e.

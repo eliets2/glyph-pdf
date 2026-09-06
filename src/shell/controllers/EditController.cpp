@@ -20,6 +20,7 @@
 #include "ui/FindBar.h"
 #include "ui/EditToolBar.h"
 #include "ui/SignaturePicker.h" // §9.7 P0: Draw/Type/Upload signature picker
+#include "engines/DocumentSession.h" // §9.7 P1: session-scoped signature cache
 
 #include <QFileDialog>
 #include <QInputDialog>
@@ -44,6 +45,23 @@
 #include "shell/StatusBar.h"
 
 namespace gp {
+
+// §9.7 P1: ONE SignatureSessionCache per DocumentSession, parented to it so
+// its lifetime IS the document session's — no EditController.h surface and no
+// teardown wiring. findChild keeps it a singleton per session.
+namespace {
+SignatureSessionCache *signatureSessionCacheFor(DocumentSession *doc)
+{
+    if (!doc)
+        return nullptr;
+    if (auto *existing = doc->findChild<SignatureSessionCache *>(
+            QStringLiteral("signatureSessionCache")))
+        return existing;
+    auto *cache = new SignatureSessionCache(doc);
+    cache->setObjectName(QStringLiteral("signatureSessionCache"));
+    return cache;
+}
+} // namespace
 
 EditController::EditController(const AppContext* ctx, MainWindow* mainWindow, QObject* parent)
     : QObject(parent), _ctx(ctx), _mainWindow(mainWindow) {}
@@ -136,7 +154,13 @@ void EditController::activate(ToolId id) {
         // default. Draw keeps the existing freehand flow; Type/Upload render
         // or decode the signature image here, then arm the matching placement
         // mode — cancel leaves everything untouched.
+        // §9.7 P1: the session cache rides along — the picker offers the last
+        // accepted signature for THIS document, cleared on a document switch.
+        auto *sessionCache = signatureSessionCacheFor(_ctx ? _ctx->document.get() : nullptr);
+        if (sessionCache)
+            sessionCache->noteDocument(_ctx->document->path());
         SignaturePickerDialog picker(_mainWindow);
+        picker.setSessionCache(sessionCache);
         if (picker.exec() != QDialog::Accepted)
             break;
         switch (picker.acceptedKind()) {
@@ -146,8 +170,12 @@ void EditController::activate(ToolId id) {
                 tr("Signature: draw on the page with the mouse."), 5000);
             break;
         case SignatureContent::Kind::Typed:
+        case SignatureContent::Kind::Initials:
         case SignatureContent::Kind::Upload: {
-            const bool typed = picker.acceptedKind() == SignatureContent::Kind::Typed;
+            // §9.7 P1: Initials shares the TYPED placement path — the variant
+            // is only a different render of the same image-stamp annotation
+            // (no new ToolMode; PdfEnums.h ordinals are frozen).
+            const bool typed = picker.acceptedKind() != SignatureContent::Kind::Upload;
             // Order matters: arm the placement mode FIRST, then set the image
             // (AnnotationLayer::setMode discards a pending image for any
             // non-signature tool).
