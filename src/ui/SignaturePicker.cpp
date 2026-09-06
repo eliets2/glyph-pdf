@@ -2,6 +2,7 @@
 #include "ui/SignaturePicker.h"
 #include "core/Capability.h"   // U08: signature-kind disclosure wording
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QFileDialog>
@@ -134,6 +135,34 @@ AnnotationItem makeAnnotation(Kind kind, int pageIndex, const QRectF &rect,
 
 } // namespace SignatureContent
 
+// ── SignatureSessionCache (§9.7 P1) ─────────────────────────────────────────
+
+SignatureSessionCache::SignatureSessionCache(QObject *parent)
+    : QObject(parent)
+{
+}
+
+void SignatureSessionCache::noteDocument(const QString &path)
+{
+    if (!m_docPath.isEmpty() && m_docPath != path) {
+        // Document switch — the cached signature was adopted for the previous
+        // document's session and must not silently bleed into the next one.
+        m_image = QImage();
+        m_typedText.clear();
+    }
+    m_docPath = path;
+}
+
+void SignatureSessionCache::store(SignatureContent::Kind kind, const QImage &image,
+                                  const QString &typedText)
+{
+    if (image.isNull())
+        return;                     // Draw has no image form — nothing reusable
+    m_kind = kind;
+    m_image = image;
+    m_typedText = typedText;
+}
+
 SignaturePickerDialog::SignaturePickerDialog(QWidget *parent)
     : QDialog(parent)
 {
@@ -236,6 +265,14 @@ SignaturePickerDialog::SignaturePickerDialog(QWidget *parent)
     m_buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     m_buttons->setAccessibleName(tr("Signature picker actions"));
 
+    // §9.7 P1: "Reuse last signature". Hidden until a session cache that
+    // actually holds a signature is attached (setSessionCache), then offered
+    // default-checked so returning users get one-click reuse.
+    m_reuseCheck = new QCheckBox(tr("Reuse last signature"), this);
+    m_reuseCheck->setObjectName(QStringLiteral("signatureReuseCheck"));
+    m_reuseCheck->setAccessibleName(tr("Reuse last signature"));
+    m_reuseCheck->hide();
+
     // U08: label the flow by KIND before the user commits — Draw/Type/Upload
     // produce a graphic stamp; a certificate-backed (P12) digital signature
     // with its validation outcome is a different flow. Wording is owned by
@@ -246,6 +283,7 @@ SignaturePickerDialog::SignaturePickerDialog(QWidget *parent)
 
     auto *layout = new QVBoxLayout(this);
     layout->addWidget(m_tabs);
+    layout->addWidget(m_reuseCheck);
     layout->addWidget(kindLabel);
     layout->addWidget(m_buttons);
 
@@ -291,6 +329,14 @@ void SignaturePickerDialog::showTab(SignatureContent::Kind kind)
 bool SignaturePickerDialog::isAcceptEnabled() const
 {
     return m_buttons->button(QDialogButtonBox::Ok)->isEnabled();
+}
+
+void SignaturePickerDialog::setSessionCache(SignatureSessionCache *cache)
+{
+    m_cache = cache;
+    const bool offer = m_cache && m_cache->hasSignature();
+    m_reuseCheck->setVisible(offer);
+    m_reuseCheck->setChecked(offer);
 }
 
 void SignaturePickerDialog::updateTypePreview()
@@ -361,6 +407,18 @@ void SignaturePickerDialog::updateAccept()
 
 void SignaturePickerDialog::onAccepted()
 {
+    // §9.7 P1: reuse takes precedence over the active tab — the user asked for
+    // exactly the cached signature. (isHidden() rather than isVisible(): the
+    // dialog is not necessarily shown when this runs.)
+    if (!m_reuseCheck->isHidden() && m_reuseCheck->isChecked()
+        && m_cache && m_cache->hasSignature()) {
+        m_kind = m_cache->kind();
+        m_image = m_cache->image();
+        m_typedText = m_cache->typedText();
+        accept();
+        return;
+    }
+
     switch (m_tabs->currentIndex()) {
     case 1:
         m_kind = SignatureContent::Kind::Typed;
@@ -385,5 +443,11 @@ void SignaturePickerDialog::onAccepted()
         m_image = QImage();
         break;
     }
+
+    // §9.7 P1: a freshly accepted signature becomes the one the NEXT picker
+    // activation offers (Draw still stores nothing — no image form).
+    if (m_cache && !m_image.isNull())
+        m_cache->store(m_kind, m_image, m_typedText);
+
     accept();
 }
