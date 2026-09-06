@@ -36,6 +36,10 @@ public:
 signals:
     /// §9.8 P0: user-facing status text surfaced on the main status bar.
     void statusMessageRequested(const QString& message);
+    /// §9.8 P1: the panel's Cancel/Exit control — the mode-exit contract.
+    /// The host (via ModeController's relay) returns to the standard canvas;
+    /// placed redaction marks stay on the viewer and remain recoverable.
+    void exitRequested();
 
 private slots:
     void onPatternChanged(int index);
