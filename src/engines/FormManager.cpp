@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "engines/FormManager.h"
+#include "engines/SafeSave.h"
 #include "engines/podofo/PdfStringEscape.h"
 #include <memory>
 #include <functional>
@@ -74,72 +75,6 @@ private:
     QString m_path;
 };
 
-// Reserve a unique candidate path in the system temp dir. The handle is
-// released before PoDoFo writes so the writer owns the file exclusively.
-bool createUniqueCandidate(QString* out, QString* err)
-{
-    QTemporaryFile tmp(QDir::tempPath() + QStringLiteral("/glyphpdf-XXXXXX.pdf"));
-    tmp.setAutoRemove(false);
-    if (!tmp.open()) {
-        if (err) *err = QStringLiteral("could not create unique candidate PDF: %1").arg(tmp.errorString());
-        return false;
-    }
-    *out = tmp.fileName();
-    tmp.close();
-    return true;
-}
-
-// Bounded copy of the validated candidate into QSaveFile + checked commit().
-// QSaveFile writes a hidden temp in the destination's directory and atomically
-// renames over the destination at commit(); a failed or canceled commit never
-// touches the original. Note PoDoFo is never handed QSaveFile::fileName().
-bool commitCandidateToDestination(const QString& candidate, const QString& destPath, QString* err)
-{
-    QFile src(candidate);
-    if (!src.open(QIODevice::ReadOnly)) {
-        if (err) *err = QStringLiteral("validated candidate became unreadable: %1").arg(src.errorString());
-        return false;
-    }
-    const qint64 expected = src.size();
-
-    QSaveFile out(destPath);
-    if (!out.open(QIODevice::WriteOnly)) {
-        if (err) *err = QStringLiteral("cannot open destination for safe write: %1").arg(out.errorString());
-        return false;
-    }
-
-    qint64 copied = 0;
-    char buf[65536];
-    while (copied < expected) {
-        const qint64 want = qMin<qint64>(static_cast<qint64>(sizeof(buf)), expected - copied);
-        const qint64 got = src.read(buf, want);
-        if (got <= 0) {
-            out.cancelWriting();
-            if (err) *err = QStringLiteral("short read from validated candidate");
-            return false;
-        }
-        if (out.write(buf, got) != got) {
-            out.cancelWriting();
-            if (err) *err = QStringLiteral("cannot write destination bytes: %1").arg(out.errorString());
-            return false;
-        }
-        copied += got;
-    }
-
-    if (g_saveFaultForTesting == FormManager::SaveFault::Commit) {
-        out.cancelWriting();
-        if (err) *err = QStringLiteral("injected commit failure (test seam)");
-        return false;
-    }
-    if (!out.commit()) {
-        // Open-handle replacement failure lands here: reported as failure, the
-        // original destination is byte-identical.
-        if (err) *err = QStringLiteral("commit to destination failed: %1").arg(out.errorString());
-        return false;
-    }
-    return true;
-}
-
 // Locate a field by full name on a (freshly loaded) document. If a document
 // illegally carries duplicate full names, the FIRST occurrence wins — the
 // same field a subsequent mutation would address.
@@ -175,7 +110,9 @@ bool runFormSaveTransaction(const QString& srcPath,
 
     QString candidate;
     try {
-        if (!createUniqueCandidate(&candidate, err)) return false;
+        // R01 primitives live in gp::SafeSave (shared with RedactOperation);
+        // the transaction shape and fault-seam semantics are unchanged.
+        if (!gp::SafeSave::makeUniqueCandidate(&candidate, err)) return false;
         CandidateFileGuard guard(candidate);
 
         unsigned sourcePageCount = 0;
@@ -217,7 +154,11 @@ bool runFormSaveTransaction(const QString& srcPath,
             return false;
         }
 
-        return commitCandidateToDestination(candidate, destPath, err);
+        return gp::SafeSave::commitFileToDestination(
+            candidate, destPath, err,
+            g_saveFaultForTesting == FormManager::SaveFault::Commit
+                ? gp::SafeSave::CommitFaultForTesting::FailBeforeCommit
+                : gp::SafeSave::CommitFaultForTesting::None);
     } catch (const PoDoFo::PdfError& e) {
         if (err) *err = pdfErrorText(e);
         return false;

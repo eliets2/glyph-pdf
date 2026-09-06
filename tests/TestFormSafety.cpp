@@ -314,6 +314,7 @@ void TestFormSafety::injectedFaultsLeaveOriginalIntact() {
         const QByteArray shaBefore = sha256(pdf);
 
         FormManager fm;
+        const int candidatesBefore = leftoverCandidates();
         FormManager::setSaveFaultForTesting(stage);
         const bool ok = fm.addTextField(pdf, 0, QRectF(72, 150, 140, 30),
                                         QStringLiteral("fault_field"), pdf);
@@ -324,7 +325,11 @@ void TestFormSafety::injectedFaultsLeaveOriginalIntact() {
         QVERIFY2(sha256(pdf) == shaBefore,
                  "original bytes must be unchanged after the failed save");
         QVERIFY(pdfLoads(pdf));
-        QCOMPARE(leftoverCandidates(), 0);
+        // Delta form: the temp dir may hold debris from OTHER processes (hard-
+        // killed runs leave candidates — RAII does not run on TerminateProcess).
+        // The operation-scoped invariant is that THIS operation leaves nothing
+        // NEW behind.
+        QCOMPARE(leftoverCandidates(), candidatesBefore);
     }
 
     // Sanity: with the seam reset the same operation succeeds.

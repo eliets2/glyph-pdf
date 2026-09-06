@@ -94,6 +94,28 @@ public:
         return m_setMetadataResult;
     }
 
+    // R02 (F09): snapshot capture/apply stubs — the mock keeps no document,
+    // so capture resolves the field as NOT found (explicit missing-field
+    // resolution) and apply refuses to write.
+    FormFieldSnapshot captureFieldSnapshot(const QString &pdfFilePath, const QString &fieldName) override {
+        m_lastFilePath = pdfFilePath;
+        m_lastFieldName = fieldName;
+        FormFieldSnapshot snap;
+        snap.name = fieldName;
+        snap.found = false;
+        ++m_captureSnapshotCalls;
+        return snap;
+    }
+
+    bool applyFieldSnapshot(const QString &pdfFilePath, const FormFieldSnapshot &target,
+                            const QString &outputPath) override {
+        m_lastFilePath = pdfFilePath;
+        m_lastOutputPath = outputPath;
+        m_lastSnapshot = target;
+        ++m_applySnapshotCalls;
+        return m_applySnapshotResult;
+    }
+
     // Test helpers -- configurable return values
     bool m_extractResult = true;
     bool m_fillResult = true;
@@ -117,4 +139,10 @@ public:
     QStringList m_lastOptions;
     QRectF m_lastRect;
     int m_lastPageIndex = -1;
+
+    // R02 snapshot seam
+    FormFieldSnapshot m_lastSnapshot;
+    bool m_applySnapshotResult = true;
+    int m_captureSnapshotCalls = 0;
+    int m_applySnapshotCalls = 0;
 };

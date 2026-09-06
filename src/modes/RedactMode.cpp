@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "RedactMode.h"
+#include "RedactApplyDialog.h"
 #include "util/GpTheme.h"
 #include "ui/PdfViewerWidget.h"
 #include "core/AppContext.h"
@@ -17,6 +18,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QPointer>
 #include <QProgressDialog>
 #include <QPushButton>
 #include <QRadioButton>
@@ -410,15 +412,6 @@ void RedactMode::onApplyRedactions() {
         return;
     }
 
-    // Confirm action
-    const int answer = QMessageBox::question(
-        this,
-        tr("Apply Redactions"),
-        tr("This will permanently remove all marked content. Redaction cannot be undone.\n\nContinue?"),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    if (answer != QMessageBox::Yes) return;
-
     const QString pdfPath = m_ctx->pdfEditor->currentFile();
     if (pdfPath.isEmpty()) {
         QMessageBox::warning(this, tr("Redact"), tr("No document path available."));
@@ -439,55 +432,103 @@ void RedactMode::onApplyRedactions() {
         return;
     }
 
-    bool success = m_ctx->pdfEditor->applyMarkRedactions(marks);
-    if (!success) {
-        QMessageBox::critical(this, tr("Redaction Failed"),
-            tr("Redaction failed. The document has not been modified.\n\n%1")
-                .arg(m_ctx->pdfEditor->lastError().userMessage));
-        return;
-    }
-
-    // Save the redacted result to a new file (never overwrite the source in place).
+    // U05: pre-mutation summary dialog — mark/page counts, the actual
+    // sanitization choice, and destination pickers with defaults and normal
+    // overwrite handling. Replaces the plain confirm box and the old
+    // fixed-destination direct save (RedactMode.cpp `_redacted.pdf` default is
+    // preserved as the dialog's default).
+    RedactApplyPlan plan;
+    plan.sourcePath = pdfPath;
     const QFileInfo fi(pdfPath);
-    const QString outPath = fi.absolutePath() + QLatin1Char('/')
+    plan.destinationPath = fi.absolutePath() + QLatin1Char('/')
         + fi.completeBaseName() + QStringLiteral("_redacted.pdf");
-    if (!m_ctx->pdfEditor->saveDocument(outPath)) {
-        QMessageBox::critical(this, tr("Redaction Failed"),
-            tr("Redactions were applied but saving the result failed:\n\n%1")
-                .arg(m_ctx->pdfEditor->lastError().userMessage));
-        return;
-    }
-
-    // Clear the placed marks now that they are burned in.
-    QList<AnnotationItem> remaining;
+    plan.sanitizedDestinationPath = fi.absolutePath() + QLatin1Char('/')
+        + fi.completeBaseName() + QStringLiteral("_redacted_sanitized.pdf");
+    plan.sourcePageCount = m_viewer->isLoaded() ? m_viewer->pageCount() : 0;
+    plan.sanitize = m_chkSanitizeCopy && m_chkSanitizeCopy->isChecked();
     for (const auto& a : marks) {
-        if (a.mode != ToolMode::Redact) remaining.append(a);
-    }
-    m_viewer->setAnnotations(remaining);
-
-    // §9.8 P0: run the full hidden-data scrub on the saved copy when the
-    // user kept the checkbox on. The original file is untouched (the scrub
-    // re-saves the in-memory redacted document to the new path only).
-    bool sanitized = false;
-    if (m_chkSanitizeCopy && m_chkSanitizeCopy->isChecked()) {
-        sanitized = m_ctx->pdfEditor->sanitizeDocument(outPath);
-        if (!sanitized) {
-            QMessageBox::warning(this, tr("Sanitize Failed"),
-                tr("Redactions were applied and saved, but sanitizing the copy "
-                   "failed:\n\n%1\n\nThe redacted (unsanitized) file remains at %2.")
-                    .arg(m_ctx->pdfEditor->lastError().userMessage, outPath));
+        if (a.mode == ToolMode::Redact) {
+            ++plan.markCount;
+            ++plan.marksPerPage[a.pageIndex];
         }
     }
 
-    if (sanitized) {
-        m_matchCountLabel->setText(tr("Redacted and sanitized copy saved: %1.")
-                                       .arg(QFileInfo(outPath).fileName()));
-        emit statusMessageRequested(tr("Redactions applied; sanitized copy saved to %1.")
-                                        .arg(QFileInfo(outPath).fileName()));
-    } else {
-        m_matchCountLabel->setText(tr("Redaction applied successfully to %1.").arg(QFileInfo(outPath).fileName()));
-        emit statusMessageRequested(tr("Redactions applied and saved to %1.").arg(QFileInfo(outPath).fileName()));
+    RedactApplyDialog dlg(plan, this);
+    if (dlg.exec() != QDialog::Accepted) return; // nothing mutated
+    const RedactApplyPlan chosen = dlg.plan();
+
+    RedactRequest request;
+    request.sourcePath = chosen.sourcePath;
+    request.destinationPath = chosen.destinationPath;
+    for (const auto& a : marks) {
+        if (a.mode == ToolMode::Redact)
+            request.redactionsByPage[a.pageIndex].append(a.rect);
     }
+    request.sanitize = chosen.sanitize;
+    request.sanitizedDestinationPath = chosen.sanitizedDestinationPath;
+
+    runRedactOperation(request);
+}
+
+// U05: the ONE transactional redaction operation behind this entry path. The
+// live document is never mutated (the operation runs on a disposable private
+// engine and a unique temp candidate); marks are cleared only after the output
+// is committed AND kept, and partial failure is presented by the shared
+// labeled presenter — never by a generic success banner.
+void RedactMode::runRedactOperation(const RedactRequest& request) {
+    // Delete the PREVIOUS operation's progress dialog here — never from the
+    // finished handler below. A modal QProgressDialog::setValue() pumps the
+    // event loop (Qt: "if (isModal() ...) processEvents()"), so a deleteLater
+    // delivered inside that pump frees the dialog under the still-executing
+    // setValue frame (use-after-free in reset()). close() from the finished
+    // handler is safe; nothing can be mid-setValue at the start of a new run.
+    if (m_redactProgress) {
+        m_redactProgress->deleteLater();
+        m_redactProgress = nullptr;
+    }
+    auto* progress = new QProgressDialog(tr("Applying redactions..."), tr("Cancel"),
+                                         0, request.redactionsByPage.size(), this);
+    m_redactProgress = progress;
+    progress->setWindowModality(Qt::WindowModal);
+    progress->setMinimumDuration(0);
+    progress->show();
+
+    auto* op = new RedactOperation(request, this);
+    connect(progress, &QProgressDialog::canceled, op, &RedactOperation::cancel);
+    connect(op, &RedactOperation::stageChanged, this,
+            [progress](RedactStage stage, int pagesDone, int pagesTotal) {
+                if (stage == RedactStage::Redacting) {
+                    progress->setRange(0, pagesTotal);
+                    progress->setValue(pagesDone);
+                }
+            });
+
+    QPointer<RedactMode> self(this);
+    QPointer<PdfViewerWidget> viewer(m_viewer);
+    connect(op, &RedactOperation::finished, this,
+            [self, progress, viewer](const RedactResult& result) {
+                // Close only — deletion is deferred to the next runRedactOperation
+                // (see the comment there for the QProgressDialog pump hazard).
+                progress->close();
+                if (!self) return;
+                const auto decision = RedactResultPresenter::present(self, result);
+                // Marks are cleared only once the redacted output is committed
+                // AND kept; Failed / Canceled / Discard keep them recoverable.
+                const bool committedAndKept =
+                    result.outcome == RedactOutcome::Completed
+                    || (result.outcome == RedactOutcome::PartialRedactedOnly
+                        && decision == RedactResultPresenter::MarkDecision::ClearMarks);
+                if (committedAndKept && viewer) {
+                    const QList<AnnotationItem> annos = viewer->annotations();
+                    QList<AnnotationItem> remaining;
+                    for (const auto& a : annos) {
+                        if (a.mode != ToolMode::Redact) remaining.append(a);
+                    }
+                    viewer->setAnnotations(remaining);
+                }
+                emit self->statusMessageRequested(RedactResultPresenter::bannerText(result));
+            });
+    op->start();
 }
 
 void RedactMode::onClearMarks() {

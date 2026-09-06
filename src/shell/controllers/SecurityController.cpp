@@ -3,6 +3,8 @@
 #include "core/AppContext.h"
 #include "GpMainWindow.h"
 #include "modes/RedactMode.h"
+#include "modes/RedactApplyDialog.h"
+#include "engines/RedactOperation.h"
 #include "ui/PdfViewerWidget.h"
 #include "ui/EncryptionDialog.h"
 #include "ui/PermissionsDialog.h"
@@ -500,104 +502,86 @@ void SecurityController::applyRedactions() {
         return;
     }
 
-    bool sanitizeAfter = false;
-    QMessageBox::StandardButton reply =
-        QMessageBox::question(_mainWindow, tr("Confirm Redaction"),
-        tr("Apply redaction marks to the open PDF?\n\n"
-           "This operation permanently excises matched content from content streams, "
-           "removes associated metadata (annotations, structure tree text, form data), "
-           "and saves to a new file.\n\n"
-           "The original file is preserved unmodified. This action cannot be undone."),
-        QMessageBox::Yes | QMessageBox::No);
-    if (reply != QMessageBox::Yes) return;
-
-    // §9.8 P0: offer the full hidden-data scrub alongside content excision —
-    // a black box is meaningless if PII survives in metadata, attachments,
-    // embedded JS, or the name tree. Default ON.
-    sanitizeAfter = QMessageBox::question(_mainWindow, tr("Sanitize Copy Too?"),
-        tr("Also produce an additional fully sanitized copy?\n\n"
-           "This removes document metadata, XMP, attachments, JavaScript actions, "
-           "bookmarks, and form values from a separate output file."),
-        QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes;
-    QString sanitizedPath;
-    if (sanitizeAfter) {
-        const QFileInfo fi(viewer->filePath());
-        sanitizedPath = QFileDialog::getSaveFileName(_mainWindow,
-            tr("Save Sanitized Copy"),
-            fi.absolutePath() + QLatin1Char('/') + fi.completeBaseName()
-                + QStringLiteral("_redacted_sanitized.pdf"),
-            tr("PDF Files (*.pdf)"));
-        if (sanitizedPath.isEmpty()) sanitizeAfter = false;
+    // U05: pre-mutation summary dialog — replaces the plain confirm box plus
+    // the separate sanitize prompt and sanitized-path picker. The old flow
+    // saved IN PLACE over the original (saveDocument(filePath)) while its own
+    // dialog claimed the original was preserved; the transactional operation
+    // below commits to the chosen destination and never writes the source.
+    const QString filePath = viewer->filePath();
+    RedactApplyPlan plan;
+    plan.sourcePath = filePath;
+    const QFileInfo fi(filePath);
+    plan.destinationPath = fi.absolutePath() + QLatin1Char('/')
+        + fi.completeBaseName() + QStringLiteral("_redacted.pdf");
+    plan.sanitizedDestinationPath = fi.absolutePath() + QLatin1Char('/')
+        + fi.completeBaseName() + QStringLiteral("_redacted_sanitized.pdf");
+    plan.sourcePageCount = viewer->isLoaded() ? viewer->pageCount() : 0;
+    plan.sanitize = false; // user opts in via the dialog's checkbox
+    for (const auto& anno : annos) {
+        if (anno.mode == ToolMode::Redact) {
+            ++plan.markCount;
+            ++plan.marksPerPage[anno.pageIndex];
+        }
     }
+
+    RedactApplyDialog dlg(plan, _mainWindow);
+    if (dlg.exec() != QDialog::Accepted) return; // nothing mutated
+    const RedactApplyPlan chosen = dlg.plan();
+
+    RedactRequest request;
+    request.sourcePath = chosen.sourcePath;
+    request.destinationPath = chosen.destinationPath;
+    request.redactionsByPage = redactionsByPage;
+    request.sanitize = chosen.sanitize;
+    request.sanitizedDestinationPath = chosen.sanitizedDestinationPath;
 
     _mainWindow->statusBar()->showMessage(tr("Applying redactions..."));
 
-    // AR-7 D3: plain user-facing label; redaction cannot be safely interrupted
-    // mid-stream (it modifies content streams atomically), so no Cancel is offered.
-    auto* progress = new QProgressDialog(tr("Applying redactions..."), QString(), 0, 0, _mainWindow);
+    // AR-7 D3, U05: cancel is honored at the operation's stage/page boundaries
+    // (never mid-page), so the progress dialog offers a real Cancel button.
+    auto* progress = new QProgressDialog(tr("Applying redactions..."), tr("Cancel"),
+                                         0, request.redactionsByPage.size(), _mainWindow);
     progress->setWindowModality(Qt::WindowModal);
     progress->setMinimumDuration(0);
     progress->show();
 
-    std::weak_ptr<IPdfEditorEngine> weakEngine = _ctx->pdfEditor;
-    const QString filePath = viewer->filePath();
+    auto* op = new RedactOperation(request, this);
+    connect(progress, &QProgressDialog::canceled, op, &RedactOperation::cancel);
+    connect(op, &RedactOperation::stageChanged, _mainWindow,
+            [progress](RedactStage stage, int pagesDone, int pagesTotal) {
+                if (stage == RedactStage::Redacting) {
+                    progress->setRange(0, pagesTotal);
+                    progress->setValue(pagesDone);
+                }
+            });
+
     QPointer<SecurityController> self(this);
-    auto result = std::make_shared<std::atomic<bool>>(false);
-
-    QThread* worker = QThread::create([weakEngine, filePath, sanitizedPath, redactionsByPage, result]() {
-        auto engine = weakEngine.lock();
-        if (!engine) return;
-        if (!engine->loadDocumentForEditing(filePath)) {
-            result->store(false);
-            return;
-        }
-        bool success = true;
-        for (auto it = redactionsByPage.begin(); it != redactionsByPage.end(); ++it) {
-            if (!engine->applyRedactions(it.key(), it.value())) {
-                success = false;
-                break;
-            }
-        }
-        if (success && !engine->saveDocument(filePath)) {
-            success = false;
-        }
-        // §9.8 P0: optional full hidden-data scrub into a separate copy.
-        if (success && !sanitizedPath.isEmpty()) {
-            if (!engine->sanitizeDocument(sanitizedPath)) {
-                qWarning() << "post-redaction sanitize failed;" << sanitizedPath;
-            }
-        }
-        result->store(success);
-    });
-
-    connect(worker, &QThread::finished, _mainWindow, [self, progress, viewer, filePath, annos, sanitizedPath, result]() {
-        progress->close();
-        progress->deleteLater();
-        if (!self) return;
-        bool ok = result->load();
-        if (ok) {
-            QString msg = tr("Redactions applied successfully.");
-            if (!sanitizedPath.isEmpty())
-                msg += tr(" Sanitized copy: %1").arg(QFileInfo(sanitizedPath).fileName());
-            self->_mainWindow->statusBar()->showMessage(msg, 8000);
-            QList<AnnotationItem> remaining;
-            for (const auto& anno : annos) {
-                if (anno.mode != ToolMode::Redact) remaining.append(anno);
-            }
-            viewer->setAnnotations(remaining);
-            self->_mainWindow->openDocument(filePath); // reload/refresh page view
-        } else {
-            self->_ctx->pdfEditor->loadDocumentForEditing(filePath);
-            QMessageBox::critical(self->_mainWindow, tr("Secure Redaction Failed"),
-                tr("Failed to securely redact the document. One or more pages contain inline images, "
-                   "unsupported text operators, or complex binary streams that prevent underlying "
-                   "data deletion. The operation was aborted to prevent a visual-only overlay."));
-            self->_mainWindow->statusBar()->showMessage(tr("Redaction failed."), 5000);
-        }
-    });
-
-    connect(worker, &QThread::finished, worker, &QObject::deleteLater);
-    worker->start();
+    QPointer<PdfViewerWidget> viewerGuard(viewer);
+    connect(op, &RedactOperation::finished, _mainWindow,
+            [self, progress, viewerGuard](const RedactResult& result) {
+                progress->close();
+                progress->deleteLater();
+                if (!self) return;
+                const auto decision = RedactResultPresenter::present(self->_mainWindow, result);
+                // Marks are cleared only once the redacted output is committed
+                // AND kept; Failed / Canceled / Discard keep them recoverable.
+                // (The live session was never mutated — no reload needed.)
+                const bool committedAndKept =
+                    result.outcome == RedactOutcome::Completed
+                    || (result.outcome == RedactOutcome::PartialRedactedOnly
+                        && decision == RedactResultPresenter::MarkDecision::ClearMarks);
+                if (committedAndKept && viewerGuard) {
+                    const QList<AnnotationItem> remainingAnnos = viewerGuard->annotations();
+                    QList<AnnotationItem> remaining;
+                    for (const auto& anno : remainingAnnos) {
+                        if (anno.mode != ToolMode::Redact) remaining.append(anno);
+                    }
+                    viewerGuard->setAnnotations(remaining);
+                }
+                self->_mainWindow->statusBar()->showMessage(
+                    RedactResultPresenter::bannerText(result), 8000);
+            });
+    op->start();
 }
 
 void SecurityController::permissionsDocument() {

@@ -8,6 +8,7 @@
 #include "core/interfaces/ISignatureManager.h"
 
 struct AppContext;
+class QProgressDialog;
 
 namespace gp {
 
@@ -42,6 +43,12 @@ private:
 
     const AppContext* _ctx = nullptr;
     MainWindow* _mainWindow = nullptr;
+    // U05: progress dialog of the running transactional redaction. Deleted only
+    // when the NEXT operation starts (or with this controller) — never from the
+    // operation's finished handler: a modal QProgressDialog::setValue() pumps
+    // the event loop, so a deleteLater delivered inside that pump frees the
+    // dialog under the still-executing setValue frame (use-after-free).
+    QProgressDialog* _redactProgress = nullptr;
 };
 
 } // namespace gp
