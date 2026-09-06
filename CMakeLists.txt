@@ -668,6 +668,8 @@ add_library(pdfws_ui STATIC
     src/shell/ModeStrip.h                   src/shell/ModeStrip.cpp
     src/shell/ScreenNav.h                   src/shell/ScreenNav.cpp
     src/shell/StatusBar.h                   src/shell/StatusBar.cpp
+    src/shell/TaskNav.h                     src/shell/TaskNav.cpp
+    src/shell/TaskStateSync.h               src/shell/TaskStateSync.cpp
     src/shell/Sidebar.h                     src/shell/Sidebar.cpp
     src/modes/ModeController.h              src/modes/ModeController.cpp
     src/modes/OCRMode.h                     src/modes/OCRMode.cpp
@@ -1809,6 +1811,114 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrPreprocessPrefs.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 60
         LABELS "unit;ocr;preprocess;persistence;qt;headless"
+    )
+endif()
+
+# ── TestTaskNavRegistry (U02 — the ONE navigation table) ────────────────────
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestTaskNavRegistry.cpp")
+    add_executable(TestTaskNavRegistry
+        tests/TestTaskNavRegistry.cpp
+    )
+    target_include_directories(TestTaskNavRegistry PRIVATE src tests)
+    target_link_libraries(TestTaskNavRegistry PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestTaskNavRegistry POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestTaskNavRegistry>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestTaskNavRegistry>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestTaskNavRegistry"
+    )
+    add_test(NAME TestTaskNavRegistry COMMAND TestTaskNavRegistry)
+    set_tests_properties(TestTaskNavRegistry PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;shell;navigation;tasknav;u02;qt;headless"
+    )
+endif()
+
+# ── TestScreenStateSync (U02 — single-writer visible-state sync) ────────────
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestScreenStateSync.cpp")
+    add_executable(TestScreenStateSync
+        tests/TestScreenStateSync.cpp
+    )
+    target_include_directories(TestScreenStateSync PRIVATE src tests)
+    target_link_libraries(TestScreenStateSync PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestScreenStateSync POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestScreenStateSync>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestScreenStateSync>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestScreenStateSync"
+    )
+    add_test(NAME TestScreenStateSync COMMAND TestScreenStateSync)
+    set_tests_properties(TestScreenStateSync PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;shell;navigation;sync;u02;qt;headless"
+    )
+endif()
+
+# ── TestRibbonCollapse (U02 — collapsible ribbon geometry + triggers) ───────
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRibbonCollapse.cpp")
+    add_executable(TestRibbonCollapse
+        tests/TestRibbonCollapse.cpp
+    )
+    target_include_directories(TestRibbonCollapse PRIVATE src tests)
+    target_link_libraries(TestRibbonCollapse PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestRibbonCollapse POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestRibbonCollapse>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestRibbonCollapse>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestRibbonCollapse"
+    )
+    add_test(NAME TestRibbonCollapse COMMAND TestRibbonCollapse)
+    set_tests_properties(TestRibbonCollapse PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;shell;ribbon;collapse;u02;qt;headless"
+    )
+endif()
+
+# ── TestStatusBarSlim (U02 — slim status bar + details facts) ───────────────
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestStatusBarSlim.cpp")
+    add_executable(TestStatusBarSlim
+        tests/TestStatusBarSlim.cpp
+    )
+    target_include_directories(TestStatusBarSlim PRIVATE src tests)
+    target_link_libraries(TestStatusBarSlim PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestStatusBarSlim POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestStatusBarSlim>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestStatusBarSlim>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestStatusBarSlim"
+    )
+    add_test(NAME TestStatusBarSlim COMMAND TestStatusBarSlim)
+    set_tests_properties(TestStatusBarSlim PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;shell;statusbar;u02;qt;headless"
     )
 endif()
 

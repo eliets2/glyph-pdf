@@ -31,6 +31,7 @@ class ConvertController;
 class FormsController;
 class SecurityController;
 class ToolRegistry;
+class TaskStateSync;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -97,6 +98,7 @@ private:
     FindBar*        _findBar     = nullptr;
     ScreenNav*      _screenNav   = nullptr;
     StatusBar*      _status      = nullptr;
+    TaskStateSync*  _taskSync    = nullptr;   // U02: the single visible-state writer
     Sidebar*        _left        = nullptr;
     Sidebar*        _right       = nullptr;
     ModeController* _modes       = nullptr;
