@@ -159,6 +159,31 @@ QList<int> PagesMode::parsePageRange(const QString& expr, int pageCount)
     return result;
 }
 
+/**
+ * §9.9 P1: Parse a range expression into one group PER comma-separated
+ * segment, so "1-3,4-6,7" produces three output files (part1: pages 1-3,
+ * part2: pages 4-6, part3: page 7). Each segment follows parsePageRange
+ * rules (1-based, clamped to [0,pageCount-1], deduped and sorted within the
+ * segment); segments that yield no valid pages are skipped; segment order is
+ * preserved and overlapping segments are allowed. A single-segment
+ * expression behaves exactly like the old single-output split ("1-5" → one
+ * group → one file).
+ */
+QList<QList<int>> PagesMode::parsePageRangeSegments(const QString& expr, int pageCount)
+{
+    QList<QList<int>> groups;
+    if (expr.trimmed().isEmpty() || pageCount <= 0)
+        return groups;
+
+    const QStringList tokens = expr.split(',', Qt::SkipEmptyParts);
+    for (const QString& token : tokens) {
+        const QList<int> segment = parsePageRange(token, pageCount);
+        if (!segment.isEmpty())
+            groups.append(segment);
+    }
+    return groups;
+}
+
 // ── PagesMode construction ────────────────────────────────────────────────────
 
 QString PagesMode::localFirstClaim()
@@ -508,9 +533,9 @@ void PagesMode::buildSplitPanel(QWidget* host)
     m_splitRangeEdit->setPlaceholderText(PagesMode::tr("e.g. 1-3,5,7-9"));
     m_splitRangeEdit->setEnabled(false);
     m_splitRangeEdit->setToolTip(PagesMode::tr(
-        "Comma-separated page ranges (1-based).\n"
-        "Example: \"1-3,5,7-9\" extracts pages 1,2,3,5,7,8,9 as one part.\n"
-        "For multiple parts, enter each part on a new line (not yet supported in v1.0)."));
+        "Comma-separated page ranges (1-based) — ONE output file per segment.\n"
+        "Example: \"1-3,4-6,7\" writes <name>_part1.pdf (pages 1-3),\n"
+        "_part2.pdf (pages 4-6) and _part3.pdf (page 7)."));
     modeLayout->addWidget(m_splitRangeEdit);
 
     innerLayout->addWidget(modeGroup);
@@ -896,9 +921,10 @@ QList<QList<int>> PagesMode::computeSplitGroups() const
         }
 
     } else if (m_splitRangeRadio->isChecked()) {
-        // Range expression: treat the whole range as a single output part
-        const QList<int> indices = parsePageRange(m_splitRangeEdit->text(), pageCount);
-        if (!indices.isEmpty()) groups.append(indices);
+        // §9.9 P1: each comma-separated segment becomes its own output part —
+        // "1-3,4-6,7" → 3 files (<stem>_part1/_part2/_part3), single-page
+        // segments included; one segment → one file, as before.
+        groups = parsePageRangeSegments(m_splitRangeEdit->text(), pageCount);
     }
 
     return groups;
