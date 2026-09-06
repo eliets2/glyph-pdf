@@ -669,6 +669,9 @@ add_library(pdfws_ui STATIC
     src/shell/Sidebar.h                     src/shell/Sidebar.cpp
     src/modes/ModeController.h              src/modes/ModeController.cpp
     src/modes/OCRMode.h                     src/modes/OCRMode.cpp
+    src/modes/OcrConfidence.h               src/modes/OcrConfidence.cpp
+    src/ui/OcrScanCanvas.h                  src/ui/OcrScanCanvas.cpp
+    src/ui/OcrWordMagnifier.h               src/ui/OcrWordMagnifier.cpp
     src/modes/RedactMode.h                  src/modes/RedactMode.cpp
     src/modes/CompareMode.h                 src/modes/CompareMode.cpp
     src/modes/PagesMode.h                   src/modes/PagesMode.cpp
@@ -1360,6 +1363,32 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrReviewLifecycle.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
         LABELS "unit;ocr;lifecycle;review;qt;headless"
+    )
+endif()
+
+# ── TestOcrVerifyNavigation (U03 — source-image verification workflow) ───────
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrVerifyNavigation.cpp")
+    add_executable(TestOcrVerifyNavigation
+        tests/TestOcrVerifyNavigation.cpp
+    )
+    target_include_directories(TestOcrVerifyNavigation PRIVATE src tests)
+    target_link_libraries(TestOcrVerifyNavigation PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+    )
+    add_custom_command(TARGET TestOcrVerifyNavigation POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestOcrVerifyNavigation>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestOcrVerifyNavigation>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestOcrVerifyNavigation"
+    )
+    add_test(NAME TestOcrVerifyNavigation COMMAND TestOcrVerifyNavigation)
+    set_tests_properties(TestOcrVerifyNavigation PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;ocr;review;navigation;u03;qt;headless"
     )
 endif()
 

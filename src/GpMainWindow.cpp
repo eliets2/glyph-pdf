@@ -219,6 +219,11 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
     // EditController::runOcr, and recognised words flow back to the review panes.
     connect(_modes, &ModeController::ocrRunRequested, _edit, &EditController::runOcr);
     connect(_edit, &EditController::ocrResultsReady, _modes, &ModeController::deliverOcrResults);
+    // U03: the full review session (source page image + word boxes) follows
+    // the words so the scan pane shows the real source image instead of a
+    // text-only word list. Same-thread direct connection — the image buffer
+    // is shared, never re-rendered or copied.
+    connect(_edit, &EditController::ocrReviewReady, _modes, &ModeController::deliverOcrReview);
     // R07 (F11): every terminal OCR outcome reaches the review panel so
     // Run/Accept are never left stuck. The panel is located at emit time (it is
     // created lazily by ModeController); a destroyed panel is simply not found,

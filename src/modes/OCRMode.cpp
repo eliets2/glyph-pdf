@@ -7,6 +7,9 @@
 #include "docmodel/Block.h"
 #include "docmodel/Inline.h"
 #include "pdfws_djot/LuaDjotCodec.h"
+#include "modes/OcrConfidence.h"       // U03: THE one confidence classifier
+#include "ui/OcrScanCanvas.h"          // U03: source image + word boxes
+#include "ui/OcrWordMagnifier.h"       // U03: magnified crop pane
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -18,6 +21,8 @@
 #include <QMenu>
 #include <QPlainTextEdit>
 #include <QScrollArea>
+#include <QShortcut>
+#include <QStackedLayout>
 #include <QSplitter>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -240,6 +245,43 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     connect(m_btnReject, &QToolButton::clicked, this, &OCRMode::onRejectResults);
     row->addWidget(m_btnReject);
 
+    // ── U03: uncertain-word navigation ──────────────────────────────────────
+    // ABBYY-style verify loop: jump between the words that still need human
+    // eyes (LOW confidence, not removed). The walk is a wrap-around iterator
+    // over the reviewed records (nextUncertainWord).
+    m_btnNextUncertain = new QToolButton;
+    m_btnNextUncertain->setObjectName("ocrBtnNextUncertain");
+    m_btnNextUncertain->setText(tr("Next uncertain ▸"));
+    m_btnNextUncertain->setProperty("variant", "ghost");
+    m_btnNextUncertain->setEnabled(false);
+    m_btnNextUncertain->setToolTip(tr("Jump to the next low-confidence word (F8)"));
+    m_btnNextUncertain->setAccessibleName(tr("Next uncertain word"));
+    connect(m_btnNextUncertain, &QToolButton::clicked, this, [this]() {
+        const int id = nextUncertainWord(m_selectedWordId, true);
+        if (id >= 0) selectWord(id);
+    });
+    row->addWidget(m_btnNextUncertain);
+
+    m_btnPrevUncertain = new QToolButton;
+    m_btnPrevUncertain->setObjectName("ocrBtnPrevUncertain");
+    m_btnPrevUncertain->setText(tr("◂ Previous uncertain"));
+    m_btnPrevUncertain->setProperty("variant", "ghost");
+    m_btnPrevUncertain->setEnabled(false);
+    m_btnPrevUncertain->setToolTip(tr("Jump to the previous low-confidence word (Shift+F8)"));
+    m_btnPrevUncertain->setAccessibleName(tr("Previous uncertain word"));
+    connect(m_btnPrevUncertain, &QToolButton::clicked, this, [this]() {
+        const int id = nextUncertainWord(m_selectedWordId, false);
+        if (id >= 0) selectWord(id);
+    });
+    row->addWidget(m_btnPrevUncertain);
+
+    // Keyboard shortcuts — F8 / Shift+F8 are unclaimed in ToolRegistry and
+    // ShortcutHelpDialog.
+    auto* nextShortcut = new QShortcut(QKeySequence(Qt::Key_F8), this);
+    connect(nextShortcut, &QShortcut::activated, m_btnNextUncertain, &QToolButton::click);
+    auto* prevShortcut = new QShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F8), this);
+    connect(prevShortcut, &QShortcut::activated, m_btnPrevUncertain, &QToolButton::click);
+
     auto* sep2 = new QFrame; sep2->setFrameShape(QFrame::VLine);
     sep2->setFixedWidth(1); sep2->setStyleSheet("color:#ffffff20;");
     row->addWidget(sep2);
@@ -269,6 +311,7 @@ void OCRMode::buildInfoStrip(QVBoxLayout* col)
     row->setSpacing(14);
 
     m_lblPage    = infoLab(tr("PAGE — OF —"));
+    m_lblPage->setObjectName("ocrPageLabel");   // U03: setReviewSession fills the real page identity
     m_lblAvgConf = infoLab(tr("AVG CONFIDENCE —"));
     m_lblLowWords= infoLab(tr("LOW-CONFIDENCE WORDS —"));
     m_lblEngine  = infoLab(tr("ENGINE: Tesseract 5"));
@@ -296,7 +339,7 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     m_pageList->setFixedWidth(180);
     split->addWidget(m_pageList);
 
-    // ── Image / scan pane ───────────────────────────────────────────────
+    // ── Source page pane (U03: the real image OCR ran on) ────────────────
     m_imagePane = new QFrame;
     auto* impLay = new QVBoxLayout(m_imagePane);
     impLay->setContentsMargins(0,0,0,0); impLay->setSpacing(0);
@@ -304,14 +347,17 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     auto* impHead = makeStrip("modeToolbar", 24);
     auto* impHeadRow = new QHBoxLayout(impHead);
     impHeadRow->setContentsMargins(12,0,12,0);
-    impHeadRow->addWidget(monoLab(tr("IMAGE · SCAN")));
+    // U03: honest labels — this pane shows the actual source page image, and
+    // the static "4× PIXELS" claim is gone (magnification is computed where a
+    // crop is actually drawn: the zoom pane).
+    impHeadRow->addWidget(monoLab(tr("SOURCE PAGE")));
     impHeadRow->addStretch(1);
-    impHeadRow->addWidget(monoLab(tr("4× PIXELS")));
+    impHeadRow->addWidget(monoLab(tr("click a word to inspect it")));
     impLay->addWidget(impHead);
 
-    // ── Confidence overlay: scrollable paper with per-word colored spans ──────
-    // m_scanContentLabel is updated by updateConfidenceOverlay() each time
-    // OCR results arrive.  Right-click opens the per-region context menu.
+    // ── Confidence overlay (text fallback): scrollable paper with per-word
+    // colored spans. Shown when no session image is loaded (words-only
+    // deliveries, Djot preview). Right-click opens the per-region menu.
     m_scanContentLabel = new QLabel;
     m_scanContentLabel->setObjectName("ocrScanContent");
     m_scanContentLabel->setTextFormat(Qt::RichText);
@@ -331,8 +377,27 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     // Empty state until a document is OCR'd (replaced by updateConfidenceOverlay).
     m_scanContentLabel->setText(kOcrEmptyStateHtml);
 
+    // ── U03: the real source view — the page image with positioned word boxes.
+    // One selection funnel: canvas clicks land in selectWord(), the same
+    // entry the word links use. Word boxes are in pageImage pixel space; the
+    // canvas maps clicks through its fit-to-pane transform (no second DPR
+    // multiply).
+    m_scanCanvas = new OcrScanCanvas;
+    m_scanCanvas->setObjectName("ocrScanCanvas");
+    connect(m_scanCanvas, &OcrScanCanvas::wordClicked,
+            this, &OCRMode::selectWord);
+    connect(m_scanCanvas, &QWidget::customContextMenuRequested,
+            this, &OCRMode::onImagePaneContextMenu);
+
+    auto* stackHost = new QWidget;
+    m_scanStack = new QStackedLayout(stackHost);
+    m_scanStack->setContentsMargins(0, 0, 0, 0);
+    m_scanStack->addWidget(m_scanContentLabel);   // 0: rich-text fallback
+    m_scanStack->addWidget(m_scanCanvas);          // 1: source image + boxes
+    m_scanStack->setCurrentWidget(m_scanContentLabel);
+
     auto* scrollArea = new QScrollArea;
-    scrollArea->setWidget(m_scanContentLabel);
+    scrollArea->setWidget(stackHost);
     scrollArea->setWidgetResizable(true);
     scrollArea->setFrameShape(QFrame::NoFrame);
     scrollArea->setStyleSheet("background:#2a2a2a;");
@@ -372,17 +437,21 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     auto* zHead = makeStrip("modeToolbar", 24);
     auto* zHeadRow = new QHBoxLayout(zHead);
     zHeadRow->setContentsMargins(12,0,12,0);
-    zHeadRow->addWidget(monoLab(tr("ZOOM · 4×")));
+    // U03: the header shows the magnifier's COMPUTED magnification — the old
+    // static "ZOOM · 4×" claim is gone.
+    m_zoomHeader = new QLabel(tr("ZOOM"));
+    m_zoomHeader->setObjectName("ocrZoomHeader");
+    m_zoomHeader->setProperty("mono", true);
+    zHeadRow->addWidget(m_zoomHeader);
     zHeadRow->addStretch(1);
     zLay->addWidget(zHead);
 
-    m_zoomBig = new QLabel(QStringLiteral("\xE2\x80\x94"));  // em dash — no selection
-    m_zoomBig->setAlignment(Qt::AlignCenter);
-    m_zoomBig->setStyleSheet(
-        "background:#e8e6df; color:#1a1a1a; font-family:Manrope; "
-        "font-size:42px; font-weight:600; padding:16px; margin:24px 16px; "
-        "border:1px solid #000;");
-    zLay->addWidget(m_zoomBig);
+    // U03: the magnified crop of the selected word's source pixels (replaces
+    // the 42px text label that used to fake this pane). A custom paintEvent
+    // blits only the small crop region with SmoothPixmapTransform.
+    m_magnifier = new OcrWordMagnifier;
+    m_magnifier->setObjectName("ocrWordMagnifier");
+    zLay->addWidget(m_magnifier, 1);
 
     m_zoomMeta = new QLabel(tr("No word selected"));
     m_zoomMeta->setProperty("mono", true);
@@ -418,6 +487,9 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     zLay->addLayout(wordRow);
 
     // ── Confidence legend ───────────────────────────────────────────────
+    // U03: built from THE one classifier — bandColor for the swatches and
+    // bandRangeText for the labels, so the legend can never drift from the
+    // highlighting, the low-count or the navigation again.
     auto* legend = new QFrame;
     auto* legendLay = new QVBoxLayout(legend);
     legendLay->setContentsMargins(12, 8, 12, 8);
@@ -425,20 +497,24 @@ void OCRMode::buildPanes(QVBoxLayout* col)
 
     legendLay->addWidget(monoLab(tr("CONFIDENCE")));
 
-    auto makeLegendRow = [&](const QString &color, const QString &label) {
+    auto makeLegendRow = [&](OcrConfidence::Band band, const QString& key,
+                             const QString& objectName) {
         auto* row = new QHBoxLayout;
         auto* swatch = new QFrame;
+        const QString color = OcrConfidence::bandColor(band).name();
         swatch->setFixedSize(12, 12);
         swatch->setStyleSheet(QString("background:%1; border:1px solid %1; border-radius:2px;").arg(color));
         row->addWidget(swatch);
-        row->addWidget(monoLab(label));
+        auto* lab = monoLab(key.arg(OcrConfidence::bandRangeText(band)));
+        lab->setObjectName(objectName);
+        row->addWidget(lab);
         row->addStretch(1);
         legendLay->addLayout(row);
     };
 
-    makeLegendRow("#22c55e", tr("HIGH (≥ 80%)"));
-    makeLegendRow("#eab308", tr("MEDIUM (50-79%)"));
-    makeLegendRow("#ef4444", tr("LOW (< 50%)"));
+    makeLegendRow(OcrConfidence::Band::High,   tr("HIGH (%1)"),   QStringLiteral("ocrLegendHigh"));
+    makeLegendRow(OcrConfidence::Band::Medium, tr("MEDIUM (%1)"), QStringLiteral("ocrLegendMedium"));
+    makeLegendRow(OcrConfidence::Band::Low,    tr("LOW (%1)"),    QStringLiteral("ocrLegendLow"));
 
     zLay->addWidget(legend);
     zLay->addStretch(1);
@@ -498,6 +574,12 @@ void OCRMode::transitionTo(ReviewState state, const QString& message)
         setReview(false);
         break;
     }
+
+    // U03: the uncertain-word navigation follows the SAME lifecycle
+    // discipline as Accept/Reject — never enabled outside ReviewReady, and
+    // only when some word is still uncertain.
+    updateNavigationButtons();
+
     emit reviewStateChanged(state);
 }
 
@@ -536,12 +618,25 @@ void OCRMode::onRejectResults()
 {
     // Reject clears the current OCR overlay/results so the page returns to its
     // pre-OCR state; the host is notified to drop any pending applied text.
+    // U03: the source-image view is cleared with them.
     m_currentWords.clear();
     m_reviewWords.clear();
+    m_session = OcrReviewSession();
     m_selectedWordId = -1;
+    if (m_scanCanvas) {
+        m_scanCanvas->setPageImage(QImage());
+        m_scanCanvas->setWords({});
+        m_scanCanvas->setSelectedWord(-1);
+    }
+    if (m_magnifier) {
+        m_magnifier->setPageImage(QImage());
+        m_magnifier->clearSelection();
+    }
+    updateScanPaneView();
     updateWordInspector();
     updateConfidenceOverlay();
     updateInfoStrip();
+    updateZoomHeader();
     if (m_textEdit) m_textEdit->clear();
     transitionTo(ReviewState::Idle, tr("OCR results rejected."));
     emit reviewRejected();
@@ -578,6 +673,11 @@ void OCRMode::notifySaveFinished(bool saved, bool canceled, const QString& messa
 
 void OCRMode::onImagePaneContextMenu(const QPoint &pos)
 {
+    // The menu can come from the rich-text fallback label OR the source-image
+    // canvas (U03) — map the position through whichever raised it.
+    QWidget* origin = qobject_cast<QWidget*>(sender());
+    if (!origin) origin = m_scanContentLabel;
+
     // For the rich-text label, we use a fixed "current page" region
     // as the re-OCR target.  Future work: map pos to individual LayoutRegion bboxes.
     m_contextRegionBbox = QRectF();  // empty = whole current page
@@ -601,7 +701,7 @@ void OCRMode::onImagePaneContextMenu(const QPoint &pos)
     QAction *scopeNote = menu.addAction(tr("Regional actions act on the whole page until region OCR ships"));
     scopeNote->setEnabled(false);
 
-    menu.exec(m_scanContentLabel->mapToGlobal(pos));
+    menu.exec(origin->mapToGlobal(pos));
 }
 
 void OCRMode::onReOcrRegion()
@@ -656,6 +756,154 @@ void OCRMode::setOcrResults(const QList<MergedOcrWord> &words)
         transitionTo(ReviewState::ReviewReady, QString());
 }
 
+// ── U03: the source-and-correction loop ──────────────────────────────────────
+
+void OCRMode::setReviewSession(const OcrReviewSession& session)
+{
+    // The full session delivery (U03): identity/revision metadata, the page
+    // image the words were recognized on, and the words with stable IDs.
+    // The image is handed to the scan canvas and the word magnifier by value
+    // — QImage implicit sharing means ONE buffer travels, no re-render and
+    // no multi-MB copy per widget.
+    m_session = session;
+    m_currentWords.clear();
+    m_reviewWords = session.words;
+    m_selectedWordId = -1;
+
+    if (m_scanCanvas) {
+        m_scanCanvas->setPageImage(session.pageImage);
+        m_scanCanvas->setWords(m_reviewWords);
+        m_scanCanvas->setSelectedWord(-1);
+    }
+    if (m_magnifier) {
+        m_magnifier->setPageImage(session.pageImage);
+        m_magnifier->clearSelection();
+    }
+    updateScanPaneView();
+
+    // Plain-text PREVIEW pane (preview only — the word inspector's reviewed
+    // records are what gets saved).
+    if (m_textEdit) {
+        QStringList lines;
+        for (const auto& rec : m_reviewWords)
+            lines.append(rec.reviewedText.isEmpty() ? rec.originalText
+                                                    : rec.reviewedText);
+        m_textEdit->setPlainText(lines.join(QStringLiteral(" ")));
+    }
+
+    // The session carries the real page identity — no more static "PAGE — OF —".
+    if (m_lblPage)
+        m_lblPage->setText(tr("PAGE %1 OF %2")
+                               .arg(session.sourcePage + 1)
+                               .arg(session.sourcePageCount));
+
+    updateWordInspector();
+    updateConfidenceOverlay();
+    updateInfoStrip();
+    updateZoomHeader();
+
+    // Same completion contract as setOcrResults: non-empty words are
+    // reviewable; an empty recognition completes the run as Idle.
+    if (session.words.isEmpty())
+        transitionTo(ReviewState::Idle,
+                     tr("OCR complete — no text recognized on this page."));
+    else
+        transitionTo(ReviewState::ReviewReady, QString());
+}
+
+bool OCRMode::isUncertain(const OcrReviewedWord& w)
+{
+    // Uncertain = still needs human eyes: LOW confidence band, not removed.
+    // Corrections do NOT turn a model confidence estimate into a high one —
+    // a corrected low-confidence word stays in the navigation (the
+    // source-engine provenance is separate from review status).
+    return OcrConfidence::bandFor(w.confidence) == OcrConfidence::Band::Low
+        && !w.deleted
+        && !w.reviewedText.trimmed().isEmpty();
+}
+
+int OCRMode::nextUncertainWord(int fromId, bool forward) const
+{
+    // Wrap-around scan over the reviewed records, starting AFTER fromId
+    // (forward) or BEFORE it (!forward). fromId itself is only returned when
+    // it is the sole uncertain word (full wrap). -1 when none qualifies.
+    const int n = m_reviewWords.size();
+    if (n == 0) return -1;
+    auto uncertain = [this](int i) { return isUncertain(m_reviewWords[i]); };
+
+    if (fromId < 0 || fromId >= n) {
+        // No valid starting selection: first/last uncertain in list order.
+        if (forward) {
+            for (int i = 0; i < n; ++i)
+                if (uncertain(i)) return i;
+        } else {
+            for (int i = n - 1; i >= 0; --i)
+                if (uncertain(i)) return i;
+        }
+        return -1;
+    }
+
+    for (int step = 1; step <= n; ++step) {
+        const int i = forward ? (fromId + step) % n
+                              : ((fromId - step) % n + n) % n;
+        if (uncertain(i)) return i;
+    }
+    return -1;
+}
+
+void OCRMode::selectWord(int stableId)
+{
+    // THE one selection funnel (U03): word links, canvas clicks and the
+    // uncertain-word navigation all land here, so the scan-pane highlight,
+    // the correction field, the magnifier crop and the review state can
+    // never disagree. Unknown/stale ids are ignored.
+    if (stableId < 0 || stableId >= m_reviewWords.size()) return;
+    m_selectedWordId = stableId;
+    updateConfidenceOverlay();
+    updateWordInspector();
+    if (m_scanCanvas) m_scanCanvas->setSelectedWord(stableId);
+    if (m_magnifier) {
+        m_magnifier->setCropRect(m_reviewWords[stableId].boundingBox);
+        updateZoomHeader();
+    }
+    emit selectedWordChanged(stableId);
+}
+
+void OCRMode::updateScanPaneView()
+{
+    // The source-image canvas is the scan pane whenever a session image is
+    // loaded; otherwise the rich-text word list stays visible (words-only
+    // deliveries, the Djot preview and the pre-OCR empty state).
+    if (!m_scanStack) return;
+    const bool showCanvas = m_scanCanvas && !m_scanCanvas->pageImage().isNull();
+    m_scanStack->setCurrentWidget(showCanvas ? static_cast<QWidget*>(m_scanCanvas)
+                                             : static_cast<QWidget*>(m_scanContentLabel));
+}
+
+void OCRMode::updateZoomHeader()
+{
+    if (!m_zoomHeader) return;
+    // The magnification is computed from the magnifier's actual crop fit —
+    // never a static multiplier claim.
+    const qreal mag = m_magnifier ? m_magnifier->currentMagnification() : 0.0;
+    if (mag > 0.0)
+        m_zoomHeader->setText(tr("ZOOM · ×%1").arg(mag, 0, 'f', 1));
+    else
+        m_zoomHeader->setText(tr("ZOOM"));
+}
+
+void OCRMode::updateNavigationButtons()
+{
+    if (!m_btnNextUncertain || !m_btnPrevUncertain) return;
+    bool any = false;
+    for (const auto& rec : m_reviewWords) {
+        if (isUncertain(rec)) { any = true; break; }
+    }
+    const bool reviewable = m_reviewState == ReviewState::ReviewReady;
+    m_btnNextUncertain->setEnabled(reviewable && any);
+    m_btnPrevUncertain->setEnabled(reviewable && any);
+}
+
 // ── R08: word-based review (reviewed words are authoritative) ────────────────
 
 bool OCRMode::applyWordCorrection(int stableId, const QString& text)
@@ -670,9 +918,12 @@ bool OCRMode::applyWordCorrection(int stableId, const QString& text)
         rec.deleted = false;
         rec.reviewedText = text;
     }
-    // The source box (rec.boundingBox) is deliberately untouched.
+    // The source box (rec.boundingBox) is deliberately untouched, and the
+    // model confidence is NOT rewritten (provenance stays separate from
+    // review status — corrections never become 100%).
     updateConfidenceOverlay();
     updateWordInspector();
+    updateNavigationButtons();   // a correction keeps LOW words uncertain
     return true;
 }
 
@@ -684,19 +935,20 @@ bool OCRMode::markWordDeleted(int stableId)
     rec.reviewedText.clear();
     updateConfidenceOverlay();
     updateWordInspector();
+    updateNavigationButtons();   // removed words leave the uncertain walk
     return true;
 }
 
 void OCRMode::activateWordLink(const QString& link)
 {
     // Links are emitted as "word:<stableId>" by the scan-pane overlay.
+    // U03: funnels through selectWord() — the same entry the canvas clicks
+    // and the uncertain-word navigation use.
     if (!link.startsWith(QStringLiteral("word:"))) return;
     bool ok = false;
     const int id = QStringView(link).mid(5).toInt(&ok);
-    if (!ok || id < 0 || id >= m_reviewWords.size()) return;
-    m_selectedWordId = id;
-    updateConfidenceOverlay();   // re-highlight the selected word
-    updateWordInspector();
+    if (!ok) return;
+    selectWord(id);
 }
 
 void OCRMode::onWordLinkActivated(const QString& link)
@@ -713,10 +965,10 @@ void OCRMode::updateWordInspector()
                                   : QString());
     }
     if (m_btnDeleteWord) m_btnDeleteWord->setEnabled(valid);
-    if (m_zoomBig) {
-        m_zoomBig->setText(valid ? m_reviewWords[m_selectedWordId].reviewedText
-                                 : QStringLiteral("\xE2\x80\x94"));
-    }
+    // U03: the magnifier shows the selected word's source crop; no selection
+    // → cleared placeholder (the zoom header drops back to "ZOOM").
+    if (m_magnifier && !valid) m_magnifier->clearSelection();
+    if (m_zoomHeader && !valid) m_zoomHeader->setText(tr("ZOOM"));
     if (m_zoomMeta) {
         if (!valid) {
             m_zoomMeta->setText(tr("No word selected"));
@@ -750,28 +1002,19 @@ void OCRMode::updateConfidenceOverlay()
     }
 
     // Build a rich-text paragraph with per-word confidence coloring.
-    // Thresholds per M5-P2 D6 spec:
-    //   green (#22c55e): confidence ≥ 90
-    //   yellow (#eab308): confidence 70–89
-    //   red (#ef4444): confidence < 70
+    // U03: bands and colors come from THE one classifier (modes/OcrConfidence.h)
+    // — bandFor (90/70) + bandColor — exactly the colors the legend now shows.
     // R08: each word is a link carrying its stable ID; corrected words show
     // their reviewed text with a marker, removed words are struck through.
     QString html;
     html.reserve(m_reviewWords.size() * 110);
 
     for (const auto &rec : m_reviewWords) {
-        const int conf = rec.confidence;
-        QString bgColor, borderColor;
-        if (conf >= 90) {
-            bgColor     = QStringLiteral("#22c55e33");
-            borderColor = QStringLiteral("#22c55e99");
-        } else if (conf >= 70) {
-            bgColor     = QStringLiteral("#eab30833");
-            borderColor = QStringLiteral("#eab30899");
-        } else {
-            bgColor     = QStringLiteral("#ef444433");
-            borderColor = QStringLiteral("#ef444499");
-        }
+        const OcrConfidence::Band band = OcrConfidence::bandFor(rec.confidence);
+        const QColor base = OcrConfidence::bandColor(band);
+        // Same translucent variants the overlay has always drawn (#rrggbbaa).
+        const QString bgColor     = base.name() + QStringLiteral("33");
+        const QString borderColor = base.name() + QStringLiteral("99");
 
         const bool removed = rec.deleted || rec.reviewedText.trimmed().isEmpty();
         const bool corrected = !removed && rec.reviewedText != rec.originalText;
@@ -802,7 +1045,7 @@ void OCRMode::updateConfidenceOverlay()
             "title='%3% | %4 | %5%6'>%7</a> ")
             .arg(rec.stableId)
             .arg(style)
-            .arg(conf)
+            .arg(rec.confidence)
             .arg(rec.sourceEngine)
             .arg(rec.boundingBox.x(), 0, 'f', 0)
             .arg(extra)
@@ -826,7 +1069,10 @@ void OCRMode::updateInfoStrip()
         if (rec.deleted || rec.reviewedText.trimmed().isEmpty()) continue;
         ++counted;
         totalConf += rec.confidence;
-        if (rec.confidence < 70) ++lowCount;
+        // U03: the low count classifies through THE one classifier — same
+        // band, same threshold, same colors as the legend and the navigation.
+        if (OcrConfidence::bandFor(rec.confidence) == OcrConfidence::Band::Low)
+            ++lowCount;
     }
 
     if (counted == 0) {
@@ -1001,9 +1247,22 @@ void OCRMode::setSemanticDocument(const docmodel::SemanticDocument &doc,
 {
     // R08: this Djot review path delivers no word records — clear any stale
     // reviewed records so they can never be pulled into an export.
+    // U03: it delivers no source session either — drop the stale image view.
     m_reviewWords.clear();
+    m_session = OcrReviewSession();
     m_selectedWordId = -1;
+    if (m_scanCanvas) {
+        m_scanCanvas->setPageImage(QImage());
+        m_scanCanvas->setWords({});
+        m_scanCanvas->setSelectedWord(-1);
+    }
+    if (m_magnifier) {
+        m_magnifier->setPageImage(QImage());
+        m_magnifier->clearSelection();
+    }
+    updateScanPaneView();
     updateWordInspector();
+    updateZoomHeader();
 
     // 1. Render SemanticDocument → inline-styled HTML for the scan pane
     if (m_scanContentLabel) {
@@ -1031,6 +1290,9 @@ void OCRMode::setSemanticDocument(const docmodel::SemanticDocument &doc,
     if (m_btnReject) m_btnReject->setEnabled(true);
     m_reviewState = ReviewState::ReviewReady;
     m_lastLifecycleMessage = QString();
+    // U03: this path bypasses transitionTo() — keep the navigation buttons
+    // coherent by hand (no reviewed records → nothing uncertain).
+    updateNavigationButtons();
     emit reviewStateChanged(m_reviewState);
 }
 

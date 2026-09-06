@@ -112,6 +112,16 @@ QToolButton* rejectButton(const OCRMode& panel)
 {
     return panel.findChild<QToolButton*>(QStringLiteral("ocrBtnReject"));
 }
+// U03: uncertain-word navigation buttons follow the SAME lifecycle discipline
+// as Accept/Reject (enabled only in ReviewReady with something to review).
+QToolButton* nextUncertainButton(const OCRMode& panel)
+{
+    return panel.findChild<QToolButton*>(QStringLiteral("ocrBtnNextUncertain"));
+}
+QToolButton* prevUncertainButton(const OCRMode& panel)
+{
+    return panel.findChild<QToolButton*>(QStringLiteral("ocrBtnPrevUncertain"));
+}
 
 } // namespace
 
@@ -521,6 +531,46 @@ private slots:
         QVERIFY(extractContains(out, 0, QStringLiteral("café naïve")));
         QVERIFY(extractContains(out, 0, QStringLiteral("total")));
         QVERIFY(!extractContains(out, 0, QStringLiteral("cafe")));
+    }
+
+    // ── U03: uncertain-word navigation follows the lifecycle state machine ────
+    // A stale/canceled completion must leave the navigation buttons in the
+    // same disabled/enabled state as Accept (state-machine coherence).
+    void uncertainNavigationFollowsLifecycle()
+    {
+        OCRMode panel;
+        // makeWords() carries a 55%-confidence word → reviewable + uncertain.
+        panel.setOcrResults(makeWords());
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::ReviewReady);
+        QVERIFY(acceptButton(panel)->isEnabled());
+        QVERIFY(nextUncertainButton(panel)->isEnabled());
+        QVERIFY(prevUncertainButton(panel)->isEnabled());
+
+        // A canceled job disables review AND navigation together.
+        panel.onRunOcr();
+        panel.notifyOcrCanceled(QStringLiteral("OCR finished, but the page changed — results discarded."));
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::RecoverableError);
+        QVERIFY(!acceptButton(panel)->isEnabled());
+        QVERIFY(!nextUncertainButton(panel)->isEnabled());
+        QVERIFY(!prevUncertainButton(panel)->isEnabled());
+
+        // A reviewable but all-certain delivery: review possible, nothing
+        // uncertain to jump to — navigation stays disabled.
+        QList<MergedOcrWord> highWords = makeWords();
+        highWords[1].confidence = 88;
+        panel.setOcrResults(highWords);
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::ReviewReady);
+        QVERIFY(acceptButton(panel)->isEnabled());
+        QVERIFY(!nextUncertainButton(panel)->isEnabled());
+        QVERIFY(!prevUncertainButton(panel)->isEnabled());
+
+        // Removing the last uncertain word through review also disables nav.
+        QList<MergedOcrWord> mixed = makeWords();   // 92 / 55
+        panel.setOcrResults(mixed);
+        QVERIFY(nextUncertainButton(panel)->isEnabled());
+        QVERIFY(panel.markWordDeleted(1));
+        QVERIFY(acceptButton(panel)->isEnabled());
+        QVERIFY(!nextUncertainButton(panel)->isEnabled());
     }
 
     // ── Two pages with similar words stay distinct in the export ──────────────

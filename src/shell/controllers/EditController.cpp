@@ -806,6 +806,12 @@ void EditController::runOcr() {
             // Feed the OCR Verify screen (if open) so it shows real recognised words
             // for review instead of an empty/decorative panel.
             emit self->ocrResultsReady(mergedWords);
+            // U03: right after the words, deliver the FULL review session —
+            // the source page image the words were recognized on travels by
+            // implicit sharing, so the scan pane shows the real source image
+            // and the zoom pane can crop actual pixels. Emitted after
+            // ocrResultsReady so the words path always runs first.
+            emit self->ocrReviewReady(session);
             self->_mainWindow->statusBar()->showMessage(tr("OCR Complete. %1 text blocks detected.").arg(resultsArr.size()), 5000);
         }, Qt::QueuedConnection);
     });
