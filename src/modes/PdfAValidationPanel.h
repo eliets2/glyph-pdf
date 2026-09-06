@@ -10,6 +10,19 @@ namespace gp {
 
 class PdfAValidationReport;
 
+/// §9.14 P1: how many positions a structure element may drift between its
+/// document (structure) position and its visual position before the
+/// reading-order check reports it.
+///
+/// HEURISTIC, not a conformance rule: a triage aid per common PDF/UA
+/// practice. Legitimately tagged documents can shuffle an element by a
+/// couple of slots (wrapper elements, decorative ordering), so small
+/// displacements are not reported to keep the signal low-noise. Human review
+/// remains authoritative: neither a flagged nor a clean result is, by
+/// itself, a PDF/UA verdict. The boundary (2 = not flagged, 3 = flagged) is
+/// pinned by tests/TestReadingOrderThreshold.cpp.
+inline constexpr int kReadingOrderSlotTolerance = 2;
+
 /// §9.14: tagged-PDF reading-order analysis (exposed for tests).
 struct ReadingOrderResult {
     bool tagged = false;

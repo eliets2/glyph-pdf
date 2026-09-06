@@ -489,9 +489,14 @@ ReadingOrderResult analyzeReadingOrder(const QString& path) {
         QVector<int> visualPos(n, 0);
         for (int pos = 0; pos < n; ++pos) visualPos[visualOrder[pos]] = pos;
 
-        // Flag elements more than 2 positions away from their visual position.
+        // §9.14 P1: flag elements further than kReadingOrderSlotTolerance
+        // positions from their visual position. The threshold is the NAMED,
+        // documented constant in PdfAValidationPanel.h — a HEURISTIC per
+        // PDF/UA practice (a low-noise triage aid); human review remains
+        // authoritative. Boundary pinned by TestReadingOrderThreshold:
+        // displacement of exactly 2 slots is not reported, exactly 3 is.
         for (int i = 0; i < n; ++i) {
-            if (std::abs(i - visualPos[i]) > 2) {
+            if (std::abs(i - visualPos[i]) > gp::kReadingOrderSlotTolerance) {
                 const StructElem& e = elems[i];
                 r.issues << QObject::tr("\"%1\" at structure position %2 maps to visual position %3%4")
                     .arg(e.type.isEmpty() ? QStringLiteral("Elem") : e.type)
