@@ -13,10 +13,14 @@
 #include <QFile>
 #include <QSignalSpy>
 #include <QStandardItemModel>
+#include <QCheckBox>
+#include <QComboBox>
+#include <QSpinBox>
 
 #include "core/AppContext.h"
 #include "core/interfaces/IConversionEngine.h"
 #include "modes/BatchMode.h"
+#include "engines/PatternRedactor.h" // §9.12 P1: preset keys cross-check
 #include "mocks/MockPdfEditorEngine.h"
 
 // ── Minimal mock IConversionEngine ─────────────────────────────────────────────
@@ -256,6 +260,133 @@ private slots:
         // The per-file engine wrote a _compressed.pdf next to the source.
         QVERIFY2(QFile::exists(tmp.path() + "/compress_src_compressed.pdf"),
                  "Compress op must produce the output file via the per-file engine");
+    }
+
+    // ── §9.12 P1: Compress/Optimize target DPI must be user-configurable ─────
+    // The batch Compress panel used to carry a hard "150 DPI" note and the
+    // worker literally coded opts.targetDpi = 150 — no way to change it. The
+    // panel must expose a target-DPI spin plus named Low/Medium/High presets.
+    void compressDpiControlsExistWithDefaults() {
+        gp::BatchMode bm;
+        auto* spin = bm.findChild<QSpinBox*>(QStringLiteral("batchCompressDpiSpin"));
+        QVERIFY2(spin, "Compress panel must expose a target-DPI spin box "
+                       "(objectName batchCompressDpiSpin)");
+        auto* preset = bm.findChild<QComboBox*>(QStringLiteral("batchCompressDpiPreset"));
+        QVERIFY2(preset, "Compress panel must expose named DPI presets "
+                         "(objectName batchCompressDpiPreset)");
+        QVERIFY2(preset->count() >= 3,
+                 "at least the Low/Medium/High DPI presets must be offered");
+        // The previous hard-coded 150 stays the default — behavior only widens.
+        QCOMPARE(spin->value(), 150);
+    }
+
+    // ── §9.12 P1: named PII redaction presets (quick picks) ──────────────────
+    // The Redact batch op used to accept only free-form regex. Quick-pick
+    // named PII presets (Email / Phone (US) / SSN) must exist, reusing the
+    // PatternRedactor::namedPattern keys the interactive Redact mode offers.
+    void namedRedactPresetCheckBoxesExist() {
+        gp::BatchMode bm;
+        auto* email = bm.findChild<QCheckBox*>(QStringLiteral("batchRedactPreset_email"));
+        auto* phone = bm.findChild<QCheckBox*>(QStringLiteral("batchRedactPreset_phone-us"));
+        auto* ssn   = bm.findChild<QCheckBox*>(QStringLiteral("batchRedactPreset_ssn"));
+        QVERIFY2(email, "named preset checkbox 'Email' missing (batchRedactPreset_email)");
+        QVERIFY2(phone, "named preset checkbox 'Phone (US)' missing (batchRedactPreset_phone-us)");
+        QVERIFY2(ssn,   "named preset checkbox 'SSN' missing (batchRedactPreset_ssn)");
+        // Presets are opt-in — nothing is redacted the user did not ask for.
+        QVERIFY(!email->isChecked());
+        QVERIFY(!phone->isChecked());
+        QVERIFY(!ssn->isChecked());
+    }
+
+    // ── §9.12 P1: named presets Low/Medium/High → 72/150/300 drive the spin ──
+    void namedDpiPresetsDriveTheSpin() {
+        gp::BatchMode bm;
+        auto* preset = bm.findChild<QComboBox*>(QStringLiteral("batchCompressDpiPreset"));
+        auto* spin   = bm.findChild<QSpinBox*>(QStringLiteral("batchCompressDpiSpin"));
+        QVERIFY2(preset && spin, "DPI preset combo and spin must both exist");
+
+        // The named presets carry the documented mapping Low/Medium/High →
+        // 72/150/300 and selecting one writes it into the spin.
+        const QList<int> expectedDpi = { 72, 150, 300 };
+        QCOMPARE(preset->count(), expectedDpi.size() + 1); // + the Custom escape hatch
+        for (int i = 0; i < expectedDpi.size(); ++i) {
+            QCOMPARE(preset->itemData(i).toInt(), expectedDpi.at(i));
+            preset->setCurrentIndex(i);
+            QCOMPARE(spin->value(), expectedDpi.at(i));
+        }
+
+        // A manual spin edit leaves the named presets (combo flips to Custom,
+        // item data -1) so the combo never lies about the spin's value.
+        spin->setValue(100);
+        QCOMPARE(preset->currentData().toInt(), -1);
+    }
+
+    // ── §9.12 P1: the DPI clamp seam — the worker's only path to targetDpi ───
+    void resolveCompressTargetDpiClampsToSupportedRange() {
+        // In-range values pass through unchanged (incl. all three presets).
+        QCOMPARE(gp::BatchMode::resolveCompressTargetDpi(72),  72);
+        QCOMPARE(gp::BatchMode::resolveCompressTargetDpi(150), 150);
+        QCOMPARE(gp::BatchMode::resolveCompressTargetDpi(300), 300);
+        // Out-of-range values clamp into [kMinTargetDpi, kMaxTargetDpi].
+        QCOMPARE(gp::BatchMode::resolveCompressTargetDpi(0),     gp::BatchMode::kMinTargetDpi);
+        QCOMPARE(gp::BatchMode::resolveCompressTargetDpi(-100),  gp::BatchMode::kMinTargetDpi);
+        QCOMPARE(gp::BatchMode::resolveCompressTargetDpi(10000), gp::BatchMode::kMaxTargetDpi);
+        // The named constants pin the documented boundary.
+        QCOMPARE(gp::BatchMode::kMinTargetDpi,    36);
+        QCOMPARE(gp::BatchMode::kMaxTargetDpi,   600);
+        QCOMPARE(gp::BatchMode::kDefaultTargetDpi, 150);
+    }
+
+    // ── §9.12 P1: preset keys resolve through PatternRedactor's built-ins ────
+    void effectiveRedactPatternsResolvePresetsAndFreeForm() {
+        // A named preset contributes the SAME regex body PatternRedactor
+        // defines for that key (one source of truth, no re-typed patterns).
+        const QRegularExpression ssn = PatternRedactor::namedPattern(QStringLiteral("ssn"));
+        QVERIFY(ssn.isValid());
+        QCOMPARE(gp::BatchMode::effectiveRedactPatterns({ QStringLiteral("ssn") }, {}),
+                 QStringList{ ssn.pattern() });
+
+        // Free-form entries pass through (trimmed).
+        QCOMPARE(gp::BatchMode::effectiveRedactPatterns(
+                     {}, { QStringLiteral(R"(\d{3}-\d{2}-\d{4})") }),
+                 QStringList{ QStringLiteral(R"(\d{3}-\d{2}-\d{4})") });
+
+        // Presets + free-form combined: presets first, unknown keys dropped,
+        // duplicates collapsed.
+        const QRegularExpression email = PatternRedactor::namedPattern(QStringLiteral("email"));
+        QVERIFY(email.isValid());
+        const QStringList combined = gp::BatchMode::effectiveRedactPatterns(
+            { QStringLiteral("email"), QStringLiteral("no-such-preset-key") },
+            { QStringLiteral("a+b"), QStringLiteral(" a+b ") });
+        QCOMPARE(combined, (QStringList{ email.pattern(), QStringLiteral("a+b") }));
+
+        // Nothing checked + nothing typed = nothing to redact.
+        QVERIFY(gp::BatchMode::effectiveRedactPatterns({}, {}).isEmpty());
+    }
+
+    // ── §9.12 P1: the checkboxes feed the seam (widget wiring) ───────────────
+    void redactPresetCheckBoxesFeedCheckedKeys() {
+        gp::BatchMode bm;
+        auto* email = bm.findChild<QCheckBox*>(QStringLiteral("batchRedactPreset_email"));
+        auto* phone = bm.findChild<QCheckBox*>(QStringLiteral("batchRedactPreset_phone-us"));
+        auto* ssn   = bm.findChild<QCheckBox*>(QStringLiteral("batchRedactPreset_ssn"));
+        QVERIFY2(email && phone && ssn, "named PII preset checkboxes must exist");
+
+        // All opt-in initially.
+        QCOMPARE(bm.checkedRedactPresetKeys(), QStringList{});
+
+        email->setChecked(true);
+        ssn->setChecked(true);
+        QCOMPARE(bm.checkedRedactPresetKeys(),
+                 (QStringList{ QStringLiteral("email"), QStringLiteral("ssn") }));
+
+        // And the checked keys resolve to the same regex bodies interactive
+        // Redact mode uses — the wiring cannot drift from PatternRedactor.
+        const QStringList resolved =
+            gp::BatchMode::effectiveRedactPatterns(bm.checkedRedactPresetKeys(), {});
+        QCOMPARE(resolved.size(), 2);
+        QVERIFY(resolved.contains(PatternRedactor::namedPattern(QStringLiteral("email")).pattern()));
+        QVERIFY(resolved.contains(PatternRedactor::namedPattern(QStringLiteral("ssn")).pattern()));
     }
 
     // ── T5: Cancel — batch stops before all files processed ──────────────────

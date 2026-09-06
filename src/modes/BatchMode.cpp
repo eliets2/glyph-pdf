@@ -9,6 +9,7 @@
 #include "engines/PdfEditorEngine.h"
 #include "engines/ocr/OcrPipeline.h"
 #include "engines/podofo/PdfPageOps.h"
+#include "engines/PatternRedactor.h" // §9.12 P1: named PII preset keys
 
 using TargetFormat = IConversionEngine::TargetFormat;
 
@@ -260,9 +261,53 @@ void BatchMode::buildOperationPanel(QWidget* host) {
         });
 
         lay->addWidget(new QLabel(tr("Target DPI (images):")));
-        auto* dpiNote = new QLabel(tr("150 DPI — balanced quality/size"));
-        dpiNote->setStyleSheet("color:#71747a; font-size:10px;");
-        lay->addWidget(dpiNote);
+        // §9.12 P1: user-configurable target DPI. Previously the value was
+        // hard-coded (opts.targetDpi = 150 in the worker, with a static
+        // "150 DPI" note here and no way to change it). The spin is the
+        // single source of truth; the named presets are quick picks that
+        // write into it.
+        auto* dpiRow = new QHBoxLayout;
+        m_dpiPresetCombo = new QComboBox;
+        m_dpiPresetCombo->setObjectName(QStringLiteral("batchCompressDpiPreset"));
+        m_dpiPresetCombo->addItem(tr("Low (72 DPI)"),    72);
+        m_dpiPresetCombo->addItem(tr("Medium (150 DPI)"), 150);
+        m_dpiPresetCombo->addItem(tr("High (300 DPI)"),  300);
+        m_dpiPresetCombo->addItem(tr("Custom"),          -1);  // spin-only, set on manual edit
+        m_dpiSpin = new QSpinBox;
+        m_dpiSpin->setObjectName(QStringLiteral("batchCompressDpiSpin"));
+        m_dpiSpin->setRange(kMinTargetDpi, kMaxTargetDpi);
+        m_dpiSpin->setValue(kDefaultTargetDpi);
+        m_dpiSpin->setSuffix(tr(" DPI"));
+        m_dpiSpin->setToolTip(tr("Images are downsampled to this resolution.\n"
+                                 "Lower DPI = smaller file, coarser images."));
+        dpiRow->addWidget(m_dpiPresetCombo);
+        dpiRow->addWidget(m_dpiSpin);
+        dpiRow->addStretch(1);
+        lay->addLayout(dpiRow);
+        // Named preset → spin. The spin write is signal-blocked so the spin's
+        // own handler below does not immediately flip the combo to "Custom".
+        connect(m_dpiPresetCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [this](int idx) {
+            const int dpi = m_dpiPresetCombo->itemData(idx).toInt();
+            if (dpi > 0) {
+                QSignalBlocker block(m_dpiSpin);
+                m_dpiSpin->setValue(dpi);
+            }
+        });
+        // Manual spin edit → no longer on a named preset.
+        connect(m_dpiSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+                this, [this](int v) {
+            const int presetDpi = m_dpiPresetCombo->currentData().toInt();
+            if (presetDpi != v && m_dpiPresetCombo->currentIndex() != 3) {
+                QSignalBlocker block(m_dpiPresetCombo);
+                m_dpiPresetCombo->setCurrentIndex(3);  // Custom
+            }
+        });
+        // The default DPI is 150 (the previous hard-coded value) — start the
+        // combo on the matching named preset so it never disagrees with the
+        // spin. (Plain construction leaves index 0 selected without ever
+        // firing currentIndexChanged.)
+        m_dpiPresetCombo->setCurrentIndex(1);
 
         lay->addWidget(new QLabel(tr("Output Folder:")));
         auto* dirRow = new QHBoxLayout;
@@ -420,6 +465,29 @@ void BatchMode::buildOperationPanel(QWidget* host) {
     auto* pRedact = new QFrame;
     {
         auto* lay = new QVBoxLayout(pRedact);
+        // §9.12 P1: named PII quick-pick presets — the same PatternRedactor
+        // built-in keys the interactive Redact mode offers ("email",
+        // "phone-us", "ssn", …); only the three most common PII cases are
+        // surfaced here as one-click checkboxes. Opt-in: a preset redacts
+        // only when checked, in ADDITION to any free-form patterns below.
+        lay->addWidget(new QLabel(tr("Quick Presets:")));
+        auto* presetRow = new QHBoxLayout;
+        struct NamedPreset { const char* key; const char* label; };
+        const NamedPreset piiPresets[] = {
+            { "email",    "Email" },
+            { "phone-us", "Phone (US)" },
+            { "ssn",      "SSN" },
+        };
+        for (const NamedPreset& p : piiPresets) {
+            auto* chk = new QCheckBox(tr(p.label));
+            chk->setObjectName(QStringLiteral("batchRedactPreset_%1").arg(QLatin1String(p.key)));
+            chk->setProperty("presetKey", QString::fromLatin1(p.key));
+            presetRow->addWidget(chk);
+            m_redactPresets.append(chk);
+        }
+        presetRow->addStretch(1);
+        lay->addLayout(presetRow);
+
         lay->addWidget(new QLabel(tr("Regex Patterns (comma-separated):")));
         m_redactPatterns = new QLineEdit;
         m_redactPatterns->setPlaceholderText(tr(R"(e.g. \d{3}-\d{2}-\d{4}, [\w.]+@[\w.]+)"));
@@ -853,11 +921,17 @@ void BatchMode::onRunClicked() {
         return;
     }
 
-    // Redact requires at least one pattern.
+    // Redact requires at least one effective pattern — a checked named
+    // preset (§9.12 P1) or a free-form regex entry.
     if (opIdx == OpRedact &&
-        (!m_redactPatterns || m_redactPatterns->text().trimmed().isEmpty())) {
+        effectiveRedactPatterns(checkedRedactPresetKeys(),
+                                m_redactPatterns
+                                    ? m_redactPatterns->text().split(QLatin1Char(','),
+                                                                     Qt::SkipEmptyParts)
+                                    : QStringList()).isEmpty()) {
         QMessageBox::information(this, tr("No Patterns"),
-            tr("Enter one or more comma-separated regex patterns to redact."));
+            tr("Check at least one quick preset or enter one or more "
+               "comma-separated regex patterns to redact."));
         return;
     }
 
@@ -918,6 +992,10 @@ void BatchMode::onRunClicked() {
 
     // Compress config
     const int capturedQuality = m_qualitySlider ? m_qualitySlider->value() : 75;
+    // §9.12 P1: the user-chosen target DPI (clamped through the named seam;
+    // was hard-coded to 150).
+    const int capturedTargetDpi =
+        resolveCompressTargetDpi(m_dpiSpin ? m_dpiSpin->value() : kDefaultTargetDpi);
 
     // Watermark config
     const QString capturedWmText = m_wmTextEdit
@@ -969,9 +1047,15 @@ void BatchMode::onRunClicked() {
 
     // Redact config
     const QString capturedRedactOutDir = m_redactOutDir ? m_redactOutDir->text().trimmed() : QString();
-    const QStringList capturedRedactPatterns = m_redactPatterns
-        ? m_redactPatterns->text().split(QLatin1Char(','), Qt::SkipEmptyParts)
-        : QStringList();
+    // §9.12 P1: effective list = named-preset regex bodies + free-form
+    // entries (deduped; resolved on the GUI thread — PatternRedactor and the
+    // checkbox state are GUI-affine, the worker only gets the string list).
+    const QStringList capturedRedactPatterns =
+        effectiveRedactPatterns(checkedRedactPresetKeys(),
+                                m_redactPatterns
+                                    ? m_redactPatterns->text().split(QLatin1Char(','),
+                                                                     Qt::SkipEmptyParts)
+                                    : QStringList());
 
     // Worker lambda — runs on QtConcurrent thread pool.
     // All captured values are by-value copies of GUI state taken above on the GUI thread.
@@ -1118,7 +1202,7 @@ void BatchMode::onRunClicked() {
                 } else {
                     OptimizeOptions opts;
                     opts.jpegQuality = capturedQuality;
-                    opts.targetDpi   = 150;
+                    opts.targetDpi   = capturedTargetDpi; // §9.12 P1: user-configurable (was hard-coded 150)
                     ok = editor.optimizeDocument(result.outputPath, opts);
                     if (!ok) techDetail = editor.lastError().technicalDetails;
                 }
@@ -1396,6 +1480,45 @@ QString BatchMode::lowConfidenceNote(const QList<PageOcrResult>& pages,
     for (int p : sorted) pageList << QString::number(p + 1);  // 1-based for users
     return BatchMode::tr("%1 low-confidence word(s) on page(s) %2 — review recommended")
         .arg(lowWords).arg(pageList.join(QStringLiteral(", ")));
+}
+
+// ── §9.12 P1 seams: DPI presets + named redaction presets ────────────────────
+
+// Clamp the user-chosen target DPI into the supported engine range. Pure
+// function so the boundary is testable without driving a batch run.
+int BatchMode::resolveCompressTargetDpi(int requestedDpi) {
+    return qBound(kMinTargetDpi, requestedDpi, kMaxTargetDpi);
+}
+
+// The effective redaction pattern list: named-preset regex bodies first
+// (resolved through PatternRedactor::namedPattern — the SAME built-in keys
+// the interactive Redact mode consumes), then the free-form entries.
+// Unresolvable keys produce an invalid regex and are dropped (never the
+// sentinel broken pattern that namedPattern returns for unknown keys);
+// empty and duplicate patterns collapse so one span is never excised twice.
+QStringList BatchMode::effectiveRedactPatterns(const QStringList& presetKeys,
+                                               const QStringList& freeFormPatterns) {
+    QStringList result;
+    auto add = [&result](const QString& pattern) {
+        const QString t = pattern.trimmed();
+        if (!t.isEmpty() && !result.contains(t)) result << t;
+    };
+    for (const QString& key : presetKeys) {
+        const QRegularExpression rx = PatternRedactor::namedPattern(key);
+        if (rx.isValid()) add(rx.pattern());
+    }
+    for (const QString& pattern : freeFormPatterns)
+        add(pattern);
+    return result;
+}
+
+// Keys of the currently checked named-PII preset checkboxes, in panel order.
+QStringList BatchMode::checkedRedactPresetKeys() const {
+    QStringList keys;
+    for (const QCheckBox* chk : m_redactPresets)
+        if (chk && chk->isChecked())
+            keys << chk->property("presetKey").toString();
+    return keys;
 }
 
 // ── U08 pre-flight seams ──────────────────────────────────────────────────────
