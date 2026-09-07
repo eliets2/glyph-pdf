@@ -98,6 +98,8 @@ Dated corrections to stale historical claims (superseded by HEAD):
 |----|---------|--------|--------|
 | N03 | PDF/A-3U (and L3B) wrote PDF 2.0; PDF/A-3 is PDF 1.7-based | implemented-awaiting-review — whole switch audited, version asserts added for 2B/2U/3B/3U | f9f3a95 |
 | N02 | Alphabetic page labels used spreadsheet scheme (28=ab); ISO 32000 Table 159 repeats the letter (28=bb) | implemented-awaiting-review — letters() corrected, tests re-pinned over review boundaries 1/25-28/52-54 | c764f73 |
+| N09 | Real split execution produced no files (source-resident engine + AR-4 guard rejected every write) | implemented-awaiting-review — writeDocumentFromPages + SafeSave candidate/validate/commit; real end-to-end test drives the production caller | 6ee8eb7 |
+| N10 | Four regression checks were never moc-registered (3 CapabilityRegistry D06 slots + D07 policy slot defined outside slots sections) | implemented-awaiting-review — moved into private slots, mutation-proven to execute (19/19 + 14/14 totals) | 866321d |
 
 ## CODE-REVIEW-2026-09-06 findings (D01–D05, redaction + AI boundaries)
 
