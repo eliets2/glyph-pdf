@@ -548,9 +548,15 @@ void RedactMode::runRedactOperation(const RedactRequest& request) {
                 // (see the comment there for the QProgressDialog pump hazard).
                 progress->close();
                 if (!self) return;
-                const auto decision = RedactResultPresenter::present(self, result);
+                // D01: present() writes the effective terminal result here —
+                // upgraded to Completed when its Retry-sanitize succeeded — so
+                // the banner below reflects the RECOVERED flow, not the
+                // original partial-failure wording.
+                RedactResult effective = result;
+                const auto decision = RedactResultPresenter::present(self, result, &effective);
                 // Marks are cleared only once the redacted output is committed
-                // AND kept; Failed / Canceled / Discard keep them recoverable.
+                // AND kept; Failed / Canceled / Discard / a FAILED retry keep
+                // them recoverable.
                 const bool committedAndKept =
                     result.outcome == RedactOutcome::Completed
                     || (result.outcome == RedactOutcome::PartialRedactedOnly
@@ -563,7 +569,7 @@ void RedactMode::runRedactOperation(const RedactRequest& request) {
                     }
                     viewer->setAnnotations(remaining);
                 }
-                emit self->statusMessageRequested(RedactResultPresenter::bannerText(result));
+                emit self->statusMessageRequested(RedactResultPresenter::bannerText(effective));
             });
     op->start();
 }

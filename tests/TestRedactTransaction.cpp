@@ -27,7 +27,11 @@
 #include <QTemporaryDir>
 #include <QFile>
 #include <QCryptographicHash>
+#include <QApplication>
+#include <QAbstractButton>
+#include <QMessageBox>
 #include <QPushButton>
+#include <QTimer>
 #include <QLabel>
 #include <podofo/podofo.h>
 
@@ -86,6 +90,53 @@ QString errText(const RedactResult& r) {
         .arg(int(r.outcome)).arg(r.failedStage, r.error);
 }
 
+// ── Modal driver: auto-answers RedactResultPresenter::present() ─────────────
+// present() runs nested QMessageBox::exec() loops. A repeating 1ms timer fires
+// inside those loops, clicks the requested button by text, and records every
+// box text it saw. A stall fallback default-clicks any unexpected box so a
+// contract change can never hang the run — the test fails on its assertions
+// instead. stop() after each present() keeps consecutive drivers independent.
+class ModalDriver {
+public:
+    ModalDriver(QObject* owner, QStringList buttons) : m_remaining(std::move(buttons)) {
+        m_timer.setParent(owner);
+        m_timer.setInterval(1);
+        QObject::connect(&m_timer, &QTimer::timeout, owner, [this]() {
+            auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+            if (!box) return;
+            if (m_remaining.isEmpty() || ++m_stall > 3000) {
+                m_boxTexts << box->text() + QStringLiteral(" [default-clicked]");
+                m_stall = 0;
+                if (auto* d = box->defaultButton()) { d->click(); return; }
+                if (!box->buttons().isEmpty()) box->buttons().first()->click();
+                return;
+            }
+            m_boxTexts << box->text();
+            for (QAbstractButton* b : box->buttons()) {
+                const QString t = b->text();
+                const int idx = m_remaining.indexOf(t);
+                const int idxMnemonic =
+                    t.startsWith(QLatin1Char('&')) ? m_remaining.indexOf(t.mid(1)) : -1;
+                if (idx >= 0 || idxMnemonic >= 0) {
+                    m_remaining.removeAt(idx >= 0 ? idx : idxMnemonic);
+                    m_stall = 0;
+                    b->click();
+                    return;
+                }
+            }
+        });
+        m_timer.start();
+    }
+    void stop() { m_timer.stop(); }
+    QStringList boxTexts() const { return m_boxTexts; }
+
+private:
+    QStringList m_remaining;
+    QStringList m_boxTexts;
+    int m_stall = 0;
+    QTimer m_timer;
+};
+
 } // namespace
 
 class TestRedactTransaction : public QObject {
@@ -126,6 +177,22 @@ private slots:
     void sanitizeStageFaultLeavesPreExistingSanitizedDestinationIntact();
     void sanitizeCommitFaultLeavesExistingSanitizedDestinationByteIdentical();
     void sanitizeReplacesExistingSanitizedDestinationOnSuccess();
+
+    // ── D01-family retry recovery, driven through the SHARED presenter ──────
+    // The presenter's Retry-sanitize is the real user recovery path; these
+    // tests drive the actual modal flow (button clicks) at that boundary.
+    void retryThroughPresenterSucceedsFromCommittedRedactedFile();
+    void retryThroughPresenterFailsAgainKeepsRedactedArtifactAndMarks();
+    // D01: the partial result must preserve the INTENDED sanitize destination
+    // (separately from the committed one) so Retry targets the requested path.
+    void partialResultCarriesIntendedSanitizeDestination();
+
+    // ── V01/V02 bounded pins: persistence + marks/history of the redaction flow
+    // A cancel requested during Sanitizing must NOT discard the already-
+    // committed artifacts (they are reported honestly instead), and the marks
+    // decision contract must keep marks recoverable on every failure/cancel.
+    void cancelDuringSanitizingStageKeepsCommittedArtifacts();
+    void presenterMarkDecisionsPinRecoveryContract();
 
     // ── SafeSave primitives (R01 extraction) ───────────────────────────────
     void safeSaveCandidatePathsAreUnique();
@@ -534,6 +601,276 @@ void TestRedactTransaction::sanitizeReplacesExistingSanitizedDestinationOnSucces
     }
     QVERIFY2(!replacedBytes.contains("STALE-SANITIZED-CONTENT"),
              "stale destination bytes must be gone after the atomic replacement");
+}
+
+// ── D01-family retry: the presenter's Retry-sanitize at the real boundary ───
+// Drives the actual modal flow: a genuine PartialRedactedOnly result from a
+// full operation run, the presenter's "Retry Sanitize" button, then the
+// artifacts on disk. The retry must re-run ONLY the Sanitizing stage from the
+// COMMITTED redacted file (D05 boundary) into the intended destination.
+void TestRedactTransaction::retryThroughPresenterSucceedsFromCommittedRedactedFile() {
+    const QString src = createPdf("retryok.pdf", 1, QStringLiteral("TOPSECRET_DATA"), /*risky=*/true);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QByteArray srcSha = sha256(src);
+    const QString dest = m_tmpDir.filePath("retryok_redacted.pdf");
+    const QString sanitized = m_tmpDir.filePath("retryok_redacted_sanitized.pdf");
+    // Pre-existing stale content at the sanitized destination: the successful
+    // retry must atomically REPLACE it (D05), never merge or corrupt.
+    {
+        QFile d(sanitized); QVERIFY(d.open(QIODevice::WriteOnly)); d.write("STALE-BYTES");
+    }
+
+    RedactOperation::setFaultForTesting(RedactOperation::Fault::Sanitize);
+    RedactOperation op(makeRequest(src, dest, {0}, /*sanitize=*/true, sanitized));
+    const RedactResult partial = runOp(&op);
+    QCOMPARE(partial.outcome, RedactOutcome::PartialRedactedOnly);
+    QByteArray staleBytes;
+    {
+        QFile d(sanitized);
+        QVERIFY(d.open(QIODevice::ReadOnly));
+        staleBytes = d.readAll();
+    }
+    QVERIFY2(!staleBytes.isEmpty(), "precondition: stale bytes present before the retry");
+    RedactOperation::setFaultForTesting(RedactOperation::Fault::None);
+
+    ModalDriver driver(this, {QStringLiteral("Retry Sanitize"), QStringLiteral("OK")});
+    RedactResult recovered;
+    const auto decision = RedactResultPresenter::present(nullptr, partial, &recovered);
+    driver.stop();
+
+    // A completed retry means the marks' effect is fully saved: ClearMarks.
+    QCOMPARE(decision, RedactResultPresenter::MarkDecision::ClearMarks);
+
+    // D01: the recovery must be reflected in the effective result — the flow
+    // is Completed, and the banner built from it names BOTH artifacts and
+    // never repeats the failed-sanitization wording.
+    QCOMPARE(recovered.outcome, RedactOutcome::Completed);
+    QCOMPARE(recovered.sanitizedDestination, sanitized);
+    QCOMPARE(recovered.destination, partial.destination);
+    const QString banner = RedactResultPresenter::bannerText(recovered);
+    QVERIFY2(banner.contains(QFileInfo(dest).fileName()), qPrintable(banner));
+    QVERIFY2(banner.contains(QFileInfo(sanitized).fileName()), qPrintable(banner));
+    QVERIFY2(!banner.contains(QLatin1String("FAILED")),
+             qPrintable(QStringLiteral("banner after a successful retry must not keep the "
+                                       "failure wording: %1").arg(banner)));
+
+    // The sanitized copy EXISTS at the intended destination and is the NEW
+    // sanitized content (pre-fix: the presenter passed an empty path, the
+    // retry failed, and this file still held the stale bytes).
+    QVERIFY2(QFileInfo::exists(sanitized),
+             "retry through the presenter must produce the sanitized copy");
+    QByteArray newBytes;
+    {
+        QFile d(sanitized);
+        QVERIFY(d.open(QIODevice::ReadOnly));
+        newBytes = d.readAll();
+    }
+    QVERIFY2(!newBytes.contains("STALE-BYTES") && newBytes != staleBytes,
+             "the retry must replace the stale destination bytes with new content");
+    PoDoFo::PdfMemDocument out;
+    out.Load(sanitized.toUtf8().constData()); // throws on failure -> test aborts
+    auto& cat = out.GetCatalog().GetDictionary();
+    QVERIFY(!cat.HasKey("OpenAction"));   // hidden data stripped
+    QVERIFY(!cat.HasKey("Metadata"));
+
+    // The presenter announced the committed path ("Sanitization Complete").
+    const QString boxes = driver.boxTexts().join(QLatin1Char('\n'));
+    QVERIFY2(boxes.contains(sanitized), qPrintable(boxes));
+
+    // Every other artifact boundary survives the recovery.
+    QVERIFY(QFileInfo::exists(partial.destination));       // redacted artifact intact
+    QCOMPARE(sha256(src), srcSha);                          // source untouched
+}
+
+// Retry that fails AGAIN must fail honestly and keep the state recoverable:
+// the redacted artifact stays, the pre-existing sanitized destination is not
+// damaged, and the marks decision RETAINS the marks (a clean retry remains
+// possible) — the pre-fix flow cleared them.
+void TestRedactTransaction::retryThroughPresenterFailsAgainKeepsRedactedArtifactAndMarks() {
+    const QString src = createPdf("retryfail.pdf", 1, QStringLiteral("TOPSECRET_DATA"), /*risky=*/true);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QByteArray srcSha = sha256(src);
+    const QString dest = m_tmpDir.filePath("retryfail_redacted.pdf");
+    const QString sanitized = m_tmpDir.filePath("retryfail_redacted_sanitized.pdf");
+    const QByteArray preExisting = "PRE-EXISTING-SANITIZED-DESTINATION";
+    {
+        QFile d(sanitized); QVERIFY(d.open(QIODevice::WriteOnly)); d.write(preExisting);
+    }
+    const QByteArray preSha = sha256(sanitized);
+
+    // The fault stays armed: the retry fails AGAIN, deterministically.
+    RedactOperation::setFaultForTesting(RedactOperation::Fault::Sanitize);
+    RedactOperation op(makeRequest(src, dest, {0}, /*sanitize=*/true, sanitized));
+    const RedactResult partial = runOp(&op);
+    QCOMPARE(partial.outcome, RedactOutcome::PartialRedactedOnly);
+
+    ModalDriver driver(this, {QStringLiteral("Retry Sanitize"), QStringLiteral("OK")});
+    const auto decision = RedactResultPresenter::present(nullptr, partial);
+    driver.stop();
+
+    // Recoverable state: marks retained for a clean retry.
+    QCOMPARE(decision, RedactResultPresenter::MarkDecision::RetainMarks);
+
+    // The honest failure names the redacted file (the user's recoverable copy).
+    const QString boxes = driver.boxTexts().join(QLatin1Char('\n'));
+    QVERIFY2(boxes.contains(partial.destination), qPrintable(boxes));
+
+    // No artifact was damaged by the failed recovery.
+    QVERIFY(QFileInfo::exists(partial.destination));  // redacted artifact kept
+    QCOMPARE(sha256(sanitized), preSha);               // pre-existing dest untouched
+    QCOMPARE(sha256(src), srcSha);                    // source untouched
+}
+
+// ── V01/V02 bounded pins: persistence + marks/history of the redaction flow ─
+// The redaction flow keeps marks as viewer annotations (no undo-stack
+// commands), so its history contract is the marks decision: marks survive
+// every cancel/failure and are cleared exactly once, when the output is
+// committed AND kept. Pinned through the shared presenter's real modal flow.
+void TestRedactTransaction::cancelDuringSanitizingStageKeepsCommittedArtifacts() {
+    const QString src = createPdf("cancelsan.pdf", 1, QStringLiteral("TOPSECRET_DATA"), /*risky=*/true);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QByteArray srcSha = sha256(src);
+    const QString dest = m_tmpDir.filePath("cancelsan_redacted.pdf");
+    const QString sanitized = m_tmpDir.filePath("cancelsan_redacted_sanitized.pdf");
+
+    // Cancel requested exactly when the Sanitizing stage begins — AFTER the
+    // redacted file is committed. The contract: once committed, cancellation
+    // is no longer honored; the artifacts exist and are honestly reported
+    // (Completed), never silently discarded.
+    RedactOperation op(makeRequest(src, dest, {0}, /*sanitize=*/true, sanitized));
+    QObject::connect(&op, &RedactOperation::stageChanged, &op,
+                     [&op](RedactStage stage, int, int) {
+                         if (stage == RedactStage::Sanitizing) op.cancel();
+                     });
+    const RedactResult r = runOp(&op);
+
+    QVERIFY2(r.outcome == RedactOutcome::Completed,
+             qPrintable(QStringLiteral("cancel-after-commit must not discard committed "
+                                       "artifacts: %1").arg(errText(r))));
+    QCOMPARE(r.destination, dest);
+    QCOMPARE(r.sanitizedDestination, sanitized);
+    QVERIFY(QFileInfo::exists(dest));
+    QVERIFY(QFileInfo::exists(sanitized));
+    QCOMPARE(sha256(src), srcSha);  // the original is still never written
+}
+
+void TestRedactTransaction::presenterMarkDecisionsPinRecoveryContract() {
+    // Failed / Canceled: the marks are kept (RetainMarks) so the user can
+    // retry; the wording never claims an output was written.
+    {
+        RedactResult failed;
+        failed.outcome = RedactOutcome::Failed;
+        failed.failedStage = QStringLiteral("Committing");
+        failed.error = QStringLiteral("injected commit failure");
+        failed.destination = m_tmpDir.filePath("dec_failed_redacted.pdf");
+        ModalDriver driver(this, {QStringLiteral("OK")});
+        const auto decision = RedactResultPresenter::present(nullptr, failed);
+        driver.stop();
+        QCOMPARE(decision, RedactResultPresenter::MarkDecision::RetainMarks);
+        const QString boxes = driver.boxTexts().join(QLatin1Char('\n'));
+        QVERIFY2(boxes.contains(QLatin1String("not modified"), Qt::CaseInsensitive),
+                 qPrintable(boxes));
+    }
+    {
+        RedactResult canceled;
+        canceled.outcome = RedactOutcome::Canceled;
+        ModalDriver driver(this, {QStringLiteral("OK")});
+        const auto decision = RedactResultPresenter::present(nullptr, canceled);
+        driver.stop();
+        QCOMPARE(decision, RedactResultPresenter::MarkDecision::RetainMarks);
+        const QString boxes = driver.boxTexts().join(QLatin1Char('\n'));
+        QVERIFY2(boxes.contains(QLatin1String("No output")), qPrintable(boxes));
+        QVERIFY2(boxes.contains(QLatin1String("preserved")), qPrintable(boxes));
+    }
+    // Completed: both artifacts committed — marks may be cleared.
+    {
+        RedactResult done;
+        done.outcome = RedactOutcome::Completed;
+        done.destination = m_tmpDir.filePath("dec_done_redacted.pdf");
+        done.sanitizedDestination = m_tmpDir.filePath("dec_done_sanitized.pdf");
+        ModalDriver driver(this, {QStringLiteral("OK")});
+        const auto decision = RedactResultPresenter::present(nullptr, done);
+        driver.stop();
+        QCOMPARE(decision, RedactResultPresenter::MarkDecision::ClearMarks);
+    }
+    // Partial + "Keep Redacted File": artifact committed and kept — ClearMarks,
+    // and the redacted file survives.
+    {
+        const QString dest = m_tmpDir.filePath("dec_keep_redacted.pdf");
+        { QFile d(dest); QVERIFY(d.open(QIODevice::WriteOnly)); d.write("REDACTED"); }
+        RedactResult partial;
+        partial.outcome = RedactOutcome::PartialRedactedOnly;
+        partial.destination = dest;
+        partial.failedStage = QStringLiteral("Sanitizing");
+        partial.error = QStringLiteral("injected sanitize failure (test seam)");
+        ModalDriver driver(this, {QStringLiteral("Keep Redacted File")});
+        const auto decision = RedactResultPresenter::present(nullptr, partial);
+        driver.stop();
+        QCOMPARE(decision, RedactResultPresenter::MarkDecision::ClearMarks);
+        QVERIFY(QFileInfo::exists(dest));
+    }
+    // Partial + "Discard Output" with the confirmation DECLINED: marks kept,
+    // the redacted copy is NOT deleted.
+    {
+        const QString dest = m_tmpDir.filePath("dec_discno_redacted.pdf");
+        { QFile d(dest); QVERIFY(d.open(QIODevice::WriteOnly)); d.write("REDACTED"); }
+        RedactResult partial;
+        partial.outcome = RedactOutcome::PartialRedactedOnly;
+        partial.destination = dest;
+        partial.failedStage = QStringLiteral("Sanitizing");
+        partial.error = QStringLiteral("injected sanitize failure (test seam)");
+        ModalDriver driver(this, {QStringLiteral("Discard Output"), QStringLiteral("No")});
+        const auto decision = RedactResultPresenter::present(nullptr, partial);
+        driver.stop();
+        QCOMPARE(decision, RedactResultPresenter::MarkDecision::RetainMarks);
+        QVERIFY2(QFileInfo::exists(dest), "declined discard must not delete the redacted copy");
+    }
+    // Partial + "Discard Output" CONFIRMED: the redacted copy is deleted (only
+    // after the explicit confirmation; the source is never touched), marks kept.
+    {
+        const QString dest = m_tmpDir.filePath("dec_discyes_redacted.pdf");
+        { QFile d(dest); QVERIFY(d.open(QIODevice::WriteOnly)); d.write("REDACTED"); }
+        RedactResult partial;
+        partial.outcome = RedactOutcome::PartialRedactedOnly;
+        partial.destination = dest;
+        partial.failedStage = QStringLiteral("Sanitizing");
+        partial.error = QStringLiteral("injected sanitize failure (test seam)");
+        ModalDriver driver(this, {QStringLiteral("Discard Output"), QStringLiteral("Yes")});
+        const auto decision = RedactResultPresenter::present(nullptr, partial);
+        driver.stop();
+        QCOMPARE(decision, RedactResultPresenter::MarkDecision::RetainMarks);
+        QVERIFY2(!QFileInfo::exists(dest), "confirmed discard deletes only the redacted copy");
+    }
+}
+
+// D01: PartialRedactedOnly must carry the intended sanitize destination
+// separately from the committed one — Retry needs the requested path (the
+// pre-fix result lost it, so Retry-sanitize through the presenter always
+// failed). A Completed result records the same intended path it committed.
+void TestRedactTransaction::partialResultCarriesIntendedSanitizeDestination() {
+    const QString src = createPdf("intended.pdf", 1, QStringLiteral("TOPSECRET_DATA"), /*risky=*/true);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QString dest = m_tmpDir.filePath("intended_redacted.pdf");
+    const QString sanitized = m_tmpDir.filePath("intended_redacted_sanitized.pdf");
+
+    RedactOperation::setFaultForTesting(RedactOperation::Fault::Sanitize);
+    RedactOperation op(makeRequest(src, dest, {0}, /*sanitize=*/true, sanitized));
+    const RedactResult partial = runOp(&op);
+
+    QCOMPARE(partial.outcome, RedactOutcome::PartialRedactedOnly);
+    QCOMPARE(partial.intendedSanitizedDestination, sanitized); // the retry target survives
+    QVERIFY2(partial.sanitizedDestination.isEmpty(),
+             "a partial result must not claim a committed sanitized copy");
+
+    // The completed run records the same intended path it committed.
+    RedactOperation::setFaultForTesting(RedactOperation::Fault::None);
+    const QString dest2 = m_tmpDir.filePath("intended2_redacted.pdf");
+    const QString sanitized2 = m_tmpDir.filePath("intended2_redacted_sanitized.pdf");
+    RedactOperation op2(makeRequest(src, dest2, {0}, /*sanitize=*/true, sanitized2));
+    const RedactResult done = runOp(&op2);
+    QCOMPARE(done.outcome, RedactOutcome::Completed);
+    QCOMPARE(done.intendedSanitizedDestination, sanitized2);
+    QCOMPARE(done.sanitizedDestination, sanitized2);
 }
 
 void TestRedactTransaction::signedDocumentIsRefusedInPreflight() {

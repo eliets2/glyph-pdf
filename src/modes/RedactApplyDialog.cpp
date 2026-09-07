@@ -305,8 +305,14 @@ QString detailText(const RedactResult& result)
     return QString();
 }
 
-MarkDecision present(QWidget* parent, const RedactResult& result)
+MarkDecision present(QWidget* parent, const RedactResult& result,
+                     RedactResult* resultAfterRecovery)
 {
+    // D01: the caller always receives the effective terminal result —
+    // upgraded below when a Retry-sanitize succeeds — so a recovered flow is
+    // never re-announced with the original partial-failure wording.
+    if (resultAfterRecovery) *resultAfterRecovery = result;
+
     switch (result.outcome) {
     case RedactOutcome::Completed:
         QMessageBox::information(parent, QObject::tr("Redaction Complete"), detailText(result));
@@ -326,18 +332,29 @@ MarkDecision present(QWidget* parent, const RedactResult& result)
         box.exec();
 
         if (box.clickedButton() == retry) {
+            // D01: the partial result never claims a committed sanitized copy
+            // (sanitizedDestination is empty) — Retry must target the INTENDED
+            // destination the operation preserved on the result.
+            const QString intended = result.sanitizedDestination.isEmpty()
+                ? result.intendedSanitizedDestination : result.sanitizedDestination;
             QString err;
-            if (RedactOperation::sanitizeCommittedFile(result.destination,
-                                                       result.sanitizedDestination, &err)) {
+            if (RedactOperation::sanitizeCommittedFile(result.destination, intended, &err)) {
+                if (resultAfterRecovery) {
+                    resultAfterRecovery->outcome = RedactOutcome::Completed;
+                    resultAfterRecovery->sanitizedDestination = intended;
+                }
                 QMessageBox::information(parent, QObject::tr("Sanitization Complete"),
                     QObject::tr("The sanitized copy has been saved to:\n%1")
-                        .arg(result.sanitizedDestination));
+                        .arg(intended));
                 return MarkDecision::ClearMarks;
             }
             QMessageBox::warning(parent, QObject::tr("Sanitize Failed"),
                 QObject::tr("Sanitization failed again:\n%1\n\nThe redacted file remains at:\n%2")
                     .arg(err, result.destination));
-            return MarkDecision::ClearMarks; // redacted artifact kept; marks' effect is saved
+            // A FAILED retry keeps the state recoverable: the redacted artifact
+            // stays AND the marks are retained, so the user can retry cleanly
+            // (clearing the marks here would strand the unsanitized output).
+            return MarkDecision::RetainMarks;
         }
         if (box.clickedButton() == discard) {
             // The redacted file is the only redacted copy — delete only after
