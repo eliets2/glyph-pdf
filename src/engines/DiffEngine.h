@@ -38,11 +38,18 @@ struct DiffResult {
         bool hasOldSide() const { return oldPage >= 0; }
         bool hasNewSide() const { return newPage >= 0; }
     };
-    /// Single canonical structural sequence, in deterministic page order. The
-    /// CHANGES tree, the change-type filters, the next/previous sequence, the
-    /// status totals and the exported reports all read this one list (moved
-    /// pages appear here exactly once — pageMoves above stays populated only
-    /// for backward compatibility).
+    /// Single canonical structural sequence, in deterministic page order.
+    /// Built by a two-stage alignment: pages are matched across documents by
+    /// exact deterministic fingerprints (SHA-256 over normalized extracted
+    /// text — a page inserted in the middle surfaces as ONE PageAdded at its
+    /// true position, never as a remove+add chain), then leftovers fall back
+    /// to fuzzy word-set matching (moved pages appear here exactly once).
+    /// Pages with no extractable text (image-only) have no fingerprint and
+    /// keep the fuzzy/index-wise fallback semantics. The CHANGES tree, the
+    /// change-type filters, the next/previous sequence, the status totals and
+    /// the exported reports all read this one list (moved pages appear here
+    /// exactly once — pageMoves above stays populated only for backward
+    /// compatibility).
     QList<PageChange> pageChanges;
 };
 

@@ -787,6 +787,81 @@ private slots:
                  qPrintable(QStringLiteral("right placeholder: %1").arg(rph2->text())));
     }
 
+    // U04/R11 follow-up: a page inserted BETWEEN existing pages must reach
+    // the tree, the add/remove filter gate and the reports as exactly ONE
+    // structural addition at its true position — the surrounding pages stay
+    // matched (never a removed+added chain). Note the per-page token rows
+    // above the structural row still pair pages index-wise (pages[i] of the
+    // old document versus pages[i] of the new document), which is the
+    // documented residual limitation of the pages list; the structural
+    // sequence itself is fingerprint-aligned.
+    void middleInsertionRendersSingleAddRowFilterGateAndReport()
+    {
+        const QString three = createPagePdf("mi_three.pdf",
+                                            {"First page", "Second page", "Third page"});
+        const QString four = createPagePdf("mi_four.pdf",
+                                           {"First page", "Inserted page",
+                                            "Second page", "Third page"});
+        QVERIFY(!three.isEmpty() && !four.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(three, four);
+        QCOMPARE(r.pageChanges.size(), 1);
+        QCOMPARE(r.pageChanges.first().type, DiffResult::PageChangeType::PageAdded);
+        QCOMPARE(r.pageChanges.first().newPage, 1);
+
+        gp::CompareMode mode;
+        mode.showDiffResult(r);
+
+        auto* tree = mode.findChild<QTreeWidget*>(QStringLiteral("cmpChangesTree"));
+        QVERIFY(tree);
+
+        // Exactly one add/remove-tagged row: the insertion, at page 2
+        // (1-based), named as living on the revised side.
+        QTreeWidgetItem* addedRow = nullptr;
+        int addRemoveRows = 0;
+        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+            QTreeWidgetItem* row = tree->topLevelItem(i);
+            if (row->data(0, gp::CompareMode::kIsPageAddRemoveRole).toBool()) {
+                ++addRemoveRows;
+                addedRow = row;
+            }
+        }
+        QCOMPARE(addRemoveRows, 1);
+        QVERIFY2(addedRow,
+                 "the middle insertion must produce a structural tree row");
+        QVERIFY2(addedRow->text(2).contains(
+                     QStringLiteral("Page 2 added in revised document")),
+                 qPrintable(QStringLiteral("added row description: %1")
+                                .arg(addedRow->text(2))));
+        QVERIFY2(addedRow->text(1).contains(QStringLiteral("p.2")),
+                 qPrintable(QStringLiteral("added row page column: %1")
+                                .arg(addedRow->text(1))));
+
+        // The add/remove gate hides exactly that row (and nothing else).
+        const int rowsBefore = tree->topLevelItemCount();
+        auto* addRmBtn = filterButton(mode, "cmpFilterPageAddRemove");
+        QVERIFY2(addRmBtn, "cmpFilterPageAddRemove toggle must exist");
+        QVERIFY(addRmBtn->isChecked());
+        addRmBtn->setChecked(false);
+        QVERIFY2(addedRow->isHidden(),
+                 "the insertion row must drop with the add/remove filter");
+        QCOMPARE(visibleTopLevelRows(tree), rowsBefore - 1);
+        addRmBtn->setChecked(true);
+        QVERIFY(!addedRow->isHidden());
+
+        // Reports: the insertion is named at its true position and the
+        // page-change summary counts exactly one addition.
+        const QString txt = mode.buildTextReport();
+        QVERIFY2(txt.contains(QStringLiteral("Page 2 added in revised document")),
+                 qPrintable(QStringLiteral("text report: %1").arg(txt)));
+        QVERIFY2(txt.contains(QStringLiteral("1 added, 0 removed, 0 moved")),
+                 qPrintable(QStringLiteral("text report page-change summary: %1").arg(txt)));
+        const QString html = mode.buildHtmlReport();
+        QVERIFY2(html.contains(QStringLiteral("Page 2 added in revised document")),
+                 "html report must name the inserted page at its true position");
+    }
+
     // Linked scrolling maps the leader's scroll RATIO onto the follower
     // (page-index mapping), works both directions, and unlinking stops the
     // follow. Driven through the production seam (mapLinkedScroll) so the
