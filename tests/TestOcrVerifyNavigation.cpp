@@ -306,6 +306,151 @@ private slots:
         QCOMPARE(canvas.selectedWord(), 0);
     }
 
+    // ── 3b. D04: painted overlays land at origin + scale × image position ────
+    // The paint path used to SUBTRACT the letterboxed image's origin from the
+    // image-space word boxes before scaling, while wordIdAt used the correct
+    // inverse (widgetPos − origin) / scale — so drawn overlays and click
+    // selection disagreed whenever the pane's aspect ratio differs from the
+    // page image's (e.g. a 100×100 image in a 200×100 pane painted a word box
+    // at (−40,10) instead of (60,10), entirely off the widget).
+
+    // Composite of the confidence fill over the white page image:
+    // bandColor(High) #22c55e @ alpha 60 over white → (203,241,217).
+    static QRgb highFillComposite() {
+        const qreal f = 60 / 255.0;
+        return qRgb(int(34 * f + 255 * (1 - f) + 0.5),
+                    int(197 * f + 255 * (1 - f) + 0.5),
+                    int(94 * f + 255 * (1 - f) + 0.5));
+    }
+    // Removed-word fill: the band color keeps driving the fill, thinned to
+    // alpha 30 (gray is only the border/strikethrough) → #22c55e @ 30 over
+    // white → (229,248,236).
+    static QRgb removedFillComposite() {
+        const qreal f = 30 / 255.0;
+        return qRgb(int(34 * f + 255 * (1 - f) + 0.5),
+                    int(197 * f + 255 * (1 - f) + 0.5),
+                    int(94 * f + 255 * (1 - f) + 0.5));
+    }
+
+    static bool nearColor(QRgb px, QRgb expected, int tol) {
+        return qAbs(qRed(px) - qRed(expected)) <= tol
+            && qAbs(qGreen(px) - qGreen(expected)) <= tol
+            && qAbs(qBlue(px) - qBlue(expected)) <= tol;
+    }
+
+    void paintedBoxesTrackHorizontalAndVerticalLetterboxing() {
+        // Horizontal letterbox: a 100×100 image in a 200×100 pane starts at
+        // (50,0) with scale 1 — the review's exact D04 geometry. A word box at
+        // image (10,10,20,20) must PAINT at widget (60,10,20,20); the old code
+        // painted it at (−40,10,20,20), off the widget.
+        OcrScanCanvas canvas;
+        QSignalSpy spy(&canvas, &OcrScanCanvas::wordClicked);
+
+        QImage square(100, 100, QImage::Format_RGB32);
+        square.fill(Qt::white);
+        canvas.setPageImage(square);
+        OcrReviewedWord gone = makeReviewed(QStringLiteral("gone"), 95,
+                                            QRectF(10, 40, 20, 20), 1);
+        gone.deleted = true;
+        canvas.setWords({
+            makeReviewed(QStringLiteral("alpha"), 95, QRectF(10, 10, 20, 20), 0),
+            gone,
+        });
+        canvas.resize(200, 100);
+        canvas.setSelectedWord(0);
+
+        const QImage out = canvas.grab().toImage();
+        QCOMPARE(out.size(), QSize(200, 100));   // offscreen DPR is 1
+
+        const QRgb fill = highFillComposite();
+        // Painted box center (70,20): the confidence overlay must be there.
+        QVERIFY2(nearColor(out.pixel(70, 20), fill, 8),
+                 qPrintable(QStringLiteral(
+                                "word box must paint at origin + scale×pos = "
+                                "(60,10): pixel(70,20)=%1 expected≈%2")
+                                .arg(out.pixel(70, 20), 16, 16, QChar('0'))
+                                .arg(fill, 16, 16, QChar('0'))));
+        // The surround left of the image (x < 50) stays the pane background.
+        QVERIFY2(nearColor(out.pixel(30, 20), qRgb(42, 42, 42), 2),
+                 "the pane surround must stay left of the letterboxed image");
+        // Image area away from any box stays the page's own white.
+        QVERIFY2(nearColor(out.pixel(140, 80), qRgb(255, 255, 255), 2),
+                 "image area outside word boxes must stay white");
+        // Removed-word styling at ITS painted position: gray @ alpha 30 over
+        // white at (60,40,20,20); check an interior point off the diagonal.
+        QVERIFY2(nearColor(out.pixel(66, 52), removedFillComposite(), 6),
+                 qPrintable(QStringLiteral(
+                                "removed word must paint at (60,40): pixel(66,52)=%1")
+                                .arg(out.pixel(66, 52), 16, 16, QChar('0'))));
+        // Selection border: a 2px intentional ring around the selected word's
+        // painted box — #2563eb at (70,8), two px above the box top edge.
+        QVERIFY2(nearColor(out.pixel(70, 8), qRgb(37, 99, 235), 6),
+                 qPrintable(QStringLiteral(
+                                "selection ring must ring the painted box: "
+                                "pixel(70,8)=%1")
+                                .arg(out.pixel(70, 8), 16, 16, QChar('0'))));
+
+        // Vertical letterbox: a 200×100 image in a 100×200 pane starts at
+        // (0,75) with scale 0.5. Word box (20,20,40,20) → painted
+        // (10,85,20,10); the old code painted it at (10,−27.5), off-widget.
+        OcrScanCanvas tall;
+        QImage wide(200, 100, QImage::Format_RGB32);
+        wide.fill(Qt::white);
+        tall.setPageImage(wide);
+        tall.setWords({
+            makeReviewed(QStringLiteral("beta"), 95, QRectF(20, 20, 40, 20), 0),
+        });
+        tall.resize(100, 200);
+
+        const QImage outTall = tall.grab().toImage();
+        QCOMPARE(outTall.size(), QSize(100, 200));
+        QVERIFY2(nearColor(outTall.pixel(20, 90), fill, 8),
+                 qPrintable(QStringLiteral(
+                                "word box must paint at (10,85) under vertical "
+                                "letterboxing: pixel(20,90)=%1")
+                                .arg(outTall.pixel(20, 90), 16, 16, QChar('0'))));
+        QVERIFY2(nearColor(outTall.pixel(50, 30), qRgb(42, 42, 42), 2),
+                 "the pane surround must stay above the letterboxed image");
+        QVERIFY2(nearColor(outTall.pixel(80, 100), qRgb(255, 255, 255), 2),
+                 "image area outside word boxes must stay white");
+    }
+
+    void resizedCanvasPaintsBoxUnderTheClickTarget() {
+        // Zoom/resize: the same canvas at two sizes — the painted box and the
+        // click target must stay the SAME rect (one transform for painting,
+        // its inverse for hit testing).
+        OcrScanCanvas canvas;
+        QSignalSpy spy(&canvas, &OcrScanCanvas::wordClicked);
+
+        QImage square(100, 100, QImage::Format_RGB32);
+        square.fill(Qt::white);
+        canvas.setPageImage(square);
+        canvas.setWords({
+            makeReviewed(QStringLiteral("alpha"), 95, QRectF(10, 10, 20, 20), 0),
+        });
+        canvas.resize(200, 100);
+
+        const QRgb fill = highFillComposite();
+        QImage before = canvas.grab().toImage();
+        QVERIFY2(nearColor(before.pixel(70, 20), fill, 8),
+                 "at 200×100 the box paints at (60,10,20,20)");
+
+        // Resize to 400×200: scale 2, origin (100,0) → painted (120,20,40,40).
+        canvas.resize(400, 200);
+        QImage after = canvas.grab().toImage();
+        QVERIFY2(nearColor(after.pixel(140, 40), fill, 8),
+                 qPrintable(QStringLiteral(
+                                "at 400×200 the box paints at (120,20,40,40): "
+                                "pixel(140,40)=%1")
+                                .arg(after.pixel(140, 40), 16, 16, QChar('0'))));
+
+        // Clicking the VISIBLE painted box selects the same word.
+        pressAt(&canvas, QPointF(140, 40));
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.first().first().toInt(), 0);
+        QCOMPARE(canvas.selectedWord(), 0);
+    }
+
     // ── 4. Magnifier crop math: padding + clamping + pixel identity ──────────
     void magnifierSourceRectPadsAndClamps()
     {
