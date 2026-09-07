@@ -75,6 +75,11 @@ struct RedactResult {
     RedactOutcome outcome = RedactOutcome::Failed;
     QString destination;              // committed redacted file ("" if none)
     QString sanitizedDestination;     // committed sanitized file ("" if none)
+    // D01: the REQUESTED sanitize destination, preserved on every outcome of a
+    // sanitize request — including PartialRedactedOnly, where
+    // `sanitizedDestination` stays empty (no sanitized copy exists). Retry
+    // sanitization must target this path, not the empty committed field.
+    QString intendedSanitizedDestination;
     int pagesProcessed = 0;           // pages successfully redacted
     int pagesTotal = 0;               // pages with marks (the Redacting scope)
     QString failedStage;              // redactStageName of the failing stage

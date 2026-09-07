@@ -482,6 +482,10 @@ void RedactOperation::run()
             result.outcome = RedactOutcome::Completed;
         } else {
             emit stageChanged(RedactStage::Sanitizing, result.pagesProcessed, result.pagesTotal);
+            // D01: preserve the intended destination on EVERY sanitize outcome.
+            // The committed field below stays empty when sanitization fails,
+            // but Retry must still know where the copy was supposed to go.
+            result.intendedSanitizedDestination = m_request.sanitizedDestinationPath;
             // Cancellation is not honored past the commit: the redacted
             // artifact already exists and is honestly reported below.
             QString sanitizeErr;

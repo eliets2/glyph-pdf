@@ -85,16 +85,24 @@ QString detailText(const RedactResult& result);  // dialog body for the outcome
 
 // What the host should do with the placed marks after presentation:
 //   ClearMarks  — the redacted output was committed and kept (Completed, or
-//                 Partial with Keep/Retry-sanitize chosen): the marks' effect
-//                 is in the saved artifact.
-//   RetainMarks — Partial with Discard chosen, Failed, or Canceled: the marks
-//                 are still recoverable in the viewer for a clean retry.
+//                 Partial with Keep chosen, or a Partial whose Retry-sanitize
+//                 SUCCEEDED): the marks' effect is in the saved artifacts.
+//   RetainMarks — Partial with Discard chosen or a FAILED Retry, Failed, or
+//                 Canceled: the marks are still recoverable in the viewer for
+//                 a clean retry.
 enum class MarkDecision { ClearMarks, RetainMarks };
 
 // Labeled dialogs for each outcome. For PartialRedactedOnly offers
 // Retry-sanitize / Keep redacted file / Discard output (delete confirmed;
 // never touches the source). Returns the host's mark decision.
-RedactResultPresenter::MarkDecision present(QWidget* parent, const RedactResult& result);
+//
+// D01: when `resultAfterRecovery` is non-null it ALWAYS receives the effective
+// terminal result — identical to `result`, except that a SUCCESSFUL
+// Retry-sanitize upgrades it to Completed with the committed sanitized
+// destination. Hosts build their status banner from this effective result, so
+// a recovered flow is never re-announced with the original failure wording.
+RedactResultPresenter::MarkDecision present(QWidget* parent, const RedactResult& result,
+                                            RedactResult* resultAfterRecovery = nullptr);
 
 } // namespace RedactResultPresenter
 } // namespace gp
