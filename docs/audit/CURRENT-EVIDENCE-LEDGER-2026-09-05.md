@@ -52,7 +52,7 @@ Dated corrections to stale historical claims (superseded by HEAD):
 | §9.12 batch flake | batch | TestBatchMode deterministic | verified (2026-09-05 review) | 7de331b | TestBatchMode |
 | enum-bound hardening | serializers | All persisted ToolMode ordinals round-trip; bound single-sourced | implemented-awaiting-review | 05a3336 | TestAnnotationDjot |
 
-## UI packages (U01–U08) — all open; implementation gated on engine repairs per the plan
+## UI packages (U01–U08) — implementation gated on engine repairs per the plan (all landed 2026-09-07 unless noted)
 
 | ID | Surface | Scope | Status |
 |----|---------|-------|--------|
@@ -84,6 +84,13 @@ Dated corrections to stale historical claims (superseded by HEAD):
 | §9.12-b | §9.12 | exportPdfA maps PDF/A-2U/3-U for real (combo levels were silently downgraded to 1B) | implemented-awaiting-review | 0364f48 |
 | §9.13-a | §9.13 | Measured before/after size readout (formatCompletionReport seam; delta + not-smaller note; larger-than-input fallthrough bug caught pre-commit) | implemented-awaiting-review — dialog wiring source-verified (modal not headlessly drivable) | a21ecc8 |
 | §9.10-a | §9.10 | End-to-end compare integration tests on real DiffEngine+Widget+Mode (identical/edit/added-page/reports/filters; alignment-similarity and PDFium-NUL behaviors pinned as designed) | implemented-awaiting-review (tests-only) | bc27cf2 |
+
+## Review-pass findings (REMOTE-PARITY-REVIEW-2026-09-06, at 4761443)
+
+| ID | Finding | Status | Commit |
+|----|---------|--------|--------|
+| D06 | Capability probe reported RapidOCR Available on a zero-byte detector stub | implemented-awaiting-review — probeRapidModelsIn demands non-empty detector+recognizer+vocabulary, classifier optional/disclosed; applyToWidget reversibility; 3 dir-fixture tests | (this commit) |
+| D07 | Security redaction entry path defaulted sanitize OFF (contradicted the default-ON contract; Redact mode defaulted ON) | implemented-awaiting-review — shared kDefaultSanitizeOn policy seeded into both entry paths, static_assert guard | (this commit) |
 
 ## Newly discovered engine defect (exposed by U05 fixtures)
 

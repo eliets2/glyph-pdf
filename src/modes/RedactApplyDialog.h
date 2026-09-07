@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
+
+// §9.8/U05 default-ON contract (review D07): both redaction entry paths — the
+// dedicated Redact mode and the Security controller — seed their sanitize
+// choice from this one policy. Explicit user opt-out is preserved in the
+// dialog; only the INITIAL state is shared.
+inline constexpr bool kDefaultSanitizeOn = true;
 #include <QDialog>
 #include <QMap>
 #include "engines/RedactOperation.h"

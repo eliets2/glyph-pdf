@@ -585,5 +585,24 @@ void TestRedactMarkAll::importListButtonSitsNextToRegexEdit() {
     QCOMPARE(regexEdit->text(), QStringLiteral("Alice\\ Wonder|Bob\\+Smith"));
 }
 
+    // ── D07 (review 2026-09-06): one shared default-ON sanitize policy ──────
+    void defaultSanitizePolicyIsSharedAndOn() {
+        // The shared initial policy constant must satisfy the default-ON
+        // contract, and the dialog must seed its checkbox from a caller-supplied
+        // plan carrying it (the Security entry path builds exactly this plan).
+        QVERIFY2(kDefaultSanitizeOn,
+                 "the shared sanitize policy must default ON for both entry paths");
+        gp::RedactApplyPlan plan;
+        plan.sourcePath = QStringLiteral("src.pdf");
+        plan.destinationPath = QStringLiteral("out.pdf");
+        plan.sanitizedDestinationPath = QStringLiteral("out_sanitized.pdf");
+        plan.sanitize = kDefaultSanitizeOn;
+        gp::RedactApplyDialog dlg(plan);
+        auto* chk = dlg.findChild<QCheckBox*>(QStringLiteral("redactApplySanitizeCheck"));
+        QVERIFY2(chk, "the dialog must expose the sanitize checkbox");
+        QVERIFY2(chk->isChecked(),
+                 "a caller-supplied default-ON plan must seed the checkbox ON");
+    }
+
 QTEST_MAIN(TestRedactMarkAll)
 #include "TestRedactMarkAll.moc"
