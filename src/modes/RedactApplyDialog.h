@@ -72,6 +72,16 @@ private:
     QPushButton* m_okButton = nullptr;
 };
 
+// ── Shared plan→request conversion (BOTH entry paths) ───────────────────────
+// N04 (review 2026-09-07): RedactMode and SecurityController both turn the
+// Apply dialog's chosen plan into the operation's RedactRequest. Duplicating
+// that field copy is exactly what dropped overlayText on the Security path
+// (the dialog accepted a label the operation never received). This ONE
+// conversion is the seam both callers must go through, so a plan field can
+// never silently disappear on one entry path again.
+RedactRequest redactRequestFromPlan(const RedactApplyPlan& plan,
+                                    const QMap<int, QList<QRectF>>& marksByPage);
+
 // ── Shared U05 result presenter (BOTH entry paths) ──────────────────────────
 //
 // Terminal-state presentation for RedactOperation::finished. Every outcome gets

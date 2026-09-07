@@ -255,6 +255,26 @@ RedactApplyPlan RedactApplyDialog::plan() const
     return p;
 }
 
+// ── Shared plan→request conversion (BOTH entry paths) ───────────────────────
+// Field copy shared by RedactMode and SecurityController::applyRedactions —
+// see the header comment for why this must stay the single conversion.
+RedactRequest redactRequestFromPlan(const RedactApplyPlan& plan,
+                                    const QMap<int, QList<QRectF>>& marksByPage)
+{
+    RedactRequest request;
+    request.sourcePath = plan.sourcePath;
+    request.destinationPath = plan.destinationPath;
+    request.redactionsByPage = marksByPage;
+    request.sanitize = plan.sanitize;
+    request.sanitizedDestinationPath = plan.sanitizedDestinationPath;
+    // N04 (review 2026-09-07): the §9.8 P1 overlay label is a dialog field like
+    // any other and MUST reach the operation on both entry paths — omitting it
+    // here is exactly the original defect (the Security path accepted a label
+    // the operation never received).
+    request.overlayText = plan.overlayText;
+    return request;
+}
+
 // ── RedactResultPresenter ────────────────────────────────────────────────────
 
 namespace RedactResultPresenter {

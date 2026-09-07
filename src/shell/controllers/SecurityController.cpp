@@ -658,12 +658,10 @@ void SecurityController::applyRedactions() {
     if (dlg.exec() != QDialog::Accepted) return; // nothing mutated
     const RedactApplyPlan chosen = dlg.plan();
 
-    RedactRequest request;
-    request.sourcePath = chosen.sourcePath;
-    request.destinationPath = chosen.destinationPath;
-    request.redactionsByPage = redactionsByPage;
-    request.sanitize = chosen.sanitize;
-    request.sanitizedDestinationPath = chosen.sanitizedDestinationPath;
+    // N04 (review 2026-09-07): the request is built by the ONE shared
+    // plan→request conversion so every dialog field reaches the operation on
+    // this path too.
+    RedactRequest request = redactRequestFromPlan(chosen, redactionsByPage);
 
     _mainWindow->statusBar()->showMessage(tr("Applying redactions..."));
 
