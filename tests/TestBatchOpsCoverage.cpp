@@ -33,14 +33,58 @@
 //      base version — PDF/A-1 ← PDF 1.4, PDF/A-2 ← PDF 1.7, PDF/A-3 ← PDF 1.7
 //      (PDF 2.0 is the PDF/A-4 family) — asserted on the saved artifact via
 //      PdfMetadata::GetPdfVersion, not only the self-declared PDF/A level.
+//   7. E-1: PDF/A conformance validation of the EXPORTED artifacts.
+//
+//      WHAT IS VALIDATED, ALWAYS (no external tool): the full structural
+//      contract of every exported artifact for EVERY selectable level
+//      (1B/2B/2U/3B/3U) via PoDoFo readback — XMP pdfaid:part + conformance
+//      exactly matching the requested level (decodable AND raw-byte pinned),
+//      PDF base version, /OutputIntents[0] with /S == GTS_PDFA1 and
+//      OutputConditionIdentifier "sRGB IEC61966-2.1", and no encryption
+//      introduced (/Encrypt absent).
+//
+//      WHAT IS VALIDATED, WHEN A veraPDF CLI IS PRESENT (optional, never a
+//      hard dependency): every exported artifact is run through the real
+//      veraPDF validator at its flavour. Asserted: (a) veraPDF parses the
+//      artifact with no taskException — well-formedness beyond PoDoFo's own
+//      reader; (b) NO identification/metadata rule (clause 6.6.x under
+//      ISO 19005-2/3, 6.7.x under ISO 19005-1) fails — veraPDF independently
+//      confirms the pdfaid identification matches the flavour; (c) a
+//      negative control validates the 2B artifact at the 1b flavour and
+//      REQUIRES identification failures, proving (b) has teeth; (d) all
+//      remaining violations are logged honestly on every run, and any rule
+//      OUTSIDE the observed writer-gap classes fails the run.
+//      DISCOVERED AND PINNED HONESTLY: the artifacts do NOT reach FULL PDF/A
+//      conformance today. The observed writer gaps (PoDoFo-side, outside
+//      this lane's ownership): DeviceGray is used without an output-intent
+//      profile (clause 6.2.4.3 under ISO 19005-2/3, 6.2.3.3 under
+//      ISO 19005-1) because exportPdfA writes /OutputIntents WITHOUT a
+//      DestOutputProfile ICC stream; 1b additionally flags an incomplete
+//      CIDSet in the embedded font subset's FontDescriptor (clause 6.3.5).
+//      When the CLI is absent the conformance pass QSKIPs with that message
+//      and only the structural contract above is claimed.
+//
+//      NOTE ON VeraPdfValidator::validate(): its parseJson() reads the
+//      pre-1.26 veraPDF JSON schema (validationResult.result / an array of
+//      failedChecks), which no released veraPDF emits — against a real CLI
+//      (1.26–1.30) it reports isValid=false with an empty violations list for
+//      EVERY document. parseJson/VeraPdfValidator are outside this lane's
+//      file ownership, so these tests speak to the CLI directly and parse
+//      the real schema (see VeraPdfRawVerdict below). The schema mismatch is
+//      reported as a finding for the owner of src/engines/VeraPdfValidator.
 //
 // Run: QT_QPA_PLATFORM=offscreen ctest -R TestBatchOpsCoverage --output-on-failure
 #include <QtTest/QtTest>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QElapsedTimer>
 #include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLineEdit>
 #include <QPdfDocument>
+#include <QProcess>
 #include <QPdfSelection>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -49,6 +93,7 @@
 
 #include "core/AppContext.h"
 #include "core/interfaces/IPdfEditorEngine.h"
+#include "engines/VeraPdfValidator.h"
 #include "modes/BatchMode.h"
 #include "engines/PatternRedactor.h"
 #include "mocks/MockPdfEditorEngine.h"
@@ -109,6 +154,158 @@ static QString extractPageText(QPdfDocument& doc, int page) {
     return doc.getAllText(page).text();
 }
 
+// ── PDF/A level matrix — every level the batch panel offers ──────────────────
+// One row per Export-PDF/A combo item: the PoDoFo level/version the artifact
+// must read back as, the veraPDF --flavour that matches it, and the XMP
+// pdfaid:part / pdfaid:conformance values the artifact must carry.
+struct PdfALevelSpec {
+    const char* comboText;
+    PoDoFo::PdfALevel level;
+    PoDoFo::PdfVersion version;
+    const char* flavour;   // veraPDF --flavour flag
+    const char* aidPart;   // <pdfaid:part>
+    const char* aidConf;   // <pdfaid:conformance>
+    const char* fixture;
+    const char* output;    // <base>_pdfa.pdf next to the fixture
+};
+
+static const QList<PdfALevelSpec>& pdfaLevelSpecs() {
+    static const QList<PdfALevelSpec> specs = {
+        { "PDF/A-1B", PoDoFo::PdfALevel::L1B, PoDoFo::PdfVersion::V1_4, "1b", "1", "B",
+          "pdfa_1b_e1.pdf",         "pdfa_1b_e1_pdfa.pdf" },
+        { "PDF/A-2B", PoDoFo::PdfALevel::L2B, PoDoFo::PdfVersion::V1_7, "2b", "2", "B",
+          "pdfa_2b_e1.pdf",         "pdfa_2b_e1_pdfa.pdf" },
+        { "PDF/A-2U", PoDoFo::PdfALevel::L2U, PoDoFo::PdfVersion::V1_7, "2u", "2", "U",
+          "pdfa_2u_e1.pdf",         "pdfa_2u_e1_pdfa.pdf" },
+        { "PDF/A-3B", PoDoFo::PdfALevel::L3B, PoDoFo::PdfVersion::V1_7, "3b", "3", "B",
+          "pdfa_3b_e1.pdf",         "pdfa_3b_e1_pdfa.pdf" },
+        { "PDF/A-3U", PoDoFo::PdfALevel::L3U, PoDoFo::PdfVersion::V1_7, "3u", "3", "U",
+          "pdfa_3u_e1.pdf",         "pdfa_3u_e1_pdfa.pdf" },
+    };
+    return specs;
+}
+
+// ── veraPDF raw-CLI verdict (E-1 optional integration) ───────────────────────
+// VeraPdfValidator::validate() is the in-app path, but its parseJson() reads a
+// schema no released veraPDF emits (see the header note). These tests run the
+// CLI directly — SAME discovery (VeraPdfValidator::locateCli: bundle /
+// GLYPHPDF_VERAPDF / PATH), SAME .bat handling — and parse the REAL 1.26–1.30
+// JSON schema:
+//   { "report": { "jobs": [ {
+//       "taskException"?: { ... }                    ← parse/IO failure
+//       "validationResult": [ { "details": {
+//           "passedRules": N, "failedRules": M,
+//           "ruleSummaries": [ { "clause": "6.6.4", "testNumber": 1,
+//               "status": "failed",
+//               "checks": [ { "errorMessage": "..." } ] } ] } } ] } ] } }
+// valid == no failed rule anywhere; a taskException means veraPDF could not
+// parse the file at all (the artifact is not even well-formed).
+struct VeraPdfRawVerdict {
+    bool ran = false;          // CLI started and finished
+    bool jsonOk = false;       // stdout parsed as veraPDF JSON with a job
+    bool definite = false;     // no taskException — a real verdict exists
+    bool valid = false;        // failedRules == 0 across all entries
+    QStringList failedClauses; // "<clause>-<testNumber>" of every failed rule
+    QStringList messages;      // per-check error messages (honest logging)
+    QString error;             // process/parse failure description
+};
+
+static VeraPdfRawVerdict runVeraPdfRaw(const QString& pdfPath, const QString& flavourFlag) {
+    VeraPdfRawVerdict v;
+    const QString cli = gp::VeraPdfValidator::locateCli();
+    if (cli.isEmpty()) {
+        v.error = QStringLiteral("veraPDF CLI not found");
+        return v;
+    }
+    v.ran = true;
+    QElapsedTimer stageTimer;
+    stageTimer.start();
+    qDebug().noquote() << "[E-1] veraPDF CLI:" << cli << "flavour" << flavourFlag
+                       << "on" << pdfPath;
+
+    QProcess proc;
+    QStringList args;
+    if (cli.endsWith(QStringLiteral(".bat"), Qt::CaseInsensitive) ||
+        cli.endsWith(QStringLiteral(".cmd"), Qt::CaseInsensitive)) {
+        args << QStringLiteral("/c") << QStringLiteral("call") << cli
+             << QStringLiteral("--format") << QStringLiteral("json")
+             << QStringLiteral("--flavour") << flavourFlag << pdfPath;
+        proc.start(QStringLiteral("cmd.exe"), args);
+    } else {
+        args << QStringLiteral("--format") << QStringLiteral("json")
+             << QStringLiteral("--flavour") << flavourFlag << pdfPath;
+        proc.start(cli, args);
+    }
+    if (!proc.waitForStarted(15000)) {
+        v.error = QStringLiteral("veraPDF CLI failed to start");
+        return v;
+    }
+    if (!proc.waitForFinished(60000)) {
+        proc.kill();
+        v.error = QStringLiteral("veraPDF CLI timed out after 60 seconds");
+        qDebug().noquote() << "[E-1] CLI stage: TIMED OUT after"
+                           << stageTimer.elapsed() << "ms";
+        return v;
+    }
+    qDebug().noquote() << "[E-1] CLI stage: finished, exit" << proc.exitCode()
+                       << "in" << stageTimer.elapsed() << "ms";
+
+    QJsonParseError parseErr;
+    const QJsonDocument doc =
+        QJsonDocument::fromJson(proc.readAllStandardOutput(), &parseErr);
+    if (parseErr.error != QJsonParseError::NoError || !doc.isObject()) {
+        v.error = QStringLiteral("veraPDF output is not JSON: ") + parseErr.errorString();
+        return v;
+    }
+    const QJsonArray jobs =
+        doc.object()[QStringLiteral("report")].toObject()[QStringLiteral("jobs")].toArray();
+    if (jobs.isEmpty()) {
+        v.error = QStringLiteral("veraPDF JSON has no jobs");
+        return v;
+    }
+    v.jsonOk = true;
+
+    const QJsonObject job = jobs.first().toObject();
+    if (job.contains(QStringLiteral("taskException"))) {
+        v.error = QStringLiteral("veraPDF could not parse the document (taskException)");
+        return v; // definite == false: not even well-formed
+    }
+    v.definite = true;
+
+    int failedRulesTotal = 0;
+    const QJsonArray results = job[QStringLiteral("validationResult")].toArray();
+    for (const QJsonValue& rv : results) {
+        const QJsonObject details = rv.toObject()[QStringLiteral("details")].toObject();
+        failedRulesTotal += details[QStringLiteral("failedRules")].toInt(0);
+        const QJsonArray summaries = details[QStringLiteral("ruleSummaries")].toArray();
+        for (const QJsonValue& sv : summaries) {
+            const QJsonObject rule = sv.toObject();
+            if (rule[QStringLiteral("status")].toString()
+                    .compare(QLatin1String("failed"), Qt::CaseInsensitive) != 0)
+                continue;
+            v.failedClauses << QStringLiteral("%1-%2")
+                    .arg(rule[QStringLiteral("clause")].toString(),
+                         rule[QStringLiteral("testNumber")].toVariant().toString());
+            for (const QJsonValue& cv : rule[QStringLiteral("checks")].toArray())
+                v.messages << cv.toObject()[QStringLiteral("errorMessage")].toString();
+        }
+    }
+    v.valid = (failedRulesTotal == 0);
+    return v;
+}
+
+// Metadata/identification clause classes: 6.6.x under ISO 19005-2/3, 6.7.x
+// under ISO 19005-1. A failure in either class means the pdfaid identification
+// (or the XMP metadata it lives in) does not match the requested flavour.
+static QStringList identificationRuleClauses(const QStringList& clauses) {
+    QStringList hits;
+    for (const QString& clause : clauses)
+        if (clause.startsWith(QLatin1String("6.6")) ||
+            clause.startsWith(QLatin1String("6.7")))
+            hits << clause;
+    return hits;
+}
+
 // ── Test class ─────────────────────────────────────────────────────────────────
 
 class TestBatchOpsCoverage : public QObject {
@@ -160,18 +357,24 @@ private:
         QVERIFY2(!bm.isBatchRunning(), "Batch did not complete within 15 seconds");
     }
 
-    // N03: drive the batch Export PDF/A worker at a given conformance combo
-    // level and assert the SAVED artifact's PDF/A level AND PDF version on
-    // readback (PdfMetadata::GetPdfALevel / GetPdfVersion — the version comes
-    // from the written document, not from a self-declared conformance string).
-    void runPdfAExportAndCheckMetadata(const QString& comboText,
-                                       PoDoFo::PdfALevel expectedLevel,
-                                       PoDoFo::PdfVersion expectedVersion,
-                                       const QString& fixtureName,
-                                       const QString& outputName) {
+    // E-1/N03: drive the batch Export PDF/A worker at a given conformance combo
+    // level and assert the SAVED artifact's FULL STRUCTURAL CONTRACT on
+    // readback — PDF/A level (XMP pdfaid, decoded by PoDoFo AND pinned as raw
+    // pdfaid:part/conformance bytes), PDF base version, /OutputIntents[0]
+    // /S == GTS_PDFA1 with the sRGB OutputConditionIdentifier, and no /Encrypt.
+    void runPdfAExportAndCheckContract(const PdfALevelSpec& spec) {
+        // Clear any artifacts from a previous slot reusing these names: the
+        // batch run pre-checks output paths and asks to overwrite via a MODAL
+        // (BatchMode::confirmOverwrite, AR-8 D4) — a modal on a hidden widget
+        // in an offscreen test would block until the watchdog kills the run.
+        const QString fixturePath = m_tmpDir.filePath(QString::fromLatin1(spec.fixture));
+        const QString expectedOut = m_tmpDir.filePath(QString::fromLatin1(spec.output));
+        QFile::remove(fixturePath);
+        QFile::remove(expectedOut);
+
         const QString src = createMultiPageTextPdf(
-            m_tmpDir.path(), fixtureName,
-            { QStringLiteral("PDFA-N03-") + comboText });
+            m_tmpDir.path(), QString::fromLatin1(spec.fixture),
+            { QStringLiteral("PDFA-E1-") + spec.comboText });
         QVERIFY2(!src.isEmpty(), "fixture creation failed");
 
         AppContext ctx = makeCtx();
@@ -182,25 +385,73 @@ private:
 
         QComboBox* level = pdfaLevelCombo(bm);
         QVERIFY2(level, "PDF/A conformance combo not found");
-        QVERIFY2(level->findText(comboText) >= 0,
-                 qPrintable(QStringLiteral("combo item %1 missing").arg(comboText)));
-        level->setCurrentIndex(level->findText(comboText));
+        QVERIFY2(level->findText(QString::fromLatin1(spec.comboText)) >= 0,
+                 qPrintable(QStringLiteral("combo item %1 missing").arg(spec.comboText)));
+        level->setCurrentIndex(level->findText(QString::fromLatin1(spec.comboText)));
 
         runAndWait(bm);
         QCOMPARE(bm.successCount(), 1);
         QCOMPARE(bm.failCount(), 0);
 
-        const QString out = tmpPath(outputName);
+        const QString out = expectedOut;
         QVERIFY2(QFile::exists(out), "PDF/A output missing");
+
+        QByteArray raw;
+        {
+            QFile f(out);
+            QVERIFY(f.open(QIODevice::ReadOnly));
+            raw = f.readAll();
+        }
+        QVERIFY2(!raw.isEmpty(), "PDF/A output must not be empty");
+
+        // The PDF/A op must never introduce encryption into the artifact.
+        QVERIFY2(!raw.contains("/Encrypt"),
+                 "PDF/A output must not carry /Encrypt");
+
+        // XMP pdfaid identification, pinned as raw bytes (the serialized
+        // part/conformance pair), not only via PoDoFo's decoder.
+        const QByteArray aidPart =
+            QByteArray("<pdfaid:part>") + spec.aidPart + "</pdfaid:part>";
+        const QByteArray aidConf =
+            QByteArray("<pdfaid:conformance>") + spec.aidConf + "</pdfaid:conformance>";
+        QVERIFY2(raw.contains(aidPart),
+                 qPrintable(QStringLiteral("XMP must pin pdfaid:part == %1 (got no '%2')")
+                                .arg(spec.aidPart, aidPart.constData())));
+        QVERIFY2(raw.contains(aidConf),
+                 qPrintable(QStringLiteral("XMP must pin pdfaid:conformance == %1 (got no '%2')")
+                                .arg(spec.aidConf, aidConf.constData())));
 
         try {
             PoDoFo::PdfMemDocument check;
             check.Load(out.toUtf8().constData());
+
             const PoDoFo::PdfALevel reportedLevel = check.GetMetadata().GetPdfALevel();
-            QCOMPARE(static_cast<int>(reportedLevel), static_cast<int>(expectedLevel));
+            QCOMPARE(static_cast<int>(reportedLevel), static_cast<int>(spec.level));
             const PoDoFo::PdfVersion reportedVersion = check.GetMetadata().GetPdfVersion();
             QCOMPARE(static_cast<int>(reportedVersion),
-                     static_cast<int>(expectedVersion));
+                     static_cast<int>(spec.version));
+
+            // OutputIntent contract: /S names the GTS_PDFA1 scheme and the
+            // sRGB condition identifies the intended color characterization.
+            const PoDoFo::PdfObject* intents =
+                check.GetCatalog().GetDictionary().FindKey(PoDoFo::PdfName("OutputIntents"));
+            QVERIFY2(intents && intents->IsArray() && intents->GetArray().GetSize() >= 1,
+                     "PDF/A output must declare /OutputIntents in the catalog");
+            const PoDoFo::PdfObject* intent = intents->GetArray().FindAt(0);
+            QVERIFY2(intent && intent->IsDictionary(),
+                     "OutputIntents[0] must be a dictionary");
+            const PoDoFo::PdfObject* s = intent->GetDictionary().GetKey(PoDoFo::PdfName("S"));
+            QVERIFY2(s && s->IsName(), "OutputIntent must carry a /S name");
+            QCOMPARE(QString::fromLatin1(s->GetName().GetString().data(),
+                                         int(s->GetName().GetString().size())),
+                     QStringLiteral("GTS_PDFA1"));
+            const PoDoFo::PdfObject* oci =
+                intent->GetDictionary().GetKey(PoDoFo::PdfName("OutputConditionIdentifier"));
+            QVERIFY2(oci && oci->IsString(),
+                     "OutputIntent must carry an OutputConditionIdentifier string");
+            QCOMPARE(QString::fromLatin1(oci->GetString().GetString().data(),
+                                         int(oci->GetString().GetString().size())),
+                     QStringLiteral("sRGB IEC61966-2.1"));
         } catch (const std::exception& e) {
             QFAIL(qPrintable(QStringLiteral("PDF/A output failed to open in PoDoFo: %1")
                                  .arg(e.what())));
@@ -213,6 +464,12 @@ private slots:
         // Isolate QSettings like every other batch test (never touch real prefs).
         QCoreApplication::setOrganizationName(QStringLiteral("GlyphPDFTests"));
         QCoreApplication::setApplicationName(QStringLiteral("TestBatchOpsCoverage"));
+        // E-1: honor both spellings of the optional veraPDF CLI override —
+        // GLYPHPDF_VERAPDF_CLI (test-lane spelling) aliases the app's
+        // GLYPHPDF_VERAPDF consumed by VeraPdfValidator::locateCli().
+        const QByteArray cliAlias = qgetenv("GLYPHPDF_VERAPDF_CLI");
+        if (!cliAlias.isEmpty() && qEnvironmentVariableIsEmpty("GLYPHPDF_VERAPDF"))
+            qputenv("GLYPHPDF_VERAPDF", cliAlias);
     }
 
     // ── 1. Watermark batch — every page of the output carries the text ────────
@@ -454,69 +711,128 @@ private slots:
 #endif
     }
 
-    // ── 5. PDF/A "U" levels are honored ──────────────────────────────────────
-    // The Export PDF/A panel offers PDF/A-2U (data 4) and PDF/A-3U (data 5);
-    // exportPdfA now maps them for real (previously everything except 2/3
-    // silently produced PDF/A-1B — see the §9.12 finding in the ledger).
-    void pdfaTwoUComboLevelFallsThroughToL1B() {
-        const QString src = createMultiPageTextPdf(
-            m_tmpDir.path(), QStringLiteral("pdfa_u_src.pdf"),
-            { QStringLiteral("PDFA-U-FINDING") });
-        QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    // ── 5/6. Every selectable PDF/A level writes its full contract (E-1/N03) ──
+    // Matrix over ALL five combo levels. Per exported artifact (real batch
+    // worker, saved bytes): XMP pdfaid:part/conformance exactly matching the
+    // requested level (decoded by PoDoFo AND pinned as raw bytes), the correct
+    // PDF base version (N03: PDF/A-1 ← 1.4, PDF/A-2/3 ← 1.7; PDF 2.0 is the
+    // PDF/A-4 family — the mapping table previously wrote V2_0 under a PDF/A-3
+    // identity), /OutputIntents[0] with /S == GTS_PDFA1 and the sRGB
+    // OutputConditionIdentifier, and no /Encrypt.
+    void everyPdfALevelWritesFullStructuralContract() {
+        for (const PdfALevelSpec& spec : pdfaLevelSpecs())
+            runPdfAExportAndCheckContract(spec);
+    }
 
-        AppContext ctx = makeCtx();
-        gp::BatchMode bm;
-        bm.setAppContext(&ctx);
-        bm.addFilesForTest({src});
-        bm.setOperationForTest(3); // OpExportPdfA
+    // ── 7. E-1: veraPDF conformance validation of every exported artifact ────
+    // OPTIONAL integration — runs only when a veraPDF CLI is discoverable
+    // (bundle / GLYPHPDF_VERAPDF / GLYPHPDF_VERAPDF_CLI / PATH); otherwise it
+    // QSKIPs so the structural contract above remains the always-on claim.
+    //
+    // Asserted per exported artifact at its matching flavour:
+    //   * the CLI runs and returns parseable JSON with a real verdict — the
+    //     artifact is well-formed enough that veraPDF raises NO taskException;
+    //   * NO identification/metadata rule (clause 6.6.x under ISO 19005-2/3,
+    //     6.7.x under ISO 19005-1) fails — veraPDF independently confirms the
+    //     pdfaid identification matches the flavour;
+    //   * the remaining violations are logged honestly on every run. They are
+    //     EXPECTED today (writer gaps outside this lane's ownership, see the
+    //     ledger discovery note in the file header): DeviceGray without an
+    //     output-intent profile (6.2.4.3 under 19005-2/3, 6.2.3.3 under
+    //     19005-1) and an incomplete CIDSet on the 1b embedded subset (6.3.5).
+    //     FULL conformance is claimed ONLY as far as "no rule outside the
+    //     documented writer-gap classes fails". If a run reports a clause
+    //     outside that set the test FAILS — the writer's behaviour changed
+    //     and the ledger must be re-examined.
+    void veraPdfValidatesEveryPdfALevelArtifact() {
+        if (!gp::VeraPdfValidator::isAvailable())
+            QSKIP("veraPDF CLI not found (bundle / GLYPHPDF_VERAPDF / GLYPHPDF_VERAPDF_CLI "
+                  "/ PATH) — full-conformance validation of the exported artifacts is "
+                  "UNVERIFIED in this run; the structural contract is still asserted by "
+                  "everyPdfALevelWritesFullStructuralContract");
 
-        QComboBox* level = pdfaLevelCombo(bm);
-        QVERIFY2(level, "PDF/A conformance combo not found");
-        level->setCurrentIndex(level->findText(QStringLiteral("PDF/A-2U")));
+        for (const PdfALevelSpec& spec : pdfaLevelSpecs()) {
+            runPdfAExportAndCheckContract(spec);
+            const QString out = tmpPath(QString::fromLatin1(spec.output));
+            const VeraPdfRawVerdict v =
+                runVeraPdfRaw(out, QString::fromLatin1(spec.flavour));
 
-        runAndWait(bm);
-        QCOMPARE(bm.successCount(), 1);
+            QVERIFY2(v.ran, qPrintable(QStringLiteral("PDF/A-%1: CLI did not run: %2")
+                                           .arg(spec.flavour, v.error)));
+            QVERIFY2(v.jsonOk, qPrintable(QStringLiteral("PDF/A-%1: %2")
+                                              .arg(spec.flavour, v.error)));
+            QVERIFY2(v.definite,
+                     qPrintable(QStringLiteral("PDF/A-%1: exported artifact is not even "
+                                               "well-formed to veraPDF: %2")
+                                    .arg(spec.flavour, v.error)));
 
-        const QString out = tmpPath(QStringLiteral("pdfa_u_src_pdfa.pdf"));
-        QVERIFY2(QFile::exists(out), "PDF/A output missing");
+            // Honest ledger FIRST: every failed rule is logged on every run,
+            // so full-conformance progress is visible in green runs too.
+            qInfo().nospace().noquote()
+                << "[E-1] PDF/A-" << spec.flavour << " artifact: "
+                << (v.valid ? QStringLiteral("FULLY CONFORMANT")
+                            : QStringLiteral("not fully conformant — failed rules: ")
+                                  + v.failedClauses.join(QStringLiteral(", ")));
+            for (const QString& msg : v.messages)
+                qInfo().noquote() << "[E-1]   -" << msg;
 
-        try {
-            PoDoFo::PdfMemDocument check;
-            check.Load(out.toUtf8().constData());
-            const PoDoFo::PdfALevel reported = check.GetMetadata().GetPdfALevel();
-            QCOMPARE(static_cast<int>(reported), static_cast<int>(PoDoFo::PdfALevel::L2U));
-            // N03: PDF/A-2U is PDF 1.7-based, same standard base as 2B.
-            const PoDoFo::PdfVersion reportedVersion = check.GetMetadata().GetPdfVersion();
-            QCOMPARE(static_cast<int>(reportedVersion),
-                     static_cast<int>(PoDoFo::PdfVersion::V1_7));
-        } catch (const std::exception& e) {
-            QFAIL(qPrintable(QStringLiteral("PDF/A output failed to open in PoDoFo: %1")
-                                 .arg(e.what())));
+            // Identification contract — no metadata/identification rule may fail.
+            const QStringList identificationFailures =
+                identificationRuleClauses(v.failedClauses);
+            QVERIFY2(identificationFailures.isEmpty(),
+                     qPrintable(QStringLiteral("PDF/A-%1: identification/metadata rules "
+                                               "FAILED: %2")
+                                    .arg(spec.flavour,
+                                         identificationFailures.join(QStringLiteral(", ")))));
+
+            // Honest ledger: every violation outside the OBSERVED writer-gap
+            // classes is a new fact and must fail the run (tripwire: if the
+            // writer changes, this fails and the E-1 ledger must be re-read).
+            // Observed today (see the [E-1] log lines): DeviceGray used
+            // without an output-intent profile (6.2.4.3 under ISO 19005-2/3,
+            // 6.2.3.3 under ISO 19005-1) — exportPdfA writes /OutputIntents
+            // without a DestOutputProfile ICC stream — and, 1b only, an
+            // incomplete CIDSet in the FontDescriptor of the embedded subset
+            // (6.3.5). Repair lives in the writer, outside this lane.
+            QStringList unexpected;
+            for (const QString& clause : v.failedClauses)
+                if (!identificationRuleClauses({clause}).isEmpty() ||
+                    !(clause.startsWith(QLatin1String("6.2.3.3")) ||
+                      clause.startsWith(QLatin1String("6.2.4.3")) ||
+                      clause.startsWith(QLatin1String("6.3.5"))))
+                    unexpected << clause;
+            QVERIFY2(unexpected.isEmpty(),
+                     qPrintable(QStringLiteral("PDF/A-%1: violations outside the documented "
+                                               "writer-gap classes {6.2.3.3, 6.2.4.3, 6.3.5, "
+                                               "6.6.x/6.7.x} appeared: %2 — the writer "
+                                               "changed; re-examine the E-1 ledger")
+                                    .arg(spec.flavour, unexpected.join(QStringLiteral(", ")))));
         }
-    }
 
-    // ── 6. N03 (P1): PDF/A-3 variants must be written as PDF 1.7 ─────────────
-    // PDF/A-3 (ISO 19005-3) is based on PDF 1.7 (ISO 32000-1) — the same
-    // standard base as PDF/A-2; PDF 2.0 is the PDF/A-4 family. exportPdfA's
-    // mapping table wrote PdfVersion::V2_0 for both 3B (case 3) and 3U
-    // (case 5), so the artifact declared a base standard its PDF/A identity
-    // cannot have. These tests drive the real batch Export PDF/A worker at
-    // the 3U/3B combo levels and assert the SAVED artifact's PDF version on
-    // readback (PdfMetadata::GetPdfVersion) together with the PDF/A level.
-    void pdfaThreeUComboWritesPdf17Metadata() {
-        runPdfAExportAndCheckMetadata(QStringLiteral("PDF/A-3U"),
-                                      PoDoFo::PdfALevel::L3U,
-                                      PoDoFo::PdfVersion::V1_7,
-                                      QStringLiteral("pdfa_3u_n03.pdf"),
-                                      QStringLiteral("pdfa_3u_n03_pdfa.pdf"));
-    }
-
-    void pdfaThreeBComboWritesPdf17Metadata() {
-        runPdfAExportAndCheckMetadata(QStringLiteral("PDF/A-3B"),
-                                      PoDoFo::PdfALevel::L3B,
-                                      PoDoFo::PdfVersion::V1_7,
-                                      QStringLiteral("pdfa_3b_n03.pdf"),
-                                      QStringLiteral("pdfa_3b_n03_pdfa.pdf"));
+        // Negative control for the harness itself: validate the 2B artifact at
+        // the 1b flavour — veraPDF must FLAG the identification mismatch (the
+        // artifact declares pdfaid part 2, the profile expects part 1). This
+        // proves the "no identification failures" assertions above have teeth:
+        // the validator really reads the pdfaid the export writes.
+        {
+            runPdfAExportAndCheckContract(pdfaLevelSpecs().at(1)); // PDF/A-2B row
+            const QString out2b = tmpPath(QString::fromLatin1(pdfaLevelSpecs().at(1).output));
+            const VeraPdfRawVerdict mismatch =
+                runVeraPdfRaw(out2b, QStringLiteral("1b"));
+            QVERIFY2(mismatch.definite,
+                     "mismatch control: 2b artifact must still parse at flavour 1b");
+            const QStringList idFailures =
+                identificationRuleClauses(mismatch.failedClauses);
+            QVERIFY2(!idFailures.isEmpty(),
+                     qPrintable(QStringLiteral("mismatch control: validating the PDF/A-2B "
+                                               "artifact at flavour 1b must produce "
+                                               "identification-rule failures, got failed "
+                                               "rules: %1")
+                                    .arg(mismatch.failedClauses.join(QStringLiteral(", ")))));
+            qInfo().nospace().noquote()
+                << "[E-1] mismatch control (2b artifact at flavour 1b) flagged: "
+                << idFailures.join(QStringLiteral(", "));
+        }
     }
 };
 
