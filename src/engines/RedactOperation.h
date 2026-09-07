@@ -111,8 +111,11 @@ public:
     void run();      // synchronous execution of the whole state machine.
 
     // Partial-result recovery (the "Retry sanitize" action): sanitize an
-    // ALREADY-COMMITTED redacted file into `sanitizedDestination` using a
-    // disposable engine. Never touches the original source document.
+    // ALREADY-COMMITTED redacted file into `sanitizedDestination`. D05: the
+    // pass writes an operation-owned candidate, validates it, and commits it
+    // through SafeSave (checked QSaveFile commit) — a pre-existing sanitized
+    // destination survives every failure byte-identical and is only ever
+    // replaced atomically. Never touches the original source document.
     static bool sanitizeCommittedFile(const QString& committedRedactedPath,
                                       const QString& sanitizedDestination,
                                       QString* err);

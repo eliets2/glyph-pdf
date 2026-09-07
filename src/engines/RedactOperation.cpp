@@ -147,15 +147,18 @@ bool drawOverlayTextOnCandidate(const QString& candidatePath,
         return false;
     }
     // The document (and its input device) is closed above — now swap the
-    // overlaid file in as the candidate. The CandidateFileGuard still owns
-    // the candidate path for every later failure.
-    QFile::remove(candidatePath);
-    if (!QFile::rename(overlayOut, candidatePath)) {
-        if (err) *err = QStringLiteral("could not replace the candidate with the "
-                                       "overlaid copy");
+    // overlaid file in as the candidate through the checked commit boundary
+    // (D05: this operation contains no delete-before-rename replacement — the
+    // candidate is only ever replaced by an atomic QSaveFile rename, and a
+    // failed swap leaves the pre-swap candidate intact for the guard).
+    QString swapErr;
+    if (!SafeSave::commitFileToDestination(overlayOut, candidatePath, &swapErr)) {
+        if (err) *err = QStringLiteral("could not replace the candidate with the overlaid "
+                                       "copy: %1").arg(swapErr);
         QFile::remove(overlayOut);
         return false;
     }
+    QFile::remove(overlayOut);
     return true;
 }
 } // namespace
@@ -200,10 +203,37 @@ void RedactOperation::cancel()
 // Partial-result recovery: load the COMMITTED redacted file in a disposable
 // engine and sanitize it. A failure here cannot corrupt the redacted artifact
 // (the engine re-saves to the sanitized destination only).
+//
+// D05: the sanitized copy is a SECOND output of the same transaction, so it
+// gets the same safe-replacement boundary as the redacted one. The backend's
+// sanitizeDocument() writes (and on its qpdf-fallback path delete-before-
+// renames) whatever path it is handed — handing it the destination directly
+// would damage a pre-existing sanitized output on a mid-write or rename
+// failure. Instead the pass writes an operation-owned CANDIDATE, the candidate
+// is validated (loadable PDF, unchanged page count), and only then is it
+// committed through SafeSave::commitFileToDestination (bounded copy into
+// QSaveFile + checked commit(): a failed commit leaves the destination
+// byte-identical). There is deliberately NO direct-write fallback.
 bool RedactOperation::sanitizeCommittedFile(const QString& committedRedactedPath,
                                             const QString& sanitizedDestination,
                                             QString* err)
 {
+    if (sanitizedDestination.isEmpty()) {
+        if (err) *err = QStringLiteral("no destination path was provided for the sanitized copy");
+        return false;
+    }
+    if (s_faultForTesting.load() == Fault::Sanitize) {
+        // Deterministic seam honored on the recovery path too (the presenter's
+        // Retry-sanitize): a repeated failure stays reproducible in tests.
+        if (err) *err = QStringLiteral("injected sanitize failure (test seam)");
+        return false;
+    }
+
+    // Sanitize into an operation-owned candidate — never the destination.
+    QString candidate;
+    if (!SafeSave::makeUniqueCandidate(&candidate, err)) return false;
+    CandidateFileGuard candidateGuard(candidate);
+
     auto engine = defaultEngineFactory();
     if (!engine) {
         if (err) *err = QStringLiteral("could not create an engine for sanitization");
@@ -214,11 +244,34 @@ bool RedactOperation::sanitizeCommittedFile(const QString& committedRedactedPath
                             .arg(engine->lastError().userMessage);
         return false;
     }
-    if (!engine->sanitizeDocument(sanitizedDestination)) {
+    if (!engine->sanitizeDocument(candidate)) {
         if (err) *err = QStringLiteral("sanitization failed: %1").arg(engine->lastError().userMessage);
         return false;
     }
-    return true;
+
+    // Validate the candidate before it may replace anything: a loadable PDF
+    // with the redacted file's page count (FormManager/U05 validation shape).
+    try {
+        PoDoFo::PdfMemDocument sourceDoc;
+        sourceDoc.Load(committedRedactedPath.toUtf8().constData());
+        PoDoFo::PdfMemDocument candidateDoc;
+        candidateDoc.Load(candidate.toUtf8().constData());
+        const int sourcePages = static_cast<int>(sourceDoc.GetPages().GetCount());
+        const int candidatePages = static_cast<int>(candidateDoc.GetPages().GetCount());
+        if (candidatePages != sourcePages) {
+            if (err) *err = QStringLiteral("the sanitized output failed validation: page count "
+                                           "changed (%1 -> %2)").arg(sourcePages).arg(candidatePages);
+            return false;
+        }
+    } catch (const PoDoFo::PdfError& e) {
+        if (err) *err = QStringLiteral("the sanitized output is not a valid PDF: %1")
+                            .arg(QString::fromLatin1(e.what()));
+        return false;
+    }
+
+    // Commit: bounded copy into QSaveFile + checked commit(). The destination
+    // (even a pre-existing one) is only ever replaced by this atomic rename.
+    return SafeSave::commitFileToDestination(candidate, sanitizedDestination, err);
 }
 
 bool RedactOperation::checkCancel(RedactResult* result) const
