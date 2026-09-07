@@ -1868,6 +1868,34 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrPreprocessPrefs.cpp")
     )
 endif()
 
+# E-1 regression: redacting one line must never corrupt a byte-adjacent
+# same-stream Tj (evidence ledger 2026-09-05, "Newly discovered engine defect").
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestExcisionCorruption.cpp")
+    add_executable(TestExcisionCorruption
+        tests/TestExcisionCorruption.cpp
+    )
+    target_include_directories(TestExcisionCorruption PRIVATE src tests)
+    target_link_libraries(TestExcisionCorruption PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestExcisionCorruption POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestExcisionCorruption>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestExcisionCorruption>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestExcisionCorruption"
+    )
+    add_test(NAME TestExcisionCorruption COMMAND TestExcisionCorruption)
+    set_tests_properties(TestExcisionCorruption PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;redaction;excision;corruption;qt;headless"
+    )
+endif()
+
 # §9.12 P1: gap-only automated coverage for the batch operations —
 # watermark stamps every page, Export-PDF/A carries structural identification,
 # merge preserves page count + list order, and a preset checkbox alone excises
