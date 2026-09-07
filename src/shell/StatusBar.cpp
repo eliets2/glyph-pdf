@@ -112,8 +112,10 @@ StatusBar::StatusBar(QWidget* parent) : QStatusBar(parent) {
     _detailsBtn->setPopupMode(QToolButton::InstantPopup);
     // Persistent details popup — a QMenu hosting the live facts label. The
     // label is refreshed in place (never rebuilt) so its objectName stays
-    // stable for tests and its content never goes stale.
+    // stable for tests and its content never goes stale. The menu is named so
+    // the theme QSS can style the popup directly (U02 theme pass).
     _detailsMenu = new QMenu(_detailsBtn);
+    _detailsMenu->setObjectName(QStringLiteral("statusDetailsMenu"));
     _detailsContent = new QLabel(detailsText(), _detailsMenu);
     _detailsContent->setObjectName("statusDetailsLabel");
     _detailsContent->setProperty("mono", true);
