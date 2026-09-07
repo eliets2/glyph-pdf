@@ -193,9 +193,18 @@ RedactMode::RedactMode(QWidget* parent) : QWidget(parent) {
     connect(m_clearBtn,   &QToolButton::clicked, this, &RedactMode::onClearMarks);
 
     // §9.8 P1: Cancel exits the mode via the exitRequested contract (the host
-    // snaps navigation back to the standard canvas); the viewer's marks and
-    // the tool state stay exactly as they are.
-    connect(exitBtn, &QToolButton::clicked, this, &RedactMode::exitRequested);
+    // snaps navigation back to the standard canvas). N07 (review 2026-09-07):
+    // the exit must also DISARM the marking tool — after the screen swap the
+    // SAME shared viewer is visible again, and a still-armed ToolMode::Redact
+    // would let an ordinary drag silently place a new (irreversible-on-Apply)
+    // mark. HandTool is the neutral navigation state; AnnotationLayer passes
+    // mouse events through there, so drags create nothing. Placed marks are
+    // untouched: exit neither applies nor discards them.
+    connect(exitBtn, &QToolButton::clicked, this, [this]() {
+        if (m_viewer && m_viewer->toolMode() == ToolMode::Redact)
+            m_viewer->setToolMode(ToolMode::HandTool);
+        emit exitRequested();
+    });
 
     connect(m_scopeCurrentPage, &QRadioButton::toggled, this, &RedactMode::onScopeChanged);
     connect(m_scopeAllPages,    &QRadioButton::toggled, this, &RedactMode::onScopeChanged);

@@ -53,6 +53,10 @@ private slots:
     // Cancel must emit exitRequested() (the mode-exit contract) and must NOT
     // touch the placed marks (they live on the viewer and stay recoverable).
     void cancelControlEmitsExitRequestedAndKeepsMarks();
+    // N07 (review 2026-09-07): exiting redaction must DISARM the marking tool
+    // (the shared viewer stays visible after the host snaps back to the
+    // standard canvas) while KEEPING the placed marks.
+    void exitRequestedDisarmsMarkingToolAndKeepsMarks();
     // N04 (review 2026-09-07): the Security entry path builds its RedactRequest
     // through the shared plan→request conversion seam — every dialog field,
     // including the §9.8 P1 overlay label, must survive it.
@@ -517,6 +521,46 @@ void TestRedactMarkAll::cancelControlEmitsExitRequestedAndKeepsMarks() {
     QCOMPARE(exitSpy.count(), 1);
 
     // The placed marks live on the viewer — cancel must not clear them.
+    QCOMPARE(redactMarkCount(viewer), 1);
+}
+
+// N07 (review 2026-09-07): the exit path must leave the SHARED viewer in the
+// neutral navigation state. After the host snaps back to the standard canvas
+// the same viewer widget is visible again — a still-armed ToolMode::Redact
+// turns an ordinary drag into a new (irreversible-on-Apply) mark. In HandTool
+// mode AnnotationLayer is transparent for mouse events, so drags pass through
+// and create nothing. Placed marks are KEPT: exit neither applies nor
+// discards them.
+void TestRedactMarkAll::exitRequestedDisarmsMarkingToolAndKeepsMarks() {
+    PdfViewerWidget viewer;
+    gp::RedactMode mode;
+    mode.setViewer(&viewer);
+
+    // Place a mark first: exit must keep it recoverable on the viewer.
+    AnnotationItem mark;
+    mark.mode = ToolMode::Redact;
+    mark.pageIndex = 0;
+    mark.rect = QRectF(40, 130, 300, 30);
+    viewer.setAnnotations({mark});
+
+    // Arm the marking tool exactly the way the panel's Mark Region control does.
+    QVERIFY(QMetaObject::invokeMethod(&mode, "onMarkRegion"));
+    QCOMPARE(viewer.toolMode(), ToolMode::Redact);
+
+    auto* btn = mode.findChild<QToolButton*>(QStringLiteral("redactBtnCancel"));
+    QVERIFY2(btn, "RedactMode must expose a Cancel/Exit control (redactBtnCancel)");
+
+    QSignalSpy exitSpy(&mode, &gp::RedactMode::exitRequested);
+    btn->click();
+    QCOMPARE(exitSpy.count(), 1); // the exit contract still fires
+
+    // THE N07 CONTRACT: the marking tool is disarmed on exit ...
+    QVERIFY2(viewer.toolMode() != ToolMode::Redact,
+             qPrintable(QStringLiteral("the redaction marking tool must not stay "
+                                      "armed after exit (got tool mode %1)")
+                            .arg(int(viewer.toolMode()))));
+    QCOMPARE(viewer.toolMode(), ToolMode::HandTool);
+    // ... and the placed marks are kept.
     QCOMPARE(redactMarkCount(viewer), 1);
 }
 
