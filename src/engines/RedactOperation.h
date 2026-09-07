@@ -110,8 +110,9 @@ public:
     // exact boundary; hosts may use it for fine-grained progress.
     void setPageBoundaryHook(std::function<void(int pagesDone)> hook);
 
-    void start();    // run() on a worker QThread (SecurityController lifetime
-                     // pattern: weak engine, QPointer self, queued finished).
+    void start();    // run() on a worker QThread; the worker owns the
+                     // execution state (D02) and delivers results back to a
+                     // guarded live receiver through queued connections.
     void cancel();   // cooperative — honored at stage/page boundaries only.
     void run();      // synchronous execution of the whole state machine.
 
@@ -130,12 +131,17 @@ signals:
     void finished(const gp::RedactResult& result);
 
 private:
-    bool checkCancel(RedactResult* result) const;
-
-    RedactRequest m_request;
-    EngineFactory m_engineFactory;
-    std::function<void(int pagesDone)> m_pageBoundaryHook;
-    std::atomic<bool> m_cancelRequested{false};
+    // D02: worker-durable execution state. The request, the atomic
+    // cancellation flag, the configuration seams (engine factory, page
+    // boundary hook), the overlap guard, and the guarded signal delivery all
+    // live in ONE shared_ptr-held object; start() hands its own shared_ptr to
+    // the worker thread. The worker therefore never dereferences the
+    // RedactOperation itself, and destroying this QObject (its UI parent can
+    // die at any moment) neither crashes nor cancels an in-flight run — the
+    // state simply outlives the QObject. Defined in RedactOperation.cpp,
+    // where the shared_ptr is created and destroyed.
+    struct ExecutionState;
+    std::shared_ptr<ExecutionState> m_exec;
     static std::atomic<Fault> s_faultForTesting;
 };
 

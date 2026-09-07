@@ -6,6 +6,7 @@
 #include <QFile>
 #include <QPointer>
 #include <QThread>
+#include <mutex>
 #include <podofo/podofo.h>
 
 // Windows headers pulled in transitively define `#define DrawText DrawTextW`,
@@ -71,6 +72,80 @@ QString redactStageName(RedactStage stage)
     }
     return QStringLiteral("Unknown");
 }
+
+// ── D02: worker-durable execution state ─────────────────────────────────────
+//
+// The request, the atomic cancellation flag, the configuration seams, the
+// overlap guard, and the guarded signal delivery live in ONE shared_ptr-held
+// object; start() hands its own shared_ptr to the worker thread. Neither
+// side's lifetime implies the other's:
+//
+//   * the worker never dereferences a RedactOperation — there is no
+//     weak-pointer gate deciding whether the run happens (a QPointer observes
+//     deletion; it cannot keep the object alive DURING a member call, so the
+//     old `if (self) self->run()` shape was unsound by construction);
+//   * destroying the UI-side operation neither crashes nor cancels an
+//     in-flight run — ~RedactOperation only detaches the signal owner under
+//     deliveryMutex, and the run continues to completion on this state;
+//   * the request/cancel state survives the QObject by construction.
+struct RedactOperation::ExecutionState {
+    // Immutable after construction; copied/moved in once by the ctor.
+    RedactRequest request;
+
+    // Configuration seams. Mutex-guarded so a host setting them from the UI
+    // thread never races the worker's reads at the page boundaries.
+    std::mutex configMutex;
+    EngineFactory engineFactory{&defaultEngineFactory};
+    std::function<void(int pagesDone)> pageBoundaryHook;
+
+    // Cooperative cancellation — shared atomically between the UI side and
+    // the worker (the pre-existing contract, unchanged).
+    std::atomic<bool> cancelRequested{false};
+
+    // Overlap guard: start() cannot create overlapping runs of one mutable
+    // operation (a second start() — or a start() after run() — is refused).
+    std::atomic<bool> runStarted{false};
+    bool tryBeginRun() { return !runStarted.exchange(true); }
+
+    // Signal delivery: the worker emits ONLY through this guard. The owner is
+    // detached under the same lock by ~RedactOperation BEFORE the QObject
+    // dies, so an emission can never touch a destroyed operation (the mutex
+    // is what makes the QPointer check sound — the QPointer alone is not).
+    // Recursive because a direct-connected slot may destroy the owner from
+    // inside an emission on the same thread; Qt tolerates sender deletion
+    // during its own signal emission.
+    std::recursive_mutex deliveryMutex;
+    QPointer<RedactOperation> owner;
+
+    void detachOwner() {
+        std::lock_guard<std::recursive_mutex> lock(deliveryMutex);
+        owner.clear();
+    }
+
+    // Signals are public member functions; emitting through the guarded owner
+    // from the worker thread queues them to receivers on their own threads,
+    // exactly like the pre-fix direct emissions did.
+    void emitStage(RedactStage stage, int pagesDone, int pagesTotal) {
+        std::lock_guard<std::recursive_mutex> lock(deliveryMutex);
+        if (owner) owner->stageChanged(stage, pagesDone, pagesTotal);
+    }
+    void emitFinished(const RedactResult& result) {
+        std::lock_guard<std::recursive_mutex> lock(deliveryMutex);
+        if (owner) owner->finished(result);
+    }
+
+    bool checkCancel(RedactResult* result) {
+        if (!cancelRequested.load()) return false;
+        result->outcome = RedactOutcome::Canceled;
+        result->failedStage.clear();
+        result->error = QStringLiteral("Redaction canceled before the output was committed; "
+                                       "no output was written.");
+        return true;
+    }
+
+    // The whole transaction (moved verbatim from RedactOperation::run).
+    void execute();
+};
 
 // ── §9.8 P1: optional overlay text on the burn-in boxes ─────────────────────
 namespace {
@@ -179,25 +254,42 @@ std::shared_ptr<IPdfEditorEngine> RedactOperation::defaultEngineFactory()
 }
 
 RedactOperation::RedactOperation(RedactRequest request, QObject* parent)
-    : QObject(parent), m_request(std::move(request)), m_engineFactory(&defaultEngineFactory)
+    : QObject(parent)
 {
+    auto state = std::make_shared<ExecutionState>();
+    state->request = std::move(request);
+    state->owner = this;
+    m_exec = std::move(state);
 }
 
-RedactOperation::~RedactOperation() = default;
+RedactOperation::~RedactOperation()
+{
+    // D02: no worker coordination is attempted — none is needed. The
+    // in-flight run keeps its own shared_ptr to the execution state and never
+    // dereferences this object, so destruction neither crashes nor cancels
+    // it; the run completes on the durable state. The only duty here is to
+    // detach the signal owner under the delivery lock, so the worker's
+    // remaining stage/finished emissions are skipped instead of touching a
+    // destroyed QObject. This runs BEFORE the base ~QObject, so the owner is
+    // necessarily cleared while `this` is still a valid QObject.
+    if (m_exec) m_exec->detachOwner();
+}
 
 void RedactOperation::setEngineFactory(EngineFactory factory)
 {
-    m_engineFactory = std::move(factory);
+    std::lock_guard<std::mutex> lock(m_exec->configMutex);
+    m_exec->engineFactory = std::move(factory);
 }
 
 void RedactOperation::setPageBoundaryHook(std::function<void(int pagesDone)> hook)
 {
-    m_pageBoundaryHook = std::move(hook);
+    std::lock_guard<std::mutex> lock(m_exec->configMutex);
+    m_exec->pageBoundaryHook = std::move(hook);
 }
 
 void RedactOperation::cancel()
 {
-    m_cancelRequested.store(true);
+    m_exec->cancelRequested.store(true);
 }
 
 // Partial-result recovery: load the COMMITTED redacted file in a disposable
@@ -274,21 +366,21 @@ bool RedactOperation::sanitizeCommittedFile(const QString& committedRedactedPath
     return SafeSave::commitFileToDestination(candidate, sanitizedDestination, err);
 }
 
-bool RedactOperation::checkCancel(RedactResult* result) const
-{
-    if (!m_cancelRequested.load()) return false;
-    result->outcome = RedactOutcome::Canceled;
-    result->failedStage.clear();
-    result->error = QStringLiteral("Redaction canceled before the output was committed; "
-                                   "no output was written.");
-    return true;
-}
-
 void RedactOperation::start()
 {
-    QPointer<RedactOperation> self(this);
-    QThread* worker = QThread::create([self]() {
-        if (self) self->run();
+    // D02: start cannot create overlapping runs of one mutable operation — a
+    // second start() (or a start() after a run()) is refused.
+    if (!m_exec->tryBeginRun()) return;
+    // The worker captures ONLY the durable execution state. There is
+    // deliberately NO weak-pointer gate here: the execution must not depend
+    // on the UI-side object's lifetime, and a weak-pointer check cannot make
+    // a whole member-function call safe anyway. Results reach live receivers
+    // through emitFinished/emitStage's guarded owner (queued connections from
+    // this worker thread); if the owner dies mid-run, the remaining
+    // emissions are simply skipped.
+    auto state = m_exec;
+    QThread* worker = QThread::create([state]() {
+        state->execute();
     });
     connect(worker, &QThread::finished, worker, &QObject::deleteLater);
     worker->start();
@@ -296,9 +388,20 @@ void RedactOperation::start()
 
 void RedactOperation::run()
 {
+    // Synchronous seam (tests / scripted hosts): the same durable state
+    // machine, executed on the calling thread. start() is the asynchronous
+    // entry point; both share this one ExecutionState and its atomic cancel.
+    m_exec->execute();
+}
+
+// The whole transaction. Everything read here belongs to the ExecutionState —
+// NOT to the RedactOperation — so the run is valid for as long as the worker
+// holds its shared_ptr, regardless of the UI-side object's lifetime.
+void RedactOperation::ExecutionState::execute()
+{
     const Fault fault = s_faultForTesting.load();
     RedactResult result;
-    result.pagesTotal = m_request.redactionsByPage.size();
+    result.pagesTotal = request.redactionsByPage.size();
 
     // `ok` is false once a stage failed or a cancel was honored; `result`
     // carries the truthful terminal state either way.
@@ -314,18 +417,23 @@ void RedactOperation::run()
     // Disposable session: a private engine, loaded from sourcePath. The live
     // viewer's engine is never touched, so cancel/failure cannot leave the
     // live document half-redacted (the mutated state is simply discarded).
-    std::shared_ptr<IPdfEditorEngine> engine = m_engineFactory ? m_engineFactory() : nullptr;
+    EngineFactory factorySnapshot;
+    {
+        std::lock_guard<std::mutex> lock(configMutex);
+        factorySnapshot = engineFactory;
+    }
+    std::shared_ptr<IPdfEditorEngine> engine = factorySnapshot ? factorySnapshot() : nullptr;
 
-    emit stageChanged(RedactStage::Preflight, 0, result.pagesTotal);
+    emitStage(RedactStage::Preflight, 0, result.pagesTotal);
 
     // ── Preflight: ER-2 re-check + page ranges (no writes have happened) ────
     int sourcePageCount = 0;
     if (!engine) {
         fail(RedactStage::Preflight, QStringLiteral("Could not create an editing engine."));
     } else {
-        if (m_request.redactionsByPage.isEmpty()) {
+        if (request.redactionsByPage.isEmpty()) {
             fail(RedactStage::Preflight, QStringLiteral("No redaction marks were supplied."));
-        } else if (!engine->loadDocumentForEditing(m_request.sourcePath)) {
+        } else if (!engine->loadDocumentForEditing(request.sourcePath)) {
             fail(RedactStage::Preflight,
                  QStringLiteral("Could not open the document: %1").arg(engine->lastError().userMessage));
         } else if (engine->hasPdfSignatures()) {
@@ -335,7 +443,7 @@ void RedactOperation::run()
             // and every requested page must exist.
             try {
                 PoDoFo::PdfMemDocument doc;
-                doc.Load(m_request.sourcePath.toUtf8().constData());
+                doc.Load(request.sourcePath.toUtf8().constData());
                 sourcePageCount = static_cast<int>(doc.GetPages().GetCount());
             } catch (const PoDoFo::PdfError& e) {
                 fail(RedactStage::Preflight,
@@ -343,8 +451,8 @@ void RedactOperation::run()
                          .arg(QString::fromLatin1(e.what())));
             }
             if (ok) {
-                for (auto it = m_request.redactionsByPage.constBegin();
-                     it != m_request.redactionsByPage.constEnd(); ++it) {
+                for (auto it = request.redactionsByPage.constBegin();
+                     it != request.redactionsByPage.constEnd(); ++it) {
                     if (it.key() < 0 || it.key() >= sourcePageCount) {
                         fail(RedactStage::Preflight,
                              QStringLiteral("A redaction mark targets page %1, but the document "
@@ -360,12 +468,20 @@ void RedactOperation::run()
     QString candidate;
     CandidateFileGuard candidateGuard;
     if (ok) {
-        emit stageChanged(RedactStage::Redacting, 0, result.pagesTotal);
+        emitStage(RedactStage::Redacting, 0, result.pagesTotal);
         int pagesDone = 0;
-        for (auto it = m_request.redactionsByPage.constBegin();
-             it != m_request.redactionsByPage.constEnd(); ++it) {
+        for (auto it = request.redactionsByPage.constBegin();
+             it != request.redactionsByPage.constEnd(); ++it) {
             if (checkCancel(&result)) { ok = false; break; }
-            if (m_pageBoundaryHook) m_pageBoundaryHook(pagesDone);
+            // The hook is read under the config mutex at each boundary, so it
+            // may be (re)set from the UI thread and remains callable even if
+            // the UI-side operation is destroyed mid-run.
+            std::function<void(int)> hook;
+            {
+                std::lock_guard<std::mutex> lock(configMutex);
+                hook = pageBoundaryHook;
+            }
+            if (hook) hook(pagesDone);
             if (checkCancel(&result)) { ok = false; break; }
             if (fault == Fault::Redact && pagesDone == 1) {
                 // Plan acceptance case: "engine failure after one page".
@@ -386,7 +502,7 @@ void RedactOperation::run()
             }
             ++pagesDone;
             result.pagesProcessed = pagesDone;
-            emit stageChanged(RedactStage::Redacting, pagesDone, result.pagesTotal);
+            emitStage(RedactStage::Redacting, pagesDone, result.pagesTotal);
         }
     }
 
@@ -395,7 +511,7 @@ void RedactOperation::run()
         if (checkCancel(&result)) {
             ok = false;
         } else {
-            emit stageChanged(RedactStage::SavingCandidate, result.pagesProcessed, result.pagesTotal);
+            emitStage(RedactStage::SavingCandidate, result.pagesProcessed, result.pagesTotal);
             if (fault == Fault::CandidateSave) {
                 fail(RedactStage::SavingCandidate,
                      QStringLiteral("Saving the redacted candidate failed: injected candidate-save "
@@ -409,14 +525,14 @@ void RedactOperation::run()
                          QStringLiteral("Saving the redacted candidate failed: %1. The original "
                                         "document was not modified.")
                              .arg(engine->lastError().userMessage));
-                } else if (!m_request.overlayText.isEmpty()) {
+                } else if (!request.overlayText.isEmpty()) {
                     // §9.8 P1: part of producing the candidate — burn-in paint
                     // on the already-excised boxes, before validation/commit.
                     // Deliberately NOT a new pipeline stage: the stage order
                     // contract (and its progress reporting) is unchanged.
                     QString overlayErr;
-                    if (!drawOverlayTextOnCandidate(candidate, m_request.redactionsByPage,
-                                                    m_request.overlayText, &overlayErr)) {
+                    if (!drawOverlayTextOnCandidate(candidate, request.redactionsByPage,
+                                                    request.overlayText, &overlayErr)) {
                         fail(RedactStage::SavingCandidate,
                              QStringLiteral("Drawing the overlay text failed: %1. The original "
                                             "document was not modified.").arg(overlayErr));
@@ -431,7 +547,7 @@ void RedactOperation::run()
         if (checkCancel(&result)) {
             ok = false;
         } else {
-            emit stageChanged(RedactStage::Validating, result.pagesProcessed, result.pagesTotal);
+            emitStage(RedactStage::Validating, result.pagesProcessed, result.pagesTotal);
             if (fault == Fault::Validation) {
                 fail(RedactStage::Validating,
                      QStringLiteral("The redacted output failed validation: injected validation "
@@ -460,32 +576,32 @@ void RedactOperation::run()
         if (checkCancel(&result)) {
             ok = false;
         } else {
-            emit stageChanged(RedactStage::Committing, result.pagesProcessed, result.pagesTotal);
+            emitStage(RedactStage::Committing, result.pagesProcessed, result.pagesTotal);
             QString commitErr;
             const SafeSave::CommitFaultForTesting commitFault =
                 (fault == Fault::Commit) ? SafeSave::CommitFaultForTesting::FailBeforeCommit
                                          : SafeSave::CommitFaultForTesting::None;
-            if (!SafeSave::commitFileToDestination(candidate, m_request.destinationPath,
+            if (!SafeSave::commitFileToDestination(candidate, request.destinationPath,
                                                    &commitErr, commitFault)) {
                 fail(RedactStage::Committing,
                      QStringLiteral("Committing the redacted file failed: %1. The destination "
                                     "was left unchanged.").arg(commitErr));
             } else {
-                result.destination = m_request.destinationPath; // RedactionCommitted
+                result.destination = request.destinationPath; // RedactionCommitted
             }
         }
     }
 
     // ── Sanitizing: load the COMMITTED redacted file, sanitize into the copy ─
     if (ok) {
-        if (!m_request.sanitize) {
+        if (!request.sanitize) {
             result.outcome = RedactOutcome::Completed;
         } else {
-            emit stageChanged(RedactStage::Sanitizing, result.pagesProcessed, result.pagesTotal);
+            emitStage(RedactStage::Sanitizing, result.pagesProcessed, result.pagesTotal);
             // D01: preserve the intended destination on EVERY sanitize outcome.
             // The committed field below stays empty when sanitization fails,
             // but Retry must still know where the copy was supposed to go.
-            result.intendedSanitizedDestination = m_request.sanitizedDestinationPath;
+            result.intendedSanitizedDestination = request.sanitizedDestinationPath;
             // Cancellation is not honored past the commit: the redacted
             // artifact already exists and is honestly reported below.
             QString sanitizeErr;
@@ -497,11 +613,11 @@ void RedactOperation::run()
                 // The sanitize pass reads the committed destination (fresh
                 // disposable session) — never the in-memory redaction state.
                 sanitized = sanitizeCommittedFile(result.destination,
-                                                  m_request.sanitizedDestinationPath, &sanitizeErr);
+                                                  request.sanitizedDestinationPath, &sanitizeErr);
             }
             if (sanitized) {
                 result.outcome = RedactOutcome::Completed;
-                result.sanitizedDestination = m_request.sanitizedDestinationPath;
+                result.sanitizedDestination = request.sanitizedDestinationPath;
             } else {
                 // Labeled partial state: the redacted file IS committed; only
                 // the sanitize step failed. Never masked as plain success.
@@ -516,8 +632,8 @@ void RedactOperation::run()
     }
 
     // ── Done ────────────────────────────────────────────────────────────────
-    emit stageChanged(RedactStage::Done, result.pagesProcessed, result.pagesTotal);
-    emit finished(result);
+    emitStage(RedactStage::Done, result.pagesProcessed, result.pagesTotal);
+    emitFinished(result);
 }
 
 } // namespace gp

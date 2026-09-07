@@ -33,6 +33,8 @@
 #include <QPushButton>
 #include <QTimer>
 #include <QLabel>
+#include <QThread>
+#include <atomic>
 #include <podofo/podofo.h>
 
 #include "engines/PdfEditorEngine.h"
@@ -209,6 +211,17 @@ private slots:
     void overlayTextIsPrintedOnBurnedInBoxes();
     void emptyOverlayTextPreservesCurrentBehavior();
     void overlaySkippedWhenBoxTooSmall();
+
+    // ── D02: the worker owns the state it uses; the UI-side object is ──────
+    //    expendable. start() must deliver outcomes to a LIVE owner through
+    //    the queued finished connection, refuse overlapping runs of one
+    //    operation, and survive owner destruction (before dispatch and
+    //    mid-run) without crashing the worker and without any callback past
+    //    the owner's death — the durable execution state carries the run.
+    void startDeliversFinishedViaQueuedConnectionToLiveOwner();
+    void asyncCancelIsHonoredAndDelivered();
+    void repeatedStartRunsOnceAndOwnerDestroyedBeforeDispatchIsSafe();
+    void ownerDestroyedMidRunWorkerCompletesOnDurableStateWithoutCallbacks();
 
 private:
     QTemporaryDir m_tmpDir;
@@ -1117,6 +1130,161 @@ void TestRedactTransaction::overlaySkippedWhenBoxTooSmall() {
              qPrintable(QStringLiteral("overlay must be skipped on an 8pt-tall box: %1").arg(text)));
     QVERIFY2(!text.contains(QLatin1String("TOPSECRET_DATA")),
              qPrintable(QStringLiteral("excision must not depend on overlay fit: %1").arg(text)));
+}
+
+// ── D02: worker-durable execution state ─────────────────────────────────────
+// The pre-fix start() captured a QPointer, checked it ONCE, and called
+// self->run() on a worker: the whole state machine then kept reading members
+// of a QObject that its UI parent could destroy at any moment (QPointer
+// observes deletion — it does not keep the object alive DURING the call).
+// These tests pin the demanded shape: the worker owns its request/cancel/
+// execution state, destruction of the UI-side object never crashes an
+// in-flight run, no callback reaches a destroyed owner, repeated start()
+// cannot create overlapping runs, and cancel still works across threads.
+
+// Normal completion: start() is asynchronous and the outcome reaches a live
+// owner's receiver through the queued finished connection (exactly how the
+// real hosts in RedactMode.cpp / SecurityController.cpp connect).
+void TestRedactTransaction::startDeliversFinishedViaQueuedConnectionToLiveOwner() {
+    const QString src = createPdf("d02live.pdf", 1);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QString dest = m_tmpDir.filePath("d02live_redacted.pdf");
+
+    QObject host; // the UI-owned parent, exactly like the real hosts
+    auto* op = new RedactOperation(makeRequest(src, dest, {0}, false), &host);
+
+    RedactResult captured;
+    std::atomic<int> finishedCalls{0};
+    connect(op, &RedactOperation::finished, this,
+            [&captured, &finishedCalls](const RedactResult& r) {
+                captured = r;
+                ++finishedCalls;
+            });
+
+    op->start();
+    // No event loop has run since start(): a queued delivery cannot have
+    // happened yet. A result here would mean start() executed the
+    // transaction synchronously on the caller's thread.
+    QVERIFY2(captured.destination.isEmpty(),
+             "start() must be asynchronous: no result before any event drain");
+
+    // 30s budget: the first async test in the process pays cold-start costs.
+    QTRY_VERIFY_WITH_TIMEOUT(captured.outcome == RedactOutcome::Completed, 30000);
+    QCOMPARE(captured.destination, dest);
+    QCOMPARE(finishedCalls.load(), 1);
+    QVERIFY(QFileInfo::exists(dest));
+    QTest::qWait(30); // worker thread + its QThread object tear down
+}
+
+// Cancellation is honored on the async path too: the shared atomic is set
+// from the worker-side hook (the same cooperative seam the progress dialog's
+// Cancel button drives from the UI thread) and the Canceled outcome is
+// delivered to the live owner.
+void TestRedactTransaction::asyncCancelIsHonoredAndDelivered() {
+    const QString src = createPdf("d02cancel.pdf", 3);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QString dest = m_tmpDir.filePath("d02cancel_redacted.pdf");
+
+    QObject host;
+    auto* op = new RedactOperation(makeRequest(src, dest, {0, 1, 2}, false), &host);
+    op->setPageBoundaryHook([op](int pagesDone) {
+        if (pagesDone == 1) op->cancel();
+    });
+    RedactResult captured;
+    connect(op, &RedactOperation::finished, this,
+            [&captured](const RedactResult& r) { captured = r; });
+
+    op->start();
+    QTRY_VERIFY_WITH_TIMEOUT(captured.outcome == RedactOutcome::Canceled, 30000);
+    QCOMPARE(captured.pagesProcessed, 1);
+    QVERIFY(captured.destination.isEmpty());
+    QVERIFY(!QFileInfo::exists(dest)); // cancellation still writes nothing
+    QTest::qWait(30);
+}
+
+// Owner destruction BEFORE dispatch + repeated start: the second start() of
+// one mutable operation must be refused (no overlapping runs), and deleting
+// the owner immediately after start() — possibly before the worker has even
+// dispatched — must neither crash nor cancel the run: the durable state
+// carries it to completion.
+void TestRedactTransaction::repeatedStartRunsOnceAndOwnerDestroyedBeforeDispatchIsSafe() {
+    const QString src = createPdf("d02dispatch.pdf", 2);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QString dest = m_tmpDir.filePath("d02dispatch_redacted.pdf");
+
+    std::atomic<int> hookCalls{0};
+    auto* op = new RedactOperation(makeRequest(src, dest, {0, 1}, false));
+    op->setPageBoundaryHook([&hookCalls](int) { ++hookCalls; });
+
+    op->start();
+    op->start(); // must be REFUSED — one operation, one execution
+
+    // Destroy the owner while the worker may be running (explicit delete,
+    // the harshest variant — no deleteLater deferral).
+    delete op;
+
+    // The durable state must carry the run to completion although the owner
+    // died before the worker even dispatched.
+    QTRY_VERIFY_WITH_TIMEOUT(QFileInfo::exists(dest), 30000);
+    QTest::qWait(30);
+    // Exactly ONE execution crossed the 2 page boundaries. Pre-fix code
+    // either launched two overlapping runs (4 hook calls, both racing the
+    // freed members) or skipped the run entirely when the QPointer died
+    // before dispatch (0 hook calls, no output).
+    QCOMPARE(int(hookCalls.load()), 2);
+    QVERIFY(QFileInfo::exists(dest));
+}
+
+// Owner destruction DURING processing, at a deterministic boundary: from the
+// worker's first page boundary the hook asks the UI thread to delete the
+// owner and pins the worker until that deletion has actually happened.
+// Everything the run touches after that point must be the durable state —
+// the transaction completes, the boundary hook keeps firing (the state
+// outlived the QObject), and NO stage/finished callback is delivered after
+// the owner's death.
+void TestRedactTransaction::ownerDestroyedMidRunWorkerCompletesOnDurableStateWithoutCallbacks() {
+    const QString src = createPdf("d02midrun.pdf", 3);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QString dest = m_tmpDir.filePath("d02midrun_redacted.pdf");
+
+    std::atomic<int> hookCalls{0};
+    std::atomic<bool> opDestroyed{false};
+    std::atomic<int> stageCalls{0};
+    std::atomic<int> finishedCalls{0};
+    auto* op = new RedactOperation(makeRequest(src, dest, {0, 1, 2}, false));
+    op->setPageBoundaryHook([&](int) {
+        ++hookCalls;
+        if (hookCalls.load() != 1) return;
+        // Deterministic mid-run destruction: ask the UI thread (the test's
+        // thread) to delete the owner, then hold the worker inside this hook
+        // until the destructor has actually run.
+        QMetaObject::invokeMethod(qApp, [&]() {
+            delete op; // synchronous: ~RedactOperation (and its owner detach) ran
+            opDestroyed.store(true);
+        }, Qt::QueuedConnection);
+        while (!opDestroyed.load())
+            QThread::msleep(1);
+    });
+    // Surviving UI-side receivers with queued delivery, like the real hosts.
+    connect(op, &RedactOperation::stageChanged, this,
+            [&stageCalls](RedactStage, int, int) { ++stageCalls; },
+            Qt::QueuedConnection);
+    connect(op, &RedactOperation::finished, this,
+            [&finishedCalls](const RedactResult&) { ++finishedCalls; },
+            Qt::QueuedConnection);
+
+    op->start();
+    QTRY_VERIFY_WITH_TIMEOUT(opDestroyed.load(), 30000);
+    // The run continues on the durable state and completes its transaction.
+    QTRY_VERIFY_WITH_TIMEOUT(QFileInfo::exists(dest), 30000);
+    QTest::qWait(30);
+    // The state outlived the QObject: all 3 page boundaries were crossed —
+    // the last two strictly AFTER `delete op`.
+    QCOMPARE(int(hookCalls.load()), 3);
+    // Preflight + the Redacting(0,3) progress emission happened before the
+    // destruction; nothing may be delivered afterwards.
+    QCOMPARE(int(stageCalls.load()), 2);
+    QCOMPARE(int(finishedCalls.load()), 0); // no callback past the owner's death
 }
 
 QTEST_MAIN(TestRedactTransaction)
