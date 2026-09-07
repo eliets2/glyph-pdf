@@ -4122,6 +4122,7 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
                 // whole optimization via the outer catch.
                 PoDoFo::charbuff buf;
                 QImage src;
+                bool isGrayImage = false;
                     try {
                     auto* filterObj = dict.FindKey("Filter");
                     bool isDct = isName(filterObj, "DCTDecode")
@@ -4140,11 +4141,40 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
                         src.loadFromData(reinterpret_cast<const uchar*>(buf.data()),
                                          static_cast<int>(buf.size()), "JPG");
                     } else {
+                        // §9.13 P1: FlateDecode (or raw) coverage — decode via
+                        // PoDoFo's own stream expansion and re-encode as real
+                        // JPEG, same contract as the DCT path above.
+                        // /DeviceRGB 8bpc (pre-existing) and /DeviceGray 8bpc
+                        // (new) qualify.
                         auto* csObj = dict.FindKey("ColorSpace");
                         bool isRgb = isName(csObj, "DeviceRGB");
+                        bool isGray = isName(csObj, "DeviceGray");
                         auto* bpcObj = dict.FindKey("BitsPerComponent");
                         int bpc = static_cast<int>(asInt(bpcObj) == 0 ? 8 : asInt(bpcObj));
-                        if (!isRgb || bpc != 8) continue;
+                        if ((!isRgb && !isGray) || bpc != 8) continue;
+                        // §9.13 P1: PNG/TIFF predictors transform the decoded
+                        // bytes ABOVE the filter — PoDoFo's expansion does not
+                        // undo them, so predictor-coded streams must never be
+                        // treated as pixels. Skip byte-identical (pinned by
+                        // TestCompressJpegReencode::predictorImageIsSkippedSafely).
+                        auto* parmsObj = dict.FindKey("DecodeParms");
+                        if (parmsObj) {
+                            bool hasPredictor = false;
+                            auto checkParms = [&hasPredictor](const PoDoFo::PdfObject* p) {
+                                if (!p || !p->IsDictionary()) return;
+                                auto* pred = p->GetDictionary().FindKey("Predictor");
+                                hasPredictor = hasPredictor
+                                    || (pred && pred->IsNumberOrReal() && pred->GetReal() > 1);
+                            };
+                            checkParms(parmsObj);
+                            if (parmsObj->IsArray())
+                                for (const auto& p : parmsObj->GetArray())
+                                    checkParms(&p);
+                            if (hasPredictor) {
+                                qDebug() << "optimizeDocument: predictor-coded image, left untouched";
+                                continue;
+                            }
+                        }
                         // §9.13 F5: any media filter in the chain (e.g. a wrapped
                         // JPEG [/FlateDecode /DCTDecode]) makes the expanding
                         // CopyTo() throw UnsupportedFilter — skip, don't fail.
@@ -4153,10 +4183,14 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
                             continue;
                         }
                         obj->GetOrCreateStream().CopyTo(buf);
-                        if (static_cast<qint64>(buf.size()) < w * h * 3) continue;
+                        const int64_t cpp = isGray ? 1 : 3; // channels per pixel
+                        if (static_cast<qint64>(buf.size()) < w * h * cpp) continue;
                         src = QImage(reinterpret_cast<const uchar*>(buf.data()),
                                      static_cast<int>(w), static_cast<int>(h),
-                                     static_cast<int>(w * 3), QImage::Format_RGB888);
+                                     static_cast<int>(w * cpp),
+                                     isGray ? QImage::Format_Grayscale8
+                                            : QImage::Format_RGB888);
+                        isGrayImage = isGray;
                     }
                     if (src.isNull()) {
                         qDebug() << "optimizeDocument: undecodable image, left untouched";
@@ -4168,8 +4202,12 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
                     int64_t newH = qMax<int64_t>(1, static_cast<int64_t>(h * ratio));
 
                     QImage scaled = src.scaled(static_cast<int>(newW), static_cast<int>(newH),
-                                               Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
-                                          .convertToFormat(QImage::Format_RGB888);
+                                               Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+                    // §9.13 P1: grayscale stays grayscale — Qt writes a real
+                    // luminance-only JPEG for Format_Grayscale8; RGB is
+                    // normalized to RGB888 as before.
+                    if (!isGrayImage)
+                        scaled = scaled.convertToFormat(QImage::Format_RGB888);
 
                     // Encode at the user-selected quality and write the bytes
                     // verbatim. The filters overload with raw=true is required:
@@ -4192,7 +4230,8 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
                     dict.AddKey("Width", static_cast<int64_t>(scaled.width()));
                     dict.AddKey("Height", static_cast<int64_t>(scaled.height()));
                     dict.AddKey("BitsPerComponent", static_cast<int64_t>(8));
-                    dict.AddKey("ColorSpace", PoDoFo::PdfName("DeviceRGB"));
+                    dict.AddKey("ColorSpace",
+                                PoDoFo::PdfName(isGrayImage ? "DeviceGray" : "DeviceRGB"));
                     dict.RemoveKey("DecodeParms");
                 } catch (const PoDoFo::PdfError& e) {
                     qDebug() << "optimizeDocument: image skipped on stream error:" << e.what();
