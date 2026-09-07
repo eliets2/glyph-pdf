@@ -16,6 +16,13 @@
  *                              groups (multi/single/invalid/overlap-clamp)
  *   splitRangeSegmentsWriteOneFilePerSegment — §9.9 P1: seam-derived groups
  *                              write one file per segment (sentinel content)
+ *   realSplitExecutionWritesSegmentFiles — N09 P1: REAL end-to-end split on a
+ *                              real 5-page PDF through a real PdfEditorEngine
+ *                              (resident source): 3 segments → 3 valid files
+ *                              with the right pages, source untouched
+ *   splitPreviewDerivesDistinctNamesWithoutNumberingToken — N09 P1: a pattern
+ *                              without {n} must derive (and preview) distinct
+ *                              final names; execution writes exactly those
  *   internalMovePushesAtomicPermutation — U06: a real InternalMove sequence commits
  *                              exactly one atomic command (snapshot captured before
  *                              the drop copy is inserted) and no spurious reload command
@@ -26,7 +33,8 @@
  *   gridContextMenuReusesExistingCommands — U06: context menu = same commands, no destructive entries
  *
  * All tests run with QT_QPA_PLATFORM=offscreen (no display required).
- * The PdfEditorEngine is mocked; real disk I/O uses QTemporaryDir.
+ * The reorder/form tests mock the PdfEditorEngine; the N09 real-split test
+ * drives a REAL PdfEditorEngine over real PDF bytes (real file reads).
  *
  * Run:
  *   QT_QPA_PLATFORM=offscreen ctest -R TestPagesMode --output-on-failure
@@ -47,6 +55,9 @@
 #include <QListWidget>
 #include <QMenu>
 #include <QAction>
+#include <QSet>
+#include <QPair>
+#include <QPdfDocument>
 #include <algorithm>
 
 #include "util/GpTheme.h"
@@ -55,9 +66,78 @@
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "modes/PagesMode.h"
 #include "engines/DocumentSession.h"
+#include "engines/PdfEditorEngine.h"
+#include "engines/podofo/PdfPageOps.h"
 #include "mocks/MockPdfEditorEngine.h"
 #include "commands/ReorderPermutationCommand.h"
 #include "shell/controllers/PagesController.h"
+
+// ─────────────────────────────────────────────────────────────────────────────
+// N09: hand-built REAL N-page PDF (TestCompareIntegration idiom) — byte-exact
+// xref, one distinct Helvetica literal "P<k>" per page, so page identity can
+// be verified through the real library after a real round-trip.
+// ─────────────────────────────────────────────────────────────────────────────
+static QString createPagePdf(const QString& path, const QStringList& pageTexts)
+{
+    const int n = pageTexts.size();
+    QByteArray pdf = "%PDF-1.4\n";
+    QList<qint64> offsets;
+    offsets.append(pdf.size());
+    pdf += "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n";
+    offsets.append(pdf.size());
+    QByteArray kids;
+    for (int k = 0; k < n; ++k)
+        kids += QByteArray::number(3 + 2 * k) + " 0 R ";
+    pdf += "2 0 obj<</Type/Pages/Kids[" + kids + "]/Count "
+           + QByteArray::number(n) + ">>endobj\n";
+    for (int k = 0; k < n; ++k) {
+        const int pageNo = 3 + 2 * k;
+        const int contNo = 4 + 2 * k;
+        const QString line = pageTexts.at(k);
+        QByteArray content;
+        if (!line.isEmpty()) {
+            QByteArray lit = line.toLatin1();
+            lit.replace('\\', "\\\\").replace('(', "\\(").replace(')', "\\)");
+            content = "BT /F1 12 Tf 72 720 Td (" + lit + ") Tj ET\n";
+        }
+        offsets.append(pdf.size());
+        pdf += QByteArray::number(pageNo)
+             + " 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents "
+             + QByteArray::number(contNo)
+             + " 0 R/Resources<</Font<</F1 " + QByteArray::number(3 + 2 * n)
+             + " 0 R>>>>>>endobj\n";
+        offsets.append(pdf.size());
+        pdf += QByteArray::number(contNo) + " 0 obj<</Length "
+             + QByteArray::number(content.size()) + ">>stream\n"
+             + content + "endstream endobj\n";
+    }
+    offsets.append(pdf.size());
+    pdf += QByteArray::number(3 + 2 * n)
+         + " 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n";
+    const qint64 xrefOffset = pdf.size();
+    const int objCount = 4 + 2 * n;
+    pdf += "xref\n0 " + QByteArray::number(objCount) + "\n0000000000 65535 f \n";
+    for (qint64 off : offsets)
+        pdf += QByteArray::number(static_cast<qulonglong>(off))
+                   .rightJustified(10, '0')
+               + " 00000 n \n";
+    pdf += "trailer<</Size " + QByteArray::number(objCount)
+           + "/Root 1 0 R>>\nstartxref\n" + QByteArray::number(xrefOffset)
+           + "\n%%EOF\n";
+
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly)) return {};
+    f.write(pdf);
+    return path;
+}
+
+// Read a whole file back (real file read, not a stub).
+static QByteArray readFileBytes(const QString& path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return {};
+    return f.readAll();
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Extended mock that tracks reorderPages calls and simulates a multi-page doc.
@@ -124,6 +204,82 @@ public:
         return true;
     }
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// N09: destination-engine mock that fails at load — models a destination
+// engine that cannot open the candidate, pinning failure atomicity: no part
+// may commit and existing outputs must stay byte-identical.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class FailingLoadDestEngine final : public MockPdfEditorEngine {
+public:
+    bool loadDocumentForEditing(const QString&) override { return false; }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// N09 harness: a REAL multi-page PDF loaded into a REAL PdfEditorEngine (the
+// production resident-source state) driving a real PagesMode. Member order
+// matters: the mode is destroyed before the context/engine/temp dir it points
+// at.
+// ─────────────────────────────────────────────────────────────────────────────
+struct RealSplitHarness {
+    QTemporaryDir tmpDir;
+    std::shared_ptr<PdfEditorEngine> engine;
+    std::shared_ptr<DocumentSession> session;
+    std::shared_ptr<QUndoStack> undoStack;
+    AppContext ctx;
+    gp::PagesMode mode;
+    QString srcPath;
+    QListWidget* grid = nullptr;
+};
+
+static bool setupRealSplitHarness(const QStringList& pageTexts, const QString& stem,
+                                  RealSplitHarness& h)
+{
+    if (!h.tmpDir.isValid()) return false;
+    h.srcPath = h.tmpDir.path() + "/" + stem;
+    if (createPagePdf(h.srcPath, pageTexts).isEmpty()) return false;
+
+    h.engine = std::make_shared<PdfEditorEngine>();
+    if (!h.engine->loadDocumentForEditing(h.srcPath)) return false;
+
+    h.session = std::make_shared<DocumentSession>();
+    h.session->setPath(h.srcPath);
+    h.undoStack = std::make_shared<QUndoStack>();
+    h.ctx.pdfEditor = h.engine;
+    h.ctx.document  = h.session;
+    h.ctx.undoStack = h.undoStack;
+
+    h.mode.setAppContext(&h.ctx);
+
+    for (QListWidget* lw : h.mode.findChildren<QListWidget*>())
+        if (lw->viewMode() == QListView::IconMode) { h.grid = lw; break; }
+    if (!h.grid) return false;
+    // The production computeSplitGroups() reads the grid count, populated by
+    // the async page-count query against the real engine.
+    for (int i = 0; i < 200 && h.grid->count() != pageTexts.size(); ++i)
+        QTest::qWait(50);
+    return h.grid->count() == pageTexts.size();
+}
+
+// Reopen a produced part with an INDEPENDENT reader (pdfium via Qt PDF) and
+// verify it carries exactly the expected source pages, in order (source page
+// k carries the text "Pk"). Page-text equality subsumes the no-bleed check.
+static void verifySplitPart(const QString& partPath, const QList<int>& sourcePages)
+{
+    QPdfDocument part;
+    QVERIFY2(part.load(partPath) == QPdfDocument::Error::None,
+             qPrintable(QStringLiteral("%1 must reopen as a valid PDF").arg(partPath)));
+    QVERIFY2(part.pageCount() == sourcePages.size(),
+             qPrintable(QStringLiteral("%1 must have exactly %2 pages")
+                             .arg(partPath).arg(sourcePages.size())));
+    for (int k = 0; k < sourcePages.size(); ++k) {
+        const QString text = part.getAllText(k).text().trimmed();
+        QVERIFY2(text == QStringLiteral("P%1").arg(sourcePages[k]),
+                 qPrintable(QStringLiteral("%1 page %2 must carry P%3, got [%4]")
+                                .arg(partPath).arg(k).arg(sourcePages[k]).arg(text)));
+    }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper: write a minimal stub PDF (delegates to PagesMode::writeMinimalPdf via
@@ -240,123 +396,54 @@ private slots:
     }
 
     // ── testSplitAtPage ────────────────────────────────────────────────────
+    // N09: REAL execution — a real 5-page PDF loaded in a real PdfEditorEngine
+    // (resident source), groups as the "split at page 3" form computes them
+    // ([0,1,2] and [3,4]) → two REAL files with the right pages, source intact.
     void testSplitAtPage() {
-        // 5-page doc, split at page 3 → 2 output files:
-        //   part1: pages [0,1,2], part2: pages [3,4]
-        QTemporaryDir tmpDir;
-        QVERIFY(tmpDir.isValid());
+        RealSplitHarness h;
+        QVERIFY(setupRealSplitHarness({"P0", "P1", "P2", "P3", "P4"}, "source.pdf", h));
+        const QByteArray srcBytes = readFileBytes(h.srcPath);
 
-        // Create a stub source PDF (content doesn't matter for mock)
-        const QString srcPath = tmpDir.path() + "/source.pdf";
-        QVERIFY(writeStubPdf(srcPath));
-
-        // Set up context
-        auto mock = std::make_shared<PagesMock>();
-        mock->m_pageCount = 5;
-        mock->m_loaded    = true;
-
-        auto session = std::make_shared<DocumentSession>();
-        session->setPath(srcPath);
-
-        auto undoStack = std::make_shared<QUndoStack>();
-
-        AppContext ctx;
-        ctx.pdfEditor = mock;
-        ctx.document  = session;
-        ctx.undoStack = undoStack;
-
-        // Construct PagesMode and inject context
-        gp::PagesMode mode;
-        mode.setAppContext(&ctx);
-
-        // AR-7 D2: refreshPageList now runs the page-count binary-search on a worker
-        // thread (QtConcurrent). Wait for it to complete before resetting counters so
-        // the extract calls from the background query are not mixed with the executeSplit
-        // calls we are counting below.
-        QTest::qWait(200);
-
-        // Reset counters after setAppContext (which calls refreshPageList and performs
-        // a binary-search via extractPageAsBytes to determine page count).
-        mock->m_extractCallCount = 0;
-        mock->m_insertCallCount  = 0;
-        mock->m_deleteCallCount  = 0;
-
-        // Build split groups manually: [[0,1,2], [3,4]]
         const QList<QList<int>> groups { {0, 1, 2}, {3, 4} };
 
-        const QStringList produced = mode.executeSplit(
-            srcPath, groups, tmpDir.path(), "{stem}_part{n}.pdf");
+        const QStringList produced = h.mode.executeSplit(
+            h.srcPath, groups, h.tmpDir.path(), "{stem}_part{n}.pdf");
 
         QCOMPARE(produced.size(), 2);
+        QCOMPARE(produced, QStringList({h.tmpDir.path() + "/source_part1.pdf",
+                                        h.tmpDir.path() + "/source_part2.pdf"}));
+        verifySplitPart(produced[0], {0, 1, 2});
+        verifySplitPart(produced[1], {3, 4});
 
-        // Verify part1 was written
-        const QString part1 = tmpDir.path() + "/source_part1.pdf";
-        const QString part2 = tmpDir.path() + "/source_part2.pdf";
-        QVERIFY(produced.contains(part1));
-        QVERIFY(produced.contains(part2));
-
-        // Verify extract was called for all 5 pages (3+2) — only counting executeSplit calls
-        QCOMPARE(mock->m_extractCallCount, 5);
-
-        // Verify insert was called for all 5 pages
-        QCOMPARE(mock->m_insertCallCount, 5);
-
-        // Verify delete was called once per output part (removing the stub page)
-        QCOMPARE(mock->m_deleteCallCount, 2);
+        // The loaded source survived: resident, extractable, bytes untouched.
+        QCOMPARE(h.engine->currentFile(), h.srcPath);
+        QVERIFY(!h.engine->extractPageAsBytes(h.srcPath, 4).isEmpty());
+        QCOMPARE(readFileBytes(h.srcPath), srcBytes);
     }
 
     // ── testSplitEveryNPages ───────────────────────────────────────────────
+    // N09: REAL execution — 6-page doc, split-every-2 groups ([0,1],[2,3],[4,5])
+    // → three REAL 2-page files.
     void testSplitEveryNPages() {
-        // 6-page doc, split every 2 → 3 output files:
-        //   part1: [0,1], part2: [2,3], part3: [4,5]
-        QTemporaryDir tmpDir;
-        QVERIFY(tmpDir.isValid());
+        RealSplitHarness h;
+        QVERIFY(setupRealSplitHarness({"P0", "P1", "P2", "P3", "P4", "P5"}, "doc.pdf", h));
+        const QByteArray srcBytes = readFileBytes(h.srcPath);
 
-        const QString srcPath = tmpDir.path() + "/doc.pdf";
-        QVERIFY(writeStubPdf(srcPath));
-
-        auto mock = std::make_shared<PagesMock>();
-        mock->m_pageCount = 6;
-        mock->m_loaded    = true;
-
-        auto session = std::make_shared<DocumentSession>();
-        session->setPath(srcPath);
-
-        auto undoStack = std::make_shared<QUndoStack>();
-
-        AppContext ctx;
-        ctx.pdfEditor = mock;
-        ctx.document  = session;
-        ctx.undoStack = undoStack;
-
-        gp::PagesMode mode;
-        mode.setAppContext(&ctx);
-
-        // AR-7 D2: wait for the async page-count query before resetting counters.
-        QTest::qWait(200);
-
-        // Reset counters after setAppContext (refreshPageList uses extractPageAsBytes)
-        mock->m_extractCallCount = 0;
-        mock->m_insertCallCount  = 0;
-        mock->m_deleteCallCount  = 0;
-
-        // Groups: split every 2 from 6-page doc
         const QList<QList<int>> groups { {0,1}, {2,3}, {4,5} };
 
-        const QStringList produced = mode.executeSplit(
-            srcPath, groups, tmpDir.path(), "{stem}_part{n}.pdf");
+        const QStringList produced = h.mode.executeSplit(
+            h.srcPath, groups, h.tmpDir.path(), "{stem}_part{n}.pdf");
 
         QCOMPARE(produced.size(), 3);
-        QVERIFY(produced.contains(tmpDir.path() + "/doc_part1.pdf"));
-        QVERIFY(produced.contains(tmpDir.path() + "/doc_part2.pdf"));
-        QVERIFY(produced.contains(tmpDir.path() + "/doc_part3.pdf"));
+        QCOMPARE(produced, QStringList({h.tmpDir.path() + "/doc_part1.pdf",
+                                        h.tmpDir.path() + "/doc_part2.pdf",
+                                        h.tmpDir.path() + "/doc_part3.pdf"}));
+        verifySplitPart(produced[0], {0, 1});
+        verifySplitPart(produced[1], {2, 3});
+        verifySplitPart(produced[2], {4, 5});
 
-        // 6 extracts total (2 per part × 3 parts) — only counting executeSplit calls
-        QCOMPARE(mock->m_extractCallCount, 6);
-        // 6 inserts
-        QCOMPARE(mock->m_insertCallCount, 6);
-        // 3 deletes (one stub page per output file)
-        QCOMPARE(mock->m_deleteCallCount, 3);
+        QCOMPARE(h.engine->currentFile(), h.srcPath);
+        QCOMPARE(readFileBytes(h.srcPath), srcBytes);
     }
 
     // ── testReorderPages ──────────────────────────────────────────────────
@@ -853,79 +940,245 @@ private slots:
     }
 
     // ── §9.9 P1: end-to-end — seam-derived groups write one file per ─────
-    // segment through the SAME extract/insert/atomic machinery as before.
+    // segment through the REAL execution path (N09: real 10-page source,
+    // real parts, page identity verified per file).
     void splitRangeSegmentsWriteOneFilePerSegment() {
-        QTemporaryDir tmpDir;
-        QVERIFY(tmpDir.isValid());
-
-        const QString srcPath = tmpDir.path() + "/range.pdf";
-        QVERIFY(writeStubPdf(srcPath));
-
-        auto mock = std::make_shared<PagesMock>();
-        mock->m_pageCount = 10;
-        mock->m_loaded    = true;
-
-        auto session = std::make_shared<DocumentSession>();
-        session->setPath(srcPath);
-        auto undoStack = std::make_shared<QUndoStack>();
-
-        AppContext ctx;
-        ctx.pdfEditor = mock;
-        ctx.document  = session;
-        ctx.undoStack = undoStack;
-
-        gp::PagesMode mode;
-        mode.setAppContext(&ctx);
-
-        // AR-7 D2: let the async page-count query finish, then reset counters.
-        QTest::qWait(200);
-        mock->m_extractCallCount = 0;
-        mock->m_insertCallCount  = 0;
-        mock->m_deleteCallCount  = 0;
+        RealSplitHarness h;
+        QVERIFY(setupRealSplitHarness(
+            {"P0", "P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9"},
+            "range.pdf", h));
+        const QByteArray srcBytes = readFileBytes(h.srcPath);
 
         // "1-3,4-6,7" → 3 groups → 3 output files.
         const QList<QList<int>> groups =
             gp::PagesMode::parsePageRangeSegments("1-3,4-6,7", 10);
         QCOMPARE(groups.size(), 3);
 
-        const QStringList produced = mode.executeSplit(
-            srcPath, groups, tmpDir.path(), "{stem}_part{n}.pdf");
+        const QStringList produced = h.mode.executeSplit(
+            h.srcPath, groups, h.tmpDir.path(), "{stem}_part{n}.pdf");
         QCOMPARE(produced.size(), 3);
 
-        const QString part1 = tmpDir.path() + "/range_part1.pdf";
-        const QString part2 = tmpDir.path() + "/range_part2.pdf";
-        const QString part3 = tmpDir.path() + "/range_part3.pdf";
-        QCOMPARE(produced, QStringList({part1, part2, part3}));
+        QCOMPARE(produced, QStringList({h.tmpDir.path() + "/range_part1.pdf",
+                                        h.tmpDir.path() + "/range_part2.pdf",
+                                        h.tmpDir.path() + "/range_part3.pdf"}));
+        verifySplitPart(produced[0], {0, 1, 2});
+        verifySplitPart(produced[1], {3, 4, 5});
+        verifySplitPart(produced[2], {6});
 
-        // Each part carries exactly its segment's pages (PagesMock appends a
-        // "page_<idx>" sentinel per inserted page).
-        QFile f1(part1), f2(part2), f3(part3);
-        QVERIFY(f1.open(QIODevice::ReadOnly));
-        const QByteArray b1 = f1.readAll();
-        f1.close();
-        QVERIFY(b1.contains("page_0"));
-        QVERIFY(b1.contains("page_1"));
-        QVERIFY(b1.contains("page_2"));
-        QVERIFY(!b1.contains("page_3"));
+        QCOMPARE(h.engine->currentFile(), h.srcPath);
+        QVERIFY(!h.engine->extractPageAsBytes(h.srcPath, 9).isEmpty());
+        QCOMPARE(readFileBytes(h.srcPath), srcBytes);
+    }
 
-        QVERIFY(f2.open(QIODevice::ReadOnly));
-        const QByteArray b2 = f2.readAll();
-        f2.close();
-        QVERIFY(b2.contains("page_3"));
-        QVERIFY(b2.contains("page_4"));
-        QVERIFY(b2.contains("page_5"));
-        QVERIFY(!b2.contains("page_6"));
+    // ── N09 P1: a pattern without the {n} token would generate the SAME ──
+    // name for every part (silent overwrite of earlier parts). Both the
+    // preview and the execution must derive distinct final names — and the
+    // preview must show exactly the paths execution writes — and no derived
+    // name may ever be the open source file itself.
+    void splitPreviewDerivesDistinctNamesWithoutNumberingToken()
+    {
+        RealSplitHarness h;
+        QVERIFY(setupRealSplitHarness({"P0", "P1", "P2", "P3", "P4"}, "collide.pdf", h));
 
-        QVERIFY(f3.open(QIODevice::ReadOnly));
-        const QByteArray b3 = f3.readAll();
-        f3.close();
-        QVERIFY(b3.contains("page_6"));
-        QVERIFY(!b3.contains("page_5"));
+        QRadioButton* rangeRadio = nullptr;
+        for (QRadioButton* rb : h.mode.findChildren<QRadioButton*>())
+            if (rb->text() == QStringLiteral("Split by range:")) rangeRadio = rb;
+        QVERIFY(rangeRadio);
+        rangeRadio->setChecked(true);
 
-        // 7 extracts/inserts total (3+3+1), one stub delete per output file.
-        QCOMPARE(mock->m_extractCallCount, 7);
-        QCOMPARE(mock->m_insertCallCount, 7);
-        QCOMPARE(mock->m_deleteCallCount, 3);
+        QLineEdit* rangeEdit = nullptr;
+        for (QLineEdit* le : h.mode.findChildren<QLineEdit*>())
+            if (le->placeholderText().startsWith(QStringLiteral("e.g. 1-3")))
+                rangeEdit = le;
+        QVERIFY(rangeEdit);
+        rangeEdit->setText(QStringLiteral("1-3,4-6,7"));
+
+        // The naming edit carries the default pattern as its text.
+        QLineEdit* namingEdit = nullptr;
+        for (QLineEdit* le : h.mode.findChildren<QLineEdit*>())
+            if (le->text() == QStringLiteral("{stem}_part{n}.pdf")) namingEdit = le;
+        QVERIFY2(namingEdit, "PagesMode must expose the output-name pattern edit");
+        namingEdit->setText(QStringLiteral("fixed.pdf")); // no {n}: every part collides
+
+        // Drive the real preview slot.
+        QVERIFY(QMetaObject::invokeMethod(&h.mode, "onPreviewSplit"));
+        QListWidget* preview = nullptr;
+        for (QListWidget* lw : h.mode.findChildren<QListWidget*>()) {
+            if (lw->viewMode() == QListView::ListMode && lw->count() > 0 &&
+                lw->item(0)->text().contains(QStringLiteral("  ["))) {
+                preview = lw;
+                break;
+            }
+        }
+        QVERIFY2(preview, "preview list must show the produced part files");
+        QCOMPARE(preview->count(), 3);
+
+        QStringList previewed;
+        for (int i = 0; i < preview->count(); ++i)
+            previewed.append(preview->item(i)->text().section(QStringLiteral("  ["), 0, 0));
+
+        // Distinct names, none of them the source file. The FIRST part keeps
+        // the requested name (it collides with nothing); every LATER part —
+        // which would silently overwrite it under the old makeOutputName —
+        // gets a derived, numbered name.
+        QCOMPARE(previewed.size(), QSet<QString>(previewed.cbegin(), previewed.cend()).size());
+        QVERIFY2(previewed[0] != h.srcPath,
+                 qPrintable(QStringLiteral("output must not be the source: %1").arg(previewed[0])));
+        QVERIFY(previewed[0].endsWith(QStringLiteral("fixed.pdf")));
+        for (int i = 1; i < previewed.size(); ++i) {
+            QVERIFY2(previewed[i] != h.srcPath,
+                     qPrintable(QStringLiteral("output must not be the source: %1").arg(previewed[i])));
+            QVERIFY2(previewed[i].contains(QStringLiteral("_part")),
+                     qPrintable(QStringLiteral("derived name: %1").arg(previewed[i])));
+            QVERIFY(previewed[i].endsWith(QStringLiteral(".pdf")));
+        }
+
+        // Execution writes exactly the previewed paths (honest preview).
+        const QList<QList<int>> groups =
+            gp::PagesMode::parsePageRangeSegments(QStringLiteral("1-3,4-6,7"), 5);
+        QCOMPARE(groups.size(), 3);
+        const QStringList produced = h.mode.executeSplit(
+            h.srcPath, groups, h.tmpDir.path(), QStringLiteral("fixed.pdf"));
+        QCOMPARE(produced, previewed);
+        for (const QString& p : produced)
+            QVERIFY(QFile::exists(p));
+    }
+
+    // ── N09 P1: a destination-engine failure must not commit anything and ──
+    // must leave pre-existing output files byte-identical (the split writes
+    // into a SafeSave candidate; the destination is only replaced by the
+    // atomic commit of a fully validated part).
+    void splitDestinationFailurePreservesExistingOutputs()
+    {
+        RealSplitHarness h;
+        QVERIFY(setupRealSplitHarness({"P0", "P1", "P2", "P3", "P4"}, "splitfail.pdf", h));
+
+        // Pre-existing outputs the user confirmed to overwrite — they must
+        // survive a failed run byte-identical.
+        const QString part1 = h.tmpDir.path() + "/splitfail_part1.pdf";
+        const QString part2 = h.tmpDir.path() + "/splitfail_part2.pdf";
+        for (const QString& p : {part1, part2}) {
+            QFile f(p);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("PRE-EXISTING");
+        }
+
+        h.mode.setSplitEngineFactory(
+            []() -> std::shared_ptr<IPdfEditorEngine> {
+                return std::make_shared<FailingLoadDestEngine>();
+            });
+
+        const QList<QList<int>> groups { {0, 1, 2}, {3, 4} };
+        const QStringList produced = h.mode.executeSplit(
+            h.srcPath, groups, h.tmpDir.path(), "{stem}_part{n}.pdf");
+
+        // Nothing committed; nothing clobbered.
+        QCOMPARE(produced.size(), 0);
+        QCOMPARE(readFileBytes(part1), QByteArray("PRE-EXISTING"));
+        QCOMPARE(readFileBytes(part2), QByteArray("PRE-EXISTING"));
+
+        // Source still resident and untouched.
+        QCOMPARE(h.engine->currentFile(), h.srcPath);
+        QVERIFY(!h.engine->extractPageAsBytes(h.srcPath, 4).isEmpty());
+    }
+
+    // ── N09 P1: REAL end-to-end split through the production execution ──
+    // path. A real 5-page PDF is loaded into a real PdfEditorEngine (the
+    // document is RESIDENT — the production state), the real range form
+    // drives computeSplitGroups(), and executeSplit() (the execution the
+    // onSplit() production caller runs after its preflight) must produce
+    // three REAL files on disk with the right pages in order, while the
+    // loaded source document and its on-disk bytes stay untouched. This is
+    // the test the mocked split tests could not provide: the real backend's
+    // anti-divergence guard (PoDoFoBackend::resolveDocument refuses to mutate
+    // a second path while the source is resident) is in the loop.
+    void realSplitExecutionWritesSegmentFiles()
+    {
+        QTemporaryDir tmpDir;
+        QVERIFY(tmpDir.isValid());
+
+        // Real 5-page PDF: page k carries the distinct literal "Pk".
+        const QString srcPath = tmpDir.path() + "/real5.pdf";
+        QVERIFY(!createPagePdf(srcPath, {"P0", "P1", "P2", "P3", "P4"}).isEmpty());
+        const QByteArray srcBytes = readFileBytes(srcPath);
+        QVERIFY(!srcBytes.isEmpty());
+
+        // The production state: the source is loaded (resident) in the editor.
+        auto engine = std::make_shared<PdfEditorEngine>();
+        QVERIFY(engine->loadDocumentForEditing(srcPath));
+
+        auto session = std::make_shared<DocumentSession>();
+        session->setPath(srcPath);
+        auto undoStack = std::make_shared<QUndoStack>();
+
+        AppContext ctx;
+        ctx.pdfEditor = engine;
+        ctx.document  = session;
+        ctx.undoStack = undoStack;
+
+        gp::PagesMode mode;
+        mode.setAppContext(&ctx);
+
+        // Wait for the async page-count query to populate the real grid —
+        // production computeSplitGroups() reads the grid's count.
+        QListWidget* grid = nullptr;
+        for (QListWidget* lw : mode.findChildren<QListWidget*>())
+            if (lw->viewMode() == QListView::IconMode) { grid = lw; break; }
+        QVERIFY(grid);
+        for (int i = 0; i < 200 && grid->count() != 5; ++i)
+            QTest::qWait(50);
+        QCOMPARE(grid->count(), 5);
+
+        // Drive the REAL production path: range form → computeSplitGroups →
+        // executeSplit (the execution onSplit() calls after its preflight).
+        QRadioButton* rangeRadio = nullptr;
+        for (QRadioButton* rb : mode.findChildren<QRadioButton*>())
+            if (rb->text() == QStringLiteral("Split by range:")) rangeRadio = rb;
+        QVERIFY2(rangeRadio, "PagesMode must expose the 'Split by range:' radio");
+        rangeRadio->setChecked(true);
+
+        QLineEdit* rangeEdit = nullptr;
+        for (QLineEdit* le : mode.findChildren<QLineEdit*>())
+            if (le->placeholderText().startsWith(QStringLiteral("e.g. 1-3")))
+                rangeEdit = le;
+        QVERIFY2(rangeEdit, "PagesMode must expose the range expression edit");
+        rangeEdit->setText(QStringLiteral("1-2,3-4,5"));
+
+        const QList<QList<int>> groups = mode.computeSplitGroups();
+        QCOMPARE(groups.size(), 3); // segments {0,1} {2,3} {4}
+
+        const QStringList produced = mode.executeSplit(
+            srcPath, groups, tmpDir.path(), QStringLiteral("{stem}_part{n}.pdf"));
+
+        // THE N09 CONTRACT: three real files, one per segment.
+        if (produced.size() != 3)
+            qWarning("real split produced %lld files: %s",
+                     static_cast<long long>(produced.size()),
+                     qPrintable(produced.join(QStringLiteral(", "))));
+        QCOMPARE(produced.size(), 3);
+        QCOMPARE(produced, QStringList({tmpDir.path() + "/real5_part1.pdf",
+                                        tmpDir.path() + "/real5_part2.pdf",
+                                        tmpDir.path() + "/real5_part3.pdf"}));
+        QVERIFY(QFile::exists(tmpDir.path() + "/real5_part1.pdf"));
+        QVERIFY(QFile::exists(tmpDir.path() + "/real5_part2.pdf"));
+        QVERIFY(QFile::exists(tmpDir.path() + "/real5_part3.pdf"));
+
+        // Each part reopens — through an INDEPENDENT reader (pdfium via Qt
+        // PDF) — as a valid PDF carrying exactly its segment's pages in order.
+        const QList<QPair<QString, QList<int>>> expected = {
+            { QStringLiteral("real5_part1.pdf"), {0, 1} },
+            { QStringLiteral("real5_part2.pdf"), {2, 3} },
+            { QStringLiteral("real5_part3.pdf"), {4} },
+        };
+        for (const auto& e : expected)
+            verifySplitPart(tmpDir.path() + "/" + e.first, e.second);
+
+        // The open source survived the split: still resident, still
+        // extractable, and its on-disk bytes are byte-identical (split is
+        // never allowed to write the source).
+        QCOMPARE(engine->currentFile(), srcPath);
+        QVERIFY(!engine->extractPageAsBytes(srcPath, 4).isEmpty());
+        QCOMPARE(readFileBytes(srcPath), srcBytes);
     }
 };
 
