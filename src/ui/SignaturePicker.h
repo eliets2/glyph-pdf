@@ -16,6 +16,7 @@ class QLineEdit;
 class QPushButton;
 class QSpinBox;
 class QTabWidget;
+class QWidget;
 
 // §9.7 P0 (audit 2026-07-01): Draw/Type/Upload signature picker.
 //
@@ -131,6 +132,12 @@ public:
     // Switch tabs programmatically (the UI uses the tab bar).
     void showTab(SignatureContent::Kind kind);
 
+    // Upload tab seam: load an image file through the SAME path the Browse
+    // button drives (loader + error label + preview + OK re-gating). Returns
+    // false (and keeps OK disabled) for an empty/unreadable file. Exists so
+    // tests can exercise the visible Upload flow without a modal QFileDialog.
+    bool loadUploadedImage(const QString &path);
+
     // §9.7 P1: attach the DocumentSession's cache. When it holds a signature
     // the "Reuse last signature" checkbox is offered and default-checked;
     // accepting with it checked delivers the cached signature unchanged, and
@@ -138,6 +145,14 @@ public:
     void setSessionCache(SignatureSessionCache *cache);
 
 private:
+    // N01: the ONE kind↔page mapping. The visible construction order is
+    // Draw/Type/Initials/Upload, but dispatch must never hardcode those
+    // indices again — every path resolves the kind through the actual page
+    // widget that was added in the constructor, so reordering tabs cannot
+    // silently swap validation or accepted kinds.
+    int tabIndexForKind(SignatureContent::Kind kind) const;
+    SignatureContent::Kind kindForTabIndex(int index) const;
+
     void updateTypePreview();
     void updateUploadPreview();
     void updateInitialsPreview();
@@ -145,6 +160,11 @@ private:
     void onAccepted();
 
     QTabWidget *m_tabs = nullptr;
+    // N01: the tab PAGES themselves — the single source of truth for kind↔index.
+    QWidget *m_drawTab = nullptr;
+    QWidget *m_typeTab = nullptr;
+    QWidget *m_initialsTab = nullptr;
+    QWidget *m_uploadTab = nullptr;
     QLineEdit *m_typeEdit = nullptr;
     QComboBox *m_fontCombo = nullptr;
     QSpinBox *m_sizeSpin = nullptr;

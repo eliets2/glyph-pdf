@@ -79,6 +79,20 @@ QString makeSeedPdf(const QString &path)
     return path;
 }
 
+// N01: resolve a picker tab PAGE by the control it hosts — never by a
+// hardcoded index. The visible order is pinned separately in the test body.
+QWidget *pageHosting(const SignaturePickerDialog &dlg, const QString &childName)
+{
+    auto *child = dlg.findChild<QWidget *>(childName);
+    auto *tabs = dlg.findChild<QTabWidget *>();
+    if (!child || !tabs)
+        return nullptr;
+    for (QWidget *w = child; w; w = w->parentWidget())
+        if (tabs->indexOf(w) >= 0)
+            return w;   // w is one of the QTabWidget's pages
+    return nullptr;
+}
+
 } // namespace
 
 class TestSignaturePicker : public QObject {
@@ -95,6 +109,10 @@ private slots:
     // the user's full name ("John Hancock" → "JH") at a smaller default size.
     void initialsVariantRendersCompactInk();
     void initialsTabAndPlacementUseTypedPath();
+    // N01 regression: the VISIBLE tab order is Draw=0, Type=1, Initials=2,
+    // Upload=3 — every dispatch (showTab / OK gating / acceptance) must agree
+    // with the page the user actually sees, selected by its displayed identity.
+    void visibleTabsDispatchTheirOwnKind();
 };
 
 void TestSignaturePicker::typedSignatureRendersInkAndPersists()
@@ -361,7 +379,16 @@ void TestSignaturePicker::initialsTabAndPlacementUseTypedPath()
     SignaturePickerDialog dlg;
     QCOMPARE(dlg.findChild<QTabWidget *>()->count(), 4);
     dlg.showTab(SignatureContent::Kind::Initials);
-    QCOMPARE(dlg.findChild<QTabWidget *>()->currentIndex(), 3);
+    // N01: the visible Initials PAGE must be the current one — identified by
+    // the control it hosts, never by the stale hardcoded index 3 (which is the
+    // Upload page in the visible Draw/Type/Initials/Upload order).
+    {
+        auto *tabs = dlg.findChild<QTabWidget *>();
+        QWidget *initialsPage = pageHosting(dlg, QStringLiteral("signatureInitialsEdit"));
+        QVERIFY(initialsPage);
+        QCOMPARE(tabs->currentIndex(), tabs->indexOf(initialsPage));
+        QCOMPARE(tabs->tabText(tabs->currentIndex()), QStringLiteral("Initials"));
+    }
     QVERIFY2(!dlg.isAcceptEnabled(),
              "OK must stay disabled while the initials name is blank");
     auto *nameEdit = dlg.findChild<QLineEdit *>(QStringLiteral("signatureInitialsEdit"));
@@ -399,6 +426,150 @@ void TestSignaturePicker::initialsTabAndPlacementUseTypedPath()
     QVERIFY2(back, "initials signature must survive a save/reload round-trip");
     QCOMPARE(back->text, QStringLiteral("John Hancock"));
     QVERIFY2(!back->image.isNull(), "initials image must be persisted inside the PDF");
+}
+
+// ── N01: visible tabs must dispatch their own kind ──────────────────────────
+
+void TestSignaturePicker::visibleTabsDispatchTheirOwnKind()
+{
+    // Visible construction order (pinned once): Draw, Type, Initials, Upload.
+    SignaturePickerDialog dlg;
+    auto *tabs = dlg.findChild<QTabWidget *>();
+    QVERIFY2(tabs, "picker must expose its QTabWidget");
+    QCOMPARE(tabs->count(), 4);
+    QCOMPARE(tabs->tabText(0), QStringLiteral("Draw"));
+    QCOMPARE(tabs->tabText(1), QStringLiteral("Type"));
+    QCOMPARE(tabs->tabText(2), QStringLiteral("Initials"));
+    QCOMPARE(tabs->tabText(3), QStringLiteral("Upload"));
+
+    // Each kind's page is identified by the control it hosts — not by index.
+    QWidget *typePage     = pageHosting(dlg, QStringLiteral("signatureTypeEdit"));
+    QWidget *initialsPage = pageHosting(dlg, QStringLiteral("signatureInitialsEdit"));
+    QWidget *uploadPage   = pageHosting(dlg, QStringLiteral("uploadPreview"));
+    QVERIFY(typePage && initialsPage && uploadPage);
+    QVERIFY2(typePage != initialsPage && initialsPage != uploadPage,
+             "each kind must live on its own visible page");
+
+    auto *buttons = dlg.findChild<QDialogButtonBox *>();
+    QVERIFY2(buttons, "dialog must expose its button box");
+
+    // ── Initials: selecting the VISIBLE Initials tab and typing a name on it
+    // must enable OK and accept Kind::Initials (N01: it used to land on the
+    // Upload page and disable OK, while the Upload page accepted Initials).
+    dlg.showTab(SignatureContent::Kind::Initials);
+    QCOMPARE(tabs->currentIndex(), tabs->indexOf(initialsPage));
+    QCOMPARE(tabs->tabText(tabs->currentIndex()), QStringLiteral("Initials"));
+    QVERIFY2(!dlg.isAcceptEnabled(),
+             "OK must stay disabled while the initials name is blank");
+    auto *initialsEdit = initialsPage->findChild<QLineEdit *>(
+        QStringLiteral("signatureInitialsEdit"));
+    QVERIFY2(initialsEdit &&
+                 tabs->currentWidget()->findChild<QLineEdit *>(
+                     QStringLiteral("signatureInitialsEdit")) == initialsEdit,
+             "the initials edit must belong to the CURRENT page (only its "
+             "controls may be driven)");
+    initialsEdit->setText(QStringLiteral("Jane Doe"));
+    QVERIFY2(dlg.isAcceptEnabled(),
+             "OK must enable once the VISIBLE initials page has a usable name");
+    buttons->button(QDialogButtonBox::Ok)->click();
+    QCOMPARE(dlg.result(), static_cast<int>(QDialog::Accepted));
+    QCOMPARE(dlg.acceptedKind(), SignatureContent::Kind::Initials);
+    QVERIFY2(!dlg.acceptedImage().isNull(),
+             "an accepted Initials tab must carry the rendered monogram image");
+
+    // ── Upload: switching to the VISIBLE Upload page with nothing uploaded
+    // must disable OK — even though the initials edit still holds "Jane Doe"
+    // (N01: the stale mapping read the initials text here and accepted
+    // Kind::Initials from the Upload page).
+    SignaturePickerDialog dlg2;
+    auto *tabs2 = dlg2.findChild<QTabWidget *>();
+    auto *buttons2 = dlg2.findChild<QDialogButtonBox *>();
+    QWidget *initialsPage2 = pageHosting(dlg2, QStringLiteral("signatureInitialsEdit"));
+    QWidget *uploadPage2   = pageHosting(dlg2, QStringLiteral("uploadPreview"));
+    dlg2.showTab(SignatureContent::Kind::Initials);
+    auto *initialsEdit2 = initialsPage2->findChild<QLineEdit *>(
+        QStringLiteral("signatureInitialsEdit"));
+    QVERIFY2(initialsEdit2 && tabs2->currentWidget()->findChild<QLineEdit *>(
+                                  QStringLiteral("signatureInitialsEdit")) == initialsEdit2,
+             "the initials edit must belong to the CURRENT page");
+    initialsEdit2->setText(QStringLiteral("Jane Doe"));
+    QVERIFY2(dlg2.isAcceptEnabled(), "precondition: initials accept enabled");
+    dlg2.showTab(SignatureContent::Kind::Upload);
+    QCOMPARE(tabs2->currentIndex(), tabs2->indexOf(uploadPage2));
+    QCOMPARE(tabs2->tabText(tabs2->currentIndex()), QStringLiteral("Upload"));
+    QVERIFY2(!dlg2.isAcceptEnabled(),
+             "the visible Upload page must not accept without an uploaded image");
+
+    // A VALID upload on the visible Upload page enables OK and produces
+    // Kind::Upload — driven through the same loader the Browse button uses.
+    QTemporaryDir upTmp;
+    QVERIFY(upTmp.isValid());
+    QImage uploadSrc(31, 17, QImage::Format_RGBA8888);
+    uploadSrc.fill(QColor(20, 120, 220, 255));
+    const QString uploadPng = upTmp.filePath("visible_upload.png");
+    QVERIFY(uploadSrc.save(uploadPng));
+    QVERIFY2(dlg2.loadUploadedImage(uploadPng), "a readable image must load");
+    QVERIFY2(dlg2.isAcceptEnabled(),
+             "a valid upload must enable OK on the visible Upload page");
+    buttons2->button(QDialogButtonBox::Ok)->click();
+    QCOMPARE(dlg2.result(), static_cast<int>(QDialog::Accepted));
+    QCOMPARE(dlg2.acceptedKind(), SignatureContent::Kind::Upload);
+    QVERIFY2(!dlg2.acceptedImage().isNull(),
+             "an accepted Upload tab must carry the uploaded image");
+    QCOMPARE(dlg2.acceptedImage().size(), uploadSrc.size());
+
+    // An UNREADABLE upload must keep OK disabled.
+    SignaturePickerDialog dlgBad;
+    dlgBad.showTab(SignatureContent::Kind::Upload);
+    QVERIFY2(!dlgBad.loadUploadedImage(upTmp.filePath("missing.png")),
+             "an unreadable upload must fail to load");
+    QVERIFY2(!dlgBad.isAcceptEnabled(),
+             "an unreadable upload must keep OK disabled");
+
+    // A nonempty but letter-less initials name must NOT enable OK either —
+    // the gate is a usable monogram image, not merely nonempty input.
+    SignaturePickerDialog dlg5;
+    dlg5.showTab(SignatureContent::Kind::Initials);
+    pageHosting(dlg5, QStringLiteral("signatureInitialsEdit"))
+        ->findChild<QLineEdit *>(QStringLiteral("signatureInitialsEdit"))
+        ->setText(QStringLiteral("123 456"));
+    QVERIFY2(SignatureContent::initialsForName(QStringLiteral("123 456")).isEmpty(),
+             "precondition: digits yield no initials");
+    QVERIFY2(!dlg5.isAcceptEnabled(),
+             "a name with no letters must not enable OK (no usable monogram)");
+
+    // showTab(Draw) lands on the visible Draw page.
+    dlg5.showTab(SignatureContent::Kind::Draw);
+    QCOMPARE(dlg5.findChild<QTabWidget *>()->currentIndex(), 0);
+    QCOMPARE(dlg5.findChild<QTabWidget *>()->tabText(0), QStringLiteral("Draw"));
+
+    // ── Type: still gates on its own text and accepts Kind::Typed.
+    SignaturePickerDialog dlg3;
+    auto *tabs3 = dlg3.findChild<QTabWidget *>();
+    auto *buttons3 = dlg3.findChild<QDialogButtonBox *>();
+    QWidget *typePage3 = pageHosting(dlg3, QStringLiteral("signatureTypeEdit"));
+    dlg3.showTab(SignatureContent::Kind::Typed);
+    QCOMPARE(tabs3->currentIndex(), tabs3->indexOf(typePage3));
+    QCOMPARE(tabs3->tabText(tabs3->currentIndex()), QStringLiteral("Type"));
+    QVERIFY2(!dlg3.isAcceptEnabled(), "OK must stay disabled on blank typed text");
+    typePage3->findChild<QLineEdit *>(QStringLiteral("signatureTypeEdit"))
+        ->setText(QStringLiteral("John Hancock"));
+    QVERIFY2(dlg3.isAcceptEnabled(), "OK must enable once typed text is present");
+    buttons3->button(QDialogButtonBox::Ok)->click();
+    QCOMPARE(dlg3.result(), static_cast<int>(QDialog::Accepted));
+    QCOMPARE(dlg3.acceptedKind(), SignatureContent::Kind::Typed);
+    QVERIFY2(!dlg3.acceptedImage().isNull(), "an accepted Type tab must carry an image");
+
+    // ── Draw: needs no input and accepts Kind::Draw.
+    SignaturePickerDialog dlg4;
+    auto *tabs4 = dlg4.findChild<QTabWidget *>();
+    auto *buttons4 = dlg4.findChild<QDialogButtonBox *>();
+    dlg4.showTab(SignatureContent::Kind::Draw);
+    QCOMPARE(tabs4->currentIndex(), 0);
+    QVERIFY2(dlg4.isAcceptEnabled(), "Draw needs no picker-side input");
+    buttons4->button(QDialogButtonBox::Ok)->click();
+    QCOMPARE(dlg4.result(), static_cast<int>(QDialog::Accepted));
+    QCOMPARE(dlg4.acceptedKind(), SignatureContent::Kind::Draw);
 }
 
 QTEST_MAIN(TestSignaturePicker)

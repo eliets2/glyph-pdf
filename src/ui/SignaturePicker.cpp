@@ -177,6 +177,7 @@ SignaturePickerDialog::SignaturePickerDialog(QWidget *parent)
 
     // ── Draw tab: the existing freehand flow, unchanged ─────────────────────
     auto *drawTab = new QWidget(this);
+    drawTab->setObjectName(QStringLiteral("signatureDrawTab"));
     auto *drawLayout = new QVBoxLayout(drawTab);
     QLabel *drawLabel = new QLabel(
         tr("1. Press OK.\n"
@@ -185,10 +186,12 @@ SignaturePickerDialog::SignaturePickerDialog(QWidget *parent)
     drawLabel->setWordWrap(true);
     drawLayout->addWidget(drawLabel);
     drawLayout->addStretch(1);
+    m_drawTab = drawTab;
     m_tabs->addTab(drawTab, tr("Draw"));
 
     // ── Type tab ────────────────────────────────────────────────────────────
     auto *typeTab = new QWidget(this);
+    typeTab->setObjectName(QStringLiteral("signatureTypeTab"));
     auto *typeLayout = new QVBoxLayout(typeTab);
     m_typeEdit = new QLineEdit(typeTab);
     m_typeEdit->setObjectName(QStringLiteral("signatureTypeEdit"));
@@ -220,12 +223,14 @@ SignaturePickerDialog::SignaturePickerDialog(QWidget *parent)
     fontRow->addWidget(m_sizeSpin);
     typeLayout->addLayout(fontRow);
     typeLayout->addWidget(m_typePreview, 1);
+    m_typeTab = typeTab;
     m_tabs->addTab(typeTab, tr("Type"));
 
     // ── Initials tab (§9.7 P1) ──────────────────────────────────────────────
     // Derives a compact 24pt monogram from the full name — a faster variant of
     // the Type tab for people who sign with initials.
     auto *initialsTab = new QWidget(this);
+    initialsTab->setObjectName(QStringLiteral("signatureInitialsTab"));
     auto *initialsLayout = new QVBoxLayout(initialsTab);
     m_initialsEdit = new QLineEdit(initialsTab);
     m_initialsEdit->setObjectName(QStringLiteral("signatureInitialsEdit"));
@@ -240,10 +245,12 @@ SignaturePickerDialog::SignaturePickerDialog(QWidget *parent)
     initialsLayout->addWidget(new QLabel(tr("Your full name:"), initialsTab));
     initialsLayout->addWidget(m_initialsEdit);
     initialsLayout->addWidget(m_initialsPreview, 1);
+    m_initialsTab = initialsTab;
     m_tabs->addTab(initialsTab, tr("Initials"));
 
     // ── Upload tab ──────────────────────────────────────────────────────────
     auto *uploadTab = new QWidget(this);
+    uploadTab->setObjectName(QStringLiteral("signatureUploadTab"));
     auto *uploadLayout = new QVBoxLayout(uploadTab);
     m_browseButton = new QPushButton(tr("Choose image…"), uploadTab);
     m_browseButton->setAccessibleName(tr("Choose signature image file"));
@@ -260,6 +267,7 @@ SignaturePickerDialog::SignaturePickerDialog(QWidget *parent)
     uploadLayout->addWidget(m_browseButton);
     uploadLayout->addWidget(m_uploadPreview, 1);
     uploadLayout->addWidget(m_uploadError);
+    m_uploadTab = uploadTab;
     m_tabs->addTab(uploadTab, tr("Upload"));
 
     m_buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
@@ -300,12 +308,7 @@ SignaturePickerDialog::SignaturePickerDialog(QWidget *parent)
             tr("Images (*.png *.jpg *.jpeg *.bmp *.gif);;All files (*)"));
         if (file.isEmpty())
             return;                              // file-dialog cancel → nothing changes
-        QString error;
-        m_uploadImage = SignatureContent::loadUploaded(file, &error);
-        m_uploadError->setText(error);
-        m_uploadError->setVisible(!error.isEmpty());
-        updateUploadPreview();
-        updateAccept();
+        loadUploadedImage(file);
     });
     connect(m_tabs, &QTabWidget::currentChanged, this, &SignaturePickerDialog::updateAccept);
     connect(m_buttons, &QDialogButtonBox::accepted, this, &SignaturePickerDialog::onAccepted);
@@ -316,14 +319,46 @@ SignaturePickerDialog::SignaturePickerDialog(QWidget *parent)
     updateAccept();
 }
 
-void SignaturePickerDialog::showTab(SignatureContent::Kind kind)
+// ── N01: the ONE kind↔page mapping ──────────────────────────────────────────
+// The pages were added in the visible order Draw, Type, Initials, Upload — but
+// every dispatch resolves through the actual page widget recorded at
+// construction, so validation and acceptance always follow the page the user
+// really sees, even if the visible order ever changes again.
+
+int SignaturePickerDialog::tabIndexForKind(SignatureContent::Kind kind) const
 {
     switch (kind) {
-    case SignatureContent::Kind::Draw:     m_tabs->setCurrentIndex(0); break;
-    case SignatureContent::Kind::Typed:    m_tabs->setCurrentIndex(1); break;
-    case SignatureContent::Kind::Upload:   m_tabs->setCurrentIndex(2); break;
-    case SignatureContent::Kind::Initials: m_tabs->setCurrentIndex(3); break;
+    case SignatureContent::Kind::Draw:     return m_tabs->indexOf(m_drawTab);
+    case SignatureContent::Kind::Typed:    return m_tabs->indexOf(m_typeTab);
+    case SignatureContent::Kind::Initials: return m_tabs->indexOf(m_initialsTab);
+    case SignatureContent::Kind::Upload:   return m_tabs->indexOf(m_uploadTab);
     }
+    return 0;
+}
+
+SignatureContent::Kind SignaturePickerDialog::kindForTabIndex(int index) const
+{
+    QWidget *page = m_tabs->widget(index);
+    if (page == m_typeTab)    return SignatureContent::Kind::Typed;
+    if (page == m_initialsTab) return SignatureContent::Kind::Initials;
+    if (page == m_uploadTab)  return SignatureContent::Kind::Upload;
+    return SignatureContent::Kind::Draw;
+}
+
+void SignaturePickerDialog::showTab(SignatureContent::Kind kind)
+{
+    m_tabs->setCurrentIndex(tabIndexForKind(kind));
+}
+
+bool SignaturePickerDialog::loadUploadedImage(const QString &path)
+{
+    QString error;
+    m_uploadImage = SignatureContent::loadUploaded(path, &error);
+    m_uploadError->setText(error);
+    m_uploadError->setVisible(!error.isEmpty());
+    updateUploadPreview();
+    updateAccept();
+    return !m_uploadImage.isNull();
 }
 
 bool SignaturePickerDialog::isAcceptEnabled() const
@@ -388,17 +423,23 @@ void SignaturePickerDialog::updateUploadPreview()
 void SignaturePickerDialog::updateAccept()
 {
     bool ok = true;
-    switch (m_tabs->currentIndex()) {
-    case 1:  // Type — blank text must not be acceptable
+    // N01: gate on the kind of the page the user ACTUALLY sees.
+    switch (kindForTabIndex(m_tabs->currentIndex())) {
+    case SignatureContent::Kind::Typed:
+        // Blank text must not be acceptable.
         ok = !m_typeEdit->text().trimmed().isEmpty();
         break;
-    case 3:  // Initials — a blank name yields no monogram to place
-        ok = !m_initialsEdit->text().trimmed().isEmpty();
+    case SignatureContent::Kind::Initials:
+        // A blank OR letter-less name yields no monogram to place — gate on a
+        // usable resulting image, not merely on nonempty input.
+        ok = !SignatureContent::initialsForName(m_initialsEdit->text()).isEmpty();
         break;
-    case 2:  // Upload — an unreadable image must not be acceptable
+    case SignatureContent::Kind::Upload:
+        // An unreadable/missing image must not be acceptable.
         ok = !m_uploadImage.isNull();
         break;
-    default: // Draw — the existing flow needs no input here
+    case SignatureContent::Kind::Draw:
+        // The existing flow needs no input here.
         ok = true;
         break;
     }
@@ -419,25 +460,26 @@ void SignaturePickerDialog::onAccepted()
         return;
     }
 
-    switch (m_tabs->currentIndex()) {
-    case 1:
+    // N01: dispatch on the kind of the page the user ACTUALLY sees.
+    switch (kindForTabIndex(m_tabs->currentIndex())) {
+    case SignatureContent::Kind::Typed:
         m_kind = SignatureContent::Kind::Typed;
         m_typedText = m_typeEdit->text().trimmed();
         m_image = SignatureContent::renderTyped(m_typedText, m_fontCombo->currentText(),
                                                 m_sizeSpin->value(), Qt::darkBlue);
         break;
-    case 3:
+    case SignatureContent::Kind::Initials:
         m_kind = SignatureContent::Kind::Initials;
         m_typedText = m_initialsEdit->text().trimmed();
         m_image = SignatureContent::initialsFromName(m_typedText, m_fontCombo->currentText(),
                                                      Qt::darkBlue);
         break;
-    case 2:
+    case SignatureContent::Kind::Upload:
         m_kind = SignatureContent::Kind::Upload;
         m_typedText.clear();
         m_image = m_uploadImage;
         break;
-    default:
+    case SignatureContent::Kind::Draw:
         m_kind = SignatureContent::Kind::Draw;
         m_typedText.clear();
         m_image = QImage();
