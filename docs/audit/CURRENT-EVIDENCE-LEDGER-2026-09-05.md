@@ -118,7 +118,7 @@ Dated corrections to stale historical claims (superseded by HEAD):
 
 | ID | Surface | Finding | Status | Evidence |
 |----|---------|---------|--------|----------|
-| E-1 | redaction excision backend | Redacting one line corrupts a byte-ADJACENT same-stream Tj: the following line's glyph bytes are overwritten (observed 'PUBLIC_KEEP_TEXT' -> 'PUBLIC_KEEP_XEXX' — the two 0x54 'T' bytes became 0x58 — while a line 150pt away in the same stream was also hit; a second-page line survives). Both the mark-based and operation paths share PoDoFoBackend::applyRedactions/redactCanvasRecursively, so this is PRE-EXISTING (all prior fixtures were single-line and could not see it) | open — engine fix needed in redactCanvasRecursively text surgery; U05 fixture pins per-PAGE survival honestly | TestRedactMarkAll two-page fixture, 436aaa8 |
+| E-1 | redaction excision backend | Redacting one line corrupts a byte-ADJACENT same-stream Tj (observed 'PUBLIC_KEEP_TEXT' -> 'PUBLIC_KEEP_XEXX') | **fixed** — root cause: PdfString::GetString() forces lazy glyph-encoding evaluation IN PLACE on the COW-shared operand; the stream rebuild re-emitted the transcoded (corrupted) form. getEncodedStringWidth now evaluates a deep raw copy (FromRaw), so un-redacted operators re-emit byte-exact; Edact-Ray gap-width property preserved | 2c5a0d6 — TestExcisionCorruption (same-page + 4-op stream, hex-level byte-identity asserts); 108/108 |
 
 ## Known test-infrastructure facts (Q02)
 
