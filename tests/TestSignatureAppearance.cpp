@@ -405,6 +405,60 @@ private slots:
         QVERIFY2(SignatureManager::takePendingAppearanceImage().isNull(),
                  "pending slot must be drained by the next signing call");
     }
+
+    // ------------------------------------------------------------------
+    // N06 — the appearance image must SURVIVE a signing retry. The
+    // controller captures the dialog's image ONCE into a restartable
+    // request; a PartialLtvMissing "Retry Signing" re-runs the same
+    // request, and the retried document must embed the same image.
+    // ------------------------------------------------------------------
+    void retrySigningKeepsAppearanceImage()
+    {
+        REQUIRE_FIXTURES();
+
+        QImage img(30, 15, QImage::Format_ARGB32);
+        img.fill(QColor(200, 30, 30));
+
+        // The dialog hands the image to the consume-once slot on acceptance…
+        SignatureManager::setPendingAppearanceImage(img);
+        // …and the controller (N06) captures it ONCE into its restartable
+        // request. Nothing is left in the shared slot afterwards.
+        const QImage requestImage = SignatureManager::takePendingAppearanceImage();
+        QCOMPARE(requestImage, img);
+        QVERIFY2(SignatureManager::takePendingAppearanceImage().isNull(),
+                 "the capture must leave nothing in the shared slot");
+
+        SignatureManager mgr;
+        // Attempt 1 — the initial signing passes the request's copy
+        // explicitly (signDocumentWithAppearance; the shared slot is not
+        // consulted, so the request's copy is untouched).
+        QCOMPARE(mgr.signDocumentWithAppearance(kInputPdf, outPath("retry_first.pdf"),
+                                                kP12Path, kP12Pass, requestImage,
+                                                QStringLiteral("I approve"),
+                                                QStringLiteral("Test Location")),
+                 SignOutcome::Success);
+        QVERIFY2(inspectSignatureAppearance(outPath("retry_first.pdf")).hasImageXObject,
+                 "the first attempt must embed the captured appearance image");
+
+        // Retry — the SAME request re-runs with the SAME copy. The retried
+        // document must embed the image too (consume-once cannot eat it).
+        QCOMPARE(mgr.signDocumentWithAppearance(kInputPdf, outPath("retry_second.pdf"),
+                                                kP12Path, kP12Pass, requestImage,
+                                                QStringLiteral("I approve"),
+                                                QStringLiteral("Test Location")),
+                 SignOutcome::Success);
+        QVERIFY2(inspectSignatureAppearance(outPath("retry_second.pdf")).hasImageXObject,
+                 "N06: the retried request must still carry the appearance image");
+
+        // The legacy slot entry point stays consume-once (no stale leak): with
+        // nothing pending, the interface method embeds no image.
+        QCOMPARE(mgr.signDocument(kInputPdf, outPath("retry_no_slot.pdf"), kP12Path,
+                                  kP12Pass, QStringLiteral("I approve"),
+                                  QStringLiteral("Test Location")),
+                 SignOutcome::Success);
+        QVERIFY2(!inspectSignatureAppearance(outPath("retry_no_slot.pdf")).hasImageXObject,
+                 "a signing call without a pending image must embed none");
+    }
 };
 
 QTEST_MAIN(TestSignatureAppearance)

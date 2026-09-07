@@ -12,6 +12,7 @@
 #include "ui/MetadataDialog.h"
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "core/interfaces/ISignatureManager.h"
+#include "engines/SignatureManager.h" // N06: explicit-appearance signing entry points
 #include "commands/EncryptDocumentHelper.h"
 #include "commands/SignDocumentHelper.h"
 #include "commands/SanitizeDocumentHelper.h"
@@ -54,6 +55,10 @@ static_assert(kDefaultSanitizeOn,
 // §9.7 P1: capture of ONE signing/certifying request — everything the
 // RESTARTABLE worker needs to re-run the exact same crypto operation after a
 // PartialLtvMissing "Retry", without re-prompting for certificate/password.
+// N06: the request is the IMMUTABLE input snapshot — it also carries the
+// source document identity and the captured appearance image, so a retry
+// re-runs the exact same operation instead of silently re-signing whatever
+// the mutable session points at, without the picked appearance.
 struct SecurityController::SigningRequest {
     bool certify = false;
     int certLevel = 1;
@@ -62,6 +67,8 @@ struct SecurityController::SigningRequest {
     QString pwd;
     QString reason;
     QString location;
+    QString sourcePath;   // N06: the document the user chose to sign
+    QImage appearance;    // N06: the dialog's optional appearance image (may be null)
 };
 
 // §9.7 P1: shared signing/certifying execution for signDocument() and
@@ -88,16 +95,33 @@ void SecurityController::runSigning(const SigningRequest &req)
     QThread* worker = QThread::create([weakSigning, weakDoc, req, result]() {
         auto signing = weakSigning.lock();
         auto doc = weakDoc.lock();
-        if (!signing || !doc) return;
+        if (!signing || !doc || req.sourcePath.isEmpty()) return;
         SignOutcome outcome;
+        // N06: every attempt (initial AND retry) goes through the
+        // explicit-appearance entry point with the request's captured copy —
+        // nothing is consumed, so the retried document embeds the same image.
+        // The request's sourcePath (not the mutable session path) is signed.
+        auto *concrete = dynamic_cast<SignatureManager *>(signing.get());
         if (req.certify) {
-            outcome = signing->certifyDocument(doc->path(), req.outputPath, req.certPath,
-                                               req.pwd, req.certLevel, req.reason, req.location);
+            outcome = concrete
+                ? concrete->certifyDocumentWithAppearance(
+                      req.sourcePath, req.outputPath, req.certPath, req.pwd,
+                      req.certLevel, req.appearance, req.reason, req.location)
+                : signing->certifyDocument(req.sourcePath, req.outputPath, req.certPath,
+                                           req.pwd, req.certLevel, req.reason, req.location);
             if (outcome == SignOutcome::Success || outcome == SignOutcome::PartialLtvMissing)
                 doc->markReload();
+        } else if (concrete) {
+            outcome = concrete->signDocumentWithAppearance(
+                req.sourcePath, req.outputPath, req.certPath, req.pwd,
+                req.appearance, req.reason, req.location);
+            // SignDocumentHelper semantics: anything better than Failed
+            // re-loads the session (the signed bytes are on disk).
+            if (outcome != SignOutcome::Failed)
+                doc->markReload();
         } else {
-            // SignDocumentHelper itself marks the session for reload on
-            // anything better than Failed.
+            // Non-SignatureManager implementations (test mocks) keep the
+            // legacy helper path.
             outcome = SignDocumentHelper::execute(signing.get(), doc.get(), req.outputPath,
                                                   req.certPath, req.pwd, req.reason, req.location);
         }
@@ -383,6 +407,12 @@ void SecurityController::signDocument() {
         req.pwd = dlg.password();
         req.reason = dlg.reason();
         req.location = dlg.location();
+        // N06: the request owns its inputs — the source identity the user is
+        // signing, and the appearance image, drained from the dialog's
+        // consume-once slot into the request exactly once. The retry passes
+        // the request's copy explicitly, so it survives every attempt.
+        req.sourcePath = viewer->filePath();
+        req.appearance = SignatureManager::takePendingAppearanceImage();
         runSigning(req);
     }
 }
@@ -823,6 +853,9 @@ void SecurityController::certifyDocument() {
         req.pwd = dlg.password();
         req.reason = dlg.reason();
         req.location = dlg.location();
+        // N06: same immutable-input capture as the sign flow.
+        req.sourcePath = viewer->filePath();
+        req.appearance = SignatureManager::takePendingAppearanceImage();
         runSigning(req);
     }
 }

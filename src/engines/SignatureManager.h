@@ -88,6 +88,27 @@ public:
                          const QString &reason = QString(),
                          const QString &location = QString()) override;
 
+    // N06: explicit-appearance variants. The appearance image travels WITH
+    // the operation (the restartable SecurityController request captures it
+    // once and re-passes it on every "Retry Signing"), so a retry can never
+    // lose it to the consume-once dialog slot. These overloads never read or
+    // drain the shared pending slot.
+    SignOutcome signDocumentWithAppearance(const QString &inputPath,
+                                           const QString &outputPath,
+                                           const QString &certPath,
+                                           const QString &password,
+                                           const QImage &appearanceImage,
+                                           const QString &reason = QString(),
+                                           const QString &location = QString());
+    SignOutcome certifyDocumentWithAppearance(const QString &inputPath,
+                                              const QString &outputPath,
+                                              const QString &certPath,
+                                              const QString &password,
+                                              int certificationLevel,
+                                              const QImage &appearanceImage,
+                                              const QString &reason = QString(),
+                                              const QString &location = QString());
+
     bool addDocTimeStamp(const QString &inputPath, const QString &outputPath) override;
 
     /**
@@ -109,13 +130,17 @@ private:
 
     // Shared signing core used by both signDocument (certificationLevel == 0) and
     // certifyDocument (certificationLevel 1..3 -> /DocMDP). See SignatureManager.cpp.
+    // N06: the appearance image is an explicit input — callers decide where it
+    // comes from (the pending slot for the interface methods, the captured
+    // request for the WithAppearance variants).
     SignOutcome signDocumentImpl(const QString &inputPath,
                           const QString &outputPath,
                           const QString &certPath,
                           const QString &password,
                           int certificationLevel,
                           const QString &reason,
-                          const QString &location);
+                          const QString &location,
+                          const QImage &appearanceImage);
 
     class Private;
     std::unique_ptr<Private> d;

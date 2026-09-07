@@ -922,7 +922,23 @@ SignOutcome SignatureManager::signDocument(const QString &inputPath,
                                     const QString &location)
 {
     // certificationLevel == 0 ⇒ ordinary approval signature (no /DocMDP).
-    return signDocumentImpl(inputPath, outputPath, certPath, password, 0, reason, location);
+    // Legacy slot contract: a pending dialog image is consumed by THIS call.
+    return signDocumentImpl(inputPath, outputPath, certPath, password, 0,
+                            reason, location, takePendingAppearanceImage());
+}
+
+// N06: the restartable request passes its own captured copy explicitly —
+// nothing is consumed, so a retry re-embeds the same image.
+SignOutcome SignatureManager::signDocumentWithAppearance(const QString &inputPath,
+                                                         const QString &outputPath,
+                                                         const QString &certPath,
+                                                         const QString &password,
+                                                         const QImage &appearanceImage,
+                                                         const QString &reason,
+                                                         const QString &location)
+{
+    return signDocumentImpl(inputPath, outputPath, certPath, password, 0,
+                            reason, location, appearanceImage);
 }
 
 // ---------------------------------------------------------------------------
@@ -1209,7 +1225,8 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
                                         const QString &password,
                                         int certificationLevel,
                                         const QString &reason,
-                                        const QString &location)
+                                        const QString &location,
+                                        const QImage &appearanceImage)
 {
     // E-02: assume failure until we know the core signature bytes were written.
     d->lastOutcome = SignOutcome::Failed;
@@ -1220,9 +1237,10 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
         PdfMemDocument doc;
         doc.Load(inputPath.toStdString());
 
-        // §9.7 P0: drain the dialog's optional signature-image slot up front
-        // so a failed signing attempt can never leak it into a later signature.
-        const QImage appearanceImage = takePendingAppearanceImage();
+        // N06: the appearance arrives as an explicit input — the interface
+        // methods drain the dialog's consume-once slot before calling in, the
+        // restartable request passes its own captured copy. Nothing is drained
+        // here anymore, so a retry can no longer find an emptied slot.
 
         charbuff certData;
         EVP_PKEY *pkeyRaw = nullptr;
@@ -1654,8 +1672,30 @@ SignOutcome SignatureManager::certifyDocument(const QString &inputPath,
                    << "out of range (expected 1..3) — refusing to certify";
         return SignOutcome::Failed;
     }
+    // Legacy slot contract: a pending dialog image is consumed by THIS call.
     return signDocumentImpl(inputPath, outputPath, certPath, password,
-                            certificationLevel, reason, location);
+                            certificationLevel, reason, location,
+                            takePendingAppearanceImage());
+}
+
+// N06: certify twin of signDocumentWithAppearance — explicit per-operation
+// appearance, shared slot untouched.
+SignOutcome SignatureManager::certifyDocumentWithAppearance(const QString &inputPath,
+                                                            const QString &outputPath,
+                                                            const QString &certPath,
+                                                            const QString &password,
+                                                            int certificationLevel,
+                                                            const QImage &appearanceImage,
+                                                            const QString &reason,
+                                                            const QString &location)
+{
+    if (certificationLevel < 1 || certificationLevel > 3) {
+        qWarning() << "certifyDocumentWithAppearance: certification level" << certificationLevel
+                   << "out of range (expected 1..3) — refusing to certify";
+        return SignOutcome::Failed;
+    }
+    return signDocumentImpl(inputPath, outputPath, certPath, password,
+                            certificationLevel, reason, location, appearanceImage);
 }
 
 // §9.7 P1: surface exactly which long-term-validation piece degraded, so the
