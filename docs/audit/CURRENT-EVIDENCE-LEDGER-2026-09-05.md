@@ -104,6 +104,8 @@ Dated corrections to stale historical claims (superseded by HEAD):
 | N06 | Signing retry lost the appearance image (consume-once slot) | implemented-awaiting-review — explicit signDocumentWithAppearance entry points; request captures source+image once, both attempts embed | f8704aa |
 | N09 | Real split execution produced no files (source-resident engine + AR-4 guard rejected every write) | implemented-awaiting-review — writeDocumentFromPages + SafeSave candidate/validate/commit; real end-to-end test drives the production caller | 6ee8eb7 |
 | N10 | Four regression checks were never moc-registered (3 CapabilityRegistry D06 slots + D07 policy slot defined outside slots sections) | implemented-awaiting-review — moved into private slots, mutation-proven to execute (19/19 + 14/14 totals) | 866321d |
+| N04 | Security entry dropped the overlay label (request built by hand, 5 of 6 fields) | implemented-awaiting-review — shared redactRequestFromPlan seam now carries all 6 fields; both entry paths consume it; e2e label burn-in pinned | a7a1bf0 |
+| N07 | Redaction exit left the marking tool armed | implemented-awaiting-review — Cancel disarms Redact→HandTool before exitRequested; GpMainWindow relay resets the shared viewer too; marks kept | 61e51da |
 
 ## CODE-REVIEW-2026-09-06 findings (D01–D05, redaction + AI boundaries)
 
