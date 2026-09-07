@@ -1870,6 +1870,36 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrPreprocessPrefs.cpp")
     )
 endif()
 
+# §9.16 P1 — unified open/drag-drop routing: pins the pure routing seam on
+# MainWindow (routeForFile extension matrix + planDrop drop policy) that lets
+# File>Open and drag-and-drop accept Office/image files and route them to the
+# existing LibreOffice / images-to-PDF conversions.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOpenRouting.cpp")
+    add_executable(TestOpenRouting
+        tests/TestOpenRouting.cpp
+    )
+    target_include_directories(TestOpenRouting PRIVATE src tests)
+    target_link_libraries(TestOpenRouting PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestOpenRouting POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestOpenRouting>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestOpenRouting>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestOpenRouting"
+    )
+    add_test(NAME TestOpenRouting COMMAND TestOpenRouting)
+    set_tests_properties(TestOpenRouting PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;import;open;routing;qt;headless"
+    )
+endif()
+
 # E-1 regression: redacting one line must never corrupt a byte-adjacent
 # same-stream Tj (evidence ledger 2026-09-05, "Newly discovered engine defect").
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestExcisionCorruption.cpp")
