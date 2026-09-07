@@ -27,6 +27,7 @@
 #include "engines/DocumentSession.h"
 #include "engines/pdfium/PdfiumBackend.h"
 #include "commands/AddFormFieldCommand.h"
+#include "commands/AutoDetectPlacement.h"
 
 // wingdi.h defines GetObject as an object-like macro (UNICODE builds); it
 // collides with PoDoFo::PdfField::GetObject used in the /CO check below.
@@ -139,6 +140,9 @@ private slots:
     void injectedFaultsLeaveOriginalIntact();
     void failedAddCommandLeavesNoSuccessUndoEntry();
     void otherMutatorsPersistThroughBoundary();
+    // V06: auto-detected placements go through the application undo stack.
+    void autoDetectPlacesFieldsAsOneUndoableCompound();
+    void autoDetectPartialFailureCountsAccuratelyAndStaysRecoverable();
 };
 
 // ── THE F01 reproduction ────────────────────────────────────────────────────
@@ -481,6 +485,129 @@ void TestFormSafety::otherMutatorsPersistThroughBoundary() {
     QVERIFY(!pdfHasField(pdf, QStringLiteral("m_check")));
     QVERIFY(pdfHasField(pdf, QStringLiteral("m_text")));
     QVERIFY(pdfLoads(pdf));
+}
+
+// ── V06: auto-detected fields go THROUGH the application undo stack ─────────
+// The old FormsController::autoDetectFields loop constructed each
+// AddFormFieldCommand on the local stack, called redo() and dropped it:
+// nothing was ever undoable, yet the success message promised
+// "undo ... as needed", and the partial-failure message claimed the document
+// was unchanged even when some fields had been placed.
+void TestFormSafety::autoDetectPlacesFieldsAsOneUndoableCompound() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = makeTextPdf(tmp.path(), QStringLiteral("v06_compound.pdf"),
+                                    {QStringLiteral("Auto-detect probe")});
+    QVERIFY(QFile::exists(pdf));
+
+    FormManager fm;
+    DocumentSession doc;
+    doc.setPath(pdf);
+    QUndoStack stack;
+
+    QList<FieldSuggestion> suggestions;
+    suggestions.append({QRectF(72, 150, 140, 30), QStringLiteral("Text"),
+                        QStringLiteral("v06_auto_name")});
+    suggestions.append({QRectF(72, 200, 140, 30), QStringLiteral("Date"),
+                        QStringLiteral("v06_auto_date")});
+    suggestions.append({QRectF(72, 250, 30, 30), QStringLiteral("Checkbox"),
+                        QStringLiteral("v06_auto_check")});
+
+    const auto outcome = gp::AutoDetectPlacement::apply(
+        &fm, &doc, &stack, suggestions, 0);
+    QCOMPARE(outcome.placed, 3);
+    QCOMPARE(outcome.failed, 0);
+
+    // Every successful placement is really on disk.
+    QVERIFY(pdfHasField(pdf, QStringLiteral("v06_auto_name")));
+    QVERIFY(pdfHasField(pdf, QStringLiteral("v06_auto_date")));
+    QVERIFY(pdfHasField(pdf, QStringLiteral("v06_auto_check")));
+
+    // Grouping policy: ONE compound entry on the application stack — a single
+    // Undo removes every field the run placed, so the message's undo promise
+    // is true. Redo re-places them as one step as well.
+    QCOMPARE(stack.count(), 1);
+    QVERIFY(stack.canUndo());
+    stack.undo();
+    QVERIFY(!pdfHasField(pdf, QStringLiteral("v06_auto_name")));
+    QVERIFY(!pdfHasField(pdf, QStringLiteral("v06_auto_date")));
+    QVERIFY(!pdfHasField(pdf, QStringLiteral("v06_auto_check")));
+    stack.redo();
+    QVERIFY(pdfHasField(pdf, QStringLiteral("v06_auto_name")));
+    QVERIFY(pdfHasField(pdf, QStringLiteral("v06_auto_check")));
+}
+
+void TestFormSafety::autoDetectPartialFailureCountsAccuratelyAndStaysRecoverable() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = makeTextPdf(tmp.path(), QStringLiteral("v06_partial.pdf"),
+                                    {QStringLiteral("Partial-fault probe")});
+    const QByteArray shaBefore = sha256(pdf);
+
+    FormManager fm;
+    DocumentSession doc;
+    doc.setPath(pdf);
+    QUndoStack stack;
+    QSignalSpy reloadSpy(&doc, &DocumentSession::reloadRequested);
+
+    // Inject the save fault right AFTER the first success: the seam counts a
+    // placement through the session's reloadRequested signal (emitted exactly
+    // once per successful redo, never on the obsolete failure path), so this
+    // handler arms the fault only once the first field is already placed.
+    QObject::connect(&doc, &DocumentSession::reloadRequested, [&]() {
+        FormManager::setSaveFaultForTesting(FormManager::SaveFault::CandidateSave);
+    });
+
+    QList<FieldSuggestion> suggestions;
+    suggestions.append({QRectF(72, 150, 140, 30), QStringLiteral("Text"),
+                        QStringLiteral("v06_ok_field")});
+    suggestions.append({QRectF(72, 200, 140, 30), QStringLiteral("Text"),
+                        QStringLiteral("v06_faulty_a")});
+    suggestions.append({QRectF(72, 250, 140, 30), QStringLiteral("Text"),
+                        QStringLiteral("v06_faulty_b")});
+
+    const auto outcome = gp::AutoDetectPlacement::apply(
+        &fm, &doc, &stack, suggestions, 0);
+    FormManager::setSaveFaultForTesting(FormManager::SaveFault::None);
+
+    // Actual success/failure counts — never "document unchanged" when a field
+    // was placed.
+    QCOMPARE(outcome.placed, 1);
+    QCOMPARE(outcome.failed, 2);
+    QCOMPARE(reloadSpy.count(), 1);   // exactly the one success
+
+    QVERIFY(pdfHasField(pdf, QStringLiteral("v06_ok_field")));
+    QVERIFY(!pdfHasField(pdf, QStringLiteral("v06_faulty_a")));
+    QVERIFY(!pdfHasField(pdf, QStringLiteral("v06_faulty_b")));
+
+    // Partial success remains recoverable: one Undo removes the placed field
+    // (failed placements never joined the compound).
+    QCOMPARE(stack.count(), 1);
+    stack.undo();
+    QVERIFY(!pdfHasField(pdf, QStringLiteral("v06_ok_field")));
+
+    // Messaging honesty: partial success names the counts and the working
+    // Undo and must NOT claim the document is unchanged; a total failure is
+    // the only case allowed to say so; full success promises the Undo.
+    const QString partial = gp::AutoDetectPlacement::statusMessage(1, 2);
+    QVERIFY2(!partial.contains(QStringLiteral("unchanged")),
+             qPrintable(QStringLiteral(
+                            "partial success must not claim 'document unchanged': %1")
+                            .arg(partial)));
+    QVERIFY(partial.contains(QStringLiteral("1")));
+    QVERIFY(partial.contains(QStringLiteral("2")));
+    QVERIFY2(partial.contains(QStringLiteral("Undo")),
+             qPrintable(QStringLiteral(
+                            "partial success must name the working Undo: %1")
+                            .arg(partial)));
+    const QString total = gp::AutoDetectPlacement::statusMessage(0, 3);
+    QVERIFY2(total.contains(QStringLiteral("unchanged")),
+             "a total failure is the only case that may claim 'unchanged'");
+    const QString allPlaced = gp::AutoDetectPlacement::statusMessage(3, 0);
+    QVERIFY2(allPlaced.contains(QStringLiteral("Undo"))
+                 && !allPlaced.contains(QStringLiteral("unchanged")),
+             "full success must promise the one-step Undo");
+    Q_UNUSED(shaBefore);
 }
 
 QTEST_MAIN(TestFormSafety)
