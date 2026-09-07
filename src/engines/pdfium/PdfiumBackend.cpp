@@ -304,6 +304,26 @@ QList<PdfiumBackend::TextRun> PdfiumBackend::extractPageTextRuns(int pageIndex) 
 
     const int charCount = FPDFText_CountChars(textPage);
 
+    // V03 (PARITY-BRANCH-REVIEW-2026-09-05): line grouping alone collapsed
+    // table columns — "Name" @x=72 and "Amount" @x=300 on one baseline became
+    // ONE run and then one Excel/CSV cell. Line grouping (baseline distance)
+    // must stay separate from CELL boundaries: runs also split at wide
+    // horizontal gaps, wide space-separator glyphs, and font-run changes.
+    // Documented tolerances:
+    //   * column gap  — a char starting beyond the open run's right edge by
+    //     more than 1 em of its font size (1pt floor) starts a new cell.
+    //     Ordinary inter-word advances in text fonts are ~0.25-0.35 em, so
+    //     prose is never split at every ordinary space; real table gaps are
+    //     many em wide.
+    //   * space separator — a SPACE char whose own box is wider than 0.8 em
+    //     is layout, not content (PDFium generates gap-marker spaces whose
+    //     box spans the whole jump; justified/stretched spaces behave the
+    //     same). It is dropped instead of being appended to a cell.
+    //   * font runs — a change of the real base-font name splits the run so
+    //     downstream font consumers see the same run boundaries the PDF does.
+    constexpr double kColumnGapEm = 1.0;
+    constexpr double kSpaceSeparatorEm = 0.8;
+
     TextRun run;
     bool runOpen = false;
     double runRight = 0.0;
@@ -334,6 +354,26 @@ QList<PdfiumBackend::TextRun> PdfiumBackend::extractPageTextRuns(int pageIndex) 
         double left = 0.0, right = 0.0, bottom = 0.0, top = 0.0;
         const bool hasBox = FPDFText_GetCharBox(textPage, i, &left, &right, &bottom, &top) != 0;
         const double size = FPDFText_GetFontSize(textPage, i);
+        // Real base-font name (UTF-8), read for EVERY char so a font-run
+        // change can split the run (V03); the run-start branch below just
+        // adopts the current char's name.
+        char nameBuf[128];
+        int flags = 0;
+        QString fontName;
+        const unsigned long nameLen = FPDFText_GetFontInfo(
+            textPage, i, nameBuf, sizeof(nameBuf), &flags);
+        if (nameLen > 0 && nameLen <= sizeof(nameBuf))
+            fontName = QString::fromUtf8(nameBuf,
+                                         static_cast<qsizetype>(nameLen - 1));
+
+        // V03: a wide space glyph is a cell separator — drop it and close the
+        // run. (Checked while a run is open; a separator before any content
+        // is likewise not content and is skipped.)
+        if (u == ' ' && hasBox
+                && (right - left) > kSpaceSeparatorEm * qMax(size, 1.0)) {
+            flushRun();
+            continue;
+        }
 
         // Line clustering tolerance (documented): two chars share a line when
         // their baseline origins differ by at most half the larger font size
@@ -346,6 +386,25 @@ QList<PdfiumBackend::TextRun> PdfiumBackend::extractPageTextRuns(int pageIndex) 
             }
         }
 
+        // V03: a char starting a full em beyond the open run's right edge is
+        // a new cell/column, not a continuation of the same run. Spaces
+        // appended immediately before the gap (PDFium's generated gap markers
+        // carry a degenerate box, so the wide-space rule above cannot see
+        // them) are layout, not content — they are dropped with the boundary,
+        // which keeps cell text exact ("Name", never "Name ").
+        if (runOpen && hasBox
+                && left - runRight > kColumnGapEm * qMax(size, 1.0)) {
+            while (run.text.endsWith(QChar(u' '))) run.text.chop(1);
+            flushRun();
+        }
+
+        // V03: a font-run change splits the run (same baseline stays one LINE
+        // for grouping, but the font consumers get separate runs).
+        if (runOpen && !run.fontName.isEmpty() && !fontName.isEmpty()
+                && fontName != run.fontName) {
+            flushRun();
+        }
+
         if (!runOpen) {
             runOpen = true;
             run.rect = QRectF(hasOrigin ? originX : (hasBox ? left : 0.0),
@@ -353,14 +412,7 @@ QList<PdfiumBackend::TextRun> PdfiumBackend::extractPageTextRuns(int pageIndex) 
                               0.0, qMax(0.0, size));
             run.fontSize = qMax(0.0, size);
             runRight = hasBox ? right : run.rect.x();
-            // Real base-font name (UTF-8) for the HTML/PPTX font consumers.
-            char nameBuf[128];
-            int flags = 0;
-            const unsigned long nameLen = FPDFText_GetFontInfo(
-                textPage, i, nameBuf, sizeof(nameBuf), &flags);
-            if (nameLen > 0 && nameLen <= sizeof(nameBuf))
-                run.fontName = QString::fromUtf8(nameBuf,
-                                                 static_cast<qsizetype>(nameLen - 1));
+            run.fontName = fontName;
         } else {
             run.fontSize = qMax(run.fontSize, qMax(0.0, size));
             if (hasBox && right > runRight) runRight = right;

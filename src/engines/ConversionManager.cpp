@@ -8,6 +8,7 @@
 #include <cmath>
 #include <QDebug>
 #include <QFile>
+#include <QHash>
 #include <QTextStream>
 #include "core/TempFileManager.h"
 
@@ -47,6 +48,12 @@ public:
     // inside a line (keeps logical order for RTL/bidi content).
     static QList<QList<ConversionManager::TextElement>> clusterIntoRows(
         const QList<ConversionManager::TextElement> &elements);
+    // V03: derive spreadsheet COLUMNS from the retained geometry — runs split
+    // at horizontal gaps/font boundaries (backend) are mapped to consistent
+    // 0-based column indices across ALL rows, so a 2x2 table exports a real
+    // B column and an empty interior cell keeps its column. Line grouping
+    // (clusterIntoRows) and column inference stay separate steps.
+    static void deriveColumns(QList<QList<ConversionManager::TextElement>> &rows);
 };
 
 ConversionManager::ConversionManager(QObject *parent)
@@ -108,6 +115,11 @@ bool ConversionManager::convertTo(const QString &pdfPath, const QString &outputP
             QList<TextElement> pageElements = d->extractTextFromPage(backend, i);
             allRows.append(Private::clusterIntoRows(pageElements));
         }
+
+        // V03: with runs split at cell boundaries by the backend, derive the
+        // spreadsheet columns from the retained geometry (document-wide, so
+        // rows stay consistent with each other) before the writers run.
+        Private::deriveColumns(allRows);
 
         if (format == TargetFormat::Word) {
             return exportToWord(outputPath, allRows);
@@ -203,6 +215,57 @@ QList<QList<ConversionManager::TextElement>> ConversionManager::Private::cluster
     return rows;
 }
 
+// V03: column inference over the line-clustered rows. Column anchors are
+// clustered element x-starts collected across ALL rows (document-wide, so a
+// row is never interpreted in isolation); each element is assigned the index
+// of its nearest anchor within a documented tolerance of half the element's
+// font size (3pt floor — absorbs centered-header drift and rounding, while
+// distinct cells are separated by far more since the backend only splits runs
+// at multi-em gaps). Anchors are then re-ranked left-to-right so column order
+// matches visual order. Elements keep their extracted order; the writers use
+// `column` to place cells and to preserve empty interior cells.
+void ConversionManager::Private::deriveColumns(QList<QList<TextElement>> &rows)
+{
+    QList<double> anchors;
+    QList<QList<int>> rowAnchor(rows.size());
+    for (int r = 0; r < rows.size(); ++r) {
+        rowAnchor[r].reserve(rows[r].size());
+        for (const TextElement &el : rows[r]) {
+            if (el.text.isEmpty()) { rowAnchor[r].append(-1); continue; }
+            const double tol = qMax(3.0, 0.5 * el.fontSize);
+            int best = -1;
+            double bestDist = 0.0;
+            for (int a = 0; a < anchors.size(); ++a) {
+                const double dist = std::fabs(el.rect.x() - anchors[a]);
+                if (dist <= tol && (best < 0 || dist < bestDist)) {
+                    best = a;
+                    bestDist = dist;
+                }
+            }
+            if (best < 0) {
+                anchors.append(el.rect.x());
+                best = anchors.size() - 1;
+            }
+            rowAnchor[r].append(best);
+        }
+    }
+
+    // Rank anchors left-to-right (stable for exactly-equal x starts).
+    QList<int> byX(anchors.size());
+    for (int i = 0; i < byX.size(); ++i) byX[i] = i;
+    std::stable_sort(byX.begin(), byX.end(),
+                     [&anchors](int a, int b) { return anchors[a] < anchors[b]; });
+    QList<int> rank(anchors.size());
+    for (int r2 = 0; r2 < byX.size(); ++r2) rank[byX[r2]] = r2;
+
+    for (int r = 0; r < rows.size(); ++r) {
+        for (int c = 0; c < rows[r].size(); ++c) {
+            if (rowAnchor[r][c] < 0) continue;
+            rows[r][c].column = rank[rowAnchor[r][c]];
+        }
+    }
+}
+
 bool ConversionManager::exportToWord(const QString &outputPath, const QList<QList<TextElement>> &rows)
 {
 #ifdef HAS_DUCKX
@@ -235,13 +298,18 @@ bool ConversionManager::exportToExcel(const QString &outputPath, const QList<QLi
     OpenXLSX::XLDocument doc;
     doc.create(outputPath.toStdString());
     auto wks = doc.workbook().worksheet("Sheet1");
-    
+
     int rowIdx = 1;
     for (const auto &row : rows) {
-        int colIdx = 1;
-        for (const auto &el : row) {
-            wks.cell(OpenXLSX::XLCellReference(rowIdx, colIdx)).value() = el.text.toStdString();
-            colIdx++;
+        // V03: write each element at its geometry-derived column (1-based).
+        QList<TextElement> sorted = row;
+        std::stable_sort(sorted.begin(), sorted.end(),
+                         [](const TextElement &a, const TextElement &b) {
+                             return a.column < b.column;
+                         });
+        for (const auto &el : sorted) {
+            if (el.text.isEmpty()) continue;
+            wks.cell(OpenXLSX::XLCellReference(rowIdx, el.column + 1)).value() = el.text.toStdString();
         }
         rowIdx++;
     }
@@ -332,13 +400,28 @@ bool ConversionManager::exportToCsv(const QString &outputPath, const QList<QList
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return false;
     QTextStream out(&file);
     for (const auto &row : rows) {
-        QStringList line;
+        // V03: emit cells in geometry-derived COLUMN order and fill interior
+        // gaps with empty quoted cells, so an empty interior cell keeps its
+        // column ("A","","C") instead of shifting later cells left.
+        QHash<int, QString> cells;
+        int maxCol = -1;
         for (const auto &el : row) {
+            if (el.text.isEmpty()) continue;
             QString escaped = el.text;
             escaped.replace("\"", "\"\"");
-            line << "\"" + escaped + "\"";
+            // Two runs anchored to the same column in one row (e.g. adjacent
+            // font runs) rejoin into one cell in extracted order.
+            if (cells.contains(el.column))
+                cells[el.column] += QLatin1Char(' ') + escaped;
+            else
+                cells.insert(el.column, escaped);
+            maxCol = qMax(maxCol, el.column);
         }
-        out << line.join(",") << "\n";
+        QStringList line;
+        for (int col = 0; col <= maxCol; ++col)
+            line << "\"" + cells.value(col) + "\"";
+        if (!line.isEmpty())
+            out << line.join(",") << "\n";
     }
     file.close();
     return QFileInfo(outputPath).size() > 0;
@@ -749,11 +832,18 @@ bool ConversionManager::exportToExcelInHouse(const QString &outputPath, const QL
             // them empty — writing them would pad the sheet with hundreds of
             // blank inlineStr cells (and push the first real cell off A1).
             // Empty elements are skipped; column letters stay monotonic.
-            int colIdx = 0;
-            for (const auto &el : row) {
+            // V03: the column letter is the element's geometry-derived
+            // column (not the running non-empty index), so a real B column
+            // survives and an empty interior cell shifts nothing.
+            QList<TextElement> sorted = row;
+            std::stable_sort(sorted.begin(), sorted.end(),
+                             [](const TextElement &a, const TextElement &b) {
+                                 return a.column < b.column;
+                             });
+            for (const auto &el : sorted) {
                 const QString text = sanitizeTextForXml(el.text);
                 if (text.isEmpty()) continue;
-                ++colIdx;
+                const int colIdx = el.column + 1;
                 xml.writeStartElement("c");
                 xml.writeAttribute("r", xlsxColumnName(colIdx) + QString::number(rowIdx));
                 xml.writeAttribute("t", "inlineStr");
