@@ -491,20 +491,17 @@ void RedactMode::onApplyRedactions() {
     if (dlg.exec() != QDialog::Accepted) return; // nothing mutated
     const RedactApplyPlan chosen = dlg.plan();
 
-    RedactRequest request;
-    request.sourcePath = chosen.sourcePath;
-    request.destinationPath = chosen.destinationPath;
+    // N04 (review 2026-09-07): the request is built by the ONE shared
+    // plan→request conversion — the same seam the Security entry path uses —
+    // so every dialog field (incl. the §9.8 P1 overlay label) reaches the
+    // operation identically on both paths and can never silently disappear
+    // on either one again.
+    QMap<int, QList<QRectF>> marksByPage;
     for (const auto& a : marks) {
         if (a.mode == ToolMode::Redact)
-            request.redactionsByPage[a.pageIndex].append(a.rect);
+            marksByPage[a.pageIndex].append(a.rect);
     }
-    request.sanitize = chosen.sanitize;
-    request.sanitizedDestinationPath = chosen.sanitizedDestinationPath;
-    // §9.8 P1: optional reason text printed on the burn-in boxes (empty =
-    // current behavior).
-    request.overlayText = chosen.overlayText;
-
-    runRedactOperation(request);
+    runRedactOperation(redactRequestFromPlan(chosen, marksByPage));
 }
 
 // U05: the ONE transactional redaction operation behind this entry path. The

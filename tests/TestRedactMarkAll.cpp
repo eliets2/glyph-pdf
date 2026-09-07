@@ -53,6 +53,14 @@ private slots:
     // Cancel must emit exitRequested() (the mode-exit contract) and must NOT
     // touch the placed marks (they live on the viewer and stay recoverable).
     void cancelControlEmitsExitRequestedAndKeepsMarks();
+    // N04 (review 2026-09-07): the Security entry path builds its RedactRequest
+    // through the shared plan→request conversion seam — every dialog field,
+    // including the §9.8 P1 overlay label, must survive it.
+    void sharedPlanConversionCarriesEveryDialogField();
+    // N04: the real-caller chain — a label typed into the Apply dialog reaches
+    // the operation and is burned into the SAVED PDF (Redact-mode caller,
+    // which goes through the same shared conversion as Security).
+    void applyDialogOverlayTextIsBurnedIntoSavedPdf();
     // §9.8 P1: Foxit-style word-list import — a .txt file becomes an escaped
     // alternation pattern shown in the custom-regex edit for review, with a
     // hard size cap and an honest error.
@@ -322,11 +330,16 @@ public:
         QObject::connect(&m_timer, &QTimer::timeout, [this]() { pump(); });
         m_timer.start(10);
     }
+    // N04: when set, the driver types this label into the Apply dialog's
+    // overlay edit before accepting — the same field a real user fills.
+    void setOverlayText(const QString& text) { m_overlayText = text; }
 private:
     void pump() {
         QWidget* modal = QApplication::activeModalWidget();
         if (!modal) return;
         if (auto* dlg = qobject_cast<gp::RedactApplyDialog*>(modal)) {
+            if (!m_overlayText.isEmpty())
+                dlg->setOverlayText(m_overlayText);
             // Accept with the plan defaults (destinations prefilled).
             if (auto* ok = dlg->findChild<QPushButton*>(QStringLiteral("redactApplyOkButton"));
                 ok && ok->isEnabled()) {
@@ -339,6 +352,7 @@ private:
         }
     }
     QTimer m_timer;
+    QString m_overlayText;
 };
 
 int redactMarkCount(const PdfViewerWidget& viewer) {
@@ -504,6 +518,88 @@ void TestRedactMarkAll::cancelControlEmitsExitRequestedAndKeepsMarks() {
 
     // The placed marks live on the viewer — cancel must not clear them.
     QCOMPARE(redactMarkCount(viewer), 1);
+}
+
+// N04 (review 2026-09-07): ONE shared plan→request conversion serves BOTH
+// entry paths (RedactMode and SecurityController::applyRedactions). Every
+// dialog field must survive it — the §9.8 P1 overlay label was exactly the
+// field that silently disappeared on the Security path. (The controller
+// method itself opens a modal dialog plus a progress dialog on the main
+// window and is not headlessly drivable; the conversion seam both callers
+// go through is what is tested here.)
+void TestRedactMarkAll::sharedPlanConversionCarriesEveryDialogField() {
+    gp::RedactApplyPlan plan;
+    plan.sourcePath = QStringLiteral("source.pdf");
+    plan.destinationPath = QStringLiteral("redacted.pdf");
+    plan.sanitizedDestinationPath = QStringLiteral("redacted_sanitized.pdf");
+    plan.sanitize = true;
+    plan.overlayText = QStringLiteral("REASON-CODE-7");
+
+    QMap<int, QList<QRectF>> marks;
+    marks[0].append(QRectF(1, 2, 3, 4));
+    marks[2].append(QRectF(5, 6, 7, 8));
+    marks[2].append(QRectF(9, 10, 11, 12));
+
+    const gp::RedactRequest request = gp::redactRequestFromPlan(plan, marks);
+    QCOMPARE(request.sourcePath, QStringLiteral("source.pdf"));
+    QCOMPARE(request.destinationPath, QStringLiteral("redacted.pdf"));
+    QCOMPARE(request.sanitizedDestinationPath, QStringLiteral("redacted_sanitized.pdf"));
+    QVERIFY(request.sanitize);
+    QCOMPARE(request.redactionsByPage.size(), 2);
+    QCOMPARE(request.redactionsByPage.value(0), QList<QRectF>{ QRectF(1, 2, 3, 4) });
+    QCOMPARE(request.redactionsByPage.value(2),
+             (QList<QRectF>{ QRectF(5, 6, 7, 8), QRectF(9, 10, 11, 12) }));
+    // THE N04 FIELD: the overlay label must reach the operation.
+    QCOMPARE(request.overlayText, QStringLiteral("REASON-CODE-7"));
+
+    // Empty labels remain optional (review acceptance) — no invented default.
+    gp::RedactApplyPlan quiet;
+    quiet.overlayText.clear();
+    QVERIFY(gp::redactRequestFromPlan(quiet, {}).overlayText.isEmpty());
+}
+
+// N04: the real-caller chain — the label a user types into the Apply dialog
+// must reach the operation and be burned into the SAVED PDF (white, centered
+// on every burn-in box). The Redact-mode caller goes through the same shared
+// conversion as the Security caller, so this guards the seam end to end.
+void TestRedactMarkAll::applyDialogOverlayTextIsBurnedIntoSavedPdf() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = createRiskyRedactablePdf(tmp, "overlay_apply.pdf");
+    QVERIFY2(!pdf.isEmpty(), "fixture failed");
+
+    PdfEditorEngine engine;
+    QVERIFY(engine.loadDocumentForEditing(pdf));
+    AppContext ctx;
+    ctx.pdfEditor = std::shared_ptr<IPdfEditorEngine>(&engine, [](IPdfEditorEngine*){});
+
+    PdfViewerWidget viewer;
+    QVERIFY(viewer.loadDocument(pdf));
+    gp::RedactMode mode;
+    mode.setAppContext(&ctx);
+    mode.setViewer(&viewer);
+
+    // Mark rects use the viewer's top-down convention; the secret drawn at PDF
+    // (50,700) sits ~142 from the top.
+    AnnotationItem mark;
+    mark.mode = ToolMode::Redact;
+    mark.pageIndex = 0;
+    mark.rect = QRectF(40, 130, 300, 30);
+    viewer.setAnnotations({mark});
+
+    ApplyFlowDriver driver;
+    driver.setOverlayText(QStringLiteral("REDACTED-LBL"));
+    QVERIFY(QMetaObject::invokeMethod(&mode, "onApplyRedactions"));
+
+    const QString out = tmp.filePath("overlay_apply_redacted.pdf");
+    QTRY_VERIFY2(QFileInfo::exists(out), "the redacted copy must be committed");
+    // Async-completion sync point: marks cleared after the presenter was dismissed.
+    QTRY_VERIFY2(redactMarkCount(viewer) == 0, "marks must be cleared once the output is committed and kept");
+
+    const QString page0 = pdfiumText(out, 0);
+    QVERIFY2(page0.contains(QStringLiteral("REDACTED-LBL")),
+             qPrintable(QStringLiteral("the overlay label chosen in the dialog must be "
+                                      "burned into the saved PDF; extracted: %1").arg(page0)));
 }
 
 // §9.8 P1: word-list import — the pure seams.
