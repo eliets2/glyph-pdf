@@ -56,8 +56,17 @@
 #include "ui/UpdateDialog.h"
 #include "ui/RecoveryDialog.h"
 #include "engines/AutosaveManager.h"
+#include "engines/ConversionManager.h"   // §9.16 P1: office/images → PDF (same engine as the Welcome cards)
+#include "core/TempFileManager.h"       // §9.16 P1: tracked output dir for unified-flow conversions
 #include "ui/ErrorDialog.h"
 #include "core/ErrorInfo.h"
+
+#include <QProgressDialog>
+#include <QFutureWatcher>
+#include <QtConcurrent/QtConcurrent>
+#include <QDesktopServices>
+#include <QUrl>
+#include <functional>
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "core/UpdateChecker.h"
 
@@ -522,6 +531,23 @@ void MainWindow::showWorkspace() {
 
 void MainWindow::openDocument(const QString& filePath) {
     if (filePath.isEmpty()) return;
+
+    // §9.16 P1: openDocument is THE open choke point — File>Open (HomeController
+    // ToolId::Open), the Welcome Open card, recent files and drag-and-drop all
+    // land here. Non-PDF targets are routed to the SAME conversions the
+    // explicit Welcome cards run, so the main open flow no longer refuses e.g.
+    // a .docx with a bare "Could not open the PDF document" error. Unsupported
+    // extensions fall through to the pre-existing load/error path unchanged.
+    const OpenRoute route = routeForFile(filePath);
+    if (route == OpenRoute::OfficeConvert) {
+        convertAndOpenOffice(filePath);
+        return;
+    }
+    if (route == OpenRoute::ImagesConvert) {
+        convertAndOpenImages({ filePath });
+        return;
+    }
+
     auto* viewer = pdfViewer();
     if (!viewer) return;
 
@@ -772,11 +798,16 @@ void MainWindow::applyTheme() {
 }
 
 // === Drag-and-drop support (D5) ==========================================
+// §9.16 P1: the accepted set is no longer PDF-only — Office documents and
+// images are accepted too and routed (via planDrop, below) to the SAME
+// LibreOffice / images-to-PDF conversions the Welcome cards run. The pure
+// decision logic lives in routeForFile()/planDrop() and is pinned by
+// tests/TestOpenRouting.cpp; these handlers are thin wrappers over it.
 
 void MainWindow::dragEnterEvent(QDragEnterEvent* event) {
     if (event->mimeData()->hasUrls()) {
         for (const QUrl& url : event->mimeData()->urls()) {
-            if (url.toLocalFile().toLower().endsWith(".pdf")) {
+            if (routeForFile(url.toLocalFile()) != OpenRoute::Unsupported) {
                 event->acceptProposedAction();
                 return;
             }
@@ -788,15 +819,181 @@ void MainWindow::dropEvent(QDropEvent* event) {
     const QList<QUrl> urls = event->mimeData()->urls();
     if (urls.isEmpty()) return;
 
-    // If multiple PDFs dropped, open the first
+    QStringList localPaths;
     for (const QUrl& url : urls) {
-        QString path = url.toLocalFile();
-        if (path.toLower().endsWith(".pdf")) {
-            openDocument(path);
+        const QString path = url.toLocalFile();
+        if (!path.isEmpty()) localPaths << path;
+    }
+
+    const DropPlan plan = planDrop(localPaths);
+    if (plan.isEmpty())
+        return;   // nothing routable — do not accept (pre-existing behavior)
+
+    if (!plan.pdfToOpen.isEmpty())
+        openDocument(plan.pdfToOpen);               // first PDF, as before
+    else if (!plan.imagesToConvert.isEmpty())
+        convertAndOpenImages(plan.imagesToConvert); // all images → one PDF
+    else
+        convertAndOpenOffice(plan.officeToConvert); // first Office file
+    event->acceptProposedAction();
+}
+
+// === §9.16 P1: unified open routing =======================================
+
+MainWindow::OpenRoute MainWindow::routeForFile(const QString& path) {
+    // The extension sets mirror the existing Welcome-card dialogs EXACTLY, so
+    // anything the explicit cards accept, the unified flow accepts too:
+    //   - HomeController::onImportOffice: *.docx *.doc *.xlsx *.xls *.pptx
+    //     *.ppt *.odt *.ods *.odp *.rtf *.csv *.txt  (.txt included —
+    //     LibreOffice converts plain text)
+    //   - HomeController::onImagesToPdf:  *.png *.jpg *.jpeg *.tif *.tiff *.bmp
+    static const QStringList kOfficeExts {
+        QStringLiteral("docx"), QStringLiteral("doc"),
+        QStringLiteral("xlsx"), QStringLiteral("xls"),
+        QStringLiteral("pptx"), QStringLiteral("ppt"),
+        QStringLiteral("odt"),  QStringLiteral("ods"),
+        QStringLiteral("odp"),  QStringLiteral("rtf"),
+        QStringLiteral("csv"),  QStringLiteral("txt") };
+    static const QStringList kImageExts {
+        QStringLiteral("png"), QStringLiteral("jpg"),
+        QStringLiteral("jpeg"), QStringLiteral("tif"),
+        QStringLiteral("tiff"), QStringLiteral("bmp") };
+
+    const QString ext = QFileInfo(path).suffix().toLower();
+    if (ext == QLatin1String("pdf"))
+        return OpenRoute::PdfDirect;
+    if (kOfficeExts.contains(ext))
+        return OpenRoute::OfficeConvert;
+    if (kImageExts.contains(ext))
+        return OpenRoute::ImagesConvert;
+    return OpenRoute::Unsupported;
+}
+
+MainWindow::DropPlan MainWindow::planDrop(const QStringList& localPaths) {
+    DropPlan plan;
+    // 1. First PDF wins (pre-existing drop behavior).
+    for (const QString& p : localPaths) {
+        if (routeForFile(p) == OpenRoute::PdfDirect) {
+            plan.pdfToOpen = p;
             break;
         }
     }
-    event->acceptProposedAction();
+    if (!plan.pdfToOpen.isEmpty())
+        return plan;
+    // 2. No PDF: every image in the drop combines into one PDF (mirrors
+    //    multi-select in the Images-to-PDF card).
+    for (const QString& p : localPaths) {
+        if (routeForFile(p) == OpenRoute::ImagesConvert)
+            plan.imagesToConvert << p;
+    }
+    if (!plan.imagesToConvert.isEmpty())
+        return plan;
+    // 3. No images: the first Office file is converted.
+    for (const QString& p : localPaths) {
+        if (routeForFile(p) == OpenRoute::OfficeConvert) {
+            plan.officeToConvert = p;
+            break;
+        }
+    }
+    return plan;
+}
+
+// Shared conversion runner: the SAME progress-dialog + cancelable-watcher
+// pattern the Welcome-card flows use in HomeController, ending with the
+// converted PDF opened in the viewer. Output paths point into a tracked temp
+// dir (TempFileManager) so a unified-flow open never silently overwrites a
+// user file next to the source.
+void MainWindow::runConversion(const QString& progressLabel,
+                               const std::function<bool()>& work,
+                               const QString& outputPath,
+                               const QString& successMessage,
+                               const QString& failureMessage) {
+    auto* progress = new QProgressDialog(progressLabel, tr("Cancel"), 0, 0, this);
+    progress->setWindowModality(Qt::WindowModal);
+    progress->setMinimumDuration(500);
+
+    auto* watcher = new QFutureWatcher<bool>(this);
+    QObject::connect(progress, &QProgressDialog::canceled, watcher, &QFutureWatcher<bool>::cancel);
+    QObject::connect(watcher, &QFutureWatcher<bool>::finished, this, [=]() {
+        progress->close();
+        progress->deleteLater();
+        if (watcher->isCanceled()) {
+            watcher->deleteLater();
+            return;
+        }
+        const bool ok = watcher->result();
+        watcher->deleteLater();
+        if (ok) {
+            _status->showMessage(successMessage.arg(QFileInfo(outputPath).fileName()), 6000);
+            openDocument(outputPath);   // .pdf → PdfDirect — loads in the viewer
+        } else {
+            QMessageBox::warning(this, tr("Conversion Failed"), failureMessage);
+        }
+    });
+
+    watcher->setFuture(QtConcurrent::run(work));
+    progress->show();
+}
+
+void MainWindow::convertAndOpenOffice(const QString& officePath) {
+    // Same runtime detection + wording as the Welcome Import-Office card
+    // (HomeController::onImportOffice): no converter is bundled; we use the
+    // one already present and point the user at the download when absent.
+    if (!ConversionManager::isOfficeImportAvailable()) {
+        QMessageBox box(this);
+        box.setIcon(QMessageBox::Information);
+        box.setWindowTitle(tr("Office Import Needs a Converter"));
+        box.setText(tr("Importing Word, Excel and PowerPoint files to PDF uses "
+                       "LibreOffice, which doesn't appear to be installed."));
+        box.setInformativeText(tr("LibreOffice is free and open source. Install it once, "
+                                  "then this feature works automatically — no GlyphPDF "
+                                  "restart required."));
+        QPushButton *download = box.addButton(tr("Download LibreOffice…"), QMessageBox::AcceptRole);
+        box.addButton(QMessageBox::Cancel);
+        box.setDefaultButton(download);
+        box.exec();
+        if (box.clickedButton() == download)
+            QDesktopServices::openUrl(QUrl("https://www.libreoffice.org/download/download/"));
+        return;
+    }
+
+    const QString outDir = TempFileManager::instance().createTempDir(QStringLiteral("glyphpdf-open"));
+    const QString outputPath =
+        outDir + QLatin1Char('/') + QFileInfo(officePath).completeBaseName() + QLatin1String(".pdf");
+
+    runConversion(
+        tr("Converting %1 to PDF…").arg(QFileInfo(officePath).fileName()),
+        [officePath, outputPath]() {
+            ConversionManager mgr;
+            return mgr.convertOfficeToPdf(officePath, outputPath);
+        },
+        outputPath,
+        tr("Converted to PDF: %1"),
+        tr("Could not convert '%1' to PDF.\n"
+           "Ensure LibreOffice is installed and the file is not password-protected.")
+            .arg(QFileInfo(officePath).fileName()));
+}
+
+void MainWindow::convertAndOpenImages(const QStringList& imagePaths) {
+    if (imagePaths.isEmpty())
+        return;
+
+    const QString outDir = TempFileManager::instance().createTempDir(QStringLiteral("glyphpdf-open"));
+    // Name the result after the first image so the viewer title is useful
+    // (mirrors the card's "images.pdf" default for a multi-image drop).
+    const QString outputPath =
+        outDir + QLatin1Char('/') + QFileInfo(imagePaths.first()).completeBaseName() + QLatin1String(".pdf");
+
+    runConversion(
+        tr("Building PDF from %1 image(s)…").arg(imagePaths.size()),
+        [imagePaths, outputPath]() {
+            ConversionManager mgr;
+            return mgr.convertImagesToPdf(imagePaths, outputPath);
+        },
+        outputPath,
+        tr("Images combined into PDF: %1"),
+        tr("Could not combine images into a PDF.\n"
+           "Ensure all selected files are valid image files."));
 }
 
 // AR-7 D4: prompt Save / Discard / Cancel when quitting with unsaved changes.

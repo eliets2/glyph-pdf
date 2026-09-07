@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 #include <QMainWindow>
+#include <functional>
 #include "core/AppContext.h"
 
 class PdfViewerWidget;
@@ -50,6 +51,43 @@ public:
     void openDocument(const QString& filePath);
     void recoverDocument(const QString& originalPath);
     const AppContext* appContext() const { return _ctx; }
+
+    // === §9.16 P1: unified open/drag-drop routing ==========================
+    // The audit: "Office/image import hidden behind separate menus instead of
+    // unified File>Open with drag-and-drop." File>Open, the Welcome Open card,
+    // recent files and drag-and-drop all funnel through openDocument()/the
+    // drop handlers; non-PDF targets are classified here and routed to the
+    // SAME conversion paths the explicit Welcome cards run (LibreOffice
+    // office import, images-to-PDF). The cards REMAIN as explicit entry
+    // points with their own pick/save dialogs — nothing is hidden or removed.
+    //
+    // Pure (extension-based) so the policy is headlessly testable — pinned by
+    // tests/TestOpenRouting.cpp; dragEnterEvent/dropEvent/openDocument are
+    // thin wrappers over these statics.
+    enum class OpenRoute {
+        PdfDirect,       // load in the viewer as-is
+        OfficeConvert,   // LibreOffice conversion → open resulting PDF
+        ImagesConvert,   // images-to-PDF conversion → open resulting PDF
+        Unsupported      // not routable — pre-existing PDF-load-error path
+    };
+    static OpenRoute routeForFile(const QString& path);
+
+    // Pure drop policy: what a drop of these local paths should do.
+    //   1. the FIRST PDF wins and opens directly (pre-existing behavior),
+    //   2. otherwise ALL images in the drop combine into ONE PDF (mirrors
+    //      multi-select in the Images-to-PDF card),
+    //   3. otherwise the FIRST Office file is converted,
+    //   4. otherwise nothing is planned (drop not accepted, as before).
+    struct DropPlan {
+        QString     pdfToOpen;
+        QStringList imagesToConvert;   // 1+ images → one combined PDF
+        QString     officeToConvert;
+        bool isEmpty() const {
+            return pdfToOpen.isEmpty() && imagesToConvert.isEmpty()
+                && officeToConvert.isEmpty();
+        }
+    };
+    static DropPlan planDrop(const QStringList& localPaths);
     // Navigate to a named screen (delegates to onScreenSelected).
     // Usable by controllers that hold a MainWindow* but not ModeController*.
     void activateScreen(const QString& id);
@@ -115,6 +153,17 @@ private:
     void applyTheme();
     void replaceRight(QWidget* w);
     void initUpdateChecker();
+    // §9.16 P1: unified-flow conversions (same engines/progress/failure
+    // handling as the Welcome cards in HomeController, minus their pick/save
+    // dialogs — the unified flow's output goes to a tracked temp dir so a
+    // File>Open never silently overwrites a user file).
+    void convertAndOpenOffice(const QString& officePath);
+    void convertAndOpenImages(const QStringList& imagePaths);
+    void runConversion(const QString& progressLabel,
+                       const std::function<bool()>& work,
+                       const QString& outputPath,
+                       const QString& successMessage,
+                       const QString& failureMessage);
 };
 
 } // namespace gp
