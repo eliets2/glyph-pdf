@@ -59,6 +59,9 @@ private slots:
     void wordListImportBuildsEscapedAlternation();
     void wordListImportRefusesOversizedFile();
     void importListButtonSitsNextToRegexEdit();
+    // D07 (review 2026-09-06): the shared default-ON sanitize policy
+    // regression check (N10: declared as a slot so Qt Test runs it).
+    void defaultSanitizePolicyIsSharedAndOn();
 private:
     static QString createPdfWithText(const QTemporaryDir& tmpDir,
                                      const QString& name, const QString& text);
@@ -586,7 +589,7 @@ void TestRedactMarkAll::importListButtonSitsNextToRegexEdit() {
 }
 
     // ── D07 (review 2026-09-06): one shared default-ON sanitize policy ──────
-    void defaultSanitizePolicyIsSharedAndOn() {
+void TestRedactMarkAll::defaultSanitizePolicyIsSharedAndOn() {
         // The shared initial policy constant must satisfy the default-ON
         // contract, and the dialog must seed its checkbox from a caller-supplied
         // plan carrying it (the Security entry path builds exactly this plan).

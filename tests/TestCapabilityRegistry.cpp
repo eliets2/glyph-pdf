@@ -380,7 +380,6 @@ private slots:
                      "missing PP-OCRv5 models must offer the Preferences/install alternative");
         }
     }
-};
 
     // ── D06: probeRapidModelsIn demands a REAL model set ────────────────────
     void rapidModelsProbeRejectsFilenameOnly() {
@@ -434,6 +433,7 @@ private slots:
         QVERIFY2(c.whyNot.contains(QStringLiteral("recognizer")),
                  qPrintable(QStringLiteral("empty recognizer is not usable: %1").arg(c.whyNot)));
     }
+};
 
 QTEST_MAIN(TestCapabilityRegistry)
 #include "TestCapabilityRegistry.moc"
