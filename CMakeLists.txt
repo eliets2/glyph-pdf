@@ -600,6 +600,8 @@ add_library(pdfws_commands STATIC
     src/commands/ReorderPermutationCommand.cpp
     src/commands/CropPageCommand.h
     src/commands/CropPageCommand.cpp
+    src/commands/AutoDetectPlacement.h
+    src/commands/AutoDetectPlacement.cpp
 )
 target_include_directories(pdfws_commands PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src

@@ -8,6 +8,7 @@
 #include "ui/PdfViewerWidget.h"
 #include "core/interfaces/IFormManager.h"
 #include "commands/AddFormFieldCommand.h"
+#include "commands/AutoDetectPlacement.h"
 
 #include <QInputDialog>
 #include <QMessageBox>
@@ -111,35 +112,15 @@ void FormsController::autoDetectFields() {
         return;
     }
 
-    int count = 0;
-    int failed = 0;
-    for (const auto& s : suggestions) {
-        // R01 (F01): the add operation's result is checked — a failed save
-        // leaves the document untouched and must not be counted as placed.
-        AddFormFieldCommand::FieldType type = AddFormFieldCommand::FieldType::Text;
-        if (s.type == "Text") {
-            type = AddFormFieldCommand::FieldType::Text;
-        } else if (s.type == "Date") {
-            type = AddFormFieldCommand::FieldType::Date;
-        } else if (s.type == "Checkbox") {
-            type = AddFormFieldCommand::FieldType::Checkbox;
-        } else {
-            continue;
-        }
-        AddFormFieldCommand cmd(_ctx->forms.get(), _ctx->document.get(), type,
-                                viewer->currentPage(), s.rect, s.suggestedName);
-        cmd.redo();
-        if (cmd.succeeded()) count++;
-        else failed++;
-    }
-    if (failed > 0) {
-        _mainWindow->statusBar()->showMessage(
-            tr("Auto-detect (experimental): placed %1 suggested field(s); %2 could not be saved — document unchanged.")
-                .arg(count).arg(failed), 8000);
-    } else {
-        _mainWindow->statusBar()->showMessage(
-            tr("Auto-detect (experimental): placed %1 suggested field(s) for review — undo or adjust as needed.").arg(count), 8000);
-    }
+    // V06: the placement goes THROUGH the application undo stack as ONE
+    // compound command (AutoDetectPlacement), with honest placed/failed
+    // counts — the status message only promises what really happened.
+    const AutoDetectPlacement::Outcome outcome =
+        AutoDetectPlacement::apply(_ctx->forms.get(), _ctx->document.get(),
+                                   _ctx->undoStack.get(), suggestions,
+                                   viewer->currentPage());
+    _mainWindow->statusBar()->showMessage(
+        AutoDetectPlacement::statusMessage(outcome.placed, outcome.failed), 8000);
 }
 
 void FormsController::editTabOrder() {
