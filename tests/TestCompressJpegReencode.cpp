@@ -14,6 +14,14 @@
 //  3. adversarial/malformed image dicts (garbage JPEG bytes, missing /Width,
 //     /DeviceCMYK, /ImageMask) are skipped safely and optimizeDocument still
 //     succeeds.
+//
+// §9.13 P1 additions:
+//  4. unused-object removal: a fixture carrying an orphaned (unreferenced)
+//     /Page dictionary with a large stream — written with NoCollectGarbage so
+//     it survives into the fixture file — must be (a) reflected in a REAL
+//     estimateOptimization saving when options.removeUnusedObjects is set
+//     (zeroed before the sweep landed) and (b) physically gone after
+//     optimizeDocument, while referenced objects survive.
 #include <QtTest/QtTest>
 #include <QTemporaryDir>
 #include <QBuffer>
@@ -505,6 +513,130 @@ private slots:
         QCOMPARE(imgs.size(), 1);
         QVERIFY2(rawStream(*imgs[0].obj) == jpeg,
                  "targetDpi=0 must not re-encode or destroy the image (no 1x1 clamp)");
+    }
+
+    // ── §9.13 P1: unused-object removal ─────────────────────────────────────
+    // A fixture carrying an orphaned /Page dictionary (in the xref, referenced
+    // by nothing) plus a ~256 KiB stream, written with NoCollectGarbage so the
+    // orphan genuinely survives into the fixture bytes. The sweep must (a) make
+    // estimateOptimization report REAL savings for removeUnusedObjects — the
+    // R12-era estimate zeroed this pass — and (b) physically remove the orphan
+    // on optimizeDocument while every referenced object survives.
+    void unusedObjectSweepRemovesOrphans() {
+        constexpr int SMALL_W = 200, SMALL_H = 280;
+        QByteArray smallJpeg = encodeJpeg(makeNoiseImage(SMALL_W, SMALL_H, 13), 85);
+        QVERIFY2(!smallJpeg.isEmpty(), "test JPEG encode failed");
+
+        QString pdf = tmpPath("orphan.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            auto& page = doc.GetPages().CreatePage(
+                PoDoFo::PdfPageSize::A4);
+            embedJpeg(doc, page, smallJpeg, SMALL_W, SMALL_H); // referenced, must survive
+
+            // The orphan: a well-formed /Page dictionary with a marker key and
+            // a large pseudo-random (JPEG-hostile, ~incompressible) stream,
+            // never referenced by the page tree, annotations, or anywhere else.
+            PoDoFo::PdfObject& orphan = doc.GetObjects().CreateDictionaryObject("Page");
+            orphan.GetDictionary().AddKey("OrphanSweepMarker", PoDoFo::PdfVariant(true));
+            std::string junk(256 * 1024, '\0');
+            quint32 s = 99;
+            for (size_t i = 0; i < junk.size(); ++i) {
+                s = s * 1664525u + 1013904223u;
+                junk[i] = static_cast<char>((s >> 16) & 0xFF);
+            }
+            orphan.GetOrCreateStream().SetData(PoDoFo::charbuff(std::string_view(junk)));
+
+            // NoCollectGarbage: the orphan must reach the file for this test —
+            // a default Save() would sweep it before the fixture exists.
+            doc.Save(pdf.toUtf8().constData(), PoDoFo::PdfSaveOptions::NoCollectGarbage);
+        }
+        QVERIFY2(QFileInfo::exists(pdf), "source PDF must be written");
+
+        // Fixture sanity: the orphan really is in the loaded document.
+        qint64 orphanCount = 0;
+        {
+            PoDoFo::PdfMemDocument doc;
+            doc.Load(pdf.toUtf8().constData());
+            for (auto it = doc.GetObjects().begin(); it != doc.GetObjects().end(); ++it) {
+                PoDoFo::PdfObject* o = *it;
+                if (o->IsDictionary() && o->GetDictionary().FindKey("OrphanSweepMarker"))
+                    ++orphanCount;
+            }
+        }
+        QCOMPARE(orphanCount, qint64(1));
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+
+        // (a) The estimate must report real sweep savings when the option is on…
+        OptimizeEstimate estOn;
+        {
+            OptimizeOptions opts;
+            opts.downsampleImages = false;
+            opts.targetDpi = 150;
+            opts.jpegQuality = 75;
+            opts.deduplicateImages = false;
+            opts.subsetFonts = false;
+            opts.removeUnusedObjects = true;
+            opts.stripMetadata = false;
+            estOn = engine.estimateOptimization(opts);
+        }
+        QVERIFY2(estOn.originalBytes > 200 * 1024,
+                 qPrintable(QString("fixture too small for the orphan premise: %1 bytes")
+                     .arg(estOn.originalBytes)));
+        QVERIFY2(estOn.estimatedBytes <= estOn.originalBytes - 100 * 1024,
+                 qPrintable(QString("estimate must reflect the ~256 KiB orphaned stream for "
+                                    "removeUnusedObjects=true: original=%1 estimated=%2")
+                     .arg(estOn.originalBytes).arg(estOn.estimatedBytes)));
+
+        // …and must NOT claim sweep savings when the option is off.
+        OptimizeEstimate estOff;
+        {
+            OptimizeOptions opts;
+            opts.downsampleImages = false;
+            opts.targetDpi = 150;
+            opts.jpegQuality = 75;
+            opts.deduplicateImages = false;
+            opts.subsetFonts = false;
+            opts.removeUnusedObjects = false;
+            opts.stripMetadata = false;
+            estOff = engine.estimateOptimization(opts);
+        }
+        QVERIFY2(estOff.estimatedBytes == estOff.originalBytes,
+                 qPrintable(QString("estimate must not claim sweep savings for "
+                                    "removeUnusedObjects=false: original=%1 estimated=%2")
+                     .arg(estOff.originalBytes).arg(estOff.estimatedBytes)));
+
+        // (b) The write path must physically remove the orphan.
+        OptimizeOptions opts;
+        opts.downsampleImages = false;
+        opts.targetDpi = 150;
+        opts.jpegQuality = 75;
+        opts.deduplicateImages = false;
+        opts.subsetFonts = false;
+        opts.removeUnusedObjects = true;
+        opts.stripMetadata = false;
+        QString out = tmpPath("orphan_out.pdf");
+        QVERIFY2(engine.optimizeDocument(out, opts), "optimizeDocument must succeed");
+
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(out.toUtf8().constData());
+        QCOMPARE(doc.GetPages().GetCount(), 1u); // real page tree untouched
+        orphanCount = 0;
+        for (auto it = doc.GetObjects().begin(); it != doc.GetObjects().end(); ++it) {
+            PoDoFo::PdfObject* o = *it;
+            if (o->IsDictionary() && o->GetDictionary().FindKey("OrphanSweepMarker"))
+                ++orphanCount;
+        }
+        QCOMPARE(orphanCount, qint64(0));
+        auto imgs = findImages(doc, SMALL_W, SMALL_H);
+        QCOMPARE(imgs.size(), 1); // the referenced image survives the sweep
+        QVERIFY2(rawStream(*imgs[0].obj) == smallJpeg,
+                 "referenced image must survive the sweep byte-identical");
+        QVERIFY2(QFileInfo(out).size() < QFileInfo(pdf).size() - 100 * 1024,
+                 qPrintable(QString("output (%1) must be materially smaller than input (%2)")
+                     .arg(QFileInfo(out).size()).arg(QFileInfo(pdf).size())));
     }
 };
 

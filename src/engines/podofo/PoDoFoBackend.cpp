@@ -3818,6 +3818,57 @@ bool PoDoFoBackend::addImageWatermark(const ImageWatermarkOptions &options)
 
 // ── Optimization (Session 13) ──────────────────────────────────────────────
 
+// §9.13 P1: read-only reachability walk mirroring the mark phase of PoDoFo's
+// PdfIndirectObjectList::CollectGarbage — collect everything transitively
+// referenced from the trailer (/Root → page tree, /Contents, /Resources incl.
+// XObjects, /Annots, AcroForm, /StructTreeRoot, /Outlines, /Names — anything
+// reachable arrives here through the object graph). Returns the sum of RAW
+// (encoded) stream byte sizes over all UNREACHABLE objects: exactly the bytes
+// a garbage-collecting save drops from the output. Raw bytes match the image
+// accounting above — CopyTo(raw) cannot expand media filters and would throw
+// on JPEG payloads. An estimate must never mutate the document, so this does
+// NOT sweep; it only measures.
+static qint64 unreachableStreamBytes(PoDoFo::PdfMemDocument &doc)
+{
+    auto& objects = doc.GetObjects();
+    std::set<PoDoFo::PdfReference> reachable;
+    std::vector<PoDoFo::PdfObject*> stack;
+    stack.push_back(&doc.GetTrailer().GetObject());
+    while (!stack.empty()) {
+        PoDoFo::PdfObject* o = stack.back();
+        stack.pop_back();
+        if (o == nullptr) continue;
+        if (o->IsReference()) {
+            // Mark indirect targets once; cycles and shared objects terminate.
+            if (!reachable.insert(o->GetReference()).second) continue;
+            PoDoFo::PdfObject* target = objects.GetObject(o->GetReference());
+            if (target) stack.push_back(target);
+            continue;
+        }
+        if (o->IsDictionary()) {
+            for (auto& kv : o->GetDictionary())
+                stack.push_back(&kv.second);
+        } else if (o->IsArray()) {
+            for (auto& v : o->GetArray())
+                stack.push_back(&v);
+        }
+    }
+
+    qint64 garbage = 0;
+    for (auto obj : objects) {
+        if (reachable.find(obj->GetIndirectReference()) != reachable.end()) continue;
+        if (!obj->HasStream()) continue;
+        try {
+            PoDoFo::charbuff buf;
+            obj->GetOrCreateStream().CopyTo(buf, /*raw=*/true);
+            garbage += static_cast<qint64>(buf.size());
+        } catch (const PoDoFo::PdfError&) {
+            // Unreadable stream: claim nothing for it (conservative).
+        }
+    }
+    return garbage;
+}
+
 OptimizeEstimate PoDoFoBackend::estimateOptimization(const OptimizeOptions &options)
 {
     QMutexLocker locker(&d->mutex);
@@ -3900,13 +3951,30 @@ OptimizeEstimate PoDoFoBackend::estimateOptimization(const OptimizeOptions &opti
             // savings += est.fontCount * 15000;
         }
 
-        if (options.removeUnusedObjects) {
-            // §9.13 P0: unused-object removal does NOT run in the write path
-            // (optimizeDocument) yet — PoDoFo's save-time GC may drop
-            // unreferenced objects, but the estimate must not claim a fixed 5%
-            // that the write path does not guarantee. Zeroed out until the pass
-            // actually runs. (0 = no contribution)
-            // savings += est.originalBytes / 20; // ~5% from dead objects
+        if (options.removeUnusedObjects && est.originalBytes > 0) {
+            // §9.13 P1: the sweep is REAL now — optimizeDocument Phase 4 runs
+            // PoDoFo's trailer-rooted mark-and-sweep when this option is set —
+            // so the estimate reports measured garbage instead of the former
+            // fixed ~5% claim (which was zeroed out precisely because the
+            // write path did not implement the pass). Signed documents claim
+            // nothing: writeUpdate() appends an incremental revision there and
+            // the original bytes — garbage included — always remain on disk.
+            bool signedDoc = false;
+            try {
+                for (auto field : doc.GetFieldsIterator()) {
+                    if (field != nullptr &&
+                        field->GetType() == PoDoFo::PdfFieldType::Signature) {
+                        signedDoc = true;
+                        break;
+                    }
+                }
+            } catch (const PoDoFo::PdfError&) {
+                // Cannot determine — claim nothing (conservative).
+                signedDoc = true;
+            }
+            if (!signedDoc) {
+                savings += unreachableStreamBytes(doc);
+            }
         }
 
         est.estimatedBytes = qMax(est.originalBytes - savings, est.originalBytes / 10);
@@ -3963,6 +4031,22 @@ static QByteArray imageDictFingerprint(PoDoFo::PdfObject& obj, PoDoFo::PdfIndire
     // (pinned by TestDedupSMask::fingerprintingDoesNotMutateStreams) and the
     // amplification only matters for very large shared masks.
     return fp;
+}
+
+// §9.13 P1: the same signature-field inspection writeUpdate() performs. A
+// signed document must never get the unused-object sweep (ER-2 precedent).
+static bool documentHasSignatureFields(PoDoFo::PdfMemDocument &doc)
+{
+    try {
+        for (auto field : doc.GetFieldsIterator()) {
+            if (field != nullptr && field->GetType() == PoDoFo::PdfFieldType::Signature)
+                return true;
+        }
+    } catch (const PoDoFo::PdfError&) {
+        // Cannot determine — treat conservatively as signed (skip the sweep).
+        return true;
+    }
+    return false;
 }
 
 bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOptions &options)
@@ -4197,6 +4281,51 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
         // flow can no longer leave PII in attachments, actions, or XMP.
         if (options.stripMetadata) {
             sanitizeDocumentContents(doc);
+        }
+
+        // Phase 4 (§9.13 P1): unused-object removal — a REAL trailer-rooted
+        // mark-and-sweep. PoDoFo 1.1's PdfIndirectObjectList::CollectGarbage()
+        // computes the transitive closure of references from the trailer (page
+        // tree, /Contents, /Resources incl. XObjects, /Annots, AcroForm,
+        // /StructTreeRoot, /Outlines, /Names — everything reachable), then
+        // deletes the rest, garbage clusters included. Reused (rung 2) instead
+        // of hand-rolling the same walk. Gated behind options.removeUnusedObjects:
+        // the "Remove unused objects" checkbox now does real work.
+        // Guard ordering: signed documents skip the sweep ENTIRELY — writeUpdate()
+        // below appends an incremental revision whose /ByteRange windows cover
+        // the original bytes; deleting objects from a signed document's working
+        // set must not happen (the unsigned path's full save is unaffected).
+        if (options.removeUnusedObjects) {
+            if (documentHasSignatureFields(doc)) {
+                qDebug() << "optimizeDocument: signed document — unused-object sweep skipped";
+            } else {
+                // §9.13 P1 (crash safety): PdfMemDocument caches a PdfInfo
+                // wrapper over the trailer /Info object. When an earlier phase
+                // (strip metadata) removed the trailer /Info KEY, that object
+                // becomes unreachable and the sweep would delete it — leaving
+                // the cached wrapper dangling; Save() then updates /Info/ModDate
+                // through the stale wrapper and dereferences freed memory
+                // (observed SIGSEGV: PdfInfo::GetTitle → PdfDictionary::FindKey,
+                // caught by TestCompressStripSanitize). Re-anchor the object for
+                // the duration of the sweep; the anchor key is removed right
+                // after, so the written artifact is unchanged — PoDoFo's own
+                // save-time sweep drops the object AFTER its metadata update,
+                // the ordering it is written to tolerate.
+                bool infoReanchored = false;
+                auto& trailerDict = doc.GetTrailer().GetObject().GetDictionary();
+                const PoDoFo::PdfInfo* cachedInfo = doc.GetInfo();
+                if (cachedInfo != nullptr && !trailerDict.HasKey("Info")
+                    && cachedInfo->GetObject().IsIndirect()) {
+                    trailerDict.AddKey("Info", cachedInfo->GetObject().GetIndirectReference());
+                    infoReanchored = true;
+                }
+                const unsigned beforeSweep = objects.GetSize();
+                doc.CollectGarbage();
+                if (infoReanchored)
+                    trailerDict.RemoveKey("Info");
+                qDebug() << "optimizeDocument: unused-object sweep removed"
+                         << (beforeSweep - objects.GetSize()) << "object(s)";
+            }
         }
 
         if (!writeUpdate(outputPath)) throw std::runtime_error("writeUpdate failed");
