@@ -92,6 +92,13 @@ Dated corrections to stale historical claims (superseded by HEAD):
 | D06 | Capability probe reported RapidOCR Available on a zero-byte detector stub | implemented-awaiting-review — probeRapidModelsIn demands non-empty detector+recognizer+vocabulary, classifier optional/disclosed; applyToWidget reversibility; 3 dir-fixture tests | (this commit) |
 | D07 | Security redaction entry path defaulted sanitize OFF (contradicted the default-ON contract; Redact mode defaulted ON) | implemented-awaiting-review — shared kDefaultSanitizeOn policy seeded into both entry paths, static_assert guard | (this commit) |
 
+## Latest-review findings (LATEST-QUALITY-REVIEW-2026-09-07, N01–N10 at 0caa45e)
+
+| ID | Finding | Status | Commit |
+|----|---------|--------|--------|
+| N03 | PDF/A-3U (and L3B) wrote PDF 2.0; PDF/A-3 is PDF 1.7-based | implemented-awaiting-review — whole switch audited, version asserts added for 2B/2U/3B/3U | f9f3a95 |
+| N02 | Alphabetic page labels used spreadsheet scheme (28=ab); ISO 32000 Table 159 repeats the letter (28=bb) | implemented-awaiting-review — letters() corrected, tests re-pinned over review boundaries 1/25-28/52-54 | c764f73 |
+
 ## CODE-REVIEW-2026-09-06 findings (D01–D05, redaction + AI boundaries)
 
 | ID | Finding | Status | Commit |
