@@ -118,6 +118,15 @@ private slots:
     // ── Destination semantics ──────────────────────────────────────────────
     void existingDestinationIsReplacedOnSuccess();
 
+    // ── D05: the SANITIZED copy gets the same safe-replacement boundary ─────
+    // sanitizeCommittedFile (the transaction's Sanitizing stage AND the
+    // presenter's Retry-sanitize recovery) must sanitize into an
+    // operation-owned candidate and commit it through the checked QSaveFile
+    // boundary — never write/delete the destination directly.
+    void sanitizeStageFaultLeavesPreExistingSanitizedDestinationIntact();
+    void sanitizeCommitFaultLeavesExistingSanitizedDestinationByteIdentical();
+    void sanitizeReplacesExistingSanitizedDestinationOnSuccess();
+
     // ── SafeSave primitives (R01 extraction) ───────────────────────────────
     void safeSaveCandidatePathsAreUnique();
     void safeSaveCommitReplacesDestinationAndFaultLeavesItIntact();
@@ -406,7 +415,10 @@ void TestRedactTransaction::sanitizeFailureYieldsPartialRedactedOnly() {
     QCOMPARE(sha256(src), srcSha);
 
     // Retry-sanitize seam: re-runs ONLY the Sanitizing stage over the COMMITTED
-    // redacted file. The hidden data must be stripped from the result.
+    // redacted file (D05: through candidate + validation + checked commit).
+    // The injected fault was a one-shot condition of the first attempt — the
+    // real Retry runs without it, so clear the seam first.
+    RedactOperation::setFaultForTesting(RedactOperation::Fault::None);
     QString retryErr;
     QVERIFY2(RedactOperation::sanitizeCommittedFile(r.destination, sanitized, &retryErr),
              qPrintable(retryErr));
@@ -415,6 +427,113 @@ void TestRedactTransaction::sanitizeFailureYieldsPartialRedactedOnly() {
     auto& cat = out.GetCatalog().GetDictionary();
     QVERIFY(!cat.HasKey("OpenAction"));
     QVERIFY(!cat.HasKey("Metadata"));
+}
+
+// ── D05: safe replacement at the sanitize boundary ──────────────────────────
+// The sanitize pass is a SECOND output of the same transaction: replacing an
+// existing sanitized destination must keep the original bytes intact on every
+// failure and atomically replace them on success. (The redacted artifact and
+// the source document must survive every one of these failures untouched.)
+
+// Candidate-stage failure (Fault::Sanitize fires before any engine write):
+// the pre-existing sanitized destination is never touched.
+void TestRedactTransaction::sanitizeStageFaultLeavesPreExistingSanitizedDestinationIntact() {
+    const QString src = createPdf("sfadeault.pdf", 1, QStringLiteral("TOPSECRET_DATA"), /*risky=*/true);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QByteArray srcSha = sha256(src);
+    const QString dest = m_tmpDir.filePath("sfault_redacted.pdf");
+    const QString sanitized = m_tmpDir.filePath("sfault_redacted_sanitized.pdf");
+    const QByteArray preExisting = "PRE-EXISTING-SANITIZED-DESTINATION";
+    {
+        QFile d(sanitized); QVERIFY(d.open(QIODevice::WriteOnly)); d.write(preExisting);
+    }
+
+    RedactOperation::setFaultForTesting(RedactOperation::Fault::Sanitize);
+    RedactOperation op(makeRequest(src, dest, {0}, /*sanitize=*/true, sanitized));
+    const RedactResult r = runOp(&op);
+
+    QCOMPARE(r.outcome, RedactOutcome::PartialRedactedOnly);
+    // Every artifact boundary holds: redacted committed, sanitized destination
+    // byte-identical, source byte-identical.
+    QVERIFY(QFileInfo::exists(r.destination));
+    QCOMPARE(sha256(sanitized), QCryptographicHash::hash(preExisting, QCryptographicHash::Sha256));
+    QCOMPARE(sha256(src), srcSha);
+}
+
+// Commit-stage failure (injected at the exact QSaveFile::cancelWriting seam):
+// the pre-existing sanitized destination stays byte-identical (SHA-256).
+void TestRedactTransaction::sanitizeCommitFaultLeavesExistingSanitizedDestinationByteIdentical() {
+    const QString src = createPdf("sfcommit.pdf", 1, QStringLiteral("TOPSECRET_DATA"), /*risky=*/true);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QByteArray srcSha = sha256(src);
+    const QString dest = m_tmpDir.filePath("sfcommit_redacted.pdf");
+    const QString sanitized = m_tmpDir.filePath("sfcommit_redacted_sanitized.pdf");
+
+    // First run completes and produces the real sanitized copy.
+    RedactOperation op(makeRequest(src, dest, {0}, /*sanitize=*/true, sanitized));
+    const RedactResult r = runOp(&op);
+    QVERIFY2(r.outcome == RedactOutcome::Completed, qPrintable(errText(r)));
+
+    // Re-seed the destination with known bytes: it is now a PRE-EXISTING file
+    // that a second sanitize pass must replace atomically or not at all.
+    const QByteArray preExisting = "PRE-EXISTING-SANITIZED-DESTINATION-BYTES";
+    {
+        QFile d(sanitized); QVERIFY(d.open(QIODevice::WriteOnly)); d.resize(0); d.write(preExisting);
+    }
+    const QByteArray preSha = sha256(sanitized);
+    QVERIFY(!preSha.isEmpty());
+
+    // The commit fault fires inside SafeSave::commitFileToDestination AFTER
+    // the bounded copy — the exact path a real commit failure takes.
+    SafeSave::setCommitFaultForTesting(SafeSave::CommitFaultForTesting::FailBeforeCommit);
+    QString err;
+    const bool ok = RedactOperation::sanitizeCommittedFile(r.destination, sanitized, &err);
+    SafeSave::setCommitFaultForTesting(SafeSave::CommitFaultForTesting::None);
+    QVERIFY2(!ok, "injected sanitize-commit fault must fail the sanitize step");
+    QVERIFY2(err.contains(QLatin1String("commit")), qPrintable(err));
+
+    // The failed replacement left the existing destination byte-identical,
+    // and the committed redacted artifact (the sanitize input) is intact.
+    QCOMPARE(sha256(sanitized), preSha);
+    QVERIFY(QFileInfo::exists(r.destination));
+    QCOMPARE(sha256(src), srcSha);
+}
+
+// Success: an existing sanitized destination is replaced by the new sanitized
+// content — a valid PDF with the hidden data stripped, not a corrupt or stale file.
+void TestRedactTransaction::sanitizeReplacesExistingSanitizedDestinationOnSuccess() {
+    const QString src = createPdf("sfreplace.pdf", 1, QStringLiteral("TOPSECRET_DATA"), /*risky=*/true);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QString dest = m_tmpDir.filePath("sfreplace_redacted.pdf");
+    const QString sanitized = m_tmpDir.filePath("sfreplace_redacted_sanitized.pdf");
+
+    RedactOperation op(makeRequest(src, dest, {0}, /*sanitize=*/true, sanitized));
+    const RedactResult r = runOp(&op);
+    QVERIFY2(r.outcome == RedactOutcome::Completed, qPrintable(errText(r)));
+
+    // Stale content in the destination, then a full re-sanitize over it.
+    {
+        QFile d(sanitized); QVERIFY(d.open(QIODevice::WriteOnly)); d.resize(0);
+        d.write("STALE-SANITIZED-CONTENT");
+    }
+    QString err;
+    QVERIFY2(RedactOperation::sanitizeCommittedFile(r.destination, sanitized, &err),
+             qPrintable(err));
+
+    PoDoFo::PdfMemDocument out;
+    out.Load(sanitized.toUtf8().constData()); // throws on failure -> test aborts
+    QVERIFY2(QFile(sanitized).size() > 0, "replaced sanitized output must not be empty");
+    auto& cat = out.GetCatalog().GetDictionary();
+    QVERIFY(!cat.HasKey("OpenAction"));  // hidden data stripped by the new pass
+    QVERIFY(!cat.HasKey("Metadata"));
+    QByteArray replacedBytes;
+    {
+        QFile d(sanitized);
+        QVERIFY(d.open(QIODevice::ReadOnly));
+        replacedBytes = d.readAll();
+    }
+    QVERIFY2(!replacedBytes.contains("STALE-SANITIZED-CONTENT"),
+             "stale destination bytes must be gone after the atomic replacement");
 }
 
 void TestRedactTransaction::signedDocumentIsRefusedInPreflight() {
