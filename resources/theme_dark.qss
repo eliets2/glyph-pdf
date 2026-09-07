@@ -266,6 +266,73 @@ QToolButton[variant="screenNav"]:checked {
     border-bottom: 1px solid #ff8c42;
 }
 
+/* === U02 THEME PASS — task-nav surfaces ===
+   Collapsible ribbon chrome, the Tools chooser and the status-bar details
+   affordance. Same tokens as the sections above: bg1 #1e1f22, bg2 #2b2d30,
+   bg3 #34363b, line #393b40, lineStrong #4a4d52, fg0 #dfe1e5, fg1 #a8abb0,
+   accent #ff8c42. */
+QWidget#ribbonTabRow {
+    background: #2b2d30;                  /* bg2 — continuous with the tab bar */
+}
+QLabel#ribbonActiveTaskLabel {            /* active task while collapsed */
+    color: #ff8c42;                       /* accent — the one active indicator */
+    font-family: "JetBrains Mono";
+    font-size: 9.5px;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    padding: 0 8px;
+    background: transparent;
+}
+QToolButton#ribbonCollapseBtn {           /* the collapse chevron */
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    color: #a8abb0;                       /* fg1 */
+    padding: 0 6px;
+    min-width: 18px;
+    min-height: 30px;
+}
+QToolButton#ribbonCollapseBtn:hover {
+    background: #34363b;                  /* bg3 */
+    color: #dfe1e5;                       /* fg0 */
+}
+QToolButton#ribbonCollapseBtn:checked {   /* ribbon collapsed */
+    color: #ff8c42;                       /* accent */
+}
+QToolButton#modeStripTaskMenu {           /* the compact Tools chooser */
+    background: transparent;
+    border: 1px solid transparent;
+    color: #a8abb0;                       /* fg1 */
+    font-weight: 600;
+    padding: 0 10px;
+    min-height: 22px;
+}
+QToolButton#modeStripTaskMenu:hover {
+    background: #34363b;                  /* bg3 */
+    border-color: #4a4d52;                /* lineStrong */
+    color: #dfe1e5;                       /* fg0 */
+}
+QToolButton#statusDetails {               /* details affordance on the slim bar */
+    background: transparent;
+    border: 0;
+    color: #a8abb0;                       /* fg1 */
+    padding: 0 8px;
+    min-height: 24px;
+}
+QToolButton#statusDetails:hover {
+    background: #34363b;                  /* bg3 */
+    color: #dfe1e5;                       /* fg0 */
+}
+QMenu#statusDetailsMenu {                 /* DocumentFacts popup */
+    background: #1e1f22;                  /* bg1 */
+    border: 1px solid #4a4d52;            /* lineStrong */
+    padding: 6px;
+}
+QLabel#statusDetailsLabel {               /* the live facts text */
+    color: #dfe1e5;                       /* fg0 — popup text reads over the menu bg */
+    background: transparent;
+}
+
 /* === SIDE PANELS === */
 QFrame#leftSidebar,
 QFrame#rightSidebar {
