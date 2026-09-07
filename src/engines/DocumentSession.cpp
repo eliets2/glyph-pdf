@@ -22,9 +22,18 @@ void DocumentSession::setPath(const QString &path) {
 }
 
 void DocumentSession::markReload() {
+    // V05: every markReload() is a successful mutation/reload boundary (the
+    // mutate-commands call it on redo AND undo) — the document's content
+    // identity changes even when path and page count do not. Advances
+    // unconditionally: two successive reloads are two distinct contents.
+    ++m_mutationRevision;
     m_dirty = true;
     emit dirtyChanged(m_dirty);
     emit reloadRequested();
+}
+
+qint64 DocumentSession::mutationRevision() const {
+    return m_mutationRevision;
 }
 
 bool DocumentSession::isDirty() const {
@@ -39,6 +48,9 @@ void DocumentSession::setClean() {
 }
 
 void DocumentSession::markDirty() {
+    // V05: advances UNCONDITIONALLY — outside the dirty guard — because a
+    // second edit while already dirty is still a new content mutation.
+    ++m_mutationRevision;
     if (!m_dirty) {
         m_dirty = true;
         emit dirtyChanged(m_dirty);

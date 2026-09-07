@@ -38,6 +38,13 @@ struct OcrReviewSession {
     QString sourcePath;              // source-document identity
     int     sourcePage      = -1;    // 0-based page the words were recognized on
     int     sourcePageCount = -1;    // cheap revision proxy (page insert/delete)
+    // V05: the DocumentSession::mutationRevision() captured when the page
+    // snapshot was rendered. Completion and export re-validate against the
+    // live session so an in-place mutation (page replace/reorder, text edit,
+    // redaction — all preserve path and page count) rejects the stale review.
+    // -1 = unknown (sessions built before revision capture; only the
+    // path+count proxies apply).
+    qint64  sourceRevision  = -1;
     QImage  pageImage;               // image the words were recognized from;
                                      // word boxes are in this image's pixel space
     QList<OcrReviewedWord> words;
