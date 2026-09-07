@@ -809,18 +809,42 @@ bool PoDoFoBackend::deleteObjectAt(int pageIndex, const QPointF &pos) {
 namespace {
 
 double getEncodedStringWidth(const PoDoFo::PdfFont* font, const PoDoFo::PdfString& str, const PoDoFo::PdfTextState& state) {
+    // E-1 (evidence ledger 2026-09-05): PdfString::GetString() forces PoDoFo's
+    // lazy string evaluation IN PLACE — the raw byte buffer is consumed
+    // (PoDoFo: "The raw data buffer has been evaluated to a string") and
+    // replaced with a PdfDocEncoding/UTF-8 transcoding that is NOT
+    // byte-preserving for glyph-encoded payloads (subset-font Tj strings:
+    // observed glyph byte 0x16 'T' -> 0x17 'X', i.e. 'PUBLIC_KEEP_TEXT' ->
+    // 'PUBLIC_KEEP_XEXX'). This helper runs for EVERY text-showing operator in
+    // the canvas (to advance the pen and test the redaction rect), so
+    // evaluating the CALLER'S operand mutated every neighboring Tj that shares
+    // the content stream: the operand re-emission at the bottom of
+    // redactCanvasRecursively serializes via ToString(), which for an evaluated
+    // string writes the transcoded form instead of the original bytes — the
+    // excision corrupted lines that intersect NO redaction rect.
+    // Fix: evaluate a DEEP copy. NOTE: PdfString's copy constructor is NOT
+    // sufficient — PdfString stores its buffer in a std::shared_ptr<StringData>
+    // (copy-on-write), so a plain copy shares the state and evaluating it still
+    // consumes the caller's raw bytes (proven by probe: shallow-copy evaluation
+    // flips the original to evaluated and its ToString() emits the transcoded
+    // form). FromRaw(GetRawData()) allocates an independent buffer: the width
+    // numbers are identical (same bytes through the same font calls), but the
+    // variant in the PdfVariantStack stays raw, so un-redacted operators
+    // re-emit byte-exact.
     if (str.IsStringEvaluated()) {
+        // Already evaluated (raw buffer consumed) — nothing left to protect.
         return font->GetStringLength(str.GetString(), state);
     }
+    PoDoFo::PdfString safe = PoDoFo::PdfString::FromRaw(str.GetRawData(), str.IsHex());
     try {
         double len = 0.0;
-        if (font->TryGetEncodedStringLength(str, state, len)) {
+        if (font->TryGetEncodedStringLength(safe, state, len)) {
             return len;
         }
     } catch (...) {
         // Fallback
     }
-    return font->GetStringLength(str.GetString(), state);
+    return font->GetStringLength(safe.GetString(), state);
 }
 
 void cleanStructElement(PoDoFo::PdfObject* elem,
