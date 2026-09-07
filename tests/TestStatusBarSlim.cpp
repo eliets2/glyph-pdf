@@ -16,14 +16,26 @@
 //      struct — the popup content is exactly detailsText().
 //   5. PDF version parsing upgrades from "PDF --" only when a real %PDF-
 //      header exists.
+//   6. U02 theme pass: the new surfaces consume the GpTheme tokens through
+//      the app's real mechanism (Theme::setMode + the mode's QSS resource —
+//      exactly what MainWindow::applyTheme loads). Pinned by sampling flat,
+//      text-free pixels of the themed widgets and comparing them to the
+//      GpTheme token value for the mode.
 #include <QtTest>
+#include <QApplication>
+#include <QDir>
+#include <QFile>
+#include <QImage>
 #include <QLabel>
 #include <QMenu>
 #include <QSpinBox>
 #include <QTemporaryDir>
 #include <QToolButton>
 
+#include "shell/Ribbon.h"
+#include "shell/ScreenNav.h"
 #include "shell/StatusBar.h"
+#include "util/GpTheme.h"
 
 using namespace gp;
 
@@ -37,6 +49,30 @@ public:
 
 QLabel* findLabel(const QWidget* w, const QString& objectName) {
     return w->findChild<QLabel*>(objectName);
+}
+
+// The theme QSS resources are compiled into the app executable only
+// (resources.qrc is a PdfWorkstation source), so a test binary resolves the
+// sheet from the source tree — the same file Theme::sheetForMode() names and
+// MainWindow::applyTheme() loads.
+bool loadThemeSheet(Theme::Mode mode, QString* out) {
+    const QString resourcePath = Theme::sheetForMode(mode);   // ":/resources/theme_X.qss"
+    if (QFile::exists(resourcePath)) {
+        QFile f(resourcePath);
+        if (f.open(QIODevice::ReadOnly)) {
+            *out = QString::fromUtf8(f.readAll());
+            return true;
+        }
+    }
+    const QString rel = resourcePath.mid(2);                  // "resources/theme_X.qss"
+    const QString fromBuildDir = QDir(QCoreApplication::applicationDirPath())
+                                     .filePath(QStringLiteral("../") + rel);
+    QFile f(fromBuildDir);
+    if (f.open(QIODevice::ReadOnly)) {
+        *out = QString::fromUtf8(f.readAll());
+        return true;
+    }
+    return false;
 }
 } // namespace
 
@@ -53,6 +89,7 @@ private slots:
     void factsReflectNavAndDocument();
     void detailsTextCarriesTheFacts();
     void detailsPopupShowsDetailsText();
+    void u02SurfacesConsumeGpThemeTokens();
 };
 
 void TestStatusBarSlim::emptyStateHasNoPage000()
@@ -218,6 +255,99 @@ void TestStatusBarSlim::detailsPopupShowsDetailsText()
 
     if (auto* menu = bar.findChild<QMenu*>())
         menu->close();
+}
+
+void TestStatusBarSlim::u02SurfacesConsumeGpThemeTokens()
+{
+    // Declared LAST so the app-wide stylesheet swap cannot leak into the
+    // slots above. For each of the three modes: switch GpTheme and load the
+    // mode's QSS resource through the production mechanism (the exact two
+    // steps of MainWindow::applyTheme), then verify the U02 surfaces actually
+    // CONSUME the tokens — a flat, text-free pixel of the themed widget must
+    // equal the GpTheme token value for that mode. Sampling points are chosen
+    // inside padding zones (never over glyphs) so no font/antialiasing
+    // variance can flake the comparison.
+    const QVector<Theme::Mode> modes = {
+        Theme::Dark, Theme::Light, Theme::HighContrast,
+    };
+
+    for (const Theme::Mode mode : modes) {
+        Theme::setMode(mode);
+        QString sheetText;
+        QVERIFY2(loadThemeSheet(mode, &sheetText),
+                 qPrintable(QStringLiteral("cannot load theme sheet for mode %1").arg(int(mode))));
+        qApp->setStyleSheet(sheetText);
+
+        // ── Ribbon collapsed: the tab row (#ribbonTabRow) carries the
+        //    collapsed state, so the transparent active-task label shows the
+        //    tab-row token (bg2) — NOT the base QWidget background (bg1).
+        //    Without the theme-pass rule this is bg1 in all three modes and
+        //    the comparison fails.
+        {
+            Ribbon ribbon;
+            ribbon.resize(900, 200);
+            ribbon.show();
+            QVERIFY(QTest::qWaitForWindowExposed(&ribbon));
+            QApplication::processEvents();
+            ribbon.setCollapsed(true);
+            QApplication::processEvents();
+
+            auto* tabRow = ribbon.findChild<QWidget*>(QStringLiteral("ribbonTabRow"));
+            auto* label  = ribbon.findChild<QLabel*>(QStringLiteral("ribbonActiveTaskLabel"));
+            QVERIFY(tabRow != nullptr);
+            QVERIFY(label != nullptr);
+            QVERIFY(label->isVisible());
+            QVERIFY(label->width() > 4);
+
+            const QPoint p = tabRow->geometry().topLeft() + label->geometry().topLeft()
+                             + QPoint(3, label->height() / 2);   // left padding zone — no glyphs
+            const QColor px = ribbon.grab().toImage().pixelColor(p);
+            QCOMPARE(px, Theme::bg2());
+
+            ribbon.setCollapsed(false);
+        }
+
+        // ── ScreenNav: the TaskStateSync active state (checked item) must
+        //    consume the theme token (bg2), not the unstyled base.
+        {
+            ScreenNav nav;
+            nav.resize(900, 26);
+            nav.show();
+            QVERIFY(QTest::qWaitForWindowExposed(&nav));
+            QApplication::processEvents();
+
+            nav.setActive(QStringLiteral("ocr"));
+            auto* btn = nav.findChild<QToolButton*>(QStringLiteral("screenNav_ocr"));
+            QVERIFY(btn != nullptr);
+            QVERIFY(btn->isChecked());
+
+            const QPoint p = btn->geometry().topLeft() + QPoint(3, 3);   // padding zone
+            const QColor px = nav.grab().toImage().pixelColor(p);
+            QCOMPARE(px, Theme::bg2());
+        }
+
+        // ── Details popup: the DocumentFacts menu surface must consume bg1.
+        {
+            TestBar bar;
+            bar.show();
+            QVERIFY(QTest::qWaitForWindowExposed(&bar));
+
+            bar.showDetailsPopup();
+            auto* menu = bar.findChild<QMenu*>();
+            QVERIFY(menu != nullptr);
+            QApplication::processEvents();
+
+            const QImage img = menu->grab().toImage();
+            QVERIFY(img.width() > 12 && img.height() > 12);
+            const QPoint p(img.width() / 2, img.height() - 5);   // bottom padding band
+            QCOMPARE(img.pixelColor(p), Theme::bg1());
+
+            menu->close();
+        }
+    }
+
+    qApp->setStyleSheet(QString());
+    Theme::setMode(Theme::Dark);
 }
 
 QTEST_MAIN(TestStatusBarSlim)
