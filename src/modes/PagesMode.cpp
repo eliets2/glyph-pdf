@@ -15,18 +15,24 @@
  * current-page restore across undo-triggered reloads.
  *
  * Split implementation strategy (no splitDocument() on engine):
- *   For each output part (a QList<int> of 0-based page indices):
- *     1. Write a minimal valid PDF stub to the output path.
- *     2. Loop extractPageAsBytes(sourcePath, pageIdx) for each index in the part.
- *     3. Call insertPageFromBytes(outputPath, insertionIndex, pageBytes) to append.
- *     4. After all insertions, delete the stub page 0 via deletePage(outputPath, 0).
- *   This avoids needing a splitDocument() engine method.
+ *   N09: page extraction stays on the user's resident source engine (unsaved
+ *   in-memory state included). Each extracted page is a complete one-page
+ *   PDF written by the library (correct xref); the part is assembled from
+ *   those documents by gp::writeDocumentFromPages (mergeDocuments idiom —
+ *   one fresh destination document, one Save) into a SafeSave candidate,
+ *   validated by reopening it with an operation-owned engine, and committed
+ *   atomically. The user's editor is never pointed at an output path (its
+ *   backend refuses cross-path mutations while a document is resident), and
+ *   an existing destination survives every failure byte-identical.
  *
  * CONSTRAINT: Never name a local QLayout* variable `tr` (shadows QObject::tr()).
  */
 #include "PagesMode.h"
 #include "core/AppContext.h"
 #include "engines/DocumentSession.h"
+#include "engines/PdfEditorEngine.h"
+#include "engines/SafeSave.h"
+#include "engines/podofo/PdfPageOps.h"
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "engines/BackendRouter.h"
 #include "commands/ReorderPermutationCommand.h"
@@ -77,13 +83,23 @@ PagesMode::~PagesMode()
     cancelThumbnailRenders();
 }
 
+namespace {
+// N09: default destination-engine factory — a fresh, disposable
+// PdfEditorEngine per part, never the user's live editor instance
+// (RedactOperation::defaultEngineFactory precedent).
+std::shared_ptr<IPdfEditorEngine> defaultSplitDestinationEngine()
+{
+    return std::make_shared<PdfEditorEngine>();
+}
+} // namespace
+
 // ── Static helpers ────────────────────────────────────────────────────────────
 
 /**
- * Write a minimal valid one-page PDF so that insertPageFromBytes can operate on
- * an existing file at the given path.  The page is a 612×792 blank page (letter).
- * After building the real content with insertPageFromBytes, this stub page is
- * removed via deletePage(path, 0).
+ * Write a minimal valid one-page PDF (612×792 blank letter page) at the given
+ * path. N09: no longer used by executeSplit (parts are now seeded from a
+ * library-written extracted page — correct xref by construction); kept as the
+ * test-harness fixture writer (TestPagesMode::writeStubPdf idiom).
  */
 bool PagesMode::writeMinimalPdf(const QString& path)
 {
@@ -314,6 +330,8 @@ private:
 
 PagesMode::PagesMode(QWidget* parent) : QWidget(parent)
 {
+    m_splitEngineFactory = &defaultSplitDestinationEngine;
+
     auto* mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);
     mainLayout->setSpacing(0);
@@ -939,6 +957,54 @@ QString PagesMode::makeOutputName(const QString& pattern, const QString& stem, i
     return name;
 }
 
+QStringList PagesMode::makeOutputPaths(const QString& pattern, const QString& stem,
+                                       const QString& outputDir, int groupCount,
+                                       const QString& sourcePath) const
+{
+    QStringList paths;
+    QSet<QString> taken;
+    // The open source must never be a split output (pattern "{stem}.pdf" in
+    // the source directory would otherwise clobber the loaded document).
+    if (!sourcePath.isEmpty())
+        taken.insert(QFileInfo(sourcePath).absoluteFilePath());
+
+    for (int i = 0; i < groupCount; ++i) {
+        QString name = makeOutputName(pattern, stem, i + 1);
+        // N09 preflight: `makeOutputName` only replaces {n} if present, so a
+        // pattern without the numbering token generates the SAME name for
+        // every group and the parts would silently overwrite each other.
+        // Derive a unique numbered name before anything is written; the
+        // preview (which consumes this same helper) reflects the final names.
+        if (taken.contains(QFileInfo(outputDir + "/" + name).absoluteFilePath())) {
+            const QFileInfo info(name);
+            const QString base = info.completeBaseName();
+            const QString suffix =
+                info.suffix().isEmpty() ? QStringLiteral("pdf") : info.suffix();
+            QString derived = QStringLiteral("%1_part%2.%3")
+                                  .arg(base, QString::number(i + 1), suffix);
+            QString candidate = outputDir + "/" + derived;
+            for (int disambiguator = 1;
+                 taken.contains(QFileInfo(candidate).absoluteFilePath());) {
+                ++disambiguator;
+                derived = QStringLiteral("%1_part%2_%3.%4")
+                              .arg(base, QString::number(i + 1),
+                                   QString::number(disambiguator), suffix);
+                candidate = outputDir + "/" + derived;
+            }
+            name = derived;
+        }
+        const QString finalPath = outputDir + "/" + name;
+        paths.append(finalPath);
+        taken.insert(QFileInfo(finalPath).absoluteFilePath());
+    }
+    return paths;
+}
+
+void PagesMode::setSplitEngineFactory(SplitEngineFactory factory)
+{
+    m_splitEngineFactory = std::move(factory);
+}
+
 void PagesMode::onPreviewSplit()
 {
     m_previewList->clear();
@@ -961,11 +1027,15 @@ void PagesMode::onPreviewSplit()
         return;
     }
 
+    // N09: the preview shows the FINAL paths — the same derivation the
+    // execution uses (makeOutputPaths disambiguates patterns without {n} and
+    // source collisions), so the list never promises a name the split will
+    // not write.
+    const QStringList outputPaths =
+        makeOutputPaths(pattern, stem, outDir, groups.size(), sourcePath);
     for (int i = 0; i < groups.size(); ++i) {
-        const QString name = makeOutputName(pattern, stem, i + 1);
-        const QString fullPath = outDir + "/" + name;
         const QString pageInfo = PagesMode::tr("%1 page(s)").arg(groups[i].size());
-        m_previewList->addItem(QString("%1  [%2]").arg(fullPath, pageInfo));
+        m_previewList->addItem(QString("%1  [%2]").arg(outputPaths[i], pageInfo));
     }
 }
 
@@ -998,11 +1068,10 @@ void PagesMode::onSplit()
         : m_outDirEdit->text().trimmed();
     const QString pattern = m_namingEdit->text().trimmed();
 
-    // Build output paths and check for overwrites
-    QStringList outputPaths;
-    for (int i = 0; i < groups.size(); ++i) {
-        outputPaths.append(outDir + "/" + makeOutputName(pattern, stem, i + 1));
-    }
+    // Build output paths (shared with the preview + execution derivation) and
+    // check for overwrites
+    const QStringList outputPaths =
+        makeOutputPaths(pattern, stem, outDir, groups.size(), sourcePath);
 
     // Overwrite confirmation: collect existing files and ask once
     QStringList existingFiles;
@@ -1043,6 +1112,11 @@ QStringList PagesMode::executeSplit(const QString& sourcePath,
     if (!m_ctx || !m_ctx->pdfEditor || groups.isEmpty()) return produced;
 
     const QString stem = QFileInfo(sourcePath).completeBaseName();
+    // N09: same derivation as the preview — patterns without a numbering
+    // token and source collisions are disambiguated before anything is
+    // written.
+    const QStringList outputPaths =
+        makeOutputPaths(stemPattern, stem, outputDir, groups.size(), sourcePath);
 
     auto* progress = new QProgressDialog(
         PagesMode::tr("Splitting document…"), PagesMode::tr("Cancel"),
@@ -1055,45 +1129,85 @@ QStringList PagesMode::executeSplit(const QString& sourcePath,
         progress->setValue(gi);
 
         const QList<int>& pages = groups[gi];
-        const QString outName   = makeOutputName(stemPattern, stem, gi + 1);
-        const QString outPath   = outputDir + "/" + outName;
+        const QString outPath   = outputPaths[gi];
 
-        // Step 1: Create a minimal stub PDF as the output file
-        if (!writeMinimalPdf(outPath)) {
-            qWarning("PagesMode::executeSplit: cannot create stub at %s",
-                     qPrintable(outPath));
-            continue;
-        }
-
-        // Step 2: Insert each source page into the output document.
-        // The stub already has 1 blank page at index 0.
-        // We insert source pages starting at index 0 (pushing stub page to the end),
-        // so insertionIndex for page[k] = k.
-        bool partOk = true;
+        // N09: extraction stays on the user's SOURCE engine — the resident
+        // document (including unsaved in-memory state) is authoritative, and
+        // each extracted page is itself a complete one-page PDF written by
+        // the library (correct xref — no hand-built stub, no parser
+        // recovery, no stub page to delete).
+        QList<QByteArray> pageDocuments;
+        pageDocuments.reserve(pages.size());
+        bool extractOk = true;
         for (int k = 0; k < pages.size(); ++k) {
             const QByteArray pageBytes =
                 m_ctx->pdfEditor->extractPageAsBytes(sourcePath, pages[k]);
             if (pageBytes.isEmpty()) {
                 qWarning("PagesMode::executeSplit: extractPageAsBytes failed for page %d",
                          pages[k]);
-                partOk = false;
+                extractOk = false;
                 break;
             }
-            if (!m_ctx->pdfEditor->insertPageFromBytes(outPath, k, pageBytes)) {
-                qWarning("PagesMode::executeSplit: insertPageFromBytes failed at index %d",
-                         k);
-                partOk = false;
-                break;
-            }
+            pageDocuments.append(pageBytes);
         }
+        if (!extractOk) continue;
 
-        if (!partOk) {
-            QFile::remove(outPath);
+        // Build the whole part into a SafeSave candidate via the file-level
+        // page-op seam (mergeDocuments idiom: one fresh destination document,
+        // eager page copies, ONE library Save). The user's source editor is
+        // never pointed at an output path — its backend refuses cross-path
+        // mutations while a document is resident (AR-4 D2 guard) — and an
+        // existing destination is only replaced by the atomic commit below,
+        // so a failure anywhere before it leaves the old file byte-identical.
+        QString candidate;
+        QString candidateErr;
+        if (!gp::SafeSave::makeUniqueCandidate(&candidate, &candidateErr)) {
+            qWarning("PagesMode::executeSplit: %s", qPrintable(candidateErr));
+            continue;
+        }
+        if (!gp::writeDocumentFromPages(pageDocuments, candidate)) {
+            qWarning("PagesMode::executeSplit: part assembly failed for %s",
+                     qPrintable(outPath));
+            QFile::remove(candidate);
             continue;
         }
 
-        // Step 3: Delete the stub page (it is now the last page at index pages.size()).
-        m_ctx->pdfEditor->deletePage(outPath, pages.size());
+        // A FRESH operation-owned engine per part validates the FINISHED
+        // candidate by reopening it from disk (part N-1's candidate must
+        // never be resident while part N is built). Read-only: the resident
+        // document is never saved back onto the file it was loaded from.
+        std::shared_ptr<IPdfEditorEngine> destination =
+            m_splitEngineFactory ? m_splitEngineFactory() : nullptr;
+        if (!destination || !destination->loadDocumentForEditing(candidate)) {
+            qWarning("PagesMode::executeSplit: destination engine cannot load candidate for %s",
+                     qPrintable(outPath));
+            QFile::remove(candidate);
+            continue;
+        }
+
+        // Validate the candidate: exactly pages.size() pages
+        // (extractPageAsBytes answers non-empty exactly for valid indices).
+        const bool partOk =
+            !destination->extractPageAsBytes(candidate, pages.size() - 1).isEmpty()
+            &&  destination->extractPageAsBytes(candidate, pages.size()).isEmpty();
+        if (!partOk) {
+            qWarning("PagesMode::executeSplit: candidate validation failed for %s",
+                     qPrintable(outPath));
+            QFile::remove(candidate);
+            continue;
+        }
+
+        // Commit through the existing safe-save boundary: the validated
+        // candidate atomically replaces the destination; a failed commit
+        // leaves an existing output byte-identical.
+        QString commitErr;
+        if (!gp::SafeSave::commitFileToDestination(candidate, outPath, &commitErr)) {
+            qWarning("PagesMode::executeSplit: commit to %s failed: %s",
+                     qPrintable(outPath), qPrintable(commitErr));
+            QFile::remove(candidate);
+            continue;
+        }
+        QFile::remove(candidate); // committed bytes were copied; drop the candidate
 
         produced.append(outPath);
     }

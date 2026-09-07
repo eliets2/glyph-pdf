@@ -4,6 +4,7 @@
 #include <QList>
 #include <QFutureWatcher>
 #include <QImage>
+#include <functional>
 #include <memory>
 
 struct AppContext;
@@ -15,6 +16,7 @@ class QListWidgetItem;
 class QRadioButton;
 class QComboBox;
 class IPdfRenderer;
+class IPdfEditorEngine;
 class QMenu;
 class QUndoCommand;
 
@@ -50,11 +52,26 @@ public:
     // claim (factual: all of these features run in-process on this machine).
     static QString localFirstClaim();
 
+    // N09 test/production seam: compute the split groups from the current
+    // form state (pure read). Public so the real execution path can be driven
+    // end-to-end (computeSplitGroups → executeSplit) without poking widgets.
+    QList<QList<int>> computeSplitGroups() const;
+
     // Execute split without UI: returns paths of produced files.
     QStringList executeSplit(const QString& sourcePath,
                              const QList<QList<int>>& groups,
                              const QString& outputDir,
                              const QString& stemPattern);
+
+    // N09: split parts are WRITTEN through operation-owned destination
+    // engines — never the user's resident source editor (the backend's
+    // anti-divergence guard, PoDoFoBackend::resolveDocument, refuses
+    // cross-path mutations while a document is loaded, and switching the
+    // user's editor to each output path would drop its unsaved state).
+    // RedactOperation precedent: the default factory creates a fresh
+    // PdfEditorEngine per part; tests may inject a different factory.
+    using SplitEngineFactory = std::function<std::shared_ptr<IPdfEditorEngine>()>;
+    void setSplitEngineFactory(SplitEngineFactory factory);
 
     // Write a minimal valid one-page PDF stub (used by executeSplit + tests).
     static bool writeMinimalPdf(const QString& path);
@@ -93,9 +110,15 @@ private:
     void buildReorderPanel(QWidget* host);
 
     // Compute split groups from current form state.
-    QList<QList<int>> computeSplitGroups() const;
-    // Build output filename for part n (1-based) from pattern and stem.
+    // (N09: public test seam — see the comment in the public section above.)
     QString makeOutputName(const QString& pattern, const QString& stem, int part) const;
+    // N09: single source of truth for the final output paths, shared by the
+    // preview and the execution — a pattern without a {n} token (or a name
+    // that would land on the open source itself) is disambiguated BEFORE any
+    // bytes are written and the preview shows the same final names.
+    QStringList makeOutputPaths(const QString& pattern, const QString& stem,
+                                const QString& outputDir, int groupCount,
+                                const QString& sourcePath) const;
     // Page list (D1)
     QListWidget*  m_pageList    = nullptr;
     QLabel*       m_pageCountLabel = nullptr;
@@ -148,6 +171,10 @@ private:
     void scheduleUndoRefresh();
 
     const AppContext* m_ctx = nullptr;
+
+    // N09: operation-owned destination engines for split parts (default:
+    // a fresh PdfEditorEngine per part; tests may inject a factory).
+    SplitEngineFactory m_splitEngineFactory;
 
     // AR-7 D2: worker for the page-count binary-search (avoids blocking the GUI thread).
     QFutureWatcher<int>* m_pageCountWatcher{nullptr};
