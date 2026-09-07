@@ -83,7 +83,7 @@ RedactMode::RedactMode(QWidget* parent) : QWidget(parent) {
     // same sanitizeDocument() pass as Security ▸ Sanitize Document.
     m_chkSanitizeCopy = new QCheckBox(tr("Sanitize copy (metadata, attachments, JS)"));
     m_chkSanitizeCopy->setObjectName(QStringLiteral("redactChkSanitizeCopy"));
-    m_chkSanitizeCopy->setChecked(true);
+    m_chkSanitizeCopy->setChecked(kDefaultSanitizeOn); // shared initial policy (D07)
     m_chkSanitizeCopy->setToolTip(tr(
         "Runs the full hidden-data scrub on the saved copy: document metadata, "
         "XMP, attachments, JavaScript actions, bookmarks and form values."));

@@ -382,5 +382,58 @@ private slots:
     }
 };
 
+    // ── D06: probeRapidModelsIn demands a REAL model set ────────────────────
+    void rapidModelsProbeRejectsFilenameOnly() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        // Zero-byte detector stub — the exact D06 repro (filename present).
+        QFile det(dir.filePath(QStringLiteral("PP-OCRv5_mobile_det_infer.onnx")));
+        QVERIFY(det.open(QIODevice::WriteOnly));
+        det.close();
+        auto c = gp::CapabilityRegistry::probeRapidModelsIn(dir.path());
+        QCOMPARE(c.status, gp::Availability::UnavailableRuntime);
+        QVERIFY2(c.whyNot.contains(QStringLiteral("recognizer")),
+                 qPrintable(QStringLiteral("must name the missing recognizer: %1").arg(c.whyNot)));
+    }
+
+    void rapidModelsProbeFullSetIsAvailableWithoutClassifier() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const char* mandatory[] = {
+            "PP-OCRv5_mobile_det_infer.onnx",
+            "PP-OCRv5_mobile_rec_infer.onnx",
+            "ppocrv5_rec_dict.txt",
+        };
+        for (const char* name : mandatory) {
+            QFile f(dir.filePath(QString::fromLatin1(name)));
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("payload");
+            f.close();
+        }
+        auto c = gp::CapabilityRegistry::probeRapidModelsIn(dir.path());
+        QCOMPARE(c.status, gp::Availability::Available); // classifier is OPTIONAL
+        QVERIFY2(c.detail.contains(QStringLiteral("classifier")),
+                 qPrintable(QStringLiteral("optional-classifier absence must be disclosed: %1").arg(c.detail)));
+    }
+
+    void rapidModelsProbeEmptyOrUnreadableFilesAreRejected() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        for (const char* name : { "PP-OCRv5_mobile_det_infer.onnx",
+                                  "PP-OCRv5_mobile_rec_infer.onnx" }) {
+            QFile f(dir.filePath(QString::fromLatin1(name))); // zero bytes
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.close();
+        }
+        QFile dict(dir.filePath(QStringLiteral("ppocrv5_rec_dict.txt")));
+        QVERIFY(dict.open(QIODevice::WriteOnly));
+        dict.write("vocab");
+        dict.close();
+        auto c = gp::CapabilityRegistry::probeRapidModelsIn(dir.path());
+        QCOMPARE(c.status, gp::Availability::UnavailableRuntime);
+        QVERIFY2(c.whyNot.contains(QStringLiteral("recognizer")),
+                 qPrintable(QStringLiteral("empty recognizer is not usable: %1").arg(c.whyNot)));
+    }
+
 QTEST_MAIN(TestCapabilityRegistry)
 #include "TestCapabilityRegistry.moc"

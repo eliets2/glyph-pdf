@@ -173,9 +173,20 @@ void CapabilityRegistry::applyToWidget(QWidget* w, CapId id, const QVariant& par
     if (!w)
         return;
     const Capability c = query(id, param);
+    constexpr char kOwnedDisable[] = "capOwnedDisable";
     switch (c.status) {
     case Availability::Available:
-        return;                                  // no-op — the control stays as-is
+        // D06 review: reversibly undo ONLY our own prior disable — an
+        // unavailable -> invalidate -> available transition must not leave the
+        // widget stuck disabled with an obsolete reason. Other reasons a
+        // control may be disabled are respected (we only clear what we set).
+        if (w->property(kOwnedDisable).toBool()) {
+            w->setEnabled(true);
+            w->setToolTip(QString());
+            w->setStatusTip(QString());
+            w->setProperty(kOwnedDisable, {});
+        }
+        return;
     case Availability::Degraded:
         // Disclose but keep the control usable.
         w->setToolTip(c.detail.isEmpty() ? combineWhyNot(c) : c.detail);
@@ -185,6 +196,7 @@ void CapabilityRegistry::applyToWidget(QWidget* w, CapId id, const QVariant& par
         w->setEnabled(false);
         w->setToolTip(combineWhyNot(c));
         w->setStatusTip(combineWhyNot(c));
+        w->setProperty(kOwnedDisable, true);
         return;
     }
 }
@@ -328,28 +340,28 @@ Capability probeLinearize(const QVariant&)
 // (EditController.cpp:589-601) — the single shared implementation now.
 Capability probeOcrRapidModels(const QVariant&)
 {
-    Capability c;
 #ifdef HAS_RAPIDOCR
     const QString appData = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)
                             + QStringLiteral("/models/ppocrv5");
     const QString nextToExe = QCoreApplication::applicationDirPath()
                               + QStringLiteral("/models/ppocrv5");
-    const QString detModel = QStringLiteral("/PP-OCRv5_mobile_det_infer.onnx");
-    if (QFile::exists(appData + detModel)) {
-        c.status = Availability::Available;
-        c.detail = appData + detModel;
-        return c;
+    // D06 (review 2026-09-06): a detector FILENAME alone is not evidence of a
+    // usable engine — real init (RapidOcrEngine) needs detector, recognizer and
+    // vocabulary; the classifier is optional. Resolve the full set via the
+    // shared dir-seam before reporting Available.
+    Capability viaAppData = CapabilityRegistry::probeRapidModelsIn(appData);
+    if (viaAppData.status == Availability::Available) return viaAppData;
+    Capability besideExe = CapabilityRegistry::probeRapidModelsIn(nextToExe);
+    if (besideExe.status == Availability::Available) {
+        besideExe.detail = QStringLiteral("Searched (preferred): %1 — ").arg(appData)
+                           + besideExe.detail;
+        return besideExe;
     }
-    if (QFile::exists(nextToExe + detModel)) {
-        c.status = Availability::Available;
-        c.detail = nextToExe + detModel;
-        return c;
-    }
+    Capability c;
     c.status = Availability::UnavailableRuntime;
-    c.whyNot = QObject::tr("PP-OCRv5 ONNX models not found.");
-    c.alternative = QObject::tr("Change the OCR engine in Preferences \u2192 Engines, "
-                                "or install the models.");
-    c.detail = QObject::tr("Searched: %1 and %2").arg(appData + detModel, nextToExe + detModel);
+    c.whyNot = QStringLiteral("PP-OCRv5 ONNX model set incomplete.");
+    c.alternative = QStringLiteral("Change the OCR engine in Preferences, or install the models.");
+    c.detail = QStringLiteral("Searched: %1 and %2. %3").arg(appData, nextToExe, viaAppData.detail);
 #else
     // Compile-time floor only: the engine is structurally absent from this
     // binary, so UnavailableBuild is the honest state.
@@ -564,5 +576,44 @@ void CapabilityRegistry::registerEngineProbes()
     registerProbe(CapId::VisibleSignatureGraphic, probeVisibleSignatureGraphic);
     registerProbe(CapId::PdfAValidation,        probePdfAValidation);
 }
+
+// D06: shared dir-seam for the PP-OCRv5 model-set resolution. Mandatory:
+// detector, recognizer, vocabulary — each an existing, readable, NON-EMPTY
+// file (a filename or zero-byte stub is not a usable engine; the old probe
+// reported Available on a zero-byte detector). The textline classifier is
+// optional and disclosed in detail. Public static — tests drive it with
+// real directory fixtures.
+Capability CapabilityRegistry::probeRapidModelsIn(const QString& modelsDir)
+{
+    Capability c;
+    struct Required { const char* rel; const char* what; };
+    const Required required[] = {
+        { "/PP-OCRv5_mobile_det_infer.onnx", "text detector" },
+        { "/PP-OCRv5_mobile_rec_infer.onnx", "text recognizer" },
+        { "/ppocrv5_rec_dict.txt", "recognition vocabulary" },
+    };
+    QStringList missing;
+    for (const auto& req : required) {
+        const QFileInfo fi(modelsDir + QLatin1String(req.rel));
+        if (!fi.isFile() || fi.size() == 0 || !fi.isReadable())
+            missing << QLatin1String(req.what);
+    }
+    if (!missing.isEmpty()) {
+        c.status = Availability::UnavailableRuntime;
+        c.whyNot = QStringLiteral("The PP-OCRv5 model set is incomplete — missing: %1.")
+                       .arg(missing.join(QStringLiteral(", ")));
+        c.alternative = QStringLiteral("Install the PP-OCRv5 models, or switch the OCR engine.");
+        c.detail = QStringLiteral("Searched directory: %1.").arg(modelsDir);
+        return c;
+    }
+    c.status = Availability::Available;
+    const QFileInfo cls(modelsDir + QLatin1String("/PP-LCNet_x1_0_textline_ori_infer.onnx"));
+    c.detail = (cls.isFile() && cls.size() > 0)
+        ? QStringLiteral("Complete model set in %1 (textline classifier present).").arg(modelsDir)
+        : QStringLiteral("Usable model set in %1; textline classifier absent "
+                         "(direction classification disabled).").arg(modelsDir);
+    return c;
+}
+
 
 } // namespace gp

@@ -80,6 +80,13 @@ public:
     // this next to engine construction); tests construct a standalone registry
     // and call it directly.
     void registerProbe(CapId id, Probe probe);
+
+    // D06 (review 2026-09-06): resolve the PP-OCRv5 model set in ONE directory.
+    // Mandatory: detector, recognizer, vocabulary — each an existing, readable,
+    // NON-EMPTY file (a filename or zero-byte stub is not evidence of a usable
+    // engine). The textline classifier is optional and disclosed in detail.
+    // Public static so tests can drive real directory fixtures.
+    static Capability probeRapidModelsIn(const QString& modelsDir);
     void registerEngineProbes();
 
     // Cached per (id, param). Enforces the non-empty whyNot/alternative rule.

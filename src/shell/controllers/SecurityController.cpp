@@ -48,6 +48,8 @@
 #include "shell/StatusBar.h"
 
 namespace gp {
+static_assert(kDefaultSanitizeOn,
+    "the secure-redact entry path must default sanitization ON (§9.8 contract)");
 
 // §9.7 P1: capture of ONE signing/certifying request — everything the
 // RESTARTABLE worker needs to re-run the exact same crypto operation after a
@@ -611,7 +613,10 @@ void SecurityController::applyRedactions() {
     plan.sanitizedDestinationPath = fi.absolutePath() + QLatin1Char('/')
         + fi.completeBaseName() + QStringLiteral("_redacted_sanitized.pdf");
     plan.sourcePageCount = viewer->isLoaded() ? viewer->pageCount() : 0;
-    plan.sanitize = false; // user opts in via the dialog's checkbox
+    // D07 (review 2026-09-06): one shared initial sanitization policy for both
+    // entry paths — default ON per the §9.8 contract; the dialog preserves an
+    // explicit opt-out. Was: false, contradicting the default-ON ledger row.
+    plan.sanitize = kDefaultSanitizeOn;
     for (const auto& anno : annos) {
         if (anno.mode == ToolMode::Redact) {
             ++plan.markCount;
