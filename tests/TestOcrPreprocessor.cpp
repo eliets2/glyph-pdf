@@ -330,8 +330,12 @@ private slots:
     // 90-degree scans: the correction swaps the dimensions back to the upright
     // page's, restores it pixel-exactly (the orthogonal fix rotation is exact),
     // and maps preprocessed coords back into the rotated scan's frame.
+    // D03: orientation correction requires Leptonica (HAS_TESSERACT); the
+    // Qt-only fallback is a documented pass-through, so this fixture is
+    // Tesseract-configuration-only.
     void rotated90IsDetectedAndCorrected()
     {
+#ifdef HAS_TESSERACT
         const QImage page = makeTextPage();
         const QImage scan = rotatedScan(page, 90);
 
@@ -340,22 +344,32 @@ private slots:
         QCOMPARE(pp.image.height(), page.height());
         QCOMPARE(pp.image, page);
         verifyInverseMapsToScanCenter(pp, scan);
+#else
+        QSKIP("orientation detection requires Leptonica (HAS_TESSERACT); the "
+              "Qt-only fallback intentionally leaves the scan untouched");
+#endif
     }
 
     // 180-degree scans keep their dimensions, so the pixel comparison is the
     // discriminating assertion (unfixed content is upside-down).
     void rotated180IsDetectedAndCorrected()
     {
+#ifdef HAS_TESSERACT
         const QImage page = makeTextPage();
         const QImage scan = rotatedScan(page, 180);
 
         const PreprocessedImage pp = OcrPreprocessor().process(scan, orientOnlyOptions());
         QCOMPARE(pp.image, page);
         verifyInverseMapsToScanCenter(pp, scan);
+#else
+        QSKIP("orientation detection requires Leptonica (HAS_TESSERACT); the "
+              "Qt-only fallback intentionally leaves the scan untouched");
+#endif
     }
 
     void rotated270IsDetectedAndCorrected()
     {
+#ifdef HAS_TESSERACT
         const QImage page = makeTextPage();
         const QImage scan = rotatedScan(page, 270);
 
@@ -364,6 +378,10 @@ private slots:
         QCOMPARE(pp.image.height(), page.height());
         QCOMPARE(pp.image, page);
         verifyInverseMapsToScanCenter(pp, scan);
+#else
+        QSKIP("orientation detection requires Leptonica (HAS_TESSERACT); the "
+              "Qt-only fallback intentionally leaves the scan untouched");
+#endif
     }
 
     // Edge cases: null and degenerate images must pass through untouched.
@@ -408,14 +426,21 @@ private slots:
     // Flat black page: Leptonica's Sauvola classes flat regions as background
     // (measured), so the conversion must come out light — not the inverted
     // all-black the pre-fix mapping produced.
+    // D03: that flat-region behaviour is a Sauvola (HAS_TESSERACT) property;
+    // the Qt-only threshold fallback maps a flat black page to black ink.
     void binarizeAllBlackComesOutLightPerLeptonicaSemantics()
     {
+#ifdef HAS_TESSERACT
         const QImage black = makeSolidPage(Qt::black);
         const QImage out = OcrPreprocessor().binarize(black);
         QVERIFY(!out.isNull());
         QCOMPARE(out.size(), black.size());
         QCOMPARE(out.pixel(200, 150), QRgb(0xffffffff));
         QCOMPARE(out.pixel(10, 10), QRgb(0xffffffff));
+#else
+        QSKIP("flat-region reclassification is Sauvola (HAS_TESSERACT) behaviour; the "
+              "Qt-only threshold fallback keeps flat black pages dark");
+#endif
     }
 
     // Isolated binarizer on a document page: paper stays light, ink stays dark
@@ -479,6 +504,50 @@ private slots:
         QCOMPARE(out.dotsPerMeterY(), page.dotsPerMeterY());
     }
 
+    // ── D03: the Qt-only (no-HAS_TESSERACT) configuration must compile, and ──
+    // its denoise/binarize paths must preserve image dimensions and DPI
+    // metadata (carryResolution is the carrier there, so these fixtures are
+    // compiled and executed in BOTH configurations: under HAS_TESSERACT they
+    // exercise the same unconditional denoise() and the Leptonica binarizer,
+    // in the Qt-only build they exercise the fallback paths).
+
+    // denoise() is compiled unconditionally; its fresh output QImage must not
+    // silently drop dimensions or the input's resolution metadata (D03: the
+    // Qt-only configuration previously did not compile at all — the
+    // carryResolution call here was an undeclared-identifier error).
+    void denoisePreservesDimensionsAndDpiMetadata()
+    {
+        const QImage page = makeDocumentPage();
+        const QImage out = OcrPreprocessor().denoise(page);
+        QVERIFY(!out.isNull());
+        QCOMPARE(out.size(), page.size());
+        QCOMPARE(out.format(), QImage::Format_Grayscale8);
+        QCOMPARE(out.dotsPerMeterX(), page.dotsPerMeterX());
+        QCOMPARE(out.dotsPerMeterY(), page.dotsPerMeterY());
+        // A solid paper region is a fixed point of the median filter, and the
+        // bar interiors stay ink — the filter must not shift the content.
+        QCOMPARE(out.pixel(60, 60), QRgb(0xffffffff));
+        for (int i = 0; i < 5; ++i)
+            QCOMPARE(out.pixel(400, 200 + 200 * i), QRgb(0xff000000));
+    }
+
+    // The binarizer's dimensions/resolution/polarity contract must hold in the
+    // Qt-only configuration too: fallback threshold binarization keeps paper
+    // light and ink dark, preserves the pixel grid and carries the DPI over.
+    void binarizePreservesDimensionsResolutionAndPolarity()
+    {
+        const QImage page = makeDocumentPage();
+        const QImage out = OcrPreprocessor().binarize(page);
+        QVERIFY(!out.isNull());
+        QCOMPARE(out.size(), page.size());
+        QCOMPARE(out.format(), QImage::Format_Grayscale8);
+        QCOMPARE(out.dotsPerMeterX(), page.dotsPerMeterX());
+        QCOMPARE(out.dotsPerMeterY(), page.dotsPerMeterY());
+        QCOMPARE(out.pixel(60, 60), QRgb(0xffffffff));
+        for (int i = 0; i < 5; ++i)
+            QCOMPARE(out.pixel(400, 200 + 200 * i), QRgb(0xff000000));
+    }
+
     // ── R06: deskew on a 1-bit estimator + composed coordinate transforms ──
     //
     // F10: pixFindSkew requires 1 bpp. It used to be handed the 8-bit Pix,
@@ -495,6 +564,7 @@ private slots:
 
     void deskewCorrectsThreeDegreeTiltBothSigns()
     {
+#ifdef HAS_TESSERACT
         OcrPreprocessor pre;
         for (const int tilt : {3, -3}) {
             const QImage scan = tiltedScan(tilt);
@@ -525,6 +595,10 @@ private slots:
             QVERIFY2(qAbs(inkSlopeDegrees(pp.image)) < 0.5, "pipeline output must be level");
             verifyInverseMapsToScanCenter(pp, scan);
         }
+#else
+        QSKIP("skew measurement requires Leptonica (HAS_TESSERACT); the Qt-only "
+              "fallback is a documented no-op (deskew returns its input)");
+#endif
     }
 
     void deskewBlankPageIsDocumentedNoOp()
@@ -566,6 +640,7 @@ private slots:
     // rotation: rotate(−angle) about the scan centre.
     void deskewInverseTransformMapsPointsBack()
     {
+#ifdef HAS_TESSERACT
         const QImage scan = tiltedScan(3);
         OcrPreprocessor pre;
         double reported = 0.0;
@@ -584,6 +659,10 @@ private slots:
             QPointF(700, 900),
         };
         verifyPointsMapWithinTolerance(pp, expected, points, 0.5, "deskew inverse");
+#else
+        QSKIP("skew measurement requires Leptonica (HAS_TESSERACT); the Qt-only "
+              "fallback applies no rotation, so there is no deskew inverse");
+#endif
     }
 
     // DPI normalization composes on the left of the deskew step (scale about
@@ -591,6 +670,7 @@ private slots:
     // them in reverse order.
     void deskewComposesWithDpiNormalization()
     {
+#ifdef HAS_TESSERACT
         const int dpm = 5906; // 150 dpi
         const QImage scan = tiltedScan(3, dpm);
         const PreprocessedImage pp = OcrPreprocessor().process(scan, deskewOnlyOptions());
@@ -617,12 +697,17 @@ private slots:
         };
         verifyPointsMapWithinTolerance(pp, expected, points, 0.5, "scale+deskew inverse");
         verifyInverseMapsToScanCenter(pp, scan);
+#else
+        QSKIP("skew measurement requires Leptonica (HAS_TESSERACT); the Qt-only "
+              "fallback applies no rotation, so there is no deskew inverse");
+#endif
     }
 
     // The complete forward chain — dpiNormalize scale → 270° orientation fix
     // (90° clockwise scan) → deskew — and its inverse, at stated tolerances.
     void deskewWithOrientationComposesFullPipeline()
     {
+#ifdef HAS_TESSERACT
         const int dpm = 5906; // 150 dpi → ×2 normalize
         // Roman-text fixture: the orientation detector needs real glyph
         // shapes; the deskew estimator works on either fixture.
@@ -661,6 +746,10 @@ private slots:
         };
         verifyPointsMapWithinTolerance(pp, expected, points, 1.0, "scale+orient+deskew inverse");
         verifyInverseMapsToScanCenter(pp, scan);
+#else
+        QSKIP("orientation + skew correction require Leptonica (HAS_TESSERACT); the "
+              "Qt-only fallback is a documented pass-through for both");
+#endif
     }
 };
 
