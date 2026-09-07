@@ -124,13 +124,22 @@ void OcrScanCanvas::paintEvent(QPaintEvent* /*event*/)
     p.setRenderHint(QPainter::SmoothPixmapTransform, false);
 
     // Word boxes at their real positions, colored by THE one classifier.
+    // D04: painting maps image-space → widget space as
+    //     widgetPos = imgRect.topLeft() + scale × imagePos
+    // — the exact inverse of wordIdAt()'s (widgetPos − imgRect.topLeft()) /
+    // scale mapping, so the drawn overlay always lands under the click
+    // target. The old code SUBTRACTED the letterboxed origin before scaling,
+    // which pushed every overlay off the widget as soon as the pane's aspect
+    // ratio differed from the page image's (100×100 image in a 200×100 pane:
+    // box (10,10) painted at (−40,10) instead of (60,10)). Pen widths stay in
+    // device pixels, keeping the selection border an intentional 2px ring.
     const qreal scale = imgRect.width() / m_image.width();
     QPen hitPen(QColor(kSelectionColor), 2);
     for (const auto& rec : m_words) {
-        QRectF box = rec.boundingBox.adjusted(-imgRect.x(), -imgRect.y(),
-                                              -imgRect.x(), -imgRect.y());
-        box = QRectF(box.x() * scale, box.y() * scale,
-                     box.width() * scale, box.height() * scale);
+        const QRectF box(imgRect.x() + rec.boundingBox.x() * scale,
+                         imgRect.y() + rec.boundingBox.y() * scale,
+                         rec.boundingBox.width() * scale,
+                         rec.boundingBox.height() * scale);
 
         const bool removed = rec.deleted || rec.reviewedText.trimmed().isEmpty();
         QColor fill = OcrConfidence::bandColor(
