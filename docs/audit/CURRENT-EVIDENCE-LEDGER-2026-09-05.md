@@ -112,6 +112,7 @@ Dated corrections to stale historical claims (superseded by HEAD):
 | D02 (AI) | OllamaProvider caller-boundary lifetime: no late callback into destroyed owner, exactly one result per request, retry on same instance | implemented-awaiting-review — 3 caller-boundary pins (PanelLikeOwner harness mirroring AIChatPanel), mutation-tested | 4d45769 |
 | D02 (redaction) | RedactOperation worker does not own the state it uses (QPointer re-check; UI-parented destructor uncoordinated) | **open** — next dispatch to the redaction lane (files now free) | — |
 | D01 | Retry Sanitize receives an empty sanitizedDestination after partial failure | implemented-awaiting-review — RedactResult::intendedSanitizedDestination travels with the result; presenter Retry targets the intended path and repairs the banner | 8bd01d5 |
+| D02 (redaction) | RedactOperation worker does not own the state it uses | implemented-awaiting-review — shared ExecutionState (request/cancel/seams) held by worker shared_ptr; UI destruction neither crashes nor cancels in-flight runs; pre-fix UAF crash reproduced deterministically (0xc0000005 in maybeSignalConnected on the worker) | 3c3be82 |
 
 ## Newly discovered engine defect (exposed by U05 fixtures)
 
