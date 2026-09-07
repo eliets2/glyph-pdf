@@ -191,16 +191,21 @@ public:
     virtual bool addImageWatermark(const ImageWatermarkOptions &options) = 0;
 };
 
+struct RedactionRegion {
+    QRectF rect;
+    QString overlayText;
+};
+
 /// Redaction (region- and pattern-based).
 class IRedactor {
 public:
     virtual ~IRedactor() = default;
-    virtual bool applyRedactions(int pageIndex, const QList<QRectF> &rects) = 0;
+    virtual bool applyRedactions(int pageIndex, const QList<RedactionRegion> &regions, const QString& auditCategory = QString()) = 0;
     // Pattern-based redaction: find all regex matches across the given pages
     // (0-based) and excise them from the content stream. Empty/`{-1}` pages
     // is interpreted per the implementation's documented contract.
     virtual bool applyPatternRedactions(const QRegularExpression& pattern,
-                                        const QList<int>& pages = QList<int>(), const QString& outputPath = QString()) = 0;
+                                        const QList<int>& pages = QList<int>(), const QString& outputPath = QString(), const QString& overlayText = QString(), const QString& auditCategory = QString()) = 0;
 };
 
 /// Encryption / decryption (password + certificate).

@@ -80,9 +80,9 @@ public:
     bool rotateImage(int pageIndex, const QString &xobjectName, double degrees) override;
     bool replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath) override;
     bool deleteImage(int pageIndex, const QString &xobjectName) override;
-    bool applyRedactions(int pageIndex, const QList<QRectF> &rects) override;
+    bool applyRedactions(int pageIndex, const QList<RedactionRegion> &regions, const QString& auditCategory = QString()) override;
     bool applyPatternRedactions(const QRegularExpression& pattern,
-                                const QList<int>& pages = QList<int>(), const QString& outputPath = QString()) override;
+                                const QList<int>& pages = QList<int>(), const QString& outputPath = QString(), const QString& overlayText = QString(), const QString& auditCategory = QString()) override;
     bool embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations) override;
 
     // Watermarking (Session 13)

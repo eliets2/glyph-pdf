@@ -1306,9 +1306,15 @@ bool PdfEditorEngine::applyPatternRedactions(const QRegularExpression& pattern,
         const auto it = matchesByPage.constFind(pg);
         if (it == matchesByPage.constEnd() || it->isEmpty()) continue;
 
+        QList<RedactionRegion> regions;
+        regions.reserve(it->size());
+        for (const QRectF& r : *it) {
+            regions.append({r, overlayText});
+        }
+
         // Delegate to the existing applyRedactions path which carries the
         // Edact-Ray glyph-advance defense (wired in M2-P1).
-        const bool ok = d->backend->applyRedactions(pg, *it);
+        const bool ok = d->backend->applyRedactions(pg, regions, auditCategory);
         if (ok) {
             anySuccess = true;
         } else {
