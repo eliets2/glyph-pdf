@@ -151,10 +151,10 @@ struct RedactOperation::ExecutionState {
 namespace {
 // 6–8pt band (Acrobat uses ~6pt for its reason codes); 7pt reads cleanly.
 constexpr double kOverlayFontSize = 7.0;
-// Auto-fit precedent (signature appearance): a box shorter than the text's
-// point size plus leading cannot carry the label honestly — skip it rather
-// than draw outside or clip.
-constexpr double kOverlayMinBoxHeight = 9.0;
+// N08: the minimum box height is no longer a hardcoded 9pt guess — it is
+// derived per document from the overlay font's REAL ascent+descent extent at
+// kOverlayFontSize (see drawOverlayTextOnCandidate), so "too small" means
+// "the glyphs provably cannot fit", and at the minimum the glyphs provably do.
 
 // Burn-in paint ONLY: runs on the saved CANDIDATE after the engine's content
 // surgery is complete, so excision semantics are untouched. Each redaction
@@ -199,13 +199,30 @@ bool drawOverlayTextOnCandidate(const QString& candidatePath,
             measure.Font = &font;
             measure.FontSize = kOverlayFontSize;
             const double textWidth = font.GetStringLength(utf8.constData(), measure);
+            // N08: vertical fit and centering come from the font's actual
+            // extents at the overlay size (not a guessed baseline factor):
+            // ascent is the positive pt above the baseline, descent the
+            // positive pt below it (the API reports descent negative).
+            const double ascent = font.GetAscent(measure);
+            const double descent = -font.GetDescent(measure);
+            const double glyphExtent = ascent + descent;
+            // The painted baseline is the artifact — it must survive the
+            // content-stream round trip with sub-1e-6pt error for ~700pt
+            // baselines, or the drawn glyphs drift off the computed position.
+            painter.SetPrecision(8);
 
             for (const QRectF& r : it.value()) {
-                if (r.height() < kOverlayMinBoxHeight) continue; // too small
+                // N08: "too small" is a METRIC verdict — a box shorter than
+                // the ascent+descent extent cannot carry the glyphs; skip it
+                // (auto-fit precedent) rather than draw outside or clip.
+                if (r.height() < glyphExtent) continue;         // too small
                 if (r.width() < textWidth) continue;             // no horizontal fit
                 const double pdfY = pageHeight - r.y() - r.height();
                 const double x = r.x() + (r.width() - textWidth) / 2.0;
-                const double baselineY = pdfY + r.height() / 2.0 + kOverlayFontSize * 0.35;
+                // Vertically center the ascender..descender extent: at the
+                // metric minimum (height == glyphExtent) the extent exactly
+                // touches both box edges and never crosses them.
+                const double baselineY = pdfY + (r.height() - glyphExtent) / 2.0 + descent;
                 (painter.DrawText)(utf8.constData(), x, baselineY);
             }
             painter.FinishDrawing();

@@ -35,6 +35,8 @@
 #include <QLabel>
 #include <QThread>
 #include <atomic>
+#include <cctype>
+#include <cmath>
 #include <podofo/podofo.h>
 
 #include "engines/PdfEditorEngine.h"
@@ -90,6 +92,93 @@ QString pageText(const QString& pdfPath, int page) {
 QString errText(const RedactResult& r) {
     return QStringLiteral("outcome=%1 stage=%2 error=%3")
         .arg(int(r.outcome)).arg(r.failedStage, r.error);
+}
+
+// ── N08: overlay-fit oracle and parsers ──────────────────────────────────────
+
+// The ACTUAL glyph extents of the overlay font at the overlay size, read
+// straight from PoDoFo's PdfFont API. This is the test's independent oracle:
+// the production derivation must meet these numbers, not its own guesses.
+struct OverlayExtents { double ascent; double descent; double extent; };
+OverlayExtents overlayFontExtents(double fontSize) {
+    PoDoFo::PdfMemDocument doc;
+    doc.GetPages().CreatePage(
+        PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+    auto& font = doc.GetFonts().GetStandard14Font(
+        PoDoFo::PdfStandard14FontType::Helvetica);
+    PoDoFo::PdfTextState state;
+    state.Font = &font;
+    state.FontSize = fontSize;
+    const double ascent = font.GetAscent(state);        // positive, PDF units
+    const double descent = -font.GetDescent(state);     // API returns negative
+    return { ascent, descent, ascent + descent };
+}
+
+// Scans backwards from `pos - 1` over whitespace and parses one decimal
+// number. Returns the index of the char BEFORE the number (or -1).
+int parsePrevNumber(const QByteArray& s, int pos, double* value) {
+    int i = pos - 1;
+    while (i >= 0 && (s[i] == ' ' || s[i] == '\n' || s[i] == '\r' || s[i] == '\t'))
+        --i;
+    const int end = i;
+    while (i >= 0 && (isdigit(static_cast<unsigned char>(s[i]))
+                      || s[i] == '.' || s[i] == '-'))
+        --i;
+    if (end <= i) return -1;
+    bool ok = false;
+    const double v = QByteArray(s.mid(i + 1, end - i)).toDouble(&ok);
+    if (!ok) return -1;
+    if (value) *value = v;
+    return i;
+}
+
+// The overlay label is the only text painted with a non-stroking white color;
+// the burn-in painter emits:  q  1 1 1 rg  q  BT  /Fx <size> Tf  <x> <y> Td
+// <glyphs> Tj  ET. Extracts the drawn size and the Td baseline coordinates.
+struct OverlayTextOp { double size = 0.0; double x = 0.0; double y = 0.0; };
+bool findWhiteOverlayOp(const QByteArray& s, OverlayTextOp* out) {
+    const int rg = s.indexOf("1 1 1 rg");
+    if (rg < 0) return false;
+    const int tf = s.indexOf(" Tf", rg);
+    if (tf < 0) return false;
+    // The size operand sits immediately before "Tf" (the font name precedes
+    // it: "/Ft1 7 Tf").
+    if (parsePrevNumber(s, tf, &out->size) < 0) return false;
+    const int td = s.indexOf(" Td", tf);
+    if (td < 0) return false;
+    const int beforeY = parsePrevNumber(s, td, &out->y);
+    if (beforeY < 0) return false;
+    return parsePrevNumber(s, beforeY + 1, &out->x) >= 0;
+}
+
+// Vertical bounding box (rows) of "white-ish" glyph pixels inside `rect`,
+// plus how much of the rect is box-black. Glyph pixels outside the black box
+// are white-on-white and invisible — which is exactly why the N08 overflow
+// must also be pinned by the exact Td/Tf math above.
+struct GlyphRows {
+    bool anyWhite = false;
+    int whiteTop = 0;
+    int whiteBottom = 0;
+    int blackPixels = 0;
+    long totalPixels = 0;
+};
+GlyphRows scanBoxRows(const QImage& img, const QRect& rect) {
+    GlyphRows g;
+    for (int y = rect.top(); y <= rect.bottom(); ++y) {
+        for (int x = rect.left(); x <= rect.right(); ++x) {
+            const QRgb c = img.pixel(x, y);
+            ++g.totalPixels;
+            const bool white = qRed(c) >= 200 && qGreen(c) >= 200 && qBlue(c) >= 200;
+            const bool black = qRed(c) <= 60 && qGreen(c) <= 60 && qBlue(c) <= 60;
+            if (white) {
+                if (!g.anyWhite) { g.anyWhite = true; g.whiteTop = g.whiteBottom = y; }
+                if (y < g.whiteTop) g.whiteTop = y;
+                if (y > g.whiteBottom) g.whiteBottom = y;
+            }
+            if (black) ++g.blackPixels;
+        }
+    }
+    return g;
 }
 
 // ── Modal driver: auto-answers RedactResultPresenter::present() ─────────────
@@ -211,6 +300,14 @@ private slots:
     void overlayTextIsPrintedOnBurnedInBoxes();
     void emptyOverlayTextPreservesCurrentBehavior();
     void overlaySkippedWhenBoxTooSmall();
+
+    // ── N08: the label glyphs must stay INSIDE the burn-in box ────────────
+    // Pre-fix the baseline was a guess (0.35 * fontSize above the box middle),
+    // which at the minimum-height box put the 7pt ascender tops ~3pt ABOVE the
+    // box top edge. These pin the metric contract: the minimum box height is
+    // derived from the ACTUAL font extents, and the drawn baseline keeps
+    // ascenders and descenders inside the box.
+    void overlayGlyphsStayInsideMinimumHeightBox();
 
     // ── D02: the worker owns the state it uses; the UI-side object is ──────
     //    expendable. start() must deliver outcomes to a LIVE owner through
@@ -1112,14 +1209,18 @@ void TestRedactTransaction::overlaySkippedWhenBoxTooSmall() {
     QVERIFY2(!src.isEmpty(), "fixture creation failed");
     const QString dest = m_tmpDir.filePath("smalloverlay_redacted.pdf");
 
-    // An 8pt-tall band that still crosses the secret's baseline (pdf
-    // y 699..707 contains y=700 — the engine excises on baseline-span
-    // intersection): the box IS burned in, but it is too small to carry 7pt
-    // overlay text, so the overlay must be skipped (appearance auto-fit
-    // precedent), never squeezed in or drawn outside the box.
+    // N08: "too small" is now a METRIC verdict — a box shorter than the font's
+    // ascent+descent extent at the overlay size cannot carry the glyphs. Half
+    // that extent (~3.3pt at 7pt Helvetica, extent ≈ 6.57pt) is provably below
+    // the minimum, and the band still crosses the secret's baseline (pdf
+    // y 698.6..701.9 contains y=700 — the engine excises on baseline-span
+    // intersection): the box IS burned in, but the overlay must be skipped
+    // (appearance auto-fit precedent), never squeezed in or drawn outside.
+    const OverlayExtents ext = overlayFontExtents(7.0);
+    const double boxH = ext.extent * 0.5;
     RedactRequest req = makeRequest(src, dest, {0}, false);
     req.redactionsByPage.clear();
-    req.redactionsByPage[0].append(QRectF(40, 135, 300, 8));
+    req.redactionsByPage[0].append(QRectF(40, 140, 300, boxH));
     req.overlayText = QStringLiteral("CLASSIFIED");
     RedactOperation op(req);
     const RedactResult r = runOp(&op);
@@ -1127,9 +1228,138 @@ void TestRedactTransaction::overlaySkippedWhenBoxTooSmall() {
 
     const QString text = pageText(dest, 0);
     QVERIFY2(!text.contains(QLatin1String("CLASSIFIED")),
-             qPrintable(QStringLiteral("overlay must be skipped on an 8pt-tall box: %1").arg(text)));
+             qPrintable(QStringLiteral("overlay must be skipped on a %1pt-tall box "
+                                      "(below the %2pt font extent): %3")
+                            .arg(boxH).arg(ext.extent).arg(text)));
     QVERIFY2(!text.contains(QLatin1String("TOPSECRET_DATA")),
              qPrintable(QStringLiteral("excision must not depend on overlay fit: %1").arg(text)));
+}
+
+// ── N08: at the minimum box height the glyphs are fully INSIDE the box ───────
+// The contract: minimum box height = the font's ascent+descent at the overlay
+// size; the drawn baseline vertically centers that extent, so at the minimum
+// the glyph extent exactly touches both edges and never crosses them. A box
+// above the minimum must show clear symmetric margins (the pre-fix
+// 0.35*fontSize baseline pushed the ascender tops ~3pt out of a 9pt box).
+void TestRedactTransaction::overlayGlyphsStayInsideMinimumHeightBox() {
+    const OverlayExtents ext = overlayFontExtents(7.0);
+    QVERIFY2(ext.ascent > 0.0 && ext.descent > 0.0,
+             qPrintable(QStringLiteral("font metrics unusable: ascent=%1 descent=%2")
+                            .arg(ext.ascent).arg(ext.descent)));
+
+    const QString src = createPdf("n08fit.pdf", 2);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QString dest = m_tmpDir.filePath("n08fit_redacted.pdf");
+
+    RedactRequest req = makeRequest(src, dest, {0, 1}, false);
+    req.redactionsByPage.clear();
+    // Page 0: 9pt box — the pre-fix hardcoded minimum and the worst N08 case
+    // (7pt glyphs DO fit its 6.57pt extent, but the guessed baseline pushed
+    // the ascender tops ~3pt out of the box). Page 1: box at EXACTLY the
+    // metric minimum (ascent+descent ≈ 6.57pt). Both bands cross the secret's
+    // baseline (pdf y=700) so the box burns in.
+    req.redactionsByPage[0].append(QRectF(40, 138.5, 300, 9.0));
+    req.redactionsByPage[1].append(QRectF(40, 138.5, 300, ext.extent));
+    req.overlayText = QStringLiteral("CLASSIFIED");
+    RedactOperation op(req);
+    const RedactResult r = runOp(&op);
+    QVERIFY2(r.outcome == RedactOutcome::Completed, qPrintable(errText(r)));
+
+    // The excision contract is untouched on both pages.
+    for (int p = 0; p < 2; ++p) {
+        const QString text = pageText(dest, p);
+        QVERIFY2(!text.contains(QLatin1String("TOPSECRET_DATA")),
+                 qPrintable(QStringLiteral("secret survived on page %1: %2").arg(p).arg(text)));
+    }
+
+    // Output geometry + content streams, read back from the artifact.
+    PoDoFo::PdfMemDocument out;
+    out.Load(dest.toUtf8().constData()); // throws on failure -> test aborts
+    PdfiumBackend renderer;
+    QVERIFY2(renderer.loadDocument(dest), "could not load the output for rasterization");
+
+    constexpr double kDpi = 288.0;
+    const double scale = kDpi / 72.0;
+    for (int p = 0; p < 2; ++p) {
+        const double pageH = out.GetPages().GetPageAt(p).GetMediaBox().Height;
+        const double boxH = (p == 0) ? 9.0 : ext.extent;
+        const double boxTopPdf = pageH - 138.5;
+        const double boxBottomPdf = boxTopPdf - boxH;
+
+        // (a) Exact math on the DRAWN text op: the white label's Tf size and
+        // Td baseline must keep the full glyph extent inside the box.
+        const PoDoFo::charbuff content =
+            out.GetPages().GetPageAt(p).GetContents()->GetCopy();
+        const QByteArray stream(content.data(), static_cast<int>(content.size()));
+        OverlayTextOp drawn;
+        QVERIFY2(findWhiteOverlayOp(stream, &drawn),
+                 qPrintable(QStringLiteral("page %1: no white overlay text op — a %2pt box "
+                                          "at the %3pt font-extent minimum must carry the "
+                                          "label").arg(p).arg(boxH).arg(ext.extent)));
+        QVERIFY2(qAbs(drawn.size - 7.0) < 1e-9,
+                 qPrintable(QStringLiteral("overlay drawn at %1pt, expected 7pt").arg(drawn.size)));
+        const double ascenderTop = drawn.y + ext.ascent;
+        const double descenderBottom = drawn.y - ext.descent;
+        QVERIFY2(descenderBottom >= boxBottomPdf - 1e-6,
+                 qPrintable(QStringLiteral("page %1: descenders reach %2, below the box "
+                                          "bottom %3").arg(p).arg(descenderBottom)
+                                .arg(boxBottomPdf)));
+        QVERIFY2(ascenderTop <= boxTopPdf + 1e-6,
+                 qPrintable(QStringLiteral("N08 page %1: ascender top %2 > box top %3 — "
+                                          "glyphs extend %4pt outside the box "
+                                          "(baseline %5, ascent %6)")
+                                .arg(p).arg(ascenderTop).arg(boxTopPdf)
+                                .arg(ascenderTop - boxTopPdf).arg(drawn.y).arg(ext.ascent)));
+
+        // (b) Pixel truth: render the page; the label must be visible INSIDE
+        // the black box (white-on-white overflow is invisible to text
+        // extraction, so the raster pins visibility and position).
+        const QImage img = renderer.renderPage(p, static_cast<int>(kDpi));
+        QVERIFY2(!img.isNull(), "rasterization failed");
+        QRect boxPx(lround(40 * scale), lround(138.5 * scale),
+                    lround(300 * scale), lround(boxH * scale));
+        boxPx = boxPx.intersected(img.rect());
+        const QRect interior = boxPx.adjusted(2, 2, -2, -2); // skip AA edge rows
+        const GlyphRows rows = scanBoxRows(img, interior);
+        QVERIFY2(rows.blackPixels > rows.totalPixels / 2,
+                 qPrintable(QStringLiteral("page %1: box interior is not burned-in black "
+                                          "(%2/%3 black)").arg(p).arg(rows.blackPixels)
+                                .arg(rows.totalPixels)));
+        QVERIFY2(rows.anyWhite,
+                 qPrintable(QStringLiteral("page %1: no visible label glyphs inside the box")
+                                .arg(p)));
+        QVERIFY2(rows.whiteTop >= boxPx.top() - 1,
+                 qPrintable(QStringLiteral("page %1: glyph pixels above the box (row %2 < %3)")
+                                .arg(p).arg(rows.whiteTop).arg(boxPx.top())));
+        QVERIFY2(rows.whiteBottom <= boxPx.bottom() + 1,
+                 qPrintable(QStringLiteral("page %1: glyph pixels below the box (row %2 > %3)")
+                                .arg(p).arg(rows.whiteBottom).arg(boxPx.bottom())));
+        if (boxH > ext.extent + 1e-9) {
+            // Above the minimum the extent must be CENTERED: symmetric margins
+            // between the glyph extremes and both box edges (≈1.22pt ≈ 5px at
+            // 288dpi for the 9pt box). The pre-fix baseline put glyph ink on
+            // the box's top edge rows instead.
+            const double marginPx = (boxH - ext.extent) / 2.0 * scale;
+            const int minGap = qMax(1.0, marginPx - 2.0);
+            QVERIFY2(rows.whiteTop >= boxPx.top() + minGap,
+                     qPrintable(QStringLiteral("N08 page %1: glyphs touch the box top "
+                                              "(white row %2, box top %3, expected gap "
+                                              "≥%4px from the %5pt margin) — extent not "
+                                              "centered / overflowing")
+                                    .arg(p).arg(rows.whiteTop).arg(boxPx.top())
+                                    .arg(minGap).arg(marginPx / scale)));
+            QVERIFY2(rows.whiteBottom <= boxPx.bottom() - minGap,
+                     qPrintable(QStringLiteral("page %1: glyphs touch the box bottom "
+                                              "(white row %2, box bottom %3, expected gap "
+                                              "≥%4px)").arg(p).arg(rows.whiteBottom)
+                                    .arg(boxPx.bottom()).arg(minGap)));
+        }
+
+        // (c) The label is independently extractable from the committed page.
+        const QString text = pageText(dest, p);
+        QVERIFY2(text.contains(QLatin1String("CLASSIFIED")),
+                 qPrintable(QStringLiteral("overlay text missing on page %1: %2").arg(p).arg(text)));
+    }
 }
 
 // ── D02: worker-durable execution state ─────────────────────────────────────
