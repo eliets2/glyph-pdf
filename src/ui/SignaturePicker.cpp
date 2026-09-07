@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "ui/SignaturePicker.h"
 #include "core/Capability.h"   // U08: signature-kind disclosure wording
+#include "engines/DocumentSession.h" // N05: lifecycle wiring (parented cache)
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -140,6 +141,18 @@ AnnotationItem makeAnnotation(Kind kind, int pageIndex, const QRectF &rect,
 SignatureSessionCache::SignatureSessionCache(QObject *parent)
     : QObject(parent)
 {
+    // N05: when parented to a DocumentSession (the production shape — ONE
+    // cache per session, see EditController::signatureSessionCacheFor), watch
+    // the session's lifecycle so the stored signature keys on the REAL
+    // document identity. DocumentSession::setPath emits dirtyChanged exactly
+    // when the path actually changes (after m_path is updated), so an
+    // A→B→A round trip that never opens B's picker still invalidates here;
+    // same-document dirty/reload/reopen transitions re-note the SAME path and
+    // keep the signature (noteDocument ignores an unchanged path).
+    if (auto *doc = qobject_cast<DocumentSession *>(parent)) {
+        connect(doc, &DocumentSession::dirtyChanged, this,
+                [this, doc] { noteDocument(doc->path()); });
+    }
 }
 
 void SignatureSessionCache::noteDocument(const QString &path)
@@ -311,6 +324,9 @@ SignaturePickerDialog::SignaturePickerDialog(QWidget *parent)
         loadUploadedImage(file);
     });
     connect(m_tabs, &QTabWidget::currentChanged, this, &SignaturePickerDialog::updateAccept);
+    // N05: toggling "Reuse last signature" changes what OK would deliver, so
+    // the gate must refresh with it.
+    connect(m_reuseCheck, &QCheckBox::toggled, this, &SignaturePickerDialog::updateAccept);
     connect(m_buttons, &QDialogButtonBox::accepted, this, &SignaturePickerDialog::onAccepted);
     connect(m_buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
@@ -372,6 +388,29 @@ void SignaturePickerDialog::setSessionCache(SignatureSessionCache *cache)
     const bool offer = m_cache && m_cache->hasSignature();
     m_reuseCheck->setVisible(offer);
     m_reuseCheck->setChecked(offer);
+    if (offer) {
+        // N05: say WHICH graphic reuse will place, not just that one exists.
+        QString what;
+        switch (m_cache->kind()) {
+        case SignatureContent::Kind::Typed:
+            what = tr("your typed signature “%1”").arg(m_cache->typedText());
+            break;
+        case SignatureContent::Kind::Initials:
+            what = tr("your initials “%1”").arg(m_cache->typedText());
+            break;
+        case SignatureContent::Kind::Upload:
+            what = tr("your uploaded image");
+            break;
+        case SignatureContent::Kind::Draw:
+            what = tr("your last signature");
+            break;
+        }
+        m_reuseCheck->setText(tr("Reuse last signature — %1").arg(what));
+    } else {
+        m_reuseCheck->setText(tr("Reuse last signature"));
+    }
+    // N05: the gate must reflect the (new) cache state immediately.
+    updateAccept();
 }
 
 void SignaturePickerDialog::updateTypePreview()
@@ -422,6 +461,17 @@ void SignaturePickerDialog::updateUploadPreview()
 
 void SignaturePickerDialog::updateAccept()
 {
+    // N05: with "Reuse last signature" checked and a signature actually
+    // cached, OK delivers that cached graphic (onAccepted gives reuse
+    // precedence) — so the gate must be open even when the active tab's
+    // controls are empty. Unchecking falls back to the active tab's own gate.
+    const bool reuseArmed = !m_reuseCheck->isHidden() && m_reuseCheck->isChecked()
+                            && m_cache && m_cache->hasSignature();
+    if (reuseArmed) {
+        m_buttons->button(QDialogButtonBox::Ok)->setEnabled(true);
+        return;
+    }
+
     bool ok = true;
     // N01: gate on the kind of the page the user ACTUALLY sees.
     switch (kindForTabIndex(m_tabs->currentIndex())) {

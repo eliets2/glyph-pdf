@@ -14,6 +14,7 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QTabWidget>
+#include "engines/DocumentSession.h"
 #include "ui/SignaturePicker.h"
 
 namespace {
@@ -34,6 +35,14 @@ private slots:
     void freshAcceptReplacesCache();
     void noteDocumentClearsOnSwitch();
     void emptyStoreAndNoCacheAreHidden();
+    // N05 regression: the cache must key on the REAL document lifecycle —
+    // A→B→A through DocumentSession::setPath without ever opening B's picker
+    // must not retain A's "per-document" signature.
+    void sessionSwitchAtoBtoAClearsWithoutPicker();
+    // N05 regression: a checked "Reuse last signature" with a cached
+    // signature must enable OK even when the active tab is empty, and the
+    // gate must refresh when the checkbox changes.
+    void reuseGateEnablesOkOnEmptyTab();
 };
 
 void TestSignatureSessionCache::storeAndReuseLastSignature()
@@ -147,6 +156,90 @@ void TestSignatureSessionCache::emptyStoreAndNoCacheAreHidden()
     QVERIFY2(plainReuse->isHidden(), "reuse checkbox must be hidden without a session cache");
     plain.showTab(SignatureContent::Kind::Typed);
     QVERIFY2(!plain.isAcceptEnabled(), "typed gating must be unaffected by cache wiring");
+}
+
+// ── N05: the cache follows the REAL document lifecycle ──────────────────────
+
+void TestSignatureSessionCache::sessionSwitchAtoBtoAClearsWithoutPicker()
+{
+    DocumentSession session;
+    session.setPath(QStringLiteral("docA.pdf"));       // A is open
+    // Production shape: ONE cache per DocumentSession, PARENTED to it
+    // (EditController's signatureSessionCacheFor).
+    SignatureSessionCache cache(&session);
+    cache.noteDocument(QStringLiteral("docA.pdf"));    // picker opens on A
+    cache.store(SignatureContent::Kind::Typed, inkImage(), QStringLiteral("John Hancock"));
+    QVERIFY(cache.hasSignature());
+
+    // Open B WITHOUT opening its picker — the only production notification of
+    // the switch is DocumentSession::setPath itself. Then return to A.
+    session.setPath(QStringLiteral("docB.pdf"));
+    session.setPath(QStringLiteral("docA.pdf"));
+
+    // The picker reopens on A and re-notes the (unchanged) path.
+    cache.noteDocument(QStringLiteral("docA.pdf"));
+    QVERIFY2(!cache.hasSignature(),
+             "A→B→A through the real document lifecycle must NOT retain A's "
+             "per-document signature (the picker only ever saw path A)");
+    QVERIFY(cache.image().isNull());
+    QVERIFY(cache.typedText().isEmpty());
+
+    // Same-document transitions must keep a freshly stored signature.
+    cache.store(SignatureContent::Kind::Typed, inkImage(), QStringLiteral("John Hancock"));
+    session.setPath(QStringLiteral("docA.pdf"));       // reopen the SAME path — no switch
+    QVERIFY2(cache.hasSignature(),
+             "reopening the SAME document must keep the cached signature");
+    session.markDirty();                                // editing the same document
+    QVERIFY2(cache.hasSignature(),
+             "same-document dirty transitions must keep the signature");
+    session.markReload();                               // same-document reload
+    QVERIFY2(cache.hasSignature(),
+             "same-document reload must keep the signature");
+
+    // A REAL switch still clears.
+    session.setPath(QStringLiteral("docC.pdf"));
+    QVERIFY2(!cache.hasSignature(),
+             "a real document switch must clear the session signature cache");
+}
+
+void TestSignatureSessionCache::reuseGateEnablesOkOnEmptyTab()
+{
+    SignatureSessionCache cache;
+    cache.store(SignatureContent::Kind::Typed, inkImage(), QStringLiteral("John Hancock"));
+
+    SignaturePickerDialog dlg;
+    dlg.setSessionCache(&cache);
+    auto *reuse = dlg.findChild<QCheckBox *>(QStringLiteral("signatureReuseCheck"));
+    QVERIFY(reuse);
+    QVERIFY2(!reuse->isHidden(), "a cached signature must offer reuse");
+    QVERIFY2(reuse->isChecked(), "reuse must default to checked");
+    QVERIFY2(!reuse->text().trimmed().isEmpty(),
+             "the reuse option must say which graphic will be placed");
+
+    // The ACTIVE tab (Type) is EMPTY — exactly the review's repro: with the
+    // default-checked reuse option a populated cache still left OK disabled
+    // on the empty Type page, even though onAccepted gives reuse precedence.
+    dlg.showTab(SignatureContent::Kind::Typed);
+    auto *buttons = dlg.findChild<QDialogButtonBox *>();
+    QVERIFY2(buttons, "dialog must expose its button box");
+    QVERIFY2(dlg.isAcceptEnabled(),
+             "checked reuse with a cached signature must enable OK even when "
+             "the active tab's controls are empty");
+
+    // The gate must REFRESH when the checkbox changes.
+    reuse->setChecked(false);
+    QVERIFY2(!dlg.isAcceptEnabled(),
+             "unchecking reuse must re-disable OK on an empty tab");
+    reuse->setChecked(true);
+    QVERIFY2(dlg.isAcceptEnabled(),
+             "re-checking reuse must re-enable OK");
+
+    // Accepting with reuse checked delivers the cached signature.
+    buttons->button(QDialogButtonBox::Ok)->click();
+    QCOMPARE(dlg.result(), static_cast<int>(QDialog::Accepted));
+    QCOMPARE(dlg.acceptedKind(), SignatureContent::Kind::Typed);
+    QCOMPARE(dlg.acceptedImage(), inkImage());
+    QCOMPARE(dlg.acceptedText(), QStringLiteral("John Hancock"));
 }
 
 QTEST_MAIN(TestSignatureSessionCache)
