@@ -594,20 +594,29 @@ private slots:
                                     .arg(i).arg(ch.newPage)));
         }
 
-        // (2) The insertion surfaces ONCE, at its true position.
-        int insertions = -1;
+        // (2) V04 re-pin: with the explicit substitution policy, the doc1
+        // leftover Q pairs with the first doc2 leftover X (order-preserving,
+        // in-order) as an ALIGNED MODIFIED pair — structurally silent. The
+        // only structural change left is the rewritten page surfacing as ONE
+        // PageAdded at its own position (newPage == 2). The former pin ("the
+        // insertion surfaces once at its true position" and "a rewrite below
+        // the similarity floor is a removal + an addition") encoded exactly
+        // the remove+add classification that V04 overturns: a below-floor
+        // rewrite is a content change, not a structural one.
+        int added = 0, removed = 0;
+        int addedQ = -1;
         for (int i = 0; i < r.pageChanges.size(); ++i) {
             const DiffResult::PageChange& ch = r.pageChanges.at(i);
-            if (ch.type == DiffResult::PageChangeType::PageAdded
-                && !ch.hasOldSide() && ch.newPage == 1) {
-                QVERIFY2(insertions == -1,
-                         "the inserted page must be reported exactly once");
-                insertions = i;
+            if (ch.type == DiffResult::PageChangeType::PageAdded) {
+                ++added;
+                addedQ = ch.newPage;
+            } else if (ch.type == DiffResult::PageChangeType::PageRemoved) {
+                ++removed;
             }
         }
-        QVERIFY2(insertions >= 0,
-                 "no PageAdded(newPage=1) found — the insertion was absorbed "
-                 "into an alignment mispairing");
+        QCOMPARE(added, 1);
+        QCOMPARE(removed, 0);
+        QCOMPARE(addedQ, 2);
 
         // (3) No move may paper over the structural changes here.
         QVERIFY2(r.pageChanges.isEmpty()
@@ -618,18 +627,22 @@ private slots:
                                      }),
                  "insertion + text edit must not be classified as page moves");
 
-        // (4) The reworded page is accounted honestly: old Q removed once,
-        // new Q' added once. (Page-level granularity: a rewrite below the
-        // similarity floor is a removal + an addition.)
-        int removedQ = 0, addedQ = 0;
-        for (const auto& ch : r.pageChanges) {
-            if (ch.type == DiffResult::PageChangeType::PageRemoved
-                && ch.oldPage == 1) ++removedQ;
-            if (ch.type == DiffResult::PageChangeType::PageAdded
-                && ch.newPage == 2) ++addedQ;
-        }
-        QCOMPARE(removedQ, 1);
-        QCOMPARE(addedQ, 1);
+        // (4) V04: the below-floor rewrite is accounted as CONTENT changes on
+        // the aligned pair, not as a structural removal. The page diffs for
+        // the modified pair (old Q at index 1, reworded Q' at index 2) must
+        // still carry the real word changes. (PDFium extraction carries a
+        // trailing NUL — pinned §9.10-a behavior — so word-token checks are
+        // substring matches on the joined list.)
+        QVERIFY2(r.pages.at(1).textRemoved.join(QLatin1Char(' '))
+                     .contains(QStringLiteral("omega"))
+                     && r.pages.at(1).textAdded.join(QLatin1Char(' '))
+                            .contains(QStringLiteral("alpha")),
+                 "the aligned modified pair must report its content changes");
+        QVERIFY2(r.pages.at(2).textRemoved.join(QLatin1Char(' '))
+                     .contains(QStringLiteral("here"))
+                     && r.pages.at(2).textAdded.join(QLatin1Char(' '))
+                            .contains(QStringLiteral("reworded")),
+                 "the shifted page pair must report its content changes");
     }
 
     void reversedSidesTurnMiddleInsertionIntoSingleRemoval() {
@@ -658,6 +671,90 @@ private slots:
         QCOMPARE(ch.oldPage, 1);
         QVERIFY2(r.pageMoves.isEmpty(),
                  "a pure middle removal must not be misclassified as a move");
+    }
+
+    // ── V04: an in-place page edit is a CONTENT change, not a structural one ─
+    // The alignment leftovers used to fall through to PageRemoved + PageAdded
+    // whenever their word-set similarity missed the 0.80 fuzzy floor — so a
+    // one-page document whose text was rewritten ("Apple" → "Orange") was
+    // reported as the page being destroyed and a new page being added, on top
+    // of its ordinary text difference. Low text similarity is not proof that
+    // the page structure changed: an aligned modified pair must be represented
+    // as content changes only (result.pages), never as add/remove.
+
+    void onePageTextEditReportsContentChangesWithoutStructuralChanges() {
+        // THE V04 acceptance fixture: same one-page layout, "Apple" → "Orange".
+        // Word sets {apple} vs {orange} have Jaccard 0.0 — far below any
+        // similarity floor — so only the explicit substitution policy can keep
+        // this out of the structural sequence.
+        const QString apple =
+            createPagePdf(m_dir.path(), "v04_apple.pdf", {"Apple page"});
+        const QString orange =
+            createPagePdf(m_dir.path(), "v04_orange.pdf", {"Orange page"});
+        QVERIFY(!apple.isEmpty() && !orange.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(apple, orange);
+
+        QCOMPARE(r.pageCount1, 1);
+        QCOMPARE(r.pageCount2, 1);
+        QVERIFY2(!r.isIdentical, "a text edit must clear isIdentical");
+        QVERIFY2(r.pageChanges.isEmpty(),
+                 qPrintable(QStringLiteral(
+                                "a one-page content edit must report NO structural "
+                                "changes (got %1) — page modifications are content "
+                                "changes, not add/remove").arg(r.pageChanges.size())));
+        QVERIFY(r.pageMoves.isEmpty());
+        // The content change itself must be present as an ordinary page diff.
+        // PDFium extraction carries a trailing NUL (pinned §9.10-a behavior),
+        // so word-token checks go through a substring match on the joined list.
+        QCOMPARE(r.pages.size(), 1);
+        QVERIFY2(r.pages.first().textRemoved.join(QLatin1Char(' '))
+                     .contains(QStringLiteral("Apple")),
+                 "the removed word must be reported on the page diff");
+        QVERIFY2(r.pages.first().textAdded.join(QLatin1Char(' '))
+                     .contains(QStringLiteral("Orange")),
+                 "the added word must be reported on the page diff");
+    }
+
+    void middlePageRewriteBelowSimilarityFloorIsContentOnly() {
+        // Same page count, middle page rewritten below the fuzzy floor:
+        // {"Beta page"} vs {"Beta rewritten"} share only "beta" → Jaccard
+        // 1/3 < 0.80. The rewrite must stay a content change on page 2, with
+        // the surrounding pages staying matched and structurally silent.
+        const QString before =
+            createPagePdf(m_dir.path(), "v04_mid_before.pdf",
+                          {"Alpha page", "Beta page", "Gamma page"});
+        const QString after =
+            createPagePdf(m_dir.path(), "v04_mid_after.pdf",
+                          {"Alpha page", "Beta rewritten", "Gamma page"});
+        QVERIFY(!before.isEmpty() && !after.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(before, after);
+
+        QCOMPARE(r.pageCount1, 3);
+        QCOMPARE(r.pageCount2, 3);
+        QVERIFY2(!r.isIdentical, "a middle-page rewrite must clear isIdentical");
+        QVERIFY2(r.pageChanges.isEmpty(),
+                 qPrintable(QStringLiteral(
+                                "a below-floor rewrite of the middle page must not "
+                                "produce structural changes (got %1)")
+                                .arg(r.pageChanges.size())));
+        QVERIFY(r.pageMoves.isEmpty());
+        QCOMPARE(r.pages.size(), 3);
+        QVERIFY(r.pages.at(0).textRemoved.isEmpty()
+                && r.pages.at(0).textAdded.isEmpty());
+        // PDFium extraction carries a trailing NUL (pinned §9.10-a behavior):
+        // match word tokens as substrings of the joined list.
+        QVERIFY2(r.pages.at(1).textRemoved.join(QLatin1Char(' '))
+                     .contains(QStringLiteral("page")),
+                 "the old middle-page wording must be reported as content removed");
+        QVERIFY2(r.pages.at(1).textAdded.join(QLatin1Char(' '))
+                     .contains(QStringLiteral("rewritten")),
+                 "the new middle-page wording must be reported as content added");
+        QVERIFY(r.pages.at(2).textRemoved.isEmpty()
+                && r.pages.at(2).textAdded.isEmpty());
     }
 };
 
