@@ -98,6 +98,9 @@ Dated corrections to stale historical claims (superseded by HEAD):
 |----|---------|--------|--------|
 | N03 | PDF/A-3U (and L3B) wrote PDF 2.0; PDF/A-3 is PDF 1.7-based | implemented-awaiting-review — whole switch audited, version asserts added for 2B/2U/3B/3U | f9f3a95 |
 | N02 | Alphabetic page labels used spreadsheet scheme (28=ab); ISO 32000 Table 159 repeats the letter (28=bb) | implemented-awaiting-review — letters() corrected, tests re-pinned over review boundaries 1/25-28/52-54 | c764f73 |
+| N01 | Visible Initials/Upload tabs dispatched opposite kinds | implemented-awaiting-review — tab→kind resolved via page widgets, never indices; upload/monogram gates pinned | 47d2fe1 |
+| N05 | Session cache A→B→A retained per-document signature; reuse gate left OK disabled | implemented-awaiting-review — cache rides dirtyChanged on real path change; reuse+cache opens the OK gate | 1d4daca |
+| N06 | Signing retry lost the appearance image (consume-once slot) | implemented-awaiting-review — explicit signDocumentWithAppearance entry points; request captures source+image once, both attempts embed | f8704aa |
 | N09 | Real split execution produced no files (source-resident engine + AR-4 guard rejected every write) | implemented-awaiting-review — writeDocumentFromPages + SafeSave candidate/validate/commit; real end-to-end test drives the production caller | 6ee8eb7 |
 | N10 | Four regression checks were never moc-registered (3 CapabilityRegistry D06 slots + D07 policy slot defined outside slots sections) | implemented-awaiting-review — moved into private slots, mutation-proven to execute (19/19 + 14/14 totals) | 866321d |
 
