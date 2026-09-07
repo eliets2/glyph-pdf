@@ -92,6 +92,14 @@ Dated corrections to stale historical claims (superseded by HEAD):
 | D06 | Capability probe reported RapidOCR Available on a zero-byte detector stub | implemented-awaiting-review — probeRapidModelsIn demands non-empty detector+recognizer+vocabulary, classifier optional/disclosed; applyToWidget reversibility; 3 dir-fixture tests | (this commit) |
 | D07 | Security redaction entry path defaulted sanitize OFF (contradicted the default-ON contract; Redact mode defaulted ON) | implemented-awaiting-review — shared kDefaultSanitizeOn policy seeded into both entry paths, static_assert guard | (this commit) |
 
+## CODE-REVIEW-2026-09-06 findings (D01–D05, redaction + AI boundaries)
+
+| ID | Finding | Status | Commit |
+|----|---------|--------|--------|
+| D02 (AI) | OllamaProvider caller-boundary lifetime: no late callback into destroyed owner, exactly one result per request, retry on same instance | implemented-awaiting-review — 3 caller-boundary pins (PanelLikeOwner harness mirroring AIChatPanel), mutation-tested | 4d45769 |
+| D02 (redaction) | RedactOperation worker does not own the state it uses (QPointer re-check; UI-parented destructor uncoordinated) | open — owned by the redaction lane (RedactOperation.*) | — |
+| D01 | Retry Sanitize receives an empty sanitizedDestination after partial failure | open — owned by the redaction lane; dispatch after D05 lands | — |
+
 ## Newly discovered engine defect (exposed by U05 fixtures)
 
 | ID | Surface | Finding | Status | Evidence |
