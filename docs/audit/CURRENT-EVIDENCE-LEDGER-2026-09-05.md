@@ -92,6 +92,8 @@ Dated corrections to stale historical claims (superseded by HEAD):
 |----|---------|--------|--------|
 | D06 | Capability probe reported RapidOCR Available on a zero-byte detector stub | implemented-awaiting-review — probeRapidModelsIn demands non-empty detector+recognizer+vocabulary, classifier optional/disclosed; applyToWidget reversibility; 3 dir-fixture tests | (this commit) |
 | D07 | Security redaction entry path defaulted sanitize OFF (contradicted the default-ON contract; Redact mode defaulted ON) | implemented-awaiting-review — shared kDefaultSanitizeOn policy seeded into both entry paths, static_assert guard | (this commit) |
+| D03 | Qt-only preprocessing failed to compile — carryResolution hidden by HAS_TESSERACT | implemented-awaiting-review — carryResolution moved to the Qt-only anonymous namespace; both-config syntax proof (+fsyntax-only) and DPI/polarity tests | 603d984 |
+| N08 | Overlay label glyphs extended outside the minimum-height black box (3.046pt at 9pt min) | implemented-awaiting-review — metric-derived minimum (ascent+descent=6.566pt @7pt Helvetica), extent-centered baseline, SetPrecision(8); skip-below contract kept | 9a912b9 |
 
 ## Latest-review findings (LATEST-QUALITY-REVIEW-2026-09-07, N01–N10 at 0caa45e)
 
