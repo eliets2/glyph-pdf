@@ -1893,6 +1893,13 @@ bool PoDoFoBackend::exportPdfA(const QString &outputPath, int conformanceLevel) 
 
         PdfALevel pdfaLevel;
         PdfVersion pdfVersion;
+        // The complete level → (PdfALevel, base PDF version) mapping, in one
+        // switch. The base version is fixed by each ISO 19005 part's base
+        // standard and is NOT free: PDF/A-1 ← PDF 1.4 (ISO 19005-1), PDF/A-2
+        // ← PDF 1.7 (ISO 19005-2 ← ISO 32000-1), PDF/A-3 ← PDF 1.7 (ISO
+        // 19005-3 ← ISO 32000-1). PDF 2.0 is the PDF/A-4 family (ISO
+        // 19005-4) — writing it under a PDF/A-3 identity produced artifacts
+        // declaring a base standard the conformance level cannot have (N03).
         switch (conformanceLevel) {
             case 2:
                 pdfaLevel = PdfALevel::L2B;
@@ -1900,7 +1907,7 @@ bool PoDoFoBackend::exportPdfA(const QString &outputPath, int conformanceLevel) 
                 break;
             case 3:
                 pdfaLevel = PdfALevel::L3B;
-                pdfVersion = PdfVersion::V2_0;
+                pdfVersion = PdfVersion::V1_7;
                 break;
             // §9.12 finding (TestBatchOpsCoverage): the batch combo offers
             // PDF/A-2U/3U; silently downgrading them to L1B was an
@@ -1911,7 +1918,7 @@ bool PoDoFoBackend::exportPdfA(const QString &outputPath, int conformanceLevel) 
                 break;
             case 5:
                 pdfaLevel = PdfALevel::L3U;
-                pdfVersion = PdfVersion::V2_0;
+                pdfVersion = PdfVersion::V1_7;
                 break;
             default:
                 pdfaLevel = PdfALevel::L1B;

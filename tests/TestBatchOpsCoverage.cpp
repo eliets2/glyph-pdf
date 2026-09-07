@@ -29,6 +29,10 @@
 //      PDF/A-3U items whose data (4 / 5) falls through PoDoFoBackend::
 //      exportPdfA's switch (only 2 and 3 are mapped) to the PDF/A-1B default —
 //      the combo silently promises a level it does not deliver.
+//   6. N03 (P1): every selectable PDF/A level must also write its correct PDF
+//      base version — PDF/A-1 ← PDF 1.4, PDF/A-2 ← PDF 1.7, PDF/A-3 ← PDF 1.7
+//      (PDF 2.0 is the PDF/A-4 family) — asserted on the saved artifact via
+//      PdfMetadata::GetPdfVersion, not only the self-declared PDF/A level.
 //
 // Run: QT_QPA_PLATFORM=offscreen ctest -R TestBatchOpsCoverage --output-on-failure
 #include <QtTest/QtTest>
@@ -156,6 +160,53 @@ private:
         QVERIFY2(!bm.isBatchRunning(), "Batch did not complete within 15 seconds");
     }
 
+    // N03: drive the batch Export PDF/A worker at a given conformance combo
+    // level and assert the SAVED artifact's PDF/A level AND PDF version on
+    // readback (PdfMetadata::GetPdfALevel / GetPdfVersion — the version comes
+    // from the written document, not from a self-declared conformance string).
+    void runPdfAExportAndCheckMetadata(const QString& comboText,
+                                       PoDoFo::PdfALevel expectedLevel,
+                                       PoDoFo::PdfVersion expectedVersion,
+                                       const QString& fixtureName,
+                                       const QString& outputName) {
+        const QString src = createMultiPageTextPdf(
+            m_tmpDir.path(), fixtureName,
+            { QStringLiteral("PDFA-N03-") + comboText });
+        QVERIFY2(!src.isEmpty(), "fixture creation failed");
+
+        AppContext ctx = makeCtx();
+        gp::BatchMode bm;
+        bm.setAppContext(&ctx);
+        bm.addFilesForTest({src});
+        bm.setOperationForTest(3); // OpExportPdfA
+
+        QComboBox* level = pdfaLevelCombo(bm);
+        QVERIFY2(level, "PDF/A conformance combo not found");
+        QVERIFY2(level->findText(comboText) >= 0,
+                 qPrintable(QStringLiteral("combo item %1 missing").arg(comboText)));
+        level->setCurrentIndex(level->findText(comboText));
+
+        runAndWait(bm);
+        QCOMPARE(bm.successCount(), 1);
+        QCOMPARE(bm.failCount(), 0);
+
+        const QString out = tmpPath(outputName);
+        QVERIFY2(QFile::exists(out), "PDF/A output missing");
+
+        try {
+            PoDoFo::PdfMemDocument check;
+            check.Load(out.toUtf8().constData());
+            const PoDoFo::PdfALevel reportedLevel = check.GetMetadata().GetPdfALevel();
+            QCOMPARE(static_cast<int>(reportedLevel), static_cast<int>(expectedLevel));
+            const PoDoFo::PdfVersion reportedVersion = check.GetMetadata().GetPdfVersion();
+            QCOMPARE(static_cast<int>(reportedVersion),
+                     static_cast<int>(expectedVersion));
+        } catch (const std::exception& e) {
+            QFAIL(qPrintable(QStringLiteral("PDF/A output failed to open in PoDoFo: %1")
+                                 .arg(e.what())));
+        }
+    }
+
 private slots:
     void initTestCase() {
         QVERIFY2(m_tmpDir.isValid(), "Temp directory creation failed");
@@ -270,6 +321,12 @@ private slots:
                      "the exported document must identify its PDF/A level in XMP "
                      "(pdfaid) — got Unknown on readback");
             QCOMPARE(static_cast<int>(reported), static_cast<int>(PoDoFo::PdfALevel::L2B));
+
+            // N03: the PDF version of the saved artifact is pinned too —
+            // PDF/A-2 is ISO 19005-2, based on PDF 1.7 (ISO 32000-1).
+            const PoDoFo::PdfVersion reportedVersion = check.GetMetadata().GetPdfVersion();
+            QCOMPARE(static_cast<int>(reportedVersion),
+                     static_cast<int>(PoDoFo::PdfVersion::V1_7));
         } catch (const std::exception& e) {
             QFAIL(qPrintable(QStringLiteral("PDF/A output failed to open in PoDoFo: %1")
                                  .arg(e.what())));
@@ -428,10 +485,38 @@ private slots:
             check.Load(out.toUtf8().constData());
             const PoDoFo::PdfALevel reported = check.GetMetadata().GetPdfALevel();
             QCOMPARE(static_cast<int>(reported), static_cast<int>(PoDoFo::PdfALevel::L2U));
+            // N03: PDF/A-2U is PDF 1.7-based, same standard base as 2B.
+            const PoDoFo::PdfVersion reportedVersion = check.GetMetadata().GetPdfVersion();
+            QCOMPARE(static_cast<int>(reportedVersion),
+                     static_cast<int>(PoDoFo::PdfVersion::V1_7));
         } catch (const std::exception& e) {
             QFAIL(qPrintable(QStringLiteral("PDF/A output failed to open in PoDoFo: %1")
                                  .arg(e.what())));
         }
+    }
+
+    // ── 6. N03 (P1): PDF/A-3 variants must be written as PDF 1.7 ─────────────
+    // PDF/A-3 (ISO 19005-3) is based on PDF 1.7 (ISO 32000-1) — the same
+    // standard base as PDF/A-2; PDF 2.0 is the PDF/A-4 family. exportPdfA's
+    // mapping table wrote PdfVersion::V2_0 for both 3B (case 3) and 3U
+    // (case 5), so the artifact declared a base standard its PDF/A identity
+    // cannot have. These tests drive the real batch Export PDF/A worker at
+    // the 3U/3B combo levels and assert the SAVED artifact's PDF version on
+    // readback (PdfMetadata::GetPdfVersion) together with the PDF/A level.
+    void pdfaThreeUComboWritesPdf17Metadata() {
+        runPdfAExportAndCheckMetadata(QStringLiteral("PDF/A-3U"),
+                                      PoDoFo::PdfALevel::L3U,
+                                      PoDoFo::PdfVersion::V1_7,
+                                      QStringLiteral("pdfa_3u_n03.pdf"),
+                                      QStringLiteral("pdfa_3u_n03_pdfa.pdf"));
+    }
+
+    void pdfaThreeBComboWritesPdf17Metadata() {
+        runPdfAExportAndCheckMetadata(QStringLiteral("PDF/A-3B"),
+                                      PoDoFo::PdfALevel::L3B,
+                                      PoDoFo::PdfVersion::V1_7,
+                                      QStringLiteral("pdfa_3b_n03.pdf"),
+                                      QStringLiteral("pdfa_3b_n03_pdfa.pdf"));
     }
 };
 
