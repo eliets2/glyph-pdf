@@ -485,7 +485,8 @@ EditController::OcrJobVerdict EditController::classifyOcrJobCompletion(
     qint64 jobGeneration, qint64 currentGeneration,
     const QString& jobSourcePath, int jobPage,
     const QString& currentSourcePath, int currentPage,
-    const QString& workerError, QString* messageOut)
+    const QString& workerError, QString* messageOut,
+    qint64 jobSourceRevision, qint64 currentSourceRevision)
 {
     const auto setMessage = [messageOut](const QString& m) {
         if (messageOut) *messageOut = m;
@@ -514,6 +515,16 @@ EditController::OcrJobVerdict EditController::classifyOcrJobCompletion(
         setMessage(EditController::tr("OCR finished, but the page changed — results discarded."));
         return OcrJobVerdict::Stale;
     }
+    // V05: same path and page, but the document was mutated in place since
+    // this job's page snapshot was rendered (page replaced/reordered, text
+    // edit, redaction — none change path or page count). The rendered words
+    // no longer describe the current document. -1 = unknown revision (legacy
+    // callers) — only the identity checks above apply.
+    if (jobSourceRevision >= 0 && currentSourceRevision >= 0
+            && jobSourceRevision != currentSourceRevision) {
+        setMessage(EditController::tr("OCR finished, but the document was modified — results discarded."));
+        return OcrJobVerdict::Stale;
+    }
     return OcrJobVerdict::Deliver;
 }
 
@@ -525,6 +536,7 @@ EditController::OcrJobVerdict EditController::classifyOcrJobCompletion(
 bool EditController::ocrSessionIsExportable(const OcrReviewSession& session,
                                             const QString& currentSourcePath,
                                             int currentPageCount,
+                                            qint64 currentSourceRevision,
                                             QString* reasonOut)
 {
     const auto reject = [reasonOut](const QString& r) {
@@ -540,6 +552,17 @@ bool EditController::ocrSessionIsExportable(const OcrReviewSession& session,
     if (currentPageCount >= 0 && session.sourcePageCount != currentPageCount)
         return reject(EditController::tr(
             "The document changed since this OCR run (page count differs) — run OCR again."));
+    // V05: same path and page count is NOT proof the reviewed page is still
+    // current — a replacement, reorder, in-place edit or redaction preserves
+    // both. The mutation revision captured with the page snapshot must still
+    // match the live document session. -1 on either side (legacy session /
+    // unavailable session) falls back to the path+count proxies above.
+    // Ordinary page navigation never advances the revision, so the explicitly
+    // reviewed page stays exportable while the user browses.
+    if (session.sourceRevision >= 0 && currentSourceRevision >= 0
+            && session.sourceRevision != currentSourceRevision)
+        return reject(EditController::tr(
+            "The document was modified since this OCR run — run OCR again."));
     return true;
 }
 
@@ -652,10 +675,15 @@ void EditController::runOcr() {
     // R07: generation identity of this job — the completion callback drops the
     // results if a newer request was issued in the meantime. R08: the page
     // count snapshot is the session's cheap revision proxy (page insert/delete
-    // invalidates the session at accept time).
+    // invalidates the session at accept time). V05: the DocumentSession
+    // mutation revision is captured with the page snapshot (the render below
+    // is the snapshot) and re-validated at completion AND export, so an
+    // in-place mutation between/after these points rejects the stale words.
     ++_ocrJobGeneration;
     const qint64 jobGeneration = _ocrJobGeneration;
     const int sourcePageCount = viewer->pageCount();
+    const qint64 sourceRevision = (_ctx && _ctx->document)
+        ? _ctx->document->mutationRevision() : qint64(-1);
 
     // Audit 9.4 P0: honor the user's OCR language selection instead of a
     // hard-coded "eng". Read + map on the GUI thread (QSettings is not
@@ -694,7 +722,7 @@ void EditController::runOcr() {
 
     QThread *worker = QThread::create([self, viewerPtr, filePath, page, renderedPage,
                                        wantRapid, wantEnsemble, ocrLang, preprocessPrefs,
-                                       jobGeneration, sourcePageCount]() {
+                                       jobGeneration, sourcePageCount, sourceRevision]() {
         QString error;
         QList<OcrResult> resultsArr;
         QList<MergedOcrWord> mergedWords;   // also surfaced to the OCR Verify screen
@@ -781,7 +809,7 @@ void EditController::runOcr() {
             }
         }
 
-        QMetaObject::invokeMethod(QCoreApplication::instance(), [self, viewerPtr, filePath, page, pageImg, resultsArr, mergedWords, error, jobGeneration, sourcePageCount]() {
+        QMetaObject::invokeMethod(QCoreApplication::instance(), [self, viewerPtr, filePath, page, pageImg, resultsArr, mergedWords, error, jobGeneration, sourcePageCount, sourceRevision]() {
             // R07: a destroyed controller (and its panels) receives no callbacks.
             if (!self) return;
 
@@ -794,9 +822,13 @@ void EditController::runOcr() {
             QString message;
             const QString currentPath    = viewerPtr ? viewerPtr->filePath() : QString();
             const int currentPage        = viewerPtr ? viewerPtr->currentPage() : -1;
+            // V05: the live mutation revision at completion time.
+            const qint64 currentRevision = (self->_ctx && self->_ctx->document)
+                ? self->_ctx->document->mutationRevision() : qint64(-1);
             const OcrJobVerdict verdict  = classifyOcrJobCompletion(
                 jobGeneration, self->_ocrJobGeneration, filePath, page,
-                currentPath, currentPage, error, &message);
+                currentPath, currentPage, error, &message,
+                sourceRevision, currentRevision);
 
             if (verdict == OcrJobVerdict::Failed) {
                 emit self->ocrRunFailed(message);
@@ -817,6 +849,10 @@ void EditController::runOcr() {
             session.sourcePath      = filePath;
             session.sourcePage      = page;
             session.sourcePageCount = sourcePageCount;
+            // V05: the session carries the revision captured with the page
+            // snapshot (NOT a post-delivery read) — export re-validates this
+            // against the live document session.
+            session.sourceRevision  = sourceRevision;
             session.pageImage       = pageImg;
             session.words.reserve(mergedWords.size());
             for (int i = 0; i < mergedWords.size(); ++i) {
@@ -1085,10 +1121,15 @@ void EditController::onOcrAcceptRequested(const QList<OcrReviewedWord>& reviewed
     // R08: validate the review session against the live viewer BEFORE doing
     // any work — a stale session (source/revision change) is a validation
     // failure, and the panel's Saving state must recover from it.
+    // V05: the live mutation revision travels with the check so a mutated
+    // document (path and page count unchanged) rejects the stale review.
     QString reason;
     const QString currentPath = viewer ? viewer->filePath() : QString();
     const int currentCount    = viewer ? viewer->pageCount() : -1;
-    if (!ocrSessionIsExportable(m_reviewSession, currentPath, currentCount, &reason)) {
+    const qint64 currentRevision = (_ctx && _ctx->document)
+        ? _ctx->document->mutationRevision() : qint64(-1);
+    if (!ocrSessionIsExportable(m_reviewSession, currentPath, currentCount,
+                                currentRevision, &reason)) {
         emit ocrSaveFinished(false, false, reason);
         return;
     }

@@ -25,6 +25,7 @@
 #include "modes/OCRMode.h"
 #include "modes/OcrReviewSession.h"
 #include "shell/controllers/EditController.h"
+#include "engines/DocumentSession.h"
 #include "engines/ocr/OcrPipeline.h"
 #include "engines/PdfEditorEngine.h"
 #include "engines/pdfium/PdfiumBackend.h"
@@ -59,7 +60,9 @@ QImage makeScanPage(int w = 400, int h = 300)
 }
 
 // A minimal review session as EditController would cache it after a run:
-// source identity + revision proxy + the page image the words belong to.
+// source identity + revision + the page image the words belong to.
+// V05: sourceRevision is the DocumentSession mutation revision captured with
+// the page snapshot (7 here — any non-negative value the seams can compare).
 OcrReviewSession makeSession(int page, const QStringList& texts,
                              const QString& path = QStringLiteral("C:/scans/inv.pdf"))
 {
@@ -68,6 +71,7 @@ OcrReviewSession makeSession(int page, const QStringList& texts,
     s.sourcePath = path;
     s.sourcePage = page;
     s.sourcePageCount = 3;
+    s.sourceRevision = 7;
     s.pageImage = makeScanPage();
     int id = 0;
     for (const QString& t : texts) {
@@ -273,6 +277,23 @@ private slots:
                    QString(), &message),
                  EditController::OcrJobVerdict::Stale);
         QVERIFY(message.contains(QStringLiteral("closed")));
+
+        // V05: the document was MUTATED IN PLACE mid-job — same path, same
+        // page, same page count (page replaced/reordered/edited) — but the
+        // mutation revision advanced since the snapshot: never delivered.
+        QCOMPARE(EditController::classifyOcrJobCompletion(1, 1,
+                   QStringLiteral("a.pdf"), 0, QStringLiteral("a.pdf"), 0,
+                   QString(), &message,
+                   /*jobSourceRevision*/ 5, /*currentSourceRevision*/ 6),
+                 EditController::OcrJobVerdict::Stale);
+        QVERIFY(message.contains(QStringLiteral("modified")));
+
+        // V05: equal revision (no mutation since the snapshot) delivers.
+        QCOMPARE(EditController::classifyOcrJobCompletion(1, 1,
+                   QStringLiteral("a.pdf"), 0, QStringLiteral("a.pdf"), 0,
+                   QString(), &message, /*jobSourceRevision*/ 5,
+                   /*currentSourceRevision*/ 5),
+                 EditController::OcrJobVerdict::Deliver);
     }
 
     // ── A stale completion must not re-enable another document's save ────────
@@ -442,24 +463,66 @@ private slots:
         OcrReviewSession session = makeSession(1, { QStringLiteral("invoice") });
 
         QString reason;
-        // Same source, same page count → exportable.
+        // Same source, same page count, same mutation revision → exportable.
+        // (This is also the ordinary-navigation contract: browsing other pages
+        // mutates nothing, so the explicitly reviewed page stays exportable.)
         QVERIFY(EditController::ocrSessionIsExportable(session,
-                   QStringLiteral("C:/scans/inv.pdf"), 3, &reason));
+                   QStringLiteral("C:/scans/inv.pdf"), 3, 7, &reason));
 
         // Source document changed → rejected with a reason.
         QVERIFY(!EditController::ocrSessionIsExportable(session,
-                   QStringLiteral("C:/scans/other.pdf"), 3, &reason));
+                   QStringLiteral("C:/scans/other.pdf"), 3, 7, &reason));
         QVERIFY(reason.contains(QStringLiteral("another document"), Qt::CaseInsensitive));
 
         // Document revision changed (page inserted/deleted) → rejected.
         QVERIFY(!EditController::ocrSessionIsExportable(session,
-                   QStringLiteral("C:/scans/inv.pdf"), 4, &reason));
+                   QStringLiteral("C:/scans/inv.pdf"), 4, 7, &reason));
         QVERIFY(reason.contains(QStringLiteral("changed"), Qt::CaseInsensitive));
+
+        // V05: same path AND same page count but the document was mutated in
+        // place since the snapshot (page replaced/reordered, in-place edit,
+        // redaction — all preserve path+count) → rejected.
+        QVERIFY(!EditController::ocrSessionIsExportable(session,
+                   QStringLiteral("C:/scans/inv.pdf"), 3, 8, &reason));
+        QVERIFY(reason.contains(QStringLiteral("modified"), Qt::CaseInsensitive));
 
         // Invalid/absent session → rejected.
         OcrReviewSession empty;
         QVERIFY(!EditController::ocrSessionIsExportable(empty,
-                   QStringLiteral("C:/scans/inv.pdf"), 3, &reason));
+                   QStringLiteral("C:/scans/inv.pdf"), 3, 7, &reason));
+    }
+
+    // ── V05: the mutation revision advances at every mutation boundary ───────
+    void documentMutationRevisionAdvancesAtMutationBoundaries()
+    {
+        // Every mutating QUndoCommand in this codebase calls
+        // DocumentSession::markReload() on redo AND undo (page ops, in-place
+        // text edits, form edits, images, metadata), and successful edit
+        // paths call markDirty(). Those are exactly the boundaries where the
+        // OCR session's captured revision must advance so a stale review is
+        // rejected even when path and page count are unchanged.
+        DocumentSession doc;
+        QCOMPARE(doc.mutationRevision(), qint64(0));
+
+        doc.markDirty();                       // first successful edit
+        QCOMPARE(doc.mutationRevision(), qint64(1));
+
+        doc.markDirty();                       // ANOTHER edit while already dirty
+        QCOMPARE(doc.mutationRevision(), qint64(2));
+
+        doc.markReload();                      // structural change / undo-redo
+        QCOMPARE(doc.mutationRevision(), qint64(3));
+
+        doc.markReload();                      // every command invocation counts
+        QCOMPARE(doc.mutationRevision(), qint64(4));
+
+        doc.setClean();                        // saving is not a content mutation
+        QCOMPARE(doc.mutationRevision(), qint64(4));
+
+        // Ordinary page NAVIGATION never reaches markDirty/markReload —
+        // nothing advances — so a reviewed page stays exportable while the
+        // user browses (preserving the explicit reviewed-page identity).
+        QCOMPARE(doc.mutationRevision(), qint64(4));
     }
 
     // ── Records from an older delivery are rejected against the session ───────

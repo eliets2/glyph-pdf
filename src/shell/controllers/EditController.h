@@ -68,22 +68,32 @@ public:
 
     /// Pure seam: classify one job completion. jobGeneration != currentGeneration
     /// means a newer request superseded it; an empty currentSourcePath means the
-    /// viewer/editor was gone. The human-readable recovery message is written to
-    /// messageOut when non-null.
+    /// viewer/editor was gone. V05: jobSourceRevision/currentSourceRevision are
+    /// the DocumentSession::mutationRevision() captured when the job's page
+    /// snapshot was rendered and read at completion time — a differing revision
+    /// means the document was mutated in place (same path/page/count) and the
+    /// results are stale. -1 (unknown) skips the revision comparison. The
+    /// human-readable recovery message is written to messageOut when non-null.
     static OcrJobVerdict classifyOcrJobCompletion(
         qint64 jobGeneration, qint64 currentGeneration,
         const QString& jobSourcePath, int jobPage,
         const QString& currentSourcePath, int currentPage,
-        const QString& workerError, QString* messageOut);
+        const QString& workerError, QString* messageOut,
+        qint64 jobSourceRevision = -1, qint64 currentSourceRevision = -1);
 
     // ── R08 (F04): reviewed-word authority seams ─────────────────────────────
     /// Pure seam: may this review session still be saved against the live
     /// viewer? Rejects stale sessions after a source change (different
-    /// document) or a revision change (page count differs). Writes a
-    /// human-readable reason to reasonOut when non-null.
+    /// document), a page-count change, or — V05 — a mutation-revision change
+    /// (the page was replaced/reordered/edited in place; path and count alone
+    /// cannot prove the reviewed page is still current). currentSourceRevision
+    /// is the live DocumentSession::mutationRevision(); -1 (unknown) falls
+    /// back to the path+count proxies. Writes a human-readable reason to
+    /// reasonOut when non-null.
     static bool ocrSessionIsExportable(const OcrReviewSession& session,
                                        const QString& currentSourcePath,
                                        int currentPageCount,
+                                       qint64 currentSourceRevision,
                                        QString* reasonOut = nullptr);
 
     /// Pure seam: merge the panel's reviewed records into the session and
