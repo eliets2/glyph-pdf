@@ -66,16 +66,31 @@ private slots:
                  QStringList({"iv", "v", "vi"}));
     }
 
-    // ── Letters: bijective base-26 (…Y, Z, AA, AB…) ──────────────────────
+    // ── Letters: PDF repeated-letter cycles (a-z, aa, bb … zz, aaa, bbb …) ──
+    // N02 correction: ISO 32000-1 Table 159 lowercase/uppercase-letter styles
+    // repeat the SAME letter per cycle (27='aa', 28='bb', 52='zz',
+    // 53='aaa'), matching PDFium's decoder — NOT spreadsheet bijective
+    // base-26 (which wrongly gives 27='aa', 28='ab'). The previous
+    // expectations here pinned the spreadsheet scheme; they are corrected to
+    // the spec scheme this commit. Pinned boundaries per the review: 1,
+    // 25–28, 52–54 and a nondefault start.
     void labelsFor_letters() {
         QCOMPARE(labelsFor(1, Style::UppercaseLetters, 3),
                  QStringList({"A", "B", "C"}));
         QCOMPARE(labelsFor(25, Style::UppercaseLetters, 3),
                  QStringList({"Y", "Z", "AA"}));
+        QCOMPARE(labelsFor(27, Style::UppercaseLetters, 2),
+                 QStringList({"AA", "BB"}));
+        QCOMPARE(labelsFor(52, Style::UppercaseLetters, 3),
+                 QStringList({"ZZ", "AAA", "BBB"}));
         QCOMPARE(labelsFor(1, Style::LowercaseLetters, 2),
                  QStringList({"a", "b"}));
-        QCOMPARE(labelsFor(27, Style::LowercaseLetters, 2),
-                 QStringList({"aa", "ab"}));
+        QCOMPARE(labelsFor(26, Style::LowercaseLetters, 3),
+                 QStringList({"z", "aa", "bb"}));
+        QCOMPARE(labelsFor(28, Style::LowercaseLetters, 1),
+                 QStringList({"bb"}));
+        QCOMPARE(labelsFor(52, Style::LowercaseLetters, 2),
+                 QStringList({"zz", "aaa"}));
     }
 
     // ── Invalid arguments produce empty output (no guessed labels) ───────

@@ -34,17 +34,19 @@ QString romanNumeral(int value, bool uppercase)
     return uppercase ? out : out.toLower();
 }
 
-// Bijective base-26 (1 = A/a, 26 = Z/z, 27 = AA/aa, …) — the letter scheme
-// PDF viewers use for /S (A) and /S (a). Unbounded for practical int values.
+// PDF letter styles (/S (a) and /S (A), ISO 32000-1 Table 159) use
+// repeated-letter cycles, NOT spreadsheet bijective base-26: 1..26 are
+// a..z, then each cycle repeats the SAME letter prefix — 27='aa',
+// 28='bb', 52='zz', 53='aaa' (N02; matches PDFium's decoder). For value n
+// the cycle letter is 'a' + (n-1)%26 and it repeats (n-1)/26 + 1 times.
+// Unbounded for practical int values.
 QString letters(int value, bool uppercase)
 {
-    QString out;
-    while (value > 0) {
-        const int rem = (value - 1) % 26;
-        out.prepend(QLatin1Char((uppercase ? 'A' : 'a') + rem));
-        value = (value - 1) / 26;
-    }
-    return out;
+    if (value < 1)
+        return QString();
+    const int repeats = (value - 1) / 26 + 1;
+    const QLatin1Char letter((uppercase ? 'A' : 'a') + (value - 1) % 26);
+    return QString(repeats, letter);
 }
 
 } // namespace
