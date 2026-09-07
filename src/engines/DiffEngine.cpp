@@ -152,7 +152,10 @@ DiffResult DiffEngine::compare(const QString &file1, const QString &file2, int d
     //    PageMoved (never re-reported as add+remove), a same-index pair
     //    realigns without a move record, and fingerprint-less pages keep the
     //    index-wise/blank-page semantics they had before fingerprints.
-    //    Everything unmatched is PageRemoved (doc1) / PageAdded (doc2).
+    // 3. Substitution (V04). Leftover pairs the first two stages could not
+    //    anchor pair up in order as ALIGNED MODIFIED pages — structurally
+    //    silent, their content changes live in result.pages. Only the
+    //    one-sided remainder is PageRemoved (doc1) / PageAdded (doc2).
     {
         auto fingerprint = [](const QString& text) -> QString {
             QString t = text.left(200).toLower();
@@ -262,6 +265,39 @@ DiffResult DiffEngine::compare(const QString &file1, const QString &file2, int d
                     alignedB.insert(b);  // same-index fallback pair: aligned, not moved
                 }
             }
+        }
+
+        // ── V04: aligned modified-page pairs are not structural changes ────
+        // A page left unmatched by the exact-fingerprint alignment AND the
+        // fuzzy move pass is not proof that the page structure changed: a
+        // one-page document whose text was rewritten in place ("Apple" →
+        // "Orange") used to surface as PageRemoved + PageAdded on top of its
+        // ordinary text difference, because word-set similarity 0.0 misses
+        // the fuzzy floor. Explicit substitution policy (the sequence-context
+        // / change-hunk semantics of a page-level diff): the k-th leftover of
+        // doc1 pairs with the k-th leftover of doc2, order-preserving, as one
+        // ALIGNED MODIFIED pair. Modified pairs are deliberately NOT entries
+        // in pageChanges — their content changes are already reported per
+        // page in result.pages, which the CHANGES tree, the change-type
+        // filters, the navigation sequence and the exported reports all
+        // render as ordinary page rows, so every consumer agrees on the
+        // classification. Surplus leftovers keep their one-sided
+        // PageRemoved / PageAdded. Anchors are untouched: this pass runs
+        // after exact fingerprints and fuzzy moves, so real insertions
+        // (middle insertions, duplicates) and reorders keep their pinned
+        // classifications. Documented ambiguity: when an insertion and an
+        // in-place rewrite coexist with no anchor between them, the in-order
+        // pairing may attach the rewrite to the insertion — the per-page
+        // word diff stays authoritative in either reading.
+        QList<int> leftoverA, leftoverB;
+        for (int a = 0; a < n1; ++a)
+            if (!alignedA.contains(a)) leftoverA.append(a);
+        for (int b = 0; b < n2; ++b)
+            if (!alignedB.contains(b) && !movedB.contains(b)) leftoverB.append(b);
+        const int nModified = qMin(leftoverA.size(), leftoverB.size());
+        for (int k = 0; k < nModified; ++k) {
+            alignedA.insert(leftoverA.at(k));
+            alignedB.insert(leftoverB.at(k));
         }
 
         // ── R11: explicit structural changes for everything the alignment ─────

@@ -38,12 +38,17 @@ struct DiffResult {
         bool hasOldSide() const { return oldPage >= 0; }
         bool hasNewSide() const { return newPage >= 0; }
     };
-    /// Single canonical structural sequence, in deterministic page order.
-    /// Built by a two-stage alignment: pages are matched across documents by
+    /// Single canonical STRUCTURAL sequence, in deterministic page order.
+    /// Built by a three-stage alignment: pages are matched across documents by
     /// exact deterministic fingerprints (SHA-256 over normalized extracted
     /// text — a page inserted in the middle surfaces as ONE PageAdded at its
     /// true position, never as a remove+add chain), then leftovers fall back
-    /// to fuzzy word-set matching (moved pages appear here exactly once).
+    /// to fuzzy word-set matching (moved pages appear here exactly once), and
+    /// finally the remaining leftover pairs align in order as MODIFIED pages
+    /// (V04): a page rewritten in place is a content change carried by
+    /// result.pages, deliberately absent here — low text similarity is not
+    /// proof that the page structure changed, so only the one-sided leftover
+    /// pages are PageRemoved / PageAdded.
     /// Pages with no extractable text (image-only) have no fingerprint and
     /// keep the fuzzy/index-wise fallback semantics. The CHANGES tree, the
     /// change-type filters, the next/previous sequence, the status totals and
