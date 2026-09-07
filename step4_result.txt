@@ -1,0 +1,8 @@
+********* Start testing of TestViewingParity *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestViewingParity::initTestCase()
+FAIL!  : TestViewingParity::testRotationRotatesActualBitmap() 'isWhitish(upright.pixel(190, 290))' returned FALSE. (expected white bottom-right in unrotated render)
+C:/Users/User/Projects/pdf-worktrees/viewing/tests/TestViewingParity.cpp(60) : failure location
+PASS   : TestViewingParity::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 47ms
+********* Finished testing of TestViewingParity *********

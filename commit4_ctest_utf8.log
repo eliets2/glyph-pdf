@@ -1,0 +1,167 @@
+﻿Test project C:/Users/User/Projects/pdf-worktrees/viewing/build
+      Start 25: TestLaneScheduler
+ 1/40 Test #25: TestLaneScheduler ................   Passed    2.23 sec
+      Start 30: TestInspector
+      Start 28: TestPagesMode
+      Start 10: TestSignatureRealCrypto
+      Start 18: TestResourceLimits
+ 2/40 Test #18: TestResourceLimits ...............   Passed    0.11 sec
+      Start 12: TestRedaction
+ 3/40 Test #30: TestInspector ....................   Passed    0.96 sec
+      Start 19: TestControllers
+ 4/40 Test #28: TestPagesMode ....................   Passed    1.09 sec
+ 5/40 Test #12: TestRedaction ....................   Passed    0.66 sec
+      Start 21: TestMenuBarIntegrity
+      Start 14: TestOcrPipeline
+ 6/40 Test #19: TestControllers ..................   Passed    0.76 sec
+ 7/40 Test #10: TestSignatureRealCrypto ..........   Passed    1.15 sec
+      Start 16: TestThreadSafety
+      Start  4: TestSanitization
+ 8/40 Test #21: TestMenuBarIntegrity .............   Passed    0.43 sec
+      Start 17: TestEncryption
+ 9/40 Test  #4: TestSanitization .................   Passed    0.41 sec
+      Start 40: TestMrcPipeline
+10/40 Test #17: TestEncryption ...................   Passed    0.40 sec
+      Start  5: TestAutosave
+11/40 Test #16: TestThreadSafety .................   Passed    0.50 sec
+      Start 26: TestFormBuilder
+12/40 Test #14: TestOcrPipeline ..................   Passed    0.56 sec
+      Start 20: TestRibbonIntegrity
+13/40 Test #40: TestMrcPipeline ..................   Passed    0.61 sec
+14/40 Test  #5: TestAutosave .....................   Passed    0.57 sec
+15/40 Test #26: TestFormBuilder ..................   Passed    0.53 sec
+      Start 23: TestPerformance
+      Start 35: TestAnnotationDjot
+      Start  3: SmokeTest
+16/40 Test #20: TestRibbonIntegrity ..............   Passed    0.57 sec
+      Start 31: TestPatternRedact
+17/40 Test #23: TestPerformance ..................   Passed    0.22 sec
+      Start 27: TestFormPersistence
+18/40 Test  #3: SmokeTest ........................   Passed    0.31 sec
+      Start  9: TestSignatureValidation
+19/40 Test #35: TestAnnotationDjot ...............   Passed    0.34 sec
+      Start 33: TestDjotFuzz
+20/40 Test #31: TestPatternRedact ................   Passed    0.33 sec
+      Start 38: TestOfficeImport
+21/40 Test #27: TestFormPersistence ..............   Passed    0.25 sec
+      Start 22: TestIntegration
+22/40 Test  #9: TestSignatureValidation ..........   Passed    0.30 sec
+      Start  8: TestSecretStore
+23/40 Test #33: TestDjotFuzz .....................   Passed    0.32 sec
+      Start 39: TestOfficeExport
+24/40 Test #22: TestIntegration ..................   Passed    0.23 sec
+      Start  1: UnitTests
+25/40 Test #38: TestOfficeImport .................   Passed    0.34 sec
+      Start  2: TestInterfaces
+26/40 Test  #1: UnitTests ........................   Passed    0.07 sec
+      Start  7: TestRobustness
+27/40 Test  #2: TestInterfaces ...................   Passed    0.06 sec
+      Start 32: TestDjotRoundtrip
+28/40 Test  #8: TestSecretStore ..................   Passed    0.23 sec
+      Start  6: TestSignatureValidationMock
+29/40 Test #32: TestDjotRoundtrip ................   Passed    0.07 sec
+      Start 13: TestLayoutEnsemble
+30/40 Test #39: TestOfficeExport .................   Passed    0.25 sec
+      Start 11: TestChain1
+31/40 Test  #7: TestRobustness ...................   Passed    0.17 sec
+      Start 37: TestDiffEngine
+32/40 Test  #6: TestSignatureValidationMock ......   Passed    0.08 sec
+      Start 36: TestAiProvider
+33/40 Test #11: TestChain1 .......................   Passed    0.10 sec
+34/40 Test #13: TestLayoutEnsemble ...............   Passed    0.13 sec
+35/40 Test #37: TestDiffEngine ...................   Passed    0.08 sec
+      Start 24: TestVeraPdf
+      Start 15: TestOcrDjotMapper
+      Start 34: TestUpdateChecker
+36/40 Test #36: TestAiProvider ...................   Passed    0.14 sec
+37/40 Test #15: TestOcrDjotMapper ................   Passed    0.06 sec
+38/40 Test #34: TestUpdateChecker ................   Passed    0.06 sec
+39/40 Test #24: TestVeraPdf ......................   Passed    0.10 sec
+      Start 29: TestBatchMode
+40/40 Test #29: TestBatchMode ....................   Passed    1.00 sec
+
+100% tests passed, 0 tests failed out of 40
+
+Label Time Summary:
+ai                =   0.14 sec*proc (1 test)
+annot             =   0.34 sec*proc (1 test)
+autosave          =   0.57 sec*proc (1 test)
+batch             =   1.00 sec*proc (1 test)
+benchmark         =   0.22 sec*proc (1 test)
+builder           =   0.53 sec*proc (1 test)
+chain1            =   0.10 sec*proc (1 test)
+codec             =   0.39 sec*proc (2 tests)
+commands          =   0.06 sec*proc (1 test)
+compression       =   0.61 sec*proc (1 test)
+concurrency       =   2.23 sec*proc (1 test)
+controllers       =   0.76 sec*proc (1 test)
+convert           =   0.59 sec*proc (2 tests)
+cross-page        =   0.56 sec*proc (1 test)
+crypto            =   1.15 sec*proc (1 test)
+diff              =   0.08 sec*proc (1 test)
+djot              =   0.79 sec*proc (4 tests)
+e2e               =   0.23 sec*proc (1 test)
+encryption        =   0.40 sec*proc (1 test)
+ensemble          =   0.13 sec*proc (1 test)
+export            =   0.25 sec*proc (1 test)
+form-fields       =   0.78 sec*proc (2 tests)
+forms             =   0.78 sec*proc (2 tests)
+fuzz              =   0.32 sec*proc (1 test)
+headless          =  14.06 sec*proc (36 tests)
+images            =   0.34 sec*proc (1 test)
+import            =   0.34 sec*proc (1 test)
+inspector         =   0.96 sec*proc (1 test)
+integration       =   2.09 sec*proc (5 tests)
+integrity         =   1.00 sec*proc (2 tests)
+interface         =   0.08 sec*proc (1 test)
+interfaces        =   0.06 sec*proc (1 test)
+iou               =   0.13 sec*proc (1 test)
+lane-scheduler    =   2.23 sec*proc (1 test)
+layout            =   0.13 sec*proc (1 test)
+lcs               =   0.08 sec*proc (1 test)
+mapper            =   0.06 sec*proc (1 test)
+menubar           =   0.43 sec*proc (1 test)
+mock              =   0.22 sec*proc (2 tests)
+modes             =   2.10 sec*proc (2 tests)
+mrc               =   0.61 sec*proc (1 test)
+myers             =   0.08 sec*proc (1 test)
+ocr               =   0.76 sec*proc (3 tests)
+office            =   0.59 sec*proc (2 tests)
+ooxml             =   0.25 sec*proc (1 test)
+pages             =   1.09 sec*proc (1 test)
+patterns          =   0.33 sec*proc (1 test)
+pdfa              =   0.71 sec*proc (2 tests)
+performance       =   0.22 sec*proc (1 test)
+persistence       =   0.25 sec*proc (1 test)
+pipeline          =   0.56 sec*proc (1 test)
+privacy           =   0.23 sec*proc (1 test)
+properties        =   0.96 sec*proc (1 test)
+provenance        =   0.17 sec*proc (2 tests)
+provider          =   0.14 sec*proc (1 test)
+qt                =  16.22 sec*proc (36 tests)
+real-crypto       =   0.30 sec*proc (1 test)
+redaction         =   0.98 sec*proc (2 tests)
+regression        =   0.66 sec*proc (1 test)
+resources         =   0.11 sec*proc (1 test)
+ribbon            =   0.57 sec*proc (1 test)
+richtext          =   0.34 sec*proc (1 test)
+robustness        =   0.17 sec*proc (1 test)
+roundtrip         =   0.72 sec*proc (3 tests)
+rover             =   0.56 sec*proc (1 test)
+sandwich          =   0.61 sec*proc (1 test)
+sanitization      =   0.41 sec*proc (1 test)
+scheduling        =   2.23 sec*proc (1 test)
+secrets           =   0.23 sec*proc (1 test)
+security          =   3.98 sec*proc (12 tests)
+signatures        =   1.53 sec*proc (3 tests)
+smoke             =   0.31 sec*proc (1 test)
+structural        =   0.06 sec*proc (1 test)
+subprocess        =   0.10 sec*proc (1 test)
+threads           =   0.50 sec*proc (1 test)
+timing            =   0.56 sec*proc (1 test)
+ui                =   4.82 sec*proc (6 tests)
+unit              =  13.81 sec*proc (32 tests)
+update            =   0.06 sec*proc (1 test)
+verapdf           =   0.10 sec*proc (1 test)
+
+Total Test time (real) =   7.13 sec
