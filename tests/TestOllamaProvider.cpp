@@ -23,7 +23,14 @@
 //   * pending I/O is aborted on timeout/cancel;
 //   * provider destruction mid-work is safe;
 //   * request-content restrictions are preserved (32 KiB system-prompt cap,
-//     stream=false, model round-trip).
+//     stream=false, model round-trip);
+//   * D02 caller-boundary follow-up: the REAL consumer ownership shape —
+//     AIChatPanel owns the provider (unique_ptr) AND a member QFutureWatcher
+//     whose finished slot reads panel state — is pinned directly: owner
+//     destruction mid-request, owner destruction with the finished delivery
+//     still queued (the late-callback window, no late state access), retry
+//     after HTTP-status and timeout failures on the same instance, and
+//     exactly-one-result event draining throughout.
 //
 // R04 contract pinned here:
 //   * HTTP: exact localhost spelling or a host that parses as a literal
@@ -52,6 +59,8 @@
 #include <QTcpSocket>
 #include <QTimer>
 #include <QtConcurrent/QtConcurrent>
+
+#include <memory>
 
 #include "engines/ai/IAiProvider.h"
 #include "engines/ai/OllamaProvider.h"
@@ -283,6 +292,55 @@ QString endpointFor(const StubOllamaServer& server)
 }
 
 } // anonymous namespace
+
+// ---------------------------------------------------------------------------
+// D02 caller-boundary harness — the REAL consumer ownership shape.
+//
+// OllamaProvider::chat has exactly two production consumers (source verified):
+//   * AIChatPanel (src/modes/AIChatPanel.cpp) — owns the provider through
+//     std::unique_ptr AND a member QFutureWatcher whose finished slot touches
+//     panel state;
+//   * PreferencesDialog::onAiTestKey (src/ui/PreferencesDialog.cpp) — a
+//     shared_ptr provider plus a child watcher.
+// The panel is the sharper boundary, so the tests below mirror ITS shape —
+// one QObject owning BOTH the provider and the watcher — and pin at that
+// boundary: deterministic owner destruction mid-request, owner destruction
+// with the finished delivery still queued (the late-callback window), retry
+// after failure on the same instance, and exactly-one-result draining.
+// ---------------------------------------------------------------------------
+
+struct CallerRecord {
+    int finishedCount = 0;
+    QList<gp::AiResult> results;
+};
+
+class PanelLikeOwner : public QObject {
+    Q_OBJECT
+public:
+    PanelLikeOwner(const QString& endpoint, CallerRecord* rec)
+        : m_rec(rec), m_provider(std::make_unique<gp::OllamaProvider>(endpoint))
+    {
+        // Same connection shape as AIChatPanel's constructor: member watcher,
+        // receiver `this`, slot reading owner-owned state.
+        connect(&m_watcher, &QFutureWatcher<gp::AiResult>::finished, this, [this] {
+            ++m_rec->finishedCount;
+            if (m_watcher.future().resultCount() > 0)
+                m_rec->results.append(m_watcher.result());
+        });
+    }
+
+    QFuture<gp::AiResult> send()
+    {
+        const QFuture<gp::AiResult> future =
+            m_provider->chat({ { QStringLiteral("user"), QStringLiteral("ping") } });
+        m_watcher.setFuture(future);
+        return future;
+    }
+
+    CallerRecord* m_rec = nullptr;
+    QFutureWatcher<gp::AiResult> m_watcher;
+    std::unique_ptr<gp::OllamaProvider> m_provider;
+};
 
 // ---------------------------------------------------------------------------
 
@@ -552,6 +610,134 @@ private slots:
         QCOMPARE(future.resultCount(), 1);
         drainEvents();
         QCOMPARE(future.resultCount(), 1);
+    }
+
+    // ── D02: caller-boundary lifetime pins (the AIChatPanel shape) ────────
+    //
+    // The review demands deterministic owner-destruction, retry-after-failure
+    // and event-drain tests at the REAL caller boundaries. PanelLikeOwner
+    // above is that boundary: one QObject owning the provider and the member
+    // watcher exactly as AIChatPanel does.
+
+    // The panel-shaped owner is destroyed while its request is in flight.
+    // The worker-owned request must still terminate exactly once, and no
+    // callback may ever reach the destroyed owner.
+    void panelOwnerDestroyedMidRequestNoCallbackExactlyOneResult()
+    {
+        StubOllamaServer server;
+        QVERIFY(server.start());
+        server.mode = StubOllamaServer::Mode::DelayedSuccess;
+        server.delayMs = 700;   // delivery lands AFTER the owner is gone
+        setDeadlineMs(5000);    // only the stub's delayed answer can finish it
+
+        CallerRecord rec;
+        QFuture<gp::AiResult> future;
+        {
+            PanelLikeOwner owner(endpointFor(server), &rec);
+            future = owner.send();
+            QTest::qWait(150);  // dispatch: the request is in flight …
+        }                       // … deterministic owner destruction mid-request
+
+        const gp::AiResult r = waitResult(future, 10000);
+        QVERIFY2(r.ok, qPrintable(QStringLiteral("expected success, got: ") + r.errorMsg));
+        QCOMPARE(future.resultCount(), 1);
+
+        // A queued callback into the destroyed owner would run (crash, or bump
+        // the record) HERE. Nothing may.
+        drainEvents();
+        QCOMPARE(rec.finishedCount, 0);
+        QVERIFY(rec.results.isEmpty());
+        QCOMPARE(future.resultCount(), 1); // and never a second result
+    }
+
+    // The late-callback window: the future finished while the owner was still
+    // alive, but the watcher's finished delivery was still QUEUED on this
+    // thread's event queue when the owner died. Draining the queue must not
+    // deliver into the destroyed owner and must not produce a second result.
+    void panelOwnerDestroyedBeforeQueuedDeliveryNoLateCallback()
+    {
+        StubOllamaServer server;
+        QVERIFY(server.start());
+        setDeadlineMs(3000);
+
+        CallerRecord rec;
+        {
+            PanelLikeOwner owner(endpointFor(server), &rec);
+            QFuture<gp::AiResult> future = owner.send();
+            // Complete WITHOUT running this thread's event loop, so the
+            // watcher's finished delivery stays queued but undelivered.
+            future.waitForFinished();
+            QCOMPARE(future.resultCount(), 1);
+        } // owner + member watcher destroyed with the delivery still queued
+
+        drainEvents(); // a late delivery into the dead owner would run HERE
+
+        QCOMPARE(rec.finishedCount, 0);
+        QVERIFY(rec.results.isEmpty());
+    }
+
+    // Retry after failure on the SAME provider instance (the panel keeps
+    // m_ollama alive across sends): both an HTTP-status failure and a timeout
+    // with aborted pending I/O must leave the provider fully usable for the
+    // next request, with exactly one watcher callback and one result per
+    // request and no stale delivery from the failed attempts.
+    void panelRetryAfterFailureOnSameProviderSucceeds()
+    {
+        StubOllamaServer server;
+        QVERIFY(server.start());
+
+        CallerRecord rec;
+        PanelLikeOwner owner(endpointFor(server), &rec);
+
+        // 1) HTTP-status failure …
+        server.mode = StubOllamaServer::Mode::Status500;
+        setDeadlineMs(3000);
+        const QFuture<gp::AiResult> f1 = owner.send();
+        const gp::AiResult r1 = waitResult(f1, 10000);
+        QVERIFY(!r1.ok);
+        QVERIFY2(r1.errorMsg.contains(QStringLiteral("HTTP 500")),
+                 qPrintable(QStringLiteral("expected HTTP 500, got: ") + r1.errorMsg));
+        drainEvents();
+        QCOMPARE(rec.finishedCount, 1);   // the live owner received exactly this one
+        QCOMPARE(rec.results.size(), 1);
+        QCOMPARE(f1.resultCount(), 1);
+
+        // 2) … retry succeeds.
+        server.mode = StubOllamaServer::Mode::Success;
+        const QFuture<gp::AiResult> f2 = owner.send();
+        const gp::AiResult r2 = waitResult(f2, 10000);
+        QVERIFY2(r2.ok, qPrintable(QStringLiteral("retry after HTTP failure must succeed, got: ")
+                                   + r2.errorMsg));
+        QCOMPARE(r2.text, QStringLiteral("hello from local ollama"));
+        drainEvents();
+        QCOMPARE(rec.finishedCount, 2);
+        QCOMPARE(rec.results.size(), 2);
+        QCOMPARE(rec.results.last().text, QStringLiteral("hello from local ollama"));
+
+        // 3) … then a timeout failure whose pending I/O was aborted …
+        server.mode = StubOllamaServer::Mode::Silent;
+        setDeadlineMs(250);
+        const QFuture<gp::AiResult> f3 = owner.send();
+        const gp::AiResult r3 = waitResult(f3, 10000);
+        QVERIFY(!r3.ok);
+        QVERIFY2(r3.errorMsg.contains(QStringLiteral("timed out"), Qt::CaseInsensitive),
+                 qPrintable(QStringLiteral("expected a timeout, got: ") + r3.errorMsg));
+        QCOMPARE(f3.resultCount(), 1);
+        drainEvents();                    // no late result may surface
+        QCOMPARE(f3.resultCount(), 1);
+        QCOMPARE(rec.finishedCount, 3);
+
+        // 4) … and the retry after the timeout succeeds on the SAME instance.
+        server.mode = StubOllamaServer::Mode::Success;
+        setDeadlineMs(3000);
+        const QFuture<gp::AiResult> f4 = owner.send();
+        const gp::AiResult r4 = waitResult(f4, 10000);
+        QVERIFY2(r4.ok, qPrintable(QStringLiteral("retry after timeout must succeed, got: ")
+                                   + r4.errorMsg));
+        QCOMPARE(r4.text, QStringLiteral("hello from local ollama"));
+        drainEvents();
+        QCOMPARE(rec.finishedCount, 4);   // exactly one callback per request …
+        QCOMPARE(rec.results.size(), 4);  // … and exactly one result each
     }
 
     // N-1 / SECFIX-5 restrictions must survive the rework: the system prompt
