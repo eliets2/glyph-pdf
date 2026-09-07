@@ -109,6 +109,17 @@ Dated corrections to stale historical claims (superseded by HEAD):
 | N04 | Security entry dropped the overlay label (request built by hand, 5 of 6 fields) | implemented-awaiting-review — shared redactRequestFromPlan seam now carries all 6 fields; both entry paths consume it; e2e label burn-in pinned | a7a1bf0 |
 | N07 | Redaction exit left the marking tool armed | implemented-awaiting-review — Cancel disarms Redact→HandTool before exitRequested; GpMainWindow relay resets the shared viewer too; marks kept | 61e51da |
 
+## PARITY-BRANCH-REVIEW findings (V01–V06)
+
+| ID | Finding | Status | Commit |
+|----|---------|--------|--------|
+| V03 | Text-run grouping collapsed table columns (runs split only on line breaks) | implemented-awaiting-review — PdfiumBackend splits runs on >1em gaps, wide space glyphs, font changes; ConversionManager deriveColumns() clusters x-anchors into true columns (CSV interior gaps, XLSX true-column addressing); 13-test suite | 0420cb5 |
+| V05 | OCR revision validation accepted same-path, same-count changes | implemented-awaiting-review — DocumentSession::mutationRevision() advanced at every mutation/undo/redo boundary; review session captures dispatch-time revision; mismatch → Stale/reject; -1 legacy fallback | ff8c1b9 |
+| V04 | (see review text) | in progress — V04 lane committed DiffEngine work (250bbad), completion pending | 250bbad |
+| V06 | (see review text) | in progress — V06 lane WIP in flight | — |
+| D02 (redaction) | RedactOperation worker state ownership | implemented-awaiting-review | 3c3be82 |
+| D01 | Retry-sanitize empty destination path | implemented-awaiting-review (recovery repair) | 8bd01d5 |
+
 ## CODE-REVIEW-2026-09-06 findings (D01–D05, redaction + AI boundaries)
 
 | ID | Finding | Status | Commit |
