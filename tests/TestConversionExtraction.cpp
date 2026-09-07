@@ -11,9 +11,19 @@
 //   * multiline ordering (top-to-bottom) and run-to-run determinism;
 //   * an image-only PDF -> honest empty result (no fabricated text);
 //   * CSV quoting/escaping and HTML escaping of the decoded text.
+//
+// V03 regression tests (PARITY-BRANCH-REVIEW-2026-09-05): the text-run
+// grouping collapsed table columns — characters were grouped using line
+// breaks and baseline distance only, so "Name" @x=72 and "Amount" @x=300 on
+// one baseline exported as the single cells `"Name Amount"` / `"Alice 125"`
+// (XLSX A1/A2, no B column). These fixtures pin that horizontal gaps and
+// font-run changes split runs at the backend boundary, and that the
+// conversion derives a real cell grid (consistent columns across rows,
+// empty interior cells preserved, multiword cells kept whole).
 #include <QtTest/QtTest>
 #include <QTemporaryDir>
 #include <QFile>
+#include <QRegularExpression>
 #include <zip.h>
 #include "engines/ConversionManager.h"
 #include "engines/pdfium/PdfiumBackend.h"
@@ -31,6 +41,10 @@ private slots:
     void imageOnlyPdfYieldsHonestEmptyResult();
     void csvQuotesAndCommasAreEscaped();
     void htmlAccentsDecodeAndMarkupEscapes();
+    // V03: table geometry survives to the spreadsheet/CSV cell grid.
+    void tableColumnsBecomeRealCells();
+    void columnInferenceCoversWideGapMultiwordAndEmptyInterior();
+    void fontRunsSplitButProseStaysWhole();
 
 private:
     // Subset-font fixture: unembedded Type1 whose /Differences encoding maps
@@ -49,6 +63,19 @@ private:
     // One-line text PDF with arbitrary Latin-1-safe content.
     static QString createTextPdf(const QString& dir, const QString& name,
                                  const QStringList& lines);
+    // V03 fixture — the review's 2x2 table: headers "Name" (x=72) and
+    // "Amount" (x=300) on one baseline, "Alice"/"125" beneath them. Four
+    // separate text objects; only the wide horizontal gaps distinguish the
+    // columns.
+    static QString createTablePdf(const QString& dir, const QString& name);
+    // V03 fixture — wider gap, a multiword cell, and an empty interior cell:
+    // row 1 "Item"@72 / "Notes two words"@400 (interior column B empty),
+    // row 2 "Left"@72 / "Mid"@236 / "Right"@400.
+    static QString createSparseTablePdf(const QString& dir, const QString& name);
+    // V03 fixture — a prose line (ordinary spaces, one font) plus a
+    // mixed-font line ("Regular " in Helvetica then "Bold" in Helvetica-Bold,
+    // same baseline, adjacent advances).
+    static QString createMixedFontPdf(const QString& dir, const QString& name);
     static QByteArray readFile(const QString& path);
 };
 
@@ -163,6 +190,68 @@ QString TestConversionExtraction::createTextPdf(const QString& dir, const QStrin
         // intended (0xE9 = é); StandardEncoding (the no-Encoding default)
         // would map them differently — PDFium honors the real encoding.
         "5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica"
+        "/Encoding/WinAnsiEncoding>>endobj\n",
+    };
+    return writePdf(dir + "/" + name, objects);
+}
+
+QString TestConversionExtraction::createTablePdf(const QString& dir, const QString& name) {
+    QList<QByteArray> objects = {
+        "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n",
+        "2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n",
+        "3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents 4 0 R"
+        "/Resources<</Font<</F1 5 0 R>>>>>>endobj\n",
+        // The review's exact geometry: two columns at x=72 / x=300, two rows.
+        contentStreamObj(
+            "BT /F1 12 Tf 72 700 Td (Name) Tj ET\n"
+            "BT /F1 12 Tf 300 700 Td (Amount) Tj ET\n"
+            "BT /F1 12 Tf 72 680 Td (Alice) Tj ET\n"
+            "BT /F1 12 Tf 300 680 Td (125) Tj ET\n"),
+        "5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica"
+        "/Encoding/WinAnsiEncoding>>endobj\n",
+    };
+    return writePdf(dir + "/" + name, objects);
+}
+
+QString TestConversionExtraction::createSparseTablePdf(const QString& dir, const QString& name) {
+    QList<QByteArray> objects = {
+        "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n",
+        "2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n",
+        "3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents 4 0 R"
+        "/Resources<</Font<</F1 5 0 R>>>>>>endobj\n",
+        // Row 1 has an EMPTY INTERIOR cell (column B) and a MULTIWORD cell in
+        // column C; row 2 has three cells at 72 / 236 / 400. The ~300pt row-1
+        // gap is wider than the V03 fixture's to pin gap-size independence.
+        contentStreamObj(
+            "BT /F1 12 Tf 72 700 Td (Item) Tj ET\n"
+            "BT /F1 12 Tf 400 700 Td (Notes two words) Tj ET\n"
+            "BT /F1 12 Tf 72 680 Td (Left) Tj ET\n"
+            "BT /F1 12 Tf 236 680 Td (Mid) Tj ET\n"
+            "BT /F1 12 Tf 400 680 Td (Right) Tj ET\n"),
+        "5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica"
+        "/Encoding/WinAnsiEncoding>>endobj\n",
+    };
+    return writePdf(dir + "/" + name, objects);
+}
+
+QString TestConversionExtraction::createMixedFontPdf(const QString& dir, const QString& name) {
+    QList<QByteArray> objects = {
+        "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n",
+        "2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n",
+        "3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents 4 0 R"
+        "/Resources<</Font<</F1 5 0 R/F2 6 0 R>>>>>>endobj\n",
+        // "Regular " (Helvetica, trailing real space) immediately followed by
+        // "Bold" (Helvetica-Bold) on the SAME baseline: only the font-run
+        // change distinguishes the runs (the advance gap is a few points,
+        // far below any column gap). The prose line above uses ordinary
+        // single-Tj spaces and must stay ONE run.
+        contentStreamObj(
+            "BT /F1 12 Tf 72 700 Td (the quick brown fox) Tj ET\n"
+            "BT /F1 12 Tf 72 660 Td (Regular ) Tj ET\n"
+            "BT /F2 12 Tf 120 660 Td (Bold) Tj ET\n"),
+        "5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica"
+        "/Encoding/WinAnsiEncoding>>endobj\n",
+        "6 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica-Bold"
         "/Encoding/WinAnsiEncoding>>endobj\n",
     };
     return writePdf(dir + "/" + name, objects);
@@ -371,5 +460,171 @@ void TestConversionExtraction::htmlAccentsDecodeAndMarkupEscapes() {
     QVERIFY2(html.contains("&amp;"), "& must be escaped");
     QVERIFY2(html.contains("&lt;b&gt;"), "<b> must be escaped, never emitted as markup");
 }
+// ── V03 helpers ──────────────────────────────────────────────────────────────
+namespace {
+
+// (cellRef, text) pairs read from xl/worksheets/sheet1.xml of the in-house
+// SpreadsheetML package. Only non-empty inlineStr cells appear (the writer
+// skips empties), which is exactly what the column assertions need.
+QList<QPair<QString, QString>> readXlsxCells(const QString& xlsxPath) {
+    QList<QPair<QString, QString>> cells;
+    int err = 0;
+    zip_t* za = zip_open(xlsxPath.toUtf8().constData(), ZIP_RDONLY, &err);
+    if (!za) return cells;
+    zip_file_t* f = zip_fopen(za, "xl/worksheets/sheet1.xml", 0);
+    if (!f) { zip_close(za); return cells; }
+    QByteArray xml;
+    char buf[4096];
+    zip_int64_t n;
+    while ((n = zip_fread(f, buf, sizeof(buf))) > 0)
+        xml.append(buf, static_cast<int>(n));
+    zip_fclose(f);
+    zip_close(za);
+
+    static const QRegularExpression re(
+        QStringLiteral("<c r=\"([A-Z]+[0-9]+)\"[^>]*>(?:<is><t[^>]*>([^<]*)</t></is>)</c>"));
+    auto it = re.globalMatch(QString::fromUtf8(xml));
+    while (it.hasNext()) {
+        const auto m = it.next();
+        cells.append({ m.captured(1), m.captured(2) });
+    }
+    return cells;
+}
+
+// Quoted, comma-joined CSV rows (whitespace-trimmed, empty lines dropped).
+QStringList csvRows(const QString& csvPath) {
+    QFile f(csvPath);
+    if (!f.open(QIODevice::ReadOnly)) return {};
+    QStringList rows;
+    const QStringList lines = QString::fromUtf8(f.readAll())
+                                  .split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    for (const QString& l : lines) {
+        const QString t = l.trimmed();
+        if (!t.isEmpty()) rows << t;
+    }
+    return rows;
+}
+
+} // namespace
+
+// V03 core: the review's 2x2 table must export a REAL 2x2 cell grid — two CSV
+// columns and XLSX A1/B1/A2/B2 with exact cell text — instead of the collapsed
+// single cells `"Name Amount"` / `"Alice 125"`.
+void TestConversionExtraction::tableColumnsBecomeRealCells() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = createTablePdf(tmp.path(), "table.pdf");
+    QVERIFY(!pdf.isEmpty());
+
+    // Backend-level: the wide column gaps must split the line into separate
+    // runs (2 per line) — geometry preserved at the boundary.
+    {
+        PdfiumBackend backend;
+        QVERIFY(backend.loadDocument(pdf));
+        const auto runs = backend.extractPageTextRuns(0);
+        QCOMPARE(runs.size(), 4);
+        QCOMPARE(runs.at(0).text, QStringLiteral("Name"));
+        QCOMPARE(runs.at(1).text, QStringLiteral("Amount"));
+        QCOMPARE(runs.at(2).text, QStringLiteral("Alice"));
+        QCOMPARE(runs.at(3).text, QStringLiteral("125"));
+        QVERIFY(runs.at(0).rect.x() < runs.at(1).rect.x());
+        QVERIFY(runs.at(2).rect.y() < runs.at(0).rect.y());   // row 2 lower
+    }
+
+    ConversionManager mgr;
+
+    // CSV: two real columns per row.
+    const QString csv = tmp.filePath("out.csv");
+    QVERIFY(mgr.convertTo(pdf, csv, IConversionEngine::TargetFormat::Csv));
+    const QStringList rows = csvRows(csv);
+    QCOMPARE(rows.size(), 2);
+    QCOMPARE(rows.at(0), QStringLiteral("\"Name\",\"Amount\""));
+    QCOMPARE(rows.at(1), QStringLiteral("\"Alice\",\"125\""));
+
+    // XLSX: a real 2x2 grid with exact cell text.
+    const QString xlsx = tmp.filePath("out.xlsx");
+    QVERIFY(mgr.convertTo(pdf, xlsx, IConversionEngine::TargetFormat::Excel));
+    const auto cells = readXlsxCells(xlsx);
+    QCOMPARE(cells.size(), 4);
+    const QList<QPair<QString, QString>> expected = {
+        { QStringLiteral("A1"), QStringLiteral("Name") },
+        { QStringLiteral("B1"), QStringLiteral("Amount") },
+        { QStringLiteral("A2"), QStringLiteral("Alice") },
+        { QStringLiteral("B2"), QStringLiteral("125") },
+    };
+    QCOMPARE(cells, expected);
+}
+
+// V03: columns are derived consistently across rows from the retained
+// geometry — a wider gap still splits, a multiword cell stays one cell, and
+// an empty interior cell keeps its column (B1 stays empty; "Right" lands in
+// the same column as row 1's "Notes two words", not in B1's place).
+void TestConversionExtraction::columnInferenceCoversWideGapMultiwordAndEmptyInterior() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = createSparseTablePdf(tmp.path(), "sparse.pdf");
+    QVERIFY(!pdf.isEmpty());
+
+    ConversionManager mgr;
+
+    const QString csv = tmp.filePath("out.csv");
+    QVERIFY(mgr.convertTo(pdf, csv, IConversionEngine::TargetFormat::Csv));
+    const QStringList rows = csvRows(csv);
+    QCOMPARE(rows.size(), 2);
+    QCOMPARE(rows.at(0), QStringLiteral("\"Item\",\"\",\"Notes two words\""));
+    QCOMPARE(rows.at(1), QStringLiteral("\"Left\",\"Mid\",\"Right\""));
+
+    const QString xlsx = tmp.filePath("out.xlsx");
+    QVERIFY(mgr.convertTo(pdf, xlsx, IConversionEngine::TargetFormat::Excel));
+    const auto cells = readXlsxCells(xlsx);
+    const QList<QPair<QString, QString>> expected = {
+        { QStringLiteral("A1"), QStringLiteral("Item") },
+        { QStringLiteral("C1"), QStringLiteral("Notes two words") },
+        { QStringLiteral("A2"), QStringLiteral("Left") },
+        { QStringLiteral("B2"), QStringLiteral("Mid") },
+        { QStringLiteral("C2"), QStringLiteral("Right") },
+    };
+    QCOMPARE(cells, expected);
+}
+
+// V03: font-run changes split the runs at the backend boundary, while prose
+// with ordinary spaces stays ONE run (never split at every ordinary space);
+// reading order and Unicode stay intact for text consumers.
+void TestConversionExtraction::fontRunsSplitButProseStaysWhole() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = createMixedFontPdf(tmp.path(), "mixed.pdf");
+    QVERIFY(!pdf.isEmpty());
+
+    PdfiumBackend backend;
+    QVERIFY(backend.loadDocument(pdf));
+    const auto runs = backend.extractPageTextRuns(0);
+
+    // The prose line must remain a single whole run.
+    QVERIFY2(runs.size() == 3,
+             qPrintable(QStringLiteral("expected 3 runs (prose + 2 font runs); got %1: %2")
+                            .arg(runs.size())
+                            .arg([&] { QStringList t; for (const auto& r : runs) t << r.text; return t.join(u'|'); }())));
+    QCOMPARE(runs.at(0).text, QStringLiteral("the quick brown fox"));
+    // The mixed-font line splits at the font-run change, in reading order.
+    QCOMPARE(runs.at(1).text, QStringLiteral("Regular "));
+    QVERIFY2(runs.at(1).fontName.contains(QStringLiteral("Helvetica"))
+                 && !runs.at(1).fontName.contains(QStringLiteral("Bold")),
+             qPrintable(QStringLiteral("run 1 font: %1").arg(runs.at(1).fontName)));
+    QCOMPARE(runs.at(2).text, QStringLiteral("Bold"));
+    QVERIFY2(runs.at(2).fontName.contains(QStringLiteral("Helvetica-Bold")),
+             qPrintable(QStringLiteral("run 2 font: %1").arg(runs.at(2).fontName)));
+
+    // Text consumer: logical reading order preserved across the split.
+    ConversionManager mgr;
+    const QString out = tmp.filePath("out.txt");
+    QVERIFY(mgr.convertTo(pdf, out, IConversionEngine::TargetFormat::Text));
+    const QString text = QString::fromUtf8(readFile(out));
+    QVERIFY(text.contains(QStringLiteral("the quick brown fox")));
+    const int regularPos = text.indexOf(QStringLiteral("Regular"));
+    const int boldPos = text.indexOf(QStringLiteral("Bold"));
+    QVERIFY(regularPos >= 0 && boldPos > regularPos);
+}
+
 QTEST_MAIN(TestConversionExtraction)
 #include "TestConversionExtraction.moc"
