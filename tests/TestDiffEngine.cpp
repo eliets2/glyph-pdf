@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QFile>
 #include <QTemporaryDir>
+#include <algorithm>
 #include "engines/MyersDiff.h"
 #include "engines/DiffEngine.h"
 
@@ -483,6 +484,180 @@ private slots:
         QVERIFY2(moved < added,
                  qPrintable(QStringLiteral("canonical order: moved@%1 added@%2")
                                 .arg(moved).arg(added)));
+    }
+
+    // ── U04/R11 follow-up: middle-insertion alignment ────────────────────────
+    // A page inserted BETWEEN existing pages must surface as exactly one
+    // PageAdded at its true position — the surrounding pages stay matched,
+    // never re-reported as removed+added chains. Reversed sides must flip the
+    // change into a single PageRemoved. Repeated identical fingerprints are
+    // resolved deterministically (tie-break pinned below).
+
+    void middleInsertionAtPositionOneIsSingleTrueAddition() {
+        // 3 pages, insertion at index 1 (not trailing): [A B C] → [A X B C].
+        const QString three =
+            createPagePdf(m_dir.path(), "mid_three.pdf",
+                          {"Alpha page", "Beta page", "Gamma page"});
+        const QString four =
+            createPagePdf(m_dir.path(), "mid_four.pdf",
+                          {"Alpha page", "Inserted page", "Beta page", "Gamma page"});
+        QVERIFY(!three.isEmpty() && !four.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(three, four);
+
+        QCOMPARE(r.pageCount1, 3);
+        QCOMPARE(r.pageCount2, 4);
+        QVERIFY2(!r.isIdentical, "a middle insertion must clear isIdentical");
+        // Exactly ONE structural change: the inserted page itself.
+        QCOMPARE(r.pageChanges.size(), 1);
+        const DiffResult::PageChange& ch = r.pageChanges.first();
+        QCOMPARE(ch.type, DiffResult::PageChangeType::PageAdded);
+        QVERIFY2(!ch.hasOldSide(), "an inserted page has no old-side position");
+        QVERIFY(ch.hasNewSide());
+        QCOMPARE(ch.newPage, 1);  // its true 0-based position in the revised doc
+        QVERIFY2(ch.excerpt.contains("inserted"),
+                 qPrintable(QStringLiteral("excerpt should name the inserted page, got: %1")
+                                .arg(ch.excerpt)));
+        // The surrounding pages must stay matched — no remove/add chain for
+        // them, and no move records either.
+        QVERIFY2(r.pageMoves.isEmpty(),
+                 "a pure insertion must not be misclassified as a page move");
+    }
+
+    void duplicateOfExistingPageInsertionPinsDeterministicTieBreak() {
+        // [A B C] → [A B B C]: a duplicate of page 1 inserted at index 2.
+        // Identical copies are ambiguous for alignment; the engine must fall
+        // back to exactly ONE structural change and pick the reported
+        // position deterministically: alignment consumes the LATEST doc2
+        // occurrence of a repeated fingerprint, so the EARLIEST unmatched
+        // occurrence surfaces as the insertion (newPage == 1 here).
+        const QString three =
+            createPagePdf(m_dir.path(), "dup_three.pdf",
+                          {"Alpha page", "Beta page", "Gamma page"});
+        const QString four =
+            createPagePdf(m_dir.path(), "dup_four.pdf",
+                          {"Alpha page", "Beta page", "Beta page", "Gamma page"});
+        QVERIFY(!three.isEmpty() && !four.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(three, four);
+
+        QVERIFY2(!r.isIdentical, "a duplicated page must clear isIdentical");
+        QCOMPARE(r.pageChanges.size(), 1);
+        const DiffResult::PageChange& ch = r.pageChanges.first();
+        QCOMPARE(ch.type, DiffResult::PageChangeType::PageAdded);
+        QVERIFY2(!ch.hasOldSide(), "the inserted copy has no old-side position");
+        QVERIFY(ch.hasNewSide());
+        // Tie-break pinned: with identical copies either position would be an
+        // honest answer; the engine deterministically reports the first one.
+        QCOMPARE(ch.newPage, 1);
+        QVERIFY2(r.pageMoves.isEmpty(),
+                 "a duplicate insertion is not a move");
+    }
+
+    void insertionWithTextEditOnOtherPageAlignsInsertionAtTruePosition() {
+        // Regression for the ledgered defect: the inserted page X shares ≥80%
+        // of its word set with page 0 (boilerplate twin — differs only in a
+        // non-final word), and page 1 is reworded. The fuzzy pre-fingerprint
+        // alignment paired old page 0 with X and reported the TRUE page 0 as
+        // an extra addition — a remove+add mess instead of one true insertion.
+        // old: [P, Q, R]  new: [P, X ≈ P, Q reworded, R]
+        const QString three =
+            createPagePdf(m_dir.path(), "mix3.pdf",
+                          {"alpha beta gamma delta zeta", "omega psi", "final page here"});
+        const QString four =
+            createPagePdf(m_dir.path(), "mix4.pdf",
+                          {"alpha beta gamma delta zeta",
+                           "alpha beta eta gamma delta zeta",
+                           "omega psi reworded",
+                           "final page here"});
+        QVERIFY(!three.isEmpty() && !four.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(three, four);
+
+        QCOMPARE(r.pageCount1, 3);
+        QCOMPARE(r.pageCount2, 4);
+        QVERIFY2(!r.isIdentical, "insertion + edit must clear isIdentical");
+
+        // (1) Page 0 is untouched — it must not appear on ANY change.
+        for (int i = 0; i < r.pageChanges.size(); ++i) {
+            const DiffResult::PageChange& ch = r.pageChanges.at(i);
+            QVERIFY2(!(ch.hasOldSide() && ch.oldPage == 0),
+                     qPrintable(QStringLiteral(
+                                    "change %1 mispairs untouched page 0 (oldPage=%2)")
+                                    .arg(i).arg(ch.oldPage)));
+            QVERIFY2(!(ch.hasNewSide() && ch.newPage == 0),
+                     qPrintable(QStringLiteral(
+                                    "change %1 mispairs untouched page 0 (newPage=%2)")
+                                    .arg(i).arg(ch.newPage)));
+        }
+
+        // (2) The insertion surfaces ONCE, at its true position.
+        int insertions = -1;
+        for (int i = 0; i < r.pageChanges.size(); ++i) {
+            const DiffResult::PageChange& ch = r.pageChanges.at(i);
+            if (ch.type == DiffResult::PageChangeType::PageAdded
+                && !ch.hasOldSide() && ch.newPage == 1) {
+                QVERIFY2(insertions == -1,
+                         "the inserted page must be reported exactly once");
+                insertions = i;
+            }
+        }
+        QVERIFY2(insertions >= 0,
+                 "no PageAdded(newPage=1) found — the insertion was absorbed "
+                 "into an alignment mispairing");
+
+        // (3) No move may paper over the structural changes here.
+        QVERIFY2(r.pageChanges.isEmpty()
+                     || std::none_of(r.pageChanges.cbegin(), r.pageChanges.cend(),
+                                     [](const DiffResult::PageChange& ch) {
+                                         return ch.type ==
+                                             DiffResult::PageChangeType::PageMoved;
+                                     }),
+                 "insertion + text edit must not be classified as page moves");
+
+        // (4) The reworded page is accounted honestly: old Q removed once,
+        // new Q' added once. (Page-level granularity: a rewrite below the
+        // similarity floor is a removal + an addition.)
+        int removedQ = 0, addedQ = 0;
+        for (const auto& ch : r.pageChanges) {
+            if (ch.type == DiffResult::PageChangeType::PageRemoved
+                && ch.oldPage == 1) ++removedQ;
+            if (ch.type == DiffResult::PageChangeType::PageAdded
+                && ch.newPage == 2) ++addedQ;
+        }
+        QCOMPARE(removedQ, 1);
+        QCOMPARE(addedQ, 1);
+    }
+
+    void reversedSidesTurnMiddleInsertionIntoSingleRemoval() {
+        // Old/new swapped relative to the middle-insertion case: the inserted
+        // page must become exactly ONE PageRemoved at its old position — no
+        // added entries, no moves.
+        const QString three =
+            createPagePdf(m_dir.path(), "revmid_three.pdf",
+                          {"Alpha page", "Beta page", "Gamma page"});
+        const QString four =
+            createPagePdf(m_dir.path(), "revmid_four.pdf",
+                          {"Alpha page", "Inserted page", "Beta page", "Gamma page"});
+        QVERIFY(!three.isEmpty() && !four.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(four, three);
+
+        QCOMPARE(r.pageCount1, 4);
+        QCOMPARE(r.pageCount2, 3);
+        QVERIFY2(!r.isIdentical, "a middle removal must clear isIdentical");
+        QCOMPARE(r.pageChanges.size(), 1);
+        const DiffResult::PageChange& ch = r.pageChanges.first();
+        QCOMPARE(ch.type, DiffResult::PageChangeType::PageRemoved);
+        QVERIFY(ch.hasOldSide());
+        QVERIFY2(!ch.hasNewSide(), "a removed page has no new-side position");
+        QCOMPARE(ch.oldPage, 1);
+        QVERIFY2(r.pageMoves.isEmpty(),
+                 "a pure middle removal must not be misclassified as a move");
     }
 };
 

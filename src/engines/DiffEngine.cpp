@@ -127,11 +127,32 @@ DiffResult DiffEngine::compare(const QString &file1, const QString &file2, int d
         result.pages.append(pd);
     }
 
-    // ── Page-level reorder detection ────────────────────────────────────────
-    // Fingerprint each page (first 200 chars), then run an O(n²) LCS over the
-    // two page sequences where two pages are "equal" if their word-set
-    // similarity is ≥ 80%. Pages outside the aligned common subsequence that
-    // still match a page in the other document at a different index are moves.
+    // ── Page-level structural alignment ─────────────────────────────────────
+    // U04/R11 follow-up: middle insertions must surface as ONE PageAdded at
+    // their true position (surrounding pages matched), never as remove+add
+    // chains. Two-stage alignment:
+    //
+    // 1. Exact fingerprints (primary). Every page's extracted text is
+    //    normalized (lowercased, whitespace collapsed, first 200 chars — the
+    //    same normalization the excerpts use) and hashed with SHA-256. The
+    //    classic order-preserving LCS DP then aligns pages whose fingerprints
+    //    match byte-for-byte; every page is consumed at most once.
+    //    Deterministic tie-break: the backtrack prefers doc1-side skips
+    //    (dp[i-1][j] >= dp[i][j-1]), which aligns the LATEST doc2 occurrence
+    //    of a repeated fingerprint — so the EARLIEST unmatched doc2
+    //    occurrence is the one that surfaces as PageAdded (pinned by
+    //    duplicateOfExistingPageInsertionPinsDeterministicTieBreak).
+    //    A page whose extraction yields no text (image-only page or a
+    //    genuinely blank page) has NO fingerprint: it can never take part in
+    //    this pass and falls through to stage 2 unchanged.
+    //
+    // 2. Fuzzy fallback (pre-fingerprint behavior, unchanged). Pages the
+    //    exact alignment left over may still match on word-set similarity
+    //    (Jaccard ≥ 80%): a leftover pair at a DIFFERENT index becomes one
+    //    PageMoved (never re-reported as add+remove), a same-index pair
+    //    realigns without a move record, and fingerprint-less pages keep the
+    //    index-wise/blank-page semantics they had before fingerprints.
+    //    Everything unmatched is PageRemoved (doc1) / PageAdded (doc2).
     {
         auto fingerprint = [](const QString& text) -> QString {
             QString t = text.left(200).toLower();
@@ -158,22 +179,49 @@ DiffResult DiffEngine::compare(const QString &file1, const QString &file2, int d
         const int n2 = result.pageCount2;
 
         QStringList fp1, fp2;
+        QList<QByteArray> fpHash1, fpHash2;   // empty = no fingerprint (no text)
         QList<QSet<QString>> ws1, ws2;
-        for (int i = 0; i < n1; ++i) { fp1 << fingerprint(backend1.extractText(i)); ws1 << wordSet(fp1.last()); }
-        for (int j = 0; j < n2; ++j) { fp2 << fingerprint(backend2.extractText(j)); ws2 << wordSet(fp2.last()); }
+        for (int i = 0; i < n1; ++i) {
+            const QString norm = fingerprint(backend1.extractText(i));
+            fp1 << norm;
+            fpHash1 << (norm.isEmpty()
+                          ? QByteArray()
+                          : QCryptographicHash::hash(norm.toUtf8(),
+                                                     QCryptographicHash::Sha256));
+            ws1 << wordSet(norm);
+        }
+        for (int j = 0; j < n2; ++j) {
+            const QString norm = fingerprint(backend2.extractText(j));
+            fp2 << norm;
+            fpHash2 << (norm.isEmpty()
+                          ? QByteArray()
+                          : QCryptographicHash::hash(norm.toUtf8(),
+                                                     QCryptographicHash::Sha256));
+            ws2 << wordSet(norm);
+        }
 
-        // LCS over page sequences (equal := similarity ≥ kSame).
+        // Exact matches only: both sides must carry a fingerprint (an empty
+        // hash means "extraction produced no text") and the hashes must be
+        // byte-equal. This is what keeps a middle insertion — even a
+        // boilerplate near-twin of an adjacent page — from being absorbed
+        // into a shifted alignment.
+        auto exactMatch = [](const QByteArray& a, const QByteArray& b) -> bool {
+            return !a.isEmpty() && !b.isEmpty() && a == b;
+        };
+
+        // LCS over page sequences (equal := exact fingerprint match).
         QVector<QVector<int>> dp(n1 + 1, QVector<int>(n2 + 1, 0));
         for (int i = 1; i <= n1; ++i)
             for (int j = 1; j <= n2; ++j)
-                dp[i][j] = (similarity(ws1[i - 1], ws2[j - 1]) >= kSame)
+                dp[i][j] = exactMatch(fpHash1[i - 1], fpHash2[j - 1])
                     ? dp[i - 1][j - 1] + 1
                     : qMax(dp[i - 1][j], dp[i][j - 1]);
 
         // Backtrack to mark the aligned (stable) pages.
         QSet<int> alignedA, alignedB;
         for (int i = n1, j = n2; i > 0 && j > 0; ) {
-            if (similarity(ws1[i - 1], ws2[j - 1]) >= kSame && dp[i][j] == dp[i - 1][j - 1] + 1) {
+            if (exactMatch(fpHash1[i - 1], fpHash2[j - 1])
+                && dp[i][j] == dp[i - 1][j - 1] + 1) {
                 alignedA.insert(i - 1);
                 alignedB.insert(j - 1);
                 --i; --j;
@@ -184,11 +232,13 @@ DiffResult DiffEngine::compare(const QString &file1, const QString &file2, int d
             }
         }
 
-        // A doc2 page outside the alignment that still matches an (also-unaligned)
-        // doc1 page at a different index is a moved page. A match at the SAME
-        // index (LCS tie-break artifact with repeated pages) is consumed as an
-        // aligned pair without a move record, so a matched pair is never
-        // re-reported as an add+remove below (R11: no double counting).
+        // Fuzzy fallback over the exact alignment's leftovers: a doc2 page
+        // outside the alignment that still fuzzy-matches (word-set similarity
+        // ≥ kSame) an (also-unaligned) doc1 page at a different index is a
+        // moved page. A match at the SAME index (repeated-page tie-break, or
+        // a fingerprint-less page pair) is consumed as an aligned pair
+        // without a move record, so a matched pair is never re-reported as an
+        // add+remove below (R11: no double counting).
         QSet<int> movedB;
         for (int b = 0; b < n2; ++b) {
             if (alignedB.contains(b)) continue;
