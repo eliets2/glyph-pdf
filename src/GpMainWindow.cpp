@@ -288,6 +288,14 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
     // Placed marks stay on the viewer; the message says so honestly.
     connect(_modes, &ModeController::redactExitRequested, this, [this]() {
         activateScreen(QString());
+        // N07 (review 2026-09-07): the empty screen shows the shared viewer
+        // again, so the visible canvas must be left in the neutral navigation
+        // state — the marking tool staying armed would let an ordinary drag
+        // place a new mark. RedactMode disarms its own tool; this host-side
+        // sync also covers a Redact tool armed by any other path (e.g. the
+        // ribbon's Mark-Redact) before the exit.
+        if (auto* viewer = pdfViewer())
+            viewer->setToolMode(ToolMode::HandTool);
         statusBar()->showMessage(
             tr("Redaction closed — placed marks are kept on the document."), 6000);
     });
