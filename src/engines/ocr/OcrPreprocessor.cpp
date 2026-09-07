@@ -12,9 +12,25 @@
 
 // ── Helper: QImage ↔ Leptonica Pix ──────────────────────────────────────────
 
-#ifdef HAS_TESSERACT
 namespace {
 
+/// Copy resolution metadata from \p meta into \p out when present, so
+/// freshly built QImages (pixToQImage, the denoise buffer) keep the input's
+/// DPI instead of resetting it to the Qt default (F05 acceptance: preserve
+/// DPI metadata through preprocessing).
+///
+/// D03: deliberately OUTSIDE the HAS_TESSERACT conditional — this helper is
+/// Qt-only (no Leptonica types) and is also the DPI carrier of the Qt-only
+/// binarize fallback and the unconditional denoise() path, both of which
+/// compile without Tesseract.
+void carryResolution(const QImage &meta, QImage &out)
+{
+    if (out.isNull() || meta.isNull()) return;
+    if (meta.dotsPerMeterX() > 0) out.setDotsPerMeterX(meta.dotsPerMeterX());
+    if (meta.dotsPerMeterY() > 0) out.setDotsPerMeterY(meta.dotsPerMeterY());
+}
+
+#ifdef HAS_TESSERACT
 /// Convert QImage (grayscale8) → Leptonica 8-bit Pix.  Caller owns result.
 Pix* qimageToPix(const QImage &img)
 {
@@ -29,17 +45,6 @@ Pix* qimageToPix(const QImage &img)
         }
     }
     return pix;
-}
-
-/// Copy resolution metadata from \p meta into \p out when present, so
-/// freshly built QImages (pixToQImage, the denoise buffer) keep the input's
-/// DPI instead of resetting it to the Qt default (F05 acceptance: preserve
-/// DPI metadata through preprocessing).
-void carryResolution(const QImage &meta, QImage &out)
-{
-    if (out.isNull() || meta.isNull()) return;
-    if (meta.dotsPerMeterX() > 0) out.setDotsPerMeterX(meta.dotsPerMeterX());
-    if (meta.dotsPerMeterY() > 0) out.setDotsPerMeterY(meta.dotsPerMeterY());
 }
 
 /// Convert Leptonica Pix (1 or 8 bpp) → QImage. Resolution metadata (DPI) is
@@ -106,8 +111,8 @@ QImage pixToQImage(Pix *pix, const QImage &meta = {})
     return out;
 }
 
-} // namespace
 #endif // HAS_TESSERACT
+} // namespace
 
 // ── Orientation detection ───────────────────────────────────────────────────
 
