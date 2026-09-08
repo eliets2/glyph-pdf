@@ -152,6 +152,10 @@ private:
 
     void applyTheme();
     void replaceRight(QWidget* w);
+    // ARC06: give the PDF/A panel the ACTIVE document (viewer identity) and
+    // refresh it on successful document changes while the panel is the
+    // active right panel. Empty path = the honest "No document loaded." state.
+    void refreshPdfAPanel();
     void initUpdateChecker();
     // §9.16 P1: unified-flow conversions (same engines/progress/failure
     // handling as the Welcome cards in HomeController, minus their pick/save

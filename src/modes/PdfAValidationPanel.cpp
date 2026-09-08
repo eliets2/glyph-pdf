@@ -92,6 +92,7 @@ PdfAValidationPanel::PdfAValidationPanel(QWidget* parent) : QFrame(parent) {
 
     // Status label — shows validation result or "unavailable" message
     m_statusLabel = new QLabel(tr("No document loaded."));
+    m_statusLabel->setObjectName(QStringLiteral("pdfaStatusLabel"));
     m_statusLabel->setWordWrap(true);
     m_statusLabel->setProperty("mono", true);
     col->addWidget(m_statusLabel);
@@ -138,11 +139,42 @@ PdfAValidationPanel::PdfAValidationPanel(QWidget* parent) : QFrame(parent) {
 }
 
 // ---------------------------------------------------------------------------
+// ARC06: bounded async lifetime — a destroyed panel must not leave in-flight
+// validation/reading-order workers delivering into it.
+// ---------------------------------------------------------------------------
+PdfAValidationPanel::~PdfAValidationPanel() {
+    for (QFutureWatcherBase* w :
+         { m_validationWatcher ? static_cast<QFutureWatcherBase*>(m_validationWatcher) : nullptr,
+           m_readingOrderWatcher ? static_cast<QFutureWatcherBase*>(m_readingOrderWatcher) : nullptr }) {
+        if (!w) continue;
+        if (w->isRunning()) {
+            w->cancel();
+            w->waitForFinished();
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Public slot — set current document and trigger validation
 // ---------------------------------------------------------------------------
+// ARC06: this is the panel's ONLY production path setter. A document change
+// cancels BOTH in-flight async workers first (a slow validation or
+// reading-order run for the OLD document must never populate the NEW one),
+// and the finished handlers additionally discard any result whose submitted
+// identity no longer matches m_currentDocPath.
 void PdfAValidationPanel::setDocument(const QString& path, PdfAConformance level) {
     m_currentDocPath = path;
     m_currentConformance = level;
+
+    if (m_validationWatcher && m_validationWatcher->isRunning()) {
+        m_validationWatcher->cancel();
+        m_validationWatcher->waitForFinished();
+    }
+    if (m_readingOrderWatcher && m_readingOrderWatcher->isRunning()) {
+        m_readingOrderWatcher->cancel();
+        m_readingOrderWatcher->waitForFinished();
+    }
+
     runValidation();
 }
 
@@ -181,6 +213,7 @@ void PdfAValidationPanel::runValidation() {
 
     const QString path = m_currentDocPath;
     const PdfAConformance level = m_currentConformance;
+    m_submittedValidationPath = path;
     m_validationWatcher->setFuture(QtConcurrent::run([path, level]() {
         return VeraPdfValidator::validate(path, level);
     }));
@@ -188,6 +221,9 @@ void PdfAValidationPanel::runValidation() {
 
 void PdfAValidationPanel::onValidationFinished() {
     if (!m_validationWatcher || m_validationWatcher->isCanceled()) return;
+    // ARC06: identity tie — a result submitted for a document that is no
+    // longer current is discarded (never displayed for the new identity).
+    if (m_submittedValidationPath != m_currentDocPath) return;
     updateDisplay(m_validationWatcher->result());
 }
 
@@ -535,6 +571,7 @@ void PdfAValidationPanel::onCheckReadingOrder() {
     m_readingOrderBtn->setEnabled(false);
     m_statusLabel->setText(tr("Analyzing reading order…"));
     const QString path = m_currentDocPath;
+    m_submittedReadingOrderPath = path;
     m_readingOrderWatcher->setFuture(QtConcurrent::run([path]() {
         return analyzeReadingOrder(path);
     }));
@@ -542,6 +579,10 @@ void PdfAValidationPanel::onCheckReadingOrder() {
 
 void PdfAValidationPanel::onReadingOrderFinished() {
     if (!m_readingOrderWatcher || m_readingOrderWatcher->isCanceled()) return;
+    // ARC06: identity tie — a reading-order run submitted for a document that
+    // is no longer current is discarded (setDocument cancels it; this also
+    // covers a result that raced the cancellation).
+    if (m_submittedReadingOrderPath != m_currentDocPath) return;
     m_readingOrderBtn->setEnabled(true);
     const ReadingOrderResult r = m_readingOrderWatcher->result();
 
