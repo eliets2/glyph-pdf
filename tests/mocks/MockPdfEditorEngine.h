@@ -3,25 +3,53 @@
 #include <QMap>
 #include <QImage>
 #include <QFile>
-
-// Forward declaration — IPdfEditorEngine.h already forward-declares PageOcrResult
-// using `struct PageOcrResult;` so we don't need the full OcrPipeline.h here.
+#include <QSemaphore>
 
 class MockPdfEditorEngine : public IPdfEditorEngine {
 public:
+    // EC02 test barrier: when armed, the save decision parks the caller so a
+    // test can switch documents mid-flight deterministically (no sleeps).
+    // One-shot per save call: saveDocumentIfCurrent passes the gate, then its
+    // saveDocument delegation sees null pointers and does not re-gate.
+    void saveGatePass() {
+        if (m_saveEntered) { QSemaphore* s = m_saveEntered; m_saveEntered = nullptr; s->release(); }
+        if (m_saveHold)    { QSemaphore* s = m_saveHold;    m_saveHold = nullptr;    s->acquire();  }
+    }
+
     bool loadDocumentForEditing(const QString &) override { m_loaded = true; return true; }
     bool saveDocument(const QString &path) override {
         ++m_saveCalls;
         m_lastSavedPath = path;
+        saveGatePass();
         if (m_loaded) {
             QFile f(path);
             if (f.open(QIODevice::WriteOnly)) {
-                f.write("mock");
+                f.write(m_saveWritesIdentity
+                            ? QByteArray("resident=") + m_file.toUtf8()
+                            : QByteArray("mock"));
                 f.close();
             }
             return true;
         }
         return false;
+    }
+    // EC02 (TEAM-ENGINE-CODE-REVIEW-2026-09-07): identity-guarded save — the
+    // resident document must still be `expectedCurrentFile` when the save
+    // decision is made, so a queued async writer can never serialize document
+    // B's bytes into a recovery path captured for document A.
+    // NOTE: deliberately no `override` keyword — pre-fix baselines (revert
+    // verification) have no such virtual yet; post-fix it implements
+    // IPdfDocumentIO::saveDocumentIfCurrent. Signature is pinned by the
+    // AutosaveManager call and the interface declaration.
+    bool saveDocumentIfCurrent(const QString &expectedCurrentFile, const QString &outputPath) {
+        ++m_saveIfCurrentCalls;
+        m_lastIfCurrentExpected = expectedCurrentFile;
+        saveGatePass();
+        if (m_file != expectedCurrentFile) {
+            m_lastIfCurrentRefusal = expectedCurrentFile;
+            return false;
+        }
+        return saveDocument(outputPath);
     }
     bool editTextInline(int, const QRectF &, const QString &,
                         const QString & = {}, int = 0, const QColor & = Qt::black,
@@ -120,6 +148,13 @@ public:
     bool m_loaded = false;
     bool m_sanitizeResult = true;
     bool m_hasPdfSignatures = false;
+    // EC02 barrier + identity-bytes hooks
+    QSemaphore* m_saveEntered = nullptr;
+    QSemaphore* m_saveHold = nullptr;
+    bool m_saveWritesIdentity = false;
+    int m_saveIfCurrentCalls = 0;
+    QString m_lastIfCurrentExpected;
+    QString m_lastIfCurrentRefusal;
     int m_sanitizeCalls = 0;
     int m_saveCalls = 0;
     int m_writeUpdateCalls = 0;

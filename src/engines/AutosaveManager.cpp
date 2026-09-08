@@ -81,39 +81,59 @@ void AutosaveManager::onTick()
     if (!m_document || !m_pdfEditor) return;
     if (!m_document->isDirty()) return;
 
-    QString currentFile = m_pdfEditor->currentFile();
-    if (currentFile.isEmpty()) return;
+    // EC02: capture the identity this autosave run belongs to — the editor's
+    // resident document AND the session's document generation. Everything
+    // below (worker paths, rename, timestamp) is validated against this
+    // capture, so a document switch that lands while the queued save is
+    // pending can never write B's bytes into A's recovery file or timestamp
+    // B's session for A's work.
+    const QString capturedFile = m_pdfEditor->currentFile();
+    if (capturedFile.isEmpty()) return;
+    const qint64 capturedGeneration = m_document->documentGeneration();
 
     m_saving = true;
     emit autosaveStarted();
 
-    QString tmpAutosavePath = currentFile + ".autosave.pdf.tmp";
-    QString finalAutosavePath = currentFile + ".autosave.pdf";
+    QString tmpAutosavePath = capturedFile + ".autosave.pdf.tmp";
+    QString finalAutosavePath = capturedFile + ".autosave.pdf";
 
     std::weak_ptr<IPdfEditorEngine> weakEditor = m_pdfEditor;
-    
-    auto watcher = new QFutureWatcher<bool>(this);
-    connect(watcher, &QFutureWatcher<bool>::finished, this, [this, watcher, tmpAutosavePath, finalAutosavePath]() {
-        bool success = watcher->result();
+
+    // EC02 worker outcome: identity-guarded save classification.
+    enum SaveOutcome { SaveFailed = 0, SaveOk = 1, SaveStale = 2 };
+
+    auto watcher = new QFutureWatcher<int>(this);
+    connect(watcher, &QFutureWatcher<int>::finished, this, [this, watcher, capturedFile, capturedGeneration, tmpAutosavePath, finalAutosavePath]() {
+        const int result = watcher->result();
         watcher->deleteLater();
 
-        if (success) {
+        // EC02: the completion may land after a session switch. Identity
+        // matching means BOTH the path and the generation captured at tick
+        // time — a same-path reopen (A→A) is a new session for which the old
+        // run's completion must not claim an autosave.
+        const bool sessionMatches = m_document
+            && m_document->path() == capturedFile
+            && m_document->documentGeneration() == capturedGeneration;
+
+        if (result == SaveOk) {
             bool renameOk = atomicRename(tmpAutosavePath, finalAutosavePath);
             if (renameOk) {
                 QDateTime now = QDateTime::currentDateTime();
-                if (m_document) {
+                if (sessionMatches && m_document) {
                     m_document->setLastAutosave(now);
                 }
                 emit autosaveCompleted(now);
             } else {
                 // Retry once after 250ms asynchronously
                 QPointer<AutosaveManager> weakThis(this);
-                QTimer::singleShot(250, [weakThis, tmpAutosavePath, finalAutosavePath]() {
+                QTimer::singleShot(250, [weakThis, capturedFile, capturedGeneration, tmpAutosavePath, finalAutosavePath]() {
                     if (!weakThis) return;
                     bool retryOk = atomicRename(tmpAutosavePath, finalAutosavePath);
                     if (retryOk) {
                         QDateTime now = QDateTime::currentDateTime();
-                        if (weakThis->m_document) {
+                        if (weakThis->m_document
+                            && weakThis->m_document->path() == capturedFile
+                            && weakThis->m_document->documentGeneration() == capturedGeneration) {
                             weakThis->m_document->setLastAutosave(now);
                         }
                         emit weakThis->autosaveCompleted(now);
@@ -125,6 +145,14 @@ void AutosaveManager::onTick()
                 });
                 return; // Return early, m_saving = false will be handled in the timer
             }
+        } else if (result == SaveStale) {
+            // EC02: the resident document changed between capture and save —
+            // the engine refused WITHOUT writing. Clear any leftover temp and
+            // terminate with a clear stale outcome; neither session is
+            // timestamped and the captured document's recovery file is
+            // untouched.
+            QFile::remove(tmpAutosavePath);
+            emit autosaveStale(capturedFile);
         } else {
             qWarning() << "Autosave failed during document save";
             emit autosaveFailed("Failed to save temporary document");
@@ -132,17 +160,25 @@ void AutosaveManager::onTick()
         m_saving = false;
     });
 
-    QFuture<bool> future = QtConcurrent::run([weakEditor, tmpAutosavePath]() -> bool {
+    QFuture<int> future = QtConcurrent::run([weakEditor, capturedFile, tmpAutosavePath]() -> int {
         auto editor = weakEditor.lock();
-        if (!editor) return false;
+        if (!editor) return SaveFailed;
         try {
-            return editor->saveDocument(tmpAutosavePath);
+            // EC02: identity-guarded save — the engine checks under its
+            // serialization lock that the document it holds is still the one
+            // captured for this run, so a switch cannot be serialized into
+            // the captured path. A `false` with a changed resident document
+            // is a stale run, not a save failure.
+            if (!editor->saveDocumentIfCurrent(capturedFile, tmpAutosavePath)) {
+                return editor->currentFile() == capturedFile ? SaveFailed : SaveStale;
+            }
+            return SaveOk;
         } catch (const std::exception &e) {
             qWarning("Autosave failed: %s", e.what());
-            return false;
+            return SaveFailed;
         } catch (...) {
             qWarning("Autosave failed with unknown exception");
-            return false;
+            return SaveFailed;
         }
     });
     watcher->setFuture(future);

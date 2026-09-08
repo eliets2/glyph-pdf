@@ -230,6 +230,26 @@ bool PdfEditorEngine::saveDocument(const QString &outputPath)
     return ok;
 }
 
+bool PdfEditorEngine::saveDocumentIfCurrent(const QString &expectedCurrentFile,
+                                            const QString &outputPath)
+{
+    // EC02: the identity check and the save happen under the SAME lock, so no
+    // document switch can slip between "identity still matches" and "bytes
+    // written". QRecursiveMutex makes the saveDocument() re-entry safe.
+    QMutexLocker locker(&d->mutex);
+    if (!d->backend) return d->noBackend("saveDocumentIfCurrent");
+    if (d->backend->currentFile() != expectedCurrentFile) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("The document changed while this operation was starting; "
+                              "nothing was written."),
+                  QStringLiteral("saveDocumentIfCurrent: resident document is '%1', "
+                                 "expected '%2'")
+                      .arg(d->backend->currentFile(), expectedCurrentFile));
+        return false;
+    }
+    return saveDocument(outputPath);
+}
+
 bool PdfEditorEngine::editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
                                      const QString &fontFamily, int fontSize,
                                      const QColor &color, bool bold,

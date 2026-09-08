@@ -21,6 +21,10 @@ public:
     // Core routing integration
     bool loadDocumentForEditing(const QString &filePath) override;
     bool saveDocument(const QString &outputPath) override;
+    // EC02: saveDocument gated on the resident identity, checked under the
+    // same recursive mutex that serializes the save (see IPdfDocumentIO).
+    bool saveDocumentIfCurrent(const QString &expectedCurrentFile,
+                               const QString &outputPath) override;
     
     // Structural DOM manipulation
     bool editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
