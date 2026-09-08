@@ -1881,6 +1881,35 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrPreprocessPrefs.cpp")
     )
 endif()
 
+# §9.9 P1 — Bates numbering continuity across documents: pins the three-arg
+# applyBatesNumbering overload that reports the last used counter (so a batch
+# caller stamps doc N+1 at doc N's last number + 1), with PDFium-verified
+# cross-document text ("ABC-1/ABC-2" then "ABC-3/ABC-4").
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatesCrossDoc.cpp")
+    add_executable(TestBatesCrossDoc
+        tests/TestBatesCrossDoc.cpp
+    )
+    target_include_directories(TestBatesCrossDoc PRIVATE src tests)
+    target_link_libraries(TestBatesCrossDoc PRIVATE
+        pdfws_engines pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET TestBatesCrossDoc POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestBatesCrossDoc>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestBatesCrossDoc>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestBatesCrossDoc"
+    )
+    add_test(NAME TestBatesCrossDoc COMMAND TestBatesCrossDoc)
+    set_tests_properties(TestBatesCrossDoc PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;pages;bates;batch;qt;headless"
+    )
+endif()
+
 # §9.16 P1 — unified open/drag-drop routing: pins the pure routing seam on
 # MainWindow (routeForFile extension matrix + planDrop drop policy) that lets
 # File>Open and drag-and-drop accept Office/image files and route them to the

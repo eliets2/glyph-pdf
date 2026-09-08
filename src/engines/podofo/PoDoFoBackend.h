@@ -62,6 +62,13 @@ public:
     // Content Injection
     bool addHeaderFooter(const QString &path, const HeaderFooterOptions &options);
     bool applyBatesNumbering(const QString &path, const BatesNumberingOptions &options);
+    // §9.9 P1: cross-document Bates continuity. Stamps exactly like the
+    // two-argument overload; on success `*lastNumberOut` (when non-null)
+    // receives the LAST Bates number used on the final stamped page, so a
+    // batch caller can stamp document N+1 starting at *lastNumberOut + 1.
+    // If nothing was stamped (empty/out-of-range page range) it reports
+    // options.startNumber - 1, keeping `next = last + 1` always safe.
+    bool applyBatesNumbering(const QString &path, const BatesNumberingOptions &options, int *lastNumberOut);
 
     // Annotation Export
     bool embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations);
