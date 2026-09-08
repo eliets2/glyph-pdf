@@ -11,15 +11,16 @@
  *   - labelsFor()          → the per-page label strings, e.g. startValue=4,
  *                            LowercaseRoman, 3 pages → "iv","v","vi".
  *   - numberTreeEntries()  → the minimal /Nums array shape for the range
- *                            (one entry: page index 0, style name, startValue),
- *                            ready for a future writer to serialize into the
- *                            document catalog's /PageLabels dictionary.
+ *                            (one entry: page index 0, style name, startValue).
+ *   - writeNumberTree()    → §9.9 P1 writer: serializes those entries into a
+ *                            document catalog's /PageLabels dictionary (flat
+ *                            /Nums tree; replaces any pre-existing tree).
  *
- * Scope (S, honest): data only — this seam performs NO document I/O. Bates
- * numbering in this codebase stamps visible text only and never writes
- * /PageLabels (verified against PoDoFoBackend::applyBatesNumbering), so there
- * was no writer to extend; a future Page-Labels mode needs its own package
- * (UI + writer). See the groundwork commit message for the full scoping note.
+ * Scope (S, honest): one uniform labeling range per document — no per-range
+ * UI, no /Kids branching, no in-place engine-resident mutation (the path
+ * overload overwrites its input file; callers run it on a candidate path).
+ * Bates numbering in this codebase stamps visible text only and never writes
+ * /PageLabels, so the writer is the single owner of this catalog key.
  *
  * Label math contracts pinned by tests/TestPageLabels.cpp:
  *   - Decimal      : "startValue", "startValue+1", …
@@ -38,6 +39,8 @@
 #include <QStringList>
 #include <QList>
 
+namespace PoDoFo { class PdfMemDocument; }
+
 namespace gp {
 
 // One /Nums key–value pair of the PDF /PageLabels number tree: the 0-based
@@ -47,6 +50,13 @@ struct PageLabelNumEntry {
     int     pageNum    = 0;
     QString style      = QStringLiteral("D");
     int     startValue = 1;
+
+    // Value equality (used by tests to compare written vs. expected trees).
+    friend bool operator==(const PageLabelNumEntry& a, const PageLabelNumEntry& b)
+    {
+        return a.pageNum == b.pageNum && a.style == b.style
+            && a.startValue == b.startValue;
+    }
 };
 
 namespace PageLabels {
@@ -72,6 +82,22 @@ QStringList labelsFor(int startValue, Style style, int pageCount);
 // labeled uniformly: one {0, styleName(style), startValue} entry for a
 // non-empty valid range; empty for invalid input.
 QList<PageLabelNumEntry> numberTreeEntries(int startValue, Style style, int pageCount);
+
+// §9.9 P1 writer: create (or REPLACE) the document catalog's /PageLabels
+// dictionary in `doc` with a proper /Nums number tree for `numberTreeEntries(
+// startValue, style, pageCount)` — a single flat /Nums array covering all
+// pages (valid per ISO 32000 7.9.3; /Kids is only needed for sparse trees).
+// A pre-existing /PageLabels entry (and its stale /Nums) is removed first.
+// /S and /St are always written explicitly. Returns false — touching nothing
+// — for invalid input (pageCount <= 0 or startValue < 1) or a PoDoFo error.
+bool writeNumberTree(PoDoFo::PdfMemDocument& doc, int startValue, Style style,
+                     int pageCount);
+
+// File convenience: load `pdfPath` fully into memory, write the tree (as
+// above; the page count is taken from the document itself), and overwrite
+// `pdfPath`. Non-atomic by design — production callers should run it on a
+// temp/candidate path and commit atomically (SafeSave), as PagesMode does.
+bool writeNumberTree(const QString& pdfPath, int startValue, Style style);
 
 } // namespace PageLabels
 } // namespace gp

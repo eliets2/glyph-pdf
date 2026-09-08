@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
- * PageLabels.cpp — pure /PageLabels seam implementation. See PageLabels.h
- * for the scope and contracts (pinned by tests/TestPageLabels.cpp).
+ * PageLabels.cpp — /PageLabels seam implementation: pure entry/label
+ * generation plus the §9.9 P1 catalog writer. See PageLabels.h for the
+ * scope and contracts (pinned by tests/TestPageLabels.cpp).
  */
 #include "PageLabels.h"
+
+#include <podofo/podofo.h>
 
 namespace gp {
 
@@ -107,6 +110,67 @@ QList<PageLabelNumEntry> numberTreeEntries(int startValue, Style style, int page
     entry.startValue = startValue;
     entries.append(entry);
     return entries;
+}
+
+bool writeNumberTree(PoDoFo::PdfMemDocument& doc, int startValue, Style style,
+                     int pageCount)
+{
+    // Validate FIRST: an invalid range must leave the catalog untouched.
+    const QList<PageLabelNumEntry> entries =
+        numberTreeEntries(startValue, style, pageCount);
+    if (entries.isEmpty())
+        return false;
+
+    try {
+        auto& objects = doc.GetObjects();
+
+        // One flat /Nums array over all pages (ISO 32000 7.9.3 number tree;
+        // /Kids is only needed for sparse branching — a whole-document
+        // uniform range is a single pair).
+        auto& labels = objects.CreateDictionaryObject();
+        PoDoFo::PdfArray nums;
+        for (const PageLabelNumEntry& e : entries) {
+            nums.Add(PoDoFo::PdfObject(static_cast<long long>(e.pageNum)));
+
+            PoDoFo::PdfObject range{PoDoFo::PdfDictionary()};
+            range.GetDictionary().AddKey(
+                "S", PoDoFo::PdfObject(PoDoFo::PdfName(e.style.toStdString())));
+            // /St is spec-defaulted to 1, but writing it explicitly keeps
+            // the readback exact (no default-reconstruction in consumers).
+            range.GetDictionary().AddKey(
+                "St", PoDoFo::PdfObject(static_cast<long long>(e.startValue)));
+            nums.Add(range);
+        }
+        labels.GetDictionary().AddKey("Nums", PoDoFo::PdfObject(nums));
+
+        // Replace, never merge: a stale tree (e.g. from a previous labeling)
+        // must not survive next to the new one.
+        auto& catDict = doc.GetCatalog().GetDictionary();
+        catDict.RemoveKey("PageLabels");
+        catDict.AddKey("PageLabels",
+                       PoDoFo::PdfObject(labels.GetIndirectReference()));
+        return true;
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning("PageLabels::writeNumberTree: %s", e.what());
+        return false;
+    }
+}
+
+bool writeNumberTree(const QString& pdfPath, int startValue, Style style)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(pdfPath.toUtf8().constData());
+        const int pageCount = static_cast<int>(doc.GetPages().GetCount());
+        if (!writeNumberTree(doc, startValue, style, pageCount))
+            return false;
+        doc.Save(pdfPath.toUtf8().constData());
+        return true;
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning("PageLabels::writeNumberTree(%s): %s",
+                 qPrintable(pdfPath), e.what());
+        return false;
+    }
 }
 
 } // namespace PageLabels

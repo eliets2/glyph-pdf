@@ -1764,10 +1764,11 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPagesMode.cpp")
     )
 endif()
 
-# §9.9 P1 groundwork: pure /PageLabels seam — number-tree entries + label
-# strings (Decimal/UppercaseRoman/LowercaseRoman/letters) for a future
-# Page-Labels mode. Compiles its own copy of the seam (TestUpdateChecker
-# precedent); no document I/O, no GUI, no offscreen plugin needed.
+# §9.9 P1: pure /PageLabels seam (number-tree entries + label strings) PLUS
+# the catalog writer (writeNumberTree — PoDoFo /Nums serialization). Compiles
+# its own copy of the seam (TestUpdateChecker precedent); the writer needs the
+# podofo 1.1.0 import lib + DLL at runtime (TestCompressJpegReencode
+# precedent). No GUI; offscreen plugin only.
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPageLabels.cpp")
     add_executable(TestPageLabels
         tests/TestPageLabels.cpp
@@ -1775,12 +1776,22 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPageLabels.cpp")
     )
     target_include_directories(TestPageLabels PRIVATE src tests)
     target_link_libraries(TestPageLabels PRIVATE
-        Qt6::Test Qt6::Core
+        Qt6::Test Qt6::Core podofo::podofo
     )
+    if(WIN32)
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestPageLabels POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestPageLabels>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestPageLabels"
+            )
+        endif()
+    endif()
     add_test(NAME TestPageLabels COMMAND TestPageLabels)
     set_tests_properties(TestPageLabels PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
-        TIMEOUT 30
+        TIMEOUT 120
         LABELS "unit;pages;pagelabels;core;qt;headless"
     )
 endif()

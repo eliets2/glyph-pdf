@@ -29,6 +29,7 @@
  */
 #include "PagesMode.h"
 #include "core/AppContext.h"
+#include "core/PageLabels.h"
 #include "engines/DocumentSession.h"
 #include "engines/PdfEditorEngine.h"
 #include "engines/SafeSave.h"
@@ -42,9 +43,12 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFormLayout>
 #include <QFrame>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -1463,6 +1467,118 @@ void PagesMode::fillGridContextMenu(QMenu* menu)
     menu->addSeparator();
     menu->addAction(PagesMode::tr("Select All"), m_pageList, &QListWidget::selectAll);
     menu->addAction(PagesMode::tr("Clear Selection"), m_pageList, &QListWidget::clearSelection);
+    // §9.9 P1: page-label writer — one uniform (startValue, style) range
+    // written into the catalog's /PageLabels number tree. Enabled only when a
+    // document is actually shown in the grid.
+    menu->addSeparator();
+    QAction* applyLabels = menu->addAction(PagesMode::tr("Apply Page Labels…"),
+                                           this, &PagesMode::onApplyPageLabels);
+    applyLabels->setEnabled(m_pageList->count() > 0);
+}
+
+// §9.9 P1: "Apply Page Labels…" — minimal prompt (start value + style), then
+// gp::PageLabels::writeNumberTree onto a SafeSave candidate of the SAVED
+// document, committed atomically (same boundary as the split path). Labels
+// describe the saved file; a dirty document is refused rather than silently
+// labeled at its last-saved state, and the resident editor engine (if any) is
+// re-pointed at the committed bytes so no later engine op clobbers the tree.
+void PagesMode::onApplyPageLabels()
+{
+    if (!m_ctx || !m_ctx->document || m_ctx->document->path().isEmpty()) {
+        QMessageBox::information(this, PagesMode::tr("Apply Page Labels"),
+                                 PagesMode::tr("No document is open."));
+        return;
+    }
+    const QString path = m_ctx->document->path();
+
+    if (m_ctx->document->isDirty()) {
+        QMessageBox::information(this, PagesMode::tr("Apply Page Labels"),
+                                 PagesMode::tr("Save your changes first — page labels "
+                                               "are applied to the saved document."));
+        return;
+    }
+
+    QDialog dlg(this);
+    dlg.setWindowTitle(PagesMode::tr("Apply Page Labels"));
+    auto* form = new QFormLayout(&dlg);
+
+    auto* start = new QSpinBox(&dlg);
+    start->setRange(1, 1000000);
+    start->setValue(1);
+    start->setToolTip(PagesMode::tr("Number of the document's first page (e.g. 4 labels it “4”, or “iv” in lowercase Roman)."));
+    form->addRow(PagesMode::tr("Start value:"), start);
+
+    auto* style = new QComboBox(&dlg);
+    namespace PL = gp::PageLabels;
+    style->addItem(PagesMode::tr("Decimal (1, 2, 3…)"),
+                   static_cast<int>(PL::Style::Decimal));
+    style->addItem(PagesMode::tr("Lowercase Roman (i, ii, iii…)"),
+                   static_cast<int>(PL::Style::LowercaseRoman));
+    style->addItem(PagesMode::tr("Uppercase Roman (I, II, III…)"),
+                   static_cast<int>(PL::Style::UppercaseRoman));
+    style->addItem(PagesMode::tr("Lowercase Letters (a, b, … z, aa, bb…)"),
+                   static_cast<int>(PL::Style::LowercaseLetters));
+    style->addItem(PagesMode::tr("Uppercase Letters (A, B, … Z, AA, BB…)"),
+                   static_cast<int>(PL::Style::UppercaseLetters));
+    form->addRow(PagesMode::tr("Style:"), style);
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    form->addRow(buttons);
+
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+    const auto chosenStyle = static_cast<gp::PageLabels::Style>(style->currentData().toInt());
+
+    // Same atomic boundary as the split path: candidate → write → commit.
+    QString candidate;
+    QString err;
+    if (!gp::SafeSave::makeUniqueCandidate(&candidate, &err)) {
+        qWarning("PagesMode::onApplyPageLabels: %s", qPrintable(err));
+        QMessageBox::warning(this, PagesMode::tr("Apply Page Labels"),
+                             PagesMode::tr("Could not create a temporary candidate file."));
+        return;
+    }
+
+    // The candidate starts as an empty placeholder — replace it with the
+    // saved source bytes, then write the labels in place (in-memory load;
+    // never touches the user's file until the commit below).
+    QFile::remove(candidate);
+    if (!QFile::copy(path, candidate)) {
+        QFile::remove(candidate);
+        QMessageBox::warning(this, PagesMode::tr("Apply Page Labels"),
+                             PagesMode::tr("Could not stage the document for labeling."));
+        return;
+    }
+    if (!gp::PageLabels::writeNumberTree(candidate, start->value(), chosenStyle)) {
+        QFile::remove(candidate);
+        QMessageBox::warning(this, PagesMode::tr("Apply Page Labels"),
+                             PagesMode::tr("Writing the page labels failed (invalid range or unreadable PDF)."));
+        return;
+    }
+    QString commitErr;
+    if (!gp::SafeSave::commitFileToDestination(candidate, path, &commitErr)) {
+        QFile::remove(candidate);
+        qWarning("PagesMode::onApplyPageLabels: commit to %s failed: %s",
+                 qPrintable(path), qPrintable(commitErr));
+        QMessageBox::warning(this, PagesMode::tr("Apply Page Labels"),
+                             PagesMode::tr("Could not save the labeled document."));
+        return;
+    }
+    QFile::remove(candidate); // committed bytes were copied; drop the candidate
+
+    // Re-sync consumers of the file: the viewer reloads from disk, and a
+    // resident editor engine is re-pointed at the committed bytes so the
+    // next engine operation cannot overwrite the tree with stale state.
+    if (m_ctx->pdfEditor && m_ctx->pdfEditor->currentFile() == path)
+        m_ctx->pdfEditor->loadDocumentForEditing(path);
+    m_ctx->document->markReload();
+
+    QMessageBox::information(this, PagesMode::tr("Apply Page Labels"),
+                             PagesMode::tr("Page labels applied (style %1, starting at %2).")
+                                 .arg(gp::PageLabels::styleName(chosenStyle))
+                                 .arg(start->value()));
 }
 
 // U06: keep the visible selection label and the identity snapshot in step.

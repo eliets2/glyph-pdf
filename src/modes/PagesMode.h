@@ -94,6 +94,11 @@ private slots:
     // U06: keyboard/context moves of the selected page(s) by delta (-1 up,
     // +1 down) through the SAME atomic command path as drag.
     void moveSelectedPagesBy(int delta);
+    // §9.9 P1: "Apply Page Labels…" — small start-value + style prompt, then
+    // gp::PageLabels::writeNumberTree onto a SafeSave candidate of the saved
+    // document, committed atomically. Refuses a dirty document (labels are
+    // written to the saved file; engine-resident mutation is deferred).
+    void onApplyPageLabels();
     // U06: fill the thumbnail context menu (Move Up/Down, Select All,
     // Clear Selection — no destructive entries) from the grid's own commands.
     void fillGridContextMenu(QMenu* menu);
