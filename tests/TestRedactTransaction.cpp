@@ -764,6 +764,27 @@ void TestRedactTransaction::retryThroughPresenterSucceedsFromCommittedRedactedFi
              qPrintable(QStringLiteral("banner after a successful retry must not keep the "
                                        "failure wording: %1").arg(banner)));
 
+    // D05 (review 2026-09-07): the Security entry path (SecurityController's
+    // RedactOperation::finished handler) used to banner from the ORIGINAL
+    // partial result, so a flow whose Retry-sanitize SUCCEEDED still announced
+    // "sanitization FAILED". SecurityController::applyRedactions is not
+    // headlessly drivable (private; needs a live MainWindow, a loaded viewer
+    // and the modal RedactApplyDialog/progress/presenter dialogs — TestControllers
+    // constructs SecurityController with a nullptr window and only exercises
+    // its static builders), so the recovered-result plumbing is pinned HERE at
+    // the shared presenter seam: the two candidate banners must really differ,
+    // which is what makes the controller's result choice load-bearing — it must
+    // banner from present()'s effective out-param (Completed), never from the
+    // original partial result.
+    const QString staleBanner = RedactResultPresenter::bannerText(partial);
+    QVERIFY2(staleBanner.contains(QLatin1String("FAILED")),
+             qPrintable(QStringLiteral("precondition: the ORIGINAL partial result still "
+                                      "banners failure — the recovered flow must not: %1")
+                            .arg(staleBanner)));
+    QVERIFY2(staleBanner != banner,
+             "recovered and original banners must differ — the controller's "
+             "banner-result choice is load-bearing");
+
     // The sanitized copy EXISTS at the intended destination and is the NEW
     // sanitized content (pre-fix: the presenter passed an empty path, the
     // retry failed, and this file still held the stale bytes).
