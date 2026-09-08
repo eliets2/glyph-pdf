@@ -712,7 +712,9 @@ void TestExportPathBadge::registryImageFileFilterMatchesPreviousHandBuiltFilter(
 
 // The disabled-checkbox wording in CompressDialog (pinned by
 // TestCompressDialogHonesty) must stay byte-identical to the registry's R12
-// probe whyNot — one source of truth, no drift.
+// probe whyNot — one source of truth, no drift. Since §9.13 (21a387c) the
+// unused-object sweep is real: that probe is Available (no whyNot) and the
+// dialog enables its checkbox; only font subsetting keeps the R12 wording.
 void TestExportPathBadge::compressDialogWordingRoundTripsThroughRegistry() {
     gp::CapabilityRegistry reg;
     reg.registerEngineProbes();
@@ -721,8 +723,11 @@ void TestExportPathBadge::compressDialogWordingRoundTripsThroughRegistry() {
              gp::r12UnsupportedPassExplanation());
     QCOMPARE(reg.query(gp::CapId::CompressSubsetFonts).whyNot,
              gp::CompressDialog::unsupportedPassExplanation());
-    QCOMPARE(reg.query(gp::CapId::CompressRemoveUnused).whyNot,
-             gp::CompressDialog::unsupportedPassExplanation());
+
+    const gp::Capability removeUnused = reg.query(gp::CapId::CompressRemoveUnused);
+    QCOMPARE(removeUnused.status, gp::Availability::Available);
+    QVERIFY2(removeUnused.whyNot.trimmed().isEmpty(),
+             "the sweep is implemented — no whyNot may disable it");
 }
 QTEST_MAIN(TestExportPathBadge)
 #include "TestExportPathBadge.moc"

@@ -304,13 +304,20 @@ private slots:
         CapabilityRegistry reg;
         reg.registerEngineProbes();
 
-        for (const CapId id : { CapId::CompressSubsetFonts, CapId::CompressRemoveUnused }) {
-            const Capability c = reg.query(id);
-            QCOMPARE(c.status, Availability::UnavailableBuild);
-            QCOMPARE(c.whyNot, gp::r12UnsupportedPassExplanation());
-            QVERIFY2(!c.alternative.trimmed().isEmpty(),
-                     "the R12 passes must point at the passes that DO run");
-        }
+        // §9.13 (21a387c): the unused-object sweep is implemented, so font
+        // subsetting is the only remaining unimplemented R12 pass.
+        const Capability subset = reg.query(CapId::CompressSubsetFonts);
+        QCOMPARE(subset.status, Availability::UnavailableBuild);
+        QCOMPARE(subset.whyNot, gp::r12UnsupportedPassExplanation());
+        QVERIFY2(!subset.alternative.trimmed().isEmpty(),
+                 "the R12 pass must point at the passes that DO run");
+
+        const Capability removeUnused = reg.query(CapId::CompressRemoveUnused);
+        QCOMPARE(removeUnused.status, Availability::Available);
+        QVERIFY2(removeUnused.whyNot.trimmed().isEmpty(),
+                 "an available pass must not carry a whyNot");
+        QVERIFY2(removeUnused.detail.contains(QStringLiteral("sweep"), Qt::CaseInsensitive),
+                 "the disclosure must state what actually runs");
     }
 
     void engineProbesWordExcelExportAlwaysAvailableWithWriterDetail() {
