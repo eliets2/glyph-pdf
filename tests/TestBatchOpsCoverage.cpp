@@ -51,17 +51,22 @@
 //      ISO 19005-2/3, 6.7.x under ISO 19005-1) fails — veraPDF independently
 //      confirms the pdfaid identification matches the flavour; (c) a
 //      negative control validates the 2B artifact at the 1b flavour and
-//      REQUIRES identification failures, proving (b) has teeth; (d) all
-//      remaining violations are logged honestly on every run, and any rule
-//      OUTSIDE the observed writer-gap classes fails the run.
-//      DISCOVERED AND PINNED HONESTLY: the artifacts do NOT reach FULL PDF/A
-//      conformance today. The observed writer gaps (PoDoFo-side, outside
-//      this lane's ownership): DeviceGray is used without an output-intent
-//      profile (clause 6.2.4.3 under ISO 19005-2/3, 6.2.3.3 under
-//      ISO 19005-1) because exportPdfA writes /OutputIntents WITHOUT a
-//      DestOutputProfile ICC stream; 1b additionally flags an incomplete
-//      CIDSet in the embedded font subset's FontDescriptor (clause 6.3.5).
-//      When the CLI is absent the conformance pass QSKIPs with that message
+//      REQUIRES identification failures, proving (b) has teeth; (d) the
+//      exported artifacts validate FULLY CONFORMANT — zero failed rules —
+//      with the two formerly-disclosed writer gap classes (6.2.3.3/6.2.4.3
+//      output-intent profile, 6.3.5 CIDSet) named explicitly as a repair
+//      tripwire.
+//      E-1 REPAIR (writer: src/engines/podofo/PoDoFoBackend.cpp::exportPdfA):
+//      the previously-disclosed gaps are closed. exportPdfA now embeds a
+//      minimal sRGB IEC61966-2.1 ICC v2.1 profile as the /DestOutputProfile
+//      stream of the /OutputIntents entry at EVERY level (ISO 19005-1 does
+//      not mandate the profile for 1B, but veraPDF's 6.2.3.3-3 fails the
+//      artifacts' implicit-DeviceGray fill when the output intent carries
+//      none — profile-free 1B was the disclosed gap, and providing the
+//      profile is permitted under 19005-1), and writes a COMPLETE /CIDSet
+//      on every embedded composite-font subset, derived from the subset's
+//      own /W array.
+//      Where the CLI is absent the conformance pass QSKIPs with that message
 //      and only the structural contract above is claimed.
 //
 //      NOTE ON VeraPdfValidator::validate(): its parseJson() reads the
@@ -156,8 +161,15 @@ static QString extractPageText(QPdfDocument& doc, int page) {
 
 // ── PDF/A level matrix — every level the batch panel offers ──────────────────
 // One row per Export-PDF/A combo item: the PoDoFo level/version the artifact
-// must read back as, the veraPDF --flavour that matches it, and the XMP
-// pdfaid:part / pdfaid:conformance values the artifact must carry.
+// must read back as, the veraPDF --flavour that matches it, the XMP
+// pdfaid:part / pdfaid:conformance values the artifact must carry, and
+// whether the artifact must embed an sRGB /DestOutputProfile ICC stream.
+// E-1: required at EVERY level. ISO 19005-1 does not mandate DestOutputProfile
+// for 1B, but the exported artifacts draw with the implicit default DeviceGray
+// fill and veraPDF's 6.2.3.3-3 fails a DeviceGray artifact whose output intent
+// carries no profile — observed pre-repair on every flavour, and proven
+// cleared by attaching the sRGB ICC stream (probe: 0 failed rules at 1b and
+// 2b). Providing it is permitted under 19005-1.
 struct PdfALevelSpec {
     const char* comboText;
     PoDoFo::PdfALevel level;
@@ -165,21 +177,22 @@ struct PdfALevelSpec {
     const char* flavour;   // veraPDF --flavour flag
     const char* aidPart;   // <pdfaid:part>
     const char* aidConf;   // <pdfaid:conformance>
+    bool needsProfile;     // /DestOutputProfile ICC stream required?
     const char* fixture;
     const char* output;    // <base>_pdfa.pdf next to the fixture
 };
 
 static const QList<PdfALevelSpec>& pdfaLevelSpecs() {
     static const QList<PdfALevelSpec> specs = {
-        { "PDF/A-1B", PoDoFo::PdfALevel::L1B, PoDoFo::PdfVersion::V1_4, "1b", "1", "B",
+        { "PDF/A-1B", PoDoFo::PdfALevel::L1B, PoDoFo::PdfVersion::V1_4, "1b", "1", "B", true,
           "pdfa_1b_e1.pdf",         "pdfa_1b_e1_pdfa.pdf" },
-        { "PDF/A-2B", PoDoFo::PdfALevel::L2B, PoDoFo::PdfVersion::V1_7, "2b", "2", "B",
+        { "PDF/A-2B", PoDoFo::PdfALevel::L2B, PoDoFo::PdfVersion::V1_7, "2b", "2", "B", true,
           "pdfa_2b_e1.pdf",         "pdfa_2b_e1_pdfa.pdf" },
-        { "PDF/A-2U", PoDoFo::PdfALevel::L2U, PoDoFo::PdfVersion::V1_7, "2u", "2", "U",
+        { "PDF/A-2U", PoDoFo::PdfALevel::L2U, PoDoFo::PdfVersion::V1_7, "2u", "2", "U", true,
           "pdfa_2u_e1.pdf",         "pdfa_2u_e1_pdfa.pdf" },
-        { "PDF/A-3B", PoDoFo::PdfALevel::L3B, PoDoFo::PdfVersion::V1_7, "3b", "3", "B",
+        { "PDF/A-3B", PoDoFo::PdfALevel::L3B, PoDoFo::PdfVersion::V1_7, "3b", "3", "B", true,
           "pdfa_3b_e1.pdf",         "pdfa_3b_e1_pdfa.pdf" },
-        { "PDF/A-3U", PoDoFo::PdfALevel::L3U, PoDoFo::PdfVersion::V1_7, "3u", "3", "U",
+        { "PDF/A-3U", PoDoFo::PdfALevel::L3U, PoDoFo::PdfVersion::V1_7, "3u", "3", "U", true,
           "pdfa_3u_e1.pdf",         "pdfa_3u_e1_pdfa.pdf" },
     };
     return specs;
@@ -452,6 +465,108 @@ private:
             QCOMPARE(QString::fromLatin1(oci->GetString().GetString().data(),
                                          int(oci->GetString().GetString().size())),
                      QStringLiteral("sRGB IEC61966-2.1"));
+
+            // E-1 (6.2.4.3-4 / 6.2.3.3-3): the output-intent ICC contract —
+            // EVERY level must embed an INDIRECT /DestOutputProfile stream:
+            // an ICC profile with /N == 3 (sRGB is 3-colorant RGB) and a
+            // non-empty payload (the embedded minimal sRGB v2 profile is
+            // 500 bytes; sanity-pin N>0 bytes). ISO 19005-1 does not mandate
+            // the profile for 1B, but veraPDF's 6.2.3.3-3 fails DeviceGray
+            // artifacts (the default fill) whose output intent has none —
+            // see the struct comment.
+            const PoDoFo::PdfObject* dop = intent->GetDictionary().GetKey(
+                PoDoFo::PdfName("DestOutputProfile")); // shallow: must BE a reference
+            QVERIFY2(dop && dop->IsReference(),
+                     "output intent must carry an indirect /DestOutputProfile ICC "
+                     "stream (veraPDF 6.2.4.3-4 / 6.2.3.3-3)");
+            const PoDoFo::PdfObject* icc =
+                check.GetObjects().GetObject(dop->GetReference());
+            QVERIFY2(icc && icc->IsDictionary() && icc->HasStream(),
+                     "/DestOutputProfile must resolve to a stream object");
+            const PoDoFo::PdfObject* n =
+                icc->GetDictionary().GetKey(PoDoFo::PdfName("N"));
+            QVERIFY2(n && n->IsNumber(),
+                     "the ICC stream must declare /N (device colorants)");
+            QCOMPARE(static_cast<int>(n->GetNumber()), 3);
+            const size_t iccLen = icc->MustGetStream().GetLength();
+            QVERIFY2(iccLen > 0,
+                     "the /DestOutputProfile ICC stream must not be empty");
+
+            // E-1 (6.3.5-3): every embedded composite-font subset must carry a
+            // COMPLETE /CIDSet — one bit per CID its /W array identifies
+            // (bit c at byte c/8, bit 7-(c%8)), size (maxCID/8)+1.
+            for (auto* obj : check.GetObjects()) {
+                if (!obj || !obj->IsDictionary()) continue;
+                const auto* subtype =
+                    obj->GetDictionary().FindKey(PoDoFo::PdfName("Subtype"));
+                if (!subtype || !subtype->IsName() ||
+                    subtype->GetName() != PoDoFo::PdfName("Type0"))
+                    continue;
+                const auto* descendants = obj->GetDictionary().FindKey(
+                    PoDoFo::PdfName("DescendantFonts"));
+                QVERIFY2(descendants && descendants->IsArray(),
+                         "Type0 font must carry DescendantFonts");
+                for (const auto& dref : descendants->GetArray()) {
+                    const PoDoFo::PdfObject* desc = dref.IsReference()
+                        ? check.GetObjects().GetObject(dref.GetReference())
+                        : (dref.IsDictionary() ? &dref : nullptr);
+                    QVERIFY2(desc && desc->IsDictionary(),
+                             "DescendantFonts entry must resolve to a dictionary");
+                    const auto* wArr = desc->GetDictionary().FindKey(PoDoFo::PdfName("W"));
+                    if (!wArr || !wArr->IsArray())
+                        continue; // no widths → no subset CID population to check
+                    // Parse /W (start+count arrays or inclusive ranges).
+                    QList<int> cids;
+                    const PoDoFo::PdfArray& w = wArr->GetArray();
+                    for (size_t i = 0; i < w.GetSize(); ++i) {
+                        if (!w[i].IsNumber()) continue;
+                        const int c = static_cast<int>(w[i].GetNumber());
+                        if (i + 1 < w.GetSize() && w[i + 1].IsArray()) {
+                            for (int cid = c;
+                                 cid < c + static_cast<int>(w[i + 1].GetArray().GetSize());
+                                 ++cid)
+                                cids.append(cid);
+                            ++i;
+                        } else if (i + 2 < w.GetSize() && w[i + 1].IsNumber()
+                                   && w[i + 2].IsNumber()
+                                   && w[i + 1].GetNumber() >= w[i].GetNumber()) {
+                            for (int cid = c;
+                                 cid <= static_cast<int>(w[i + 1].GetNumber()); ++cid)
+                                cids.append(cid);
+                            i += 2;
+                        }
+                    }
+                    if (cids.isEmpty())
+                        continue;
+                    const auto* fd = desc->GetDictionary().FindKey(
+                        PoDoFo::PdfName("FontDescriptor"));
+                    QVERIFY2(fd && fd->IsDictionary(),
+                             "CIDFont must carry a FontDescriptor");
+                    const auto* cidSet = fd->GetDictionary().GetKey(
+                        PoDoFo::PdfName("CIDSet")); // shallow: must BE a reference
+                    QVERIFY2(cidSet && cidSet->IsReference(),
+                             "the embedded font subset's FontDescriptor must carry "
+                             "an indirect /CIDSet (veraPDF 6.3.5-3)");
+                    const PoDoFo::PdfObject* cidSetObj =
+                        check.GetObjects().GetObject(cidSet->GetReference());
+                    QVERIFY2(cidSetObj && cidSetObj->HasStream(),
+                             "/CIDSet must resolve to a stream object");
+                    const PoDoFo::charbuff bits =
+                        cidSetObj->MustGetStream().GetCopy();
+                    const int maxCid = *std::max_element(cids.cbegin(), cids.cend());
+                    QCOMPARE(bits.size(),
+                             static_cast<size_t>(maxCid / 8) + 1);
+                    for (int cid : cids) {
+                        const unsigned char byte =
+                            static_cast<unsigned char>(bits[static_cast<size_t>(cid) / 8]);
+                        QVERIFY2(byte & (0x80u >> (cid % 8)),
+                                 qPrintable(QStringLiteral(
+                                     "CIDSet bit for CID %1 must be set — the CIDSet "
+                                     "must identify every glyph in the embedded "
+                                     "subset (veraPDF 6.3.5-3)").arg(cid)));
+                    }
+                }
+            }
         } catch (const std::exception& e) {
             QFAIL(qPrintable(QStringLiteral("PDF/A output failed to open in PoDoFo: %1")
                                  .arg(e.what())));
@@ -609,7 +724,10 @@ private slots:
         bm.setOperationForTest(4);     // OpMerge
 
         QSignalSpy finishedSpy(&bm, &gp::BatchMode::batchFinished);
-        bm.onRunBatch(); // runMerge is synchronous — no worker, no pump needed
+        // §9.12 P1 landed mid-lane: merge moved off the GUI thread onto a
+        // worker (startMergeWorker) — pump the event loop until it completes
+        // instead of asserting synchrony.
+        runAndWait(bm);
         QCOMPARE(finishedSpy.count(), 1);
 
         // Merged output is named after the FIRST file, in the first file's dir.
@@ -729,21 +847,21 @@ private slots:
     // (bundle / GLYPHPDF_VERAPDF / GLYPHPDF_VERAPDF_CLI / PATH); otherwise it
     // QSKIPs so the structural contract above remains the always-on claim.
     //
-    // Asserted per exported artifact at its matching flavour:
+    // E-1 POST-REPAIR CLAIM: the two disclosed writer gaps are fixed in the
+    // writer (src/engines/podofo/PoDoFoBackend.cpp::exportPdfA — sRGB
+    // DestOutputProfile ICC stream at every level, complete CIDSet on every
+    // embedded composite-font subset). The exported artifacts must therefore
+    // validate FULLY CONFORMANT: zero failed rules at each artifact's own
+    // flavour. Asserted per artifact:
     //   * the CLI runs and returns parseable JSON with a real verdict — the
     //     artifact is well-formed enough that veraPDF raises NO taskException;
-    //   * NO identification/metadata rule (clause 6.6.x under ISO 19005-2/3,
-    //     6.7.x under ISO 19005-1) fails — veraPDF independently confirms the
-    //     pdfaid identification matches the flavour;
-    //   * the remaining violations are logged honestly on every run. They are
-    //     EXPECTED today (writer gaps outside this lane's ownership, see the
-    //     ledger discovery note in the file header): DeviceGray without an
-    //     output-intent profile (6.2.4.3 under 19005-2/3, 6.2.3.3 under
-    //     19005-1) and an incomplete CIDSet on the 1b embedded subset (6.3.5).
-    //     FULL conformance is claimed ONLY as far as "no rule outside the
-    //     documented writer-gap classes fails". If a run reports a clause
-    //     outside that set the test FAILS — the writer's behaviour changed
-    //     and the ledger must be re-examined.
+    //   * NO identification/metadata rule (6.6.x under ISO 19005-2/3, 6.7.x
+    //     under ISO 19005-1) fails;
+    //   * NONE of the repaired gap classes (6.2.3.3 / 6.2.4.3 output-intent,
+    //     6.3.5 CIDSet) fails — if one does, the writer regressed;
+    //   * zero failed rules overall (full conformance).
+    // The mismatch negative control (2b artifact validated at flavour 1b
+    // must FAIL identification) proves this harness has teeth.
     void veraPdfValidatesEveryPdfALevelArtifact() {
         if (!gp::VeraPdfValidator::isAvailable())
             QSKIP("veraPDF CLI not found (bundle / GLYPHPDF_VERAPDF / GLYPHPDF_VERAPDF_CLI "
@@ -785,28 +903,34 @@ private slots:
                                     .arg(spec.flavour,
                                          identificationFailures.join(QStringLiteral(", ")))));
 
-            // Honest ledger: every violation outside the OBSERVED writer-gap
-            // classes is a new fact and must fail the run (tripwire: if the
-            // writer changes, this fails and the E-1 ledger must be re-read).
-            // Observed today (see the [E-1] log lines): DeviceGray used
-            // without an output-intent profile (6.2.4.3 under ISO 19005-2/3,
-            // 6.2.3.3 under ISO 19005-1) — exportPdfA writes /OutputIntents
-            // without a DestOutputProfile ICC stream — and, 1b only, an
-            // incomplete CIDSet in the FontDescriptor of the embedded subset
-            // (6.3.5). Repair lives in the writer, outside this lane.
-            QStringList unexpected;
+            // E-1 repair tripwire: the two disclosed writer-gap classes are
+            // FIXED in the writer now. If either reappears, the writer
+            // regressed and the E-1 ledger must be re-opened.
+            //   6.2.4.3-4 / 6.2.3.3-3 — /DestOutputProfile ICC (sRGB profile
+            //     embedded at every level by exportPdfA since the repair);
+            //   6.3.5-3 — incomplete /CIDSet (complete CIDSet derived from
+            //     /W by exportPdfA since the repair).
+            QStringList repairedGaps;
             for (const QString& clause : v.failedClauses)
-                if (!identificationRuleClauses({clause}).isEmpty() ||
-                    !(clause.startsWith(QLatin1String("6.2.3.3")) ||
-                      clause.startsWith(QLatin1String("6.2.4.3")) ||
-                      clause.startsWith(QLatin1String("6.3.5"))))
-                    unexpected << clause;
-            QVERIFY2(unexpected.isEmpty(),
-                     qPrintable(QStringLiteral("PDF/A-%1: violations outside the documented "
-                                               "writer-gap classes {6.2.3.3, 6.2.4.3, 6.3.5, "
-                                               "6.6.x/6.7.x} appeared: %2 — the writer "
-                                               "changed; re-examine the E-1 ledger")
-                                    .arg(spec.flavour, unexpected.join(QStringLiteral(", ")))));
+                if (clause.startsWith(QLatin1String("6.2.3.3")) ||
+                    clause.startsWith(QLatin1String("6.2.4.3")) ||
+                    clause.startsWith(QLatin1String("6.3.5")))
+                    repairedGaps << clause;
+            QVERIFY2(repairedGaps.isEmpty(),
+                     qPrintable(QStringLiteral("PDF/A-%1: the E-1-repaired writer gaps "
+                                               "{6.2.3.3-3, 6.2.4.3-4, 6.3.5-3} reappeared: "
+                                               "%2 — exportPdfA regressed; re-open the E-1 "
+                                               "ledger")
+                                    .arg(spec.flavour,
+                                         repairedGaps.join(QStringLiteral(", ")))));
+
+            // Full conformance: zero failed rules at the artifact's flavour.
+            QVERIFY2(v.valid,
+                     qPrintable(QStringLiteral("PDF/A-%1: exported artifact must be FULLY "
+                                               "conformant after the E-1 repair (0 failed "
+                                               "rules), got: %2")
+                                    .arg(spec.flavour,
+                                         v.failedClauses.join(QStringLiteral(", ")))));
         }
 
         // Negative control for the harness itself: validate the 2B artifact at

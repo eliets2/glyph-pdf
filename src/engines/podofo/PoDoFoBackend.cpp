@@ -1908,6 +1908,227 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
     }
 }
 
+// ── E-1 repair (ledger row E-1-residual, commit fee597b) ─────────────────────
+// Two writer gaps kept every exported PDF/A artifact from full conformance:
+//   * 6.2.4.3-4 / 6.2.3.3-3 — exportPdfA wrote /OutputIntents with
+//     /S GTS_PDFA1 but NO /DestOutputProfile, so veraPDF failed every
+//     artifact's device-colour-space rule ("colour space is used without
+//     output intent profile"; the fixtures' text uses the implicit default
+//     DeviceGray fill): 6.2.4.3-4 under ISO 19005-2/3 (2B/2U/3B/3U),
+//     6.2.3.3-3 under ISO 19005-1 (1B). Fix: embed an sRGB ICC profile
+//     stream as /DestOutputProfile at EVERY level. ISO 19005-1 does not
+//     mandate the profile for PDF/A-1B, but veraPDF's 6.2.3.3-3 fails the
+//     implicit-DeviceGray fill when the output intent carries none
+//     (observed pre-repair), and 19005-1 permits DestOutputProfile — so
+//     the profile is attached for 1B too (probe-verified: 0 failed rules
+//     at 1b and 2b once attached).
+//   * 6.3.5-3 — PoDoFo 0.10.4 embeds standard-14 fonts as Type0/
+//     CIDFontType0 subsets (FontFile3, CIDFontType0C) but never writes the
+//     FontDescriptor /CIDSet that ISO 19005-1 6.3.5 requires; veraPDF
+//     flagged "A CIDSet entry in the Font descriptor is missing or does
+//     not correctly identify all glyphs present in the embedded font
+//     subset and used for rendering" on every 1b export. Fix: derive the
+//     exact CID population from the CIDFont's own /W array (PoDoFo emits
+//     one width entry per CID in the subset — verified on a real export:
+//     CIDs 0..10, W covers all 11) and write a complete CIDSet bit stream
+//     (bit for CID n at byte n/8, bit 7-(n%8)).
+
+// Deterministic minimal sRGB IEC61966-2.1 ICC profile, version 2.1
+// (ICC.1:2001-10), matrix/TRC display profile ('mntr' / 'RGB ' / 'XYZ ').
+// 500 bytes: 128-byte header + tag table of 9 tags (desc, cprt, wtpt,
+// rXYZ, gXYZ, bXYZ, rTRC, gTRC, bTRC). Tone reproduction is the classic
+// single-entry 'curv' form (g = 2.2, u8Fixed8) of the well-known minimal
+// sRGB profiles; colorants are the IEC 61966-2-1 sRGB primaries
+// Bradford-adapted to the D50 PCS:
+//   wtpt 0.9642 1.0 0.8249 | rXYZ 0.4360 0.2225 0.0139
+//   gXYZ 0.3851 0.7169 0.0971 | bXYZ 0.1431 0.0606 0.7141
+// Validated before wiring: lcms2 (PIL ImageCms) opens it as
+// "sRGB IEC61966-2.1" / RGB, and veraPDF 1.30.2 accepts it as the
+// DestOutputProfile of real exported artifacts with 0 failed rules
+// (probed at flavours 1b and 2b before this change was written).
+static std::vector<unsigned char> buildSrgbIec6196621ProfileV2() {
+    auto s15f16 = [](double v) -> uint32_t {
+        return static_cast<uint32_t>(std::lround(v * 65536.0));
+    };
+    auto put32 = [](std::vector<unsigned char>& out, uint32_t v) {
+        out.push_back(static_cast<unsigned char>(v >> 24));
+        out.push_back(static_cast<unsigned char>(v >> 16));
+        out.push_back(static_cast<unsigned char>(v >> 8));
+        out.push_back(static_cast<unsigned char>(v));
+    };
+    auto putTagSig = [](std::vector<unsigned char>& out, const char* s) {
+        out.insert(out.end(), s, s + 4);
+    };
+
+    // Tag payloads (each starts with its 4cc type signature + 4 reserved 0s).
+    std::vector<unsigned char> desc; // textDescriptionType (ICC v2 form)
+    {
+        const char* name = "sRGB IEC61966-2.1";
+        const uint32_t asciiLen = sizeof("sRGB IEC61966-2.1"); // text + NUL
+        putTagSig(desc, "desc");
+        put32(desc, 0);
+        put32(desc, asciiLen);
+        desc.insert(desc.end(), name, name + asciiLen);
+        put32(desc, 0);                 // unicode language code
+        put32(desc, 0);                 // unicode count
+        desc.push_back(0);              // scriptcode code
+        desc.push_back(0);              // scriptcode count
+        desc.insert(desc.end(), 67, 0); // scriptcode description
+    }
+    std::vector<unsigned char> cprt; // textType
+    {
+        const char txt[] = "Public Domain"; // + trailing NUL per spec
+        putTagSig(cprt, "text");
+        put32(cprt, 0);
+        cprt.insert(cprt.end(), txt, txt + sizeof(txt));
+    }
+    auto xyzTag = [&](double x, double y, double z) {
+        std::vector<unsigned char> t;
+        putTagSig(t, "XYZ ");
+        put32(t, 0);
+        put32(t, s15f16(x)); put32(t, s15f16(y)); put32(t, s15f16(z));
+        return t;
+    };
+    auto curvTag = [&](double gamma) { // curveType, count=1 → u8Fixed8 gamma
+        std::vector<unsigned char> t;
+        putTagSig(t, "curv");
+        put32(t, 0);
+        put32(t, 1);
+        const uint16_t g = static_cast<uint16_t>(std::lround(gamma * 256.0));
+        t.push_back(static_cast<unsigned char>(g >> 8));
+        t.push_back(static_cast<unsigned char>(g));
+        return t;
+    };
+
+    std::vector<std::pair<const char*, std::vector<unsigned char>>> tags = {
+        { "desc", std::move(desc) },
+        { "cprt", std::move(cprt) },
+        { "wtpt", xyzTag(0.9642, 1.0, 0.8249) },
+        { "rXYZ", xyzTag(0.4360, 0.2225, 0.0139) },
+        { "gXYZ", xyzTag(0.3851, 0.7169, 0.0971) },
+        { "bXYZ", xyzTag(0.1431, 0.0606, 0.7141) },
+        { "rTRC", curvTag(2.2) },
+        { "gTRC", curvTag(2.2) },
+        { "bTRC", curvTag(2.2) },
+    };
+
+    // Layout: 128-byte header, tag table (count + 12 bytes per tag),
+    // payloads 4-byte aligned.
+    const uint32_t headerSize = 128;
+    uint32_t off = headerSize + 4u + static_cast<uint32_t>(12u * tags.size());
+    std::vector<uint32_t> offsets;
+    offsets.reserve(tags.size());
+    for (const auto& t : tags) {
+        off = (off + 3u) & ~3u;
+        offsets.push_back(off);
+        off += static_cast<uint32_t>(t.second.size());
+    }
+    const uint32_t total = (off + 3u) & ~3u;
+
+    std::vector<unsigned char> out;
+    out.reserve(total);
+    put32(out, total);
+    putTagSig(out, "none");        // preferred CMM: none
+    put32(out, 0x02100000u);       // version 2.1.0
+    putTagSig(out, "mntr");        // device class: colour display
+    putTagSig(out, "RGB ");        // data colour space
+    putTagSig(out, "XYZ ");        // PCS
+    put32(out, 0); put32(out, 0); put32(out, 0); // creation date (unset)
+    putTagSig(out, "acsp");        // profile signature
+    put32(out, 0);                 // platform: none
+    put32(out, 0);                 // flags: not embedded, usable standalone
+    put32(out, 0);                 // device manufacturer: none
+    put32(out, 0);                 // device model: none
+    put32(out, 0); put32(out, 0);  // device attributes
+    put32(out, 0);                 // rendering intent: perceptual
+    put32(out, s15f16(0.9642));    // PCS illuminant: D50
+    put32(out, s15f16(1.0));
+    put32(out, s15f16(0.8249));
+    put32(out, 0);                 // profile creator: none
+    out.insert(out.end(), 44, 0);  // reserved — header totals 128 bytes
+    Q_ASSERT(out.size() == headerSize);
+
+    put32(out, static_cast<uint32_t>(tags.size()));
+    for (size_t i = 0; i < tags.size(); ++i) {
+        putTagSig(out, tags[i].first);
+        put32(out, offsets[i]);
+        put32(out, static_cast<uint32_t>(tags[i].second.size()));
+    }
+    for (size_t i = 0; i < tags.size(); ++i) {
+        while (out.size() < offsets[i]) out.push_back(0);
+        out.insert(out.end(), tags[i].second.begin(), tags[i].second.end());
+    }
+    while (out.size() < total) out.push_back(0);
+    return out;
+}
+
+// E-1 (6.3.5-3): give every embedded composite-font subset a COMPLETE
+// /CIDSet, derived from its own /W array. Pure gap-filler — a
+// FontDescriptor that already carries a CIDSet is left untouched.
+static void ensureCompleteCidSets(PoDoFo::PdfMemDocument& doc) {
+    using namespace PoDoFo;
+    auto& objects = doc.GetObjects();
+    for (auto* objPtr : objects) {
+        if (!objPtr || !objPtr->IsDictionary()) continue;
+        const auto& obj = *objPtr;
+        const auto* subtype = obj.GetDictionary().FindKey(PdfName("Subtype"));
+        if (!subtype || !subtype->IsName() || subtype->GetName() != PdfName("Type0"))
+            continue;
+        const auto* descendants =
+            obj.GetDictionary().FindKey(PdfName("DescendantFonts"));
+        if (!descendants || !descendants->IsArray()) continue;
+        for (const auto& dref : descendants->GetArray()) {
+            PdfObject* desc = nullptr;
+            if (dref.IsReference())
+                desc = &objects.MustGetObject(dref.GetReference());
+            else if (dref.IsDictionary())
+                desc = const_cast<PdfObject*>(&dref);
+            if (!desc || !desc->IsDictionary()) continue;
+            const auto* wArr = desc->GetDictionary().FindKey(PdfName("W"));
+            PdfObject* fd = desc->GetDictionary().FindKey(PdfName("FontDescriptor"));
+            if (!wArr || !wArr->IsArray() || !fd || !fd->IsDictionary()) continue;
+            if (fd->GetDictionary().HasKey(PdfName("CIDSet"))) continue;
+
+            // /W is either "c [w1 w2 ...]" (start CID + one width per CID)
+            // or "c1 c2 w" (inclusive range). Collect the CID population it
+            // identifies.
+            std::set<int64_t> cids;
+            const PdfArray& w = wArr->GetArray();
+            for (size_t i = 0; i < w.GetSize(); ++i) {
+                const auto& a = w[i];
+                if (!a.IsNumber()) continue;
+                const int64_t c = a.GetNumber();
+                if (i + 1 < w.GetSize() && w[i + 1].IsArray()) {
+                    for (int64_t cid = c;
+                         cid < c + static_cast<int64_t>(w[i + 1].GetArray().GetSize());
+                         ++cid)
+                        cids.insert(cid);
+                    ++i;
+                } else if (i + 2 < w.GetSize() && w[i + 1].IsNumber()
+                           && w[i + 2].IsNumber() && w[i + 1].GetNumber() >= c) {
+                    for (int64_t cid = c; cid <= w[i + 1].GetNumber(); ++cid)
+                        cids.insert(cid);
+                    i += 2;
+                }
+            }
+            if (cids.empty()) continue;
+
+            const int64_t maxCid = *cids.rbegin();
+            std::vector<unsigned char> bits(
+                static_cast<size_t>(maxCid / 8) + 1, 0);
+            for (int64_t cid : cids)
+                bits[static_cast<size_t>(cid) / 8] |=
+                    static_cast<unsigned char>(0x80u >> (cid % 8));
+
+            PdfObject& cidSetObj = objects.CreateDictionaryObject();
+            cidSetObj.GetOrCreateStream().SetData(
+                bufferview(reinterpret_cast<const char*>(bits.data()),
+                           bits.size()));
+            fd->GetDictionary().AddKeyIndirect(PdfName("CIDSet"), cidSetObj);
+        }
+    }
+}
+
 bool PoDoFoBackend::exportPdfA(const QString &outputPath, int conformanceLevel) {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
@@ -1968,6 +2189,35 @@ bool PoDoFoBackend::exportPdfA(const QString &outputPath, int conformanceLevel) 
 
         auto& intentArrayObj = catalog.GetDictionary().AddKey(PdfName("OutputIntents"), PdfArray());
         intentArrayObj.GetArray().AddIndirect(intentObj);
+
+        // E-1 (6.2.4.3-4 / 6.2.3.3-3): embed the output-intent ICC stream at
+        // EVERY level. ISO 19005-1 does not REQUIRE a DestOutputProfile for
+        // PDF/A-1B — but the fixtures' text draws with the implicit default
+        // DeviceGray fill, and veraPDF's 6.2.3.3-3 fails any artifact using
+        // DeviceGray whose output intent carries no DestOutputProfile
+        // (observed pre-repair: "DeviceGray colour space is used without
+        // output intent profile" on every flavour; verified post-probe:
+        // attaching the sRGB ICC stream yields 0 failed rules at 1b AND 2b).
+        // ISO 19005-1 permits (does not forbid) DestOutputProfile, so the
+        // identifier-only 1B form was the gap, not the specified shape.
+        // 2B/2U/3B/3U additionally fail 6.2.4.3-4 without it.
+        {
+            // Deterministic profile — built once per process.
+            static const std::vector<unsigned char> srgbProfile =
+                buildSrgbIec6196621ProfileV2();
+            auto& iccObj = objects.CreateDictionaryObject();
+            iccObj.GetDictionary().AddKey(PdfName("N"),
+                                          PdfObject(static_cast<int64_t>(3)));
+            iccObj.GetOrCreateStream().SetData(
+                bufferview(reinterpret_cast<const char*>(srgbProfile.data()),
+                           srgbProfile.size()));
+            intentObj.GetDictionary().AddKeyIndirect(
+                PdfName("DestOutputProfile"), iccObj);
+        }
+
+        // E-1 (6.3.5-3): complete /CIDSet on every embedded composite-font
+        // subset (required under ISO 19005-1; harmless under 19005-2/3).
+        ensureCompleteCidSets(*d->document);
 
         if (!writeUpdate(outputPath)) throw std::runtime_error("writeUpdate failed");
 #ifdef QT_DEBUG
