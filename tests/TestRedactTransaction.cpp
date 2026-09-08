@@ -96,6 +96,9 @@ QString errText(const RedactResult& r) {
 
 // ── N08: overlay-fit oracle and parsers ──────────────────────────────────────
 
+// The production overlay size (RedactOperation.cpp kOverlayFontSize, 7pt).
+constexpr double kTestOverlayFontSize = 7.0;
+
 // The ACTUAL glyph extents of the overlay font at the overlay size, read
 // straight from PoDoFo's PdfFont API. This is the test's independent oracle:
 // the production derivation must meet these numbers, not its own guesses.
@@ -300,6 +303,14 @@ private slots:
     void overlayTextIsPrintedOnBurnedInBoxes();
     void emptyOverlayTextPreservesCurrentBehavior();
     void overlaySkippedWhenBoxTooSmall();
+
+    // ── N08 residual: the HORIZONTAL half of the fit contract ─────────────
+    // The review acceptance names "short/narrow boxes": a box narrower than
+    // the label's actual advance width must skip the label (never squeeze or
+    // overflow sideways), and a drawn label must be horizontally centered on
+    // the box by the same measured width. Vertical fit is pinned above.
+    void overlaySkippedWhenBoxTooNarrow();
+    void overlayCenteredHorizontallyInWideBox();
 
     // ── N08: the label glyphs must stay INSIDE the burn-in box ────────────
     // Pre-fix the baseline was a guess (0.35 * fontSize above the box middle),
@@ -1685,6 +1696,100 @@ void TestRedactTransaction::syncOwnerDeletedAtPageBoundaryRunCompletesWithoutCal
              "the run whose owner died mid-execute must complete on the "
              "durable state");
     QCOMPARE(int(finishedCount.load()), 0); // no callback past the owner's death
+}
+
+// ── N08 residual: horizontal fit, measured on the saved artifact ─────────────
+// The overlay label's advance width comes from the test's own PoDoFo oracle
+// (Helvetica at 7pt) — the production skip/center decisions must agree with
+// that measurement, not with a private guess.
+
+// A box NARROWER than the label's advance width (but tall enough vertically)
+// must SKIP the label: no squeeze, no sideways overflow, excision untouched.
+void TestRedactTransaction::overlaySkippedWhenBoxTooNarrow() {
+    const QString src = createPdf("n08narrow.pdf", 1);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QString dest = m_tmpDir.filePath("n08narrow_redacted.pdf");
+
+    // The label the production path would draw, measured independently.
+    const QByteArray label = QByteArrayLiteral("CLASSIFIED");
+    PoDoFo::PdfMemDocument oracle;
+    oracle.GetPages().CreatePage(
+        PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+    auto& font = oracle.GetFonts().GetStandard14Font(
+        PoDoFo::PdfStandard14FontType::Helvetica);
+    PoDoFo::PdfTextState state;
+    state.Font = &font;
+    state.FontSize = kTestOverlayFontSize;
+    const double textWidth = font.GetStringLength(label.constData(), state);
+    QVERIFY2(textWidth > 10.0, "oracle must produce a plausible advance width");
+
+    const OverlayExtents ext = overlayFontExtents(kTestOverlayFontSize);
+    // Height: exactly the metric minimum (vertically legal). Width: 60% of the
+    // label's advance width — provably too narrow. The band still crosses the
+    // secret's baseline (pdf y=700), so the box IS burned in.
+    RedactRequest req = makeRequest(src, dest, {0}, false);
+    req.redactionsByPage.clear();
+    req.redactionsByPage[0].append(QRectF(40, 138.5, textWidth * 0.6, ext.extent));
+    req.overlayText = QString::fromLatin1(label);
+    RedactOperation op(req);
+    const RedactResult r = runOp(&op);
+    QVERIFY2(r.outcome == RedactOutcome::Completed, qPrintable(errText(r)));
+
+    // The label must be ABSENT (skipped) while the excision still happened and
+    // the surviving public text is untouched.
+    const QString text = pageText(dest, 0);
+    QVERIFY2(!text.contains(QString::fromLatin1(label)),
+             qPrintable(QStringLiteral("label must be skipped on a box narrower "
+                                      "than its %1pt advance width: %2")
+                            .arg(textWidth).arg(text)));
+    QVERIFY2(!text.contains(QLatin1String("TOPSECRET_DATA")), qPrintable(text));
+    QVERIFY2(text.contains(QLatin1String("PUBLIC_KEEP_TEXT")), qPrintable(text));
+}
+
+// A drawn label must be horizontally CENTERED: the Td x operand equals
+// boxLeft + (boxWidth - measuredAdvance)/2, on the committed artifact.
+void TestRedactTransaction::overlayCenteredHorizontallyInWideBox() {
+    const QString src = createPdf("n08center.pdf", 1);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QString dest = m_tmpDir.filePath("n08center_redacted.pdf");
+
+    const QByteArray label = QByteArrayLiteral("CLASSIFIED");
+    PoDoFo::PdfMemDocument oracle;
+    oracle.GetPages().CreatePage(
+        PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+    auto& font = oracle.GetFonts().GetStandard14Font(
+        PoDoFo::PdfStandard14FontType::Helvetica);
+    PoDoFo::PdfTextState state;
+    state.Font = &font;
+    state.FontSize = kTestOverlayFontSize;
+    const double textWidth = font.GetStringLength(label.constData(), state);
+
+    const double boxX = 40.0, boxW = 300.0, boxY = 138.5;
+    RedactRequest req = makeRequest(src, dest, {0}, false);
+    req.redactionsByPage.clear();
+    req.redactionsByPage[0].append(QRectF(boxX, boxY, boxW, 20.0));
+    req.overlayText = QString::fromLatin1(label);
+    RedactOperation op(req);
+    const RedactResult r = runOp(&op);
+    QVERIFY2(r.outcome == RedactOutcome::Completed, qPrintable(errText(r)));
+
+    // Read the drawn text op back from the saved artifact.
+    PoDoFo::PdfMemDocument out;
+    out.Load(dest.toUtf8().constData()); // throws on failure -> test aborts
+    const PoDoFo::charbuff content =
+        out.GetPages().GetPageAt(0).GetContents()->GetCopy();
+    const QByteArray stream(content.data(), static_cast<int>(content.size()));
+    OverlayTextOp drawn;
+    QVERIFY2(findWhiteOverlayOp(stream, &drawn),
+             "the wide box must carry the overlay label");
+    const double expectedX = boxX + (boxW - textWidth) / 2.0;
+    QVERIFY2(qAbs(drawn.x - expectedX) < 1e-6,
+             qPrintable(QStringLiteral("label drawn at x=%1, expected centered "
+                                      "x=%2 (advance %3pt)")
+                            .arg(drawn.x).arg(expectedX).arg(textWidth)));
+    // And the label is extractable from the committed page (it was drawn).
+    QVERIFY2(pageText(dest, 0).contains(QString::fromLatin1(label)),
+             "centered label must be present on the committed page");
 }
 
 QTEST_MAIN(TestRedactTransaction)
