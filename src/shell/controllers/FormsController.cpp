@@ -4,6 +4,7 @@
 #include "core/interfaces/ISignatureManager.h"
 
 #include "core/AppContext.h"
+#include "core/interfaces/IPdfEditorEngine.h"   // releaseResidentFile (V01 swap)
 #include "GpMainWindow.h"
 #include "ui/PdfViewerWidget.h"
 #include "core/interfaces/IFormManager.h"
@@ -15,6 +16,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QUndoStack>
+#include "engines/SafeSave.h"
 #include "shell/StatusBar.h"
 
 namespace gp {
@@ -138,13 +140,46 @@ void FormsController::onImportDataRequested() {
     QString dataPath = QFileDialog::getOpenFileName(_mainWindow, tr("Import Form Data"), "", tr("Form Data (*.fdf *.csv)"));
     if (dataPath.isEmpty()) return;
 
-    QString outputPath = viewer->filePath() + ".tmp"; // Use temporary write or overwrite
+    // V01 (PARITY-BRANCH-REVIEW): the OLD flow loaded the temporary output
+    // into the viewer and then deleted `viewer->filePath()` — which was by
+    // then the TEMP path — and renamed the temp onto itself: the import never
+    // landed in the real document, whose bytes on disk stayed stale.
+    // The repaired flow swaps the REAL path on disk and keeps the viewer on it.
+    const QString originalPath = viewer->filePath();
+    if (originalPath.isEmpty()) return;
+    const QString outputPath = originalPath + ".tmp";
     QStringList unsupported;
-    if (_ctx->forms->importFormData(viewer->filePath(), dataPath, outputPath, &unsupported)) {
-        // Assume saving inplace or reloading the new path. In a real app we might load it back.
-        viewer->loadDocument(outputPath);
-        QFile::remove(viewer->filePath());
-        QFile::rename(outputPath, viewer->filePath());
+    if (_ctx->forms->importFormData(originalPath, dataPath, outputPath, &unsupported)) {
+        // Commit the imported bytes onto the real path through the shared
+        // checked-commit boundary: the original is never destroyed unless the
+        // replacement actually succeeded, and the viewer's held handle is
+        // released/restored around the atomic rename by the SafeSave
+        // coordinator (the same boundary every in-place write uses).
+        //
+        // The viewer is not the only holder: the open document is also
+        // resident in the editing engine's PoDoFo backend, whose parser keeps
+        // an OS device on the real path for lazy resolution — the same device
+        // the engine's own same-file save re-seats away before its commit
+        // (EC01). A shell-side replacement must release it explicitly (the
+        // coordinator cannot: calling into the engine from there would
+        // re-enter engine locks held by engine-side commits). The next engine
+        // access lazily re-resolves from the real path — the imported result,
+        // or the preserved original if the commit fails; truthful either way.
+        if (_ctx->pdfEditor) _ctx->pdfEditor->releaseResidentFile(originalPath);
+        QString commitErr;
+        const bool committed = gp::SafeSave::commitFileToDestination(
+            outputPath, originalPath, &commitErr);
+        QFile::remove(outputPath);   // the candidate is consumed either way
+        if (!committed) {
+            QMessageBox::warning(_mainWindow, tr("Import Failed"),
+                tr("The form data was imported, but the document could not be "
+                   "replaced on disk (%1). The original document is unchanged.")
+                    .arg(commitErr));
+            return;
+        }
+        // The viewer still displays the pre-import bytes from its (restored)
+        // handle — reload so what is shown is what was committed.
+        viewer->loadDocument(originalPath);
         _mainWindow->statusBar()->showMessage(tr("Successfully imported form data from %1").arg(QFileInfo(dataPath).fileName()), 5000);
         // §9.6 P0: a bulk import that silently dropped values (radio/pushbutton
         // targets, unknown names) must not read as success.
@@ -155,6 +190,7 @@ void FormsController::onImportDataRequested() {
                     .arg(unsupported.size()).arg(unsupported.join(", ")));
         }
     } else {
+        QFile::remove(outputPath);   // never leave a half-written temp behind
         QMessageBox::warning(_mainWindow, tr("Import Failed"), tr("Could not import form data."));
     }
 }
