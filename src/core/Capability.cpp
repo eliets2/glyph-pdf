@@ -490,13 +490,13 @@ Capability probeCompressSubsetFonts(const QVariant&)
 
 Capability probeCompressRemoveUnused(const QVariant&)
 {
+    // §9.13 (21a387c): the sweep is implemented in optimizeDocument — the
+    // capability is real in this build (Available), disclosed with its scope.
     Capability c;
-    c.status = Availability::UnavailableBuild;
-    c.whyNot = r12UnsupportedPassExplanation();
-    c.alternative = QObject::tr("Use image downsampling and deduplication instead — "
-                                "those passes run in this build.");
-    c.detail = QObject::tr("R12: no object garbage collector is implemented in the "
-                           "compression backend.");
+    c.status = Availability::Available;
+    c.detail = QObject::tr("Trailer-rooted reachability sweep; runs for unsigned "
+                           "documents. Signed documents are refused by the redaction-"
+                           "grade guard before the sweep.");
     return c;
 }
 

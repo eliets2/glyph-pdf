@@ -690,7 +690,13 @@ void SecurityController::applyRedactions() {
                 progress->close();
                 progress->deleteLater();
                 if (!self) return;
-                const auto decision = RedactResultPresenter::present(self->_mainWindow, result);
+                // D05: present() hands back the effective terminal result — a
+                // successful Retry-sanitize upgrades the partial outcome to
+                // Completed with the committed sanitized destination. Banner
+                // from the effective result so a recovered flow is never
+                // re-announced with the original "sanitization FAILED" wording.
+                RedactResult effective = result;
+                const auto decision = RedactResultPresenter::present(self->_mainWindow, result, &effective);
                 // Marks are cleared only once the redacted output is committed
                 // AND kept; Failed / Canceled / Discard keep them recoverable.
                 // (The live session was never mutated — no reload needed.)
@@ -707,7 +713,7 @@ void SecurityController::applyRedactions() {
                     viewerGuard->setAnnotations(remaining);
                 }
                 self->_mainWindow->statusBar()->showMessage(
-                    RedactResultPresenter::bannerText(result), 8000);
+                    RedactResultPresenter::bannerText(effective), 8000);
             });
     op->start();
 }

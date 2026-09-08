@@ -1278,10 +1278,17 @@ bool PdfEditorEngine::addHeaderFooter(const QString &path, const HeaderFooterOpt
 
 bool PdfEditorEngine::applyBatesNumbering(const QString &path, const BatesNumberingOptions &options)
 {
+    // §9.9 P1: legacy entry point — delegates to the continuity overload and
+    // ignores the counter report.
+    return applyBatesNumbering(path, options, nullptr);
+}
+
+bool PdfEditorEngine::applyBatesNumbering(const QString &path, const BatesNumberingOptions &options, int *lastNumberOut)
+{
     QMutexLocker locker(&d->mutex);
     d->clearErr();
     if (!d->backend) return d->noBackend("applyBatesNumbering");
-    bool ok = d->backend->applyBatesNumbering(path, options);
+    bool ok = d->backend->applyBatesNumbering(path, options, lastNumberOut);
     if (!ok)
         d->setErr(ErrorInfo::Error,
                   QObject::tr("Failed to apply Bates numbering."),

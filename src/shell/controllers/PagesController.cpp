@@ -14,6 +14,8 @@
 #include "ui/BatesNumberingDialog.h"
 
 #include <QFileDialog>
+#include <QFileInfo>
+#include <QFile>
 #include <QMessageBox>
 #include <QUndoStack>
 #include "shell/StatusBar.h"
@@ -108,9 +110,60 @@ void PagesController::activate(ToolId id) {
         if (dlg.exec() == QDialog::Accepted) {
             BatesNumberingOptions opt = dlg.options();
             if (_ctx && _ctx->pdfEditor) {
-                _ctx->pdfEditor->applyBatesNumbering(viewer->filePath(), opt);
-                viewer->reload();
-                _mainWindow->statusBar()->showMessage(tr("Bates Numbering applied."), 3000);
+                const QStringList batch = dlg.batchFiles();
+                if (!batch.isEmpty()) {
+                    // §9.9 P1: number the listed files as ONE continuous
+                    // sequence. Each input is copied to `<stem>_bated.pdf`
+                    // and the copy is stamped, so the inputs are never
+                    // modified; document N+1 starts at document N's last
+                    // number + 1 (reported by the engine overload).
+                    qint64 counter = opt.startNumber;
+                    int stamped = 0;
+                    QString stoppedAt;
+                    for (const QString& input : batch) {
+                        const QFileInfo fi(input);
+                        const QString output = fi.dir().filePath(
+                            fi.completeBaseName() + QStringLiteral("_bated.pdf"));
+                        QFile::remove(output);  // honest overwrite of a previous batch output
+                        if (!QFile::copy(input, output)) {
+                            stoppedAt = input;
+                            _mainWindow->statusBar()->showMessage(
+                                tr("Bates batch stopped: could not write %1.").arg(output), 5000);
+                            break;
+                        }
+                        // The engine refuses to mutate a path other than its
+                        // resident document — load each stamped copy first.
+                        if (!_ctx->pdfEditor->loadDocumentForEditing(output)) {
+                            stoppedAt = input;
+                            _mainWindow->statusBar()->showMessage(
+                                tr("Bates batch stopped: could not open %1.").arg(output), 5000);
+                            break;
+                        }
+                        BatesNumberingOptions step = opt;
+                        step.startNumber = static_cast<int>(counter);
+                        int lastUsed = static_cast<int>(counter) - 1;
+                        if (!_ctx->pdfEditor->applyBatesNumbering(output, step, &lastUsed)) {
+                            stoppedAt = input;
+                            _mainWindow->statusBar()->showMessage(
+                                tr("Bates batch stopped while stamping %1.").arg(output), 5000);
+                            break;
+                        }
+                        counter = lastUsed + 1;
+                        ++stamped;
+                    }
+                    if (stoppedAt.isEmpty()) {
+                        _mainWindow->statusBar()->showMessage(
+                            tr("Bates batch applied to %1 file(s) (numbers %2–%3).")
+                                .arg(stamped)
+                                .arg(opt.prefix + QString::number(opt.startNumber).rightJustified(opt.digitCount, QLatin1Char('0')))
+                                .arg(opt.prefix + QString::number(counter - 1).rightJustified(opt.digitCount, QLatin1Char('0'))),
+                            5000);
+                    }
+                } else {
+                    _ctx->pdfEditor->applyBatesNumbering(viewer->filePath(), opt);
+                    viewer->reload();
+                    _mainWindow->statusBar()->showMessage(tr("Bates Numbering applied."), 3000);
+                }
             }
         }
         break;

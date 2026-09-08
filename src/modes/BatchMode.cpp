@@ -11,6 +11,14 @@
 #include "engines/podofo/PdfPageOps.h"
 #include "engines/PatternRedactor.h" // §9.12 P1: named PII preset keys
 
+// §9.12 P1: the async merge worker appends input-by-input so it can report
+// progress, honor cancellation and account per item — boundaries PdfPageOps'
+// all-at-once mergeDocuments cannot expose. That loop therefore uses PoDoFo
+// directly, mirroring PdfPageOps::mergeDocuments' idiom (see startMergeWorker).
+#include <podofo/podofo.h>
+
+#include <QPromise> // §9.12 P1: merge worker reports per-file results/progress
+
 using TargetFormat = IConversionEngine::TargetFormat;
 
 #include <QCheckBox>
@@ -914,11 +922,26 @@ void BatchMode::onRunClicked() {
         return;
     }
 
-    // Merge is a single combined output over all files — it does not fit the
-    // per-file mapped pipeline, so it has a dedicated synchronous handler.
+    // §9.12 P1: Merge is a single combined output over all files — it does not
+    // fit the per-file mapped pipeline, but it must not run synchronously on
+    // the GUI thread either (a large merge froze the whole app here). This
+    // branch only stages the run (guards + output path + overwrite confirm);
+    // the worker itself starts on the QtConcurrent pool at the end of this
+    // function, behind the SAME QFutureWatcher and per-result accounting the
+    // per-file ops use.
+    QString mergeOutPath;
     if (opIdx == OpMerge) {
-        runMerge();
-        return;
+        if (m_filesToProcess.size() < 2) {
+            QMessageBox::information(this, tr("Merge PDFs"),
+                tr("Add at least two PDF files to merge."));
+            return;
+        }
+        const QString first = m_filesToProcess.first();
+        QString outDir = m_mergeOutDir ? m_mergeOutDir->text().trimmed() : QString();
+        if (outDir.isEmpty()) outDir = QFileInfo(first).absolutePath();
+        mergeOutPath = QDir(outDir).filePath(
+            QFileInfo(first).completeBaseName() + QStringLiteral("_merged.pdf"));
+        if (!confirmOverwrite(mergeOutPath)) return;
     }
 
     // Redact requires at least one effective pattern — a checked named
@@ -971,6 +994,8 @@ void BatchMode::onRunClicked() {
     m_errorLog.clear();
     m_successCount = 0;
     m_failCount    = 0;
+    m_accountedResultIdx = 0;   // §9.12 P1: per-run result accounting cursor
+    m_mergeRun     = false;
     m_exportLogBtn->setVisible(false);
     m_runBtn->setEnabled(false);
     m_cancelBtn->setEnabled(true);
@@ -1279,50 +1304,8 @@ void BatchMode::onRunClicked() {
     // must not be removed or replaced with UniqueConnection.
     disconnect(&m_watcher, &QFutureWatcher<BatchFileResult>::resultReadyAt, this, nullptr);
     connect(&m_watcher, &QFutureWatcher<BatchFileResult>::resultReadyAt,
-            this, [this](int idx) {
-        BatchFileResult res = m_watcher.resultAt(idx);
-        int completed = m_successCount + m_failCount + 1;
-        int total = m_filesToProcess.size();
-
-        if (res.success) {
-            ++m_successCount;
-            appendFileResult(res.inputPath, true, res.outputPath);
-            // §9.12 P0: a successful file can still need review (low-confidence
-            // OCR words). Log it as a warning so it lands in the summary and
-            // the exportable error log — never a silent pass.
-            if (!res.reviewNote.isEmpty()) {
-                appendLog(QStringLiteral("  \xE2\x9A\xA0 %1").arg(res.reviewNote), "#d08b2c");
-                ErrorInfo warn = ErrorInfo::warning(res.reviewNote);
-                warn.sourceFile = res.inputPath;
-                m_errorLog.append(std::move(warn));
-            }
-        } else {
-            ++m_failCount;
-            appendFileResult(res.inputPath, false, res.errorMessage);
-            ErrorInfo err = ErrorInfo::error(
-                tr("Failed: %1").arg(QFileInfo(res.inputPath).fileName()),
-                res.errorMessage,
-                ErrorInfo::Skip);
-            err.sourceFile = res.inputPath;
-            m_errorLog.append(std::move(err));
-        }
-
-        // Overall progress
-        int pct = total > 0 ? (completed * 100 / total) : 0;
-        m_overallProgress->setValue(pct);
-        m_fileProgress->setValue(pct);
-
-        // ETA calculation
-        qint64 elapsed = m_batchTimer.elapsed();
-        if (completed > 0 && completed < total) {
-            qint64 msPerFile = elapsed / completed;
-            qint64 remaining = msPerFile * (total - completed);
-            int secRemain = static_cast<int>(remaining / 1000);
-            m_etaLabel->setText(tr("ETA ~%1s").arg(secRemain));
-        } else {
-            m_etaLabel->clear();
-        }
-    }, Qt::QueuedConnection); // Deduplication is enforced by the preceding disconnect call
+            this, [this](int idx) { accountResultAt(idx); },
+            Qt::QueuedConnection); // Deduplication is enforced by the preceding disconnect call
 
 
     // U08 per-item pre-flight (GUI thread — probes are cached and GUI-affine):
@@ -1367,59 +1350,160 @@ void BatchMode::onRunClicked() {
         return;
     }
 
+    // §9.12 P1: Merge — N inputs → 1 combined output. The append loop runs on
+    // the QtConcurrent thread pool behind the SAME m_watcher the per-file ops
+    // use: per-input BatchFileResults flow through resultReadyAt (shared
+    // accounting + progress wiring above), cancellation is polled at every
+    // file boundary, and the destination is saved exactly once at the end — a
+    // cancelled merge never publishes a partial output. Page order == input
+    // order (each input's pages are appended in list order).
+    if (opIdx == OpMerge) {
+        startMergeWorker(runnableFiles, mergeOutPath);
+        return;
+    }
+
     QFuture<BatchFileResult> future = QtConcurrent::mapped(runnableFiles, processFileReal);
     m_watcher.setFuture(future);
 }
 
 // ── Merge (single combined output) ──────────────────────────────────────────────
-// Merge does not fit the per-file QtConcurrent::mapped pipeline (N inputs → 1
-// output), so it runs synchronously here via gp::mergeDocuments.
-void BatchMode::runMerge() {
-    if (m_filesToProcess.size() < 2) {
-        QMessageBox::information(this, tr("Merge PDFs"),
-            tr("Add at least two PDF files to merge."));
-        return;
-    }
+// §9.12 P1: the merge used to run gp::mergeDocuments synchronously on the GUI
+// thread (runMerge), freezing the app for the duration of large merges. The
+// file-append loop now runs on the QtConcurrent thread pool behind the SAME
+// QFutureWatcher<BatchFileResult> the per-file ops use:
+//   - per-input BatchFileResults flow through resultReadyAt → the shared
+//     accounting/progress wiring in onRunClicked (one accounted item per
+//     input; a corrupt input fails as an item instead of aborting the run);
+//   - cancellation is polled at every file boundary — the worker returns
+//     without saving, so a cancelled merge never publishes a partial output;
+//   - the destination is built in memory and saved exactly once at the end;
+//     each input's pages are appended in list order, so the merged page
+//     order == input order (the pre-fix gp::mergeDocuments contract).
+// PdfPageOps.h deliberately keeps PoDoFo headers out of its callers, but its
+// only merge entry merges ALL inputs in one unobservable call — no boundary a
+// worker could poll. The file-boundary loop therefore uses PoDoFo directly
+// (podofo is already a link dependency of pdfws_ui), mirroring
+// PdfPageOps::mergeDocuments' idiom: fresh destination, eager per-document
+// page copy, ONE Save at the end.
+void BatchMode::startMergeWorker(const QStringList& files, const QString& outPath) {
+    // All captures are by-value copies of GUI state taken on the GUI thread
+    // (same discipline as processFileReal). 'this' is not captured to avoid
+    // dangling if BatchMode is destroyed mid-merge; the hook member is copied
+    // here so it is never read cross-thread.
+    const std::function<void(int)> boundaryHook = m_mergeBoundaryHook;
 
-    const QString first = m_filesToProcess.first();
-    QString outDir = m_mergeOutDir ? m_mergeOutDir->text().trimmed() : QString();
-    if (outDir.isEmpty()) outDir = QFileInfo(first).absolutePath();
-    const QString outPath = QDir(outDir).filePath(
-        QFileInfo(first).completeBaseName() + QStringLiteral("_merged.pdf"));
+    auto mergeWorker = [files, outPath, boundaryHook](QPromise<BatchFileResult>& promise) {
+        promise.setProgressRange(0, files.size());
+        bool anyAppended = false;
+        const auto failOutput = [&promise, &outPath](const QString& why) {
+            BatchFileResult r;
+            r.inputPath = outPath;   // the failed item is the output artifact
+            r.success    = false;
+            r.errorMessage = why;
+            promise.addResult(r);
+        };
+        try {
+            PoDoFo::PdfMemDocument dst;
+            for (int i = 0; i < files.size(); ++i) {
+                // Cancel is honored at file boundaries only — never mid-document.
+                if (promise.isCanceled()) return;
+                if (boundaryHook) boundaryHook(i);
 
-    if (!confirmOverwrite(outPath)) return;
+                BatchFileResult r;
+                r.inputPath  = files.at(i);
+                r.outputPath = outPath;
+                try {
+                    PoDoFo::PdfMemDocument src;
+                    src.Load(files.at(i).toUtf8().constData());
+                    const int count = static_cast<int>(src.GetPages().GetCount());
+                    if (count > 0) {
+                        dst.GetPages().AppendDocumentPages(src, 0, count);
+                        anyAppended = true;
+                        r.success = true;
+                    } else {
+                        r.success = false;
+                        r.errorMessage = QStringLiteral("Document has no pages");
+                    }
+                } catch (const std::exception& e) {
+                    r.success = false;
+                    r.errorMessage = QString::fromUtf8(e.what());
+                    qWarning() << "BatchMode merge: failed to append"
+                               << files.at(i) << ":" << e.what();
+                } catch (...) {
+                    r.success = false;
+                    r.errorMessage = QStringLiteral("Unknown error appending this file");
+                    qCritical() << "BatchMode merge: unknown error appending" << files.at(i);
+                }
+                promise.addResult(r);            // per-item accounting
+                promise.setProgressValue(i + 1); // file-boundary progress
+            }
+            if (!anyAppended) {
+                failOutput(QStringLiteral("No input could be merged — no output written"));
+                return;
+            }
+            // Cancelled between the last append and the save: the accumulated
+            // pages are discarded, never written as a partial merge.
+            if (promise.isCanceled()) return;
+            dst.Save(outPath.toUtf8().constData());
+        } catch (const std::exception& e) {
+            failOutput(QStringLiteral("Merge failed — %1").arg(QString::fromUtf8(e.what())));
+            qWarning() << "BatchMode merge: save failed for" << outPath << ":" << e.what();
+        } catch (...) {
+            failOutput(QStringLiteral("Merge failed — unknown error"));
+            qCritical() << "BatchMode merge: unknown error saving" << outPath;
+        }
+    };
+    m_mergeRun = true; // onBatchFinished drains lagging results (merge ordering)
+    m_watcher.setFuture(QtConcurrent::run(mergeWorker));
+}
 
-    m_logView->clear();
-    m_overallProgress->setRange(0, 100);
-    m_overallProgress->setValue(0);
-    m_fileProgress->setValue(0);
-    m_statusLabel->setText(tr("Merging %1 files…").arg(m_filesToProcess.size()));
-    appendLog(tr("Merging %1 files → %2")
-        .arg(m_filesToProcess.size()).arg(QFileInfo(outPath).fileName()));
+// §9.12 P1: per-result accounting shared by the resultReadyAt handler and the
+// merge drain in onBatchFinished. `idx` is the worker-report index (merge:
+// strict file order; mapped ops: completion order — only the count matters).
+void BatchMode::accountResultAt(int idx) {
+    BatchFileResult res = m_watcher.resultAt(idx);
+    ++m_accountedResultIdx;
+    int completed = m_successCount + m_failCount + 1;
+    int total = m_filesToProcess.size();
 
-    QApplication::setOverrideCursor(Qt::WaitCursor);
-    bool ok = false;
-    QString err;
-    try {
-        ok = gp::mergeDocuments(m_filesToProcess, outPath);
-    } catch (const std::exception& e) {
-        err = QString::fromUtf8(e.what());
-    } catch (...) {
-        err = tr("unknown error");
-    }
-    QApplication::restoreOverrideCursor();
-
-    m_overallProgress->setValue(100);
-    m_fileProgress->setValue(100);
-    if (ok) {
-        appendLog(QStringLiteral("  \xE2\x9C\x93 %1").arg(outPath), "#4ec96d");
-        m_statusLabel->setText(tr("MERGE COMPLETE — %1").arg(QFileInfo(outPath).fileName()));
+    if (res.success) {
+        ++m_successCount;
+        appendFileResult(res.inputPath, true, res.outputPath);
+        // §9.12 P0: a successful file can still need review (low-confidence
+        // OCR words). Log it as a warning so it lands in the summary and
+        // the exportable error log — never a silent pass.
+        if (!res.reviewNote.isEmpty()) {
+            appendLog(QStringLiteral("  \xE2\x9A\xA0 %1").arg(res.reviewNote), "#d08b2c");
+            ErrorInfo warn = ErrorInfo::warning(res.reviewNote);
+            warn.sourceFile = res.inputPath;
+            m_errorLog.append(std::move(warn));
+        }
     } else {
-        appendLog(QStringLiteral("  \xE2\x9C\x95 %1")
-            .arg(err.isEmpty() ? tr("Merge failed") : tr("Merge failed — %1").arg(err)), "#c8442b");
-        m_statusLabel->setText(tr("MERGE FAILED"));
+        ++m_failCount;
+        appendFileResult(res.inputPath, false, res.errorMessage);
+        ErrorInfo err = ErrorInfo::error(
+            tr("Failed: %1").arg(QFileInfo(res.inputPath).fileName()),
+            res.errorMessage,
+            ErrorInfo::Skip);
+        err.sourceFile = res.inputPath;
+        m_errorLog.append(std::move(err));
     }
-    emit batchFinished();
+
+    // Overall progress
+    int pct = total > 0 ? (completed * 100 / total) : 0;
+    m_overallProgress->setValue(pct);
+    m_fileProgress->setValue(pct);
+
+    // ETA calculation
+    qint64 elapsed = m_batchTimer.elapsed();
+    if (completed > 0 && completed < total) {
+        qint64 msPerFile = elapsed / completed;
+        qint64 remaining = msPerFile * (total - completed);
+        int secRemain = static_cast<int>(remaining / 1000);
+        m_etaLabel->setText(tr("ETA ~%1s").arg(secRemain));
+    } else {
+        m_etaLabel->clear();
+    }
 }
 
 void BatchMode::onCancelClicked() {
@@ -1442,6 +1526,15 @@ void BatchMode::onBatchProgress(int value) {
 }
 
 void BatchMode::onBatchFinished() {
+    // §9.12 P1: the merge worker reports results strictly in file order, but
+    // the final resultReadyAt callout can land just after the finished
+    // callout. Drain reported-but-unaccounted results so the summary below
+    // never under-counts the last file. (Merge runs only — the drain relies
+    // on the single worker's ordering; the per-file mapped ops are untouched.)
+    if (m_mergeRun) {
+        while (m_accountedResultIdx < m_watcher.future().resultCount())
+            accountResultAt(m_accountedResultIdx);
+    }
     m_overallProgress->setValue(100);
     m_fileProgress->setValue(100);
     m_runBtn->setEnabled(true);
