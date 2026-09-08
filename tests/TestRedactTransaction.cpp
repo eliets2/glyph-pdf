@@ -320,6 +320,18 @@ private slots:
     void repeatedStartRunsOnceAndOwnerDestroyedBeforeDispatchIsSafe();
     void ownerDestroyedMidRunWorkerCompletesOnDurableStateWithoutCallbacks();
 
+    // ── NCR-02: the SYNCHRONOUS entry point honors the same one-shot gate ──
+    // run() must execute the transaction exactly once and refuse every second
+    // entry (run();run(), run();start(), start();run()), and it must keep a
+    // strong local reference to the execution state while execute() is active
+    // (a direct-connected finished() slot — or a page-boundary hook — may
+    // destroy the operation mid-call).
+    void syncRunTwiceExecutesOnce();
+    void runThenStartExecutesOnce();
+    void startThenRunExecutesOnce();
+    void syncOwnerDeletedFromDirectFinishedSlotRunStillCompletes();
+    void syncOwnerDeletedAtPageBoundaryRunCompletesWithoutCallbacks();
+
 private:
     QTemporaryDir m_tmpDir;
 
@@ -1536,6 +1548,143 @@ void TestRedactTransaction::ownerDestroyedMidRunWorkerCompletesOnDurableStateWit
     // destruction; nothing may be delivered afterwards.
     QCOMPARE(int(stageCalls.load()), 2);
     QCOMPARE(int(finishedCalls.load()), 0); // no callback past the owner's death
+}
+
+// ── NCR-02: the synchronous entry point must obey the one-shot contract ─────
+// Pre-fix run() called m_exec->execute() directly — no tryBeginRun() gate and
+// no local strong reference — so run();run() executed twice, run()/start()
+// pairings crossed the gate three times, and a direct-connected finished()
+// slot that destroyed the operation freed the execution state out from under
+// the running execute(). A failing fixture keeps executions cheap and honest:
+// every refused entry emits NOTHING, every accepted one emits exactly one
+// finished, and the page-boundary hook fires once per accepted execution.
+
+// run(); run() — the second synchronous call must be refused.
+void TestRedactTransaction::syncRunTwiceExecutesOnce() {
+    const QString src = createPdf("ncr02rr.pdf", 1);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QString dest = m_tmpDir.filePath("ncr02rr_redacted.pdf");
+
+    std::atomic<int> execCount{0};
+    std::atomic<int> finishedCount{0};
+    RedactOperation op(makeRequest(src, dest, {0}, false));
+    op.setPageBoundaryHook([&execCount](int) { ++execCount; });
+    connect(&op, &RedactOperation::finished, this,
+            [&finishedCount](const RedactResult&) { ++finishedCount; });
+
+    op.run();
+    op.run(); // must be REFUSED — one operation, one execution
+
+    QCOMPARE(int(finishedCount.load()), 1);
+    QCOMPARE(int(execCount.load()), 1);
+    QVERIFY(QFileInfo::exists(dest));
+}
+
+// run(); start() — start() after a completed synchronous run must be refused.
+// Bounded QTRY window: if the (would-be) second execution were dispatched, it
+// would deterministically raise both counters within the budget.
+void TestRedactTransaction::runThenStartExecutesOnce() {
+    const QString src = createPdf("ncr02rs.pdf", 1);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QString dest = m_tmpDir.filePath("ncr02rs_redacted.pdf");
+
+    std::atomic<int> execCount{0};
+    std::atomic<int> finishedCount{0};
+    RedactOperation op(makeRequest(src, dest, {0}, false));
+    op.setPageBoundaryHook([&execCount](int) { ++execCount; });
+    connect(&op, &RedactOperation::finished, this,
+            [&finishedCount](const RedactResult&) { ++finishedCount; });
+
+    op.run();
+    QCOMPARE(int(finishedCount.load()), 1);
+    op.start(); // must be REFUSED
+
+    QTRY_VERIFY_WITH_TIMEOUT(int(finishedCount.load()) == 1
+                             && int(execCount.load()) == 1, 5000);
+    QTest::qWait(30); // worker teardown would land here if one had started
+    QCOMPARE(int(finishedCount.load()), 1);
+    QCOMPARE(int(execCount.load()), 1);
+}
+
+// start(); run() — run() after a dispatched asynchronous run must be refused
+// (pre-fix it entered the same mutable execution state concurrently with the
+// worker).
+void TestRedactTransaction::startThenRunExecutesOnce() {
+    const QString src = createPdf("ncr02sr.pdf", 1);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QString dest = m_tmpDir.filePath("ncr02sr_redacted.pdf");
+
+    std::atomic<int> execCount{0};
+    std::atomic<int> finishedCount{0};
+    RedactOperation op(makeRequest(src, dest, {0}, false));
+    op.setPageBoundaryHook([&execCount](int) { ++execCount; });
+    connect(&op, &RedactOperation::finished, this,
+            [&finishedCount](const RedactResult&) { ++finishedCount; });
+
+    op.start();
+    QTRY_VERIFY_WITH_TIMEOUT(int(finishedCount.load()) == 1, 30000);
+    op.run(); // must be REFUSED — the one-shot was consumed by start()
+
+    QTRY_VERIFY_WITH_TIMEOUT(int(execCount.load()) == 1, 5000);
+    QTest::qWait(30);
+    QCOMPARE(int(finishedCount.load()), 1);
+    QCOMPARE(int(execCount.load()), 1);
+    QVERIFY(QFileInfo::exists(dest));
+}
+
+// The literal NCR-02 ownership probe: a DIRECT-connected finished() slot that
+// explicitly deletes the operation — the harshest variant of the review's
+// "synchronous direct-callback owner-destruction check". Post-fix run() holds
+// a strong local reference, so the state outlives the member call: no crash,
+// run() returns, the transaction completed. (No sanitizer claim — the
+// pre-fix shape freed the state under the running execute(); the deterministic
+// mid-execute variant below is the anchor that fails on the old code.)
+void TestRedactTransaction::syncOwnerDeletedFromDirectFinishedSlotRunStillCompletes() {
+    const QString src = createPdf("ncr02own.pdf", 1);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QString dest = m_tmpDir.filePath("ncr02own_redacted.pdf");
+
+    auto* op = new RedactOperation(makeRequest(src, dest, {0}, false));
+    connect(op, &RedactOperation::finished, op,
+            [op](const RedactResult&) { delete op; });
+
+    op->run(); // must return without touching freed state
+
+    QVERIFY2(QFileInfo::exists(dest),
+             "the run deleted from its own finished() slot must still complete "
+             "its transaction");
+}
+
+// The deterministic pre-fix anchor: the page-boundary hook (called from INSIDE
+// ExecutionState::execute(), outside any signal emission) deletes the owner.
+// Pre-fix, run() held no local reference: ~RedactOperation freed the
+// execution state while execute() was still running on it — every subsequent
+// member access (cancel flag, request, config mutex) was use-after-free, and
+// the transaction could not complete truthfully. Post-fix the local strong
+// reference carries the run to completion; the destroyed owner receives no
+// finished() callback.
+void TestRedactTransaction::syncOwnerDeletedAtPageBoundaryRunCompletesWithoutCallbacks() {
+    const QString src = createPdf("ncr02hook.pdf", 1);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QString dest = m_tmpDir.filePath("ncr02hook_redacted.pdf");
+
+    std::atomic<bool> opDestroyed{false};
+    std::atomic<int> finishedCount{0};
+    auto* op = new RedactOperation(makeRequest(src, dest, {0}, false));
+    op->setPageBoundaryHook([op, &opDestroyed](int) {
+        if (opDestroyed.exchange(true)) return;
+        delete op; // free the owner mid-execute — the state must survive
+    });
+    // Receiver outlives the operation (the test object), direct connection.
+    connect(op, &RedactOperation::finished, this,
+            [&finishedCount](const RedactResult&) { ++finishedCount; });
+
+    op->run();
+    QVERIFY(opDestroyed.load());
+    QVERIFY2(QFileInfo::exists(dest),
+             "the run whose owner died mid-execute must complete on the "
+             "durable state");
+    QCOMPARE(int(finishedCount.load()), 0); // no callback past the owner's death
 }
 
 QTEST_MAIN(TestRedactTransaction)
