@@ -21,6 +21,24 @@ void DocumentSession::setPath(const QString &path) {
     }
 }
 
+void DocumentSession::beginDocument(const QString &path)
+{
+    // ARC01: unconditional — a same-path reopen (A→A) is a NEW document
+    // identity loaded from disk; nothing about the previous session (dirty
+    // state, autosave stamp, generation-scoped history) carries over.
+    ++m_documentGeneration;
+    m_path = path;
+    m_dirty = false;
+    m_lastAutosave = QDateTime();
+    emit dirtyChanged(m_dirty);
+    emit lastAutosaveChanged(m_lastAutosave);
+}
+
+qint64 DocumentSession::documentGeneration() const
+{
+    return m_documentGeneration;
+}
+
 void DocumentSession::markReload() {
     // V05: every markReload() is a successful mutation/reload boundary (the
     // mutate-commands call it on redo AND undo) — the document's content
