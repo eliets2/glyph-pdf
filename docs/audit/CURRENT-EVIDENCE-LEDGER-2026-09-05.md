@@ -149,3 +149,15 @@ Dated corrections to stale historical claims (superseded by HEAD):
   0xc0000135. Documented in 05a3336's commit message; a bootstrap script remains open work.
 - Full-suite runs raced twice with the post-commit graphify rebuild hook (transient failures
   resolved on rerun). Gate rule: ctest only when `cmake --build` is a no-op / hook log idle.
+
+## 2026-09-08 review-cycle repairs (TEAM-QUALITY-REVIEW-2026-09-08 queue, repair order 1–5)
+
+| ID | Surface | Finding | Status | Code | Regression test | Evidence | Commit | Residual |
+|----|---------|---------|--------|------|-----------------|----------|--------|----------|
+| EC01 | engine save (PoDoFoBackend::saveDocument, PdfEditorEngine save/rotate linearize+signed branches) | Same-file save truncates source when validation/commit fails mid-write; no common candidate→validate→commit boundary | implemented-awaiting-review | SafeSave transaction inside saveDocument: unique candidate → reopen + page-count validation → same-file saves re-seat resident document via LoadFromBuffer before commit → SafeSave::commitFileToDestination; signed docs keep writeUpdate; encrypted docs keep documented legacy direct-save | TestEngineSave (8, incl. SHA-256 source-invariance under injected commit failure) | .context/evidence-2026-09-08/TestEngineSave-at-75b77db.txt (8/8) + TestRedactTransaction-at-75b77db.txt (31/31, SafeSave consumers) | 934801e | encrypted-doc path unchanged by design; veraPDF round-trip not added to this row |
+| INF01 | tools/clean_scanned_pdf.py | CLI deleted input before validating output; aliases destroyed the only copy on failure | implemented-awaiting-review | validate input first; sibling candidate `<name>.cleaning-tmp.pdf` validated then atomic os.replace; same-file aliases rejected; CLEAN_SCANNED_PDF_FAIL_AFTER_PAGE seam | TestCleanupCli (7, via QProcess) | .context/evidence-2026-09-08/TestCleanupCli-at-75b77db.txt (7/7) | 5c3f1d1 | — |
+| §9.13 pins | tests/TestCapabilityRegistry, tests/TestExportPathBadge | Stale R12-era pins asserted CompressRemoveUnavailable=UnavailableBuild after the sweep became real (2cc6221 flipped the probe); suite could not go green | implemented-awaiting-review | Pins updated to the truthful contract: subset fonts keeps UnavailableBuild + r12UnsupportedPassExplanation round-trip; remove-unused pins Available, empty whyNot, sweep disclosure; stale CompressDialog comments corrected | TestCapabilityRegistry (19/19), TestExportPathBadge (17/17), TestCompressDialogHonesty (10/10) | fresh runs at 75b77db (QtTest -o logs in build-wt session) | 75b77db | — |
+
+Repair-order step 1 (EC01+INF01) complete; steps 2–5 dispatched in order. Fresh full-suite gate at
+75b77db: **100% passed, 0 failed out of 112** — one clean `ctest` run, 64 s real (the first single-run
+green gate on this branch; historical totals deliberately not copied).
