@@ -134,6 +134,16 @@ public:
     virtual ~IPdfDocumentIO() = default;
     virtual bool loadDocumentForEditing(const QString &filePath) = 0;
     virtual bool saveDocument(const QString &outputPath) = 0;
+    // EC02 (TEAM-ENGINE-CODE-REVIEW-2026-09-07): identity-guarded save for
+    // deferred/async writers (autosave, background jobs). The resident
+    // document must still be `expectedCurrentFile` at the moment the save
+    // decision is made — checked under the SAME lock that serializes the
+    // save — so a document switch that lands between capturing the identity
+    // and executing the save can never serialize B's bytes into a path
+    // captured for A. Returns false (without writing) when the identity no
+    // longer matches or no document is loaded.
+    virtual bool saveDocumentIfCurrent(const QString &expectedCurrentFile,
+                                       const QString &outputPath) = 0;
     virtual bool linearizeDocument(const QString &outputPath) = 0;
     virtual bool sanitizeDocument(const QString &outputPath) = 0;
     virtual bool getMetadata(PdfMetadata &outMetadata) = 0;
