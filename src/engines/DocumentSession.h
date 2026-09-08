@@ -48,6 +48,13 @@ signals:
     void reloadRequested();
     void dirtyChanged(bool dirty);
     void lastAutosaveChanged(const QDateTime &time);
+    // Step-3 history truthfulness (EC03/EC05/V02, TEAM-ENGINE-CODE-REVIEW-
+    // 2026-09-07): a command whose initial mutation or restoration FAILED
+    // reports it here, so the shell can surface what the user's action actually
+    // did. A failed mutation never changes the document; this is the honest
+    // counterpart of markReload() (which is only ever called after a mutation
+    // that really happened).
+    void mutationFailed(const QString &reason);
 
 private:
     QString m_path;

@@ -187,6 +187,23 @@ public:
     virtual bool deletePage(const QString &path, int pageIndex) = 0;
     virtual bool insertBlankPage(const QString &path, int atIndex) = 0;
     virtual bool cropPage(const QString &path, int pageIndex, const QRectF &cropRect) = 0;
+    // EC05 (TEAM-ENGINE-CODE-REVIEW-2026-09-07): the EFFECTIVE /CropBox of
+    // `pageIndex` — the page dictionary's CropBox when present, otherwise the
+    // MediaBox. `ok` (when non-null) reports whether the document/page was
+    // readable; a false `ok` means the caller has no usable geometry. Whether
+    // the box was inherited or explicitly present is deliberately NOT
+    // distinguished: cropPage() persists an explicit box, and an explicit box
+    // equal to the MediaBox is geometrically identical to the inherited case.
+    virtual QRectF pageCropBox(const QString &path, int pageIndex, bool *ok) = 0;
+    // GUI-held-handle residual (2026-09-08 persistence lane): the engine's
+    // resident parser (PoDoFo) holds an OS device on its source file for lazy
+    // object resolution — the same device the saveDocument transaction re-seats
+    // away before its own same-path commit. A shell-side writer that replaces
+    // such a file through SafeSave (form-data import) cannot re-seat from
+    // inside the engine, so it releases explicitly first. No-op when `path` is
+    // not the resident file; the next access re-resolves from disk — the
+    // committed result, or the preserved original on a failed replacement.
+    virtual void releaseResidentFile(const QString &path) = 0;
     virtual bool resizePage(const QString &path, int pageIndex, const QSizeF &size) = 0;
     virtual bool reorderPages(const QString &path, int fromIndex, int toIndex) = 0;
     // AR-8 D5: apply a full page permutation in a single write, avoiding N partial

@@ -507,6 +507,10 @@ bool PoDoFoBackend::writeUpdate(const QString &path) {
                 return false;
             }
         }
+        // GUI-held-handle coordination: a same-path SaveUpdate appends to the
+        // very file the viewer may display. The scope releases the viewer's
+        // handle for the append and restores it on every outcome (SafeSave.h).
+        const gp::SafeSave::ScopedFileHandleCoordination coordinationScope(path);
         d->document->SaveUpdate(path.toUtf8().constData());
         return true;
     } catch (const PoDoFo::PdfError& e) {
@@ -1115,6 +1119,68 @@ void cleanStructElement(PoDoFo::PdfObject* elem,
 }
 
 } // anonymous namespace
+
+QRectF PoDoFoBackend::pageCropBox(const QString &path, int pageIndex, bool *ok) {
+    QMutexLocker locker(&d->mutex);
+    if (ok) *ok = false;
+    try {
+        auto& doc = d->resolveDocument(path);
+        auto& pages = doc.GetPages();
+        if (pageIndex < 0 || static_cast<size_t>(pageIndex) >= pages.GetCount()) return QRectF();
+
+        auto& page = pages.GetPageAt(pageIndex);
+        // EC05: the EFFECTIVE box — the explicit /CropBox when present,
+        // otherwise the MediaBox. Array entries may be real or integer
+        // objects depending on the writer; normalize both.
+        auto boxNumber = [](const PoDoFo::PdfObject &v) -> double {
+            return v.IsNumberOrReal() ? v.GetReal() : 0.0;
+        };
+        double x = 0, y = 0, w = 0, h = 0;
+        if (const PoDoFo::PdfObject *crop = page.GetDictionary().FindKey("CropBox");
+                crop && crop->IsArray() && crop->GetArray().GetSize() == 4) {
+            const PoDoFo::PdfArray &arr = crop->GetArray();
+            x = boxNumber(arr[0]);
+            y = boxNumber(arr[1]);
+            w = boxNumber(arr[2]);
+            h = boxNumber(arr[3]);
+        } else {
+            const PoDoFo::Rect media = page.GetMediaBox();
+            x = media.X; y = media.Y; w = media.Width; h = media.Height;
+        }
+        if (ok) *ok = true;
+        return QRectF(x, y, w, h);
+    } catch (...) {
+        return QRectF();
+    }
+}
+
+void PoDoFoBackend::releaseResidentFile(const QString &path) {
+    QMutexLocker locker(&d->mutex);
+    if (!d->document) return;
+    const QString cur = d->currentFile;
+    bool sameFile = !cur.isEmpty() && QString::compare(cur, path, Qt::CaseInsensitive) == 0;
+    if (!sameFile && !cur.isEmpty()) {
+        // Alias-tolerant identity check (same rule as saveDocument: differing
+        // casing, 8.3 names, symlinks must never leave a device pinned).
+        const QFileInfo curInfo(cur);
+        const QFileInfo dstInfo(path);
+        const QString curCanon = curInfo.canonicalFilePath();
+        const QString dstCanon = dstInfo.canonicalFilePath();
+        sameFile = !curCanon.isEmpty() && curCanon == dstCanon;
+    }
+    if (!sameFile) return;
+    // GUI-held-handle residual (2026-09-08 persistence lane): the resident
+    // parser holds an OS device on its source file for lazy object resolution
+    // — the very device the saveDocument transaction re-seats away before its
+    // own same-file commit. A shell-side writer that replaces this file
+    // through SafeSave (form import) cannot re-seat from inside the engine, so
+    // it asks here: dropping the document closes the device, and the next
+    // resolveDocument(path) lazily re-loads from disk — the committed result,
+    // or the preserved original on a failed replacement; truthful either way.
+    d->document.reset();
+    d->currentFile.clear();
+    d->reseatBuffer.clear();   // the buffer backed the dropped document's lineage
+}
 
 bool PoDoFoBackend::cropPage(const QString &path, int pageIndex, const QRectF &cropRect) {
     QMutexLocker locker(&d->mutex);
@@ -2884,25 +2950,24 @@ QList<PdfImageInfo> PoDoFoBackend::listImages(int pageIndex) {
         };
 
         while (reader.TryReadNext(content)) {
-            if (content.GetType() == PoDoFo::PdfContentType::Operator) {
+            // Step-3 EC03 prerequisite (discovered by the round-trip test):
+            // PoDoFo 1.x HANDLES a non-form XObject Do itself and reports it as
+            // PdfContentType::DoXObject (name in content->Name) — it never
+            // surfaces as a plain "Do" Operator on a page-based reader. The
+            // Operator branch below alone therefore registered no image
+            // placements at all, which left the whole §9.2 image-edit family
+            // (list → move/resize/rotate/replace/delete) unable to see images.
+            const bool imageDo = content.GetType() == PoDoFo::PdfContentType::DoXObject;
+            if (imageDo || content.GetType() == PoDoFo::PdfContentType::Operator) {
                 auto kw = content.GetKeyword();
                 const auto& stack = content.GetStack();
 
-                if (kw == "q") {
-                    matrixStack.append(ctm);
-                } else if (kw == "Q" && !matrixStack.isEmpty()) {
-                    ctm = matrixStack.takeLast();
-                } else if (kw == "cm" && stack.size() >= 6) {
-                    Matrix cm;
-                    cm.a = stack[0].IsNumberOrReal() ? stack[0].GetReal() : 0;
-                    cm.b = stack[1].IsNumberOrReal() ? stack[1].GetReal() : 0;
-                    cm.c = stack[2].IsNumberOrReal() ? stack[2].GetReal() : 0;
-                    cm.d = stack[3].IsNumberOrReal() ? stack[3].GetReal() : 0;
-                    cm.e = stack[4].IsNumberOrReal() ? stack[4].GetReal() : 0;
-                    cm.f = stack[5].IsNumberOrReal() ? stack[5].GetReal() : 0;
-                    ctm = multiply(cm, ctm);
-                } else if (kw == "Do" && stack.size() >= 1) {
-                    QString name = QString::fromStdString(std::string(stack[0].GetName().GetString()));
+                if (imageDo) {
+                    QString name;
+                    if (content->Name != nullptr)
+                        name = QString::fromStdString(std::string(content->Name->GetString()));
+                    else if (stack.size() >= 1)
+                        name = QString::fromStdString(std::string(stack[0].GetName().GetString()));
                     if (imageXObjects.contains(name)) {
                         auto& entry = imageXObjects[name];
                         PdfImageInfo info;
@@ -2917,6 +2982,19 @@ QList<PdfImageInfo> PoDoFoBackend::listImages(int pageIndex) {
                         info.heightPx = entry.h;
                         result.append(info);
                     }
+                } else if (kw == "q") {
+                    matrixStack.append(ctm);
+                } else if (kw == "Q" && !matrixStack.isEmpty()) {
+                    ctm = matrixStack.takeLast();
+                } else if (kw == "cm" && stack.size() >= 6) {
+                    Matrix cm;
+                    cm.a = stack[0].IsNumberOrReal() ? stack[0].GetReal() : 0;
+                    cm.b = stack[1].IsNumberOrReal() ? stack[1].GetReal() : 0;
+                    cm.c = stack[2].IsNumberOrReal() ? stack[2].GetReal() : 0;
+                    cm.d = stack[3].IsNumberOrReal() ? stack[3].GetReal() : 0;
+                    cm.e = stack[4].IsNumberOrReal() ? stack[4].GetReal() : 0;
+                    cm.f = stack[5].IsNumberOrReal() ? stack[5].GetReal() : 0;
+                    ctm = multiply(cm, ctm);
                 }
             }
         }
@@ -3084,13 +3162,28 @@ bool PoDoFoBackend::deleteImage(int pageIndex, const QString &xobjectName) {
             PoDoFo::PdfContent pdfContent;
             bool found = false;
             while (reader.TryReadNext(pdfContent)) {
-                if (pdfContent.GetType() == PoDoFo::PdfContentType::Operator) {
-                    if (pdfContent.GetKeyword() == "Do" && pdfContent.GetStack().size() >= 1) {
-                        std::string name(pdfContent.GetStack()[0].GetName().GetString());
-                        if (name == xobjectName.toStdString()) {
-                            found = true;
-                            break;
-                        }
+                // EC03 (step-3 round-trip test): PoDoFo 1.x HANDLES a non-form
+                // XObject Do itself and reports it as PdfContentType::DoXObject
+                // (name in content->Name) — it never surfaces as a plain "Do"
+                // Operator on a page-based reader. The Operator-only scan used
+                // here left deleteImage unable to see any image placement, so
+                // every deletion was refused. Same asymmetry, same fix as the
+                // listImages scan; the plain-Operator branch stays as the
+                // fallback (form-XObject draws still report as "Do").
+                const bool imageDo = pdfContent.GetType() == PoDoFo::PdfContentType::DoXObject;
+                if (imageDo || pdfContent.GetType() == PoDoFo::PdfContentType::Operator) {
+                    QString name;
+                    if (imageDo) {
+                        if (pdfContent->Name != nullptr)
+                            name = QString::fromStdString(std::string(pdfContent->Name->GetString()));
+                        else if (pdfContent.GetStack().size() >= 1)
+                            name = QString::fromStdString(std::string(pdfContent.GetStack()[0].GetName().GetString()));
+                    } else if (pdfContent.GetKeyword() == "Do" && pdfContent.GetStack().size() >= 1) {
+                        name = QString::fromStdString(std::string(pdfContent.GetStack()[0].GetName().GetString()));
+                    }
+                    if (name == xobjectName) {
+                        found = true;
+                        break;
                     }
                 }
             }
@@ -3122,9 +3215,21 @@ bool PoDoFoBackend::deleteImage(int pageIndex, const QString &xobjectName) {
                 content.erase(lineStart, lineEnd - lineStart);
         }
         
+        // EC03 round-trip fix: PdfContents::Reset() installs a fresh (initially
+        // empty) ARRAY container, so GetObject() is an array and a direct
+        // GetOrCreateStream() threw "Tried to get stream of non-dictionary
+        // object" — the deletion was never persisted while the RESIDENT
+        // content was already mutated (a half-mutation the viewer could show
+        // but the file never carried). Write through both container shapes,
+        // the same rule the redaction/annotation writers use.
         contentsObj->Reset();
-        auto& stream = contentsObj->GetObject().GetOrCreateStream();
-        stream.SetData(content);
+        if (contentsObj->GetObject().IsArray()) {
+            auto& stream = contentsObj->CreateStreamForAppending();
+            stream.SetData(content);
+        } else {
+            auto& stream = contentsObj->GetObject().GetOrCreateStream();
+            stream.SetData(content);
+        }
         
         if (!writeUpdate(d->currentFile)) throw std::runtime_error("writeUpdate failed");
         return true;
@@ -3500,57 +3605,22 @@ bool PoDoFoBackend::embedAnnotations(const QString &inputPath, const QString &ou
 {
     QMutexLocker locker(&d->mutex);
     try {
-        // AR-7 D1: In-place save (inputPath == outputPath) requires a separate local
-        // PdfMemDocument so that the file handle is released before we overwrite the
-        // file. PoDoFo keeps the source file open for lazy object resolution; if we
-        // call Save() to the same path the backend's persistent doc was loaded from,
-        // Save() tries to re-read deferred objects from the file it is simultaneously
-        // overwriting — producing a corrupt "InvalidNumber" parse error. Using a fresh
-        // local doc (scoped block) guarantees the handle is closed before the rename.
-        const bool inPlace = !inputPath.isEmpty() && !outputPath.isEmpty() &&
-            QString::compare(inputPath, outputPath, Qt::CaseInsensitive) == 0;
-
-        if (inPlace) {
-            QString tmpPath;
-            {
-                const QFileInfo fi(outputPath);
-                QTemporaryFile tmp(fi.absolutePath() + QStringLiteral("/XXXXXX.pdf.tmp"));
-                tmp.setAutoRemove(false);
-                if (!tmp.open()) {
-                    qWarning() << "embedAnnotations: cannot create temp file alongside" << outputPath;
-                    return false;
-                }
-                tmpPath = tmp.fileName();
-                tmp.close(); // close QFile handle; PoDoFo will open tmpPath itself
-
-                PoDoFo::PdfMemDocument localDoc;
-                localDoc.Load(inputPath.toUtf8().constData());
-                applyAnnotationsToDoc(localDoc, annotations);
-                localDoc.Save(tmpPath.toUtf8().constData());
-                // localDoc destructor runs here → releases inputPath file handle
-            }
-            // Now it is safe to replace the original file.
-            if (QFile::exists(outputPath) && !QFile::remove(outputPath)) {
-                qCritical() << "embedAnnotations: cannot remove original for in-place replace:" << outputPath;
-                QFile::remove(tmpPath);
-                return false;
-            }
-            if (!QFile::rename(tmpPath, outputPath)) {
-                qCritical() << "embedAnnotations: rename temp->output failed:" << tmpPath << "->" << outputPath;
-                QFile::remove(tmpPath);
-                return false;
-            }
-            return true;
-        }
-
-        // Normal path (outputPath != inputPath): operate on the backend's member document
-        // so signature-aware writeUpdate() persists this doc (AR-4 D2 fix).
-        // AR-4 D2 fix: operate on the resolved member document (lazy-loaded if nothing is
-        // resident) so the signature-aware writeUpdate() below persists THIS doc. Previously
-        // a fresh *local* copy was built while writeUpdate() saved the unrelated member doc
-        // (yielding 0 annotations), or threw "writeUpdate failed" when no document was loaded
-        // (uncaught std::runtime_error → terminate). Reusing the live member doc also honours
-        // the anti-divergence guarantee — in-memory edits are not discarded.
+        // AR-7 D1: In-place save (inputPath == outputPath). The previous
+        // dedicated branch loaded a separate local PdfMemDocument and swapped
+        // the result in with a raw QFile::remove + QFile::rename — a boundary
+        // OUTSIDE the SafeSave coordination, so any handle held on the
+        // destination (the viewer's QPdfDocument, or this backend's own
+        // resident parser device) turned the remove into "cannot remove
+        // original for in-place replace" and the save failed even though the
+        // document was perfectly writable (ARC03 close-with-save repro).
+        // The embed now routes through the SAME choke point as every other
+        // same-path write: resolveDocument + writeUpdate — unsigned documents
+        // take the saveDocument transaction (unique candidate → validation →
+        // same-file re-seat closes the parser device → SafeSave commit, whose
+        // coordinator parks/restores the viewer handle), and signed documents
+        // keep the coordination-scoped SaveUpdate append that preserves every
+        // /ByteRange. A failed replacement leaves the original byte-identical;
+        // there is deliberately no remove-then-rename fallback.
         auto& doc = d->resolveDocument(inputPath);
         applyAnnotationsToDoc(doc, annotations);
         if (!writeUpdate(outputPath)) throw std::runtime_error("writeUpdate failed");

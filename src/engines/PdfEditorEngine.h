@@ -72,6 +72,8 @@ public:
     // Page Geometry & Operations
     bool cropPage(const QString &path, int pageIndex, const QRectF &cropRect) override;
     bool resizePage(const QString &path, int pageIndex, const QSizeF &size) override;
+    QRectF pageCropBox(const QString &path, int pageIndex, bool *ok) override;
+    void releaseResidentFile(const QString &path) override;
     bool reorderPages(const QString &path, int fromIndex, int toIndex) override;
     bool reorderAllPages(const QString &path, const QList<int> &permutation) override;
 

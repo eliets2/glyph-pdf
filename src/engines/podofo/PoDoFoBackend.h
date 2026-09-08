@@ -55,6 +55,12 @@ public:
 
     // Page Geometry & Operations
     bool cropPage(const QString &path, int pageIndex, const QRectF &cropRect);
+    QRectF pageCropBox(const QString &path, int pageIndex, bool *ok);
+    // GUI-held-handle residual: drops the resident document when it is loaded
+    // from `path` (alias-tolerant), closing the parser device that would block
+    // an external same-path SafeSave replacement (form import). The next
+    // resolveDocument(path) lazily re-loads from disk.
+    void releaseResidentFile(const QString &path);
     bool resizePage(const QString &path, int pageIndex, const QSizeF &size);
     bool reorderPages(const QString &path, int fromIndex, int toIndex);
     bool reorderAllPages(const QString &path, const QList<int> &permutation);
