@@ -9,10 +9,13 @@
 #include <QtTest/QtTest>
 #include <atomic>
 #include <QApplication>
+#include <QElapsedTimer>
+#include <QPdfDocument>
 #include <QTemporaryDir>
 #include <QFile>
 #include <QSignalSpy>
 #include <QStandardItemModel>
+#include <QThread>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QSpinBox>
@@ -70,6 +73,49 @@ static QString createMinimalPdf(const QString& dir, const QString& name) {
         "0000000115 00000 n \n"
         "trailer<</Size 4/Root 1 0 R>>\n"
         "startxref\n183\n%%EOF\n");
+    f.close();
+    return path;
+}
+
+// ── Multi-page PDF fixture with a fixed page width ────────────────────────────
+// Same minimal hand-written layout as createMinimalPdf, but with N pages of
+// the given width (height fixed at 200pt). Distinct per-input widths make the
+// merged output's page-size sequence prove the merge contract: page order ==
+// input order. Returns an empty string on I/O failure.
+static QString createMultiPagePdf(const QString& dir, const QString& name,
+                                  int pageCount, int widthPt) {
+    const QString path = dir + "/" + name;
+    QByteArray pdf;
+    pdf += "%PDF-1.4\n";
+    QList<int> offsets;
+    const auto mark = [&offsets, &pdf]() { offsets.append(pdf.size()); };
+
+    mark();  // object 1: catalog
+    pdf += "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n";
+    QByteArray kids;
+    for (int i = 0; i < pageCount; ++i)
+        kids += QByteArray::number(3 + i) + " 0 R ";
+    mark();  // object 2: pages node
+    pdf += "2 0 obj<</Type/Pages/Kids[" + kids + "]/Count "
+           + QByteArray::number(pageCount) + ">>endobj\n";
+    for (int i = 0; i < pageCount; ++i) {
+        mark();  // object 3+i: page
+        pdf += QByteArray::number(3 + i) + " 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 "
+               + QByteArray::number(widthPt) + " 200]>>endobj\n";
+    }
+
+    const int totalObjects = 2 + pageCount;
+    const int xrefStart = pdf.size();
+    pdf += "xref\n0 " + QByteArray::number(totalObjects + 1) + "\n";
+    pdf += "0000000000 65535 f \n";
+    for (int off : offsets)
+        pdf += QByteArray::number(off).rightJustified(10, '0') + " 00000 n \n";
+    pdf += "trailer<</Size " + QByteArray::number(totalObjects + 1) + "/Root 1 0 R>>\n";
+    pdf += "startxref\n" + QByteArray::number(xrefStart) + "\n%%EOF\n";
+
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly)) return {};
+    f.write(pdf);
     f.close();
     return path;
 }
@@ -387,6 +433,217 @@ private slots:
         QCOMPARE(resolved.size(), 2);
         QVERIFY(resolved.contains(PatternRedactor::namedPattern(QStringLiteral("email")).pattern()));
         QVERIFY(resolved.contains(PatternRedactor::namedPattern(QStringLiteral("ssn")).pattern()));
+    }
+
+    // ── §9.12 P1: Merge must run ASYNC on the QtConcurrent pool ──────────────
+    // runMerge() used to call gp::mergeDocuments synchronously on the GUI
+    // thread — a large merge froze the whole app. The merge must go through
+    // the SAME QFutureWatcher pipeline as the per-file ops:
+    //   - onRunBatch() only stages the run (returns immediately);
+    //   - per-item progress is observable on the GUI thread WHILE the merge
+    //     is still running (successCount only advances from the watcher's
+    //     resultReadyAt accounting — impossible if the GUI thread is blocked
+    //     inside the merge);
+    //   - the merged-output contract is unchanged: page order == input order.
+    void mergeRunsAsyncWithProgressAndPreservesPageOrder() {
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+
+        // Multi-page fixtures with distinct per-input page widths so the
+        // merged page-size sequence pins the input order.
+        const QString a = createMultiPagePdf(tmp.path(), "m_a.pdf", 2, 100);
+        const QString b = createMultiPagePdf(tmp.path(), "m_b.pdf", 3, 300);
+        const QString c = createMultiPagePdf(tmp.path(), "m_c.pdf", 1, 500);
+        QVERIFY(QFile::exists(a));
+        QVERIFY(QFile::exists(b));
+        QVERIFY(QFile::exists(c));
+
+        auto* editor = new MockPdfEditorEngine;
+        AppContext ctx;
+        ctx.pdfEditor = std::shared_ptr<IPdfEditorEngine>(editor, [](auto*){});
+
+        gp::BatchMode bm;
+        bm.setAppContext(&ctx);
+        bm.addFilesForTest({a, b, c});
+        bm.setOperationForTest(4); // OpMerge
+        // Widen every file boundary to 150ms so the synchronous pre-fix code
+        // provably blocks (3 files → ≥450ms inside onRunBatch) while the
+        // async code sails through staging.
+        bm.setMergeBoundaryHookForTest([](int) { QThread::msleep(150); });
+
+        QSignalSpy finishedSpy(&bm, &gp::BatchMode::batchFinished);
+
+        QElapsedTimer runCall;
+        runCall.start();
+        bm.onRunBatch();
+        QVERIFY2(runCall.elapsed() < 300,
+            qPrintable(QStringLiteral("onRunBatch() spent %1ms inside the call — the "
+                                     "merge ran synchronously on the GUI thread")
+                           .arg(runCall.elapsed())));
+        // Async: the merge future is in flight immediately after staging.
+        QVERIFY2(bm.isBatchRunning(),
+                 "merge must run through the QFutureWatcher (isBatchRunning() was "
+                 "false immediately after onRunBatch() — no future was started)");
+
+        // The GUI thread stays free: pump the event loop and watch per-item
+        // progress arrive WHILE the merge is still running.
+        int observedMidRun = 0;
+        int waited = 0;
+        while (bm.successCount() < 3 && bm.isBatchRunning() && waited < 10000) {
+            QTest::qWait(10);
+            waited += 10;
+            if (bm.successCount() > observedMidRun)
+                observedMidRun = bm.successCount();
+        }
+        QVERIFY2(observedMidRun > 0,
+                 "no per-item progress was observed while the merge ran — "
+                 "the GUI thread was blocked inside the merge");
+        // batchFinished is emitted from onBatchFinished, which is queued AFTER
+        // the per-item resultReadyAt deliveries — once it is observed, every
+        // input's result has been accounted on the GUI thread.
+        if (finishedSpy.count() == 0)
+            QVERIFY2(finishedSpy.wait(10000), "merge did not complete within 10 seconds");
+        QCOMPARE(finishedSpy.count(), 1);
+        QVERIFY2(!bm.isBatchRunning(), "batch still running after batchFinished");
+        QCOMPARE(bm.successCount(), 3);
+        QCOMPARE(bm.failCount(), 0);
+        QCOMPARE(bm.remainingCount(), 0);
+
+        // Output contract: one merged file next to the first input, pages in
+        // input order (widths: a=100, b=300, c=500).
+        const QString out = tmp.path() + "/m_a_merged.pdf";
+        QVERIFY2(QFile::exists(out), "merge must write <first>_merged.pdf next to the first input");
+        QPdfDocument merged;
+        QCOMPARE(merged.load(out), QPdfDocument::Error::None);
+        QCOMPARE(merged.pageCount(), 6); // 2 + 3 + 1 pages — every input present
+        const int expectedWidths[6] = { 100, 100, 300, 300, 300, 500 };
+        for (int p = 0; p < merged.pageCount(); ++p) {
+            const int w = int(merged.pagePointSize(p).width() + 0.5);
+            QVERIFY2(w == expectedWidths[p],
+                qPrintable(QStringLiteral("merged page %1 has width %2pt — expected %3pt "
+                                         "(page order must equal input order)")
+                               .arg(p).arg(w).arg(expectedWidths[p])));
+        }
+    }
+
+    // ── §9.12 P1: Cancel is honored at merge file boundaries ─────────────────
+    // A cancelled merge must stop before the remaining inputs are appended and
+    // must NOT publish a partial output file (the destination is saved exactly
+    // once, only when the whole merge completes).
+    void mergeCancelStopsAtFileBoundaryAndWritesNoPartialOutput() {
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+
+        QStringList inputs;
+        for (int i = 0; i < 8; ++i)
+            inputs << createMultiPagePdf(tmp.path(), QString("c_%1.pdf").arg(i), 2, 100);
+        for (const auto& p : inputs) QVERIFY(QFile::exists(p));
+
+        auto* editor = new MockPdfEditorEngine;
+        AppContext ctx;
+        ctx.pdfEditor = std::shared_ptr<IPdfEditorEngine>(editor, [](auto*){});
+
+        gp::BatchMode bm;
+        bm.setAppContext(&ctx);
+        bm.addFilesForTest(inputs);
+        bm.setOperationForTest(4); // OpMerge
+        // 120ms per boundary: the first item is appended and accounted while
+        // the worker is still grinding through the rest — cancel lands mid-run
+        // deterministically at a file boundary.
+        bm.setMergeBoundaryHookForTest([](int) { QThread::msleep(120); });
+
+        QSignalSpy finishedSpy(&bm, &gp::BatchMode::batchFinished);
+        bm.onRunBatch();
+        QVERIFY2(bm.isBatchRunning(),
+                 "merge must run asynchronously (isBatchRunning() false right after staging)");
+
+        // Wait until at least one file boundary produced a result, then cancel.
+        int waited = 0;
+        while (bm.successCount() < 1 && waited < 5000) {
+            QTest::qWait(10);
+            waited += 10;
+        }
+        QVERIFY2(bm.successCount() >= 1,
+                 "no per-item progress observed — the merge blocked the GUI thread");
+        bm.onCancelBatch();
+
+        // Wait for the (cancelled-run) completion signal — by the time
+        // batchFinished is delivered, all queued per-item accounting is done.
+        if (finishedSpy.count() == 0)
+            QVERIFY2(finishedSpy.wait(10000), "cancelled merge did not finish within 10 seconds");
+        QVERIFY2(!bm.isBatchRunning(), "batch still running after batchFinished");
+
+        // Cancellation stopped the merge before all inputs were appended…
+        QVERIFY2(bm.successCount() < inputs.size(),
+            qPrintable(QString("expected cancel to stop the merge before all %1 files; "
+                               "%2 were appended")
+                           .arg(inputs.size()).arg(bm.successCount())));
+        // …the un-appended tail is reported as not processed…
+        QVERIFY2(bm.remainingCount() > 0,
+                 "files neither appended nor failed must be reported as not processed");
+        // …and NO partial output was published.
+        const QString out = tmp.path() + "/c_0_merged.pdf";
+        QVERIFY2(!QFile::exists(out),
+                 "a cancelled merge must not write a partial merged output");
+    }
+
+    // ── §9.12 P1: per-item failure accounting (continue-on-failure) ──────────
+    // One corrupt input must fail AS AN ITEM (failCount + error log) without
+    // aborting the merge: the remaining inputs are still merged, in input
+    // order. Pre-fix synchronous code was all-or-nothing (one bad input →
+    // "MERGE FAILED", no output, zero per-item accounting).
+    void mergeAccountsPerItemFailureAndKeepsPageOrder() {
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+
+        const QString a   = createMultiPagePdf(tmp.path(), "f_a.pdf", 2, 100);
+        const QString bad = tmp.path() + "/f_bad.pdf";
+        {
+            QFile g(bad);
+            QVERIFY(g.open(QIODevice::WriteOnly));
+            g.write("this is not a PDF");
+        }
+        const QString c   = createMultiPagePdf(tmp.path(), "f_c.pdf", 1, 500);
+        QVERIFY(QFile::exists(a));
+        QVERIFY(QFile::exists(c));
+
+        auto* editor = new MockPdfEditorEngine;
+        AppContext ctx;
+        ctx.pdfEditor = std::shared_ptr<IPdfEditorEngine>(editor, [](auto*){});
+
+        gp::BatchMode bm;
+        bm.setAppContext(&ctx);
+        bm.addFilesForTest({a, bad, c});
+        bm.setOperationForTest(4); // OpMerge
+
+        QSignalSpy finishedSpy(&bm, &gp::BatchMode::batchFinished);
+        bm.onRunBatch();
+        // batchFinished is delivered after every queued per-item result, so
+        // the accounting below is final once it is observed.
+        if (finishedSpy.count() == 0)
+            QVERIFY2(finishedSpy.wait(10000), "merge did not complete within 10 seconds");
+        QVERIFY2(!bm.isBatchRunning(), "batch still running after batchFinished");
+
+        // Per-item accounting: 2 appended, the corrupt one failed and logged.
+        QCOMPARE(bm.successCount(), 2);
+        QCOMPARE(bm.failCount(), 1);
+        QVERIFY2(bm.errorLogCount() > 0,
+                 "the failed input must be captured in the error log");
+
+        // Output contract: the good inputs are merged, in input order.
+        const QString out = tmp.path() + "/f_a_merged.pdf";
+        QVERIFY2(QFile::exists(out),
+                 "a single failed input must not abort the merge of the others");
+        QPdfDocument merged;
+        QCOMPARE(merged.load(out), QPdfDocument::Error::None);
+        QCOMPARE(merged.pageCount(), 3); // a (2 pages) + c (1 page)
+        const int expectedWidths[3] = { 100, 100, 500 };
+        for (int p = 0; p < merged.pageCount(); ++p) {
+            const int w = int(merged.pagePointSize(p).width() + 0.5);
+            QVERIFY2(w == expectedWidths[p],
+                qPrintable(QStringLiteral("merged page %1 has width %2pt — expected %3pt")
+                               .arg(p).arg(w).arg(expectedWidths[p])));
+        }
     }
 
     // ── T5: Cancel — batch stops before all files processed ──────────────────

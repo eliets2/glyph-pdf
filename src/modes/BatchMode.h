@@ -17,6 +17,7 @@
 #include <QStandardItemModel>
 #include <QFileSystemWatcher>
 #include <QSet>
+#include <functional>
 
 class QLabel;
 class QListView;
@@ -87,6 +88,15 @@ public:
     // Test seam: select the batch operation by index (matches m_opCombo order).
     void setOperationForTest(int index);
 
+    // §9.12 P1 test seam: invoked on the merge worker thread at each file
+    // boundary BEFORE the file is appended. Tests use it to make the boundary
+    // windows deterministic (cancel/progress timing); production never sets
+    // it. MUST be set before onRunBatch() — the run captures it by value, so
+    // the member itself is never touched cross-thread.
+    void setMergeBoundaryHookForTest(std::function<void(int)> hook) {
+        m_mergeBoundaryHook = std::move(hook);
+    }
+
     // §9.12 P0 test seam: build the review note for a batch OCR result.
     // Returns an empty string when every word is at or above the confidence
     // threshold; otherwise "N low-confidence word(s) on page(s) … need review".
@@ -154,6 +164,9 @@ private:
 
     void appendLog(const QString& text, const QString& color = {});
     void appendFileResult(const QString& file, bool success, const QString& detail = {});
+    // §9.12 P1: per-result accounting (log + counters + error log) shared by
+    // the resultReadyAt handler and the merge drain in onBatchFinished.
+    void accountResultAt(int idx);
     void showSummary();
 
     // File list
@@ -215,6 +228,13 @@ private:
     ErrorLog            m_errorLog;
     int                 m_successCount    = 0;
     int                 m_failCount       = 0;
+    // §9.12 P1: number of worker results already accounted (resultReadyAt may
+    // lag the worker; onBatchFinished drains reported-but-unaccounted results
+    // for the merge run so the summary never under-counts).
+    int                 m_accountedResultIdx = 0;
+    // §9.12 P1: true while a merge worker owns m_watcher (its results are
+    // strictly ordered, so the drain in onBatchFinished is safe).
+    bool                m_mergeRun        = false;
     QElapsedTimer       m_batchTimer;
     QMutex              m_engineMutex;       // serializes pdfEditor calls across threads
 
@@ -234,6 +254,10 @@ private:
     // Special-case handler for Merge (single combined output, not per-file mapped).
     void runMerge();
 
+    // §9.12 P1: async merge worker — appends each input on the QtConcurrent
+    // pool behind m_watcher (see startMergeWorker definition for the contract).
+    void startMergeWorker(const QStringList& files, const QString& outPath);
+
     // Hot folder (Phase 3) — watch a directory and auto-ingest new PDFs.
     void buildHotFolderSection(QVBoxLayout* btnLay);
     static QString hotFileKey(const QFileInfo& fi);   // filename + mtime identity
@@ -245,6 +269,9 @@ private:
     QString             m_hotFolderPath;
     QTimer*             m_hotFolderDebounce = nullptr;
     QSet<QString>       m_hotProcessed;     // already-seen files (filename+mtime)
+
+    // §9.12 P1: merge file-boundary hook (test seam; see the setter above).
+    std::function<void(int)> m_mergeBoundaryHook;
 };
 
 } // namespace gp
