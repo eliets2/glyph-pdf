@@ -171,10 +171,6 @@ CompressDialog::CompressDialog(const AppContext* ctx, QWidget* parent)
     const QString subsetWhyNot = caps
         ? caps->query(gp::CapId::CompressSubsetFonts).whyNot
         : unsupportedPassExplanation();
-    const QString removeWhyNot = caps
-        ? caps->query(gp::CapId::CompressRemoveUnused).whyNot
-        : unsupportedPassExplanation();
-
     _chkSubsetFonts = new QCheckBox(tr("Subset fonts"));
     _chkSubsetFonts->setChecked(false);
     _chkSubsetFonts->setEnabled(false);
@@ -183,10 +179,10 @@ CompressDialog::CompressDialog(const AppContext* ctx, QWidget* parent)
     af->addWidget(_chkSubsetFonts, 1, 1);
 
     _chkRemoveUnused = new QCheckBox(tr("Remove unused objects"));
-    _chkRemoveUnused->setChecked(false);
-    _chkRemoveUnused->setEnabled(false);
-    _chkRemoveUnused->setToolTip(removeWhyNot);
-    _chkRemoveUnused->setStatusTip(removeWhyNot);
+    // §9.13: the unused-object sweep is now implemented (21a387c) — the
+    // R12-era disabled placeholder pin is retired. Subset fonts remains the
+    // only unimplemented pass and keeps its own R12 pin below.
+    _chkRemoveUnused->setChecked(true);
     af->addWidget(_chkRemoveUnused, 2, 0);
 
     _chkStripMetadata = new QCheckBox(tr("Strip metadata"));
@@ -394,7 +390,6 @@ void CompressDialog::onPresetChanged(int id) {
         _chkDownsample->setChecked(true);
         _chkDedup->setChecked(true);
         _chkSubsetFonts->setChecked(false);   // R12: pass not implemented
-        _chkRemoveUnused->setChecked(false);  // R12: pass not implemented
         _chkStripMetadata->setChecked(true);
         break;
     case 1: // Ebook
@@ -403,7 +398,6 @@ void CompressDialog::onPresetChanged(int id) {
         _chkDownsample->setChecked(true);
         _chkDedup->setChecked(true);
         _chkSubsetFonts->setChecked(false);   // R12: pass not implemented
-        _chkRemoveUnused->setChecked(false);  // R12: pass not implemented
         _chkStripMetadata->setChecked(false);
         break;
     case 2: // Printer
@@ -412,7 +406,6 @@ void CompressDialog::onPresetChanged(int id) {
         _chkDownsample->setChecked(true);
         _chkDedup->setChecked(true);
         _chkSubsetFonts->setChecked(false);   // R12: pass not implemented
-        _chkRemoveUnused->setChecked(false);  // R12: pass not implemented
         _chkStripMetadata->setChecked(false);
         break;
     case 3: // Custom — leave controls as-is
@@ -427,12 +420,11 @@ void CompressDialog::onPresetChanged(int id) {
     _chkRemoveUnused->blockSignals(false);
     _chkStripMetadata->blockSignals(false);
 
-    // R12: no preset may re-enable or re-check the unimplemented passes — the
-    // checkboxes stay disabled and off regardless of the selected preset.
+    // R12/§9.13: no preset may re-enable or re-check SUBSET FONTS (still
+    // unimplemented). Remove-unused objects is implemented and follows the
+    // user's checkbox choice, so presets never touch it.
     _chkSubsetFonts->setEnabled(false);
     _chkSubsetFonts->setChecked(false);
-    _chkRemoveUnused->setEnabled(false);
-    _chkRemoveUnused->setChecked(false);
 
     // Enable/disable advanced controls for non-custom presets
     bool custom = (id == 3);
@@ -494,11 +486,11 @@ void CompressDialog::refreshEstimate() {
     opts.targetDpi          = _dpiSpin->value();
     opts.jpegQuality        = _qualitySpin->value();
     opts.deduplicateImages  = _chkDedup->isChecked();
-    // R12: these passes are not implemented in this build. The disabled
-    // checkboxes already read false, but pin them here so the estimate can
-    // never claim savings from a pass the engine will not run.
+    // §9.13: unused-object removal is implemented (21a387c) — the checkbox
+    // state is honored. Subset fonts remains unimplemented and pinned false
+    // so the estimate can never claim savings from a pass the engine will
+    // not run.
     opts.subsetFonts        = false;
-    opts.removeUnusedObjects= false;
     opts.stripMetadata      = _chkStripMetadata->isChecked();
 
     OptimizeEstimate est = _ctx->pdfEditor->estimateOptimization(opts);
@@ -599,10 +591,9 @@ void CompressDialog::onCompress() {
     opts.targetDpi          = _dpiSpin->value();
     opts.jpegQuality        = _qualitySpin->value();
     opts.deduplicateImages  = _chkDedup->isChecked();
-    // R12: mirror refreshEstimate — never request the unimplemented passes,
-    // regardless of what the disabled checkboxes would read.
+    // §9.13: mirror refreshEstimate — subset fonts stays pinned (still
+    // unimplemented); unused-object removal follows the checkbox.
     opts.subsetFonts        = false;
-    opts.removeUnusedObjects= false;
     opts.stripMetadata      = _chkStripMetadata->isChecked();
 
     success = _ctx->pdfEditor->optimizeDocument(outPath, opts);

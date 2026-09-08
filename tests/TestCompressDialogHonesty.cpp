@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
-// R12 regression test: "Subset fonts" and "Remove unused objects" shipped
-// CHECKED in CompressDialog while the compression backend implements neither
-// pass (no font subsetter, no object garbage collector). A user could select —
-// and the estimate could promise savings for — passes that never run.
+// §9.13 honesty regression test.
 //
-// This test pins the UI-honesty contract:
+// "Subset fonts" remains UNIMPLEMENTED in the backend: the R12 contract
+// (checkbox DISABLED, UNCHECKED, carrying the availability explanation,
+// options pinned false) still applies to it alone.
+//
+// "Remove unused objects" IS now implemented (trailer-rooted reachability
+// sweep, 21a387c) — its checkbox is ENABLED, default-checked, and the
+// OptimizeOptions the dialog hands to the engine honor the user's choice.
+//
+// This test pins both contracts side by side:
 //   1. the availability explanation (unsupportedPassExplanation) is honest,
-//   2. both checkboxes still exist (the promise is removed, not the control)
-//      but are DISABLED, UNCHECKED, and carry the explanation,
-//   3. no preset re-enables or re-checks them,
-//   4. the OptimizeOptions the dialog hands to the engine never request
+//   2. subset fonts: disabled, unchecked, explained, options pinned false,
+//   3. remove unused: enabled, checked, options follow the checkbox,
+//   4. no preset re-enables subset fonts.
 //      either unsupported pass,
 //   5. the size row stays explicitly labeled as an estimate.
 #include <QtTest/QtTest>
@@ -67,16 +71,8 @@ QStringList stateViolations(const gp::CompressDialog &dlg)
         if (subset->statusTip() != gp::CompressDialog::unsupportedPassExplanation())
             v << QStringLiteral("'Subset fonts' status tip does not carry the availability explanation");
     }
-    if (remove) {
-        if (remove->isEnabled())
-            v << QStringLiteral("'Remove unused objects' is ENABLED but the pass is not implemented in this build");
-        if (remove->isChecked())
-            v << QStringLiteral("'Remove unused objects' is CHECKED but the engine never removes unused objects");
-        if (remove->toolTip() != gp::CompressDialog::unsupportedPassExplanation())
-            v << QStringLiteral("'Remove unused objects' tooltip does not carry the availability explanation");
-        if (remove->statusTip() != gp::CompressDialog::unsupportedPassExplanation())
-            v << QStringLiteral("'Remove unused objects' status tip does not carry the availability explanation");
-    }
+    // "Remove unused objects" is now implemented — no honesty pin applies
+    // to it here; the sweep contract is pinned in TestCompressJpegReencode.
     return v;
 }
 
@@ -105,10 +101,24 @@ private slots:
                      "in this build; got: %1").arg(text)));
     }
 
-    void unsupportedPassesAreDisabledUncheckedWithExplanation() {
+    void subsetFontsStaysDisabledUncheckedWithExplanation() {
         gp::CompressDialog dlg(nullptr);
         const QStringList v = stateViolations(dlg);
         QVERIFY2(v.isEmpty(), qPrintable(v.join(QStringLiteral("; "))));
+        // The remove-unused pass is IMPLEMENTED — assert the enabled state
+        // explicitly so a regression to the R12 placeholder cannot hide.
+        auto *remove = dlg.findChild<QCheckBox*>(QStringLiteral("Remove unused objects"));
+        if (!remove) {
+            const auto boxes = dlg.findChildren<QCheckBox*>();
+            for (auto *b : boxes)
+                if (b->text() == QStringLiteral("Remove unused objects"))
+                    remove = b;
+        }
+        QVERIFY2(remove, "the 'Remove unused objects' checkbox is missing");
+        QVERIFY2(remove->isEnabled(),
+                 "'Remove unused objects' must be ENABLED — the sweep is implemented (21a387c)");
+        QVERIFY2(remove->isChecked(),
+                 "'Remove unused objects' must default CHECKED — the sweep honors the user's choice");
     }
 
     // Switching presets (Screen/Ebook/Printer/Custom) used to re-check both
@@ -153,9 +163,9 @@ private slots:
         QVERIFY2(!engine->lastEstimateOpts.subsetFonts,
                  "the dialog asked the engine to subset fonts — a pass the "
                  "backend does not implement");
-        QVERIFY2(!engine->lastEstimateOpts.removeUnusedObjects,
-                 "the dialog asked the engine to remove unused objects — a pass "
-                 "the backend does not implement");
+        QVERIFY2(engine->lastEstimateOpts.removeUnusedObjects,
+                 "the dialog must honor the checked 'Remove unused objects' — the "
+                 "sweep is implemented and the checkbox defaults checked");
     }
 
     // The size figures shown live are predictions, not measurements; the row
