@@ -28,6 +28,7 @@
  * CONSTRAINT: Never name a local QLayout* variable `tr` (shadows QObject::tr()).
  */
 #include "PagesMode.h"
+#include "shell/EditPolicy.h"
 #include "core/AppContext.h"
 #include "core/PageLabels.h"
 #include "engines/DocumentSession.h"
@@ -46,6 +47,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFile>
+#include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
@@ -952,6 +954,21 @@ QList<QList<int>> PagesMode::computeSplitGroups() const
     return groups;
 }
 
+// NCR-01: filesystem-identity key for the split output preflight. On Windows
+// the filesystem is case-insensitive — "SPLIT-SOURCE.pdf" IS the open source
+// "split-source.pdf" — so the collision set must compare case-folded clean
+// paths (QSet<QString> compared raw absolute paths and let a case-only alias
+// of the OPEN SOURCE through as a split output). Comparison key only: the
+// user-visible output paths keep their original case.
+static QString splitPathKey(const QString& path)
+{
+    QString key = QDir::cleanPath(path);
+#if defined(Q_OS_WIN)
+    key = key.toLower();
+#endif
+    return key;
+}
+
 QString PagesMode::makeOutputName(const QString& pattern, const QString& stem, int part) const
 {
     QString name = pattern.isEmpty() ? QString("{stem}_part{n}.pdf") : pattern;
@@ -969,8 +986,11 @@ QStringList PagesMode::makeOutputPaths(const QString& pattern, const QString& st
     QSet<QString> taken;
     // The open source must never be a split output (pattern "{stem}.pdf" in
     // the source directory would otherwise clobber the loaded document).
+    // NCR-01: the identity comparison is FILESYSTEM-identity (case-folded on
+    // Windows), not raw string equality — a case-only alias of the source is
+    // the same file and must be derived away like any other collision.
     if (!sourcePath.isEmpty())
-        taken.insert(QFileInfo(sourcePath).absoluteFilePath());
+        taken.insert(splitPathKey(sourcePath));
 
     for (int i = 0; i < groupCount; ++i) {
         QString name = makeOutputName(pattern, stem, i + 1);
@@ -979,7 +999,7 @@ QStringList PagesMode::makeOutputPaths(const QString& pattern, const QString& st
         // every group and the parts would silently overwrite each other.
         // Derive a unique numbered name before anything is written; the
         // preview (which consumes this same helper) reflects the final names.
-        if (taken.contains(QFileInfo(outputDir + "/" + name).absoluteFilePath())) {
+        if (taken.contains(splitPathKey(outputDir + "/" + name))) {
             const QFileInfo info(name);
             const QString base = info.completeBaseName();
             const QString suffix =
@@ -988,7 +1008,7 @@ QStringList PagesMode::makeOutputPaths(const QString& pattern, const QString& st
                                   .arg(base, QString::number(i + 1), suffix);
             QString candidate = outputDir + "/" + derived;
             for (int disambiguator = 1;
-                 taken.contains(QFileInfo(candidate).absoluteFilePath());) {
+                 taken.contains(splitPathKey(candidate));) {
                 ++disambiguator;
                 derived = QStringLiteral("%1_part%2_%3.%4")
                               .arg(base, QString::number(i + 1),
@@ -999,7 +1019,7 @@ QStringList PagesMode::makeOutputPaths(const QString& pattern, const QString& st
         }
         const QString finalPath = outputDir + "/" + name;
         paths.append(finalPath);
-        taken.insert(QFileInfo(finalPath).absoluteFilePath());
+        taken.insert(splitPathKey(finalPath));
     }
     return paths;
 }
@@ -1091,18 +1111,31 @@ void PagesMode::onSplit()
         if (btn != QMessageBox::Yes) return;
     }
 
-    // Execute split with progress dialog
-    const QStringList produced = executeSplit(sourcePath, groups, outDir, pattern);
+    // Execute split with progress dialog. NCR-01: the completion dialog must
+    // distinguish COMPLETE, PARTIAL (naming each failed part) and CANCELED —
+    // "some output exists" was reported as an unqualified complete split.
+    const SplitOutcome outcome = executeSplitDetailed(sourcePath, groups, outDir, pattern);
 
-    if (produced.isEmpty()) {
+    if (outcome.canceled) {
+        QMessageBox::information(this, PagesMode::tr("Split canceled"),
+            PagesMode::tr("The split was canceled. %1 file(s) were written before canceling.")
+                .arg(outcome.produced.size()));
+    } else if (!outcome.failures.isEmpty()) {
+        QMessageBox::warning(this, PagesMode::tr("Split partially completed"),
+            PagesMode::tr("%1 of %2 part(s) were written.\n\nThe following part(s) failed:\n\n%3")
+                .arg(outcome.produced.size())
+                .arg(groups.size())
+                .arg(outcome.failures.join(QStringLiteral("\n"))));
+        onPreviewSplit(); // show what WAS produced
+    } else if (outcome.produced.isEmpty()) {
         QMessageBox::critical(this, PagesMode::tr("Split failed"),
             PagesMode::tr("The split operation did not produce any output files.\n"
                           "Check that the document is valid and the output directory is writable."));
     } else {
         QMessageBox::information(this, PagesMode::tr("Split complete"),
             PagesMode::tr("Split complete. %1 file(s) written:\n\n%2")
-                .arg(produced.size())
-                .arg(produced.join("\n")));
+                .arg(outcome.produced.size())
+                .arg(outcome.produced.join("\n")));
         onPreviewSplit(); // refresh preview list to show produced paths
     }
 }
@@ -1112,8 +1145,17 @@ QStringList PagesMode::executeSplit(const QString& sourcePath,
                                     const QString& outputDir,
                                     const QString& stemPattern)
 {
-    QStringList produced;
-    if (!m_ctx || !m_ctx->pdfEditor || groups.isEmpty()) return produced;
+    return executeSplitDetailed(sourcePath, groups, outputDir, stemPattern).produced;
+}
+
+PagesMode::SplitOutcome PagesMode::executeSplitDetailed(const QString& sourcePath,
+                                                        const QList<QList<int>>& groups,
+                                                        const QString& outputDir,
+                                                        const QString& stemPattern)
+{
+    SplitOutcome outcome;
+    auto& produced = outcome.produced;
+    if (!m_ctx || !m_ctx->pdfEditor || groups.isEmpty()) return outcome;
 
     const QString stem = QFileInfo(sourcePath).completeBaseName();
     // N09: same derivation as the preview — patterns without a numbering
@@ -1128,8 +1170,16 @@ QStringList PagesMode::executeSplit(const QString& sourcePath,
     progress->setWindowModality(Qt::WindowModal);
     progress->setMinimumDuration(500);
 
+    auto failPart = [&outcome, &outputPaths](int gi, const QString& reason) {
+        outcome.failures.append(PagesMode::tr("part %1 (%2): %3")
+                                       .arg(gi + 1).arg(outputPaths.value(gi)).arg(reason));
+    };
+
     for (int gi = 0; gi < groups.size(); ++gi) {
-        if (progress->wasCanceled()) break;
+        if (progress->wasCanceled()) {
+            outcome.canceled = true;
+            break;
+        }
         progress->setValue(gi);
 
         const QList<int>& pages = groups[gi];
@@ -1154,7 +1204,10 @@ QStringList PagesMode::executeSplit(const QString& sourcePath,
             }
             pageDocuments.append(pageBytes);
         }
-        if (!extractOk) continue;
+        if (!extractOk) {
+            failPart(gi, PagesMode::tr("page extraction failed"));
+            continue;
+        }
 
         // Build the whole part into a SafeSave candidate via the file-level
         // page-op seam (mergeDocuments idiom: one fresh destination document,
@@ -1167,12 +1220,14 @@ QStringList PagesMode::executeSplit(const QString& sourcePath,
         QString candidateErr;
         if (!gp::SafeSave::makeUniqueCandidate(&candidate, &candidateErr)) {
             qWarning("PagesMode::executeSplit: %s", qPrintable(candidateErr));
+            failPart(gi, candidateErr);
             continue;
         }
         if (!gp::writeDocumentFromPages(pageDocuments, candidate)) {
             qWarning("PagesMode::executeSplit: part assembly failed for %s",
                      qPrintable(outPath));
             QFile::remove(candidate);
+            failPart(gi, PagesMode::tr("could not assemble the part file"));
             continue;
         }
 
@@ -1186,6 +1241,7 @@ QStringList PagesMode::executeSplit(const QString& sourcePath,
             qWarning("PagesMode::executeSplit: destination engine cannot load candidate for %s",
                      qPrintable(outPath));
             QFile::remove(candidate);
+            failPart(gi, PagesMode::tr("the assembled part could not be opened for validation"));
             continue;
         }
 
@@ -1198,6 +1254,7 @@ QStringList PagesMode::executeSplit(const QString& sourcePath,
             qWarning("PagesMode::executeSplit: candidate validation failed for %s",
                      qPrintable(outPath));
             QFile::remove(candidate);
+            failPart(gi, PagesMode::tr("the assembled part failed validation"));
             continue;
         }
 
@@ -1209,6 +1266,7 @@ QStringList PagesMode::executeSplit(const QString& sourcePath,
             qWarning("PagesMode::executeSplit: commit to %s failed: %s",
                      qPrintable(outPath), qPrintable(commitErr));
             QFile::remove(candidate);
+            failPart(gi, commitErr);
             continue;
         }
         QFile::remove(candidate); // committed bytes were copied; drop the candidate
@@ -1218,7 +1276,7 @@ QStringList PagesMode::executeSplit(const QString& sourcePath,
 
     progress->setValue(groups.size());
     progress->deleteLater();
-    return produced;
+    return outcome;
 }
 
 // ── D3: Reorder logic ─────────────────────────────────────────────────────────
@@ -1359,6 +1417,16 @@ void PagesMode::commitGridOrder(const QList<int>& snapshot, const QList<int>& ne
         return;
     }
 
+    // ARC07: the grid pushes ReorderPermutationCommand directly (drag and
+    // keyboard moves) — apply the shared read-only gate and revert the visual
+    // move so the grid never lies about a mutation that did not happen.
+    if (EditPolicy::mutationBlocked(m_ctx->document.get())) {
+        rebuildFromOrder(snapshot);
+        QMessageBox::information(this, PagesMode::tr("Read-only"),
+            EditPolicy::readOnlyMessage());
+        return;
+    }
+
     m_pendingSelection = pendingSelection;
     m_pendingCurrentPage = pendingCurrent;
 
@@ -1487,6 +1555,13 @@ void PagesMode::onApplyPageLabels()
     if (!m_ctx || !m_ctx->document || m_ctx->document->path().isEmpty()) {
         QMessageBox::information(this, PagesMode::tr("Apply Page Labels"),
                                  PagesMode::tr("No document is open."));
+        return;
+    }
+    // ARC07: page labels are written into the SAVED document in place —
+    // the shared read-only gate applies.
+    if (EditPolicy::mutationBlocked(m_ctx->document.get())) {
+        QMessageBox::warning(this, PagesMode::tr("Read-only"),
+            EditPolicy::readOnlyMessage());
         return;
     }
     const QString path = m_ctx->document->path();

@@ -63,6 +63,20 @@ public:
                              const QString& outputDir,
                              const QString& stemPattern);
 
+    // NCR-01 (TEAM-NEW-COMMITS-REVIEW-2026-09-07): per-part split result so
+    // the completion dialog can distinguish COMPLETE, PARTIAL (naming each
+    // failed part and its reason) and CANCELED outcomes — "some files were
+    // written" is not a complete split.
+    struct SplitOutcome {
+        QStringList produced;   // committed output paths, in part order
+        QStringList failures;   // "part N (path): reason" per failed part
+        bool canceled = false;  // user canceled mid-run
+    };
+    SplitOutcome executeSplitDetailed(const QString& sourcePath,
+                                      const QList<QList<int>>& groups,
+                                      const QString& outputDir,
+                                      const QString& stemPattern);
+
     // N09: split parts are WRITTEN through operation-owned destination
     // engines — never the user's resident source editor (the backend's
     // anti-divergence guard, PoDoFoBackend::resolveDocument, refuses
