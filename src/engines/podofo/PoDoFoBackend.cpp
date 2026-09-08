@@ -172,6 +172,12 @@ public:
     QString currentFile;
     mutable QRecursiveMutex mutex;
     QList<PdfImageInfo> lastListedImages;
+    // EC01 re-seat: the re-seated resident document parses lazily FROM the
+    // candidate byte buffer (PdfMemDocument::LoadFromBuffer keeps a reference,
+    // it does not copy), so the buffer must live as long as the document.
+    // Owned here — a stack-local QByteArray died at the end of the saving
+    // call and left the resident document parsing freed memory.
+    QByteArray reseatBuffer;
 
     PoDoFo::PdfMemDocument& resolveDocument(const QString& path) {
         // Already the loaded document (possibly with unsaved in-memory edits) — operate on it.
@@ -222,6 +228,7 @@ bool PoDoFoBackend::loadDocument(const QString &path) {
         }
         d->document = std::move(newDoc);
         d->currentFile = path;
+        d->reseatBuffer.clear();   // file-backed document: no re-seat buffer pinned
         return true;
     } catch (const PoDoFo::PdfError& e) {
         // E-05/E-18: log unconditionally (not only in Debug). In a Release build the
@@ -340,20 +347,24 @@ bool PoDoFoBackend::saveDocument(const QString &path) {
         // device on the file that is about to be replaced (so the atomic
         // rename can succeed), and a buffer-backed document holds no file
         // handle at all — every candidate file is removable on every path.
+        // The bytes are stored in d->reseatBuffer (member, not local): the
+        // re-seated document keeps parsing from that buffer for its whole
+        // lifetime, so the buffer must outlive this call.
         QFile candidateFile(candidate);
         if (!candidateFile.open(QIODevice::ReadOnly)) {
             qCritical() << "PoDoFoBackend::saveDocument: validated candidate became unreadable:"
                         << candidateFile.errorString() << "path:" << path;
             return false;
         }
-        const QByteArray candidateBytes = candidateFile.readAll();
+        d->reseatBuffer = candidateFile.readAll();
         candidateFile.close();
         auto reseeded = std::make_unique<PoDoFo::PdfMemDocument>();
         try {
             reseeded->LoadFromBuffer(
-                PoDoFo::bufferview(candidateBytes.constData(),
-                                   static_cast<size_t>(candidateBytes.size())));
+                PoDoFo::bufferview(d->reseatBuffer.constData(),
+                                   static_cast<size_t>(d->reseatBuffer.size())));
         } catch (const PoDoFo::PdfError& e) {
+            d->reseatBuffer.clear();
             qCritical() << "PoDoFoBackend::saveDocument: cannot re-seat resident document "
                            "from validated candidate:" << e.what() << "path:" << path;
             return false;
