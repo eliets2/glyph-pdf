@@ -2,6 +2,7 @@
 #include "engines/PdfEditorEngine.h"
 #include "engines/BackendRouter.h"
 #include "engines/PatternRedactor.h"
+#include "engines/SafeSave.h"
 #include "engines/podofo/PoDoFoBackend.h"
 #include "engines/qpdf/QpdfBackend.h"
 #include "engines/SignatureManager.h"
@@ -184,20 +185,26 @@ bool PdfEditorEngine::saveDocument(const QString &outputPath)
         bool hasSignatures = !sigs.isEmpty();
 
         bool success = false;
+        QString commitErr;
         if (!hasSignatures) {
             success = QpdfBackend::linearize(tempPath, outputPath);
             if (!success) {
                 d->setErr(ErrorInfo::Warning,
                           QObject::tr("The document was saved but linearization failed. "
                                       "The PDF will work but may load more slowly in web viewers."),
-                          QStringLiteral("QpdfBackend::linearize failed; fallback to direct copy."));
-                // Fallback: copy unlinearized
-                if (QFile::exists(outputPath)) QFile::remove(outputPath);
-                success = QFile::copy(tempPath, outputPath);
+                          QStringLiteral("QpdfBackend::linearize failed; fallback to SafeSave commit."));
+                // EC01: no remove-before-copy — the unlinearized temp is
+                // committed through the checked SafeSave boundary so a failed
+                // replacement never destroys an existing destination.
+                success = gp::SafeSave::commitFileToDestination(
+                    tempPath, outputPath, &commitErr);
             }
         } else {
-            if (QFile::exists(outputPath)) QFile::remove(outputPath);
-            success = QFile::copy(tempPath, outputPath);
+            // EC01: signed documents must not be linearized (byte offsets);
+            // commit the temp through the checked SafeSave boundary instead of
+            // delete-then-copy so the previous output survives any failure.
+            success = gp::SafeSave::commitFileToDestination(
+                tempPath, outputPath, &commitErr);
         }
 
         TempFileManager::instance().untrack(tempPath);
@@ -205,7 +212,9 @@ bool PdfEditorEngine::saveDocument(const QString &outputPath)
         if (!success) {
             d->setErr(ErrorInfo::Error,
                       QObject::tr("Failed to write the output file. Check that the destination is writable."),
-                      QStringLiteral("Output path: %1").arg(outputPath),
+                      QStringLiteral("Output path: %1%2")
+                          .arg(outputPath,
+                               commitErr.isEmpty() ? QString() : QStringLiteral(" — %1").arg(commitErr)),
                       ErrorInfo::Retry);
         }
         return success;

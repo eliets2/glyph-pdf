@@ -2711,6 +2711,31 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormSafety.cpp")
     set_tests_properties(TestFormSafety PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120 LABELS "unit;forms;form-fields;persistence;qt;headless")
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEngineSave.cpp")
+    add_executable(TestEngineSave
+        tests/TestEngineSave.cpp
+        src/engines/DocumentSession.cpp
+    )
+    target_include_directories(TestEngineSave PRIVATE src tests)
+    target_link_libraries(TestEngineSave PRIVATE
+        pdfws_engines pdfws_core pdfws_commands podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET TestEngineSave POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestEngineSave>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestEngineSave>/platforms/qoffscreen.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PODOFO_VENDOR_DLL}"
+            "$<TARGET_FILE_DIR:TestEngineSave>/libpodofo.dll"
+        COMMENT "Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestEngineSave"
+    )
+    add_test(NAME TestEngineSave COMMAND TestEngineSave)
+    set_tests_properties(TestEngineSave PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120 LABELS "unit;engine;save;persistence;qt;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormUndo.cpp")
     add_executable(TestFormUndo
         tests/TestFormUndo.cpp

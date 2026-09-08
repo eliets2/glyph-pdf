@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "engines/podofo/PoDoFoBackend.h"
+#include "engines/SafeSave.h"
 #include <memory>
 #include "PdfStringEscape.h"
 #include "GlyphAdvanceCalculator.h"
@@ -41,6 +42,18 @@
 #endif
 
 namespace {
+
+// RAII removal of this operation's candidate file on every path (same idiom
+// as the FormManager R01 transaction).
+class CandidateFileGuard {
+public:
+    explicit CandidateFileGuard(const QString& path) : m_path(path) {}
+    ~CandidateFileGuard() { if (!m_path.isEmpty()) QFile::remove(m_path); }
+    CandidateFileGuard(const CandidateFileGuard&) = delete;
+    CandidateFileGuard& operator=(const CandidateFileGuard&) = delete;
+private:
+    QString m_path;
+};
 
 PoDoFo::PdfObject* ensurePageResources(PoDoFo::PdfPage& page)
 {
@@ -222,20 +235,146 @@ bool PoDoFoBackend::loadDocument(const QString &path) {
 bool PoDoFoBackend::saveDocument(const QString &path) {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
-    try {
-        d->document->Save(path.toUtf8().constData());
 
-#ifdef QT_DEBUG
-        qDebug() << "PoDoFo Engine structurally saved document to:" << path;
-#endif
+    // ── Encrypted documents: separate contract (like the signed incremental
+    // path). PoDoFo re-serializes them with the in-memory encrypt object, and
+    // the result cannot be reopened for candidate validation without the
+    // loading password (not exposed by PdfMemDocument), nor be re-seated via
+    // LoadFromBuffer. These documents are parsed eagerly (no deferred object
+    // streams), so the EC01 same-path truncation does not reproduce here —
+    // preserve the exact pre-EC01 direct-save semantics for them. Residual:
+    // an encrypted document WITH deferred object streams could still truncate
+    // on a same-path save; the reviewed EC01 repro is the ordinary document.
+    if (d->document->IsEncrypted()) {
+        try {
+            d->document->Save(path.toUtf8().constData());
+        } catch (const PoDoFo::PdfError& e) {
+            qCritical() << "PoDoFoBackend::saveDocument (encrypted) failed:"
+                        << e.what() << "path:" << path;
+            return false;
+        }
         return true;
-    } catch (const PoDoFo::PdfError& e) {
-        // E-05: a failed save in Release previously produced no trace, making
-        // "my file got corrupted" reports nearly impossible to diagnose. Save is
-        // security/IO-critical (autosave, sign flow) — log unconditionally.
-        qCritical() << "PoDoFoBackend::saveDocument failed:" << e.what() << "path:" << path;
+    }
+
+    // ── EC01 (P1): candidate → validate → checked commit at the shared save
+    // boundary (R01/U05 SafeSave pattern; TEAM-ENGINE-CODE-REVIEW-2026-09-07).
+    //
+    // A loaded PdfMemDocument keeps its source device open for deferred object
+    // parsing (PdfMemDocument::m_device). The old code handed `path` straight
+    // to Save(), so a save to the loaded source path truncated the very file
+    // the parser was still reading ("InvalidNumber — Object and generation
+    // number cannot be read"): a valid two-page PDF became ZERO bytes and the
+    // operation returned failure. Every path-based mutator funnels through
+    // here (PdfEditorEngine::saveDocument, unsigned writeUpdate ← rotatePage /
+    // cropPage / reorder / …), so the transaction lives at this one choke
+    // point:
+    //   1. serialize the COMPLETE in-memory document to a unique temp
+    //      candidate (never the destination — no fragile path-equality
+    //      checks),
+    //   2. reopen the candidate and validate it: readable PDF with an
+    //      unchanged page count,
+    //   3. for a same-file save, re-seat the resident document from the
+    //      validated candidate BYTES (in-memory buffer) BEFORE the commit —
+    //      this closes the device the old document held on the file about to
+    //      be replaced so the atomic rename can succeed, and on any later
+    //      failure the edit state stays resident and recoverable while no
+    //      handle pins the candidate,
+    //   4. commit the validated bytes through SafeSave::commitFileToDestination
+    //      (bounded copy into QSaveFile + checked commit) — the original is
+    //      never deleted before the atomic rename, and a blocked replacement
+    //      (open handle, full disk) fails with the original byte-identical.
+    //      There is deliberately NO direct-write fallback.
+    //   5. the re-seated document is byte-identical to the committed
+    //      destination, so the backend is left backed by exactly the committed
+    //      document and every candidate file is removable on every path.
+    // Signed documents keep their separate writeUpdate (SaveUpdate) incremental
+    // contract — they never route through this unsigned full rewrite.
+    QString candidate;
+    QString err;
+    if (!gp::SafeSave::makeUniqueCandidate(&candidate, &err)) {
+        qCritical() << "PoDoFoBackend::saveDocument:" << err << "path:" << path;
         return false;
     }
+    CandidateFileGuard candidateGuard(candidate);
+
+    const unsigned sourcePageCount = d->document->GetPages().GetCount();
+    try {
+        d->document->Save(candidate.toUtf8().constData());
+    } catch (const PoDoFo::PdfError& e) {
+        // E-05: security/IO-critical boundary — log unconditionally.
+        qCritical() << "PoDoFoBackend::saveDocument: candidate serialization failed:"
+                    << e.what() << "path:" << path;
+        return false;
+    }
+
+    try {
+        PoDoFo::PdfMemDocument reopened;
+        reopened.Load(candidate.toUtf8().constData());
+        if (reopened.GetPages().GetCount() != sourcePageCount) {
+            qCritical() << "PoDoFoBackend::saveDocument: candidate page count mismatch"
+                        << sourcePageCount << "->" << reopened.GetPages().GetCount()
+                        << "path:" << path;
+            return false;
+        }
+    } catch (const PoDoFo::PdfError& e) {
+        qCritical() << "PoDoFoBackend::saveDocument: candidate is not a valid PDF:"
+                    << e.what() << "path:" << path;
+        return false;
+    }
+
+    const QString cur = d->currentFile;
+    bool sameFile = !cur.isEmpty() && QString::compare(cur, path, Qt::CaseInsensitive) == 0;
+    if (!sameFile && !cur.isEmpty()) {
+        // Alias-tolerant identity check (differing casing, 8.3 names,
+        // symlinks): replacing the loaded file must always re-seat first.
+        const QFileInfo curInfo(cur);
+        const QFileInfo dstInfo(path);
+        const QString curCanon = curInfo.canonicalFilePath();
+        const QString dstCanon = dstInfo.canonicalFilePath();
+        sameFile = !curCanon.isEmpty() && curCanon == dstCanon;
+    }
+
+    if (sameFile) {
+        // Re-seat the resident document from the validated candidate bytes via
+        // an in-memory buffer: destroying the previous document closes its
+        // device on the file that is about to be replaced (so the atomic
+        // rename can succeed), and a buffer-backed document holds no file
+        // handle at all — every candidate file is removable on every path.
+        QFile candidateFile(candidate);
+        if (!candidateFile.open(QIODevice::ReadOnly)) {
+            qCritical() << "PoDoFoBackend::saveDocument: validated candidate became unreadable:"
+                        << candidateFile.errorString() << "path:" << path;
+            return false;
+        }
+        const QByteArray candidateBytes = candidateFile.readAll();
+        candidateFile.close();
+        auto reseeded = std::make_unique<PoDoFo::PdfMemDocument>();
+        try {
+            reseeded->LoadFromBuffer(
+                PoDoFo::bufferview(candidateBytes.constData(),
+                                   static_cast<size_t>(candidateBytes.size())));
+        } catch (const PoDoFo::PdfError& e) {
+            qCritical() << "PoDoFoBackend::saveDocument: cannot re-seat resident document "
+                           "from validated candidate:" << e.what() << "path:" << path;
+            return false;
+        }
+        d->document = std::move(reseeded);
+    }
+
+    if (!gp::SafeSave::commitFileToDestination(candidate, path, &err)) {
+        qCritical() << "PoDoFoBackend::saveDocument:" << err << "path:" << path;
+        return false;
+    }
+
+    // The resident document (re-seated from the validated candidate bytes for
+    // a same-file save) is byte-identical to the committed destination, and no
+    // document holds a device on the candidate — the guard can always remove
+    // it.
+
+#ifdef QT_DEBUG
+    qDebug() << "PoDoFo Engine structurally saved document to:" << path;
+#endif
+    return true;
 }
 
 int PoDoFoBackend::pageCount() const {
