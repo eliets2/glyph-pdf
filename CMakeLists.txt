@@ -2736,6 +2736,21 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEngineSave.cpp")
     set_tests_properties(TestEngineSave PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120 LABELS "unit;engine;save;persistence;qt;headless")
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCleanupCli.cpp")
+    add_executable(TestCleanupCli
+        tests/TestCleanupCli.cpp
+    )
+    target_include_directories(TestCleanupCli PRIVATE src tests)
+    target_compile_definitions(TestCleanupCli PRIVATE
+        CLEANUP_CLI_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    target_link_libraries(TestCleanupCli PRIVATE
+        Qt6::Test Qt6::Core Qt6::Gui
+    )
+    add_test(NAME TestCleanupCli COMMAND TestCleanupCli)
+    set_tests_properties(TestCleanupCli PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 300 LABELS "unit;tools;cleanup-cli;infrastructure;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormUndo.cpp")
     add_executable(TestFormUndo
         tests/TestFormUndo.cpp
