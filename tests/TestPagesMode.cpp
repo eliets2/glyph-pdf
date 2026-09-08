@@ -50,6 +50,10 @@
 #include <QList>
 #include <QStringList>
 #include <QSharedPointer>
+#include <QMessageBox>
+#include <QTimer>
+#include <functional>
+#include <memory>
 #include <QUndoStack>
 #include <QMimeData>
 #include <QListWidget>
@@ -354,6 +358,24 @@ static QList<int> selectedRows(QListWidget* grid) {
 
 class TestPagesMode : public QObject {
     Q_OBJECT
+
+private:
+    // NCR-01 modal capture state (one completion dialog at a time; this suite
+    // is linear). Members — not locals — because the budgeted capture driver
+    // re-arms across event-loop turns.
+    QString capturedModalText;
+
+    void scheduleModalCapture(int turnsLeft) {
+        if (turnsLeft <= 0) return;
+        QTimer::singleShot(0, [this, turnsLeft] {
+            if (auto *box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+                capturedModalText = box->text();
+                box->close();
+                return;
+            }
+            scheduleModalCapture(turnsLeft - 1);
+        });
+    }
 
 private slots:
     // §9.8+§9.9 P0: the local-first differentiator must be a single shared
@@ -1179,6 +1201,137 @@ private slots:
         QCOMPARE(engine->currentFile(), srcPath);
         QVERIFY(!engine->extractPageAsBytes(srcPath, 4).isEmpty());
         QCOMPARE(readFileBytes(srcPath), srcBytes);
+    }
+
+    // ── NCR-01 (TEAM-NEW-COMMITS-REVIEW-2026-09-07, wave 4A): case-only ──
+    // source aliases must be caught by the split output preflight. On the
+    // case-insensitive Windows filesystem "SPLIT-SOURCE.pdf" IS the open
+    // source "split-source.pdf"; the case-sensitive QSet treated them as
+    // distinct, so part 1 targeted the OPEN SOURCE (its commit failed on the
+    // loaded-file lock) and only part 2 was produced while the caller still
+    // reported completion. The contract: two DISTINCT outputs with the right
+    // pages, source bytes unchanged.
+    void splitCaseOnlySourceAliasYieldsDistinctOutputsAndPreservesSource()
+    {
+        RealSplitHarness h;
+        QVERIFY(setupRealSplitHarness({"P0", "P1"}, "split-source.pdf", h));
+        const QByteArray srcBytes = readFileBytes(h.srcPath);
+
+        const QList<QList<int>> groups { {0}, {1} };
+        const QStringList produced = h.mode.executeSplit(
+            h.srcPath, groups, h.tmpDir.path(), QStringLiteral("SPLIT-SOURCE.pdf"));
+
+        QCOMPARE(produced.size(), 2);
+        // Both parts exist and are DISTINCT — neither is the source path.
+        QVERIFY(produced[0] != produced[1]);
+        for (const QString& p : produced) {
+            QVERIFY2(!p.endsWith(QStringLiteral("/SPLIT-SOURCE.pdf")),
+                     qPrintable(QStringLiteral("output must not alias the source: %1").arg(p)));
+            QVERIFY2(QFile::exists(p),
+                     qPrintable(QStringLiteral("part must exist: %1").arg(p)));
+        }
+        verifySplitPart(produced[0], {0});
+        verifySplitPart(produced[1], {1});
+
+        // The source file must be byte-identical and still two pages.
+        QCOMPARE(readFileBytes(h.srcPath), srcBytes);
+        verifySplitPart(h.srcPath, {0, 1});
+    }
+
+    // The preview consumes the same derivation as the execution, so it must
+    // never promise a case-only alias of the open source.
+    void splitPreviewDoesNotPromiseCaseAliasOfSource()
+    {
+        RealSplitHarness h;
+        QVERIFY(setupRealSplitHarness({"P0", "P1"}, "split-source.pdf", h));
+
+        QRadioButton* atRadio = nullptr;
+        for (QRadioButton* rb : h.mode.findChildren<QRadioButton*>())
+            if (rb->text() == QStringLiteral("Split at page:")) atRadio = rb;
+        QVERIFY(atRadio);
+        atRadio->setChecked(true);
+
+        QLineEdit* namingEdit = nullptr;
+        for (QLineEdit* le : h.mode.findChildren<QLineEdit*>())
+            if (le->text() == QStringLiteral("{stem}_part{n}.pdf")) namingEdit = le;
+        QVERIFY2(namingEdit, "PagesMode must expose the output-name pattern edit");
+        namingEdit->setText(QStringLiteral("SPLIT-SOURCE.pdf"));
+
+        QVERIFY(QMetaObject::invokeMethod(&h.mode, "onPreviewSplit"));
+        QListWidget* preview = nullptr;
+        for (QListWidget* lw : h.mode.findChildren<QListWidget*>()) {
+            if (lw->viewMode() == QListView::ListMode && lw->count() > 0 &&
+                lw->item(0)->text().contains(QStringLiteral("  ["))) {
+                preview = lw;
+                break;
+            }
+        }
+        QVERIFY2(preview, "preview list must show the produced part files");
+        QCOMPARE(preview->count(), 2);
+        for (int i = 0; i < preview->count(); ++i) {
+            const QString entry = preview->item(i)->text().section(
+                QStringLiteral("  ["), 0, 0);
+            QVERIFY2(!entry.endsWith(QStringLiteral("/SPLIT-SOURCE.pdf")),
+                     qPrintable(QStringLiteral("preview must not promise the source: %1").arg(entry)));
+            QVERIFY2(entry.contains(QStringLiteral("_part")),
+                     qPrintable(QStringLiteral("preview must show derived names: %1").arg(entry)));
+        }
+    }
+
+    // NCR-01 second half: a FORCED failure in one of two parts must name the
+    // failed part and must NOT be reported as a complete split. Driven
+    // through the real onSplit() completion dialog (the completion message is
+    // the reviewed defect surface); the modal driver captures its text and
+    // closes it (offscreen: the Qt-internal message box is activeModalWidget).
+    void splitForcedPartFailureNamesPartAndReportsPartialCompletion()
+    {
+        RealSplitHarness h;
+        QVERIFY(setupRealSplitHarness({"P0", "P1", "P2", "P3"}, "partial.pdf", h));
+
+        // Part 1 commits through a real engine; part 2's destination engine
+        // cannot load the candidate — exactly one forced per-part failure.
+        auto calls = std::make_shared<int>(0);
+        h.mode.setSplitEngineFactory([calls]() -> std::shared_ptr<IPdfEditorEngine> {
+            if ((*calls)++ == 0)
+                return std::make_shared<PdfEditorEngine>();
+            return std::make_shared<FailingLoadDestEngine>();
+        });
+
+        capturedModalText = QString();
+        // Budgeted (turn-counted) capture driver: reacts only to the split
+        // completion QMessageBox, never to a transient QProgressDialog.
+        scheduleModalCapture(50);
+
+        // The range expression "1-2,3-4" → two groups via the real UI state.
+        QRadioButton* rangeRadio = nullptr;
+        for (QRadioButton* rb : h.mode.findChildren<QRadioButton*>())
+            if (rb->text() == QStringLiteral("Split by range:")) rangeRadio = rb;
+        QVERIFY(rangeRadio);
+        rangeRadio->setChecked(true);
+        for (QLineEdit* le : h.mode.findChildren<QLineEdit*>())
+            if (le->placeholderText().startsWith(QStringLiteral("e.g. 1-3")))
+                le->setText(QStringLiteral("1-2,3-4"));
+
+        QVERIFY(QMetaObject::invokeMethod(&h.mode, "onSplit"));
+
+        // Wait until the completion box was captured (the split runs
+        // synchronously on this thread; the box closes from the driver above).
+        QTRY_VERIFY_WITH_TIMEOUT(!capturedModalText.isEmpty(), 10000);
+
+        QVERIFY2(QFile::exists(h.tmpDir.path() + QStringLiteral("/partial_part1.pdf")),
+                 "the healthy part must still be written (partial completion is real work)");
+        QVERIFY2(!QFile::exists(h.tmpDir.path() + QStringLiteral("/partial_part2.pdf")),
+                 "the failed part must not leave an output behind");
+
+        // THE NCR-01 contract: the failed part is NAMED and the dialog does
+        // not claim an unconditional "Split complete". Pre-fix the caller
+        // showed "Split complete. 1 file(s) written" with no part named.
+        QVERIFY2(!capturedModalText.contains(QStringLiteral("Split complete")),
+                 qPrintable(QStringLiteral("a partial split must not claim completion: %1").arg(capturedModalText)));
+        QVERIFY2(capturedModalText.contains(QStringLiteral("part 2")),
+                 qPrintable(QStringLiteral("the failed part must be named: %1").arg(capturedModalText)));
+        QVERIFY2(capturedModalText.contains(QStringLiteral("partial_part2.pdf")),
+                 qPrintable(QStringLiteral("the failed part's path must be named: %1").arg(capturedModalText)));
     }
 };
 
