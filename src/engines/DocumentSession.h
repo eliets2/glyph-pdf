@@ -17,6 +17,19 @@ public:
     void setClean();
     void markDirty();
 
+    // ARC01 (TEAM-ARCHITECTURE-REVIEW-2026-09-07): publish a NEW document
+    // identity at the one open/switch boundary. Unlike setPath() (a defensive
+    // path re-sync, a no-op for the same path) this unconditionally mints a new
+    // identity: clears dirty state, resets the autosave stamp and advances
+    // documentGeneration() — including for a same-path reopen (A→A), which is
+    // a NEW revision of the document with no inherited history.
+    void beginDocument(const QString &path);
+
+    // ARC01: identity of the OPEN document — advances once per successful
+    // beginDocument() (open / switch / same-path reopen). Content revisions
+    // *within* an open document are tracked by mutationRevision().
+    qint64 documentGeneration() const;
+
     // V05 (PARITY-BRANCH-REVIEW-2026-09-05): monotonically increasing identity
     // of the document's CONTENT. markDirty()/markReload() — the boundaries every
     // mutating command and successful edit path already call — advance it, so
@@ -41,4 +54,5 @@ private:
     bool m_dirty = false;
     QDateTime m_lastAutosave;
     qint64 m_mutationRevision = 0;
+    qint64 m_documentGeneration = 0;
 };

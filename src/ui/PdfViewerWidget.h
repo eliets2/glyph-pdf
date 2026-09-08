@@ -175,6 +175,16 @@ protected:
 private:
     void clearPageCache();
 
+    // ARC02 (TEAM-ARCHITECTURE-REVIEW-2026-09-07): document-identity helpers.
+    // flushPendingAnnotationSave() writes any PENDING debounced sidecar work
+    // synchronously against the CURRENT (old) document path — called before a
+    // document identity change so pending work can never resolve the NEW
+    // mutable path, and so the flush is complete before the switch returns.
+    // writeAnnotationsNow() is its synchronous single-writer primitive (the
+    // detached-thread writer at shutdown would race process teardown).
+    void flushPendingAnnotationSave();
+    void writeAnnotationsNow(const QString &filePath);
+
     QPdfDocument *m_document;
     QPdfView *m_pdfView;
     QPdfSearchModel *m_searchModel;

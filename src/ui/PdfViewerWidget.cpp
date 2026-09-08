@@ -281,15 +281,56 @@ PdfViewerWidget::~PdfViewerWidget()
     // page jump followed by destruction would invoke it on a half-destroyed
     // object ("Called object is not of the correct type").
     disconnect(m_pageNavigator, &QPdfPageNavigator::currentPageChanged, this, nullptr);
-    // Flush any pending debounced save (Fix 7)
+    // Flush any pending debounced save (Fix 7). ARC02: synchronously — a
+    // detached writer here would race process teardown at shutdown.
     if (m_saveDebounceTimer->isActive()) {
         m_saveDebounceTimer->stop();
-        saveAnnotations();
+        writeAnnotationsNow(m_filePath);
+    }
+}
+
+// ARC02: capture/flush policy for pending sidecar work. The pending save is
+// bound to the CURRENT document identity: it is written synchronously against
+// the current path BEFORE that path can change, and the debounce timer is
+// stopped so no stale timer can fire against a new mutable path afterwards.
+// (The async writer already captures (path, bytes) by value, so a writer in
+// flight can only ever touch the document it was created for.)
+void PdfViewerWidget::flushPendingAnnotationSave()
+{
+    if (!m_saveDebounceTimer->isActive()) return;
+    m_saveDebounceTimer->stop();
+    writeAnnotationsNow(m_filePath);
+}
+
+void PdfViewerWidget::writeAnnotationsNow(const QString &filePath)
+{
+    if (filePath.isEmpty()) return;
+    QJsonDocument doc = AnnotationSerializer::toJson(m_annotationLayer->annotations());
+    QFile file(filePath + ".ann");
+    if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        file.write(doc.toJson());
+        file.close();
     }
 }
 
 bool PdfViewerWidget::loadDocument(const QString &fileName)
 {
+    // ARC02: this is the view layer's document-identity boundary.
+    // 1) Capture/flush the OLD document's pending sidecar work against the OLD
+    //    path BEFORE the identity changes (no-op when nothing is pending). A
+    //    same-path reload also flushes, so loadAnnotations() below restores
+    //    the newest state instead of the last debounced snapshot.
+    flushPendingAnnotationSave();
+    // 2) Never carry document A's overlay state into document B. A missing
+    //    sidecar must mean an EMPTY annotation list — loadAnnotations() used
+    //    to early-return on a missing file, silently retaining A's list and
+    //    letting the pending debounce serialize it under B's path.
+    if (fileName != m_filePath && !m_annotationLayer->annotations().isEmpty()) {
+        m_annotationLayer->setAnnotations({});
+        // setAnnotations() emits annotationsChanged, which rearms the debounce
+        // timer; an identity switch is not an edit of the NEW document.
+        m_saveDebounceTimer->stop();
+    }
     m_filePath = fileName;
     clearPageCache();
     m_linksForPage = -1;   // §9.1: document changed → link cache is stale

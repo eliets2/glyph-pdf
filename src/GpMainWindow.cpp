@@ -35,6 +35,7 @@
 #include "ui/FindBar.h"
 #include "engines/DocumentSession.h"
 #include "engines/PdfEditorEngine.h"
+#include <QUndoStack>   // ARC01: history is scoped to one document at the open boundary
 #include "util/GpTheme.h"
 
 #include <QApplication>
@@ -482,10 +483,26 @@ void MainWindow::recoverDocument(const QString& originalPath) {
     auto* viewer = pdfViewer();
     if (!viewer) return;
 
+    // ARC05/ARC01: recovery is an open — establish the editing backend first
+    // (on the autosave copy's bytes) and refuse the recovery if that fails,
+    // instead of publishing an identity the engine cannot serve.
+    if (!_ctx || !_ctx->pdfEditor || !_ctx->pdfEditor->loadDocumentForEditing(autosavePath)) {
+        if (_ctx && _ctx->pdfEditor) _ctx->pdfEditor->clearError();
+        statusBar()->showMessage(
+            tr("Could not recover %1: the autosave copy could not be opened for editing.")
+                .arg(originalPath), 5000);
+        return;
+    }
+
     if (viewer->loadDocument(autosavePath)) {
+        // ARC01: new document identity for the recovered document (history
+        // cleared below); the recovered copy is by definition still unsaved.
         if (_ctx && _ctx->document) {
-            _ctx->document->setPath(originalPath);
+            _ctx->document->beginDocument(originalPath);
             _ctx->document->markDirty();
+        }
+        if (_ctx && _ctx->undoStack) {
+            _ctx->undoStack->clear();
         }
         _home->addRecentFile(originalPath);
         _menu->refreshRecentFiles();
@@ -551,11 +568,52 @@ void MainWindow::openDocument(const QString& filePath) {
     auto* viewer = pdfViewer();
     if (!viewer) return;
 
+    // ARC05 (P1, TEAM-ARCHITECTURE-REVIEW-2026-09-07): a successful Open must
+    // establish BOTH sessions — the Qt viewer document AND the shared editing
+    // backend — here, at the one open choke point. Previously the engine kept
+    // its default-constructed (backend-less) state until some ad hoc tool flow
+    // happened to initialize it, so immediate mutations failed with "No
+    // document is open for editing" and pathless engine queries could still
+    // describe a PREVIOUSLY loaded document after a switch. The engine load
+    // runs BEFORE the new identity is published below: a failed load shows the
+    // backend's own error and destroys nothing (retry re-runs the whole open).
+    const bool engineReady = _ctx && _ctx->pdfEditor
+        && _ctx->pdfEditor->loadDocumentForEditing(filePath);
+    if (!engineReady) {
+        ErrorInfo err;
+        if (_ctx && _ctx->pdfEditor) {
+            err = _ctx->pdfEditor->lastError();
+            _ctx->pdfEditor->clearError();
+        }
+        if (err.isOk()) {
+            err = ErrorInfo::error(
+                tr("Could not open the PDF document."),
+                tr("Path: %1").arg(filePath),
+                ErrorInfo::Retry);
+        }
+        err.sourceFile = filePath;
+
+        int result = ErrorDialog::show(err, this);
+        if (result == QDialog::Accepted) {
+            // User clicked Retry
+            openDocument(filePath);
+        }
+        return;
+    }
+
     if (viewer->loadDocument(filePath)) {
         showWorkspace();   // leave the welcome screen now that a document is loaded
+        // ARC01 (P1): publish a NEW document identity and scope the undo
+        // history to it, at this single session boundary. Without this, A's
+        // commands survived the switch and — because commands resolve the
+        // session path at execution time — undoing them mutated B (or the
+        // reloaded A). Same-path reopen (A→A) is included: it is a new
+        // revision loaded from disk, not a continuation of the old history.
         if (_ctx && _ctx->document) {
-            _ctx->document->setPath(filePath);
-            _ctx->document->setClean();
+            _ctx->document->beginDocument(filePath);
+        }
+        if (_ctx && _ctx->undoStack) {
+            _ctx->undoStack->clear();
         }
         // Track recent files (D4)
         _home->addRecentFile(filePath);
