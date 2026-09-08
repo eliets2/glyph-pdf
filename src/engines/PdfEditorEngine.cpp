@@ -1251,6 +1251,21 @@ bool PdfEditorEngine::cropPage(const QString &path, int pageIndex, const QRectF 
     return ok;
 }
 
+QRectF PdfEditorEngine::pageCropBox(const QString &path, int pageIndex, bool *ok)
+{
+    QMutexLocker locker(&d->mutex);
+    if (ok) *ok = false;
+    if (!d->backend) { d->noBackend("pageCropBox"); return QRectF(); }
+    return d->backend->pageCropBox(path, pageIndex, ok);
+}
+
+void PdfEditorEngine::releaseResidentFile(const QString &path)
+{
+    QMutexLocker locker(&d->mutex);
+    if (!d->backend) return;
+    d->backend->releaseResidentFile(path);
+}
+
 bool PdfEditorEngine::resizePage(const QString &path, int pageIndex, const QSizeF &size)
 {
     QMutexLocker locker(&d->mutex);

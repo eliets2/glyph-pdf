@@ -931,6 +931,12 @@ void EditController::onTextEditRequested(int pageIndex, QPointF pos) {
 
 // ── Image editing ───────────────────────────────────────────────────────────
 
+// EC03: mirrors the backend page-restore limit (PoDoFoBackend
+// ::insertPageFromBytes rejects page data over 10 MB). Extraction does not
+// enforce it, so the controller refuses an over-limit backup BEFORE the
+// destructive edit instead of creating an unundoable command.
+static constexpr qint64 kMaxPageBackupBytes = 10 * 1024 * 1024;
+
 void EditController::enterImageEditMode() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->pdfEditor) return;
@@ -993,6 +999,20 @@ void EditController::onImageSelected(const QString &name, const QRectF &placemen
             tr("Images (*.png *.jpg *.jpeg *.bmp)"));
         if (newPath.isEmpty()) return;
         const QByteArray backup = _ctx->pdfEditor->extractPageAsBytes(viewer->filePath(), _imageEditPage);
+        // EC03: the undo of this command restores the page from `backup` —
+        // refuse the destructive edit up front when the backup is unusable
+        // (missing, or over the backend's 10 MB page-restore limit) instead of
+        // creating an undoable step that cannot be undone.
+        if (backup.isEmpty()) {
+            _mainWindow->statusBar()->showMessage(
+                tr("Replace image refused: the page could not be backed up; nothing was changed."), 5000);
+            return;
+        }
+        if (backup.size() > kMaxPageBackupBytes) {
+            _mainWindow->statusBar()->showMessage(
+                tr("Replace image refused: the page exceeds the 10 MB restore limit; nothing was changed."), 5000);
+            return;
+        }
         _ctx->document->setPath(viewer->filePath());
         _ctx->undoStack->push(new ReplaceImageCommand(
             _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, newPath, backup));
@@ -1002,6 +1022,17 @@ void EditController::onImageSelected(const QString &name, const QRectF &placemen
             tr("Delete image %1 from page %2?").arg(name).arg(_imageEditPage + 1));
         if (reply != QMessageBox::Yes) return;
         const QByteArray backup = _ctx->pdfEditor->extractPageAsBytes(viewer->filePath(), _imageEditPage);
+        // EC03: same restorable-backup contract as the replace path above.
+        if (backup.isEmpty()) {
+            _mainWindow->statusBar()->showMessage(
+                tr("Delete image refused: the page could not be backed up; nothing was changed."), 5000);
+            return;
+        }
+        if (backup.size() > kMaxPageBackupBytes) {
+            _mainWindow->statusBar()->showMessage(
+                tr("Delete image refused: the page exceeds the 10 MB restore limit; nothing was changed."), 5000);
+            return;
+        }
         _ctx->document->setPath(viewer->filePath());
         _ctx->undoStack->push(new DeleteImageCommand(
             _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, backup));

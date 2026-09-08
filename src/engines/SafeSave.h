@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 #include <QString>
+#include <functional>
 
 namespace gp {
 
@@ -40,6 +41,38 @@ CommitFaultForTesting commitFaultForTesting();
 // atomic rename).
 bool commitFileToDestination(const QString& candidate, const QString& destPath, QString* err,
                              CommitFaultForTesting fault = CommitFaultForTesting::None);
+
+// ── GUI-held-handle coordination (engine-lane residual, step-2 ledger) ──────
+//
+// The viewer displaying the destination file holds an OS handle without
+// delete access, so QSaveFile's atomic rename fails with "Access is denied"
+// for every in-place write (rotate/save/crop/redaction commit, form import).
+// The shell installs a coordinator pair ONCE (MainWindow startup):
+//   release(destPath) — invoked before the destination is opened for the
+//                       atomic replacement (the viewer parks its document,
+//                       releasing the handle),
+//   restore(destPath) — invoked after the commit attempt, on EVERY outcome
+//                       (the viewer reloads the replaced or preserved file).
+// NULL functions are a no-op (engine-only callers, tests without a viewer).
+// Implementations must be cheap, must no-op for paths their UI does not
+// display, and must only touch UI objects from the GUI thread.
+using FileHandleGuard = std::function<void(const QString &destPath)>;
+void setFileHandleCoordinator(FileHandleGuard releaseFileHandles,
+                              FileHandleGuard restoreFileHandles);
+
+// RAII scope for writers that bypass commitFileToDestination (e.g. the signed
+// SaveUpdate incremental append in PoDoFoBackend::writeUpdate): releases on
+// construction, restores on destruction — covering every early return.
+class ScopedFileHandleCoordination {
+public:
+    explicit ScopedFileHandleCoordination(const QString &destPath);
+    ~ScopedFileHandleCoordination();
+    ScopedFileHandleCoordination(const ScopedFileHandleCoordination&) = delete;
+    ScopedFileHandleCoordination& operator=(const ScopedFileHandleCoordination&) = delete;
+private:
+    QString m_dest;
+    bool m_armed = false;
+};
 
 } // namespace SafeSave
 } // namespace gp

@@ -14,7 +14,32 @@ namespace {
 // FormManager SaveFault injection point: the failure fires AFTER the bounded
 // copy, before QSaveFile::commit(), so the cancelWriting path is exercised.
 CommitFaultForTesting g_commitFaultForTesting = CommitFaultForTesting::None;
+
+// GUI-held-handle coordinator (see SafeSave.h). Set once by the shell at
+// startup; reading the pair is otherwise immutable, so no locking is needed.
+FileHandleGuard g_releaseFileHandles;
+FileHandleGuard g_restoreFileHandles;
 } // namespace
+
+void setFileHandleCoordinator(FileHandleGuard releaseFileHandles,
+                              FileHandleGuard restoreFileHandles)
+{
+    g_releaseFileHandles = std::move(releaseFileHandles);
+    g_restoreFileHandles = std::move(restoreFileHandles);
+}
+
+ScopedFileHandleCoordination::ScopedFileHandleCoordination(const QString &destPath)
+    : m_dest(destPath)
+{
+    m_armed = static_cast<bool>(g_releaseFileHandles);
+    if (m_armed) g_releaseFileHandles(m_dest);
+}
+
+ScopedFileHandleCoordination::~ScopedFileHandleCoordination()
+{
+    if (m_armed && g_restoreFileHandles)
+        g_restoreFileHandles(m_dest);
+}
 
 // Reserve a unique candidate path in the system temp dir. The handle is
 // released before any writer produces the candidate so the writer owns the
@@ -59,6 +84,11 @@ bool commitFileToDestination(const QString& candidate, const QString& destPath, 
         return false;
     }
     const qint64 expected = src.size();
+
+    // GUI-held-handle coordination: the release runs before the destination is
+    // opened for the atomic replacement; the restore runs on EVERY outcome, so
+    // a failed commit also leaves the (preserved) file displayed again.
+    ScopedFileHandleCoordination coordinationScope(destPath);
 
     QSaveFile out(destPath);
     if (!out.open(QIODevice::WriteOnly)) {

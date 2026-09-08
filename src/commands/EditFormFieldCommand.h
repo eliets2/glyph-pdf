@@ -41,8 +41,9 @@ struct EditFormFieldProperties {
 /// explicitly (found == false → the command fails without writing); duplicate
 /// full names address the first occurrence.
 ///
-/// Failure handling respects QUndoStack ownership: Qt 6.11 push() DELETES a
-/// command that is obsolete after its initial redo() (no undo entry at all);
+/// Failure handling respects QUndoStack ownership: push() (Qt 5.15 through
+/// 6.x, not a 6.11 novelty) DELETES a command that is obsolete after its
+/// initial redo() (no undo entry at all);
 /// during traversal, obsolete commands are skipped. Callers must not
 /// dereference a pushed command after a possibly-failed push — inspect
 /// succeeded()/lastError() via a direct redo() instead.
@@ -106,7 +107,16 @@ public:
         if (!m_old.found) return; // nothing was ever applied
         const bool ok = m_engine->applyFieldSnapshot(m_doc->path(), m_old, m_doc->path());
         if (!ok) {
+            // V02 residual (step-3 history truthfulness): the failed restore
+            // used to be a silent qWarning while Qt moved the history index.
+            // The failure is now reported to the history owner, and the state
+            // stays truthful: no markReload — disk (and viewer) still carry
+            // the edited values, so the document remains dirty.
+            const QString reason = QObject::tr(
+                "Undo of the form-field edit failed for '%1'; the edited values are still in effect.")
+                    .arg(m_oldProps.name);
             qWarning() << "EditFormFieldCommand::undo failed for" << m_oldProps.name;
+            emit m_doc->mutationFailed(reason);
             return; // refresh state only after successful persistence
         }
         m_doc->markReload();
