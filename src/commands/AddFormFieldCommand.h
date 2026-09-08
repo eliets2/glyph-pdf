@@ -19,9 +19,10 @@ public:
     // boundary is transactional — a failed operation leaves the document on
     // disk untouched — so on failure the session is NOT marked for reload and
     // the command marks itself obsolete. QUndoStack ownership is respected:
-    // Qt 6.11 push() DELETES a command that is obsolete after its initial
-    // redo() (no undo entry at all), and during traversal obsolete commands
-    // are skipped. Callers must not dereference a pushed command after push
+    // Qt (5.15 through 6.x) push() DELETES a command that is obsolete after
+    // its initial redo() (no undo entry at all), and during traversal
+    // obsolete commands are skipped. Callers must not dereference a pushed
+    // command after push
     // when the push may have failed; use succeeded()/lastError() via a direct
     // redo() or check the stack state instead.
     void redo() override {
