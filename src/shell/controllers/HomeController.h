@@ -18,11 +18,23 @@ class MainWindow;
 class HomeController : public QObject, public IToolController {
     Q_OBJECT
 public:
+    // ARC03 (TEAM-ARCHITECTURE-REVIEW-2026-09-07): explicit save outcomes.
+    // "Save initiated" is not proof of persistence — close/switch guards need
+    // to know whether the work is really on disk.
+    //   Saved    — the checked commit succeeded (dirty flag cleared).
+    //   Canceled — nothing was attempted (no document open, user backed out).
+    //   Failed   — a guard or the write itself failed; the work is untouched.
+    enum class SaveOutcome { Saved, Canceled, Failed };
+
     HomeController(const AppContext* ctx, MainWindow* mainWindow, QObject* parent = nullptr);
 
     // IToolController
     QList<ToolId> handledTools() const override;
     void activate(ToolId id) override;
+
+    // ARC03: the save operation with an explicit, checked result for the
+    // close/document-switch guards. ToolId::Save routes through here too.
+    SaveOutcome saveNow();
 
     void addRecentFile(const QString& filePath);
     void removeFromRecents(const QString& filePath);

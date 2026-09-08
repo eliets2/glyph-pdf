@@ -5,6 +5,7 @@
 #include "core/AnnotationSerializer.h"
 #include <QDebug>
 #include <QDesktopServices>
+#include <QBuffer>
 #include <QUrl>
 #include <QMessageBox>
 #include <QPdfDocument>
@@ -167,6 +168,11 @@ PdfViewerWidget::PdfViewerWidget(QWidget *parent)
     , m_saveDebounceTimer(new QTimer(this))
     , m_pageChangeTimer(new QTimer(this))
 {
+    // Engine-lane residual: the parking device load() swaps in when an
+    // in-place write must replace the displayed file (see parkDocumentForWrite).
+    m_parkBuffer = new QBuffer(this);
+    m_parkBuffer->open(QIODevice::ReadWrite);
+
     m_searchModel->setDocument(m_document);
     m_bookmarkModel->setDocument(m_document);
 
@@ -191,6 +197,12 @@ PdfViewerWidget::PdfViewerWidget(QWidget *parent)
     m_pageNavigator = m_pdfView->pageNavigator();
     connect(m_pageNavigator, &QPdfPageNavigator::currentPageChanged, this, &PdfViewerWidget::onPageChanged);
     connect(m_annotationLayer, &AnnotationLayer::annotationsChanged, this, &PdfViewerWidget::annotationsChanged);
+    // ARC04: a USER layer edit dirties the session — see the signal comment.
+    // (Re)loads suppress the relay (m_suppressAnnotationDirty in loadDocument).
+    connect(m_annotationLayer, &AnnotationLayer::annotationsChanged, this, [this]() {
+        if (!m_suppressAnnotationDirty)
+            emit annotationEdited();
+    });
     connect(m_annotationLayer, &AnnotationLayer::textEditRequested, this, &PdfViewerWidget::textEditRequested);
 
     // Save debounce: annotationsChanged restarts a 2-second timer (Fix 7)
@@ -315,6 +327,10 @@ void PdfViewerWidget::writeAnnotationsNow(const QString &filePath)
 
 bool PdfViewerWidget::loadDocument(const QString &fileName)
 {
+    // ARC04: everything this function does to the annotation layer is a
+    // document (re)load, NOT a user edit — the dirty relay is suppressed so a
+    // freshly published identity never opens dirty.
+    m_suppressAnnotationDirty = true;
     // ARC02: this is the view layer's document-identity boundary.
     // 1) Capture/flush the OLD document's pending sidecar work against the OLD
     //    path BEFORE the identity changes (no-op when nothing is pending). A
@@ -337,6 +353,7 @@ bool PdfViewerWidget::loadDocument(const QString &fileName)
     m_document->load(fileName);
     if (isLoaded()) loadAnnotations();
     refreshPageLinks(); // §9.1 P0: prime link cache for the opening page
+    m_suppressAnnotationDirty = false;
     return isLoaded();
 }
 
@@ -350,6 +367,40 @@ void PdfViewerWidget::reload()
         m_annotationLayer->setRotation(0);
         loadDocument(m_filePath);
     }
+}
+
+// ── Engine-lane residual: viewer-handle coordination for in-place writes ────
+//
+// Fact probe (.context/evidence-2026-09-08/probe-persist.txt): a loaded
+// QPdfDocument turns the SafeSave atomic replacement into "Access is denied";
+// QPdfDocument::close() does NOT release the owned file device (Qt keeps it
+// until the next load or the document's destruction) — loading an empty
+// in-memory buffer DOES release it synchronously, and the subsequent same-path
+// commit succeeds.
+
+bool PdfViewerWidget::parkDocumentForWrite(const QString &path)
+{
+    if (!m_document || path.isEmpty() || path != m_filePath)
+        return false;                    // not displayed here — nothing to release
+    if (m_parkedForWrite)
+        return true;                     // already parked (nested commits)
+    if (!isLoaded())
+        return false;                    // nothing displayed → no handle held
+    m_document->load(m_parkBuffer);      // replaces Qt's file device synchronously
+    m_parkedForWrite = !isLoaded();
+    return m_parkedForWrite;
+}
+
+void PdfViewerWidget::restoreDocumentAfterWrite(const QString &path)
+{
+    if (!m_parkedForWrite || !m_document || path != m_filePath)
+        return;
+    m_parkedForWrite = false;
+    // Full reload from the written file — the bytes are either the committed
+    // result or (on a failed commit) the preserved original; either way the
+    // displayed document becomes truthful again. reload() resets the overlay
+    // rotation exactly like the post-mutation reloadRequested path does.
+    reload();
 }
 
 bool PdfViewerWidget::isLoaded() const

@@ -6,6 +6,7 @@
 #include "ui/PageSetupDialog.h"
 #include "ui/ExportPresetsPanel.h"
 #include "engines/ConversionManager.h"
+#include "engines/DocumentSession.h"   // ARC04: session clean baseline after a checked save
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -116,19 +117,27 @@ void HomeController::activate(ToolId id) {
 }
 
 void HomeController::onSave() {
+    saveNow();
+}
+
+// ARC03: the save operation with an explicit, checked result. Every guard
+// refusal and every write failure is reported to the caller instead of being
+// swallowed by status text — the close path decides on THIS outcome whether
+// the window may go away ("save initiated" is not proof of persistence).
+HomeController::SaveOutcome HomeController::saveNow() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer) {
         _mainWindow->statusBar()->showMessage(tr("No document is open."), 3000);
-        return;
+        return SaveOutcome::Canceled;   // nothing was attempted
     }
     if (!_ctx->pdfEditor) {
         _mainWindow->statusBar()->showMessage(tr("Save unavailable: PDF engine is not ready."), 5000);
-        return;
+        return SaveOutcome::Failed;     // guard failure — work stays open
     }
     const QString filePath = viewer->filePath();
     if (filePath.isEmpty()) {
         _mainWindow->statusBar()->showMessage(tr("Save unavailable: current tab has no file path."), 5000);
-        return;
+        return SaveOutcome::Failed;     // guard failure — work stays open
     }
 
     // R2-1 D1+D2: ProvenanceGuard check + signed-document routing.
@@ -169,7 +178,7 @@ void HomeController::onSave() {
                 tr("This document cannot be saved in-place: %1\n\n"
                    "Use 'Save As' to create a copy.")
                     .arg(QString::fromStdString(pv.what())));
-            return;
+            return SaveOutcome::Failed;   // guard refusal — work stays open
         }
     }
 
@@ -187,7 +196,14 @@ void HomeController::onSave() {
 
     if (ok) {
         if (_ctx->undoStack) _ctx->undoStack->setClean();
+        // ARC04: ONE session dirty policy — the clean baseline is established
+        // only after a CHECKED successful save, and only for the session that
+        // actually describes the persisted file (a diverged session keeps its
+        // dirty state instead of silently losing unsaved work).
+        if (_ctx->document && _ctx->document->path() == filePath)
+            _ctx->document->setClean();
         _mainWindow->statusBar()->showMessage(tr("Document saved: %1").arg(filePath), 5000);
+        return SaveOutcome::Saved;
     } else {
         // UX-14: a save failure means the user's work was NOT persisted.
         // A 5-second status bar transient is easily missed for a data-loss event.
@@ -198,6 +214,7 @@ void HomeController::onSave() {
             tr("Could not save '%1'. Check that the disk is not full and the "
                "file is not write-protected.").arg(filePath));
         _mainWindow->statusBar()->showMessage(tr("Save failed: %1").arg(filePath), 5000);
+        return SaveOutcome::Failed;
     }
 }
 
