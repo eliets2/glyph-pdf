@@ -941,6 +941,39 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestDocumentIdentity.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestReadOnlyGate.cpp")
+    # ARC07 (TEAM-ARCHITECTURE-REVIEW-2026-09-07, wave 4A): real-MainWindow
+    # integration tests for the shared read-only mutation gate. Same shape as
+    # the TestDocumentIdentity target (real Bootstrapper context, offscreen).
+    add_executable(TestReadOnlyGate
+        tests/TestReadOnlyGate.cpp
+        src/app/Bootstrapper.h  src/app/Bootstrapper.cpp
+    )
+    target_include_directories(TestReadOnlyGate PRIVATE src tests)
+    target_compile_definitions(TestReadOnlyGate PRIVATE
+        DJOT_LIB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/third_party/djot"
+    )
+    target_link_libraries(TestReadOnlyGate PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestReadOnlyGate POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestReadOnlyGate>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestReadOnlyGate>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestReadOnlyGate"
+    )
+    add_test(NAME TestReadOnlyGate COMMAND TestReadOnlyGate)
+    set_tests_properties(TestReadOnlyGate PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;shell;readonly;integration;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignatureValidationMock.cpp")
     add_executable(TestSignatureValidationMock
         tests/TestSignatureValidationMock.cpp

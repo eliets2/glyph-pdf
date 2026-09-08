@@ -32,6 +32,7 @@
 #include "ui/PdfViewerWidget.h"
 #include "ui/ThumbnailSidebar.h"
 #include "shell/ToolRegistry.h"
+#include "shell/EditPolicy.h"
 #include "ui/FindBar.h"
 #include "engines/DocumentSession.h"
 #include "engines/PdfEditorEngine.h"
@@ -266,6 +267,26 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
                 _ctx->document->markDirty();
         });
     }
+
+    // ARC07 (TEAM-ARCHITECTURE-REVIEW-2026-09-07): the session is the ONE
+    // read-only authority. The viewer mirrors it (its cursor/tool gate keeps
+    // working as defense in depth) and the registry's action enablement
+    // re-syncs from the same signal — the open boundary decides the state,
+    // this wiring only consumes it.
+    if (_ctx && _ctx->document) {
+        connect(_ctx->document.get(), &DocumentSession::readOnlyChanged, this,
+                [this](bool readOnly) {
+                    if (auto* viewer = pdfViewer())
+                        viewer->setReadOnly(readOnly);
+                    if (_toolRegistry)
+                        _toolRegistry->refreshEnabledActions();
+                });
+    }
+    // ARC07: the shared dispatch gate refused a mutating tool. One refusal
+    // wording in ONE place instead of scattered per-controller messages.
+    connect(_toolRegistry, &ToolRegistry::toolRefused, this, [this]() {
+        statusBar()->showMessage(EditPolicy::readOnlyMessage(), 5000);
+    });
 
     // === Wire signals
     connect(_ribbon, &Ribbon::toolActivated, this, &MainWindow::onToolActivated);
@@ -554,6 +575,13 @@ void MainWindow::recoverDocument(const QString& originalPath) {
         if (_ctx && _ctx->document) {
             _ctx->document->beginDocument(originalPath);
             _ctx->document->markDirty();
+            // ARC07: the recovered copy is a NEW document identity — decide
+            // its editability explicitly. The autosave copy carries the
+            // original's §9.11 expiry metadata, so a recovered expired
+            // document stays read-only; anything else recovers editable.
+            const QDate recoveredExpiry = PdfEditorEngine::readExpiryDate(autosavePath);
+            _ctx->document->setReadOnly(recoveredExpiry.isValid()
+                                        && recoveredExpiry < QDate::currentDate());
         }
         if (_ctx && _ctx->undoStack) {
             _ctx->undoStack->clear();
@@ -684,16 +712,25 @@ void MainWindow::openDocument(const QString& filePath) {
 
         // Document expiry (§9.11): if a glyph:ExpiryDate is set and has passed,
         // open the document read-only and warn the user.
+        // ARC07: read-only is decided ONCE per open, ON THE SESSION (the
+        // shared authority every controller consults via shell/EditPolicy.h);
+        // the viewer mirrors it through readOnlyChanged. Every successful
+        // open decides explicitly, so a previously read-only session cannot
+        // leak into a fresh, non-expired document.
         const QDate expiry = PdfEditorEngine::readExpiryDate(filePath);
-        if (expiry.isValid() && expiry < QDate::currentDate()) {
-            viewer->setReadOnly(true);
+        const bool expired = expiry.isValid() && expiry < QDate::currentDate();
+        if (_ctx && _ctx->document)
+            _ctx->document->setReadOnly(expired);
+        // Same decision, applied to the display gate directly: the mirror
+        // signal only fires on a CHANGE of session state, so a fresh open
+        // must also sync the viewer explicitly to stay in lockstep.
+        viewer->setReadOnly(expired);
+        if (expired) {
             QMessageBox box(QMessageBox::Warning, tr("Document Expired"),
                 tr("This document expired on %1. It has been opened in read-only mode.")
                     .arg(expiry.toString(Qt::ISODate)),
                 QMessageBox::Ok, this);
             box.exec();
-        } else {
-            viewer->setReadOnly(false);
         }
 
         // Check if the engine reported a repair warning (D4)

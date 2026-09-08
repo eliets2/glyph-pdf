@@ -22,6 +22,8 @@ public:
     // IToolController
     QList<ToolId> handledTools() const override;
     void activate(ToolId id) override;
+    // ARC07: shared read-only gate (see shell/EditPolicy.h).
+    bool isEnabled(ToolId id) const override;
 
     // §9.7 P0: pure summary builder for Validate All Signatures — exposed
     // static so the presentation logic is unit-testable without a MainWindow.

@@ -28,6 +28,8 @@ public:
     // IToolController
     QList<ToolId> handledTools() const override;
     void activate(ToolId id) override;
+    // ARC07: shared read-only gate (see shell/EditPolicy.h).
+    bool isEnabled(ToolId id) const override;
 
     // Search / replace slots wired from FindBar
     void onSearchRequested(const QString &text, bool forward, bool matchCase,

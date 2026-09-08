@@ -58,6 +58,15 @@ bool DocumentSession::isDirty() const {
     return m_dirty;
 }
 
+// ARC07: the one editability switch. Change-only signalling so consumers
+// (viewer tool gate, action enablement) can re-sync cheaply.
+void DocumentSession::setReadOnly(bool readOnly) {
+    if (m_readOnly == readOnly)
+        return;
+    m_readOnly = readOnly;
+    emit readOnlyChanged(m_readOnly);
+}
+
 void DocumentSession::setClean() {
     if (m_dirty) {
         m_dirty = false;
