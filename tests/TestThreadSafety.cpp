@@ -1,5 +1,9 @@
 #include <QtTest>
 #include <QTemporaryDir>
+#include <QSemaphore>
+#include <QElapsedTimer>
+#include <QAtomicInt>
+#include <chrono>
 #include <future>
 #include <stdexcept>
 #include <podofo/podofo.h>
@@ -66,6 +70,59 @@ public:
     QImage renderTile(int, const QRectF &, int) override { return QImage(); }
     QString extractText(int) override { return QString(); }
     QSizeF pageSize(int) const override { return QSizeF(595, 842); }
+};
+
+// EC06: a renderer whose FIRST renderPage blocks on a semaphore until the
+// test releases it, so the prefetch worker can be pinned deterministically
+// INSIDE renderer->renderPage — exactly the state a superseding prefetch used
+// to orphan (the worker captures a raw IPdfRenderer*).
+class BlockingProbeRenderer : public IPdfRenderer {
+public:
+    QSemaphore entered;   // released once renderPage has been entered
+    QSemaphore unblock;   // the test releases the blocked render
+    QAtomicInt inRender{0};
+    QImage renderPage(int, int) override {
+        inRender.fetchAndAddOrdered(1);
+        entered.release();
+        unblock.acquire();               // blocked: provably inside renderPage
+        inRender.fetchAndAddOrdered(-1);
+        return QImage();
+    }
+    QImage renderTile(int, const QRectF &, int) override { return QImage(); }
+    QSizeF pageSize(int) const override { return QSizeF(595, 842); }
+    QString extractText(int) override { return QString(); }
+};
+
+// EC06: a renderer that completes instantly, used for the superseding (second)
+// prefetch whose future the PRE-FIX clear() actually waited on.
+class CountingFastRenderer : public IPdfRenderer {
+public:
+    QAtomicInt renderCount{0};
+    QImage renderPage(int, int) override {
+        renderCount.fetchAndAddOrdered(1);
+        QImage img(1, 1, QImage::Format_ARGB32);
+        img.fill(Qt::black);
+        return img;
+    }
+    QImage renderTile(int, const QRectF &, int) override { return QImage(); }
+    QSizeF pageSize(int) const override { return QSizeF(595, 842); }
+    QString extractText(int) override { return QString(); }
+};
+
+// RAII: unblocks the pinned worker and waits for it to LEAVE renderPage before
+// the renderer (or anything else) is destroyed — reached on failure paths too,
+// so a pre-fix anchor failure stays a clean test failure, never a crash.
+class UnblockAndJoin {
+public:
+    UnblockAndJoin(BlockingProbeRenderer& r) : m_r(r) {}
+    ~UnblockAndJoin() {
+        m_r.unblock.release();
+        QElapsedTimer t; t.start();
+        while (m_r.inRender.loadAcquire() > 0 && t.elapsed() < 10000)
+            QThread::msleep(2);
+    }
+private:
+    BlockingProbeRenderer& m_r;
 };
 
 class TestThreadSafety : public QObject {
@@ -238,21 +295,75 @@ private slots:
     void testPrefetchUAF() {
         auto cache = std::make_shared<RenderCache>();
         cache->setPageCount(100);
-        
+
         auto renderer = std::make_unique<DummyRenderer>();
-        
+
         // Start prefetch
         cache->prefetchViewport(50, 1.0, renderer.get());
-        
+
         // Immediately clear cache which should cancel prefetch.
         cache->clear();
-        
+
         // Destroy renderer. If prefetch wasn't cancelled properly,
         // it would cause a use-after-free here.
         renderer.reset();
-        
+
         // Wait a bit to ensure the background thread had a chance to hit the UAF if it was going to
         QThread::msleep(100);
+    }
+
+    // ── EC06: clear() must drain EVERY in-flight prefetch, not just the newest ─
+    // prefetchViewport REPLACES m_prefetchFuture while the superseded worker can
+    // still be inside renderer->renderPage (raw IPdfRenderer* captured); the
+    // pre-fix clear() waited only for the newest future, so a superseded render
+    // stayed in flight across clear() — and across the renderer's destruction.
+    // Deterministic shape: worker A is pinned INSIDE renderPage (semaphore);
+    // prefetch B supersedes it and completes; clear() must NOT return while A
+    // is still in flight. Post-fix clear() blocks on A; pre-fix it returns.
+    void testClearDrainsSupersededPrefetches() {
+        auto cache = std::make_shared<RenderCache>();
+        cache->setPageCount(100);
+
+        BlockingProbeRenderer blocker;
+        UnblockAndJoin joinGuard(blocker);   // destroyed FIRST: failure-safe
+        CountingFastRenderer fast;
+
+        // Worker A: pins itself inside renderPage on its first page (51).
+        cache->prefetchViewport(50, 1.0, &blocker);
+        blocker.entered.acquire();           // A is provably inside renderPage
+
+        // Worker B supersedes A (token bump). A never returns from renderPage,
+        // so A cannot observe the cancellation — it stays in flight.
+        cache->prefetchViewport(50, 1.0, &fast);
+
+        // Deterministically wait for B's loop to finish its 6 renders
+        // (pages 47..49, 51..53; all uncached). Existing suite idiom: bounded
+        // condition poll, no fixed sleeps.
+        QElapsedTimer t; t.start();
+        while (fast.renderCount.loadAcquire() < 6 && t.elapsed() < 5000)
+            QThread::msleep(2);
+        QCOMPARE(int(fast.renderCount.loadAcquire()), 6);
+
+        // Drain on a helper thread, as a renderer-retiring owner would.
+        auto drained = std::async(std::launch::async,
+                                  [&cache]() { cache->clear(); });
+
+        // ANCHOR: clear() must not have returned while worker A is still
+        // provably in flight (A has not been released). Pre-fix, clear() waited
+        // only for B's future and returned here → EC06 reproduced. Post-fix,
+        // clear() blocks on A's future and the bounded wait times out.
+        const std::future_status early = drained.wait_for(std::chrono::seconds(2));
+        QVERIFY2(early == std::future_status::timeout,
+                 "clear() returned while a SUPERSEDED prefetch was still inside "
+                 "renderer->renderPage (EC06: clear() drains every in-flight "
+                 "prefetch before the renderer can be retired)");
+
+        // Release A: the drain must now complete, with A fully out of
+        // renderPage by the time clear() returns.
+        blocker.unblock.release();
+        QCOMPARE(drained.wait_for(std::chrono::seconds(10)),
+                 std::future_status::ready);
+        QTRY_COMPARE(int(blocker.inRender.loadAcquire()), 0);
     }
 
     void testConcurrentEngineAccess() {
