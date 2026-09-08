@@ -31,9 +31,9 @@ namespace gp {
 QString CompressDialog::unsupportedPassExplanation()
 {
     // U08: the canonical wording lives in the CapabilityRegistry (the
-    // CompressSubsetFonts / CompressRemoveUnused probes carry the same
-    // string); this static remains the UI anchor TestCompressDialogHonesty
-    // pins.
+    // CompressSubsetFonts probe carries it; since §9.13 the RemoveUnused
+    // probe is Available); this static remains the UI anchor
+    // TestCompressDialogHonesty pins.
     return r12UnsupportedPassExplanation();
 }
 
@@ -159,14 +159,14 @@ CompressDialog::CompressDialog(const AppContext* ctx, QWidget* parent)
     _chkDedup->setChecked(true);
     af->addWidget(_chkDedup, 1, 0);
 
-    // R12/U08: the backend implements neither font subsetting nor unused-object
-    // removal (no subsetter, no object GC in this build). The checkboxes stay
-    // visible but are disabled and unchecked, with the availability explanation
-    // as tooltip/status tip, so the UI never promises a pass that would not
-    // run. The wording now comes from the CapabilityRegistry probes (the same
-    // string the registry hands to any other consumer); the exact whyNot is
-    // pinned by TestCompressDialogHonesty, so the disable stays local instead
-    // of going through applyToWidget's combined whyNot+alternative tooltip.
+    // R12/U08: the backend does not implement font subsetting (no subsetter in
+    // this build). The checkbox stays visible but disabled and unchecked, with
+    // the availability explanation as tooltip/status tip, so the UI never
+    // promises a pass that would not run. The wording now comes from the
+    // CapabilityRegistry probe (the same string the registry hands to any
+    // other consumer); the exact whyNot is pinned by TestCompressDialogHonesty,
+    // so the disable stays local instead of going through applyToWidget's
+    // combined whyNot+alternative tooltip.
     const gp::CapabilityRegistry* caps = _ctx ? _ctx->capabilities.get() : nullptr;
     const QString subsetWhyNot = caps
         ? caps->query(gp::CapId::CompressSubsetFonts).whyNot
