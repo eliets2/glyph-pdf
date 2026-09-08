@@ -74,6 +74,7 @@ public:
     // Content Injection
     bool addHeaderFooter(const QString &path, const HeaderFooterOptions &options) override;
     bool applyBatesNumbering(const QString &path, const BatesNumberingOptions &options) override;
+    bool applyBatesNumbering(const QString &path, const BatesNumberingOptions &options, int *lastNumberOut) override;
 
     // Image operations
     QList<PdfImageInfo> listImages(int pageIndex) override;

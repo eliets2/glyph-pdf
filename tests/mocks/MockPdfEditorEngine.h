@@ -74,6 +74,12 @@ public:
     bool reorderAllPages(const QString &, const QList<int> &) override { return m_loaded; }
     bool addHeaderFooter(const QString &, const HeaderFooterOptions &) override { return m_loaded; }
     bool applyBatesNumbering(const QString &, const BatesNumberingOptions &) override { return m_loaded; }
+    // §9.9 P1: continuity overload — the mock performs no real stamping, so it
+    // only honours the success contract (report goes untouched when null).
+    bool applyBatesNumbering(const QString &, const BatesNumberingOptions &, int *lastNumberOut) override {
+        if (m_loaded && lastNumberOut) *lastNumberOut = m_mockBatesLastNumber;
+        return m_loaded;
+    }
 
     // Watermarking & optimization (Session 13)
     bool addTextWatermark(const TextWatermarkOptions &) override { return m_loaded; }
@@ -129,6 +135,9 @@ public:
     double m_lastRotateDegrees = 0.0;
     // §9.8 P0: mark-based redaction tracking
     QList<AnnotationItem> m_lastMarkRedactions;
+    // §9.9 P1: Bates continuity overload — last number the fake stamping
+    // "consumed" (reported through the out-param when the call succeeds).
+    int m_mockBatesLastNumber = 0;
     // §9.11: expiry tracking
     int m_expiryCalls = 0;
     QString m_lastExpiryPath;

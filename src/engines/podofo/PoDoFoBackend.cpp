@@ -1103,19 +1103,25 @@ bool PoDoFoBackend::addHeaderFooter(const QString &path, const HeaderFooterOptio
 }
 
 bool PoDoFoBackend::applyBatesNumbering(const QString &path, const BatesNumberingOptions &options) {
+    // §9.9 P1: the legacy two-argument entry point keeps its exact stamping
+    // contract; it simply ignores the counter report of the continuity overload.
+    return applyBatesNumbering(path, options, nullptr);
+}
+
+bool PoDoFoBackend::applyBatesNumbering(const QString &path, const BatesNumberingOptions &options, int *lastNumberOut) {
     QMutexLocker locker(&d->mutex);
     try {
         auto& doc = d->resolveDocument(path);
         auto& pages = doc.GetPages();
         int totalPages = static_cast<int>(pages.GetCount());
-        
+
         std::string fontName = options.fontFamily.isEmpty() ? "Helvetica" : options.fontFamily.toStdString();
         const PoDoFo::PdfFont* font = doc.GetFonts().SearchFont(fontName);
         if (!font) {
             fontName = "Helvetica";
             font = &doc.GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::Helvetica);
         }
-        
+
         // Resolve the 1-based inclusive page range (<=0 means open-ended).
         int firstIdx = (options.firstPage > 0) ? options.firstPage - 1 : 0;
         int lastIdx  = (options.lastPage  > 0) ? options.lastPage  - 1 : totalPages - 1;
@@ -1132,7 +1138,13 @@ bool PoDoFoBackend::applyBatesNumbering(const QString &path, const BatesNumberin
 
             currentNumber++;
         }
-        
+
+        // §9.9 P1: report the last number actually consumed. When no page was
+        // stamped (empty/out-of-range range) this is startNumber - 1, so a
+        // cross-document batch continuing at `last + 1` neither skips nor
+        // repeats a number.
+        if (lastNumberOut) *lastNumberOut = currentNumber - 1;
+
         if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (...) {
