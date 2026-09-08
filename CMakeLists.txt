@@ -3287,3 +3287,67 @@ if(QT_VERSION VERSION_GREATER_EQUAL "6.5")
     install(SCRIPT ${deploy_script})
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestHistoryIntegrity.cpp")
+    # Step-3 history truthfulness (EC03/EC05/V02): command-level regression
+    # tests over the real engine (saved/reopened artifacts via PoDoFo/PDFium)
+    # plus fault-injected engines for the failure paths.
+    add_executable(TestHistoryIntegrity
+        tests/TestHistoryIntegrity.cpp
+        src/engines/DocumentSession.cpp
+    )
+    target_include_directories(TestHistoryIntegrity PRIVATE src tests)
+    target_link_libraries(TestHistoryIntegrity PRIVATE
+        pdfws_engines pdfws_core pdfws_commands podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET TestHistoryIntegrity POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestHistoryIntegrity>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestHistoryIntegrity>/platforms/qoffscreen.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PODOFO_VENDOR_DLL}"
+            "$<TARGET_FILE_DIR:TestHistoryIntegrity>/libpodofo.dll"
+        COMMENT "Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestHistoryIntegrity"
+    )
+    add_test(NAME TestHistoryIntegrity COMMAND TestHistoryIntegrity)
+    set_tests_properties(TestHistoryIntegrity PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;history;commands;undo;persistence;qt;headless"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPersistenceOutcomes.cpp")
+    # Step-3 persistence truthfulness (ARC03/ARC04/V01 + the GUI-held-handle
+    # residual): real-MainWindow integration tests over the close/save/dirty
+    # boundaries and the in-place write coordination.
+    add_executable(TestPersistenceOutcomes
+        tests/TestPersistenceOutcomes.cpp
+        src/app/Bootstrapper.h  src/app/Bootstrapper.cpp
+    )
+    target_include_directories(TestPersistenceOutcomes PRIVATE src tests)
+    target_compile_definitions(TestPersistenceOutcomes PRIVATE
+        DJOT_LIB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/third_party/djot"
+    )
+    target_link_libraries(TestPersistenceOutcomes PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestPersistenceOutcomes POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestPersistenceOutcomes>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestPersistenceOutcomes>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestPersistenceOutcomes"
+    )
+    add_test(NAME TestPersistenceOutcomes COMMAND TestPersistenceOutcomes)
+    set_tests_properties(TestPersistenceOutcomes PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;session;persistence;identity;integration;qt;headless"
+    )
+endif()

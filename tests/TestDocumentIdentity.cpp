@@ -224,6 +224,15 @@ private slots:
         }
 
         // A→B→A reopen: history reset again, engine live for the reopened A.
+        // Truth note (step-3 lane): A's step-1 rotation NOW genuinely persists
+        // — the GUI-held-handle coordination lets an in-place rotate replace
+        // the displayed file. Pre-fix the rotate silently failed with
+        // "Access is denied" while the viewer displayed the file (probe:
+        // .context/evidence-2026-09-08/probe-persist.txt), so this block used
+        // to see a portrait A and its portrait expectation was satisfied
+        // vacuously. The reopened A must carry the persisted landscape
+        // rotation, and the no-op undo on the cleared stack must NOT revert
+        // it — still exactly the ARC01 invariant this block exists for.
         m_win->openDocument(a);
         QCOMPARE(ctx->undoStack->count(), 0);
         QVERIFY(!ctx->pdfEditor->extractPageAsBytes(a, 0).isEmpty());
@@ -236,8 +245,9 @@ private slots:
             QVERIFY(probe.loadDocument(aCopy));
             QCOMPARE(probe.pageCount(), 1);
             const QImage page0 = probe.renderPage(0, 1.0);
-            QVERIFY2(page0.height() > page0.width(),
-                     "ARC01: undo after reopen must not act on the reloaded A's stale history");
+            QVERIFY2(page0.width() > page0.height(),
+                     "ARC01: undo after reopen must not act on the reloaded A's stale history "
+                     "(the persisted rotation must survive the no-op undo)");
         }
 
         // Same-path reload A→A: opening the open document is a NEW revision —

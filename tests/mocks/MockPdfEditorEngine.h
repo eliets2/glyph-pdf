@@ -85,7 +85,11 @@ public:
         ++m_rotateCalls; return true;
     }
     bool replaceImage(int, const QString &, const QString &) override { return true; }
-    bool deleteImage(int, const QString &) override { return true; }
+    // TestHistoryIntegrity (EC03): the fault engines below subclass this mock;
+    // deleteImage is counted so a refusal ("no destructive edit without a
+    // restorable backup") is observable.
+    bool deleteImage(int, const QString &) override { ++m_deleteImageCalls; return true; }
+    int m_deleteImageCalls = 0;
     bool applyRedactions(int, const QList<QRectF> &) override { return m_loaded; }
     bool applyMarkRedactions(const QList<AnnotationItem>& marks) override {
         m_lastMarkRedactions = marks;
@@ -97,6 +101,20 @@ public:
 
     // Page geometry & content injection
     bool cropPage(const QString &, int, const QRectF &) override { return m_loaded; }
+    // EC05 (2026-09-08 persistence lane): new interface member — deliberately
+    // NO `override` keyword. Pre-fix baselines (revert verification) have no
+    // such virtual, and this header must compile against them; post-fix this
+    // implements IPageEditor::pageCropBox (signature pinned by the interface).
+    QRectF pageCropBox(const QString &, int, bool *ok) {
+        if (ok) *ok = m_loaded;
+        return QRectF(0, 0, 595, 842);
+    }
+    // GUI-held-handle residual (2026-09-08 persistence lane): shell-side
+    // same-path writers release the resident file before replacing it. Again
+    // NO `override` — the interface member is new in this repair; pre-fix
+    // baselines compile this as a plain member, post-fix it implements
+    // IPageEditor::releaseResidentFile.
+    void releaseResidentFile(const QString &) {}
     bool resizePage(const QString &, int, const QSizeF &) override { return m_loaded; }
     bool reorderPages(const QString &, int, int) override { return m_loaded; }
     bool reorderAllPages(const QString &, const QList<int> &) override { return m_loaded; }
