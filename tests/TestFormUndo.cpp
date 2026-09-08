@@ -363,7 +363,7 @@ void TestFormUndo::missingFieldFailsExplicitly() {
     props.defaultVal = QStringLiteral("new value");
 
     // Command-state probe via direct redo (no stack ownership involved —
-    // Qt 6.11 push() deletes commands that mark themselves obsolete, so
+    // Qt (5.15+) push() deletes commands that mark themselves obsolete, so
     // post-push reads would be use-after-free).
     {
         EditFormFieldCommand probe(&fm, &doc, QStringLiteral("ghost"), props);
