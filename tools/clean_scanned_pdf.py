@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import os
 import sys
 from pathlib import Path
 
@@ -212,19 +213,53 @@ def main() -> int:
     input_pdf = Path(sys.argv[1])
     output_dir = Path(sys.argv[2])
     output_pdf = Path(sys.argv[3])
+
+    # INF01: alias check BEFORE anything is opened or deleted. A same-file
+    # run used to unlink the input and then fail to open it, destroying the
+    # source.
+    try:
+        same_file = input_pdf.resolve() == output_pdf.resolve()
+    except OSError:
+        same_file = input_pdf == output_pdf
+    if same_file:
+        print(
+            "refusing: input and output are the same file "
+            "(same-file cleanup is not supported)",
+            file=sys.stderr,
+        )
+        return 2
+
+    # INF01: open/validate the input FIRST. A missing or corrupt input must
+    # fail without touching any pre-existing output or artifacts.
+    if not input_pdf.is_file():
+        print(f"input not found: {input_pdf}", file=sys.stderr)
+        return 1
+    try:
+        doc = fitz.open(input_pdf)
+    except Exception as exc:  # corrupt / unreadable input
+        print(f"cannot open input {input_pdf}: {exc}", file=sys.stderr)
+        return 1
+
     png_dir = output_dir / "png"
     png_dir.mkdir(parents=True, exist_ok=True)
 
-    for old in png_dir.glob("page_*_cleaned.png"):
-        old.unlink()
-    if output_pdf.exists():
-        output_pdf.unlink()
+    # INF01: snapshot pre-existing artifacts instead of deleting them up
+    # front — stale ones are cleared only after a successful commit, so a
+    # failure never destroys the previous run's artifacts.
+    preexisting_pngs = sorted(png_dir.glob("page_*_cleaned.png"))
+    rewritten_pngs: set[str] = set()
+
+    # Sibling candidate: the previous output is only ever replaced by the
+    # atomic os.replace below, after the candidate is written AND validated.
+    candidate = output_pdf.with_name(output_pdf.name + ".cleaning-tmp.pdf")
 
     dpi = 250
-    doc = fitz.open(input_pdf)
     cleaned_pdf = fitz.open()
     skipped: list[int] = []
     written: list[int] = []
+
+    fail_after_env = os.environ.get("CLEAN_SCANNED_PDF_FAIL_AFTER_PAGE")
+    fail_after = int(fail_after_env) if fail_after_env else None
 
     total = max(0, doc.page_count - 1)
     print(f"input={input_pdf}")
@@ -232,32 +267,72 @@ def main() -> int:
     print(f"output_dir={output_dir}")
     print("", flush=True)
 
-    for page_index in range(1, doc.page_count):
-        page_number = page_index + 1
-        rgb = render_page(doc, page_index, dpi)
-        binary, blank, black_ratio, angle = clean_page(rgb)
+    processed = 0
+    try:
+        for page_index in range(1, doc.page_count):
+            page_number = page_index + 1
+            rgb = render_page(doc, page_index, dpi)
+            binary, blank, black_ratio, angle = clean_page(rgb)
 
-        if blank:
-            skipped.append(page_number)
-            status = "skip_blank"
-        else:
-            png_path = png_dir / f"page_{page_number:03d}_cleaned.png"
-            save_png(binary, png_path, dpi)
-            insert_png_page(cleaned_pdf, binary, doc[page_index].rect, dpi)
-            written.append(page_number)
-            status = "written"
+            if blank:
+                skipped.append(page_number)
+                status = "skip_blank"
+            else:
+                png_path = png_dir / f"page_{page_number:03d}_cleaned.png"
+                save_png(binary, png_path, dpi)
+                rewritten_pngs.add(png_path.name)
+                insert_png_page(cleaned_pdf, binary, doc[page_index].rect, dpi)
+                written.append(page_number)
+                status = "written"
 
-        if page_number == 2 or page_number == doc.page_count or page_number % 10 == 0:
-            done = page_number - 1
-            print(
-                f"{done:03d}/{total:03d} page={page_number:03d} {status} "
-                f"ink={black_ratio:.4f} skew={angle:+.2f}",
-                flush=True,
-            )
+            if page_number == 2 or page_number == doc.page_count or page_number % 10 == 0:
+                done = page_number - 1
+                print(
+                    f"{done:03d}/{total:03d} page={page_number:03d} {status} "
+                    f"ink={black_ratio:.4f} skew={angle:+.2f}",
+                    flush=True,
+                )
 
-    cleaned_pdf.save(output_pdf, garbage=4, deflate=True, clean=True)
+            # Test seam (INF01 acceptance: processing failure). Deterministic
+            # mid-run abort after N processed pages; not part of the cleanup
+            # algorithm.
+            processed += 1
+            if fail_after is not None and processed >= fail_after:
+                raise RuntimeError(
+                    f"injected processing failure after {fail_after} page(s)"
+                )
+
+        cleaned_pdf.save(candidate, garbage=4, deflate=True, clean=True)
+    except BaseException:
+        cleaned_pdf.close()
+        doc.close()
+        candidate.unlink(missing_ok=True)
+        raise
     cleaned_pdf.close()
     doc.close()
+
+    # INF01: validate the closed candidate, then replace the output
+    # atomically. Any failure up to here leaves the previous output intact.
+    try:
+        check = fitz.open(candidate)
+        candidate_ok = check.page_count == len(written)
+        check.close()
+    except Exception:
+        candidate_ok = False
+    if not candidate_ok:
+        candidate.unlink(missing_ok=True)
+        print(
+            "candidate output failed validation; previous output preserved",
+            file=sys.stderr,
+        )
+        return 1
+    os.replace(candidate, output_pdf)
+
+    # INF01: only after the commit succeeded, clear stale pre-existing
+    # artifacts this run did not rewrite.
+    for old in preexisting_pngs:
+        if old.name not in rewritten_pngs:
+            old.unlink(missing_ok=True)
 
     report_path = output_dir / "cleanup_report.txt"
     report_path.write_text(
