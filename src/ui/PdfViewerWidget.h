@@ -20,6 +20,7 @@ class QSpinBox;
 class QLabel;
 class QRubberBand;
 class QMouseEvent;
+class QBuffer;
 QT_END_NAMESPACE
 
 // ── §9.7 P0: on-page signature validity badges (VIEW-LAYER ONLY) ────────────
@@ -144,6 +145,23 @@ public:
     // in GpMainWindow). Without a reader the viewer simply has no links.
     void setLinkReader(std::function<QList<PdfLinkInfo>(const QString &path, int page)> reader);
 
+    // ── Engine-lane residual (TEAM-ENGINE-CODE-REVIEW-2026-09-07 EC01
+    //    follow-up, repaired by the 2026-09-08 persistence lane): in-place
+    //    writes coordinate the viewer handle. Qt's QPdfDocument holds the
+    //    displayed file open, which turns the atomic SafeSave replacement
+    //    into "Access is denied" for EVERY in-place write.
+    // parkDocumentForWrite(path): when this widget displays `path`, release
+    //   the file handle by swapping the resident document to an in-memory
+    //   parking device (Qt's close() does NOT release the owned file device —
+    //   only the next load() replaces it). Idempotent; returns whether parked.
+    // restoreDocumentAfterWrite(path): when parked for `path`, reload from
+    //   disk — the file is either the committed result or the preserved
+    //   original, so the displayed bytes are truthful again either way.
+    // The SafeSave coordinator installed by MainWindow calls these around
+    // every same-path commit; forms' swap flow reuses the same primitives.
+    bool parkDocumentForWrite(const QString &path);
+    void restoreDocumentAfterWrite(const QString &path);
+
 signals:
     void pageChanged(int currentPage, int totalPages);
     void navigationChanged(bool canBack, bool canForward);
@@ -152,6 +170,13 @@ signals:
     // annotation overlay.
     void requestPageRotation(int degrees);
     void annotationsChanged();
+    // ARC04 (TEAM-ARCHITECTURE-REVIEW-2026-09-07): a USER annotation edit
+    // (draw, comment, delete, redact mark, or an EditAnnotationCommand
+    // applied from the inspector/comments) dirties the session through the
+    // same pipeline as command mutations. Emitted for every layer change
+    // EXCEPT those made while (re)loading a document — an open/reload is not
+    // an edit of the freshly published identity.
+    void annotationEdited();
     void textEditRequested(int pageIndex, QPointF pos);
     void pageOperationFinished();
     void cropRequested(int pageIndex, QRectF cropRect);
@@ -184,6 +209,14 @@ private:
     // detached-thread writer at shutdown would race process teardown).
     void flushPendingAnnotationSave();
     void writeAnnotationsNow(const QString &filePath);
+
+    // ARC04: true while loadDocument() (re)loads annotation state — those
+    // layer changes are loads, not user edits, and must not dirty the session.
+    bool m_suppressAnnotationDirty = false;
+
+    // Engine-lane residual: park/restore state for in-place writes.
+    bool m_parkedForWrite = false;
+    QBuffer *m_parkBuffer = nullptr;   // empty in-memory device; opened in the ctor
 
     QPdfDocument *m_document;
     QPdfView *m_pdfView;

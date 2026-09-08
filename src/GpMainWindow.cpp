@@ -67,9 +67,12 @@
 #include <QtConcurrent/QtConcurrent>
 #include <QDesktopServices>
 #include <QUrl>
+#include <QThread>
+#include <QPointer>
 #include <functional>
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "core/UpdateChecker.h"
+#include "engines/SafeSave.h"
 
 #include <QFrame>
 #include <QDebug>
@@ -79,6 +82,14 @@
 #include <QTimer>
 
 namespace gp {
+
+// The GUI-held-handle coordinator is process-wide (SafeSave is a namespace of
+// free functions), and exactly one MainWindow owns it at a time. The owner
+// check makes a stale lambda from a destroyed window inert (tests create and
+// destroy windows in sequence).
+namespace {
+QPointer<MainWindow> g_fileHandleCoordinatorOwner;
+}
 
 MainWindow::MainWindow(AppContext ctx, QWidget* parent)
     : QMainWindow(parent), _ownedCtx(std::move(ctx)), _ctx(&_ownedCtx) {
@@ -168,6 +179,27 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
     _toolRegistry->registerController(_forms);
     _toolRegistry->registerController(_security);
 
+    // Engine-lane residual (step-2 ledger note, EC01 follow-up): same-path
+    // engine writes failed "Access is denied" at the SafeSave commit while the
+    // viewer's QPdfDocument held the file open — in-place rotate/save-in-place
+    // were unusable regardless of backend readiness. The shared commit
+    // boundary now asks the shell to release and restore the viewer handle
+    // around every replacement. Installed ONCE here, so every engine mutation,
+    // save-in-place, redaction commit and form import coordinates through the
+    // same boundary (no per-call-site coordination).
+    g_fileHandleCoordinatorOwner = this;
+    SafeSave::setFileHandleCoordinator(
+        [this](const QString &p) {
+            if (g_fileHandleCoordinatorOwner != this || QThread::currentThread() != thread())
+                return;   // background same-path writers keep the honest failure
+            if (auto *v = pdfViewer()) v->parkDocumentForWrite(p);
+        },
+        [this](const QString &p) {
+            if (g_fileHandleCoordinatorOwner != this || QThread::currentThread() != thread())
+                return;
+            if (auto *v = pdfViewer()) v->restoreDocumentAfterWrite(p);
+        });
+
     // === Welcome-screen actions (route to the same handlers as the ribbon/menu).
     if (_welcome && _home) {
         _welcome->setRecentFiles(_home->recentFiles());
@@ -216,6 +248,22 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
         connect(_ctx->document.get(), &DocumentSession::reloadRequested, this, [this]() {
             if (auto* viewer = pdfViewer())
                 viewer->reload();
+        });
+        // Step-3 history truthfulness (EC03/EC05/V02): a command whose initial
+        // mutation or restoration FAILED reports it — the status bar is the
+        // one surface every controller already shares.
+        connect(_ctx->document.get(), &DocumentSession::mutationFailed, this, [this](const QString &reason) {
+            statusBar()->showMessage(reason, 7000);
+        });
+    }
+
+    // ARC04: annotation edits dirty the session through the SAME pipeline as
+    // command mutations. The viewer suppresses its own (re)loads, so open and
+    // switch never dirty the freshly published identity.
+    if (_ctx && _ctx->document) {
+        connect(_modes->viewer(), &PdfViewerWidget::annotationEdited, this, [this]() {
+            if (_ctx && _ctx->document)
+                _ctx->document->markDirty();
         });
     }
 
@@ -473,6 +521,12 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
 }
 
 MainWindow::~MainWindow() {
+    // The coordinator lambda captures `this` — clear it BEFORE the members it
+    // touches (viewer, controllers) are torn down, unless a newer window owns it.
+    if (g_fileHandleCoordinatorOwner == this) {
+        g_fileHandleCoordinatorOwner = nullptr;
+        SafeSave::setFileHandleCoordinator({}, {});
+    }
     if (_ctx && _ctx->autosave) {
         _ctx->autosave->stop();
     }
@@ -1055,6 +1109,12 @@ void MainWindow::convertAndOpenImages(const QStringList& imagePaths) {
 }
 
 // AR-7 D4: prompt Save / Discard / Cancel when quitting with unsaved changes.
+// ARC03 (P1, TEAM-ARCHITECTURE-REVIEW-2026-09-07): "save initiated" was
+// treated as persistence — the window closed even when the save failed,
+// silently discarding the user's work and their chance to retry. The close
+// now proceeds ONLY on a checked Saved outcome (or the explicit Discard
+// choice); a failed or canceled save keeps the window and the document open
+// with the dirty state and history intact for a retry.
 void MainWindow::closeEvent(QCloseEvent* event) {
     const bool dirty = _ctx && _ctx->document && _ctx->document->isDirty();
     if (dirty) {
@@ -1070,11 +1130,17 @@ void MainWindow::closeEvent(QCloseEvent* event) {
         msgBox.exec();
 
         if (msgBox.clickedButton() == saveBtn) {
-            if (_home) _home->activate(ToolId::Save);
-            // Accept the close — save was initiated (a failed save shows its own error dialog).
+            const auto outcome = _home
+                ? _home->saveNow()
+                : HomeController::SaveOutcome::Failed;
+            if (outcome != HomeController::SaveOutcome::Saved) {
+                // The save failed or was refused — the work is NOT on disk.
+                event->ignore();
+                return;
+            }
             event->accept();
         } else if (msgBox.clickedButton() == discardBtn) {
-            event->accept();
+            event->accept();   // explicit Discard — the only non-Saved way past
         } else {
             // Cancel pressed: do not close.
             event->ignore();
