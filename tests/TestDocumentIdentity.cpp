@@ -16,6 +16,13 @@
 //           test needs no sleeps), B's in-memory list and sidecar start empty
 //           (missing sidecar = explicit empty default), and each document
 //           reloads its own records.
+//   ARC06 (wave 4A, 2026-09-09) — the PDF/A panel is bound to the OPEN document:
+//           entering the screen with a document loaded must leave the panel in
+//           a document-bound state (never the "No document loaded." empty-path
+//           state), and a document switch while the panel is active must
+//           re-bind it. The validator itself may legitimately be unavailable
+//           (veraPDF not installed) — the reviewed acceptance demands the
+//           availability wording, NOT the no-document wording.
 //
 // KNOWN PRE-EXISTING RESIDUAL (EC01 engine-lane follow-up, NOT owned here):
 // a same-path engine write fails with "commit to destination failed: Access is
@@ -40,6 +47,7 @@
 #include <QUndoStack>
 #include <QPdfWriter>
 #include <QPainter>
+#include <QLabel>
 
 #include "GpMainWindow.h"
 #include "app/Bootstrapper.h"
@@ -49,8 +57,10 @@
 #include "engines/DocumentSession.h"
 #include "ui/PdfViewerWidget.h"
 #include "commands/RotatePageCommand.h"
+#include "modes/PdfAValidationPanel.h"
 
 using gp::MainWindow;
+using gp::PdfAValidationPanel;
 
 namespace {
 
@@ -382,6 +392,67 @@ private slots:
         m_win->openDocument(a);
         QCOMPARE(viewer->annotations().size(), 1);
         QCOMPARE(viewer->annotations().first().text, QStringLiteral("ONLY_A_SECRET_NOTE"));
+    }
+
+    // ── ARC06 (wave 4A) ──────────────────────────────────────────────────────
+    // The panel's status label is located by objectName on post-fix builds;
+    // pre-fix revert-verify builds fall back to the label's initial empty-path
+    // text (which is the only state the pre-fix panel ever shows).
+    static QLabel *pdfaStatusLabel(PdfAValidationPanel *panel)
+    {
+        if (QLabel *byName = panel->findChild<QLabel*>(QStringLiteral("pdfaStatusLabel")))
+            return byName;
+        for (QLabel *lbl : panel->findChildren<QLabel*>())
+            if (lbl->text() == QStringLiteral("No document loaded."))
+                return lbl;
+        return nullptr;
+    }
+
+    // ARC06: entering the PDF/A screen with NO document keeps the honest
+    // "No document loaded." state (control — the empty-path wording belongs
+    // to the empty case only).
+    void pdfaPanelWithoutDocumentKeepsEmptyState()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        m_win->activateScreen(QStringLiteral("pdfa"));
+        auto *panel = m_win->findChild<PdfAValidationPanel*>();
+        QVERIFY(panel);
+        QLabel *status = pdfaStatusLabel(panel);
+        QVERIFY(status);
+        QCOMPARE(status->text(), QStringLiteral("No document loaded."));
+    }
+
+    // THE ARC06 contract: entering the PDF/A screen with a document loaded
+    // must give the panel that document — the status leaves the empty-path
+    // state ("Validating…", a verdict, or the specific validator-unavailable
+    // wording; veraPDF itself is NOT required by this test). Repeated after a
+    // document switch A→B while the panel stays the active right panel.
+    void pdfaPanelReceivesOpenDocumentAndFollowsSwitch()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString a = dir.filePath("a.pdf");
+        const QString b = dir.filePath("b.pdf");
+        makePdf(a, "AAA");
+        makePdf(b, "BBB");
+
+        m_win->openDocument(a);
+        m_win->activateScreen(QStringLiteral("pdfa"));
+        auto *panel = m_win->findChild<PdfAValidationPanel*>();
+        QVERIFY(panel);
+        QLabel *status = pdfaStatusLabel(panel);
+        QVERIFY(status);
+        QTRY_VERIFY_WITH_TIMEOUT(status->text() != QStringLiteral("No document loaded."),
+                                 10000);
+
+        // Switch to B while the panel exists and is the active right panel:
+        // it must re-bind to B. openDocument publishes the new identity
+        // synchronously, so the panel's transient "Validating…" state for B is
+        // observable deterministically right after the open returns (the
+        // validator's final verdict for B then arrives asynchronously).
+        m_win->openDocument(b);
+        QTRY_COMPARE(status->text(), QStringLiteral("Validating…"));
     }
 };
 

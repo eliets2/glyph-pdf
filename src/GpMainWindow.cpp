@@ -565,6 +565,10 @@ void MainWindow::recoverDocument(const QString& originalPath) {
         _status->setPage(viewer->currentPage() + 1, viewer->pageCount());
         _status->updateFromDocument(_ctx->pdfEditor.get(), originalPath);
         _status->updateUnsaved(true);
+        // ARC06: same re-binding as openDocument — the recovered document is
+        // a new identity and the panel must follow it while active.
+        if (_pdfaPanel && _modes && _modes->currentScreen() == QLatin1String("pdfa"))
+            refreshPdfAPanel();
         statusBar()->showMessage(tr("Recovered from autosave. Please Save to restore permanently."));
     }
 }
@@ -703,6 +707,13 @@ void MainWindow::openDocument(const QString& filePath) {
                 _ctx->pdfEditor->clearError();
             }
         }
+
+        // ARC06: a successful document change re-binds the PDF/A panel while
+        // it is the active right panel (entering the screen re-binds it in
+        // refreshPdfAPanel's other caller; a switch must not leave the panel
+        // describing the previous document — or the empty state).
+        if (_pdfaPanel && _modes && _modes->currentScreen() == QLatin1String("pdfa"))
+            refreshPdfAPanel();
     } else {
         // Build error info — prefer engine detail, fall back to generic
         ErrorInfo err;
@@ -848,10 +859,28 @@ void MainWindow::onScreenSelected(const QString& id) {
             [this](const QString& dest, int level) -> bool {
                 return _ctx && _ctx->pdfEditor && _ctx->pdfEditor->exportPdfA(dest, level);
             });
+        // ARC06 (P2, TEAM-ARCHITECTURE-REVIEW-2026-09-07): entering the panel
+        // must GIVE it the active document. setDocument() is the panel's only
+        // production path setter and validation entry point — without this
+        // call the panel kept its empty-path state ("No document loaded.")
+        // even though the viewer had a PDF open.
+        refreshPdfAPanel();
         replaceRight(_pdfaPanel);
     } else {
         replaceRight(_right);
     }
+}
+
+// ARC06: bind the PDF/A panel to the CURRENT document identity. Called on
+// entry into the panel and after every successful document change (open,
+// recovery, switch) while the panel is the active right panel — so the
+// panel's validation, reading-order analysis and export all describe the
+// document the user is looking at, never a stale or empty path.
+void MainWindow::refreshPdfAPanel() {
+    if (!_pdfaPanel) return;
+    auto* viewer = pdfViewer();
+    const QString path = viewer ? viewer->filePath() : QString();
+    _pdfaPanel->setDocument(path);
 }
 
 void MainWindow::replaceRight(QWidget* w) {
