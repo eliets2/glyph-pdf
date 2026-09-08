@@ -17,6 +17,23 @@ public:
     void setClean();
     void markDirty();
 
+    // ARC07 (TEAM-ARCHITECTURE-REVIEW-2026-09-07): the ONE read-only state.
+    // Read-only used to live only on PdfViewerWidget (a cursor/tool-mode
+    // gate), so controller actions that push commands or call engines
+    // directly still mutated a read-only document. The session is the shared
+    // state every controller already holds, so editability policy lives HERE;
+    // the viewer mirrors it (readOnlyChanged → setReadOnly, wired by the
+    // MainWindow) and the shell's shared gate (shell/EditPolicy.h) consults
+    // it at every mutation boundary. Note: beginDocument() deliberately does
+    // NOT reset this — the open boundary decides it explicitly per document
+    // (expiry evaluation), exactly like the dirty baseline.
+    bool isReadOnly() const { return m_readOnly; }
+
+public slots:
+    // A slot (not just a method) so callers/tests can reach it through the
+    // metaobject; emits readOnlyChanged only on an actual change.
+    void setReadOnly(bool readOnly);
+
     // ARC01 (TEAM-ARCHITECTURE-REVIEW-2026-09-07): publish a NEW document
     // identity at the one open/switch boundary. Unlike setPath() (a defensive
     // path re-sync, a no-op for the same path) this unconditionally mints a new
@@ -48,6 +65,9 @@ signals:
     void reloadRequested();
     void dirtyChanged(bool dirty);
     void lastAutosaveChanged(const QDateTime &time);
+    // ARC07: the session's editability changed — consumers (viewer tool gate,
+    // action enablement) re-sync from this one signal.
+    void readOnlyChanged(bool readOnly);
     // Step-3 history truthfulness (EC03/EC05/V02, TEAM-ENGINE-CODE-REVIEW-
     // 2026-09-07): a command whose initial mutation or restoration FAILED
     // reports it here, so the shell can surface what the user's action actually
@@ -59,6 +79,7 @@ signals:
 private:
     QString m_path;
     bool m_dirty = false;
+    bool m_readOnly = false;
     QDateTime m_lastAutosave;
     qint64 m_mutationRevision = 0;
     qint64 m_documentGeneration = 0;

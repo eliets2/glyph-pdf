@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "SecurityController.h"
+#include "shell/EditPolicy.h"
 #include "core/AppContext.h"
 #include "GpMainWindow.h"
 #include "modes/RedactMode.h"
@@ -192,6 +193,12 @@ void SecurityController::runSigning(const SigningRequest &req)
 
 SecurityController::SecurityController(const AppContext* ctx, MainWindow* mainWindow, QObject* parent)
     : QObject(parent), _ctx(ctx), _mainWindow(mainWindow) {}
+
+// ARC07: dispatch and enablement share ONE predicate (shell/EditPolicy.h).
+bool SecurityController::isEnabled(ToolId id) const {
+    return !EditPolicy::toolRefusedByReadOnly(
+        _ctx && _ctx->document ? _ctx->document.get() : nullptr, id);
+}
 
 QList<ToolId> SecurityController::handledTools() const {
     return {

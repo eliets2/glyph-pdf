@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "PagesController.h"
+#include "shell/EditPolicy.h"
 #include "core/AppContext.h"
 #include "GpMainWindow.h"
 #include "ui/PdfViewerWidget.h"
@@ -24,6 +25,12 @@ namespace gp {
 
 PagesController::PagesController(const AppContext* ctx, MainWindow* mainWindow, QObject* parent)
     : QObject(parent), _ctx(ctx), _mainWindow(mainWindow) {}
+
+// ARC07: dispatch and enablement share ONE predicate (shell/EditPolicy.h).
+bool PagesController::isEnabled(ToolId id) const {
+    return !EditPolicy::toolRefusedByReadOnly(
+        _ctx && _ctx->document ? _ctx->document.get() : nullptr, id);
+}
 
 QList<ToolId> PagesController::handledTools() const {
     return {
@@ -192,6 +199,12 @@ void PagesController::onPageRotateRequested(int degrees) {
     // rotates (engine-side /Rotate + reload), not just the overlay.
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->undoStack || !_ctx->pdfEditor) return;
+    // ARC07: this entry bypasses the registry (a viewer signal), so the
+    // shared read-only gate is applied here too.
+    if (EditPolicy::mutationBlocked(_ctx->document.get())) {
+        _mainWindow->statusBar()->showMessage(EditPolicy::readOnlyMessage(), 5000);
+        return;
+    }
     _ctx->document->setPath(viewer->filePath());
     _ctx->undoStack->push(new RotatePageCommand(
         _ctx->pdfEditor.get(), _ctx->document.get(), viewer->currentPage(), degrees));
@@ -246,6 +259,11 @@ QList<int> PagesController::buildMovePermutation(int pageCount, int from, int to
 void PagesController::onPageReordered(int from, int to) {
     if (_ctx && _ctx->undoStack && _mainWindow->pdfViewer()) {
         auto* viewer = _mainWindow->pdfViewer();
+        // ARC07: direct-entry mutation (thumbnail drag) — shared gate.
+        if (EditPolicy::mutationBlocked(_ctx->document.get())) {
+            _mainWindow->statusBar()->showMessage(EditPolicy::readOnlyMessage(), 5000);
+            return;
+        }
         _ctx->document->setPath(viewer->filePath());
         // §9.9 P0: route through the atomic permutation command (single disk
         // write, single undo step) instead of the legacy single-swap command.
@@ -258,6 +276,11 @@ void PagesController::onPageReordered(int from, int to) {
 
 void PagesController::onCropRequested(int pageIndex, QRectF rect) {
     if (_ctx && _ctx->undoStack && _mainWindow->pdfViewer()) {
+        // ARC07: direct-entry mutation (crop rubber band) — shared gate.
+        if (EditPolicy::mutationBlocked(_ctx->document.get())) {
+            _mainWindow->statusBar()->showMessage(EditPolicy::readOnlyMessage(), 5000);
+            return;
+        }
         _ctx->document->setPath(_mainWindow->pdfViewer()->filePath());
         _ctx->undoStack->push(new CropPageCommand(_ctx->pdfEditor.get(), _ctx->document.get(), pageIndex, rect));
         _mainWindow->statusBar()->showMessage(tr("Cropped page %1.").arg(pageIndex + 1), 3000);

@@ -21,9 +21,7 @@ public:
         setText(QObject::tr("Edit annotation"));
     }
 
-    void redo() override {
-        applyAnnotations(m_newAnns);
-    }
+    void redo() override;
 
     void undo() override {
         applyAnnotations(m_oldAnns);

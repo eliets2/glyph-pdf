@@ -649,6 +649,10 @@ bool PdfViewerWidget::isFormBuilderMode(ToolMode mode) {
 
 void PdfViewerWidget::deleteSelectedAnnotation()
 {
+    // ARC07: annotation deletion is a mutation — the viewer-level read-only
+    // gate applies here too (Cut / Delete Selection / inspector paths).
+    if (m_readOnly)
+        return;
     m_annotationLayer->deleteSelected();
 }
 

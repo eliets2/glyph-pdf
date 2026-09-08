@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "HomeController.h"
+#include "shell/EditPolicy.h"
 #include "core/AppContext.h"
 #include "GpMainWindow.h"
 #include "ui/PdfViewerWidget.h"
@@ -46,6 +47,12 @@ namespace gp {
 
 HomeController::HomeController(const AppContext* ctx, MainWindow* mainWindow, QObject* parent)
     : QObject(parent), _ctx(ctx), _mainWindow(mainWindow) {}
+
+// ARC07: dispatch and enablement share ONE predicate (shell/EditPolicy.h).
+bool HomeController::isEnabled(ToolId id) const {
+    return !EditPolicy::toolRefusedByReadOnly(
+        _ctx && _ctx->document ? _ctx->document.get() : nullptr, id);
+}
 
 QList<ToolId> HomeController::handledTools() const {
     return {
@@ -138,6 +145,15 @@ HomeController::SaveOutcome HomeController::saveNow() {
     if (filePath.isEmpty()) {
         _mainWindow->statusBar()->showMessage(tr("Save unavailable: current tab has no file path."), 5000);
         return SaveOutcome::Failed;     // guard failure — work stays open
+    }
+
+    // ARC07: a read-only document refuses SAVE-IN-PLACE (the same policy the
+    // mutation boundary enforces everywhere else); Save As remains available
+    // by design. A checked refusal — the close path treats Failed as
+    // "work stays open".
+    if (EditPolicy::mutationBlocked(_ctx->document.get())) {
+        _mainWindow->statusBar()->showMessage(EditPolicy::readOnlyMessage(), 5000);
+        return SaveOutcome::Failed;
     }
 
     // R2-1 D1+D2: ProvenanceGuard check + signed-document routing.

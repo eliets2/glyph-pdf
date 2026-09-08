@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "FormsController.h"
+#include "shell/EditPolicy.h"
 #include "ui/SignatureDialog.h"
 #include "core/interfaces/ISignatureManager.h"
 
@@ -23,6 +24,12 @@ namespace gp {
 
 FormsController::FormsController(const AppContext* ctx, MainWindow* mainWindow, QObject* parent)
     : QObject(parent), _ctx(ctx), _mainWindow(mainWindow) {}
+
+// ARC07: dispatch and enablement share ONE predicate (shell/EditPolicy.h).
+bool FormsController::isEnabled(ToolId id) const {
+    return !EditPolicy::toolRefusedByReadOnly(
+        _ctx && _ctx->document ? _ctx->document.get() : nullptr, id);
+}
 
 QList<ToolId> FormsController::handledTools() const {
     return {

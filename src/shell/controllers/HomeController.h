@@ -31,6 +31,9 @@ public:
     // IToolController
     QList<ToolId> handledTools() const override;
     void activate(ToolId id) override;
+    // ARC07: shared read-only gate — Save (in place) reports disabled while
+    // the session is read-only; Save As / Open / Print / Share stay enabled.
+    bool isEnabled(ToolId id) const override;
 
     // ARC03: the save operation with an explicit, checked result for the
     // close/document-switch guards. ToolId::Save routes through here too.

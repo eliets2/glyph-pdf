@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "EditController.h"
+#include "shell/EditPolicy.h"
 #include "core/AppContext.h"
 #include "GpMainWindow.h"
 #include "ui/PdfViewerWidget.h"
@@ -65,6 +66,12 @@ SignatureSessionCache *signatureSessionCacheFor(DocumentSession *doc)
 
 EditController::EditController(const AppContext* ctx, MainWindow* mainWindow, QObject* parent)
     : QObject(parent), _ctx(ctx), _mainWindow(mainWindow) {}
+
+// ARC07: dispatch and enablement share ONE predicate (shell/EditPolicy.h).
+bool EditController::isEnabled(ToolId id) const {
+    return !EditPolicy::toolRefusedByReadOnly(
+        _ctx && _ctx->document ? _ctx->document.get() : nullptr, id);
+}
 
 QList<ToolId> EditController::handledTools() const {
     return {
@@ -396,6 +403,11 @@ void EditController::onReplaceAllRequested(const QString &searchText, const QStr
                                            bool matchCase, bool wholeWords, bool useRegex) {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->pdfEditor) return;
+    // ARC07: FindBar entries bypass the registry — shared read-only gate.
+    if (EditPolicy::mutationBlocked(_ctx->document.get())) {
+        _mainWindow->statusBar()->showMessage(EditPolicy::readOnlyMessage(), 5000);
+        return;
+    }
 
     _ctx->pdfEditor->loadDocumentForEditing(viewer->filePath());
 
@@ -456,6 +468,11 @@ void EditController::onReplaceAllRequested(const QString &searchText, const QStr
 void EditController::onRedactAllRequested(const QString &text, bool matchCase, bool wholeWords) {
     auto* viewer = _mainWindow->pdfViewer();
     if (viewer && _ctx && _ctx->pdfEditor) {
+        // ARC07: FindBar entries bypass the registry — shared read-only gate.
+        if (EditPolicy::mutationBlocked(_ctx->document.get())) {
+            _mainWindow->statusBar()->showMessage(EditPolicy::readOnlyMessage(), 5000);
+            return;
+        }
         // §9.15: reuse the shared page-text matcher. wholeWords-only is the
         // historical behavior for this path (FindBar never sends useRegex here).
         const PageTextPattern pt = pageTextPattern(text, matchCase, wholeWords, /*useRegex*/ false);
