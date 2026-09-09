@@ -228,13 +228,13 @@ private:
     ErrorLog            m_errorLog;
     int                 m_successCount    = 0;
     int                 m_failCount       = 0;
-    // §9.12 P1: number of worker results already accounted (resultReadyAt may
-    // lag the worker; onBatchFinished drains reported-but-unaccounted results
-    // for the merge run so the summary never under-counts).
-    int                 m_accountedResultIdx = 0;
-    // §9.12 P1: true while a merge worker owns m_watcher (its results are
-    // strictly ordered, so the drain in onBatchFinished is safe).
-    bool                m_mergeRun        = false;
+    // G12 (QUALITY-GATE-2026-09-09): exactly-once result accounting. A result
+    // index is reconciled a single time no matter how its delivery races the
+    // completion summary — `finished` can outrun the queued resultReadyAt
+    // deliveries of the mapped workers, so onBatchFinished drains every
+    // reported-but-unaccounted index from the future and the queued callbacks
+    // that land afterwards are ignored by their index here.
+    QSet<int>           m_accountedIndices;
     QElapsedTimer       m_batchTimer;
     QMutex              m_engineMutex;       // serializes pdfEditor calls across threads
 

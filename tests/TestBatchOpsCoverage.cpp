@@ -88,6 +88,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLineEdit>
+#include <QLabel>
 #include <QPdfDocument>
 #include <QProcess>
 #include <QPdfSelection>
@@ -360,14 +361,52 @@ private:
     }
 
     // Pump the event loop until the QtConcurrent batch completes.
+    // G12 (QUALITY-GATE-2026-09-09): capture the completion contract AT the
+    // batchFinished emission — counts, remaining and the visible summary the
+    // moment the controller declares the batch complete. This is the
+    // deterministic barrier: no post-hoc event pumping may paper over a
+    // summary that was emitted before the results were accounted.
+    struct CompletionSnapshot {
+        bool fired = false;
+        int success = -1;
+        int fail = -1;
+        int remaining = -1;
+        QString summary;
+    };
+    static CompletionSnapshot captureCompletion(gp::BatchMode& bm) {
+        CompletionSnapshot snap;
+        QObject::connect(&bm, &gp::BatchMode::batchFinished, &bm, [&snap, &bm] {
+            snap.fired = true;
+            snap.success = bm.successCount();
+            snap.fail = bm.failCount();
+            snap.remaining = bm.remainingCount();
+            const auto labels = bm.findChildren<QLabel*>();
+            for (QLabel* l : labels)
+                if (l->text().contains(QStringLiteral("BATCH COMPLETE")))
+                    snap.summary = l->text();
+        }, Qt::DirectConnection);
+        return snap;
+    }
+
+    // G12 (QUALITY-GATE-2026-09-09): await the controller's COMPLETION
+    // CONTRACT — the batchFinished emission — not QFutureWatcher::isRunning().
+    // The watcher's running flag flips false when the future object finishes,
+    // which can precede the queued finished-event that runs onBatchFinished
+    // (the completion summary + result reconciliation); awaiting the flag
+    // could observe the counts before that slot ran — the mechanism behind
+    // the historical TestBatchOpsCoverage flake. With this barrier the
+    // post-conditions below read the reconciled state deterministically.
     static void runAndWait(gp::BatchMode& bm) {
+        bool finished = false;
+        QObject::connect(&bm, &gp::BatchMode::batchFinished, &bm,
+                         [&finished] { finished = true; }, Qt::DirectConnection);
         bm.onRunBatch();
         int waited = 0;
-        while (bm.isBatchRunning() && waited < 15000) {
+        while (!finished && waited < 15000) {
             QTest::qWait(50);
             waited += 50;
         }
-        QVERIFY2(!bm.isBatchRunning(), "Batch did not complete within 15 seconds");
+        QVERIFY2(finished, "Batch did not reach batchFinished within 15 seconds");
     }
 
     // E-1/N03: drive the batch Export PDF/A worker at a given conformance combo
@@ -632,6 +671,65 @@ private slots:
         }
     }
 
+    // ── G12 (QUALITY-GATE-2026-09-09): truthful completion contract ───────────
+    // The completion summary used to be emitted BEFORE the queued
+    // resultReadyAt accounting for every non-merge mode: batchFinished carried
+    // success=0/failure=0/remaining=1 and the visible summary stayed
+    // "BATCH COMPLETE — 0 of 0 succeeded, 1 not processed" for a batch whose
+    // artifact was actually written and watermarked. The contract: at the
+    // batchFinished emission the counts are reconciled, the summary is
+    // truthful, and the saved output really carries the operation's result.
+    void batchFinishedCarriesReconciledCountsSummaryAndArtifact()
+    {
+        const QString src = createMultiPageTextPdf(
+            m_tmpDir.path(), QStringLiteral("g12_wm.pdf"),
+            { QStringLiteral("G12-ORIGINAL-PAGE-ZERO") });
+        QVERIFY2(!src.isEmpty(), "fixture creation failed");
+
+        AppContext ctx = makeCtx();
+        gp::BatchMode bm;
+        bm.setAppContext(&ctx);
+        bm.addFilesForTest({src});
+        bm.setOperationForTest(2); // OpWatermark
+
+        QLineEdit* wmEdit = watermarkTextEdit(bm);
+        QVERIFY2(wmEdit, "watermark text edit (placeholder CONFIDENTIAL) not found");
+        wmEdit->setText(QStringLiteral("G12WM"));
+
+        CompletionSnapshot snap = captureCompletion(bm);
+        runAndWait(bm);
+
+        // The completion contract, captured AT batchFinished:
+        QVERIFY2(snap.fired, "batchFinished must fire exactly through the "
+                             "controller's completion path");
+        QCOMPARE(snap.success, 1);
+        QCOMPARE(snap.fail, 0);
+        QVERIFY2(snap.remaining == 0,
+                 qPrintable(QStringLiteral("G12: a completed batch must report "
+                                           "remaining=0 at batchFinished (got %1)")
+                                .arg(snap.remaining)));
+        QVERIFY2(snap.summary.contains(QStringLiteral("1 of 1 succeeded")),
+                 qPrintable(QStringLiteral("G12: the visible summary must count the "
+                                           "completed result (got: %1)").arg(snap.summary)));
+        QVERIFY2(!snap.summary.contains(QStringLiteral("not processed")),
+                 qPrintable(QStringLiteral("G12: a fully processed batch must not "
+                                           "claim unprocessed files (got: %1)")
+                                .arg(snap.summary)));
+
+        // The saved artifact is real: original text + watermark (the summary
+        // must describe THIS output).
+        const QString out = tmpPath(QStringLiteral("g12_wm_watermarked.pdf"));
+        QVERIFY2(QFile::exists(out), "G12: the accounted output must exist on disk");
+        QPdfDocument outDoc;
+        QCOMPARE(outDoc.load(out), QPdfDocument::Error::None);
+        const QString text = outDoc.getAllText(0).text();
+        QVERIFY2(text.contains(QStringLiteral("G12-ORIGINAL-PAGE-ZERO")) &&
+                     text.contains(QStringLiteral("G12WM")),
+                 qPrintable(QStringLiteral("G12: the output must carry the original "
+                                           "text AND the watermark (got: %1)")
+                                .arg(text.left(160))));
+    }
+
     // ── 2. Export-PDF/A batch — output exists and is structurally identified ──
     void exportPdfABatchWritesStructuralIdentification() {
         const QString src = createMultiPageTextPdf(
@@ -650,7 +748,14 @@ private slots:
         QVERIFY2(level, "PDF/A conformance combo (PDF/A-1B item) not found");
         level->setCurrentIndex(level->findText(QStringLiteral("PDF/A-2B")));
 
+        // G12: the completion contract holds for the PDF/A mode too.
+        CompletionSnapshot snap = captureCompletion(bm);
         runAndWait(bm);
+        QVERIFY2(snap.fired && snap.success == 1 && snap.fail == 0 && snap.remaining == 0,
+                 qPrintable(QStringLiteral("G12: PDF/A batchFinished must carry "
+                                           "reconciled counts (fired=%1 success=%2 fail=%3 "
+                                           "remaining=%4)").arg(snap.fired).arg(snap.success)
+                                .arg(snap.fail).arg(snap.remaining)));
         QCOMPARE(bm.successCount(), 1);
         QCOMPARE(bm.failCount(), 0);
 
@@ -727,7 +832,15 @@ private slots:
         // §9.12 P1 landed mid-lane: merge moved off the GUI thread onto a
         // worker (startMergeWorker) — pump the event loop until it completes
         // instead of asserting synchrony.
+        // G12: the merge mode's completion contract — the drain must keep the
+        // at-finish counts reconciled as well (it was the only mode that did).
+        CompletionSnapshot snap = captureCompletion(bm);
         runAndWait(bm);
+        QVERIFY2(snap.fired && snap.success == 3 && snap.fail == 0 && snap.remaining == 0,
+                 qPrintable(QStringLiteral("G12: merge batchFinished must carry "
+                                           "reconciled counts (fired=%1 success=%2 fail=%3 "
+                                           "remaining=%4)").arg(snap.fired).arg(snap.success)
+                                .arg(snap.fail).arg(snap.remaining)));
         QCOMPARE(finishedSpy.count(), 1);
 
         // Merged output is named after the FIRST file, in the first file's dir.
