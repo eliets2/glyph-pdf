@@ -524,6 +524,19 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
         QTimer::singleShot(0, this, [this]() {
             QStringList recent = _home->recentFiles();
             QStringList orphans = DocumentSession::findOrphanedAutosaves(recent);
+            // G05 integration fix (merge break, 2026-09-09): a recovery pair
+            // whose session is LIVE in this window is not an orphan prompt.
+            // recoverDocument() publishes the original to recents while the
+            // recovery is unsaved BY DESIGN, and the recovery input is newer
+            // than the original by construction — findOrphanedAutosaves'
+            // "autosave newer" heuristic would therefore flag the very
+            // document the user is ALREADY recovering and pop this modal over
+            // the active session (observed as a test hang whenever the pair's
+            // mtimes differ). Suppress only the CURRENT session's pair; every
+            // genuine leftover still prompts.
+            if (_ctx && _ctx->document && !_ctx->document->recoverySource().isEmpty()) {
+                orphans.removeAll(_ctx->document->path());
+            }
             if (!orphans.isEmpty()) {
                 RecoveryDialog dlg(orphans, this);
                 int res = dlg.exec();
