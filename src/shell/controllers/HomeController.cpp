@@ -256,6 +256,11 @@ HomeController::SaveOutcome HomeController::saveNow() {
     }
 
     if (ok) {
+        // G14 (QUALITY-GATE-2026-09-09): the annotations just committed INTO
+        // the PDF — record the committed state in the sidecar envelope so a
+        // later reopen of this document restores CLEAN instead of resurrect
+        // -ing embedded annotations as pending unsaved work.
+        viewer->markAnnotationsCommittedIntoPdf();
         if (_ctx->undoStack) _ctx->undoStack->setClean();
         // ARC04: ONE session dirty policy — the clean baseline is established
         // only after a CHECKED successful save, and only for the session that

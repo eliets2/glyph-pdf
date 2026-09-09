@@ -266,6 +266,15 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
             if (_ctx && _ctx->document)
                 _ctx->document->markDirty();
         });
+        // G14 (QUALITY-GATE-2026-09-09): a document whose sidecar recorded
+        // UNEMBEDDED annotation work reopens PENDING — the session goes dirty
+        // so the unsaved-PDF state survives the reopen (the annotations used
+        // to come back with a CLEAN session while the PDF on disk lacked
+        // them). Committed sidecars reopen clean; loads never fabricate work.
+        connect(_modes->viewer(), &PdfViewerWidget::pendingEmbedAnnotationsRestored, this, [this](bool pending) {
+            if (pending && _ctx && _ctx->document)
+                _ctx->document->markDirty();
+        });
     }
 
     // ARC07 (TEAM-ARCHITECTURE-REVIEW-2026-09-07): the session is the ONE
@@ -660,6 +669,48 @@ void MainWindow::openDocument(const QString& filePath) {
     auto* viewer = pdfViewer();
     if (!viewer) return;
 
+    // G14 (P2, QUALITY-GATE-2026-09-09): explicit checked transition policy
+    // when leaving UNEMBEDDED annotation work. Sidecar persistence keeps the
+    // work alive, but the PDF on disk does not carry the annotations until a
+    // Save commits them — so switching documents while the displayed document
+    // has pending-embed annotations runs the SAME Save / Discard / Cancel
+    // policy as the close boundary (closeEvent): Save must be a CHECKED
+    // success (the annotations are really in the PDF); Discard proceeds and
+    // keeps the sidecar-only durability; Cancel aborts the open with nothing
+    // changed. Command-mutation dirty is deliberately NOT prompted here — the
+    // accepted ARC01 switch semantics (history-scoped, mutations already on
+    // disk) stay untouched.
+    if (viewer->hasPendingEmbedAnnotations()) {
+        QMessageBox msgBox(this);
+        msgBox.setWindowTitle(tr("Unsaved Changes"));
+        msgBox.setText(tr("The annotations on this document are not saved into the PDF yet."));
+        msgBox.setInformativeText(tr("Do you want to save them into the PDF before switching?"));
+        msgBox.setIcon(QMessageBox::Warning);
+        auto* saveBtn    = msgBox.addButton(tr("Save"),    QMessageBox::AcceptRole);
+        auto* discardBtn = msgBox.addButton(tr("Discard"), QMessageBox::DestructiveRole);
+        msgBox.addButton(tr("Cancel"), QMessageBox::RejectRole);
+        msgBox.setDefaultButton(saveBtn);
+        msgBox.exec();
+
+        if (msgBox.clickedButton() == saveBtn) {
+            const auto outcome = _home
+                ? _home->saveNow()
+                : HomeController::SaveOutcome::Failed;
+            if (outcome != HomeController::SaveOutcome::Saved) {
+                // The commit failed or was refused — the annotations are NOT
+                // in the PDF; the open is aborted and the work stays open.
+                statusBar()->showMessage(
+                    tr("Still on %1 — the annotations could not be saved into the PDF.")
+                        .arg(QFileInfo(viewer->filePath()).fileName()), 8000);
+                return;
+            }
+        } else if (msgBox.clickedButton() != discardBtn) {
+            return;   // Cancel: abort the open, keep the current document
+        }
+        // Discard (or a checked Saved): proceed — the viewer's identity
+        // switch below flushes the sidecar state for the old path.
+    }
+
     // ARC05 (P1, TEAM-ARCHITECTURE-REVIEW-2026-09-07): a successful Open must
     // establish BOTH sessions — the Qt viewer document AND the shared editing
     // backend — here, at the one open choke point. Previously the engine kept
@@ -703,6 +754,13 @@ void MainWindow::openDocument(const QString& filePath) {
         // revision loaded from disk, not a continuation of the old history.
         if (_ctx && _ctx->document) {
             _ctx->document->beginDocument(filePath);
+            // G14 (QUALITY-GATE-2026-09-09): the viewer reports pending-embed
+            // sidecar work during the load — BEFORE this boundary clears the
+            // dirty baseline — so re-assert it on the freshly published
+            // identity: a reopened document whose annotations are not yet in
+            // the PDF opens DIRTY, never clean-with-hidden-debt.
+            if (viewer->hasPendingEmbedAnnotations())
+                _ctx->document->markDirty();
         }
         if (_ctx && _ctx->undoStack) {
             _ctx->undoStack->clear();
