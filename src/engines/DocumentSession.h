@@ -56,6 +56,17 @@ public slots:
     // reaches those boundaries and therefore never advances it.
     qint64 mutationRevision() const;
 
+    // G05 (P1, QUALITY-GATE-2026-09-09): recovery identity. A recovered
+    // document has TWO paths: the session path() is the ORIGINAL (the intended
+    // save DESTINATION), while the editing inputs (engine/viewer) hold the
+    // recovery copy `<original>.autosave.pdf` (the recovery INPUT). Save must
+    // commit the recovered content to the DESTINATION and only then clear the
+    // binding — a Save that merely rewrote the recovery input left the original
+    // byte-identical while the session stayed dirty.
+    QString recoverySource() const;
+    void setRecoverySource(const QString &autosaveInputPath);
+    void clearRecoverySource();
+
     QDateTime lastAutosave() const;
     void setLastAutosave(const QDateTime &time);
 
@@ -83,4 +94,5 @@ private:
     QDateTime m_lastAutosave;
     qint64 m_mutationRevision = 0;
     qint64 m_documentGeneration = 0;
+    QString m_recoverySource;
 };

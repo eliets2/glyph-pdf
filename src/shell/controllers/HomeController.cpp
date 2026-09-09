@@ -141,10 +141,29 @@ HomeController::SaveOutcome HomeController::saveNow() {
         _mainWindow->statusBar()->showMessage(tr("Save unavailable: PDF engine is not ready."), 5000);
         return SaveOutcome::Failed;     // guard failure — work stays open
     }
-    const QString filePath = viewer->filePath();
-    if (filePath.isEmpty()) {
+    const QString loadedPath = viewer->filePath();
+    if (loadedPath.isEmpty()) {
         _mainWindow->statusBar()->showMessage(tr("Save unavailable: current tab has no file path."), 5000);
         return SaveOutcome::Failed;     // guard failure — work stays open
+    }
+
+    // G05 (P1, QUALITY-GATE-2026-09-09): one recovered-document identity with
+    // a distinct recovery INPUT and intended save DESTINATION. Recovery loads
+    // the editing inputs from `<original>.autosave.pdf` while the session path
+    // stays the original. Save must therefore commit the recovered content to
+    // the DESTINATION — the old code used the viewer's file path, "saved" the
+    // recovery copy onto itself, reported Saved and left the original
+    // byte-identical with the session still dirty.
+    QString filePath = loadedPath;
+    QString recoveryInput;
+    if (_ctx->document) {
+        const QString source = _ctx->document->recoverySource();
+        if (!source.isEmpty() && source == loadedPath
+            && !_ctx->document->path().isEmpty()
+            && _ctx->document->path() != loadedPath) {
+            recoveryInput = source;
+            filePath = _ctx->document->path();
+        }
     }
 
     // ARC07: a read-only document refuses SAVE-IN-PLACE (the same policy the
@@ -208,7 +227,33 @@ HomeController::SaveOutcome HomeController::saveNow() {
     // AND annotations) as an incremental update.  This replaces the separate
     // saveDocument / writeUpdate call below.  Signed documents benefit from the
     // same incremental-append path (writeUpdate preserves the /ByteRange).
-    const bool ok = _ctx->pdfEditor->embedAnnotations(filePath, filePath, viewer->annotations());
+    // G05: for a recovery the INPUT is the loaded recovery copy and the OUTPUT
+    // is the destination (the original) — the recovered content is committed
+    // there, never written back onto the recovery file.
+    const bool ok = _ctx->pdfEditor->embedAnnotations(
+        recoveryInput.isEmpty() ? filePath : recoveryInput,
+        filePath, viewer->annotations());
+
+    if (ok && !recoveryInput.isEmpty()) {
+        // G05: the recovered content is committed to the destination —
+        // re-anchor the editing inputs (engine + viewer) on the committed
+        // original so viewer/engine/session describe ONE identity again.
+        const bool engineOk = _ctx->pdfEditor->loadDocumentForEditing(filePath);
+        const bool viewerOk = viewer->loadDocument(filePath);
+        if (!engineOk || !viewerOk) {
+            // The bytes are on disk, but the committed revision could not be
+            // anchored in the UI — keep the work dirty (the recovery binding
+            // stays intact) and report honestly instead of claiming Saved.
+            _mainWindow->statusBar()->showMessage(
+                tr("Saved to %1, but the document could not be reloaded; "
+                   "the window stays open.").arg(filePath), 8000);
+            return SaveOutcome::Failed;
+        }
+        // The recovery copy is consumed: its content now lives in the original.
+        _ctx->document->clearRecoverySource();
+        QFile::remove(recoveryInput);
+        QFile::remove(recoveryInput + QStringLiteral(".ann"));
+    }
 
     if (ok) {
         if (_ctx->undoStack) _ctx->undoStack->setClean();
