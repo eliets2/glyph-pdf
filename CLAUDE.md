@@ -169,7 +169,7 @@ C:\Users\User\Projects\pdf\
 ├── tests/                        ← 14 test executables
 │   ├── fixtures/
 │   │   └── signing/              ← (NEW M1) generate.bat + ca.key + signer.crt + test_signer.p12 + test_input.pdf
-│   ├── mocks/                    ← MockPdfEditorEngine, MockSignatureManager, MockFormManager
+│   ├── mocks/                    ← MockPdfEditorEngine, MockSignatureManager
 │   ├── UnitTests, TestInterfaces, SmokeTest, TestSanitization, TestSignatureValidation,
 │   ├── TestRedaction, TestThreadSafety, TestEncryption, TestResourceLimits, TestControllers,
 │   ├── TestIntegration, TestPerformance,
