@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "core/AnnotationSerializer.h"
+#include "core/MeasureCore.h"
 #include <QBuffer>
 #include <QDebug>
+#include <cmath>
 
 QJsonDocument AnnotationSerializer::toJson(const QList<AnnotationItem>& items)
 {
@@ -49,6 +51,16 @@ QJsonDocument AnnotationSerializer::toJson(const QList<AnnotationItem>& items)
             pngBuf.open(QIODevice::WriteOnly);
             if (anno.image.save(&pngBuf, "PNG") && pngBuf.size() <= 4 * 1024 * 1024)
                 obj["image_png"] = QString::fromLatin1(pngBuf.data().toBase64());
+        }
+
+        // T1 measurement: calibration state rides the sidecar so the overlay
+        // keeps truthful readouts between the draw and the PDF save.
+        if (gp::measure::isMeasureToolMode(anno.mode)) {
+            obj["measureCalibrated"] = anno.measureCalibrated;
+            obj["measureUnitsPerPt"] = anno.measureUnitsPerPt;
+            obj["measureUnit"] = anno.measureUnit;
+            obj["measureAreaUnit"] = anno.measureAreaUnit;
+            obj["measureRatio"] = anno.measureRatio;
         }
         array.append(obj);
     }
@@ -116,6 +128,19 @@ QList<AnnotationItem> AnnotationSerializer::fromJson(const QJsonDocument& doc)
                 QByteArray::fromBase64(obj["image_png"].toString().toLatin1());
             if (!raw.isEmpty())
                 item.image = QImage::fromData(raw, "PNG");
+        }
+
+        // T1 measurement: restore the calibration state (only measure items
+        // carry these keys; anything else keeps the uncalibrated-pt defaults).
+        if (obj.contains("measureUnitsPerPt")) {
+            item.measureCalibrated = obj["measureCalibrated"].toBool(false);
+            const double upp = obj["measureUnitsPerPt"].toDouble(1.0);
+            item.measureUnitsPerPt = (upp > 0.0 && std::isfinite(upp)) ? upp : 1.0;
+            item.measureUnit = obj["measureUnit"].toString();
+            item.measureAreaUnit = obj["measureAreaUnit"].toString();
+            item.measureRatio = obj["measureRatio"].toString();
+            if (item.measureUnit.isEmpty())      item.measureUnit = QStringLiteral("pt");
+            if (item.measureAreaUnit.isEmpty())  item.measureAreaUnit = QStringLiteral("pt\u00B2");
         }
         items.append(item);
     }

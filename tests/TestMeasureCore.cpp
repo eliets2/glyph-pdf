@@ -118,6 +118,18 @@ private slots:
         QCOMPARE(polylineLength({}), 0.0);
     }
 
+    void closedPerimeterClosesTheLoop() {
+        // The PERIMETER tool measures the closed boundary: a 4-vertex square
+        // is 4× its side (an open-path mistake would report 3×).
+        const QList<QPointF> square = { {0, 0}, {72, 0}, {72, 72}, {0, 72} };
+        QVERIFY(std::fabs(closedPerimeter(square) - 288.0) < 1e-12);
+        QVERIFY(std::fabs(polylineLength(square) - 216.0) < 1e-12);  // open ≠ closed
+        // 2-point "shape" closes back on itself: 2× the span.
+        QVERIFY(std::fabs(closedPerimeter({ {0, 0}, {10, 0} }) - 20.0) < 1e-12);
+        QCOMPARE(closedPerimeter({ {1, 1} }), 0.0);
+        QCOMPARE(closedPerimeter({}), 0.0);
+    }
+
     void polygonAreaNonConvexLShape() {
         // L-shape (non-convex): 100×100 square with a 60×60 bite — shoelace
         // handles the reflex vertex exactly; convexifying would report 10000.

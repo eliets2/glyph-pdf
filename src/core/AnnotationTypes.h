@@ -56,4 +56,17 @@ struct AnnotationItem {
     QString creationDate;
     QString modificationDate;
     ReviewState reviewState = ReviewState::None;
+
+    // ── T1 measurement (MeasureDistance/Perimeter/Area modes only) ──────────
+    // Calibration carried by the measurement. unitsPerPt = real-world units per
+    // PDF user-space unit (1/72 in) — the number written as the /C factor of
+    // the /X number-format array in the ISO 32000-1 /Measure dictionary
+    // (PoDoFoBackend). An UNCALIBRATED measurement carries the truthful 1 pt
+    // scale (calibrated=false, unitsPerPt==1, unit=="pt"); it is never a
+    // fabricated real-world claim. Defaults keep non-measure items unchanged.
+    bool measureCalibrated = false;
+    double measureUnitsPerPt = 1.0;
+    QString measureUnit = QStringLiteral("pt");       // linear label, e.g. "mm"
+    QString measureAreaUnit = QStringLiteral("pt\u00B2"); // area label, e.g. "mm²"
+    QString measureRatio;                              // human scale text → /R
 };

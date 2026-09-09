@@ -273,6 +273,16 @@ inline double polylineLength(const QList<QPointF>& pts)
     return total;
 }
 
+// Closed boundary length — the PERIMETER of the shape the vertices outline
+// (open-path length + the closing last→first segment). A 4-vertex square is
+// 4× its side, never 3×; this is the number the perimeter tool and the /IT
+// /PolyLineDimension annotation report.
+inline double closedPerimeter(const QList<QPointF>& pts)
+{
+    if (pts.size() < 2) return 0.0;
+    return polylineLength(pts) + distance(pts.last(), pts.first());
+}
+
 // Shoelace formula — exact for ANY simple polygon including non-convex ones
 // (the polygon measurement tool must not silently triangulate or convexify).
 // Returns the unsigned area in user-space units².
@@ -289,6 +299,21 @@ inline double polygonArea(const QList<QPointF>& pts)
 }
 
 // ── Conversion + formatting (live readout; PDF /Contents snapshot) ──────────
+
+// Rebuilds a Scale from persisted fields (AnnotationItem measure fields, the
+// /Measure dictionary's /X[0], or sidecar JSON — all share these semantics).
+// Honesty rule enforced here too: pt at 1.0 is never reported as calibrated.
+inline Scale scaleFrom(double unitsPerPt, const QString& unitLabel,
+                       bool calibrated, const QString& ratioText = QString())
+{
+    Scale s = ptScale();
+    if (!std::isfinite(unitsPerPt) || unitsPerPt <= 0.0) return s;
+    s.unitsPerPt = unitsPerPt;
+    s.unit = parseUnit(unitLabel).value_or(Unit::Pt);
+    s.calibrated = calibrated && !(s.unit == Unit::Pt && unitsPerPt == 1.0);
+    s.ratio = ratioText;
+    return s;
+}
 
 inline double convertLengthPt(double userUnits, const Scale& s)
 {
