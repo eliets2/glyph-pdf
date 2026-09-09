@@ -30,6 +30,11 @@ struct RedactApplyPlan {
     // box in the saved output — e.g. a redaction reason code. Empty = plain
     // black boxes (current behavior). Burn-in paint only; excision untouched.
     QString overlayText;
+    // T1-2 Redaction Proof Mode: after the commit, verify the saved artifacts
+    // (survival sweep over every surface) and write a proof pack
+    // (<dest>_redaction-proof.json/.txt) the user can hand to counsel.
+    // Default ON — the proof is the honest face of the excision engine.
+    bool produceProof = true;
 };
 
 // Acrobat-shaped Apply step: mark/page counts, the actual sanitization choice,
@@ -48,6 +53,7 @@ public:
     void setSanitizedDestinationPath(const QString& path);
     void setSanitizeChecked(bool on);
     void setOverlayText(const QString& text);   // §9.8 P1
+    void setProduceProofChecked(bool on);       // T1-2 proof pack
     QString summaryText() const;
 
 private slots:
@@ -65,6 +71,7 @@ private:
     QLabel*      m_summaryLabel = nullptr;      // "N marks on M pages, marked for removal"
     QLabel*      m_marksDetailLabel = nullptr;  // per-page breakdown + wording contract
     QCheckBox*   m_sanitizeCheck = nullptr;
+    QCheckBox*   m_proofCheck = nullptr;        // T1-2: generate the proof pack
     QLineEdit*   m_destinationEdit = nullptr;
     QLineEdit*   m_sanitizedDestinationEdit = nullptr;
     QLineEdit*   m_overlayEdit = nullptr;      // §9.8 P1: optional overlay text

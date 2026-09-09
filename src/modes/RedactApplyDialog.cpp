@@ -19,7 +19,10 @@ namespace gp {
 namespace {
 QString plural(int n, const QString& one, const QString& many)
 {
-    return n == 1 ? one : many.arg(n);
+    // T2 redaction-proof lane: `one` is a template ("$n mark") exactly like
+    // `many` — the n==1 branch used to return the RAW template, so the Apply
+    // dialog displayed "%1 mark on %1 pages" for a single mark.
+    return n == 1 ? one.arg(n) : many.arg(n);
 }
 
 // The destination must differ from the source (the old controller path saved
@@ -133,6 +136,22 @@ void RedactApplyDialog::buildUi()
     m_sanitizeCheck->setChecked(m_plan.sanitize);
     col->addWidget(m_sanitizeCheck);
 
+    // ── T1-2 Redaction Proof Mode: default-ON proof pack generation ─────────
+    // The corpus's #1 demand is PROOF, not promises: after the commit the
+    // operation sweeps the saved output(s) for the removed text and writes
+    // <dest>_redaction-proof.json/.txt for counsel/FOIA officers. A failed
+    // proof is reported loudly — it never blocks the committed artifacts.
+    m_proofCheck = new QCheckBox(
+        tr("Generate a redaction proof pack (verifiable report of what was removed)"), this);
+    m_proofCheck->setObjectName(QStringLiteral("redactApplyProofCheck"));
+    m_proofCheck->setChecked(m_plan.produceProof);
+    m_proofCheck->setToolTip(tr(
+        "After saving, every removed string is searched across the whole saved "
+        "file — raw bytes, streams, text layer, metadata, XMP, attachments — and "
+        "a signed-style report (JSON + readable summary) is written next to the "
+        "output. If anything survived, the proof FAILS loudly and says where."));
+    col->addWidget(m_proofCheck);
+
     // ── §9.8 P1: optional overlay text printed on the burn-in boxes ────────
     // Legal/FOIA reviewers expect the WHY on the box itself. Empty edit =
     // plain black boxes (the previous behavior, unchanged).
@@ -229,6 +248,12 @@ void RedactApplyDialog::setDestinationPath(const QString& path) { m_destinationE
 void RedactApplyDialog::setSanitizedDestinationPath(const QString& path) { m_sanitizedDestinationEdit->setText(path); }
 void RedactApplyDialog::setSanitizeChecked(bool on) { m_sanitizeCheck->setChecked(on); }
 
+// T1-2: proof-pack toggle seam (tests offscreen; hosts prefilling).
+void RedactApplyDialog::setProduceProofChecked(bool on)
+{
+    if (m_proofCheck) m_proofCheck->setChecked(on);
+}
+
 // §9.8 P1: the overlay text is optional and never validated — any non-empty
 // value is carried onto the boxes; whitespace-only collapses to empty (no
 // overlay) in the operation itself.
@@ -252,6 +277,7 @@ RedactApplyPlan RedactApplyDialog::plan() const
     p.sanitizedDestinationPath = m_sanitizedDestinationEdit->text().trimmed();
     p.sanitize = m_sanitizeCheck->isChecked();
     p.overlayText = m_overlayEdit ? m_overlayEdit->text().trimmed() : QString();
+    p.produceProof = m_proofCheck ? m_proofCheck->isChecked() : m_plan.produceProof;
     return p;
 }
 
@@ -272,12 +298,26 @@ RedactRequest redactRequestFromPlan(const RedactApplyPlan& plan,
     // here is exactly the original defect (the Security path accepted a label
     // the operation never received).
     request.overlayText = plan.overlayText;
+    // T1-2 Redaction Proof Mode: same single-conversion guarantee — the
+    // proof toggle reaches the operation on BOTH entry paths.
+    request.produceProof = plan.produceProof;
     return request;
 }
 
 // ── RedactResultPresenter ────────────────────────────────────────────────────
 
 namespace RedactResultPresenter {
+
+namespace {
+// T1-2: shared proof tail for banner/detail text — honest in BOTH directions.
+QString proofTail(const RedactResult& result)
+{
+    if (!result.proofRan) return QString();
+    if (result.proofPassed)
+        return QObject::tr("; redaction proof: PASSED");
+    return QObject::tr("; redaction proof: FAILED");
+}
+} // namespace
 
 QString bannerText(const RedactResult& result)
 {
@@ -287,10 +327,14 @@ QString bannerText(const RedactResult& result)
                            .arg(QFileInfo(result.destination).fileName());
         if (!result.sanitizedDestination.isEmpty())
             text += QObject::tr("; sanitized copy: %1").arg(QFileInfo(result.sanitizedDestination).fileName());
+        text += proofTail(result);
         return text;
     }
-    case RedactOutcome::PartialRedactedOnly:
-        return QObject::tr("Redacted copy saved; sanitization FAILED \xe2\x80\x94 see the redaction report.");
+    case RedactOutcome::PartialRedactedOnly: {
+        QString text = QObject::tr("Redacted copy saved; sanitization FAILED \xe2\x80\x94 see the redaction report.");
+        text += proofTail(result);
+        return text;
+    }
     case RedactOutcome::Failed:
         return QObject::tr("Redaction failed \xe2\x80\x94 the original file was not modified.");
     case RedactOutcome::Canceled:
@@ -307,6 +351,28 @@ QString detailText(const RedactResult& result)
         if (!result.sanitizedDestination.isEmpty())
             text += QObject::tr("\n\nA fully sanitized copy (metadata, attachments, JavaScript removed) "
                        "has been saved to:\n%1").arg(result.sanitizedDestination);
+        if (result.proofRan) {
+            text += QObject::tr("\n\nRedaction proof: %1")
+                        .arg(result.proofPassed
+                                 ? QObject::tr("PASSED — no removed string survives on any swept "
+                                       "surface. The proof pack is next to the output:")
+                                 : QObject::tr("FAILED — removed content still survives:"));
+            if (result.proofPassed) {
+                if (!result.proofTextPath.isEmpty())
+                    text += QObject::tr("\n%1").arg(result.proofTextPath);
+                if (!result.proofJsonPath.isEmpty())
+                    text += QObject::tr("\n%1").arg(result.proofJsonPath);
+            } else {
+                const int maxLines = 6;
+                for (int i = 0; i < result.proofFailures.size() && i < maxLines; ++i)
+                    text += QObject::tr("\n  - %1").arg(result.proofFailures[i]);
+                if (result.proofFailures.size() > maxLines)
+                    text += QObject::tr("\n  … %1 more — see the proof pack:").arg(
+                        result.proofFailures.size() - maxLines);
+                if (!result.proofTextPath.isEmpty())
+                    text += QObject::tr("\n%1").arg(result.proofTextPath);
+            }
+        }
         return text;
     }
     case RedactOutcome::PartialRedactedOnly:
@@ -336,6 +402,20 @@ MarkDecision present(QWidget* parent, const RedactResult& result,
     switch (result.outcome) {
     case RedactOutcome::Completed:
         QMessageBox::information(parent, QObject::tr("Redaction Complete"), detailText(result));
+        // T1-2: a FAILED proof is its own loud event — never folded into the
+        // ordinary completion box. The artifacts exist, but the survival sweep
+        // found removed content (or a surface it could not sweep): the user
+        // must not walk away with a success impression.
+        if (result.proofRan && !result.proofPassed) {
+            QMessageBox::critical(parent, QObject::tr("Redaction Proof FAILED"),
+                QObject::tr("The redacted file was saved, but the proof FAILED: removed "
+                            "content still survives in the output (or a surface could not "
+                            "be swept).\n\n%1\n\nThe proof pack is at:\n%2\n\nDo NOT "
+                            "distribute this file until the finding is resolved.")
+                    .arg(result.proofFailures.join(QStringLiteral("\n")),
+                         result.proofTextPath.isEmpty() ? result.proofJsonPath
+                                                        : result.proofTextPath));
+        }
         return MarkDecision::ClearMarks;
 
     case RedactOutcome::PartialRedactedOnly: {

@@ -4,6 +4,7 @@
 #include "engines/PdfEditorEngine.h"
 
 #include <QFile>
+#include <QFileInfo>
 #include <QPointer>
 #include <QThread>
 #include <mutex>
@@ -25,6 +26,7 @@ namespace {
 [[maybe_unused]] const bool kRedactMetaTypesRegistered = [] {
     qRegisterMetaType<gp::RedactResult>("gp::RedactResult");
     qRegisterMetaType<gp::RedactStage>("gp::RedactStage");
+    qRegisterMetaType<gp::RedactionProof::Result>("gp::RedactionProof::Result");
     return true;
 }();
 
@@ -656,6 +658,60 @@ void RedactOperation::ExecutionState::execute()
         }
     } else if (result.outcome != RedactOutcome::Canceled) {
         result.outcome = RedactOutcome::Failed; // safety net: truthful failure
+    }
+
+    // ── Proof (T1-2 Redaction Proof Mode): verify the COMMITTED artifacts ───
+    //
+    // Runs on the worker thread after the transaction's terminal state is
+    // fixed, only when an output was actually committed and the caller asked
+    // for proof. Deliberately NOT a pipeline stage: the redaction artifacts
+    // exist regardless, and the proof must never retroactively turn a
+    // committed result into a failure banner of the transaction — its verdict
+    // travels beside the outcome (proofRan/proofPassed) and the presenter
+    // surfaces a failed proof as its OWN loud event.
+    if (request.produceProof
+        && !result.destination.isEmpty()
+        && QFile::exists(result.destination)) {
+        RedactionProof::Request proofRequest;
+        proofRequest.sourcePath = request.sourcePath;
+        proofRequest.outputPath = result.destination;
+        if (!result.sanitizedDestination.isEmpty())
+            proofRequest.sanitizedPath = result.sanitizedDestination;
+        proofRequest.redactionsByPage = request.redactionsByPage;
+
+        const QFileInfo destInfo(result.destination);
+        const QString packBase = destInfo.absolutePath() + QLatin1Char('/')
+            + destInfo.completeBaseName() + QStringLiteral("_redaction-proof");
+        const QString jsonPath = packBase + QStringLiteral(".json");
+        const QString textPath = packBase + QStringLiteral(".txt");
+
+        RedactionProof::Result proof = RedactionProof::verify(proofRequest);
+        result.proofRan = proof.proofRan;
+        result.proofPassed = proof.proofPassed;
+        result.proofFailures = proof.failureReasons;
+        if (proof.proofRan) {
+            QString packErr;
+            if (proof.exportPack(jsonPath, textPath, &packErr)) {
+                result.proofJsonPath = jsonPath;
+                result.proofTextPath = textPath;
+                result.proofSummary = proof.proofPassed
+                    ? QStringLiteral("Redaction proof PASSED: no removed string survives on "
+                                     "any swept surface (%1 excision(s) verified).")
+                          .arg(proof.entries.size())
+                    : QStringLiteral("Redaction proof FAILED: %1").arg(
+                          proof.failureReasons.value(0, QStringLiteral("survivors found")));
+            } else {
+                // The verdict was computed; only the artifact write failed.
+                // Say so — a proof the user cannot hand over is not delivered.
+                result.proofSummary = QStringLiteral(
+                    "Redaction proof computed (%1) but the proof pack could not be "
+                    "written: %2").arg(QString::fromLatin1(proof.proofPassed ? "PASSED" : "FAILED"),
+                                       packErr);
+            }
+        } else {
+            result.proofSummary = QStringLiteral("Redaction proof could not run: %1")
+                                      .arg(proof.error);
+        }
     }
 
     // ── Done ────────────────────────────────────────────────────────────────
