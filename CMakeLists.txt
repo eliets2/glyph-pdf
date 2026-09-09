@@ -2505,6 +2505,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestDjotRoundtrip.cpp")
         tests/TestDjotRoundtrip.cpp
     )
     target_include_directories(TestDjotRoundtrip PRIVATE src tests)
+    # Q02 source-root: inject the vendored djot library path (same
+    # DJOT_LIB_DIR pattern as PdfWorkstation) instead of relying on
+    # applicationDirPath()+"/../" resolving to the source root.
+    target_compile_definitions(TestDjotRoundtrip PRIVATE
+        DJOT_LIB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/third_party/djot"
+    )
     target_link_libraries(TestDjotRoundtrip PRIVATE
         pdfws_djot docmodel
         Qt6::Test Qt6::Core
@@ -2527,6 +2533,10 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestDjotFuzz.cpp")
         tests/TestDjotFuzz.cpp
     )
     target_include_directories(TestDjotFuzz PRIVATE src tests)
+    # Q02 source-root: injected absolute djot-lib path (see TestDjotRoundtrip).
+    target_compile_definitions(TestDjotFuzz PRIVATE
+        DJOT_LIB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/third_party/djot"
+    )
     target_link_libraries(TestDjotFuzz PRIVATE
         pdfws_djot docmodel
         Qt6::Test Qt6::Core
