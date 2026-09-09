@@ -194,7 +194,9 @@ def clean_page(rgb: np.ndarray) -> tuple[np.ndarray, bool, float, float]:
 
 def save_png(binary: np.ndarray, path: Path, dpi: int) -> None:
     image = Image.fromarray(binary).convert("1")
-    image.save(path, dpi=(dpi, dpi), optimize=True)
+    # G02: the format is stated explicitly so the path may be a uniquely
+    # named staging file whose "extension" is the run token.
+    image.save(path, format="PNG", dpi=(dpi, dpi), optimize=True)
 
 
 def insert_png_page(pdf_out: fitz.Document, binary: np.ndarray, source_rect: fitz.Rect, dpi: int) -> None:
@@ -210,24 +212,39 @@ def main() -> int:
         print("usage: clean_scanned_pdf.py input.pdf output_dir output.pdf", file=sys.stderr)
         return 2
 
+    import tempfile
+    import uuid
+
     input_pdf = Path(sys.argv[1])
     output_dir = Path(sys.argv[2])
     output_pdf = Path(sys.argv[3])
 
-    # INF01: alias check BEFORE anything is opened or deleted. A same-file
-    # run used to unlink the input and then fail to open it, destroying the
-    # source.
-    try:
-        same_file = input_pdf.resolve() == output_pdf.resolve()
-    except OSError:
-        same_file = input_pdf == output_pdf
-    if same_file:
-        print(
-            "refusing: input and output are the same file "
-            "(same-file cleanup is not supported)",
-            file=sys.stderr,
-        )
-        return 2
+    # G02 (QUALITY-GATE-2026-09-09): an identity check against EVERY path this
+    # run writes — the output PDF, the (now unique) candidate, the per-run PNG
+    # staging area and the report. The old fixed candidate name
+    # `output.pdf.cleaning-tmp.pdf` could BE the input (the alias check only
+    # compared input vs output) and was then unlinked on failure, destroying
+    # the source; a pre-existing unrelated candidate was likewise deleted.
+    def same_path(a: Path, b: Path) -> bool:
+        try:
+            return a.resolve() == b.resolve()
+        except OSError:
+            return a == b
+
+    report_pdf = output_dir / "cleanup_report.txt"
+    png_dir_early = output_dir / "png"
+    for label, other in (
+        ("output", output_pdf),
+        ("report", report_pdf),
+        ("png dir", png_dir_early),
+    ):
+        if same_path(input_pdf, other):
+            print(
+                f"refusing: input and {label} are the same path "
+                "(same-path cleanup is not supported)",
+                file=sys.stderr,
+            )
+            return 2
 
     # INF01: open/validate the input FIRST. A missing or corrupt input must
     # fail without touching any pre-existing output or artifacts.
@@ -247,16 +264,38 @@ def main() -> int:
     # front — stale ones are cleared only after a successful commit, so a
     # failure never destroys the previous run's artifacts.
     preexisting_pngs = sorted(png_dir.glob("page_*_cleaned.png"))
-    rewritten_pngs: set[str] = set()
 
-    # Sibling candidate: the previous output is only ever replaced by the
-    # atomic os.replace below, after the candidate is written AND validated.
-    candidate = output_pdf.with_name(output_pdf.name + ".cleaning-tmp.pdf")
+    # G02: uniquely OWNED candidate — mkstemp creates it exclusively in the
+    # output's directory (same volume, so the final commit is a plain atomic
+    # os.replace). The run owns this exact path and may only ever unlink THIS
+    # file, never a pre-existing user file at some fixed name. The same run
+    # token namespaces the PNG staging files.
+    run_token = uuid.uuid4().hex[:12]
+    try:
+        fd, candidate_name = tempfile.mkstemp(
+            prefix=output_pdf.name + ".cleaning-tmp-", suffix=".pdf",
+            dir=str(output_pdf.parent),
+        )
+        os.close(fd)
+    except OSError as exc:
+        print(f"cannot create candidate next to {output_pdf}: {exc}", file=sys.stderr)
+        doc.close()
+        return 1
+    candidate = Path(candidate_name)
+    # Staged PNGs this run created: (staged path, final path). Only these are
+    # ever removed on failure; the final artifact names are touched only by
+    # the explicit success policy below.
+    staged_pngs: list[tuple[Path, Path]] = []
+    rewritten: list[int] = []
+
+    def fail_cleanup() -> None:
+        candidate.unlink(missing_ok=True)
+        for staged, _final in staged_pngs:
+            staged.unlink(missing_ok=True)
 
     dpi = 250
     cleaned_pdf = fitz.open()
     skipped: list[int] = []
-    written: list[int] = []
 
     fail_after_env = os.environ.get("CLEAN_SCANNED_PDF_FAIL_AFTER_PAGE")
     fail_after = int(fail_after_env) if fail_after_env else None
@@ -279,10 +318,18 @@ def main() -> int:
                 status = "skip_blank"
             else:
                 png_path = png_dir / f"page_{page_number:03d}_cleaned.png"
-                save_png(binary, png_path, dpi)
-                rewritten_pngs.add(png_path.name)
+                # G02: the identity guarantee covers every artifact path —
+                # a document named like one of this run's outputs is refused
+                # instead of being overwritten by its own cleanup.
+                if same_path(input_pdf, png_path) or same_path(input_pdf, candidate):
+                    raise RuntimeError(
+                        f"input aliases an output artifact path: {png_path}"
+                    )
+                staged_path = png_dir / f"{png_path.name}.cleaning-tmp-{run_token}"
+                save_png(binary, staged_path, dpi)
+                staged_pngs.append((staged_path, png_path))
                 insert_png_page(cleaned_pdf, binary, doc[page_index].rect, dpi)
-                written.append(page_number)
+                rewritten.append(page_number)
                 status = "written"
 
             if page_number == 2 or page_number == doc.page_count or page_number % 10 == 0:
@@ -306,7 +353,10 @@ def main() -> int:
     except BaseException:
         cleaned_pdf.close()
         doc.close()
-        candidate.unlink(missing_ok=True)
+        # G02: only paths THIS run created are removed — the unique candidate
+        # and the staged PNGs. Pre-existing outputs and artifacts survive with
+        # their original bytes.
+        fail_cleanup()
         raise
     cleaned_pdf.close()
     doc.close()
@@ -315,12 +365,12 @@ def main() -> int:
     # atomically. Any failure up to here leaves the previous output intact.
     try:
         check = fitz.open(candidate)
-        candidate_ok = check.page_count == len(written)
+        candidate_ok = check.page_count == len(rewritten)
         check.close()
     except Exception:
         candidate_ok = False
     if not candidate_ok:
-        candidate.unlink(missing_ok=True)
+        fail_cleanup()
         print(
             "candidate output failed validation; previous output preserved",
             file=sys.stderr,
@@ -328,19 +378,24 @@ def main() -> int:
         return 1
     os.replace(candidate, output_pdf)
 
-    # INF01: only after the commit succeeded, clear stale pre-existing
-    # artifacts this run did not rewrite.
+    # G02 explicit success policy: the PDF commit succeeded, so the staged
+    # PNGs become the artifacts now (each rename is a same-directory atomic
+    # replace), and only after that are stale pre-existing artifacts this run
+    # did not rewrite cleared.
+    for staged, final in staged_pngs:
+        os.replace(staged, final)
+    final_names = {final.name for _staged, final in staged_pngs}
     for old in preexisting_pngs:
-        if old.name not in rewritten_pngs:
+        if old.name not in final_names:
             old.unlink(missing_ok=True)
 
-    report_path = output_dir / "cleanup_report.txt"
+    report_path = report_pdf
     report_path.write_text(
         "\n".join(
             [
                 f"Input PDF: {input_pdf}",
                 "Skipped first page: 1",
-                f"Cleaned non-blank pages written: {len(written)}",
+                f"Cleaned non-blank pages written: {len(rewritten)}",
                 f"Blank pages skipped after cleanup: {len(skipped)}",
                 f"Skipped blank page numbers: {', '.join(map(str, skipped)) if skipped else 'none'}",
                 f"PNG directory: {png_dir}",
@@ -352,7 +407,7 @@ def main() -> int:
     )
 
     print("")
-    print(f"done: wrote {len(written)} PNG files")
+    print(f"done: wrote {len(rewritten)} PNG files")
     print(f"blank pages skipped: {len(skipped)}")
     print(f"pdf={output_pdf}")
     print(f"report={report_path}")
