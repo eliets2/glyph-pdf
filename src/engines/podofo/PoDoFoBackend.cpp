@@ -179,6 +179,14 @@ public:
     // Owned here — a stack-local QByteArray died at the end of the saving
     // call and left the resident document parsing freed memory.
     QByteArray reseatBuffer;
+    // G01: the user password this document was encrypted with by
+    // encryptDocument() (empty for a document encrypted on disk with an empty
+    // user password — the only encrypted documents that can become resident,
+    // because loadDocument() passes no password). Required to reopen the
+    // ENCRYPTED safe-save candidate for validation and to re-seat the
+    // resident document from it. Cleared whenever a different document is
+    // loaded or the encryption is removed.
+    QString encryptionPassword;
 
     PoDoFo::PdfMemDocument& resolveDocument(const QString& path) {
         // Already the loaded document (possibly with unsaved in-memory edits) — operate on it.
@@ -201,6 +209,40 @@ public:
         document = std::move(newDoc);
         currentFile = path;
         return *document;
+    }
+
+    // G06 (P1, QUALITY-GATE-2026-09-09): common mutation-transaction rollback.
+    // Every path-based mutator (cropPage/rotatePage/resizePage/reorder*/
+    // addHeaderFooter/applyBatesNumbering/deleteObjectAt/…) mutates the
+    // RESIDENT document first and only then commits through writeUpdate →
+    // saveDocument. When that commit FAILS, the mutator's command is dropped
+    // and the disk is untouched — but the resident document used to keep the
+    // rejected mutation, so a later ordinary save silently persisted it
+    // (gate probe: EC05_LATER_SAVE). The pre-mutation resident state is, for
+    // every resident document lineage (file-backed lazy parse or EC01
+    // reseat-buffer), exactly the bytes on disk of `currentFile`: reload them.
+    // If even the reload fails, DROP the resident document entirely — a
+    // rejected mutation must never stay resident. This is the COMMON rule at
+    // the shared save boundary, not a crop-specific workaround.
+    void restoreResidentFromSource() {
+        const QString src = currentFile;
+        document.reset();
+        currentFile.clear();
+        reseatBuffer.clear();
+        encryptionPassword.clear();
+        if (src.isEmpty()) return;   // already no resident state to leak
+        auto restored = std::make_unique<PoDoFo::PdfMemDocument>();
+        try {
+            restored->Load(src.toUtf8().constData());
+        } catch (const PoDoFo::PdfError& e) {
+            // Stay dropped: the next loadDocument/resolveDocument re-loads
+            // honestly from disk. Never keep a possibly-mutated resident.
+            qCritical() << "PoDoFoBackend: rejected mutation rollback could not reload"
+                        << src << "- resident document dropped:" << e.what();
+            return;
+        }
+        document = std::move(restored);
+        currentFile = src;
     }
 
     PdfImageInfo* findImageByName(int pageIndex, const QString& xobjectName, PoDoFoBackend* parent) {
@@ -230,6 +272,7 @@ bool PoDoFoBackend::loadDocument(const QString &path) {
         d->document = std::move(newDoc);
         d->currentFile = path;
         d->reseatBuffer.clear();   // file-backed document: no re-seat buffer pinned
+        d->encryptionPassword.clear();   // G01: credentials belong to the old lineage
         return true;
     } catch (const PoDoFo::PdfError& e) {
         // E-05/E-18: log unconditionally (not only in Debug). In a Release build the
@@ -244,59 +287,49 @@ bool PoDoFoBackend::saveDocument(const QString &path) {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
 
-    // ── Encrypted documents: separate contract (like the signed incremental
-    // path). PoDoFo re-serializes them with the in-memory encrypt object, and
-    // the result cannot be reopened for candidate validation without the
-    // loading password (not exposed by PdfMemDocument), nor be re-seated via
-    // LoadFromBuffer. These documents are parsed eagerly (no deferred object
-    // streams), so the EC01 same-path truncation does not reproduce here —
-    // preserve the exact pre-EC01 direct-save semantics for them. Residual:
-    // an encrypted document WITH deferred object streams could still truncate
-    // on a same-path save; the reviewed EC01 repro is the ordinary document.
-    if (d->document->IsEncrypted()) {
-        try {
-            d->document->Save(path.toUtf8().constData());
-        } catch (const PoDoFo::PdfError& e) {
-            qCritical() << "PoDoFoBackend::saveDocument (encrypted) failed:"
-                        << e.what() << "path:" << path;
-            return false;
-        }
-        return true;
-    }
-
-    // ── EC01 (P1): candidate → validate → checked commit at the shared save
-    // boundary (R01/U05 SafeSave pattern; TEAM-ENGINE-CODE-REVIEW-2026-09-07).
-    //
-    // A loaded PdfMemDocument keeps its source device open for deferred object
-    // parsing (PdfMemDocument::m_device). The old code handed `path` straight
-    // to Save(), so a save to the loaded source path truncated the very file
-    // the parser was still reading ("InvalidNumber — Object and generation
-    // number cannot be read"): a valid two-page PDF became ZERO bytes and the
-    // operation returned failure. Every path-based mutator funnels through
-    // here (PdfEditorEngine::saveDocument, unsigned writeUpdate ← rotatePage /
-    // cropPage / reorder / …), so the transaction lives at this one choke
-    // point:
-    //   1. serialize the COMPLETE in-memory document to a unique temp
-    //      candidate (never the destination — no fragile path-equality
-    //      checks),
+    // ── EC01 (P1) + G01 (P1): candidate → validate → checked commit at the
+    // shared save boundary (R01/U05 SafeSave pattern). G01
+    // (QUALITY-GATE-2026-09-09) closes the documented residual: the old code
+    // deliberately bypassed the transaction for ENCRYPTED documents
+    // ("IsEncrypted"), including a document the caller just encrypted in
+    // memory with encryptDocument() while it was still lazily parsed from its
+    // source file. Saving such a document to its own path truncated the file
+    // the parser was still reading: a valid 15,090-byte two-page PDF became
+    // ZERO bytes and Save returned false (probe: EC01_SAVE_MODE 2). There is
+    // no longer any direct-save bypass — every document goes through:
+    //   1. serialize the COMPLETE in-memory document (with its /Encrypt dict,
+    //      when encrypted) to a unique temp candidate (never the destination),
     //   2. reopen the candidate and validate it: readable PDF with an
-    //      unchanged page count,
+    //      unchanged page count — an ENCRYPTED candidate is reopened with the
+    //      credentials captured at encryptDocument() time (G01: "reopen the
+    //      encrypted candidate with the appropriate credentials"),
     //   3. for a same-file save, re-seat the resident document from the
-    //      validated candidate BYTES (in-memory buffer) BEFORE the commit —
-    //      this closes the device the old document held on the file about to
-    //      be replaced so the atomic rename can succeed, and on any later
-    //      failure the edit state stays resident and recoverable while no
-    //      handle pins the candidate,
+    //      validated candidate BYTES (in-memory buffer) BEFORE the commit,
+    //      so no handle pins the file about to be replaced,
     //   4. commit the validated bytes through SafeSave::commitFileToDestination
-    //      (bounded copy into QSaveFile + checked commit) — the original is
-    //      never deleted before the atomic rename, and a blocked replacement
-    //      (open handle, full disk) fails with the original byte-identical.
-    //      There is deliberately NO direct-write fallback.
-    //   5. the re-seated document is byte-identical to the committed
-    //      destination, so the backend is left backed by exactly the committed
-    //      document and every candidate file is removable on every path.
+    //      — the original and any prior destination are preserved on every
+    //      failure (atomic rename; no direct-write fallback). A failed save
+    //      never rolls back the resident document here: an ordinary Save (or
+    //      autosave) keeps the in-memory work for retry. The MUTATION-command
+    //      rollback (G06: a rejected crop/rotate/… must not stay resident)
+    //      lives one level up, in writeUpdate()'s failure paths, where the
+    //      pre-mutation state is unambiguously the committed source bytes.
     // Signed documents keep their separate writeUpdate (SaveUpdate) incremental
     // contract — they never route through this unsigned full rewrite.
+    const bool encrypted = d->document->IsEncrypted();
+
+    const QString cur = d->currentFile;
+    bool sameFile = !cur.isEmpty() && QString::compare(cur, path, Qt::CaseInsensitive) == 0;
+    if (!sameFile && !cur.isEmpty()) {
+        // Alias-tolerant identity check (differing casing, 8.3 names,
+        // symlinks): replacing the loaded file must always re-seat first.
+        const QFileInfo curInfo(cur);
+        const QFileInfo dstInfo(path);
+        const QString curCanon = curInfo.canonicalFilePath();
+        const QString dstCanon = dstInfo.canonicalFilePath();
+        sameFile = !curCanon.isEmpty() && curCanon == dstCanon;
+    }
+
     QString candidate;
     QString err;
     if (!gp::SafeSave::makeUniqueCandidate(&candidate, &err)) {
@@ -317,7 +350,17 @@ bool PoDoFoBackend::saveDocument(const QString &path) {
 
     try {
         PoDoFo::PdfMemDocument reopened;
-        reopened.Load(candidate.toUtf8().constData());
+        if (encrypted) {
+            // G01: the candidate carries the in-memory /Encrypt dict. Reopen
+            // it with the credentials this document was encrypted under
+            // (empty user password for documents that were already encrypted
+            // on disk — they could only become resident with an empty user
+            // password, since loadDocument() passes no password).
+            reopened.Load(candidate.toUtf8().constData(), PoDoFo::PdfLoadOptions::None,
+                          d->encryptionPassword.toStdString());
+        } else {
+            reopened.Load(candidate.toUtf8().constData());
+        }
         if (reopened.GetPages().GetCount() != sourcePageCount) {
             qCritical() << "PoDoFoBackend::saveDocument: candidate page count mismatch"
                         << sourcePageCount << "->" << reopened.GetPages().GetCount()
@@ -330,18 +373,6 @@ bool PoDoFoBackend::saveDocument(const QString &path) {
         return false;
     }
 
-    const QString cur = d->currentFile;
-    bool sameFile = !cur.isEmpty() && QString::compare(cur, path, Qt::CaseInsensitive) == 0;
-    if (!sameFile && !cur.isEmpty()) {
-        // Alias-tolerant identity check (differing casing, 8.3 names,
-        // symlinks): replacing the loaded file must always re-seat first.
-        const QFileInfo curInfo(cur);
-        const QFileInfo dstInfo(path);
-        const QString curCanon = curInfo.canonicalFilePath();
-        const QString dstCanon = dstInfo.canonicalFilePath();
-        sameFile = !curCanon.isEmpty() && curCanon == dstCanon;
-    }
-
     if (sameFile) {
         // Re-seat the resident document from the validated candidate bytes via
         // an in-memory buffer: destroying the previous document closes its
@@ -350,7 +381,8 @@ bool PoDoFoBackend::saveDocument(const QString &path) {
         // handle at all — every candidate file is removable on every path.
         // The bytes are stored in d->reseatBuffer (member, not local): the
         // re-seated document keeps parsing from that buffer for its whole
-        // lifetime, so the buffer must outlive this call.
+        // lifetime, so the buffer must outlive this call. Encrypted
+        // candidates are re-seated with the same captured credentials.
         QFile candidateFile(candidate);
         if (!candidateFile.open(QIODevice::ReadOnly)) {
             qCritical() << "PoDoFoBackend::saveDocument: validated candidate became unreadable:"
@@ -361,9 +393,17 @@ bool PoDoFoBackend::saveDocument(const QString &path) {
         candidateFile.close();
         auto reseeded = std::make_unique<PoDoFo::PdfMemDocument>();
         try {
-            reseeded->LoadFromBuffer(
-                PoDoFo::bufferview(d->reseatBuffer.constData(),
-                                   static_cast<size_t>(d->reseatBuffer.size())));
+            if (encrypted) {
+                reseeded->LoadFromBuffer(
+                    PoDoFo::bufferview(d->reseatBuffer.constData(),
+                                       static_cast<size_t>(d->reseatBuffer.size())),
+                    PoDoFo::PdfLoadOptions::None,
+                    d->encryptionPassword.toStdString());
+            } else {
+                reseeded->LoadFromBuffer(
+                    PoDoFo::bufferview(d->reseatBuffer.constData(),
+                                       static_cast<size_t>(d->reseatBuffer.size())));
+            }
         } catch (const PoDoFo::PdfError& e) {
             d->reseatBuffer.clear();
             qCritical() << "PoDoFoBackend::saveDocument: cannot re-seat resident document "
@@ -467,6 +507,34 @@ bool PoDoFoBackend::writeUpdate(const QString &path) {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
 
+    // G06 (P1, QUALITY-GATE-2026-09-09): common mutation-transaction rollback.
+    // writeUpdate is THE commit step of every path-based mutator (cropPage,
+    // rotatePage, resizePage, reorder*, addHeaderFooter, applyBatesNumbering,
+    // deleteObjectAt/applyRedactions, …) and the mutator has ALREADY mutated
+    // the resident document when it gets here. If the commit fails, the
+    // command is dropped and the disk is untouched — the resident document
+    // must then be restored to the pre-mutation state (for every resident
+    // lineage that is exactly the source file's bytes), or dropped entirely
+    // when even the reload fails. Without this, a supposedly rejected
+    // mutation silently persisted on a later ordinary save (gate probe:
+    // EC05_LATER_SAVE). This is the COMMON rule at the shared commit
+    // boundary, not a crop-specific workaround. A failed plain saveDocument
+    // (user Save / autosave) deliberately does NOT roll back: that path keeps
+    // the in-memory work — including an uncommitted encryptDocument() setup —
+    // alive for retry.
+    const auto rollbackResidentIfSameFile = [&]() {
+        const QString cur = d->currentFile;
+        bool sameFile = !cur.isEmpty() && QString::compare(cur, path, Qt::CaseInsensitive) == 0;
+        if (!sameFile && !cur.isEmpty()) {
+            const QFileInfo curInfo(cur);
+            const QFileInfo dstInfo(path);
+            const QString curCanon = curInfo.canonicalFilePath();
+            const QString dstCanon = dstInfo.canonicalFilePath();
+            sameFile = !curCanon.isEmpty() && curCanon == dstCanon;
+        }
+        if (sameFile) d->restoreResidentFromSource();
+    };
+
     // §6 non-negotiable: when signatures exist, a full rewrite changes the byte
     // offsets that every /ByteRange points at and silently invalidates the
     // signatures. Detect signatures and, if present, perform a real PoDoFo
@@ -483,12 +551,15 @@ bool PoDoFoBackend::writeUpdate(const QString &path) {
     } catch (const PoDoFo::PdfError& e) {
         qCritical() << "PoDoFoBackend::writeUpdate: failed to inspect signature fields:"
                     << e.what() << "— refusing to write rather than risk invalidating a signature.";
+        rollbackResidentIfSameFile();
         return false;
     }
 
     if (!hasSignatures) {
         // No signatures to protect — a full save is safe.
-        return saveDocument(path);
+        const bool ok = saveDocument(path);
+        if (!ok) rollbackResidentIfSameFile();
+        return ok;
     }
 
     // Incremental update path. SaveUpdate appends to the file at `path`, which must
@@ -500,11 +571,13 @@ bool PoDoFoBackend::writeUpdate(const QString &path) {
         if (!src.isEmpty() && QString::compare(src, path, Qt::CaseInsensitive) != 0) {
             if (QFile::exists(path) && !QFile::remove(path)) {
                 qCritical() << "PoDoFoBackend::writeUpdate: cannot overwrite target" << path;
+                rollbackResidentIfSameFile();
                 return false;
             }
             if (!QFile::copy(src, path)) {
                 qCritical() << "PoDoFoBackend::writeUpdate: failed to stage source bytes from"
                             << src << "to" << path << "for incremental update.";
+                rollbackResidentIfSameFile();
                 return false;
             }
         }
@@ -517,9 +590,11 @@ bool PoDoFoBackend::writeUpdate(const QString &path) {
     } catch (const PoDoFo::PdfError& e) {
         qCritical() << "PoDoFoBackend::writeUpdate: incremental SaveUpdate failed:"
                     << e.what() << "path:" << path;
+        rollbackResidentIfSameFile();
         return false;
     } catch (const std::exception& e) {
         qCritical() << "PoDoFoBackend::writeUpdate: incremental save exception:" << e.what();
+        rollbackResidentIfSameFile();
         return false;
     }
 }
@@ -2481,11 +2556,14 @@ bool PoDoFoBackend::encryptDocument(const QString &userPassword, const QString &
         if (permsStruct.assemble) perms = perms | PoDoFo::PdfPermissions::DocAssembly;
 
         d->document->SetEncrypted(
-            userPassword.toUtf8().constData(), 
+            userPassword.toUtf8().constData(),
             ownerPassword.toUtf8().constData(),
             perms,
             PoDoFo::PdfEncryptionAlgorithm::AESV3R6
         );
+        // G01: remember the credentials the safe-save candidate must be
+        // reopened with (candidate validation and same-file re-seat).
+        d->encryptionPassword = userPassword;
 #ifdef QT_DEBUG
         qDebug() << "Applied AES-256 encryption to document.";
 #endif
@@ -2509,6 +2587,7 @@ bool PoDoFoBackend::removeEncryption(const QString &ownerPassword) {
         
         // Remove encryption
         d->document->SetEncrypt(nullptr);
+        d->encryptionPassword.clear();   // G01: credentials no longer apply
 #ifdef QT_DEBUG
         qDebug() << "Removed encryption from document.";
 #endif
