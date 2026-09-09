@@ -144,6 +144,20 @@ public:
     // longer matches or no document is loaded.
     virtual bool saveDocumentIfCurrent(const QString &expectedCurrentFile,
                                        const QString &outputPath) = 0;
+    // G04 (P1, QUALITY-GATE-2026-09-09): the EC02 path check alone accepts a
+    // REPLACED document — A→B→A with A re-opened from new bytes matches the
+    // captured path string, so the old recovery file was overwritten with the
+    // new incarnation's bytes. `documentLoadId()` is the engine-owned
+    // identity of the RESIDENT LOAD: it advances on every successful
+    // loadDocumentForEditing (a same-path reopen is a new incarnation). The
+    // deferred writer captures it at queue time and this overload checks BOTH
+    // the path and the load identity under the SAME lock that serializes the
+    // save, rejecting stale A→B→A and same-path reloads BEFORE any recovery
+    // output is touched.
+    virtual qint64 documentLoadId() const = 0;
+    virtual bool saveDocumentIfCurrent(const QString &expectedCurrentFile,
+                                       qint64 expectedLoadId,
+                                       const QString &outputPath) = 0;
     virtual bool linearizeDocument(const QString &outputPath) = 0;
     virtual bool sanitizeDocument(const QString &outputPath) = 0;
     virtual bool getMetadata(PdfMetadata &outMetadata) = 0;

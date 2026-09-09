@@ -89,6 +89,11 @@ void AutosaveManager::onTick()
     // B's session for A's work.
     const QString capturedFile = m_pdfEditor->currentFile();
     if (capturedFile.isEmpty()) return;
+    // G04 (QUALITY-GATE-2026-09-09): the path string alone accepts a REPLACED
+    // document (A→B→A re-open). The engine-owned resident-load identity is
+    // captured with it and validated at the save AND again at the commit, so
+    // a stale incarnation can never touch the captured recovery file.
+    const qint64 capturedLoadId = m_pdfEditor->documentLoadId();
     const qint64 capturedGeneration = m_document->documentGeneration();
 
     m_saving = true;
@@ -103,7 +108,7 @@ void AutosaveManager::onTick()
     enum SaveOutcome { SaveFailed = 0, SaveOk = 1, SaveStale = 2 };
 
     auto watcher = new QFutureWatcher<int>(this);
-    connect(watcher, &QFutureWatcher<int>::finished, this, [this, watcher, capturedFile, capturedGeneration, tmpAutosavePath, finalAutosavePath]() {
+    connect(watcher, &QFutureWatcher<int>::finished, this, [this, watcher, capturedFile, capturedLoadId, capturedGeneration, tmpAutosavePath, finalAutosavePath]() {
         const int result = watcher->result();
         watcher->deleteLater();
 
@@ -114,8 +119,15 @@ void AutosaveManager::onTick()
         const bool sessionMatches = m_document
             && m_document->path() == capturedFile
             && m_document->documentGeneration() == capturedGeneration;
+        // G04: carry the identity through the COMMIT as well — the worker
+        // wrote the captured incarnation's bytes into the temp, but if the
+        // engine has since moved to a different load, promoting the temp over
+        // the captured recovery file would overwrite the NEW session's
+        // recovery state with stale bytes.
+        const bool engineMatches = m_pdfEditor
+            && m_pdfEditor->documentLoadId() == capturedLoadId;
 
-        if (result == SaveOk) {
+        if (result == SaveOk && engineMatches) {
             bool renameOk = atomicRename(tmpAutosavePath, finalAutosavePath);
             if (renameOk) {
                 QDateTime now = QDateTime::currentDateTime();
@@ -126,9 +138,12 @@ void AutosaveManager::onTick()
             } else {
                 // Retry once after 250ms asynchronously
                 QPointer<AutosaveManager> weakThis(this);
-                QTimer::singleShot(250, [weakThis, capturedFile, capturedGeneration, tmpAutosavePath, finalAutosavePath]() {
+                QTimer::singleShot(250, [weakThis, capturedFile, capturedLoadId, capturedGeneration, tmpAutosavePath, finalAutosavePath]() {
                     if (!weakThis) return;
-                    bool retryOk = atomicRename(tmpAutosavePath, finalAutosavePath);
+                    const bool retryEngineMatches = weakThis->m_pdfEditor
+                        && weakThis->m_pdfEditor->documentLoadId() == capturedLoadId;
+                    bool retryOk = retryEngineMatches
+                        && atomicRename(tmpAutosavePath, finalAutosavePath);
                     if (retryOk) {
                         QDateTime now = QDateTime::currentDateTime();
                         if (weakThis->m_document
@@ -137,6 +152,11 @@ void AutosaveManager::onTick()
                             weakThis->m_document->setLastAutosave(now);
                         }
                         emit weakThis->autosaveCompleted(now);
+                    } else if (!retryEngineMatches) {
+                        // G04: the identity moved on — drop the stale temp
+                        // instead of promoting it over the new recovery state.
+                        QFile::remove(tmpAutosavePath);
+                        emit weakThis->autosaveStale(capturedFile);
                     } else {
                         qWarning() << "Autosave failed: atomic rename failed from" << tmpAutosavePath << "to" << finalAutosavePath;
                         emit weakThis->autosaveFailed("Failed to rename temporary autosave file");
@@ -145,6 +165,13 @@ void AutosaveManager::onTick()
                 });
                 return; // Return early, m_saving = false will be handled in the timer
             }
+        } else if (result == SaveOk && !engineMatches) {
+            // G04: the save succeeded but the engine moved to a different
+            // resident load before the commit — the temp holds the OLD
+            // incarnation's bytes and must never overwrite the captured
+            // recovery file. Terminate as stale.
+            QFile::remove(tmpAutosavePath);
+            emit autosaveStale(capturedFile);
         } else if (result == SaveStale) {
             // EC02: the resident document changed between capture and save —
             // the engine refused WITHOUT writing. Clear any leftover temp and
@@ -160,17 +187,20 @@ void AutosaveManager::onTick()
         m_saving = false;
     });
 
-    QFuture<int> future = QtConcurrent::run([weakEditor, capturedFile, tmpAutosavePath]() -> int {
+    QFuture<int> future = QtConcurrent::run([weakEditor, capturedFile, capturedLoadId, tmpAutosavePath]() -> int {
         auto editor = weakEditor.lock();
         if (!editor) return SaveFailed;
         try {
-            // EC02: identity-guarded save — the engine checks under its
+            // EC02/G04: identity-guarded save — the engine checks under its
             // serialization lock that the document it holds is still the one
-            // captured for this run, so a switch cannot be serialized into
-            // the captured path. A `false` with a changed resident document
-            // is a stale run, not a save failure.
-            if (!editor->saveDocumentIfCurrent(capturedFile, tmpAutosavePath)) {
-                return editor->currentFile() == capturedFile ? SaveFailed : SaveStale;
+            // captured for this run (path AND resident-load identity), so a
+            // switch — or a same-path RELOAD — cannot be serialized into the
+            // captured path. A `false` with a changed resident identity is a
+            // stale run, not a save failure.
+            if (!editor->saveDocumentIfCurrent(capturedFile, capturedLoadId, tmpAutosavePath)) {
+                const bool identityCurrent = editor->currentFile() == capturedFile
+                    && editor->documentLoadId() == capturedLoadId;
+                return identityCurrent ? SaveFailed : SaveStale;
             }
             return SaveOk;
         } catch (const std::exception &e) {

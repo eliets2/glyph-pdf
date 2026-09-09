@@ -25,6 +25,12 @@ public:
     // same recursive mutex that serializes the save (see IPdfDocumentIO).
     bool saveDocumentIfCurrent(const QString &expectedCurrentFile,
                                const QString &outputPath) override;
+    // G04 (QUALITY-GATE-2026-09-09): engine-owned resident-load identity and
+    // the identity+path-guarded save (see IPdfDocumentIO).
+    qint64 documentLoadId() const override;
+    bool saveDocumentIfCurrent(const QString &expectedCurrentFile,
+                               qint64 expectedLoadId,
+                               const QString &outputPath) override;
     
     // Structural DOM manipulation
     bool editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
