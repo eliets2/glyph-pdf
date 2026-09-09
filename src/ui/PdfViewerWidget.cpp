@@ -199,9 +199,14 @@ PdfViewerWidget::PdfViewerWidget(QWidget *parent)
     connect(m_annotationLayer, &AnnotationLayer::annotationsChanged, this, &PdfViewerWidget::annotationsChanged);
     // ARC04: a USER layer edit dirties the session — see the signal comment.
     // (Re)loads suppress the relay (m_suppressAnnotationDirty in loadDocument).
+    // G14: a user edit also un-commits — the annotations are no longer the
+    // ones embedded in the PDF, so the sidecar envelope must record pending
+    // work from this edit on.
     connect(m_annotationLayer, &AnnotationLayer::annotationsChanged, this, [this]() {
-        if (!m_suppressAnnotationDirty)
+        if (!m_suppressAnnotationDirty) {
+            m_annotationsEmbedded = false;
             emit annotationEdited();
+        }
     });
     connect(m_annotationLayer, &AnnotationLayer::textEditRequested, this, &PdfViewerWidget::textEditRequested);
 
@@ -317,7 +322,15 @@ void PdfViewerWidget::flushPendingAnnotationSave()
 void PdfViewerWidget::writeAnnotationsNow(const QString &filePath)
 {
     if (filePath.isEmpty()) return;
-    QJsonDocument doc = AnnotationSerializer::toJson(m_annotationLayer->annotations());
+    // G14: the sidecar is an ENVELOPE — the annotation array plus the
+    // commit state ("embeddedIntoPdf") that distinguishes sidecar
+    // persistence (intermediate durability) from annotations committed INTO
+    // the PDF by the save boundary. AnnotationSerializer::fromJson accepts
+    // both shapes, so legacy array sidecars keep loading.
+    QJsonObject envelope;
+    envelope["annotations"] = AnnotationSerializer::toJson(m_annotationLayer->annotations()).array();
+    envelope["embeddedIntoPdf"] = m_annotationsEmbedded;
+    QJsonDocument doc(envelope);
     QFile file(filePath + ".ann");
     if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         file.write(doc.toJson());
@@ -354,6 +367,15 @@ bool PdfViewerWidget::loadDocument(const QString &fileName)
     if (isLoaded()) loadAnnotations();
     refreshPageLinks(); // §9.1 P0: prime link cache for the opening page
     m_suppressAnnotationDirty = false;
+    // G14 (QUALITY-GATE-2026-09-09): report the freshly loaded document's
+    // pending-embed state. A sidecar that recorded UNEMBEDDED annotation work
+    // reopens the session DIRTY (via the shell) — the work is back on screen
+    // AND truthfully represented as unsaved PDF work; a committed (or legacy/
+    // foreign) sidecar reopens clean, exactly as before.
+    const bool pendingEmbed = isLoaded()
+        && !m_annotationLayer->annotations().isEmpty()
+        && !m_annotationsEmbedded;
+    emit pendingEmbedAnnotationsRestored(pendingEmbed);
     return isLoaded();
 }
 
@@ -665,7 +687,11 @@ void PdfViewerWidget::saveAnnotations()
 {
     if (m_filePath.isEmpty()) return;
 
-    QJsonDocument doc = AnnotationSerializer::toJson(m_annotationLayer->annotations());
+    // G14: envelope writer — see writeAnnotationsNow (same commit state).
+    QJsonObject envelope;
+    envelope["annotations"] = AnnotationSerializer::toJson(m_annotationLayer->annotations()).array();
+    envelope["embeddedIntoPdf"] = m_annotationsEmbedded;
+    QJsonDocument doc(envelope);
     const QString filePath = m_filePath + ".ann";
 
     QThread* worker = QThread::create([filePath, doc]() {
@@ -684,11 +710,40 @@ void PdfViewerWidget::loadAnnotations()
     if (m_filePath.isEmpty()) return;
 
     QFile file(m_filePath + ".ann");
-    if (!file.open(QIODevice::ReadOnly)) return;
+    if (!file.open(QIODevice::ReadOnly)) {
+        // No sidecar: nothing pending, nothing committed — the default state.
+        m_annotationsEmbedded = true;
+        return;
+    }
 
-    QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-    m_annotationLayer->setAnnotations(AnnotationSerializer::fromJson(doc));
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
     file.close();
+    // G14: a legacy ARRAY sidecar (old builds, foreign writers) is treated as
+    // committed — it carries no commit information, and fabricating pending
+    // state from it would re-prompt already-committed documents after an
+    // upgrade. Only an envelope that explicitly recorded unembedded work
+    // reopens pending.
+    m_annotationsEmbedded = true;
+    if (doc.isObject())
+        m_annotationsEmbedded = doc.object()[QStringLiteral("embeddedIntoPdf")].toBool(true);
+    m_annotationLayer->setAnnotations(AnnotationSerializer::fromJson(doc));
+}
+
+// ── G14 (QUALITY-GATE-2026-09-09): sidecar persistence vs PDF commit ────────
+
+bool PdfViewerWidget::hasPendingEmbedAnnotations() const
+{
+    return isLoaded()
+        && !m_annotationLayer->annotations().isEmpty()
+        && !m_annotationsEmbedded;
+}
+
+void PdfViewerWidget::markAnnotationsCommittedIntoPdf()
+{
+    m_annotationsEmbedded = true;
+    // Synchronous envelope rewrite: the sidecar must describe the committed
+    // state before the save boundary reports success.
+    writeAnnotationsNow(m_filePath);
 }
 
 void PdfViewerWidget::setAnnotations(const QList<AnnotationItem> &items)

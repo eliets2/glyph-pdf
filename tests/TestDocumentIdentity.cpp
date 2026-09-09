@@ -44,6 +44,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QTimer>
+#include <QMessageBox>
+#include <QPushButton>
 #include <QUndoStack>
 #include <QPdfWriter>
 #include <QPainter>
@@ -348,7 +350,25 @@ private slots:
         QCOMPARE(viewer->annotations().size(), 1);
 
         // Switch INSIDE the debounce window to B, which has NO sidecar.
+        // G14 repair (QUALITY-GATE-2026-09-09): leaving A while it has
+        // pending-embed annotations now runs the shell's checked transition.
+        // This ARC02 flow Discards — the sidecar-only durability the accepted
+        // ARC02 contract pins — exactly like a user keeping the work
+        // uncommitted, then the switch proceeds.
+        QTimer discardLeave;
+        QObject::connect(&discardLeave, &QTimer::timeout, [&] {
+            for (auto *w : QApplication::topLevelWidgets()) {
+                if (auto *box = qobject_cast<QMessageBox *>(w)) {
+                    if (!box->isVisible() || box->windowTitle() != QStringLiteral("Unsaved Changes"))
+                        continue;
+                    for (auto *btn : box->buttons())
+                        if (btn->text() == QStringLiteral("Discard")) { btn->click(); return; }
+                }
+            }
+        });
+        discardLeave.start(10);
         m_win->openDocument(b);
+        discardLeave.stop();
         QCOMPARE(ctx->document->path(), b);
 
         // B's in-memory overlay must be EMPTY (missing sidecar = empty default),

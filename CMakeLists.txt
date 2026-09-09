@@ -1077,6 +1077,41 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestReadOnlyGate.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSidecarReopenState.cpp")
+    # G14 (QUALITY-GATE-2026-09-09): sidecar-only annotation edits keep their
+    # unsaved-PDF state across a reopen. Real MainWindow + real artifacts +
+    # the modal-driving pattern (checked Save/Discard/Cancel transition), same
+    # shape as the TestReadOnlyGate target.
+    add_executable(TestSidecarReopenState
+        tests/TestSidecarReopenState.cpp
+        src/app/Bootstrapper.h  src/app/Bootstrapper.cpp
+    )
+    target_include_directories(TestSidecarReopenState PRIVATE src tests)
+    target_compile_definitions(TestSidecarReopenState PRIVATE
+        DJOT_LIB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/third_party/djot"
+    )
+    target_link_libraries(TestSidecarReopenState PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestSidecarReopenState POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestSidecarReopenState>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestSidecarReopenState>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestSidecarReopenState"
+    )
+    add_test(NAME TestSidecarReopenState COMMAND TestSidecarReopenState)
+    set_tests_properties(TestSidecarReopenState PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;shell;annotations;sidecar;integration;qt;headless"
+    )
+endif()
+
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignatureValidationMock.cpp")
     add_executable(TestSignatureValidationMock
         tests/TestSignatureValidationMock.cpp
