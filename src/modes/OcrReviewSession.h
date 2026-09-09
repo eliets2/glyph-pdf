@@ -45,6 +45,15 @@ struct OcrReviewSession {
     // -1 = unknown (sessions built before revision capture; only the
     // path+count proxies apply).
     qint64  sourceRevision  = -1;
+    // G10 (QUALITY-GATE-2026-09-09): the DocumentSession::documentGeneration()
+    // captured when the page snapshot was rendered — the LOAD identity of the
+    // document incarnation the words belong to. A→B→A reopen restores the
+    // path (and can keep the mutation revision unchanged) while the generation
+    // advances, so revision alone cannot detect the stale review: validation
+    // at dispatch, completion AND export must compose load identity with
+    // mutation revision. -1 = unknown (legacy sessions — only the
+    // path/count/revision proxies apply).
+    qint64  sourceDocumentGeneration = -1;
     QImage  pageImage;               // image the words were recognized from;
                                      // word boxes are in this image's pixel space
     QList<OcrReviewedWord> words;

@@ -294,6 +294,38 @@ private slots:
                    QString(), &message, /*jobSourceRevision*/ 5,
                    /*currentSourceRevision*/ 5),
                  EditController::OcrJobVerdict::Deliver);
+
+        // ── G10 (QUALITY-GATE-2026-09-09): reopen identity at completion ────
+        // A→B→A: the path is restored and the mutation revision is unchanged,
+        // but DocumentSession::beginDocument() advanced the load identity —
+        // the words describe a previous open of this document, never deliver.
+        QCOMPARE(EditController::classifyOcrJobCompletion(1, 1,
+                   QStringLiteral("a.pdf"), 0, QStringLiteral("a.pdf"), 0,
+                   QString(), &message,
+                   /*jobSourceRevision*/ 5, /*currentSourceRevision*/ 5,
+                   /*jobSourceDocumentGeneration*/ 5,
+                   /*currentDocumentGeneration*/ 7),
+                 EditController::OcrJobVerdict::Stale);
+        QVERIFY(message.contains(QStringLiteral("reopened"), Qt::CaseInsensitive));
+
+        // Same open (generation unchanged) with the same revision delivers —
+        // ordinary completion is not penalized by the identity check.
+        QCOMPARE(EditController::classifyOcrJobCompletion(1, 1,
+                   QStringLiteral("a.pdf"), 0, QStringLiteral("a.pdf"), 0,
+                   QString(), &message, /*jobSourceRevision*/ 5,
+                   /*currentSourceRevision*/ 5,
+                   /*jobSourceDocumentGeneration*/ 5,
+                   /*currentDocumentGeneration*/ 5),
+                 EditController::OcrJobVerdict::Deliver);
+
+        // -1 generations (legacy callers) fall through to the revision check.
+        QCOMPARE(EditController::classifyOcrJobCompletion(1, 1,
+                   QStringLiteral("a.pdf"), 0, QStringLiteral("a.pdf"), 0,
+                   QString(), &message, /*jobSourceRevision*/ 5,
+                   /*currentSourceRevision*/ 5,
+                   /*jobSourceDocumentGeneration*/ qint64(-1),
+                   /*currentDocumentGeneration*/ qint64(-1)),
+                 EditController::OcrJobVerdict::Deliver);
     }
 
     // ── A stale completion must not re-enable another document's save ────────
@@ -490,6 +522,85 @@ private slots:
         OcrReviewSession empty;
         QVERIFY(!EditController::ocrSessionIsExportable(empty,
                    QStringLiteral("C:/scans/inv.pdf"), 3, 7, &reason));
+    }
+
+    // ── G10 (QUALITY-GATE-2026-09-09): reopen identity is validated at export ─
+    // The reviewer's V05 probe: a session captured on open #5 of a.pdf stays
+    // "exportable" after A→B→A (open #7) because path, page count AND the
+    // mutation revision all match — only the document generation differs.
+    void reopenedDocumentRejectsStaleSession()
+    {
+        DocumentSession doc;
+        doc.beginDocument(QStringLiteral("C:/scans/a.pdf"));     // open #1
+        const qint64 capturedGeneration = doc.documentGeneration();
+        const qint64 capturedRevision = doc.mutationRevision();
+
+        OcrReviewSession session = makeSession(0, { QStringLiteral("invoice") },
+                                               QStringLiteral("C:/scans/a.pdf"));
+        session.sourceRevision = capturedRevision;
+        session.sourceDocumentGeneration = capturedGeneration;
+
+        // Sanity: same open → exportable.
+        QVERIFY(EditController::ocrSessionIsExportable(session,
+                   QStringLiteral("C:/scans/a.pdf"), 3, capturedRevision,
+                   nullptr, capturedGeneration));
+
+        // A→B→A: same path, same page count, same mutation revision — but a
+        // NEW open of the document. Exporting the old review onto the new
+        // incarnation must be impossible.
+        doc.beginDocument(QStringLiteral("C:/scans/b.pdf"));
+        doc.beginDocument(QStringLiteral("C:/scans/a.pdf"));
+        QVERIFY(doc.documentGeneration() != capturedGeneration);
+        QVERIFY(doc.path() == QStringLiteral("C:/scans/a.pdf"));
+        QCOMPARE(doc.mutationRevision(), capturedRevision);   // unchanged!
+
+        QString reason;
+        QVERIFY(!EditController::ocrSessionIsExportable(session,
+                   doc.path(), 3, doc.mutationRevision(), &reason,
+                   doc.documentGeneration()));
+        QVERIFY2(reason.contains(QStringLiteral("previous open"), Qt::CaseInsensitive),
+                 qPrintable(QStringLiteral("reopen rejection must be explained: %1").arg(reason)));
+
+        // A session captured BEFORE generation capture (legacy, -1) falls back
+        // to the revision check: still exportable here (revision matches).
+        OcrReviewSession legacy = session;
+        legacy.sourceDocumentGeneration = -1;
+        QVERIFY(EditController::ocrSessionIsExportable(legacy,
+                   doc.path(), 3, doc.mutationRevision(), nullptr,
+                   doc.documentGeneration()));
+    }
+
+    // ── G10: the load identity advances on every successful open (incl. A→A) ──
+    void documentGenerationComposesWithRevisionAtIdentityBoundaries()
+    {
+        DocumentSession doc;
+        QCOMPARE(doc.documentGeneration(), qint64(0));
+        doc.beginDocument(QStringLiteral("C:/scans/a.pdf"));
+        doc.markDirty();                       // in-place edit: revision advances
+        const qint64 gen1 = doc.documentGeneration();
+        const qint64 rev1 = doc.mutationRevision();
+        QVERIFY(gen1 >= 1);
+        QVERIFY(rev1 >= 1);
+
+        // Same-path reopen (A→A): NEW identity — generation advances, the
+        // revision baseline resets with the fresh, clean document. A session
+        // captured before the reopen must therefore fail BOTH checks on the
+        // new incarnation (generation differs outright).
+        doc.beginDocument(QStringLiteral("C:/scans/a.pdf"));
+        QVERIFY(doc.documentGeneration() != gen1);
+
+        OcrReviewSession session;
+        session.generation = 1;
+        session.sourcePath = QStringLiteral("C:/scans/a.pdf");
+        session.sourcePage = 0;
+        session.sourcePageCount = 3;
+        session.sourceRevision = rev1;
+        session.sourceDocumentGeneration = gen1;
+        session.pageImage = makeScanPage();
+        QString reason;
+        QVERIFY(!EditController::ocrSessionIsExportable(session,
+                   QStringLiteral("C:/scans/a.pdf"), 3, doc.mutationRevision(),
+                   &reason, doc.documentGeneration()));
     }
 
     // ── V05: the mutation revision advances at every mutation boundary ───────

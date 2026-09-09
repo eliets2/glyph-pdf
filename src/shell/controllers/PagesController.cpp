@@ -199,6 +199,7 @@ void PagesController::activate(ToolId id) {
                     qint64 counter = opt.startNumber;
                     int stamped = 0;
                     QString stoppedAt;
+                    QString lastStagedCandidate;   // G15: released on every exit
                     if (preflightConflict.isEmpty()) {
                         for (const BatesJob& job : jobs) {
                             // Uniquely owned candidate: the run created it and
@@ -213,6 +214,7 @@ void PagesController::activate(ToolId id) {
                                 break;
                             }
                             const CandidateCleanup guard{ candidate };
+                            lastStagedCandidate = candidate;   // G15
                             QFile srcFile(job.input);
                             if (!srcFile.open(QIODevice::ReadOnly)
                                 || !QFile::remove(candidate)
@@ -264,10 +266,21 @@ void PagesController::activate(ToolId id) {
                         // ACTIVE document on every exit so the engine never
                         // stays on a (now removed) staging file. (Preflight
                         // refusals never touched the editor and skip this.)
+                        // G15 (P2, QUALITY-GATE-2026-09-09): the re-anchor is
+                        // CHECKED. When the active document cannot be loaded
+                        // (vanished mid-session, locked, empty path) the
+                        // engine would stay resident on the staged candidate
+                        // the RAII guard is about to delete — every later
+                        // interactive edit failing against a doomed identity.
+                        // Dropping the staged copy from the editor leaves one
+                        // COHERENT identity on every exit: either the active
+                        // document, or an honestly empty engine.
                         {
                             const QString activePath = viewer->filePath();
-                            if (!activePath.isEmpty() && QFile::exists(activePath))
-                                _ctx->pdfEditor->loadDocumentForEditing(activePath);
+                            const bool reanchored = !activePath.isEmpty() && QFile::exists(activePath)
+                                && _ctx->pdfEditor->loadDocumentForEditing(activePath);
+                            if (!reanchored && !lastStagedCandidate.isEmpty())
+                                _ctx->pdfEditor->releaseResidentFile(lastStagedCandidate);
                         }
                         if (stoppedAt.isEmpty()) {
                             _mainWindow->statusBar()->showMessage(

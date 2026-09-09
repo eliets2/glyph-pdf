@@ -38,6 +38,47 @@ RapidOcrEngine::RapidOcrEngine() : d(std::make_unique<Private>())
 
 RapidOcrEngine::~RapidOcrEngine() = default;
 
+// G11 (QUALITY-GATE-2026-09-09): see RapidOcrEngine.h. This is the engine's
+// own resolution — the same Ort::Session construction initialize() performs —
+// exposed so the capability layer can distinguish "model files exist" from
+// "the engine can actually run them".
+bool RapidOcrEngine::verifyModelsIn(const QString &modelsDir, QString *errorOut)
+{
+    const auto fail = [errorOut](const QString &why) {
+        if (errorOut) *errorOut = why;
+        return false;
+    };
+#ifndef HAS_RAPIDOCR
+    Q_UNUSED(modelsDir);
+    return fail(QStringLiteral("this build was compiled without the onnxruntime engine"));
+#else
+    try {
+        Ort::Env env(ORT_LOGGING_LEVEL_ERROR, "RapidOcrVerify");
+        Ort::SessionOptions options;
+        options.SetIntraOpNumThreads(1);
+        options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+
+        const QString detModel = QFileInfo(QDir(modelsDir), "PP-OCRv5_mobile_det_infer.onnx").absoluteFilePath();
+        const QString recModel = QFileInfo(QDir(modelsDir), "PP-OCRv5_mobile_rec_infer.onnx").absoluteFilePath();
+#ifdef _WIN32
+        Ort::Session detSession(env, detModel.toStdWString().c_str(), options);
+        Ort::Session recSession(env, recModel.toStdWString().c_str(), options);
+#else
+        Ort::Session detSession(env, detModel.toUtf8().constData(), options);
+        Ort::Session recSession(env, recModel.toUtf8().constData(), options);
+#endif
+        // Both mandatory sessions constructed: the model set is genuinely
+        // loadable (prototypes, tensor shapes and vocabulary-independent).
+        if (errorOut) errorOut->clear();
+        return true;
+    } catch (const Ort::Exception& e) {
+        return fail(QString::fromUtf8(e.what()));
+    } catch (const std::exception& e) {
+        return fail(QString::fromUtf8(e.what()));
+    }
+#endif
+}
+
 bool RapidOcrEngine::initialize(const QString &language, const QString &dataPath)
 {
     QMutexLocker locker(&d->mutex);

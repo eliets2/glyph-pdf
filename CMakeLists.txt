@@ -543,7 +543,27 @@ endif()
 # non-MSYS2 runtime DLLs (vendored podofo, ONNX Runtime, PDFium), so stage
 # them once here. Windows resolves exe-dir DLLs before System32, which also
 # shields tests from the incompatible onnxruntime.dll Windows ships there.
+#
+# TestReadOnlyGate pin (QUALITY-GATE-2026-09-09, infra): ~90 of the binaries'
+# runtime dependencies (Qt6*, the MinGW/UCRT64 support DLLs — libstdc++,
+# libgcc, libwinpthread, libtesseract, libqpdf, libcrypto/libssl, leptonica,
+# ICU, …) resolve from the toolchain's bin directory THROUGH THE CALLER'S
+# PATH. A launcher whose PATH lacks that directory (hook/service/IDE context,
+# a stripped CI environment) kills the process at LOAD time — exit 0xC0000135,
+# before main(), before QtTest can write a byte: the "TestReadOnlyGate fails
+# in full suites with ZERO captured output" flake (reproduced deterministically
+# with a PATH missing that directory; green when present). Stage the resolved
+# non-system closure beside the binaries so loader resolution never depends on
+# the caller's environment. Vendored DLLs are appended LAST and the toolchain
+# podofo copy is excluded, so the vendored libraries keep precedence.
 set(_runtime_dlls "")
+get_filename_component(_glyph_toolchain_bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
+file(GLOB _glyph_toolchain_dlls
+    "${_glyph_toolchain_bin}/Qt6*.dll"
+    "${_glyph_toolchain_bin}/lib*.dll"
+    "${_glyph_toolchain_bin}/zlib1.dll")
+list(FILTER _glyph_toolchain_dlls EXCLUDE REGEX "podofo")
+list(APPEND _runtime_dlls ${_glyph_toolchain_dlls})
 if(EXISTS "${PODOFO_VENDOR_DLL}")
     list(APPEND _runtime_dlls "${PODOFO_VENDOR_DLL}")
 endif()
@@ -558,6 +578,17 @@ if(_runtime_dlls)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_runtime_dlls} "${CMAKE_BINARY_DIR}"
         COMMENT "Staging runtime DLLs into build dir")
 endif()
+# Staging the Qt DLLs beside the exes changes Qt's RELATIVE plugin-prefix
+# resolution: plugins resolve next to the LOADED Qt6Core library
+# (<dir>/../share/qt6/plugins — previously a toolchain path, now the build
+# dir's parent), which silently removed qjpeg and every other Qt image-format
+# plugin from the tests (TestCompressJpegReencode: "test JPEG encode failed").
+# Pin the real plugin directory with a qt.conf; the application directory
+# stays in Qt's plugin search path, so the per-exe qoffscreen deploys keep
+# working.
+get_filename_component(_glyph_qt_prefix "${Qt6_DIR}/../../../" ABSOLUTE)
+file(WRITE "${CMAKE_BINARY_DIR}/qt.conf"
+    "[Paths]\nPlugins=${_glyph_qt_prefix}/share/qt6/plugins\n")
 if(OpenXLSX_FOUND)
     target_link_libraries(pdfws_engines PRIVATE OpenXLSX::OpenXLSX)
     target_compile_definitions(pdfws_engines PRIVATE HAS_OPENXLSX)
@@ -1076,6 +1107,40 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestReadOnlyGate.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
         LABELS "unit;shell;readonly;integration;qt;headless"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSidecarReopenState.cpp")
+    # G14 (QUALITY-GATE-2026-09-09): sidecar-only annotation edits keep their
+    # unsaved-PDF state across a reopen. Real MainWindow + real artifacts +
+    # the modal-driving pattern (checked Save/Discard/Cancel transition), same
+    # shape as the TestReadOnlyGate target.
+    add_executable(TestSidecarReopenState
+        tests/TestSidecarReopenState.cpp
+        src/app/Bootstrapper.h  src/app/Bootstrapper.cpp
+    )
+    target_include_directories(TestSidecarReopenState PRIVATE src tests)
+    target_compile_definitions(TestSidecarReopenState PRIVATE
+        DJOT_LIB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/third_party/djot"
+    )
+    target_link_libraries(TestSidecarReopenState PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestSidecarReopenState POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestSidecarReopenState>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestSidecarReopenState>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestSidecarReopenState"
+    )
+    add_test(NAME TestSidecarReopenState COMMAND TestSidecarReopenState)
+    set_tests_properties(TestSidecarReopenState PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;shell;annotations;sidecar;integration;qt;headless"
     )
 endif()
 
@@ -2271,6 +2336,11 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCapabilityRegistry.cpp")
         tests/TestCapabilityRegistry.cpp
     )
     target_include_directories(TestCapabilityRegistry PRIVATE src tests)
+    # G11 (QUALITY-GATE-2026-09-09): real-model readiness case resolves the
+    # bundled model directory the same way TestRapidOcr does (skips when the
+    # models are absent, like the inherent RapidOCR-inference skip).
+    target_compile_definitions(TestCapabilityRegistry PRIVATE
+        GLYPH_OCR_MODELS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/models/ppocrv5")
     target_link_libraries(TestCapabilityRegistry PRIVATE
         pdfws_engines pdfws_core
         Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
