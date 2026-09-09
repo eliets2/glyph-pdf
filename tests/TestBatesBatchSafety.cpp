@@ -27,10 +27,13 @@
 #include <QList>
 #include <QPushButton>
 #include <QSettings>
+#include <QUndoStack>
 
 #include "GpMainWindow.h"
 #include "app/Bootstrapper.h"
 #include "core/AppContext.h"
+#include "engines/PdfEditorEngine.h"
+#include "engines/DocumentSession.h"
 #include "shell/controllers/PagesController.h"
 #include "shell/ToolRegistry.h"
 #include "ui/BatesNumberingDialog.h"
@@ -73,6 +76,8 @@ QString makePdf(const QString &path, const QString &marker)
     if (!f.open(QIODevice::WriteOnly) || f.write(pdf) != pdf.size()) return {};
     return path;
 }
+
+struct PageGeometry { bool landscape0 = false; };
 
 QByteArray readFileBytes(const QString &path)
 {
@@ -227,6 +232,131 @@ private slots:
                  qPrintable(QStringLiteral("second source text must survive; got: %1")
                                 .arg(textOf(second))));
 
+        m_win.reset();
+    }
+
+    // ── G15 (QUALITY-GATE-09-09): the shared interactive editor leaves every
+    // Bates batch describing the ACTIVE document. The reviewer's contract:
+    // "test a normal interactive edit after successful, partial and failed
+    // Bates batches" — a normal rotate through the REAL registry route
+    // (onToolActivated → command → engine → disk) must land after every exit.
+
+    PageGeometry diskGeometry(const QString &path)
+    {
+        PdfViewerWidget probe;
+        PageGeometry g;
+        if (!probe.loadDocument(path)) return g;
+        const QImage page0 = probe.renderPage(0, 1.0);
+        if (!page0.isNull()) g.landscape0 = page0.width() > page0.height();
+        return g;
+    }
+
+    // SUCCESSFUL batch → the active document still rotates and persists.
+    void interactiveEditAfterSuccessfulBatch()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString active = makePdf(dir.filePath("active.pdf"), QStringLiteral("ACTIVE"));
+        const QString x = makePdf(dir.filePath("x.pdf"), QStringLiteral("X_SOURCE"));
+        m_win = std::make_unique<MainWindow>(Bootstrapper::createContext());
+        auto *ctx = m_win->appContext();
+        m_win->openDocument(active);
+        QTest::qWait(50);
+        runBatch({ x });
+        QVERIFY(QFile::exists(dir.filePath("x_bated.pdf")));   // batch really ran
+
+        m_win->onToolActivated(QStringLiteral("rotate"));
+        QCOMPARE(ctx->undoStack->count(), 1);
+        QVERIFY2(diskGeometry(active).landscape0,
+                 "G15: an interactive rotate must persist after a successful batch");
+        QCOMPARE(ctx->document->path(), active);
+        QCOMPARE(m_win->pdfViewer()->filePath(), active);
+        m_win.reset();
+    }
+
+    // PARTIAL batch (second job's commit fails — its destination is a
+    // directory) → the first output keeps its stamp and the active document
+    // still rotates.
+    void interactiveEditAfterPartialBatch()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString active = makePdf(dir.filePath("active.pdf"), QStringLiteral("ACTIVE"));
+        const QString x = makePdf(dir.filePath("x.pdf"), QStringLiteral("X_SOURCE"));
+        const QString y = makePdf(dir.filePath("y.pdf"), QStringLiteral("Y_SOURCE"));
+        QVERIFY(QDir().mkdir(dir.filePath("y_bated.pdf")));   // commit blocker
+
+        m_win = std::make_unique<MainWindow>(Bootstrapper::createContext());
+        auto *ctx = m_win->appContext();
+        m_win->openDocument(active);
+        QTest::qWait(50);
+        runBatch({ x, y });
+        QVERIFY(QFile::exists(dir.filePath("x_bated.pdf")));  // first job done
+
+        m_win->onToolActivated(QStringLiteral("rotate"));
+        QCOMPARE(ctx->undoStack->count(), 1);
+        QVERIFY2(diskGeometry(active).landscape0,
+                 "G15: an interactive rotate must persist after a partial batch");
+        QCOMPARE(ctx->document->path(), active);
+        m_win.reset();
+    }
+
+    // FAILED batch (the only input is corrupt — staging loads fail) → the
+    // active document still rotates.
+    void interactiveEditAfterFailedBatch()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString active = makePdf(dir.filePath("active.pdf"), QStringLiteral("ACTIVE"));
+        {
+            QFile junk(dir.filePath("corrupt.pdf"));
+            QVERIFY(junk.open(QIODevice::WriteOnly));
+            junk.write("this is not a pdf");
+        }
+        m_win = std::make_unique<MainWindow>(Bootstrapper::createContext());
+        auto *ctx = m_win->appContext();
+        m_win->openDocument(active);
+        QTest::qWait(50);
+        runBatch({ dir.filePath("corrupt.pdf") });
+
+        m_win->onToolActivated(QStringLiteral("rotate"));
+        QCOMPARE(ctx->undoStack->count(), 1);
+        QVERIFY2(diskGeometry(active).landscape0,
+                 "G15: an interactive rotate must persist after a failed batch");
+        m_win.reset();
+    }
+
+    // G15, the checked re-anchor: when the ACTIVE document can no longer be
+    // loaded (corrupted on disk mid-session) AND a later job fails after the
+    // engine took the staged copy, the engine must NOT stay resident on the
+    // staged candidate the RAII guard deletes — one coherent identity on
+    // every exit means the active document, or an honestly empty engine.
+    // Pre-fix: the engine stayed on the doomed temp candidate.
+    void vanishedActiveDocumentNeverLeavesEngineOnCandidate()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString active = makePdf(dir.filePath("active.pdf"), QStringLiteral("ACTIVE"));
+        const QString x = makePdf(dir.filePath("x.pdf"), QStringLiteral("X_SOURCE"));
+        const QString y = makePdf(dir.filePath("y.pdf"), QStringLiteral("Y_SOURCE"));
+        QVERIFY(QDir().mkdir(dir.filePath("y_bated.pdf")));   // second job's commit blocker
+
+        m_win = std::make_unique<MainWindow>(Bootstrapper::createContext());
+        m_win->openDocument(active);
+        QTest::qWait(50);
+        {   // the active document becomes unloadable mid-session
+            QFile f(active);
+            QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            f.write("junk — not a pdf anymore");
+        }
+
+        auto *ctx = m_win->appContext();
+        runBatch({ x, y });   // job 1 succeeds; job 2 fails after the engine took the candidate
+
+        const QString resident = ctx->pdfEditor->currentFile();
+        QVERIFY2(resident.isEmpty() || resident == active,
+                 qPrintable(QStringLiteral("G15: the shared editor must never stay on the "
+                                          "doomed staged candidate; resident: %1").arg(resident)));
         m_win.reset();
     }
 };
