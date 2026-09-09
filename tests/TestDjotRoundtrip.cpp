@@ -12,7 +12,15 @@
 #include "pdfws_djot/PdfStructureMapper.h"
 
 static std::string djotLibPath() {
+#ifdef DJOT_LIB_DIR
+    // Q02 source-root: CMake injects the ABSOLUTE vendored-lib path, so the
+    // test does not depend on the binary sitting directly under the source
+    // root (applicationDirPath()+"/../" breaks for build/<subdir>/ layouts).
+    return std::string(DJOT_LIB_DIR);
+#else
+    // Non-CMake builds keep the old heuristic.
     return (QCoreApplication::applicationDirPath() + "/../third_party/djot").toStdString();
+#endif
 }
 
 // ── Helpers for building minimal SemanticDocument trees ──────────────────────
