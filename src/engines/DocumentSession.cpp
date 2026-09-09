@@ -30,6 +30,7 @@ void DocumentSession::beginDocument(const QString &path)
     m_path = path;
     m_dirty = false;
     m_lastAutosave = QDateTime();
+    m_recoverySource.clear();   // G05: a fresh open is never a recovery
     emit dirtyChanged(m_dirty);
     emit lastAutosaveChanged(m_lastAutosave);
 }
@@ -52,6 +53,19 @@ void DocumentSession::markReload() {
 
 qint64 DocumentSession::mutationRevision() const {
     return m_mutationRevision;
+}
+
+// G05 (QUALITY-GATE-2026-09-09): see DocumentSession.h.
+QString DocumentSession::recoverySource() const {
+    return m_recoverySource;
+}
+
+void DocumentSession::setRecoverySource(const QString &autosaveInputPath) {
+    m_recoverySource = autosaveInputPath;
+}
+
+void DocumentSession::clearRecoverySource() {
+    m_recoverySource.clear();
 }
 
 bool DocumentSession::isDirty() const {
