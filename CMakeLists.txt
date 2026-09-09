@@ -321,6 +321,7 @@ add_library(pdfws_engines STATIC
     src/engines/FormManager.h        src/engines/FormManager.cpp
     src/engines/SafeSave.h           src/engines/SafeSave.cpp
     src/engines/RedactOperation.h    src/engines/RedactOperation.cpp
+    src/core/RedactionProof.h        src/core/RedactionProof.cpp
     src/engines/SignatureManager.h   src/engines/SignatureManager.cpp
     src/engines/ConversionManager.h  src/engines/ConversionManager.cpp
     src/engines/DocumentSession.h    src/engines/DocumentSession.cpp
@@ -2998,6 +2999,42 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRedactTransaction.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 180
         LABELS "unit;redaction;transaction;security;privacy;qt;headless"
+    )
+endif()
+
+# ── TestRedactionProof (T1-2 — Redaction Proof Mode) ─────────────────────────
+# Pins the post-commit proof contract on saved artifacts: per-excision manifest
+# (region/method/stream digests/operator counts), the full-document survival
+# sweep (raw bytes, object strings, decoded streams, extracted text, info
+# dictionary, XMP, embedded files, revision structure), loud failure on planted
+# survivors (metadata/XMP/annotation/attachment/missed-spot), proof pack
+# export, and the whole-flow RedactOperation integration with produceProof.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRedactionProof.cpp")
+    add_executable(TestRedactionProof tests/TestRedactionProof.cpp)
+    target_include_directories(TestRedactionProof PRIVATE src tests)
+    target_compile_definitions(TestRedactionProof PRIVATE
+        SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    )
+    target_link_libraries(TestRedactionProof PRIVATE
+        pdfws_ui pdfws_engines pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET TestRedactionProof POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestRedactionProof>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestRedactionProof>/platforms/qoffscreen.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PODOFO_VENDOR_DLL}"
+            "$<TARGET_FILE_DIR:TestRedactionProof>/libpodofo.dll"
+        COMMENT "Deploying qoffscreen platform plugin and podofo DLL for TestRedactionProof"
+    )
+    add_test(NAME TestRedactionProof COMMAND TestRedactionProof)
+    set_tests_properties(TestRedactionProof PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 180
+        LABELS "unit;redaction;proof;security;privacy;qt;headless"
     )
 endif()
 
