@@ -42,10 +42,15 @@
 static std::string djotLibPath()
 {
     // The djot Lua library is vendored at <src_root>/third_party/djot.
-    // Under ctest the CWD is build/; the test exe is in build/ or a subdir.
-    // applicationDirPath() gives the dir of the test binary; go one level up
-    // to reach the source root (same pattern as TestDjotRoundtrip).
+#ifdef DJOT_LIB_DIR
+    // Q02 source-root: CMake injects the ABSOLUTE vendored-lib path, so the
+    // test does not depend on the binary sitting directly under the source
+    // root (applicationDirPath()+"/../" breaks for build/<subdir>/ layouts).
+    return std::string(DJOT_LIB_DIR);
+#else
+    // Non-CMake builds keep the old heuristic.
     return (QCoreApplication::applicationDirPath() + "/../third_party/djot").toStdString();
+#endif
 }
 
 static docmodel::Provenance anyProv()
