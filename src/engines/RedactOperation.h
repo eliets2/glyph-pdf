@@ -2,12 +2,14 @@
 #pragma once
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QMap>
 #include <QList>
 #include <QRectF>
 #include <atomic>
 #include <functional>
 #include <memory>
+#include "core/RedactionProof.h"
 
 class IPdfEditorEngine;
 
@@ -63,6 +65,12 @@ struct RedactRequest {
     // auto-fit precedent). Empty = plain black boxes (current behavior).
     // Burn-in paint only: excision semantics are untouched.
     QString overlayText;
+    // T1-2 Redaction Proof Mode: after the output (and sanitized copy, when
+    // requested) is committed, run gp::RedactionProof::verify over the
+    // COMMITTED artifacts and export the proof pack next to the destination.
+    // The proof NEVER gates the commit (the artifacts exist either way) —
+    // a failed proof is reported loudly on the result, never swallowed.
+    bool produceProof = false;
 };
 
 enum class RedactStage  { Preflight, Redacting, SavingCandidate, Validating, Committing, Sanitizing, Done };
@@ -84,6 +92,19 @@ struct RedactResult {
     int pagesTotal = 0;               // pages with marks (the Redacting scope)
     QString failedStage;              // redactStageName of the failing stage
     QString error;                    // user-presentable reason
+    // T1-2 Redaction Proof Mode — filled only when RedactRequest::produceProof
+    // was set AND an output was committed (Completed or PartialRedactedOnly).
+    // proofRan true + proofPassed false = the proof FAILED (survivors found or
+    // surfaces unswept): proofFailures names where; the pack files were still
+    // written so counsel sees exactly what was checked. Proof pack paths are
+    // derived from the destination (<dest>_redaction-proof.{json,txt}); they
+    // stay empty when no proof was requested or nothing was committed.
+    bool proofRan = false;
+    bool proofPassed = false;
+    QString proofSummary;             // one-line honest verdict for banners
+    QStringList proofFailures;        // located failure reasons (FAIL only)
+    QString proofJsonPath;
+    QString proofTextPath;
 };
 
 class RedactOperation : public QObject {
