@@ -37,7 +37,7 @@ static const QString kP12Pass  = QStringLiteral("test");
     do { \
         if (!QFileInfo::exists(kP12Path) || !QFileInfo::exists(kInputPdf) || !QFileInfo::exists(kCaPath)) { \
             QSKIP("Signing fixtures missing — skipping signature appearance test. " \
-                  "Run tests/fixtures/signing/generate.bat (or generate_fixtures.cmake) to create them."); \
+                  "Run tests/fixtures/signing/generate.bat to create them."); \
         } \
     } while(0)
 
