@@ -216,6 +216,19 @@ private slots:
     // replaces a pre-existing destination, and clears stale artifacts it did
     // not rewrite (control: passes before and after the repair).
     void successReplacesOutputAndClearsStaleArtifacts();
+    // ── G02 (P1, QUALITY-GATE-2026-09-09) ── the fixed candidate name could
+    // BE the input: an input named `<output>.cleaning-tmp.pdf` passed the old
+    // alias check and was UNLINKED by the failure cleanup because it shared
+    // the candidate path. Post-fix the candidate is uniquely owned, so this
+    // input is just a document: the failure preserves every byte of it.
+    void candidateAliasInputPreservesSource();
+    // A pre-existing UNRELATED file at the old fixed candidate name must
+    // never be deleted — the run only ever removes paths it created itself.
+    void preExistingCandidateFileNotDeleted();
+    // An artifact this run DOES reach (page_002) must not be overwritten
+    // before the commit: a mid-processing failure preserves the previous
+    // artifact bytes (staging + explicit success policy).
+    void failureKeepsReachedArtifactBytes();
 };
 
 void TestCleanupCli::sameInputOutputRejectedPreservesSource() {
@@ -346,6 +359,117 @@ void TestCleanupCli::successReplacesOutputAndClearsStaleArtifacts() {
     QVERIFY2(QDir(outDir).entryList(QStringList() << QStringLiteral("*cleaning-tmp*"),
                                     QDir::Files).isEmpty(),
              "no candidate may be left behind");
+}
+
+// ─────────────────────────── G02 ────────────────────────────────────────────
+// THE G02 reproduction (gate probe candidate_alias_input): the input IS the
+// old fixed candidate path. Pre-fix the failure cleanup unlinked it and
+// destroyed the source; post-fix the candidate is uniquely owned and the
+// input survives byte-identically.
+void TestCleanupCli::candidateAliasInputPreservesSource() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString outDir = tmp.path() + QStringLiteral("/out");
+    QDir().mkpath(outDir);
+    const QString output = outDir + QStringLiteral("/result.pdf");
+    QVERIFY(writeFile(output, QByteArray("%PDF-1.4 previous output bytes\n")));
+
+    const QString input = outDir + QStringLiteral("/result.pdf.cleaning-tmp.pdf");
+    QVERIFY(writeFile(input, QByteArray("INPUT AS ALIASED CANDIDATE\n")));
+    const QByteArray inputSha = sha256(input);
+    const QByteArray outputSha = sha256(output);
+
+    QProcessEnvironment env = m_childEnv;
+    env.insert(QStringLiteral("CLEAN_SCANNED_PDF_FAIL_AFTER_PAGE"), QStringLiteral("1"));
+    QProcess proc;
+    proc.setProcessEnvironment(env);
+    proc.setWorkingDirectory(QFileInfo(m_scriptPath).absolutePath());
+    proc.start(m_pythonExe, QStringList{ m_scriptPath } << QStringList{ input, outDir, output });
+    QVERIFY(proc.waitForStarted(15000));
+    proc.waitForFinished(300000);
+
+    QVERIFY2(proc.exitCode() != 0, "injected processing failure must be reported");
+    QVERIFY2(QFile::exists(input), "an input that merely LOOKS like the old "
+                                   "candidate name must never be deleted");
+    QCOMPARE(sha256(input), inputSha);
+    QCOMPARE(sha256(output), outputSha);
+    // No run-owned temp may remain. (The surviving input itself legitimately
+    // matches the *cleaning-tmp* glob, so it is excluded from the check.)
+    QStringList leftovers = QDir(outDir).entryList(
+        QStringList() << QStringLiteral("*cleaning-tmp*"), QDir::Files);
+    leftovers.removeAll(QFileInfo(input).fileName());
+    QCOMPARE(leftovers, QStringList());
+}
+
+// A pre-existing unrelated file at the old fixed candidate name belongs to
+// the user: the run never unlinks a path it did not create.
+void TestCleanupCli::preExistingCandidateFileNotDeleted() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString input = makeMultiPagePdf(tmp.path(), QStringLiteral("proc.pdf"), 3);
+    QVERIFY(QFile::exists(input));
+
+    const QString outDir = tmp.path() + QStringLiteral("/out");
+    QDir().mkpath(outDir);
+    const QString output = outDir + QStringLiteral("/result.pdf");
+    QVERIFY(writeFile(output, QByteArray("%PDF-1.4 previous output bytes\n")));
+    const QString preExistingCandidate = outDir + QStringLiteral("/result.pdf.cleaning-tmp.pdf");
+    QVERIFY(writeFile(preExistingCandidate, QByteArray("PREEXISTING USER CANDIDATE\n")));
+    const QByteArray candidateSha = sha256(preExistingCandidate);
+
+    QProcessEnvironment env = m_childEnv;
+    env.insert(QStringLiteral("CLEAN_SCANNED_PDF_FAIL_AFTER_PAGE"), QStringLiteral("1"));
+    QProcess proc;
+    proc.setProcessEnvironment(env);
+    proc.setWorkingDirectory(QFileInfo(m_scriptPath).absolutePath());
+    proc.start(m_pythonExe, QStringList{ m_scriptPath } << QStringList{ input, outDir, output });
+    QVERIFY(proc.waitForStarted(15000));
+    proc.waitForFinished(300000);
+
+    QVERIFY2(proc.exitCode() != 0, "injected processing failure must be reported");
+    QVERIFY2(QFile::exists(preExistingCandidate),
+             "a pre-existing unrelated candidate file must survive");
+    QCOMPARE(sha256(preExistingCandidate), candidateSha);
+    QCOMPARE(sha256(output), QCryptographicHash::hash(
+                                 QByteArray("%PDF-1.4 previous output bytes\n"),
+                                 QCryptographicHash::Sha256));
+}
+
+// An artifact this run DOES reach (page_002) keeps its previous bytes when
+// the run fails: PNGs are staged and only committed on success.
+void TestCleanupCli::failureKeepsReachedArtifactBytes() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString input = makeMultiPagePdf(tmp.path(), QStringLiteral("proc.pdf"), 3);
+    QVERIFY(QFile::exists(input));
+
+    const QString outDir = tmp.path() + QStringLiteral("/out");
+    QDir().mkpath(outDir);
+    const QString output = outDir + QStringLiteral("/result.pdf");
+    QVERIFY(writeFile(output, QByteArray("%PDF-1.4 previous output bytes\n")));
+    QVERIFY(makeStalePng(outDir + QStringLiteral("/png"),
+                         QStringLiteral("page_002_cleaned.png")));
+    const QString png = outDir + QStringLiteral("/png/page_002_cleaned.png");
+    const QByteArray pngSha = sha256(png);
+
+    QProcessEnvironment env = m_childEnv;
+    env.insert(QStringLiteral("CLEAN_SCANNED_PDF_FAIL_AFTER_PAGE"), QStringLiteral("1"));
+    QProcess proc;
+    proc.setProcessEnvironment(env);
+    proc.setWorkingDirectory(QFileInfo(m_scriptPath).absolutePath());
+    proc.start(m_pythonExe, QStringList{ m_scriptPath } << QStringList{ input, outDir, output });
+    QVERIFY(proc.waitForStarted(15000));
+    proc.waitForFinished(300000);
+
+    QVERIFY2(proc.exitCode() != 0, "injected processing failure must be reported");
+    QVERIFY2(QFile::exists(png), "the reached artifact must survive");
+    QCOMPARE(sha256(png), pngSha);
+    QCOMPARE(sha256(output), QCryptographicHash::hash(
+                                 QByteArray("%PDF-1.4 previous output bytes\n"),
+                                 QCryptographicHash::Sha256));
+    const QStringList leftovers = QDir(outDir).entryList(
+        QStringList() << QStringLiteral("*cleaning-tmp*"), QDir::Files);
+    QCOMPARE(leftovers, QStringList());
 }
 
 QTEST_MAIN(TestCleanupCli)
