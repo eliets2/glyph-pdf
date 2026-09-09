@@ -208,6 +208,48 @@ private slots:
         QVERIFY2(w.toolTip() == expected, "re-applying must not duplicate the tooltip");
     }
 
+    // D06 residual (wave 4A): the OWNED-disable reversal. The unavailable →
+    // invalidate → available transition must re-enable the widget and clear
+    // the owned explanation — while a widget the registry never disabled is
+    // never touched by the Available branch.
+    void applyToWidgetOwnedDisableIsReversedWhenCapabilityBecomesAvailable() {
+        bool available = false;
+        CapabilityRegistry reg;
+        reg.registerProbe(CapId::PdfAValidation, [&](const QVariant&) {
+            Capability c;
+            c.status = available ? Availability::Available
+                                 : Availability::UnavailableRuntime;
+            if (!available) {
+                c.whyNot = QStringLiteral("the validator is missing");
+                c.alternative = QStringLiteral("install the validator");
+            }
+            return c;
+        });
+
+        QWidget w;
+        reg.applyToWidget(&w, CapId::PdfAValidation);
+        QVERIFY2(!w.isEnabled(), "unavailable must disable the widget");
+
+        // Models "the validator was installed mid-session": invalidate + apply.
+        available = true;
+        reg.invalidate(CapId::PdfAValidation);
+        reg.applyToWidget(&w, CapId::PdfAValidation);
+        QVERIFY2(w.isEnabled(),
+                 "the registry's own disable must be reversed once Available");
+        QVERIFY2(w.toolTip().isEmpty(),
+                 "the owned explanation must be cleared once Available");
+        QVERIFY2(w.statusTip().isEmpty(),
+                 "the owned statusTip must be cleared once Available");
+
+        // A widget the registry never disabled is NOT re-enabled by it —
+        // only the owned disable (capOwnedDisable property) is undone.
+        QWidget foreign;
+        foreign.setEnabled(false);
+        reg.applyToWidget(&foreign, CapId::PdfAValidation);
+        QVERIFY2(!foreign.isEnabled(),
+                 "the registry must not re-enable a disable it did not set");
+    }
+
     void applyToWidgetIsNoOpForAvailableAndDegradedStaysEnabled() {
         CapabilityRegistry reg;
         reg.registerProbe(CapId::WordExport, [](const QVariant&) {
