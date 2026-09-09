@@ -313,7 +313,9 @@ public:
     // interface virtuals post-fix (same rule as pageCropBox above).
     bool pageCropBoxInfo(const QString &, int, QRectF *outBox, int *outOrigin) {
         if (outBox) *outBox = QRectF(0, 0, 595, 842);
-        if (outOrigin) *outOrigin = IPdfEditorEngine::kCropBoxExplicit;
+        // literal 1 == IPdfEditorEngine::kCropBoxExplicit (compile-compatible
+        // with pre-fix baselines for revert verification)
+        if (outOrigin) *outOrigin = 1;
         return !m_snapshotFails && m_loaded;
     }
     bool removePageCropBox(const QString &, int) {
