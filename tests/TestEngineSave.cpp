@@ -32,10 +32,13 @@
 #include <QPdfWriter>
 #include <QPainter>
 #include <QSettings>
+#include <QUndoStack>
 #include <podofo/podofo.h>
 #include "engines/PdfEditorEngine.h"
 #include "engines/SafeSave.h"
+#include "engines/DocumentSession.h"
 #include "engines/pdfium/PdfiumBackend.h"
+#include "commands/CropPageCommand.h"
 
 // wingdi.h defines GetObject as an object-like macro (UNICODE builds); it
 // collides with PoDoFo::PdfField::GetObject below.
@@ -133,6 +136,49 @@ private:
         return false;
     }
 
+    // Effective /CropBox reader — the gate probe's `box()` equivalent. PoDoFo
+    // normalizes GetCropBox()/GetMediaBox() to (X, Y, Width, Height), while the
+    // raw /CropBox array is [x0, y0, x1, y1] — reading the array directly as
+    // (x, y, w, h) would import the G07 geometry bug this suite must stay
+    // independent of. Returns a null rect when the document cannot be parsed.
+    static QRectF pdfEffectiveBox(const QString& path) {
+        try {
+            PoDoFo::PdfMemDocument pdf;
+            pdf.Load(path.toUtf8().constData());
+            const PoDoFo::Rect box = pdf.GetPages().GetPageAt(0).GetCropBox();
+            return QRectF(box.X, box.Y, box.Width, box.Height);
+        } catch (const PoDoFo::PdfError&) {
+            return QRectF();
+        }
+    }
+
+    // One-page fixture carrying an explicit /CropBox — the gate probe's
+    // boxFixture(): real PoDoFo-written document, non-zero box origin.
+    static QString makeCropBoxPdf(const QString& dir, const QString& name) {
+        const QString path = dir + "/" + name;
+        try {
+            PoDoFo::PdfMemDocument pdf;
+            auto& page = pdf.GetPages().CreatePage(PoDoFo::Rect(0, 0, 612, 792));
+            page.GetDictionary().AddKey("CropBox",
+                PoDoFo::Rect(10, 20, 500, 700).ToArray());
+            pdf.Save(path.toUtf8().constData());
+        } catch (const PoDoFo::PdfError& e) {
+            qWarning() << "crop-box fixture creation failed:" << e.what();
+            return QString();
+        }
+        return path;
+    }
+
+    static bool pdfIsEncrypted(const QString& path) {
+        try {
+            PoDoFo::PdfMemDocument doc;
+            doc.Load(path.toUtf8().constData());
+            return doc.IsEncrypted();
+        } catch (const PoDoFo::PdfError&) {
+            return false;
+        }
+    }
+
     // Leftover SafeSave candidates in the dedicated temp dir (must be 0).
     static int leftoverCandidates() {
         return QDir(QDir::tempPath() + QStringLiteral("/glyphpdf-candidates")).entryList(
@@ -191,6 +237,23 @@ private slots:
     // contract — including same-file updates. Control: passes before and after
     // the EC01 repair.
     void signedWriteUpdateSameFileUnaffected();
+    // ── G01 (P1, QUALITY-GATE-2026-09-09) ── the documented encrypted-branch
+    // residual: encrypt an ordinary lazily loaded two-page PDF, then same-path
+    // Save. Pre-fix the encrypted branch bypassed the candidate transaction:
+    // Save returned false and the 15,090-byte source became ZERO bytes.
+    void encryptedSameFileSavePreservesSourceAndStaysReadable();
+    // ── G06 (P1, QUALITY-GATE-2026-09-09) ── the gate probe's EC05 shape: a
+    // crop whose COMMIT fails is dropped from history with dirty=false and an
+    // unchanged disk, but the RESIDENT document kept the mutation — so a later
+    // ordinary Save persisted the rejected crop (EC05_LATER_SAVE).
+    void rejectedCropDoesNotLeakIntoLaterSave();
+    // The SAME common rollback rule must hold for the other mutator family
+    // (rotate), i.e. it is a shared save-boundary transaction, not a
+    // crop-specific workaround.
+    void rejectedRotateDoesNotLeakIntoLaterSave();
+    // Control: a crop whose commit SUCCEEDS still persists its geometry
+    // (passes before and after the G06 repair).
+    void successfulCropStillPersists();
 };
 
 void TestEngineSave::sameFileSaveKeepsPageCountAndContent() {
@@ -363,6 +426,147 @@ void TestEngineSave::signedWriteUpdateSameFileUnaffected() {
 
     QCOMPARE(pdfPageCount(pdf), 1u);
     QVERIFY(pdfHasSignatureField(pdf));
+}
+
+// ─────────────────────────── G01 ────────────────────────────────────────────
+// THE G01 reproduction (gate probe EC01_SAVE_MODE 2): encrypt a lazily loaded
+// ordinary two-page PDF with a synthetic owner password, then save to the same
+// path. Pre-fix: the IsEncrypted branch bypassed the candidate transaction, the
+// direct Save truncated the still-open source device's file, returned false and
+// left a ZERO-byte source. Post-fix: the transaction covers the newly-encrypted
+// document — the encrypted candidate is reopened with the captured credentials
+// before the checked replacement, and the source is preserved on every failure.
+void TestEngineSave::encryptedSameFileSavePreservesSourceAndStaysReadable() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = makeTwoPageTextPdf(tmp.path(), QStringLiteral("g01.pdf"));
+    QVERIFY(QFile::exists(pdf));
+    const qint64 sizeBefore = fileSize(pdf);
+    QVERIFY2(sizeBefore > 1000, "fixture must be a real font-bearing PDF");
+    QCOMPARE(pdfPageCount(pdf), 2u);
+    QVERIFY2(!pdfIsEncrypted(pdf), "fixture starts unencrypted");
+
+    PdfEditorEngine editor;
+    QVERIFY(editor.loadDocumentForEditing(pdf));
+    QVERIFY2(editor.encryptDocument(QString(), QStringLiteral("synthetic-owner-password"),
+                                    DocumentPermissions{}),
+             "encryption setup must succeed");
+
+    // Failure phase: a blocked replacement must FAIL and leave the unencrypted
+    // source byte-identical (G01: "preserve source AND prior destination on
+    // every failure") — the direct pre-fix write instead truncated it.
+    {
+        const QByteArray shaBefore = sha256(pdf);
+        gp::SafeSave::setCommitFaultForTesting(
+            gp::SafeSave::CommitFaultForTesting::FailBeforeCommit);
+        const bool failed = editor.saveDocument(pdf);
+        gp::SafeSave::setCommitFaultForTesting(gp::SafeSave::CommitFaultForTesting::None);
+        QVERIFY2(!failed, "injected commit failure must be reported");
+        QCOMPARE(sha256(pdf), shaBefore);
+        QCOMPARE(pdfPageCount(pdf), 2u);
+        QVERIFY2(!pdfIsEncrypted(pdf), "a failed save must not encrypt the source");
+    }
+
+    const bool ok = editor.saveDocument(pdf);
+    QVERIFY2(ok, qPrintable(QStringLiteral(
+        "same-file save of a newly-encrypted document must succeed (G01): "
+        "sizeBefore=%1 sizeAfter=%2").arg(sizeBefore).arg(fileSize(pdf))));
+
+    QVERIFY2(fileSize(pdf) > 0, "saved file must not be zero bytes");
+    QVERIFY2(pdfIsEncrypted(pdf), "the committed document must actually be encrypted");
+    QCOMPARE(pdfPageCount(pdf), 2u);
+    // The encrypted candidate was validated before replacement — the document
+    // must still be readable (an empty-user-password document opens directly).
+    QCOMPARE(leftoverCandidates(), 0);
+}
+
+// ─────────────────────────── G06 ────────────────────────────────────────────
+// THE G06 reproduction (gate probe EC05_FAILED_PUSH_COUNT / EC05_LATER_SAVE):
+// a real crop with an injected COMMIT failure must leave the resident document
+// un-mutated, so a later ordinary Save persists the ORIGINAL geometry.
+void TestEngineSave::rejectedCropDoesNotLeakIntoLaterSave() {
+    SeamReset seamReset;
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = makeCropBoxPdf(tmp.path(), QStringLiteral("g06-crop.pdf"));
+    QVERIFY2(QFile::exists(pdf), "crop-box fixture must be created");
+    const QRectF originalBox = pdfEffectiveBox(pdf);
+    QCOMPARE(originalBox, QRectF(10, 20, 500, 700));
+    const QByteArray before = sha256(pdf);
+
+    PdfEditorEngine editor;
+    QVERIFY(editor.loadDocumentForEditing(pdf));
+    DocumentSession doc;
+    doc.beginDocument(pdf);
+
+    int failures = 0;
+    QObject::connect(&doc, &DocumentSession::mutationFailed, &doc,
+                     [&failures](const QString&) { ++failures; });
+
+    QUndoStack history;
+    gp::SafeSave::setCommitFaultForTesting(gp::SafeSave::CommitFaultForTesting::FailBeforeCommit);
+    history.push(new CropPageCommand(&editor, &doc, 0, QRectF(80, 90, 200, 300)));
+    gp::SafeSave::setCommitFaultForTesting(gp::SafeSave::CommitFaultForTesting::None);
+
+    QCOMPARE(history.count(), 0);              // rejected command is dropped
+    QVERIFY2(!doc.isDirty(), "a rejected mutation must not mark the session dirty");
+    QCOMPARE(failures, 1);                     // the failure is reported
+    QCOMPARE(sha256(pdf), before);             // disk unchanged
+
+    // The heart of G06 (gate marker EC05_LATER_SAVE): the supposedly REJECTED
+    // crop must not survive anywhere — a later ordinary Save persists the
+    // ORIGINAL geometry, byte-for-byte unchanged disk. Pre-fix the resident
+    // document kept the mutation and this save persisted it.
+    QVERIFY2(editor.saveDocument(pdf), "later ordinary save must succeed");
+    QCOMPARE(pdfEffectiveBox(pdf), originalBox);
+    QCOMPARE(leftoverCandidates(), 0);
+}
+
+// The common rule must not be crop-specific: a rotate whose commit fails is
+// likewise not resident, so a later ordinary Save persists rotation 0.
+void TestEngineSave::rejectedRotateDoesNotLeakIntoLaterSave() {
+    SeamReset seamReset;
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = makeTwoPageTextPdf(tmp.path(), QStringLiteral("g06-rot.pdf"));
+    QVERIFY(QFile::exists(pdf));
+    const QByteArray before = sha256(pdf);
+    QCOMPARE(pdfRotation(pdf), 0);
+
+    PdfEditorEngine editor;
+    QVERIFY(editor.loadDocumentForEditing(pdf));
+
+    gp::SafeSave::setCommitFaultForTesting(gp::SafeSave::CommitFaultForTesting::FailBeforeCommit);
+    const bool rotated = editor.rotatePage(pdf, 0, 90);
+    gp::SafeSave::setCommitFaultForTesting(gp::SafeSave::CommitFaultForTesting::None);
+    QVERIFY2(!rotated, "the rotate's commit failed and must be reported");
+
+    QCOMPARE(sha256(pdf), before);             // disk unchanged
+    QCOMPARE(pdfRotation(pdf), 0);             // and rotation 0 on disk
+
+    QVERIFY2(editor.saveDocument(pdf), "later ordinary save must succeed");
+    QCOMPARE(pdfRotation(pdf), 0);             // rejected rotation did not leak
+    QCOMPARE(leftoverCandidates(), 0);
+}
+
+// Control (passes before and after the G06 repair): a successful crop persists.
+void TestEngineSave::successfulCropStillPersists() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = makeCropBoxPdf(tmp.path(), QStringLiteral("g06-ok.pdf"));
+    QVERIFY(QFile::exists(pdf));
+
+    PdfEditorEngine editor;
+    QVERIFY(editor.loadDocumentForEditing(pdf));
+    DocumentSession doc;
+    doc.beginDocument(pdf);
+
+    QUndoStack history;
+    history.push(new CropPageCommand(&editor, &doc, 0, QRectF(80, 90, 200, 300)));
+    QCOMPARE(history.count(), 1);
+    QVERIFY(doc.isDirty());
+
+    QCOMPARE(pdfEffectiveBox(pdf), QRectF(80, 90, 200, 300));
 }
 
 QTEST_MAIN(TestEngineSave)
