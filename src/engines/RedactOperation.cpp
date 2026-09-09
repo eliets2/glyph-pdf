@@ -408,7 +408,17 @@ void RedactOperation::run()
     // Synchronous seam (tests / scripted hosts): the same durable state
     // machine, executed on the calling thread. start() is the asynchronous
     // entry point; both share this one ExecutionState and its atomic cancel.
-    m_exec->execute();
+    //
+    // NCR-02: the synchronous entry point honors the SAME one-shot overlap
+    // gate as start() — a second run(), or a run()/start() pairing in either
+    // order, executes the transaction exactly once — and it keeps a strong
+    // local reference to the execution state while execute() is active: a
+    // direct-connected finished() slot (or a page-boundary hook) may destroy
+    // this RedactOperation mid-call, releasing the last OTHER owner; the
+    // state must outlive the member call that is running on it.
+    auto state = m_exec;
+    if (!state->tryBeginRun()) return;
+    state->execute();
 }
 
 // The whole transaction. Everything read here belongs to the ExecutionState —

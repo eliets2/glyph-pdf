@@ -4,6 +4,7 @@
 #include <QFuture>
 #include <QThread>
 #include <QDebug>
+#include <algorithm>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -33,9 +34,26 @@ namespace {
 RenderCache::RenderCache() {}
 
 RenderCache::~RenderCache() {
-    m_prefetchCancelToken.fetchAndAddRelaxed(1);
-    if (m_prefetchFuture.isRunning()) m_prefetchFuture.waitForFinished();
+    drainPrefetches();
     clear();
+}
+
+// EC06: cancel and join EVERY in-flight prefetch worker. The futures are
+// snapshotted under the lock and waited on OUTSIDE it — a draining worker
+// needs m_lock to insert results, so holding it while waiting would deadlock.
+// Without this, a superseded prefetch (its future replaced in
+// prefetchViewport) stayed in flight across clear()/destruction while holding
+// a raw IPdfRenderer* that the caller is entitled to retire after clear().
+void RenderCache::drainPrefetches() {
+    m_prefetchCancelToken.fetchAndAddRelaxed(1);  // stop new page renders early
+    QList<QFuture<void>> pending;
+    {
+        WriteLockGuard guard(m_lock);
+        pending = m_inFlightPrefetches;
+        m_inFlightPrefetches.clear();
+    }
+    for (QFuture<void>& f : pending)
+        if (f.isRunning()) f.waitForFinished();
 }
 
 void RenderCache::setMaxCacheSize(qint64 bytes) {
@@ -52,8 +70,7 @@ qint64 RenderCache::maxCacheSize() const {
 }
 
 void RenderCache::clear() {
-    m_prefetchCancelToken.fetchAndAddRelaxed(1);
-    if (m_prefetchFuture.isRunning()) m_prefetchFuture.waitForFinished();
+    drainPrefetches();
 
     WriteLockGuard guard(m_lock);
     m_renderedPages.clear();
@@ -294,11 +311,10 @@ void RenderCache::prefetchViewport(int centerPage, qreal scale, IPdfRenderer* re
     }
     std::weak_ptr<RenderCache> weakThis = weak_from_this();
 
-    if (m_prefetchFuture.isRunning()) {
-        // cancellation signaled via token above
-    }
-
-    m_prefetchFuture = QtConcurrent::run([weakThis, pagesToPrefetch, scale, renderer, currentToken]() {
+    // EC06: retain the new future alongside every still-running predecessor —
+    // superseding a prefetch must not orphan its worker. Finished futures are
+    // pruned so the list stays bounded.
+    auto future = QtConcurrent::run([weakThis, pagesToPrefetch, scale, renderer, currentToken]() {
         auto self = weakThis.lock();
         if (!self) return;
 
@@ -346,6 +362,15 @@ void RenderCache::prefetchViewport(int centerPage, qreal scale, IPdfRenderer* re
             }
         }
     });
+
+    {
+        WriteLockGuard guard(m_lock);
+        m_inFlightPrefetches.erase(
+            std::remove_if(m_inFlightPrefetches.begin(), m_inFlightPrefetches.end(),
+                           [](const QFuture<void>& f) { return f.isFinished(); }),
+            m_inFlightPrefetches.end());
+        m_inFlightPrefetches.append(future);
+    }
 }
 
 QString RenderCache::getOrExtractText(int page, IPdfRenderer* renderer) {
