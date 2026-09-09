@@ -2,7 +2,7 @@
 #include "CropPageCommand.h"
 
 CropPageCommand::CropPageCommand(IPdfEditorEngine* engine, DocumentSession* doc, int pageIndex, const QRectF& cropRect, QUndoCommand* parent)
-    : QUndoCommand(parent), m_engine(engine), m_doc(doc), m_pageIndex(pageIndex), m_cropRect(cropRect)
+    : CheckedUndoCommand(parent), m_engine(engine), m_doc(doc), m_pageIndex(pageIndex), m_cropRect(cropRect)
 {
     setText(QObject::tr("Crop Page %1").arg(pageIndex + 1));
 }
@@ -66,16 +66,31 @@ bool CropPageCommand::restoreOriginal()
     return m_engine->removePageCropBox(m_doc->path(), m_pageIndex);
 }
 
+// G08: the checked traversal entry — restore while the history position is
+// untouched. Only after a successful restoration does CheckedHistory::undo()
+// move the stack index (undo() then only consumes the arm below).
+bool CropPageCommand::restoreChecked()
+{
+    if (!restoreOriginal())
+        return false;   // command stays current, index/clean unchanged, retryable
+    armCheckedRestore();
+    return true;
+}
+
 void CropPageCommand::undo()
 {
+    if (consumeArmedRestore())
+        return;   // the checked traversal already restored; index-move only
     // EC05: a real restoration through the same safe mutation boundary — the
     // captured original geometry (or original inherited/absent semantics) is
     // written back to the document, not a viewer-only reload that leaves the
     // on-disk CropBox cropped.
-    if (!restoreOriginal()) {
-        emit m_doc->mutationFailed(
-            QObject::tr("Undo of the crop failed on page %1; the cropped geometry is still in effect.")
-                .arg(m_pageIndex + 1));
+    if (!m_engine || !m_doc || !restoreOriginal()) {
+        if (m_doc) {
+            emit m_doc->mutationFailed(
+                QObject::tr("Undo of the crop failed on page %1; the cropped geometry is still in effect.")
+                    .arg(m_pageIndex + 1));
+        }
         return;   // no markReload: disk and viewer still show the cropped state
     }
     m_doc->markReload();

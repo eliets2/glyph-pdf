@@ -58,6 +58,7 @@
 #include "commands/DeleteImageCommand.h"
 #include "commands/ReplaceImageCommand.h"
 #include "commands/EditFormFieldCommand.h"
+#include "commands/CheckedHistory.h"
 #include "mocks/MockPdfEditorEngine.h"
 
 // wingdi.h defines GetObject as an object-like macro (UNICODE builds); it
@@ -268,7 +269,9 @@ void setWritable(const QString &path, bool writable)
 
 // ── Fault engines (the reviewed "isolated fault engine" pattern) ─────────────
 
-// insertPageFromBytes fails on demand; every page deletion is recorded.
+// G08: the two-step primitives are only recorded to prove the commands NEVER
+// take them any more; the restoration itself is faulted through the atomic
+// seam (m_pageRestoreOk / m_restorePageCalls come from the mock base).
 class FaultRestoreEngine : public MockPdfEditorEngine {
 public:
     bool m_insertOk = true;
@@ -347,11 +350,14 @@ private slots:
         stack.push(cmd);
         QCOMPARE(engine.m_deletePageCalls, 0);   // redo deletes an image, not a page
 
-        engine.m_insertOk = false;               // the restore will fail
+        engine.m_pageRestoreOk = false;          // the atomic restore will fail
         stack.undo();
 
         QVERIFY2(engine.m_deletePageCalls == 0,
-                 "EC03: a failed backup insertion must never delete the following page");
+                 "EC03: a failed restoration must never delete the following page");
+        QVERIFY2(engine.m_insertCalls == 0,
+                 "G08: the restore must be ONE committed step — no insert half-step");
+        QCOMPARE(engine.m_restorePageCalls, 1);  // the atomic seam was the one attempt
         QCOMPARE(failed.count(), 1);             // the failure is reported, not silent
         QVERIFY(doc.isDirty());                  // redo's mutation is still in effect
     }
@@ -373,11 +379,14 @@ private slots:
                                            QStringLiteral("replacement.png"),
                                            QByteArray("backup-page-bytes")));
 
-        engine.m_insertOk = false;
+        engine.m_pageRestoreOk = false;
         stack.undo();
 
         QVERIFY2(engine.m_deletePageCalls == 0,
-                 "EC03: a failed backup insertion must never delete the following page");
+                 "EC03: a failed restoration must never delete the following page");
+        QVERIFY2(engine.m_insertCalls == 0,
+                 "G08: the restore must be ONE committed step — no insert half-step");
+        QCOMPARE(engine.m_restorePageCalls, 1);
         QCOMPARE(failed.count(), 1);
     }
 
@@ -681,6 +690,119 @@ private slots:
                  "V02: a failed undo must not silently change the document");
         QVERIFY(doc.isDirty());   // the (edited) work is still uncommitted — dirty stays
         setWritable(f, true);
+    }
+
+    // ── G08 (QUALITY-GATE-2026-09-09) ─────────────────────────────────────────
+    // Qt gives undo() NO failure channel — the stack index moved even when the
+    // restoration mutated nothing, so a failed form undo landed on a false
+    // clean state (index 0, isClean() true, canUndo() false) with EDITED still
+    // on disk, and the command was no longer reachable for a retry. The
+    // production traversal seam (CheckedHistory::undo — the one HomeController
+    // uses) must move the history position only after a successful restore.
+    void failedFormUndoCheckedTraversalKeepsPositionAndIsRetryable()
+    {
+        QTemporaryDir dir;
+        const QString f = makeTwoPageTextPdf(dir.path(), "form_undo_retry.pdf");
+        FormManager forms;
+        QVERIFY(forms.addTextField(f, 0, QRectF(72, 100, 144, 24), QStringLiteral("F1"), f));
+        QVariantMap seed;
+        seed[QStringLiteral("F1")] = QStringLiteral("ORIGINAL");
+        QVERIFY(forms.fillForm(f, seed, f, /*lockFields=*/false));
+
+        DocumentSession doc;
+        doc.beginDocument(f);
+        EditFormFieldProperties props;
+        props.defaultVal = QStringLiteral("EDITED");
+        QUndoStack stack;
+        stack.push(new EditFormFieldCommand(&forms, &doc, QStringLiteral("F1"), props));
+        QCOMPARE(stack.index(), 1);
+        QVERIFY(!stack.isClean());
+
+        QSignalSpy failed(&doc, SIGNAL(mutationFailed(QString)));
+        FormManager::setSaveFaultForTesting(FormManager::SaveFault::Commit);
+        QVERIFY2(!CheckedHistory::undo(&stack),
+                 "G08: the checked traversal must report the failed restoration");
+        FormManager::setSaveFaultForTesting(FormManager::SaveFault::None);
+
+        // History position unchanged: the command stays CURRENT and retryable.
+        QCOMPARE(stack.index(), 1);
+        QVERIFY2(!stack.isClean(),
+                 "G08: a failed undo must NOT land on the clean state while the "
+                 "edited values are still on disk");
+        QVERIFY2(stack.canUndo(), "G08: the failed command must stay undoable (retryable)");
+        QVERIFY2(!stack.canRedo(), "G08: nothing was traversed — nothing to redo");
+        QCOMPARE(failed.count(), 1);   // the failure is still reported
+        const FormFieldSnapshot stillEdited = forms.captureFieldSnapshot(f, QStringLiteral("F1"));
+        QVERIFY2(stillEdited.found && stillEdited.value == QLatin1String("EDITED"),
+                 "G08: the failed restore must not have changed the document");
+
+        // Retryability: clear the fault and the SAME command restores.
+        QVERIFY2(CheckedHistory::undo(&stack), "G08: retrying the undo must succeed");
+        QCOMPARE(stack.index(), 0);
+        QVERIFY(stack.isClean());
+        const FormFieldSnapshot restored = forms.captureFieldSnapshot(f, QStringLiteral("F1"));
+        QVERIFY2(restored.found && restored.value == QLatin1String("ORIGINAL"),
+                 "G08: the retried restore must persist the original value");
+    }
+
+    // Same contract for the image-restore path, plus the exactly-once
+    // restoration rule: the failed attempt leaves no committed state, the
+    // retry performs the single atomic restoration again.
+    void failedImageUndoCheckedTraversalIsRetryable()
+    {
+        QTemporaryDir dir;
+        const QString f = makeTwoPageTextPdf(dir.path(), "img_retry.pdf");
+        FaultRestoreEngine engine;
+        engine.m_loaded = true;
+        engine.m_file = f;
+        DocumentSession doc;
+        doc.beginDocument(f);
+        QUndoStack stack;
+        stack.push(new DeleteImageCommand(&engine, &doc, 0, QStringLiteral("Im0"),
+                                          QByteArray("backup-page-bytes")));
+        QCOMPARE(stack.index(), 1);
+
+        QSignalSpy failed(&doc, SIGNAL(mutationFailed(QString)));
+        engine.m_pageRestoreOk = false;
+        QVERIFY2(!CheckedHistory::undo(&stack),
+                 "G08: the checked traversal must report the failed restoration");
+        QCOMPARE(stack.index(), 1);
+        QVERIFY(!stack.isClean());
+        QVERIFY(stack.canUndo());
+        QVERIFY(!stack.canRedo());
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(engine.m_restorePageCalls, 1);
+        QCOMPARE(engine.m_deletePageCalls, 0);
+
+        engine.m_pageRestoreOk = true;
+        QVERIFY2(CheckedHistory::undo(&stack), "G08: retrying the undo must succeed");
+        QCOMPARE(stack.index(), 0);
+        QCOMPARE(engine.m_restorePageCalls, 2);   // one attempt per traversal
+        QCOMPARE(engine.m_deletePageCalls, 0);    // the two-step path never runs
+        QCOMPARE(engine.m_insertCalls, 0);
+    }
+
+    // Raw QUndoStack::undo() (the non-checked path) still applies the
+    // restoration through the atomic seam exactly once per call.
+    void checkedCommandUndoAppliesRestoreExactlyOncePerTraversal()
+    {
+        QTemporaryDir dir;
+        const QString f = makeTwoPageTextPdf(dir.path(), "img_once.pdf");
+        FaultRestoreEngine engine;
+        engine.m_loaded = true;
+        engine.m_file = f;
+        DocumentSession doc;
+        doc.beginDocument(f);
+        QUndoStack stack;
+        stack.push(new ReplaceImageCommand(&engine, &doc, 0, QStringLiteral("Im0"),
+                                           QStringLiteral("replacement.png"),
+                                           QByteArray("backup-page-bytes")));
+
+        engine.m_pageRestoreOk = false;
+        stack.undo();                       // raw path: restore attempted (fails)
+        QCOMPARE(engine.m_restorePageCalls, 1);
+        stack.undo();                       // not retryable via the raw path —
+        QCOMPARE(engine.m_restorePageCalls, 1);   // but also not applied twice
     }
 };
 

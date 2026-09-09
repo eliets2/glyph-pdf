@@ -1208,6 +1208,20 @@ bool PdfEditorEngine::insertPageFromBytes(const QString &path, int atIndex, cons
     return ok;
 }
 
+// G08 (QUALITY-GATE-2026-09-09): single-transaction page restoration.
+bool PdfEditorEngine::restorePageFromBytes(const QString &path, int pageIndex, const QByteArray &pageData)
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("restorePageFromBytes");
+    bool ok = d->backend->restorePageFromBytes(path, pageIndex, pageData);
+    if (!ok)
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to restore the page at position %1.").arg(pageIndex + 1),
+                  QStringLiteral("restorePageFromBytes at=%1").arg(pageIndex));
+    return ok;
+}
+
 bool PdfEditorEngine::deletePage(const QString &path, int pageIndex)
 {
     QMutexLocker locker(&d->mutex);

@@ -185,6 +185,14 @@ public:
     virtual QByteArray extractPageAsBytes(const QString &path, int pageIndex) = 0;
     virtual bool insertPageFromBytes(const QString &path, int atIndex, const QByteArray &pageData) = 0;
     virtual bool deletePage(const QString &path, int pageIndex) = 0;
+    // G08 (QUALITY-GATE-2026-09-09): ONE committed step — insert `pageData`
+    // as the page at `pageIndex` and remove the displaced page (previously at
+    // `pageIndex`, now at `pageIndex+1`) inside a single engine transaction,
+    // with ONE commit. The image delete/replace undo previously ran
+    // insertPageFromBytes + deletePage as two separately committed steps, so
+    // a failure between them stranded an intermediate committed state (the
+    // restored page next to the edited page, or nothing restored).
+    virtual bool restorePageFromBytes(const QString &path, int pageIndex, const QByteArray &pageData) = 0;
     virtual bool insertBlankPage(const QString &path, int atIndex) = 0;
     virtual bool cropPage(const QString &path, int pageIndex, const QRectF &cropRect) = 0;
     // EC05 (TEAM-ENGINE-CODE-REVIEW-2026-09-07): the EFFECTIVE /CropBox of

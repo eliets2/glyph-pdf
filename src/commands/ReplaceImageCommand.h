@@ -4,8 +4,9 @@
 #include <QString>
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "engines/DocumentSession.h"
+#include "commands/CheckedHistory.h"
 
-class ReplaceImageCommand : public QUndoCommand {
+class ReplaceImageCommand : public CheckedUndoCommand {
 public:
     ReplaceImageCommand(IPdfEditorEngine* engine, DocumentSession* doc,
                         int pageIndex, const QString& xobjectName,
@@ -38,26 +39,34 @@ public:
         }
         m_doc->markReload();
     }
+    // G08 (QUALITY-GATE-2026-09-09): the replacement's undo is ONE committed
+    // step (IPageEditor::restorePageFromBytes — no intermediate committed
+    // state between "backup page inserted" and "edited page removed") and a
+    // CHECKED traversal: a FAILED restoration leaves this command current,
+    // the index and the clean state unchanged, and the traversal RETRYABLE.
+    bool restoreChecked() override {
+        if (!performRestore()) {
+            if (!m_doc) return false;
+            qWarning() << "ReplaceImageCommand::undo failed for" << m_name;
+            emit m_doc->mutationFailed(
+                QObject::tr("Undo of image %1 replacement failed: the page could not be restored; nothing was changed.")
+                    .arg(m_name));
+            return false;
+        }
+        armCheckedRestore();
+        return true;
+    }
+
     void undo() override {
-        if (!m_engine || !m_doc) return;
-        // EC03: restore = insert the backup page, then remove the displaced
-        // edited page. A FAILED insertion means the page at m_page+1 is the
-        // ORIGINAL FOLLOWING page — deleting it would destroy unrelated
-        // content. Stop and report instead of advancing the destruction.
-        if (!m_engine->insertPageFromBytes(m_doc->path(), m_page, m_backup)) {
-            emit m_doc->mutationFailed(
-                QObject::tr("Undo of image %1 replacement failed: the page could not be restored; no page was removed.")
-                    .arg(m_name));
+        if (consumeArmedRestore())
+            return;   // the checked traversal already restored; index-move only
+        if (!m_engine || !m_doc)
             return;
-        }
-        if (!m_engine->deletePage(m_doc->path(), m_page + 1)) {
-            emit m_doc->mutationFailed(
-                QObject::tr("Undo of image %1 replacement is incomplete: the page was restored but the edited copy could not be removed.")
-                    .arg(m_name));
-            m_doc->markReload();
+        if (performRestore())
             return;
-        }
-        m_doc->markReload();
+        emit m_doc->mutationFailed(
+            QObject::tr("Undo of image %1 replacement failed: the page could not be restored; nothing was changed.")
+                .arg(m_name));
     }
     int id() const override { return 0x113; }
 private:
@@ -67,4 +76,13 @@ private:
     QString m_name;
     QString m_newPath;
     QByteArray m_backup;
+
+    // G08: the shared restoration body — one committed step, no reporting.
+    bool performRestore() {
+        if (!m_engine || !m_doc) return false;
+        if (!m_engine->restorePageFromBytes(m_doc->path(), m_page, m_backup))
+            return false;
+        m_doc->markReload();
+        return true;
+    }
 };

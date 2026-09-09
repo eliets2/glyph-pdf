@@ -6,10 +6,16 @@
 #include <QRectF>
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "engines/DocumentSession.h"
+#include "commands/CheckedHistory.h"
 
-class CropPageCommand : public QUndoCommand {
+class CropPageCommand : public CheckedUndoCommand {
 public:
     CropPageCommand(IPdfEditorEngine* engine, DocumentSession* doc, int pageIndex, const QRectF& cropRect, QUndoCommand* parent = nullptr);
+
+    // G08 (QUALITY-GATE-2026-09-09): checked traversal — the restoration is
+    // attempted while the history position is still untouched; a failed
+    // restore leaves this command current (retryable, index/clean unchanged).
+    bool restoreChecked() override;
 
     void undo() override;
     void redo() override;

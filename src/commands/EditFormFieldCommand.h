@@ -4,6 +4,7 @@
 #include <QUndoCommand>
 #include "core/interfaces/IFormManager.h"
 #include "engines/DocumentSession.h"
+#include "commands/CheckedHistory.h"
 
 /// Properties bundle passed to EditFormFieldCommand.
 ///
@@ -47,7 +48,7 @@ struct EditFormFieldProperties {
 /// during traversal, obsolete commands are skipped. Callers must not
 /// dereference a pushed command after a possibly-failed push — inspect
 /// succeeded()/lastError() via a direct redo() instead.
-class EditFormFieldCommand : public QUndoCommand {
+class EditFormFieldCommand : public CheckedUndoCommand {
 public:
     EditFormFieldCommand(IFormManager* engine,
                          DocumentSession* doc,
@@ -102,24 +103,40 @@ public:
         }
     }
 
-    void undo() override {
-        if (!m_engine || !m_doc || m_doc->path().isEmpty()) return;
-        if (!m_old.found) return; // nothing was ever applied
-        const bool ok = m_engine->applyFieldSnapshot(m_doc->path(), m_old, m_doc->path());
-        if (!ok) {
-            // V02 residual (step-3 history truthfulness): the failed restore
-            // used to be a silent qWarning while Qt moved the history index.
-            // The failure is now reported to the history owner, and the state
-            // stays truthful: no markReload — disk (and viewer) still carry
-            // the edited values, so the document remains dirty.
-            const QString reason = QObject::tr(
-                "Undo of the form-field edit failed for '%1'; the edited values are still in effect.")
-                    .arg(m_oldProps.name);
+    // G08 (QUALITY-GATE-2026-09-09): the restoration is a CHECKED traversal —
+    // restoreChecked() applies the original snapshot while the history index
+    // is still untouched; only a successful restoration arms the follow-up
+    // QUndoStack::undo() that moves the position (undo() then only consumes
+    // the arm). A FAILED restoration leaves this command current, the index
+    // and the clean state unchanged, and the traversal RETRYABLE.
+    bool restoreChecked() override {
+        if (!performRestore()) {
+            if (!m_doc)
+                return false;
             qWarning() << "EditFormFieldCommand::undo failed for" << m_oldProps.name;
-            emit m_doc->mutationFailed(reason);
-            return; // refresh state only after successful persistence
+            // The failure is reported to the history owner — the state stays
+            // truthful: no markReload, disk (and viewer) still carry the
+            // edited values, the command stays current and retryable.
+            emit m_doc->mutationFailed(m_restoreFailureReason());
+            return false;
         }
-        m_doc->markReload();
+        armCheckedRestore();
+        return true;
+    }
+
+    void undo() override {
+        if (consumeArmedRestore())
+            return;   // the checked traversal already restored; index-move only
+        if (!m_engine || !m_doc || m_doc->path().isEmpty())
+            return;   // nothing to restore against (pre-fix semantics)
+        if (performRestore())
+            return;
+        // V02 residual (step-3 history truthfulness): the failed restore used
+        // to be a silent qWarning while Qt moved the history index. The raw
+        // stack->undo() path still reports, and the checked traversal
+        // (CheckedHistory::undo — the production seam) never reaches this
+        // point at all: the index does not move for a failed restoration.
+        emit m_doc->mutationFailed(m_restoreFailureReason());
     }
 
     int id() const override { return 0x105; }
@@ -143,4 +160,20 @@ private:
     FormFieldSnapshot        m_new;       // derived from m_old: only panel-edited fields differ
     bool                     m_succeeded = false;
     QString                  m_error;
+
+    // G08: the shared restoration body — apply the ORIGINAL snapshot as one
+    // transactional mutation. Reports nothing; callers own the reporting.
+    bool performRestore() {
+        if (!m_engine || !m_doc || m_doc->path().isEmpty()) return false;
+        if (!m_old.found) return true; // nothing was ever applied — restored by definition
+        if (!m_engine->applyFieldSnapshot(m_doc->path(), m_old, m_doc->path()))
+            return false;
+        m_doc->markReload();
+        return true;
+    }
+    QString m_restoreFailureReason() const {
+        return QObject::tr(
+            "Undo of the form-field edit failed for '%1'; the edited values are still in effect.")
+                .arg(m_oldProps.name);
+    }
 };

@@ -126,6 +126,16 @@ public:
     int m_removeCropBoxCalls = 0;
     bool m_cropSnapshotFails = false;
     bool m_cropRestoreOk = true;
+    // G08 (QUALITY-GATE-2026-09-09): the single-transaction page-restore seam
+    // with fault injection; the base class keeps the two-step
+    // insertPageFromBytes/deletePage calls so tests can prove the commands no
+    // longer take the intermediate-state path.
+    bool restorePageFromBytes(const QString &, int, const QByteArray &) {
+        ++m_restorePageCalls;
+        return m_pageRestoreOk && m_loaded;
+    }
+    int m_restorePageCalls = 0;
+    bool m_pageRestoreOk = true;
     // GUI-held-handle residual (2026-09-08 persistence lane): shell-side
     // same-path writers release the resident file before replacing it. Again
     // NO `override` — the interface member is new in this repair; pre-fix
