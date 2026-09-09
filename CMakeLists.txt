@@ -172,8 +172,19 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 find_package(Pdfium QUIET)
 find_package(libzip REQUIRED)
 
+# D03 (QUALITY-GATE-2026-09-09): Tesseract OCR is an OPTIONAL dependency —
+# every HAS_TESSERACT guard must compile and link in its absence. The switch
+# is explicit (not environment-silent): GLYPHPDF_ENABLE_TESSERACT=OFF skips
+# detection entirely, producing the complete no-Tesseract configuration the
+# gate requires to be configured+built+linked end to end. The release feature
+# gate still hard-fails when Tesseract is ACCIDENTALLY absent (option ON,
+# detection failed) and only honours a deliberate OFF.
+option(GLYPHPDF_ENABLE_TESSERACT
+    "Build with Tesseract/Leptonica OCR (defines HAS_TESSERACT). OFF = complete no-Tesseract configuration (D03)"
+    ON)
+
 find_package(PkgConfig QUIET)
-if(PkgConfig_FOUND)
+if(PkgConfig_FOUND AND GLYPHPDF_ENABLE_TESSERACT)
     pkg_check_modules(PKG_TESSERACT QUIET tesseract)
     pkg_check_modules(PKG_LEPTONICA QUIET lept)
 endif()
@@ -184,7 +195,7 @@ endif()
 # Requires.private graph is unsatisfiable). Probe the library + headers directly so
 # OCR (HAS_TESSERACT) is enabled wherever Tesseract is genuinely present, instead of
 # silently shipping an OCR-less build. find_library/find_path do not depend on .pc.
-if(NOT PKG_TESSERACT_FOUND)
+if(GLYPHPDF_ENABLE_TESSERACT AND NOT PKG_TESSERACT_FOUND)
     find_library(_TESS_LIB NAMES tesseract libtesseract tesseract55 tesseract54 tesseract-5)
     find_path(_TESS_INC NAMES tesseract/capi.h tesseract/baseapi.h)
     if(_TESS_LIB AND _TESS_INC)
@@ -194,7 +205,7 @@ if(NOT PKG_TESSERACT_FOUND)
         message(STATUS "Tesseract found via find_library fallback: ${_TESS_LIB}")
     endif()
 endif()
-if(NOT PKG_LEPTONICA_FOUND)
+if(GLYPHPDF_ENABLE_TESSERACT AND NOT PKG_LEPTONICA_FOUND)
     find_library(_LEPT_LIB NAMES lept leptonica liblept lept-5)
     find_path(_LEPT_INC NAMES leptonica/allheaders.h allheaders.h)
     if(_LEPT_LIB AND _LEPT_INC)
@@ -519,7 +530,17 @@ if(GLYPHPDF_RELEASE_BUILD)
         list(APPEND _missing_features "HAS_PDFIUM (PDFium not found)")
     endif()
     if(NOT _has_tesseract)
-        list(APPEND _missing_features "HAS_TESSERACT (Tesseract not found)")
+        if(GLYPHPDF_ENABLE_TESSERACT)
+            list(APPEND _missing_features "HAS_TESSERACT (Tesseract not found)")
+        else()
+            # D03: an EXPLICIT GLYPHPDF_ENABLE_TESSERACT=OFF is a deliberate
+            # optional-dependency build, not an accidentally missing feature.
+            # The gate stays hard for accidental absence (option ON, no
+            # Tesseract found) and records the deliberate opt-out loudly here.
+            message(STATUS
+                "  release gate: HAS_TESSERACT absent by explicit "
+                "GLYPHPDF_ENABLE_TESSERACT=OFF (D03 optional-dependency build)")
+        endif()
     endif()
     if(NOT _has_rapidocr)
         list(APPEND _missing_features "HAS_RAPIDOCR (ONNX Runtime not found)")
@@ -2409,6 +2430,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestStatusBarSlim.cpp")
         tests/TestStatusBarSlim.cpp
     )
     target_include_directories(TestStatusBarSlim PRIVATE src tests)
+    # G20 (QUALITY-GATE-2026-09-09): the theme QSS sheets are NOT compiled
+    # into test binaries (resources.qrc belongs to PdfWorkstation), so the
+    # suite must resolve them from the SOURCE tree. Inject the absolute
+    # source resource dir (the DJOT_LIB_DIR CMake-injection pattern) — the
+    # old applicationDirPath()+"/../resources" assumption breaks every
+    # genuine out-of-source build whose build directory is not a direct
+    # child of the source root.
+    target_compile_definitions(TestStatusBarSlim PRIVATE
+        GLYPHPDF_SOURCE_RESOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/resources"
+    )
     target_link_libraries(TestStatusBarSlim PRIVATE
         pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
         Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent

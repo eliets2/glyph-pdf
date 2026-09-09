@@ -25,6 +25,7 @@
 #include <QApplication>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QImage>
 #include <QLabel>
 #include <QMenu>
@@ -55,6 +56,13 @@ QLabel* findLabel(const QWidget* w, const QString& objectName) {
 // (resources.qrc is a PdfWorkstation source), so a test binary resolves the
 // sheet from the source tree — the same file Theme::sheetForMode() names and
 // MainWindow::applyTheme() loads.
+//
+// G20 (QUALITY-GATE-2026-09-09): the source location is INJECTED by CMake as
+// an absolute path (GLYPHPDF_SOURCE_RESOURCE_DIR — the DJOT_LIB_DIR
+// injection pattern). The old applicationDirPath()+"/../" heuristic assumed
+// the build directory is a direct child of the source root and failed every
+// genuine out-of-source build (source and build dirs as siblings). The
+// heuristic stays only as a last resort for non-CMake builds.
 bool loadThemeSheet(Theme::Mode mode, QString* out) {
     const QString resourcePath = Theme::sheetForMode(mode);   // ":/resources/theme_X.qss"
     if (QFile::exists(resourcePath)) {
@@ -64,9 +72,21 @@ bool loadThemeSheet(Theme::Mode mode, QString* out) {
             return true;
         }
     }
-    const QString rel = resourcePath.mid(2);                  // "resources/theme_X.qss"
+    const QString fileName = QFileInfo(resourcePath).fileName();  // "theme_X.qss"
+#ifdef GLYPHPDF_SOURCE_RESOURCE_DIR
+    {
+        const QString fromSource = QDir(QStringLiteral(GLYPHPDF_SOURCE_RESOURCE_DIR))
+                                       .filePath(fileName);
+        QFile f(fromSource);
+        if (f.open(QIODevice::ReadOnly)) {
+            *out = QString::fromUtf8(f.readAll());
+            return true;
+        }
+    }
+#endif
     const QString fromBuildDir = QDir(QCoreApplication::applicationDirPath())
-                                     .filePath(QStringLiteral("../") + rel);
+                                     .filePath(QStringLiteral("../") + QStringLiteral("resources/")
+                                               + fileName);
     QFile f(fromBuildDir);
     if (f.open(QIODevice::ReadOnly)) {
         *out = QString::fromUtf8(f.readAll());
