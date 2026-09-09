@@ -43,6 +43,9 @@ public:
     QByteArray extractPageAsBytes(const QString &path, int pageIndex);
     bool insertPageFromBytes(const QString &path, int atIndex, const QByteArray &pageData);
     bool deletePage(const QString &path, int pageIndex);
+    // G08 (QUALITY-GATE-2026-09-09): one committed step — swap the page at
+    // `pageIndex` for the `pageData` copy inside a single transaction.
+    bool restorePageFromBytes(const QString &path, int pageIndex, const QByteArray &pageData);
     bool insertBlankPage(const QString &path, int atIndex);
 
     // Content editing

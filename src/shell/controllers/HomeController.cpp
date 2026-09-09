@@ -8,6 +8,7 @@
 #include "ui/ExportPresetsPanel.h"
 #include "engines/ConversionManager.h"
 #include "engines/DocumentSession.h"   // ARC04: session clean baseline after a checked save
+#include "commands/CheckedHistory.h"   // G08: checked undo traversal (no index move on failed restore)
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -107,7 +108,10 @@ void HomeController::activate(ToolId id) {
         onImagesToPdf();
         break;
     case ToolId::Undo:
-        if (_ctx && _ctx->undoStack) _ctx->undoStack->undo();
+        // G08: checked traversal — the history position moves only after a
+        // successful restoration; a failed undo stays retryable at the same
+        // index with the clean state untouched.
+        if (_ctx && _ctx->undoStack) CheckedHistory::undo(_ctx->undoStack.get());
         break;
     case ToolId::Redo:
         if (_ctx && _ctx->undoStack) _ctx->undoStack->redo();

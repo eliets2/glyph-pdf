@@ -821,6 +821,40 @@ bool PoDoFoBackend::insertBlankPage(const QString &path, int atIndex) {
     }
 }
 
+// G08 (QUALITY-GATE-2026-09-09): the image delete/replace undo used to run
+// insertPageFromBytes + deletePage as TWO separately committed steps, so a
+// failure between them (or a crash) stranded an intermediate committed state.
+// Both mutations happen in MEMORY here and are committed by ONE writeUpdate:
+// either the page at `pageIndex` is the `pageData` copy in the committed
+// artifact, or the document is exactly as it was.
+bool PoDoFoBackend::restorePageFromBytes(const QString &path, int pageIndex, const QByteArray &pageData) {
+    QMutexLocker locker(&d->mutex);
+    if (pageData.size() > 10 * 1024 * 1024) {
+        qCritical() << "SECURITY: Rejected page data exceeding maximum allowed buffer size (10MB).";
+        return false;
+    }
+    try {
+        PoDoFo::PdfMemDocument sourceDoc;
+        sourceDoc.LoadFromBuffer(PoDoFo::bufferview(pageData.constData(), pageData.size()));
+        if (sourceDoc.GetPages().GetCount() == 0) return false;
+
+        auto& doc = d->resolveDocument(path);
+        auto& pages = doc.GetPages();
+        if (pageIndex < 0 || static_cast<size_t>(pageIndex) >= pages.GetCount()) return false;
+        if (pages.GetCount() + 1 > 10000) {
+            qCritical() << "SECURITY: Operation rejected. Page restore would exceed the 10,000 pages threshold.";
+            return false;
+        }
+
+        pages.InsertDocumentPageAt(pageIndex, sourceDoc, 0);   // restored copy at pageIndex
+        pages.RemovePageAt(pageIndex + 1);                     // displaced edited copy out
+        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
 bool PoDoFoBackend::editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
                                    const QString &fontFamily, int fontSize,
                                    const QColor &color, bool bold,

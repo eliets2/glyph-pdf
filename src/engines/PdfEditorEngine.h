@@ -66,6 +66,7 @@ public:
     bool rotatePage(const QString &path, int pageIndex, int degrees) override;
     QByteArray extractPageAsBytes(const QString &path, int pageIndex) override;
     bool insertPageFromBytes(const QString &path, int atIndex, const QByteArray &pageData) override;
+    bool restorePageFromBytes(const QString &path, int pageIndex, const QByteArray &pageData) override;
     bool deletePage(const QString &path, int pageIndex) override;
     bool insertBlankPage(const QString &path, int atIndex) override;
 
