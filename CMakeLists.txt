@@ -2728,6 +2728,18 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestShapeInkPersistence.cpp")
     set_tests_properties(TestShapeInkPersistence PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;annotations;persistence;qt;headless")
 endif()
 
+# T1 measurement toolset: pure calibration/geometry/formatting math
+# (header-only src/core/MeasureCore.h — no GUI, no engines, no I/O).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestMeasureCore.cpp")
+    add_executable(TestMeasureCore tests/TestMeasureCore.cpp)
+    target_include_directories(TestMeasureCore PRIVATE src tests)
+    target_link_libraries(TestMeasureCore PRIVATE
+        pdfws_core Qt6::Test Qt6::Core
+    )
+    add_test(NAME TestMeasureCore COMMAND TestMeasureCore)
+    set_tests_properties(TestMeasureCore PROPERTIES TIMEOUT 60 LABELS "unit;measure;qt;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCompressStripSanitize.cpp")
     add_executable(TestCompressStripSanitize tests/TestCompressStripSanitize.cpp)
     target_include_directories(TestCompressStripSanitize PRIVATE src tests)
