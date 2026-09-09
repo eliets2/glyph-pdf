@@ -22,7 +22,7 @@
   <Package
     Name="GlyphPDF"
     Manufacturer="Glyph"
-    Version="1.3.2.3"
+    Version="$(var.GlyphPDFVersion)"
     UpgradeCode="fb1fbe00-e1af-449c-8a58-2d2e308b9127"
     ProductCode="0C00BB58-7455-49F4-BCB9-136935E81CBB"
     Scope="perMachine"

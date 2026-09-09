@@ -2,21 +2,42 @@
 #  GlyphPDF — Portable ZIP build pipeline (PowerShell)
 #
 #  Produces a self-contained deploy/ directory via deploy.ps1 then zips it
-#  into GlyphPDF-1.0.1-x64-portable.zip.  No installation required — users
-#  unzip anywhere and run GlyphPDF.exe directly.
+#  into GlyphPDF-<Version>-x64-portable.zip.  No installation required —
+#  users unzip anywhere and run GlyphPDF.exe directly.
+#
+#  INF03: the version is no longer hardcoded here. It comes from the caller
+#  (build-msi.ps1 passes the pipeline's single authoritative version read
+#  from the root CMakeLists project() VERSION); when run standalone without
+#  -Version it is read from that same source. Every produced artifact —
+#  archive name, README banner, SHA-256 sidecar — carries that version, and
+#  the pipeline fails if the expected ZIP is not produced.
 #
 #  Usage:  powershell -ExecutionPolicy Bypass -File packaging\build-portable.ps1
-#          [-SkipDeploy]   reuse existing deploy/ (deploy.ps1 already ran)
+#          [-Version 1.3.2.3]  override the version (normally passed by build-msi.ps1)
+#          [-SkipDeploy]       reuse existing deploy/ (deploy.ps1 already ran)
 #
-param([switch]$SkipDeploy)
+param(
+    [string]$Version,
+    [switch]$SkipDeploy
+)
 $ErrorActionPreference = 'Stop'
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $DeployDir   = Join-Path $ProjectRoot 'deploy'
 $PackDir     = $PSScriptRoot
 $OutputDir   = Join-Path $ProjectRoot 'dist'
-$Version     = '1.3.1'
-$ZipName     = "GlyphPDF-$Version-x64-portable.zip"
+
+# INF03: one authoritative version — the root CMakeLists project() VERSION.
+function Get-GlyphPdfVersion {
+    $cmakeFile = Join-Path $ProjectRoot 'CMakeLists.txt'
+    $m = Select-String -Path $cmakeFile -Pattern '^\s*project\(PdfWorkstation\s+VERSION\s+([0-9][0-9.]*)' |
+         Select-Object -First 1
+    if (-not $m) { throw "Cannot read the project VERSION from $cmakeFile." }
+    return $m.Matches[0].Groups[1].Value
+}
+if (-not $Version) { $Version = Get-GlyphPdfVersion }
+
+$ZipName = "GlyphPDF-$Version-x64-portable.zip"
 
 Write-Host '========================================'
 Write-Host " GlyphPDF portable build  v$Version"
@@ -67,6 +88,12 @@ $zipPath = Join-Path $OutputDir $ZipName
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 Compress-Archive -Path "$DeployDir\*" -DestinationPath $zipPath -CompressionLevel Optimal
 
+#  INF03: the expected portable output must exist and be non-empty — a
+#  missing archive must FAIL this pipeline, not pass silently.
+if (-not (Test-Path $zipPath) -or (Get-Item $zipPath).Length -eq 0) {
+    throw "INF03: expected portable archive '$zipPath' was not produced (or is empty)."
+}
+
 $hash = (Get-FileHash $zipPath -Algorithm SHA256).Hash
 "$hash  $ZipName" | Set-Content -Path "$zipPath.sha256" -Encoding Ascii
 
@@ -75,4 +102,5 @@ Write-Host '========================================'
 Write-Host (' ZIP:    {0}' -f $zipPath)
 Write-Host (' Size:   {0:N1} MB' -f $zipSize)
 Write-Host (' SHA256: {0}' -f $hash)
+Write-Host (' Version: {0} (source: CMakeLists project VERSION{1})' -f $Version, $(if ($Version -eq (Get-GlyphPdfVersion)) { '' } else { ' - OVERRIDDEN' }))
 Write-Host '========================================'
