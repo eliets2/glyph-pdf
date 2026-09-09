@@ -373,11 +373,17 @@ void TestCleanupCli::candidateAliasInputPreservesSource() {
     QDir().mkpath(outDir);
     const QString output = outDir + QStringLiteral("/result.pdf");
     QVERIFY(writeFile(output, QByteArray("%PDF-1.4 previous output bytes\n")));
-
-    const QString input = outDir + QStringLiteral("/result.pdf.cleaning-tmp.pdf");
-    QVERIFY(writeFile(input, QByteArray("INPUT AS ALIASED CANDIDATE\n")));
-    const QByteArray inputSha = sha256(input);
     const QByteArray outputSha = sha256(output);
+
+    // A REAL multi-page document that merely LOOKS like the old fixed
+    // candidate name — the pre-fix tool processed it and then deleted it in
+    // the failure cleanup (candidate == input); a non-PDF payload would be
+    // rejected by the corrupt-input guard instead and prove nothing.
+    const QString input = outDir + QStringLiteral("/result.pdf.cleaning-tmp.pdf");
+    QVERIFY(!makeMultiPagePdf(outDir, QStringLiteral("result.pdf.cleaning-tmp.pdf"), 3)
+                 .isEmpty());
+    QVERIFY(QFileInfo(input).size() > 500);   // a real, processable PDF
+    const QByteArray inputSha = sha256(input);
 
     QProcessEnvironment env = m_childEnv;
     env.insert(QStringLiteral("CLEAN_SCANNED_PDF_FAIL_AFTER_PAGE"), QStringLiteral("1"));
