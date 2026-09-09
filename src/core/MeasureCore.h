@@ -190,12 +190,65 @@ inline Scale fromRatioParts(double numerator, double denominator,
     return fromUnitsPerPt(unitsPerPt, realUnit, ratioNote);
 }
 
+// One quantity token: a decimal ("0.5", "10") or an integer fraction ("1/4").
+// Anything else (units glued to numbers, "1.", "1.5/2", "1/0", "1/4 999")
+// is NOT a quantity. Gate G23: the old regex silently discarded such text.
+inline std::optional<double> parseQuantityToken(const QString& token)
+{
+    static const QRegularExpression decRx(QStringLiteral("^\\d+(?:\\.\\d+)?$"));
+    static const QRegularExpression fracRx(QStringLiteral("^(\\d+)/(\\d+)$"));
+    if (decRx.match(token).hasMatch()) {
+        const double v = token.toDouble();
+        return (std::isfinite(v) && v > 0.0) ? std::optional<double>(v) : std::nullopt;
+    }
+    const auto f = fracRx.match(token);
+    if (f.hasMatch()) {
+        const double fn = f.captured(1).toDouble();
+        const double fd = f.captured(2).toDouble();
+        if (fn <= 0.0 || fd <= 0.0) return std::nullopt;   // "1/0 in" is not a scale
+        return fn / fd;                                    // "1/4" → 0.25
+    }
+    return std::nullopt;
+}
+
+// One side of a form-B equation: exactly one quantity optionally followed by
+// ONE alphabetic unit token ("1/4 in", "10 mm", "3", "0.5"). Returns the value
+// and the (possibly empty) unit token — an EMPTY unit is the explicit-default
+// case and stays distinguishable from an invalid named one.
+inline std::optional<std::pair<double, QString>> parseScaleSide(const QString& side)
+{
+    const QStringList tokens =
+        side.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+    if (tokens.isEmpty() || tokens.size() > 2) return std::nullopt;
+    const auto value = parseQuantityToken(tokens.at(0));
+    if (!value.has_value()) return std::nullopt;
+    QString unitToken;
+    if (tokens.size() == 2) {
+        unitToken = tokens.at(1);
+        static const QRegularExpression unitRx(QStringLiteral("^[A-Za-z]+$"));
+        if (!unitRx.match(unitToken).hasMatch()) return std::nullopt;
+    }
+    return std::make_pair(value.value(), unitToken);
+}
+
+// Named unit or explicit default. An UNKNOWN named unit ("typo") is rejected
+// (nullopt) — it must never silently become pt and pose as a real calibration
+// (gate G23). An EMPTY token takes the caller's explicit default unit.
+inline std::optional<Unit> scaleSideUnit(const QString& token, Unit defaultUnit)
+{
+    if (token.isEmpty()) return defaultUnit;
+    return parseUnit(token);   // nullopt propagates for unknown tokens
+}
+
 // Parses the two scale syntaxes the UI offers:
 //   "1:100", "1:2000"                     — same-unit ratio (drawing/real unit taken
 //                                            from the panel's unit combo)
 //   "1/4 in = 1 ft", "10 mm = 1 m", "0.5 in = 1 ft" — explicit both-side form
-// Returns nullopt for anything it cannot fully parse (the UI shows an honest
-// error instead of guessing).
+// Returns nullopt for anything it cannot FULLY consume (the UI shows an honest
+// error instead of guessing): unknown unit tokens ("1 typo = 1 ft"), leftover
+// text ("1/4 999 in = 1 ft"), mixed fraction+decimal sides, or multiple "=".
+// A MISSING unit is not an error — it takes the caller's explicit default
+// (drawingUnit left / realUnit right), which is distinct from an INVALID unit.
 inline std::optional<Scale> parseScaleRatio(QString text,
                                             Unit drawingUnit = Unit::Mm,
                                             Unit realUnit = Unit::Mm)
@@ -219,39 +272,21 @@ inline std::optional<Scale> parseScaleRatio(QString text,
         }
     }
 
-    // Form B: "<n> [<u1>] = <m> [<u2>]" with optional "n/d" fraction on the left.
-    static const QRegularExpression eqRx(QStringLiteral(
-        "^\\s*(?:(\\d+)\\s*/\\s*(\\d+)\\s+)?(\\d+(?:\\.\\d+)?)?\\s*([A-Za-z]*)\\s*"
-        "=\\s*(\\d+(?:\\.\\d+)?)\\s*([A-Za-z]*)\\s*$"));
-    {
-        const auto m = eqRx.match(text);
-        if (m.hasMatch()) {
-            const QString fracNum = m.captured(1);
-            const QString fracDen = m.captured(2);
-            const QString leftValS = m.captured(3);
-            const QString leftUnitS = m.captured(4);
-            const double rightVal = m.captured(5).toDouble();
-            const QString rightUnitS = m.captured(6);
+    // Form B: "<qty> [<unit>] = <qty> [<unit>]" — fully tokenized, nothing
+    // may remain unconsumed on either side of the single "=".
+    const QStringList sides = text.split(QLatin1Char('='));
+    if (sides.size() != 2) return std::nullopt;   // no, or multiple, "="
+    const auto left = parseScaleSide(sides.at(0));
+    const auto right = parseScaleSide(sides.at(1));
+    if (!left.has_value() || !right.has_value()) return std::nullopt;
 
-            double leftVal = leftValS.isEmpty() ? 1.0 : leftValS.toDouble();
-            if (!fracNum.isEmpty() && !fracDen.isEmpty()) {
-                const double fn = fracNum.toDouble();
-                const double fd = fracDen.toDouble();
-                if (fn <= 0.0 || fd <= 0.0) return std::nullopt;
-                leftVal = fn / fd;   // e.g. "1/4 in": value becomes 0.25
-            }
-            const Unit leftUnit = leftUnitS.trimmed().isEmpty()
-                ? drawingUnit : parseUnit(leftUnitS).value_or(Unit::Pt);
-            const Unit rightUnit = rightUnitS.trimmed().isEmpty()
-                ? realUnit : parseUnit(rightUnitS).value_or(Unit::Pt);
+    const auto leftUnit = scaleSideUnit(left->second, drawingUnit);
+    const auto rightUnit = scaleSideUnit(right->second, realUnit);
+    if (!leftUnit.has_value() || !rightUnit.has_value()) return std::nullopt;
 
-            if (rightVal <= 0.0 || leftVal <= 0.0) return std::nullopt;
-            // left side expressed in user-space points vs right side's real length.
-            const double leftPt  = leftVal * unitToMm(leftUnit) / unitToMm(Unit::Pt);
-            return fromKnownLength(leftPt, rightVal, rightUnit, text);
-        }
-    }
-    return std::nullopt;
+    // Left side expressed in user-space points vs right side's real length.
+    const double leftPt = left->first * unitToMm(*leftUnit) / unitToMm(Unit::Pt);
+    return fromKnownLength(leftPt, right->first, *rightUnit, text);
 }
 
 // ── Geometry (user-space units; clause 2) ────────────────────────────────────
@@ -302,15 +337,20 @@ inline double polygonArea(const QList<QPointF>& pts)
 
 // Rebuilds a Scale from persisted fields (AnnotationItem measure fields, the
 // /Measure dictionary's /X[0], or sidecar JSON — all share these semantics).
-// Honesty rule enforced here too: pt at 1.0 is never reported as calibrated.
+// Honesty rules enforced here too: pt is never reported as calibrated (the
+// writer's negative control), and an UNKNOWN unit label can never pose as a
+// calibration with a mislabeled factor — it degrades to the truthful pt scale
+// (gate G23's "validate before exposing a calibrated result").
 inline Scale scaleFrom(double unitsPerPt, const QString& unitLabel,
                        bool calibrated, const QString& ratioText = QString())
 {
     Scale s = ptScale();
     if (!std::isfinite(unitsPerPt) || unitsPerPt <= 0.0) return s;
+    const auto unit = parseUnit(unitLabel);
+    if (!unit.has_value()) return s;
     s.unitsPerPt = unitsPerPt;
-    s.unit = parseUnit(unitLabel).value_or(Unit::Pt);
-    s.calibrated = calibrated && !(s.unit == Unit::Pt && unitsPerPt == 1.0);
+    s.unit = *unit;
+    s.calibrated = calibrated && *unit != Unit::Pt;
     s.ratio = ratioText;
     return s;
 }
@@ -378,6 +418,12 @@ inline QString formatArea(double userUnits2, const Scale& s, int decimals = 2)
 inline QString formatLengthTruthful(double userUnits, const Scale& s, int decimals = 2)
 {
     const QString base = formatLength(userUnits, s, decimals);
+    return s.calibrated ? base : base + QStringLiteral(" (not calibrated)");
+}
+
+inline QString formatAreaTruthful(double userUnits2, const Scale& s, int decimals = 2)
+{
+    const QString base = formatArea(userUnits2, s, decimals);
     return s.calibrated ? base : base + QStringLiteral(" (not calibrated)");
 }
 

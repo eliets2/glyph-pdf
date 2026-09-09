@@ -106,6 +106,65 @@ private slots:
         QVERIFY(!parseScaleRatio(QStringLiteral("1 : 2 : 3")).has_value());
         QVERIFY(!parseScaleRatio(QString()).has_value());
         QVERIFY(!parseScaleRatio(QStringLiteral("1/0 in = 1 ft")).has_value()); // zero fraction
+        // G23: unknown unit tokens are REJECTED, never silently defaulted to
+        // pt and accepted as a plausible-looking calibration.
+        QVERIFY(!parseScaleRatio(QStringLiteral("1 typo = 1 ft")).has_value());
+        QVERIFY(!parseScaleRatio(QStringLiteral("1 in = 1 typo")).has_value());
+        // G23: unconsumed trailing quantity text is rejected, not discarded —
+        // the old regex silently dropped the 999 (and the fraction!).
+        QVERIFY(!parseScaleRatio(QStringLiteral("1/4 999 in = 1 ft")).has_value());
+        QVERIFY(!parseScaleRatio(QStringLiteral("1 in = 1 ft 999")).has_value());
+        QVERIFY(!parseScaleRatio(QStringLiteral("1 in 2 = 1 ft")).has_value());
+        QVERIFY(!parseScaleRatio(QStringLiteral("1 in = 1 ft extra text")).has_value());
+        // Mixed fraction + decimal on one side, multiple "=", bare unit side.
+        QVERIFY(!parseScaleRatio(QStringLiteral("1/4 0.5 in = 1 ft")).has_value());
+        QVERIFY(!parseScaleRatio(QStringLiteral("1 in = 1 ft = 1 m")).has_value());
+        QVERIFY(!parseScaleRatio(QStringLiteral("in = 1 ft")).has_value());
+        // Units glued to numbers are not a unit token.
+        QVERIFY(!parseScaleRatio(QStringLiteral("1in = 1 ft")).has_value());
+        // Negative and non-numeric quantities.
+        QVERIFY(!parseScaleRatio(QStringLiteral("-1 in = 1 ft")).has_value());
+        QVERIFY(!parseScaleRatio(QStringLiteral("1 in = x ft")).has_value());
+    }
+
+    // G23: a MISSING unit takes the caller's explicit default (distinct from
+    // an INVALID named unit, which is rejected above) — and the value is the
+    // same as spelling that default out.
+    void parseScaleRatioOmittedUnitTakesExplicitDefault() {
+        const auto omitted = parseScaleRatio(QStringLiteral("10 = 1 m"),
+                                             Unit::Mm, Unit::M);
+        const auto spelled = parseScaleRatio(QStringLiteral("10 mm = 1 m"),
+                                             Unit::Mm, Unit::M);
+        QVERIFY(omitted.has_value());
+        QVERIFY(spelled.has_value());
+        QVERIFY(omitted->calibrated && spelled->calibrated);
+        QVERIFY(std::fabs(omitted->unitsPerPt - spelled->unitsPerPt) < 1e-12);
+        QCOMPARE(omitted->unit, Unit::M);
+        // Left default too: "1 = 1 ft" with in→ft defaults == "1 in = 1 ft".
+        const auto leftDefault = parseScaleRatio(QStringLiteral("1 = 1 ft"),
+                                                 Unit::In, Unit::Ft);
+        const auto control = parseScaleRatio(QStringLiteral("1 in = 1 ft"),
+                                             Unit::In, Unit::Ft);
+        QVERIFY(leftDefault.has_value() && control.has_value());
+        QVERIFY(std::fabs(leftDefault->unitsPerPt - control->unitsPerPt) < 1e-12);
+    }
+
+    // G23: an unknown persisted unit label can never pose as a calibration —
+    // scaleFrom degrades to the truthful uncalibrated pt scale.
+    void scaleFromUnknownUnitLabelDegradesToTruthfulPt() {
+        const Scale s = scaleFrom(0.5, QStringLiteral("typo"), true,
+                                  QStringLiteral("1 typo = 1 ft"));
+        QVERIFY(!s.calibrated);
+        QCOMPARE(s.unit, Unit::Pt);
+        QCOMPARE(s.unitsPerPt, 1.0);
+        // pt at ANY factor is not a real-world calibration (writer negative
+        // control: pt ⇒ not calibrated).
+        const Scale ptFactor = scaleFrom(0.5, QStringLiteral("pt"), true);
+        QVERIFY(!ptFactor.calibrated);
+        // A known label keeps its calibration.
+        const Scale ok = scaleFrom(0.5, QStringLiteral("mm"), true);
+        QVERIFY(ok.calibrated);
+        QCOMPARE(ok.unit, Unit::Mm);
     }
 
     // ── Geometry ─────────────────────────────────────────────────────────────
