@@ -1121,37 +1121,107 @@ void cleanStructElement(PoDoFo::PdfObject* elem,
 
 } // anonymous namespace
 
+// G07 (QUALITY-GATE-2026-09-09): a PDF page-box array holds CORNERS
+// [x0 y0 x1 y1]; convert to the Qt position/size form. Integral entries may
+// be real or integer objects depending on the writer — normalize both.
+namespace {
+QRectF pdfBoxArrayToQt(const PoDoFo::PdfArray &arr) {
+    const auto num = [](const PoDoFo::PdfObject &v) -> double {
+        return v.IsNumberOrReal() ? v.GetReal() : 0.0;
+    };
+    const double x0 = num(arr[0]), y0 = num(arr[1]);
+    const double x1 = num(arr[2]), y1 = num(arr[3]);
+    // Defensive normalization (spec rects are already normalized).
+    const double left = qMin(x0, x1), right = qMax(x0, x1);
+    const double bottom = qMin(y0, y1), top = qMax(y0, y1);
+    return QRectF(left, bottom, right - left, top - bottom);
+}
+
+// G07: resolve the box an INHERITED /CropBox denotes by walking the raw
+// /Parent chain (PoDoFo's findInheritableAttribute is private; the raw page
+// dictionaries keep their /Parent keys). Returns the declaring array, or
+// nullptr when no ancestor carries /CropBox.
+const PoDoFo::PdfObject *findInheritedCropBox(const PoDoFo::PdfMemDocument &doc,
+                                              const PoDoFo::PdfPage &page) {
+    const PoDoFo::PdfObject *node = page.GetDictionary().FindKey("Parent");
+    for (int depth = 0; node && depth < 64; ++depth) {
+        const PoDoFo::PdfObject *target = node;
+        if (target->IsReference())
+            target = doc.GetObjects().GetObject(target->GetReference());
+        if (!target || !target->IsDictionary())
+            break;
+        if (const PoDoFo::PdfObject *crop = target->GetDictionary().FindKey("CropBox"))
+            return crop;
+        node = target->GetDictionary().FindKey("Parent");
+    }
+    return nullptr;
+}
+} // anonymous namespace
+
 QRectF PoDoFoBackend::pageCropBox(const QString &path, int pageIndex, bool *ok) {
+    QRectF box;
+    const bool read = pageCropBoxInfo(path, pageIndex, &box, nullptr);
+    if (ok) *ok = read;
+    return box;
+}
+
+bool PoDoFoBackend::pageCropBoxInfo(const QString &path, int pageIndex,
+                                    QRectF *outBox, int *outOrigin) {
     QMutexLocker locker(&d->mutex);
-    if (ok) *ok = false;
+    if (outBox) *outBox = QRectF();
+    if (outOrigin) *outOrigin = IPdfEditorEngine::kCropBoxAbsent;
     try {
         auto& doc = d->resolveDocument(path);
         auto& pages = doc.GetPages();
-        if (pageIndex < 0 || static_cast<size_t>(pageIndex) >= pages.GetCount()) return QRectF();
+        if (pageIndex < 0 || static_cast<size_t>(pageIndex) >= pages.GetCount()) return false;
 
         auto& page = pages.GetPageAt(pageIndex);
-        // EC05: the EFFECTIVE box — the explicit /CropBox when present,
-        // otherwise the MediaBox. Array entries may be real or integer
-        // objects depending on the writer; normalize both.
-        auto boxNumber = [](const PoDoFo::PdfObject &v) -> double {
-            return v.IsNumberOrReal() ? v.GetReal() : 0.0;
-        };
-        double x = 0, y = 0, w = 0, h = 0;
+        // EC05: the EFFECTIVE box — the explicit /CropBox when the page
+        // carries one, else the box inherited from an ancestor /Pages node,
+        // else the MediaBox. G07: the PDF array is CORNERS [x0 y0 x1 y1]; the
+        // snapshot must convert to position/size (the pre-fix reader reused
+        // the corner values as width/height, so undoing a crop of a box at
+        // offset (10,20) wrote (10,20 510x720)), and an inherited box must
+        // resolve to the inherited effective box (the pre-fix reader fell
+        // back to the whole MediaBox instead).
         if (const PoDoFo::PdfObject *crop = page.GetDictionary().FindKey("CropBox");
                 crop && crop->IsArray() && crop->GetArray().GetSize() == 4) {
-            const PoDoFo::PdfArray &arr = crop->GetArray();
-            x = boxNumber(arr[0]);
-            y = boxNumber(arr[1]);
-            w = boxNumber(arr[2]);
-            h = boxNumber(arr[3]);
+            if (outBox) *outBox = pdfBoxArrayToQt(crop->GetArray());
+            if (outOrigin) *outOrigin = IPdfEditorEngine::kCropBoxExplicit;
+        } else if (const PoDoFo::PdfObject *inherited = findInheritedCropBox(doc, page);
+                inherited && inherited->IsArray() && inherited->GetArray().GetSize() == 4) {
+            if (outBox) *outBox = pdfBoxArrayToQt(inherited->GetArray());
+            if (outOrigin) *outOrigin = IPdfEditorEngine::kCropBoxInherited;
         } else {
+            // Truly absent: the effective box is the MediaBox (itself an
+            // inheritable attribute — GetMediaBox resolves the chain).
             const PoDoFo::Rect media = page.GetMediaBox();
-            x = media.X; y = media.Y; w = media.Width; h = media.Height;
+            if (outBox) *outBox = QRectF(media.X, media.Y, media.Width, media.Height);
+            if (outOrigin) *outOrigin = IPdfEditorEngine::kCropBoxAbsent;
         }
-        if (ok) *ok = true;
-        return QRectF(x, y, w, h);
+        return true;
     } catch (...) {
-        return QRectF();
+        return false;
+    }
+}
+
+bool PoDoFoBackend::removePageCropBox(const QString &path, int pageIndex) {
+    QMutexLocker locker(&d->mutex);
+    try {
+        auto& doc = d->resolveDocument(path);
+        auto& pages = doc.GetPages();
+        if (pageIndex < 0 || static_cast<size_t>(pageIndex) >= pages.GetCount()) return false;
+
+        auto& page = pages.GetPageAt(pageIndex);
+        // G07: restore ABSENT/INHERITED semantics — drop the page's explicit
+        // /CropBox so the inherited box (or true absence, effective MediaBox)
+        // shows through again. Idempotent when no explicit key is present.
+        if (!page.GetDictionary().RemoveKey("CropBox"))
+            return true;
+        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+        return true;
+    } catch (...) {
+        return false;
     }
 }
 

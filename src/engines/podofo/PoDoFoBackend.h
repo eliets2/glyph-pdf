@@ -56,6 +56,12 @@ public:
     // Page Geometry & Operations
     bool cropPage(const QString &path, int pageIndex, const QRectF &cropRect);
     QRectF pageCropBox(const QString &path, int pageIndex, bool *ok);
+    // G07 (QUALITY-GATE-2026-09-09): origin-aware effective-CropBox snapshot
+    // (explicit / inherited / absent — see IPdfEditorEngine for the origin
+    // codes) and the restoration of absent/inherited semantics after a crop.
+    bool pageCropBoxInfo(const QString &path, int pageIndex,
+                         QRectF *outBox, int *outOrigin);
+    bool removePageCropBox(const QString &path, int pageIndex);
     // GUI-held-handle residual: drops the resident document when it is loaded
     // from `path` (alias-tolerant), closing the parser device that would block
     // an external same-path SafeSave replacement (form import). The next

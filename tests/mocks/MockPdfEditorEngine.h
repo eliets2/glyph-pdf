@@ -109,6 +109,23 @@ public:
         if (ok) *ok = m_loaded;
         return QRectF(0, 0, 595, 842);
     }
+    // G07 (QUALITY-GATE-2026-09-09): origin-aware snapshot + semantics
+    // restoration seam. Again NO `override` — compiles as a plain member
+    // against pre-fix baselines, implements the interface virtuals post-fix.
+    // The restore-fault flags let history tests inject a failing restoration
+    // deterministically.
+    bool pageCropBoxInfo(const QString &, int, QRectF *outBox, int *outOrigin) {
+        if (outBox) *outBox = QRectF(0, 0, 595, 842);
+        if (outOrigin) *outOrigin = IPdfEditorEngine::kCropBoxExplicit;
+        return m_loaded && !m_cropSnapshotFails;
+    }
+    bool removePageCropBox(const QString &, int) {
+        ++m_removeCropBoxCalls;
+        return m_cropRestoreOk && m_loaded;
+    }
+    int m_removeCropBoxCalls = 0;
+    bool m_cropSnapshotFails = false;
+    bool m_cropRestoreOk = true;
     // GUI-held-handle residual (2026-09-08 persistence lane): shell-side
     // same-path writers release the resident file before replacing it. Again
     // NO `override` — the interface member is new in this repair; pre-fix

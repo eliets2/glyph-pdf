@@ -20,6 +20,12 @@
 //   V02  — EditFormFieldCommand::undo logged a failed restore and returned
 //          silently. The failure is now reported (mutationFailed) and the
 //          state stays truthful: no markReload, disk keeps the edited values.
+//   G07  (QUALITY-GATE-2026-09-09) — the crop snapshot reused PDF corners
+//          [x0 y0 x1 y1] as Qt (x,y,w,h) and resolved an INHERITED CropBox to
+//          the whole MediaBox. The restored engine resolves the effective box
+//          with correct corner→pos/size conversion, and undo restores the
+//          ORIGINAL semantics: explicit box rewritten, inherited/absent
+//          restored by removing the page's explicit key again.
 //
 // Evidence rules: real saved/reopened artifacts (page count, CropBox bytes,
 // field /V, page text via PDFium) carry the contract; fault-injected engines
@@ -197,6 +203,59 @@ double pdfBoxHeight(const QString &path, const char *key)
     }
 }
 
+// ── G07 (QUALITY-GATE-2026-09-09) helpers ─────────────────────────────────────
+// CropBox fixture exactly like the reviewer's probe: one page whose box is
+// [10 20 510 720] (PDF corners — offset (10,20), size 500x700) either as an
+// explicit page key or inherited from the root /Pages node.
+void makeCropBoxPdf(const QString &path, bool inherited)
+{
+    PoDoFo::PdfMemDocument pdf;
+    auto &p = pdf.GetPages().CreatePage(PoDoFo::Rect(0, 0, 612, 792));
+    if (inherited) {
+        auto *parent = p.GetDictionary().FindKey("Parent");
+        parent->GetDictionary().AddKey("CropBox", PoDoFo::Rect(10, 20, 500, 700).ToArray());
+    } else {
+        p.GetDictionary().AddKey("CropBox", PoDoFo::Rect(10, 20, 500, 700).ToArray());
+    }
+    pdf.Save(path.toUtf8().constData());
+}
+
+// The page dictionary's OWN /CropBox corners, exactly as saved (-1 entries on
+// absence/malformed).
+QList<double> ownCropBoxCorners(const QString &path)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(path.toUtf8().constData());
+        auto &page = doc.GetPages().GetPageAt(0);
+        const PoDoFo::PdfObject *o = page.GetDictionary().FindKey("CropBox");
+        const QList<double> missing = { -1.0, -1.0, -1.0, -1.0 };
+        if (!o || !o->IsArray() || o->GetArray().GetSize() != 4)
+            return missing;
+        const PoDoFo::PdfArray &arr = o->GetArray();
+        QList<double> out;
+        for (int i = 0; i < 4; ++i)
+            out.append(arr[i].IsNumberOrReal() ? arr[i].GetReal() : -1.0);
+        return out;
+    } catch (const std::exception &) {
+        return QList<double>{ -1.0, -1.0, -1.0, -1.0 };
+    }
+}
+
+// The EFFECTIVE CropBox as PoDoFo consumers see it (inheritance resolved,
+// MediaBox fallback) — position/size form.
+QRectF effectiveCropBox(const QString &path)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(path.toUtf8().constData());
+        const PoDoFo::Rect r = doc.GetPages().GetPageAt(0).GetCropBox();
+        return QRectF(r.X, r.Y, r.Width, r.Height);
+    } catch (const std::exception &) {
+        return QRectF();
+    }
+}
+
 // Make a file read-only (Windows FILE_ATTRIBUTE_READONLY) / writable again.
 void setWritable(const QString &path, bool writable)
 {
@@ -245,6 +304,20 @@ public:
         if (ok) *ok = !m_snapshotFails && m_loaded;
         return QRectF(0, 0, 595, 842);
     }
+    // G07 (QUALITY-GATE-2026-09-09): the command now snapshots through the
+    // origin-aware seam and restores absent/inherited semantics through the
+    // removal seam. Deliberately NO `override` — plain members pre-fix,
+    // interface virtuals post-fix (same rule as pageCropBox above).
+    bool pageCropBoxInfo(const QString &, int, QRectF *outBox, int *outOrigin) {
+        if (outBox) *outBox = QRectF(0, 0, 595, 842);
+        if (outOrigin) *outOrigin = IPdfEditorEngine::kCropBoxExplicit;
+        return !m_snapshotFails && m_loaded;
+    }
+    bool removePageCropBox(const QString &, int) {
+        ++m_removeCropBoxCalls;
+        return !m_cropFails && m_loaded;
+    }
+    int m_removeCropBoxCalls = 0;
 };
 
 } // namespace
@@ -375,6 +448,9 @@ private slots:
     // ── EC05 ─────────────────────────────────────────────────────────────────
     // THE anchor: undo must restore the on-disk CropBox. Pre-fix undo was a
     // reload-only no-op and the artifact stayed cropped.
+    // G07 (QUALITY-GATE-2026-09-09): this fixture has NO pre-existing CropBox,
+    // so the snapshot's origin is ABSENT and undo restores that semantic — the
+    // explicit key is removed and the effective box is the MediaBox again.
     void cropUndoRestoresOriginalCropBoxOnDisk()
     {
         QTemporaryDir dir;
@@ -385,8 +461,8 @@ private slots:
         doc.beginDocument(f);
         QUndoStack stack;
 
-        const double mediaHeight = pdfBoxHeight(f, "MediaBox");
-        QVERIFY(mediaHeight > 0);
+        const QRectF media = effectiveCropBox(f);
+        QVERIFY(!media.isEmpty());
 
         stack.push(new CropPageCommand(&engine, &doc, 0, QRectF(50, 50, 300, 400)));
         const double cropped = pdfBoxHeight(f, "CropBox");
@@ -395,7 +471,16 @@ private slots:
         QCOMPARE(pdfPageCount(f), 2u);
 
         stack.undo();
-        QVERIFY2(qAbs(pdfBoxHeight(f, "CropBox") - mediaHeight) < 0.01,
+        // G07: the original state was CropBox-ABSENT — the explicit key is
+        // gone again and the effective geometry is the MediaBox.
+        QVERIFY2(ownCropBoxCorners(f).at(0) < 0,
+                 "G07: undo of a crop of an uncropped page must remove the "
+                 "explicit /CropBox (restore the absent semantics)");
+        const QRectF restored = effectiveCropBox(f);
+        QVERIFY2(qAbs(restored.x() - media.x()) < 0.01 &&
+                     qAbs(restored.y() - media.y()) < 0.01 &&
+                     qAbs(restored.width() - media.width()) < 0.01 &&
+                     qAbs(restored.height() - media.height()) < 0.01,
                  "EC05: undo must restore the original geometry on disk, not reload the viewer");
 
         stack.redo();
@@ -404,6 +489,121 @@ private slots:
         QCOMPARE(pdfPageCount(f), 2u);
         QVERIFY2(extractedText(f, 1).contains(QLatin1String("page two marker")),
                  "EC05: the FOLLOWING page must be untouched by crop undo/redo");
+    }
+
+    // ── G07 (QUALITY-GATE-2026-09-09) ─────────────────────────────────────────
+    // The snapshot treated the PDF corners [x0 y0 x1 y1] as Qt (x,y,w,h): undo
+    // of a crop of a box at offset (10,20) wrote (10,20 510x720) — a box that
+    // never existed. The saved/reopened geometry must be the ORIGINAL box.
+    void cropUndoRestoresNonZeroOriginExplicitBoxExactly()
+    {
+        QTemporaryDir dir;
+        const QString f = dir.filePath(QStringLiteral("g07_offset.pdf"));
+        makeCropBoxPdf(f, /*inherited=*/false);
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(f));
+        DocumentSession doc;
+        doc.beginDocument(f);
+        QUndoStack stack;
+
+        // Engine contract: the effective box converts corners to pos+size.
+        bool ok = false;
+        const QRectF snap = engine.pageCropBox(f, 0, &ok);
+        QVERIFY(ok);
+        QVERIFY2(qAbs(snap.x() - 10.0) < 0.01 && qAbs(snap.y() - 20.0) < 0.01 &&
+                     qAbs(snap.width() - 500.0) < 0.01 && qAbs(snap.height() - 700.0) < 0.01,
+                 "G07: pageCropBox must convert [10 20 510 720] corners to "
+                 "QRectF(10,20 500x700), not reuse the corners as size");
+
+        stack.push(new CropPageCommand(&engine, &doc, 0, QRectF(50, 60, 400, 500)));
+        QVERIFY2(ownCropBoxCorners(f).at(0) > 0, "precondition: the crop persisted a box");
+        stack.undo();
+
+        // Saved/reopened geometry: exact original corners, byte-for-byte values.
+        const QList<double> corners = ownCropBoxCorners(f);
+        QVERIFY2(qAbs(corners.at(0) - 10.0) < 0.01 && qAbs(corners.at(1) - 20.0) < 0.01 &&
+                     qAbs(corners.at(2) - 510.0) < 0.01 && qAbs(corners.at(3) - 720.0) < 0.01,
+                 qPrintable(QStringLiteral(
+                                "G07: undo must restore the original corners [10 20 510 720], got "
+                                "[%1 %2 %3 %4]").arg(corners.at(0)).arg(corners.at(1))
+                                .arg(corners.at(2)).arg(corners.at(3))));
+        const QRectF eff = effectiveCropBox(f);
+        QVERIFY2(qAbs(eff.width() - 500.0) < 0.01 && qAbs(eff.height() - 700.0) < 0.01,
+                 "G07: the reopened effective box must be 500x700 again");
+    }
+
+    // The snapshot resolved an INHERITED CropBox to the whole MediaBox. Undo
+    // must restore the inherited semantics: no page-level key, effective box
+    // equal to the INHERITED box.
+    void cropUndoRestoresInheritedBoxNotMediaBox()
+    {
+        QTemporaryDir dir;
+        const QString f = dir.filePath(QStringLiteral("g07_inherited.pdf"));
+        makeCropBoxPdf(f, /*inherited=*/true);
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(f));
+        DocumentSession doc;
+        doc.beginDocument(f);
+        QUndoStack stack;
+
+        // Precondition: the inherited box is the effective box before the crop.
+        bool ok = false;
+        const QRectF snap = engine.pageCropBox(f, 0, &ok);
+        QVERIFY(ok);
+        QVERIFY2(qAbs(snap.width() - 500.0) < 0.01 && qAbs(snap.height() - 700.0) < 0.01,
+                 "G07 precondition: the inherited box (500x700) must be the "
+                 "effective box, not the 612x792 MediaBox");
+        QVERIFY2(ownCropBoxCorners(f).at(0) < 0,
+                 "G07 precondition: the box is inherited, not an own key");
+
+        stack.push(new CropPageCommand(&engine, &doc, 0, QRectF(50, 60, 400, 500)));
+        QVERIFY2(ownCropBoxCorners(f).at(0) > 0, "the crop wrote an explicit key");
+        stack.undo();
+
+        QVERIFY2(ownCropBoxCorners(f).at(0) < 0,
+                 "G07: undo must remove the explicit key again so the INHERITED "
+                 "semantics are restored");
+        const QRectF eff = effectiveCropBox(f);
+        QVERIFY2(qAbs(eff.x() - 10.0) < 0.01 && qAbs(eff.y() - 20.0) < 0.01 &&
+                     qAbs(eff.width() - 500.0) < 0.01 && qAbs(eff.height() - 700.0) < 0.01,
+                 qPrintable(QStringLiteral(
+                                "G07: the inherited effective box (10,20 500x700) must be "
+                                "restored — NOT the whole MediaBox (got %1,%2 %3x%4)")
+                                .arg(eff.x()).arg(eff.y()).arg(eff.width()).arg(eff.height())));
+    }
+
+    // Repeated undo/redo cycles: every restore lands on the saved artifact
+    // exactly, and a consumer (QtPdf/PDFium) reads the original page size.
+    void cropUndoRedoCyclesKeepSavedGeometryStable()
+    {
+        QTemporaryDir dir;
+        const QString f = dir.filePath(QStringLiteral("g07_cycles.pdf"));
+        makeCropBoxPdf(f, /*inherited=*/false);
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(f));
+        DocumentSession doc;
+        doc.beginDocument(f);
+        QUndoStack stack;
+
+        stack.push(new CropPageCommand(&engine, &doc, 0, QRectF(50, 60, 400, 500)));
+        for (int cycle = 0; cycle < 3; ++cycle) {
+            stack.undo();
+            QList<double> c = ownCropBoxCorners(f);
+            QVERIFY2(qAbs(c.at(0) - 10.0) < 0.01 && qAbs(c.at(2) - 510.0) < 0.01 &&
+                         qAbs(c.at(1) - 20.0) < 0.01 && qAbs(c.at(3) - 720.0) < 0.01,
+                     qPrintable(QStringLiteral("G07: undo cycle %1 must restore the "
+                                               "original saved corners").arg(cycle)));
+            stack.redo();
+            c = ownCropBoxCorners(f);
+            QVERIFY2(qAbs(c.at(0) - 50.0) < 0.01 && qAbs(c.at(1) - 60.0) < 0.01 &&
+                         qAbs(c.at(2) - 450.0) < 0.01 && qAbs(c.at(3) - 560.0) < 0.01,
+                     qPrintable(QStringLiteral("G07: redo cycle %1 must re-apply the "
+                                               "crop corners [50 60 450 560], got "
+                                               "[%2 %3 %4 %5]").arg(cycle)
+                                     .arg(c.at(0)).arg(c.at(1)).arg(c.at(2)).arg(c.at(3))));
+        }
+        stack.undo();
+        QCOMPARE(effectiveCropBox(f), QRectF(10.0, 20.0, 500.0, 700.0));
     }
 
     // A failed snapshot or initial mutation refuses the command: no undoable

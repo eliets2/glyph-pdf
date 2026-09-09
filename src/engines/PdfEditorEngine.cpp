@@ -1259,6 +1259,25 @@ QRectF PdfEditorEngine::pageCropBox(const QString &path, int pageIndex, bool *ok
     return d->backend->pageCropBox(path, pageIndex, ok);
 }
 
+// G07 (QUALITY-GATE-2026-09-09): origin-aware CropBox snapshot passthrough.
+bool PdfEditorEngine::pageCropBoxInfo(const QString &path, int pageIndex,
+                                      QRectF *outBox, int *outOrigin)
+{
+    QMutexLocker locker(&d->mutex);
+    if (outBox) *outBox = QRectF();
+    if (outOrigin) *outOrigin = IPdfEditorEngine::kCropBoxAbsent;
+    if (!d->backend) { d->noBackend("pageCropBoxInfo"); return false; }
+    return d->backend->pageCropBoxInfo(path, pageIndex, outBox, outOrigin);
+}
+
+// G07: restore absent/inherited CropBox semantics passthrough.
+bool PdfEditorEngine::removePageCropBox(const QString &path, int pageIndex)
+{
+    QMutexLocker locker(&d->mutex);
+    if (!d->backend) { d->noBackend("removePageCropBox"); return false; }
+    return d->backend->removePageCropBox(path, pageIndex);
+}
+
 void PdfEditorEngine::releaseResidentFile(const QString &path)
 {
     QMutexLocker locker(&d->mutex);

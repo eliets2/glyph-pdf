@@ -21,16 +21,23 @@ public:
     const QString& lastError() const { return m_error; }
 
 private:
+    // G07: perform the restoration (explicit box rewrite, or removal of the
+    // explicit key to re-expose inherited/absent semantics). No reporting.
+    bool restoreOriginal();
     IPdfEditorEngine* m_engine;
     DocumentSession*  m_doc;
     int m_pageIndex;
     QRectF m_cropRect;
     // EC05 (TEAM-ENGINE-CODE-REVIEW-2026-09-07): the effective original box is
     // captured once, before the first mutation, and undo restores it through
-    // IPageEditor::cropPage — the same safe mutation boundary as the crop.
-    // (An inherited box is restored as an explicit box equal to the MediaBox —
-    // geometrically identical, and this writer treats the cases alike.)
+    // the safe mutation boundary.
+    // G07 (QUALITY-GATE-2026-09-09): the snapshot also records HOW the box was
+    // determined, and undo restores that semantic — an explicit box is written
+    // back as the same explicit box; an INHERITED or ABSENT box restores the
+    // original semantics by removing the page's explicit /CropBox again (the
+    // inherited box — not the MediaBox — shows through, or true absence).
     QRectF m_originalBox;
+    int    m_originalOrigin = IPdfEditorEngine::kCropBoxAbsent;
     bool m_haveOriginal = false;
     bool m_succeeded = false;
     QString m_error;

@@ -24,11 +24,12 @@ void CropPageCommand::redo()
         return;
     }
     if (!m_haveOriginal) {
-        // Capture the EFFECTIVE original geometry BEFORE the first mutation,
-        // exactly once, so undo can restore it through the engine boundary.
-        bool ok = false;
-        const QRectF box = m_engine->pageCropBox(m_doc->path(), m_pageIndex, &ok);
-        if (!ok) {
+        // Capture the EFFECTIVE original geometry — and its origin semantics —
+        // BEFORE the first mutation, exactly once, so undo can restore what
+        // was really there (G07).
+        QRectF box;
+        int origin = IPdfEditorEngine::kCropBoxAbsent;
+        if (!m_engine->pageCropBoxInfo(m_doc->path(), m_pageIndex, &box, &origin)) {
             m_error = QObject::tr("Crop failed: page %1 geometry could not be read; nothing was changed.")
                           .arg(m_pageIndex + 1);
             setObsolete(true);
@@ -36,6 +37,7 @@ void CropPageCommand::redo()
             return;
         }
         m_originalBox = box;
+        m_originalOrigin = origin;
         m_haveOriginal = true;
     }
     if (!m_engine->cropPage(m_doc->path(), m_pageIndex, m_cropRect)) {
@@ -50,14 +52,27 @@ void CropPageCommand::redo()
     m_doc->markReload();
 }
 
+bool CropPageCommand::restoreOriginal()
+{
+    if (!m_engine || !m_doc || !m_haveOriginal)
+        return false;
+    // G07: restore the ORIGINAL semantics, not merely an equal rectangle.
+    // Inherited / absent boxes: remove the page's explicit /CropBox so the
+    // inherited effective box (or true absence) shows through again. Explicit
+    // box: write the captured box back through the same safe mutation
+    // boundary as the crop.
+    if (m_originalOrigin == IPdfEditorEngine::kCropBoxExplicit)
+        return m_engine->cropPage(m_doc->path(), m_pageIndex, m_originalBox);
+    return m_engine->removePageCropBox(m_doc->path(), m_pageIndex);
+}
+
 void CropPageCommand::undo()
 {
     // EC05: a real restoration through the same safe mutation boundary — the
-    // captured original geometry is written back to the document, not a
-    // viewer-only reload that leaves the on-disk CropBox cropped.
-    if (!m_engine || !m_doc || !m_haveOriginal)
-        return;
-    if (!m_engine->cropPage(m_doc->path(), m_pageIndex, m_originalBox)) {
+    // captured original geometry (or original inherited/absent semantics) is
+    // written back to the document, not a viewer-only reload that leaves the
+    // on-disk CropBox cropped.
+    if (!restoreOriginal()) {
         emit m_doc->mutationFailed(
             QObject::tr("Undo of the crop failed on page %1; the cropped geometry is still in effect.")
                 .arg(m_pageIndex + 1));

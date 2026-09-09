@@ -188,13 +188,34 @@ public:
     virtual bool insertBlankPage(const QString &path, int atIndex) = 0;
     virtual bool cropPage(const QString &path, int pageIndex, const QRectF &cropRect) = 0;
     // EC05 (TEAM-ENGINE-CODE-REVIEW-2026-09-07): the EFFECTIVE /CropBox of
-    // `pageIndex` — the page dictionary's CropBox when present, otherwise the
-    // MediaBox. `ok` (when non-null) reports whether the document/page was
-    // readable; a false `ok` means the caller has no usable geometry. Whether
-    // the box was inherited or explicitly present is deliberately NOT
-    // distinguished: cropPage() persists an explicit box, and an explicit box
-    // equal to the MediaBox is geometrically identical to the inherited case.
+    // `pageIndex` — the page dictionary's CropBox when present, else the box
+    // inherited from an ancestor /Pages node, else the MediaBox. G07
+    // (QUALITY-GATE-2026-09-09): the PDF rectangle is CORNERS [x0 y0 x1 y1];
+    // the returned QRectF is the converted position/size form (x, y,
+    // x1-x0, y1-y0) in PDF user-space units. `ok` (when non-null) reports
+    // whether the document/page was readable; a false `ok` means the caller
+    // has no usable geometry. See pageCropBoxInfo() for the origin-aware form.
     virtual QRectF pageCropBox(const QString &path, int pageIndex, bool *ok) = 0;
+    // G07 (QUALITY-GATE-2026-09-09): origin-aware CropBox snapshot. On true,
+    // `outBox` receives the effective box exactly as pageCropBox() and
+    // `outOrigin` (when non-null) classifies how it was determined so an undo
+    // can restore the ORIGINAL semantics, not merely an equal rectangle:
+    //   0 — absent: no /CropBox on the page or anywhere in its /Parent chain
+    //       (the effective box is the MediaBox; restoring means removing the
+    //       page's explicit key again),
+    //   1 — explicit: the page dictionary carries its own /CropBox,
+    //   2 — inherited: an ancestor /Pages node carries /CropBox (the effective
+    //       box is that inherited box, NOT the MediaBox).
+    static constexpr int kCropBoxAbsent    = 0;
+    static constexpr int kCropBoxExplicit  = 1;
+    static constexpr int kCropBoxInherited = 2;
+    virtual bool pageCropBoxInfo(const QString &path, int pageIndex,
+                                 QRectF *outBox, int *outOrigin) = 0;
+    // G07: restore the ABSENT CropBox semantics after a crop — removes the
+    // page's explicit /CropBox so the inherited box (or true absence) shows
+    // through again, and commits. True when the document no longer carries an
+    // explicit box on `pageIndex` (idempotent when none was present).
+    virtual bool removePageCropBox(const QString &path, int pageIndex) = 0;
     // GUI-held-handle residual (2026-09-08 persistence lane): the engine's
     // resident parser (PoDoFo) holds an OS device on its source file for lazy
     // object resolution — the same device the saveDocument transaction re-seats
