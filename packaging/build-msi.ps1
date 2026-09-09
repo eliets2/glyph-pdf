@@ -24,23 +24,38 @@
 #    set GLYPHPDF_SIGN_THUMBPRINT=AABBCC...
 #
 #  Usage:  powershell -ExecutionPolicy Bypass -File packaging\build-msi.ps1
-#          [-SkipBuild]   reuse the existing build/ output
+#          [-Parallel N]  build parallelism (default 2  -  the ucrt64 linker
+#                         runs out of memory at higher job counts)
+#          [-SkipBuild]   reuse the existing build-rel/ output  -  ONLY after it
+#                         was produced by this pipeline; the cached
+#                         configuration and its stamp (source tree + commit +
+#                         passing checks) are validated and a mismatch stops
+#                         the pipeline
 #          [-SkipSigning] dev/test only - NEVER publish unsigned artifacts
 #
 param(
     [switch]$SkipBuild,
     [switch]$MsiOnly,
-    [switch]$SkipSigning
+    [switch]$SkipSigning,
+    [int]$Parallel = 2
 )
 $ErrorActionPreference = 'Stop'
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
-$BuildDir    = Join-Path $ProjectRoot 'build'
+# INF02: a DEDICATED release build directory. The pipeline used to reuse
+# <root>/build, configuring only when build.ninja was absent  -  an existing
+# Debug (or feature-disabled) developer build was compiled and shipped while
+# the log said "Building Release". build-rel is owned by this pipeline and
+# always carries the release configuration (Release + GLYPHPDF_RELEASE_BUILD
+# + GLYPHPDF_ENABLE_LTO), validated by packaging/validate-release-build.ps1
+# before anything is staged or signed.
+$BuildDir    = Join-Path $ProjectRoot 'build-rel'
 $DeployDir   = Join-Path $ProjectRoot 'deploy'
 $PackDir     = $PSScriptRoot
 $OutputDir   = Join-Path $ProjectRoot 'dist'
+$StampFile   = Join-Path $BuildDir 'glyphpdf-release-stamp.txt'
 
-# INF03: ONE authoritative version — the root CMakeLists project() VERSION.
+# INF03: ONE authoritative version  -  the root CMakeLists project() VERSION.
 # The WiX package metadata, the MSI/ZIP names and the portable README all
 # receive it from here; nothing hardcodes a release version any more (the
 # portable child used to package the payload as 1.3.1 while this parent
@@ -181,23 +196,74 @@ if ($SkipSigning) {
     $script:Unsigned = $false
 }
 
-#  1. Build
+#  1. Build (dedicated, validated Release configuration  -  INF02)
 if (-not $SkipBuild) {
-    if (-not (Test-Path (Join-Path $BuildDir 'build.ninja'))) {
-        Write-Host '[1/5] Configuring CMake...'
-        cmake -S $ProjectRoot -B $BuildDir -G Ninja -DCMAKE_BUILD_TYPE=Release
-        if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed.' }
-    }
-    Write-Host '[1/5] Building Release...'
-    cmake --build $BuildDir --parallel 8
+    # ALWAYS configure with the release gate and the shipped-optimisation
+    # settings  -  re-running configure on a cached wrong-configuration
+    # directory RECONFIGURES it (last cache assignment wins); a fresh dir
+    # starts clean. This is what makes a cached Debug build impossible here.
+    Write-Host '[1/5] Configuring dedicated Release build (build-rel)...'
+    & cmake -S $ProjectRoot -B $BuildDir -G Ninja `
+        -DCMAKE_BUILD_TYPE=Release `
+        -DGLYPHPDF_RELEASE_BUILD=ON `
+        -DGLYPHPDF_ENABLE_LTO=ON `
+        -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+    if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed.' }
+    Write-Host ('[1/5] Building Release (-Parallel {0})...' -f $Parallel)
+    & cmake --build $BuildDir --parallel $Parallel
     if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
 } else {
-    Write-Host '[1/5] Skipping build (-SkipBuild).'
+    Write-Host '[1/5] Skipping build (-SkipBuild): validating the CACHED release configuration...'
+    # -SkipBuild must never silently reuse an unvalidated developer build:
+    # the cached directory must already be a validated Release configuration
+    # of THIS source tree at THIS commit with passing checks.
+    & powershell -NoProfile -ExecutionPolicy Bypass `
+        -File (Join-Path $PackDir 'validate-release-build.ps1') `
+        -BuildDir $BuildDir -ProjectRoot $ProjectRoot -RequireStamp -RequireCommitMatch
+    if ($LASTEXITCODE -ne 0) { throw 'Cached build-rel configuration is not a validated Release build of this tree - refusing to continue (run without -SkipBuild).' }
+    Write-Host '[1/5] Cached build-rel validated.'
 }
 
-#  2. Deploy
+#  1b. INF02: the release checks run HERE, before anything is staged or signed.
+#  A failing test must stop the pipeline before artifacts are published.
+Write-Host '[1b/5] Staging runtime DLLs + running release checks (ctest)...'
+& cmake --build $BuildDir --target stage_runtime_dlls
+if ($LASTEXITCODE -ne 0) { throw 'Runtime DLL staging failed.' }
+$env:QT_QPA_PLATFORM = 'offscreen'
+& ctest --test-dir $BuildDir --output-on-failure
+if ($LASTEXITCODE -ne 0) {
+    throw 'Release checks (ctest) FAILED - refusing to deploy, sign or publish anything.'
+}
+
+#  1c. INF05/INF02: confirm from real compile evidence that GLYPH_TESTING is
+#  not defined in any production compilation of the artifact about to ship.
+Write-Host '[1c/5] Asserting GLYPH_TESTING absent from production compilations...'
+& powershell -NoProfile -ExecutionPolicy Bypass `
+    -File (Join-Path $PackDir 'check-release-defines.ps1') -BuildDir $BuildDir
+if ($LASTEXITCODE -ne 0) { throw 'Production define gate failed - refusing to continue.' }
+
+#  1d. INF02: record the validated build identity (source tree + commit).
+$commit = ''
+try {
+    $commit = (& git -C $ProjectRoot rev-parse HEAD 2>$null)
+    if ($LASTEXITCODE -ne 0) { $commit = '' }
+} catch { $commit = '' }
+if (-not $commit) { $commit = 'no-git' }
+@"
+SourceDir=$ProjectRoot
+Commit=$commit
+BuildType=Release
+ReleaseBuild=ON
+LTO=ON
+TestsPassed=1
+StampTime=$(Get-Date -Format o)
+"@ | Set-Content -Path $StampFile -Encoding Ascii
+Write-Host ('[1d/5] Release build identity stamped: commit {0}' -f $commit)
+
+#  2. Deploy (the actual release build directory is passed through  -  INF02:
+#  deploy.ps1 must not infer build/ independently)
 Write-Host '[2/5] Deploying payload...'
-& powershell -ExecutionPolicy Bypass -File (Join-Path $PackDir 'deploy.ps1')
+& powershell -ExecutionPolicy Bypass -File (Join-Path $PackDir 'deploy.ps1') -BuildDir $BuildDir
 if ($LASTEXITCODE -ne 0) { throw 'Deploy failed.' }
 
 #  3. Sign EXE BEFORE wix build (so the signed EXE is embedded in the MSI)
@@ -245,7 +311,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'WiX build failed.' }
 } finally { Pop-Location }
 
-# INF03: the expected MSI must exist — wix exiting 0 without the artifact is a
+# INF03: the expected MSI must exist  -  wix exiting 0 without the artifact is a
 # pipeline failure, not a summary footnote.
 if (-not (Test-Path $msiPath)) {
     throw "INF03: expected MSI '$msiPath' was not produced."
@@ -274,12 +340,12 @@ if (-not $MsiOnly) {
     # and names everything with it and verifies its own output.
     & powershell -ExecutionPolicy Bypass -File (Join-Path $PackDir 'build-portable.ps1') -SkipDeploy -Version $Version
     if ($LASTEXITCODE -ne 0) { throw 'Portable ZIP build failed.' }
-    # INF03: the archive the parent expects must exist and match the version —
+    # INF03: the archive the parent expects must exist and match the version  - 
     # the old parent silently omitted the ZIP summary when the child produced
     # a differently-versioned archive.
     $zipPath = Join-Path $OutputDir $ZipName
     if (-not (Test-Path $zipPath) -or -not (Test-Path "$zipPath.sha256")) {
-        throw "INF03: expected portable archive '$zipPath' (+.sha256) missing after build-portable.ps1 — versions are out of sync."
+        throw "INF03: expected portable archive '$zipPath' (+.sha256) missing after build-portable.ps1  -  versions are out of sync."
     }
 } else {
     Write-Host '[5b] Skipping portable ZIP (-MsiOnly).'
