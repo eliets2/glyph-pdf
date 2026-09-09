@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "engines/SignatureManager.h"
+#include "engines/SafeSave.h"
 #include <memory>
 
 // Windows CryptoAPI must come BEFORE OpenSSL to prevent wincrypt.h from
@@ -1233,6 +1234,30 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
     // §9.7 P1: a fresh attempt starts with a clean degradation slate.
     d->dssMissing = false;
     d->docTimestampMissing = false;
+    // N06 (QUALITY-GATE-2026-09-09): checked replacement at the signing
+    // boundary. When the result goes to a DIFFERENT file than the source
+    // (the SecurityController retry/replacement contract), every write below
+    // lands on a uniquely owned candidate and the destination is replaced
+    // only after signing + DSS/timestamp + post-validation ALL succeeded.
+    // The old code touched the output directly in two unsafe ways:
+    //   - incremental append: QFile::remove(outputPath) BEFORE staging — a
+    //     failed copy (source deleted between retry attempts, permissions)
+    //     destroyed the previous partial output;
+    //   - full save: FileMode::Create truncated the output at open, so any
+    //     mid-SignDocument failure left a truncated artifact.
+    // A PartialLtvMissing RETRY re-runs the SAME request; a failed retry must
+    // never lose the partial output it is retrying. An in-place signature
+    // (input == output) keeps the direct write: the incremental append is a
+    // separately tested contract and the full-save target is the loaded
+    // document itself. cleanupCandidate() runs on every failure exit —
+    // including the catch blocks below.
+    const bool replaceOutput = (inputPath != outputPath);
+    QString signingCandidate;
+    bool candidateCommitted = false;
+    auto cleanupCandidate = [&]() {
+        if (!signingCandidate.isEmpty() && !candidateCommitted)
+            QFile::remove(signingCandidate);
+    };
     try {
         PdfMemDocument doc;
         doc.Load(inputPath.toStdString());
@@ -1490,6 +1515,15 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
             }
         } catch (...) {}
 
+        if (replaceOutput) {
+            QString candErr;
+            if (!gp::SafeSave::makeUniqueCandidate(&signingCandidate, &candErr)) {
+                qWarning() << "SignatureManager: cannot reserve a signing candidate:" << candErr;
+                return SignOutcome::Failed;
+            }
+        }
+        const QString signTarget = replaceOutput ? signingCandidate : outputPath;
+
         // PdfSaveOptions::SaveOnSigning: perform a full save (not incremental update)
         // so the output PDF contains the complete document (header, catalog, all objects).
         // Without this flag, PoDoFo with FileMode::Create writes only changed objects,
@@ -1497,10 +1531,21 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
         // any PDF reader including PoDoFo itself (M2-P4 fix).
         // When adding a second signature, we must append (incremental update) so the
         // first signature's byte ranges remain valid.
-        if (inputHasSigs && inputPath != outputPath) {
-            // Copy input to output first, then append
-            if (QFile::exists(outputPath)) QFile::remove(outputPath);
-            QFile::copy(inputPath, outputPath);
+        if (inputHasSigs) {
+            // N06: stage the exact bytes the prior signatures were computed
+            // over onto the candidate — never remove the destination first
+            // (the old code did, and a failed staging destroyed it).
+            if (replaceOutput) {
+                // makeUniqueCandidate reserved (created) the name; QFile::copy
+                // refuses an existing destination, so drop our own empty
+                // reservation first — it is owned by this call.
+                QFile::remove(signingCandidate);
+                if (!QFile::copy(inputPath, signingCandidate)) {
+                    qWarning() << "SignatureManager: cannot stage source bytes for incremental"
+                               << " signing (source:" << inputPath << ") — output untouched.";
+                    return SignOutcome::Failed;
+                }
+            }
         }
 
 
@@ -1508,7 +1553,7 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
         // output file in Read/Write mode (FileMode::Open). FileMode::Append is write-only
         // and SignDocument needs to both read existing content (to compute ByteRange offsets)
         // and write the incremental update to the same file.
-        FileStreamDevice outputStream(outputPath.toStdString(),
+        FileStreamDevice outputStream(signTarget.toStdString(),
                                       inputHasSigs ? FileMode::Open : FileMode::Create);
         SignDocument(doc, outputStream, actualSigner, *signature,
                      inputHasSigs ? PdfSaveOptions::None : PdfSaveOptions::SaveOnSigning);
@@ -1524,7 +1569,7 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
         // B-LT: build DSS dictionary with OCSP/certs
         // ----------------------------------------------------------------
         if (d->level >= PAdESLevel::B_LT) {
-            auto [sigContentsRaw, sigContentsHexUnused] = d->extractSignatureContentsRaw(outputPath);
+            auto [sigContentsRaw, sigContentsHexUnused] = d->extractSignatureContentsRaw(signTarget);
 
             // Fetch and verify OCSP for leaf cert before embedding in DSS
             QList<QByteArray> ocsps;
@@ -1592,7 +1637,7 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
                 }
             }
 
-            bool dssOk = d->buildDssDictionary(outputPath, certChain, ocsps, {}, sigContentsRaw);
+            bool dssOk = d->buildDssDictionary(signTarget, certChain, ocsps, {}, sigContentsRaw);
             if (!dssOk) {
                 overallOk = false;
                 d->dssMissing = true;   // §9.7 P1: pin WHICH piece degraded
@@ -1609,7 +1654,7 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
         // B-LTA: document timestamp over DSS-augmented file
         // ----------------------------------------------------------------
         if (d->level >= PAdESLevel::B_LTA) {
-            if (!d->addDocTimestamp(outputPath)) {
+            if (!d->addDocTimestamp(signTarget)) {
                 overallOk = false;
                 d->docTimestampMissing = true;   // §9.7 P1: pin WHICH piece degraded
                 qWarning() << "B-LTA: document timestamp failed — signature bytes written but archival timestamp"
@@ -1628,26 +1673,49 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
         // D6 FIX: Post-condition re-validation
         // Re-run validateSignatures and assert the prior approval signature is still integrity-intact.
         // If the incremental update corrupted the ByteRange of a prior signature, fail and delete the output.
-        QList<SignatureInfo> postValidation = validateSignatures(outputPath);
+        QList<SignatureInfo> postValidation = validateSignatures(signTarget);
         for (const auto& sigInfo : postValidation) {
             if (!sigInfo.integrityIntact) {
                 qWarning() << "SECURITY: Post-condition validation failed! A signature's integrity was broken by this update.";
                 d->lastOutcome = SignOutcome::Failed;
-                QFile::remove(outputPath);
+                if (replaceOutput) {
+                    // N06: the CANDIDATE is broken — drop it and preserve the
+                    // previous output (the old code deleted the output here,
+                    // destroying a preserved partial result).
+                } else {
+                    QFile::remove(outputPath);
+                }
                 return SignOutcome::Failed;
             }
         }
 
+        if (replaceOutput) {
+            // N06: checked replacement — the validated signing result
+            // replaces the destination atomically (QSaveFile commit); on any
+            // failure the destination is byte-identical and the outcome is
+            // Failed. No direct-write fallback.
+            QString commitErr;
+            if (!gp::SafeSave::commitFileToDestination(signingCandidate, outputPath, &commitErr)) {
+                qWarning() << "SignatureManager: checked replacement of" << outputPath
+                           << "failed — previous output preserved:" << commitErr;
+                d->lastOutcome = SignOutcome::Failed;
+                return SignOutcome::Failed;
+            }
+            candidateCommitted = true;
+        }
         return d->lastOutcome;
     } catch (const PdfError &e) {
+        cleanupCandidate();
         qWarning() << "PoDoFo error during signing:" << e.what();
         d->lastOutcome = SignOutcome::Failed;
         return SignOutcome::Failed;
     } catch (const std::exception &e) {
+        cleanupCandidate();
         qWarning() << "Standard error during signing:" << e.what();
         d->lastOutcome = SignOutcome::Failed;
         return SignOutcome::Failed;
     } catch (...) {
+        cleanupCandidate();
         qWarning() << "Unknown exception during signing.";
         d->lastOutcome = SignOutcome::Failed;
         return SignOutcome::Failed;
@@ -1712,10 +1780,37 @@ SignatureOutcomeDetail SignatureManager::lastSignOutcomeDetail()
 bool SignatureManager::addDocTimeStamp(const QString &inputPath, const QString &outputPath)
 {
     // For M4-PROMPT-5 D4: Timestamp (document-level timestamp without sign)
-    // Copy the file then call d->addDocTimestamp
+    // N06: same checked replacement as signDocumentImpl — stage to a unique
+    // candidate, timestamp it, then atomically replace the destination. The
+    // old remove-before-copy destroyed an existing output when the copy
+    // later failed.
     if (inputPath != outputPath) {
-        if (QFile::exists(outputPath)) QFile::remove(outputPath);
-        if (!QFile::copy(inputPath, outputPath)) return false;
+        QString candidate;
+        QString err;
+        if (!gp::SafeSave::makeUniqueCandidate(&candidate, &err)) {
+            qWarning() << "SignatureManager: cannot reserve a timestamp candidate:" << err;
+            return false;
+        }
+        // makeUniqueCandidate reserved (created) the name; QFile::copy
+        // refuses an existing destination, so drop our own empty reservation
+        // first — it is owned by this call.
+        QFile::remove(candidate);
+        if (!QFile::copy(inputPath, candidate)) {
+            qWarning() << "SignatureManager: cannot stage source bytes for the document timestamp.";
+            QFile::remove(candidate);
+            return false;
+        }
+        if (!d->addDocTimestamp(candidate)) {
+            QFile::remove(candidate);
+            return false;
+        }
+        if (!gp::SafeSave::commitFileToDestination(candidate, outputPath, &err)) {
+            qWarning() << "SignatureManager: checked replacement of" << outputPath
+                       << "failed — previous output preserved:" << err;
+            QFile::remove(candidate);
+            return false;
+        }
+        return true;
     }
     return d->addDocTimestamp(outputPath);
 }

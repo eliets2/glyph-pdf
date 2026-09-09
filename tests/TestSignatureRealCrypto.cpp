@@ -22,8 +22,10 @@
 #include <QFileInfo>
 #include <QByteArray>
 #include <QCryptographicHash>
+#include <QImage>
 
 #include "engines/SignatureManager.h"
+#include "engines/SafeSave.h"
 #include "engines/podofo/PoDoFoBackend.h"
 #include <podofo/podofo.h>
 #include <openssl/x509.h>
@@ -944,6 +946,186 @@ private slots:
             mgr.setTrustStoreForTest(nullptr);
             Q_UNUSED(ok);
         }
+    }
+    // -----------------------------------------------------------------------
+    // N06 (gateD 2026-09-09): the real PartialLtvMissing RETRY contract —
+    // a retry re-runs the exact same captured request against real signing
+    // machinery: same immutable source, same appearance image, valid signed
+    // result. B_LTA with no TSA url is the REAL degradation path (the doc
+    // timestamp genuinely fails), so outcome is PartialLtvMissing — the
+    // exact state whose "Retry Signing" modal drives this contract.
+    // -----------------------------------------------------------------------
+    static QByteArray fileSha(const QString &path) {
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly)) return QByteArray();
+        return QCryptographicHash::hash(f.readAll(), QCryptographicHash::Sha256);
+    }
+
+    void testPartialLtvRetryIsTheSameRequest()
+    {
+        REQUIRE_FIXTURES();
+        QVERIFY(m_tmpDir.isValid());
+
+        QString source = m_tmpDir.filePath("retry_source.pdf");
+        QVERIFY(QFile::copy(kInputPdf, source));
+        const QByteArray sourceBefore = fileSha(source);
+        QVERIFY(!sourceBefore.isEmpty());
+        QString out = m_tmpDir.filePath("retry_out.pdf");
+
+        QImage appearance(48, 24, QImage::Format_ARGB32);
+        appearance.fill(0xFF4080C0);
+
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_LTA);   // no TSA url → real PartialLtvMissing
+
+        // Attempt 1 — the modal warns and offers "Retry Signing".
+        const auto o1 = mgr.signDocumentWithAppearance(source, out, kP12Path, kP12Pass,
+                                                       appearance, "RetryTest", "Loc");
+        QCOMPARE(o1, SignOutcome::PartialLtvMissing);
+        QVERIFY(QFileInfo::exists(out));
+        const auto detail1 = mgr.lastSignOutcomeDetail();
+        QVERIFY(detail1.docTimestampMissing && !detail1.dssMissing);
+
+        // The request inputs were not consumed or mutated by attempt 1.
+        QCOMPARE(fileSha(source), sourceBefore);
+        QVERIFY2(SignatureManager::takePendingAppearanceImage().isNull(),
+                 "the explicit-appearance entry point must not drain the shared slot");
+
+        X509_STORE *store = buildTestStore();
+        mgr.setTrustStoreForTest(store);
+        {
+            auto results = mgr.validateSignatures(out);
+            QVERIFY(!results.isEmpty());
+            QVERIFY2(results.first().integrityIntact, "attempt 1 signature must be intact");
+        }
+        QFile a1(out);
+        QVERIFY(a1.open(QIODevice::ReadOnly));
+        const QByteArray bytes1 = a1.readAll(); a1.close();
+        QVERIFY2(bytes1.contains("/AP"), "attempt 1 must embed the appearance image (/AP)");
+
+        // RETRY — SecurityController re-runs the SAME captured request.
+        const auto o2 = mgr.signDocumentWithAppearance(source, out, kP12Path, kP12Pass,
+                                                       appearance, "RetryTest", "Loc");
+        QCOMPARE(o2, SignOutcome::PartialLtvMissing);   // deterministic: still no TSA
+
+        // The retry re-signed the PRISTINE source: exactly one approval
+        // signature (the retry REPLACES the partial output, never stacks onto
+        // it), integrity intact, appearance present, source still untouched.
+        QCOMPARE(fileSha(source), sourceBefore);
+        auto results2 = mgr.validateSignatures(out);
+        QCOMPARE(results2.size(), 1);
+        QVERIFY2(results2.first().integrityIntact, "retry signature must be intact");
+        QFile a2(out);
+        QVERIFY(a2.open(QIODevice::ReadOnly));
+        const QByteArray bytes2 = a2.readAll(); a2.close();
+        QVERIFY2(bytes2.contains("/AP"), "retry must re-embed the same appearance image");
+        // NOTE: retry output MAY be byte-identical to attempt 1 — RSA/PKCS#7
+        // signing is deterministic and the retry runs the same request. That
+        // is the desired idempotence, not a defect; the replacement contract
+        // itself is pinned by testFailedReplacementPreservesPreviousOutput.
+
+        X509_STORE_free(store);
+        mgr.setTrustStoreForTest(nullptr);
+    }
+
+    // -----------------------------------------------------------------------
+    // N06: FAILED replacement must preserve the previous partial output.
+    // The retry fails at the checked-replacement commit (SafeSave's
+    // deterministic fault seam) — the PartialLtvMissing artifact from
+    // attempt 1 must survive byte-identical. Pre-fix the output was
+    // truncated/rewritten by every attempt, so this failed before the fix.
+    // -----------------------------------------------------------------------
+    void testFailedReplacementPreservesPreviousOutput()
+    {
+        REQUIRE_FIXTURES();
+        QVERIFY(m_tmpDir.isValid());
+
+        QString source = m_tmpDir.filePath("fr_source.pdf");
+        QVERIFY(QFile::copy(kInputPdf, source));
+        QString out = m_tmpDir.filePath("fr_out.pdf");
+
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_LTA);
+        const QImage noAppearance;
+        QCOMPARE(mgr.signDocumentWithAppearance(source, out, kP12Path, kP12Pass,
+                                                noAppearance, "FRTest", ""),
+                 SignOutcome::PartialLtvMissing);
+        const QByteArray h1 = fileSha(out);
+        QVERIFY(!h1.isEmpty());
+
+        // Retry whose replacement commit FAILS (injected at the shared
+        // SafeSave commit seam — same fault used by the redaction/form
+        // transaction tests).
+        gp::SafeSave::setCommitFaultForTesting(
+            gp::SafeSave::CommitFaultForTesting::FailBeforeCommit);
+        const auto o2 = mgr.signDocumentWithAppearance(source, out, kP12Path, kP12Pass,
+                                                       noAppearance, "FRTest", "");
+        gp::SafeSave::setCommitFaultForTesting(gp::SafeSave::CommitFaultForTesting::None);
+        QCOMPARE(o2, SignOutcome::Failed);
+        QVERIFY2(fileSha(out) == h1,
+                 "a failed replacement must preserve the previous output byte-identical");
+
+        // Disarmed retry with a different /Reason completes and actually
+        // replaces the output (different reason ⇒ different signed bytes,
+        // so equality with h1 is impossible for a successful replacement).
+        const auto o3 = mgr.signDocumentWithAppearance(source, out, kP12Path, kP12Pass,
+                                                       noAppearance, "FRTest-retry", "");
+        QCOMPARE(o3, SignOutcome::PartialLtvMissing);
+        QVERIFY2(fileSha(out) != h1, "a successful retry must replace the output");
+        {
+            X509_STORE *store = buildTestStore();
+            mgr.setTrustStoreForTest(store);
+            auto results = mgr.validateSignatures(out);
+            QVERIFY2(!results.isEmpty() && results.first().integrityIntact,
+                     "the replaced output must carry an intact signature");
+            X509_STORE_free(store);
+            mgr.setTrustStoreForTest(nullptr);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // N06: the source VANISHES between retry attempts. The retry must fail
+    // LOUD (Failed, not a false Success/PartialLtvMissing) and the previous
+    // partial output must survive. Post-fix the failure happens at candidate
+    // staging, before anything touches the destination. (Pre-fix the same
+    // scenario also preserved the output, but only accidentally: doc.Load
+    // failed before the destructive remove-then-copy ever ran — the checked
+    // replacement makes the preservation contractual instead of incidental.)
+    // -----------------------------------------------------------------------
+    void testFailedRetryKeepsOutputWhenSourceVanished()
+    {
+        REQUIRE_FIXTURES();
+        QVERIFY(m_tmpDir.isValid());
+
+        // Build a source that ALREADY carries a signature so the retry takes
+        // the incremental-append staging path.
+        QString signedSrc = m_tmpDir.filePath("vanished_source.pdf");
+        {
+            SignatureManager mgr0;
+            mgr0.setSignatureLevel(PAdESLevel::B_T);
+            QCOMPARE(mgr0.signDocument(kInputPdf, signedSrc, kP12Path, kP12Pass,
+                                       "VanishedTest", ""), SignOutcome::Success);
+        }
+        QString out = m_tmpDir.filePath("vanished_out.pdf");
+
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_LTA);
+        // Attempt 1: sign the signed source → partial (LTV-missing) output.
+        QCOMPARE(mgr.signDocument(signedSrc, out, kP12Path, kP12Pass, "VanishedTest", ""),
+                 SignOutcome::PartialLtvMissing);
+        const QByteArray h1 = fileSha(out);
+        QVERIFY(!h1.isEmpty());
+
+        // The user deletes the source; the modal retry re-runs the same request.
+        QVERIFY(QFile::remove(signedSrc));
+        const auto o2 = mgr.signDocument(signedSrc, out, kP12Path, kP12Pass,
+                                         "VanishedTest", "");
+        QCOMPARE(o2, SignOutcome::Failed);
+
+        // The previous partial output MUST still exist, byte-identical.
+        QVERIFY2(QFileInfo::exists(out),
+                 "a failed retry must not delete the previous output");
+        QCOMPARE(fileSha(out), h1);
     }
 };
 
