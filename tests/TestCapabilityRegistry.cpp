@@ -250,6 +250,88 @@ private slots:
                  "the registry must not re-enable a disable it did not set");
     }
 
+    // ── G11 (QUALITY-GATE-2026-09-09): disable ownership across the FULL
+    // unavailable→available transition. The wave-4A control above stopped at
+    // "unavailable keeps the foreign disable" — the reviewer's probe showed
+    // the registry still RE-ENABLING the foreign-disabled widget once the
+    // capability becomes Available, because it had claimed ownership of a
+    // disable it never performed.
+    void applyToWidgetPreservesForeignDisableAcrossUnavailableToAvailableTransition() {
+        bool available = false;
+        CapabilityRegistry reg;
+        reg.registerProbe(CapId::PdfAValidation, [&](const QVariant&) {
+            Capability c;
+            c.status = available ? Availability::Available
+                                 : Availability::UnavailableRuntime;
+            if (!available) {
+                c.whyNot = QStringLiteral("the validator is missing");
+                c.alternative = QStringLiteral("install the validator");
+            }
+            return c;
+        });
+
+        // ANOTHER owner disabled this control before the registry ever saw it.
+        QWidget foreign;
+        foreign.setEnabled(false);
+
+        // Unavailable: the registry must not claim the foreign disable…
+        reg.applyToWidget(&foreign, CapId::PdfAValidation);
+        QVERIFY2(!foreign.isEnabled(), "unavailable keeps the widget disabled");
+        QVERIFY2(!foreign.property("capOwnedDisable").toBool(),
+                 "the registry must NOT claim ownership of a foreign disable");
+
+        // …so Available (after invalidate) must leave the foreign state alone.
+        available = true;
+        reg.invalidate(CapId::PdfAValidation);
+        reg.applyToWidget(&foreign, CapId::PdfAValidation);
+        QVERIFY2(!foreign.isEnabled(),
+                 "G11: the registry must not re-enable a widget another owner "
+                 "disabled — across the unavailable→available transition");
+
+        // Control: the registry's OWN disable still reverses on the same
+        // transition (ownership and foreign-disable preservation coexist).
+        QWidget owned;
+        owned.setEnabled(true);
+        reg.invalidate(CapId::PdfAValidation);
+        available = false;
+        reg.applyToWidget(&owned, CapId::PdfAValidation);
+        QVERIFY2(!owned.isEnabled(), "unavailable disables the registry-owned widget");
+        available = true;
+        reg.invalidate(CapId::PdfAValidation);
+        reg.applyToWidget(&owned, CapId::PdfAValidation);
+        QVERIFY2(owned.isEnabled(),
+                 "the registry's own disable must still reverse once Available");
+    }
+
+    // G11: an existing OWNED claim must survive repeated unavailable applies —
+    // re-applying Unavailable sees the widget already disabled; the registry
+    // still owns that state and must reverse it on a later Available.
+    void applyToWidgetRetainsOwnedClaimAcrossRepeatedUnavailableApplies() {
+        bool available = false;
+        CapabilityRegistry reg;
+        reg.registerProbe(CapId::PdfAValidation, [&](const QVariant&) {
+            Capability c;
+            c.status = available ? Availability::Available
+                                 : Availability::UnavailableRuntime;
+            if (!available) {
+                c.whyNot = QStringLiteral("missing");
+                c.alternative = QStringLiteral("install");
+            }
+            return c;
+        });
+
+        QWidget w;
+        reg.applyToWidget(&w, CapId::PdfAValidation);   // claims (was enabled)
+        reg.applyToWidget(&w, CapId::PdfAValidation);   // re-apply: keep the claim
+        reg.applyToWidget(&w, CapId::PdfAValidation);
+        available = true;
+        reg.invalidate(CapId::PdfAValidation);
+        reg.applyToWidget(&w, CapId::PdfAValidation);
+        QVERIFY2(w.isEnabled(),
+                 "an owned disable must survive repeated unavailable applies "
+                 "and still reverse once Available");
+    }
+
     void applyToWidgetIsNoOpForAvailableAndDegradedStaysEnabled() {
         CapabilityRegistry reg;
         reg.registerProbe(CapId::WordExport, [](const QVariant&) {
@@ -444,7 +526,13 @@ private slots:
                  qPrintable(QStringLiteral("must name the missing recognizer: %1").arg(c.whyNot)));
     }
 
-    void rapidModelsProbeFullSetIsAvailableWithoutClassifier() {
+    // ── G11 (QUALITY-GATE-2026-09-09): presence is NOT readiness. The old
+    // test wrote three arbitrary non-empty files and expected Available — the
+    // exact reviewer repro: real init dies with "Protobuf parsing failed".
+    // After the fix the probe resolves the set the way the ENGINE does
+    // (RapidOcrEngine::verifyModelsIn builds the real ONNX sessions), so junk
+    // payloads report UnavailableRuntime with the engine's own reason.
+    void rapidModelsProbeRejectsNonOnnxPayloads() {
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
         const char* mandatory[] = {
@@ -459,7 +547,40 @@ private slots:
             f.close();
         }
         auto c = gp::CapabilityRegistry::probeRapidModelsIn(dir.path());
-        QCOMPARE(c.status, gp::Availability::Available); // classifier is OPTIONAL
+#ifdef HAS_RAPIDOCR
+        QCOMPARE(c.status, gp::Availability::UnavailableRuntime);
+        QVERIFY2(c.whyNot.contains(QStringLiteral("cannot load")),
+                 qPrintable(QStringLiteral("junk models must be refused with the engine's reason: %1").arg(c.whyNot)));
+        QVERIFY2(!c.detail.trimmed().isEmpty(),
+                 "the refusal must disclose the searched directory");
+#else
+        // Without the engine compiled in the probe cannot verify anything —
+        // it must NOT report Available on mere file presence either.
+        QCOMPARE(c.status, gp::Availability::UnavailableRuntime);
+#endif
+    }
+
+    // G11: a model set that the ENGINE actually loads is Available; the
+    // textline classifier stays optional and is disclosed as absent. Requires
+    // real PP-OCRv5 models, which this environment does not bundle — the
+    // same inherent skip as RapidOCR inference (models ship separately).
+    void rapidModelsProbeRealSetIsAvailableWithoutClassifier() {
+        const QString modelsDir = GLYPH_OCR_MODELS_DIR;
+        const QFileInfo det(modelsDir + QStringLiteral("/PP-OCRv5_mobile_det_infer.onnx"));
+        const QFileInfo rec(modelsDir + QStringLiteral("/PP-OCRv5_mobile_rec_infer.onnx"));
+        if (!det.isFile() || !rec.isFile())
+            QSKIP("Real PP-OCRv5 ONNX models are not present in this environment (inherent skip).");
+
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        for (const char* name : { "PP-OCRv5_mobile_det_infer.onnx",
+                                  "PP-OCRv5_mobile_rec_infer.onnx",
+                                  "ppocrv5_rec_dict.txt" }) {
+            QFile src(modelsDir + QLatin1Char('/') + QString::fromLatin1(name));
+            QVERIFY(src.copy(dir.filePath(QString::fromLatin1(name))));
+        }
+        auto c = gp::CapabilityRegistry::probeRapidModelsIn(dir.path());
+        QCOMPARE(c.status, gp::Availability::Available);   // classifier is OPTIONAL
         QVERIFY2(c.detail.contains(QStringLiteral("classifier")),
                  qPrintable(QStringLiteral("optional-classifier absence must be disclosed: %1").arg(c.detail)));
     }

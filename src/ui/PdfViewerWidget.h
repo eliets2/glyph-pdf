@@ -74,6 +74,19 @@ public:
     void setPendingSignatureImage(const QImage &img);
     void deleteSelectedAnnotation();
     QList<AnnotationItem> annotations() const;
+    // ── G14 (QUALITY-GATE-2026-09-09): sidecar persistence vs PDF commit ────
+    // The .ann sidecar is INTERMEDIATE durability: it keeps annotation work
+    // alive across switches and restarts, but the PDF on disk does not carry
+    // the annotations until embedAnnotations commits them (Save). The sidecar
+    // envelope records which state it holds ("embeddedIntoPdf"), so:
+    //   * hasPendingEmbedAnnotations() is true exactly when the displayed
+    //     document carries annotations that are NOT yet in the PDF — the
+    //     shell's checked transition policy (openDocument / close) runs on it;
+    //   * markAnnotationsCommittedIntoPdf() is called by the save boundary
+    //     AFTER embedAnnotations succeeded, so a later reopen restores CLEAN
+    //     instead of resurrecting committed work as unsaved.
+    bool hasPendingEmbedAnnotations() const;
+    void markAnnotationsCommittedIntoPdf();
     void searchDocument(const QString &text, bool forward, bool matchCase, bool wholeWords);
 
     void setOcrResults(const QList<OcrResult> &results);
@@ -177,6 +190,13 @@ signals:
     // EXCEPT those made while (re)loading a document — an open/reload is not
     // an edit of the freshly published identity.
     void annotationEdited();
+    // G14 (QUALITY-GATE-2026-09-09): emitted once per (re)load with the
+    // document's pending-embed state — true when the loaded sidecar holds
+    // annotations that the PDF on disk does NOT carry (unembedded work). The
+    // shell marks the freshly published session dirty so the work keeps its
+    // unsaved-PDF representation across reopen (the old reopen restored the
+    // annotations and marked the session CLEAN).
+    void pendingEmbedAnnotationsRestored(bool pending);
     void textEditRequested(int pageIndex, QPointF pos);
     void pageOperationFinished();
     void cropRequested(int pageIndex, QRectF cropRect);
@@ -213,6 +233,14 @@ private:
     // ARC04: true while loadDocument() (re)loads annotation state — those
     // layer changes are loads, not user edits, and must not dirty the session.
     bool m_suppressAnnotationDirty = false;
+
+    // G14 (QUALITY-GATE-2026-09-09): whether the annotations currently held
+    // for m_filePath are committed INTO the PDF on disk. Written into (and
+    // read back from) the sidecar envelope as "embeddedIntoPdf". Defaults to
+    // true — only PROVEN-unembedded work (a user edit after commit, or a
+    // sidecar envelope that recorded unembedded work) flips it to false, so
+    // legacy/foreign sidecars never fabricate pending state.
+    bool m_annotationsEmbedded = true;
 
     // Engine-lane residual: park/restore state for in-place writes.
     bool m_parkedForWrite = false;

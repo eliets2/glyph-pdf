@@ -133,6 +133,15 @@ private slots:
         QCoreApplication::setApplicationName(QStringLiteral("TestRecoverySave"));
         QSettings::setDefaultFormat(QSettings::IniFormat);
 
+        // gateC (QUALITY-GATE-2026-09-09) insurance on top of the upstream
+        // hardening: this suite never relies on recents, so start clean — a
+        // cross-run leftover pair (dirs survive interrupted runs) must not
+        // reach the startup prompt at all.
+        {
+            QSettings settings;
+            settings.remove(QStringLiteral("recentFiles"));
+        }
+
         m_modalDismiss = new QTimer(this);
         m_modalDismiss->setInterval(10);
         connect(m_modalDismiss, &QTimer::timeout, this, [this] {
