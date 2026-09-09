@@ -1307,6 +1307,37 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOptimizeSignedGuard.cpp")
     )
 endif()
 
+# ── TestImageDedup (gateD cleanup-lane finding: dedup last-mile) ────────────
+# optimizeDocument's duplicate-image dedup must survive the SAVE: after
+# optimizeDocument + save + reload, both page /XObject entries must still be
+# indirect references pointing at the SAME canonical image object.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestImageDedup.cpp")
+    add_executable(TestImageDedup tests/TestImageDedup.cpp)
+    target_include_directories(TestImageDedup PRIVATE src tests)
+    target_link_libraries(TestImageDedup PRIVATE
+        pdfws_engines pdfws_core
+        OpenSSL::SSL OpenSSL::Crypto
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets podofo::podofo
+    )
+    if(WIN32)
+        target_link_libraries(TestImageDedup PRIVATE Crypt32)
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestImageDedup POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestImageDedup>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestImageDedup"
+            )
+        endif()
+    endif()
+    add_test(NAME TestImageDedup COMMAND TestImageDedup)
+    set_tests_properties(TestImageDedup PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "integration;compression;optimize;qt;headless"
+    )
+endif()
+
 # R2-1 CHAIN-1 closure tests (D3)
 # Tests only ProvenanceGuard logic — no pdfws_engines, no OpenSSL, no podofo.
 # This keeps TestChain1 runnable in all environments without DLL-path issues.
