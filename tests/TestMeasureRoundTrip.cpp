@@ -11,7 +11,12 @@
 // Plus the negative control: an uncalibrated measurement persists the truthful
 // 1 pt scale, and a plain DrawLine still round-trips as DrawLine (no /Measure).
 //
-// Gate G22 regression lives here too:
+// Gate G21/G22 regressions live here too:
+//   G21 — /Rect of a points-carried annotation is the REAL bounding box (plus
+//         a half-stroke-width appearance margin), never the 0×0 last point a
+//         QRectF union of point-sized rects produces; verified in raw bytes
+//         AND through PDFium's embedder-visible rect (what PDFium-based
+//         viewers hit-test and cull against), including the shared ink branch.
 //   G22 — the perimeter tool measures a CLOSED boundary; the serialized
 //         /PolyLine /Vertices therefore include the closing segment (first
 //         vertex repeated last), so a reader that walks the stored path
@@ -119,6 +124,19 @@ const AnnotationItem* findByMode(const QList<AnnotationItem>& list, ToolMode mod
     return nullptr;
 }
 
+// G21 helper: read the RAW /Rect array of an annotation dictionary.
+bool rawRect(const PoDoFo::PdfDictionary& dict, double out[4])
+{
+    const PoDoFo::PdfObject* r = dict.FindKey("Rect");
+    if (!r || !r->IsArray() || r->GetArray().size() != 4) return false;
+    const auto& arr = r->GetArray();
+    for (int i = 0; i < 4; ++i)
+        if (!arr[size_t(i)].IsNumberOrReal()) return false;
+    for (int i = 0; i < 4; ++i)
+        out[i] = arr[size_t(i)].GetReal();
+    return true;
+}
+
 // Open-path traversal of a serialized [x0 y0 x1 y1 …] vertex list — the
 // length ANY reader measures by walking the stored path (G22 contract).
 double serializedPathLength(const QList<QPointF>& pts)
@@ -134,7 +152,9 @@ private slots:
     void distanceRoundTripsWithValues();
     void rawDictCarriesVerifiedMeasureSchema();
     void perimeterAndAreaRoundTrip();
+    void savedRectEnclosesGeometryAndHitTests();
     void serializedPerimeterPathLengthMatchesLabel();
+    void inkStrokePersistsUsableRect();
     void pdfiumReadPathSeesMeasureAnnots();
     void uncalibratedMeasurePersistsTruthfulPt();
     void plainLineWithoutMeasureStaysDrawLine();
@@ -305,6 +325,58 @@ void TestMeasureRoundTrip::perimeterAndAreaRoundTrip()
                      scaleFrom(a->measureUnitsPerPt, a->measureUnit, a->measureCalibrated, a->measureRatio)) - 16.0) < 1e-6);
 }
 
+void TestMeasureRoundTrip::savedRectEnclosesGeometryAndHitTests()
+{
+    // G21: /Rect in the SAVED BYTES is a real bounding box (plus a half-stroke
+    // appearance pad), never the 0×0 last-point rect the old QRectF union of
+    // point-sized rects produced ("/Rect [10 710 10 710]" for a 72×72 square).
+    const QString out = saveCalibratedDoc();
+    PoDoFo::PdfMemDocument doc;
+    doc.Load(out.toUtf8().constData());
+    auto& page = doc.GetPages().GetPageAt(0);
+    const double H = page.GetMediaBox().Height;   // 792
+    auto& annos = page.GetAnnotations();
+
+    struct Expect {
+        const char* subtype;
+        QList<QPointF> pdfPts;   // serialized geometry in PDF user space
+        double maxW, maxH;       // logical extent + stroke pad slack
+    };
+    const Expect expects[] = {
+        { "Line",     { {10, H - 10}, {82, H - 10} },                       74.0,  4.0 },
+        { "PolyLine", { {10, H - 10}, {82, H - 10}, {82, H - 82}, {10, H - 82} }, 74.0, 74.0 },
+        { "Polygon",  { {0, H}, {10, H}, {10, H - 4},
+                        {4, H - 4}, {4, H - 10}, {0, H - 10} },             12.0, 12.0 },
+    };
+    for (const auto& e : expects) {
+        bool found = false;
+        for (unsigned i = 0; i < annos.GetCount(); ++i) {
+            const PoDoFo::PdfDictionary& d = annos.GetAnnotAt(i).GetDictionary();
+            const PoDoFo::PdfObject* sub = d.FindKey("Subtype");
+            if (!sub || !sub->IsName()
+                || std::string(sub->GetName().GetString()) != e.subtype)
+                continue;
+            found = true;
+            double r[4];
+            QVERIFY2(rawRect(d, r), "saved annotation has a usable /Rect");
+            const double x0 = r[0], y0 = r[1], x1 = r[2], y1 = r[3];
+            // Nonzero area — a zero-area rect makes the annot uncullable,
+            // unhit-testable and invisible to bounds-based selection.
+            QVERIFY2(x1 - x0 > 0.0, "G21: /Rect width must be positive");
+            QVERIFY2(y1 - y0 > 0.0, "G21: /Rect height must be positive");
+            // Every serialized point lies INSIDE the rect …
+            for (const auto& p : e.pdfPts) {
+                QVERIFY2(p.x() >= x0 - 1e-6 && p.x() <= x1 + 1e-6, "G21: /Rect must contain geometry (x)");
+                QVERIFY2(p.y() >= y0 - 1e-6 && p.y() <= y1 + 1e-6, "G21: /Rect must contain geometry (y)");
+            }
+            // … without the rect being absurdly oversized (≤ extent + pad).
+            QVERIFY(x1 - x0 <= e.maxW + 1e-6);
+            QVERIFY(y1 - y0 <= e.maxH + 1e-6);
+        }
+        QVERIFY2(found, e.subtype);
+    }
+}
+
 void TestMeasureRoundTrip::serializedPerimeterPathLengthMatchesLabel()
 {
     // G22: the perimeter tool measures the CLOSED boundary, so the SERIALIZED
@@ -351,6 +423,46 @@ void TestMeasureRoundTrip::serializedPerimeterPathLengthMatchesLabel()
     QVERIFY2(found, "PolyLine perimeter annotation present");
 }
 
+void TestMeasureRoundTrip::inkStrokePersistsUsableRect()
+{
+    // G21's shared branch: the same bounds expression predates measurements in
+    // the /InkList (freehand/signature) path — a stroke must also persist a
+    // usable /Rect, not a 0×0 point.
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString seed = tmp.filePath("seed4.pdf");
+    QVERIFY(writeSeed(seed));
+    AnnotationItem a;
+    a.mode = ToolMode::DrawFreehand;
+    a.pageIndex = 0;
+    a.points = { QPointF(20, 20), QPointF(60, 25), QPointF(100, 60), QPointF(30, 90) };
+    a.color = Qt::blue;
+    PoDoFoBackend backend;
+    const QString out = tmp.filePath("ink.pdf");
+    QVERIFY(backend.embedAnnotations(seed, out, { a }));
+
+    const QList<AnnotationItem> back = backend.extractAnnotations(out);
+    QCOMPARE(back.size(), 1);
+    QCOMPARE(back.first().mode, ToolMode::DrawFreehand);
+    QCOMPARE(back.first().points.size(), 4);
+    // The read-back rect (parsed from /Rect) covers the stroke's extents.
+    QVERIFY(back.first().rect.width() > 78.0);    // x extent 20..100
+    QVERIFY(back.first().rect.height() > 68.0);   // y extent 20..90
+
+    // RAW: /Rect nonzero and contains every InkList point (y-flipped).
+    PoDoFo::PdfMemDocument doc;
+    doc.Load(out.toUtf8().constData());
+    const PoDoFo::PdfDictionary& d =
+        doc.GetPages().GetPageAt(0).GetAnnotations().GetAnnotAt(0).GetDictionary();
+    double r[4];
+    QVERIFY2(rawRect(d, r), "ink annotation has a usable /Rect");
+    QVERIFY(r[2] - r[0] > 0.0 && r[3] - r[1] > 0.0);
+    for (const auto& p : a.points) {
+        QVERIFY(p.x() >= r[0] - 1e-6 && p.x() <= r[2] + 1e-6);
+        QVERIFY(792.0 - p.y() >= r[1] - 1e-6 && 792.0 - p.y() <= r[3] + 1e-6);
+    }
+}
+
 void TestMeasureRoundTrip::pdfiumReadPathSeesMeasureAnnots()
 {
 #ifdef HAS_PDFIUM
@@ -383,7 +495,20 @@ void TestMeasureRoundTrip::pdfiumReadPathSeesMeasureAnnots()
             QVERIFY(std::fabs(start.y - 782.0) < 1e-3);   // 792 − 10
             QVERIFY(std::fabs(end.x - 82.0) < 1e-3);
         }
+        // G21 through a SECOND engine: the rect PDFium exposes to embedders
+        // (what PDFium-based viewers hit-test and cull against) is a real box
+        // around the geometry. PDFium has no public hit-test call, so point-in-
+        // rect against FPDFAnnot_GetRect IS the embedder hit-test contract.
+        FS_RECTF box{};
+        QVERIFY(FPDFAnnot_GetRect(annot, &box));
+        QVERIFY2(box.right - box.left > 0.0, "G21: embedder rect must have width");
+        QVERIFY2(box.top - box.bottom > 0.0, "G21: embedder rect must have height");
         if (st == FPDF_ANNOT_POLYLINE) {
+            // The square's center is inside the annot rect (the pre-fix 0×0
+            // rect missed every interior point — a dead hit-test).
+            QVERIFY(box.left <= 46.0 && box.right >= 46.0);
+            QVERIFY(box.bottom <= 746.0 && box.top >= 746.0);
+
             // G22 through a SECOND engine: 4 logical corners + the serialized
             // closing vertex, and the path IT reports walks out to exactly the
             // displayed perimeter (288 pt ⇒ 144 mm at 0.5 mm/pt).

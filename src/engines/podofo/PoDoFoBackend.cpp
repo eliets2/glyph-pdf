@@ -3374,8 +3374,25 @@ static void applyAnnotationsToDoc(PoDoFo::PdfMemDocument& doc,
             if (anno.mode == ToolMode::DrawFreehand || anno.mode == ToolMode::AddSignature
                 || gp::measure::isMeasureToolMode(anno.mode)) {
                 if (!anno.points.isEmpty()) {
-                    bounds = QRectF(anno.points.first(), anno.points.first());
-                    for (const auto& p : anno.points) bounds = bounds.united(QRectF(p, p));
+                    // G21: a QRectF union of point-sized rects NEVER grows — a
+                    // zero-size rect is isNull(), and Qt's operator|/united
+                    // short-circuits null rects, so the old loop returned the
+                    // LAST point as a 0×0 /Rect (a 72×72 perimeter wrote
+                    // "/Rect [10 710 10 710]"). Compute explicit min/max
+                    // extents instead, then expand by half the stroke width
+                    // on each side so /Rect encloses the rendered appearance
+                    // (ISO 32000-1 Table 164: Rect shall be large enough to
+                    // encompass the annotation, including its border).
+                    double minX = anno.points.first().x(), maxX = minX;
+                    double minY = anno.points.first().y(), maxY = minY;
+                    for (const auto& p : anno.points) {
+                        minX = qMin(minX, p.x()); maxX = qMax(maxX, p.x());
+                        minY = qMin(minY, p.y()); maxY = qMax(maxY, p.y());
+                    }
+                    const double pad = qMax(0.0, double(anno.thickness)) / 2.0;
+                    bounds = QRectF(minX - pad, minY - pad,
+                                    (maxX - minX) + 2.0 * pad,
+                                    (maxY - minY) + 2.0 * pad);
                 }
             }
             PoDoFo::Rect pdfRect(bounds.x(), pageHeight - bounds.y() - bounds.height(), bounds.width(), bounds.height());
