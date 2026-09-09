@@ -47,8 +47,15 @@ jobs:
         run: bash fuzz/build_clang/build_redaction_driver.sh
       - name: Run P1/P2 oracle matrix (fails CI on residual leak regression)
         run: |
-          export PATH="$PWD/build:$PATH"
-          bash fuzz/run_oracles.sh | tee fuzz/scratch/ci_oracles.log
+          # INF06: the pipeline exit code is the ORACLE exit code, not tee's —
+          # without pipefail a failing campaign used to come out green.
+          set -o pipefail
+          bash fuzz/run_oracles.sh 2>&1 | tee fuzz/scratch/ci_oracles.log
+          # Belt-and-braces on the log itself (run_oracles.sh already exits
+          # non-zero for DRIVER/ORACLE failures; this also guards older logs).
+          if grep -E 'DRIVER FAILED|ORACLE FAILED' fuzz/scratch/ci_oracles.log; then
+            echo "REGRESSION: a driver/oracle failure occurred — the gate cannot be green"; exit 1
+          fi
           # Gate: identity/scale/skew MUST stay CLEAN. Rotation cases are the
           # KNOWN F-02 finding -> tracked separately; once patched they must
           # flip to CLEAN and this grep becomes the regression guard.
@@ -62,7 +69,13 @@ jobs:
           path: fuzz/scratch/*.json
 
   djot-libfuzzer:
-    # Gated: only runs where a clang+compiler-rt toolchain is available.
+    # INF06: this job is a security gate — a green result must mean the harness
+    # BUILT, RAN, and survived without a finding. Build failures, a missing
+    # executable and fuzzer findings now FAIL the job (no `|| echo`, no
+    # `|| true`, no skip-if-missing). Crash artifacts are still uploaded via
+    # `if: always()` so the failure keeps its evidence.
+    # If this configuration is ever deliberately unavailable, represent that
+    # as an explicit job-level skip condition — never as a successful run.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -70,13 +83,15 @@ jobs:
       - name: Install clang + libFuzzer
         run: sudo apt-get update && sudo apt-get install -y clang
       - name: Build djot fuzzer (clang)
-        run: bash fuzz/build_clang/build_djot_clang.sh || echo "scaffolded; see MANIFEST"
+        run: bash fuzz/build_clang/build_djot_clang.sh
       - name: Short fuzz run (PR smoke)
         run: |
-          if [ -x fuzz/bin/djot_fuzzer ]; then
-            ./fuzz/bin/djot_fuzzer -dict=fuzz/dict/djot.dict -max_total_time=120 \
-              -timeout=10 fuzz/corpus/djot/ || true
+          if [ ! -x fuzz/bin/djot_fuzzer ]; then
+            echo "FAIL: fuzz/bin/djot_fuzzer missing — the harness must be built before this job can be green (INF06)" >&2
+            exit 1
           fi
+          ./fuzz/bin/djot_fuzzer -dict=fuzz/dict/djot.dict -max_total_time=120 \
+            -timeout=10 fuzz/corpus/djot/
       - uses: actions/upload-artifact@v4
         if: always()
         with:
