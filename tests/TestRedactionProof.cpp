@@ -23,9 +23,19 @@
 //     both directions, and produceProof=false keeps the legacy behavior
 //     (TestRedactTransaction's 38 pins stay untouched).
 //
-// Mutation negative controls (evidence-2026-09-08/t2-*): with the sweep
-// deliberately broken (decoded-stream + object-string sweeps short-circuited
-// to "clean"), the tamper anchors below FAIL — the pins detect the defect.
+// Mutation negative control (evidence-2026-09-08/t2-revert-verify-BROKEN-SWEEP-
+// PREFIX.txt, 6 failed / 14 passed): with the sweep's string detection disabled
+// end to end — the shared byte matcher containsAny forced false (raw bytes,
+// object strings, decoded streams, XMP, embedded files) plus the extraction
+// and info-dictionary matches — the anchors below FAIL: missed spot, info
+// dictionary, XMP, annotation, attachment, extra needle. A blind sweep cannot
+// bless a leaky file. Recorded honestly: breaking ONLY the decoded-stream +
+// object-string surfaces changes no verdict
+// (t2-weak-mutation-objstr-decstr-NOT-ANCHORED.txt, 20/20 pass) — every planted
+// fixture is also visible to an independent surface (raw bytes for uncompressed
+// objects, the dedicated metadata/attachment/revision surfaces), so those two
+// layers are defense-in-depth rather than sole evidence; PoDoFo-written files
+// carry no object streams that could isolate them.
 #include <QtTest/QtTest>
 #include <QTemporaryDir>
 #include <QFile>
