@@ -716,6 +716,7 @@ add_library(pdfws_ui STATIC
     src/engines/ai/OllamaProvider.h         src/engines/ai/OllamaProvider.cpp
     src/modes/SignaturesPanel.h             src/modes/SignaturesPanel.cpp
     src/modes/PdfAValidationPanel.h         src/modes/PdfAValidationPanel.cpp
+    src/modes/MeasureMode.h                 src/modes/MeasureMode.cpp
     src/modes/CompressDialog.h              src/modes/CompressDialog.cpp
     src/modes/WatermarkDialog.h             src/modes/WatermarkDialog.cpp
 )
@@ -2727,6 +2728,21 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestShapeInkPersistence.cpp")
     )
     add_test(NAME TestShapeInkPersistence COMMAND TestShapeInkPersistence)
     set_tests_properties(TestShapeInkPersistence PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;annotations;persistence;qt;headless")
+endif()
+
+# T1 measurement toolset: interactive UI honesty — the Measure panel's pinned
+# disclosures (persistence, session-only calibration, deferred scopes) and the
+# AnnotationLayer click-input state machine (G21 overlay rect, G22 label
+# semantics, Esc/Enter/double-click/Backspace handling).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestMeasurePanelHonesty.cpp")
+    add_executable(TestMeasurePanelHonesty tests/TestMeasurePanelHonesty.cpp)
+    target_include_directories(TestMeasurePanelHonesty PRIVATE src tests)
+    target_link_libraries(TestMeasurePanelHonesty PRIVATE
+        pdfws_ui pdfws_engines pdfws_core Qt6::Test Qt6::Core Qt6::Gui
+        Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets Qt6::Concurrent
+    )
+    add_test(NAME TestMeasurePanelHonesty COMMAND TestMeasurePanelHonesty)
+    set_tests_properties(TestMeasurePanelHonesty PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;measure;ui;qt;headless")
 endif()
 
 # T1 measurement toolset: pure calibration/geometry/formatting math

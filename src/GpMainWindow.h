@@ -23,6 +23,7 @@ class ModeController;
 class AIChatPanel;
 class SignaturesPanel;
 class PdfAValidationPanel;
+class MeasureMode;
 
 class HomeController;
 class ViewController;
@@ -145,6 +146,7 @@ private:
     AIChatPanel*    _ai          = nullptr;
     SignaturesPanel* _sigPanel   = nullptr;
     PdfAValidationPanel* _pdfaPanel = nullptr;
+    MeasureMode* _measurePanel = nullptr;
     UpdateChecker*  _updater     = nullptr;
     QFrame*         _updateBar   = nullptr;
     bool            _aiVisible   = false;

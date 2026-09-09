@@ -3,6 +3,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QMouseEvent>
+#include <QKeyEvent>
 #include <QDebug>
 #include <QtMath>
 #include <QApplication>
@@ -33,6 +34,52 @@ bool isSignatureImageMode(ToolMode mode)
     return mode == ToolMode::AddSignatureTyped || mode == ToolMode::AddSignatureUpload;
 }
 
+// ── T1 measurement helpers (shared by the overlay and the two-page composite
+//    through the single paintShape path) ──────────────────────────────────────
+
+// The value label of a measurement: the committed /Contents snapshot when it
+// exists, else recomputed from the item's own calibration fields.
+static QString measureLabelFor(const AnnotationItem &anno)
+{
+    if (!anno.text.isEmpty()) return anno.text;
+    const auto scale = gp::measure::scaleFrom(anno.measureUnitsPerPt, anno.measureUnit,
+                                              anno.measureCalibrated, anno.measureRatio);
+    switch (anno.mode) {
+    case ToolMode::MeasureDistance:
+        return gp::measure::formatLength(gp::measure::polylineLength(anno.points), scale);
+    case ToolMode::MeasurePerimeter:
+        return gp::measure::formatLength(gp::measure::closedPerimeter(anno.points), scale);
+    case ToolMode::MeasureArea:
+        return gp::measure::formatArea(gp::measure::polygonArea(anno.points), scale);
+    default:
+        return QString();
+    }
+}
+
+static void drawVertexDot(QPainter &painter, const QPointF &p)
+{
+    painter.save();
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(painter.pen().color());
+    painter.drawEllipse(p, 2.5, 2.5);
+    painter.restore();
+}
+
+static void drawMeasureLabel(QPainter &painter, const QString &text, const QPointF &anchor)
+{
+    if (text.isEmpty()) return;
+    painter.save();
+    QFont f = painter.font();
+    f.setPointSizeF(qMax(8.0, f.pointSizeF() * 0.85));
+    painter.setFont(f);
+    const QRectF box = QFontMetricsF(f).boundingRect(text).adjusted(-4, -2, 4, 2);
+    const QRectF placed(anchor.x() - 2, anchor.y() - box.height() - 6, box.width(), box.height());
+    painter.fillRect(placed, QColor(0, 0, 0, 160));
+    painter.setPen(Qt::white);
+    painter.drawText(placed, Qt::AlignCenter, text);
+    painter.restore();
+}
+
 AnnotationLayer::AnnotationLayer(QWidget *parent)
     : QWidget(parent)
     , m_currentMode(ToolMode::HandTool)
@@ -54,6 +101,9 @@ AnnotationLayer::AnnotationLayer(QWidget *parent)
     setAttribute(Qt::WA_TransparentForMouseEvents,
                  m_currentMode == ToolMode::HandTool || m_currentMode == ToolMode::SelectText);
     setMouseTracking(true);
+    // T1: measure tools finalize with Enter and cancel with Esc, so the layer
+    // must be able to take keyboard focus (MeasureMode sets it when arming).
+    setFocusPolicy(Qt::StrongFocus);
     setAccessibleName(tr("Annotation canvas"));
     setAccessibleDescription(tr("Draw highlights, underlines, text boxes, and other annotations on the document"));
 }
@@ -66,6 +116,10 @@ void AnnotationLayer::setRotation(int rotation)
 
 void AnnotationLayer::setMode(ToolMode mode)
 {
+    // T1: leaving a measure tool discards any unfinished draft so a stale
+    // polygon can never be committed by a later unrelated drag.
+    if (!gp::measure::isMeasureToolMode(mode) && !m_measureDraft.isEmpty())
+        cancelMeasureDraft();
     m_currentMode = mode;
     // §9.7 P0: a pending signature image only makes sense while a Type/Upload
     // placement mode is armed; switching to any other tool discards it so a
@@ -316,6 +370,31 @@ void AnnotationLayer::paintShape(QPainter &painter, const AnnotationItem &anno)
             painter.setFont(QFont("Arial", 16, QFont::Bold));
             painter.drawText(anno.rect.normalized(), Qt::AlignCenter, "SIGNATURE");
         }
+    } else if (gp::measure::isMeasureToolMode(anno.mode)) {
+        // ── T1: measurement shapes ──────────────────────────────────────────
+        // Distance = open 2-point line; perimeter = open polyline plus a
+        // DASHED closing segment (the closing side is measured but visually
+        // distinct); area = closed polygon with a translucent fill.
+        const QList<QPointF> &pts = anno.points;
+        if (anno.mode == ToolMode::MeasureArea && pts.size() >= 3) {
+            QColor fill = anno.color;
+            fill.setAlpha(35);
+            painter.setBrush(fill);
+            painter.drawPolygon(QPolygonF(pts));
+            painter.setBrush(Qt::NoBrush);
+        } else {
+            for (int i = 0; i + 1 < pts.size(); ++i)
+                painter.drawLine(pts[i], pts[i + 1]);
+            if (anno.mode == ToolMode::MeasurePerimeter && pts.size() >= 2) {
+                QPen closing = painter.pen();
+                closing.setStyle(Qt::DashLine);
+                painter.setPen(closing);
+                painter.drawLine(pts.last(), pts.first());
+            }
+        }
+        for (const auto &p : pts) drawVertexDot(painter, p);
+        drawMeasureLabel(painter, measureLabelFor(anno),
+                         pts.isEmpty() ? anno.rect.topLeft() : pts.first());
     }
 
     painter.restore();
@@ -416,11 +495,32 @@ void AnnotationLayer::paintEvent(QPaintEvent *event)
             painter.drawRect(m_currentNote.rect);
         } else if (m_currentMode == ToolMode::DrawEllipse) {
             painter.drawEllipse(m_currentNote.rect);
-        } else if (m_currentMode == ToolMode::DrawLine || m_currentMode == ToolMode::DrawArrow || 
-                   m_currentMode == ToolMode::Underline || m_currentMode == ToolMode::Strikeout || 
+        } else if (m_currentMode == ToolMode::DrawLine || m_currentMode == ToolMode::DrawArrow ||
+                   m_currentMode == ToolMode::Underline || m_currentMode == ToolMode::Strikeout ||
                    m_currentMode == ToolMode::Squiggly) {
             painter.drawLine(m_currentNote.rect.topLeft(), m_currentNote.rect.bottomRight());
         }
+    }
+
+    // ── T1: live measurement draft — confirmed vertices, rubber segment to
+    // the cursor, dashed closing preview, and the calibration-honest readout.
+    if (gp::measure::isMeasureToolMode(m_currentMode) && !m_measureDraft.isEmpty()) {
+        painter.setPen(QPen(m_selectedColor, m_selectedThickness, Qt::SolidLine,
+                            Qt::RoundCap, Qt::RoundJoin));
+        for (int i = 0; i + 1 < m_measureDraft.size(); ++i)
+            painter.drawLine(m_measureDraft[i], m_measureDraft[i + 1]);
+        if (m_currentMode != ToolMode::MeasureDistance && m_measureDraft.size() >= 2) {
+            // The live value already counts the closing segment — show it.
+            QPen closing = painter.pen();
+            closing.setStyle(Qt::DashLine);
+            painter.setPen(closing);
+            painter.drawLine(m_measureDraft.last(), m_measureDraft.first());
+        }
+        if (m_measureHover)
+            painter.drawLine(m_measureDraft.last(), m_measureCursor);
+        for (const auto &p : m_measureDraft) drawVertexDot(painter, p);
+        drawMeasureLabel(painter, m_lastPreview,
+                         m_measureHover ? m_measureCursor : m_measureDraft.last());
     }
 
     // Draw image overlays in EditImage mode
@@ -505,6 +605,16 @@ void AnnotationLayer::mousePressEvent(QMouseEvent *event)
         // can run the deleteObjectAt pipeline on the underlying content.
         int page = m_pageAtCallback ? m_pageAtCallback(event->pos()) : -1;
         emit eraseRequested(page, pos);
+        return;
+    }
+
+    // ── T1: click-based measurement input (never the drag model) ────────────
+    if (gp::measure::isMeasureToolMode(m_currentMode)) {
+        if (event->button() != Qt::LeftButton) return;
+        m_measurePage = m_pageAtCallback ? m_pageAtCallback(event->pos()) : -1;
+        m_measureHover = true;
+        m_measureCursor = pos;
+        handleMeasurePress(pos, event);
         return;
     }
 
@@ -630,6 +740,17 @@ void AnnotationLayer::mouseMoveEvent(QMouseEvent *event)
         trans.rotate(-m_rotation);
         trans.translate(-rect().center().x(), -rect().center().y());
         pos = trans.map(pos);
+    }
+
+    // ── T1: live measurement rubber line + readout ──────────────────────────
+    if (gp::measure::isMeasureToolMode(m_currentMode)) {
+        m_measureHover = true;
+        m_measureCursor = (m_measureSnap && !m_measureDraft.isEmpty())
+            ? gp::measure::snapVertex(measureSnapCandidates(), pos, 6.0)
+            : pos;
+        emitMeasurePreview();
+        update();
+        return;
     }
 
     if (m_currentMode == ToolMode::EditImage && m_resizeHandle != -1 && !m_selectedImageName.isEmpty()) {
@@ -784,4 +905,204 @@ void AnnotationLayer::mouseReleaseEvent(QMouseEvent *event)
         }
         update(dirty.adjusted(-15, -15, 15, 15).toAlignedRect());
     }
+}
+
+// ── T1 measurement toolset implementation ───────────────────────────────────
+
+void AnnotationLayer::setActiveMeasureScale(const gp::measure::Scale &scale)
+{
+    m_measureScale = scale;
+    if (!m_measureDraft.isEmpty()) emitMeasurePreview();
+    update();
+}
+
+void AnnotationLayer::setSnapEnabled(bool on)
+{
+    m_measureSnap = on;
+}
+
+void AnnotationLayer::cancelMeasureDraft()
+{
+    if (m_measureDraft.isEmpty() && !m_measureHover) return;
+    m_measureDraft.clear();
+    m_measureHover = false;
+    m_lastPreview.clear();
+    emit measurePreviewChanged(QString());
+    update();
+}
+
+QList<QPointF> AnnotationLayer::measureSnapCandidates() const
+{
+    QList<QPointF> out;
+    for (const auto &a : m_annotations)
+        out += a.points;
+    return out;
+}
+
+void AnnotationLayer::handleMeasurePress(QPointF pos, QMouseEvent *event)
+{
+    const bool dblClick = (event->type() == QEvent::MouseButtonDblClick);
+
+    if (dblClick) {
+        // Qt delivers Press→Release→DblClick→Release for a double click.
+        // The clicked point becomes the final vertex — unless it duplicates
+        // the first one (the classic "close on the starting corner", where
+        // the polygon closes implicitly / the perimeter's closing edge is
+        // already measured) or the current last one (a zero-length tail).
+        if (m_currentMode == ToolMode::MeasureDistance) return;
+        const bool dupFirst = !m_measureDraft.isEmpty()
+            && gp::measure::distance(m_measureDraft.first(), pos) <= 0.5;
+        const bool dupLast = !m_measureDraft.isEmpty()
+            && gp::measure::distance(m_measureDraft.last(), pos) <= 0.5;
+        if (!dupFirst && !dupLast)
+            m_measureDraft.append(m_measureSnap
+                ? gp::measure::snapVertex(measureSnapCandidates(), pos, 6.0)
+                : pos);
+        commitMeasureDraft();
+        return;
+    }
+
+    const QPointF p = m_measureSnap
+        ? gp::measure::snapVertex(measureSnapCandidates(), pos, 6.0) : pos;
+
+    if (m_currentMode == ToolMode::MeasureDistance) {
+        // Two clicks: start, then finalize.
+        m_measureDraft.append(p);
+        if (m_measureDraft.size() >= 2) commitMeasureDraft();
+        else emitMeasurePreview();
+        update();
+        return;
+    }
+
+    m_measureDraft.append(p);
+    emitMeasurePreview();
+    update();
+}
+
+void AnnotationLayer::commitMeasureDraft()
+{
+    // Honest validity: a distance needs two points, a perimeter at least two,
+    // an area at least three — a degenerate draft is discarded, not committed.
+    const bool valid =
+        (m_currentMode == ToolMode::MeasureDistance && m_measureDraft.size() == 2)
+        || (m_currentMode == ToolMode::MeasurePerimeter && m_measureDraft.size() >= 2)
+        || (m_currentMode == ToolMode::MeasureArea && m_measureDraft.size() >= 3);
+    if (!valid) {
+        cancelMeasureDraft();
+        return;
+    }
+
+    AnnotationItem item;
+    item.mode = m_currentMode;
+    item.pageIndex = m_measurePage;
+    item.points = m_measureDraft;
+    // G21: explicit min/max extents (a QRectF union of point-sized rects never
+    // grows — point rects are null and united() short-circuits), expanded by
+    // half the stroke width to match the /Rect the PDF writer computes.
+    double minX = m_measureDraft.first().x(), maxX = minX;
+    double minY = m_measureDraft.first().y(), maxY = minY;
+    for (const auto &p : m_measureDraft) {
+        minX = qMin(minX, p.x()); maxX = qMax(maxX, p.x());
+        minY = qMin(minY, p.y()); maxY = qMax(maxY, p.y());
+    }
+    const double pad = qMax(0.0, double(m_selectedThickness)) / 2.0;
+    item.rect = QRectF(minX - pad, minY - pad,
+                       (maxX - minX) + 2.0 * pad, (maxY - minY) + 2.0 * pad);
+    item.color = m_selectedColor;
+    item.thickness = m_selectedThickness;
+    item.measureCalibrated = m_measureScale.calibrated;
+    item.measureUnitsPerPt = m_measureScale.unitsPerPt;
+    item.measureUnit = gp::measure::unitLabel(m_measureScale.unit);
+    item.measureAreaUnit = gp::measure::areaLabel(m_measureScale.unit);
+    item.measureRatio = m_measureScale.ratio;
+    // /Contents snapshot (the writer turns text into the PDF /Contents value).
+    // The VALUE only — the calibration disclaimer is a live-readout concern.
+    item.text = m_currentMode == ToolMode::MeasureArea
+        ? gp::measure::formatArea(gp::measure::polygonArea(item.points), m_measureScale)
+        : gp::measure::formatLength(
+              m_currentMode == ToolMode::MeasureDistance
+                  ? gp::measure::polylineLength(item.points)
+                  : gp::measure::closedPerimeter(item.points),
+              m_measureScale);
+
+    m_measureDraft.clear();
+    m_measureHover = false;
+    m_lastPreview.clear();
+    m_annotations.append(item);
+    emit annotationsChanged();
+    emit measurementFinished();
+    emit measurePreviewChanged(QString());
+    update();
+}
+
+void AnnotationLayer::emitMeasurePreview()
+{
+    if (m_measureDraft.isEmpty()) {
+        if (!m_lastPreview.isEmpty()) {
+            m_lastPreview.clear();
+            emit measurePreviewChanged(QString());
+        }
+        return;
+    }
+    QList<QPointF> pts = m_measureDraft;
+    if (m_measureHover) pts.append(m_measureCursor);
+    const auto &s = m_measureScale;
+    if (m_currentMode == ToolMode::MeasureDistance)
+        m_lastPreview = gp::measure::formatLengthTruthful(gp::measure::polylineLength(pts), s);
+    else if (m_currentMode == ToolMode::MeasurePerimeter)
+        m_lastPreview = gp::measure::formatLengthTruthful(gp::measure::closedPerimeter(pts), s);
+    else
+        m_lastPreview = gp::measure::formatAreaTruthful(gp::measure::polygonArea(pts), s);
+    emit measurePreviewChanged(m_lastPreview);
+}
+
+void AnnotationLayer::keyPressEvent(QKeyEvent *event)
+{
+    if (!gp::measure::isMeasureToolMode(m_currentMode) || m_measureDraft.isEmpty()) {
+        QWidget::keyPressEvent(event);
+        return;
+    }
+    switch (event->key()) {
+    case Qt::Key_Escape:
+        cancelMeasureDraft();
+        break;
+    case Qt::Key_Return:
+    case Qt::Key_Enter:
+        if (m_currentMode != ToolMode::MeasureDistance)
+            commitMeasureDraft();
+        break;
+    case Qt::Key_Backspace:
+    case Qt::Key_Delete:
+        m_measureDraft.removeLast();
+        emitMeasurePreview();
+        update();
+        break;
+    default:
+        QWidget::keyPressEvent(event);
+        return;
+    }
+}
+
+void AnnotationLayer::mouseDoubleClickEvent(QMouseEvent *event)
+{
+    // Qt delivers the second press of a double click here, NOT to
+    // mousePressEvent — without this override the dbl-click finalize branch
+    // in handleMeasurePress was unreachable. Map the position the same way
+    // mousePressEvent does and let the shared measure path finalize.
+    if (gp::measure::isMeasureToolMode(m_currentMode)) {
+        QPointF pos = event->position();
+        if (m_rotation != 0) {
+            QTransform trans;
+            trans.translate(rect().center().x(), rect().center().y());
+            trans.rotate(-m_rotation);
+            trans.translate(-rect().center().x(), -rect().center().y());
+            pos = trans.map(pos);
+        }
+        m_measurePage = m_pageAtCallback ? m_pageAtCallback(event->pos()) : -1;
+        m_measureHover = true;
+        m_measureCursor = pos;
+        handleMeasurePress(pos, event);
+        return;
+    }
+    QWidget::mouseDoubleClickEvent(event);
 }
