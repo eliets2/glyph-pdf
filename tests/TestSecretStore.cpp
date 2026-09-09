@@ -7,11 +7,37 @@
 
 #include <QtTest/QtTest>
 #include <QTemporaryDir>
+#include <QCoreApplication>
 #include <QFile>
 #include <QDir>
+#include <QJsonDocument>
+#include <QProcess>
 
 #include "core/EncryptedFileSecretStore.h"
 #include "core/ISecretStore.h"
+
+// ── EC04 child mode ──────────────────────────────────────────────────────────
+// The DPAPI round-trip must survive a PROCESS boundary, not merely a new store
+// instance. The test binary re-execs itself with `--ec04-child <storePath>`:
+// the child writes a synthetic credential through the REAL default key path
+// (no override) and exits; the parent then reads it back with its own fresh
+// store instance. Synthetic credentials only — never a real API key.
+#ifdef Q_OS_WIN
+static const char* kChildService = "ChildProcessSvc";
+static const char* kChildSecret  = "sk-ant-child-process-fake-key-0001";
+
+static int ec04ChildMain(const QString& storePath)
+{
+    EncryptedFileSecretStore store(storePath);  // default path: real DPAPI
+    if (!store.storeSecret(QString::fromLatin1(kChildService),
+                           QString::fromLatin1(kChildSecret)))
+        return 3;  // storeSecret must report success (EC04: pre-fix it cannot)
+    if (store.readSecret(QString::fromLatin1(kChildService))
+            != QString::fromLatin1(kChildSecret))
+        return 4;  // and the child itself must be able to reread it
+    return 0;
+}
+#endif
 
 class TestSecretStore : public QObject {
     Q_OBJECT
@@ -155,7 +181,132 @@ private slots:
         QVERIFY(!store.hasSecret("Anthropic"));
         QCOMPARE(store.readSecret("OpenAI"), QString("sk-ooo"));  // unaffected
     }
+
+    // ── EC04: the DEFAULT key path (no injected override) on Windows ─────────
+    // Pre-fix, resolveKey() called CryptProtectData on EVERY invocation and
+    // hashed the fresh (non-deterministic) DPAPI blob as the AES key, so the
+    // store could never reread its own ciphertext: storeSecret failed its own
+    // verification and returned false. These tests pin the repaired contract
+    // on the real default path with the real DPAPI (synthetic secrets only).
+
+#ifdef Q_OS_WIN
+    // The default path must round-trip: store, read repeatedly, and read from
+    // a NEW store instance — all without any injected key material.
+    void dpapiDefaultPathRoundTrips() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.path() + "/dpapi-store.json";
+        const QString secret = QStringLiteral("sk-ant-dpapi-roundtrip-fake-0001");
+
+        EncryptedFileSecretStore writer(path);  // NO override — the real path
+        QVERIFY2(writer.storeSecret("DpapiSvc", secret),
+                 "storeSecret must succeed on the default (DPAPI) key path");
+
+        // Multiple reads from the same instance.
+        QCOMPARE(writer.readSecret("DpapiSvc"), secret);
+        QCOMPARE(writer.readSecret("DpapiSvc"), secret);
+
+        // A brand-new instance (fresh DPAPI unwrap) must read the same secret.
+        EncryptedFileSecretStore reader(path);
+        QCOMPARE(reader.readSecret("DpapiSvc"), secret);
+        QVERIFY(reader.hasSecret("DpapiSvc"));
+        QCOMPARE(reader.backend(), ISecretStore::Backend::EncryptedFile);
+
+        // The stored blob carries the v2 (DPAPI) version byte — the format
+        // pin that documents on-disk key naming for support/forensics.
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+        f.close();
+        QVERIFY(doc.isObject());
+        const QString b64 = doc.object().value("secrets").toObject()
+                                .value("DpapiSvc").toString();
+        QVERIFY(!b64.isEmpty());
+        const QByteArray blob = QByteArray::fromBase64(b64.toLatin1());
+        QVERIFY(!blob.isEmpty());
+        QCOMPARE(int(static_cast<quint8>(blob.at(0))), 0x02);  // DPAPI-wrapped
+    }
+
+    // The DPAPI round-trip survives a process boundary: a child process writes
+    // through its own default-path store; this process reads it back.
+    void dpapiRoundTripSurvivesNewProcess() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.path() + "/dpapi-child-store.json";
+
+        const QString exe = QCoreApplication::applicationFilePath();
+        const int rc = QProcess::execute(exe,
+                                         {QStringLiteral("--ec04-child"), path});
+        QVERIFY2(rc == 0,
+                 "child process must store AND reread its synthetic secret "
+                 "through the default DPAPI path (pre-fix rc=3)");
+
+        // The parent is a different process than the writer: fresh DPAPI
+        // unwrap must yield the exact secret.
+        EncryptedFileSecretStore reader(path);
+        QCOMPARE(reader.readSecret(QString::fromLatin1(kChildService)),
+                 QString::fromLatin1(kChildSecret));
+
+        // And the plaintext never touched the disk unencrypted.
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        const QByteArray raw = f.readAll();
+        f.close();
+        QVERIFY2(!raw.contains(kChildSecret),
+                 "plaintext child secret must not appear in the store file");
+    }
+
+    // Corruption must fail EXPLICITLY: CryptUnprotectData rejects a damaged
+    // blob and the store reports empty — never garbage, never a crash.
+    void corruptDpapiBlobFailsExplicitly() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.path() + "/dpapi-corrupt.json";
+        const QString secret = QStringLiteral("sk-ant-dpapi-corrupt-fake-0001");
+
+        EncryptedFileSecretStore writer(path);
+        QVERIFY(writer.storeSecret("DpapiCorruptSvc", secret));
+
+        // Corrupt bytes deep inside the DPAPI blob (past the version byte).
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        QByteArray data = f.readAll();
+        f.close();
+        const int keyPos = data.indexOf("\"DpapiCorruptSvc\":\"");
+        QVERIFY(keyPos > 0);
+        const int valStart = keyPos + int(qstrlen("\"DpapiCorruptSvc\":\""));
+        const int valEnd = data.indexOf('"', valStart);
+        QVERIFY(valEnd > valStart + 20);
+        const int p = valEnd - 8;  // middle of the DPAPI blob
+        data[p] = (data.at(p) == 'A') ? 'B' : 'A';
+        QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        f.write(data);
+        f.close();
+
+        EncryptedFileSecretStore reader(path);
+        QVERIFY2(reader.readSecret("DpapiCorruptSvc").isEmpty(),
+                 "a corrupted DPAPI blob must fail unprotection explicitly "
+                 "(empty result), never decrypt to garbage");
+        QVERIFY(!reader.hasSecret("DpapiCorruptSvc"));
+    }
+#endif // Q_OS_WIN
 };
 
-QTEST_GUILESS_MAIN(TestSecretStore)
+// EC04: custom main mirroring QTEST_GUILESS_MAIN plus the --ec04-child
+// re-exec branch used by dpapiRoundTripSurvivesNewProcess.
+int main(int argc, char** argv)
+{
+#ifdef Q_OS_WIN
+    for (int i = 1; i + 1 < argc; ++i) {
+        if (QByteArray(argv[i]) == QByteArrayLiteral("--ec04-child"))
+            return ec04ChildMain(QString::fromLocal8Bit(argv[i + 1]));
+    }
+#else
+    Q_UNUSED(argc);
+    Q_UNUSED(argv);
+#endif
+    QCoreApplication app(argc, argv);
+    TestSecretStore tc;
+    return QTest::qExec(&tc, argc, argv);
+}
 #include "TestSecretStore.moc"

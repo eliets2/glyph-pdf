@@ -115,6 +115,12 @@ public:
                      // guarded live receiver through queued connections.
     void cancel();   // cooperative — honored at stage/page boundaries only.
     void run();      // synchronous execution of the whole state machine.
+                     // NCR-02: consumes the SAME one-shot gate as start() —
+                     // an operation executes exactly once through either
+                     // entry point, in any order — and holds a strong local
+                     // reference to the execution state for the duration of
+                     // the call, so a direct-connected slot that destroys the
+                     // operation cannot free the state mid-run.
 
     // Partial-result recovery (the "Retry sanitize" action): sanitize an
     // ALREADY-COMMITTED redacted file into `sanitizedDestination`. D05: the

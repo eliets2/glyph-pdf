@@ -25,7 +25,23 @@ namespace {
 constexpr int    kKeyLen   = 32;   // AES-256
 constexpr int    kNonceLen = 12;   // GCM standard nonce
 constexpr int    kTagLen   = 16;   // GCM tag
-constexpr quint8 kVersion  = 0x01; // blob version byte
+
+// On-disk blob version bytes (first byte of every stored blob).
+//
+//  0x01 — AES-256-GCM under SHA-256(keyMaterial override), or — legacy, kept
+//         for reading pre-EC04 stores and for non-Windows default-path writes —
+//         under SHA-256 of the per-user seed described in resolveKey().
+//  0x02 — Windows DPAPI (CryptProtectData) wrapped secret. EC04: the DEFAULT
+//         Windows path stores this format, because DPAPI protection is
+//         intentionally non-deterministic: deriving an AES key by re-protecting
+//         on every read (the pre-fix resolveKey()) produced a DIFFERENT key at
+//         decrypt time than at encrypt time, so the store could never reread
+//         its own ciphertext. Key naming/ownership: blobs are bound to the
+//         Windows user account (+machine) by DPAPI itself — no app-managed key
+//         material exists or is persisted; the description string
+//         "GlyphPDF.SecretStore.Secret.v2" labels the blobs.
+constexpr quint8 kVersionAes   = 0x01;
+constexpr quint8 kVersionDpapi = 0x02;
 
 // Explicit on-disk marker so the file is self-describing / labelled.
 const QString kMarker = QStringLiteral("glyphpdf-encrypted-secret-store");
@@ -53,33 +69,51 @@ QByteArray EncryptedFileSecretStore::resolveKey() const
         return QCryptographicHash::hash(m_keyOverride, QCryptographicHash::Sha256);
     }
 
-    // Per-user derivation. The seed is stable for the user account but not a
-    // hardcoded constant. On Windows we additionally bind it to the user via
-    // DPAPI so the at-rest key material cannot be lifted to another account.
+    // Legacy derivation kept ONLY to read pre-EC04 (0x01) stores written
+    // without an override (non-Windows). EC04: on Windows the default path no
+    // longer writes through this derivation at all — a fresh DPAPI blob is not
+    // a deterministic key-derivation function, so hashing it per call made
+    // every write unreadable. New Windows writes are DPAPI-wrapped (0x02).
+    // The seed components below are account/machine IDENTIFIERS, not
+    // confidential entropy: on non-Windows the derivation is best-effort
+    // obfuscation only, documented as such in the header.
     QByteArray seed;
     seed += QStandardPaths::writableLocation(QStandardPaths::HomeLocation).toUtf8();
     seed += QSysInfo::machineUniqueId();
     seed += QByteArrayLiteral("glyphpdf-secret-store-v1");
-
-#ifdef _WIN32
-    DATA_BLOB in{};
-    in.pbData = reinterpret_cast<BYTE*>(seed.data());
-    in.cbData = static_cast<DWORD>(seed.size());
-    DATA_BLOB out{};
-    if (CryptProtectData(&in, L"GlyphPDF.SecretStore.Key", nullptr, nullptr,
-                         nullptr, CRYPTPROTECT_UI_FORBIDDEN, &out)) {
-        QByteArray wrapped(reinterpret_cast<const char*>(out.pbData),
-                           static_cast<int>(out.cbData));
-        if (out.pbData) LocalFree(out.pbData);
-        seed = wrapped;  // user-bound material
-    }
-#endif
 
     return QCryptographicHash::hash(seed, QCryptographicHash::Sha256);
 }
 
 QByteArray EncryptedFileSecretStore::encrypt(const QByteArray& plaintext) const
 {
+#ifdef _WIN32
+    // EC04: default path — protect the secret DIRECTLY with the platform
+    // primitive. DPAPI wraps the plaintext under the user's account key; the
+    // unwrapped secret is recoverable by the same user (any process, any
+    // instance, any later session) and by nobody else. No derived AES key, no
+    // persisted master key.
+    if (m_keyOverride.isEmpty()) {
+        DATA_BLOB in{};
+        in.pbData = reinterpret_cast<BYTE*>(const_cast<char*>(plaintext.constData()));
+        in.cbData = static_cast<DWORD>(plaintext.size());
+        DATA_BLOB out{};
+        if (!CryptProtectData(&in, L"GlyphPDF.SecretStore.Secret.v2", nullptr,
+                              nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &out)) {
+            const DWORD err = GetLastError();
+            qWarning() << "EncryptedFileSecretStore: CryptProtectData failed"
+                       << "(Win32 error" << err << "); secret NOT stored";
+            return {};  // explicit failure — the caller never claims success
+        }
+        QByteArray blob;
+        blob.append(static_cast<char>(kVersionDpapi));
+        blob.append(reinterpret_cast<const char*>(out.pbData),
+                    static_cast<int>(out.cbData));
+        LocalFree(out.pbData);
+        return blob;
+    }
+#endif
+
     const QByteArray key = resolveKey();
     if (key.size() != kKeyLen) return {};
 
@@ -113,7 +147,7 @@ QByteArray EncryptedFileSecretStore::encrypt(const QByteArray& plaintext) const
     if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, kTagLen, tag) != 1) return {};
 
     QByteArray blob;
-    blob.append(static_cast<char>(kVersion));
+    blob.append(static_cast<char>(kVersionAes));
     blob.append(reinterpret_cast<const char*>(nonce), kNonceLen);
     blob.append(reinterpret_cast<const char*>(tag), kTagLen);
     blob.append(cipher);
@@ -123,12 +157,47 @@ QByteArray EncryptedFileSecretStore::encrypt(const QByteArray& plaintext) const
 QByteArray EncryptedFileSecretStore::decrypt(const QByteArray& blob) const
 {
     if (blob.size() < 1 + kNonceLen + kTagLen) return {};
-    if (static_cast<quint8>(blob.at(0)) != kVersion) return {};
+
+    const unsigned char* p = reinterpret_cast<const unsigned char*>(blob.constData());
+
+#ifdef _WIN32
+    // EC04: DPAPI-wrapped secret — unwrap through CryptUnprotectData. A failed
+    // unprotection (different user/machine, corrupted blob) is an EXPLICIT
+    // failure: empty result, never garbage, never a crash.
+    if (static_cast<quint8>(blob.at(0)) == kVersionDpapi) {
+        DATA_BLOB in{};
+        in.pbData = const_cast<BYTE*>(p + 1);
+        in.cbData = static_cast<DWORD>(blob.size() - 1);
+        DATA_BLOB out{};
+        if (!CryptUnprotectData(&in, nullptr, nullptr, nullptr, nullptr,
+                                CRYPTPROTECT_UI_FORBIDDEN, &out)) {
+            const DWORD err = GetLastError();
+            qWarning() << "EncryptedFileSecretStore: CryptUnprotectData failed"
+                       << "(Win32 error" << err
+                       << "); the stored secret belongs to a different user, "
+                          "machine, or is corrupted";
+            return {};
+        }
+        QByteArray plain(reinterpret_cast<const char*>(out.pbData),
+                         static_cast<int>(out.cbData));
+        LocalFree(out.pbData);
+        return plain;
+    }
+#else
+    // A DPAPI blob can only be produced (and read) on Windows; elsewhere it is
+    // an explicit failure, not silence.
+    if (static_cast<quint8>(blob.at(0)) == kVersionDpapi) {
+        qWarning() << "EncryptedFileSecretStore: DPAPI-wrapped secret found on "
+                      "a non-Windows platform; cannot decrypt";
+        return {};
+    }
+#endif
+
+    if (static_cast<quint8>(blob.at(0)) != kVersionAes) return {};
 
     const QByteArray key = resolveKey();
     if (key.size() != kKeyLen) return {};
 
-    const unsigned char* p = reinterpret_cast<const unsigned char*>(blob.constData());
     const unsigned char* nonce = p + 1;
     const unsigned char* tag = p + 1 + kNonceLen;
     const unsigned char* cipher = p + 1 + kNonceLen + kTagLen;

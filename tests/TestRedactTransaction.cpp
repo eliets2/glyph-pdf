@@ -96,6 +96,9 @@ QString errText(const RedactResult& r) {
 
 // ── N08: overlay-fit oracle and parsers ──────────────────────────────────────
 
+// The production overlay size (RedactOperation.cpp kOverlayFontSize, 7pt).
+constexpr double kTestOverlayFontSize = 7.0;
+
 // The ACTUAL glyph extents of the overlay font at the overlay size, read
 // straight from PoDoFo's PdfFont API. This is the test's independent oracle:
 // the production derivation must meet these numbers, not its own guesses.
@@ -301,6 +304,14 @@ private slots:
     void emptyOverlayTextPreservesCurrentBehavior();
     void overlaySkippedWhenBoxTooSmall();
 
+    // ── N08 residual: the HORIZONTAL half of the fit contract ─────────────
+    // The review acceptance names "short/narrow boxes": a box narrower than
+    // the label's actual advance width must skip the label (never squeeze or
+    // overflow sideways), and a drawn label must be horizontally centered on
+    // the box by the same measured width. Vertical fit is pinned above.
+    void overlaySkippedWhenBoxTooNarrow();
+    void overlayCenteredHorizontallyInWideBox();
+
     // ── N08: the label glyphs must stay INSIDE the burn-in box ────────────
     // Pre-fix the baseline was a guess (0.35 * fontSize above the box middle),
     // which at the minimum-height box put the 7pt ascender tops ~3pt ABOVE the
@@ -319,6 +330,18 @@ private slots:
     void asyncCancelIsHonoredAndDelivered();
     void repeatedStartRunsOnceAndOwnerDestroyedBeforeDispatchIsSafe();
     void ownerDestroyedMidRunWorkerCompletesOnDurableStateWithoutCallbacks();
+
+    // ── NCR-02: the SYNCHRONOUS entry point honors the same one-shot gate ──
+    // run() must execute the transaction exactly once and refuse every second
+    // entry (run();run(), run();start(), start();run()), and it must keep a
+    // strong local reference to the execution state while execute() is active
+    // (a direct-connected finished() slot — or a page-boundary hook — may
+    // destroy the operation mid-call).
+    void syncRunTwiceExecutesOnce();
+    void runThenStartExecutesOnce();
+    void startThenRunExecutesOnce();
+    void syncOwnerDeletedFromDirectFinishedSlotRunStillCompletes();
+    void syncOwnerDeletedAtPageBoundaryRunCompletesWithoutCallbacks();
 
 private:
     QTemporaryDir m_tmpDir;
@@ -1536,6 +1559,237 @@ void TestRedactTransaction::ownerDestroyedMidRunWorkerCompletesOnDurableStateWit
     // destruction; nothing may be delivered afterwards.
     QCOMPARE(int(stageCalls.load()), 2);
     QCOMPARE(int(finishedCalls.load()), 0); // no callback past the owner's death
+}
+
+// ── NCR-02: the synchronous entry point must obey the one-shot contract ─────
+// Pre-fix run() called m_exec->execute() directly — no tryBeginRun() gate and
+// no local strong reference — so run();run() executed twice, run()/start()
+// pairings crossed the gate three times, and a direct-connected finished()
+// slot that destroyed the operation freed the execution state out from under
+// the running execute(). A failing fixture keeps executions cheap and honest:
+// every refused entry emits NOTHING, every accepted one emits exactly one
+// finished, and the page-boundary hook fires once per accepted execution.
+
+// run(); run() — the second synchronous call must be refused.
+void TestRedactTransaction::syncRunTwiceExecutesOnce() {
+    const QString src = createPdf("ncr02rr.pdf", 1);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QString dest = m_tmpDir.filePath("ncr02rr_redacted.pdf");
+
+    std::atomic<int> execCount{0};
+    std::atomic<int> finishedCount{0};
+    RedactOperation op(makeRequest(src, dest, {0}, false));
+    op.setPageBoundaryHook([&execCount](int) { ++execCount; });
+    connect(&op, &RedactOperation::finished, this,
+            [&finishedCount](const RedactResult&) { ++finishedCount; });
+
+    op.run();
+    op.run(); // must be REFUSED — one operation, one execution
+
+    QCOMPARE(int(finishedCount.load()), 1);
+    QCOMPARE(int(execCount.load()), 1);
+    QVERIFY(QFileInfo::exists(dest));
+}
+
+// run(); start() — start() after a completed synchronous run must be refused.
+// Bounded QTRY window: if the (would-be) second execution were dispatched, it
+// would deterministically raise both counters within the budget.
+void TestRedactTransaction::runThenStartExecutesOnce() {
+    const QString src = createPdf("ncr02rs.pdf", 1);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QString dest = m_tmpDir.filePath("ncr02rs_redacted.pdf");
+
+    std::atomic<int> execCount{0};
+    std::atomic<int> finishedCount{0};
+    RedactOperation op(makeRequest(src, dest, {0}, false));
+    op.setPageBoundaryHook([&execCount](int) { ++execCount; });
+    connect(&op, &RedactOperation::finished, this,
+            [&finishedCount](const RedactResult&) { ++finishedCount; });
+
+    op.run();
+    QCOMPARE(int(finishedCount.load()), 1);
+    op.start(); // must be REFUSED
+
+    QTRY_VERIFY_WITH_TIMEOUT(int(finishedCount.load()) == 1
+                             && int(execCount.load()) == 1, 5000);
+    QTest::qWait(30); // worker teardown would land here if one had started
+    QCOMPARE(int(finishedCount.load()), 1);
+    QCOMPARE(int(execCount.load()), 1);
+}
+
+// start(); run() — run() after a dispatched asynchronous run must be refused
+// (pre-fix it entered the same mutable execution state concurrently with the
+// worker).
+void TestRedactTransaction::startThenRunExecutesOnce() {
+    const QString src = createPdf("ncr02sr.pdf", 1);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QString dest = m_tmpDir.filePath("ncr02sr_redacted.pdf");
+
+    std::atomic<int> execCount{0};
+    std::atomic<int> finishedCount{0};
+    RedactOperation op(makeRequest(src, dest, {0}, false));
+    op.setPageBoundaryHook([&execCount](int) { ++execCount; });
+    connect(&op, &RedactOperation::finished, this,
+            [&finishedCount](const RedactResult&) { ++finishedCount; });
+
+    op.start();
+    QTRY_VERIFY_WITH_TIMEOUT(int(finishedCount.load()) == 1, 30000);
+    op.run(); // must be REFUSED — the one-shot was consumed by start()
+
+    QTRY_VERIFY_WITH_TIMEOUT(int(execCount.load()) == 1, 5000);
+    QTest::qWait(30);
+    QCOMPARE(int(finishedCount.load()), 1);
+    QCOMPARE(int(execCount.load()), 1);
+    QVERIFY(QFileInfo::exists(dest));
+}
+
+// The literal NCR-02 ownership probe: a DIRECT-connected finished() slot that
+// explicitly deletes the operation — the harshest variant of the review's
+// "synchronous direct-callback owner-destruction check". Post-fix run() holds
+// a strong local reference, so the state outlives the member call: no crash,
+// run() returns, the transaction completed. (No sanitizer claim — the
+// pre-fix shape freed the state under the running execute(); the deterministic
+// mid-execute variant below is the anchor that fails on the old code.)
+void TestRedactTransaction::syncOwnerDeletedFromDirectFinishedSlotRunStillCompletes() {
+    const QString src = createPdf("ncr02own.pdf", 1);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QString dest = m_tmpDir.filePath("ncr02own_redacted.pdf");
+
+    auto* op = new RedactOperation(makeRequest(src, dest, {0}, false));
+    connect(op, &RedactOperation::finished, op,
+            [op](const RedactResult&) { delete op; });
+
+    op->run(); // must return without touching freed state
+
+    QVERIFY2(QFileInfo::exists(dest),
+             "the run deleted from its own finished() slot must still complete "
+             "its transaction");
+}
+
+// The deterministic pre-fix anchor: the page-boundary hook (called from INSIDE
+// ExecutionState::execute(), outside any signal emission) deletes the owner.
+// Pre-fix, run() held no local reference: ~RedactOperation freed the
+// execution state while execute() was still running on it — every subsequent
+// member access (cancel flag, request, config mutex) was use-after-free, and
+// the transaction could not complete truthfully. Post-fix the local strong
+// reference carries the run to completion; the destroyed owner receives no
+// finished() callback.
+void TestRedactTransaction::syncOwnerDeletedAtPageBoundaryRunCompletesWithoutCallbacks() {
+    const QString src = createPdf("ncr02hook.pdf", 1);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QString dest = m_tmpDir.filePath("ncr02hook_redacted.pdf");
+
+    std::atomic<bool> opDestroyed{false};
+    std::atomic<int> finishedCount{0};
+    auto* op = new RedactOperation(makeRequest(src, dest, {0}, false));
+    op->setPageBoundaryHook([op, &opDestroyed](int) {
+        if (opDestroyed.exchange(true)) return;
+        delete op; // free the owner mid-execute — the state must survive
+    });
+    // Receiver outlives the operation (the test object), direct connection.
+    connect(op, &RedactOperation::finished, this,
+            [&finishedCount](const RedactResult&) { ++finishedCount; });
+
+    op->run();
+    QVERIFY(opDestroyed.load());
+    QVERIFY2(QFileInfo::exists(dest),
+             "the run whose owner died mid-execute must complete on the "
+             "durable state");
+    QCOMPARE(int(finishedCount.load()), 0); // no callback past the owner's death
+}
+
+// ── N08 residual: horizontal fit, measured on the saved artifact ─────────────
+// The overlay label's advance width comes from the test's own PoDoFo oracle
+// (Helvetica at 7pt) — the production skip/center decisions must agree with
+// that measurement, not with a private guess.
+
+// A box NARROWER than the label's advance width (but tall enough vertically)
+// must SKIP the label: no squeeze, no sideways overflow, excision untouched.
+void TestRedactTransaction::overlaySkippedWhenBoxTooNarrow() {
+    const QString src = createPdf("n08narrow.pdf", 1);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QString dest = m_tmpDir.filePath("n08narrow_redacted.pdf");
+
+    // The label the production path would draw, measured independently.
+    const QByteArray label = QByteArrayLiteral("CLASSIFIED");
+    PoDoFo::PdfMemDocument oracle;
+    oracle.GetPages().CreatePage(
+        PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+    auto& font = oracle.GetFonts().GetStandard14Font(
+        PoDoFo::PdfStandard14FontType::Helvetica);
+    PoDoFo::PdfTextState state;
+    state.Font = &font;
+    state.FontSize = kTestOverlayFontSize;
+    const double textWidth = font.GetStringLength(label.constData(), state);
+    QVERIFY2(textWidth > 10.0, "oracle must produce a plausible advance width");
+
+    const OverlayExtents ext = overlayFontExtents(kTestOverlayFontSize);
+    // Height: exactly the metric minimum (vertically legal). Width: 60% of the
+    // label's advance width — provably too narrow. The band still crosses the
+    // secret's baseline (pdf y=700), so the box IS burned in.
+    RedactRequest req = makeRequest(src, dest, {0}, false);
+    req.redactionsByPage.clear();
+    req.redactionsByPage[0].append(QRectF(40, 138.5, textWidth * 0.6, ext.extent));
+    req.overlayText = QString::fromLatin1(label);
+    RedactOperation op(req);
+    const RedactResult r = runOp(&op);
+    QVERIFY2(r.outcome == RedactOutcome::Completed, qPrintable(errText(r)));
+
+    // The label must be ABSENT (skipped) while the excision still happened and
+    // the surviving public text is untouched.
+    const QString text = pageText(dest, 0);
+    QVERIFY2(!text.contains(QString::fromLatin1(label)),
+             qPrintable(QStringLiteral("label must be skipped on a box narrower "
+                                      "than its %1pt advance width: %2")
+                            .arg(textWidth).arg(text)));
+    QVERIFY2(!text.contains(QLatin1String("TOPSECRET_DATA")), qPrintable(text));
+    QVERIFY2(text.contains(QLatin1String("PUBLIC_KEEP_TEXT")), qPrintable(text));
+}
+
+// A drawn label must be horizontally CENTERED: the Td x operand equals
+// boxLeft + (boxWidth - measuredAdvance)/2, on the committed artifact.
+void TestRedactTransaction::overlayCenteredHorizontallyInWideBox() {
+    const QString src = createPdf("n08center.pdf", 1);
+    QVERIFY2(!src.isEmpty(), "fixture creation failed");
+    const QString dest = m_tmpDir.filePath("n08center_redacted.pdf");
+
+    const QByteArray label = QByteArrayLiteral("CLASSIFIED");
+    PoDoFo::PdfMemDocument oracle;
+    oracle.GetPages().CreatePage(
+        PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+    auto& font = oracle.GetFonts().GetStandard14Font(
+        PoDoFo::PdfStandard14FontType::Helvetica);
+    PoDoFo::PdfTextState state;
+    state.Font = &font;
+    state.FontSize = kTestOverlayFontSize;
+    const double textWidth = font.GetStringLength(label.constData(), state);
+
+    const double boxX = 40.0, boxW = 300.0, boxY = 138.5;
+    RedactRequest req = makeRequest(src, dest, {0}, false);
+    req.redactionsByPage.clear();
+    req.redactionsByPage[0].append(QRectF(boxX, boxY, boxW, 20.0));
+    req.overlayText = QString::fromLatin1(label);
+    RedactOperation op(req);
+    const RedactResult r = runOp(&op);
+    QVERIFY2(r.outcome == RedactOutcome::Completed, qPrintable(errText(r)));
+
+    // Read the drawn text op back from the saved artifact.
+    PoDoFo::PdfMemDocument out;
+    out.Load(dest.toUtf8().constData()); // throws on failure -> test aborts
+    const PoDoFo::charbuff content =
+        out.GetPages().GetPageAt(0).GetContents()->GetCopy();
+    const QByteArray stream(content.data(), static_cast<int>(content.size()));
+    OverlayTextOp drawn;
+    QVERIFY2(findWhiteOverlayOp(stream, &drawn),
+             "the wide box must carry the overlay label");
+    const double expectedX = boxX + (boxW - textWidth) / 2.0;
+    QVERIFY2(qAbs(drawn.x - expectedX) < 1e-6,
+             qPrintable(QStringLiteral("label drawn at x=%1, expected centered "
+                                      "x=%2 (advance %3pt)")
+                            .arg(drawn.x).arg(expectedX).arg(textWidth)));
+    // And the label is extractable from the committed page (it was drawn).
+    QVERIFY2(pageText(dest, 0).contains(QString::fromLatin1(label)),
+             "centered label must be present on the committed page");
 }
 
 QTEST_MAIN(TestRedactTransaction)
