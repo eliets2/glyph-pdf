@@ -2,9 +2,14 @@ name: CI
 
 on:
   push:
-    # Run on main and the active audit-remediation branch so regressions are
-    # caught before a merge. AR-12 D3: CI must gate every push, not just main.
-    branches: [ main, audit-remediation ]
+    # INF04: run on main plus stable branch PATTERNS so active remediation
+    # branches (feat/parity-glm, future feat/* lanes) trigger CI on every
+    # push — the old literal allowlist [main, audit-remediation] excluded the
+    # active branch entirely. PRs to main keep their own trigger.
+    branches:
+      - main
+      - 'feat/**'
+      - 'audit-remediation'
   pull_request:
     branches: [ main ]
 
