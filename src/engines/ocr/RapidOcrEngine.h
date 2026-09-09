@@ -15,6 +15,17 @@ public:
     RapidOcrEngine();
     ~RapidOcrEngine() override;
 
+    // G11 (QUALITY-GATE-2026-09-09): REAL readiness check for the model set in
+    // `modelsDir`, shared with the engine — it builds the same Ort::Session
+    // objects initialize() would build over the detector and recognizer files
+    // in that directory (the textline classifier stays optional). File
+    // presence alone is NOT readiness: arbitrary non-empty .onnx payloads
+    // fail ONNX protobuf parsing, and only an actual load proves the set is
+    // usable. No shared state (a throw-away environment per call); on failure
+    // *errorOut (when non-null) carries the engine's own reason. Builds
+    // without onnxruntime always report false — they cannot run the models.
+    static bool verifyModelsIn(const QString &modelsDir, QString *errorOut = nullptr);
+
     // Initialize ONNXRuntime environment and load det/cls/rec models
     bool initialize(const QString &language = "eng", const QString &dataPath = "") override;
 
