@@ -2,9 +2,18 @@
 # fuzz/build_clang/build_djot_clang.sh
 #
 # Build the P3 djot libFuzzer harness (harness_djot.cpp) WITH clang + libFuzzer
-# + ASan/UBSan. SCAFFOLDED: this environment (ucrt64) has only g++ and no
-# compiler-rt/libFuzzer, so this script is the exact recipe to run once a clang
-# toolchain is provisioned (see fuzz/MANIFEST.md "BUILD MATRIX").
+# + ASan/UBSan.
+#
+# INF06 contract (2026-09-07 infrastructure review): this script must FAIL —
+# never exit 0 — when the harness cannot be built. A green CI result has to
+# mean "built, ran, and survived". A deliberately unavailable clang must be
+# represented by SKIPPING the CI job (a job-level `if:` condition), not by a
+# zero exit code here.
+#
+# The repository root is derived from THIS SCRIPT's location, so the script
+# works from any checkout/worktree and any working directory (it used to
+# hardcode /c/Users/User/Projects/pdf, which silently targeted the wrong tree
+# and could not exist on the Ubuntu CI runner at all).
 #
 # Provision clang on MSYS2 ucrt64:
 #   pacman -S mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-compiler-rt
@@ -16,19 +25,26 @@
 # fuzz/build_clang/ so the whole chain is one compiler -- the correct approach
 # per the MSan/instrumentation rule (whole-chain consistency).
 set -eu
-ROOT="/c/Users/User/Projects/pdf"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
-export PATH="/c/msys64/ucrt64/bin:$PATH"
+# ucrt64 toolchain when run from an MSYS2 environment; harmless elsewhere.
+[ -d /c/msys64/ucrt64/bin ] && export PATH="/c/msys64/ucrt64/bin:$PATH"
 CLANGXX="${CLANGXX:-clang++}"
 CLANG="${CLANG:-clang}"
 OUT="fuzz/build_clang"
 mkdir -p "$OUT/obj" fuzz/bin
 
 if ! command -v "$CLANGXX" >/dev/null 2>&1; then
-  echo "ERROR: clang++ not found. Install:"
-  echo "  pacman -S mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-compiler-rt"
-  echo "Then re-run. (This script is intentionally a no-op without clang.)"
-  exit 0
+  echo "ERROR: clang++ ('$CLANGXX') not found — refusing to report success (INF06)." >&2
+  echo "  Provision with: pacman -S mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-compiler-rt" >&2
+  echo "  (Ubuntu runners: sudo apt-get install clang)" >&2
+  echo "  To skip this target deliberately, gate the CI JOB with a condition — do not" >&2
+  echo "  turn this script's failure into a green result." >&2
+  exit 1
+fi
+if ! command -v "$CLANG" >/dev/null 2>&1; then
+  echo "ERROR: clang ('$CLANG') not found — refusing to report success (INF06)." >&2
+  exit 1
 fi
 
 SAN="-fsanitize=fuzzer-no-link,address,undefined -fno-omit-frame-pointer -g -O1"
@@ -53,6 +69,12 @@ echo "[3] build + link the fuzzer"
   -DDJOT_LIB_PATH="\"$ROOT/third_party/djot\"" \
   fuzz/harnesses/harness_djot.cpp "$OUT"/obj/*.o \
   -o fuzz/bin/djot_fuzzer
+
+# INF06: a build that produces no executable must not exit 0.
+if [ ! -x fuzz/bin/djot_fuzzer ]; then
+  echo "ERROR: fuzz/bin/djot_fuzzer missing after link — build did not produce the harness." >&2
+  exit 1
+fi
 
 echo "OK -> fuzz/bin/djot_fuzzer"
 echo "Run:  ASAN_OPTIONS=abort_on_error=1:allocator_may_return_null=1 \\"
