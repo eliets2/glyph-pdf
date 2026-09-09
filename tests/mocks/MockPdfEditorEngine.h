@@ -51,6 +51,23 @@ public:
         }
         return saveDocument(outputPath);
     }
+    // G04 (QUALITY-GATE-2026-09-09): engine-owned resident-load identity and
+    // the identity+path-guarded overload. Again NO `override` — the members
+    // compile as plain members against pre-fix baselines and implement the
+    // interface post-fix. Tests simulate a reload by bumping m_loadId.
+    qint64 documentLoadId() const { return m_loadId; }
+    qint64 m_loadId = 1;
+    bool saveDocumentIfCurrent(const QString &expectedCurrentFile, qint64 expectedLoadId,
+                               const QString &outputPath) {
+        ++m_saveIfCurrentCalls;
+        m_lastIfCurrentExpected = expectedCurrentFile;
+        saveGatePass();
+        if (m_file != expectedCurrentFile || m_loadId != expectedLoadId) {
+            m_lastIfCurrentRefusal = expectedCurrentFile;
+            return false;
+        }
+        return saveDocument(outputPath);
+    }
     bool editTextInline(int, const QRectF &, const QString &,
                         const QString & = {}, int = 0, const QColor & = Qt::black,
                         bool = false, bool = false, int = 0) override { return m_loaded; }

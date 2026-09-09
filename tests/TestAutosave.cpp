@@ -6,8 +6,14 @@
 #include <QThread>
 #include <QSemaphore>
 #include <QTemporaryDir>
+#include <QThreadPool>
+#include <QtConcurrent/QtConcurrent>
+#include <QPdfWriter>
+#include <QPainter>
 #include "engines/AutosaveManager.h"
 #include "engines/DocumentSession.h"
+#include "engines/PdfEditorEngine.h"
+#include "engines/pdfium/PdfiumBackend.h"
 #include "mocks/MockPdfEditorEngine.h"
 
 class TestAutosave : public QObject {
@@ -17,6 +23,45 @@ class TestAutosave : public QObject {
         QFile f(path);
         if (!f.open(QIODevice::ReadOnly)) return {};
         return f.readAll();
+    }
+    // Real one-page PDF with an extractable marker — hand-built byte-exact
+    // xref (TestPagesMode idiom): no QPainter/QFontDatabase, so it works in a
+    // QCoreApplication test while still being a real, PDFium-readable file.
+    static bool makeMarkerPdf(const QString &path, const QString &marker)
+    {
+        QByteArray lit = marker.toLatin1();
+        lit.replace('\\', "\\\\").replace('(', "\\(").replace(')', "\\)");
+        QByteArray content = "BT /F1 12 Tf 72 720 Td (" + lit + ") Tj ET\n";
+        QByteArray pdf = "%PDF-1.4\n";
+        QList<qint64> offsets;
+        offsets.append(pdf.size());
+        pdf += "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n";
+        offsets.append(pdf.size());
+        pdf += "2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n";
+        offsets.append(pdf.size());
+        pdf += "3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents 4 0 R"
+               "/Resources<</Font<</F1 5 0 R>>>>>>endobj\n";
+        offsets.append(pdf.size());
+        pdf += "4 0 obj<</Length " + QByteArray::number(content.size())
+             + ">>stream\n" + content + "endstream endobj\n";
+        offsets.append(pdf.size());
+        pdf += "5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica/Encoding/WinAnsiEncoding>>endobj\n";
+        const qint64 xref = pdf.size();
+        pdf += "xref\n0 6\n0000000000 65535 f \n";
+        for (qint64 off : offsets)
+            pdf += QByteArray::number(static_cast<qulonglong>(off))
+                       .rightJustified(10, '0') + " 00000 n \n";
+        pdf += "trailer<</Size 6/Root 1 0 R>>\nstartxref\n"
+             + QByteArray::number(static_cast<qulonglong>(xref)) + "\n%%EOF\n";
+        QFile f(path);
+        if (!f.open(QIODevice::WriteOnly)) return false;
+        return f.write(pdf) == pdf.size();
+    }
+    static QString extractedText(const QString &path)
+    {
+        PdfiumBackend backend;
+        if (!backend.loadDocument(path)) return {};
+        return backend.extractText(0);
     }
 private slots:
     void testIntervalClamping() {
@@ -245,6 +290,76 @@ private slots:
         QCOMPARE(readAllOpened(bAutosave), QByteArray("resident=") + b.toUtf8());
         QVERIFY(!doc->lastAutosave().isNull());
         QVERIFY(!QFileInfo::exists(a + ".autosave.pdf"));
+    }
+
+    // ── G04 (P1, QUALITY-GATE-2026-09-09) ───────────────────────────────────
+    // The gate's EC02 residual, against the REAL engine: the EC02 path-string
+    // check alone accepts a REPLACED document. Queue a dirty A's autosave
+    // behind a deterministic worker barrier; switch to B; replace A on disk
+    // and re-open it (A→B→A, same path, new incarnation); release the worker.
+    // The old recovery file must NEVER be overwritten: byte-identical
+    // OLD_RECOVERY_A survives, no temp is left, the run is reported stale.
+    // (Pre-fix the string matched, the new incarnation's bytes were saved into
+    // A's recovery file and autosaveCompleted was emitted.)
+    void testAutosaveRejectsReplacedSamePathDocument()
+    {
+        QTemporaryDir dir;
+        const QString a = dir.filePath("a.pdf");
+        const QString b = dir.filePath("b.pdf");
+        QVERIFY(makeMarkerPdf(a, QStringLiteral("OLD_A")));
+        QVERIFY(makeMarkerPdf(b, QStringLiteral("B_DOC")));
+        QVERIFY(makeMarkerPdf(a + ".autosave.pdf", QStringLiteral("OLD_RECOVERY_A")));
+        const QByteArray recoveryBefore = readAllOpened(a + ".autosave.pdf");
+
+        auto editor = std::make_shared<PdfEditorEngine>();
+        auto doc = std::make_shared<DocumentSession>();
+        AutosaveManager manager(editor, doc);
+
+        // Deterministic barrier: occupy the single worker thread BEFORE the
+        // autosave future is queued, so the whole A→B→A(replace) sequence
+        // lands while the autosave is still pending. No sleeps.
+        QThreadPool* pool = QThreadPool::globalInstance();
+        const int capacity = pool->maxThreadCount();
+        pool->setMaxThreadCount(1);
+        QSemaphore barrierReady, barrierGo;
+        (void)QtConcurrent::run([&] { barrierReady.release(); barrierGo.acquire(); });
+        barrierReady.acquire();
+
+        QVERIFY(editor->loadDocumentForEditing(a));
+        doc->beginDocument(a);
+        doc->markDirty();
+
+        QSignalSpy completeSpy(&manager, &AutosaveManager::autosaveCompleted);
+        QSignalSpy failedSpy(&manager, &AutosaveManager::autosaveFailed);
+        // Runtime string connect: compiles on baselines without the signal.
+        QSignalSpy staleSpy(&manager, SIGNAL(autosaveStale(QString)));
+
+        QMetaObject::invokeMethod(&manager, "onTick", Qt::DirectConnection);
+
+        // A→B→A with A REPLACED on disk: same path, new incarnation.
+        QVERIFY(editor->loadDocumentForEditing(b));
+        doc->beginDocument(b);
+        QVERIFY(makeMarkerPdf(a, QStringLiteral("NEW_INCARNATION_A")));
+        QVERIFY(editor->loadDocumentForEditing(a));
+        doc->beginDocument(a);
+
+        barrierGo.release();
+        QVERIFY(QTest::qWaitFor([&] {
+            return completeSpy.count() + failedSpy.count() + staleSpy.count() > 0;
+        }, 10000));
+        pool->waitForDone();
+        pool->setMaxThreadCount(capacity);
+
+        // The captured recovery file is untouched — byte-identical, still the
+        // OLD recovery content.
+        QCOMPARE(readAllOpened(a + ".autosave.pdf"), recoveryBefore);
+        QVERIFY2(extractedText(a + ".autosave.pdf").contains(QStringLiteral("OLD_RECOVERY_A")),
+                 "the recovery file must still hold the old recovery content");
+        QVERIFY(!QFileInfo::exists(a + ".autosave.pdf.tmp"));
+        QCOMPARE(completeSpy.count(), 0);
+        QCOMPARE(staleSpy.count(), 1);
+        QCOMPARE(failedSpy.count(), 0);
+        QVERIFY(doc->lastAutosave().isNull());
     }
 
     void testFindOrphanedAutosaves() {
