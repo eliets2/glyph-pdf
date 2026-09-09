@@ -994,8 +994,7 @@ void BatchMode::onRunClicked() {
     m_errorLog.clear();
     m_successCount = 0;
     m_failCount    = 0;
-    m_accountedResultIdx = 0;   // §9.12 P1: per-run result accounting cursor
-    m_mergeRun     = false;
+    m_accountedIndices.clear();   // G12: per-run exactly-once accounting ledger
     m_exportLogBtn->setVisible(false);
     m_runBtn->setEnabled(false);
     m_cancelBtn->setEnabled(true);
@@ -1453,16 +1452,19 @@ void BatchMode::startMergeWorker(const QStringList& files, const QString& outPat
             qCritical() << "BatchMode merge: unknown error saving" << outPath;
         }
     };
-    m_mergeRun = true; // onBatchFinished drains lagging results (merge ordering)
     m_watcher.setFuture(QtConcurrent::run(mergeWorker));
 }
 
-// §9.12 P1: per-result accounting shared by the resultReadyAt handler and the
-// merge drain in onBatchFinished. `idx` is the worker-report index (merge:
-// strict file order; mapped ops: completion order — only the count matters).
+// §9.12 P1 / G12: per-result accounting shared by the resultReadyAt handler
+// and the completion drain in onBatchFinished. `idx` is the worker-report
+// index (merge: strict file order; mapped ops: completion order — only the
+// count matters). The m_accountedIndices ledger guarantees every completed
+// result is reconciled EXACTLY ONCE, however its delivery races the summary.
 void BatchMode::accountResultAt(int idx) {
+    if (m_accountedIndices.contains(idx))
+        return;                 // G12: a late queued callback cannot double count
+    m_accountedIndices.insert(idx);
     BatchFileResult res = m_watcher.resultAt(idx);
-    ++m_accountedResultIdx;
     int completed = m_successCount + m_failCount + 1;
     int total = m_filesToProcess.size();
 
@@ -1526,14 +1528,19 @@ void BatchMode::onBatchProgress(int value) {
 }
 
 void BatchMode::onBatchFinished() {
-    // §9.12 P1: the merge worker reports results strictly in file order, but
-    // the final resultReadyAt callout can land just after the finished
-    // callout. Drain reported-but-unaccounted results so the summary below
-    // never under-counts the last file. (Merge runs only — the drain relies
-    // on the single worker's ordering; the per-file mapped ops are untouched.)
-    if (m_mergeRun) {
-        while (m_accountedResultIdx < m_watcher.future().resultCount())
-            accountResultAt(m_accountedResultIdx);
+    // G12 (QUALITY-GATE-2026-09-09): reconcile EVERY completed result exactly
+    // once, for ALL batch modes, BEFORE the summary/finished contract. The
+    // resultReadyAt deliveries of the mapped (watermark / PDF/A / redact / …)
+    // workers are queued and can land after this finished callout — the
+    // merge-only drain left them out, so the summary showed
+    // "0 of 0 succeeded, 1 not processed" for a batch that had actually
+    // succeeded. `finished` implies every result is already reported, so read
+    // the unaccounted indices straight from the future; the ledger makes
+    // callbacks that were merely queued late no-ops.
+    const int reported = m_watcher.future().resultCount();
+    for (int i = 0; i < reported; ++i) {
+        if (!m_accountedIndices.contains(i))
+            accountResultAt(i);
     }
     m_overallProgress->setValue(100);
     m_fileProgress->setValue(100);
