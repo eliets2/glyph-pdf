@@ -4,7 +4,7 @@
 //
 // The gate's architecture/probe reproduction (RECOVERY_SAVE_OUTCOME /
 // RECOVERY_CLOSE_ACCEPTED), pinned as a regression suite. Pre-fix recovery
-// left the session path at the original while viewer/editor held
+// left the session path at the original while viewer/engine held
 // `<original>.autosave.pdf`; Save used the viewer's path, returned Saved, and
 // left the ORIGINAL byte-identical (still ORIGINAL_BEFORE_RECOVERY), the
 // session dirty — and the close handler accepted anyway.
@@ -16,6 +16,17 @@
 //   * consumes the recovery copy,
 // so a close-after-Save accepts against a truthful state.
 //
+// Merge-break integration contract (2026-09-09): the STARTUP orphan-recovery
+// prompt must never fire for the LIVE recovery pair. recoverDocument()
+// publishes the original to recents while the recovery input
+// (`<original>.autosave.pdf`) is newer than the original BY CONSTRUCTION, so
+// the deferred startup detector flagged the very document being recovered and
+// popped a modal over the active session (a hang in a harness that does not
+// dismiss it; the pre-fix misfire was mtime-racy because NTFS quantization
+// sometimes made the fixture timestamps equal). The fixture backdates the
+// original so "autosave strictly newer" is DETERMINISTIC, and the dismissal
+// watchdog records whether any startup prompt listed the live pair.
+//
 // Real MainWindow over the real Bootstrapper context, real generated PDFs,
 // offscreen. No post-fix-only API is referenced (revert-verification safe).
 #include <QtTest/QtTest>
@@ -24,7 +35,9 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QCloseEvent>
+#include <QDateTime>
 #include <QSettings>
+#include <QTimer>
 
 #include "GpMainWindow.h"
 #include "app/Bootstrapper.h"
@@ -32,6 +45,7 @@
 #include "shell/controllers/HomeController.h"
 #include "engines/DocumentSession.h"
 #include "ui/PdfViewerWidget.h"
+#include "ui/RecoveryDialog.h"
 #include "engines/pdfium/PdfiumBackend.h"
 
 using gp::MainWindow;
@@ -91,6 +105,25 @@ QString textOf(const QString &pdf)
 class TestRecoverySave : public QObject {
     Q_OBJECT
 
+    // Dismisses any STARTUP recovery prompt (RecoveryDialog) that a previous
+    // killed run's leftover pair may legitimately trigger. "Decide Later"
+    // touches no files. The dismissal RECORDS whether a prompt ever listed
+    // the CURRENT test's live recovery pair — that is the integration bug.
+    QTimer *m_modalDismiss = nullptr;
+    bool m_livePairFlagged = false;
+    QString m_livePairOriginal;
+
+    void beginLivePair(const QString &originalPath)
+    {
+        m_livePairFlagged = false;
+        m_livePairOriginal = originalPath;
+    }
+
+    void endLivePair()
+    {
+        m_livePairOriginal.clear();
+    }
+
 private slots:
     void initTestCase()
     {
@@ -99,9 +132,38 @@ private slots:
         QCoreApplication::setOrganizationName(QStringLiteral("GlyphPDFTests"));
         QCoreApplication::setApplicationName(QStringLiteral("TestRecoverySave"));
         QSettings::setDefaultFormat(QSettings::IniFormat);
+
+        m_modalDismiss = new QTimer(this);
+        m_modalDismiss->setInterval(10);
+        connect(m_modalDismiss, &QTimer::timeout, this, [this] {
+            for (auto *w : QApplication::topLevelWidgets()) {
+                if (auto *dlg = qobject_cast<RecoveryDialog *>(w)) {
+                    // selectedFiles() returns ALL listed orphans (every item
+                    // defaults to checked) — the honest record of what the
+                    // startup detector flagged.
+                    const QStringList listed = dlg->selectedFiles();
+                    if (!m_livePairOriginal.isEmpty()
+                        && listed.contains(m_livePairOriginal))
+                        m_livePairFlagged = true;
+                    qWarning() << "TestRecoverySave: dismissing a startup "
+                                  "recovery prompt listing" << listed;
+                    dlg->done(RecoveryDialog::Later);   // touches no files
+                }
+            }
+        });
+        m_modalDismiss->start();
+    }
+
+    void cleanupTestCase()
+    {
+        if (m_modalDismiss) m_modalDismiss->stop();
     }
 
     // THE G05 reproduction: recover → Save → close.
+    // ALSO the merge-break integration regression: with the fixture pair's
+    // original backdated (recovery pairs are autosave-newer BY DEFINITION),
+    // the pre-fix startup orphan detector flagged the LIVE pair and popped a
+    // modal over the active recovery session. Post-fix it must never fire.
     void recoverySaveCommitsToOriginalAndCloseVerifies()
     {
         QTemporaryDir dir;
@@ -114,12 +176,36 @@ private slots:
         QVERIFY(!recovery.isEmpty());
         const QByteArray originalBefore = readFileBytes(original);
 
+        // Deterministic misfire precondition: the recovery input is strictly
+        // newer than the original (backdate the original by a minute).
+        {
+            QFile originalFile(original);
+            // ReadWrite: setFileTime() requires a handle with write access
+            // (no truncate flag — the fixture bytes are preserved).
+            QVERIFY(originalFile.open(QIODevice::ReadWrite));
+            QVERIFY(originalFile.setFileTime(
+                QDateTime::currentDateTimeUtc().addSecs(-60),
+                QFileDevice::FileModificationTime));
+            originalFile.close();
+        }
+
         MainWindow win(Bootstrapper::createContext());
         const auto *ctx = win.appContext();
         QVERIFY(ctx && ctx->document && ctx->pdfEditor);
 
+        beginLivePair(original);
         win.recoverDocument(original);
-        QTest::qWait(50);
+        QTest::qWait(120);   // let the deferred startup orphan check run
+
+        // THE integration assertion: no startup prompt may have listed the
+        // live recovery pair (a Discard dismissal would even have deleted
+        // the recovery input out from under the active session).
+        QVERIFY2(!m_livePairFlagged,
+                 "the startup orphan-recovery prompt must never fire for the "
+                 "live recovery pair");
+        QVERIFY2(QFile::exists(recovery),
+                 "the live recovery input must not be touched by a startup prompt");
+
         // Recovery state: session on the ORIGINAL, inputs on the recovery copy.
         QCOMPARE(ctx->document->path(), original);
         QCOMPARE(win.pdfViewer()->filePath(), recovery);
@@ -128,6 +214,7 @@ private slots:
         gp::HomeController home(ctx, &win);
         const auto outcome = home.saveNow();
         QCOMPARE(outcome, gp::HomeController::SaveOutcome::Saved);
+        endLivePair();
 
         // One recovered-document identity: viewer/engine/session all describe
         // the committed ORIGINAL (pre-fix the viewer stayed on the side file).
@@ -159,7 +246,8 @@ private slots:
 
     // Control: recovery followed by Discard-at-close keeps the original on
     // disk untouched (the un-committed recovery copy stays available) — no
-    // silent data destruction either way.
+    // silent data destruction either way. The live-pair prompt suppression
+    // applies here too.
     void unrecoveredOriginalStaysUntouched()
     {
         QTemporaryDir dir;
@@ -170,13 +258,29 @@ private slots:
         QVERIFY(!makePdf(original + ".autosave.pdf",
                          QStringLiteral("RECOVERED_NEW_CONTENT")).isEmpty());
         const QByteArray originalBefore = readFileBytes(original);
+        {
+            QFile originalFile(original);
+            // ReadWrite: setFileTime() requires a handle with write access
+            // (no truncate flag — the fixture bytes are preserved).
+            QVERIFY(originalFile.open(QIODevice::ReadWrite));
+            QVERIFY(originalFile.setFileTime(
+                QDateTime::currentDateTimeUtc().addSecs(-60),
+                QFileDevice::FileModificationTime));
+            originalFile.close();
+        }
 
         MainWindow win(Bootstrapper::createContext());
+        beginLivePair(original);
         win.recoverDocument(original);
-        QTest::qWait(50);
+        QTest::qWait(120);
+
+        QVERIFY2(!m_livePairFlagged,
+                 "the startup orphan-recovery prompt must never fire for the "
+                 "live recovery pair");
         // No Save: the original must remain byte-identical on disk.
         QCOMPARE(readFileBytes(original), originalBefore);
         QVERIFY(QFile::exists(original + ".autosave.pdf"));
+        endLivePair();
     }
 };
 
