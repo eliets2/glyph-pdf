@@ -576,6 +576,12 @@ void MainWindow::recoverDocument(const QString& originalPath) {
         if (_ctx && _ctx->document) {
             _ctx->document->beginDocument(originalPath);
             _ctx->document->markDirty();
+            // G05 (QUALITY-GATE-2026-09-09): publish the recovery identity —
+            // the session's path (the DESTINATION) is the original, while the
+            // editing inputs hold the recovery copy (the INPUT). Save routes
+            // the recovered content to the destination and clears this
+            // binding only after the committed revision is re-anchored.
+            _ctx->document->setRecoverySource(autosavePath);
             // ARC07: the recovered copy is a NEW document identity — decide
             // its editability explicitly. The autosave copy carries the
             // original's §9.11 expiry metadata, so a recovered expired

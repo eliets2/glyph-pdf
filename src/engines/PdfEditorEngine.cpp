@@ -46,6 +46,12 @@ public:
     std::unique_ptr<PoDoFoBackend> backend;
     mutable QRecursiveMutex mutex;
     mutable ErrorInfo lastErr;
+    // G04 (QUALITY-GATE-2026-09-09): engine-owned identity of the resident
+    // LOAD. Bumped on every successful loadDocumentForEditing — including a
+    // same-path reopen (A→A) — so a deferred writer that captured the
+    // identity of an earlier incarnation can never serialize a REPLACED
+    // document just because the path string still matches.
+    qint64 loadId = 0;
 
     void clearErr() const { lastErr = ErrorInfo{}; }
 
@@ -112,6 +118,7 @@ bool PdfEditorEngine::loadDocumentForEditing(const QString &filePath)
 
     if (podofoBackend->loadDocument(filePath)) {
         d->backend = std::move(podofoBackend);
+        ++d->loadId;   // G04: a new resident incarnation (same path included)
         return true;
     }
 
@@ -245,6 +252,35 @@ bool PdfEditorEngine::saveDocumentIfCurrent(const QString &expectedCurrentFile,
                   QStringLiteral("saveDocumentIfCurrent: resident document is '%1', "
                                  "expected '%2'")
                       .arg(d->backend->currentFile(), expectedCurrentFile));
+        return false;
+    }
+    return saveDocument(outputPath);
+}
+
+qint64 PdfEditorEngine::documentLoadId() const
+{
+    QMutexLocker locker(&d->mutex);
+    return d->loadId;
+}
+
+bool PdfEditorEngine::saveDocumentIfCurrent(const QString &expectedCurrentFile,
+                                            qint64 expectedLoadId,
+                                            const QString &outputPath)
+{
+    // G04: the PATH and the resident-LOAD identity are both checked under the
+    // same serialization lock — a re-opened document at the SAME path (A→B→A
+    // or A→A) is a different incarnation and refuses the save before any
+    // recovery output is touched.
+    QMutexLocker locker(&d->mutex);
+    if (!d->backend) return d->noBackend("saveDocumentIfCurrent");
+    if (d->backend->currentFile() != expectedCurrentFile || d->loadId != expectedLoadId) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("The document changed while this operation was starting; "
+                              "nothing was written."),
+                  QStringLiteral("saveDocumentIfCurrent: resident document is '%1' "
+                                 "(load id %2), expected '%3' (load id %4)")
+                      .arg(d->backend->currentFile()).arg(d->loadId)
+                      .arg(expectedCurrentFile).arg(expectedLoadId));
         return false;
     }
     return saveDocument(outputPath);
