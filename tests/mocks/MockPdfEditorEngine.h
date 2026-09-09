@@ -116,7 +116,10 @@ public:
     // deterministically.
     bool pageCropBoxInfo(const QString &, int, QRectF *outBox, int *outOrigin) {
         if (outBox) *outBox = QRectF(0, 0, 595, 842);
-        if (outOrigin) *outOrigin = IPdfEditorEngine::kCropBoxExplicit;
+        // literal 1 == IPdfEditorEngine::kCropBoxExplicit (G07 origin codes;
+        // written as a literal so this header still compiles against pre-fix
+        // baselines during revert verification, where the constant is absent)
+        if (outOrigin) *outOrigin = 1;
         return m_loaded && !m_cropSnapshotFails;
     }
     bool removePageCropBox(const QString &, int) {
