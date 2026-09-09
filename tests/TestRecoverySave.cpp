@@ -99,6 +99,19 @@ private slots:
         QCoreApplication::setOrganizationName(QStringLiteral("GlyphPDFTests"));
         QCoreApplication::setApplicationName(QStringLiteral("TestRecoverySave"));
         QSettings::setDefaultFormat(QSettings::IniFormat);
+
+        // QUALITY-GATE-2026-09-09 infra pin (the "TestReadOnlyGate fails in
+        // full suites with zero output / full-suite-only failures" family):
+        // this suite's MainWindow ctor runs findOrphanedAutosaves() over the
+        // PERSISTED recents and pops a RecoveryDialog for each recent whose
+        // .autosave.pdf is newer. recoverDocument() records its temp paths in
+        // recents, and ONE interrupted run (killed process, loader failure,
+        // crash) leaves its QTemporaryDir — with that newer autosave — behind.
+        // Every later suite run then blocks on a modal nobody dismisses
+        // (reproduced here: 300 s test-function timeout, deterministic once
+        // poisoned). This suite never relies on recents, so start clean.
+        QSettings settings;
+        settings.remove(QStringLiteral("recentFiles"));
     }
 
     // THE G05 reproduction: recover → Save → close.
