@@ -10,9 +10,17 @@
 //      and confirming the /Measure key exists).
 // Plus the negative control: an uncalibrated measurement persists the truthful
 // 1 pt scale, and a plain DrawLine still round-trips as DrawLine (no /Measure).
+//
+// Gate G22 regression lives here too:
+//   G22 — the perimeter tool measures a CLOSED boundary; the serialized
+//         /PolyLine /Vertices therefore include the closing segment (first
+//         vertex repeated last), so a reader that walks the stored path
+//         measures exactly the displayed label. The path length is verified
+//         FROM THE SERIALIZED BYTES and through PDFium, not just our helper.
 #include <QtTest/QtTest>
 #include <QTemporaryDir>
 #include <cmath>
+#include <vector>
 #include "engines/podofo/PoDoFoBackend.h"
 #include "core/MeasureCore.h"
 #include <podofo/podofo.h>
@@ -111,6 +119,13 @@ const AnnotationItem* findByMode(const QList<AnnotationItem>& list, ToolMode mod
     return nullptr;
 }
 
+// Open-path traversal of a serialized [x0 y0 x1 y1 …] vertex list — the
+// length ANY reader measures by walking the stored path (G22 contract).
+double serializedPathLength(const QList<QPointF>& pts)
+{
+    return gp::measure::polylineLength(pts);
+}
+
 } // namespace
 
 class TestMeasureRoundTrip : public QObject {
@@ -119,6 +134,7 @@ private slots:
     void distanceRoundTripsWithValues();
     void rawDictCarriesVerifiedMeasureSchema();
     void perimeterAndAreaRoundTrip();
+    void serializedPerimeterPathLengthMatchesLabel();
     void pdfiumReadPathSeesMeasureAnnots();
     void uncalibratedMeasurePersistsTruthfulPt();
     void plainLineWithoutMeasureStaysDrawLine();
@@ -289,6 +305,52 @@ void TestMeasureRoundTrip::perimeterAndAreaRoundTrip()
                      scaleFrom(a->measureUnitsPerPt, a->measureUnit, a->measureCalibrated, a->measureRatio)) - 16.0) < 1e-6);
 }
 
+void TestMeasureRoundTrip::serializedPerimeterPathLengthMatchesLabel()
+{
+    // G22: the perimeter tool measures the CLOSED boundary, so the SERIALIZED
+    // path — the only thing a second reader can measure — must encode the
+    // closing edge (first vertex repeated last). Label, stored vertices and
+    // path traversal must agree; verified from the bytes, not just our helper.
+    const QString out = saveCalibratedDoc();
+    PoDoFo::PdfMemDocument doc;
+    doc.Load(out.toUtf8().constData());
+    auto& page = doc.GetPages().GetPageAt(0);
+    const double H = page.GetMediaBox().Height;
+    auto& annos = page.GetAnnotations();
+
+    bool found = false;
+    for (unsigned i = 0; i < annos.GetCount(); ++i) {
+        const PoDoFo::PdfDictionary& d = annos.GetAnnotAt(i).GetDictionary();
+        const PoDoFo::PdfObject* sub = d.FindKey("Subtype");
+        if (!sub || !sub->IsName()
+            || std::string(sub->GetName().GetString()) != "PolyLine")
+            continue;
+        found = true;
+        const PoDoFo::PdfObject* v = d.FindKey("Vertices");
+        QVERIFY2(v && v->IsArray(), "PolyLine carries /Vertices");
+        QList<QPointF> serialized;
+        const auto& arr = v->GetArray();
+        for (size_t k = 0; k + 1 < arr.size(); k += 2)
+            serialized.append(QPointF(arr[k].GetReal(), H - arr[k + 1].GetReal()));
+        QCOMPARE(serialized.size(), 5);   // 4 corners + the closing vertex
+        QVERIFY(std::fabs(serialized.first().x() - serialized.last().x()) < 1e-9);
+        QVERIFY(std::fabs(serialized.first().y() - serialized.last().y()) < 1e-9);
+        // Walk the stored path: 4 × 72 pt = 288 pt ⇒ ×0.5 mm/pt = 144 mm.
+        const double walked = serializedPathLength(serialized);
+        QVERIFY(std::fabs(walked - 288.0) < 1e-6);
+        QVERIFY(std::fabs(convertLengthPt(walked, scaleFrom(0.5, QStringLiteral("mm"),
+                                                            true, QStringLiteral("1 mm = 2 pt")))
+                          - 144.0) < 1e-6);
+        // The persisted /Contents snapshot states the SAME number.
+        const PoDoFo::PdfObject* c = d.FindKey("Contents");
+        QVERIFY(c && c->IsString());
+        QCOMPARE(QString::fromUtf8(c->GetString().GetString().data(),
+                                   int(c->GetString().GetString().size())),
+                 QStringLiteral("144.00 mm"));
+    }
+    QVERIFY2(found, "PolyLine perimeter annotation present");
+}
+
 void TestMeasureRoundTrip::pdfiumReadPathSeesMeasureAnnots()
 {
 #ifdef HAS_PDFIUM
@@ -321,7 +383,23 @@ void TestMeasureRoundTrip::pdfiumReadPathSeesMeasureAnnots()
             QVERIFY(std::fabs(start.y - 782.0) < 1e-3);   // 792 − 10
             QVERIFY(std::fabs(end.x - 82.0) < 1e-3);
         }
-        if (st == FPDF_ANNOT_POLYLINE) QCOMPARE(FPDFAnnot_GetVertices(annot, nullptr, 0), 4ul);
+        if (st == FPDF_ANNOT_POLYLINE) {
+            // G22 through a SECOND engine: 4 logical corners + the serialized
+            // closing vertex, and the path IT reports walks out to exactly the
+            // displayed perimeter (288 pt ⇒ 144 mm at 0.5 mm/pt).
+            const unsigned long n = FPDFAnnot_GetVertices(annot, nullptr, 0);
+            QCOMPARE(n, 5ul);
+            std::vector<FS_POINTF> v(n);
+            QCOMPARE(FPDFAnnot_GetVertices(annot, v.data(), n), n);
+            double walked = 0.0;
+            for (unsigned long k = 1; k < n; ++k) {
+                const double dx = v[k].x - v[k - 1].x;
+                const double dy = v[k].y - v[k - 1].y;
+                walked += std::sqrt(dx * dx + dy * dy);
+            }
+            QVERIFY(std::fabs(walked - 288.0) < 1e-3);
+            QVERIFY(std::fabs(walked * 0.5 - 144.0) < 1e-3);
+        }
         if (st == FPDF_ANNOT_POLYGON)  QCOMPARE(FPDFAnnot_GetVertices(annot, nullptr, 0), 6ul);
         FPDFPage_CloseAnnot(annot);
     }

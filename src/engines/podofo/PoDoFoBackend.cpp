@@ -3470,10 +3470,23 @@ static void applyAnnotationsToDoc(PoDoFo::PdfMemDocument& doc,
                        || annotType == PoDoFo::PdfAnnotationType::Polygon) {
                 // T1 measurement: /Vertices is the flat [x0 y0 x1 y1 …] array in
                 // PDF user space (PolyLine = open path, Polygon = closed shape).
+                // G22: the perimeter tool measures the CLOSED boundary, but a
+                // /PolyLine carries an OPEN path — serializing a 4-vertex square
+                // without its closing edge makes every reader that walks the
+                // stored path measure 3 sides (108 mm) while our label says
+                // 144 mm. Serialize the closing segment explicitly (first vertex
+                // repeated last) so the stored path's length IS the displayed
+                // perimeter; /Polygon is implicitly closed by the spec (the area
+                // label is unaffected) and needs no repeat. The reader strips
+                // the duplicate to recover the logical vertices.
                 PoDoFo::PdfArray verts;
                 for (const auto& p : anno.points) {
                     verts.Add(p.x());
                     verts.Add(pageHeight - p.y());
+                }
+                if (anno.mode == ToolMode::MeasurePerimeter && !anno.points.isEmpty()) {
+                    verts.Add(anno.points.first().x());
+                    verts.Add(pageHeight - anno.points.first().y());
                 }
                 dict.AddKey("Vertices", verts);
             }
@@ -3844,6 +3857,20 @@ QList<AnnotationItem> PoDoFoBackend::extractAnnotations(const QString &inputPath
                                 if (pts[k].IsNumberOrReal() && pts[k+1].IsNumberOrReal())
                                     item.points.append(QPointF(pts[k].GetReal(),
                                                                pageHeight - pts[k+1].GetReal()));
+                            }
+                            // G22: our writer serializes the perimeter's closing
+                            // segment as a repeated first vertex so open-path
+                            // readers measure the closed boundary. Strip that
+                            // duplicate to recover the logical vertex set (the
+                            // closed-perimeter value is unchanged by the strip:
+                            // the removed closing distance is zero).
+                            if (item.mode == ToolMode::MeasurePerimeter
+                                && item.points.size() >= 3) {
+                                const QPointF& firstPt = item.points.first();
+                                const QPointF& lastPt = item.points.last();
+                                if (std::fabs(firstPt.x() - lastPt.x()) < 1e-6
+                                    && std::fabs(firstPt.y() - lastPt.y()) < 1e-6)
+                                    item.points.removeLast();
                             }
                         }
                     }
