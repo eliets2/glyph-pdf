@@ -429,3 +429,30 @@ open for their lanes, as do G07/G08/G10/G14 (unchanged markers confirmed by
 the post-fix probe runs). Full-suite gates at final HEAD:
 `.context/gateA-scratch/ctest-final.log`, `ctest-final-rerun.log`,
 `ctest-final-rerun2.log`.
+
+## 2026-09-09 merge integration repair — G05 × startup orphan prompt (feat/parity-glm)
+
+The merged tree (G-A 7f8cf95 + Gate B 1e1ff16 + cleanup) hung
+`TestRecoverySave::recoverySaveCommitsToOriginalAndCloseVerifies` (QtTest
+300 s function timeout in-suite; ctest Timeout 120 s). Root cause, proven by
+gdb attach (GUI thread parked in the dialog's event loop) and instrumented
+markers (`.context/gateA-merge/`): recoverDocument() publishes the original to
+recents while its recovery input is newer BY CONSTRUCTION; the deferred
+startup orphan check (findOrphanedAutosaves "autosave newer" heuristic) then
+flagged the LIVE pair and popped `RecoveryDialog.exec()` over the active
+session. The pre-fix misfire was mtime-racy (NTFS quantization sometimes made
+the fixture timestamps equal), which is why both merge parents were green and
+the break appeared only at the merge. NOT a CheckedHistory/G12 interaction.
+
+| ID | Surface | Finding | Status | Code | Regression test | Evidence | Commit | Residual |
+|----|---------|---------|--------|------|-----------------|----------|--------|----------|
+| G05-integration | MainWindow ctor orphan check × G05 recovery identity | The startup RecoveryDialog fired for the LIVE recovery pair recoverDocument had just published to recents (a recovery pair is autosave-newer by definition), modal over the active session — test hang; in production a modal over an in-progress recovery | implemented-awaiting-review | the startup orphan check suppresses ONLY the current session's live pair (DocumentSession::recoverySource non-empty → removeAll(path)); every genuine leftover still prompts, Discard still deletes those | TestRecoverySave: fixture original is BACKDATED 60 s (deterministic misfire — pre-fix was mtime-racy); a dismissal watchdog closes any startup prompt with Decide Later (never Discard; note close()/reject() maps to the dialog's Recover result) and records whether the live pair was listed — both test functions assert it never is | `.context/gateA-merge/`: gdb-hang.txt, inst-run1.txt (markers: prompt fires over live pair), prefix-run*.txt (3/3 deterministic failures listing the run's own fixture pair), postfix-run*.txt (5/5 pass), ctest-merged-final.log/run2/run3 | 9e4edab | genuine leftover orphans from killed runs still prompt at startup (by design); tests dismiss them with Later |
+
+Full-suite gate at 9e4edab: `ctest -j 2` run 3 = **122/122, 100% passed**
+(`ctest-merged-final-run3.log`; Gate B suites verified green in the same run:
+TestHistoryIntegrity, TestFormUndo, TestBatchOpsCoverage truthful summaries,
+TestMeasureRoundTrip, TestPageLabels, TestMeasurePanelHonesty). Runs 1–2 had
+sub-second zero-output early deaths of TestEngineSave/TestFormSafety
+immediately after the 707-step rebuild — pass standalone (12/12 each) and
+under repeated ctest; same signature as the known TestReadOnlyGate cold-start
+flake, unrelated surfaces.
