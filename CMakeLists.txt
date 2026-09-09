@@ -2268,6 +2268,11 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCapabilityRegistry.cpp")
         tests/TestCapabilityRegistry.cpp
     )
     target_include_directories(TestCapabilityRegistry PRIVATE src tests)
+    # G11 (QUALITY-GATE-2026-09-09): real-model readiness case resolves the
+    # bundled model directory the same way TestRapidOcr does (skips when the
+    # models are absent, like the inherent RapidOCR-inference skip).
+    target_compile_definitions(TestCapabilityRegistry PRIVATE
+        GLYPH_OCR_MODELS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/models/ppocrv5")
     target_link_libraries(TestCapabilityRegistry PRIVATE
         pdfws_engines pdfws_core
         Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets

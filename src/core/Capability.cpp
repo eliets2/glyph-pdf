@@ -4,6 +4,7 @@
 #include "core/OcrTypes.h"               // ocrLanguages() — the language table
 #include "engines/ConversionManager.h"   // locateSoffice / isOfficeImportAvailable
 #include "engines/VeraPdfValidator.h"    // isAvailable / locateCli (runtime)
+#include "engines/ocr/RapidOcrEngine.h"  // G11: real model readiness (verifyModelsIn)
 
 #include <QCoreApplication>
 #include <QFile>
@@ -192,12 +193,25 @@ void CapabilityRegistry::applyToWidget(QWidget* w, CapId id, const QVariant& par
         w->setToolTip(c.detail.isEmpty() ? combineWhyNot(c) : c.detail);
         return;
     case Availability::UnavailableBuild:
-    case Availability::UnavailableRuntime:
+    case Availability::UnavailableRuntime: {
+        // G11 (QUALITY-GATE-2026-09-09): claim disable ownership ONLY when the
+        // registry itself takes an ENABLED widget to disabled. A widget that
+        // was ALREADY disabled by another owner keeps its foreign disable —
+        // the property stays unset, so an unavailable -> available transition
+        // cannot re-enable someone else's disabled control (the old code set
+        // the property unconditionally and later "restored" a state the
+        // registry had never created). An EXISTING owned claim survives
+        // repeated unavailable applies (the widget is disabled now, but the
+        // registry still owns that state and must reverse it later).
+        const bool alreadyOwned = w->property(kOwnedDisable).toBool();
+        const bool wasEnabled = w->isEnabled();
         w->setEnabled(false);
         w->setToolTip(combineWhyNot(c));
         w->setStatusTip(combineWhyNot(c));
-        w->setProperty(kOwnedDisable, true);
+        if (!alreadyOwned)
+            w->setProperty(kOwnedDisable, wasEnabled);
         return;
+    }
     }
 }
 
@@ -583,6 +597,16 @@ void CapabilityRegistry::registerEngineProbes()
 // reported Available on a zero-byte detector). The textline classifier is
 // optional and disclosed in detail. Public static — tests drive it with
 // real directory fixtures.
+//
+// G11 (QUALITY-GATE-2026-09-09): presence is NOT readiness. Three arbitrary
+// non-empty files used to report Available while the actual engine init died
+// with a protobuf parse error. After the presence checks pass, the probe now
+// resolves the models the way the ENGINE does — RapidOcrEngine::verifyModelsIn
+// builds the real ONNX sessions over these exact files — and only a
+// successful load reports Available. Failures carry the engine's own reason.
+// Verification is memoized per (directory, content stamp): the ONNX sessions
+// are far too expensive to rebuild per UI query, and the stamp (size+mtime of
+// the mandatory files) re-verifies when models are installed or replaced.
 Capability CapabilityRegistry::probeRapidModelsIn(const QString& modelsDir)
 {
     Capability c;
@@ -593,10 +617,12 @@ Capability CapabilityRegistry::probeRapidModelsIn(const QString& modelsDir)
         { "/ppocrv5_rec_dict.txt", "recognition vocabulary" },
     };
     QStringList missing;
+    QString stamp;
     for (const auto& req : required) {
         const QFileInfo fi(modelsDir + QLatin1String(req.rel));
         if (!fi.isFile() || fi.size() == 0 || !fi.isReadable())
             missing << QLatin1String(req.what);
+        stamp += QStringLiteral("%1:%2;").arg(fi.size()).arg(fi.lastModified().toMSecsSinceEpoch());
     }
     if (!missing.isEmpty()) {
         c.status = Availability::UnavailableRuntime;
@@ -606,12 +632,41 @@ Capability CapabilityRegistry::probeRapidModelsIn(const QString& modelsDir)
         c.detail = QStringLiteral("Searched directory: %1.").arg(modelsDir);
         return c;
     }
-    c.status = Availability::Available;
+
+    // Memoized REAL readiness (see comment above).
+    struct VerifyCache {
+        QHash<QString, QPair<bool, QString>> byStamp;   // dir+stamp → (ok, error)
+    };
+    static VerifyCache cache;
+    const QString key = modelsDir + QLatin1Char('\n') + stamp;
+    const auto hit = cache.byStamp.constFind(key);
+    bool verifiedOk = false;
+    QString verifyError;
+    if (hit != cache.byStamp.constEnd()) {
+        verifiedOk = hit->first;
+        verifyError = hit->second;
+    } else {
+        verifiedOk = RapidOcrEngine::verifyModelsIn(modelsDir, &verifyError);
+        cache.byStamp.insert(key, { verifiedOk, verifyError });
+    }
+
     const QFileInfo cls(modelsDir + QLatin1String("/PP-LCNet_x1_0_textline_ori_infer.onnx"));
-    c.detail = (cls.isFile() && cls.size() > 0)
-        ? QStringLiteral("Complete model set in %1 (textline classifier present).").arg(modelsDir)
+    const bool clsPresent = cls.isFile() && cls.size() > 0;
+    if (!verifiedOk) {
+        c.status = Availability::UnavailableRuntime;
+        c.whyNot = QStringLiteral("The PP-OCRv5 model files are present, but the OCR engine "
+                                  "cannot load them (%1). Reinstall the models.")
+                       .arg(verifyError.isEmpty() ? QStringLiteral("model initialization failed")
+                                                  : verifyError);
+        c.alternative = QStringLiteral("Reinstall the PP-OCRv5 models, or switch the OCR engine.");
+        c.detail = QStringLiteral("Searched directory: %1.").arg(modelsDir);
+        return c;
+    }
+    c.status = Availability::Available;
+    c.detail = clsPresent
+        ? QStringLiteral("Complete model set in %1 (textline classifier present; sessions load).").arg(modelsDir)
         : QStringLiteral("Usable model set in %1; textline classifier absent "
-                         "(direction classification disabled).").arg(modelsDir);
+                         "(direction classification disabled; sessions load).").arg(modelsDir);
     return c;
 }
 
