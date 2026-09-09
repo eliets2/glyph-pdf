@@ -74,14 +74,21 @@ public:
     /// the DocumentSession::mutationRevision() captured when the job's page
     /// snapshot was rendered and read at completion time — a differing revision
     /// means the document was mutated in place (same path/page/count) and the
-    /// results are stale. -1 (unknown) skips the revision comparison. The
-    /// human-readable recovery message is written to messageOut when non-null.
+    /// results are stale. -1 (unknown) skips the revision comparison. G10
+    /// (QUALITY-GATE-2026-09-09): jobSourceDocumentGeneration /
+    /// currentDocumentGeneration are the DocumentSession::documentGeneration()
+    /// captured with the snapshot and read at completion — a differing
+    /// generation means the document was RE-OPENED (A→B→A restores the path
+    /// and can keep the revision) and the results are stale. -1 (unknown)
+    /// skips the generation comparison. The human-readable recovery message is
+    /// written to messageOut when non-null.
     static OcrJobVerdict classifyOcrJobCompletion(
         qint64 jobGeneration, qint64 currentGeneration,
         const QString& jobSourcePath, int jobPage,
         const QString& currentSourcePath, int currentPage,
         const QString& workerError, QString* messageOut,
-        qint64 jobSourceRevision = -1, qint64 currentSourceRevision = -1);
+        qint64 jobSourceRevision = -1, qint64 currentSourceRevision = -1,
+        qint64 jobSourceDocumentGeneration = -1, qint64 currentDocumentGeneration = -1);
 
     // ── R08 (F04): reviewed-word authority seams ─────────────────────────────
     /// Pure seam: may this review session still be saved against the live
@@ -90,13 +97,18 @@ public:
     /// (the page was replaced/reordered/edited in place; path and count alone
     /// cannot prove the reviewed page is still current). currentSourceRevision
     /// is the live DocumentSession::mutationRevision(); -1 (unknown) falls
-    /// back to the path+count proxies. Writes a human-readable reason to
-    /// reasonOut when non-null.
+    /// back to the path+count proxies. G10 (QUALITY-GATE-2026-09-09):
+    /// currentDocumentGeneration is the live DocumentSession::documentGeneration()
+    /// — a session captured on a previous OPEN of the same path (A→B→A)
+    /// rejections even when path, count and revision all match. -1 (unknown)
+    /// falls back to the revision+proxy checks. Writes a human-readable reason
+    /// to reasonOut when non-null.
     static bool ocrSessionIsExportable(const OcrReviewSession& session,
                                        const QString& currentSourcePath,
                                        int currentPageCount,
                                        qint64 currentSourceRevision,
-                                       QString* reasonOut = nullptr);
+                                       QString* reasonOut = nullptr,
+                                       qint64 currentDocumentGeneration = -1);
 
     /// Pure seam: merge the panel's reviewed records into the session and
     /// build the per-page export payload. The payload's pageIndex is the
