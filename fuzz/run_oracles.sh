@@ -15,6 +15,12 @@
 #   - every case must produce an oracle JSON with a parseable CLEAN/LEAK
 #     verdict — a missing or invalid oracle result is a FAILURE, never a
 #     silent pass (success is not inferred from absent "LEAK" text);
+#   - G19 (2026-09-09 quality gate): every DRIVER invocation must EXIT 0 as
+#     well as produce its PDF — the old runner checked only output existence,
+#     so six stale CLEAN PDFs from a previous campaign plus a driver that
+#     always exits 9 reported ALL CLEAN and exited 0. All outputs/reports now
+#     live in a fresh, owned per-run directory (no reused fixed names), so a
+#     prior campaign's artifacts can never be inspected as this run's result.
 #   - the exit code is 0 only when every case produced a valid verdict.
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -32,6 +38,16 @@ TM_ORACLE="$ROOT/fuzz/oracle/tm_residual_oracle.py"
 LEAK_ORACLE="$ROOT/fuzz/oracle/redaction_leak_oracle.py"
 mkdir -p "$SC"
 fail=0
+
+# --- G19: fresh, owned per-run output/report directory ----------------------
+# The unique name (start time + PID) plus a plain `mkdir` (no -p) make the
+# directory fresh by construction: if anything already occupies the path the
+# campaign fails up front instead of mixing evidence with a prior run.
+RUNDIR="$SC/run-$(date +%Y%m%d-%H%M%S)-$$"
+mkdir "$RUNDIR" || {
+  echo "ERROR: fresh run directory '$RUNDIR' cannot be created - refusing to share oracle outputs with a prior run (G19)." >&2
+  exit 1
+}
 
 # --- INF06: required tools/artifacts are required ---------------------------
 if ! command -v "$PYTHON" >/dev/null 2>&1; then
@@ -79,13 +95,21 @@ declare -a CASES=(
 for c in "${CASES[@]}"; do
   set -- $c
   name=$1; secret=$2; a=$3;b=$4;cc=$5;d=$6;e=$7;f=$8; rx=$9;ry=${10};rw=${11};rh=${12}
-  out="$SC/case_${name}.pdf"
-  json="$SC/case_${name}.json"
+  out="$RUNDIR/case_${name}.pdf"
+  json="$RUNDIR/case_${name}.json"
+  # G19: the driver's EXIT STATUS is part of the evidence. A driver that
+  # fails must fail the case even if a same-named PDF from a prior campaign
+  # (now impossible — outputs live in the fresh RUNDIR) exists on disk.
   "$DRV" tm "$out" "$secret" $a $b $cc $d $e $f $rx $ry $rw $rh >/dev/null 2>&1
-  if [ ! -f "$out" ]; then echo "[$name] DRIVER FAILED (no PDF produced)"; fail=1; continue; fi
+  drv_rc=$?
+  if [ $drv_rc -ne 0 ] || [ ! -f "$out" ]; then
+    echo "[$name] DRIVER FAILED (rc=$drv_rc, pdf produced: $([ -f "$out" ] && echo yes || echo no))"
+    fail=1
+    continue
+  fi
   # A failing oracle must be visible as a failure even though its output is
   # consumed here: verdict_from returns non-zero on missing/invalid results.
-  res=$("$PYTHON" "$TM_ORACLE" --pdf "$out" --secret "$secret" --json "$json" 2>"$SC/case_${name}.oracle.err")
+  res=$("$PYTHON" "$TM_ORACLE" --pdf "$out" --secret "$secret" --json "$json" 2>"$RUNDIR/case_${name}.oracle.err")
   rc=$?
   if [ $rc -ne 0 ]; then
     echo "[$name] ORACLE FAILED (tm_residual_oracle rc=$rc)"; fail=1; continue
@@ -101,29 +125,32 @@ done
 
 echo
 echo "=== P1/F-01: orphaned-object leak across revisions (plain Save path) ==="
-"$DRV" simple "$SC/p1_simple.pdf" "P1SECRET" >/dev/null 2>&1
-if [ ! -f "$SC/p1_simple.pdf" ]; then
-  echo "[p1_simple] DRIVER FAILED (no PDF produced)"; fail=1
+# G19: driver exit status + fresh output required here too.
+"$DRV" simple "$RUNDIR/p1_simple.pdf" "P1SECRET" >/dev/null 2>&1
+drv_rc=$?
+if [ $drv_rc -ne 0 ] || [ ! -f "$RUNDIR/p1_simple.pdf" ]; then
+  echo "[p1_simple] DRIVER FAILED (rc=$drv_rc, pdf produced: $([ -f "$RUNDIR/p1_simple.pdf" ] && echo yes || echo no))"
+  fail=1
 else
-  "$PYTHON" "$LEAK_ORACLE" --pdf "$SC/p1_simple.pdf" --secret "P1SECRET" --json "$SC/p1_simple.json" >"$SC/p1_simple.oracle.out" 2>&1
+  "$PYTHON" "$LEAK_ORACLE" --pdf "$RUNDIR/p1_simple.pdf" --secret "P1SECRET" --json "$RUNDIR/p1_simple.json" >"$RUNDIR/p1_simple.oracle.out" 2>&1
   rc=$?
   if [ $rc -ne 0 ]; then
     echo "[p1_simple] ORACLE FAILED (redaction_leak_oracle rc=$rc)"; fail=1
-  elif ! v=$(verdict_from "$SC/p1_simple.json"); then
-    echo "[p1_simple] ORACLE FAILED (invalid/missing oracle result — see stderr)" >&2; fail=1
+  elif ! v=$(verdict_from "$RUNDIR/p1_simple.json"); then
+    echo "[p1_simple] ORACLE FAILED (invalid/missing oracle result — see stderr)"; fail=1
   else
-    sed 's/^/    /' "$SC/p1_simple.oracle.out" | grep -E 'verdict|hits' || true
+    sed 's/^/    /' "$RUNDIR/p1_simple.oracle.out" | grep -E 'verdict|hits' || true
     echo "[p1_simple] -> $v"
-    [ "$v" = "LEAK" ] && { echo "    !! RESIDUAL SECRET in $SC/p1_simple.pdf"; }
+    [ "$v" = "LEAK" ] && { echo "    !! RESIDUAL SECRET in $RUNDIR/p1_simple.pdf"; }
   fi
 fi
 
-produced=$(ls "$SC"/case_*.json "$SC"/p1_simple.json 2>/dev/null | wc -l)
+produced=$(ls "$RUNDIR"/case_*.json "$RUNDIR"/p1_simple.json 2>/dev/null | wc -l)
 if [ "$produced" -lt 6 ]; then
   echo "ERROR: expected 6 oracle reports (5 matrix + 1 P1), got $produced — failing (INF06)." >&2
   fail=1
 fi
 
 echo
-echo "Done. JSON reports in $SC/case_*.json and $SC/p1_*.json"
+echo "Done. JSON reports in $RUNDIR (fresh per-run directory, G19)."
 exit $fail
