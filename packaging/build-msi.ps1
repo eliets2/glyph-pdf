@@ -39,7 +39,20 @@ $BuildDir    = Join-Path $ProjectRoot 'build'
 $DeployDir   = Join-Path $ProjectRoot 'deploy'
 $PackDir     = $PSScriptRoot
 $OutputDir   = Join-Path $ProjectRoot 'dist'
-$Version     = '1.3.2.3'
+
+# INF03: ONE authoritative version — the root CMakeLists project() VERSION.
+# The WiX package metadata, the MSI/ZIP names and the portable README all
+# receive it from here; nothing hardcodes a release version any more (the
+# portable child used to package the payload as 1.3.1 while this parent
+# expected 1.3.2.3 and silently skipped the summary).
+function Get-GlyphPdfVersion {
+    $cmakeFile = Join-Path $ProjectRoot 'CMakeLists.txt'
+    $m = Select-String -Path $cmakeFile -Pattern '^\s*project\(PdfWorkstation\s+VERSION\s+([0-9][0-9.]*)' |
+         Select-Object -First 1
+    if (-not $m) { throw "Cannot read the project VERSION from $cmakeFile." }
+    return $m.Matches[0].Groups[1].Value
+}
+$Version     = Get-GlyphPdfVersion
 $MsiName     = "GlyphPDF-$Version-x64.msi"
 $ZipName     = "GlyphPDF-$Version-x64-portable.zip"
 
@@ -224,12 +237,19 @@ Push-Location $PackDir
 try {
     & wix build -src 'GlyphPDF.wxs' `
         -d "DeployDir=$DeployDir" `
+        -d "GlyphPDFVersion=$Version" `
         -ext WixToolset.UI.wixext `
         -ext WixToolset.Util.wixext `
         -arch x64 `
         -out $msiPath
     if ($LASTEXITCODE -ne 0) { throw 'WiX build failed.' }
 } finally { Pop-Location }
+
+# INF03: the expected MSI must exist — wix exiting 0 without the artifact is a
+# pipeline failure, not a summary footnote.
+if (-not (Test-Path $msiPath)) {
+    throw "INF03: expected MSI '$msiPath' was not produced."
+}
 
 #  4b. Sign MSI AFTER wix build
 if (-not $SkipSigning) {
@@ -250,8 +270,17 @@ $msiHash = (Get-FileHash $msiPath -Algorithm SHA256).Hash
 #  5b. Portable ZIP (reuses deploy/ already built in step 2)
 if (-not $MsiOnly) {
     Write-Host '[5b] Creating portable ZIP...'
-    & powershell -ExecutionPolicy Bypass -File (Join-Path $PackDir 'build-portable.ps1') -SkipDeploy
+    # INF03: pass the single authoritative version down; the child packages
+    # and names everything with it and verifies its own output.
+    & powershell -ExecutionPolicy Bypass -File (Join-Path $PackDir 'build-portable.ps1') -SkipDeploy -Version $Version
     if ($LASTEXITCODE -ne 0) { throw 'Portable ZIP build failed.' }
+    # INF03: the archive the parent expects must exist and match the version —
+    # the old parent silently omitted the ZIP summary when the child produced
+    # a differently-versioned archive.
+    $zipPath = Join-Path $OutputDir $ZipName
+    if (-not (Test-Path $zipPath) -or -not (Test-Path "$zipPath.sha256")) {
+        throw "INF03: expected portable archive '$zipPath' (+.sha256) missing after build-portable.ps1 — versions are out of sync."
+    }
 } else {
     Write-Host '[5b] Skipping portable ZIP (-MsiOnly).'
 }
@@ -262,7 +291,9 @@ Write-Host '========================================'
 Write-Host (' MSI:    {0}' -f $msiPath)
 Write-Host (' Size:   {0:N1} MB' -f $msiSize)
 Write-Host (' SHA256: {0}  (of SIGNED artifact)' -f $msiHash)
-if (-not $MsiOnly -and (Test-Path $zipPath)) {
+if (-not $MsiOnly) {
+    # INF03: existence is enforced above; the summary reports the archive
+    # actually produced for THIS version.
     $zipHash = (Get-Content "$zipPath.sha256").Split(' ')[0]
     $zipSize = (Get-Item $zipPath).Length / 1MB
     Write-Host (' ZIP:    {0}' -f $zipPath)

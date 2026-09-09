@@ -766,6 +766,20 @@ if(WIN32)
     target_sources(PdfWorkstation PRIVATE src/app/app_icon.rc)
 endif()
 
+# INF03: embed the release version in the EXE's Windows VERSIONINFO resource so
+# the built artifact itself carries PROJECT_VERSION. Packaging (build-msi.ps1,
+# WiX package metadata, portable ZIP name + README) reads this same single
+# source — one authoritative version, verifiable in the binary, not just in
+# CMake variables.
+if(NOT PROJECT_VERSION_TWEAK)
+    set(PROJECT_VERSION_TWEAK 0)
+endif()
+set(GLYPHPDF_EXE_NAME "PdfWorkstation.exe")
+configure_file(src/app/version.rc.in "${CMAKE_CURRENT_BINARY_DIR}/version.rc" @ONLY)
+if(WIN32)
+    target_sources(PdfWorkstation PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/version.rc")
+endif()
+
 # AR-11 D4: Strip PdfWorkstation.exe in Release builds to remove DWARF debug paths.
 # DWARF in a MinGW/GCC Release binary leaks the build-host path
 # (C:\Users\User\Projects\pdf) into every shipped binary.
