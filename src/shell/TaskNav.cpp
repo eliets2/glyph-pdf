@@ -21,6 +21,7 @@ const QVector<TaskSpec>& TaskNav::tasks() {
         { "ocr",       "OCR Verify",  TaskKind::Workspace, ToolId::Ocr,        true,  "edit",    "Edit"     },
         { "redact",    "Redaction",   TaskKind::Workspace, ToolId::MarkRedact, false, "protect", "Protect"  },
         { "signature", "Signatures",  TaskKind::Panel,     ToolId::COUNT,      false, "protect", "Protect"  },
+        { "measure",   "Measure",     TaskKind::Panel,     ToolId::COUNT,      false, "",        ""         },
         { "compare",   "Compare",     TaskKind::Workspace, ToolId::Compare,    true,  "",        "View"     },
         { "pages",     "Pages",       TaskKind::Workspace, ToolId::COUNT,      false, "",        "Organize" },
         { "batch",     "Batch",       TaskKind::Workspace, ToolId::COUNT,      false, "",        "Convert"  },

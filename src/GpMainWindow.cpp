@@ -18,6 +18,7 @@
 #include "modes/AIChatPanel.h"
 #include "modes/SignaturesPanel.h"
 #include "modes/PdfAValidationPanel.h"
+#include "modes/MeasureMode.h"
 #include "modes/CompressDialog.h"
 #include "modes/WatermarkDialog.h"
 
@@ -903,6 +904,18 @@ void MainWindow::onScreenSelected(const QString& id) {
         // even though the viewer had a PDF open.
         refreshPdfAPanel();
         replaceRight(_pdfaPanel);
+    } else if (id == "measure") {
+        if (!_measurePanel) {
+            _measurePanel = new MeasureMode(this);
+            // The panel drives the viewer's measure tool modes and reads
+            // committed measurements back from its annotation layer; status
+            // messages (calibration errors, disclosures) reach the status bar.
+            _measurePanel->setViewer(pdfViewer());
+            connect(_measurePanel, &MeasureMode::statusMessageRequested, this,
+                    [this](const QString& m) { _status->setOperation(m); });
+        }
+        _measurePanel->setViewer(pdfViewer());
+        replaceRight(_measurePanel);
     } else {
         replaceRight(_right);
     }
@@ -926,7 +939,7 @@ void MainWindow::replaceRight(QWidget* w) {
     if (!rowLay) return;
 
     // Hide all known right-side candidates, show only `w`.
-    for (QWidget* candidate : QWidgetList{ _right, _sigPanel, _pdfaPanel, _ai }) {
+    for (QWidget* candidate : QWidgetList{ _right, _sigPanel, _pdfaPanel, _measurePanel, _ai }) {
         if (!candidate) continue;
         if (rowLay->indexOf(candidate) == -1) continue;
         candidate->setVisible(false);

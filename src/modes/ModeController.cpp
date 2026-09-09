@@ -30,7 +30,7 @@ void ModeController::setScreen(const QString& id) {
     _currentScreen = id;
     // Screens that are panel-only (no center swap): signature, ai, pdfa, compress, watermark
     if (id == "signature" || id == "ai" || id == "pdfa" ||
-        id == "compress"  || id == "watermark") {
+        id == "compress"  || id == "watermark" || id == "measure") {
         setCurrentWidget(_viewer);
         emit screenChanged(id);
         return;
