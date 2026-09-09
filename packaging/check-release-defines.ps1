@@ -65,6 +65,10 @@ foreach ($e in $entries) {
     if (-not $cmd) { $cmd = ($e.arguments -join ' ') }
     $m = [regex]::Match($cmd, '-o\s+"?([^"\s]+\.(?:o|obj|res))"?')
     $outPath = if ($m.Success) { $m.Groups[1].Value } else { $e.file }
+    # Windows CMake mixes path separators across entries (autogen vs main
+    # targets) - normalise before matching, or Test* targets slip through as
+    # production (caught by the real build-rel artifact control).
+    $outPath = $outPath -replace '\\', '/'
     $isTest = $outPath -match $testDirRx
     if ($isTest) {
         $testCount++
