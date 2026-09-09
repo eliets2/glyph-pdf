@@ -52,6 +52,29 @@ if ($cacheText -notmatch 'GLYPHPDF_RELEASE_BUILD:BOOL=ON') {
     Fail "cached GLYPHPDF_RELEASE_BUILD is not ON - this build lacks the release feature gate (shipped-feature hard fail). Re-run the pipeline without -SkipBuild."
 }
 
+#  G16 (QUALITY-GATE-2026-09-09): the cached CONFIGURE must also be OF THIS
+#  source tree and genuinely LTO'd. The old validator compared only the
+#  STAMP's SourceDir claim — a cache configured from a conflicting source
+#  path, or an LTO=OFF cache, passed while the stamp claimed the right tree.
+#  The cache is the build's own record; it must agree with the tree and the
+#  stamp, not merely be covered by them.
+$homeMatch = [regex]::Match($cacheText, 'CMAKE_HOME_DIRECTORY:INTERNAL=(.*)')
+if (-not $homeMatch.Success -or -not $homeMatch.Groups[1].Value.Trim()) {
+    Fail "cached CMAKE_HOME_DIRECTORY is missing from CMakeCache.txt - not a genuine CMake build directory of this tree."
+}
+$cacheHomeRaw = $homeMatch.Groups[1].Value.Trim()
+if (-not (Test-Path $cacheHomeRaw)) {
+    Fail "cached CMAKE_HOME_DIRECTORY '$cacheHomeRaw' does not exist on this machine - the cached build was configured elsewhere/from a deleted tree."
+}
+$normalize = { param($p) ((Resolve-Path $p).Path -replace '/', '\').TrimEnd('\') }
+$cacheHome = & $normalize $cacheHomeRaw
+$treeRoot  = & $normalize $ProjectRoot
+# Windows trees compare case-insensitively (this script targets the MSI pipeline).
+if (-not [System.String]::Equals($cacheHome, $treeRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+    Fail "cached CMAKE_HOME_DIRECTORY '$cacheHome' is not this tree ('$treeRoot') - the build directory was configured from a DIFFERENT source tree than the one being validated."
+}
+
+$stampLto = $null
 $stampPath = Join-Path $BuildDir 'glyphpdf-release-stamp.txt'
 if ($RequireStamp -or $RequireCommitMatch -or (Test-Path $stampPath)) {
     if (-not (Test-Path $stampPath)) {
@@ -72,6 +95,7 @@ if ($RequireStamp -or $RequireCommitMatch -or (Test-Path $stampPath)) {
     if ($stampSource -ne $ProjectRoot) {
         Fail "stamp SourceDir '$stampSource' is not this tree ('$ProjectRoot') - wrong-source build. Re-run the pipeline without -SkipBuild."
     }
+    if ($stamp.ContainsKey('LTO')) { $stampLto = $stamp['LTO'] }
     if ($RequireCommitMatch) {
         $head = ''
         try {
@@ -87,6 +111,17 @@ if ($RequireStamp -or $RequireCommitMatch -or (Test-Path $stampPath)) {
         }
     }
     Write-Host ("Stamp OK: SourceDir={0} Commit={1} TestsPassed={2}" -f $stamp['SourceDir'], $stamp['Commit'], $stamp['TestsPassed'])
+}
+
+#  G16: the stamp's LTO claim must match the CACHED configuration. The
+#  pipeline always stamps LTO=ON; a cache with GLYPHPDF_ENABLE_LTO=OFF under a
+#  stamp claiming LTO=ON is a mislabeled build (the old validator accepted it).
+if ($stampLto -eq 'ON') {
+    $ltoMatch = [regex]::Match($cacheText, 'GLYPHPDF_ENABLE_LTO:BOOL=(\S+)')
+    if (-not $ltoMatch.Success -or $ltoMatch.Groups[1].Value -ne 'ON') {
+        $cachedLto = if ($ltoMatch.Success) { $ltoMatch.Groups[1].Value } else { '<missing>' }
+        Fail "stamp claims LTO=ON but the cached GLYPHPDF_ENABLE_LTO is $cachedLto - the cached configuration does not match its own release stamp. Re-run the pipeline without -SkipBuild."
+    }
 }
 
 Write-Host "VALID (INF02): '$BuildDir' is a dedicated Release configuration with GLYPHPDF_RELEASE_BUILD=ON of '$ProjectRoot'."
