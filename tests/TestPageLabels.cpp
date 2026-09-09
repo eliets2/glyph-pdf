@@ -23,10 +23,18 @@
 #include <QString>
 #include <QStringList>
 #include <QTemporaryDir>
+#include <QFile>
+#include <QImage>
+#include <QPainter>
+#include <QPdfDocument>
+#include <QPdfWriter>
+
+#include <vector>
 
 #include <podofo/podofo.h>
 
 #include "core/PageLabels.h"
+#include "engines/SafeSave.h"
 
 using gp::PageLabelNumEntry;
 using gp::PageLabels::labelsFor;
@@ -102,6 +110,59 @@ QList<PageLabelNumEntry> readNumberTree(const QString& path)
         entries.clear();
     }
     return entries;
+}
+
+// G13 (QUALITY-GATE-2026-09-09): a CONTENT-BEARING fixture — real text (a
+// Standard-14 Helvetica run, extractable by consumers) and a real embedded
+// RGB image XObject on two pages. PoDoFo keeps the source device open for
+// lazy object loading on such documents, which is exactly what the old
+// same-path Save destroyed (the reviewer's 20,667-byte fixture class).
+QString makeContentBearingPdf(const QString& path)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        std::vector<unsigned char> pixels(24 * 24 * 3);
+        for (int y = 0; y < 24; ++y)
+            for (int x = 0; x < 24; ++x) {
+                const bool mark = (x + y) % 5 == 0;
+                pixels[(y * 24 + x) * 3 + 0] = mark ? 250 : 30;
+                pixels[(y * 24 + x) * 3 + 1] = mark ? 220 : 90;
+                pixels[(y * 24 + x) * 3 + 2] = mark ? 40 : 200;
+            }
+        for (int page = 0; page < 2; ++page) {
+            auto& pg = doc.GetPages().CreatePage(
+                PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            PoDoFo::PdfPainter painter;
+            painter.SetCanvas(pg);
+            auto& font = doc.GetFonts().GetStandard14Font(
+                PoDoFo::PdfStandard14FontType::Helvetica);
+            painter.TextState.SetFont(font, 12.0);
+            painter.DrawText(page == 0 ? "LABELS PAGE ONE" : "LABELS PAGE TWO", 50, 700);
+            if (page == 0) {
+                auto img = doc.CreateImage();
+                img->SetData(PoDoFo::bufferview(
+                                 reinterpret_cast<const char*>(pixels.data()),
+                                 pixels.size()),
+                             24, 24, PoDoFo::PdfPixelFormat::RGB24);
+                painter.DrawImage(*img, 300, 400, 2.0, 2.0);
+            }
+            painter.FinishDrawing();
+        }
+        doc.Save(path.toUtf8().constData());
+    } catch (const std::exception& e) {
+        qWarning("makeContentBearingPdf failed: %s", e.what());
+        return path;
+    }
+    return path;
+}
+
+qint64 fileBytes(const QString& path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return -1;
+    const QByteArray all = f.readAll();
+    f.close();
+    return all.size();
 }
 
 } // namespace
@@ -328,7 +389,112 @@ private slots:
         QVERIFY(!writeNumberTree(path, 0, Style::Decimal));
         QVERIFY(readNumberTree(path).isEmpty());
     }
+
+    // ── G13 (QUALITY-GATE-2026-09-09) ────────────────────────────────────────
+    // THE anchor: the path overload used to Load() and Save() the SAME file.
+    // PoDoFo keeps the source device open for lazy object loading, so the
+    // same-path Save truncated the device before the deferred streams were
+    // flushed: this content-bearing fixture shrank from ~20 KB to 0 bytes,
+    // the call returned false, and the file could not be reopened.
+    void writeNumberTreeContentBearingFileSurvivesAndCarriesTree()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.filePath(QStringLiteral("g13_content.pdf"));
+        makeContentBearingPdf(path);
+        const qint64 before = fileBytes(path);
+        // The hazard class is a LAZY-LOADED content stream, not absolute size:
+        // a two-page text+image document (Standard-14 text run, embedded RGB
+        // XObject) defers object parsing; the old same-path Save truncated it.
+        QVERIFY2(before > 1000,
+                 qPrintable(QStringLiteral("G13 precondition: the fixture must be a "
+                                           "real content-bearing document (got %1 bytes)")
+                                .arg(before)));
+
+        QVERIFY2(writeNumberTree(path, 1, Style::Decimal),
+                 "G13: labeling a content-bearing document must succeed");
+
+        // The file survived: non-empty, reopens, page count intact.
+        const qint64 after = fileBytes(path);
+        QVERIFY2(after > 0, "G13: the labeled file must not be truncated");
+        QVERIFY2(after > before / 2,
+                 qPrintable(QStringLiteral("G13: the labeled file must keep the document "
+                                           "content (before=%1 after=%2)").arg(before).arg(after)));
+
+        const QList<PageLabelNumEntry> tree = readNumberTree(path);
+        QCOMPARE(tree, numberTreeEntries(1, Style::Decimal, 2));
+
+        // The actual page CONTENT survived (lazy streams flushed, not lost):
+        // both text markers readable via a real consumer.
+        QPdfDocument doc;
+        QCOMPARE(doc.load(path), QPdfDocument::Error::None);
+        QCOMPARE(doc.pageCount(), 2);
+        QVERIFY2(doc.getAllText(0).text().contains(QStringLiteral("LABELS PAGE ONE")),
+                 "G13: page-one text must survive the labeling transaction");
+        QVERIFY2(doc.getAllText(1).text().contains(QStringLiteral("LABELS PAGE TWO")),
+                 "G13: page-two text must survive the labeling transaction");
+    }
+
+    // A refused COMMIT must leave the caller's file byte-identical — direct
+    // API callers must not lose their file even when the commit is blocked.
+    void writeNumberTreeFailingCommitLeavesFileByteIdentical()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.filePath(QStringLiteral("g13_fault.pdf"));
+        makeContentBearingPdf(path);
+        QByteArray before;
+        {
+            QFile f(path);
+            QVERIFY(f.open(QIODevice::ReadOnly));
+            before = f.readAll();
+        }
+
+        gp::SafeSave::setCommitFaultForTesting(gp::SafeSave::CommitFaultForTesting::FailBeforeCommit);
+        const bool ok = writeNumberTree(path, 4, Style::Decimal);
+        gp::SafeSave::setCommitFaultForTesting(gp::SafeSave::CommitFaultForTesting::None);
+        QVERIFY2(!ok, "G13: a faulted commit must report failure");
+
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        const QByteArray after = f.readAll();
+        f.close();
+        QVERIFY2(before == after,
+                 "G13: a failed commit must leave the destination byte-identical");
+        QVERIFY(readNumberTree(path).isEmpty());   // no half-applied tree either
+    }
+
+    // The actual PagesMode caller path (staged SafeSave candidate →
+    // writeNumberTree on the candidate → commit to the original) must label
+    // content-bearing documents end-to-end.
+    void writeNumberTreePagesModeCandidateFlowEndToEnd()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString original = dir.filePath(QStringLiteral("g13_ui.pdf"));
+        makeContentBearingPdf(original);
+
+        // PagesMode::onApplyPageLabels: candidate → copy → label → commit.
+        QString candidate;
+        QString err;
+        QVERIFY(gp::SafeSave::makeUniqueCandidate(&candidate, &err));
+        QFile::remove(candidate);
+        QVERIFY(QFile::copy(original, candidate));
+        QVERIFY2(writeNumberTree(candidate, 3, Style::LowercaseRoman),
+                 "G13: labeling the staged candidate must succeed for a "
+                 "content-bearing document");
+        QVERIFY2(gp::SafeSave::commitFileToDestination(candidate, original, &err),
+                 qPrintable(err));
+        QFile::remove(candidate);
+
+        const QList<PageLabelNumEntry> tree = readNumberTree(original);
+        QCOMPARE(tree, numberTreeEntries(3, Style::LowercaseRoman, 2));
+        QPdfDocument doc;
+        QCOMPARE(doc.load(original), QPdfDocument::Error::None);
+        QVERIFY2(doc.getAllText(0).text().contains(QStringLiteral("LABELS PAGE ONE")),
+                 "G13: the committed original must keep its content");
+    }
 };
 
-QTEST_GUILESS_MAIN(TestPageLabels)
+QTEST_MAIN(TestPageLabels)
 #include "TestPageLabels.moc"

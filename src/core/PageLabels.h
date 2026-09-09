@@ -93,10 +93,15 @@ QList<PageLabelNumEntry> numberTreeEntries(int startValue, Style style, int page
 bool writeNumberTree(PoDoFo::PdfMemDocument& doc, int startValue, Style style,
                      int pageCount);
 
-// File convenience: load `pdfPath` fully into memory, write the tree (as
-// above; the page count is taken from the document itself), and overwrite
-// `pdfPath`. Non-atomic by design — production callers should run it on a
-// temp/candidate path and commit atomically (SafeSave), as PagesMode does.
+// File convenience: write the tree for the document at `pdfPath` (the page
+// count is taken from the document itself) and replace `pdfPath` with the
+// labeled result. G13 (QUALITY-GATE-2026-09-09): the file is never loaded
+// and saved over ITSELF — PoDoFo keeps the source device open for lazy
+// stream loading, so a same-path save truncated content-bearing documents
+// to 0 bytes. The mutation is serialized to a DISTINCT validated candidate
+// and committed through the R01 safe-save primitives (SafeSave): on any
+// failure the destination is byte-identical. Direct API callers cannot lose
+// their file, and the PagesMode staged-candidate flow is itself safe.
 bool writeNumberTree(const QString& pdfPath, int startValue, Style style);
 
 } // namespace PageLabels

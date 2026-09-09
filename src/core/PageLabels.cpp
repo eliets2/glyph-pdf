@@ -6,6 +6,9 @@
  */
 #include "PageLabels.h"
 
+#include <QFile>
+#include "engines/SafeSave.h"
+
 #include <podofo/podofo.h>
 
 namespace gp {
@@ -158,19 +161,79 @@ bool writeNumberTree(PoDoFo::PdfMemDocument& doc, int startValue, Style style,
 
 bool writeNumberTree(const QString& pdfPath, int startValue, Style style)
 {
+    // G13 (QUALITY-GATE-2026-09-09): this overload used to Load() and Save()
+    // the SAME path. PoDoFo keeps the source device open for lazy object
+    // loading, so saving over the same file truncated the device before the
+    // deferred streams were flushed: a content-bearing document serialized as
+    // 0 bytes, the call returned false, and the caller's file was destroyed
+    // (a 20,667-byte two-page text fixture reproducibly became 0 bytes and
+    // could not be reopened). The transaction is now the R01 safe-save shape:
+    // serialize the COMPLETE mutation to a DISTINCT candidate, validate the
+    // candidate by re-reading it, then commit the checked bytes. A
+    // lazy-loaded file is never saved over itself, and a failed commit
+    // leaves the destination byte-identical.
+    if (startValue < 1)
+        return false;
+
+    QString candidate;
+    QString err;
+    if (!SafeSave::makeUniqueCandidate(&candidate, &err)) {
+        qWarning("PageLabels::writeNumberTree: %s", qPrintable(err));
+        return false;
+    }
+    QFile::remove(candidate);   // the reserved handle is released; we own the path now
+
+    bool ok = false;
     try {
         PoDoFo::PdfMemDocument doc;
         doc.Load(pdfPath.toUtf8().constData());
         const int pageCount = static_cast<int>(doc.GetPages().GetCount());
-        if (!writeNumberTree(doc, startValue, style, pageCount))
-            return false;
-        doc.Save(pdfPath.toUtf8().constData());
-        return true;
+        if (writeNumberTree(doc, startValue, style, pageCount)) {
+            doc.Save(candidate.toUtf8().constData());
+
+            // Validate the candidate: it must re-open (proving no lazy-stream
+            // truncation) and carry exactly the tree this call was asked to
+            // write.
+            PoDoFo::PdfMemDocument check;
+            check.Load(candidate.toUtf8().constData());
+            const auto expected = numberTreeEntries(startValue, style, pageCount);
+            const PoDoFo::PdfObject* labels =
+                check.GetCatalog().GetDictionary().FindKey(PoDoFo::PdfName("PageLabels"));
+            if (labels && labels->IsReference())
+                labels = check.GetObjects().GetObject(labels->GetReference());
+            const PoDoFo::PdfObject* nums =
+                labels && labels->IsDictionary()
+                    ? labels->GetDictionary().FindKey(PoDoFo::PdfName("Nums"))
+                    : nullptr;
+            ok = nums && nums->IsArray()
+                     && static_cast<qsizetype>(nums->GetArray().GetSize())
+                            == expected.size() * 2
+                     && static_cast<int>(check.GetPages().GetCount()) == pageCount;
+        }
     } catch (const PoDoFo::PdfError& e) {
         qWarning("PageLabels::writeNumberTree(%s): %s",
                  qPrintable(pdfPath), e.what());
+        ok = false;
+    } catch (const std::exception& e) {
+        qWarning("PageLabels::writeNumberTree(%s): %s",
+                 qPrintable(pdfPath), e.what());
+        ok = false;
+    }
+    if (!ok) {
+        QFile::remove(candidate);
         return false;
     }
+
+    // Checked commit: the candidate atomically replaces the destination; on a
+    // refused commit the original stays byte-identical.
+    if (!SafeSave::commitFileToDestination(candidate, pdfPath, &err)) {
+        qWarning("PageLabels::writeNumberTree: commit to %s failed: %s",
+                 qPrintable(pdfPath), qPrintable(err));
+        QFile::remove(candidate);
+        return false;
+    }
+    QFile::remove(candidate);   // committed bytes were replaced; drop the candidate
+    return true;
 }
 
 } // namespace PageLabels

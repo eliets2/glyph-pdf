@@ -1879,10 +1879,11 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPageLabels.cpp")
     add_executable(TestPageLabels
         tests/TestPageLabels.cpp
         src/core/PageLabels.h  src/core/PageLabels.cpp
+        src/engines/SafeSave.h src/engines/SafeSave.cpp   # G13: candidate+commit transaction
     )
     target_include_directories(TestPageLabels PRIVATE src tests)
     target_link_libraries(TestPageLabels PRIVATE
-        Qt6::Test Qt6::Core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Pdf podofo::podofo
     )
     if(WIN32)
         if(EXISTS "${PODOFO_VENDOR_DLL}")
