@@ -38,7 +38,7 @@ const QSet<QString> kDialogScreens = {
 };
 // Right-dock panel swaps in MainWindow::onScreenSelected.
 const QSet<QString> kPanelScreens = {
-    QStringLiteral("signature"), QStringLiteral("pdfa"),
+    QStringLiteral("signature"), QStringLiteral("pdfa"), QStringLiteral("measure"),
 };
 // ModeStrip pill ids (src/shell/ModeStrip.cpp:39-45).
 const QSet<QString> kModePills = {
