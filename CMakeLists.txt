@@ -2740,6 +2740,25 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestMeasureCore.cpp")
     set_tests_properties(TestMeasureCore PROPERTIES TIMEOUT 60 LABELS "unit;measure;qt;headless")
 endif()
 
+# T1 measurement toolset: saved-artifact round-trip (extractAnnotations + raw
+# PoDoFo dict inspection + PDFium annotation read path + uncalibrated negative
+# control + plain-DrawLine regression guard).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestMeasureRoundTrip.cpp")
+    add_executable(TestMeasureRoundTrip tests/TestMeasureRoundTrip.cpp)
+    target_include_directories(TestMeasureRoundTrip PRIVATE src tests)
+    target_link_libraries(TestMeasureRoundTrip PRIVATE
+        pdfws_engines pdfws_core podofo::podofo Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET TestMeasureRoundTrip POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PODOFO_VENDOR_DLL}"
+            "$<TARGET_FILE_DIR:TestMeasureRoundTrip>/libpodofo.dll"
+        COMMENT "Deploying podofo 1.1.0 DLL for TestMeasureRoundTrip"
+    )
+    add_test(NAME TestMeasureRoundTrip COMMAND TestMeasureRoundTrip)
+    set_tests_properties(TestMeasureRoundTrip PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;measure;annotations;persistence;qt;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCompressStripSanitize.cpp")
     add_executable(TestCompressStripSanitize tests/TestCompressStripSanitize.cpp)
     target_include_directories(TestCompressStripSanitize PRIVATE src tests)

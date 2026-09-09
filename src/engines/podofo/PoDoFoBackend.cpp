@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "engines/podofo/PoDoFoBackend.h"
 #include "engines/SafeSave.h"
+#include "core/MeasureCore.h"
 #include <memory>
 #include "PdfStringEscape.h"
 #include "GlyphAdvanceCalculator.h"
@@ -3370,7 +3371,8 @@ static void applyAnnotationsToDoc(PoDoFo::PdfMemDocument& doc,
 
         for (const auto& anno : it.value()) {
             QRectF bounds = anno.rect;
-            if (anno.mode == ToolMode::DrawFreehand || anno.mode == ToolMode::AddSignature) {
+            if (anno.mode == ToolMode::DrawFreehand || anno.mode == ToolMode::AddSignature
+                || gp::measure::isMeasureToolMode(anno.mode)) {
                 if (!anno.points.isEmpty()) {
                     bounds = QRectF(anno.points.first(), anno.points.first());
                     for (const auto& p : anno.points) bounds = bounds.united(QRectF(p, p));
@@ -3390,8 +3392,17 @@ static void applyAnnotationsToDoc(PoDoFo::PdfMemDocument& doc,
             // invisible Text notes, silently discarding visible work on save.
             else if (anno.mode == ToolMode::DrawRectangle) annotType = PoDoFo::PdfAnnotationType::Square;
             else if (anno.mode == ToolMode::DrawEllipse)   annotType = PoDoFo::PdfAnnotationType::Circle;
-            else if (anno.mode == ToolMode::DrawLine || anno.mode == ToolMode::DrawArrow)
+            else if (anno.mode == ToolMode::DrawLine || anno.mode == ToolMode::DrawArrow
+                     || anno.mode == ToolMode::MeasureDistance)
                 annotType = PoDoFo::PdfAnnotationType::Line;
+            // T1 measurement: perimeter → /PolyLine, area → /Polygon. These are
+            // the ISO 32000-1 subtypes whose dictionaries define /Measure and
+            // /Vertices (Tables 175/178); /Square does NOT carry /Measure there,
+            // so area rides /Polygon exactly like Acrobat's measure tools.
+            else if (anno.mode == ToolMode::MeasurePerimeter)
+                annotType = PoDoFo::PdfAnnotationType::PolyLine;
+            else if (anno.mode == ToolMode::MeasureArea)
+                annotType = PoDoFo::PdfAnnotationType::Polygon;
             else if (anno.mode == ToolMode::DrawFreehand || anno.mode == ToolMode::AddSignature)
                 annotType = PoDoFo::PdfAnnotationType::Ink;
             // §9.7 P0: signature-picker Type/Upload modes persist as /Stamp
@@ -3455,6 +3466,69 @@ static void applyAnnotationsToDoc(PoDoFo::PdfMemDocument& doc,
                 lineArr.Add(p2.x());
                 lineArr.Add(pageHeight - p2.y());
                 dict.AddKey("L", lineArr);
+            } else if (annotType == PoDoFo::PdfAnnotationType::PolyLine
+                       || annotType == PoDoFo::PdfAnnotationType::Polygon) {
+                // T1 measurement: /Vertices is the flat [x0 y0 x1 y1 …] array in
+                // PDF user space (PolyLine = open path, Polygon = closed shape).
+                PoDoFo::PdfArray verts;
+                for (const auto& p : anno.points) {
+                    verts.Add(p.x());
+                    verts.Add(pageHeight - p.y());
+                }
+                dict.AddKey("Vertices", verts);
+            }
+
+            // ── T1: ISO 32000-1 §12.9 measurement dictionary ────────────────
+            // Verified against the ISO 32000-1:2008 text (Tables 261–263):
+            //   /Subtype /RL (rectilinear), /R = REQUIRED human scale-ratio
+            //   string, /X /D /A = number-format ARRAYS whose elements are
+            //   << /U (unit) /C factor /D precision >> dictionaries. The first
+            //   /X element's /C is real-units per default user space unit —
+            //   exactly MeasureCore's unitsPerPt (spec example "/R (1in = 0.1
+            //   mi)" ⇒ /C 0.00139 = 0.1/72). /A's factor converts from
+            //   (largest X unit)²; we keep areas in the same unit family, so
+            //   the factor is 1 and consumers square the X factor.
+            // Every measurement carries its TRUE unit system: an uncalibrated
+            // measurement is written with /C 1 and (pt) — never omitted, never
+            // dressed up as a real-world claim (negative control contract).
+            if (gp::measure::isMeasureToolMode(anno.mode)) {
+                const char* intent = (anno.mode == ToolMode::MeasureDistance) ? "LineDimension"
+                                   : (anno.mode == ToolMode::MeasurePerimeter) ? "PolyLineDimension"
+                                                                               : "PolygonDimension";
+                dict.AddKey("IT", PoDoFo::PdfName(intent));
+
+                QString unit = anno.measureUnit.isEmpty() ? QStringLiteral("pt") : anno.measureUnit;
+                QString areaUnit = anno.measureAreaUnit.isEmpty()
+                    ? QStringLiteral("pt\u00B2") : anno.measureAreaUnit;
+                double upp = anno.measureUnitsPerPt;
+                const bool calibrated = anno.measureCalibrated
+                    && std::isfinite(upp) && upp > 0.0 && !(unit == QStringLiteral("pt"));
+                if (!calibrated) { upp = 1.0; unit = QStringLiteral("pt"); areaUnit = QStringLiteral("pt\u00B2"); }
+                const QString ratio = anno.measureRatio.isEmpty()
+                    ? (calibrated ? QStringLiteral("1 pt = %1 %2").arg(QString::number(upp, 'g', 6), unit)
+                                  : QStringLiteral("1 pt = 1 pt"))
+                    : anno.measureRatio;
+
+                // One-element number-format array: << /U (unit) /C factor /D 100 >>
+                // (/D 100 = hundredths precision per Table 263's default).
+                auto numberFormat = [](const QString& label, double factor) {
+                    PoDoFo::PdfArray arr;
+                    PoDoFo::PdfDictionary fmt;
+                    fmt.AddKey("U", PoDoFo::PdfString(label.toStdString()));
+                    fmt.AddKey("C", PoDoFo::PdfObject(factor));
+                    fmt.AddKey("D", PoDoFo::PdfObject(static_cast<int64_t>(100)));
+                    arr.Add(PoDoFo::PdfObject(fmt));
+                    return arr;
+                };
+
+                PoDoFo::PdfDictionary m;
+                m.AddKey("Type", PoDoFo::PdfName("Measure"));
+                m.AddKey("Subtype", PoDoFo::PdfName("RL"));
+                m.AddKey("R", PoDoFo::PdfString(ratio.toStdString()));
+                m.AddKey("X", numberFormat(unit, upp));       // real units per user-space unit
+                m.AddKey("D", numberFormat(unit, 1.0));       // distances in the same unit
+                m.AddKey("A", numberFormat(areaUnit, 1.0));   // areas: consumers square X's factor
+                dict.AddKey("Measure", m);
             }
 
             // ── §9.7 P0: signature-picker Type/Upload image appearance ─────
@@ -3665,6 +3739,17 @@ QList<AnnotationItem> PoDoFoBackend::extractAnnotations(const QString &inputPath
 
                 // ── Subtype → ToolMode (inverse of embedAnnotations) ──────────
                 item.mode = ToolMode::AddComment;
+                // T1: /Measure (or a dimension /IT intent) marks a measurement
+                // annotation. Without it, plain shape annots keep their legacy
+                // mapping — a DrawLine from §9.3 must never become a measure.
+                bool hasMeasure = dict.FindKey("Measure") != nullptr;
+                QString intentName;
+                if (const auto* it = dict.FindKey("IT"); it && it->IsName())
+                    intentName = QString::fromLatin1(it->GetName().GetString().data(),
+                                                     static_cast<int>(it->GetName().GetString().size()));
+                const bool dimensionIntent = intentName == QLatin1String("LineDimension")
+                    || intentName == QLatin1String("PolyLineDimension")
+                    || intentName == QLatin1String("PolygonDimension");
                 if (const auto* sub = dict.FindKey("Subtype")) {
                     if (sub->IsName()) {
                         const std::string s{sub->GetName().GetString()};
@@ -3693,6 +3778,14 @@ QList<AnnotationItem> PoDoFoBackend::extractAnnotations(const QString &inputPath
                         else if (s == "Circle")    item.mode = ToolMode::DrawEllipse;
                         else if (s == "Line")      item.mode = ToolMode::DrawLine;
                         else if (s == "Ink")       item.mode = ToolMode::DrawFreehand;
+
+                        // ── T1: measurement identity (verified ISO 32000-1
+                        // carriers: /Line, /PolyLine, /Polygon with /Measure).
+                        if (hasMeasure || dimensionIntent) {
+                            if (s == "Line")     item.mode = ToolMode::MeasureDistance;
+                            if (s == "PolyLine") item.mode = ToolMode::MeasurePerimeter;
+                            if (s == "Polygon")  item.mode = ToolMode::MeasureArea;
+                        }
                     }
                 }
 
@@ -3730,7 +3823,7 @@ QList<AnnotationItem> PoDoFoBackend::extractAnnotations(const QString &inputPath
                             }
                         }
                     }
-                } else if (item.mode == ToolMode::DrawLine) {
+                } else if (item.mode == ToolMode::DrawLine || item.mode == ToolMode::MeasureDistance) {
                     if (const auto* l = dict.FindKey("L")) {
                         if (l->IsArray() && l->GetArray().size() == 4) {
                             const auto& ln = l->GetArray();
@@ -3741,6 +3834,61 @@ QList<AnnotationItem> PoDoFoBackend::extractAnnotations(const QString &inputPath
                             }
                         }
                     }
+                } else if (item.mode == ToolMode::MeasurePerimeter
+                           || item.mode == ToolMode::MeasureArea) {
+                    // T1: /Vertices is the flat [x0 y0 x1 y1 …] array (Table 178).
+                    if (const auto* v = dict.FindKey("Vertices")) {
+                        if (v->IsArray()) {
+                            const auto& pts = v->GetArray();
+                            for (size_t k = 0; k + 1 < pts.size(); k += 2) {
+                                if (pts[k].IsNumberOrReal() && pts[k+1].IsNumberOrReal())
+                                    item.points.append(QPointF(pts[k].GetReal(),
+                                                               pageHeight - pts[k+1].GetReal()));
+                            }
+                        }
+                    }
+                }
+
+                // ── T1: restore the ISO 32000-1 /Measure calibration ─────────
+                // /X[0]/C is the real-units-per-user-space-unit factor; /A[0]/U
+                // the area unit label; /R the human scale text. Malformed input
+                // degrades to the truthful uncalibrated-pt defaults.
+                if (const auto* mo = dict.FindKey("Measure"); mo && mo->IsDictionary()) {
+                    const PoDoFo::PdfDictionary& md = mo->GetDictionary();
+                    const PoDoFo::PdfObject* xArr = md.FindKey("X");
+                    if (xArr && xArr->IsArray() && !xArr->GetArray().IsEmpty()) {
+                        const PoDoFo::PdfObject& x0 = xArr->GetArray()[0];
+                        if (x0.IsDictionary()) {
+                            if (const PoDoFo::PdfObject* c = x0.GetDictionary().FindKey("C");
+                                c && c->IsNumberOrReal())
+                                item.measureUnitsPerPt = c->GetReal();
+                            if (const PoDoFo::PdfObject* u = x0.GetDictionary().FindKey("U");
+                                u && u->IsString())
+                                item.measureUnit = svToQString(u->GetString().GetString());
+                        }
+                    }
+                    if (const PoDoFo::PdfObject* aArr = md.FindKey("A");
+                        aArr && aArr->IsArray() && !aArr->GetArray().IsEmpty()) {
+                        const PoDoFo::PdfObject& a0 = aArr->GetArray()[0];
+                        if (a0.IsDictionary()) {
+                            if (const PoDoFo::PdfObject* u = a0.GetDictionary().FindKey("U");
+                                u && u->IsString())
+                                item.measureAreaUnit = svToQString(u->GetString().GetString());
+                        }
+                    }
+                    if (const PoDoFo::PdfObject* r = md.FindKey("R"); r && r->IsString())
+                        item.measureRatio = svToQString(r->GetString().GetString());
+
+                    if (!(item.measureUnitsPerPt > 0.0) || !std::isfinite(item.measureUnitsPerPt))
+                        item.measureUnitsPerPt = 1.0;
+                    // The negative control, inverted: C==1 with the pt label IS
+                    // the uncalibrated scale — report it as such, nothing more.
+                    item.measureCalibrated = !(item.measureUnitsPerPt == 1.0
+                                               && item.measureUnit == QLatin1String("pt"));
+                    if (item.measureUnit.isEmpty())
+                        item.measureUnit = QStringLiteral("pt");
+                    if (item.measureAreaUnit.isEmpty())
+                        item.measureAreaUnit = QStringLiteral("pt\u00B2");
                 }
 
                 // ── §9.7 P0: restore the signature raster from the appearance ─
