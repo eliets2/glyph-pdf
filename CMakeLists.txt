@@ -128,6 +128,29 @@ endif()
 set(PODOFO_VENDOR_DLL "${_podofo_vendor}/bin/libpodofo.dll")
 
 find_package(podofo CONFIG REQUIRED)
+# Q02 trap guard: without the vendored tree, find_package silently resolves
+# MSYS2 ucrt64's podofo 0.10.4, whose API mismatches this source (obscure
+# build errors; tests exit 0xc0000135 when the 1.1.0 DLL is missing).
+# scripts/bootstrap-vendor-deps.sh provisions third_party/podofo/install.
+# NOTE: GLYPHPDF_RELEASE_BUILD is declared as an option further below; a
+# command-line -D is already visible here, which is exactly how the release
+# pipeline sets it — so the hard failure applies to release configuring only.
+get_filename_component(_podofo_found_dir "${podofo_DIR}" ABSOLUTE)
+file(TO_CMAKE_PATH "${_podofo_found_dir}" _podofo_found_dir)
+if(NOT _podofo_found_dir MATCHES "third_party/podofo/install")
+    if(GLYPHPDF_RELEASE_BUILD)
+        message(FATAL_ERROR
+            "Q02: podofo resolved to NON-VENDORED '${podofo_DIR}' - release builds "
+            "must link the vendored podofo 1.1.0 from third_party/podofo/install. "
+            "Run scripts/bootstrap-vendor-deps.sh, then reconfigure.")
+    else()
+        message(WARNING
+            "Q02: podofo resolved to NON-VENDORED '${podofo_DIR}' - expected "
+            "third_party/podofo/install (1.1.0). MSYS2's 0.10.x is API-incompatible "
+            "with this source; run scripts/bootstrap-vendor-deps.sh (see README, "
+            "'Vendored binary dependencies').")
+    endif()
+endif()
 # podofo 1.1.0 exports 'podofo::podofo_shared' (namespaced).
 # MSYS2 ucrt64 0.10.4 exports bare 'podofo_shared'.
 # Alias whichever is present to the canonical 'podofo::podofo'.
