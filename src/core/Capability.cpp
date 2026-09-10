@@ -565,6 +565,33 @@ Capability probePdfAValidation(const QVariant&)
     return c;
 }
 
+// Phase-1 form-JS (design doc §4/§5): Available when quickjs-ng is linked.
+// The §5 disclosure copy is kept verbatim for any future no-engine build —
+// the fallback wording IS the honest no-execution contract.
+Capability probeFormJavaScript(const QVariant&)
+{
+    Capability c;
+#ifdef HAS_QUICKJS
+    c.status = Availability::Available;
+    c.detail = QObject::tr("AcroForm Calculate (/AA /C) and Format (/AA /F) scripts "
+                           "run in-process via quickjs-ng (sandboxed: 16 MiB memory cap, "
+                           "hard per-event/cascade execution deadline, no host I/O; "
+                           "submitForm/mail-style verbs are blocked and reported).");
+    return c;
+#else
+    c.status = Availability::UnavailableBuild;
+    c.whyNot = QObject::tr("This form contains JavaScript calculations/validation. "
+                           "GlyphPDF does not execute form scripts in this build, so "
+                           "computed fields (e.g. totals) will not update. Your typed "
+                           "values are saved correctly.");
+    c.alternative = QObject::tr("Open the form in Firefox or Acrobat to see computed "
+                                "results; GlyphPDF's own calculated fields (Form Builder) "
+                                "remain fully editable and saveable.");
+    c.detail = QObject::tr("This build was compiled without the quickjs-ng engine.");
+    return c;
+#endif
+}
+
 } // namespace
 
 void CapabilityRegistry::registerEngineProbes()
@@ -589,6 +616,7 @@ void CapabilityRegistry::registerEngineProbes()
     registerProbe(CapId::DigitalSignature,      probeDigitalSignature);
     registerProbe(CapId::VisibleSignatureGraphic, probeVisibleSignatureGraphic);
     registerProbe(CapId::PdfAValidation,        probePdfAValidation);
+    registerProbe(CapId::FormJavaScript,        probeFormJavaScript);
 }
 
 // D06: shared dir-seam for the PP-OCRv5 model-set resolution. Mandatory:

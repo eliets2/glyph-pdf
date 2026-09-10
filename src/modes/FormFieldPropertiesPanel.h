@@ -41,6 +41,10 @@ private slots:
 private:
     void validateName();
     void validateRegex();
+    // Phase-1 form-JS: shows the "calculated" badge for fields carrying an
+    // /AA /C script and, when an /AA /F format script exists, a DISPLAY-ONLY
+    // preview of the formatted value (the stored /V is never rewritten).
+    void refreshScriptState();
 
     const AppContext* m_ctx       = nullptr;
     QString           m_fieldName;   // original name before edits
@@ -53,6 +57,8 @@ private:
     QLineEdit*  m_regexEdit       = nullptr;
     QLabel*     m_regexStatus     = nullptr;
     QLabel*     m_nameStatus      = nullptr;
+    QLabel*     m_scriptBadge     = nullptr;
+    QLabel*     m_displayPreview  = nullptr;
     QToolButton* m_applyBtn       = nullptr;
 
     QDoubleSpinBox* m_spinX = nullptr;
