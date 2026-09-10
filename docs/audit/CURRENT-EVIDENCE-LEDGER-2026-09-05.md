@@ -456,3 +456,16 @@ sub-second zero-output early deaths of TestEngineSave/TestFormSafety
 immediately after the 707-step rebuild — pass standalone (12/12 each) and
 under repeated ctest; same signature as the known TestReadOnlyGate cold-start
 flake, unrelated surfaces.
+
+## 2026-09-10 — form-JS Phase 1: run-side AcroForm Calculate + Format (feat/parity-glm-formjs)
+
+Tier-1 gap T1-3 Phase 1 (docs/research/form-js-implementation-plan.md is the
+design of record; user-authorized Option A: quickjs-ng via MSYS2 pacman,
+`mingw-w64-ucrt-x86_64-quickjs-ng` 0.15.0-1, MIT). GlyphPDF wrote `/AA /C`
++ `/AA /F` AcroForm scripts (addCalculatedField, date/numeric fields) but
+never executed them; every third-party form with computed totals opened with
+frozen placeholder values.
+
+| ID | Surface | User-visible acceptance | Status | Code | Regression test | Evidence | Commit | Residual limitation |
+|----|---------|------------------------|--------|------|-----------------|----------|--------|---------------------|
+| FORMJS-P1 | forms | Forms with `AFSimple_Calculate` totals compute on fill/commit and persist as real `/V` data through the R01 transactional boundary (verified by a second read path, qpdf inspectJson); format scripts change DISPLAY only; every script failure is field-attributed (kind + reason), the field keeps its committed value, the user value still saves; sandbox hard caps: 16 MiB memory, interrupt deadline 250 ms/event + 1 s/cascade, zero host I/O, egress verbs (submitForm/mailDoc/…) recorded and blocked; cyclic `/CO` terminates | implemented-awaiting-review | `src/engines/formjs/` (FormJsSandbox, AFormShim — Apache-2.0 pdf.js aform.js/util.js subset port with attribution, FormJsRunner), FormManager cascade-in-transaction, CapId::FormJavaScript, properties-panel badge + display preview | TestFormJsCalc (19): goldens (number/percent/date/parse/calc ops incl. 0.1+0.2==0.3), security negatives (no-I/O 13-globals probe, 7 blocked verbs, infinite-loop deadline, memory bomb, syntax classification), integration (cascade persists via PoDoFo + qpdf; line-item change recomputes; format never writes /V; syntax/timeout keep committed values; cyclic /CO), revert-verify (engine disabled = pre-fix state, suite detects it) | `.context/evidence-2026-09-08/formjs-TestFormJsCalc-postfix.txt` (19/19), `formjs-TestFormJsCalc-revert-prefix.txt` (6 cascade tests FAIL with execution disabled — pre-fix behavior proven detectable), full-suite gate `build-formjs/ctest-final.log` | baf031e + 86f8637 + ac3698f | P2 (Validate `/AA /V`, Keystroke `/AA /K`) and P3 (OpenAction, doc-level named scripts, consent UX) are hooks only; format is applied in the fill UI, not the page render layer; engine links shared libqjs-0.dll (runtime DLL must ship beside the exe); one runtime per cascade (Phase-3 moves to per-document-session) |
