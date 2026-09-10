@@ -93,7 +93,7 @@ pdfws_core (interfaces, ToolId, AppContext, commands base)
 - `SignatureManager` — PAdES signing, validation, TSA
 - `UpdateChecker` — Async manifest-based auto-update with SHA-256 verification
 
-**Dependencies:** PoDoFo, PDFium, qpdf, OpenSSL, Tesseract, Leptonica, LibXml2, Freetype, Zlib — all via MSYS2 ucrt64 pacman (except PDFium prebuilt + ONNX Runtime bundled)
+**Dependencies:** PoDoFo, PDFium, qpdf, quickjs-ng, OpenSSL, Tesseract, Leptonica, LibXml2, Freetype, Zlib — all via MSYS2 ucrt64 pacman (except PDFium prebuilt + ONNX Runtime bundled). quickjs-ng (`mingw-w64-ucrt-x86_64-quickjs-ng`, MIT) powers run-side AcroForm Calculate/Format script execution; when absent the build stays green and the capability is disclosed honestly via CapabilityRegistry. The runtime links `libqjs-0.dll` — shipped beside the executable like the other MSYS2 runtime DLLs.
 
 ## Building from Source (Developers only)
 
@@ -120,6 +120,7 @@ pdfws_core (interfaces, ToolId, AppContext, commands base)
       mingw-w64-ucrt-x86_64-qt6-pdf \
       mingw-w64-ucrt-x86_64-podofo \
       mingw-w64-ucrt-x86_64-qpdf \
+      mingw-w64-ucrt-x86_64-quickjs-ng \
       mingw-w64-ucrt-x86_64-openssl \
       mingw-w64-ucrt-x86_64-tesseract-ocr \
       mingw-w64-ucrt-x86_64-tesseract-data-eng \
