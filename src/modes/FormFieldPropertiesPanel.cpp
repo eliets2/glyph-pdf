@@ -2,11 +2,13 @@
 #include "FormFieldPropertiesPanel.h"
 #include "commands/EditFormFieldCommand.h"
 #include "core/AppContext.h"
+#include "core/interfaces/IFormManager.h"
 
 #include <QCheckBox>
 #include <QFormLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QRegularExpression>
 #include <QToolButton>
 #include <QUndoStack>
@@ -51,6 +53,21 @@ FormFieldPropertiesPanel::FormFieldPropertiesPanel(const AppContext* ctx, QWidge
     m_defaultEdit = new QLineEdit;
     m_defaultEdit->setPlaceholderText(tr("Default value"));
     form->addRow(tr("Default:"), m_defaultEdit);
+
+    // Phase-1 form-JS (U08 idiom): a calculated field is NAMED before the user
+    // wonders why its value changes, and a format script's effect is shown as
+    // a clearly-labeled display preview (presentation only, /V is untouched).
+    m_scriptBadge = new QLabel;
+    m_scriptBadge->setStyleSheet("QLabel { color: #06c; font-size: 10px; }");
+    m_scriptBadge->setWordWrap(true);
+    m_scriptBadge->setVisible(false);
+    form->addRow(QString(), m_scriptBadge);
+
+    m_displayPreview = new QLabel;
+    m_displayPreview->setStyleSheet("QLabel { color: #666; font-size: 10px; }");
+    m_displayPreview->setWordWrap(true);
+    m_displayPreview->setVisible(false);
+    form->addRow(QString(), m_displayPreview);
 
     m_placeholderEdit = new QLineEdit;
     m_placeholderEdit->setPlaceholderText(tr("Placeholder text"));
@@ -105,6 +122,7 @@ void FormFieldPropertiesPanel::setFieldName(const QString& name)
     m_regexEdit->clear();
     m_nameStatus->setVisible(false);
     m_regexStatus->setVisible(false);
+    refreshScriptState();
 }
 
 void FormFieldPropertiesPanel::clearFields()
@@ -118,6 +136,46 @@ void FormFieldPropertiesPanel::clearFields()
     m_regexEdit->clear();
     m_nameStatus->setVisible(false);
     m_regexStatus->setVisible(false);
+    m_scriptBadge->setVisible(false);
+    m_displayPreview->setVisible(false);
+}
+
+void FormFieldPropertiesPanel::refreshScriptState()
+{
+    if (!m_scriptBadge || !m_displayPreview) return;
+    const QString path = (m_ctx && m_ctx->document) ? m_ctx->document->path() : QString();
+    if (m_fieldName.isEmpty() || path.isEmpty() || !m_ctx || !m_ctx->forms) {
+        m_scriptBadge->setVisible(false);
+        m_displayPreview->setVisible(false);
+        return;
+    }
+
+    const bool calculated = m_ctx->forms->fieldHasCalculateScript(path, m_fieldName);
+    if (calculated) {
+        m_scriptBadge->setText(tr("Calculated field — the value is recomputed from the "
+                                  "document's calculation order when values are committed "
+                                  "or saved. Typing here will not stick."));
+    } else {
+        m_scriptBadge->setVisible(false);
+    }
+
+    const bool formatted = m_ctx->forms->fieldHasFormatScript(path, m_fieldName);
+    if (formatted) {
+        FormJsFailure failure;
+        const QString display = m_ctx->forms->formatFieldValue(path, m_fieldName, &failure);
+        if (!failure.kind.isEmpty()) {
+            // Honest: a failed format script is reported, not silently hidden.
+            m_displayPreview->setText(tr("Format script failed (%1): %2 — the stored value is "
+                                         "shown unchanged.").arg(failure.kind, failure.reason));
+        } else {
+            m_displayPreview->setText(tr("Display preview (format script — presentation only, "
+                                         "the stored value is unchanged): %1").arg(display));
+        }
+        m_displayPreview->setVisible(true);
+    } else {
+        m_displayPreview->setVisible(false);
+    }
+    if (calculated) m_scriptBadge->setVisible(true);
 }
 
 void FormFieldPropertiesPanel::onApplyClicked()
@@ -138,11 +196,13 @@ void FormFieldPropertiesPanel::onApplyClicked()
     newProps.placeholder = m_placeholderEdit->text();
     newProps.validRegex  = m_regexEdit->text();
 
+    QList<FormJsFailure> jsFailures;
     auto* cmd = new EditFormFieldCommand(
         m_ctx->forms.get(),
         m_ctx->document.get(),
         m_fieldName,
-        newProps
+        newProps,
+        &jsFailures
     );
     m_ctx->undoStack->push(cmd);
 
@@ -150,6 +210,18 @@ void FormFieldPropertiesPanel::onApplyClicked()
     m_fieldName = applied;
     emit propertiesApplied(applied);
     emit geometryCommitted(fieldRect());
+
+    // Phase-1 form-JS honesty contract: the edit persisted, but calculated
+    // fields whose scripts failed are named — never a silent wrong value.
+    if (!jsFailures.isEmpty()) {
+        QStringList lines;
+        for (const FormJsFailure& f : jsFailures)
+            lines << tr("• %1 — %2 (%3)").arg(f.fieldName, f.reason, f.kind);
+        QMessageBox::warning(this, tr("Field saved, calculation failed"),
+            tr("The field was saved, but %n calculated field(s) failed and kept "
+               "their previous value:\n\n%1", "", jsFailures.size()).arg(lines.join('\n')));
+    }
+    refreshScriptState();
 }
 
 void FormFieldPropertiesPanel::setFieldRect(const QRectF& rect)

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "engines/FormManager.h"
 #include "engines/SafeSave.h"
+#include "engines/formjs/FormJsRunner.h"
 #include "engines/podofo/PdfStringEscape.h"
 #include <memory>
 #include <functional>
@@ -49,6 +50,29 @@ namespace {
 
 // Deterministic test seam (see FormManager::setSaveFaultForTesting).
 FormManager::SaveFault g_saveFaultForTesting = FormManager::SaveFault::None;
+
+// ── Phase-1 form-JS: the in-transaction calculate cascade ────────────────────
+// Runs the AcroForm /CO /AA /C cascade on the mutated in-memory document,
+// INSIDE the R01 transaction (design doc §4: candidate → mutate → calculate →
+// serialize → validate → commit). One atomic commit covers the user's field
+// value and every recalculated /V. Script failures never abort the user's own
+// mutation: the affected calculated field keeps its committed value and the
+// failure is reported (field-attributed) through `jsFailures`.
+QList<FormJsFailure> runInTransactionCalculateCascade(PoDoFo::PdfMemDocument& doc)
+{
+    QList<FormJsFailure> failures;
+    const gp::formjs::CascadeReport report = gp::formjs::FormJsRunner::runCalculateCascade(doc);
+    for (const auto& f : report.failures) {
+        failures.append(FormJsFailure{ f.fieldName, f.kind, f.reason });
+        qWarning() << "form-JS: calculate failed for field" << f.fieldName
+                   << "(" << f.kind << "):" << f.reason;
+    }
+    for (const QString& verb : report.blockedActions)
+        qWarning() << "form-JS: blocked egress verb attempted:" << verb;
+    if (report.calculated > 0)
+        qDebug() << "form-JS: cascade recalculated" << report.calculated << "field(s)";
+    return failures;
+}
 
 // Thrown by a mutator to abort a transaction before any bytes are written.
 struct SaveAbort {
@@ -249,13 +273,14 @@ FormFieldSnapshot FormManager::captureFieldSnapshot(const QString &pdfFilePath, 
     return snap;
 }
 
-bool FormManager::applyFieldSnapshot(const QString &pdfFilePath, const FormFieldSnapshot &target, const QString &outputPath)
+bool FormManager::applyFieldSnapshot(const QString &pdfFilePath, const FormFieldSnapshot &target, const QString &outputPath, QList<FormJsFailure> *jsFailures)
 {
     if (!target.found) {
         qWarning() << "applyFieldSnapshot: refusing to apply a not-found snapshot for" << target.name;
         return false;
     }
     QString err;
+    QList<FormJsFailure> localJsFailures;
     const bool ok = runFormSaveTransaction(
         pdfFilePath, outputPath,
         [&](PoDoFo::PdfMemDocument& doc) {
@@ -312,6 +337,10 @@ bool FormManager::applyFieldSnapshot(const QString &pdfFilePath, const FormField
             }
             if (!found)
                 throw SaveAbort{QStringLiteral("field not found: %1").arg(target.name)};
+
+            // Phase-1 form-JS: the committed /V + the /CO cascade persist as
+            // ONE atomic write (same transaction, same candidate).
+            localJsFailures = runInTransactionCalculateCascade(doc);
         },
         [&](PoDoFo::PdfMemDocument& reopened) {
             const PoDoFo::PdfField* f = findFieldByName(reopened, target.name);
@@ -364,7 +393,67 @@ bool FormManager::applyFieldSnapshot(const QString &pdfFilePath, const FormField
         },
         &err);
     if (!ok) qWarning() << "applyFieldSnapshot error:" << err;
+    else if (jsFailures)
+        *jsFailures = localJsFailures;
     return ok;
+}
+
+// ── Phase-1 form-JS: inspection + display-only Format pass ───────────────────
+
+bool FormManager::fieldHasCalculateScript(const QString &pdfFilePath, const QString &fieldName)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(pdfFilePath.toUtf8().constData());
+        const PoDoFo::PdfField* f = findFieldByName(doc, fieldName);
+        return f && gp::formjs::FormJsRunner::fieldHasActionScript(*f, 'C');
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "fieldHasCalculateScript error:" << e.what();
+        return false;
+    }
+}
+
+bool FormManager::fieldHasFormatScript(const QString &pdfFilePath, const QString &fieldName)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(pdfFilePath.toUtf8().constData());
+        const PoDoFo::PdfField* f = findFieldByName(doc, fieldName);
+        return f && gp::formjs::FormJsRunner::fieldHasActionScript(*f, 'F');
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "fieldHasFormatScript error:" << e.what();
+        return false;
+    }
+}
+
+QString FormManager::formatFieldValue(const QString &pdfFilePath, const QString &fieldName, FormJsFailure *failure)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(pdfFilePath.toUtf8().constData());
+        const PoDoFo::PdfField* f = findFieldByName(doc, fieldName);
+        if (!f) {
+            if (failure) {
+                failure->fieldName = fieldName;
+                failure->kind = QStringLiteral("engine");
+                failure->reason = QStringLiteral("field not found: %1").arg(fieldName);
+            }
+            return {};
+        }
+        gp::formjs::FieldJsFailure jsFailure;
+        const QString display = gp::formjs::FormJsRunner::formatForDisplay(doc, *f, &jsFailure);
+        if (failure && !jsFailure.kind.isEmpty())
+            *failure = FormJsFailure{ jsFailure.fieldName, jsFailure.kind, jsFailure.reason };
+        return display;
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "formatFieldValue error:" << e.what();
+        if (failure) {
+            failure->fieldName = fieldName;
+            failure->kind = QStringLiteral("engine");
+            failure->reason = pdfErrorText(e);
+        }
+        return {};
+    }
 }
 
 FormManager::FormManager() : d(std::make_unique<Private>())
@@ -397,13 +486,14 @@ bool FormManager::extractFormFields(const QString &pdfFilePath)
     }
 }
 
-bool FormManager::fillForm(const QString &pdfFilePath, const QVariantMap &fieldData, const QString &outputPath, bool lockFields, QStringList *unsupportedFields)
+bool FormManager::fillForm(const QString &pdfFilePath, const QVariantMap &fieldData, const QString &outputPath, bool lockFields, QStringList *unsupportedFields, QList<FormJsFailure> *jsFailures)
 {
     qDebug() << "Filling form data at:" << outputPath;
 
     // §9.6 P0: requested fields that could not be applied (unknown name, or a
     // type fillForm cannot set) are reported back instead of vanishing quietly.
     QStringList appliedNames;
+    QList<FormJsFailure> localJsFailures;
 
     const bool ok = runFormSaveTransaction(
         pdfFilePath, outputPath,
@@ -463,6 +553,12 @@ bool FormManager::fillForm(const QString &pdfFilePath, const QVariantMap &fieldD
 
                 if (lockFields) field.SetReadOnly(true); // §9.6 P0: only the explicit fill+lock path locks; default-value edits must not silently lock fields
             }
+
+            // Phase-1 form-JS: run the /AA /C cascade on the mutated document
+            // BEFORE serialization — user values + recalculated /V commit as
+            // one atomic write. Failures keep committed values and are
+            // reported (never a wrong value, never a half-write).
+            localJsFailures = runInTransactionCalculateCascade(doc);
         },
         // Validate the applied values on the reopened candidate. Text and
         // checkbox state round-trip exactly; combo/list selection is
@@ -509,6 +605,8 @@ bool FormManager::fillForm(const QString &pdfFilePath, const QVariantMap &fieldD
                 unsupportedFields->append(it.key());
         }
     }
+    if (jsFailures)
+        *jsFailures = localJsFailures;
     return true;
 }
 
@@ -850,6 +948,11 @@ bool FormManager::addCalculatedField(const QString &pdfFilePath, int pageIndex, 
                 coArr.Add((field.GetObject)().GetIndirectReference());
                 acroForm->GetDictionary().AddKey(PoDoFo::PdfName("CO"), coArr);
             }
+
+            // Phase-1 form-JS: compute the initial value NOW (inside this same
+            // transaction) so the authored total is real /V data on save, not a
+            // placeholder. Failures keep "" and are logged, never fatal.
+            runInTransactionCalculateCascade(doc);
         },
         [&](PoDoFo::PdfMemDocument& reopened) {
             const PoDoFo::PdfField* f = findFieldByName(reopened, fieldName);
@@ -1087,7 +1190,7 @@ bool FormManager::exportFormData(const QString &pdfFilePath, const QString &outp
     }
 }
 
-bool FormManager::importFormData(const QString &pdfFilePath, const QString &dataFilePath, const QString &outputPath, QStringList *unsupportedFields)
+bool FormManager::importFormData(const QString &pdfFilePath, const QString &dataFilePath, const QString &outputPath, QStringList *unsupportedFields, QList<FormJsFailure> *jsFailures)
 {
     qDebug() << "Importing form data from" << dataFilePath << "into" << pdfFilePath << "saving to" << outputPath;
 
@@ -1131,7 +1234,7 @@ bool FormManager::importFormData(const QString &pdfFilePath, const QString &data
 
     // R01: import lands on the same transactional boundary via fillForm
     // (import + flatten paths must not direct-write either).
-    return fillForm(pdfFilePath, data, outputPath, /*lockFields=*/true, unsupportedFields);
+    return fillForm(pdfFilePath, data, outputPath, /*lockFields=*/true, unsupportedFields, jsFailures);
 }
 
 bool FormManager::flattenForm(const QString &pdfFilePath, const QString &outputPath)
