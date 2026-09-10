@@ -30,7 +30,7 @@ public:
     bool extractFormFields(const QString &pdfFilePath) override;
     
     // Fill out and flatten AcroForms
-    bool fillForm(const QString &pdfFilePath, const QVariantMap &fieldData, const QString &outputPath, bool lockFields = true, QStringList *unsupportedFields = nullptr) override;
+    bool fillForm(const QString &pdfFilePath, const QVariantMap &fieldData, const QString &outputPath, bool lockFields = true, QStringList *unsupportedFields = nullptr, QList<FormJsFailure> *jsFailures = nullptr) override;
     
     // Check if the document has XFA forms
     bool hasXfaForms(const QString &pdfFilePath) override;
@@ -54,8 +54,16 @@ public:
                           const QString &outputPath) override;
 
     /// R02 (F09): full property snapshot + one transactional apply.
+    // ── R02 (F09): complete field snapshots ──────────────────────────────────
     FormFieldSnapshot captureFieldSnapshot(const QString &pdfFilePath, const QString &fieldName) override;
-    bool applyFieldSnapshot(const QString &pdfFilePath, const FormFieldSnapshot &target, const QString &outputPath) override;
+    bool applyFieldSnapshot(const QString &pdfFilePath, const FormFieldSnapshot &target, const QString &outputPath, QList<FormJsFailure> *jsFailures = nullptr) override;
+
+    // ── Phase-1 form-JS (run-side Calculate/Format) ──────────────────────────
+    // The /AA /C cascade executes inside the shared R01 save boundary below —
+    // one atomic commit covers the user's value and every recalculated /V.
+    bool fieldHasCalculateScript(const QString &pdfFilePath, const QString &fieldName) override;
+    bool fieldHasFormatScript(const QString &pdfFilePath, const QString &fieldName) override;
+    QString formatFieldValue(const QString &pdfFilePath, const QString &fieldName, FormJsFailure *failure = nullptr) override;
 
     QList<FieldSuggestion> autoDetectFields(const QString &pdfFilePath, int pageIndex) override;
 
@@ -66,7 +74,7 @@ public:
     bool setTabOrder(const QString &pdfFilePath, const QStringList &orderedNames, const QString &outputPath) override;
 
     bool exportFormData(const QString &pdfFilePath, const QString &outputPath, const QString &format) override;
-    bool importFormData(const QString &pdfFilePath, const QString &dataFilePath, const QString &outputPath, QStringList *unsupportedFields = nullptr) override;
+    bool importFormData(const QString &pdfFilePath, const QString &dataFilePath, const QString &outputPath, QStringList *unsupportedFields = nullptr, QList<FormJsFailure> *jsFailures = nullptr) override;
     bool flattenForm(const QString &pdfFilePath, const QString &outputPath) override;
 
 private:

@@ -156,7 +156,8 @@ void FormsController::onImportDataRequested() {
     if (originalPath.isEmpty()) return;
     const QString outputPath = originalPath + ".tmp";
     QStringList unsupported;
-    if (_ctx->forms->importFormData(originalPath, dataPath, outputPath, &unsupported)) {
+    QList<FormJsFailure> jsFailures;
+    if (_ctx->forms->importFormData(originalPath, dataPath, outputPath, &unsupported, &jsFailures)) {
         // Commit the imported bytes onto the real path through the shared
         // checked-commit boundary: the original is never destroyed unless the
         // replacement actually succeeded, and the viewer's held handle is
@@ -195,6 +196,16 @@ void FormsController::onImportDataRequested() {
                 tr("Form data was imported, but %1 field(s) could not be set and were skipped:\n\n%2\n\n"
                    "Radio groups and push buttons cannot be filled by import; check that field names match the document.")
                     .arg(unsupported.size()).arg(unsupported.join(", ")));
+        }
+        // Phase-1 form-JS honesty contract: calculated fields whose scripts
+        // failed kept their committed value — name them, never a silent value.
+        if (!jsFailures.isEmpty()) {
+            QStringList lines;
+            for (const FormJsFailure& f : jsFailures)
+                lines << tr("• %1 — %2 (%3)").arg(f.fieldName, f.reason, f.kind);
+            QMessageBox::warning(_mainWindow, tr("Import complete, calculation failed"),
+                tr("The data was imported, but %n calculated field(s) failed and kept "
+                   "their previous value:\n\n%1", "", jsFailures.size()).arg(lines.join('\n')));
         }
     } else {
         QFile::remove(outputPath);   // never leave a half-written temp behind
