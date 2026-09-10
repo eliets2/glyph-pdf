@@ -261,7 +261,11 @@ StampTime=$(Get-Date -Format o)
 Write-Host ('[1d/5] Release build identity stamped: commit {0}' -f $commit)
 
 #  2. Deploy (the actual release build directory is passed through  -  INF02:
-#  deploy.ps1 must not infer build/ independently)
+#  deploy.ps1 must not infer build/ independently). G16: deploy.ps1 now takes
+#  an explicit -BuildDir PATH (rooted used as-is, relative joined to the
+#  project root). The old call relied on -BuildDir prefix-binding to
+#  -BuildDirName, which double-joined the absolute path into
+#  "C:\repo\C:\repo\build-rel" and failed the first read-only validation.
 Write-Host '[2/5] Deploying payload...'
 & powershell -ExecutionPolicy Bypass -File (Join-Path $PackDir 'deploy.ps1') -BuildDir $BuildDir
 if ($LASTEXITCODE -ne 0) { throw 'Deploy failed.' }

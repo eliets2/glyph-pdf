@@ -82,8 +82,15 @@ foreach ($e in $entries) {
     }
 }
 
-if (-not $haveApp -and -not $haveEngine) {
-    Write-Error "FAIL (INF05): evidence file '$CompileCommands' contains neither the PdfWorkstation nor the pdfws_engines production target  -  the shipped targets were not inspected, so the gate cannot pass. Was this file produced by a full release configure?"
+#  G17 (QUALITY-GATE-2026-09-09): BOTH required production targets must be
+#  present in the evidence. The old condition (-and) only rejected evidence
+#  missing BOTH, so a compile database containing just the application or
+#  just the engine passed with half the shipped surface uninspected.
+if (-not $haveApp -or -not $haveEngine) {
+    $missing = @()
+    if (-not $haveApp)    { $missing += 'PdfWorkstation (app)' }
+    if (-not $haveEngine) { $missing += 'pdfws_engines (engine)' }
+    Write-Error "FAIL (INF05): evidence file '$CompileCommands' is missing required production target compilations: $($missing -join ', ')  -  every shipped target must be inspected, so the gate cannot pass on partial evidence. Was this file produced by a FULL release configure?"
     exit 1
 }
 if ($prodWithMacro.Count -gt 0) {
