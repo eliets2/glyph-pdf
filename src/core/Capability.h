@@ -47,6 +47,7 @@ enum class CapId {
     DigitalSignature,         // certificate-backed X.509/P12 signing (OpenSSL)
     VisibleSignatureGraphic,  // SignaturePicker Draw/Type/Upload graphic stamp
     PdfAValidation,           // veraPDF CLI present (runtime probe)
+    FormJavaScript,           // run-side AcroForm Calculate/Format (quickjs-ng)
     COUNT
 };
 

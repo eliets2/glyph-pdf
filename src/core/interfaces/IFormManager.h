@@ -13,6 +13,16 @@ struct FieldSuggestion {
     QString suggestedName;
 };
 
+/// Phase-1 form-JS (run-side Calculate/Format): one honest, field-attributed
+/// failure from the /AA /C calculate cascade. The affected field keeps its
+/// committed value — failures are reported, never silently swallowed and
+/// never a wrong computed value.
+struct FormJsFailure {
+    QString fieldName;
+    QString kind;    // "timeout" | "memory" | "syntax" | "exception" | "rejected" | "engine"
+    QString reason;  // user-presentable reason
+};
+
 /// R02 (audit F09): complete snapshot of one AcroForm field's supported,
 /// user-editable state, read BEFORE the first mutation so undo can restore
 /// exactly what was there.
@@ -47,7 +57,11 @@ class IFormManager {
 public:
     virtual ~IFormManager() = default;
     virtual bool extractFormFields(const QString &pdfFilePath) = 0;
-    virtual bool fillForm(const QString &pdfFilePath, const QVariantMap &fieldData, const QString &outputPath, bool lockFields = true, QStringList *unsupportedFields = nullptr) = 0;
+    /// Fill out and save. When non-null, `jsFailures` receives one entry per
+    /// calculated field (/AA /C) whose script failed during the in-transaction
+    /// calculate cascade — the user value still persists; failed calculated
+    /// fields keep their committed value and are reported, never miscomputed.
+    virtual bool fillForm(const QString &pdfFilePath, const QVariantMap &fieldData, const QString &outputPath, bool lockFields = true, QStringList *unsupportedFields = nullptr, QList<FormJsFailure> *jsFailures = nullptr) = 0;
     virtual bool hasXfaForms(const QString &pdfFilePath) = 0;
     virtual bool addTextField(const QString &pdfFilePath, int pageIndex, const QRectF &rect,
                                const QString &fieldName, const QString &outputPath) = 0;
@@ -95,7 +109,21 @@ public:
     /// A snapshot with valuePresent == false clears /V (absent), an explicitly
     /// empty `value` writes /V as "". Returns false (writing nothing) when the
     /// field is missing or the save fails.
-    virtual bool applyFieldSnapshot(const QString &pdfFilePath, const FormFieldSnapshot &target, const QString &outputPath) = 0;
+    /// Phase-1 form-JS: the calculate cascade runs inside the same
+    /// transaction; `jsFailures` (optional) reports per-field script failures.
+    virtual bool applyFieldSnapshot(const QString &pdfFilePath, const FormFieldSnapshot &target, const QString &outputPath, QList<FormJsFailure> *jsFailures = nullptr) = 0;
+
+    /// Phase-1 form-JS inspection (no execution): does the named field carry
+    /// an /AA /C (Calculate) or /AA /F (Format) JavaScript action?
+    virtual bool fieldHasCalculateScript(const QString &pdfFilePath, const QString &fieldName) = 0;
+    virtual bool fieldHasFormatScript(const QString &pdfFilePath, const QString &fieldName) = 0;
+
+    /// Phase-1 form-JS display pass: runs the field's /AA /F (Format) script
+    /// as a DISPLAY-ONLY evaluation and returns the formatted presentation
+    /// value. /V is never written. Returns a null QString when the field has
+    /// no format script; on script failure returns the unformatted value and
+    /// fills `failure` (field-attributed, honest).
+    virtual QString formatFieldValue(const QString &pdfFilePath, const QString &fieldName, FormJsFailure *failure = nullptr) = 0;
 
     virtual QList<FieldSuggestion> autoDetectFields(const QString &pdfFilePath, int pageIndex) = 0;
 
@@ -119,7 +147,9 @@ public:
 
     // Import / Export / Flatten
     virtual bool exportFormData(const QString &pdfFilePath, const QString &outputPath, const QString &format) = 0; // format: "FDF" or "CSV"
-    virtual bool importFormData(const QString &pdfFilePath, const QString &dataFilePath, const QString &outputPath, QStringList *unsupportedFields = nullptr) = 0;
+    /// Import lands on fillForm (and therefore on the in-transaction calculate
+    /// cascade); `jsFailures` (optional) reports calculated-field script failures.
+    virtual bool importFormData(const QString &pdfFilePath, const QString &dataFilePath, const QString &outputPath, QStringList *unsupportedFields = nullptr, QList<FormJsFailure> *jsFailures = nullptr) = 0;
     virtual bool flattenForm(const QString &pdfFilePath, const QString &outputPath) = 0;
 protected:
     IFormManager() = default;

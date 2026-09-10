@@ -50,14 +50,22 @@ struct EditFormFieldProperties {
 /// succeeded()/lastError() via a direct redo() instead.
 class EditFormFieldCommand : public CheckedUndoCommand {
 public:
+    // Phase-1 form-JS: when non-null, `jsFailures` receives the per-field
+    // calculate-cascade failures from the redo (apply) — the edit itself
+    // persists; failed calculated fields keep their committed value and the
+    // caller surfaces them. Survives push() deleting an obsolete command:
+    // the list is written during push's initial redo and outlives the command.
     EditFormFieldCommand(IFormManager* engine,
                          DocumentSession* doc,
                          const QString& originalName,
-                         const EditFormFieldProperties& newProps)
+                         const EditFormFieldProperties& newProps,
+                         QList<FormJsFailure>* jsFailures = nullptr)
         : m_engine(engine)
         , m_doc(doc)
         , m_newProps(newProps)
+        , m_jsFailures(jsFailures)
     {
+        if (m_jsFailures) m_jsFailures->clear();
         setText(QObject::tr("Edit form field"));
         m_oldProps.name = originalName;
 
@@ -91,7 +99,7 @@ public:
             setObsolete(true);
             return;
         }
-        const bool ok = m_engine->applyFieldSnapshot(m_doc->path(), m_new, m_doc->path());
+        const bool ok = m_engine->applyFieldSnapshot(m_doc->path(), m_new, m_doc->path(), m_jsFailures);
         m_succeeded = ok;
         if (ok) {
             m_doc->markReload();
@@ -158,6 +166,7 @@ private:
     EditFormFieldProperties  m_oldProps;  // carries the original name for introspection
     FormFieldSnapshot        m_old;       // captured ONCE at construction, before any mutation
     FormFieldSnapshot        m_new;       // derived from m_old: only panel-edited fields differ
+    QList<FormJsFailure>*    m_jsFailures = nullptr; // optional Phase-1 cascade report
     bool                     m_succeeded = false;
     QString                  m_error;
 
