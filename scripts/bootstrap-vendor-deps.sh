@@ -9,6 +9,8 @@
 #   2. third_party/pdfium/bin/pdfium.dll   — PDFium runtime (chromium/7834),
 #                                            matching the vendored import lib
 #   3. onnxruntime-win-x64-1.17.3/         — ONNX Runtime 1.17.3 (HAS_RAPIDOCR)
+#   4. quickjs-ng (MSYS2 pacman)           — form-JS execution engine
+#                                            (HAS_QUICKJS; form-JS Phase 1)
 #
 # WHY THIS EXISTS: without tree 1, CMake silently falls back to MSYS2's podofo
 # 0.10.4 (API mismatch — obscure build errors) and missing trees 2/3 leave
@@ -18,7 +20,7 @@
 #
 # Usage:
 #   scripts/bootstrap-vendor-deps.sh            # install whatever is missing
-#   scripts/bootstrap-vendor-deps.sh check      # verify the three trees only
+#   scripts/bootstrap-vendor-deps.sh check      # verify the trees only
 #
 # Environment: MSYS2 UCRT64 (git, cmake, ninja, curl, tar, unzip, sha256sum).
 # Every download is checksum-pinned; JOBS=2 default (linker OOM at higher -j).
@@ -36,10 +38,18 @@ PDFIUM_DLL_SHA256="a487e1d2a18f164adc3a17aacee158787fa86049e6d91d3712b0a43f745e6
 ORT_DIR="onnxruntime-win-x64-1.17.3"
 ORT_ZIP_URL="https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-win-x64-1.17.3.zip"
 ORT_ZIP_SHA256="356a33d024f2709786bebd5d4ca06cd5392875da95daa0455aae72edc8993256"
+QUICKJS_PKG="mingw-w64-ucrt-x86_64-quickjs-ng"   # MIT; pinned 0.15.0 via pacman
 
 podofo_ok()   { [ -f "$PODOFO_DIR/bin/libpodofo.dll" ] && [ -f "$PODOFO_DIR/lib/cmake/podofo/podofo-config.cmake" ]; }
 pdfium_ok()   { [ -f "$PDFIUM_DLL" ]; }
 onnx_ok()     { [ -f "$ORT_DIR/lib/onnxruntime.dll" ]; }
+# Resolve the UCRT64 prefix from inside MSYS2 (/ucrt64) or any host shell
+# (C:/msys64/ucrt64) — the script is also run from Git Bash/CI steps.
+UCRT64_ROOT=""
+for _uc in /ucrt64 /c/msys64/ucrt64 "${MSYS2_PREFIX:-}/ucrt64"; do
+  [ -n "$_uc" ] && [ -f "$_uc/include/quickjs.h" ] && { UCRT64_ROOT="$_uc"; break; } || true
+done
+quickjs_ok()  { [ -n "$UCRT64_ROOT" ] && [ -f "$UCRT64_ROOT/lib/cmake/qjs/qjsConfig.cmake" ]; }
 
 fetch() { # url sha256 dest
   local url="$1" sha="$2" dest="$3"
@@ -87,6 +97,15 @@ install_onnx() {
   onnx_ok || { echo "ERROR: $ORT_DIR/lib/onnxruntime.dll missing after extraction" >&2; return 1; }
 }
 
+# Not a vendored tree — an MSYS2 pacman package (same channel as Qt/qpdf/
+# OpenSSL). Form-JS execution is OPTIONAL at build time: without it, the
+# build stays green and CapabilityRegistry discloses the limitation.
+install_quickjs() {
+  echo "== [4/4] Installing quickjs-ng (form-JS engine) via pacman =="
+  pacman -S --noconfirm --needed "$QUICKJS_PKG"
+  quickjs_ok || { echo "ERROR: quickjs-ng header/cmake config missing after pacman install" >&2; return 1; }
+}
+
 trap_warning() {
   cat >&2 <<'EOF'
 !! VENDOR TREES INCOMPLETE - DO NOT CONFIGURE/BUILD YET.
@@ -102,9 +121,10 @@ case "${1:-install}" in
     podofo_ok || { echo "MISSING: $PODOFO_DIR (bin/libpodofo.dll or cmake config)"; ok=0; }
     pdfium_ok || { echo "MISSING: $PDFIUM_DLL"; ok=0; }
     onnx_ok   || { echo "MISSING: $ORT_DIR/lib/onnxruntime.dll"; ok=0; }
+    quickjs_ok || { echo "MISSING: $QUICKJS_PKG (pacman; form-JS execution will be disabled)"; ok=0; }
     if [ "$ok" = 1 ]; then
-      echo "OK: all three vendor trees are present:"
-      echo "  $PODOFO_DIR  $PDFIUM_DLL  $ORT_DIR"
+      echo "OK: all vendor trees present:"
+      echo "  $PODOFO_DIR  $PDFIUM_DLL  $ORT_DIR  $QUICKJS_PKG"
       exit 0
     fi
     trap_warning
@@ -114,6 +134,7 @@ case "${1:-install}" in
     podofo_ok || install_podofo
     pdfium_ok || install_pdfium
     onnx_ok   || install_onnx
+    quickjs_ok || install_quickjs
     ;;
   *)
     echo "usage: $0 [install|check]" >&2

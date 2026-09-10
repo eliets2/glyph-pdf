@@ -164,6 +164,11 @@ find_package(OpenXLSX CONFIG QUIET)
 find_package(duckx CONFIG QUIET)
 find_package(CURL QUIET)
 find_package(qpdf QUIET)
+# quickjs-ng — the form-JavaScript execution engine (MIT; MSYS2 ucrt64 package
+# `mingw-w64-ucrt-x86_64-quickjs-ng`, pinned 0.15.0-1). Optional: when absent
+# the build stays green and form-JS capabilities disclose honestly via
+# CapabilityRegistry (design doc §5 fallback).
+find_package(qjs CONFIG QUIET)
 
 # LibreOffice headless (Office→PDF import) is detected at RUNTIME by
 # ConversionManager::locateSoffice() — never baked at build time, so the shipped
@@ -320,6 +325,9 @@ add_library(pdfws_engines STATIC
     src/engines/PdfEditorEngine.h    src/engines/PdfEditorEngine.cpp
     src/engines/FormManager.h        src/engines/FormManager.cpp
     src/engines/SafeSave.h           src/engines/SafeSave.cpp
+    src/engines/formjs/AFormShim.h   src/engines/formjs/AFormShim.cpp
+    src/engines/formjs/FormJsSandbox.h src/engines/formjs/FormJsSandbox.cpp
+    src/engines/formjs/FormJsRunner.h src/engines/formjs/FormJsRunner.cpp
     src/engines/RedactOperation.h    src/engines/RedactOperation.cpp
     src/core/RedactionProof.h        src/core/RedactionProof.cpp
     src/engines/SignatureManager.h   src/engines/SignatureManager.cpp
@@ -473,6 +481,24 @@ else()
     message(STATUS "PDFium not found — PdfiumBackend disabled")
 endif()
 
+# quickjs-ng (form JavaScript execution — Phase 1 Calculate/Format, MIT).
+# The sandbox contract (design doc §3) lives in FormJsSandbox: memory cap,
+# interrupt deadline, and ZERO host I/O — the quickjs-libc I/O module is never
+# initialized, so no filesystem/network primitive is reachable from scripts.
+if(TARGET qjs)
+    target_link_libraries(pdfws_engines PUBLIC qjs)
+    target_compile_definitions(pdfws_engines PUBLIC HAS_QUICKJS)
+    set(QUICKJS_RUNTIME_DLL "${QT6_PLUGINS_DIR}/../bin/libqjs-0.dll")
+    get_target_property(_qjs_location qjs IMPORTED_LOCATION_RELEASE)
+    if(_qjs_location)
+        get_filename_component(QUICKJS_RUNTIME_DLL "${_qjs_location}" REALPATH)
+    endif()
+    message(STATUS "quickjs-ng found — form-JS Calculate/Format execution enabled (${QUICKJS_RUNTIME_DLL})")
+else()
+    set(QUICKJS_RUNTIME_DLL "")
+    message(STATUS "quickjs-ng not found — form-JS execution disabled (CapabilityRegistry disclosure)")
+endif()
+
 # AR-11 D5: Feature/version summary + hard-fail on missing shipped-feature defines.
 # The four core features listed in README.md / release notes MUST be present in any
 # artifact that will be signed and submitted to winget. A QUIET find_package() today
@@ -501,6 +527,10 @@ endif()
 if(qpdf_FOUND AND (TARGET qpdf::qpdf OR TARGET qpdf::libqpdf))
     set(_has_qpdf TRUE)
 endif()
+set(_has_quickjs FALSE)
+if(TARGET qjs)
+    set(_has_quickjs TRUE)
+endif()
 
 message(STATUS "")
 message(STATUS "===== GlyphPDF ${PROJECT_VERSION} — Feature Summary (AR-11 D5) =====")
@@ -508,6 +538,7 @@ message(STATUS "  HAS_PDFIUM    : ${_has_pdfium}   (rendering engine — PDF.js-
 message(STATUS "  HAS_TESSERACT : ${_has_tesseract}  (primary OCR engine — Tesseract 5)")
 message(STATUS "  HAS_RAPIDOCR  : ${_has_rapidocr}  (secondary OCR — PP-OCRv5 ROVER ensemble)")
 message(STATUS "  HAS_QPDF      : ${_has_qpdf}   (PDF linearisation)")
+message(STATUS "  HAS_QUICKJS   : ${_has_quickjs}  (form-JS Calculate/Format execution)")
 message(STATUS "  LTO           : ${GLYPHPDF_ENABLE_LTO}")
 message(STATUS "  Release build : ${GLYPHPDF_RELEASE_BUILD}")
 message(STATUS "===================================================================")
@@ -2938,6 +2969,38 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormSafety.cpp")
     )
     add_test(NAME TestFormSafety COMMAND TestFormSafety)
     set_tests_properties(TestFormSafety PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120 LABELS "unit;forms;form-fields;persistence;qt;headless")
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormJsCalc.cpp")
+    add_executable(TestFormJsCalc
+        tests/TestFormJsCalc.cpp
+    )
+    target_include_directories(TestFormJsCalc PRIVATE src tests)
+    target_link_libraries(TestFormJsCalc PRIVATE
+        pdfws_engines pdfws_core pdfws_commands podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET TestFormJsCalc POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestFormJsCalc>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestFormJsCalc>/platforms/qoffscreen.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PODOFO_VENDOR_DLL}"
+            "$<TARGET_FILE_DIR:TestFormJsCalc>/libpodofo.dll"
+        COMMENT "Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFormJsCalc"
+    )
+    if(QUICKJS_RUNTIME_DLL AND EXISTS "${QUICKJS_RUNTIME_DLL}")
+        add_custom_command(TARGET TestFormJsCalc POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${QUICKJS_RUNTIME_DLL}"
+                "$<TARGET_FILE_DIR:TestFormJsCalc>"
+            COMMENT "Deploying quickjs-ng runtime DLL for TestFormJsCalc"
+        )
+    endif()
+    add_test(NAME TestFormJsCalc COMMAND TestFormJsCalc)
+    set_tests_properties(TestFormJsCalc PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 240 LABELS "unit;forms;form-js;javascript;persistence;qt;headless")
 endif()
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEngineSave.cpp")
