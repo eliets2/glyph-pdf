@@ -32,6 +32,14 @@ PODOFO_SRC="third_party/podofo_build"
 PODOFO_VER="1.1.0"
 PDFIUM_DLL="third_party/pdfium/bin/pdfium.dll"
 PDFIUM_TGZ_URL="https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7834/pdfium-win-x64.tgz"
+# G18 (QUALITY-GATE-2026-09-09): the ARCHIVE and the EXTRACTED DLL are two
+# different objects with two different hashes. The old script pinned only the
+# DLL hash and compared it against the downloaded .tgz in fetch(), so the
+# fresh-install PDFium path could never validate its own download (sha256sum
+# mismatch aborted the bootstrap before extraction). Both are pinned now and
+# BOTH are enforced: the archive at download time, the extracted DLL before
+# staging (matching what CI validates).
+PDFIUM_TGZ_SHA256="0abfacf8aacc919f98eff2c3efa2927c3dc9faf07e31f22558a1f1cf93809612"
 PDFIUM_DLL_SHA256="a487e1d2a18f164adc3a17aacee158787fa86049e6d91d3712b0a43f745e6905"
 ORT_DIR="onnxruntime-win-x64-1.17.3"
 ORT_ZIP_URL="https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-win-x64-1.17.3.zip"
@@ -69,8 +77,15 @@ install_pdfium() {
   echo "== [2/3] Staging PDFium runtime DLL (chromium/7834) =="
   local tmp="third_party/pdfium_dl.tmp"
   rm -rf "$tmp"; mkdir -p "$tmp" third_party/pdfium/bin
-  fetch "$PDFIUM_TGZ_URL" "$PDFIUM_DLL_SHA256" "$tmp/pdfium.tgz"
+  # G18: validate the ARCHIVE hash at download time...
+  fetch "$PDFIUM_TGZ_URL" "$PDFIUM_TGZ_SHA256" "$tmp/pdfium.tgz"
   tar -xzf "$tmp/pdfium.tgz" -C "$tmp"
+  # G18: ...and the EXTRACTED DLL hash before staging — a compromised or
+  # corrupted archive that happens to be "some" valid download can never
+  # reach third_party/pdfium/bin without its extracted payload matching the
+  # DLL the vendored import lib was built against.
+  echo "$PDFIUM_DLL_SHA256  $tmp/bin/pdfium.dll" | sha256sum -c - >/dev/null \
+    || { echo "ERROR: extracted pdfium.dll hash mismatch (expected $PDFIUM_DLL_SHA256)" >&2; rm -rf "$tmp"; return 1; }
   cp "$tmp/bin/pdfium.dll" "$PDFIUM_DLL"
   rm -rf "$tmp"
   pdfium_ok || { echo "ERROR: pdfium.dll missing after staging" >&2; return 1; }

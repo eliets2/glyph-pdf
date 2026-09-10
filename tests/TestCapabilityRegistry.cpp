@@ -467,9 +467,14 @@ private slots:
         CapabilityRegistry reg;
         reg.registerEngineProbes();
 
-        // A supported language is never Unavailable*: the traineddata is either
-        // present (Available) or downloadable on first use (Degraded).
+        // A supported language is never silently mishandled. In a build WITH
+        // Tesseract the traineddata is either present (Available) or
+        // downloadable on first use (Degraded). In a deliberately OCR-less
+        // build (GLYPHPDF_ENABLE_TESSERACT=OFF, D03) the probe must
+        // truthfully report UnavailableBuild and name the remedy — the
+        // language-data presence is then irrelevant.
         const Capability en = reg.query(CapId::OcrLanguageData, QStringLiteral("EN"));
+#ifdef HAS_TESSERACT
         QVERIFY2(en.status == Availability::Available || en.status == Availability::Degraded,
                  qPrintable(QStringLiteral("EN must be Available/Degraded; got status %1")
                                     .arg(int(en.status))));
@@ -478,6 +483,14 @@ private slots:
                      "a Degraded language must disclose the download path");
             QVERIFY2(!en.whyNot.trimmed().isEmpty(), "Degraded must still explain itself");
         }
+#else
+        QCOMPARE(en.status, Availability::UnavailableBuild);
+        QVERIFY2(en.whyNot.contains(QStringLiteral("not compiled"), Qt::CaseInsensitive),
+                 qPrintable(QStringLiteral("an OCR-less build must say OCR is not compiled; got '%1'")
+                                    .arg(en.whyNot)));
+        QVERIFY2(!en.alternative.trimmed().isEmpty(),
+                 "UnavailableBuild must name the remedy (Tesseract-enabled build)");
+#endif
 
         // An unsupported language code is UnavailableRuntime (never silently
         // remapped): it must explain and point at the supported list.

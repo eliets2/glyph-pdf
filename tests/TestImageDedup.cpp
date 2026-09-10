@@ -2,14 +2,56 @@
 // Audit 9.13 P0 regression test (follow-up to 482d6d6): optimizeDocument's
 // duplicate-image dedup must complete the last mile — page /XObject entries
 // pointing at duplicate image objects are rewritten to reference the
-// canonical copy.
+// canonical copy, the duplicate object is dropped, and both contracts
+// SURVIVE the save + reload round trip.
+//
+// gateD (2026-09-09) classification note: an earlier draft of this test
+// asserted IsReference() on PdfDictionary::FindKey() results and failed.
+// That was a test defect, not a save-path defect: in PoDoFo 1.1.0 FindKey()
+// is a RESOLVING lookup — findKey() calls TryGetReference() and returns the
+// referenced target object itself, so an inlined (referenced) image dict is
+// returned for a /XObject entry that is stored as "N 0 R". The shallow/raw
+// accessor is GetKey() (same convention TestBatchOpsCoverage uses for its
+// "must BE a reference" /DestOutputProfile assertion). The optimize+save
+// artifact was verified byte-correct: /XObject<</Im0 5 0 R/Im1 5 0 R>>.
 #include <QtTest/QtTest>
 #include <QTemporaryDir>
 #include <QFile>
-#include <QTextStream>
 #include <QFileInfo>
 #include <podofo/podofo.h>
 #include "engines/podofo/PoDoFoBackend.h"
+
+using namespace PoDoFo;
+
+namespace {
+// Raw /XObject entry lookup: GetKey returns the STORED entry (a
+// reference-typed PdfObject for "N 0 R"), FindKey would return the resolved
+// target and could never pin the indirect-reference contract.
+PdfObject* rawXObjectsEntry(PdfObject* pageObj, const char* name) {
+    auto* res = pageObj->GetDictionary().GetKey("Resources");
+    if (!res) return nullptr;
+    if (res->IsReference())
+        res = &pageObj->GetDocument()->GetObjects().MustGetObject(res->GetReference());
+    if (!res || !res->IsDictionary()) return nullptr;
+    auto* xobjs = res->GetDictionary().GetKey("XObject");
+    if (!xobjs) return nullptr;
+    if (xobjs->IsReference())
+        xobjs = &pageObj->GetDocument()->GetObjects().MustGetObject(xobjs->GetReference());
+    if (!xobjs || !xobjs->IsDictionary()) return nullptr;
+    return xobjs->GetDictionary().GetKey(name);
+}
+
+unsigned countImageObjects(PdfMemDocument& doc) {
+    unsigned n = 0;
+    for (auto obj : doc.GetObjects()) {
+        if (!obj->IsDictionary() || !obj->HasStream()) continue;
+        auto* subtype = obj->GetDictionary().FindKey("Subtype");
+        if (subtype && subtype->IsName() && subtype->GetName().GetString() == "Image")
+            n++;
+    }
+    return n;
+}
+} // namespace
 
 class TestImageDedup : public QObject {
     Q_OBJECT
@@ -25,92 +67,88 @@ void TestImageDedup::duplicatesRewiredToCanonical() {
     // image objects with byte-identical streams (the dedup trigger).
     const QByteArray imgBytes("FAKEIMAGEBYTES-IDENTICAL-IN-BOTH");
     {
-        PoDoFo::PdfMemDocument doc;
+        PdfMemDocument doc;
         auto& page = doc.GetPages().CreatePage(
-            PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
-        auto makeImage = [&](const char* name) {
+            PdfPage::CreateStandardPageSize(PdfPageSize::A4));
+        auto makeImage = [&]() {
             auto& obj = doc.GetObjects().CreateDictionaryObject();
-            obj.GetDictionary().AddKey("Type", PoDoFo::PdfName("XObject"));
-            obj.GetDictionary().AddKey("Subtype", PoDoFo::PdfName("Image"));
+            obj.GetDictionary().AddKey("Type", PdfName("XObject"));
+            obj.GetDictionary().AddKey("Subtype", PdfName("Image"));
             obj.GetDictionary().AddKey("Width", static_cast<int64_t>(4));
             obj.GetDictionary().AddKey("Height", static_cast<int64_t>(4));
-            obj.GetDictionary().AddKey("ColorSpace", PoDoFo::PdfName("DeviceRGB"));
+            obj.GetDictionary().AddKey("ColorSpace", PdfName("DeviceRGB"));
             obj.GetDictionary().AddKey("BitsPerComponent", static_cast<int64_t>(8));
             obj.GetOrCreateStream().SetData(
-                PoDoFo::bufferview(imgBytes.constData(), static_cast<size_t>(imgBytes.size())));
+                bufferview(imgBytes.constData(), static_cast<size_t>(imgBytes.size())));
             return obj.GetIndirectReference();
         };
-        const auto ref0 = makeImage("Im0");
-        const auto ref1 = makeImage("Im1");
+        const auto ref0 = makeImage();
+        const auto ref1 = makeImage();
 
-        PoDoFo::PdfDictionary xobjs;
-        xobjs.AddKey(PoDoFo::PdfName("Im0"), PoDoFo::PdfObject(ref0));
-        xobjs.AddKey(PoDoFo::PdfName("Im1"), PoDoFo::PdfObject(ref1));
-        PoDoFo::PdfDictionary res;
-        res.AddKey("XObject", PoDoFo::PdfObject(xobjs));
-        page.GetDictionary().AddKey("Resources", PoDoFo::PdfObject(res));
+        PdfDictionary xobjs;
+        xobjs.AddKey(PdfName("Im0"), PdfObject(ref0));
+        xobjs.AddKey(PdfName("Im1"), PdfObject(ref1));
+        PdfDictionary res;
+        res.AddKey("XObject", PdfObject(xobjs));
+        page.GetDictionary().AddKey("Resources", PdfObject(res));
 
         doc.Save(src.toUtf8().constData());
     }
 
-    PoDoFoBackend backend;
-    const bool loaded = backend.loadDocument(src);
+    // Pre-control: the SOURCE has two distinct image objects, and the two raw
+    // /XObject entries are indirect references to DIFFERENT objects.
+    PdfObject* im0 = nullptr;
+    PdfObject* im1 = nullptr;
     {
-        QFile diag0(QStringLiteral("dd_diag0.txt"));
-        if (diag0.open(QIODevice::WriteOnly | QIODevice::Text)) {
-            QTextStream ts(&diag0);
-            ts << "loaded=" << loaded << "\n";
-        }
+        PdfMemDocument before;
+        before.Load(src.toUtf8().constData());
+        auto* pageObj = &before.GetObjects().MustGetObject(
+            before.GetPages().GetPageAt(0).GetObject().GetIndirectReference());
+        im0 = rawXObjectsEntry(pageObj, "Im0");
+        im1 = rawXObjectsEntry(pageObj, "Im1");
+        QVERIFY(im0 && im1);
+        QVERIFY2(im0->IsReference(), "source /Im0 must be an indirect reference");
+        QVERIFY2(im1->IsReference(), "source /Im1 must be an indirect reference");
+        QVERIFY2(im0->GetReference() != im1->GetReference(),
+                 "source control: the two images must be DISTINCT objects");
+        QCOMPARE(countImageObjects(before), 2u);
     }
-    QVERIFY(loaded);
+
+    PoDoFoBackend backend;
+    QVERIFY(backend.loadDocument(src));
     OptimizeOptions opts;
     opts.deduplicateImages = true;
     const QString out = tmp.filePath("deduped.pdf");
-    const bool optimized = backend.optimizeDocument(out, opts);
-    {
-        QFile diag1(QStringLiteral("dd_diag1.txt"));
-        if (diag1.open(QIODevice::WriteOnly | QIODevice::Text)) {
-            QTextStream ts(&diag1);
-            ts << "optimized=" << optimized << " exists=" << QFileInfo::exists(out) << "\n";
-        }
-    }
-    QVERIFY(optimized);
+    QVERIFY(backend.optimizeDocument(out, opts));
+    QVERIFY(QFileInfo::exists(out));
 
-    // Reload: both resource entries must now point at the SAME object.
-    PoDoFo::PdfMemDocument check;
+    // Reload the artifact: both RAW resource entries must still be indirect
+    // references, now pointing at the SAME canonical object; exactly one
+    // image object must remain (the duplicate is dropped by the sweep).
+    PdfMemDocument check;
     check.Load(out.toUtf8().constData());
     auto& page = check.GetPages().GetPageAt(0);
-    QFile diagPre(QStringLiteral("dd_diagpre.txt"));
-    if (diagPre.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        QTextStream ts(&diagPre);
-        auto* res = page.GetDictionary().FindKey("Resources");
-        ts << "res=" << (res != nullptr);
-        if (res) {
-            auto* xo = res->GetDictionary().FindKey("XObject");
-            ts << " xobj=" << (xo != nullptr);
-            if (xo) {
-                ts << " im0=" << (xo->GetDictionary().FindKey("Im0") != nullptr)
-                   << " im1=" << (xo->GetDictionary().FindKey("Im1") != nullptr);
-            }
-        }
-        ts << "\n";
-    }
-    auto* xobjs = page.GetDictionary().FindKey("Resources")
-                        ->GetDictionary().FindKey("XObject");
-    QVERIFY(xobjs && xobjs->IsDictionary());
-    auto* im0 = xobjs->GetDictionary().FindKey("Im0");
-    auto* im1 = xobjs->GetDictionary().FindKey("Im1");
-    QVERIFY(im0 && im0->IsReference());
-    QVERIFY(im1 && im1->IsReference());
-    {
-        QFile diag(QStringLiteral("dd_diag.txt"));
-        if (diag.open(QIODevice::WriteOnly | QIODevice::Text)) {
-            QTextStream ts(&diag);
-            ts << "im0=" << im0->GetReference().ObjectNumber()
-               << " im1=" << im1->GetReference().ObjectNumber() << "\n";
-        }
-    }
+    auto* pageObj = &check.GetObjects().MustGetObject(
+        page.GetObject().GetIndirectReference());
+    im0 = rawXObjectsEntry(pageObj, "Im0");
+    im1 = rawXObjectsEntry(pageObj, "Im1");
+    QVERIFY(im0 && im1);
+    QVERIFY2(im0->IsReference(),
+             "after optimize+save /Im0 must STILL be an indirect reference");
+    QVERIFY2(im1->IsReference(),
+             "after optimize+save /Im1 must STILL be an indirect reference");
     QCOMPARE(im1->GetReference(), im0->GetReference());
+
+    // The canonical target is a real image XObject carrying the payload.
+    auto* canonical = check.GetObjects().GetObject(im0->GetReference());
+    QVERIFY(canonical && canonical->IsDictionary() && canonical->HasStream());
+    auto* subtype = canonical->GetDictionary().FindKey("Subtype");
+    QVERIFY(subtype && subtype->IsName()
+            && subtype->GetName().GetString() == "Image");
+
+    // Last mile: the deduplicated copy is GONE — exactly one image object
+    // survives in the saved artifact (sweep drops the unreferenced twin).
+    QCOMPARE(countImageObjects(check), 1u);
 }
 QTEST_MAIN(TestImageDedup)
 #include "TestImageDedup.moc"
