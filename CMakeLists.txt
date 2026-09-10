@@ -2569,6 +2569,38 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCapabilityRegistry.cpp")
     )
 endif()
 
+# ── TestXfaHonestyBanner (N2 — XFA honesty disclosure) ───────────────────────
+# Real /AcroForm-/XFA and plain fixtures through the REAL FormManager::
+# hasXfaForms and the registry contract (Degraded ⇒ non-empty whyNot +
+# alternative; non-XFA ⇒ Available, nothing raised).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestXfaHonestyBanner.cpp")
+    add_executable(TestXfaHonestyBanner
+        tests/TestXfaHonestyBanner.cpp
+    )
+    target_include_directories(TestXfaHonestyBanner PRIVATE src tests)
+    target_link_libraries(TestXfaHonestyBanner PRIVATE
+        pdfws_engines pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET TestXfaHonestyBanner POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestXfaHonestyBanner>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestXfaHonestyBanner>/platforms/qoffscreen.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PODOFO_VENDOR_DLL}"
+            "$<TARGET_FILE_DIR:TestXfaHonestyBanner>/libpodofo.dll"
+        COMMENT "Deploying qoffscreen plugin + podofo DLL for TestXfaHonestyBanner"
+    )
+    add_test(NAME TestXfaHonestyBanner COMMAND TestXfaHonestyBanner)
+    set_tests_properties(TestXfaHonestyBanner PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;capability;forms;xfa;honesty;qt;headless"
+    )
+endif()
+
 # ── TestTaskNavRegistry (U02 — the ONE navigation table) ────────────────────
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestTaskNavRegistry.cpp")
     add_executable(TestTaskNavRegistry
