@@ -3275,6 +3275,20 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestMeasureRoundTrip.cpp")
     set_tests_properties(TestMeasureRoundTrip PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;measure;annotations;persistence;qt;headless")
 endif()
 
+# N1 (backlog 2026-09-10): measurement CSV export — the item the T1 lane
+# explicitly deferred. Pins the RFC-4180 CSV contract (calibrated perimeter
+# rows reproduce value+unit+page; empty export = headers only) plus the
+# panel's Export CSV wiring.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestMeasureCsvExport.cpp")
+    add_executable(TestMeasureCsvExport tests/TestMeasureCsvExport.cpp)
+    target_include_directories(TestMeasureCsvExport PRIVATE src tests)
+    target_link_libraries(TestMeasureCsvExport PRIVATE
+        pdfws_ui pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_test(NAME TestMeasureCsvExport COMMAND TestMeasureCsvExport)
+    set_tests_properties(TestMeasureCsvExport PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;measure;csv;ui;qt;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCompressStripSanitize.cpp")
     add_executable(TestCompressStripSanitize tests/TestCompressStripSanitize.cpp)
     target_include_directories(TestCompressStripSanitize PRIVATE src tests)

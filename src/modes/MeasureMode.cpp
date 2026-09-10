@@ -7,6 +7,7 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QFileDialog>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QInputDialog>
@@ -17,17 +18,128 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
+#include <QFile>
+#include <QFileInfo>
+
 namespace gp {
+
+namespace {
+
+// N1: RFC-4180 field escaping — same contract as CommentsWidget's U07 seam
+// (fields containing '"', ',' or a newline are double-quoted, inner quotes
+// doubled). Kept local so the measurement CSV contract is self-contained and
+// pinned directly through measurementCsv().
+QString measureCsvEscape(const QString& raw)
+{
+    const bool needsQuoting = raw.contains(QLatin1Char('"'))
+                           || raw.contains(QLatin1Char(','))
+                           || raw.contains(QLatin1Char('\n'))
+                           || raw.contains(QLatin1Char('\r'));
+    if (!needsQuoting) return raw;
+    QString escaped = raw;
+    escaped.replace(QLatin1Char('"'), QStringLiteral("\"\""));
+    return QLatin1Char('"') + escaped + QLatin1Char('"');
+}
+
+} // namespace
+
+// ── N1: measurement CSV export ───────────────────────────────────────────────
+// Locale-invariant numbers ('.' decimal point) — the same discipline as the
+// PDF /Contents snapshot and the on-screen readout (MeasureCore detail::num).
+QString MeasureMode::measurementCsv(const QList<AnnotationItem>& items)
+{
+    const QStringList header = {
+        QStringLiteral("Page"),    QStringLiteral("Type"),
+        QStringLiteral("Value"),   QStringLiteral("Unit"),
+        QStringLiteral("Calibrated"), QStringLiteral("Scale"),
+        QStringLiteral("Label"),   QStringLiteral("Vertices"),
+    };
+    QStringList lines;
+    lines.append(header.join(QLatin1Char(',')));
+    for (const auto& a : items) {
+        if (!gp::measure::isMeasureToolMode(a.mode)) continue;
+        const auto s = gp::measure::scaleFrom(
+            a.measureUnitsPerPt, a.measureUnit, a.measureCalibrated, a.measureRatio);
+
+        QString type;
+        double rawValue = 0.0;
+        bool   isArea = false;
+        switch (a.mode) {
+        case ToolMode::MeasureDistance:
+            type = QStringLiteral("Distance");
+            rawValue = gp::measure::polylineLength(a.points);
+            break;
+        case ToolMode::MeasurePerimeter:
+            type = QStringLiteral("Perimeter");
+            rawValue = gp::measure::closedPerimeter(a.points);
+            break;
+        case ToolMode::MeasureArea:
+            type = QStringLiteral("Area");
+            rawValue = gp::measure::polygonArea(a.points);
+            isArea = true;
+            break;
+        default:
+            continue;
+        }
+
+        // The converted real-world value in the measurement's own unit — the
+        // number the readout shows, so a re-imported row reproduces
+        // value+unit+page exactly.
+        const double value = isArea ? gp::measure::convertAreaPt2(rawValue, s)
+                                    : gp::measure::convertLengthPt(rawValue, s);
+        const QString unit = isArea ? gp::measure::areaLabel(s.unit)
+                                    : gp::measure::unitLabel(s.unit);
+
+        QStringList vertices;
+        for (const QPointF& p : a.points)
+            vertices << QStringLiteral("%1,%2")
+                .arg(QString::number(p.x(), 'f', 4), QString::number(p.y(), 'f', 4));
+
+        QStringList row;
+        row.append(QString::number(a.pageIndex + 1));   // 1-based, like the panel
+        row.append(measureCsvEscape(type));
+        row.append(QString::number(value, 'f', 2));
+        row.append(measureCsvEscape(unit));
+        row.append(s.calibrated ? QStringLiteral("yes") : QStringLiteral("no"));
+        row.append(measureCsvEscape(a.measureRatio));
+        row.append(measureCsvEscape(a.text));           // the /Contents snapshot
+        row.append(measureCsvEscape(vertices.join(QLatin1Char(';'))));
+        lines.append(row.join(QLatin1Char(',')));
+    }
+    // CRLF line endings + trailing terminator — the U07 CSV discipline.
+    return lines.join(QStringLiteral("\r\n")) + QStringLiteral("\r\n");
+}
+
+bool MeasureMode::exportMeasurementsCsv(const QString& filePath, QString* err)
+{
+    if (!m_viewer || !m_viewer->annotationLayer()) {
+        if (err) *err = tr("No document is open — nothing to export.");
+        return false;
+    }
+    const QList<AnnotationItem> items = m_viewer->annotationLayer()->annotations();
+    // No QIODevice::Text: the payload already carries RFC-4180 CRLF endings —
+    // Text mode would re-translate and double the CRs on Windows.
+    QFile out(filePath);
+    if (!out.open(QIODevice::WriteOnly)) {
+        if (err) *err = tr("Could not write %1.").arg(filePath);
+        return false;
+    }
+    const QByteArray payload = measurementCsv(items).toUtf8();
+    const bool ok = out.write(payload) == payload.size();
+    out.close();
+    if (!ok && err) *err = tr("Could not write %1.").arg(filePath);
+    return ok;
+}
 
 // ── Honest, pinned disclosures (clause 4; pinned by TestMeasurePanelHonesty)
 //
 // The panel states exactly what persists and what does not, including the
 // lane's deferred scopes — no silent gaps:
 //  * measurements persist as standard Line/Polyline/Polygon annotations with
-//    an ISO 32000-1 §12.9 /Measure dictionary; the value is snapshotted into
-//    the annotation's contents text;
+//    an ISO 32000-1 /Measure dict; the value is snapshotted into the
+//    annotation's contents text;
 //  * the CALIBRATION is session-only (never written to the document);
-//  * CSV export (PDF-XChange parity) is deferred;
+//  * CSV export (PDF-XChange parity, N1) IS available — Export CSV button;
 //  * the value caption lives in the annotation's comment popup — a drawn
 //    AP-stream caption for other viewers is deferred;
 //  * per-viewport (Bluebeam-style) scales are deferred — one calibration;
@@ -41,7 +153,9 @@ QString MeasureMode::disclosureText()
         "the measured value is also written into the annotation's contents "
         "text. The calibration itself is session-only: it is never saved with "
         "the document and resets on close.\n"
-        "Disclosed limitations: no CSV export yet; other viewers show the "
+        "Measurements export to CSV (Export CSV below) with page, type, "
+        "value, unit and scale for each row.\n"
+        "Disclosed limitations: other viewers show the "
         "value only in the annotation's comment popup, not as a drawn caption "
         "on the page; per-viewport scales are not supported (one calibration "
         "per document or page); feet-and-inches results are written to the "
@@ -150,6 +264,30 @@ MeasureMode::MeasureMode(QWidget* parent)
     lay->addWidget(new QLabel(tr("Measurements"), this));
     m_measurements = new QListWidget(this);
     lay->addWidget(m_measurements, 1);
+
+    // ── N1: CSV export (PDF-XChange parity) ─────────────────────────────────
+    auto* exportRow = new QHBoxLayout();
+    m_exportCsvBtn = new QToolButton(this);
+    m_exportCsvBtn->setText(tr("Export CSV\u2026"));
+    m_exportCsvBtn->setToolTip(tr(
+        "Write every measurement on this document to a CSV file "
+        "(page, type, value, unit, scale)"));
+    exportRow->addWidget(m_exportCsvBtn);
+    exportRow->addStretch(1);
+    lay->addLayout(exportRow);
+    connect(m_exportCsvBtn, &QToolButton::clicked, this, [this]() {
+        const QString path = QFileDialog::getSaveFileName(
+            this, tr("Export Measurements CSV"), QStringLiteral("measurements.csv"),
+            tr("CSV files (*.csv)"));
+        if (path.isEmpty()) return;
+        QString err;
+        if (exportMeasurementsCsv(path, &err)) {
+            emit statusMessageRequested(
+                tr("Measurements exported to %1.").arg(QFileInfo(path).fileName()));
+        } else {
+            emit statusMessageRequested(err);
+        }
+    });
 
     // ── Wiring ───────────────────────────────────────────────────────────────
     connect(m_presetCombo, &QComboBox::currentIndexChanged,
