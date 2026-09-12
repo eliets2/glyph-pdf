@@ -29,7 +29,26 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 JOBS="${JOBS:-2}"
 
-PODOFO_DIR="third_party/podofo/install"
+# L04 (NATIVE-LINUX-READINESS-2026-09-10): the vendor trees are
+# platform-specific. Windows stages PE artifacts (bin/libpodofo.dll,
+# pdfium.dll, onnxruntime-win-x64); Linux builds podofo 1.1.0 from source into
+# its OWN prefix (third_party/podofo/install-linux) so the Windows-only tree
+# is never clobbered and the Linux build can never pick up Windows binaries.
+# PDFium and ONNX Runtime native Linux artifacts are NOT yet provisioned —
+# on Linux those steps are skipped and the corresponding features are
+# honestly disabled (HAS_PDFIUM=OFF, HAS_RAPIDOCR=OFF) until the artifact
+# manifest work (L03) lands.
+UNAME_S="$(uname -s 2>/dev/null || echo Windows_NT)"
+case "$UNAME_S" in
+  Linux*) GLYPH_HOST_OS=linux ;;
+  *)      GLYPH_HOST_OS=windows ;;
+esac
+
+if [ "$GLYPH_HOST_OS" = "linux" ]; then
+  PODOFO_DIR="third_party/podofo/install-linux"
+else
+  PODOFO_DIR="third_party/podofo/install"
+fi
 PODOFO_SRC="third_party/podofo_build"
 PODOFO_VER="1.1.0"
 PDFIUM_DLL="third_party/pdfium/bin/pdfium.dll"
@@ -48,7 +67,16 @@ ORT_ZIP_URL="https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/
 ORT_ZIP_SHA256="356a33d024f2709786bebd5d4ca06cd5392875da95daa0455aae72edc8993256"
 QUICKJS_PKG="mingw-w64-ucrt-x86_64-quickjs-ng"   # MIT; pinned 0.15.0 via pacman
 
-podofo_ok()   { [ -f "$PODOFO_DIR/bin/libpodofo.dll" ] && [ -f "$PODOFO_DIR/lib/cmake/podofo/podofo-config.cmake" ]; }
+# Platform-specific artifact checks. Windows validates the vendored DLL; Linux
+# validates the equivalent shared-object artifact (L04: same pinning rigor,
+# different binary format).
+if [ "$GLYPH_HOST_OS" = "linux" ]; then
+  podofo_ok() {
+    [ -f "$PODOFO_DIR/lib/libpodofo.so" ] && [ -f "$PODOFO_DIR/lib/cmake/podofo/podofo-config.cmake" ]
+  }
+else
+  podofo_ok() { [ -f "$PODOFO_DIR/bin/libpodofo.dll" ] && [ -f "$PODOFO_DIR/lib/cmake/podofo/podofo-config.cmake" ]; }
+fi
 pdfium_ok()   { [ -f "$PDFIUM_DLL" ]; }
 onnx_ok()     { [ -f "$ORT_DIR/lib/onnxruntime.dll" ]; }
 # Resolve the UCRT64 prefix from inside MSYS2 (/ucrt64) or any host shell
@@ -70,12 +98,26 @@ install_podofo() {
   echo "== [1/3] Building vendored podofo $PODOFO_VER into $PODOFO_DIR =="
   rm -rf "$PODOFO_SRC"
   git clone --depth 1 --branch "$PODOFO_VER" https://github.com/podofo/podofo.git "$PODOFO_SRC"
-  cmake -S "$PODOFO_SRC" -B "$PODOFO_SRC/build" -G Ninja \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DPODOFO_BUILD_TOOLS=OFF \
-    -DPODOFO_BUILD_TEST=OFF \
-    -DPODOFO_BUILD_EXAMPLES=OFF \
-    -DCMAKE_INSTALL_PREFIX="$ROOT/$PODOFO_DIR"
+  if [ "$GLYPH_HOST_OS" = "linux" ]; then
+    # Linux (L04): explicit shared build so libpodofo.so + the CMake config
+    # land in install-linux. Prerequisites (Debian/Kali): build-essential,
+    # cmake, ninja-build, libssl-dev, zlib1g-dev (and libjpeg-dev /
+    # libpng-dev / libtiff-dev if image support is wanted).
+    cmake -S "$PODOFO_SRC" -B "$PODOFO_SRC/build" -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DBUILD_SHARED_LIBS=ON \
+      -DPODOFO_BUILD_TOOLS=OFF \
+      -DPODOFO_BUILD_TEST=OFF \
+      -DPODOFO_BUILD_EXAMPLES=OFF \
+      -DCMAKE_INSTALL_PREFIX="$ROOT/$PODOFO_DIR"
+  else
+    cmake -S "$PODOFO_SRC" -B "$PODOFO_SRC/build" -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DPODOFO_BUILD_TOOLS=OFF \
+      -DPODOFO_BUILD_TEST=OFF \
+      -DPODOFO_BUILD_EXAMPLES=OFF \
+      -DCMAKE_INSTALL_PREFIX="$ROOT/$PODOFO_DIR"
+  fi
   cmake --build "$PODOFO_SRC/build" --parallel "$JOBS"
   cmake --install "$PODOFO_SRC/build"
   podofo_ok || { echo "ERROR: podofo install finished but the tree is incomplete ($PODOFO_DIR)" >&2; return 1; }
@@ -133,6 +175,21 @@ EOF
 case "${1:-install}" in
   check)
     ok=1
+    if [ "$GLYPH_HOST_OS" = "linux" ]; then
+      podofo_ok || { echo "MISSING: $PODOFO_DIR (lib/libpodofo.so or cmake config)"; ok=0; }
+      # Linux: pdfium/onnxruntime/quickjs native artifacts are NOT yet
+      # provisioned (L03 artifact manifest is the next step). Their absence
+      # is an honest feature disable, not a bootstrap failure.
+      pdfium_ok   || echo "NOTE (linux): $PDFIUM_DLL absent — HAS_PDFIUM=OFF (no native Linux pdfium artifact provisioned yet, L03)"
+      onnx_ok     || echo "NOTE (linux): $ORT_DIR absent — HAS_RAPIDOCR=OFF (no native Linux onnxruntime artifact provisioned yet)"
+      echo "NOTE (linux): quickjs-ng via pacman is MSYS2-only — HAS_QUICKJS depends on a system/dev provisioned libqjs"
+      if [ "$ok" = 1 ]; then
+        echo "OK (linux): vendored podofo present at $PODOFO_DIR"
+        exit 0
+      fi
+      echo "!! podofo missing — run '$0 install' to build podofo $PODOFO_VER from source." >&2
+      exit 1
+    fi
     podofo_ok || { echo "MISSING: $PODOFO_DIR (bin/libpodofo.dll or cmake config)"; ok=0; }
     pdfium_ok || { echo "MISSING: $PDFIUM_DLL"; ok=0; }
     onnx_ok   || { echo "MISSING: $ORT_DIR/lib/onnxruntime.dll"; ok=0; }
@@ -147,9 +204,14 @@ case "${1:-install}" in
     ;;
   install)
     podofo_ok || install_podofo
-    pdfium_ok || install_pdfium
-    onnx_ok   || install_onnx
-    quickjs_ok || install_quickjs
+    if [ "$GLYPH_HOST_OS" = "linux" ]; then
+      echo "skip (linux): pdfium/onnxruntime staging is Windows-only (HAS_PDFIUM=OFF, HAS_RAPIDOCR=OFF recorded honestly — L03 native artifacts are future work)"
+      echo "skip (linux): quickjs-ng pacman install is MSYS2-only (HAS_QUICKJS off unless provisioned natively)"
+    else
+      pdfium_ok || install_pdfium
+      onnx_ok   || install_onnx
+      quickjs_ok || install_quickjs
+    fi
     ;;
   *)
     echo "usage: $0 [install|check]" >&2
@@ -157,5 +219,11 @@ case "${1:-install}" in
     ;;
 esac
 
-echo "bootstrap complete: podofo $PODOFO_VER + pdfium chromium/7834 + onnxruntime 1.17.3 are staged."
-echo "Now configure: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug"
+if [ "$GLYPH_HOST_OS" = "linux" ]; then
+  echo "bootstrap complete (linux): podofo $PODOFO_VER built from source into $PODOFO_DIR."
+  echo "Feature state on linux: HAS_PDFIUM=OFF, HAS_RAPIDOCR=OFF (no native artifacts yet, L03)."
+  echo "Now configure: cmake -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release"
+else
+  echo "bootstrap complete: podofo $PODOFO_VER + pdfium chromium/7834 + onnxruntime 1.17.3 are staged."
+  echo "Now configure: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug"
+fi
