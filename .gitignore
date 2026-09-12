@@ -87,6 +87,11 @@ tmp_signed_*.pdf
 
 # Vendored PoDoFo 1.1.0 build artifact (install tree is tracked separately)
 third_party/podofo_build/
+# L04: Linux bootstrap installs its own podofo prefix here (never the Windows
+# install/ tree) — regenerable by scripts/bootstrap-vendor-deps.sh on Linux.
+third_party/podofo/install-linux/
+# Native Linux build directory (devops lane WP-R20)
+build-linux/
 
 # Optional bundled veraPDF CLI tree (~150 MB incl. its JRE) — staged into the
 # installer by deploy.ps1 when present, never committed to source.

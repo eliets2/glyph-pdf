@@ -3,15 +3,22 @@ project(PdfWorkstation VERSION 1.3.2.3 LANGUAGES CXX)
 
 # MSYS2 ucrt64 — single coherent toolchain + Qt6 + all deps via pacman.
 # Explicit prefix paths so CMake resolves packages regardless of calling shell.
-if(NOT DEFINED MSYS2_ROOT)
-    set(MSYS2_ROOT "C:/msys64/ucrt64")
+# L01 (NATIVE-LINUX-READINESS-2026-09-10): this is an MSYS2/Windows layout
+# assumption. Injecting C:/msys64 into CMAKE_PREFIX_PATH and overwriting
+# PKG_CONFIG_PATH/PKG_CONFIG_LIBDIR on every platform broke ordinary native
+# Linux find_package/pkg-config discovery. Windows keeps the explicit prefix;
+# Linux uses its normal search paths (no environment clobbering).
+if(WIN32)
+    if(NOT DEFINED MSYS2_ROOT)
+        set(MSYS2_ROOT "C:/msys64/ucrt64")
+    endif()
+    list(APPEND CMAKE_PREFIX_PATH "${MSYS2_ROOT}")
+    list(APPEND CMAKE_PREFIX_PATH "${MSYS2_ROOT}/share")
+    list(APPEND CMAKE_MODULE_PATH "${MSYS2_ROOT}/lib/cmake")
+    # Restrict pkg-config to ucrt64 only so mingw64 headers don't leak in.
+    set(ENV{PKG_CONFIG_PATH} "${MSYS2_ROOT}/lib/pkgconfig:${MSYS2_ROOT}/share/pkgconfig")
+    set(ENV{PKG_CONFIG_LIBDIR} "${MSYS2_ROOT}/lib/pkgconfig:${MSYS2_ROOT}/share/pkgconfig")
 endif()
-list(APPEND CMAKE_PREFIX_PATH "${MSYS2_ROOT}")
-list(APPEND CMAKE_PREFIX_PATH "${MSYS2_ROOT}/share")
-list(APPEND CMAKE_MODULE_PATH "${MSYS2_ROOT}/lib/cmake")
-# Restrict pkg-config to ucrt64 only so mingw64 headers don't leak in.
-set(ENV{PKG_CONFIG_PATH} "${MSYS2_ROOT}/lib/pkgconfig:${MSYS2_ROOT}/share/pkgconfig")
-set(ENV{PKG_CONFIG_LIBDIR} "${MSYS2_ROOT}/lib/pkgconfig:${MSYS2_ROOT}/share/pkgconfig")
 enable_testing()
 # SECFIX-1: GLYPH_TESTING must NOT be defined for production builds. It guards an
 # OCSP test-fixture bypass in SignatureManager.cpp. Opt in only for CI test builds.
@@ -63,13 +70,23 @@ if(NOT MSVC)
         "$<$<NOT:$<CONFIG:Debug>>:-fstack-protector-strong>"
         "$<$<NOT:$<CONFIG:Debug>>:-D_FORTIFY_SOURCE=2>"
     )
-    # AR-11 D4: PE security flags (Windows ASLR/DEP/HEASLR) — Release/RelWithDebInfo.
-    # --dynamicbase  → IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE (ASLR)
-    # --nxcompat     → IMAGE_DLLCHARACTERISTICS_NX_COMPAT (DEP/NX)
-    # --high-entropy-va → 64-bit HEASLR (requires --dynamicbase)
-    add_link_options(
-        "$<$<NOT:$<CONFIG:Debug>>:-Wl,--dynamicbase,--nxcompat,--high-entropy-va>"
-    )
+    if(WIN32)
+        # AR-11 D4: PE security flags (Windows ASLR/DEP/HEASLR) — Release/RelWithDebInfo.
+        # --dynamicbase  → IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE (ASLR)
+        # --nxcompat     → IMAGE_DLLCHARACTERISTICS_NX_COMPAT (DEP/NX)
+        # --high-entropy-va → 64-bit HEASLR (requires --dynamicbase)
+        add_link_options(
+            "$<$<NOT:$<CONFIG:Debug>>:-Wl,--dynamicbase,--nxcompat,--high-entropy-va>"
+        )
+    else()
+        # L02 (NATIVE-LINUX-READINESS-2026-09-10): the PE flags above are not
+        # valid ELF linker options — Linux GNU ld rejects them. Use the ELF
+        # equivalents instead: full RELRO (relro + immediate binding), Release
+        # builds only, matching the Windows gating shape.
+        add_link_options(
+            "$<$<NOT:$<CONFIG:Debug>>:-Wl,-z,relro,-z,now>"
+        )
+    endif()
     # AR-11 D4: LTO — opt-in via -DGLYPHPDF_ENABLE_LTO=ON.
     # Default OFF: LTO dramatically increases link time (minutes on large codebases).
     # The release CI leg sets GLYPHPDF_ENABLE_LTO=ON; dev builds get fast links.
@@ -87,9 +104,15 @@ endif()
 # strip is run as a post-build step on PdfWorkstation.exe in Release mode.
 # Test executables are not stripped (dev-time debugging value).
 if(NOT MSVC AND CMAKE_BUILD_TYPE STREQUAL "Release")
-    find_program(STRIP_PROGRAM strip
-        PATHS "${MSYS2_ROOT}/bin" /c/msys64/ucrt64/bin
-        NO_DEFAULT_PATH)
+    if(WIN32)
+        find_program(STRIP_PROGRAM strip
+            PATHS "${MSYS2_ROOT}/bin" /c/msys64/ucrt64/bin
+            NO_DEFAULT_PATH)
+    else()
+        # L01: on Linux the system strip is the right binary; the MSYS2-scoped
+        # lookup above (NO_DEFAULT_PATH) never finds it.
+        find_program(STRIP_PROGRAM strip)
+    endif()
     if(STRIP_PROGRAM)
         message(STATUS "AR-11 D4: strip found at ${STRIP_PROGRAM} — Release EXE will be stripped")
     else()
@@ -115,17 +138,43 @@ if(NOT QT6_PLUGINS_DIR)
 endif()
 message(STATUS "Qt6 plugins dir: ${QT6_PLUGINS_DIR}")
 
+# L05 (NATIVE-LINUX-READINESS-2026-09-10): portable QPA plugin staging name for
+# the per-test POST_BUILD deploys below — Windows stages qoffscreen.dll, Linux
+# stages libqoffscreen.so (same relative platforms/ layout next to the binary).
+if(WIN32)
+    set(GLYPH_QPA_PLUGIN "qoffscreen.dll")
+else()
+    set(GLYPH_QPA_PLUGIN "libqoffscreen.so")
+endif()
+
 # Vendored podofo 1.1.0 (built from source with ucrt64 toolchain).
 # Prepend to CMAKE_PREFIX_PATH so it is found before MSYS2 ucrt64's 0.10.4.
-set(_podofo_vendor "${CMAKE_CURRENT_SOURCE_DIR}/third_party/podofo/install")
+# L04 (NATIVE-LINUX-READINESS-2026-09-10): the vendored artifact is
+# platform-specific. Windows deploys bin/libpodofo.dll (+ import lib); the
+# Linux bootstrap installs a SEPARATE prefix (third_party/podofo/install-linux,
+# lib/libpodofo.so + cmake config) so the Windows tree is never clobbered and
+# the Linux build can never pick up Windows-only artifacts.
+if(WIN32)
+    set(_podofo_vendor "${CMAKE_CURRENT_SOURCE_DIR}/third_party/podofo/install")
+    set(_podofo_vendor_art "${_podofo_vendor}/bin/libpodofo.dll")
+else()
+    set(_podofo_vendor "${CMAKE_CURRENT_SOURCE_DIR}/third_party/podofo/install-linux")
+    set(_podofo_vendor_art "${_podofo_vendor}/lib/libpodofo.so")
+endif()
 if(EXISTS "${_podofo_vendor}/lib/cmake/podofo/podofo-config.cmake" AND
-   EXISTS "${_podofo_vendor}/bin/libpodofo.dll")
+   EXISTS "${_podofo_vendor_art}")
     list(PREPEND CMAKE_PREFIX_PATH "${_podofo_vendor}")
     message(STATUS "Using vendored podofo 1.1.0 from ${_podofo_vendor}")
 endif()
 # Path to the vendored podofo 1.1.0 DLL — deployed next to test executables
 # so the runtime loader picks it up instead of the system 0.10.4 DLL.
-set(PODOFO_VENDOR_DLL "${_podofo_vendor}/bin/libpodofo.dll")
+# Windows-only: on Linux the link graph resolves the vendored .so through the
+# CMake config and RPATH, so no runtime staging exists or is needed.
+if(WIN32)
+    set(PODOFO_VENDOR_DLL "${_podofo_vendor}/bin/libpodofo.dll")
+else()
+    set(PODOFO_VENDOR_DLL "")
+endif()
 
 find_package(podofo CONFIG REQUIRED)
 # Q02 trap guard: without the vendored tree, find_package silently resolves
@@ -388,6 +437,36 @@ target_link_libraries(pdfws_engines
 if(WIN32)
     target_link_libraries(pdfws_engines PRIVATE Credui Advapi32 Crypt32)
 endif()
+
+# ── L07: Linux Secret Service credential storage (libsecret) ─────────────────
+# NATIVE-LINUX-READINESS-2026-09-10 L07: the non-Windows default write path
+# derived its AES key from PUBLIC identifiers (home path + machine id + a
+# constant) — the source itself calls it obfuscation. When libsecret is
+# available, LibSecretStore (Secret Service / freedesktop keyring standard)
+# becomes the Linux primary backend and no new secret is ever written through
+# the identifier-derived path; a locked/unavailable keyring is a LOUD failure.
+# Optional at build time: without libsecret the build stays green and the
+# labelled encrypted-file fallback remains (documented obfuscation-only).
+option(GLYPHPDF_ENABLE_LIBSECRET
+    "Build with Secret Service credential storage via libsecret (Linux)" ON)
+if(GLYPHPDF_ENABLE_LIBSECRET AND NOT WIN32)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(LIBSECRET QUIET libsecret-1)
+    endif()
+endif()
+if(LIBSECRET_FOUND)
+    target_sources(pdfws_engines PRIVATE
+        src/core/LibSecretStore.h src/core/LibSecretStore.cpp
+    )
+    target_include_directories(pdfws_engines PUBLIC ${LIBSECRET_INCLUDE_DIRS})
+    target_link_directories(pdfws_engines PUBLIC ${LIBSECRET_LIBRARY_DIRS})
+    target_link_libraries(pdfws_engines PUBLIC ${LIBSECRET_LIBRARIES})
+    target_compile_definitions(pdfws_engines PUBLIC HAS_LIBSECRET)
+    message(STATUS "libsecret found — Secret Service credential storage enabled (L07)")
+else()
+    message(STATUS "libsecret not found/disabled — Secret Service storage off (labelled encrypted-file fallback remains)")
+endif()
 if(Tesseract_FOUND AND Leptonica_FOUND)
     find_package(OpenMP REQUIRED)
     target_link_libraries(pdfws_engines PUBLIC Tesseract::libtesseract leptonica OpenMP::OpenMP_CXX)
@@ -442,7 +521,13 @@ else()
     endif()
 endif()
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime-win-x64-1.17.3")
+# L04 (NATIVE-LINUX-READINESS-2026-09-10): the Windows ONNX runtime tree
+# (onnxruntime-win-x64-1.17.3: .dll/.lib PE artifacts) must only ever be
+# imported on Windows. On Linux its mere presence on disk used to create an
+# imported target pointing at PE binaries — unresolvable at link time. Linux
+# builds use a native onnxruntime (pkg-config) when present, else RapidOCR
+# stays disabled and CapabilityRegistry discloses it.
+if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime-win-x64-1.17.3")
     add_library(onnxruntime SHARED IMPORTED)
     set_target_properties(onnxruntime PROPERTIES
         IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime-win-x64-1.17.3/lib/onnxruntime.dll"
@@ -499,10 +584,16 @@ endif()
 if(TARGET qjs)
     target_link_libraries(pdfws_engines PUBLIC qjs)
     target_compile_definitions(pdfws_engines PUBLIC HAS_QUICKJS)
-    set(QUICKJS_RUNTIME_DLL "${QT6_PLUGINS_DIR}/../bin/libqjs-0.dll")
-    get_target_property(_qjs_location qjs IMPORTED_LOCATION_RELEASE)
-    if(_qjs_location)
-        get_filename_component(QUICKJS_RUNTIME_DLL "${_qjs_location}" REALPATH)
+    # L05: the runtime-DLL staging path is a Windows concept; on Linux the
+    # system libqjs resolves at link time, so no runtime artifact is tracked.
+    if(WIN32)
+        set(QUICKJS_RUNTIME_DLL "${QT6_PLUGINS_DIR}/../bin/libqjs-0.dll")
+        get_target_property(_qjs_location qjs IMPORTED_LOCATION_RELEASE)
+        if(_qjs_location)
+            get_filename_component(QUICKJS_RUNTIME_DLL "${_qjs_location}" REALPATH)
+        endif()
+    else()
+        set(QUICKJS_RUNTIME_DLL "")
     endif()
     message(STATUS "quickjs-ng found — form-JS Calculate/Format execution enabled (${QUICKJS_RUNTIME_DLL})")
 else()
@@ -590,24 +681,13 @@ if(GLYPHPDF_RELEASE_BUILD)
     endif()
 endif()
 
-# ── Stage runtime DLLs beside test/app binaries ─────────────────────────────
-# Test executables live in CMAKE_BINARY_DIR; a fresh checkout has none of the
-# non-MSYS2 runtime DLLs (vendored podofo, ONNX Runtime, PDFium), so stage
-# them once here. Windows resolves exe-dir DLLs before System32, which also
-# shields tests from the incompatible onnxruntime.dll Windows ships there.
-#
-# TestReadOnlyGate pin (QUALITY-GATE-2026-09-09, infra): ~90 of the binaries'
-# runtime dependencies (Qt6*, the MinGW/UCRT64 support DLLs — libstdc++,
-# libgcc, libwinpthread, libtesseract, libqpdf, libcrypto/libssl, leptonica,
-# ICU, …) resolve from the toolchain's bin directory THROUGH THE CALLER'S
-# PATH. A launcher whose PATH lacks that directory (hook/service/IDE context,
-# a stripped CI environment) kills the process at LOAD time — exit 0xC0000135,
-# before main(), before QtTest can write a byte: the "TestReadOnlyGate fails
-# in full suites with ZERO captured output" flake (reproduced deterministically
-# with a PATH missing that directory; green when present). Stage the resolved
-# non-system closure beside the binaries so loader resolution never depends on
-# the caller's environment. Vendored DLLs are appended LAST and the toolchain
-# podofo copy is excluded, so the vendored libraries keep precedence.
+# ── Stage runtime DLLs beside test/app binaries (WINDOWS ONLY) ──────────────
+# L05 (NATIVE-LINUX-READINESS-2026-09-10): this whole staging step is a
+# Windows-loader workaround (exe-dir DLL resolution, MinGW toolchain PATH
+# dependency). Linux resolves shared libraries through RPATH and system paths;
+# staging DLLs there is meaningless. The block is gated on WIN32 — Linux
+# configure/build is identical but skips it entirely.
+if(WIN32)
 set(_runtime_dlls "")
 get_filename_component(_glyph_toolchain_bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
 file(GLOB _glyph_toolchain_dlls
@@ -630,6 +710,7 @@ if(_runtime_dlls)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_runtime_dlls} "${CMAKE_BINARY_DIR}"
         COMMENT "Staging runtime DLLs into build dir")
 endif()
+endif()
 # Staging the Qt DLLs beside the exes changes Qt's RELATIVE plugin-prefix
 # resolution: plugins resolve next to the LOADED Qt6Core library
 # (<dir>/../share/qt6/plugins — previously a toolchain path, now the build
@@ -638,9 +719,20 @@ endif()
 # Pin the real plugin directory with a qt.conf; the application directory
 # stays in Qt's plugin search path, so the per-exe qoffscreen deploys keep
 # working.
-get_filename_component(_glyph_qt_prefix "${Qt6_DIR}/../../../" ABSOLUTE)
-file(WRITE "${CMAKE_BINARY_DIR}/qt.conf"
-    "[Paths]\nPlugins=${_glyph_qt_prefix}/share/qt6/plugins\n")
+# L05 (NATIVE-LINUX-READINESS-2026-09-10): use the ALREADY-QUERIED plugin
+# directory (qmake -query QT_INSTALL_PLUGINS) instead of inferring the MSYS2
+# share/qt6/plugins layout from Qt6_DIR. On MSYS2 the queried value is the
+# same directory the inference produced, so Windows behavior is unchanged; on
+# Linux the query returns the distro plugin dir (e.g.
+# /usr/lib/x86_64-linux-gnu/qt6/plugins), which the old inference got wrong.
+if(QT6_PLUGINS_DIR)
+    file(WRITE "${CMAKE_BINARY_DIR}/qt.conf"
+        "[Paths]\nPlugins=${QT6_PLUGINS_DIR}\n")
+else()
+    get_filename_component(_glyph_qt_prefix "${Qt6_DIR}/../../../" ABSOLUTE)
+    file(WRITE "${CMAKE_BINARY_DIR}/qt.conf"
+        "[Paths]\nPlugins=${_glyph_qt_prefix}/share/qt6/plugins\n")
+endif()
 if(OpenXLSX_FOUND)
     target_link_libraries(pdfws_engines PRIVATE OpenXLSX::OpenXLSX)
     target_compile_definitions(pdfws_engines PRIVATE HAS_OPENXLSX)
@@ -963,12 +1055,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestExpiryInterface.cpp")
         pdfws_engines pdfws_core podofo::podofo
         Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
     )
+    # L05 (NATIVE-LINUX-READINESS-2026-09-10): podofo DLL staging is Windows-only —
+    # Linux links the vendored .so directly (no runtime staging).
+    if(WIN32)
     add_custom_command(TARGET TestExpiryInterface POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${PODOFO_VENDOR_DLL}"
             "$<TARGET_FILE_DIR:TestExpiryInterface>/libpodofo.dll"
         COMMENT "Deploying podofo 1.1.0 DLL for TestExpiryInterface"
     )
+    endif()
     add_test(NAME TestExpiryInterface COMMAND TestExpiryInterface)
     set_tests_properties(TestExpiryInterface PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
@@ -1051,8 +1147,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestDocumentIdentity.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestDocumentIdentity>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestDocumentIdentity>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestDocumentIdentity>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestDocumentIdentity"
     )
     add_test(NAME TestDocumentIdentity COMMAND TestDocumentIdentity)
@@ -1084,8 +1180,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatesBatchSafety.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestBatesBatchSafety>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestBatesBatchSafety>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestBatesBatchSafety>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestBatesBatchSafety"
     )
     add_test(NAME TestBatesBatchSafety COMMAND TestBatesBatchSafety)
@@ -1117,8 +1213,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRecoverySave.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestRecoverySave>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestRecoverySave>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestRecoverySave>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestRecoverySave"
     )
     add_test(NAME TestRecoverySave COMMAND TestRecoverySave)
@@ -1150,8 +1246,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestReadOnlyGate.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestReadOnlyGate>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestReadOnlyGate>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestReadOnlyGate>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestReadOnlyGate"
     )
     add_test(NAME TestReadOnlyGate COMMAND TestReadOnlyGate)
@@ -1184,8 +1280,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSidecarReopenState.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestSidecarReopenState>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestSidecarReopenState>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestSidecarReopenState>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestSidecarReopenState"
     )
     add_test(NAME TestSidecarReopenState COMMAND TestSidecarReopenState)
@@ -1590,8 +1686,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRapidOcr.cpp" AND (onnxruntime_
     add_custom_command(TARGET TestRapidOcr POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:TestRapidOcr>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestRapidOcr>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestRapidOcr>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestRapidOcr"
     )
     add_test(NAME TestRapidOcr COMMAND TestRapidOcr)
@@ -1652,8 +1748,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrReviewLifecycle.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestOcrReviewLifecycle>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestOcrReviewLifecycle>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestOcrReviewLifecycle>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestOcrReviewLifecycle"
     )
     add_test(NAME TestOcrReviewLifecycle COMMAND TestOcrReviewLifecycle)
@@ -1678,8 +1774,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrVerifyNavigation.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestOcrVerifyNavigation>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestOcrVerifyNavigation>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestOcrVerifyNavigation>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestOcrVerifyNavigation"
     )
     add_test(NAME TestOcrVerifyNavigation COMMAND TestOcrVerifyNavigation)
@@ -1795,8 +1891,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestControllers.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestControllers>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestControllers>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestControllers>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestControllers"
     )
     add_test(NAME TestControllers COMMAND TestControllers)
@@ -1821,8 +1917,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRibbonIntegrity.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestRibbonIntegrity>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestRibbonIntegrity>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestRibbonIntegrity>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestRibbonIntegrity"
     )
     add_test(NAME TestRibbonIntegrity COMMAND TestRibbonIntegrity)
@@ -1847,8 +1943,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestMenuBarIntegrity.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestMenuBarIntegrity>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestMenuBarIntegrity>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestMenuBarIntegrity>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestMenuBarIntegrity"
     )
     add_test(NAME TestMenuBarIntegrity COMMAND TestMenuBarIntegrity)
@@ -1957,13 +2053,20 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormBuilder.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestFormBuilder>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestFormBuilder>/platforms/qoffscreen.dll"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${PODOFO_VENDOR_DLL}"
-            "$<TARGET_FILE_DIR:TestFormBuilder>/libpodofo.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestFormBuilder>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFormBuilder"
     )
+    # L05 (NATIVE-LINUX-READINESS-2026-09-10): podofo DLL staging is Windows-only —
+    # Linux links the vendored .so directly (no runtime staging).
+    if(WIN32)
+        add_custom_command(TARGET TestFormBuilder POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestFormBuilder>/libpodofo.dll"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestFormBuilder"
+        )
+    endif()
     add_test(NAME TestFormBuilder COMMAND TestFormBuilder)
     set_tests_properties(TestFormBuilder PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
@@ -1986,13 +2089,20 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormPersistence.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestFormPersistence>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestFormPersistence>/platforms/qoffscreen.dll"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${PODOFO_VENDOR_DLL}"
-            "$<TARGET_FILE_DIR:TestFormPersistence>/libpodofo.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestFormPersistence>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFormPersistence"
     )
+    # L05 (NATIVE-LINUX-READINESS-2026-09-10): podofo DLL staging is Windows-only —
+    # Linux links the vendored .so directly (no runtime staging).
+    if(WIN32)
+        add_custom_command(TARGET TestFormPersistence POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestFormPersistence>/libpodofo.dll"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestFormPersistence"
+        )
+    endif()
     add_test(NAME TestFormPersistence COMMAND TestFormPersistence)
     set_tests_properties(TestFormPersistence PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
@@ -2015,8 +2125,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCompareEntry.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestCompareEntry>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestCompareEntry>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestCompareEntry>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestCompareEntry"
     )
     add_test(NAME TestCompareEntry COMMAND TestCompareEntry)
@@ -2046,8 +2156,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCompareIntegration.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestCompareIntegration>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestCompareIntegration>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestCompareIntegration>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestCompareIntegration"
     )
     add_test(NAME TestCompareIntegration COMMAND TestCompareIntegration)
@@ -2072,8 +2182,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPagesMode.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestPagesMode>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestPagesMode>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestPagesMode>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestPagesMode"
     )
     add_test(NAME TestPagesMode COMMAND TestPagesMode)
@@ -2132,8 +2242,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchMode.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestBatchMode>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestBatchMode>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestBatchMode>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestBatchMode"
     )
     add_test(NAME TestBatchMode COMMAND TestBatchMode)
@@ -2162,8 +2272,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchOcrLanguage.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestBatchOcrLanguage>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestBatchOcrLanguage>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestBatchOcrLanguage>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestBatchOcrLanguage"
     )
     add_test(NAME TestBatchOcrLanguage COMMAND TestBatchOcrLanguage)
@@ -2190,8 +2300,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrPreprocessPrefs.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestOcrPreprocessPrefs>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestOcrPreprocessPrefs>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestOcrPreprocessPrefs>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestOcrPreprocessPrefs"
     )
     add_test(NAME TestOcrPreprocessPrefs COMMAND TestOcrPreprocessPrefs)
@@ -2219,8 +2329,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatesCrossDoc.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestBatesCrossDoc>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestBatesCrossDoc>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestBatesCrossDoc>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestBatesCrossDoc"
     )
     add_test(NAME TestBatesCrossDoc COMMAND TestBatesCrossDoc)
@@ -2249,8 +2359,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOpenRouting.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestOpenRouting>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestOpenRouting>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestOpenRouting>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestOpenRouting"
     )
     add_test(NAME TestOpenRouting COMMAND TestOpenRouting)
@@ -2277,8 +2387,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestExcisionCorruption.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestExcisionCorruption>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestExcisionCorruption>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestExcisionCorruption>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestExcisionCorruption"
     )
     add_test(NAME TestExcisionCorruption COMMAND TestExcisionCorruption)
@@ -2308,11 +2418,18 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchOpsCoverage.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestBatchOpsCoverage>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestBatchOpsCoverage>/platforms/qoffscreen.dll"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${PODOFO_VENDOR_DLL}"
-            "$<TARGET_FILE_DIR:TestBatchOpsCoverage>"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+    # L05 (NATIVE-LINUX-READINESS-2026-09-10): podofo DLL staging is Windows-only —
+    # Linux links the vendored .so directly (no runtime staging).
+    if(WIN32)
+        add_custom_command(TARGET TestBatchOpsCoverage POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestBatchOpsCoverage>"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestBatchOpsCoverage"
+        )
+    endif()
+            "$<TARGET_FILE_DIR:TestBatchOpsCoverage>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestBatchOpsCoverage"
     )
     add_test(NAME TestBatchOpsCoverage COMMAND TestBatchOpsCoverage)
@@ -2340,8 +2457,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestReadingOrderThreshold.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestReadingOrderThreshold>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestReadingOrderThreshold>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestReadingOrderThreshold>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestReadingOrderThreshold"
     )
     add_test(NAME TestReadingOrderThreshold COMMAND TestReadingOrderThreshold)
@@ -2369,8 +2486,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestLinkBookmarkRoundTrip.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestLinkBookmarkRoundTrip>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestLinkBookmarkRoundTrip>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestLinkBookmarkRoundTrip>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestLinkBookmarkRoundTrip"
     )
     add_test(NAME TestLinkBookmarkRoundTrip COMMAND TestLinkBookmarkRoundTrip)
@@ -2398,8 +2515,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignatureSessionCache.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestSignatureSessionCache>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestSignatureSessionCache>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestSignatureSessionCache>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestSignatureSessionCache"
     )
     add_test(NAME TestSignatureSessionCache COMMAND TestSignatureSessionCache)
@@ -2432,8 +2549,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCapabilityRegistry.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestCapabilityRegistry>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestCapabilityRegistry>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestCapabilityRegistry>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestCapabilityRegistry"
     )
     add_test(NAME TestCapabilityRegistry COMMAND TestCapabilityRegistry)
@@ -2459,8 +2576,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestTaskNavRegistry.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestTaskNavRegistry>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestTaskNavRegistry>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestTaskNavRegistry>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestTaskNavRegistry"
     )
     add_test(NAME TestTaskNavRegistry COMMAND TestTaskNavRegistry)
@@ -2486,8 +2603,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestScreenStateSync.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestScreenStateSync>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestScreenStateSync>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestScreenStateSync>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestScreenStateSync"
     )
     add_test(NAME TestScreenStateSync COMMAND TestScreenStateSync)
@@ -2513,8 +2630,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRibbonCollapse.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestRibbonCollapse>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestRibbonCollapse>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestRibbonCollapse>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestRibbonCollapse"
     )
     add_test(NAME TestRibbonCollapse COMMAND TestRibbonCollapse)
@@ -2550,8 +2667,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestStatusBarSlim.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestStatusBarSlim>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestStatusBarSlim>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestStatusBarSlim>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestStatusBarSlim"
     )
     add_test(NAME TestStatusBarSlim COMMAND TestStatusBarSlim)
@@ -2579,8 +2696,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCommentsReview.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestCommentsReview>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestCommentsReview>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestCommentsReview>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestCommentsReview"
     )
     add_test(NAME TestCommentsReview COMMAND TestCommentsReview)
@@ -2609,8 +2726,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestWelcomeLayout.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestWelcomeLayout>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestWelcomeLayout>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestWelcomeLayout>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestWelcomeLayout"
     )
     add_test(NAME TestWelcomeLayout COMMAND TestWelcomeLayout)
@@ -2642,8 +2759,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignatureBadges.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestSignatureBadges>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestSignatureBadges>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestSignatureBadges>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestSignatureBadges"
     )
     add_test(NAME TestSignatureBadges COMMAND TestSignatureBadges)
@@ -2668,8 +2785,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchOcrConfidence.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestBatchOcrConfidence>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestBatchOcrConfidence>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestBatchOcrConfidence>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestBatchOcrConfidence"
     )
     add_test(NAME TestBatchOcrConfidence COMMAND TestBatchOcrConfidence)
@@ -2694,8 +2811,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestInspector.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestInspector>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestInspector>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestInspector>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestInspector"
     )
     add_test(NAME TestInspector COMMAND TestInspector)
@@ -2720,8 +2837,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPatternRedact.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestPatternRedact>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestPatternRedact>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestPatternRedact>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestPatternRedact"
     )
     add_test(NAME TestPatternRedact COMMAND TestPatternRedact)
@@ -2816,8 +2933,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestWatermarkFont.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestWatermarkFont>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestWatermarkFont>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestWatermarkFont>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestWatermarkFont"
     )
     add_test(NAME TestWatermarkFont COMMAND TestWatermarkFont)
@@ -2898,13 +3015,20 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFillFormLock.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestFillFormLock>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestFillFormLock>/platforms/qoffscreen.dll"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${PODOFO_VENDOR_DLL}"
-            "$<TARGET_FILE_DIR:TestFillFormLock>/libpodofo.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestFillFormLock>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFillFormLock"
     )
+    # L05 (NATIVE-LINUX-READINESS-2026-09-10): podofo DLL staging is Windows-only —
+    # Linux links the vendored .so directly (no runtime staging).
+    if(WIN32)
+        add_custom_command(TARGET TestFillFormLock POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestFillFormLock>/libpodofo.dll"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestFillFormLock"
+        )
+    endif()
     add_test(NAME TestFillFormLock COMMAND TestFillFormLock)
     set_tests_properties(TestFillFormLock PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;forms;form-fields;persistence;qt;headless")
 endif()
@@ -2923,13 +3047,20 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFillFormNoOp.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestFillFormNoOp>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestFillFormNoOp>/platforms/qoffscreen.dll"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${PODOFO_VENDOR_DLL}"
-            "$<TARGET_FILE_DIR:TestFillFormNoOp>/libpodofo.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestFillFormNoOp>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFillFormNoOp"
     )
+    # L05 (NATIVE-LINUX-READINESS-2026-09-10): podofo DLL staging is Windows-only —
+    # Linux links the vendored .so directly (no runtime staging).
+    if(WIN32)
+        add_custom_command(TARGET TestFillFormNoOp POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestFillFormNoOp>/libpodofo.dll"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestFillFormNoOp"
+        )
+    endif()
     add_test(NAME TestFillFormNoOp COMMAND TestFillFormNoOp)
     set_tests_properties(TestFillFormNoOp PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;forms;form-fields;persistence;qt;headless")
 endif()
@@ -2950,12 +3081,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestShapeInkPersistence.cpp")
     target_link_libraries(TestShapeInkPersistence PRIVATE
         pdfws_engines pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
     )
+    # L05 (NATIVE-LINUX-READINESS-2026-09-10): podofo DLL staging is Windows-only —
+    # Linux links the vendored .so directly (no runtime staging).
+    if(WIN32)
     add_custom_command(TARGET TestShapeInkPersistence POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${PODOFO_VENDOR_DLL}"
             "$<TARGET_FILE_DIR:TestShapeInkPersistence>/libpodofo.dll"
         COMMENT "Deploying podofo 1.1.0 DLL for TestShapeInkPersistence"
     )
+    endif()
     add_test(NAME TestShapeInkPersistence COMMAND TestShapeInkPersistence)
     set_tests_properties(TestShapeInkPersistence PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;annotations;persistence;qt;headless")
 endif()
@@ -2996,12 +3131,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestMeasureRoundTrip.cpp")
     target_link_libraries(TestMeasureRoundTrip PRIVATE
         pdfws_engines pdfws_core podofo::podofo Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
     )
+    # L05 (NATIVE-LINUX-READINESS-2026-09-10): podofo DLL staging is Windows-only —
+    # Linux links the vendored .so directly (no runtime staging).
+    if(WIN32)
     add_custom_command(TARGET TestMeasureRoundTrip POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${PODOFO_VENDOR_DLL}"
             "$<TARGET_FILE_DIR:TestMeasureRoundTrip>/libpodofo.dll"
         COMMENT "Deploying podofo 1.1.0 DLL for TestMeasureRoundTrip"
     )
+    endif()
     add_test(NAME TestMeasureRoundTrip COMMAND TestMeasureRoundTrip)
     set_tests_properties(TestMeasureRoundTrip PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;measure;annotations;persistence;qt;headless")
 endif()
@@ -3012,12 +3151,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCompressStripSanitize.cpp")
     target_link_libraries(TestCompressStripSanitize PRIVATE
         pdfws_engines pdfws_core podofo::podofo Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
     )
+    # L05 (NATIVE-LINUX-READINESS-2026-09-10): podofo DLL staging is Windows-only —
+    # Linux links the vendored .so directly (no runtime staging).
+    if(WIN32)
     add_custom_command(TARGET TestCompressStripSanitize POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${PODOFO_VENDOR_DLL}"
             "$<TARGET_FILE_DIR:TestCompressStripSanitize>/libpodofo.dll"
         COMMENT "Deploying podofo 1.1.0 DLL for TestCompressStripSanitize"
     )
+    endif()
     add_test(NAME TestCompressStripSanitize COMMAND TestCompressStripSanitize)
     set_tests_properties(TestCompressStripSanitize PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;compression;sanitization;privacy;qt;headless")
 endif()
@@ -3041,8 +3184,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCompressDialogHonesty.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestCompressDialogHonesty>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestCompressDialogHonesty>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestCompressDialogHonesty>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestCompressDialogHonesty"
     )
     add_test(NAME TestCompressDialogHonesty COMMAND TestCompressDialogHonesty)
@@ -3067,13 +3210,20 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFieldMetadata.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestFieldMetadata>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestFieldMetadata>/platforms/qoffscreen.dll"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${PODOFO_VENDOR_DLL}"
-            "$<TARGET_FILE_DIR:TestFieldMetadata>/libpodofo.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestFieldMetadata>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFieldMetadata"
     )
+    # L05 (NATIVE-LINUX-READINESS-2026-09-10): podofo DLL staging is Windows-only —
+    # Linux links the vendored .so directly (no runtime staging).
+    if(WIN32)
+        add_custom_command(TARGET TestFieldMetadata POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestFieldMetadata>/libpodofo.dll"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestFieldMetadata"
+        )
+    endif()
     add_test(NAME TestFieldMetadata COMMAND TestFieldMetadata)
     set_tests_properties(TestFieldMetadata PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;forms;form-fields;persistence;qt;headless")
 endif()
@@ -3092,13 +3242,20 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormSafety.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestFormSafety>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestFormSafety>/platforms/qoffscreen.dll"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${PODOFO_VENDOR_DLL}"
-            "$<TARGET_FILE_DIR:TestFormSafety>/libpodofo.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestFormSafety>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFormSafety"
     )
+    # L05 (NATIVE-LINUX-READINESS-2026-09-10): podofo DLL staging is Windows-only —
+    # Linux links the vendored .so directly (no runtime staging).
+    if(WIN32)
+        add_custom_command(TARGET TestFormSafety POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestFormSafety>/libpodofo.dll"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestFormSafety"
+        )
+    endif()
     add_test(NAME TestFormSafety COMMAND TestFormSafety)
     set_tests_properties(TestFormSafety PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120 LABELS "unit;forms;form-fields;persistence;qt;headless")
 endif()
@@ -3116,13 +3273,20 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormJsCalc.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestFormJsCalc>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestFormJsCalc>/platforms/qoffscreen.dll"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${PODOFO_VENDOR_DLL}"
-            "$<TARGET_FILE_DIR:TestFormJsCalc>/libpodofo.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestFormJsCalc>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFormJsCalc"
     )
+    # L05 (NATIVE-LINUX-READINESS-2026-09-10): podofo DLL staging is Windows-only —
+    # Linux links the vendored .so directly (no runtime staging).
+    if(WIN32)
+        add_custom_command(TARGET TestFormJsCalc POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestFormJsCalc>/libpodofo.dll"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestFormJsCalc"
+        )
+    endif()
     if(QUICKJS_RUNTIME_DLL AND EXISTS "${QUICKJS_RUNTIME_DLL}")
         add_custom_command(TARGET TestFormJsCalc POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -3149,13 +3313,20 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEngineSave.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestEngineSave>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestEngineSave>/platforms/qoffscreen.dll"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${PODOFO_VENDOR_DLL}"
-            "$<TARGET_FILE_DIR:TestEngineSave>/libpodofo.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestEngineSave>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestEngineSave"
     )
+    # L05 (NATIVE-LINUX-READINESS-2026-09-10): podofo DLL staging is Windows-only —
+    # Linux links the vendored .so directly (no runtime staging).
+    if(WIN32)
+        add_custom_command(TARGET TestEngineSave POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestEngineSave>/libpodofo.dll"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestEngineSave"
+        )
+    endif()
     add_test(NAME TestEngineSave COMMAND TestEngineSave)
     set_tests_properties(TestEngineSave PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120 LABELS "unit;engine;save;persistence;qt;headless")
 endif()
@@ -3189,13 +3360,20 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormUndo.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestFormUndo>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestFormUndo>/platforms/qoffscreen.dll"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${PODOFO_VENDOR_DLL}"
-            "$<TARGET_FILE_DIR:TestFormUndo>/libpodofo.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestFormUndo>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFormUndo"
     )
+    # L05 (NATIVE-LINUX-READINESS-2026-09-10): podofo DLL staging is Windows-only —
+    # Linux links the vendored .so directly (no runtime staging).
+    if(WIN32)
+        add_custom_command(TARGET TestFormUndo POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestFormUndo>/libpodofo.dll"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestFormUndo"
+        )
+    endif()
     add_test(NAME TestFormUndo COMMAND TestFormUndo)
     set_tests_properties(TestFormUndo PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120 LABELS "unit;forms;form-fields;undo;persistence;qt;headless")
 endif()
@@ -3236,12 +3414,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRedactSanitizeBundle.cpp")
     target_link_libraries(TestRedactSanitizeBundle PRIVATE
         pdfws_engines pdfws_core podofo::podofo Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
     )
+    # L05 (NATIVE-LINUX-READINESS-2026-09-10): podofo DLL staging is Windows-only —
+    # Linux links the vendored .so directly (no runtime staging).
+    if(WIN32)
     add_custom_command(TARGET TestRedactSanitizeBundle POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${PODOFO_VENDOR_DLL}"
             "$<TARGET_FILE_DIR:TestRedactSanitizeBundle>/libpodofo.dll"
         COMMENT "Deploying podofo 1.1.0 DLL for TestRedactSanitizeBundle"
     )
+    endif()
     add_test(NAME TestRedactSanitizeBundle COMMAND TestRedactSanitizeBundle)
     set_tests_properties(TestRedactSanitizeBundle PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;redaction;sanitization;security;privacy;qt;headless")
 endif()
@@ -3265,13 +3447,20 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRedactTransaction.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestRedactTransaction>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestRedactTransaction>/platforms/qoffscreen.dll"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${PODOFO_VENDOR_DLL}"
-            "$<TARGET_FILE_DIR:TestRedactTransaction>/libpodofo.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestRedactTransaction>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin and podofo DLL for TestRedactTransaction"
     )
+    # L05 (NATIVE-LINUX-READINESS-2026-09-10): podofo DLL staging is Windows-only —
+    # Linux links the vendored .so directly (no runtime staging).
+    if(WIN32)
+        add_custom_command(TARGET TestRedactTransaction POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestRedactTransaction>/libpodofo.dll"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestRedactTransaction"
+        )
+    endif()
     add_test(NAME TestRedactTransaction COMMAND TestRedactTransaction)
     set_tests_properties(TestRedactTransaction PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
@@ -3301,13 +3490,20 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRedactionProof.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestRedactionProof>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestRedactionProof>/platforms/qoffscreen.dll"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${PODOFO_VENDOR_DLL}"
-            "$<TARGET_FILE_DIR:TestRedactionProof>/libpodofo.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestRedactionProof>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin and podofo DLL for TestRedactionProof"
     )
+    # L05 (NATIVE-LINUX-READINESS-2026-09-10): podofo DLL staging is Windows-only —
+    # Linux links the vendored .so directly (no runtime staging).
+    if(WIN32)
+        add_custom_command(TARGET TestRedactionProof POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestRedactionProof>/libpodofo.dll"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestRedactionProof"
+        )
+    endif()
     add_test(NAME TestRedactionProof COMMAND TestRedactionProof)
     set_tests_properties(TestRedactionProof PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
@@ -3340,13 +3536,20 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAutoDetectHeuristic.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestAutoDetectHeuristic>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestAutoDetectHeuristic>/platforms/qoffscreen.dll"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${PODOFO_VENDOR_DLL}"
-            "$<TARGET_FILE_DIR:TestAutoDetectHeuristic>/libpodofo.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestAutoDetectHeuristic>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestAutoDetectHeuristic"
     )
+    # L05 (NATIVE-LINUX-READINESS-2026-09-10): podofo DLL staging is Windows-only —
+    # Linux links the vendored .so directly (no runtime staging).
+    if(WIN32)
+        add_custom_command(TARGET TestAutoDetectHeuristic POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestAutoDetectHeuristic>/libpodofo.dll"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestAutoDetectHeuristic"
+        )
+    endif()
     add_test(NAME TestAutoDetectHeuristic COMMAND TestAutoDetectHeuristic)
     set_tests_properties(TestAutoDetectHeuristic PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;forms;autodetect;qt;headless")
 endif()
@@ -3512,12 +3715,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestHyperlinkNavigation.cpp")
     target_link_libraries(TestHyperlinkNavigation PRIVATE
         pdfws_engines pdfws_core podofo::podofo Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
     )
+    # L05 (NATIVE-LINUX-READINESS-2026-09-10): podofo DLL staging is Windows-only —
+    # Linux links the vendored .so directly (no runtime staging).
+    if(WIN32)
     add_custom_command(TARGET TestHyperlinkNavigation POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${PODOFO_VENDOR_DLL}"
             "$<TARGET_FILE_DIR:TestHyperlinkNavigation>/libpodofo.dll"
         COMMENT "Deploying podofo 1.1.0 DLL for TestHyperlinkNavigation"
     )
+    endif()
     add_test(NAME TestHyperlinkNavigation COMMAND TestHyperlinkNavigation)
     set_tests_properties(TestHyperlinkNavigation PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;viewing;links;qt;headless")
 endif()
@@ -3528,12 +3735,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRedactMarkAll.cpp")
     target_link_libraries(TestRedactMarkAll PRIVATE
         pdfws_ui pdfws_engines pdfws_core podofo::podofo Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets
     )
+    # L05 (NATIVE-LINUX-READINESS-2026-09-10): podofo DLL staging is Windows-only —
+    # Linux links the vendored .so directly (no runtime staging).
+    if(WIN32)
     add_custom_command(TARGET TestRedactMarkAll POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${PODOFO_VENDOR_DLL}"
             "$<TARGET_FILE_DIR:TestRedactMarkAll>/libpodofo.dll"
         COMMENT "Deploying podofo 1.1.0 DLL for TestRedactMarkAll"
     )
+    endif()
     add_test(NAME TestRedactMarkAll COMMAND TestRedactMarkAll)
     set_tests_properties(TestRedactMarkAll PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;redaction;qt;headless")
 endif()
@@ -3544,12 +3755,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRedactApplyMarks.cpp")
     target_link_libraries(TestRedactApplyMarks PRIVATE
         pdfws_engines pdfws_core podofo::podofo Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
     )
+    # L05 (NATIVE-LINUX-READINESS-2026-09-10): podofo DLL staging is Windows-only —
+    # Linux links the vendored .so directly (no runtime staging).
+    if(WIN32)
     add_custom_command(TARGET TestRedactApplyMarks POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${PODOFO_VENDOR_DLL}"
             "$<TARGET_FILE_DIR:TestRedactApplyMarks>/libpodofo.dll"
         COMMENT "Deploying podofo 1.1.0 DLL for TestRedactApplyMarks"
     )
+    endif()
     add_test(NAME TestRedactApplyMarks COMMAND TestRedactApplyMarks)
     set_tests_properties(TestRedactApplyMarks PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;redaction;security;qt;headless")
 endif()
@@ -3567,8 +3782,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAnnotationDjot.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestAnnotationDjot>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestAnnotationDjot>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestAnnotationDjot>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestAnnotationDjot"
     )
     add_test(NAME TestAnnotationDjot COMMAND TestAnnotationDjot)
@@ -3730,13 +3945,20 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestHistoryIntegrity.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestHistoryIntegrity>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestHistoryIntegrity>/platforms/qoffscreen.dll"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${PODOFO_VENDOR_DLL}"
-            "$<TARGET_FILE_DIR:TestHistoryIntegrity>/libpodofo.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestHistoryIntegrity>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestHistoryIntegrity"
     )
+    # L05 (NATIVE-LINUX-READINESS-2026-09-10): podofo DLL staging is Windows-only —
+    # Linux links the vendored .so directly (no runtime staging).
+    if(WIN32)
+        add_custom_command(TARGET TestHistoryIntegrity POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestHistoryIntegrity>/libpodofo.dll"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestHistoryIntegrity"
+        )
+    endif()
     add_test(NAME TestHistoryIntegrity COMMAND TestHistoryIntegrity)
     set_tests_properties(TestHistoryIntegrity PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
@@ -3766,8 +3988,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPersistenceOutcomes.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestPersistenceOutcomes>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestPersistenceOutcomes>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestPersistenceOutcomes>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestPersistenceOutcomes"
     )
     add_test(NAME TestPersistenceOutcomes COMMAND TestPersistenceOutcomes)
