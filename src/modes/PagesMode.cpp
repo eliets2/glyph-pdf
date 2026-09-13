@@ -960,12 +960,16 @@ QList<QList<int>> PagesMode::computeSplitGroups() const
 // paths (QSet<QString> compared raw absolute paths and let a case-only alias
 // of the OPEN SOURCE through as a split output). Comparison key only: the
 // user-visible output paths keep their original case.
+// WP-R20 (native Linux lane): the fold is UNCONDITIONAL, not Q_OS_WIN-gated.
+// On a case-sensitive filesystem a case-only alias is technically a distinct
+// file, so folding is strictly CONSERVATIVE there: the preflight just derives
+// a distinct name ("SPLIT-SOURCE_part1.pdf") instead of producing an output
+// that differs from the open source only by letter case. Behavior is now
+// identical on every platform and the alias can never be chosen.
 static QString splitPathKey(const QString& path)
 {
     QString key = QDir::cleanPath(path);
-#if defined(Q_OS_WIN)
     key = key.toLower();
-#endif
     return key;
 }
 
