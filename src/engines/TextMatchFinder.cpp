@@ -99,8 +99,9 @@ QList<CharBox> extractCharBoxes(FPDF_DOCUMENT doc, int pageIndex) {
 
 // Run `pattern` over the reconstructed page text; produce one TextMatch per
 // hit with the union box of its characters and the largest font size in the
-// span. Carries the M-3 ReDoS bounds (input cap + wall-clock budget) copied
-// from PatternRedactor::matchChars.
+// span. Carries the M-3 input cap; the packa-F4 budget (deadline +
+// cancellation) is checked BETWEEN matches at the top of the loop — see
+// MatchBudget for the honest statement of what that does and does not bound.
 //
 // packa-F2: match offsets are UTF-16 units in `pageText`, but a CharBox's
 // text can span MORE than one UTF-16 unit (supplementary code points). The
@@ -109,7 +110,9 @@ QList<CharBox> extractCharBoxes(FPDF_DOCUMENT doc, int pageIndex) {
 // CharBox contributes (verified for supplementary-before-match,
 // supplementary-inside-match and neighbor preservation in TestFindReplace).
 QList<TextMatch> matchCharBoxes(const QList<CharBox>& chars, int pageIndex,
-                                const QRegularExpression& pattern) {
+                                const QRegularExpression& pattern,
+                                const QElapsedTimer& jobTimer,
+                                TextMatchFinder::MatchBudget* budget) {
     QList<TextMatch> results;
     if (chars.isEmpty()) return results;
 
@@ -124,7 +127,6 @@ QList<TextMatch> matchCharBoxes(const QList<CharBox>& chars, int pageIndex,
     }
 
     constexpr int kMaxRegexInput = 256 * 1024;   // chars (M-3)
-    constexpr qint64 kMatchBudgetMs = 1500;      // wall clock (M-3)
 
     if (pageText.size() > kMaxRegexInput) {
         qWarning() << "TextMatchFinder — page text truncated from" << pageText.size()
@@ -133,14 +135,11 @@ QList<TextMatch> matchCharBoxes(const QList<CharBox>& chars, int pageIndex,
         unitToChar.resize(pageText.size());   // shrink with the capped text
     }
 
-    QElapsedTimer timer;
-    timer.start();
-
     QRegularExpressionMatchIterator it = pattern.globalMatch(pageText);
     while (it.hasNext()) {
-        if (timer.elapsed() > kMatchBudgetMs) {
-            qWarning() << "TextMatchFinder — match loop aborted after" << kMatchBudgetMs
-                       << "ms (possible ReDoS / pathological pattern, M-3); partial results";
+        if (budget && budget->shouldStop(jobTimer.nsecsElapsed())) {
+            qWarning() << "TextMatchFinder — match loop stopped (budget deadline"
+                       << budget->deadlineMs << "ms or cancellation; partial results)";
             break;
         }
         const QRegularExpressionMatch m = it.next();
@@ -179,13 +178,22 @@ QList<TextMatch> matchCharBoxes(const QList<CharBox>& chars, int pageIndex,
 
 QList<TextMatch> TextMatchFinder::findMatches(const QString& pdfPath,
                                               const QList<int>& pages,
-                                              const QRegularExpression& pattern) {
+                                              const QRegularExpression& pattern,
+                                              MatchBudget* budget) {
     QList<TextMatch> out;
     if (!pattern.isValid()) {
         qWarning() << "TextMatchFinder::findMatches — invalid pattern:" << pattern.errorString();
         return out;
     }
     if (pattern.pattern().isEmpty() || pages.isEmpty()) return out;
+
+    // packa-F4: the budget spans the WHOLE job (document load + every page),
+    // not one deadline per page — a 1000-page recount is bounded once.
+    // Callers that pass no budget get the default job budget, not none.
+    MatchBudget defaultBudget;
+    MatchBudget* effectiveBudget = budget ? budget : &defaultBudget;
+    QElapsedTimer jobTimer;
+    jobTimer.start();
 
     PdfiumEnvironment env;
     FPDF_DOCUMENT doc = FPDF_LoadDocument(pdfPath.toLocal8Bit().constData(), nullptr);
@@ -195,8 +203,13 @@ QList<TextMatch> TextMatchFinder::findMatches(const QString& pdfPath,
     }
 
     for (int pg : pages) {
+        if (effectiveBudget->shouldStop(jobTimer.nsecsElapsed())) {
+            qWarning() << "TextMatchFinder — page scan stopped after page index"
+                       << (pg - 1) << "(budget deadline or cancellation; partial results)";
+            break;
+        }
         const QList<CharBox> chars = extractCharBoxes(doc, pg);
-        out.append(matchCharBoxes(chars, pg, pattern));
+        out.append(matchCharBoxes(chars, pg, pattern, jobTimer, effectiveBudget));
     }
 
     FPDF_CloseDocument(doc);
