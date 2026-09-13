@@ -60,6 +60,11 @@ static_assert(kDefaultSanitizeOn,
 // source document identity and the captured appearance image, so a retry
 // re-runs the exact same operation instead of silently re-signing whatever
 // the mutable session points at, without the picked appearance.
+//
+// R19(b): the request ALSO carries the settings-derived signing configuration
+// (TSA URL + PAdES level), captured when the user signed — a Retry re-applies
+// the SAME configured values before re-dispatching, never a half-applied
+// configuration.
 struct SecurityController::SigningRequest {
     bool certify = false;
     int certLevel = 1;
@@ -70,7 +75,73 @@ struct SecurityController::SigningRequest {
     QString location;
     QString sourcePath;   // N06: the document the user chose to sign
     QImage appearance;    // N06: the dialog's optional appearance image (may be null)
+    QString tsaUrl;       // R19(b): signing/tsaUrl at request time
+    PAdESLevel level = PAdESLevel::B_B; // R19(b): signing/padesLevel at request time
 };
+
+// ── R19(a–c): settings-driven signing configuration ──────────────────────────
+
+PAdESLevel SecurityController::padesLevelFromSetting(const QString& level)
+{
+    if (level == QLatin1String("B-T"))  return PAdESLevel::B_T;
+    if (level == QLatin1String("B-LT")) return PAdESLevel::B_LT;
+    if (level == QLatin1String("B-LTA")) return PAdESLevel::B_LTA;
+    return PAdESLevel::B_B; // "B-B" and every unknown value: the honest floor
+}
+
+SecurityController::SigningConfig SecurityController::readSigningConfig(QSettings* overrideSettings)
+{
+    // std::unique_ptr would drag a complete QSettings destructor into every
+    // TU; a scoped value keeps the default-constructor branch simple.
+    QSettings* owned = nullptr;
+    if (!overrideSettings)
+        owned = new QSettings();
+    QSettings& s = overrideSettings ? *overrideSettings : *owned;
+
+    SigningConfig cfg;
+    cfg.tsaUrl = s.value(QStringLiteral("signing/tsaUrl")).toString().trimmed();
+    cfg.level = padesLevelFromSetting(
+        s.value(QStringLiteral("signing/padesLevel"), QStringLiteral("B-B")).toString());
+    delete owned;
+    return cfg;
+}
+
+QString SecurityController::signingPreflightRefusal(PAdESLevel level, const QString& tsaUrl,
+                                                    bool forTimestamp)
+{
+    const bool needsTsa = forTimestamp || level > PAdESLevel::B_B;
+    if (!needsTsa || !tsaUrl.isEmpty())
+        return {};
+    if (forTimestamp)
+        return QObject::tr("Adding a document timestamp requires a timestamp authority (TSA) "
+                           "URL, which is not configured. Set it under Preferences → Security "
+                           "→ Signing. No timestamp was attempted and no document was modified.");
+    return QObject::tr("Signing at PAdES %1 requires a timestamp authority (TSA) URL, which is "
+                       "not configured. Without it the signature would silently downgrade to "
+                       "B-B. Set the TSA URL under Preferences → Security → Signing, or choose "
+                       "level B-B. No signature was attempted.")
+        .arg(attainedLevelLabel(level, {}));
+}
+
+QString SecurityController::attainedLevelLabel(PAdESLevel requested, const SignatureOutcomeDetail& detail)
+{
+    // The label names the HIGHEST standard level whose required pieces are all
+    // present given the tracked detail: B-LT requires the DSS dictionary,
+    // B-LTA additionally the archive timestamp. B-T has no tracked failure
+    // mode here (its token-fetch downgrade is refused before any attempt —
+    // signingPreflightRefusal).
+    switch (requested) {
+        case PAdESLevel::B_B:  return QStringLiteral("B-B");
+        case PAdESLevel::B_T:  return QStringLiteral("B-T");
+        case PAdESLevel::B_LT:
+            return detail.dssMissing ? QStringLiteral("B-T") : QStringLiteral("B-LT");
+        case PAdESLevel::B_LTA:
+            if (detail.dssMissing)
+                return QStringLiteral("B-T");
+            return detail.docTimestampMissing ? QStringLiteral("B-LT") : QStringLiteral("B-LTA");
+    }
+    return QStringLiteral("B-B");
+}
 
 // §9.7 P1: shared signing/certifying execution for signDocument() and
 // certifyDocument(). On PartialLtvMissing the user gets a warning naming the
@@ -80,6 +151,21 @@ void SecurityController::runSigning(const SigningRequest &req)
 {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->signing) return;
+
+    // R19(b) honest pre-flight: a level above B-B with no TSA URL would be
+    // SILENTLY downgraded by the engine (the B-T token fetch is skipped when
+    // tsaUrl is empty) while the outcome may still report Success. Refuse
+    // BEFORE any attempt with the exact reason — never a dishonest signature.
+    const QString refusal = signingPreflightRefusal(req.level, req.tsaUrl);
+    if (!refusal.isEmpty()) {
+        QMessageBox::warning(_mainWindow,
+                             req.certify ? tr("Certification Not Attempted") : tr("Signing Not Attempted"),
+                             refusal);
+        _mainWindow->statusBar()->showMessage(
+            req.certify ? tr("Certification not attempted — no TSA URL configured.")
+                        : tr("Signing not attempted — no TSA URL configured."), 5000);
+        return;
+    }
 
     auto* progress = new QProgressDialog(req.certify ? tr("Certifying document...")
                                                      : tr("Signing document..."),
@@ -92,6 +178,15 @@ void SecurityController::runSigning(const SigningRequest &req)
     std::weak_ptr<DocumentSession> weakDoc = _ctx->document;
     QPointer<SecurityController> self(this);
     auto result = std::make_shared<std::atomic<int>>(static_cast<int>(SignOutcome::NotRun));
+
+    // R19(b): the configured values are applied to the manager BEFORE the
+    // dispatch — on every entry (initial AND Retry re-entering runSigning
+    // with the same request), so a retry re-applies the same configuration.
+    // Plain setters on the manager: safe before the worker starts.
+    if (auto signing = weakSigning.lock()) {
+        signing->setTsaUrl(req.tsaUrl);
+        signing->setSignatureLevel(req.level);
+    }
 
     QThread* worker = QThread::create([weakSigning, weakDoc, req, result]() {
         auto signing = weakSigning.lock();
@@ -136,9 +231,18 @@ void SecurityController::runSigning(const SigningRequest &req)
         const auto outcome = static_cast<SignOutcome>(result->load());
 
         if (outcome == SignOutcome::Success) {
+            // R19c: the Success disclosure names the ATTAINED level, not a
+            // silent assumption. For a fully-successful sign the attained
+            // level equals the requested one (the detail carries no missing
+            // pieces); the label keeps the wording honest even if the detail
+            // ever says otherwise.
+            SignatureOutcomeDetail okDetail;
+            if (auto signing = weakSigning.lock())
+                okDetail = signing->lastSignOutcomeDetail();
+            const QString level = attainedLevelLabel(req.level, okDetail);
             self->_mainWindow->statusBar()->showMessage(
-                req.certify ? tr("Document certified and saved to %1").arg(req.outputPath)
-                            : tr("Document signed and saved to %1").arg(req.outputPath), 5000);
+                req.certify ? tr("Document certified and saved to %1 (PAdES %2)").arg(req.outputPath, level)
+                            : tr("Document signed and saved to %1 (PAdES %2)").arg(req.outputPath, level), 5000);
             if (QMessageBox::question(self->_mainWindow,
                                       req.certify ? tr("Open Certified PDF") : tr("Open Signed PDF"),
                                       req.certify ? tr("Certification complete. Would you like to open the certified file?")
@@ -152,12 +256,14 @@ void SecurityController::runSigning(const SigningRequest &req)
         if (outcome == SignOutcome::PartialLtvMissing) {
             // E-02: the signature bytes ARE on disk — never tell the user the
             // signing failed. §9.7 P1: name EXACTLY which piece degraded.
+            // R19c: the wording also carries the ATTAINED level (a requested
+            // B-LTA whose archive timestamp failed attests B-LT).
             SignatureOutcomeDetail detail;
             if (auto signing = weakSigning.lock())
                 detail = signing->lastSignOutcomeDetail();
             QMessageBox box(QMessageBox::Warning,
                             tr("Long-Term Validation Incomplete"),
-                            buildSigningOutcomeWarning(outcome, req.outputPath, detail, req.certify),
+                            buildSigningOutcomeWarning(outcome, req.outputPath, detail, req.certify, req.level),
                             QMessageBox::NoButton, self->_mainWindow);
             QAbstractButton *retry = box.addButton(tr("Retry Signing"), QMessageBox::ActionRole);
             box.addButton(req.certify ? tr("Keep Certified File") : tr("Keep Signed File"),
@@ -407,8 +513,13 @@ void SecurityController::signDocument() {
 
         // §9.7 P1: the request is captured so a PartialLtvMissing "Retry" can
         // re-run the EXACT same signing without re-prompting.
+        // R19(b): the settings-derived signing configuration is captured with
+        // the request, so Retry re-applies the SAME values.
         SigningRequest req;
         req.certify = false;
+        const SigningConfig cfg = readSigningConfig();
+        req.tsaUrl = cfg.tsaUrl;
+        req.level = cfg.level;
         req.outputPath = outputPath;
         req.certPath = dlg.certificatePath();
         req.pwd = dlg.password();
@@ -463,12 +574,15 @@ QString SecurityController::buildValidationSummary(const QList<SignatureInfo>& i
 
 // §9.7 P1: pure degradation-wording builder — unit-testable without UI. For a
 // PartialLtvMissing outcome it names EXACTLY which long-term-validation piece
-// is missing (DSS dictionary and/or archive timestamp); every other outcome
-// yields no warning at all.
+// is missing (DSS dictionary and/or archive timestamp) — and, since R19c, the
+// ATTAINED level (attainedLevelLabel): a requested B-LTA whose archive
+// timestamp failed attests B-LT, never a silent claim of the full level.
+// Every other outcome yields no warning at all.
 QString SecurityController::buildSigningOutcomeWarning(SignOutcome outcome,
                                                        const QString &outputPath,
                                                        const SignatureOutcomeDetail &detail,
-                                                       bool certified)
+                                                       bool certified,
+                                                       PAdESLevel requested)
 {
     if (outcome != SignOutcome::PartialLtvMissing)
         return {};
@@ -477,12 +591,13 @@ QString SecurityController::buildSigningOutcomeWarning(SignOutcome outcome,
         missing << QObject::tr("the DSS dictionary (B-LT)");
     if (detail.docTimestampMissing)
         missing << QObject::tr("the archive timestamp (B-LTA)");
-    return QObject::tr("The document was %1 and saved to %2, but %3 could not be embedded. "
+    return QObject::tr("The document was %1 and saved to %2. The signature attained PAdES %3, "
+                       "but %4 could not be embedded. "
                        "The cryptographic signature itself is valid and the file is usable "
                        "now — retry signing to embed the missing long-term validation data, "
                        "or keep the file as-is.")
         .arg(certified ? QObject::tr("certified") : QObject::tr("signed"),
-             outputPath, missing.join(QObject::tr(" and ")));
+             outputPath, attainedLevelLabel(requested, detail), missing.join(QObject::tr(" and ")));
 }
 
 void SecurityController::sanitizeDocument() {
@@ -859,6 +974,11 @@ void SecurityController::certifyDocument() {
         req.certify = true;
         // Just hardcode level 1 (no changes allowed) for now since UI doesn't expose it
         req.certLevel = 1;
+        // R19(b): same settings capture as the sign flow (certLevel is the
+        // /DocMDP level; req.level is the PAdES conformance level).
+        const SigningConfig cfg = readSigningConfig();
+        req.tsaUrl = cfg.tsaUrl;
+        req.level = cfg.level;
         req.outputPath = outputPath;
         req.certPath = dlg.certificatePath();
         req.pwd = dlg.password();
@@ -874,6 +994,21 @@ void SecurityController::certifyDocument() {
 void SecurityController::timestampDocument() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->signing) return;
+
+    // R19(b): the ONE production caller PP05 found missing — the timestamp
+    // settings are consumed HERE, before the dispatch. An empty TSA URL is
+    // refused BEFORE any attempt with the exact reason (what is missing and
+    // where to set it) instead of the engine's generic failure after the
+    // fact; a configured-but-unreachable TSA is disclosed BY NAME on failure.
+    const SigningConfig cfg = readSigningConfig();
+    const QString refusal = signingPreflightRefusal(cfg.level, cfg.tsaUrl, /*forTimestamp=*/true);
+    if (!refusal.isEmpty()) {
+        QMessageBox::warning(_mainWindow, tr("Timestamp Not Attempted"), refusal);
+        _mainWindow->statusBar()->showMessage(
+            tr("Timestamp not attempted — no TSA URL configured."), 5000);
+        return;
+    }
+    _ctx->signing->setTsaUrl(cfg.tsaUrl);
 
     QString outputPath = QFileDialog::getSaveFileName(_mainWindow, tr("Save Timestamped Document"), "", tr("PDF Files (*.pdf)"));
     if (outputPath.isEmpty()) return;
@@ -898,7 +1033,7 @@ void SecurityController::timestampDocument() {
         result->store(ok);
     });
 
-    connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result]() {
+    connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result, cfg]() {
         progress->close();
         progress->deleteLater();
         if (!self) return;
@@ -909,7 +1044,14 @@ void SecurityController::timestampDocument() {
                 self->_mainWindow->openDocument(outputPath);
             }
         } else {
-            QMessageBox::critical(self->_mainWindow, tr("Timestamp Error"), tr("Failed to add document timestamp."));
+            // R19(b): the failure names the configured TSA (deterministic when
+            // it is a refused loopback URL — no network, no sleeps).
+            // addDocTimeStamp stages a candidate and commits only on success
+            // (N06 checked replacement), so the destination is unchanged.
+            QMessageBox::critical(self->_mainWindow, tr("Timestamp Error"),
+                tr("The timestamp authority at %1 could not be reached, or it rejected the "
+                   "request. Check the URL under Preferences → Security → Signing. "
+                   "No document was modified.").arg(cfg.tsaUrl));
             self->_mainWindow->statusBar()->showMessage(tr("Timestamp failed."), 5000);
         }
     });

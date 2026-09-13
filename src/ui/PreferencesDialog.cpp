@@ -326,6 +326,65 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
     tabs->addTab(aiTab, tr("AI"));
     refreshAiStatus();
 
+    // ────────────────────────────────────────────────────────────────────
+    // TAB 4 — Security (R19a): signing configuration.
+    // The ONE production surface configuring PAdES level + TSA URL; the
+    // SecurityController consumes signing/tsaUrl + signing/padesLevel BEFORE
+    // every sign/certify/timestamp dispatch (PP05's missing callers).
+    // ────────────────────────────────────────────────────────────────────
+    auto* secTab = new QWidget;
+    auto* secCol = new QVBoxLayout(secTab);
+
+    auto* signGroup = new QGroupBox(tr("Digital Signatures (PAdES)"));
+    auto* signForm  = new QFormLayout(signGroup);
+
+    // RFC 3161 timestamp authority URL. Empty = no timestamping: levels above
+    // B-B are refused honestly by the controller instead of silently
+    // downgrading (the engine would skip the B-T token fetch when this is
+    // empty and still report Success — the settings surface must not make
+    // that state reachable, so the controller refuses it up front).
+    _tsaUrlEdit = new QLineEdit;
+    _tsaUrlEdit->setObjectName(QStringLiteral("tsaUrlEdit"));
+    _tsaUrlEdit->setPlaceholderText(tr("https://timestamp.example.com (leave empty for B-B signatures only)"));
+    _tsaUrlEdit->setAccessibleName(tr("Timestamp authority (TSA) URL"));
+    _tsaUrlEdit->setText(QSettings().value(QStringLiteral("signing/tsaUrl"),
+                                           QString()).toString());
+    signForm->addRow(tr("TSA URL:"), _tsaUrlEdit);
+
+    // PAdES conformance level (ETSI EN 319 132-1). Default B-B: the honest
+    // floor — it is the only level that needs no timestamp authority.
+    _padesLevelCombo = new QComboBox;
+    _padesLevelCombo->setObjectName(QStringLiteral("padesLevelCombo"));
+    _padesLevelCombo->setAccessibleName(tr("PAdES conformance level"));
+    _padesLevelCombo->addItem(tr("B-B   — basic signature (no timestamp)"), QStringLiteral("B-B"));
+    _padesLevelCombo->addItem(tr("B-T   — signature timestamp token (needs a TSA URL)"), QStringLiteral("B-T"));
+    _padesLevelCombo->addItem(tr("B-LT  — long-term validation (DSS; needs a TSA URL)"), QStringLiteral("B-LT"));
+    _padesLevelCombo->addItem(tr("B-LTA — archival (DSS + archive timestamp; needs a TSA URL)"), QStringLiteral("B-LTA"));
+    {
+        const QString savedLevel = QSettings().value(QStringLiteral("signing/padesLevel"),
+                                                     QStringLiteral("B-B")).toString();
+        for (int i = 0; i < _padesLevelCombo->count(); ++i) {
+            if (_padesLevelCombo->itemData(i).toString() == savedLevel) {
+                _padesLevelCombo->setCurrentIndex(i);
+                break;
+            }
+        }
+    }
+    signForm->addRow(tr("PAdES level:"), _padesLevelCombo);
+
+    auto* signNote = new QLabel(
+        tr("Levels above B-B embed RFC 3161 timestamp and long-term-validation "
+           "data and require a reachable TSA URL. If the TSA is missing or "
+           "unreachable, signing refuses or discloses the attained level — it "
+           "never silently produces a lower level."));
+    signNote->setWordWrap(true);
+    signNote->setStyleSheet(QStringLiteral("color:#888; font-size:8pt;"));
+    signForm->addRow(QString{}, signNote);
+
+    secCol->addWidget(signGroup);
+    secCol->addStretch();
+    tabs->addTab(secTab, tr("Security"));
+
     // ── Footer — QDialogButtonBox for platform-consistent button order ────────
     // AR-8 D6: use QDialogButtonBox so Cancel/OK ordering follows the platform
     // style guide (Windows: OK left / Cancel right; macOS: Cancel left / OK right).
@@ -388,6 +447,16 @@ void PreferencesDialog::saveSettings()
         if (!model.isEmpty())
             settings.setValue("ai/ollamaModel", model);
     }
+
+    // R19a: signing configuration — the SecurityController consumes these
+    // before every sign/certify/timestamp dispatch. The TSA URL is stored
+    // trimmed; explicitly clearing it is allowed (it honestly restricts
+    // signing to B-B, which the controller enforces).
+    if (_tsaUrlEdit)
+        settings.setValue(QStringLiteral("signing/tsaUrl"), _tsaUrlEdit->text().trimmed());
+    if (_padesLevelCombo)
+        settings.setValue(QStringLiteral("signing/padesLevel"),
+                          _padesLevelCombo->currentData().toString());
 
     // Live apply to AutosaveManager
     MainWindow* mainWin = qobject_cast<MainWindow*>(parentWidget());

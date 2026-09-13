@@ -1454,7 +1454,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignatureRealCrypto.cpp")
         target_compile_definitions(TestSignatureRealCrypto PRIVATE GLYPH_TESTING=1)
     endif()
     target_link_libraries(TestSignatureRealCrypto PRIVATE
-        pdfws_engines pdfws_core
+        pdfws_ui pdfws_engines pdfws_core
         OpenSSL::SSL OpenSSL::Crypto
         Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets podofo::podofo
     )
