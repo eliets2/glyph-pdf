@@ -119,6 +119,8 @@ public:
     QString tsaUrl;
     PAdESLevel level = PAdESLevel::B_T;
     X509_STORE *testTrustStore = nullptr;
+    // SEP13:4 regression seam — see forceEmptyPostConditionForTesting.
+    bool forceEmptyPostCondition = false;
     // E-02: outcome of the most recent signing call so the UI can tell a partial
     // (core-signed but LTV-missing) result apart from a total failure.
     SignOutcome lastOutcome = SignOutcome::NotRun;
@@ -914,6 +916,9 @@ SignatureManager::~SignatureManager() = default;
 void SignatureManager::setTsaUrl(const QString &url) { d->tsaUrl = url; }
 void SignatureManager::setSignatureLevel(PAdESLevel level) { d->level = level; }
 void SignatureManager::setTrustStoreForTest(X509_STORE *store) { d->testTrustStore = store; }
+
+// SEP13:4 regression seam — see the header note. Test-only.
+void SignatureManager::forceEmptyPostConditionForTesting(bool on) { d->forceEmptyPostCondition = on; }
 // ---------------------------------------------------------------------------
 SignOutcome SignatureManager::signDocument(const QString &inputPath,
                                     const QString &outputPath,
@@ -1674,6 +1679,24 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
         // Re-run validateSignatures and assert the prior approval signature is still integrity-intact.
         // If the incremental update corrupted the ByteRange of a prior signature, fail and delete the output.
         QList<SignatureInfo> postValidation = validateSignatures(signTarget);
+        // SEP13:4 regression seam (see forceEmptyPostConditionForTesting):
+        // makes the EMPTY re-validation observation deterministic.
+        if (d->forceEmptyPostCondition)
+            postValidation.clear();
+        // SEP13:4: an EMPTY re-validation (the signature not detected/parsed
+        // on the signed result) is a FAILURE, not a vacuous pass — the loop
+        // below only inspects returned entries, so the old code fell through
+        // to Success/PartialLtvMissing and committed a document whose
+        // signatures could not be confirmed intact.
+        if (postValidation.isEmpty()) {
+            qWarning() << "SECURITY: Post-condition validation found NO signature on the "
+                          "signed result — integrity cannot be confirmed; failing.";
+            d->lastOutcome = SignOutcome::Failed;
+            cleanupCandidate();   // the candidate is never committed now
+            if (!replaceOutput)
+                QFile::remove(outputPath);   // mirror the broken-integrity branch
+            return SignOutcome::Failed;
+        }
         for (const auto& sigInfo : postValidation) {
             if (!sigInfo.integrityIntact) {
                 qWarning() << "SECURITY: Post-condition validation failed! A signature's integrity was broken by this update.";

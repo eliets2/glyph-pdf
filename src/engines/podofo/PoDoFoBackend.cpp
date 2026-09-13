@@ -2980,24 +2980,67 @@ static void ensureCompleteCidSets(PoDoFo::PdfMemDocument& doc) {
             // /W is either "c [w1 w2 ...]" (start CID + one width per CID)
             // or "c1 c2 w" (inclusive range). Collect the CID population it
             // identifies.
+            //
+            // SEP13:1: /W numbers come straight from the (possibly hostile)
+            // document — GetNumber() yields an unvalidated int64_t. The
+            // original code fed those values into the bitmap below unchecked:
+            // a NEGATIVE CID indexed bits[static_cast<size_t>(cid)/8] — a wild
+            // OOB heap write (bits[negative/8] lands ~2^61 bytes past the
+            // buffer; the 0x80u >> (cid % 8) shift was additionally UB) — and
+            // a huge range span (e.g. "0 4000000000 500") inserted billions
+            // of set entries and allocated a giant bitmap — OOM/hang. Both
+            // reachable via Export → PDF/A on any opened crafted PDF.
+            // ISO 32000-1 9.7.4.3: CIDs are 0..65535. Clamp collection AND
+            // indexing to that domain: out-of-domain entries are dropped
+            // (disclosed with a warning, never written into the bitmap) and
+            // the range-form iteration bounds are clamped, which IS the span
+            // cap — a hostile span can neither loop nor allocate beyond the
+            // 65536-bit domain no matter what the array declares.
+            constexpr int64_t kMaxCid = 65535;
             std::set<int64_t> cids;
+            bool dropped = false;   // SEP13:1 honest-disclosure flag
             const PdfArray& w = wArr->GetArray();
             for (size_t i = 0; i < w.GetSize(); ++i) {
                 const auto& a = w[i];
                 if (!a.IsNumber()) continue;
                 const int64_t c = a.GetNumber();
                 if (i + 1 < w.GetSize() && w[i + 1].IsArray()) {
-                    for (int64_t cid = c;
-                         cid < c + static_cast<int64_t>(w[i + 1].GetArray().GetSize());
-                         ++cid)
+                    if (c > kMaxCid) { dropped = true; ++i; continue; }
+                    const auto& widths = w[i + 1].GetArray();
+                    // First in-domain index: c + j0 >= 0. A negative start is
+                    // skipped WITHOUT iterating it — a hostile c = INT64_MIN
+                    // must not spin a 2^63-iteration loop to reach cid 0.
+                    // (-c below is guarded: c <= -size means every c+j for
+                    // j < size stays negative, so the whole entry is dropped.)
+                    int64_t j0 = 0;
+                    const int64_t size =
+                        static_cast<int64_t>(widths.GetSize());
+                    if (c < 0) {
+                        dropped = true;
+                        if (c <= -size) { ++i; continue; }
+                        j0 = -c;
+                    }
+                    for (int64_t j = j0; j < size; ++j) {
+                        const int64_t cid = c + j;   // c <= 65535, j < size: no overflow
+                        if (cid > kMaxCid) break;    // ascending — none further in-domain
                         cids.insert(cid);
+                    }
                     ++i;
                 } else if (i + 2 < w.GetSize() && w[i + 1].IsNumber()
                            && w[i + 2].IsNumber() && w[i + 1].GetNumber() >= c) {
-                    for (int64_t cid = c; cid <= w[i + 1].GetNumber(); ++cid)
+                    if (c < 0 || w[i + 1].GetNumber() > kMaxCid) dropped = true;
+                    const int64_t first = std::max<int64_t>(c, 0);
+                    const int64_t last =
+                        std::min<int64_t>(w[i + 1].GetNumber(), kMaxCid);
+                    for (int64_t cid = first; cid <= last; ++cid)
                         cids.insert(cid);
                     i += 2;
                 }
+            }
+            if (dropped) {
+                qWarning() << "PoDoFoBackend: /W array carried CID entries "
+                              "outside the 0..65535 domain; the CIDSet is "
+                              "derived from the in-domain subset only";
             }
             if (cids.empty()) continue;
 

@@ -1127,6 +1127,73 @@ private slots:
                  "a failed retry must not delete the previous output");
         QCOMPARE(fileSha(out), h1);
     }
+
+    // -----------------------------------------------------------------------
+    // SEP13:4: the D6 post-condition re-validation must be FAIL-CLOSED on an
+    // EMPTY result. The old code failed only when a returned SignatureInfo
+    // carried integrityIntact == false; an EMPTY validateSignatures() result
+    // (the signature not detected/parsed on the signed result) made the loop
+    // body never run and the operation fell through to Success — committing a
+    // document whose signatures could not be confirmed intact.
+    // Real signing always produces a parseable signature, so no honest input
+    // empties the re-validation; the forceEmptyPostConditionForTesting seam
+    // (same test-only status as setTrustStoreForTest) makes the empty
+    // observation deterministic.
+    // Reconciled with N06 (18bd879): the checked-replacement boundary is the
+    // one N06 built — the empty-result failure returns BEFORE the commit, so
+    // the candidate is discarded and the previous output is preserved, the
+    // same contract testFailedReplacementPreservesPreviousOutput pins for
+    // integrity failures.
+    // -----------------------------------------------------------------------
+    void testEmptyPostConditionFailsAndPreservesOutput()
+    {
+        REQUIRE_FIXTURES();
+        QVERIFY(m_tmpDir.isValid());
+
+        QString source = m_tmpDir.filePath("sep13_source.pdf");
+        QVERIFY(QFile::copy(kInputPdf, source));
+        QString out = m_tmpDir.filePath("sep13_out.pdf");
+
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_T);
+        // Attempt 1: a REAL signature lands on out and validates intact.
+        QCOMPARE(mgr.signDocument(source, out, kP12Path, kP12Pass,
+                                  "Sep13", ""), SignOutcome::Success);
+        const QByteArray h1 = fileSha(out);
+        QVERIFY(!h1.isEmpty());
+        {
+            X509_STORE *store = buildTestStore();
+            mgr.setTrustStoreForTest(store);
+            auto results = mgr.validateSignatures(out);
+            QVERIFY2(!results.isEmpty() && results.first().integrityIntact,
+                     "attempt 1 signature must be intact");
+            X509_STORE_free(store);
+            mgr.setTrustStoreForTest(nullptr);
+        }
+
+        // Attempt 2: the re-validation observes NOTHING (seam). The
+        // operation must FAIL, the candidate must be discarded, and the
+        // previous output must survive byte-identical.
+        mgr.forceEmptyPostConditionForTesting(true);
+        const auto o2 = mgr.signDocument(source, out, kP12Path, kP12Pass,
+                                         "Sep13-empty", "");
+        mgr.forceEmptyPostConditionForTesting(false);
+        QCOMPARE(o2, SignOutcome::Failed);
+        QVERIFY2(fileSha(out) == h1,
+                 "an unconfirmable signing result must not replace the "
+                 "previous output (fail-closed, N06 checked replacement)");
+
+        // The preserved output still carries its ORIGINAL intact signature.
+        {
+            X509_STORE *store = buildTestStore();
+            mgr.setTrustStoreForTest(store);
+            auto results = mgr.validateSignatures(out);
+            QVERIFY2(!results.isEmpty() && results.first().integrityIntact,
+                     "the preserved output's signature must still validate");
+            X509_STORE_free(store);
+            mgr.setTrustStoreForTest(nullptr);
+        }
+    }
 };
 
 QTEST_GUILESS_MAIN(TestSignatureRealCrypto)
