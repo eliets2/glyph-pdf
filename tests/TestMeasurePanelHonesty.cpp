@@ -64,8 +64,12 @@ private slots:
         QVERIFY2(d.contains("contents"), "value snapshot disclosed");
         // Calibration is session-only.
         QVERIFY2(d.contains("session-only"), "calibration not persisted");
-        // Deferred scopes — named, not silent.
-        QVERIFY2(d.contains("CSV"), "CSV export deferred");
+        // Deferred scopes — named, not silent. N1: CSV export SHIPPED (it was
+        // the explicit T1 deferral) — the panel now offers it and must no
+        // longer claim it is deferred.
+        QVERIFY2(d.contains("CSV"), "CSV export named as available");
+        QVERIFY2(d.contains("Export CSV"), "names the export entry point");
+        QVERIFY2(!d.contains("no CSV export"), "the CSV deferral must be gone");
         QVERIFY2(d.contains("comment popup"), "AP-stream value caption deferred");
         QVERIFY2(d.contains("per-viewport"), "per-viewport scales deferred");
         QVERIFY2(d.contains("decimal ft"), "ft-in written as decimal ft");

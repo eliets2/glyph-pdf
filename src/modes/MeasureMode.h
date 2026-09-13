@@ -2,6 +2,7 @@
 #pragma once
 
 #include <QWidget>
+#include "core/AnnotationTypes.h"
 #include "core/MeasureCore.h"
 
 class QComboBox;
@@ -63,6 +64,21 @@ public:
         const gp::measure::Scale& strokeScale, double strokeLengthPt,
         double realLength, gp::measure::Unit unit);
 
+    // ── N1 (backlog 2026-09-10): measurement CSV export ─────────────────────
+    // RFC-4180 CSV of the measurement annotations (PDF-XChange parity, the
+    // item the T1 lane explicitly deferred). One row per measurement:
+    // Page, Type, Value, Unit, Calibrated, Scale, Label, Vertices — value and
+    // unit reproduce what the panel readout shows (locale-invariant decimal
+    // point), Vertices are the user-space points. Pure so the contract is
+    // pinned without a viewer; an EMPTY item list produces the header line
+    // only. Non-measure items are ignored.
+    static QString measurementCsv(const QList<AnnotationItem>& items);
+
+    // Writes measurementCsv() of the current document's measurements to
+    // `filePath` (UTF-8). Returns false (with `err` filled) when no viewer is
+    // bound or the file cannot be written — never silently "succeeds".
+    bool exportMeasurementsCsv(const QString& filePath, QString* err = nullptr);
+
 signals:
     // §9.8-style status relay for the host status bar.
     void statusMessageRequested(const QString& message);
@@ -103,6 +119,7 @@ private:
     QLabel*       m_scopeInfo = nullptr;
     QLabel*       m_persistInfo = nullptr;
     QListWidget*  m_measurements = nullptr;
+    QToolButton*  m_exportCsvBtn = nullptr;   // N1: measurement CSV export
 
     QString m_lastReadout;
 };

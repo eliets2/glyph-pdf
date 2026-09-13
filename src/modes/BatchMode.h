@@ -46,6 +46,13 @@ struct BatchFileResult {
     // succeeded, but the output needs human review; surfaced as a warning in
     // the batch log + error log instead of being silently dropped.
     QString reviewNote;
+    // N3 (pdf24 skip-already-text pattern): the file was DELIBERATELY not
+    // OCRed — it already carries a text layer and the skip option is on (or
+    // force-OCR is off). Truthful accounting: a skipped file is never counted
+    // as success OR failure; the summary reports it in its own "N skipped"
+    // bucket with the reason.
+    bool    skipped = false;
+    QString skipReason;
 };
 
 class BatchMode : public QWidget {
@@ -61,10 +68,13 @@ public:
     bool isBatchRunning() const { return m_watcher.isRunning(); }
     int  successCount()  const { return m_successCount; }
     int  failCount()     const { return m_failCount; }
+    // N3: files deliberately skipped by the skip-already-text options —
+    // reported in their own bucket, never as completed OCR work.
+    int  skipCount()     const { return m_skipCount; }
     int  errorLogCount() const { return m_errorLog.count(); }
     // U08: success + failed + remaining summaries — files still being
     // processed (or dropped by cancel) without miscounting them as done.
-    int  remainingCount() const { return qMax(0, fileCount() - successCount() - failCount()); }
+    int  remainingCount() const { return qMax(0, fileCount() - successCount() - failCount() - skipCount()); }
 
     // U08: per-item pre-flight, run on the GUI thread BEFORE the worker starts
     // (probes are cached and GUI-affine). Returns a non-empty whyNot when
@@ -204,6 +214,10 @@ private:
     // OCR panel
     QLineEdit*          m_ocrOutDir      = nullptr;
     QComboBox*          m_ocrLanguage    = nullptr;   // §9.12 P0: batch OCR language
+    // N3: pdf24 skip-already-text options. Force overrides both skips.
+    class QCheckBox*    m_ocrSkipFilesWithText = nullptr;
+    class QCheckBox*    m_ocrSkipPagesWithText = nullptr;
+    class QCheckBox*    m_ocrForceOcr          = nullptr;
 
     // Redact panel
     QLineEdit*          m_redactPatterns = nullptr;   // comma-separated regex patterns
@@ -228,6 +242,7 @@ private:
     ErrorLog            m_errorLog;
     int                 m_successCount    = 0;
     int                 m_failCount       = 0;
+    int                 m_skipCount       = 0;   // N3: truthful skip bucket
     // G12 (QUALITY-GATE-2026-09-09): exactly-once result accounting. A result
     // index is reconciled a single time no matter how its delivery races the
     // completion summary — `finished` can outrun the queued resultReadyAt
