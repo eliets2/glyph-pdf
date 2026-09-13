@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "engines/BackendRouter.h"
 #include "engines/podofo/PoDoFoBackend.h"
+// IPdfRenderer's complete type is required in EVERY configuration: this TU
+// destroys (and callers copy-destroy) unique_ptr<IPdfRenderer> values, which
+// instantiates ~unique_ptr and needs the full definition. Previously the type
+// arrived only transitively via PdfiumBackend.h under HAS_PDFIUM — a
+// Windows-lane compile success that broke every engine-less Linux build.
+#include "core/interfaces/IPdfRenderer.h"
 #ifdef HAS_PDFIUM
 #include "engines/pdfium/PdfiumBackend.h"
 #endif

@@ -333,10 +333,10 @@ private slots:
             PoDoFo::PdfArray nums;
             auto& range = doc.GetObjects().CreateDictionaryObject();
             range.GetDictionary().AddKey("S", PoDoFo::PdfObject(PoDoFo::PdfName("A")));
-            range.GetDictionary().AddKey("St", PoDoFo::PdfObject(static_cast<long long>(99)));
-            nums.Add(PoDoFo::PdfObject(static_cast<long long>(0)));
+            range.GetDictionary().AddKey("St", PoDoFo::PdfObject(static_cast<std::int64_t>(99)));
+            nums.Add(PoDoFo::PdfObject(static_cast<std::int64_t>(0)));
             nums.Add(range);
-            nums.Add(PoDoFo::PdfObject(static_cast<long long>(1)));
+            nums.Add(PoDoFo::PdfObject(static_cast<std::int64_t>(1)));
             nums.Add(range);
             labels.GetDictionary().AddKey("Nums", PoDoFo::PdfObject(nums));
             doc.GetCatalog().GetDictionary().AddKey("PageLabels",

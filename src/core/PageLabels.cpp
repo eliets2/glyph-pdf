@@ -133,7 +133,11 @@ bool writeNumberTree(PoDoFo::PdfMemDocument& doc, int startValue, Style style,
         auto& labels = objects.CreateDictionaryObject();
         PoDoFo::PdfArray nums;
         for (const PageLabelNumEntry& e : entries) {
-            nums.Add(PoDoFo::PdfObject(static_cast<long long>(e.pageNum)));
+            // std::int64_t, not `long long`: PoDoFo 1.1's PdfObject has an
+            // exact int64_t overload, and on LP64 (Linux) int64_t is `long`,
+            // so a `long long` argument was ambiguous against PdfObject(double)
+            // (a Windows-lane compile success that broke the Linux build).
+            nums.Add(PoDoFo::PdfObject(static_cast<std::int64_t>(e.pageNum)));
 
             PoDoFo::PdfObject range{PoDoFo::PdfDictionary()};
             range.GetDictionary().AddKey(
@@ -141,7 +145,7 @@ bool writeNumberTree(PoDoFo::PdfMemDocument& doc, int startValue, Style style,
             // /St is spec-defaulted to 1, but writing it explicitly keeps
             // the readback exact (no default-reconstruction in consumers).
             range.GetDictionary().AddKey(
-                "St", PoDoFo::PdfObject(static_cast<long long>(e.startValue)));
+                "St", PoDoFo::PdfObject(static_cast<std::int64_t>(e.startValue)));
             nums.Add(range);
         }
         labels.GetDictionary().AddKey("Nums", PoDoFo::PdfObject(nums));
