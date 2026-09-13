@@ -10,7 +10,13 @@
 //   * the sandbox has a 16 MiB memory cap, a hard interrupt deadline and NO
 //     host-I/O capability; egress verbs (submitForm/mailDoc/...) are recorded,
 //     never executed;
-//   * cyclic /CO terminates (each field calculated at most once per cascade).
+//   * cyclic /CO terminates (each field calculated at most once per cascade);
+//   * keyboard TAB order (page /Annots + /Tabs /W) and CALCULATION order (the
+//     AcroForm /CO array) are separate concepts — a tab-order edit never
+//     rewrites /CO, and the cascade still computes in the author's /CO order
+//     (R18(b));
+//   * an aborted cascade's runtime is DISCARDED — no hostile global state
+//     bleeds into the next operation (R18(d)).
 //
 // Golden values for the AF shim were pinned against the ported pdf.js
 // reference running under quickjs-ng 0.15.0 (qjs), 2026-09-09.
@@ -25,6 +31,7 @@
 #include <QTemporaryDir>
 #include <QFile>
 #include <QDir>
+#include <QCryptographicHash>
 #include <QPdfWriter>
 #include <QPainter>
 #include <QJsonDocument>
@@ -57,6 +64,7 @@ struct FieldSpec {
     QString calcScript;   // /AA /C body (may be empty)
     QString formatScript; // /AA /F body (may be empty)
     QString initial;      // initial /V (may be empty)
+    QString validateScript; // /AA /V body (may be empty; R18f)
 };
 
 QString fieldValueOf(const PoDoFo::PdfField& field)
@@ -66,6 +74,110 @@ QString fieldValueOf(const PoDoFo::PdfField& field)
         return QString::fromUtf8(v->GetString().GetString().data(),
                                  static_cast<qsizetype>(v->GetString().GetString().size()));
     return {};
+}
+
+// Field name for an object reference (merged field/widget or /Kids widget);
+// empty when the reference is not a known field (non-widget annotation).
+QString fieldNameByRef(const PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfReference& ref)
+{
+    auto* acroForm = doc.GetAcroForm();
+    if (!acroForm) return {};
+    for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
+        auto& f = acroForm->GetFieldAt(i);
+        if ((f.GetObject)().GetIndirectReference() == ref)
+            return QString::fromStdString(f.GetFullName());
+        if (const PoDoFo::PdfObject* kids = f.GetDictionary().FindKey("Kids");
+            kids && kids->IsArray()) {
+            for (const auto& kid : kids->GetArray())
+                if (kid.IsReference() && kid.GetReference() == ref)
+                    return QString::fromStdString(f.GetFullName());
+        }
+    }
+    return {};
+}
+
+// The AcroForm /CO calculation order as a FIELD-NAME sequence on disk.
+QStringList coNameSequenceOf(const QString& path)
+{
+    QStringList names;
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(path.toUtf8().constData());
+        auto* acroForm = doc.GetAcroForm();
+        if (!acroForm) return names;
+        const PoDoFo::PdfObject* co = acroForm->GetDictionary().FindKey("CO");
+        if (!co || !co->IsArray()) return names;
+        for (const auto& item : co->GetArray()) {
+            if (!item.IsReference()) { names << QStringLiteral("<direct>"); continue; }
+            const QString n = fieldNameByRef(doc, item.GetReference());
+            names << (n.isEmpty() ? QStringLiteral("<dangling>") : n);
+        }
+    } catch (const PoDoFo::PdfError&) {}
+    return names;
+}
+
+// Page 0's widget-annotation order as field names ("<nonfield>" for every
+// annotation that is not a known form widget) — the keyboard tab order.
+QStringList page0AnnotNameSequence(const QString& path)
+{
+    QStringList names;
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(path.toUtf8().constData());
+        const PoDoFo::PdfObject* annots = doc.GetPages().GetPageAt(0).GetDictionary().FindKey("Annots");
+        if (!annots || !annots->IsArray()) return names;
+        for (const auto& item : annots->GetArray()) {
+            if (!item.IsReference()) { names << QStringLiteral("<direct>"); continue; }
+            const QString n = fieldNameByRef(doc, item.GetReference());
+            names << (n.isEmpty() ? QStringLiteral("<nonfield>") : n);
+        }
+    } catch (const PoDoFo::PdfError&) {}
+    return names;
+}
+
+// Page 0's /Tabs declaration ("" when absent).
+QString page0TabsValue(const QString& path)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(path.toUtf8().constData());
+        const PoDoFo::PdfObject* tabs = doc.GetPages().GetPageAt(0).GetDictionary().FindKey("Tabs");
+        if (tabs && tabs->IsName())
+            return QString::fromLatin1(tabs->GetName().GetString().data(),
+                                       qsizetype(tabs->GetName().GetString().size()));
+    } catch (const PoDoFo::PdfError&) {}
+    return {};
+}
+
+// Replaces the page-0 /Tabs declaration (fixture helper for author-declared
+// tab orders). Saves to `out` (a NEW path — never same-file).
+QString withTabsDeclaration(const QString& src, const QString& out, const char* tabs)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(src.toUtf8().constData());
+        doc.GetPages().GetPageAt(0).GetDictionary().AddKey(PoDoFo::PdfName("Tabs"),
+                                                           PoDoFo::PdfName(tabs));
+        doc.Save(out.toUtf8().constData());
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "withTabsDeclaration fixture failed:" << e.what();
+        return {};
+    }
+    return out;
+}
+
+QString sha256OfFile(const QString& path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return {};
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    char buf[65536];
+    while (true) {
+        const qint64 n = f.read(buf, sizeof(buf));
+        if (n <= 0) break;
+        hash.addData(QByteArrayView(buf, int(n)));
+    }
+    return QString::fromLatin1(hash.result().toHex());
 }
 
 } // namespace
@@ -109,7 +221,7 @@ private:
                 auto& field = page.CreateField<PoDoFo::PdfTextBox>(spec.name.toStdString(), rect);
                 auto* textBox = dynamic_cast<PoDoFo::PdfTextBox*>(&field);
                 textBox->SetText(PoDoFo::PdfString(spec.initial.toStdString()));
-                if (!spec.calcScript.isEmpty() || !spec.formatScript.isEmpty()) {
+                if (!spec.calcScript.isEmpty() || !spec.formatScript.isEmpty() || !spec.validateScript.isEmpty()) {
                     PoDoFo::PdfDictionary aa;
                     if (!spec.calcScript.isEmpty()) {
                         PoDoFo::PdfDictionary action;
@@ -122,6 +234,12 @@ private:
                         action.AddKey(PoDoFo::PdfName("S"), PoDoFo::PdfName("JavaScript"));
                         action.AddKey(PoDoFo::PdfName("JS"), PoDoFo::PdfString(spec.formatScript.toStdString()));
                         aa.AddKey(PoDoFo::PdfName("F"), action);
+                    }
+                    if (!spec.validateScript.isEmpty()) {
+                        PoDoFo::PdfDictionary action;
+                        action.AddKey(PoDoFo::PdfName("S"), PoDoFo::PdfName("JavaScript"));
+                        action.AddKey(PoDoFo::PdfName("JS"), PoDoFo::PdfString(spec.validateScript.toStdString()));
+                        aa.AddKey(PoDoFo::PdfName("V"), action);
                     }
                     field.GetDictionary().AddKey(PoDoFo::PdfName("AA"), aa);
                 }
@@ -313,6 +431,36 @@ private slots:
     void cyclicCalculationOrderTerminates();
     void revertVerifyDisabledExecutionIsPreFixState();
     void capabilityRegistryDisclosesFormJavaScript();
+
+    // ── R18(b): keyboard TAB order vs CALCULATION order ──────────────────────
+    // The two orders are different PDF concepts (/Annots + /Tabs /W vs the
+    // AcroForm /CO array) and must be pinned where they DIFFER.
+
+    void tabOrderReordersWidgetsButNeverTouchesCalculationOrder();
+    void tabOrderRespectsAuthorTabsDeclaration();
+    void tabOrderWithNoMatchingFieldIsRefusedAndKeepsBytes();
+
+    // ── R18(a): dependent calculation chains under failure ──────────────────
+    // Real-form chains A→B→C: a mid-cascade failure leaves the earlier
+    // values COMMITTED, the failed field at its committed /V, and every
+    // never-reached downstream field honestly disclosed as stale.
+
+    void dependentChainMidCascadeFailureIsFieldAttributedAndDownstreamComputesFromCommittedState();
+    void dependentChainTimeoutAbortsMidCascadeAndDisclosesDownstreamStale();
+    void preCascadeEngineFailureNamesEveryCalculatedFieldStale();
+
+    // ── R18(f): the Validate (/AA /V) event, caller-owned-budget shape ───────
+
+    void validateRejectsBlockedValueKeepsPreviousAndDiscloses();
+    void validateTransformsTheValueAcrobatSemantics();
+    void validateTimeoutBlocksCommitAndTheRestStillFills();
+    void fillWithoutValidateScriptNeverBlocks();
+
+    // ── R18(d): runtime closure after an aborted cascade ─────────────────────
+    // A timed-out/aborted cascade's runtime is DISCARDED — no hostile global
+    // state (a replaced end-event helper) may bleed into the next operation.
+
+    void abortedCascadeDiscardsRuntimeNoStateBleedsIntoNextRun();
 };
 
 void TestFormJsCalc::goldenNumberFormat()
@@ -1005,6 +1153,408 @@ void TestFormJsCalc::capabilityRegistryDisclosesFormJavaScript()
     QVERIFY(!c.whyNot.isEmpty());
     QVERIFY(!c.alternative.isEmpty());
 #endif
+}
+
+// ── R18(b): keyboard tab order vs calculation order ─────────────────────────
+
+void TestFormJsCalc::tabOrderReordersWidgetsButNeverTouchesCalculationOrder()
+{
+    // A real form where the two orders DIFFER: the author's /CO dependency
+    // order is line1 → line2 → total, while the user re-orders TABS as
+    // total → qty1 → line2. After the tab-order edit:
+    //   * the page's widget annotations carry the requested tab order
+    //     (declared as PDF 2.0 /Tabs /W — widget order);
+    //   * /CO is EXACTLY what the author wrote — a tab edit may never change
+    //     WHEN dependent fields recompute;
+    //   * and the cascade still computes correctly on the edited document
+    //     (the old implementation overwrote /CO with the tab order, which made
+    //     `total` compute FIRST, on stale line items).
+    const QString form = makeOrderForm(QStringLiteral("order-tab-vs-co.pdf"));
+    QVERIFY(!form.isEmpty());
+
+    const QStringList tabRequest = {
+        QStringLiteral("total"), QStringLiteral("qty1"), QStringLiteral("line2")
+    };
+    FormManager fm;
+    QVERIFY(fm.setTabOrder(form, tabRequest, form));
+
+    // Tab order: the requested widgets occupy the front of page 0's /Annots in
+    // request order (everything else keeps its original relative order behind
+    // them), declared as /Tabs /W on this previously-undeclared page.
+    const QStringList annots = page0AnnotNameSequence(form);
+    QCOMPARE(annots.mid(0, tabRequest.size()), tabRequest);
+    QCOMPARE(page0TabsValue(form), QStringLiteral("W"));
+
+    // Calculation order: untouched.
+    QCOMPARE(coNameSequenceOf(form),
+             (QStringList{ QStringLiteral("line1"), QStringLiteral("line2"), QStringLiteral("total") }));
+
+    // The cascade on the tab-reordered document still computes in /CO order:
+    // total == (5×2) + (3×4) = 22, never a stale value computed before its
+    // dependencies.
+    const QString out = m_dir.path() + QStringLiteral("/order-tab-vs-co-out.pdf");
+    QList<FormJsFailure> failures;
+    QVERIFY(fillAndFill(form,
+                        { { QStringLiteral("qty1"), QStringLiteral("5") },
+                          { QStringLiteral("price1"), QStringLiteral("2") },
+                          { QStringLiteral("qty2"), QStringLiteral("3") },
+                          { QStringLiteral("price2"), QStringLiteral("4") } },
+                        out, &failures));
+    QVERIFY2(failures.isEmpty(), qPrintable(failureNames(failures).join(QStringLiteral(", "))));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("line1")), QStringLiteral("10"));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("line2")), QStringLiteral("12"));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("total")), QStringLiteral("22"));
+
+    // And the saved artifact's own /CO still reads line1 → line2 → total via
+    // the independent qpdf parser (second read path).
+    QCOMPARE(qpdfFieldValue(out, QStringLiteral("total")), QStringLiteral("22"));
+}
+
+void TestFormJsCalc::tabOrderRespectsAuthorTabsDeclaration()
+{
+    // A page whose author already declared a tab order (/S structure order —
+    // e.g. an accessibility-authored document) keeps that declaration: the
+    // widget reorder lands in /Annots, but /Tabs is NEVER overwritten.
+    const QString base = makeOrderForm(QStringLiteral("order-tabs-declared-base.pdf"));
+    QVERIFY(!base.isEmpty());
+    const QString form = withTabsDeclaration(base,
+        m_dir.path() + QStringLiteral("/order-tabs-declared.pdf"), "S");
+    QVERIFY(!form.isEmpty());
+
+    FormManager fm;
+    QVERIFY(fm.setTabOrder(form, { QStringLiteral("total"), QStringLiteral("qty1") }, form));
+
+    // Widgets reordered, author's /Tabs preserved, /CO untouched.
+    const QStringList annots = page0AnnotNameSequence(form);
+    QCOMPARE(annots.mid(0, 2), (QStringList{ QStringLiteral("total"), QStringLiteral("qty1") }));
+    QCOMPARE(page0TabsValue(form), QStringLiteral("S"));
+    QCOMPARE(coNameSequenceOf(form),
+             (QStringList{ QStringLiteral("line1"), QStringLiteral("line2"), QStringLiteral("total") }));
+}
+
+void TestFormJsCalc::tabOrderWithNoMatchingFieldIsRefusedAndKeepsBytes()
+{
+    // An operation that would match no field is a silent no-op in the making:
+    // it must be REFUSED before any byte changes (the old implementation
+    // "succeeded" while rewriting /CO to a degenerate order).
+    const QString form = makeOrderForm(QStringLiteral("order-refused.pdf"));
+    QVERIFY(!form.isEmpty());
+    const QString bytesBefore = sha256OfFile(form);
+
+    FormManager fm;
+    QVERIFY2(!fm.setTabOrder(form, { QStringLiteral("no_such_field") }, form),
+             "a tab-order request matching no field must be refused");
+    QCOMPARE(sha256OfFile(form), bytesBefore);
+    // Nothing about the document's orders changed.
+    QCOMPARE(coNameSequenceOf(form),
+             (QStringList{ QStringLiteral("line1"), QStringLiteral("line2"), QStringLiteral("total") }));
+    QCOMPARE(page0TabsValue(form), QString());
+}
+
+// ── R18(a): dependent calculation chains under failure ──────────────────────
+
+void TestFormJsCalc::dependentChainMidCascadeFailureIsFieldAttributedAndDownstreamComputesFromCommittedState()
+{
+    // Dependent chain input → a → b → total, where b's script THROWS after a
+    // recomputed successfully. R01 + R05/JS-01 transaction policy:
+    //   * the user's input and a's recomputed value COMMIT (earlier values are
+    //     never lost to a later failure);
+    //   * b keeps its committed /V and is named with kind + reason;
+    //   * total still recomputes — from the COMMITTED snapshot (a's new value,
+    //     b's kept value), never from a fabricated one.
+    const QString form = makeFormPdf(QStringLiteral("chain-exception.pdf"),
+    {
+        { QStringLiteral("input"), {}, {}, {} },
+        { QStringLiteral("a"), QStringLiteral("event.value = Number(this.getField('input').value);"), {}, {} },
+        { QStringLiteral("b"), QStringLiteral("throw new Error('boom');"), {}, QStringLiteral("7") },
+        { QStringLiteral("total"),
+          QStringLiteral("AFSimple_Calculate('SUM', new Array('a','b'));"), {}, QStringLiteral("0") },
+    },
+    { QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("total") });
+    QVERIFY(!form.isEmpty());
+
+    const QString out = m_dir.path() + QStringLiteral("/chain-exception-out.pdf");
+    QList<FormJsFailure> failures;
+    QVERIFY(fillAndFill(form, { { QStringLiteral("input"), QStringLiteral("5") } }, out, &failures));
+
+    // Field-attributed failure: b threw and kept its committed value (7).
+    bool bNamed = false;
+    for (const auto& f : failures) {
+        if (f.fieldName == QLatin1String("b")) {
+            bNamed = true;
+            QVERIFY2(f.kind == QLatin1String("exception"), qPrintable(f.kind));
+            QVERIFY2(!f.reason.isEmpty(), "the failure carries the engine's reason");
+        }
+        // total recomputed from committed state — it must NOT be disclosed.
+        QVERIFY2(f.fieldName != QLatin1String("total"), qPrintable(f.fieldName));
+    }
+    QVERIFY2(bNamed, qPrintable(failureNames(failures).join(QStringLiteral(", "))));
+
+    // Earlier values committed; downstream honest over the committed snapshot:
+    // a = 5 (recomputed), b = 7 (kept), total = 5 + 7 = 12.
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("input")), QStringLiteral("5"));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("a")), QStringLiteral("5"));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("b")), QStringLiteral("7"));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("total")), QStringLiteral("12"));
+    QCOMPARE(qpdfFieldValue(out, QStringLiteral("total")), QStringLiteral("12"));
+}
+
+void TestFormJsCalc::dependentChainTimeoutAbortsMidCascadeAndDisclosesDownstreamStale()
+{
+    // The same chain with a mid-cascade TIMEOUT (a computed, then b loops):
+    // the engine is no longer trusted, the cascade aborts, and every
+    // calculated field it never reached (total) is NAMED as potentially
+    // stale — the disclosure the persistent stale-field warning is built on.
+    const QString form = makeFormPdf(QStringLiteral("chain-timeout.pdf"),
+    {
+        { QStringLiteral("input"), {}, {}, {} },
+        { QStringLiteral("a"), QStringLiteral("event.value = Number(this.getField('input').value);"), {}, {} },
+        { QStringLiteral("b"),
+          QStringLiteral("while (true) {}"), {}, QStringLiteral("7") },
+        { QStringLiteral("total"),
+          QStringLiteral("AFSimple_Calculate('SUM', new Array('a','b'));"), {}, QStringLiteral("0") },
+    },
+    { QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("total") });
+    QVERIFY(!form.isEmpty());
+
+    const QString out = m_dir.path() + QStringLiteral("/chain-timeout-out.pdf");
+    QElapsedTimer clock;
+    clock.start();
+    QList<FormJsFailure> failures;
+    QVERIFY(fillAndFill(form, { { QStringLiteral("input"), QStringLiteral("5") } }, out, &failures));
+    QVERIFY2(clock.elapsed() < 15000, qPrintable(QStringLiteral("cascade took %1 ms").arg(clock.elapsed())));
+
+    QStringList kinds;
+    for (const auto& f : failures) kinds << f.fieldName + QLatin1Char(':') + f.kind;
+    QVERIFY2(kinds.contains(QStringLiteral("b:timeout")), qPrintable(kinds.join(QStringLiteral(", "))));
+    QVERIFY2(kinds.contains(QStringLiteral("total:skipped")), qPrintable(kinds.join(QStringLiteral(", "))));
+    for (const auto& f : failures)
+        if (f.kind == QLatin1String("skipped"))
+            QVERIFY2(f.reason.contains(QLatin1String("stale")), qPrintable(f.reason));
+
+    // a COMMITTED before the abort; b keeps its value; total was never
+    // recomputed and keeps its stored 0 — never a wrong computed value.
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("input")), QStringLiteral("5"));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("a")), QStringLiteral("5"));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("b")), QStringLiteral("7"));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("total")), QStringLiteral("0"));
+}
+
+void TestFormJsCalc::preCascadeEngineFailureNamesEveryCalculatedFieldStale()
+{
+    // A cascade that cannot even START (the value snapshot exceeds the host
+    // transfer cap: one field carries a 5 MiB /V against the 4 MiB cap) must
+    // disclose EVERY calculated /CO field as skipped — not just report an
+    // anonymous engine error. The user's fill still commits (R01 policy).
+    FieldSpec big;
+    big.name = QStringLiteral("big");
+    big.initial = QString(5 * 1024 * 1024, QLatin1Char('x'));
+    const QString form = makeFormPdf(QStringLiteral("chain-precascade.pdf"),
+    {
+        big,
+        { QStringLiteral("total"),
+          QStringLiteral("AFSimple_Calculate('SUM', new Array('big'));"), {}, QStringLiteral("0") },
+    },
+    { QStringLiteral("total") });
+    QVERIFY(!form.isEmpty());
+
+    const QString out = m_dir.path() + QStringLiteral("/chain-precascade-out.pdf");
+    QList<FormJsFailure> failures;
+    // Fill nothing: the 5 MiB stored /V is what makes the snapshot install
+    // refuse — the cascade must disclose its calculated fields as skipped.
+    QVERIFY(fillAndFill(form, {}, out, &failures));
+
+    bool engineNamed = false;
+    bool totalSkipped = false;
+    for (const auto& f : failures) {
+        if (f.fieldName.isEmpty() && f.kind == QLatin1String("engine")) engineNamed = true;
+        if (f.fieldName == QLatin1String("total") && f.kind == QLatin1String("skipped")) {
+            totalSkipped = true;
+            QVERIFY2(f.reason.contains(QLatin1String("could not start")), qPrintable(f.reason));
+        }
+    }
+    QVERIFY2(engineNamed, qPrintable(failureNames(failures).join(QStringLiteral(", "))));
+    QVERIFY2(totalSkipped, qPrintable(failureNames(failures).join(QStringLiteral(", "))));
+
+    // The user's data is unchanged and the calculated field kept its stored
+    // value — never a wrong computed value.
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("total")), QStringLiteral("0"));
+}
+
+// ── R18(f): the Validate (/AA /V) event ─────────────────────────────────────
+
+void TestFormJsCalc::validateRejectsBlockedValueKeepsPreviousAndDiscloses()
+{
+    // Acrobat order: validate → commit. A Validate script that sets
+    // event.rc = false must block ITS value only: the field keeps its
+    // previous /V, the failure is field-attributed ("rejected"), and the
+    // user's OTHER fields still commit through the same transaction.
+    const QString form = makeFormPdf(QStringLiteral("validate-reject.pdf"),
+    {
+        { QStringLiteral("qty"), {}, {}, QStringLiteral("3"),
+          QStringLiteral("if (Number(event.value) > 10) { event.rc = false; }") },
+        { QStringLiteral("note"), {}, {}, {}, {} },
+    },
+    {});
+    QVERIFY(!form.isEmpty());
+
+    const QString out = m_dir.path() + QStringLiteral("/validate-reject-out.pdf");
+    QList<FormJsFailure> failures;
+    QVERIFY(fillAndFill(form,
+                        { { QStringLiteral("qty"), QStringLiteral("11") },
+                          { QStringLiteral("note"), QStringLiteral("hello") } },
+                        out, &failures));
+
+    QStringList kinds;
+    for (const auto& f : failures) kinds << f.fieldName + QLatin1Char(':') + f.kind;
+    QVERIFY2(kinds.contains(QStringLiteral("qty:rejected")), qPrintable(kinds.join(QStringLiteral(", "))));
+    for (const auto& f : failures)
+        if (f.fieldName == QLatin1String("qty"))
+            QVERIFY2(f.reason.contains(QLatin1String("rc = false")), qPrintable(f.reason));
+
+    // The blocked value never committed; the sibling did.
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("qty")), QStringLiteral("3"));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("note")), QStringLiteral("hello"));
+    QCOMPARE(qpdfFieldValue(out, QStringLiteral("qty")), QStringLiteral("3"));
+}
+
+void TestFormJsCalc::validateTransformsTheValueAcrobatSemantics()
+{
+    // A Validate script may TRANSFORM event.value — the transformed value is
+    // what commits (Acrobat semantics; Phase 1's format pass never did this).
+    const QString form = makeFormPdf(QStringLiteral("validate-transform.pdf"),
+    {
+        { QStringLiteral("qty"), {}, {}, QStringLiteral("0"),
+          QStringLiteral("event.value = Number(event.value) * 2;") },
+    },
+    {});
+    QVERIFY(!form.isEmpty());
+
+    const QString out = m_dir.path() + QStringLiteral("/validate-transform-out.pdf");
+    QList<FormJsFailure> failures;
+    QVERIFY(fillAndFill(form, { { QStringLiteral("qty"), QStringLiteral("5") } }, out, &failures));
+    QVERIFY2(failures.isEmpty(), qPrintable(failureNames(failures).join(QStringLiteral(", "))));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("qty")), QStringLiteral("10"));
+    QCOMPARE(qpdfFieldValue(out, QStringLiteral("qty")), QStringLiteral("10"));
+}
+
+void TestFormJsCalc::validateTimeoutBlocksCommitAndTheRestStillFills()
+{
+    // A looping Validate script hits the caller-owned whole-operation budget:
+    // fail closed for THIS field (previous /V kept), the failure attributed,
+    // and the rest of the transaction (fill + calculate cascade) still runs.
+    const QString form = makeFormPdf(QStringLiteral("validate-timeout.pdf"),
+    {
+        { QStringLiteral("qty"), {}, {}, QStringLiteral("3"), QStringLiteral("while (true) {}") },
+        { QStringLiteral("total"),
+          QStringLiteral("AFSimple_Calculate('SUM', new Array('qty'));"), {}, QStringLiteral("0") },
+    },
+    { QStringLiteral("total") });
+    QVERIFY(!form.isEmpty());
+
+    const QString out = m_dir.path() + QStringLiteral("/validate-timeout-out.pdf");
+    QElapsedTimer clock;
+    clock.start();
+    QList<FormJsFailure> failures;
+    QVERIFY(fillAndFill(form, { { QStringLiteral("qty"), QStringLiteral("7") } }, out, &failures));
+    QVERIFY2(clock.elapsed() < 15000, qPrintable(QStringLiteral("fill took %1 ms").arg(clock.elapsed())));
+
+    QStringList kinds;
+    for (const auto& f : failures) kinds << f.fieldName + QLatin1Char(':') + f.kind;
+    QVERIFY2(kinds.contains(QStringLiteral("qty:timeout")), qPrintable(kinds.join(QStringLiteral(", "))));
+
+    // Fail closed for the validated field; the cascade computed from the
+    // COMMITTED value (3), not the blocked proposal (7).
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("qty")), QStringLiteral("3"));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("total")), QStringLiteral("3"));
+
+    // The caller-owned-budget shape at the runner seam: an explicit short
+    // deadline terminates the same hostile script deterministically.
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(out.toUtf8().constData());
+        QElapsedTimer runnerClock;
+        runnerClock.start();
+        const auto vr = FormJsRunner::runValidateEvent(doc, QStringLiteral("qty"),
+                                                       QStringLiteral("9"), /*eventDeadlineMs=*/100);
+        QVERIFY2(vr.ran, "the /AA /V script is present and ran");
+        QVERIFY2(!vr.allowed, "a looping Validate script must fail closed");
+        QCOMPARE(vr.failure.kind, QStringLiteral("timeout"));
+        QVERIFY2(runnerClock.elapsed() < 5000,
+                 qPrintable(QStringLiteral("runner deadline took %1 ms").arg(runnerClock.elapsed())));
+    } catch (const PoDoFo::PdfError& e) {
+        QFAIL(qPrintable(QStringLiteral("reload failed: %1").arg(QString::fromLatin1(e.what()))));
+    }
+}
+
+void TestFormJsCalc::fillWithoutValidateScriptNeverBlocks()
+{
+    // The common case stays the common case: a field without /AA /V commits
+    // the requested value with no validate overhead or disclosure.
+    const QString form = makeFormPdf(QStringLiteral("validate-none.pdf"),
+    {
+        { QStringLiteral("qty"), {}, {}, QStringLiteral("0") },
+    },
+    {});
+    QVERIFY(!form.isEmpty());
+
+    const QString out = m_dir.path() + QStringLiteral("/validate-none-out.pdf");
+    QList<FormJsFailure> failures;
+    QVERIFY(fillAndFill(form, { { QStringLiteral("qty"), QStringLiteral("42") } }, out, &failures));
+    QVERIFY2(failures.isEmpty(), qPrintable(failureNames(failures).join(QStringLiteral(", "))));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("qty")), QStringLiteral("42"));
+}
+
+// ── R18(d): runtime closure after an aborted cascade ────────────────────────
+
+void TestFormJsCalc::abortedCascadeDiscardsRuntimeNoStateBleedsIntoNextRun()
+{
+    // Cascade 1 runs on a document whose /AA /C script replaces the shim's
+    // end-event helper with an infinite loop: the whole-operation deadline
+    // aborts the cascade (user value commits, downstream disclosed). The
+    // runner builds ONE runtime per operation and discards it — the NEXT
+    // operation must therefore behave as a clean room:
+    //   * a subsequent cascade on a clean document computes fully (no leaked
+    //     hostile helper, no leaked logs/blocked audit entries);
+    //   * a format evaluation (fresh sandbox by contract) still works.
+    // If a future change hoists the sandbox into shared/session state, the
+    // leaked loop helper times out every event below and this test fails.
+    const QString hostile = makeFormPdf(QStringLiteral("closure-hostile.pdf"),
+    {
+        { QStringLiteral("qty1"), {}, {}, {} },
+        { QStringLiteral("blocker"),
+          QStringLiteral("globalThis.__gpEndEvent = function () { while (true) {} }; event.value = 'x';"), {}, {} },
+        { QStringLiteral("fmt"),
+          {}, QStringLiteral("AFNumber_Format(2, 0, 0, 0, \"$\", true);"), QStringLiteral("1234.5") },
+    },
+    { QStringLiteral("blocker") });
+    QVERIFY(!hostile.isEmpty());
+
+    const QString hostileOut = m_dir.path() + QStringLiteral("/closure-hostile-out.pdf");
+    QList<FormJsFailure> first;
+    QVERIFY(fillAndFill(hostile, { { QStringLiteral("qty1"), QStringLiteral("1") } }, hostileOut, &first));
+    QVERIFY2(first.count() >= 1, "the hostile cascade must abort with disclosed failures");
+
+    // Cascade 2 — a CLEAN document through the same runner must compute fully.
+    const QString clean = makeOrderForm(QStringLiteral("closure-clean.pdf"));
+    QVERIFY(!clean.isEmpty());
+    const QString cleanOut = m_dir.path() + QStringLiteral("/closure-clean-out.pdf");
+    QList<FormJsFailure> second;
+    QVERIFY(fillAndFill(clean,
+                        { { QStringLiteral("qty1"), QStringLiteral("5") },
+                          { QStringLiteral("price1"), QStringLiteral("2") },
+                          { QStringLiteral("qty2"), QStringLiteral("3") },
+                          { QStringLiteral("price2"), QStringLiteral("4") } },
+                        cleanOut, &second));
+    QVERIFY2(second.isEmpty(), qPrintable(failureNames(second).join(QStringLiteral(", "))));
+    QCOMPARE(pdfFieldValue(cleanOut, QStringLiteral("total")), QStringLiteral("22"));
+    QCOMPARE(qpdfFieldValue(cleanOut, QStringLiteral("total")), QStringLiteral("22"));
+
+    // Format evaluation after the aborted cascade — fresh sandbox, correct
+    // display value, no hostile-hook interference.
+    FormManager fm2;
+    const QString formatted = fm2.formatFieldValue(hostileOut, QStringLiteral("fmt"));
+    QCOMPARE(formatted, QStringLiteral("$1,234.50"));
 }
 
 QTEST_MAIN(TestFormJsCalc)

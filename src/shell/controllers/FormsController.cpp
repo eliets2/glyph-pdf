@@ -5,6 +5,7 @@
 #include "core/interfaces/ISignatureManager.h"
 
 #include "core/AppContext.h"
+#include "core/FormStaleFieldTracker.h"
 #include "core/interfaces/IPdfEditorEngine.h"   // releaseResidentFile (V01 swap)
 #include "GpMainWindow.h"
 #include "ui/PdfViewerWidget.h"
@@ -189,6 +190,11 @@ void FormsController::onImportDataRequested() {
         // handle — reload so what is shown is what was committed.
         viewer->loadDocument(originalPath);
         _mainWindow->statusBar()->showMessage(tr("Successfully imported form data from %1").arg(QFileInfo(dataPath).fileName()), 5000);
+        // R18(a): the import COMMITTED → its cascade outcome is the document's
+        // current truth; the persistent stale-field tracker records it (a
+        // fully-successful cascade clears all stale warnings for the file).
+        if (_ctx->formStale)
+            _ctx->formStale->applyCascadeOutcome(originalPath, jsFailures);
         // §9.6 P0: a bulk import that silently dropped values (radio/pushbutton
         // targets, unknown names) must not read as success.
         if (!unsupported.isEmpty()) {

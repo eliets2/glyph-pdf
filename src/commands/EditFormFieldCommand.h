@@ -3,6 +3,7 @@
 #include <QDebug>
 #include <QUndoCommand>
 #include "core/interfaces/IFormManager.h"
+#include "core/FormStaleFieldTracker.h"
 #include "engines/DocumentSession.h"
 #include "commands/CheckedHistory.h"
 
@@ -55,17 +56,40 @@ public:
     // persists; failed calculated fields keep their committed value and the
     // caller surfaces them. Survives push() deleting an obsolete command:
     // the list is written during push's initial redo and outlives the command.
+    //
+    // r18-review F1/F2 (2026-09-13): two more caller-owned sinks.
+    //   * `staleTracker` — when non-null, EVERY successful performApply AND
+    //     performRestore (panel push, redo traversal, checked apply, undo /
+    //     checked restore) feeds the tracker with THAT cascade's outcome at
+    //     this one shared committed-transaction boundary. History traversal
+    //     recomputes fields exactly like an apply does, so the stale state
+    //     must follow it (an undo/redo that recomputes successfully CLEARS
+    //     the stale set; one whose cascade failed re-records the fields it
+    //     could not recompute). The tracker is AppContext-lifetime and
+    //     outlives every command in the stack — a raw pointer is safe here.
+    //   * `applySuccess` — the explicit apply result of the most recent
+    //     performApply, written during push's initial redo and outliving a
+    //     push that deletes an obsolete command. Replaces the old caller-side
+    //     stack-count arithmetic, which misread an undo-limit discard
+    //     (count() stays EQUAL: the oldest command is deleted) and a
+    //     redo-stack flush (count() DROPS) as "not applied" — omitting the
+    //     tracker feed exactly when a real recompute happened.
     EditFormFieldCommand(IFormManager* engine,
                          DocumentSession* doc,
                          const QString& originalName,
                          const EditFormFieldProperties& newProps,
-                         QList<FormJsFailure>* jsFailures = nullptr)
+                         QList<FormJsFailure>* jsFailures = nullptr,
+                         gp::FormStaleFieldTracker* staleTracker = nullptr,
+                         bool* applySuccess = nullptr)
         : m_engine(engine)
         , m_doc(doc)
         , m_newProps(newProps)
         , m_jsFailures(jsFailures)
+        , m_staleTracker(staleTracker)
+        , m_applySuccess(applySuccess)
     {
         if (m_jsFailures) m_jsFailures->clear();
+        if (m_applySuccess) *m_applySuccess = false;
         setText(QObject::tr("Edit form field"));
         m_oldProps.name = originalName;
 
@@ -173,7 +197,12 @@ private:
 
     // WP-R03: the shared mutation body — apply the NEW snapshot as one
     // transactional mutation. Returns false with a reason; no obsoletion.
+    // r18-review F1/F2: the cascade failures are ALWAYS captured (both apply
+    // and restore) so the explicit result sink, the caller's report list and
+    // the stale-field tracker all see the same committed outcome.
     bool performApply(QString* err) {
+        if (m_applySuccess) *m_applySuccess = false;
+        m_lastCascadeFailures.clear();
         if (!m_engine || !m_doc || m_doc->path().isEmpty()) {
             if (err) *err = QObject::tr("no engine/document for edit form field");
             return false;
@@ -182,11 +211,18 @@ private:
             if (err) *err = QObject::tr("field %1 not found; nothing was changed").arg(m_oldProps.name);
             return false;
         }
-        if (!m_engine->applyFieldSnapshot(m_doc->path(), m_new, m_doc->path(), m_jsFailures)) {
+        if (!m_engine->applyFieldSnapshot(m_doc->path(), m_new, m_doc->path(), &m_lastCascadeFailures)) {
             if (err) *err = QObject::tr("editing form field %1 failed; document left unchanged").arg(m_oldProps.name);
             return false;
         }
         m_doc->markReload();
+        if (m_jsFailures) *m_jsFailures = m_lastCascadeFailures;
+        // r18-review F2: this committed apply IS a recompute — the tracker's
+        // replace rule consumes the outcome here, at the one boundary every
+        // apply path (panel push, redo traversal, checked apply) shares.
+        if (m_staleTracker)
+            m_staleTracker->applyCascadeOutcome(m_doc->path(), m_lastCascadeFailures);
+        if (m_applySuccess) *m_applySuccess = true;
         return true;
     }
 
@@ -195,9 +231,15 @@ private:
     bool performRestore() {
         if (!m_engine || !m_doc || m_doc->path().isEmpty()) return false;
         if (!m_old.found) return true; // nothing was ever applied — restored by definition
-        if (!m_engine->applyFieldSnapshot(m_doc->path(), m_old, m_doc->path()))
+        m_lastCascadeFailures.clear();
+        if (!m_engine->applyFieldSnapshot(m_doc->path(), m_old, m_doc->path(), &m_lastCascadeFailures))
             return false;
         m_doc->markReload();
+        // r18-review F2: an undo/redo traversal recomputes fields exactly like
+        // an apply does — its outcome replaces the stale set the same way, so
+        // the warning never describes a value the document no longer has.
+        if (m_staleTracker)
+            m_staleTracker->applyCascadeOutcome(m_doc->path(), m_lastCascadeFailures);
         return true;
     }
     QString m_restoreFailureReason() const {
@@ -205,4 +247,8 @@ private:
             "Undo of the form-field edit failed for '%1'; the edited values are still in effect.")
                 .arg(m_oldProps.name);
     }
+
+    QList<FormJsFailure> m_lastCascadeFailures; // cascade report of the latest apply/restore
+    gp::FormStaleFieldTracker* m_staleTracker = nullptr; // AppContext-lifetime; nullable
+    bool* m_applySuccess = nullptr; // caller-owned explicit result sink (r18-review F1)
 };

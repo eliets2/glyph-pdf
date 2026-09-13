@@ -18,6 +18,7 @@
 
 #include <QtTest/QtTest>
 #include <QTemporaryDir>
+#include <QSettings>
 #include <QFile>
 #include <QFileInfo>
 #include <QByteArray>
@@ -27,6 +28,7 @@
 #include "engines/SignatureManager.h"
 #include "engines/SafeSave.h"
 #include "engines/podofo/PoDoFoBackend.h"
+#include "shell/controllers/SecurityController.h" // R19: the settings seam (readSigningConfig/attainedLevelLabel)
 #include <podofo/podofo.h>
 #include <openssl/x509.h>
 #include <openssl/x509_vfy.h>
@@ -1193,6 +1195,108 @@ private slots:
             X509_STORE_free(store);
             mgr.setTrustStoreForTest(nullptr);
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // R19(a+b): the signing SETTINGS really drive the engine — the documented
+    // keys (signing/tsaUrl, signing/padesLevel) are read through the
+    // controller's settings seam (gp::SecurityController::readSigningConfig) and
+    // applied via setTsaUrl/setSignatureLevel exactly like runSigning does
+    // before every dispatch. The engine attests the configured level's pieces.
+    // NOTE on scope: the B-LT DSS build does not need the TSA (the DSS carries
+    // certs/OCSP/CRLs, not timestamp tokens), so an empty tsaUrl at B-LT
+    // attests hasDss. (The controller's production pre-flight refuses empty-
+    // TSA-above-B-B; this pin is the ENGINE contract of the configured level.)
+    // -----------------------------------------------------------------------
+    void settingsDrivenLevelAttestsItsPieces()
+    {
+        REQUIRE_FIXTURES();
+        QVERIFY(m_tmpDir.isValid());
+
+        QSettings ini(m_tmpDir.filePath("signing-r19a.ini"), QSettings::IniFormat);
+        ini.setValue(QStringLiteral("signing/padesLevel"), QStringLiteral("B-LT"));
+        ini.setValue(QStringLiteral("signing/tsaUrl"), QString());
+        ini.sync();
+        const auto cfg = gp::SecurityController::readSigningConfig(&ini);
+        QCOMPARE(cfg.level, PAdESLevel::B_LT);
+
+        QString output = m_tmpDir.filePath("r19_settings_bltn.pdf");
+        SignatureManager mgr;
+        // The controller-consumption seam (R19b): same calls runSigning makes
+        // before every dispatch, in the same order.
+        mgr.setTsaUrl(cfg.tsaUrl);
+        mgr.setSignatureLevel(cfg.level);
+
+        QVERIFY2(mgr.signDocument(kInputPdf, output, kP12Path, kP12Pass, "R19a", "")
+                     == SignOutcome::Success,
+                 "the settings-driven B-LT sign must succeed (no TSA pieces needed)");
+
+        X509_STORE *store = buildTestStore();
+        mgr.setTrustStoreForTest(store);
+        const auto results = mgr.validateSignatures(output);
+        QVERIFY2(!results.isEmpty(), "the signed document must validate");
+        QVERIFY2(results.first().integrityIntact, "the signature must be intact");
+        QVERIFY2(results.first().hasDss,
+                 "the settings-driven B-LT must attest the DSS (hasDss) — the "
+                 "configured level was really applied, not the default");
+        X509_STORE_free(store);
+        mgr.setTrustStoreForTest(nullptr);
+    }
+
+    // -----------------------------------------------------------------------
+    // R19(b+c): a CONFIGURED-but-unreachable TSA is deterministic (refused
+    // loopback — no network, no sleeps). The settings-driven B-LTA attempt:
+    //   * outcome PartialLtvMissing with EXACT detail (docTimestampMissing,
+    //     DSS not flagged),
+    //   * attainedLevelLabel(B_LTA, detail) == "B-LT" (the R19c disclosure),
+    //   * N06 non-regression: the destination is never left broken — the
+    //     partial result is written through checked replacement and still
+    //     carries an intact signature (E-06: no malformed /DocTimeStamp).
+    // -----------------------------------------------------------------------
+    void refusedLoopbackTsaAtBLTA_PartialHonestDestinationNeverBroken()
+    {
+        REQUIRE_FIXTURES();
+        QVERIFY(m_tmpDir.isValid());
+
+        QSettings ini(m_tmpDir.filePath("signing-r19b.ini"), QSettings::IniFormat);
+        ini.setValue(QStringLiteral("signing/padesLevel"), QStringLiteral("B-LTA"));
+        ini.setValue(QStringLiteral("signing/tsaUrl"), QStringLiteral("http://127.0.0.1:9/"));
+        ini.sync();
+        const auto cfg = gp::SecurityController::readSigningConfig(&ini);
+        QCOMPARE(cfg.level, PAdESLevel::B_LTA);
+        QCOMPARE(cfg.tsaUrl, QStringLiteral("http://127.0.0.1:9/"));
+
+        QString output = m_tmpDir.filePath("r19_loopback_lta.pdf");
+        SignatureManager mgr;
+        mgr.setTsaUrl(cfg.tsaUrl);          // the controller-consumption seam
+        mgr.setSignatureLevel(cfg.level);
+
+        const SignOutcome outcome = mgr.signDocument(kInputPdf, output, kP12Path,
+                                                     kP12Pass, "R19b", "");
+        QCOMPARE(outcome, SignOutcome::PartialLtvMissing);
+        const SignatureOutcomeDetail detail = mgr.lastSignOutcomeDetail();
+        QVERIFY2(detail.docTimestampMissing,
+                 "the refused TSA must flag exactly the archive timestamp as missing");
+        QVERIFY2(!detail.dssMissing,
+                 "the DSS itself must NOT be flagged missing");
+
+        // R19c: the attained-level disclosure for this outcome is B-LT.
+        QCOMPARE(gp::SecurityController::attainedLevelLabel(PAdESLevel::B_LTA, detail),
+                 QStringLiteral("B-LT"));
+
+        // N06 non-regression: the destination went through checked replacement
+        // and is a valid, intact signed document — never a broken file.
+        QVERIFY2(QFileInfo::exists(output), "the partial result must be on disk (E-02)");
+        X509_STORE *store = buildTestStore();
+        mgr.setTrustStoreForTest(store);
+        const auto results = mgr.validateSignatures(output);
+        QVERIFY2(!results.isEmpty() && results.first().integrityIntact,
+                 "the destination must never be left broken: the partial result "
+                 "still carries an intact signature");
+        QVERIFY2(!results.first().hasDocTimestamp,
+                 "a refused TSA must not leave a (malformed) /DocTimeStamp (E-06)");
+        X509_STORE_free(store);
+        mgr.setTrustStoreForTest(nullptr);
     }
 };
 

@@ -44,6 +44,11 @@ private:
     QLineEdit*   _ollamaEndpointEdit = nullptr;
     QPushButton* _aiTestBtn       = nullptr;
     QLabel*      _aiStatusLabel   = nullptr;
+
+    // Security tab widgets (R19a): signing configuration consumed by the
+    // SecurityController before every sign/certify/timestamp dispatch.
+    QLineEdit*   _tsaUrlEdit      = nullptr;
+    QComboBox*   _padesLevelCombo = nullptr;
 };
 
 } // namespace gp
