@@ -36,6 +36,10 @@ private slots:
     void excelXlsxIsRealOoxmlPackage();
     void excelSheetParsesInlineStrCells();
     void excelCellEscapesSpecialChars();
+    // SEP13:3: two runs on one baseline resolving to the SAME geometry-derived
+    // column must not emit duplicate <c r="..."> refs in one <row> (invalid
+    // OOXML); the pinned policy is last-write-wins.
+    void excelDuplicateColumnCollapsesToOneCell();
     void inHouseExportSuppressesFallbackWarning();
     void failedInputDoesNotTruncateDestination();
     void localProcessingNoticeStatesPrivacy();
@@ -54,6 +58,12 @@ private:
     // keeps the fixture dependency-free and byte-exact.
     static QString createTextPdf(const QString& dir, const QString& name,
                                  const QStringList& lines);
+    // SEP13:3 fixture: row 1 holds TWO runs whose x-anchors fall within the
+    // documented column tolerance (Helvetica "LEFT" @x=72 then Helvetica-Bold
+    // "RIGHT" @x=74 — the font change is what splits them into separate runs)
+    // plus a far-away "FAR" run; row 2 is a clean single run. Deterministic
+    // via the V03 run-splitting rules (font-run changes always split).
+    static QString createCollidingColumnsPdf(const QString& dir, const QString& name);
     // Hand-built PDF whose content stream holds a *raw* string literal, so the
     // extraction path really delivers C0 control bytes to the writer.
     static QString createRawStringPdf(const QString& dir, const QString& name,
@@ -117,6 +127,51 @@ QString TestExportPathBadge::createTextPdf(const QString& dir, const QString& na
                + " 00000 n \n";
     }
     pdf += "trailer<</Size 6/Root 1 0 R>>\nstartxref\n"
+           + QByteArray::number(xrefOffset) + "\n%%EOF\n";
+
+    const QString path = dir + "/" + name;
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly)) return {};
+    f.write(pdf);
+    return path;
+}
+
+QString TestExportPathBadge::createCollidingColumnsPdf(const QString& dir,
+                                                       const QString& name) {
+    // Row 1: "LEFT" @x=72 (Helvetica), "RIGHT" @x=74 (Helvetica-Bold — the
+    // font-run change splits it into its own run, V03) and "FAR" @x=300.
+    // Column tolerance is max(3pt, fontSize/2)=6pt, so LEFT and RIGHT share a
+    // geometry-derived column while FAR gets its own. Row 2: clean single run.
+    const QByteArray content =
+        "BT /F1 12 Tf 72 720 Td (LEFT) Tj ET\n"
+        "BT /F2 12 Tf 74 720 Td (RIGHT) Tj ET\n"
+        "BT /F1 12 Tf 300 720 Td (FAR) Tj ET\n"
+        "BT /F1 12 Tf 72 700 Td (SECOND) Tj ET\n";
+    const QByteArray objects[] = {
+        "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n",
+        "2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n",
+        "3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents 4 0 R"
+        "/Resources<</Font<</F1 5 0 R/F2 6 0 R>>>>>>endobj\n",
+        "4 0 obj<</Length " + QByteArray::number(content.size()) + ">>stream\n"
+            + content + "endstream endobj\n",
+        "5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica"
+        "/Encoding/WinAnsiEncoding>>endobj\n",
+        "6 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica-Bold"
+        "/Encoding/WinAnsiEncoding>>endobj\n",
+    };
+    QByteArray pdf = "%PDF-1.4\n";
+    QList<qint64> offsets;
+    for (const QByteArray& obj : objects) {
+        offsets.append(pdf.size());
+        pdf += obj;
+    }
+    const qint64 xrefOffset = pdf.size();
+    pdf += "xref\n0 7\n0000000000 65535 f \n";
+    for (qint64 off : offsets) {
+        pdf += QByteArray::number(static_cast<qulonglong>(off)).rightJustified(10, '0')
+               + " 00000 n \n";
+    }
+    pdf += "trailer<</Size 7/Root 1 0 R>>\nstartxref\n"
            + QByteArray::number(xrefOffset) + "\n%%EOF\n";
 
     const QString path = dir + "/" + name;
@@ -572,6 +627,55 @@ void TestExportPathBadge::excelCellEscapesSpecialChars() {
     QVERIFY2(cells.contains({"A1", specials}),
              qPrintable(QStringLiteral("special-char cell must round-trip; got %1 cell(s)")
                                 .arg(cells.size())));
+}
+
+// SEP13:3 — two runs in one row resolving to the SAME geometry-derived column
+// used to emit duplicate <c r="A1"> refs in one <row>: invalid OOXML that
+// Excel flags as corrupt (collectInlineStrCells enforces strictly increasing
+// refs, so a duplicate fails the parse below). Pinned policy: LAST-WRITE-WINS
+// in the column-stable extracted order — aligned with the OpenXLSX path, where
+// a later assignment to the same cell coordinate overwrites the earlier one.
+void TestExportPathBadge::excelDuplicateColumnCollapsesToOneCell() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = createCollidingColumnsPdf(tmp.path(), "in.pdf");
+    QVERIFY(!pdf.isEmpty());
+
+    ConversionManager mgr;
+    const QString out = tmp.filePath("out.xlsx");
+    QVERIFY(mgr.convertTo(pdf, out, IConversionEngine::TargetFormat::Excel));
+
+    const QByteArray sheet = zipReadFile(out, "xl/worksheets/sheet1.xml");
+    QString err;
+    QVERIFY2(xmlWellFormed(sheet, &err), qPrintable(QStringLiteral(
+        "xl/worksheets/sheet1.xml must be well-formed: %1").arg(err)));
+
+    QList<QPair<QString, QString>> cells;
+    QVERIFY2(collectInlineStrCells(sheet, &cells, &err),
+             qPrintable(QStringLiteral(
+                 "every row must carry UNIQUE, strictly increasing cell refs "
+                 "(a repeated r within a row is invalid OOXML): %1").arg(err)));
+
+    // Content pins: the collided column survives as ONE cell carrying the
+    // LAST run's text ("RIGHT"), the distinct column keeps its own cell, and
+    // the clean second row is untouched.
+    QVERIFY2(cells.contains({"A1", QStringLiteral("RIGHT")}),
+             qPrintable(QStringLiteral(
+                 "the collided column must collapse to one cell holding the "
+                 "last run's text (last-write-wins); cells=%1")
+                     .arg([cells]() {
+                         QStringList parts;
+                         for (const auto &c : cells)
+                             parts << c.first + "=" + c.second;
+                         return parts.join(QStringLiteral(", "));
+                     }())));
+    QVERIFY2(cells.contains({"B1", QStringLiteral("FAR")}),
+             "the distinct column in the same row keeps its own cell");
+    QVERIFY2(cells.contains({"A2", QStringLiteral("SECOND")}),
+             "the clean second row is unaffected");
+    QVERIFY2(!cells.contains({"A1", QStringLiteral("LEFT")}),
+             "the first run's text must not survive as a duplicate cell");
+    QCOMPARE(cells.size(), 3);
 }
 
 // §9.5 P0/§9.16/R10: after an in-house (real OOXML) export the

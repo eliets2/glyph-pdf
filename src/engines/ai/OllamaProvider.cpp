@@ -196,8 +196,19 @@ QFuture<AiResult> OllamaProvider::chat(const QList<AiMessage>& history,
         QSettings().value(QStringLiteral("ai/ollamaTimeoutMs"), 20000).toInt(),
         600000);
 
+    // SEP13:6: bounded response buffering — the whole HTTP body used to be
+    // readAll()-ed with no cap, so a malicious/compromised endpoint could
+    // exhaust memory. The cap is test-configurable (QSettings seam, bounded
+    // 4 KiB .. 1 GiB; default 64 MiB — ~680x the 96 KB aggregate input cap,
+    // while real /api/chat replies are KBs).
+    const qint64 maxResponseBytes = qBound<qint64>(
+        4096,
+        QSettings().value(QStringLiteral("ai/ollamaMaxResponseBytes"),
+                          64LL * 1024 * 1024).toLongLong(),
+        1024LL * 1024 * 1024);
+
     return QtConcurrent::run(
-        [endpoint, model, safeHistory, sysPrompt, timeoutMs](QPromise<AiResult>& promise) {
+        [endpoint, model, safeHistory, sysPrompt, timeoutMs, maxResponseBytes](QPromise<AiResult>& promise) {
             if (promise.isCanceled())
                 return; // canceled while queued: no I/O, no result
 
@@ -254,6 +265,30 @@ QFuture<AiResult> OllamaProvider::chat(const QList<AiMessage>& history,
             nam.setRedirectPolicy(QNetworkRequest::ManualRedirectPolicy);
             QNetworkReply* reply = nam.post(req, QJsonDocument(body).toJson(
                                                        QJsonDocument::Compact));
+            // SEP13:6: bound Qt's own read buffer too (0 = unbounded by
+            // default) so the transport itself cannot buffer without limit.
+            reply->setReadBufferSize(maxResponseBytes);
+
+            // SEP13:6: bounded response accumulation. Data is appended as it
+            // arrives; crossing the cap aborts the request with an honest
+            // error INSTEAD of buffering the body in full.
+            QByteArray responseBody;
+            auto accumulateBounded = [&]() -> bool {
+                responseBody.append(reply->readAll());
+                if (responseBody.size() > maxResponseBytes) {
+                    finishOnce(AiResult{false, {},
+                        QStringLiteral("Ollama response exceeded the %1 MB "
+                                       "safety cap — aborted before buffering "
+                                       "it in full (endpoint %2)")
+                            .arg(maxResponseBytes / (1024 * 1024))
+                            .arg(endpoint)});
+                    reply->abort(); // the finished handler is a no-op once done
+                    return false;
+                }
+                return true;
+            };
+            QObject::connect(reply, &QNetworkReply::readyRead, &loop,
+                             accumulateBounded);
 
             // Completion: reply finished before the deadline/cancel.
             QObject::connect(reply, &QNetworkReply::finished, &loop, [&]() {
@@ -287,7 +322,11 @@ QFuture<AiResult> OllamaProvider::chat(const QList<AiMessage>& history,
                             .arg(endpoint, target.toString(QUrl::FullyEncoded))});
                     return;
                 }
-                const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+                // SEP13:6: drain what remains through the bounded
+                // accumulator (a body may finish after its last readyRead).
+                if (!accumulateBounded())
+                    return; // over-cap: finishOnce already terminated us
+                const QJsonDocument doc = QJsonDocument::fromJson(responseBody);
                 if (!doc.isObject()) {
                     finishOnce(AiResult{false, {},
                         QStringLiteral("Ollama returned malformed JSON from %1")

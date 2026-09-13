@@ -12,8 +12,18 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QProcess>
 #include <QStandardPaths>
+
+#include <openssl/evp.h>
+#include <openssl/rand.h>
+#include <openssl/sha.h>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <wincrypt.h>
+#endif
 
 #include "core/EncryptedFileSecretStore.h"
 #include "core/ISecretStore.h"
@@ -21,6 +31,90 @@
 #if defined(HAS_LIBSECRET)
 #include "core/LibSecretStore.h"
 #endif
+
+// ---------------------------------------------------------------------------
+// SEP13:5 helpers — direct manipulation of the JSON store's blob entries so
+// the cross-entry substitution attack (swap two entries' base64 blobs) can be
+// exercised exactly as an attacker with file write-access would.
+// ---------------------------------------------------------------------------
+namespace {
+
+QJsonObject readStoreRoot(const QString& path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return {};
+    return QJsonDocument::fromJson(f.readAll()).object();
+}
+
+bool writeServiceBlob(const QString& path, const QString& service,
+                      const QByteArray& blob)
+{
+    QJsonObject root = readStoreRoot(path);
+    if (root.isEmpty()) {
+        // Absent store: seed the same layout the real writer produces.
+        root.insert(QStringLiteral("_marker"),
+                    QStringLiteral("glyphpdf-encrypted-secret-store"));
+        root.insert(QStringLiteral("secrets"), QJsonObject{});
+    }
+    QJsonObject entries = root.value(QStringLiteral("secrets")).toObject();
+    entries.insert(service, QString::fromLatin1(blob.toBase64()));
+    root.insert(QStringLiteral("secrets"), entries);
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+    return f.write(QJsonDocument(root).toJson(QJsonDocument::Compact)) > 0;
+}
+
+QByteArray readServiceBlob(const QString& path, const QString& service)
+{
+    const QJsonObject root = readStoreRoot(path);
+    return QByteArray::fromBase64(root.value(QStringLiteral("secrets"))
+                                     .toObject().value(service).toString().toLatin1());
+}
+
+bool swapServiceBlobs(const QString& path, const QString& a, const QString& b)
+{
+    const QByteArray blobA = readServiceBlob(path, a);
+    const QByteArray blobB = readServiceBlob(path, b);
+    if (blobA.isEmpty() || blobB.isEmpty()) return false;
+    return writeServiceBlob(path, a, blobB) && writeServiceBlob(path, b, blobA);
+}
+
+// Craft a legacy 0x01 blob (pre-SEP13:5 AES-GCM WITHOUT AAD) under the given
+// raw key — the migration-readability fixture.
+QByteArray craftLegacyV1Blob(const QByteArray& rawKey, const QByteArray& plaintext)
+{
+    const QByteArray key = QCryptographicHash::hash(rawKey, QCryptographicHash::Sha256);
+    unsigned char nonce[12] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) return {};
+    QByteArray cipher(plaintext.size(), Qt::Uninitialized);
+    int len = 0, cipherLen = 0;
+    if (EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, nullptr, nullptr) != 1) return {};
+    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, 12, nullptr) != 1) return {};
+    if (EVP_EncryptInit_ex(ctx, nullptr, nullptr,
+                           reinterpret_cast<const unsigned char*>(key.constData()),
+                           nonce) != 1) return {};
+    if (EVP_EncryptUpdate(ctx,
+                          reinterpret_cast<unsigned char*>(cipher.data()), &cipherLen,
+                          reinterpret_cast<const unsigned char*>(plaintext.constData()),
+                          plaintext.size()) != 1) return {};
+    int finalLen = 0;
+    if (EVP_EncryptFinal_ex(ctx,
+                            reinterpret_cast<unsigned char*>(cipher.data()) + cipherLen,
+                            &finalLen) != 1) return {};
+    cipher.resize(cipherLen + finalLen);
+    unsigned char tag[16];
+    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, tag) != 1) return {};
+    EVP_CIPHER_CTX_free(ctx);
+    QByteArray blob;
+    blob.append(static_cast<char>(0x01));
+    blob.append(reinterpret_cast<const char*>(nonce), 12);
+    blob.append(reinterpret_cast<const char*>(tag), 16);
+    blob.append(cipher);
+    return blob;
+}
+
+} // namespace
 
 // ── EC04 child mode ──────────────────────────────────────────────────────────
 // The DPAPI round-trip must survive a PROCESS boundary, not merely a new store
@@ -218,8 +312,12 @@ private slots:
         QVERIFY(reader.hasSecret("DpapiSvc"));
         QCOMPARE(reader.backend(), ISecretStore::Backend::EncryptedFile);
 
-        // The stored blob carries the v2 (DPAPI) version byte — the format
-        // pin that documents on-disk key naming for support/forensics.
+        // The stored blob carries the v3-generation DPAPI version byte — the
+        // format pin that documents on-disk key naming for support/forensics.
+        // SEP13:5: new default-path writes are 0x04 (DPAPI with the service
+        // name as optional entropy — the blob is bound to its JSON entry);
+        // the 0x02 format stays readable for migration
+        // (dpapiV2LegacyBlobStillReadable).
         QFile f(path);
         QVERIFY(f.open(QIODevice::ReadOnly));
         const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
@@ -230,7 +328,7 @@ private slots:
         QVERIFY(!b64.isEmpty());
         const QByteArray blob = QByteArray::fromBase64(b64.toLatin1());
         QVERIFY(!blob.isEmpty());
-        QCOMPARE(int(static_cast<quint8>(blob.at(0))), 0x02);  // DPAPI-wrapped
+        QCOMPARE(int(static_cast<quint8>(blob.at(0))), 0x04);  // v3 DPAPI+entropy
     }
 
     // The DPAPI round-trip survives a process boundary: a child process writes
@@ -296,6 +394,122 @@ private slots:
         QVERIFY(!reader.hasSecret("DpapiCorruptSvc"));
     }
 #endif // Q_OS_WIN
+
+    // ── SEP13:5 — AEAD bound to entry identity ──────────────────────────────
+    // Pre-fix the ciphertexts were not bound to the JSON `service` key they
+    // live under (no GCM AAD; constant DPAPI description, no optional
+    // entropy), so a local actor with WRITE ACCESS to secrets.enc.json — no
+    // key/DPAPI needed — could swap two entries' base64 blobs and each still
+    // decrypted + authenticated: readSecret("api_key_prod") silently returned
+    // the swapped secret. The v3 generation feeds the service name into the
+    // authentication material, so every swapped read fails LOUDLY (empty).
+
+    // The AES path (override key; portable — this is also the non-Windows
+    // default format): swapped blobs must fail authentication on BOTH entries.
+    void blobSwapBetweenEntriesFailsLoudly() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.path() + "/s.json";
+        EncryptedFileSecretStore store(path, testKey());
+        QVERIFY(store.storeSecret("api_key_prod", "sk-ant-prod-value-0001"));
+        QVERIFY(store.storeSecret("api_key_test", "sk-ant-test-value-0002"));
+        QCOMPARE(store.readSecret("api_key_prod"), QString("sk-ant-prod-value-0001"));
+        QCOMPARE(store.readSecret("api_key_test"), QString("sk-ant-test-value-0002"));
+
+        // The substitution attack: swap the two base64 blobs in the JSON.
+        QVERIFY2(swapServiceBlobs(path, "api_key_prod", "api_key_test"),
+                 "the fixture must be able to rewrite the store's blobs");
+        QVERIFY2(store.readSecret("api_key_prod").isEmpty(),
+                 "a blob moved to another entry must fail authentication "
+                 "(GCM AAD binds the ciphertext to the entry identity)");
+        QVERIFY2(store.readSecret("api_key_test").isEmpty(),
+                 "the other swapped blob must fail authentication too");
+        QVERIFY(!store.hasSecret("api_key_prod"));
+
+        // Swapping BACK restores both reads — the blobs were intact all
+        // along; only the entry binding was violated. This pins that the
+        // failure is identity enforcement, not corruption.
+        QVERIFY(swapServiceBlobs(path, "api_key_prod", "api_key_test"));
+        QCOMPARE(store.readSecret("api_key_prod"), QString("sk-ant-prod-value-0001"));
+        QCOMPARE(store.readSecret("api_key_test"), QString("sk-ant-test-value-0002"));
+    }
+
+#ifdef Q_OS_WIN
+    // The REAL default path (DPAPI, no override): the v3 entropy binding must
+    // reject a cross-entry blob swap on both entries.
+    void dpapiBlobSwapBetweenEntriesFailsLoudly() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.path() + "/dpapi-swap.json";
+        EncryptedFileSecretStore store(path);   // default path — real DPAPI
+        QVERIFY(store.storeSecret("api_key_prod", "sk-ant-dpapi-prod-0001"));
+        QVERIFY(store.storeSecret("api_key_test", "sk-ant-dpapi-test-0002"));
+        QCOMPARE(store.readSecret("api_key_prod"), QString("sk-ant-dpapi-prod-0001"));
+        QCOMPARE(store.readSecret("api_key_test"), QString("sk-ant-dpapi-test-0002"));
+
+        QVERIFY2(swapServiceBlobs(path, "api_key_prod", "api_key_test"),
+                 "the fixture must be able to rewrite the store's blobs");
+        QVERIFY2(store.readSecret("api_key_prod").isEmpty(),
+                 "a DPAPI blob unwrapped with another entry's entropy must "
+                 "fail loudly (pre-fix it silently returned the swapped "
+                 "secret — the exact cross-entry substitution defect)");
+        QVERIFY2(store.readSecret("api_key_test").isEmpty(),
+                 "the other swapped blob must fail unprotection too");
+
+        QVERIFY(swapServiceBlobs(path, "api_key_prod", "api_key_test"));
+        QCOMPARE(store.readSecret("api_key_prod"), QString("sk-ant-dpapi-prod-0001"));
+        QCOMPARE(store.readSecret("api_key_test"), QString("sk-ant-dpapi-test-0002"));
+    }
+
+    // Migration: legacy 0x02 blobs (EC04 — DPAPI WITHOUT entry entropy) must
+    // stay readable; the v3 upgrade never orphans an existing store.
+    void dpapiV2LegacyBlobStillReadable() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.path() + "/dpapi-v2.json";
+
+        // Craft a v2 blob exactly the way the EC04 store wrote it: constant
+        // description, NO optional entropy.
+        const QString secret = QStringLiteral("sk-ant-legacy-v2-0001");
+        const QByteArray plain = secret.toUtf8();
+        DATA_BLOB in{};
+        in.pbData = reinterpret_cast<BYTE*>(const_cast<char*>(plain.constData()));
+        in.cbData = static_cast<DWORD>(plain.size());
+        DATA_BLOB out{};
+        QVERIFY2(CryptProtectData(&in, L"GlyphPDF.SecretStore.Secret.v2", nullptr,
+                                  nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &out),
+                 "fixture crafting: CryptProtectData must succeed");
+        QByteArray blob;
+        blob.append(static_cast<char>(0x02));
+        blob.append(reinterpret_cast<const char*>(out.pbData),
+                    static_cast<int>(out.cbData));
+        LocalFree(out.pbData);
+        QVERIFY(writeServiceBlob(path, "LegacyV2Svc", blob));
+
+        EncryptedFileSecretStore reader(path);
+        QCOMPARE(reader.readSecret("LegacyV2Svc"), secret);
+    }
+#endif // Q_OS_WIN
+
+    // Migration: legacy 0x01 blobs (pre-SEP13:5 AES-GCM WITHOUT AAD) must
+    // stay readable under the override-key path.
+    void aesV1LegacyBlobStillReadable() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.path() + "/s.json";
+        const QString secret = QStringLiteral("sk-ant-legacy-v1-0002");
+
+        // Seed the store with one CURRENT entry so the JSON shape is real,
+        // then add the crafted legacy blob as a second entry.
+        EncryptedFileSecretStore writer(path, testKey());
+        QVERIFY(writer.storeSecret("CurrentSvc", "sk-ant-current-0003"));
+        QVERIFY(writeServiceBlob(path, "LegacyV1Svc",
+                                 craftLegacyV1Blob(testKey(), secret.toUtf8())));
+
+        EncryptedFileSecretStore reader(path, testKey());
+        QCOMPARE(reader.readSecret("LegacyV1Svc"), secret);
+        QCOMPARE(reader.readSecret("CurrentSvc"), QString("sk-ant-current-0003"));
+    }
 
     // ── L07 (NATIVE-LINUX-READINESS-2026-09-10): the Secret Service backend ──
     // On HAS_LIBSECRET builds the Secret Service is the Linux PRIMARY store
