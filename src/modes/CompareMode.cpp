@@ -276,6 +276,9 @@ void CompareMode::showDiffResult(const DiffResult& result) {
                                .arg(page.textRemoved.size())
                                .arg(page.moves.size())
                                .arg(page.pixelDiffCount);
+            // R11 (PERF-03): disclose a budget-forced coarse word diff.
+            if (page.textDiffTruncated)
+                desc += tr("  ⚠ diff truncated");
             // R06: name the pair the row actually compares — the same
             // old/new mapping the engine aligned (identical when the page
             // kept its position, "old → new" when it shifted/was moved).
@@ -629,6 +632,9 @@ QString CompareMode::buildHtmlReport(const CompareChangeFilter& filter) const {
         }
         if (page.pixelDiffCount > 0)
             o << "<p class=\"unchanged\">~" << page.pixelDiffCount << " pixels differ visually.</p>\n";
+        // R11 (PERF-03): exports disclose a budget-forced coarse word diff too.
+        if (page.textDiffTruncated)
+            o << "<p class=\"moved\">⚠ token diff truncated — exceeds diff budget; shown changes are coarse, not minimal.</p>\n";
     }
 
     // U04: a filter that empties the report says so — never "identical"
@@ -747,6 +753,9 @@ QString CompareMode::buildTextReport(const CompareChangeFilter& filter) const {
             o << "~ " << m.token << " (" << m.fromIndex << " -> " << m.toIndex << ")\n";
         if (page.pixelDiffCount > 0)
             o << "  (~" << page.pixelDiffCount << " pixels differ visually)\n";
+        // R11 (PERF-03): exports disclose a budget-forced coarse word diff too.
+        if (page.textDiffTruncated)
+            o << "  (token diff truncated - exceeds diff budget; shown changes are coarse, not minimal)\n";
         o << "\n";
     }
 
