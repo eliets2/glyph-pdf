@@ -2292,6 +2292,37 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchOcrLanguage.cpp")
     )
 endif()
 
+# ── TestBatchOcrSkipText (N3 — pdf24 skip-already-text batch OCR) ─────────────
+# Mixed text/image-only corpora through the REAL batch OCR worker: skip-files
+# produces outputs only for image-only files; skip-pages keeps text pages
+# original; force-OCR overrides; idempotent second run. Truthful skip bucket
+# in the batch summary.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchOcrSkipText.cpp")
+    add_executable(TestBatchOcrSkipText
+        tests/TestBatchOcrSkipText.cpp
+    )
+    target_include_directories(TestBatchOcrSkipText PRIVATE src tests)
+    target_link_libraries(TestBatchOcrSkipText PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestBatchOcrSkipText POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestBatchOcrSkipText>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestBatchOcrSkipText>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestBatchOcrSkipText"
+    )
+    add_test(NAME TestBatchOcrSkipText COMMAND TestBatchOcrSkipText)
+    set_tests_properties(TestBatchOcrSkipText PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 300
+        LABELS "unit;batch;ocr;skip-text;qt;headless"
+    )
+endif()
+
 # §9.4 regression test: the OCR preprocessing checkboxes (Deskew/Binarize/
 # Denoise) are persisted prefs honored by the pipeline — previously dead UI.
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrPreprocessPrefs.cpp")
