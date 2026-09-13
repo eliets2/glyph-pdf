@@ -108,6 +108,22 @@ public:
     bool deleteImage(int, const QString &) override { ++m_deleteImageCalls; return true; }
     int m_deleteImageCalls = 0;
     bool applyRedactions(int, const QList<QRectF> &) override { return m_loaded; }
+    // T2-2 (ITextReplacer): Find & Replace seam. Deliberately NO `override` —
+    // pre-fix baselines (revert verification) have no such virtual; post-fix
+    // this implements ITextReplacer::replaceTextRegions (signature pinned by
+    // the interface). Records the specs so tests can assert what a caller
+    // planned to replace, and reports each match rect's width as the "drawn"
+    // width so callers can exercise the metric-warning plumbing.
+    bool replaceTextRegions(const QList<TextReplacementSpec> &specs, QList<double> *drawnWidthsOut = nullptr) {
+        m_lastReplaceSpecs = specs;
+        if (drawnWidthsOut) {
+            drawnWidthsOut->clear();
+            for (const auto& s : specs) drawnWidthsOut->append(s.rect.width());
+        }
+        return m_loaded && !m_replaceFails;
+    }
+    QList<TextReplacementSpec> m_lastReplaceSpecs;
+    bool m_replaceFails = false;
     bool applyMarkRedactions(const QList<AnnotationItem>& marks) override {
         m_lastMarkRedactions = marks;
         return m_loaded;
@@ -115,6 +131,20 @@ public:
     bool applyPatternRedactions(const QRegularExpression&, const QList<int>&, const QString&) override { return m_loaded; }
     bool applyPatternRedactionsMulti(const QStringList&, const QList<int>&, const QString&) override { return m_loaded; }
     bool embedAnnotations(const QString &, const QString &, const QList<AnnotationItem> &) override { return m_loaded; }
+
+    // T2-9 (IOutlineEditor): outline seam. Deliberately NO `override` —
+    // compiles as plain members against pre-fix baselines; post-fix these
+    // implement IOutlineEditor (signatures pinned by the interface).
+    QList<OutlineEntry> getOutline(const QString &) { return m_outline; }
+    bool replaceOutline(const QString &, const QList<OutlineEntry> &entries) {
+        m_lastOutline = entries;
+        ++m_outlineWrites;
+        return m_loaded && !m_outlineFails;
+    }
+    QList<OutlineEntry> m_outline;      // what getOutline reports
+    QList<OutlineEntry> m_lastOutline;  // what the last replaceOutline wrote
+    int m_outlineWrites = 0;
+    bool m_outlineFails = false;
 
     // Page geometry & content injection
     bool cropPage(const QString &, int, const QRectF &) override { return m_loaded; }

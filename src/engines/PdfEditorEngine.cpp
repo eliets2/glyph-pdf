@@ -1564,6 +1564,57 @@ bool PdfEditorEngine::applyMarkRedactions(const QList<AnnotationItem>& marks)
     return true;
 }
 
+// T2-2 (ITextReplacer): Find & Replace — see ITextReplacer for the contract.
+// Like the other in-place text mutations (editTextInline) this mutates the
+// RESIDENT document only; the caller saves (saveDocument, or writeUpdate for
+// signed documents) and reloads the viewer afterwards.
+bool PdfEditorEngine::replaceTextRegions(const QList<TextReplacementSpec>& specs,
+                                         QList<double>* drawnWidthsOut)
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("replaceTextRegions");
+    bool ok = d->backend->replaceTextRegions(specs, drawnWidthsOut);
+    if (!ok) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Replace failed: a page's content could not be edited. "
+                              "Nothing was saved — the document is unchanged on disk."),
+                  QStringLiteral("replaceTextRegions specs=%1").arg(specs.size()));
+    }
+    return ok;
+}
+
+// T2-9 (IOutlineEditor): outline read — reads the on-disk file in a throwaway
+// document; never touches the resident document or the error state of the
+// editing pipeline.
+QList<OutlineEntry> PdfEditorEngine::getOutline(const QString& path)
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+    if (!d->backend) {
+        d->noBackend("getOutline");
+        return {};
+    }
+    return d->backend->getOutline(path);
+}
+
+// T2-9 (IOutlineEditor): outline replace — ONE committed write over the
+// resident document (see IOutlineEditor).
+bool PdfEditorEngine::replaceOutline(const QString& path, const QList<OutlineEntry>& entries)
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("replaceOutline");
+    bool ok = d->backend->replaceOutline(path, entries);
+    if (!ok) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Could not write the bookmarks: an entry is out of range "
+                              "or the document could not be saved. The file is unchanged."),
+                  QStringLiteral("replaceOutline entries=%1").arg(entries.size()));
+    }
+    return ok;
+}
+
 bool PdfEditorEngine::applyPatternRedactions(const QRegularExpression& pattern,
                                               const QList<int>& pages, const QString& outputPath)
 {

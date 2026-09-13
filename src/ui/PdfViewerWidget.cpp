@@ -761,6 +761,15 @@ void PdfViewerWidget::setPendingSignatureImage(const QImage &img)
         m_annotationLayer->setPendingSignatureImage(img);
 }
 
+void PdfViewerWidget::setPendingStampText(const QString &text)
+{
+    // T2-6: same ordering contract as the pending signature image — arm the
+    // Stamp mode FIRST, then set the resolved text (setMode clears pending
+    // stamp text for any non-Stamp tool).
+    if (m_annotationLayer)
+        m_annotationLayer->setPendingStampText(text);
+}
+
 // ---- Search ----
 
 void PdfViewerWidget::searchDocument(const QString &text, bool forward, bool matchCase, bool wholeWords)

@@ -138,6 +138,20 @@ enum class ToolId {
     RegexRedact,
     ExpiryDate,
 
+    // ── T2-6: dynamic stamps + library ──
+    // Appended AFTER ExpiryDate so existing ToolId ordinals stay stable.
+    // Not persisted anywhere (ToolMode ordinals are the persisted ones), but
+    // the append-only rule keeps ToolId.cpp tables reviewable.
+    StampApproved,
+    StampDraft,
+    StampConfidential,
+    StampReceived,
+    StampReviewed,
+    StampLibraryManage,
+
+    // ── T2-9: auto-bookmarks from text styles ──
+    AutoBookmarks,
+
     COUNT  // sentinel for array sizing — must be last
 };
 

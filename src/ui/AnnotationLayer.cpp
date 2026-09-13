@@ -126,6 +126,10 @@ void AnnotationLayer::setMode(ToolMode mode)
     // stale signature is never placed by a later unrelated drag.
     if (!isSignatureImageMode(mode))
         m_pendingSignatureImage = QImage();
+    // T2-6: the same lifetime rule for the resolved stamp text — disarmed
+    // modes must not inherit a stamp from an earlier menu choice.
+    if (mode != ToolMode::Stamp)
+        m_pendingStampText.clear();
     // If not in a drawing mode, we might want to pass events through, 
     // but for now let's just ignore them in those modes.
     if (mode == ToolMode::HandTool || mode == ToolMode::SelectText) {
@@ -216,6 +220,11 @@ void AnnotationLayer::setPageAtCallback(std::function<int(QPoint)> callback)
 void AnnotationLayer::setPendingSignatureImage(const QImage &img)
 {
     m_pendingSignatureImage = img;
+}
+
+void AnnotationLayer::setPendingStampText(const QString &text)
+{
+    m_pendingStampText = text;
 }
 
 void AnnotationLayer::setOcrResults(const QList<OcrResult> &results)
@@ -723,6 +732,9 @@ void AnnotationLayer::mousePressEvent(QMouseEvent *event)
         // §9.7 P0: the signature image armed by the picker travels with the
         // placement gesture and lands on the item committed at mouse release.
         m_currentNote.image = m_pendingSignatureImage;
+        // T2-6: the resolved dynamic stamp text rides the gesture the same
+        // way — the committed item's text is the concrete substituted string.
+        m_currentNote.text = m_pendingStampText;
         if (m_currentMode == ToolMode::Highlight) {
             m_currentNote.color = Qt::yellow; // Default highlight
             m_currentNote.thickness = 10;
@@ -891,6 +903,17 @@ void AnnotationLayer::mouseReleaseEvent(QMouseEvent *event)
                 r = QRectF(r.topLeft(), QSizeF(w, kDefaultSigHeight));
             }
             m_currentNote.rect = r;
+        }
+        // T2-6: a plain click with a resolved stamp text still places a
+        // visible stamp — comfortable default box instead of a zero rect.
+        if (m_currentNote.mode == ToolMode::Stamp && !m_currentNote.text.isEmpty()) {
+            QRectF r = m_currentNote.rect.normalized();
+            if (r.width() < 2.0 || r.height() < 2.0)
+                r = QRectF(r.topLeft(), QSizeF(150.0, 36.0));
+            m_currentNote.rect = r;
+            // The text was resolved for THIS placement; consume it so a later
+            // manual stamp does not silently reuse a stale author/date.
+            m_pendingStampText.clear();
         }
         m_annotations.append(m_currentNote);
         emit annotationsChanged();

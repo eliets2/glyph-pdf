@@ -56,6 +56,12 @@ public:
     bool deleteObjectAt(int pageIndex, const QPointF &pos);
     bool applyRedactions(int pageIndex, const QList<QRectF> &rects);
 
+    // T2-2 (ITextReplacer): Find & Replace — excise every matched region,
+    // cover it white, draw the replacement at the match origin in the match's
+    // font size (standard-14 Helvetica). See ITextReplacer for the contract.
+    bool replaceTextRegions(const QList<TextReplacementSpec>& specs,
+                            QList<double>* drawnWidthsOut = nullptr);
+
     // Page Geometry & Operations
     bool cropPage(const QString &path, int pageIndex, const QRectF &cropRect);
     QRectF pageCropBox(const QString &path, int pageIndex, bool *ok);
@@ -87,6 +93,10 @@ public:
 
     // Annotation Export
     bool embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations);
+
+    // T2-9 (IOutlineEditor): outline read/write — see IOutlineEditor.
+    QList<OutlineEntry> getOutline(const QString& path);
+    bool replaceOutline(const QString& path, const QList<OutlineEntry>& entries);
 
     // Annotation Import (M6-P4 D4) — reads annotation dictionaries back into
     // AnnotationItem, restoring djotSource from the /PieceInfo /GlyphPDF sidecar
