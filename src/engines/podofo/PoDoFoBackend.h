@@ -51,7 +51,7 @@ public:
                         const QColor &color = Qt::black, bool bold = false,
                         bool italic = false, int alignment = 0);
     bool deleteObjectAt(int pageIndex, const QPointF &pos);
-    bool applyRedactions(int pageIndex, const QList<QRectF> &rects);
+    bool applyRedactions(int pageIndex, const QList<RedactionRegion> &regions, const QString& auditCategory = QString());
 
     // Page Geometry & Operations
     bool cropPage(const QString &path, int pageIndex, const QRectF &cropRect);

@@ -55,8 +55,8 @@ public:
     bool rotateImage(int, const QString &, double) override { return true; }
     bool replaceImage(int, const QString &, const QString &) override { return true; }
     bool deleteImage(int, const QString &) override { return true; }
-    bool applyRedactions(int, const QList<QRectF> &) override { return m_loaded; }
-    bool applyPatternRedactions(const QRegularExpression&, const QList<int>&, const QString&) override { return m_loaded; }
+    bool applyRedactions(int, const QList<RedactionRegion> &, const QString&) override { return m_loaded; }
+    bool applyPatternRedactions(const QRegularExpression&, const QList<int>&, const QString&, const QString&, const QString&) override { return m_loaded; }
     bool embedAnnotations(const QString &, const QString &, const QList<AnnotationItem> &) override { return m_loaded; }
 
     // Page geometry & content injection

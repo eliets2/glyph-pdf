@@ -30,6 +30,9 @@ public:
     // Pre-select "Custom regex" and populate the regex line edit.
     void activateCustomRegex(const QString& initialPattern = {});
 
+signals:
+    void exitRequested();
+
 private slots:
     void onPatternChanged(int index);
     void onRegexTextChanged(const QString& text);
@@ -37,6 +40,9 @@ private slots:
     void onApplyRedactions();
     void onClearMarks();
     void onScopeChanged();
+    void onImportWordList();
+    void onMarkRegionToggled(bool checked);
+    void onMarkAll();
 
 private:
     void buildPatternSection(QWidget* host);
@@ -66,6 +72,10 @@ private:
     QToolButton* m_previewBtn  = nullptr;
     QToolButton* m_applyBtn    = nullptr;
     QToolButton* m_clearBtn    = nullptr;
+
+    QCheckBox*   m_sanitizeCheckbox = nullptr;
+    QLineEdit*   m_overlayTextEdit  = nullptr;
+    QToolButton* m_importWordListBtn = nullptr;
 
     const AppContext*  m_ctx    = nullptr;
     PdfViewerWidget*   m_viewer = nullptr;

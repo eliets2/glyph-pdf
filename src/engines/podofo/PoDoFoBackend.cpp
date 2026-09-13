@@ -1663,7 +1663,7 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
     }
 }
 
-bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
+bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<RedactionRegion> &regions, const QString& auditCategory) {
     QMutexLocker locker(&d->mutex);
     if (!d->document || pageIndex < 0 || (unsigned)pageIndex >= d->document->GetPages().GetCount()) return false;
 
@@ -1685,8 +1685,8 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
         double pageHeight = page.GetMediaBox().Height;
 
         std::vector<PoDoFo::Rect> pdfRects;
-        for (const auto& r : rects) {
-            pdfRects.push_back(PoDoFo::Rect(r.x(), pageHeight - r.y() - r.height(), r.width(), r.height()));
+        for (const auto& r : regions) {
+            pdfRects.push_back(PoDoFo::Rect(r.rect.x(), pageHeight - r.rect.y() - r.rect.height(), r.rect.width(), r.rect.height()));
         }
 
         std::set<int64_t> redactedMcids;
@@ -1747,9 +1747,36 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
 
         PoDoFo::PdfPainter painter;
         painter.SetCanvas(page);
-        painter.GraphicsState.SetNonStrokingColor(PoDoFo::PdfColor(0.0, 0.0, 0.0));
-        for (const auto& r : pdfRects) {
+        
+        PoDoFo::PdfFont* font = nullptr;
+        bool hasText = false;
+        for (const auto& r : regions) {
+            if (!r.overlayText.isEmpty()) hasText = true;
+        }
+        if (hasText) {
+            font = d->document->GetFonts().SearchFont("Helvetica", false, false);
+        }
+
+        for (int i = 0; i < regions.size(); ++i) {
+            const auto& reg = regions[i];
+            const auto& r = pdfRects[i];
+            
+            painter.GraphicsState.SetNonStrokingColor(PoDoFo::PdfColor(0.0, 0.0, 0.0));
             painter.DrawRectangle(r.X, r.Y, r.Width, r.Height, PoDoFo::PdfPathDrawMode::Fill);
+            
+            if (!reg.overlayText.isEmpty() && font) {
+                painter.TextState.SetFont(*font, 10.0);
+                painter.GraphicsState.SetNonStrokingColor(PoDoFo::PdfColor(1.0, 1.0, 1.0));
+                
+                // Simple centering horizontally, and slightly above bottom
+                double textWidth = font->GetStringLength(reg.overlayText.toStdString());
+                double textX = r.X + (r.Width - textWidth) / 2.0;
+                double textY = r.Y + (r.Height - 10.0) / 2.0;
+                if (textX < r.X) textX = r.X + 2.0; // clamp
+                if (textY < r.Y) textY = r.Y + 2.0;
+                
+                painter.DrawText(reg.overlayText.toStdString(), textX, textY);
+            }
         }
         painter.FinishDrawing();
 
@@ -1842,7 +1869,10 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
                 // Identify the document by name only; do NOT store a hash of the
                 // un-redacted source.
                 entry["file"] = QFileInfo(d->currentFile).fileName();
-                entry["region_count"] = static_cast<int>(rects.size());
+                entry["region_count"] = static_cast<int>(regions.size());
+                if (!auditCategory.isEmpty()) {
+                    entry["category"] = auditCategory;
+                }
 
                 QJsonArray ops;
                 ops.append("excised_text_operators");
@@ -1863,8 +1893,8 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
 
         return true;
     } catch (const PoDoFo::PdfError& e) {
-        qCritical() << "SECURITY: Redaction failed on page" << pageIndex << "-" << e.what()
-                    << "— document state may be inconsistent, do NOT save.";
+        d->lastErr.userMessage = QObject::tr("Redaction failed due to an error in the PDF engine.");
+        d->lastErr.systemMessage = e.what();
         return false;
     } catch (const std::exception& e) {
         qCritical() << "SECURITY: General exception during redaction on page" << pageIndex << "-" << e.what();

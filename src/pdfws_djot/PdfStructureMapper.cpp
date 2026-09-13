@@ -71,10 +71,10 @@ static std::string extractPageText(PoDoFo::PdfPage& page)
         };
 
         while (reader.TryReadNext(content)) {
-            if (content.GetType() != PoDoFo::PdfContentType::Operator)
+            if (content.Type != PoDoFo::PdfContentType::Operator)
                 continue;
 
-            const PoDoFo::PdfOperator op = content.GetOperator();
+            const PoDoFo::PdfOperator op = content.Operator;
 
             switch (op) {
             case PoDoFo::PdfOperator::BT:
@@ -88,7 +88,7 @@ static std::string extractPageText(PoDoFo::PdfPage& page)
 
             case PoDoFo::PdfOperator::Tj:
                 if (inTextBlock) {
-                    const auto& stk = content.GetStack();
+                    const auto& stk = content.Stack;
                     if (stk.size() > 0) {
                         const auto& obj = stk[0];
                         if (obj.IsString()) {
@@ -101,7 +101,7 @@ static std::string extractPageText(PoDoFo::PdfPage& page)
 
             case PoDoFo::PdfOperator::TJ:
                 if (inTextBlock) {
-                    const auto& stk = content.GetStack();
+                    const auto& stk = content.Stack;
                     if (stk.size() > 0) {
                         const auto& obj = stk[0];
                         if (obj.IsArray()) {
@@ -123,7 +123,7 @@ static std::string extractPageText(PoDoFo::PdfPage& page)
             case PoDoFo::PdfOperator::DoubleQuote: // " — word/char spacing + newline + show
                 if (inTextBlock) {
                     flushLine();
-                    const auto& stk = content.GetStack();
+                    const auto& stk = content.Stack;
                     // For DoubleQuote the string is the 3rd operand (index 2); for Quote, index 0
                     size_t strIdx = (op == PoDoFo::PdfOperator::DoubleQuote) ? 2 : 0;
                     if (stk.size() > strIdx) {

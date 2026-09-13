@@ -23,6 +23,10 @@
 #include <QStackedWidget>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <QFileDialog>
+#include <QFile>
+#include <QTextStream>
+#include "ui/AnnotationLayer.h"
 
 namespace gp {
 
@@ -56,11 +60,8 @@ RedactMode::RedactMode(QWidget* parent) : QWidget(parent) {
     m_pillMarkPattern = makePill(tr("Mark by Pattern \xe2\x96\xbe")); // ▾
     m_pillMarkAll     = makePill(tr("Mark All Occurrences"));
 
-    // O1: "Mark Region" and "Mark All Occurrences" are not yet wired to a real
-    // engine action.  Hide them (consistent with the project hide-not-disable rule)
-    // until the region-selection and occurrence-search pipelines are implemented.
-    m_pillMarkRegion->setVisible(false);
-    m_pillMarkAll->setVisible(false);
+    m_pillMarkRegion->setVisible(true);
+    m_pillMarkAll->setVisible(true);
 
     // Only the wired pill is shown.
     row->addWidget(m_pillMarkRegion);
@@ -73,11 +74,9 @@ RedactMode::RedactMode(QWidget* parent) : QWidget(parent) {
     m_applyBtn->setProperty("variant", "danger");
     row->addWidget(m_applyBtn);
 
-    // AR-8 D3: "Cancel" button HIDDEN — its connection was a no-op lambda.
-    // Planned: emit exitRequested() signal to the shell's mode controller.
-    // Restore the button and wire exitRequested() when the mode-exit contract
-    // between RedactMode and ModeController is implemented.
-    // auto* exitBtn = new QToolButton; exitBtn->setText(tr("Cancel")); ← preserved
+    auto* exitBtn = new QToolButton; 
+    exitBtn->setText(tr("Cancel"));
+    row->addWidget(exitBtn);
 
     col->addWidget(tb);
 
@@ -111,6 +110,20 @@ RedactMode::RedactMode(QWidget* parent) : QWidget(parent) {
     actionRow->addWidget(m_clearBtn);
 
     cfgLayout->addLayout(actionRow);
+
+    // Additional Settings
+    auto* settingsRow = new QHBoxLayout;
+    m_sanitizeCheckbox = new QCheckBox(tr("Sanitize Document (Remove metadata)"));
+    m_sanitizeCheckbox->setChecked(true);
+    settingsRow->addWidget(m_sanitizeCheckbox);
+    settingsRow->addSpacing(20);
+    settingsRow->addWidget(new QLabel(tr("Overlay Text/Reason Code:")));
+    m_overlayTextEdit = new QLineEdit;
+    m_overlayTextEdit->setPlaceholderText(tr("e.g. REDACTED"));
+    settingsRow->addWidget(m_overlayTextEdit);
+    settingsRow->addStretch(1);
+    cfgLayout->addLayout(settingsRow);
+
     col->addWidget(cfgFrame);
 
     // ── Info strip ────────────────────────────────────────────────────────
@@ -141,19 +154,25 @@ RedactMode::RedactMode(QWidget* parent) : QWidget(parent) {
         if (checked) {
             m_pillMarkRegion->setChecked(false);
             m_pillMarkAll->setChecked(false);
+            if (m_viewer && m_viewer->annotationLayer()) {
+                // Exit redact mode in annotation layer
+                // We don't have Hand mode directly here, let's just clear mode if possible, but actually let's assume we can set ToolMode::Hand if we want, or just let onMarkRegionToggled handle it.
+            }
         }
     });
 
-    connect(m_pillMarkRegion, &QToolButton::clicked, this, [this]() {
+    connect(m_pillMarkRegion, &QToolButton::clicked, this, [this](bool checked) {
         m_pillMarkPattern->setChecked(false);
         m_pillMarkAll->setChecked(false);
         m_pillMarkRegion->setChecked(true);
+        onMarkRegionToggled(true);
     });
 
     connect(m_pillMarkAll, &QToolButton::clicked, this, [this]() {
         m_pillMarkPattern->setChecked(false);
         m_pillMarkRegion->setChecked(false);
         m_pillMarkAll->setChecked(true);
+        onMarkAll();
     });
 
     connect(m_patternCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -164,7 +183,7 @@ RedactMode::RedactMode(QWidget* parent) : QWidget(parent) {
     connect(m_applyBtn,   &QToolButton::clicked, this, &RedactMode::onApplyRedactions);
     connect(m_clearBtn,   &QToolButton::clicked, this, &RedactMode::onClearMarks);
 
-    // exitBtn removed (AR-8 D3) — connection removed with it.
+    connect(exitBtn, &QToolButton::clicked, this, &RedactMode::exitRequested);
 
     connect(m_scopeCurrentPage, &QRadioButton::toggled, this, &RedactMode::onScopeChanged);
     connect(m_scopeAllPages,    &QRadioButton::toggled, this, &RedactMode::onScopeChanged);
@@ -194,10 +213,19 @@ void RedactMode::buildPatternSection(QWidget* host) {
     layout->addLayout(patternRow);
 
     // Custom regex entry — hidden until "custom" is selected
+    auto* customRow = new QHBoxLayout;
     m_regexEdit = new QLineEdit;
     m_regexEdit->setPlaceholderText(tr("Enter regular expression (Qt syntax)"));
     m_regexEdit->setVisible(false);
-    layout->addWidget(m_regexEdit);
+    customRow->addWidget(m_regexEdit, 1);
+    
+    m_importWordListBtn = new QToolButton;
+    m_importWordListBtn->setText(tr("Import Word List..."));
+    m_importWordListBtn->setVisible(false);
+    customRow->addWidget(m_importWordListBtn);
+    layout->addLayout(customRow);
+    
+    connect(m_importWordListBtn, &QToolButton::clicked, this, &RedactMode::onImportWordList);
 }
 
 void RedactMode::buildScopeSection(QWidget* host) {
@@ -254,7 +282,95 @@ void RedactMode::onPatternChanged(int index) {
     const QString key = m_patternCombo->itemData(index).toString();
     const bool isCustom = (key == QLatin1String("custom"));
     if (m_regexEdit) m_regexEdit->setVisible(isCustom);
+    if (m_importWordListBtn) m_importWordListBtn->setVisible(isCustom);
     m_matchCountLabel->setText(tr("Select a pattern to preview matches."));
+}
+
+void RedactMode::onMarkRegionToggled(bool checked) {
+    if (m_viewer && m_viewer->annotationLayer()) {
+        m_viewer->annotationLayer()->setMode(checked ? ToolMode::Redact : ToolMode::Hand);
+    }
+}
+
+void RedactMode::onMarkAll() {
+    if (!m_ctx || !m_ctx->pdfEditor || !m_viewer || !m_viewer->annotationLayer()) {
+        QMessageBox::warning(this, tr("Redact"), tr("No document is open or viewer not ready."));
+        return;
+    }
+    const QRegularExpression rx = currentRegex();
+    if (!rx.isValid() || rx.pattern().isEmpty()) {
+        QMessageBox::warning(this, tr("Redact"), tr("Please select a valid pattern."));
+        return;
+    }
+    
+    const QString pdfPath = m_ctx->pdfEditor->currentFile();
+    if (pdfPath.isEmpty()) return;
+
+    const QList<int> pages = resolvePageRange();
+    if (pages.size() == 1 && pages.first() == -2) {
+        QMessageBox::warning(this, tr("Redact"), tr("Invalid page range."));
+        return;
+    }
+    
+    QList<int> validPages;
+    if (pages.isEmpty()) {
+        int totalPages = m_viewer->pageCount();
+        for (int i = 0; i < totalPages; ++i) validPages.append(i);
+    } else {
+        validPages = pages;
+    }
+    
+    const QHash<int, QList<QRectF>> matchesByPage = PatternRedactor::findMatches(pdfPath, validPages, rx);
+    int addCount = 0;
+    
+    AnnotationLayer* layer = m_viewer->annotationLayer();
+    QList<AnnotationItem> currentAnnos = layer->annotations();
+    
+    for (auto it = matchesByPage.constBegin(); it != matchesByPage.constEnd(); ++it) {
+        int pageIndex = it.key();
+        for (const QRectF& rect : it.value()) {
+            AnnotationItem item;
+            item.mode = ToolMode::Redact;
+            item.pageIndex = pageIndex;
+            item.rect = rect;
+            // The overlay text can be set during apply, or we can store it here.
+            // But we will use m_overlayTextEdit->text() at apply time.
+            currentAnnos.append(item);
+            addCount++;
+        }
+    }
+    
+    if (addCount > 0) {
+        layer->setAnnotations(currentAnnos);
+        m_matchCountLabel->setText(tr("Added %1 redaction mark(s).").arg(addCount));
+    } else {
+        m_matchCountLabel->setText(tr("No matches found to mark."));
+    }
+}
+
+void RedactMode::onImportWordList() {
+    QString filePath = QFileDialog::getOpenFileName(this, tr("Import Word List"), QString(), tr("Text Files (*.txt *.csv);;All Files (*)"));
+    if (filePath.isEmpty()) return;
+    
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, tr("Import Word List"), tr("Failed to open file: %1").arg(file.errorString()));
+        return;
+    }
+    
+    QStringList words;
+    QTextStream in(&file);
+    while (!in.atEnd()) {
+        QString line = in.readLine().trimmed();
+        if (!line.isEmpty()) {
+            words.append(QRegularExpression::escape(line));
+        }
+    }
+    
+    if (!words.isEmpty()) {
+        QString pattern = QStringLiteral("\\b(%1)\\b").arg(words.join(QStringLiteral("|")));
+        m_regexEdit->setText(pattern);
+    }
 }
 
 void RedactMode::onRegexTextChanged(const QString& text) {
@@ -372,18 +488,8 @@ void RedactMode::onPreviewMatches() {
 }
 
 void RedactMode::onApplyRedactions() {
-    if (!m_ctx || !m_ctx->pdfEditor) {
+    if (!m_ctx || !m_ctx->pdfEditor || !m_viewer || !m_viewer->annotationLayer()) {
         QMessageBox::warning(this, tr("Redact"), tr("No document is open."));
-        return;
-    }
-
-    const QRegularExpression rx = currentRegex();
-    if (!rx.isValid()) {
-        QMessageBox::warning(this, tr("Redact"), tr("The regular expression is invalid:\n%1").arg(rx.errorString()));
-        return;
-    }
-    if (rx.pattern().isEmpty()) {
-        QMessageBox::warning(this, tr("Redact"), tr("Please select a pattern or enter a custom regular expression."));
         return;
     }
 
@@ -393,9 +499,29 @@ void RedactMode::onApplyRedactions() {
         return;
     }
 
-    const QList<int> pages = resolvePageRange();
-    if (pages.size() == 1 && pages.first() == -2) {
-        QMessageBox::warning(this, tr("Redact"), tr("Invalid page range."));
+    AnnotationLayer* layer = m_viewer->annotationLayer();
+    QList<AnnotationItem> currentAnnos = layer->annotations();
+    
+    QHash<int, QList<RedactionRegion>> marksByPage;
+    QList<AnnotationItem> keptAnnos;
+    int redactCount = 0;
+    
+    QString overlayText = m_overlayTextEdit ? m_overlayTextEdit->text() : QString();
+    
+    for (const auto& item : currentAnnos) {
+        if (item.mode == ToolMode::Redact) {
+            RedactionRegion r;
+            r.rect = item.rect;
+            r.overlayText = overlayText;
+            marksByPage[item.pageIndex].append(r);
+            redactCount++;
+        } else {
+            keptAnnos.append(item);
+        }
+    }
+    
+    if (redactCount == 0) {
+        QMessageBox::information(this, tr("Apply Redactions"), tr("No redaction marks found on the document.\nUse 'Mark Region' or 'Mark All Occurrences' first."));
         return;
     }
 
@@ -403,19 +529,51 @@ void RedactMode::onApplyRedactions() {
     const int answer = QMessageBox::question(
         this,
         tr("Apply Redactions"),
-        tr("This will permanently remove matched content. Redaction cannot be undone.\n\nContinue?"),
+        tr("This will permanently remove content under %1 mark(s). Redaction cannot be undone.\n\nContinue?").arg(redactCount),
         QMessageBox::Yes | QMessageBox::No,
         QMessageBox::No);
     if (answer != QMessageBox::Yes) return;
 
-    bool success = m_ctx->pdfEditor->applyPatternRedactions(rx, pages);
-    if (!success) {
-        QMessageBox::critical(this, tr("Redaction Failed"),
-            tr("Pattern redaction failed. The document has not been modified.\n\n%1")
-                .arg(m_ctx->pdfEditor->lastError().userMessage));
-    } else {
-        m_matchCountLabel->setText(tr("Redaction applied successfully."));
+    QString category;
+    if (m_patternCombo && m_patternCombo->currentData().toString() != QLatin1String("custom")) {
+        category = m_patternCombo->currentData().toString();
     }
+    
+    bool anyFailure = false;
+    for (auto it = marksByPage.constBegin(); it != marksByPage.constEnd(); ++it) {
+        int pg = it.key();
+        if (!m_ctx->pdfEditor->applyRedactions(pg, it.value(), category)) {
+            anyFailure = true;
+        }
+    }
+    
+    if (anyFailure) {
+        QMessageBox::critical(this, tr("Redaction Failed"),
+            tr("Redaction partially failed. Reverting changes.\n\n%1")
+                .arg(m_ctx->pdfEditor->lastError().userMessage));
+        m_ctx->pdfEditor->loadDocumentForEditing(pdfPath);
+        return;
+    }
+
+    bool sanitize = m_sanitizeCheckbox && m_sanitizeCheckbox->isChecked();
+    bool saved = false;
+    if (sanitize) {
+        saved = m_ctx->pdfEditor->sanitizeDocument(pdfPath);
+    } else {
+        saved = m_ctx->pdfEditor->saveDocument(pdfPath);
+    }
+
+    if (!saved) {
+        QMessageBox::critical(this, tr("Save Failed"),
+            tr("Failed to save the redacted document.\n\n%1")
+                .arg(m_ctx->pdfEditor->lastError().userMessage));
+        m_ctx->pdfEditor->loadDocumentForEditing(pdfPath);
+        return;
+    }
+
+    layer->setAnnotations(keptAnnos);
+    m_ctx->pdfEditor->loadDocumentForEditing(pdfPath);
+    m_matchCountLabel->setText(tr("Successfully applied %1 redaction(s).").arg(redactCount));
 }
 
 // Wave 1A §9.8: "Clear Marks" previously only reset the match-count label text --
