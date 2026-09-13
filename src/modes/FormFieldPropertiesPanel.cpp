@@ -2,10 +2,12 @@
 #include "FormFieldPropertiesPanel.h"
 #include "commands/EditFormFieldCommand.h"
 #include "core/AppContext.h"
+#include "core/FormStaleFieldTracker.h"
 #include "core/interfaces/IFormManager.h"
 
 #include <QCheckBox>
 #include <QFormLayout>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
@@ -68,6 +70,31 @@ FormFieldPropertiesPanel::FormFieldPropertiesPanel(const AppContext* ctx, QWidge
     m_displayPreview->setWordWrap(true);
     m_displayPreview->setVisible(false);
     form->addRow(QString(), m_displayPreview);
+
+    // R18(a): the PERSISTENT stale-calculated-field warning. A cascade failure
+    // leaves the field's committed value in place — the disclosure survives
+    // here (backed by AppContext's FormStaleFieldTracker) until the field
+    // recomputes or the user acknowledges it; it is not a transient dialog.
+    m_staleBanner = new QLabel;
+    m_staleBanner->setStyleSheet("QLabel { color: #b00; font-size: 10px; }");
+    m_staleBanner->setWordWrap(true);
+    m_staleBanner->setVisible(false);
+    form->addRow(QString(), m_staleBanner);
+    auto* staleRow = new QHBoxLayout;
+    m_staleAckBtn = new QToolButton;
+    m_staleAckBtn->setText(tr("Acknowledge — keep the stored value"));
+    m_staleAckBtn->setToolTip(tr("Dismiss the stale-value warning. The field's stored value is "
+                                 "unchanged; it will keep not recomputing until its script runs "
+                                 "successfully."));
+    m_staleAckBtn->setVisible(false);
+    staleRow->addStretch(1);
+    staleRow->addWidget(m_staleAckBtn);
+    connect(m_staleAckBtn, &QToolButton::clicked, this, [this] {
+        if (m_ctx && m_ctx->formStale && m_ctx->document && !m_fieldName.isEmpty())
+            m_ctx->formStale->acknowledge(m_ctx->document->path(), m_fieldName);
+        refreshScriptState();
+    });
+    form->addRow(QString(), staleRow);
 
     m_placeholderEdit = new QLineEdit;
     m_placeholderEdit->setPlaceholderText(tr("Placeholder text"));
@@ -138,6 +165,8 @@ void FormFieldPropertiesPanel::clearFields()
     m_regexStatus->setVisible(false);
     m_scriptBadge->setVisible(false);
     m_displayPreview->setVisible(false);
+    if (m_staleBanner) m_staleBanner->setVisible(false);
+    if (m_staleAckBtn) m_staleAckBtn->setVisible(false);
 }
 
 void FormFieldPropertiesPanel::refreshScriptState()
@@ -147,7 +176,26 @@ void FormFieldPropertiesPanel::refreshScriptState()
     if (m_fieldName.isEmpty() || path.isEmpty() || !m_ctx || !m_ctx->forms) {
         m_scriptBadge->setVisible(false);
         m_displayPreview->setVisible(false);
+        if (m_staleBanner) m_staleBanner->setVisible(false);
+        if (m_staleAckBtn) m_staleAckBtn->setVisible(false);
         return;
+    }
+
+    // R18(a): the stale warning is derived from the session tracker on EVERY
+    // refresh — it survives panel rebuilds and document switches and clears
+    // only when the field recomputes (the tracker's replace rule) or the user
+    // acknowledges it.
+    if (m_ctx->formStale && m_staleBanner && m_staleAckBtn) {
+        const bool stale = m_ctx->formStale->isStale(path, m_fieldName);
+        if (stale) {
+            m_staleBanner->setText(tr("STALE VALUE WARNING: the last calculation run did not "
+                                      "update this field (%1). The value shown is the field's "
+                                      "stored value and may be out of date relative to the "
+                                      "fields it is calculated from.").arg(
+                                       m_ctx->formStale->staleReason(path, m_fieldName)));
+        }
+        m_staleBanner->setVisible(stale);
+        m_staleAckBtn->setVisible(stale);
     }
 
     const bool calculated = m_ctx->forms->fieldHasCalculateScript(path, m_fieldName);
@@ -204,15 +252,28 @@ void FormFieldPropertiesPanel::onApplyClicked()
         newProps,
         &jsFailures
     );
+    // The stack deletes an obsolete (failed) command during push — the count
+    // tells the two cases apart: pushed+applied (the tracker consumes the
+    // cascade outcome) vs failed (nothing was recomputed; the previous stale
+    // state stays).
+    const int stackCountBefore = m_ctx->undoStack->count();
     m_ctx->undoStack->push(cmd);
+    const bool commandApplied = m_ctx->undoStack->count() == stackCountBefore + 1;
 
     const QString applied = newProps.name.isEmpty() ? m_fieldName : newProps.name;
     m_fieldName = applied;
     emit propertiesApplied(applied);
     emit geometryCommitted(fieldRect());
 
+    // R18(a): commit path → the tracker records the cascade outcome. A failed
+    // edit changed nothing on disk, so the previous stale state stays truthful.
+    if (commandApplied && m_ctx->formStale && m_ctx->document)
+        m_ctx->formStale->applyCascadeOutcome(m_ctx->document->path(), jsFailures);
+
     // Phase-1 form-JS honesty contract: the edit persisted, but calculated
     // fields whose scripts failed are named — never a silent wrong value.
+    // The persistent banner (refreshScriptState) carries the same disclosure
+    // until the field recomputes or the user acknowledges it.
     if (!jsFailures.isEmpty()) {
         QStringList lines;
         for (const FormJsFailure& f : jsFailures)

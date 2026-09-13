@@ -252,7 +252,11 @@ void TestFormSafety::setTabOrderSameFileNoLeftovers() {
     QVERIFY(pdfHasField(pdf, QStringLiteral("field_b")));
     QVERIFY(pdfHasField(pdf, QStringLiteral("field_c")));
 
-    // /CO must list the ordered refs first (validated on a fresh load).
+    // R18(b): the change-presence check is the WIDGET TAB ORDER (/Annots +
+    // /Tabs /W) — the old pin asserted that setTabOrder wrote /CO, which was
+    // exactly the tab-order/calculation-order conflation the review required
+    // correcting. This document never had a /CO array; the tab edit must not
+    // have created one.
     try {
         PoDoFo::PdfMemDocument doc;
         doc.Load(pdf.toUtf8().constData());
@@ -262,16 +266,19 @@ void TestFormSafety::setTabOrderSameFileNoLeftovers() {
         for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i)
             refMap[acroForm->GetFieldAt(i).GetFullName()] =
                 (acroForm->GetFieldAt(i).GetObject)().GetIndirectReference();
-        const PoDoFo::PdfObject* co =
-            acroForm->GetDictionary().FindKey("CO");
-        QVERIFY2(co && co->IsArray(), "/CO array must exist after setTabOrder");
-        QCOMPARE(co->GetArray().GetSize(), refMap.size());
-        // First three /CO entries must be field_a, field_b, field_c in order.
+        const PoDoFo::PdfObject* co = acroForm->GetDictionary().FindKey("CO");
+        QVERIFY2(!co, "/CO (calculation order) must NOT be written by a tab-order edit");
+
+        // Page 0's /Annots must carry the requested widget order and declare
+        // /Tabs /W (this page had no author tab-order declaration).
+        const PoDoFo::PdfObject* annots = doc.GetPages().GetPageAt(0).GetDictionary().FindKey("Annots");
+        QVERIFY2(annots && annots->IsArray(), "page 0 must still carry its widget annotations");
         const QStringList expected = {QStringLiteral("field_a"),
                                       QStringLiteral("field_b"),
                                       QStringLiteral("field_c")};
+        QVERIFY2(annots->GetArray().GetSize() >= 3, "all three widgets survive");
         for (unsigned i = 0; i < 3; ++i) {
-            const PoDoFo::PdfObject& entry = co->GetArray()[i];
+            const PoDoFo::PdfObject& entry = annots->GetArray()[i];
             QVERIFY(entry.IsReference());
             bool matched = false;
             for (const auto& kv : refMap) {
@@ -281,8 +288,13 @@ void TestFormSafety::setTabOrderSameFileNoLeftovers() {
                     break;
                 }
             }
-            QVERIFY2(matched, "/CO entry must reference a known field");
+            QVERIFY2(matched, "/Annots entry must reference a known field");
         }
+        const PoDoFo::PdfObject* tabs = doc.GetPages().GetPageAt(0).GetDictionary().FindKey("Tabs");
+        QVERIFY2(tabs && tabs->IsName(), "the touched page declares a tab order");
+        QCOMPARE(QLatin1String(tabs->GetName().GetString().data(),
+                               qsizetype(tabs->GetName().GetString().size())),
+                 QLatin1String("W"));
     } catch (const PoDoFo::PdfError& e) {
         QFAIL(qPrintable(QStringLiteral("reload failed: %1").arg(QString::fromLatin1(e.what()))));
     }

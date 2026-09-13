@@ -231,12 +231,39 @@ CascadeReport FormJsRunner::runCalculateCascade(PoDoFo::PdfMemDocument& doc,
         const size_t coSize = coOrder.size();
         size_t guard = coSize * 2 + 8;
 
+        // R18(a): a failure BEFORE the first field ran (sandbox unavailable,
+        // shim or snapshot install refused) leaves EVERY calculated field at
+        // its committed value — the same honest "skipped" disclosure an
+        // aborted cascade produces, so the stale-field warning surface names
+        // them all instead of only reporting an anonymous engine error.
+        const auto discloseAllUnreached = [&]() {
+            std::set<std::string> disclosed;
+            for (const auto& ref : coOrder) {
+                const std::string key = ref.ToString();
+                if (!disclosed.insert(key).second) continue;
+                const auto it = byRef.find(key);
+                if (it == byRef.end()) continue;
+                PoDoFo::PdfField* field = it->second;
+                QString skippedScript;
+                if (!extractActionScript(*field, 'C', &skippedScript, nullptr))
+                    continue; // no runnable calculate action — nothing to disclose
+                FieldJsFailure f;
+                f.fieldName = QString::fromStdString(field->GetFullName());
+                f.kind = QStringLiteral("skipped");
+                f.reason = QStringLiteral("the calculate cascade could not start; this field was "
+                                          "not recalculated and its stored value may be stale "
+                                          "(see the preceding failure for the reason)");
+                report.failures.append(f);
+            }
+        };
+
         FormJsSandbox sandbox;
         if (!sandbox.isValid()) {
             FieldJsFailure f;
             f.kind = QStringLiteral("engine");
             f.reason = QStringLiteral("quickjs runtime is unavailable in this build");
             report.failures.append(f);
+            discloseAllUnreached();
             report.engineAborted = true;
             return report;
         }
@@ -246,6 +273,7 @@ CascadeReport FormJsRunner::runCalculateCascade(PoDoFo::PdfMemDocument& doc,
             f.kind = QStringLiteral("engine");
             f.reason = shimError;
             report.failures.append(f);
+            discloseAllUnreached();
             report.engineAborted = true;
             return report;
         }
@@ -259,6 +287,7 @@ CascadeReport FormJsRunner::runCalculateCascade(PoDoFo::PdfMemDocument& doc,
             f.reason = QStringLiteral("the form value snapshot could not be installed; no field was calculated: %1")
                            .arg(snapshotError);
             report.failures.append(f);
+            discloseAllUnreached();
             report.engineAborted = true;
             return report;
         }
