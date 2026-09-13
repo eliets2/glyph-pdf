@@ -18,6 +18,7 @@
 #include "shell/controllers/ConvertController.h"
 #include "shell/controllers/FormsController.h"
 #include "shell/controllers/SecurityController.h"
+#include "shell/controllers/TaskNavController.h"   // R15: task-surface routes
 
 class TestRibbonIntegrity : public QObject {
     Q_OBJECT
@@ -34,9 +35,10 @@ private slots:
         gp::ConvertController  convert(&m_ctx, nullptr);
         gp::FormsController    forms(&m_ctx, nullptr);
         gp::SecurityController security(&m_ctx, nullptr);
+        gp::TaskNavController  taskNav(&m_ctx, nullptr);   // R15: task-surface routes
 
         QVector<IToolController*> controllers = {
-            &home, &view, &edit, &pages, &convert, &forms, &security
+            &home, &view, &edit, &pages, &convert, &forms, &security, &taskNav
         };
 
         // Collect all ToolIds that have at least one controller
@@ -83,6 +85,52 @@ private slots:
             qPrintable("Ribbon integrity failures:\n  " + failures.join("\n  ")));
     }
 
+    void testPlannedSpecsAreDisclosedAndCovered() {
+        // R15 (PP06/UI01): every planned entry must (a) carry a non-empty
+        // truthful reason AND a non-empty supported alternative, (b) actually
+        // appear in the ribbon model (no orphan specs), and (c) NOT resolve to
+        // a controller handler (promoted entries leave the table with their
+        // wiring commit).
+        gp::HomeController     home(&m_ctx, nullptr);
+        gp::ViewController     view(&m_ctx, nullptr);
+        gp::EditController     edit(&m_ctx, nullptr);
+        gp::PagesController    pages(&m_ctx, nullptr);
+        gp::ConvertController  convert(&m_ctx, nullptr);
+        gp::FormsController    forms(&m_ctx, nullptr);
+        gp::SecurityController security(&m_ctx, nullptr);
+        gp::TaskNavController  taskNav(&m_ctx, nullptr);
+
+        QSet<ToolId> handled;
+        const QVector<IToolController*> controllers = {
+            &home, &view, &edit, &pages, &convert, &forms, &security, &taskNav
+        };
+        for (auto* ctrl : controllers)
+            for (ToolId id : ctrl->handledTools())
+                handled.insert(id);
+
+        QSet<QString> ribbonIds;
+        for (const auto& tab : gp::RibbonModel::tabs())
+            for (const auto& grp : tab.groups)
+                for (const auto& tool : grp.tools)
+                    ribbonIds.insert(tool.id);
+
+        QStringList failures;
+        for (const auto& spec : gp::RibbonModel::plannedToolSpecs()) {
+            if (spec.reason.trimmed().isEmpty() || spec.alternative.trimmed().isEmpty())
+                failures << QString("Planned entry '%1' must carry a reason AND an alternative")
+                                    .arg(spec.id);
+            if (!ribbonIds.contains(spec.id))
+                failures << QString("Planned entry '%1' does not appear in the ribbon model")
+                                    .arg(spec.id);
+            const auto optId = toolIdFromString(spec.id);
+            if (optId.has_value() && handled.contains(optId.value()))
+                failures << QString("Planned entry '%1' resolves to a wired controller — "
+                                    "remove it from plannedToolSpecs()").arg(spec.id);
+        }
+        QVERIFY2(failures.isEmpty(),
+            qPrintable("Planned-spec failures:\n  " + failures.join("\n  ")));
+    }
+
     void testCloudOrphansNotInRibbon() {
         // UX-02: sendForm, collect, submit, auditLog, dlp, policy must not appear
         // anywhere in the ribbon — they were removed as cloud-orphans in R2-4.
@@ -116,9 +164,10 @@ private slots:
         gp::ConvertController  convert(&m_ctx, nullptr);
         gp::FormsController    forms(&m_ctx, nullptr);
         gp::SecurityController security(&m_ctx, nullptr);
+        gp::TaskNavController  taskNav(&m_ctx, nullptr);   // R15: task-surface routes
 
         QVector<IToolController*> controllers = {
-            &home, &view, &edit, &pages, &convert, &forms, &security
+            &home, &view, &edit, &pages, &convert, &forms, &security, &taskNav
         };
 
         QSet<ToolId> handled;

@@ -3,10 +3,14 @@
 #include <QMenuBar>
 #include <QString>
 #include <QList>
+#include <QPair>
 
 class QMenu;
+class QAction;
 
 namespace gp {
+
+class ToolRegistry;
 
 /// How a menu action's toolId is dispatched. Mirrors the ribbon's
 /// planned-vs-wired gating so TestMenuBarIntegrity can verify that no menu item
@@ -38,6 +42,13 @@ public:
     /** Rebuild the recent files submenu from QSettings. */
     void refreshRecentFiles();
 
+    // ── R15 (UI02): menu/ribbon/shortcut share ONE command state ──
+    // Called once by MainWindow after the controllers are registered (the menu
+    // is constructed before the registry exists). Every Registry-dispatched
+    // item then mirrors the canonical QAction's enablement, so the menu can
+    // never disagree with the ribbon or the dispatch boundary.
+    void bindToolRegistry(ToolRegistry* registry);
+
     /// Every actionable menu item, with its dispatch classification. Single
     /// source of truth shared by the constructor and the integrity test.
     static const QList<MenuActionSpec>& actionSpecs();
@@ -49,5 +60,8 @@ public:
 
 private:
     QMenu* m_recentMenu = nullptr;
+    // R15: (toolId, action) for every Registry-dispatched item, in creation
+    // order; bindToolRegistry() walks it. objectName "menu-<toolId>".
+    QList<QPair<QString, QAction*>> m_registryActions;
 };
 } // namespace gp

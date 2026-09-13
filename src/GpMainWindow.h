@@ -33,6 +33,7 @@ class PagesController;
 class ConvertController;
 class FormsController;
 class SecurityController;
+class TaskNavController;
 class ToolRegistry;
 class TaskStateSync;
 
@@ -49,6 +50,8 @@ public:
 
     PdfViewerWidget* pdfViewer() const;
     StatusBar* statusBar() const { return _status; }
+    // R15: the canonical command registry (ribbon/menu binding + test seams).
+    ToolRegistry* toolRegistry() const { return _toolRegistry; }
 
     void openDocument(const QString& filePath);
     void recoverDocument(const QString& originalPath);
@@ -103,6 +106,10 @@ public:
     void showWelcome();
     void showWorkspace();
 
+    // R15: route a View-panes entry to its sidebar pane ("pages", "bookmarks",
+    // "comments" on the left; "layers" on the right). Unknown names are ignored.
+    void showSidebarPane(const QString& pane);
+
 public slots:
     void onScreenSelected(const QString& id);
     void toggleTheme();
@@ -136,6 +143,7 @@ private:
     ConvertController*  _convert = nullptr;
     FormsController*    _forms = nullptr;
     SecurityController* _security = nullptr;
+    TaskNavController*  _taskNavCtrl = nullptr;   // R15: promoted task-surface routes
     ToolRegistry*       _toolRegistry = nullptr;
 
     MenuBar*        _menu        = nullptr;

@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "MenuBar.h"
+#include "ToolRegistry.h"
 #include "modes/PagesMode.h"
 #include "GpMainWindow.h"
 #include "ui/PdfViewerWidget.h"
 #include "ui/ShortcutHelpDialog.h"
 #include "ui/PreferencesDialog.h"
 #include "core/UpdateChecker.h"
+#include "core/ToolId.h"
 #include <QAction>
 #include <QMenu>
 #include <QMessageBox>
@@ -86,8 +88,10 @@ const QList<MenuActionSpec>& MenuBar::actionSpecs() {
         { "compare",      MenuDispatch::Local    },
         { "compress",     MenuDispatch::Registry },
         { "watermark",    MenuDispatch::Registry },
-        { "measure-dist", MenuDispatch::Disabled },  // ribbon: "measure"/"distance"
-        { "measure-area", MenuDispatch::Disabled },  // ribbon: "area"
+        // R15 (T1 route): the Measure task panel owns distance/area — the
+        // entries were previously Disabled although the capability shipped.
+        { "distance",     MenuDispatch::Registry },  // → Measure task panel
+        { "area",         MenuDispatch::Registry },  // → Measure task panel
 
         // ── Comments ──
         { "highlight",       MenuDispatch::Registry },
@@ -172,7 +176,7 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
     auto* mainWindow = qobject_cast<MainWindow*>(parent);
     if (!mainWindow) return;
 
-    auto addActionToMenu = [mainWindow](QMenu* menu, const QString& label, const QString& toolId,
+    auto addActionToMenu = [this, mainWindow](QMenu* menu, const QString& label, const QString& toolId,
                                         const QKeySequence& shortcut = QKeySequence(),
                                         bool checkable = false, bool checked = false) {
         auto* action = menu->addAction(label);
@@ -192,6 +196,11 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
             action->setStatusTip(tr("Planned for a future release."));
             return action;
         }
+
+        // R15 (UI02): registry-dispatched items carry the canonical toolId so
+        // bindToolRegistry() can mirror the ONE enablement predicate onto them.
+        action->setObjectName(QStringLiteral("menu-") + toolId);
+        m_registryActions.append({toolId, action});
 
         connect(action, &QAction::triggered, mainWindow, [mainWindow, toolId, action]() {
             if (toolId == "find" || toolId == "find-replace") {
@@ -358,8 +367,8 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
     addActionToMenu(toolsMenu, tr("&Watermark…"), "watermark");
     addActionToMenu(toolsMenu, tr("Set E&xpiry Date…"), "expiry-date");
     toolsMenu->addSeparator();
-    addActionToMenu(toolsMenu, tr("Measure &Distance"), "measure-dist");
-    addActionToMenu(toolsMenu, tr("Measure &Area"), "measure-area");
+    addActionToMenu(toolsMenu, tr("Measure &Distance"), "distance");
+    addActionToMenu(toolsMenu, tr("Measure &Area"), "area");
 
     // ==========================================
     // 6. COMMENTS MENU
@@ -453,6 +462,26 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
     addActionToMenu(helpMenu, tr("Check for &Updates…"), "updates");
     helpMenu->addSeparator();
     addActionToMenu(helpMenu, tr("&About Glyph PDF"), "about");
+}
+
+void MenuBar::bindToolRegistry(ToolRegistry* registry)
+{
+    if (!registry) return;
+    // R15 (UI02): mirror the canonical enablement onto every Registry item.
+    // The canonical QAction re-queries its controller (EditPolicy predicate)
+    // whenever the session state changes, so menu, ribbon and shortcut states
+    // are three views of ONE command identity, never divergent maps.
+    for (const auto& entry : m_registryActions) {
+        const QString& toolId = entry.first;
+        QAction* action = entry.second;
+        if (!action) continue;
+        const auto optId = toolIdFromString(toolId);
+        if (!optId.has_value()) continue;   // guarded by TestMenuBarIntegrity
+        QAction* canon = registry->actionFor(optId.value());
+        if (!canon) continue;
+        action->setEnabled(canon->isEnabled());
+        connect(canon, &QAction::enabledChanged, action, &QAction::setEnabled);
+    }
 }
 
 void MenuBar::refreshRecentFiles() {

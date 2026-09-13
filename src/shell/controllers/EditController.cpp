@@ -81,6 +81,10 @@ bool EditController::isEnabled(ToolId id) const {
 QList<ToolId> EditController::handledTools() const {
     return {
         ToolId::Search, ToolId::Ocr,
+        // R15 (PP06): the T2-2 Find & Replace dialog is the real route for the
+        // ribbon's Find & Replace / Regex entries (the regex / match-case /
+        // whole-word options live in that dialog).
+        ToolId::FindReplace,
         ToolId::EditText, ToolId::Hand, ToolId::Select,
         ToolId::SelectObject, ToolId::EditObject,
         ToolId::Highlight, ToolId::Underline, ToolId::Strikeout, ToolId::Squiggly,
@@ -136,6 +140,11 @@ void EditController::activate(ToolId id) {
     switch (id) {
     case ToolId::Search:
         _mainWindow->toggleFindBar();
+        break;
+    case ToolId::FindReplace:
+        // R15: the dedicated T2-2 dialog (same production surface the
+        // Edit > Find & Replace menu item and Ctrl+H use).
+        _mainWindow->showFindReplaceDialog();
         break;
     case ToolId::Ocr:
         runOcr();
