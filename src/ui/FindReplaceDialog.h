@@ -61,6 +61,12 @@ public:
 private:
     void updateScopeEnabled();
 
+    // WP-R07: non-empty when the SELECTED scope cannot be honored (malformed
+    // range, range entirely outside the document, out-of-range current page).
+    // The dialog refuses the scope explicitly instead of silently widening it
+    // to the whole document (an empty page list means "all pages" downstream).
+    QString scopeRefusal() const;
+
     QLineEdit* m_search = nullptr;
     QLineEdit* m_replace = nullptr;
     QCheckBox* m_matchCase = nullptr;

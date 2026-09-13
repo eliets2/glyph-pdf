@@ -470,6 +470,67 @@ private slots:
                  "WP-R07: no geometry breakdown for an outcome that never committed");
     }
 
+    // WP-R07: an unusable scope must be refused EXPLICITLY. An empty page
+    // list flows downstream as "all pages", so a malformed range (or one that
+    // lies entirely outside the document) must never silently widen the
+    // mutation to the whole document — the dialog refuses in plain text and
+    // the invoker is never called for the refused scope.
+    void unusableRangeIsRefusedInsteadOfWideningScope() {
+        const QString path = createThreePagePdf(m_tmpDir, QStringLiteral("dialog_range_refusal.pdf"));
+        QVERIFY2(!path.isEmpty(), "PDF creation failed");
+
+        FindReplaceDialog dlg;
+        int calls = 0;
+        ReplaceOptions captured;
+        dlg.setDocumentContext(path, 3, 2,
+            [&](const ReplaceOptions& o) {
+                ++calls;
+                captured = o;
+                ReplaceOutcome out;
+                out.ok = true;
+                return out;
+            });
+
+        auto* search = dlg.findChild<QLineEdit*>(QStringLiteral("frSearch"));
+        auto* scope = dlg.findChild<QComboBox*>(QStringLiteral("frScope"));
+        auto* range = dlg.findChild<QLineEdit*>(QStringLiteral("frRange"));
+        auto* replaceAll = dlg.findChild<QPushButton*>(QStringLiteral("frReplaceAll"));
+        QVERIFY(search && scope && range && replaceAll);
+        search->setText(QStringLiteral("alpha"));
+        scope->setCurrentIndex(2);
+
+        // Garbage range text must be refused, not counted over all pages.
+        range->setText(QStringLiteral("abc"));
+        dlg.recount();
+        QVERIFY2(dlg.matchSummaryText().contains(QStringLiteral("refused")),
+                 qPrintable(QStringLiteral("malformed range must be refused; got: ")
+                            + dlg.matchSummaryText()));
+
+        // A range entirely outside the 3-page document: the same refusal, and
+        // Replace All must not fall back to the whole document.
+        range->setText(QStringLiteral("9-9"));
+        dlg.recount();
+        QVERIFY2(dlg.matchSummaryText().contains(QStringLiteral("refused")),
+                 qPrintable(QStringLiteral("out-of-document range must be refused; got: ")
+                            + dlg.matchSummaryText()));
+        replaceAll->click();
+        QCOMPARE(calls, 0);
+        QVERIFY2(dlg.outcomeText().contains(QStringLiteral("refused")),
+                 qPrintable(QStringLiteral("the refusal must be shown in the outcome; got: ")
+                            + dlg.outcomeText()));
+
+        // A VALID range still goes through — the refusal is not sticky — and
+        // the invoked scope is exactly the requested 0-based page.
+        range->setText(QStringLiteral("2-2"));
+        dlg.recount();
+        QVERIFY2(!dlg.matchSummaryText().contains(QStringLiteral("refused")),
+                 qPrintable(dlg.matchSummaryText()));
+        replaceAll->click();
+        QCOMPARE(calls, 1);
+        QCOMPARE(captured.pages.size(), 1);
+        QCOMPARE(captured.pages.first(), 1);
+    }
+
 private:
     static bool page2Contains(PdfiumBackend& reader, const QString& needle) {
         return reader.extractText(2).contains(needle, Qt::CaseInsensitive);

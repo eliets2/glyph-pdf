@@ -153,10 +153,44 @@ ReplaceOptions FindReplaceDialog::currentOptions() const {
     return options;
 }
 
+// WP-R07: an unusable scope must be REFUSED explicitly — an empty page list
+// means "all pages" downstream, so a malformed (or entirely out-of-document)
+// range must never flow through as one. The dialog says no in plain text and
+// leaves the document alone.
+QString FindReplaceDialog::scopeRefusal() const {
+    const int scope = m_scope ? m_scope->currentIndex() : 0;
+    if (scope == 1) {
+        if (m_pageCount > 0 && (m_currentPage < 1 || m_currentPage > m_pageCount))
+            return tr("The current page (page %1) is outside this %2-page document — replace scope refused.")
+                        .arg(m_currentPage).arg(m_pageCount);
+        return QString();
+    }
+    if (scope == 2) {
+        const QString range = m_range ? m_range->text() : QString();
+        const QRegularExpression rx(QStringLiteral("^\\s*(\\d+)\\s*-\\s*(\\d+)\\s*$"));
+        const auto m = rx.match(range);
+        if (!m.hasMatch())
+            return tr("The page range must look like 2-5 — replace scope refused.");
+        int a = m.captured(1).toInt();
+        int b = m.captured(2).toInt();
+        if (a > b) std::swap(a, b);
+        if (m_pageCount > 0 && (b < 1 || a > m_pageCount))
+            return tr("The page range %1 is outside this %2-page document — replace scope refused.")
+                        .arg(range.simplified()).arg(m_pageCount);
+        return QString();
+    }
+    return QString();
+}
+
 void FindReplaceDialog::recount() {
     if (!m_matchSummary) return;
     if (m_docPath.isEmpty()) {
         m_matchSummary->setText(tr("No document is open."));
+        return;
+    }
+    const QString refusal = scopeRefusal();
+    if (!refusal.isEmpty()) {
+        m_matchSummary->setText(refusal);
         return;
     }
     ReplaceOptions options = currentOptions();
@@ -187,6 +221,12 @@ QString FindReplaceDialog::matchSummaryText() const {
 
 void FindReplaceDialog::applyReplace() {
     if (!m_invoker) return;
+    const QString refusal = scopeRefusal();
+    if (!refusal.isEmpty()) {
+        m_outcome = refusal;
+        if (m_details) m_details->setPlainText(refusal);
+        return;
+    }
     const ReplaceOutcome out = m_invoker(currentOptions());
     m_outcome = out.message;
     if (m_details) {
