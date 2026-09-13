@@ -813,6 +813,7 @@ target_link_libraries(pdfws_commands
 add_library(pdfws_ui STATIC
     src/ui/PdfViewerWidget.h         src/ui/PdfViewerWidget.cpp
     src/ui/EditAnnotationCommand.h   src/ui/EditAnnotationCommand.cpp
+    src/ui/PrintJob.h                src/ui/PrintJob.cpp
 
     src/ui/WelcomeWidget.h           src/ui/WelcomeWidget.cpp
     src/ui/FindBar.h                 src/ui/FindBar.cpp
@@ -3342,6 +3343,27 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEncryptedPackageSafeWrite.cpp")
     )
     add_test(NAME TestEncryptedPackageSafeWrite COMMAND TestEncryptedPackageSafeWrite)
     set_tests_properties(TestEncryptedPackageSafeWrite PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 300 LABELS "unit;export;safesave;shell;headless")
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPrintJob.cpp")
+    add_executable(TestPrintJob
+        tests/TestPrintJob.cpp
+        src/ui/PrintJob.cpp
+    )
+    target_include_directories(TestPrintJob PRIVATE src tests)
+    target_link_libraries(TestPrintJob PRIVATE
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf Qt6::PrintSupport
+    )
+    add_custom_command(TARGET TestPrintJob POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestPrintJob>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestPrintJob>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestPrintJob"
+    )
+    add_test(NAME TestPrintJob COMMAND TestPrintJob)
+    set_tests_properties(TestPrintJob PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 300 LABELS "unit;print;ui;headless")
 endif()
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCleanupCli.cpp")
