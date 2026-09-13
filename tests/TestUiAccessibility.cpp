@@ -8,9 +8,10 @@
 // Contract pinned here (real MainWindow + Bootstrapper, offscreen):
 //   - the CORE routes are keyboard-complete: open (Ctrl+O menu shortcut),
 //     navigate (PageUp/PageDown/Home/End on the Tab-reachable canvas),
-//     edit (Space activates the focused ribbon tool), save (Ctrl+S),
-//     export surfaces (Ctrl+H opens Find & Replace), F6 cycles the major
-//     regions;
+//     edit (Space activates the focused ribbon tool), save (Ctrl+S via
+//     delivered key events), find & replace (Ctrl+H opens the dialog),
+//     F6 cycles the major regions; (no export workflow is keyboard-pinned
+//     here — see TestUiAccessibility note in the ledger)
 //   - the production RTL toggle mirrors the workspace (sidebars swap sides)
 //     and restores;
 //   - CJK text resolves a font that can actually render the glyphs;
@@ -30,6 +31,7 @@
 #include <QPainter>
 #include <QPushButton>
 #include <QSettings>
+#include <QSignalSpy>
 #include <QToolButton>
 #include <QWidget>
 #include <QFileDialog>
@@ -211,12 +213,17 @@ private slots:
         QAction* save = menuAction(*m_win, "save");
         QVERIFY(save);
         QCOMPARE(save->shortcut(), QKeySequence::Save);
-        // The read-only refusal for the same route is pinned by
-        // TestReadOnlyGate / TestCommandBinding; here the contract is the
-        // discoverable standard shortcut on the shared action.
+        // r15-F2: the shortcut must be DELIVERABLE — the real key sequence
+        // on the focused window fires the shared action (the read-only
+        // refusal for the same route is pinned by TestReadOnlyGate /
+        // TestCommandBinding).
+        QSignalSpy fired(save, &QAction::triggered);
+        QVERIFY(fired.isValid());
+        QTest::keySequence(m_win.get(), QKeySequence::Save);
+        QTRY_COMPARE(fired.count(), 1);
     }
 
-    // ── Export surface: Ctrl+H opens Find & Replace ──────────────────────────
+    // ── Find & Replace route: Ctrl+H opens the dialog (key delivery) ────────
     void keyboardFindReplaceShortcutOpensTheDialog()
     {
         QTemporaryDir dir;
@@ -228,7 +235,8 @@ private slots:
         QAction* fr = menuAction(*m_win, "find-replace");
         QVERIFY(fr);
         QVERIFY(fr->shortcut() == QKeySequence(Qt::CTRL | Qt::Key_H));
-        fr->trigger();
+        // r15-F2: deliver the actual shortcut keys (not trigger()).
+        QTest::keySequence(m_win.get(), QKeySequence(Qt::CTRL | Qt::Key_H));
         auto* dlg = m_win->findChild<FindReplaceDialog*>();
         QVERIFY(dlg && dlg->isVisible());
         dlg->close();

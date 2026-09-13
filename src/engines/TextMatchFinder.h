@@ -5,6 +5,7 @@
 #include <QRectF>
 #include <QRegularExpression>
 #include <QString>
+#include <atomic>
 
 // ── T2-2: Find & Replace matcher ────────────────────────────────────────────
 //
@@ -44,15 +45,41 @@ public:
     static QRegularExpression buildPattern(const QString& search, bool matchCase,
                                            bool wholeWords, bool useRegex);
 
+    // packa-F4: cooperative budget for ONE findMatches job (all pages).
+    //
+    // HONEST bound contract — do not overstate it:
+    //   * a SINGLE QRegularExpression (PCRE2) match cannot be interrupted
+    //     from this synchronous API. It is bounded only by the page-text
+    //     input cap (256 KB below) and PCRE2's internal match/depth limits,
+    //     which make a pathological pattern FAIL the match rather than spin
+    //     forever — but a single attempt can still cost seconds.
+    //   * `cancelled` and `deadlineMs` stop the scan BETWEEN matches and
+    //     BETWEEN pages; with them, findMatches returns PARTIAL results.
+    //     Callers must never present the deadline as a wall-clock guarantee
+    //     for the whole call.
+    // `cancelled` is atomic so a future dispatch layer may flip it from any
+    // thread — no hidden workers are created here.
+    struct MatchBudget {
+        qint64 deadlineMs = 1500;   // per JOB (was per page before packa-F4)
+        std::atomic_bool cancelled{false};
+        bool shouldStop(qint64 elapsedNs) const {
+            return cancelled.load(std::memory_order_relaxed)
+                || elapsedNs > deadlineMs * 1000000;
+        }
+    };
+
     // Find every match of `pattern` on the given 0-based pages, parsing the
     // PDF exactly once. Pages with no matches are omitted from the result.
-    // Coordinates are Qt top-left user space. Matching is ReDoS-bounded
-    // (input length cap + wall-clock budget per page, mirroring
-    // PatternRedactor::matchChars) — a pathological pattern yields partial
-    // results with a qWarning, never a hang.
+    // Coordinates are Qt top-left user space. ReDoS bounding (see
+    // MatchBudget for the exact, honest limits): the input cap bounds each
+    // single PCRE2 attempt; the job-scoped deadline and cancellation flag
+    // stop the scan between matches/pages — a pathological pattern yields
+    // PARTIAL results with a qWarning, and callers must not advertise a
+    // hard wall-clock bound (packa-F4 honesty rule).
     static QList<TextMatch> findMatches(const QString& pdfPath,
                                         const QList<int>& pages,
-                                        const QRegularExpression& pattern);
+                                        const QRegularExpression& pattern,
+                                        MatchBudget* budget = nullptr);
 
     // T2-2 honesty seam: per-match reflow/geometry warnings for a planned
     // replacement. A warning is emitted when the replacement's length differs
@@ -79,6 +106,13 @@ struct ReplaceOptions {
     bool wholeWords = false;
     bool useRegex = false;
     QList<int> pages;   // 0-based inclusive scope; empty = ALL pages
+    // packa-F1: an empty `pages` list legitimately means "all pages", so an
+    // UNUSABLE scope (malformed range, range outside the document) must be
+    // its own state — never encoded as the same empty list. Producers set
+    // scopeValid=false for a refused scope; EditController::replaceAllInDocument
+    // refuses scopeValid=false with zero mutation instead of widening to the
+    // whole document.
+    bool scopeValid = true;
 };
 
 struct ReplaceOutcome {
