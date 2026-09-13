@@ -20,6 +20,14 @@ public:
 
     void setTrustStoreForTest(X509_STORE *store);
 
+    // SEP13:4 regression seam (same test-only status as
+    // setTrustStoreForTest): forces the D6 post-condition re-validation to
+    // observe an EMPTY signature list. Real signing always produces a
+    // parseable signature on the candidate, so no honest input empties the
+    // re-validation — the fail-open shape this lane closes is otherwise not
+    // deterministically reachable. Never called by production code.
+    void forceEmptyPostConditionForTesting(bool on);
+
     // ------------------------------------------------------------------
     // §9.7 P0 — visible signature appearance (ETSI EN 319 142-6 §5.2)
     // ------------------------------------------------------------------
