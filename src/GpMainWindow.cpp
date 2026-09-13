@@ -604,6 +604,13 @@ void MainWindow::recoverDocument(const QString& originalPath) {
             // the recovered content to the destination and clears this
             // binding only after the committed revision is re-anchored.
             _ctx->document->setRecoverySource(autosavePath);
+            // WP-R09b (WHOLE-ARCHITECTURE-REVIEW A05): prime the DESTINATION
+            // baseline. The recovery session edits the autosave INPUT while
+            // Save commits to the ORIGINAL — the first recovery Save must be
+            // conflict-guarded against the original's bytes as they are NOW,
+            // so capture the baseline at bind time, before any edits.
+            if (_ctx->pdfEditor)
+                _ctx->pdfEditor->primeSourceBaseline(originalPath);
             // ARC07: the recovered copy is a NEW document identity — decide
             // its editability explicitly. The autosave copy carries the
             // original's §9.11 expiry metadata, so a recovered expired

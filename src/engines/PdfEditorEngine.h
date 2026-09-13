@@ -31,6 +31,11 @@ public:
     bool saveDocumentIfCurrent(const QString &expectedCurrentFile,
                                qint64 expectedLoadId,
                                const QString &outputPath) override;
+    // WP-R09b (WHOLE-ARCHITECTURE-REVIEW A05): external source-version
+    // conflict reporting and destination-baseline priming (see
+    // IPdfDocumentIO).
+    bool lastSaveRefusedForExternalConflict() const override;
+    void primeSourceBaseline(const QString &path) override;
     
     // Structural DOM manipulation
     bool editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
