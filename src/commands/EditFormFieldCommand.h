@@ -88,27 +88,28 @@ public:
     void redo() override {
         m_succeeded = false;
         m_error.clear();
-        if (!m_engine || !m_doc || m_doc->path().isEmpty()) {
-            m_error = QObject::tr("no engine/document for edit form field");
+        if (!performApply(&m_error)) {
             setObsolete(true);
             return;
         }
-        if (!m_old.found) {
-            m_error = QObject::tr("field %1 not found; nothing was changed").arg(m_oldProps.name);
-            qWarning() << "EditFormFieldCommand::redo: field not found:" << m_oldProps.name << "— command marked obsolete";
-            setObsolete(true);
-            return;
+        m_succeeded = true;
+        setObsolete(false);
+    }
+
+    // WP-R03 (WHOLE-ARCHITECTURE-REVIEW A02): the checked APPLY side — the
+    // same snapshot application redo() performs, but without moving the
+    // history index. A failed application leaves the index, the clean state
+    // and the retryability untouched.
+    bool applyChecked() override {
+        QString err;
+        if (!performApply(&err)) {
+            if (!m_doc) return false;
+            qWarning() << "EditFormFieldCommand::redo (checked) failed for" << m_oldProps.name;
+            emit m_doc->mutationFailed(err);
+            return false;
         }
-        const bool ok = m_engine->applyFieldSnapshot(m_doc->path(), m_new, m_doc->path(), m_jsFailures);
-        m_succeeded = ok;
-        if (ok) {
-            m_doc->markReload();
-            setObsolete(false);
-        } else {
-            m_error = QObject::tr("editing form field %1 failed; document left unchanged").arg(m_oldProps.name);
-            qWarning() << "EditFormFieldCommand::redo failed for" << m_oldProps.name << "— command marked obsolete, document not reloaded";
-            setObsolete(true);
-        }
+        armCheckedApply();
+        return true;
     }
 
     // G08 (QUALITY-GATE-2026-09-09): the restoration is a CHECKED traversal —
@@ -169,6 +170,25 @@ private:
     QList<FormJsFailure>*    m_jsFailures = nullptr; // optional Phase-1 cascade report
     bool                     m_succeeded = false;
     QString                  m_error;
+
+    // WP-R03: the shared mutation body — apply the NEW snapshot as one
+    // transactional mutation. Returns false with a reason; no obsoletion.
+    bool performApply(QString* err) {
+        if (!m_engine || !m_doc || m_doc->path().isEmpty()) {
+            if (err) *err = QObject::tr("no engine/document for edit form field");
+            return false;
+        }
+        if (!m_old.found) {
+            if (err) *err = QObject::tr("field %1 not found; nothing was changed").arg(m_oldProps.name);
+            return false;
+        }
+        if (!m_engine->applyFieldSnapshot(m_doc->path(), m_new, m_doc->path(), m_jsFailures)) {
+            if (err) *err = QObject::tr("editing form field %1 failed; document left unchanged").arg(m_oldProps.name);
+            return false;
+        }
+        m_doc->markReload();
+        return true;
+    }
 
     // G08: the shared restoration body — apply the ORIGINAL snapshot as one
     // transactional mutation. Reports nothing; callers own the reporting.
