@@ -79,6 +79,34 @@ public:
                                     FieldJsFailure* failure = nullptr,
                                     int eventDeadlineMs = 250);
 
+    // ── P2 (R18f): the Validate event, same caller-owned-budget shape ────────
+    //
+    // Runs the named field's /AA /V (Validate) script against the PROPOSED
+    // value inside the caller's transaction (Acrobat order: validate →
+    // commit). The WHOLE operation (shim, snapshot install, script, result
+    // collection) runs under the caller's `eventDeadlineMs` budget — the
+    // same shape the calculate cascade uses (R05/JS-01). The host decides:
+    //   * no runnable /AA /V (the common case) → ran=false, the caller
+    //     commits the proposed value as it always has;
+    //   * ok + rc=true → allowed; valueToCommit carries the script's
+    //     transformed event.value when it set one, otherwise the proposal;
+    //   * rc=false → NOT allowed (kind "rejected") — the proposed value must
+    //     NOT be committed; the field keeps its previous /V;
+    //   * any script failure (timeout/memory/syntax/exception) → NOT allowed
+    //     (fail closed): the change is refused and disclosed, never a
+    //     partially validated value. Transaction policy unchanged: the
+    //     user's OTHER fields still commit.
+    struct ValidateOutcome {
+        bool ran = false;
+        bool allowed = true;
+        QString valueToCommit;
+        FieldJsFailure failure;
+    };
+    static ValidateOutcome runValidateEvent(PoDoFo::PdfMemDocument& doc,
+                                            const QString& name,
+                                            const QString& proposedValue,
+                                            int eventDeadlineMs = 250);
+
     // Inspection helpers (no execution):
     static bool fieldHasActionScript(const PoDoFo::PdfField& field, char actionKey);
     static bool hasCalculateEntries(PoDoFo::PdfMemDocument& doc); // non-empty /CO
@@ -90,10 +118,9 @@ public:
                                 const QString& value);
 
     // ── P2/P3 hooks (present, deliberately unimplemented — no stubs) ────────
-    // Phase 2: runValidateEvent     — /AA /V on the commit path (event.rc=false
-    //                                 blocks the commit with the field's error).
     // Phase 2: runKeystrokeEvent    — /AA /K in the Qt line-edit layer
-    //                                 (AFMergeChange semantics).
+    //                                 (AFMergeChange semantics). Validate /AA /V
+    //                                 is IMPLEMENTED above (R18f).
     // Phase 3: runDocumentOpenAction/NamedScripts — consent-gated, per-document
     //                                 session runtime with an audit surface.
 };
