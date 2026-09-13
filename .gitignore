@@ -136,3 +136,6 @@ docs/audit/_workstreams/
 docs/audit/round2/
 docs/planning/*-CATCHUP-PROMPT.md
 docs/planning/*-PROMPTS.md
+
+# Lane build trees (build-r18 etc.)
+build-*/

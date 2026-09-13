@@ -140,9 +140,17 @@ public:
     /// Return a list of all AcroForm field names in the document (all pages).
     virtual QStringList listFields(const QString &pdfFilePath) = 0;
 
-    /// Persist the tab order to the AcroForm /CO array.
+    /// Persist the keyboard TAB ORDER to each page's /Annots array (the named
+    /// fields' widgets first, in requested order; every other annotation keeps
+    /// its relative order) and declare /Tabs /W on touched pages that carry no
+    /// author-declared tab order. The AcroForm /CO CALCULATION order is the
+    /// document author's dependency order and is NEVER modified here (R18(b):
+    /// the old implementation wrote the tab request into /CO — it changed when
+    /// calculated fields recompute, not how tabbing works).
     /// orderedNames: field full names in desired tab order.
-    /// Fields not in orderedNames are appended after the ordered set.
+    /// Fields not in orderedNames keep their relative widget order after the
+    /// ordered set. Returns false when no requested field exists or the save
+    /// transaction fails.
     virtual bool setTabOrder(const QString &pdfFilePath, const QStringList &orderedNames, const QString &outputPath) = 0;
 
     // Import / Export / Flatten

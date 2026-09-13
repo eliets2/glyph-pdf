@@ -281,7 +281,8 @@ CascadeReport FormJsRunner::runCalculateCascade(PoDoFo::PdfMemDocument& doc,
             QString why;
             if (!extractActionScript(*field, 'C', &script, &why)) {
                 // A /CO entry without a runnable calculate action is ordinary
-                // (setTabOrder also appends non-calculated fields) — skip.
+                // (third-party authors may list non-calculated fields in the
+                // calculation order) — skip.
                 Q_UNUSED(why);
                 continue;
             }

@@ -489,7 +489,8 @@ void FormBuilderMode::onTabOrderApplyClicked()
     if (ok) {
         m_ctx->document->markDirty();
         QMessageBox::information(this, tr("Tab Order"),
-            tr("Tab order saved to PDF (/CO array updated)."));
+            tr("Tab order saved to the page's widget annotations (/Annots, declared as widget order). "
+               "The calculation order (/CO) was left unchanged."));
     } else {
         QMessageBox::warning(this, tr("Tab Order"),
             tr("Failed to persist tab order to PDF. Check the document is writable."));

@@ -1539,16 +1539,38 @@ QStringList FormManager::listFields(const QString &pdfFilePath)
 }
 
 // ── setTabOrder ───────────────────────────────────────────────────────────────
-// Writes the AcroForm /CO (calculation order) array with field references in
-// orderedNames order.  This array is used by PDF readers to determine the tab
-// sequence.  Fields not in orderedNames are appended at the end of the CO array.
-// R01: persists through the shared boundary — the old fixed-".tmp" +
-// remove-destination + ignore-rename-failure pattern is gone.
+// R18(b) — keyboard TAB ORDER and CALCULATION ORDER are different PDF concepts
+// and must not be conflated (PERFORMANCE-AND-SCRIPT-REVIEW-2026-09-10: "correct
+// the existing conflation of keyboard tab order and calculation order:
+// FormManager::setTabOrder writes /CO"):
+//   * Keyboard tab order = the order of the page's widget annotations in the
+//     page's /Annots array. PDF 2.0 (ISO 32000-2) /Tabs /W ("widget order")
+//     declares exactly this on the page: all widget annotations in /Annots
+//     order first, then remaining annotations. Viewers that do not know /W
+//     fall back to the /Annots array order, which this operation writes.
+//   * Calculation order = the AcroForm /CO array. The form-JS cascade (and
+//     Acrobat) recompute dependent fields in /CO order — the DOCUMENT AUTHOR's
+//     dependency order. Overwriting it with the tab request silently changed
+//     WHEN each calculated field runs (stale intermediates) while not changing
+//     tabbing anywhere. This operation therefore NEVER touches /CO.
+//
+// The mutation reorders each page's /Annots: the named fields' widgets first in
+// the requested relative order (a field's /Kids widgets keep their internal
+// order), every other annotation preserving its original relative order. Pages
+// on which a widget order was written gain /Tabs /W ONLY when the author had
+// not declared one (an existing /R, /C or /S declaration is respected, never
+// overwritten). R01: persists through the shared transaction boundary.
 bool FormManager::setTabOrder(const QString &pdfFilePath,
                               const QStringList &orderedNames,
                               const QString &outputPath)
 {
     QString err;
+    // Source state captured inside the mutator (before the mutation), verified
+    // on the reopened candidate: /CO as a NAME sequence (object numbers change
+    // between serializations) and the per-page /Tabs declarations.
+    QStringList sourceCoSequence;            // field full names, ""-marker for dangling refs
+    std::map<int, QString> sourceTabsValue;  // page index → /Tabs value ("" = absent)
+
     const bool ok = runFormSaveTransaction(
         pdfFilePath, outputPath,
         [&](PoDoFo::PdfMemDocument& doc) {
@@ -1556,63 +1578,204 @@ bool FormManager::setTabOrder(const QString &pdfFilePath,
             if (!acroForm)
                 throw SaveAbort{QStringLiteral("no AcroForm in %1").arg(pdfFilePath)};
 
-            // Build a name→reference map
-            std::map<std::string, PoDoFo::PdfReference> refMap;
+            // name → the references that act as the field's widgets: the field
+            // object itself (merged field/widget annot) plus every /Kids ref.
+            std::map<std::string, std::vector<PoDoFo::PdfReference>> widgetRefsByName;
             for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
                 auto& f = acroForm->GetFieldAt(i);
-                refMap[f.GetFullName()] = (f.GetObject)().GetIndirectReference();
-            }
-
-            // Build /CO array in the requested order
-            PoDoFo::PdfArray coArr;
-            // First: fields in orderedNames
-            for (const QString& name : orderedNames) {
-                auto it = refMap.find(name.toStdString());
-                if (it != refMap.end()) {
-                    coArr.Add(it->second);
-                    refMap.erase(it);
+                const std::string name = f.GetFullName();
+                auto& refs = widgetRefsByName[name];
+                refs.push_back((f.GetObject)().GetIndirectReference());
+                if (const PoDoFo::PdfObject* kids = f.GetDictionary().FindKey("Kids");
+                    kids && kids->IsArray()) {
+                    for (const auto& kid : kids->GetArray())
+                        if (kid.IsReference()) refs.push_back(kid.GetReference());
                 }
             }
-            // Then: any remaining fields not in the ordered list
-            for (const auto& kv : refMap) {
-                coArr.Add(kv.second);
+
+            // Source /CO name sequence + /Tabs declarations (verified below).
+            try {
+                if (const PoDoFo::PdfObject* co = acroForm->GetDictionary().FindKey("CO");
+                    co && co->IsArray()) {
+                    std::map<std::string, QString> nameByRef;
+                    for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
+                        auto& f = acroForm->GetFieldAt(i);
+                        nameByRef[(f.GetObject)().GetIndirectReference().ToString()] =
+                            QString::fromStdString(f.GetFullName());
+                    }
+                    for (const auto& item : co->GetArray()) {
+                        if (item.IsReference()) {
+                            const auto it = nameByRef.find(item.GetReference().ToString());
+                            sourceCoSequence << (it != nameByRef.end()
+                                                     ? it->second
+                                                     : QStringLiteral("\x01") + QString::fromStdString(item.GetReference().ToString()));
+                        }
+                    }
+                }
+                for (unsigned p = 0; p < doc.GetPages().GetCount(); ++p) {
+                    if (const PoDoFo::PdfObject* tabs =
+                            doc.GetPages().GetPageAt(p).GetDictionary().FindKey("Tabs");
+                        tabs && tabs->IsName())
+                        sourceTabsValue[int(p)] = QString::fromLatin1(tabs->GetName().GetString().data(),
+                                                                      qsizetype(tabs->GetName().GetString().size()));
+                }
+            } catch (const PoDoFo::PdfError&) {
+                // A malformed /CO or page tree must not block a tab-order edit;
+                // the validator below then compares against what was readable.
             }
 
-            acroForm->GetDictionary().AddKey(PoDoFo::PdfName("CO"), coArr);
+            // Resolve the requested names to widget references in request order.
+            std::vector<PoDoFo::PdfReference> requested;
+            for (const QString& qName : orderedNames) {
+                const auto it = widgetRefsByName.find(qName.toStdString());
+                if (it != widgetRefsByName.end())
+                    requested.insert(requested.end(), it->second.begin(), it->second.end());
+            }
+            if (requested.empty())
+                throw SaveAbort{QStringLiteral("none of the requested fields exists in the document")};
+
+            std::set<std::string> requestedKeys;
+            for (const auto& ref : requested) requestedKeys.insert(ref.ToString());
+
+            // Reorder every page's /Annots: named widgets first in request
+            // order, all other annotations in their original relative order.
+            for (unsigned p = 0; p < doc.GetPages().GetCount(); ++p) {
+                PoDoFo::PdfPage& page = doc.GetPages().GetPageAt(p);
+                PoDoFo::PdfObject* annotsRaw = page.GetDictionary().GetKey("Annots");
+                if (annotsRaw && annotsRaw->IsReference())
+                    annotsRaw = doc.GetObjects().GetObject(annotsRaw->GetReference());
+                if (!annotsRaw || !annotsRaw->IsArray()) continue;
+                PoDoFo::PdfArray& arr = annotsRaw->GetArray();
+
+                bool touched = false;
+                std::vector<PoDoFo::PdfObject> rest;
+                for (const auto& item : arr) {
+                    if (item.IsReference() && requestedKeys.count(item.GetReference().ToString()))
+                        touched = true;
+                    else
+                        rest.push_back(item);
+                }
+                if (!touched) continue;
+
+                arr.Clear();
+                for (const auto& ref : requested) arr.Add(PoDoFo::PdfObject(ref));
+                for (const auto& item : rest) arr.Add(item);
+
+                // Declare the widget-order intent only when the author did not.
+                if (!sourceTabsValue.count(int(p)))
+                    page.GetDictionary().AddKey(PoDoFo::PdfName("Tabs"), PoDoFo::PdfName("W"));
+            }
         },
         [&](PoDoFo::PdfMemDocument& reopened) {
+            // Recompute the expected /Annots order from the REOPENED document's
+            // own field table (object numbers changed during serialization).
             auto* acroForm = reopened.GetAcroForm();
             if (!acroForm) return false;
-            // Recompute the expected /CO on the REOPENED document: object
-            // numbers change between serializations, so refs are resolved
-            // from the candidate's own field table.
-            std::map<std::string, PoDoFo::PdfReference> refMap;
+
+            std::map<std::string, std::vector<PoDoFo::PdfReference>> widgetRefsByName;
+            std::map<std::string, QString> nameByRef;
             for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
                 auto& f = acroForm->GetFieldAt(i);
-                refMap[f.GetFullName()] = (f.GetObject)().GetIndirectReference();
-            }
-            PoDoFo::PdfArray expected;
-            for (const QString& name : orderedNames) {
-                auto it = refMap.find(name.toStdString());
-                if (it != refMap.end()) {
-                    expected.Add(it->second);
-                    refMap.erase(it);
+                const std::string name = f.GetFullName();
+                const PoDoFo::PdfReference ref = (f.GetObject)().GetIndirectReference();
+                widgetRefsByName[name].push_back(ref);
+                nameByRef[ref.ToString()] = QString::fromStdString(name);
+                if (const PoDoFo::PdfObject* kids = f.GetDictionary().FindKey("Kids");
+                    kids && kids->IsArray()) {
+                    for (const auto& kid : kids->GetArray())
+                        if (kid.IsReference()) {
+                            widgetRefsByName[name].push_back(kid.GetReference());
+                            nameByRef[kid.GetReference().ToString()] = QString::fromStdString(name);
+                        }
                 }
             }
-            for (const auto& kv : refMap) expected.Add(kv.second);
 
-            const PoDoFo::PdfObject* co = acroForm->GetDictionary().FindKey("CO");
-            if (!co || !co->IsArray()) return false;
-            const PoDoFo::PdfArray& actual = co->GetArray();
-            if (actual.GetSize() != expected.GetSize()) return false;
-            for (unsigned i = 0; i < expected.GetSize(); ++i) {
-                if (!actual[i].IsReference() || !(actual[i].GetReference() == expected[i].GetReference()))
-                    return false;
+            std::vector<PoDoFo::PdfReference> requested;
+            for (const QString& qName : orderedNames) {
+                const auto it = widgetRefsByName.find(qName.toStdString());
+                if (it != widgetRefsByName.end())
+                    requested.insert(requested.end(), it->second.begin(), it->second.end());
             }
-            return true;
+            if (requested.empty()) return false;
+            std::set<std::string> requestedKeys;
+            for (const auto& ref : requested) requestedKeys.insert(ref.ToString());
+
+            for (unsigned p = 0; p < reopened.GetPages().GetCount(); ++p) {
+                const PoDoFo::PdfPage& page = reopened.GetPages().GetPageAt(p);
+                const PoDoFo::PdfObject* annots = page.GetDictionary().FindKey("Annots");
+                const bool pageTouched = std::any_of(requested.begin(), requested.end(),
+                    [&](const PoDoFo::PdfReference& ref) {
+                        if (!annots || !annots->IsArray()) return false;
+                        for (const auto& item : annots->GetArray())
+                            if (item.IsReference() && item.GetReference() == ref) return true;
+                        return false;
+                    });
+                if (!annots || !annots->IsArray()) {
+                    if (pageTouched) return false;
+                    continue;
+                }
+                if (pageTouched) {
+                    // Structural verification of the stable partition the
+                    // mutation performs: (a) exactly the requested refs occupy
+                    // the first requested.size() positions, in request order;
+                    // (b) the total annotation count is unchanged (nothing
+                    // dropped or duplicated); (c) no requested ref appears
+                    // again among the remainder (the partition really moved
+                    // every named widget to the front). The relative order of
+                    // the remainder is preserved BY CONSTRUCTION (the mutator
+                    // appends non-requested annots in source order); the
+                    // count + exclusivity checks here detect any loss.
+                    const PoDoFo::PdfArray& actual = annots->GetArray();
+                    if (actual.GetSize() < requested.size()) return false;
+                    for (size_t i = 0; i < requested.size(); ++i) {
+                        const auto& item = actual[i];
+                        if (!item.IsReference() || !(item.GetReference() == requested[i]))
+                            return false;
+                    }
+                    for (size_t i = requested.size(); i < actual.GetSize(); ++i) {
+                        const auto& item = actual[i];
+                        if (item.IsReference() && requestedKeys.count(item.GetReference().ToString()))
+                            return false;
+                    }
+                    // /Tabs declaration: respected if the author had one,
+                    // else /W on every touched page.
+                    const auto tabsIt = sourceTabsValue.find(int(p));
+                    const PoDoFo::PdfObject* tabs = page.GetDictionary().FindKey("Tabs");
+                    if (tabsIt != sourceTabsValue.end()) {
+                        if (!tabs || !tabs->IsName()
+                            || QString::fromLatin1(tabs->GetName().GetString().data(),
+                                                   qsizetype(tabs->GetName().GetString().size())) != tabsIt->second)
+                            return false;
+                    } else {
+                        if (!tabs || !tabs->IsName()
+                            || QLatin1String(tabs->GetName().GetString().data(),
+                                             qsizetype(tabs->GetName().GetString().size())) != QLatin1String("W"))
+                            return false;
+                    }
+                }
+            }
+
+            // /CO (calculation order) must be EXACTLY what the source carried —
+            // a tab-order edit may never rewrite the calculation order.
+            QStringList reopenedCo;
+            try {
+                if (const PoDoFo::PdfObject* co = acroForm->GetDictionary().FindKey("CO");
+                    co && co->IsArray()) {
+                    for (const auto& item : co->GetArray()) {
+                        if (!item.IsReference()) return false;
+                        const auto it = nameByRef.find(item.GetReference().ToString());
+                        reopenedCo << (it != nameByRef.end()
+                                           ? it->second
+                                           : QStringLiteral("\x01") + QString::fromStdString(item.GetReference().ToString()));
+                    }
+                }
+            } catch (const PoDoFo::PdfError&) {
+                return false;
+            }
+            return reopenedCo == sourceCoSequence;
         },
         &err);
     if (!ok) qWarning() << "setTabOrder error:" << err;
-    else qDebug() << "setTabOrder: wrote" << orderedNames.size() << "ordered entries to /CO";
+    else qDebug() << "setTabOrder: wrote widget tab order for" << orderedNames.size() << "field(s); /CO untouched";
     return ok;
 }
