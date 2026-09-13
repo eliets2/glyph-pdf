@@ -6,7 +6,9 @@
 // against (and fail on) the pre-U01 implementation:
 //   (a) no action card overflows its clipping bounds at 1280x720 — the old
 //       six-card row needed 6*140+5*12 = 900px inside a 600px container, so the
-//       final cards were clipped despite a large window;
+//       final cards were clipped despite a large window. (R16 2026-09-13: the
+//       dashboard now carries the twelve task routes + Open = 13 cards; the
+//       reflow machinery and the no-clip contract are unchanged.)
 //   (b) the responsive grid reflows to fewer columns as the widget narrows
 //       (3 -> 2 -> 1 cards per row) and back.
 // Purely visual spacing/palette/icon artwork remains a manual layout-inspection
@@ -25,7 +27,14 @@ class TestWelcomeLayout : public QObject {
 
     static QList<QPushButton*> cards(const WelcomeWidget& w)
     {
-        return w.findChildren<QPushButton*>(QStringLiteral("actionCard"));
+        // R16: each card's objectName is its task id ("welcomeCard-<task>");
+        // the layout role moved to the "role" dynamic property.
+        QList<QPushButton*> out;
+        const auto buttons = w.findChildren<QPushButton*>();
+        for (QPushButton* b : buttons)
+            if (b->property("role").toString() == QLatin1String("actionCard"))
+                out.append(b);
+        return out;
     }
 
     static void flushLayout()
@@ -73,7 +82,7 @@ private slots:
             flushLayout();
 
             const auto cardList = cards(w);
-            QCOMPARE(cardList.size(), 6);
+            QCOMPARE(cardList.size(), 13);
 
             auto* scroll = w.findChild<QScrollArea*>();
             QVERIFY(scroll);
@@ -124,7 +133,7 @@ private slots:
         flushLayout();
 
         const auto cardList = cards(w);
-        QCOMPARE(cardList.size(), 6);
+        QCOMPARE(cardList.size(), 13);
         QCOMPARE(cardsPerRow(cardList, w), 3);
 
         w.resize(400, 720);
@@ -153,7 +162,7 @@ private slots:
         flushLayout();
 
         const auto cardList = cards(w);
-        QCOMPARE(cardList.size(), 6);
+        QCOMPARE(cardList.size(), 13);
 
         // Creation (tab) order starts with the primary action.
         QCOMPARE(cardList.first()->accessibleName(), QStringLiteral("Open PDF file"));
@@ -164,13 +173,14 @@ private slots:
                      "every action card needs an accessible description");
         }
 
-        // §9.16: exactly the Import Office / Images to PDF cards carry the
-        // local-processing notice as their tooltip.
+        // §9.16 + R16: EVERY card states what it does; the Import Office /
+        // Images to PDF cards must still carry the local-processing notice.
         for (const auto* card : cardList) {
+            QVERIFY2(!card->toolTip().isEmpty(),
+                     "every task card states its route (R16 task tooltips)");
             const bool isLocalNoticeCard =
                 card->accessibleName().contains(QStringLiteral("Import Office")) ||
                 card->accessibleName() == QStringLiteral("Images to PDF");
-            QCOMPARE(!card->toolTip().isEmpty(), isLocalNoticeCard);
             if (isLocalNoticeCard)
                 QVERIFY2(card->toolTip().contains(QStringLiteral("locally")),
                          "the notice must keep saying the processing is local");

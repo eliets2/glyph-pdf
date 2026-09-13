@@ -39,6 +39,7 @@
 #include "ui/FindReplaceDialog.h"
 #include "engines/DocumentSession.h"
 #include "engines/PdfEditorEngine.h"
+#include "core/Capability.h"   // R16: welcome card capability gating
 #include <QUndoStack>   // ARC01: history is scoped to one document at the open boundary
 #include "util/GpTheme.h"
 
@@ -226,18 +227,14 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
                 [this]{ _home->activate(ToolId::ImportOffice); });
         connect(_welcome, &WelcomeWidget::imagesToPdfRequested, this,
                 [this]{ _home->activate(ToolId::ImagesToPdf); });
-        // Convert/Protect operate on a loaded PDF and have no standalone screen —
-        // open a document first; the relevant tools then live in the ribbon.
-        connect(_welcome, &WelcomeWidget::convertRequested, this,
-                [this]{ _home->activate(ToolId::Open); });
-        connect(_welcome, &WelcomeWidget::protectRequested, this,
-                [this]{ _home->activate(ToolId::Open); });
-        // Merge card → Combine tool (ConvertController). Combine is the one
-        // Convert tool that runs with no document open (it gathers its own
-        // file list), so route it through the registry rather than forcing an
-        // Open first.
+        // R16 (PP07/UI03): every task card carries its intent THROUGH the
+        // Open that serves it — no more Convert/Protect cards that only open
+        // a document and drop the user in an unrelated place. Merge keeps its
+        // own standalone route (Combine gathers its own file list).
         connect(_welcome, &WelcomeWidget::mergeFilesRequested, this,
                 [this]{ _toolRegistry->activate(ToolId::Combine); });
+        connect(_welcome, &WelcomeWidget::taskRouteRequested, this,
+                &MainWindow::startWelcomeTask);
         connect(_welcome, &WelcomeWidget::recentFileRequested, this,
                 [this](const QString& p){ openDocument(p); });
         connect(_welcome, &WelcomeWidget::removeRecentFileRequested, this,
@@ -245,6 +242,25 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
                     _home->removeFromRecents(p);
                     _welcome->setRecentFiles(_home->recentFiles());
                 });
+
+        // R16: optional-dependency tasks are honestly gated on the capability
+        // registry (same whyNot+alternative discipline as the ribbon). An
+        // unavailable card stays visible and disabled with the reason — it
+        // never pretends the workflow exists.
+        if (_ctx && _ctx->capabilities) {
+            auto* caps = _ctx->capabilities.get();
+            if (!caps->available(gp::CapId::OcrTesseract)
+                && !caps->available(gp::CapId::OcrRapidModels)) {
+                const gp::Capability ocr = caps->query(gp::CapId::OcrTesseract);
+                _welcome->setTaskAvailable(QStringLiteral("ocr"),
+                                           gp::CapabilityRegistry::combineWhyNot(ocr));
+            }
+            if (!caps->available(gp::CapId::OfficeImport)) {
+                const gp::Capability office = caps->query(gp::CapId::OfficeImport);
+                _welcome->setTaskAvailable(QStringLiteral("office"),
+                                           gp::CapabilityRegistry::combineWhyNot(office));
+            }
+        }
     }
 
     _modeStrip->init(_ctx);
@@ -697,6 +713,52 @@ void MainWindow::showSidebarPane(const QString& pane)
     }
 }
 
+// ── R16 (PP07/UI03): welcome task intent ─────────────────────────────────────
+
+void MainWindow::startWelcomeTask(const QString& task)
+{
+    // Standalone tasks: navigation IS the task, no document needed.
+    if (task == QLatin1String("batch")) {
+        activateScreen(QStringLiteral("batch"));
+        return;
+    }
+    if (task == QLatin1String("compare")) {
+        activateScreen(QStringLiteral("compare"));
+        return;
+    }
+
+    // Open-dependent tasks: arm the intent, then run the SAME Open flow the
+    // Open card uses. openDocument consumes and applies the intent on a
+    // successful load; the clear below covers cancel/failed-open so an armed
+    // intent can never mis-fire on a later, unrelated open.
+    _pendingWelcomeTask = task;
+    if (_home) _home->activate(ToolId::Open);
+    _pendingWelcomeTask.clear();
+}
+
+void MainWindow::applyWelcomeTask(const QString& task)
+{
+    if (task == QLatin1String("edit")) {
+        _ribbon->raiseTab(QStringLiteral("Edit"));
+    } else if (task == QLatin1String("convert")) {
+        _ribbon->raiseTab(QStringLiteral("Convert"));
+    } else if (task == QLatin1String("ocr")) {
+        activateScreen(QStringLiteral("ocr"));
+    } else if (task == QLatin1String("compress")) {
+        activateScreen(QStringLiteral("compress"));
+    } else if (task == QLatin1String("splitExtract")
+               || task == QLatin1String("organize")) {
+        activateScreen(QStringLiteral("pages"));   // TaskStateSync raises Organize
+    } else if (task == QLatin1String("annotate")) {
+        _ribbon->raiseTab(QStringLiteral("Comment"));
+        onToolActivated(QStringLiteral("highlight"));   // arm the tool on the shared dispatch path
+    } else if (task == QLatin1String("fillSign")) {
+        activateScreen(QStringLiteral("signature"));   // TaskStateSync raises Protect
+    } else if (task == QLatin1String("protect")) {
+        _ribbon->raiseTab(QStringLiteral("Protect"));
+    }
+}
+
 void MainWindow::openDocument(const QString& filePath) {
     if (filePath.isEmpty()) return;
 
@@ -865,6 +927,15 @@ void MainWindow::openDocument(const QString& filePath) {
         // describing the previous document — or the empty state).
         if (_pdfaPanel && _modes && _modes->currentScreen() == QLatin1String("pdfa"))
             refreshPdfAPanel();
+
+        // R16 (PP07/UI03): the task chosen on the welcome screen survives the
+        // Open that served it — consume the armed intent exactly once, after
+        // the document, identity and status state are all established.
+        if (!_pendingWelcomeTask.isEmpty()) {
+            const QString task = _pendingWelcomeTask;
+            _pendingWelcomeTask.clear();
+            applyWelcomeTask(task);
+        }
     } else {
         // Build error info — prefer engine detail, fall back to generic
         ErrorInfo err;

@@ -46,6 +46,10 @@ static QPushButton* makeActionCard(QWidget* parent, const QString& iconName,
 {
     auto* card = new QPushButton(parent);
     card->setObjectName("actionCard");
+    // R16: the per-task objectName (set by setupUi, "welcomeCard-<task>")
+    // overwrites this; the layout role stays available as a property for
+    // layout tests and styling.
+    card->setProperty("role", "actionCard");
     card->setCursor(Qt::PointingHandCursor);
     card->setFocusPolicy(Qt::StrongFocus); // keyboard-reachable actions (Tab + Space)
     card->setMinimumSize(140, 96);
@@ -220,9 +224,11 @@ void WelcomeWidget::setupUi()
     innerLayout->addWidget(subtitle);
     innerLayout->addSpacing(28);
 
-    // -- Action cards: responsive grid (U01) --
+    // -- Action cards: responsive grid (U01), twelve task routes (R16/PP07) --
     // Positions are (re)assigned by reflowActionCards(): three columns when
-    // space permits, two for a narrower column, one for very narrow.
+    // space permits, two for a narrower column, one for very narrow. Every
+    // card carries its task id (objectName "welcomeCard-<task>") so the host
+    // and the route tests address the production widgets.
     m_cardsGrid = new QGridLayout();
     m_cardsGrid->setContentsMargins(0, 0, 0, 0);
     m_cardsGrid->setHorizontalSpacing(kCardSpacing);
@@ -230,24 +236,62 @@ void WelcomeWidget::setupUi()
 
     // "Open PDF" first (primary action, first in creation/tab order).
     auto* openCard    = makeActionCard(m_container, "folder-open",   tr("Open PDF"));
-    auto* mergeCard   = makeActionCard(m_container, "merge",         tr("Merge files"));
-    auto* convertCard = makeActionCard(m_container, "file-code",     tr("Convert"));
-    auto* protectCard = makeActionCard(m_container, "shield-check",  tr("Protect"));
+    // The twelve quick routes (UI04 starting set). open-dependent tasks emit
+    // taskRouteRequested and the host preserves the intent through Open;
+    // standalone creators keep their dedicated conversion flows.
+    auto* editCard      = makeActionCard(m_container, "edit-text",   tr("Edit"));
+    auto* convertCard   = makeActionCard(m_container, "file-code",   tr("Convert"));
+    auto* ocrCard       = makeActionCard(m_container, "ocr",         tr("OCR"));
+    auto* compressCard  = makeActionCard(m_container, "compress",    tr("Compress"));
+    auto* mergeCard     = makeActionCard(m_container, "merge",       tr("Merge"));
+    auto* splitCard     = makeActionCard(m_container, "split",       tr("Split / Extract"));
+    auto* organizeCard  = makeActionCard(m_container, "reorder",     tr("Organize Pages"));
+    auto* annotateCard  = makeActionCard(m_container, "highlight",   tr("Annotate"));
+    auto* fillSignCard  = makeActionCard(m_container, "signature",   tr("Fill & Sign"));
+    auto* protectCard   = makeActionCard(m_container, "shield-check",tr("Protect / Redact"));
     // U01 icon audit: "file-plus" has no asset in resources.qrc, so
     // Icons::svg() returned empty and the factory painted a fallback blob.
     // Map the card onto the existing registered "to-p-d-f" document glyph
     // instead of inventing a new asset.
-    auto* importCard  = makeActionCard(m_container, "to-p-d-f",      tr("Import Office"));
+    auto* importCard  = makeActionCard(m_container, "to-p-d-f",      tr("Office to PDF"));
     auto* imgsCard    = makeActionCard(m_container, "image",         tr("Images to PDF"));
+
+    openCard->setObjectName(QStringLiteral("welcomeCard-open"));
+    editCard->setObjectName(QStringLiteral("welcomeCard-edit"));
+    convertCard->setObjectName(QStringLiteral("welcomeCard-convert"));
+    ocrCard->setObjectName(QStringLiteral("welcomeCard-ocr"));
+    compressCard->setObjectName(QStringLiteral("welcomeCard-compress"));
+    mergeCard->setObjectName(QStringLiteral("welcomeCard-merge"));
+    splitCard->setObjectName(QStringLiteral("welcomeCard-splitExtract"));
+    organizeCard->setObjectName(QStringLiteral("welcomeCard-organize"));
+    annotateCard->setObjectName(QStringLiteral("welcomeCard-annotate"));
+    fillSignCard->setObjectName(QStringLiteral("welcomeCard-fillSign"));
+    protectCard->setObjectName(QStringLiteral("welcomeCard-protect"));
+    importCard->setObjectName(QStringLiteral("welcomeCard-office"));
+    imgsCard->setObjectName(QStringLiteral("welcomeCard-images"));
 
     openCard->setAccessibleName(tr("Open PDF file"));
     openCard->setAccessibleDescription(tr("Browse and open an existing PDF document"));
+    editCard->setAccessibleName(tr("Edit a PDF document"));
+    editCard->setAccessibleDescription(tr("Open a document and land in the Edit tools"));
+    convertCard->setAccessibleName(tr("Convert documents"));
+    convertCard->setAccessibleDescription(tr("Open a document and land on the Convert tab"));
+    ocrCard->setAccessibleName(tr("Recognize text with OCR"));
+    ocrCard->setAccessibleDescription(tr("Open a document and land on the OCR Verify screen"));
+    compressCard->setAccessibleName(tr("Compress a document"));
+    compressCard->setAccessibleDescription(tr("Open a document and start the Compress task"));
     mergeCard->setAccessibleName(tr("Merge PDF files"));
     mergeCard->setAccessibleDescription(tr("Combine multiple PDF files into one document"));
-    convertCard->setAccessibleName(tr("Convert documents"));
-    convertCard->setAccessibleDescription(tr("Convert between PDF and other file formats"));
-    protectCard->setAccessibleName(tr("Protect PDF"));
-    protectCard->setAccessibleDescription(tr("Add passwords, encryption, or digital signatures"));
+    splitCard->setAccessibleName(tr("Split or extract pages"));
+    splitCard->setAccessibleDescription(tr("Open a document and land on the Pages task"));
+    organizeCard->setAccessibleName(tr("Organize pages"));
+    organizeCard->setAccessibleDescription(tr("Open a document and land on the Pages task"));
+    annotateCard->setAccessibleName(tr("Annotate a document"));
+    annotateCard->setAccessibleDescription(tr("Open a document with the highlight tool armed"));
+    fillSignCard->setAccessibleName(tr("Fill forms and sign"));
+    fillSignCard->setAccessibleDescription(tr("Open a document and land on the Signatures panel"));
+    protectCard->setAccessibleName(tr("Protect or redact a document"));
+    protectCard->setAccessibleDescription(tr("Open a document and land on the Protect tab"));
     importCard->setAccessibleName(tr("Import Office document"));
     importCard->setAccessibleDescription(tr("Convert a Word, Excel or PowerPoint file to PDF via LibreOffice"));
     imgsCard->setAccessibleName(tr("Images to PDF"));
@@ -258,17 +302,66 @@ void WelcomeWidget::setupUi()
     importCard->setToolTip(localNotice);
     imgsCard->setToolTip(localNotice);
 
+    // Task-intent tooltips (R16): every card states what actually happens.
+    openCard->setToolTip(tr("Pick a PDF and start reading or working on it."));
+    editCard->setToolTip(tr("Open a PDF, then the Edit tab's text and object tools."));
+    convertCard->setToolTip(tr("Open a PDF, then the Convert tab's export targets."));
+    ocrCard->setToolTip(tr("Open a scanned PDF, then the OCR Verify screen."));
+    compressCard->setToolTip(tr("Open a PDF, then start the Compress task."));
+    mergeCard->setToolTip(tr("Pick two or more PDFs and save them combined into one."));
+    splitCard->setToolTip(tr("Open a PDF, then split it or extract page ranges in the Pages task."));
+    organizeCard->setToolTip(tr("Open a PDF, then rotate, reorder or delete pages in the Pages task."));
+    annotateCard->setToolTip(tr("Open a PDF with the highlight tool armed on the Comment tab."));
+    fillSignCard->setToolTip(tr("Open a PDF, then fill fields or place signatures."));
+    protectCard->setToolTip(tr("Open a PDF, then the Protect tab: passwords, redaction, signing."));
+
     connect(openCard,    &QPushButton::clicked, this, &WelcomeWidget::openFileRequested);
+    connect(editCard,    &QPushButton::clicked, this, [this]{ emit taskRouteRequested(QStringLiteral("edit")); });
+    connect(convertCard, &QPushButton::clicked, this, [this]{ emit taskRouteRequested(QStringLiteral("convert")); });
+    connect(ocrCard,     &QPushButton::clicked, this, [this]{ emit taskRouteRequested(QStringLiteral("ocr")); });
+    connect(compressCard,&QPushButton::clicked, this, [this]{ emit taskRouteRequested(QStringLiteral("compress")); });
     connect(mergeCard,   &QPushButton::clicked, this, &WelcomeWidget::mergeFilesRequested);
-    connect(convertCard, &QPushButton::clicked, this, &WelcomeWidget::convertRequested);
-    connect(protectCard, &QPushButton::clicked, this, &WelcomeWidget::protectRequested);
+    connect(splitCard,   &QPushButton::clicked, this, [this]{ emit taskRouteRequested(QStringLiteral("splitExtract")); });
+    connect(organizeCard,&QPushButton::clicked, this, [this]{ emit taskRouteRequested(QStringLiteral("organize")); });
+    connect(annotateCard,&QPushButton::clicked, this, [this]{ emit taskRouteRequested(QStringLiteral("annotate")); });
+    connect(fillSignCard,&QPushButton::clicked, this, [this]{ emit taskRouteRequested(QStringLiteral("fillSign")); });
+    connect(protectCard, &QPushButton::clicked, this, [this]{ emit taskRouteRequested(QStringLiteral("protect")); });
     connect(importCard,  &QPushButton::clicked, this, &WelcomeWidget::importOfficeRequested);
     connect(imgsCard,    &QPushButton::clicked, this, &WelcomeWidget::imagesToPdfRequested);
 
-    m_actionCards = {openCard, mergeCard, convertCard, protectCard, importCard, imgsCard};
+    m_actionCards = {openCard, editCard, convertCard, ocrCard, compressCard,
+                     mergeCard, splitCard, organizeCard, annotateCard,
+                     fillSignCard, protectCard, importCard, imgsCard};
 
     innerLayout->addLayout(m_cardsGrid);
-    innerLayout->addSpacing(28);
+    innerLayout->addSpacing(16);
+
+    // ── R16: standalone tasks reachable from the welcome (PP07: Batch and
+    // Compare; the ScreenNav strip keeps every other route one click away in
+    // the workspace). Compact links, not another card row.
+    auto* linksRow = new QHBoxLayout();
+    linksRow->setAlignment(Qt::AlignCenter);
+    linksRow->setSpacing(18);
+    auto makeLink = [this](const QString& name, const QString& label, const QString& task) {
+        auto* link = new QPushButton(label, m_container);
+        link->setObjectName(name);
+        link->setFlat(true);
+        link->setCursor(Qt::PointingHandCursor);
+        link->setFocusPolicy(Qt::StrongFocus);
+        link->setAccessibleName(label);
+        link->setStyleSheet(QString(
+            "QPushButton { color: %1; background: transparent; border: none; }"
+            "QPushButton:hover { color: %2; }")
+            .arg(gp::Theme::fg1().name(), gp::Theme::accent().name()));
+        connect(link, &QPushButton::clicked, this, [this, task] {
+            emit taskRouteRequested(task);
+        });
+        return link;
+    };
+    linksRow->addWidget(makeLink(QStringLiteral("welcomeLink-batch"), tr("Batch"), QStringLiteral("batch")));
+    linksRow->addWidget(makeLink(QStringLiteral("welcomeLink-compare"), tr("Compare"), QStringLiteral("compare")));
+    innerLayout->addLayout(linksRow);
+    innerLayout->addSpacing(12);
 
     // -- Recent files section (directly beneath the actions, U01) --
     auto* recentHeader = new QLabel(tr("Recent files"), m_container);
@@ -333,6 +426,21 @@ void WelcomeWidget::setRecentFiles(const QStringList& files)
 {
     m_recentFiles = files;
     refreshRecentList();
+}
+
+// R16: honest unavailability for optional-dependency tasks. The card stays
+// visible but disabled, and the disclosure (why-not + alternative) rides
+// tooltip, status tip AND the accessible description — the same channels the
+// ribbon's planned entries use, so keyboard and screen-reader users can
+// discover the reason too (never tooltip-only).
+void WelcomeWidget::setTaskAvailable(const QString& task, const QString& disclosure)
+{
+    QPushButton* card = findChild<QPushButton*>(QStringLiteral("welcomeCard-") + task);
+    if (!card) return;
+    card->setEnabled(false);
+    card->setStatusTip(disclosure);
+    card->setToolTip(disclosure);
+    card->setAccessibleDescription(disclosure);
 }
 
 // =============================================================================

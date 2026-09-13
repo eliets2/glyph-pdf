@@ -106,6 +106,15 @@ public:
     void showWelcome();
     void showWorkspace();
 
+    // ── R16 (PP07/UI03): task-oriented welcome ──
+    // The welcome cards hand over their task id here. Open-dependent tasks arm
+    // the pending intent and run the standard Open flow; the intent is applied
+    // after a successful load (openDocument) and cleared when nothing loaded,
+    // so cancel/failure never leaves a half-state or mis-fires later.
+    // Standalone tasks (batch/compare) navigate directly.
+    Q_SLOT void startWelcomeTask(const QString& task);
+    QString pendingWelcomeTask() const { return _pendingWelcomeTask; }
+
     // R15: route a View-panes entry to its sidebar pane ("pages", "bookmarks",
     // "comments" on the left; "layers" on the right). Unknown names are ignored.
     void showSidebarPane(const QString& pane);
@@ -159,6 +168,7 @@ private:
     ModeController* _modes       = nullptr;
     QStackedWidget* _rootStack   = nullptr;   // [0]=welcome, [1]=workspace
     WelcomeWidget*  _welcome     = nullptr;
+    QString         _pendingWelcomeTask;      // R16: welcome task intent (consumed on load)
     AIChatPanel*    _ai          = nullptr;
     SignaturesPanel* _sigPanel   = nullptr;
     PdfAValidationPanel* _pdfaPanel = nullptr;
@@ -170,6 +180,9 @@ private:
 
     void applyTheme();
     void replaceRight(QWidget* w);
+    // R16: route the consumed welcome-task intent to its surface after a
+    // successful load (tab/screen/tool state — never a second Open).
+    void applyWelcomeTask(const QString& task);
     // ARC06: give the PDF/A panel the ACTIVE document (viewer identity) and
     // refresh it on successful document changes while the panel is the
     // active right panel. Empty path = the honest "No document loaded." state.
