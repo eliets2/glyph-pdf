@@ -17,7 +17,10 @@
 //
 // Revert-verify: with execution globally disabled (the pre-fix disclosure
 // state) the cascade tests FAIL — `revertVerifyDisabledExecutionIsPreFixState`
-// proves the suite detects that regression direction.
+// proves the suite detects that regression direction. The R05/JS-01
+// whole-operation-deadline tests have their own revert direction: against the
+// pre-fix sources (deadline armed only around the single script eval) the
+// bypass tests HANG and fail under the harness timeout.
 #include <QtTest/QtTest>
 #include <QTemporaryDir>
 #include <QFile>
@@ -283,6 +286,23 @@ private slots:
     void sandboxMemoryBombRefused();
     void sandboxSyntaxErrorClassified();
 
+    // ── R05/JS-01: the whole-operation deadline (reproduced blocker) ────────
+    // Every engine entry — setup, script, exception inspection, end-event
+    // collection, coercion/getter/toJSON hooks, snapshot refresh — must run
+    // under ONE absolute deadline. Each test below was a REPRODUCED hang
+    // (external harness kill) before the fix.
+
+    void sandboxEndEventHelperLoopTerminates();       // reviewer bypass #1
+    void sandboxEventValueGetterLoopTerminates();     // reviewer bypass #2
+    void sandboxModifiedSetupHelperTerminates();      // begin-event eval gap
+    void sandboxCoercionHookTerminates();             // String(v) → toString loop
+    void sandboxSerializationHookTerminates();        // JSON.stringify → toJSON loop
+    void sandboxProxyTrapLoopTerminates();            // Proxy get trap loop
+    void sandboxExceptionGetterTerminates();          // thrown Error's name getter
+    void sandboxHostTransferCapRefusesGiantResult();  // C++-side output cap
+    void repeatedTimeoutsLeaveSandboxUsable();        // wedged-runtime negative
+    void endEventTimeoutKeepsValueAndDisclosesSkipped(); // cascade transaction
+
     // ── Integration: the R01-transaction cascade ─────────────────────────────
 
     void orderFormCascadePersistsThroughSave();
@@ -512,6 +532,268 @@ void TestFormJsCalc::sandboxSyntaxErrorClassified()
                                     QStringLiteral("broken"), QStringLiteral("Calculate"), QString(), 250);
     QVERIFY(!r.ok);
     QCOMPARE(r.kind, gp::formjs::JsErrorKind::Syntax);
+}
+
+// ── R05/JS-01: the whole-operation deadline ──────────────────────────────────
+// Before the fix each of these was a reproduced infinite hang — the deadline
+// was active only around the single script eval (deadlineMs = -1 everywhere
+// else), so script-installed helpers/getters/hooks ran unbounded afterwards.
+
+void TestFormJsCalc::sandboxEndEventHelperLoopTerminates()
+{
+    // Reviewer bypass #1: the script REPLACES globalThis.__gpEndEvent with an
+    // infinite loop; the host's result-collection eval ran it with no deadline.
+    FormJsSandbox sandbox;
+    QVERIFY(sandbox.installShim(nullptr));
+    QElapsedTimer clock;
+    clock.start();
+    const auto r = sandbox.runEvent(
+        QStringLiteral("globalThis.__gpEndEvent = function () { while (true) {} }; event.value = 42;"),
+        QStringLiteral("hook"), QStringLiteral("Calculate"), QStringLiteral("0"), 100);
+    const qint64 elapsed = clock.elapsed();
+    QVERIFY(!r.ok);
+    QCOMPARE(r.kind, gp::formjs::JsErrorKind::Timeout);
+    QVERIFY(r.message.contains(QLatin1String("deadline")));
+    QVERIFY(r.message.contains(QLatin1String("event result collection")));
+    QVERIFY2(elapsed < 5000, qPrintable(QStringLiteral("end-event hook took %1 ms").arg(elapsed)));
+    // No value escaped the aborted operation — the caller must keep the /V.
+    QVERIFY(!r.hasValue);
+    QVERIFY(r.value.isEmpty());
+}
+
+void TestFormJsCalc::sandboxEventValueGetterLoopTerminates()
+{
+    // Reviewer bypass #2: a looping getter on event.value fires while the
+    // end-event helper serializes the result.
+    FormJsSandbox sandbox;
+    QVERIFY(sandbox.installShim(nullptr));
+    QElapsedTimer clock;
+    clock.start();
+    const auto r = sandbox.runEvent(
+        QStringLiteral("Object.defineProperty(event, 'value', { get() { while (true) {} } });"),
+        QStringLiteral("getter"), QStringLiteral("Calculate"), QStringLiteral("0"), 100);
+    const qint64 elapsed = clock.elapsed();
+    QVERIFY(!r.ok);
+    QCOMPARE(r.kind, gp::formjs::JsErrorKind::Timeout);
+    QVERIFY(r.message.contains(QLatin1String("deadline")));
+    QVERIFY2(elapsed < 5000, qPrintable(QStringLiteral("value getter took %1 ms").arg(elapsed)));
+}
+
+void TestFormJsCalc::sandboxModifiedSetupHelperTerminates()
+{
+    // The begin-event SETUP eval ran BEFORE the deadline was armed: an event
+    // that replaces __gpBeginEvent with a loop hangs the NEXT event's setup.
+    FormJsSandbox sandbox;
+    QVERIFY(sandbox.installShim(nullptr));
+    const auto poison = sandbox.runEvent(
+        QStringLiteral("globalThis.__gpBeginEvent = function () { while (true) {} }; event.value = 42;"),
+        QStringLiteral("setup"), QStringLiteral("Calculate"), QStringLiteral("0"), 100);
+    QVERIFY2(poison.ok, qPrintable(poison.message)); // the poison itself completes
+    QElapsedTimer clock;
+    clock.start();
+    const auto next = sandbox.runEvent(QStringLiteral("event.value = 1;"),
+                                       QStringLiteral("setup"), QStringLiteral("Calculate"),
+                                       QStringLiteral("0"), 100);
+    const qint64 elapsed = clock.elapsed();
+    QVERIFY(!next.ok);
+    QCOMPARE(next.kind, gp::formjs::JsErrorKind::Timeout);
+    QVERIFY(next.message.contains(QLatin1String("deadline")));
+    QVERIFY(next.message.contains(QLatin1String("event setup")));
+    QVERIFY2(elapsed < 5000, qPrintable(QStringLiteral("setup hook took %1 ms").arg(elapsed)));
+}
+
+void TestFormJsCalc::sandboxCoercionHookTerminates()
+{
+    // Result serialization coerces event.value through String() → a looping
+    // toString ran unbounded in the -1 deadline gap.
+    FormJsSandbox sandbox;
+    QVERIFY(sandbox.installShim(nullptr));
+    QElapsedTimer clock;
+    clock.start();
+    const auto r = sandbox.runEvent(
+        QStringLiteral("event.value = { toString: function () { while (true) {} } };"),
+        QStringLiteral("coerce"), QStringLiteral("Calculate"), QStringLiteral("0"), 100);
+    const qint64 elapsed = clock.elapsed();
+    QVERIFY(!r.ok);
+    QCOMPARE(r.kind, gp::formjs::JsErrorKind::Timeout);
+    QVERIFY(r.message.contains(QLatin1String("deadline")));
+    QVERIFY2(elapsed < 5000, qPrintable(QStringLiteral("toString hook took %1 ms").arg(elapsed)));
+}
+
+void TestFormJsCalc::sandboxSerializationHookTerminates()
+{
+    // JSON.stringify serializes the log array: a toJSON hook on a log entry
+    // ran unbounded during result serialization.
+    FormJsSandbox sandbox;
+    QVERIFY(sandbox.installShim(nullptr));
+    QElapsedTimer clock;
+    clock.start();
+    const auto r = sandbox.runEvent(
+        QStringLiteral("globalThis.__gpLog.push({ toJSON: function () { while (true) {} } }); event.value = 42;"),
+        QStringLiteral("tojson"), QStringLiteral("Calculate"), QStringLiteral("0"), 100);
+    const qint64 elapsed = clock.elapsed();
+    QVERIFY(!r.ok);
+    QCOMPARE(r.kind, gp::formjs::JsErrorKind::Timeout);
+    QVERIFY(r.message.contains(QLatin1String("deadline")));
+    QVERIFY2(elapsed < 5000, qPrintable(QStringLiteral("toJSON hook took %1 ms").arg(elapsed)));
+}
+
+void TestFormJsCalc::sandboxProxyTrapLoopTerminates()
+{
+    // A Proxy with a looping get trap in place of the event object — every
+    // property the end-event helper reads spins.
+    FormJsSandbox sandbox;
+    QVERIFY(sandbox.installShim(nullptr));
+    QElapsedTimer clock;
+    clock.start();
+    const auto r = sandbox.runEvent(
+        QStringLiteral("globalThis.event = new Proxy({ value: 1 }, { get() { while (true) {} } });"),
+        QStringLiteral("proxy"), QStringLiteral("Calculate"), QStringLiteral("0"), 100);
+    const qint64 elapsed = clock.elapsed();
+    QVERIFY(!r.ok);
+    QCOMPARE(r.kind, gp::formjs::JsErrorKind::Timeout);
+    QVERIFY(r.message.contains(QLatin1String("deadline")));
+    QVERIFY2(elapsed < 5000, qPrintable(QStringLiteral("proxy trap took %1 ms").arg(elapsed)));
+}
+
+void TestFormJsCalc::sandboxExceptionGetterTerminates()
+{
+    // Exception inspection reads name/message/stack of a thrown Error —
+    // hostile getters on those properties must hit the deadline too. The
+    // evalHelper entry (used by host glue and the clock seam) had NO deadline
+    // at all before the fix: this exact script hung forever.
+    FormJsSandbox sandbox;
+    QVERIFY(sandbox.installShim(nullptr));
+    QElapsedTimer clock;
+    clock.start();
+    QString err;
+    const bool ok = sandbox.evalHelper(
+        QStringLiteral("(function () { const e = new Error('boom');"
+                       " Object.defineProperty(e, 'name', { get() { while (true) {} } });"
+                       " throw e; })()"),
+        nullptr, &err);
+    const qint64 elapsed = clock.elapsed();
+    QVERIFY(!ok);
+    QVERIFY(err.contains(QLatin1String("deadline")));
+    QVERIFY2(elapsed < 5000, qPrintable(QStringLiteral("exception getter took %1 ms").arg(elapsed)));
+
+    // Same boundary through runEvent — the classification must stay an honest
+    // Timeout naming the phase, never a mangled exception report.
+    const auto r = sandbox.runEvent(
+        QStringLiteral("const e = new Error('x');"
+                       " Object.defineProperty(e, 'message', { get() { while (true) {} } });"
+                       " throw e;"),
+        QStringLiteral("excgetter"), QStringLiteral("Calculate"), QString(), 100);
+    QVERIFY(!r.ok);
+    QCOMPARE(r.kind, gp::formjs::JsErrorKind::Timeout);
+    QVERIFY(r.message.contains(QLatin1String("deadline")));
+}
+
+void TestFormJsCalc::sandboxHostTransferCapRefusesGiantResult()
+{
+    // The JS heap cap never bounds HOST memory: a value that fits the 16 MiB
+    // engine heap is refused at the 4 MiB host transfer cap instead of being
+    // re-materialized several-fold (CString → QString → UTF-8 → JSON).
+    FormJsSandbox sandbox;
+    QVERIFY(sandbox.installShim(nullptr));
+    QElapsedTimer clock;
+    clock.start();
+    const auto r = sandbox.runEvent(
+        QStringLiteral("event.value = 'A'.repeat(5 * 1024 * 1024);"),
+        QStringLiteral("egress"), QStringLiteral("Calculate"), QStringLiteral("0"), 250);
+    const qint64 elapsed = clock.elapsed();
+    QVERIFY(!r.ok);
+    QCOMPARE(r.kind, gp::formjs::JsErrorKind::Memory);
+    QVERIFY(r.message.contains(QLatin1String("transfer cap")));
+    QVERIFY2(elapsed < 5000, qPrintable(QStringLiteral("giant result took %1 ms").arg(elapsed)));
+
+    // The input side is capped too: an oversized script text is refused
+    // before it is re-encoded (toUtf8) for the engine.
+    const QString huge(5 * 1024 * 1024 + 16, QLatin1Char(' '));
+    const auto big = sandbox.runEvent(huge, QStringLiteral("big"),
+                                      QStringLiteral("Calculate"), QString(), 250);
+    QVERIFY(!big.ok);
+    QCOMPARE(big.kind, gp::formjs::JsErrorKind::Memory);
+    QVERIFY(big.message.contains(QLatin1String("maximum")));
+}
+
+void TestFormJsCalc::repeatedTimeoutsLeaveSandboxUsable()
+{
+    // Three consecutive whole-operation timeouts on the SAME runtime — then a
+    // script that repairs the hook must compute again: repeated timeouts must
+    // never wedge the engine or the program.
+    FormJsSandbox sandbox;
+    QVERIFY(sandbox.installShim(nullptr));
+    for (int i = 0; i < 3; ++i) {
+        QElapsedTimer clock;
+        clock.start();
+        const auto r = sandbox.runEvent(
+            QStringLiteral("globalThis.__gpEndEvent = function () { while (true) {} }; event.value = %1;").arg(i),
+            QStringLiteral("spin"), QStringLiteral("Calculate"), QStringLiteral("0"), 100);
+        QVERIFY(!r.ok);
+        QCOMPARE(r.kind, gp::formjs::JsErrorKind::Timeout);
+        QVERIFY2(clock.elapsed() < 5000, qPrintable(QStringLiteral("timeout %1 took %2 ms").arg(i).arg(clock.elapsed())));
+    }
+    // A later event repairs the helper and computes honestly — no wedged state.
+    sandbox.setFieldValues({ { QStringLiteral("a"), QStringLiteral("2") } });
+    const auto good = sandbox.runEvent(
+        QStringLiteral("globalThis.__gpEndEvent = function () { return JSON.stringify({ hasValue: true,"
+                       " value: globalThis.event.value, rc: true, logs: [], blocked: [] }); };"
+                       " event.value = 42;"),
+        QStringLiteral("recovered"), QStringLiteral("Calculate"), QStringLiteral("0"), 250);
+    QVERIFY2(good.ok, qPrintable(good.message));
+    QCOMPARE(good.value, QStringLiteral("42"));
+
+    // And a FRESH sandbox (what every new cascade builds) is unaffected.
+    FormJsSandbox fresh;
+    QVERIFY(fresh.installShim(nullptr));
+    const auto freshRun = fresh.runEvent(QStringLiteral("event.value = 7;"),
+                                         QStringLiteral("fresh"), QStringLiteral("Calculate"),
+                                         QStringLiteral("0"), 250);
+    QVERIFY2(freshRun.ok, qPrintable(freshRun.message));
+    QCOMPARE(freshRun.value, QStringLiteral("7"));
+}
+
+void TestFormJsCalc::endEventTimeoutKeepsValueAndDisclosesSkipped()
+{
+    // The reproduced bypass at the transaction level: a /CO blocker replaces
+    // __gpEndEvent with a loop. The user's value must still commit, the
+    // blocker keeps its committed value, and every calculated field the
+    // aborted cascade never reached is NAMED as potentially stale.
+    const QString form = makeFormPdf(QStringLiteral("order-endhook.pdf"),
+    {
+        { QStringLiteral("qty1"), {}, {}, {} },
+        { QStringLiteral("blocker"),
+          QStringLiteral("globalThis.__gpEndEvent = function () { while (true) {} }; event.value = 'x';"), {}, {} },
+        { QStringLiteral("total"),
+          QStringLiteral("AFSimple_Calculate('SUM', new Array('qty1'));"), {}, QStringLiteral("0") },
+    },
+    { QStringLiteral("blocker"), QStringLiteral("total") });
+    QVERIFY(!form.isEmpty());
+    const QString out = m_dir.path() + QStringLiteral("/order-endhook-out.pdf");
+
+    QElapsedTimer clock;
+    clock.start();
+    QList<FormJsFailure> failures;
+    QVERIFY(fillAndFill(form, { { QStringLiteral("qty1"), QStringLiteral("5") } }, out, &failures));
+    QVERIFY2(clock.elapsed() < 15000, qPrintable(QStringLiteral("cascade took %1 ms").arg(clock.elapsed())));
+
+    // Honest, field-attributed outcomes: the blocker timed out; total was
+    // skipped and disclosed as potentially stale.
+    QStringList kinds;
+    for (const auto& f : failures) kinds << f.fieldName + QLatin1Char(':') + f.kind;
+    QVERIFY2(kinds.contains(QStringLiteral("blocker:timeout")), qPrintable(kinds.join(QStringLiteral(", "))));
+    QVERIFY2(kinds.contains(QStringLiteral("total:skipped")), qPrintable(kinds.join(QStringLiteral(", "))));
+    for (const auto& f : failures) {
+        if (f.kind == QLatin1String("skipped"))
+            QVERIFY(f.reason.contains(QLatin1String("stale")));
+    }
+
+    // R01 transaction policy: the user's value committed; the skipped field
+    // kept its stored value (0) — never a wrong computed value.
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("qty1")), QStringLiteral("5"));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("blocker")), QString());
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("total")), QStringLiteral("0"));
 }
 
 void TestFormJsCalc::orderFormCascadePersistsThroughSave()
