@@ -354,6 +354,11 @@ Capability probeLinearize(const QVariant&)
 // (EditController.cpp:589-601) — the single shared implementation now.
 Capability probeOcrRapidModels(const QVariant&)
 {
+    // Declared before the engine guard: BOTH branches (with and without
+    // HAS_RAPIDOCR) must build the same return value. The non-RapidOCR branch
+    // previously referenced `c` without declaring it — an unconditional
+    // Windows-lane compile success that broke every engine-less Linux build.
+    Capability c;
 #ifdef HAS_RAPIDOCR
     const QString appData = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)
                             + QStringLiteral("/models/ppocrv5");
@@ -371,7 +376,6 @@ Capability probeOcrRapidModels(const QVariant&)
                            + besideExe.detail;
         return besideExe;
     }
-    Capability c;
     c.status = Availability::UnavailableRuntime;
     c.whyNot = QStringLiteral("PP-OCRv5 ONNX model set incomplete.");
     c.alternative = QStringLiteral("Change the OCR engine in Preferences, or install the models.");

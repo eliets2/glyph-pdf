@@ -51,7 +51,7 @@ QString makeBookmarkLinkPdf(const QString& path) {
         item.GetDictionary().AddKey("Dest", PoDoFo::PdfObject(dest));
         outlines.GetDictionary().AddKey("First", item.GetIndirectReference());
         outlines.GetDictionary().AddKey("Last", item.GetIndirectReference());
-        outlines.GetDictionary().AddKey("Count", PoDoFo::PdfObject(static_cast<long long>(1)));
+        outlines.GetDictionary().AddKey("Count", PoDoFo::PdfObject(static_cast<std::int64_t>(1)));
         doc.GetCatalog().GetDictionary().AddKey("Outlines",
             PoDoFo::PdfObject(outlines.GetIndirectReference()));
 
