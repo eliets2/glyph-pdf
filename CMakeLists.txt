@@ -3100,8 +3100,14 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAutoBookmarks.cpp")
     add_executable(TestAutoBookmarks
         tests/TestAutoBookmarks.cpp
+        # packa-F3: the single-write regression drives the REAL controller +
+        # window (Bootstrapper context, counting engine injected).
+        src/app/Bootstrapper.h  src/app/Bootstrapper.cpp
     )
     target_include_directories(TestAutoBookmarks PRIVATE src tests)
+    target_compile_definitions(TestAutoBookmarks PRIVATE
+        DJOT_LIB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/third_party/djot"
+    )
     target_link_libraries(TestAutoBookmarks PRIVATE
         pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
         Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
