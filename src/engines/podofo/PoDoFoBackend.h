@@ -28,6 +28,16 @@ public:
     // R2-1 D2: true iff the loaded document has at least one PDF signature field.
     bool hasPdfSignatures() const;
 
+    // WP-R09b (WHOLE-ARCHITECTURE-REVIEW A05): sticky until the next
+    // successful load or in-place commit — the last refusal of an in-place
+    // commit was an EXTERNAL source-version conflict (the file changed on
+    // disk since it was loaded), not an ordinary I/O failure.
+    bool lastCommitRefusedForExternalConflict() const;
+
+    // WP-R09b: capture/refresh the external source-version baseline of
+    // `path` (the recovery-destination priming entry for the shell).
+    void primeExternalBaseline(const QString &path);
+
     // ER-3: number of CMS recipient envelopes in /Encrypt → /Recipients.
     int recipientCount() const;
 
@@ -124,4 +134,18 @@ public:
 private:
     class Private;
     std::unique_ptr<Private> d;
+
+    // WP-R02 (WHOLE-ARCHITECTURE-REVIEW A01): the commit step every RESIDENT
+    // mutator uses. Identical to writeUpdate() except for the failure
+    // semantics: a mutator's refused commit is a transaction rollback — the
+    // resident document is restored to the pre-mutation baseline (earlier
+    // accepted edits preserved) or the disk bytes (fresh-load lineage, the
+    // G06 rule). writeUpdate() (the user-Save route) keeps the resident work
+    // retryable instead. Returns false on refusal; the resident state is
+    // resolved as described.
+    bool commitMutation(const QString &path);
+
+    // Shared body of writeUpdate()/commitMutation(): `mutationTransaction`
+    // selects the rollback-on-failure semantics.
+    bool commitMutationImpl(const QString &path, bool mutationTransaction);
 };
