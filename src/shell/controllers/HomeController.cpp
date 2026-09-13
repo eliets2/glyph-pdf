@@ -114,7 +114,11 @@ void HomeController::activate(ToolId id) {
         if (_ctx && _ctx->undoStack) CheckedHistory::undo(_ctx->undoStack.get());
         break;
     case ToolId::Redo:
-        if (_ctx && _ctx->undoStack) _ctx->undoStack->redo();
+        // WP-R03 (WHOLE-ARCHITECTURE-REVIEW A02): checked traversal — the
+        // mutation is applied while the history position is untouched; a
+        // failed redo leaves the index, the clean state and the retryability
+        // truthful (the redo mirror of the G08 undo seam).
+        if (_ctx && _ctx->undoStack) CheckedHistory::redo(_ctx->undoStack.get());
         break;
     case ToolId::Watermark:
         _mainWindow->onScreenSelected(QStringLiteral("watermark"));
@@ -275,6 +279,56 @@ HomeController::SaveOutcome HomeController::saveNow() {
         _mainWindow->statusBar()->showMessage(tr("Document saved: %1").arg(filePath), 5000);
         return SaveOutcome::Saved;
     } else {
+        // WP-R09b (WHOLE-ARCHITECTURE-REVIEW A05): an external source-version
+        // conflict gets its own resolution flow — the file on disk was
+        // changed by someone else while it was open here. The refusal
+        // guaranteed the disk file is untouched AND the resident work is
+        // intact, so the user reviews and chooses: Save-As (keep the work in
+        // a new file), reload from disk (discard the resident work), or
+        // cancel and keep editing. A silent overwrite is impossible.
+        if (_ctx->pdfEditor && _ctx->pdfEditor->lastSaveRefusedForExternalConflict()) {
+            QMessageBox conflict(_mainWindow);
+            conflict.setIcon(QMessageBox::Warning);
+            conflict.setWindowTitle(tr("The document changed on disk"));
+            conflict.setText(
+                tr("'%1' was modified by another program while it was open.\n\n"
+                   "Your changes were not saved and are still open here. "
+                   "Choose how to continue.").arg(filePath));
+            const auto* saveAsBtn =
+                conflict.addButton(tr("Save As…"), QMessageBox::ActionRole);
+            const auto* reloadBtn = conflict.addButton(
+                tr("Reload from disk (discard changes)"), QMessageBox::DestructiveRole);
+            conflict.addButton(QMessageBox::Cancel);
+            conflict.exec();
+
+            if (conflict.clickedButton() == saveAsBtn) {
+                onSaveAs();   // keeps the local work; writes to a user-chosen path
+                _mainWindow->statusBar()->showMessage(
+                    tr("External change detected: choose \"Save As\" to keep your work."), 8000);
+                return SaveOutcome::Failed;
+            }
+            if (conflict.clickedButton() == reloadBtn) {
+                // Discard the resident state and re-open the external bytes.
+                // Same re-anchor shape as the G05 recovery commit path.
+                const bool engineOk = _ctx->pdfEditor->loadDocumentForEditing(filePath);
+                const bool viewerOk = engineOk && viewer->loadDocument(filePath);
+                if (engineOk && viewerOk) {
+                    if (_ctx->undoStack) _ctx->undoStack->clear();
+                    if (_ctx->document) _ctx->document->setClean();
+                    _mainWindow->statusBar()->showMessage(
+                        tr("Reloaded the version from disk; local changes were discarded."), 8000);
+                } else {
+                    _mainWindow->statusBar()->showMessage(
+                        tr("The disk version could not be reopened; your local changes are kept."), 8000);
+                }
+                return SaveOutcome::Failed;
+            }
+            // Cancel / closed: keep editing, work stays open and dirty.
+            _mainWindow->statusBar()->showMessage(
+                tr("Save canceled: the file on disk changed. Use Save As to keep your work."), 8000);
+            return SaveOutcome::Failed;
+        }
+
         // UX-14: a save failure means the user's work was NOT persisted.
         // A 5-second status bar transient is easily missed for a data-loss event.
         // Show a modal QMessageBox::critical to match the onSaveAs failure path.

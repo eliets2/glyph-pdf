@@ -53,6 +53,24 @@ public:
     // document just because the path string still matches.
     qint64 loadId = 0;
 
+    // WP-R09 (WHOLE-ARCHITECTURE-REVIEW A04): the ONE resident-publication
+    // path. BOTH successful load flavors — a normal load and the qpdf
+    // repaired replacement — mint a new load identity here, so a repaired
+    // load can never be mistaken for the earlier resident (an autosave
+    // worker holding the old id must report stale, not promote its recovery
+    // file over the repaired document).
+    void publishResidentBackend(std::unique_ptr<PoDoFoBackend> resident) {
+        backend = std::move(resident);
+        ++loadId;
+    }
+
+    // WP-R09b (WHOLE-ARCHITECTURE-REVIEW A05): set when the backend refused
+    // an in-place commit because the file on disk changed since it was
+    // loaded. The shell consults lastSaveRefusedForExternalConflict() after
+    // a failed save to offer review/reload/Save-As instead of a generic
+    // write-failure message. Cleared by every successful load and save.
+    bool externalConflict = false;
+
     void clearErr() const { lastErr = ErrorInfo{}; }
 
     void setErr(ErrorInfo::Severity sev, const QString& msg,
@@ -117,8 +135,12 @@ bool PdfEditorEngine::loadDocumentForEditing(const QString &filePath)
 
 
     if (podofoBackend->loadDocument(filePath)) {
-        d->backend = std::move(podofoBackend);
-        ++d->loadId;   // G04: a new resident incarnation (same path included)
+        // G04/WP-R09 (A04): BOTH successful load flavors mint the identity in
+        // the ONE publication path — the qpdf repaired replacement below used
+        // to skip the increment, letting an earlier resident's autosave worker
+        // accept the repaired replacement under the stale id.
+        d->publishResidentBackend(std::move(podofoBackend));
+        d->externalConflict = false;   // WP-R09b: a successful load re-baselines
         return true;
     }
 
@@ -133,7 +155,11 @@ bool PdfEditorEngine::loadDocumentForEditing(const QString &filePath)
 
             if (podofoBackend->loadDocument(tempPath)) {
                 podofoBackend->setCurrentFile(filePath);
-                d->backend = std::move(podofoBackend);
+                // WP-R09 (A04): the repaired replacement is a NEW resident —
+                // mint the load identity through the common publication path
+                // (the old code kept the previous incarnation's id).
+                d->publishResidentBackend(std::move(podofoBackend));
+                d->externalConflict = false;
                 TempFileManager::instance().untrack(tempPath);
                 QFile::remove(tempPath);
 
@@ -180,6 +206,7 @@ bool PdfEditorEngine::saveDocument(const QString &outputPath)
         if (!d->backend->saveDocument(tempPath)) {
             TempFileManager::instance().untrack(tempPath);
             QFile::remove(tempPath);
+            d->externalConflict = false;   // temp write: not an in-place commit
             d->setErr(ErrorInfo::Error,
                       QObject::tr("Failed to save the document. The file may be read-only or the disk may be full."),
                       QStringLiteral("PoDoFoBackend::saveDocument failed for temp path"),
@@ -229,10 +256,15 @@ bool PdfEditorEngine::saveDocument(const QString &outputPath)
 
     bool ok = d->backend->saveDocument(outputPath);
     if (!ok) {
+        // WP-R09b: distinguish an external source-version conflict from an
+        // ordinary I/O failure for the shell's resolution offer.
+        d->externalConflict = d->backend->lastCommitRefusedForExternalConflict();
         d->setErr(ErrorInfo::Error,
                   QObject::tr("Failed to save the document. The file may be read-only or the disk may be full."),
                   QStringLiteral("PoDoFoBackend::saveDocument failed for: %1").arg(outputPath),
                   ErrorInfo::Retry);
+    } else {
+        d->externalConflict = false;
     }
     return ok;
 }
@@ -261,6 +293,23 @@ qint64 PdfEditorEngine::documentLoadId() const
 {
     QMutexLocker locker(&d->mutex);
     return d->loadId;
+}
+
+// WP-R09b (WHOLE-ARCHITECTURE-REVIEW A05): true when the last failed
+// in-place save was refused as an external source-version conflict.
+bool PdfEditorEngine::lastSaveRefusedForExternalConflict() const
+{
+    QMutexLocker locker(&d->mutex);
+    return d->externalConflict;
+}
+
+// WP-R09b: prime the external source-version baseline of `path` without
+// loading it (recovery-destination priming in the shell).
+void PdfEditorEngine::primeSourceBaseline(const QString &path)
+{
+    QMutexLocker locker(&d->mutex);
+    if (!d->backend) return;
+    d->backend->primeExternalBaseline(path);
 }
 
 bool PdfEditorEngine::saveDocumentIfCurrent(const QString &expectedCurrentFile,
@@ -1770,6 +1819,10 @@ bool PdfEditorEngine::embedAnnotations(const QString &inputPath, const QString &
     d->clearErr();
     if (!d->backend) return d->noBackend("embedAnnotations");
     bool ok = d->backend->embedAnnotations(inputPath, outputPath, annotations);
+    // WP-R09b: the user-Save route — a same-file refusal must be
+    // distinguishable as an external conflict (review/reload/Save-As).
+    d->externalConflict = ok ? false
+                             : d->backend->lastCommitRefusedForExternalConflict();
     if (!ok)
         d->setErr(ErrorInfo::Error,
                   QObject::tr("Failed to embed annotations into the document."),
@@ -1866,7 +1919,11 @@ bool PdfEditorEngine::writeUpdate(const QString &outputPath)
     QMutexLocker locker(&d->mutex);
     d->clearErr();
     if (!d->backend) return d->noBackend("writeUpdate");
-    return d->backend->writeUpdate(outputPath);
+    const bool ok = d->backend->writeUpdate(outputPath);
+    // WP-R09b: same-file in-place commit — surface an external conflict.
+    d->externalConflict = ok ? false
+                             : d->backend->lastCommitRefusedForExternalConflict();
+    return ok;
 }
 
 bool PdfEditorEngine::hasPdfSignatures() const

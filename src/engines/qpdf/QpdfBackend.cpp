@@ -36,11 +36,21 @@ bool QpdfBackend::repair(const QString &inputPath, const QString &outputPath) {
     qpdf_data qpdf = qpdf_init();
     if (!qpdf) return false;
     bool ok = false;
-    if (qpdf_read(qpdf, inputPath.toUtf8().constData(), nullptr) == 0) {
-        if (qpdf_init_write(qpdf, outputPath.toUtf8().constData()) == 0) {
-            if (qpdf_write(qpdf) == 0) {
-                ok = true;
-            }
+    // WP-R09a (WHOLE-ARCHITECTURE-REVIEW A04): a REPAIR is about recovering a
+    // damaged file. The qpdf C API returns QPDF_WARNINGS (not QPDF_SUCCESS)
+    // from read/init_write/write when a damaged file was recovered with
+    // warnings — the old `== 0` checks treated every such recovery as a
+    // failure, so the engine's structural-repair path could never repair any
+    // genuinely damaged input and always fell through to "unable to open".
+    // Only the QPDF_ERRORS bit is a hard failure.
+    const QPDF_ERROR_CODE readCode =
+        qpdf_read(qpdf, inputPath.toUtf8().constData(), nullptr);
+    if ((readCode & QPDF_ERRORS) == 0) {
+        const QPDF_ERROR_CODE initCode =
+            qpdf_init_write(qpdf, outputPath.toUtf8().constData());
+        if ((initCode & QPDF_ERRORS) == 0) {
+            const QPDF_ERROR_CODE writeCode = qpdf_write(qpdf);
+            ok = (writeCode & QPDF_ERRORS) == 0;
         }
     }
     qpdf_cleanup(&qpdf);

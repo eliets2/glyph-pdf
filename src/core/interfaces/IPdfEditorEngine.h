@@ -158,6 +158,19 @@ public:
     virtual bool saveDocumentIfCurrent(const QString &expectedCurrentFile,
                                        qint64 expectedLoadId,
                                        const QString &outputPath) = 0;
+    // WP-R09b (WHOLE-ARCHITECTURE-REVIEW A05): true when the last FAILED
+    // in-place save was refused because the file on disk changed since it
+    // was loaded (external modification). The shell offers conflict
+    // resolution (review / reload / Save-As) instead of a generic write
+    // error. Sticky until the next successful load or in-place commit.
+    // Non-pure with a default: engines without an external-version baseline
+    // never report a conflict (deliberately no `override`-style constraint
+    // on implementers added before this member).
+    virtual bool lastSaveRefusedForExternalConflict() const { return false; }
+    // WP-R09b: capture/refresh the external source-version baseline of
+    // `path` WITHOUT loading it — the recovery bind primes the DESTINATION
+    // (the original) so the first recovery Save is conflict-guarded too.
+    virtual void primeSourceBaseline(const QString &path) { Q_UNUSED(path); }
     virtual bool linearizeDocument(const QString &outputPath) = 0;
     virtual bool sanitizeDocument(const QString &outputPath) = 0;
     virtual bool getMetadata(PdfMetadata &outMetadata) = 0;
