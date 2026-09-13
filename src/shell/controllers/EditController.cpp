@@ -438,6 +438,16 @@ EditController::replaceAllInDocument(const ReplaceOptions &options) {
         out.message = tr("Enter text to search for.");
         return out;
     }
+    // packa-F1: an unusable scope is refused HERE, at the pipeline boundary.
+    // An empty page list legitimately means "all pages", so producers mark a
+    // refused scope with scopeValid=false — this guard makes whole-document
+    // widening impossible for bad input no matter which caller forgot to
+    // check, and leaves the file untouched (zero mutation).
+    if (!options.scopeValid) {
+        out.message = tr("The replace scope is not usable — nothing was changed. "
+                         "Fix the page range and try again.");
+        return out;
+    }
 
     const QString path = viewer->filePath();
     const QRegularExpression rx = TextMatchFinder::buildPattern(

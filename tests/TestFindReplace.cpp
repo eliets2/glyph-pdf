@@ -18,12 +18,17 @@
 
 #include <QtTest>
 #include <QTemporaryDir>
+#include <QFile>
 #include <podofo/podofo.h>
 #include "engines/TextMatchFinder.h"
 #include "engines/PdfEditorEngine.h"
 #include "engines/pdfium/PdfiumBackend.h"
 #include "mocks/MockPdfEditorEngine.h"
 #include "ui/FindReplaceDialog.h"
+#include "ui/PdfViewerWidget.h"
+#include "GpMainWindow.h"
+#include "app/Bootstrapper.h"
+#include "shell/controllers/EditController.h"
 
 #include <QLineEdit>
 #include <QCheckBox>
@@ -740,14 +745,21 @@ private slots:
                             + dlg.matchSummaryText()));
 
         // A range entirely outside the 3-page document: the same refusal, and
-        // Replace All must not fall back to the whole document.
+        // Replace All must not fall back to the whole document. packa-F1
+        // strengthened this: Count/Replace are DISABLED for a refused scope,
+        // so the click path itself is closed (the mouse path on a disabled
+        // button is a no-op).
         range->setText(QStringLiteral("9-9"));
         dlg.recount();
         QVERIFY2(dlg.matchSummaryText().contains(QStringLiteral("refused")),
                  qPrintable(QStringLiteral("out-of-document range must be refused; got: ")
                             + dlg.matchSummaryText()));
-        replaceAll->click();
+        QVERIFY2(!replaceAll->isEnabled(),
+                 "packa-F1: Replace All must be disabled for a refused scope");
         QCOMPARE(calls, 0);
+        // Defense in depth: even a FORCED applyReplace() (bypassing the
+        // disabled button) refuses and never reaches the invoker.
+        dlg.applyReplace();
         QVERIFY2(dlg.outcomeText().contains(QStringLiteral("refused")),
                  qPrintable(QStringLiteral("the refusal must be shown in the outcome; got: ")
                             + dlg.outcomeText()));
@@ -762,6 +774,110 @@ private slots:
         QCOMPARE(calls, 1);
         QCOMPARE(captured.pages.size(), 1);
         QCOMPARE(captured.pages.first(), 1);
+    }
+
+    // ── packa-F1: invalid scope is its own state; Count/Replace disabled ───
+
+    // packa-F1: a malformed range must disable Count AND Replace All (not
+    // merely show a refusal while the buttons stay armed). A disabled button
+    // ignores the real mouse path; a valid scope re-enables them.
+    void invalidScopeDisablesCountAndReplaceButtons() {
+        FindReplaceDialog dlg;   // no document yet
+        auto* count = dlg.findChild<QPushButton*>(QStringLiteral("frCount"));
+        auto* replaceAll = dlg.findChild<QPushButton*>(QStringLiteral("frReplaceAll"));
+        QVERIFY(count && replaceAll);
+        QVERIFY2(!count->isEnabled() && !replaceAll->isEnabled(),
+                 "without a document, Count/Replace must start disabled");
+
+        const QString path = createThreePagePdf(
+            m_tmpDir, QStringLiteral("dlg_buttons.pdf"));
+        QVERIFY2(!path.isEmpty(), "PDF creation failed");
+        int calls = 0;
+        dlg.setDocumentContext(path, 3, 2,
+            [&](const ReplaceOptions&) { ++calls; return ReplaceOutcome{}; });
+        auto* search = dlg.findChild<QLineEdit*>(QStringLiteral("frSearch"));
+        auto* scope = dlg.findChild<QComboBox*>(QStringLiteral("frScope"));
+        auto* range = dlg.findChild<QLineEdit*>(QStringLiteral("frRange"));
+        QVERIFY(search && scope && range);
+
+        search->setText(QStringLiteral("alpha"));
+        dlg.recount();
+        QVERIFY2(count->isEnabled() && replaceAll->isEnabled(),
+                 "a usable whole-document scope must leave Count/Replace enabled");
+
+        scope->setCurrentIndex(2);   // Range… with garbage text
+        range->setText(QStringLiteral("abc"));
+        QVERIFY2(!count->isEnabled() && !replaceAll->isEnabled(),
+                 "a malformed range must disable Count AND Replace All (packa F1)");
+        // The real mouse path on a disabled button is a no-op.
+        QTest::mouseClick(replaceAll, Qt::LeftButton);
+        QTest::mouseClick(count, Qt::LeftButton);
+        QCOMPARE(calls, 0);
+
+        // The encoded options carry the refused state, never an empty list
+        // that downstream would widen to all pages.
+        const ReplaceOptions refused = dlg.currentOptions();
+        QVERIFY2(!refused.scopeValid,
+                 "a malformed range must set scopeValid=false");
+
+        range->setText(QStringLiteral("2-2"));   // valid — not sticky
+        dlg.recount();
+        QVERIFY2(count->isEnabled() && replaceAll->isEnabled(),
+                 "a valid range must re-enable Count/Replace");
+        QVERIFY(dlg.currentOptions().scopeValid);
+    }
+
+    // packa-F1, controller boundary: ReplaceOptions that mark the scope
+    // unusable are refused by EditController::replaceAllInDocument itself
+    // with ZERO mutation — the whole-document widening path is closed at the
+    // shared boundary, not only in the dialog. Runs the REAL window +
+    // controller over a real artifact (bytes compared before/after).
+    void controllerRefusesInvalidScopeWithZeroMutation() {
+        const QString path = createThreePagePdf(
+            m_tmpDir, QStringLiteral("ctrl_zero.pdf"));
+        QVERIFY2(!path.isEmpty(), "PDF creation failed");
+
+        gp::MainWindow win(Bootstrapper::createContext());
+        win.show();
+        win.openDocument(path);
+        QTRY_COMPARE_WITH_TIMEOUT(win.pdfViewer()->pageCount(), 3, 20000);
+        auto* edit = win.findChild<gp::EditController*>();
+        QVERIFY2(edit, "the window must own the canonical EditController");
+
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        const QByteArray before = f.readAll();
+        f.close();
+
+        ReplaceOptions bad;
+        bad.searchText = QStringLiteral("alpha");
+        bad.replaceText = QStringLiteral("MUTATED");
+        bad.scopeValid = false;   // pages empty: without the guard = ALL pages
+        const ReplaceOutcome refused = edit->replaceAllInDocument(bad);
+        QVERIFY2(!refused.ok,
+                 "an invalid scope must be refused at the pipeline boundary");
+        QVERIFY2(refused.message.contains(QStringLiteral("scope")),
+                 qPrintable(refused.message));
+        QVERIFY2(refused.applied == 0 && refused.requested == 0,
+                 "a refused scope must not even count, let alone replace");
+
+        QFile g(path);
+        QVERIFY(g.open(QIODevice::ReadOnly));
+        QCOMPARE(g.readAll(), before);   // ZERO mutation on bad input
+        g.close();
+
+        // Contrast: the same request with a valid scope DOES run the
+        // pipeline (proves the guard, not a broken pipeline, refused above).
+        ReplaceOptions good = bad;
+        good.scopeValid = true;
+        const ReplaceOutcome applied = edit->replaceAllInDocument(good);
+        QVERIFY2(applied.ok && applied.applied == 4,
+                 qPrintable(applied.message));
+        QFile h(path);
+        QVERIFY(h.open(QIODevice::ReadOnly));
+        QVERIFY2(h.readAll() != before,
+                 "the valid-scope control must actually mutate the document");
+        h.close();
     }
 
 private:

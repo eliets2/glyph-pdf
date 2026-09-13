@@ -130,6 +130,9 @@ ReplaceOptions FindReplaceDialog::currentOptions() const {
     options.matchCase = m_matchCase && m_matchCase->isChecked();
     options.wholeWords = m_wholeWords && m_wholeWords->isChecked();
     options.useRegex = m_useRegex && m_useRegex->isChecked();
+    // packa-F1: an unusable scope is its OWN state — never the same empty
+    // page list that means "all pages" downstream.
+    options.scopeValid = scopeRefusal().isEmpty();
 
     const int scope = m_scope ? m_scope->currentIndex() : 0;
     if (scope == 1) {
@@ -185,6 +188,7 @@ QString FindReplaceDialog::scopeRefusal() const {
 
 void FindReplaceDialog::recount() {
     if (!m_matchSummary) return;
+    updateActionAvailability();
     if (m_docPath.isEmpty()) {
         m_matchSummary->setText(tr("No document is open."));
         return;
@@ -218,6 +222,15 @@ void FindReplaceDialog::recount() {
 
 QString FindReplaceDialog::matchSummaryText() const {
     return m_matchSummary ? m_matchSummary->text() : QString();
+}
+
+// packa-F1: Count/Replace are DISABLED until the scope is usable. A refused
+// scope must not be clickable (and the mouse path on a disabled button is a
+// no-op) — applyReplace()'s textual refusal stays as defense in depth.
+void FindReplaceDialog::updateActionAvailability() {
+    const bool usable = !m_docPath.isEmpty() && scopeRefusal().isEmpty();
+    if (m_countBtn) m_countBtn->setEnabled(usable);
+    if (m_replaceAllBtn) m_replaceAllBtn->setEnabled(usable);
 }
 
 void FindReplaceDialog::applyReplace() {

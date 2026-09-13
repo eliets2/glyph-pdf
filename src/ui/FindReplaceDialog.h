@@ -61,6 +61,11 @@ public:
 private:
     void updateScopeEnabled();
 
+    // packa-F1: Count/Replace enabled only with a document open AND a usable
+    // scope (see scopeRefusal). Called from recount()/setDocumentContext so
+    // every scope edit re-evaluates immediately.
+    void updateActionAvailability();
+
     // WP-R07: non-empty when the SELECTED scope cannot be honored (malformed
     // range, range entirely outside the document, out-of-range current page).
     // The dialog refuses the scope explicitly instead of silently widening it
