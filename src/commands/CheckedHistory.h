@@ -31,7 +31,8 @@
 // Commands that do not opt in (plain QUndoCommand) keep the plain Qt
 // semantics via the dynamic_cast fallback.
 
-// Base class for commands whose undo() is a real RESTORATION that can fail.
+// Base class for commands whose undo() is a real RESTORATION that can fail,
+// and whose redo() is a real MUTATION that can fail.
 class CheckedUndoCommand : public QUndoCommand {
 public:
     using QUndoCommand::QUndoCommand;
@@ -40,6 +41,13 @@ public:
     // false when the document could not be restored: nothing was traversed,
     // the command remains current, and the caller may retry.
     virtual bool restoreChecked() = 0;
+
+    // WP-R03 (WHOLE-ARCHITECTURE-REVIEW A02): the mirror-image APPLY side.
+    // Perform the command's mutation WITHOUT moving the history index.
+    // Returns false when the mutation failed: the history index stays where
+    // it is, the clean state is untouched, and the redo is RETRYABLE — the
+    // stack never records a change that did not happen.
+    virtual bool applyChecked() = 0;
 
 protected:
     // Mark the restoration as applied so the follow-up QUndoStack::undo()
@@ -57,8 +65,24 @@ protected:
         return true;
     }
 
+    // WP-R03: the apply-side arms, mirroring the restore side for
+    // CheckedHistory::redo().
+    void armCheckedApply() { m_applyArmed = true; }
+
+    // Consume a pending apply arm inside redo(). Returns true when this
+    // redo() call is the index-move follow-up of a checked traversal — the
+    // real mutation already happened in applyChecked().
+    bool consumeArmedApply()
+    {
+        if (!m_applyArmed)
+            return false;
+        m_applyArmed = false;
+        return true;
+    }
+
 private:
     bool m_armed = false;
+    bool m_applyArmed = false;
 };
 
 namespace CheckedHistory {
@@ -83,6 +107,31 @@ inline bool undo(QUndoStack *stack)
         return true;
     }
     stack->undo();   // legacy commands: plain Qt semantics
+    return true;
+}
+
+// WP-R03 (A02): the checked REDO traversal. Qt moves the index on redo()
+// UNCONDITIONALLY (its mirror of the undo gap G08 closed), so a failed
+// re-application used to advance history into a false state: index forward,
+// clean baseline restored, while the document never changed. Here the
+// mutation is performed first, while the index is untouched; only a
+// successful application moves the position (redo() then only consumes the
+// arm). Legacy commands keep plain Qt semantics.
+inline bool redo(QUndoStack *stack)
+{
+    if (!stack)
+        return false;
+    const int idx = stack->index();
+    if (idx >= stack->count())
+        return false;
+    QUndoCommand *cmd = const_cast<QUndoCommand *>(stack->command(idx));
+    if (auto *checked = dynamic_cast<CheckedUndoCommand *>(cmd)) {
+        if (!checked->applyChecked())
+            return false;   // history position unchanged — retryable
+        stack->redo();      // index-move follow-up only
+        return true;
+    }
+    stack->redo();   // legacy commands: plain Qt semantics
     return true;
 }
 

@@ -3928,6 +3928,27 @@ if(QT_VERSION VERSION_GREATER_EQUAL "6.5")
     install(SCRIPT ${deploy_script})
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCheckedMutationCoverage.cpp")
+    # WP-R03 (WHOLE-ARCHITECTURE-REVIEW-2026-09-10 A02): rotate and inline-text
+    # command families under the checked mutation/history seams — fault-injected
+    # engines for the failure paths, real-engine saved artifacts for the
+    # round-trips, and the production HomeController Undo/Redo seam.
+    add_executable(TestCheckedMutationCoverage
+        tests/TestCheckedMutationCoverage.cpp
+    )
+    target_include_directories(TestCheckedMutationCoverage PRIVATE src tests)
+    target_link_libraries(TestCheckedMutationCoverage PRIVATE
+        pdfws_ui pdfws_engines pdfws_core pdfws_commands podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_test(NAME TestCheckedMutationCoverage COMMAND TestCheckedMutationCoverage)
+    set_tests_properties(TestCheckedMutationCoverage PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;history;persistence;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestHistoryIntegrity.cpp")
     # Step-3 history truthfulness (EC03/EC05/V02): command-level regression
     # tests over the real engine (saved/reopened artifacts via PoDoFo/PDFium)

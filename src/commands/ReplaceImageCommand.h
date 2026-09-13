@@ -15,29 +15,33 @@ public:
           m_name(xobjectName), m_newPath(newImagePath), m_backup(pageBackup) {
         setText(QObject::tr("Replace image %1").arg(xobjectName));
     }
-    void redo() override {
-        if (!m_engine || !m_doc) { setObsolete(true); return; }
-        // EC03 (TEAM-ENGINE-CODE-REVIEW-2026-09-07): never start the
-        // destructive edit without a restorable backup — undo replaces the
-        // page from this backup, and an empty one could never be restored.
-        if (m_backup.isEmpty()) {
-            setObsolete(true);
-            emit m_doc->mutationFailed(
-                QObject::tr("Replacing image %1 was refused: the page backup is missing; nothing was changed.")
-                    .arg(m_name));
-            return;
+    // WP-R03 (WHOLE-ARCHITECTURE-REVIEW A02): the checked APPLY side — the
+    // same mutation redo() performs, but without moving the history index.
+    // A failed application leaves the index, the clean state and the
+    // retryability untouched.
+    bool applyChecked() override {
+        QString err;
+        if (!performApply(&err)) {
+            if (!m_doc) return false;
+            emit m_doc->mutationFailed(err);
+            return false;
         }
-        if (!m_engine->replaceImage(m_page, m_name, m_newPath)) {
+        armCheckedApply();
+        return true;
+    }
+
+    void redo() override {
+        QString err;
+        if (!performApply(&err)) {
             // A failed mutation must not become an undoable step (QUndoStack
             // push() — Qt 5.15 through 6.x, not a 6.11 novelty — deletes a
             // command that is obsolete after its redo()).
             setObsolete(true);
-            emit m_doc->mutationFailed(
-                QObject::tr("Replacing image %1 failed; the document was left unchanged.")
-                    .arg(m_name));
+            if (m_doc && !err.isEmpty())
+                emit m_doc->mutationFailed(err);
             return;
         }
-        m_doc->markReload();
+        setObsolete(false);
     }
     // G08 (QUALITY-GATE-2026-09-09): the replacement's undo is ONE committed
     // step (IPageEditor::restorePageFromBytes — no intermediate committed
@@ -82,6 +86,30 @@ private:
         if (!m_engine || !m_doc) return false;
         if (!m_engine->restorePageFromBytes(m_doc->path(), m_page, m_backup))
             return false;
+        m_doc->markReload();
+        return true;
+    }
+
+    // WP-R03: the shared mutation body — no reporting, no obsoletion.
+    // Returns false with a reason when nothing was changed.
+    bool performApply(QString* err) {
+        if (!m_engine || !m_doc) {
+            if (err) *err = QObject::tr("Replacing image %1 failed: no document.").arg(m_name);
+            return false;
+        }
+        // EC03 (TEAM-ENGINE-CODE-REVIEW-2026-09-07): never start the
+        // destructive edit without a restorable backup — undo replaces the
+        // page from this backup, and an empty one could never be restored.
+        if (m_backup.isEmpty()) {
+            if (err) *err = QObject::tr("Replacing image %1 was refused: the page backup is missing; nothing was changed.")
+                                 .arg(m_name);
+            return false;
+        }
+        if (!m_engine->replaceImage(m_page, m_name, m_newPath)) {
+            if (err) *err = QObject::tr("Replacing image %1 failed; the document was left unchanged.")
+                                 .arg(m_name);
+            return false;
+        }
         m_doc->markReload();
         return true;
     }

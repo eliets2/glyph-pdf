@@ -7,21 +7,52 @@ CropPageCommand::CropPageCommand(IPdfEditorEngine* engine, DocumentSession* doc,
     setText(QObject::tr("Crop Page %1").arg(pageIndex + 1));
 }
 
+// EC05 (TEAM-ENGINE-CODE-REVIEW-2026-09-07): the old command mutated and
+// announced a reload unconditionally, and its undo was a no-op reload.
+// The restored command refuses to run when the geometry cannot be read or
+// the mutation fails — setObsolete(true) after the initial redo() makes
+// QUndoStack::push delete the command (Qt 5.15 through 6.x, not a 6.11
+// novelty), so a failed mutation never becomes an undoable step (the
+// same ownership rule EditFormFieldCommand documents).
 void CropPageCommand::redo()
 {
-    // EC05 (TEAM-ENGINE-CODE-REVIEW-2026-09-07): the old command mutated and
-    // announced a reload unconditionally, and its undo was a no-op reload.
-    // The restored command refuses to run when the geometry cannot be read or
-    // the mutation fails — setObsolete(true) after the initial redo() makes
-    // QUndoStack::push delete the command (Qt 5.15 through 6.x, not a 6.11
-    // novelty), so a failed mutation never becomes an undoable step (the
-    // same ownership rule EditFormFieldCommand documents).
     m_succeeded = false;
-    if (!m_engine || !m_doc || m_doc->path().isEmpty()) {
-        m_error = QObject::tr("Crop failed: no document is open.");
+    m_error.clear();
+    if (!performMutation(&m_error)) {
         setObsolete(true);
-        if (m_doc) emit m_doc->mutationFailed(m_error);
+        if (m_doc && !m_error.isEmpty())
+            emit m_doc->mutationFailed(m_error);
         return;
+    }
+    m_succeeded = true;
+    setObsolete(false);
+}
+
+// WP-R03 (WHOLE-ARCHITECTURE-REVIEW A02): the checked APPLY side — the same
+// mutation redo() performs, but without moving the history index. A failed
+// application (e.g. a refused commit after an undo) leaves the index, the
+// clean state and the retryability untouched; the stack never records a
+// rotation/crop that did not happen.
+bool CropPageCommand::applyChecked()
+{
+    QString err;
+    if (!performMutation(&err)) {
+        if (!m_doc) return false;
+        emit m_doc->mutationFailed(err);
+        return false;
+    }
+    armCheckedApply();
+    return true;
+}
+
+// The shared mutation body — no reporting, no obsoletion. Captures the
+// effective original geometry exactly once (G07) and marks the session
+// reload only after a mutation that really happened.
+bool CropPageCommand::performMutation(QString* err)
+{
+    if (!m_engine || !m_doc || m_doc->path().isEmpty()) {
+        if (err) *err = QObject::tr("Crop failed: no document is open.");
+        return false;
     }
     if (!m_haveOriginal) {
         // Capture the EFFECTIVE original geometry — and its origin semantics —
@@ -30,26 +61,21 @@ void CropPageCommand::redo()
         QRectF box;
         int origin = IPdfEditorEngine::kCropBoxAbsent;
         if (!m_engine->pageCropBoxInfo(m_doc->path(), m_pageIndex, &box, &origin)) {
-            m_error = QObject::tr("Crop failed: page %1 geometry could not be read; nothing was changed.")
-                          .arg(m_pageIndex + 1);
-            setObsolete(true);
-            emit m_doc->mutationFailed(m_error);
-            return;
+            if (err) *err = QObject::tr("Crop failed: page %1 geometry could not be read; nothing was changed.")
+                                .arg(m_pageIndex + 1);
+            return false;
         }
         m_originalBox = box;
         m_originalOrigin = origin;
         m_haveOriginal = true;
     }
     if (!m_engine->cropPage(m_doc->path(), m_pageIndex, m_cropRect)) {
-        m_error = QObject::tr("Crop of page %1 failed; the document was left unchanged.")
-                      .arg(m_pageIndex + 1);
-        setObsolete(true);
-        emit m_doc->mutationFailed(m_error);
-        return;
+        if (err) *err = QObject::tr("Crop of page %1 failed; the document was left unchanged.")
+                            .arg(m_pageIndex + 1);
+        return false;
     }
-    m_succeeded = true;
-    setObsolete(false);
     m_doc->markReload();
+    return true;
 }
 
 bool CropPageCommand::restoreOriginal()

@@ -17,6 +17,12 @@ public:
     // restore leaves this command current (retryable, index/clean unchanged).
     bool restoreChecked() override;
 
+    // WP-R03 (WHOLE-ARCHITECTURE-REVIEW A02): checked APPLY traversal — the
+    // mutation is re-applied while the history position is still untouched;
+    // a failed application leaves this command where it is (retryable,
+    // index/clean unchanged).
+    bool applyChecked() override;
+
     void undo() override;
     void redo() override;
 
@@ -30,6 +36,9 @@ private:
     // G07: perform the restoration (explicit box rewrite, or removal of the
     // explicit key to re-expose inherited/absent semantics). No reporting.
     bool restoreOriginal();
+
+    // WP-R03: the shared mutation body (snapshot + crop). No reporting.
+    bool performMutation(QString* err);
     IPdfEditorEngine* m_engine;
     DocumentSession*  m_doc;
     int m_pageIndex;
