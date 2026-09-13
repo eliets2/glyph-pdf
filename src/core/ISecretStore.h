@@ -14,11 +14,18 @@
 //
 // Backends:
 //   * Windows Credential Manager (primary on Windows) — see CredentialManager.
+//   * Secret Service (primary on Linux when built with libsecret, L07) — the
+//     freedesktop.org keyring standard; secrets live in the user's OS-managed
+//     default collection. See LibSecretStore.
 //   * EncryptedFileSecretStore — an explicitly-labelled, AES-256-GCM encrypted
 //     file fallback used when no OS keystore is available. It is labelled (the
 //     user can see secrets are in an app-managed encrypted file, not the OS
 //     vault) and it actually persists — it never reports success without
 //     writing the bytes, and never reports failure while leaving a partial.
+//     NOTE (L07, NATIVE-LINUX-READINESS-2026-09-10): on Linux its default-path
+//     key derivation uses public identifiers and is documented obfuscation
+//     ONLY. When the build has libsecret, CredentialManager never sends NEW
+//     secrets to this store; it is kept for reading pre-existing entries.
 class ISecretStore {
 public:
     // Which concrete backend is providing storage. Surfaced so callers (and the
@@ -27,6 +34,7 @@ public:
     enum class Backend {
         WindowsCredentialManager,  // OS-managed vault (DPAPI-backed)
         EncryptedFile,             // app-managed AES-256-GCM encrypted file
+        SecretService,             // freedesktop keyring standard (libsecret)
     };
 
     virtual ~ISecretStore() = default;

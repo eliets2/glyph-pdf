@@ -10,11 +10,17 @@
 #include <QCoreApplication>
 #include <QFile>
 #include <QDir>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QProcess>
+#include <QStandardPaths>
 
 #include "core/EncryptedFileSecretStore.h"
 #include "core/ISecretStore.h"
+
+#if defined(HAS_LIBSECRET)
+#include "core/LibSecretStore.h"
+#endif
 
 // ── EC04 child mode ──────────────────────────────────────────────────────────
 // The DPAPI round-trip must survive a PROCESS boundary, not merely a new store
@@ -290,6 +296,70 @@ private slots:
         QVERIFY(!reader.hasSecret("DpapiCorruptSvc"));
     }
 #endif // Q_OS_WIN
+
+    // ── L07 (NATIVE-LINUX-READINESS-2026-09-10): the Secret Service backend ──
+    // On HAS_LIBSECRET builds the Secret Service is the Linux PRIMARY store
+    // and CredentialManager never writes new secrets through the
+    // identifier-derived encrypted-file path. These tests pin the negative
+    // contract in an environment with NO keyring daemon (containers/CI): the
+    // store reports DEFINITE failures — loud, not silent, and with NO
+    // file-store side effects. The positive round-trip needs a live Secret
+    // Service and stays a desktop/runtime gate (recorded as residual).
+
+#if defined(HAS_LIBSECRET)
+    // Without a keyring, storeSecret fails loudly and stores nothing.
+    void libsecretAbsentStoreFailsLoudly() {
+        LibSecretStore store;
+        QCOMPARE(store.backend(), ISecretStore::Backend::SecretService);
+        QVERIFY2(!store.storeSecret("Anthropic", "sk-ant-libsecret-absent-0001"),
+                 "storeSecret must report failure when no Secret Service is "
+                 "available (never a silent drop, never a fallback)");
+        QVERIFY2(store.readSecret("Anthropic").isEmpty(),
+                 "a failed store must leave nothing readable");
+    }
+
+    // The loud failure must NOT side-effect into the encrypted-file fallback:
+    // no default-path secrets file may appear from exercising this backend.
+    void libsecretAbsentWritesNoFileFallback() {
+        const QString defaultPath = []() {
+            const QString base = QStandardPaths::writableLocation(
+                QStandardPaths::AppDataLocation);
+            return (base.isEmpty() ? QDir::homePath() + QStringLiteral("/.glyphpdf")
+                                   : base) + QStringLiteral("/secrets.enc.json");
+        }();
+        if (QFile::exists(defaultPath)) {
+            QFileInfo info(defaultPath);
+            const QDateTime before = info.lastModified();
+            LibSecretStore store;
+            store.storeSecret("OpenAI", "sk-probe-fallback-side-effect-0001");
+            info.refresh();
+            QVERIFY2(info.lastModified() == before,
+                     "a failed Secret Service write must not touch the "
+                     "encrypted-file fallback store");
+        } else {
+            LibSecretStore store;
+            store.storeSecret("OpenAI", "sk-probe-fallback-side-effect-0001");
+            QVERIFY2(!QFile::exists(defaultPath),
+                     "a failed Secret Service write must not create the "
+                     "encrypted-file fallback store");
+        }
+    }
+
+    // Reads of an absent service are empty (absence is not an error), and
+    // deleteSecret without a keyring reports the definite outcome (a real
+    // failure here is acceptable; a claimed success without a keyring is not).
+    void libsecretAbsentReadAndDeleteHonesty() {
+        LibSecretStore store;
+        QVERIFY(store.readSecret("NeverStoredSvc").isEmpty());
+        QVERIFY(!store.hasSecret("NeverStoredSvc"));
+        // clear_sync without a daemon errors → false is honest. Just pin that
+        // the call COMPLETES either way (no crash/hang).
+        const bool removed = store.deleteSecret("NeverStoredSvc");
+        if (removed) {
+            QVERIFY(!store.hasSecret("NeverStoredSvc"));
+        }
+    }
+#endif // HAS_LIBSECRET
 };
 
 // EC04: custom main mirroring QTEST_GUILESS_MAIN plus the --ec04-child
