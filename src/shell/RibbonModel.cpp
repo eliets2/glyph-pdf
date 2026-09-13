@@ -25,8 +25,10 @@ const QSet<QString>& RibbonModel::plannedTools() {
         "replace", "reverse", "background",
         // Comment – advanced annotation types
         // (callout, eraser, stamp promoted to real tools — see ToolId::Callout/Erase/Stamp)
-        "poly", "customStamp",
-        "summary", "filterComm", "statusComm", "trackChanges", "reply",
+        // (customStamp promoted 2026-09-09, T2-6: the stamp library shipped as
+        // ToolId::StampLibraryManage; the Stamps menu items route through the
+        // same dynamic-stamp flow now)
+        "poly", "summary", "filterComm", "statusComm", "trackChanges", "reply",
         // Convert – additional format targets and batch
         "toMD", "toEPUB", "fromScan", "fromWeb",
         "extractTables", "detectTables",
@@ -84,7 +86,7 @@ static RibbonTabDef makeComment() {
         { "Markup", {{ "highlight","Highlight","highlight",true },{ "underline","Underline","underline",false },{ "strike","Strikeout","strike",false },{ "squiggly","Squiggly","underline",false }}},
         { "Notes", {{ "note","Sticky Note","note",true },{ "callout","Callout","comment",false },{ "textbox","Text Box","textbox",false }}},
         { "Drawing", {{ "line","Line","editText",false },{ "arrow","Arrow","editText",false },{ "rect","Rectangle","form",false },{ "oval","Oval","form",false },{ "poly","Polyline","editText",false },{ "pencil","Pencil","editText",false },{ "eraser","Eraser","redact",false }}},
-        { "Stamps", {{ "stamp","Stamp","form",true },{ "customStamp","Custom","form",false }}},
+        { "Stamps", {{ "stamp","Stamp","form",true },{ "customStamp","Custom","form",true }}},
         { "Review", {{ "summary","Summary","form",true },{ "filterComm","Filter","form",false },{ "statusComm","Status","form",false },{ "trackChanges","Track Changes","form",false },{ "reply","Reply","comment",false }}},
     }};
 }

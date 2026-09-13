@@ -1,0 +1,541 @@
+// SPDX-License-Identifier: Apache-2.0
+// T2-2: Find & Replace + regex search.
+//
+// Covers the three real seams the feature is built on:
+//   1. TextMatchFinder — flag-aware (exact / match-case / whole-words /
+//      regex) matching over the PDFium text layer with per-match geometry,
+//      matched text and font size, and page scoping;
+//   2. ITextReplacer::replaceTextRegions (PdfEditorEngine + PoDoFoBackend) —
+//      matched glyphs excised from the content stream, replacement drawn at
+//      the match position, measured drawn widths reported (the moat M8
+//      reflow-warning metric), verified in a SAVED, REOPENED artifact;
+//   3. FindReplaceDialog — match count shown BEFORE replace, page scoping
+//      (current page / range / all), options passed verbatim to the single
+//      canonical replace pipeline (injected invoker — no shell dependency).
+//
+// Deterministic: no sleeps, no modal dialogs (the dialog is modeless and its
+// mutation goes through an injectable function).
+
+#include <QtTest>
+#include <QTemporaryDir>
+#include <podofo/podofo.h>
+#include "engines/TextMatchFinder.h"
+#include "engines/PdfEditorEngine.h"
+#include "engines/pdfium/PdfiumBackend.h"
+#include "mocks/MockPdfEditorEngine.h"
+#include "ui/FindReplaceDialog.h"
+
+#include <QLineEdit>
+#include <QCheckBox>
+#include <QComboBox>
+#include <QPlainTextEdit>
+#include <QPushButton>
+
+// The PDFium/windows headers define `DrawText` as a macro (Win32 DrawTextW),
+// which collides with PoDoFo::PdfPainter::DrawText. Drop the macro — the
+// PoDoFo method is what this fixture needs.
+#ifdef DrawText
+#undef DrawText
+#endif
+
+// ---------------------------------------------------------------------------
+// Fixture: a 3-page PDF with known per-page text. Each WORD is drawn as its
+// own text operator at its own x offset (like real document text runs), so
+// the engine's operator-granularity excision removes exactly the matched
+// word's operator and the neighbors survive:
+//   page 0: "Alpha"  "beta"  "alphabet"
+//   page 1: "ALPHA"  "appears"  "here"
+//   page 2: "delta"  "alpha"  "end"
+// ---------------------------------------------------------------------------
+static QString createThreePagePdf(const QTemporaryDir& tmpDir, const QString& name) {
+    struct Word { const char* text; double x; };
+    static const Word pages[3][3] = {
+        { { "Alpha", 50 }, { "beta", 100 }, { "alphabet", 150 } },
+        { { "ALPHA", 50 }, { "appears", 110 }, { "here", 180 } },
+        { { "delta", 50 }, { "alpha", 100 }, { "end", 150 } },
+    };
+    const QString path = tmpDir.filePath(name);
+    try {
+        PoDoFo::PdfMemDocument doc;
+        for (int p = 0; p < 3; ++p) {
+            auto& page = doc.GetPages().CreatePage(
+                PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            PoDoFo::PdfPainter painter;
+            painter.SetCanvas(page);
+            auto& font = doc.GetFonts().GetStandard14Font(
+                PoDoFo::PdfStandard14FontType::Helvetica);
+            painter.TextState.SetFont(font, 12.0);
+            for (const Word& w : pages[p])
+                painter.DrawText(w.text, w.x, 700);
+            painter.FinishDrawing();
+        }
+        doc.Save(path.toUtf8().constData());
+    } catch (const std::exception& e) {
+        qWarning() << "createThreePagePdf failed:" << e.what();
+        return {};
+    }
+    return path;
+}
+
+class TestFindReplace : public QObject {
+    Q_OBJECT
+
+private:
+    QTemporaryDir m_tmpDir;
+
+private slots:
+    void initTestCase() {
+        QVERIFY2(m_tmpDir.isValid(), "Temp directory creation failed");
+    }
+
+    // ── TextMatchFinder::buildPattern ────────────────────────────────────
+
+    void patternExactEscapesMetacharacters() {
+        // A literal "a.b" must not act as a regex wildcard.
+        const QRegularExpression rx = TextMatchFinder::buildPattern(
+            QStringLiteral("a.b"), false, false, false);
+        QVERIFY(rx.isValid());
+        QVERIFY(rx.match(QStringLiteral("a.b")).hasMatch());
+        QVERIFY(!rx.match(QStringLiteral("axb")).hasMatch());
+    }
+
+    void patternInvalidRegexIsReported() {
+        const QRegularExpression rx = TextMatchFinder::buildPattern(
+            QStringLiteral("(unclosed"), true, false, true);
+        QVERIFY2(!rx.isValid(), "Syntactically bad regex must surface as invalid");
+    }
+
+    void patternWholeWordsWrapsLiteral() {
+        const QRegularExpression rx = TextMatchFinder::buildPattern(
+            QStringLiteral("alpha"), true, true, false);
+        QVERIFY(rx.isValid());
+        QVERIFY(rx.match(QStringLiteral("alpha")).hasMatch());
+        QVERIFY(!rx.match(QStringLiteral("alphabet")).hasMatch());
+    }
+
+    // ── TextMatchFinder::findMatches ─────────────────────────────────────
+
+    void findMatchesExactCaseInsensitiveDefault() {
+        const QString path = createThreePagePdf(m_tmpDir, QStringLiteral("exact.pdf"));
+        QVERIFY2(!path.isEmpty(), "PDF creation failed");
+#ifdef HAS_PDFIUM
+        const QRegularExpression rx = TextMatchFinder::buildPattern(
+            QStringLiteral("alpha"), false, false, false);
+        const QList<TextMatch> matches = TextMatchFinder::findMatches(
+            path, {0, 1, 2}, rx);
+        // page0: "Alpha" + inside "alphabet" = 2; page1 "ALPHA" = 1; page2 = 1.
+        QCOMPARE(matches.size(), 4);
+        for (const auto& m : matches) {
+            QVERIFY2(!m.rect.isEmpty(), "Match must carry real geometry");
+            QVERIFY2(!m.text.isEmpty(), "Match must carry the matched text");
+            QVERIFY2(m.fontSize > 0.0,
+                     "Match must carry the matched font size for the replacement draw");
+        }
+#else
+        QSKIP("PDFium not available in this build");
+#endif
+    }
+
+    void findMatchesMatchCaseRestricts() {
+        const QString path = createThreePagePdf(m_tmpDir, QStringLiteral("case.pdf"));
+        QVERIFY2(!path.isEmpty(), "PDF creation failed");
+#ifdef HAS_PDFIUM
+        const QRegularExpression rx = TextMatchFinder::buildPattern(
+            QStringLiteral("alpha"), true, false, false);
+        const QList<TextMatch> matches = TextMatchFinder::findMatches(
+            path, {0, 1, 2}, rx);
+        // Lowercase "alpha" only: inside page0 "alphabet" + page2 = 2
+        // (page0 "Alpha" and page1 "ALPHA" are excluded by the case flag).
+        QCOMPARE(matches.size(), 2);
+#endif
+    }
+
+    void findMatchesWholeWords() {
+        const QString path = createThreePagePdf(m_tmpDir, QStringLiteral("words.pdf"));
+        QVERIFY2(!path.isEmpty(), "PDF creation failed");
+#ifdef HAS_PDFIUM
+        const QRegularExpression rx = TextMatchFinder::buildPattern(
+            QStringLiteral("alpha"), false, true, false);
+        const QList<TextMatch> matches = TextMatchFinder::findMatches(
+            path, {0, 1, 2}, rx);
+        // One whole word per page; the "alphabet" interior hit is excluded.
+        QCOMPARE(matches.size(), 3);
+#endif
+    }
+
+    void findMatchesRegex() {
+        const QString path = createThreePagePdf(m_tmpDir, QStringLiteral("regex.pdf"));
+        QVERIFY2(!path.isEmpty(), "PDF creation failed");
+#ifdef HAS_PDFIUM
+        const QRegularExpression rx = TextMatchFinder::buildPattern(
+            QStringLiteral("alpha\\w*"), false, false, true);
+        const QList<TextMatch> matches = TextMatchFinder::findMatches(
+            path, {0, 1, 2}, rx);
+        QCOMPARE(matches.size(), 4);
+        bool sawAlphabet = false;
+        for (const auto& m : matches)
+            if (m.text == QStringLiteral("alphabet")) sawAlphabet = true;
+        QVERIFY2(sawAlphabet, "Regex mode must match the longer 'alphabet' span");
+#endif
+    }
+
+    void findMatchesPageScope() {
+        const QString path = createThreePagePdf(m_tmpDir, QStringLiteral("scope.pdf"));
+        QVERIFY2(!path.isEmpty(), "PDF creation failed");
+#ifdef HAS_PDFIUM
+        const QRegularExpression rx = TextMatchFinder::buildPattern(
+            QStringLiteral("alpha"), false, false, false);
+        QCOMPARE(TextMatchFinder::findMatches(path, {1}, rx).size(), 1);
+        QCOMPARE(TextMatchFinder::findMatches(path, {0, 2}, rx).size(), 3);
+        QCOMPARE(TextMatchFinder::findMatches(path, {}, rx).size(), 0);
+#endif
+    }
+
+    // ── Engine replace: excision + redraw, measured widths, SAVED artifact ──
+
+    void engineReplaceRoundTripInSavedArtifact() {
+        const QString src = createThreePagePdf(m_tmpDir, QStringLiteral("repl_src.pdf"));
+        QVERIFY2(!src.isEmpty(), "PDF creation failed");
+        const QString out = m_tmpDir.filePath(QStringLiteral("repl_out.pdf"));
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(src));
+
+        // Find first (the real pipeline order: matcher decides the specs).
+        const QRegularExpression rx = TextMatchFinder::buildPattern(
+            QStringLiteral("alpha"), false, false, false);
+        const QList<TextMatch> matches = TextMatchFinder::findMatches(src, {0, 1, 2}, rx);
+        QCOMPARE(matches.size(), 4);
+
+        QList<TextReplacementSpec> specs;
+        for (const auto& m : matches) {
+            TextReplacementSpec s;
+            s.pageIndex = m.pageIndex;
+            s.rect = m.rect;
+            s.text = QStringLiteral("omega");
+            s.fontSize = m.fontSize;
+            specs.append(s);
+        }
+
+        QList<double> drawnWidths;
+        QVERIFY2(engine.replaceTextRegions(specs, &drawnWidths),
+                 "replaceTextRegions must succeed on an editable text PDF");
+        QCOMPARE(drawnWidths.size(), specs.size());
+
+        // Save + reopen: the SAVED artifact must carry the replacement text
+        // and must no longer carry the matched text (real excision, not an
+        // overlay painted on top of the original glyphs).
+        QVERIFY(engine.saveDocument(out));
+
+        PdfiumBackend reader;
+        QVERIFY(reader.loadDocument(out));
+        const QString page0 = reader.extractText(0);
+        const QString page1 = reader.extractText(1);
+        QVERIFY2(page0.contains(QStringLiteral("omega")),
+                 "Replacement text must be present in the saved artifact");
+        QVERIFY2(page1.contains(QStringLiteral("omega")),
+                 "Replacement text must be present on every scoped page");
+        QVERIFY2(!page0.contains(QStringLiteral("Alpha"), Qt::CaseInsensitive),
+                 "Original match must be excised from the saved artifact");
+        QVERIFY2(!page1.contains(QStringLiteral("ALPHA"), Qt::CaseInsensitive),
+                 "Original match must be excised from the saved artifact");
+        // Untouched page content survives.
+        QVERIFY2(page2Contains(reader, QStringLiteral("delta")),
+                 "Unmatched text on a scoped page must survive the replace");
+    }
+
+    void engineReplaceReportsWidthChanges() {
+        const QString src = createThreePagePdf(m_tmpDir, QStringLiteral("width.pdf"));
+        QVERIFY2(!src.isEmpty(), "PDF creation failed");
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(src));
+
+        const QRegularExpression rx = TextMatchFinder::buildPattern(
+            QStringLiteral("ALPHA"), true, false, false);
+        const QList<TextMatch> matches = TextMatchFinder::findMatches(src, {1}, rx);
+        QCOMPARE(matches.size(), 1);
+
+        // A much longer replacement must produce a measured drawn width that
+        // differs from the match width — this is the reflow warning signal.
+        QList<TextReplacementSpec> specs;
+        TextReplacementSpec s;
+        s.pageIndex = matches.first().pageIndex;
+        s.rect = matches.first().rect;
+        s.text = QStringLiteral("OMEGA-OMEGA-OMEGA-OMEGA");
+        s.fontSize = matches.first().fontSize;
+        specs.append(s);
+
+        QList<double> drawnWidths;
+        QVERIFY(engine.replaceTextRegions(specs, &drawnWidths));
+        QCOMPARE(drawnWidths.size(), 1);
+        QVERIFY2(drawnWidths.first() > matches.first().rect.width() + 0.5,
+                 "A longer replacement must measure wider than the match box "
+                 "(the M8 geometry warning input)");
+    }
+
+    void engineReplaceInvalidPageRefuses() {
+        const QString src = createThreePagePdf(m_tmpDir, QStringLiteral("badpage.pdf"));
+        QVERIFY2(!src.isEmpty(), "PDF creation failed");
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(src));
+
+        TextReplacementSpec s;
+        s.pageIndex = 99;   // out of range
+        s.rect = QRectF(50, 690, 40, 12);
+        s.text = QStringLiteral("x");
+        s.fontSize = 12;
+        QList<double> widths;
+        QVERIFY2(!engine.replaceTextRegions({s}, &widths),
+                 "Out-of-range page must refuse the whole replace pass");
+    }
+
+    void mockReplaceSeamRecordsSpecs() {
+        // The interface-change convention: the mock member has NO `override`,
+        // so this translation unit must also compile against pre-baseline
+        // headers where ITextReplacer does not exist yet.
+        MockPdfEditorEngine mock;
+        mock.m_loaded = true;
+        TextReplacementSpec s;
+        s.pageIndex = 2;
+        s.rect = QRectF(10, 10, 30, 10);
+        s.text = QStringLiteral("replacement");
+        s.fontSize = 14;
+        QList<double> widths;
+        QVERIFY(mock.replaceTextRegions({s}, &widths));
+        QCOMPARE(mock.m_lastReplaceSpecs.size(), 1);
+        QCOMPARE(mock.m_lastReplaceSpecs.first().pageIndex, 2);
+        QCOMPARE(widths.size(), 1);
+        QCOMPARE(widths.first(), 30.0);   // mock reports the rect width
+    }
+
+    void reflowWarningsListLengthDifferences() {
+        QList<TextMatch> matches;
+        TextMatch a; a.pageIndex = 0; a.text = QStringLiteral("Alpha");
+        TextMatch b; b.pageIndex = 2; b.text = QStringLiteral("alpha");
+        matches.append(a);
+        matches.append(b);
+        const auto warnings = TextMatchFinder::reflowWarnings(
+            matches, QStringLiteral("OMEGA"));
+        QCOMPARE(warnings.size(), 2);
+        QCOMPARE(warnings.first().pageIndex, 0);
+        QCOMPARE(warnings.first().matched, QStringLiteral("Alpha"));
+        QCOMPARE(warnings.first().replacement, QStringLiteral("OMEGA"));
+    }
+
+    // ── FindReplaceDialog (modeless; invoker injected — no MainWindow) ──────
+
+    void dialogShowsMatchCountBeforeReplace() {
+        const QString path = createThreePagePdf(m_tmpDir, QStringLiteral("dialog.pdf"));
+        QVERIFY2(!path.isEmpty(), "PDF creation failed");
+
+        FindReplaceDialog dlg;
+        bool invoked = false;
+        dlg.setDocumentContext(path, 3, 2,
+            [&](const ReplaceOptions&) {
+                invoked = true;
+                ReplaceOutcome out;
+                out.ok = true;
+                return out;
+            });
+
+        auto* search = dlg.findChild<QLineEdit*>(QStringLiteral("frSearch"));
+        QVERIFY(search);
+        QTest::keyClicks(search, QStringLiteral("alpha"));
+        dlg.recount();
+
+        // The research row: show match count BEFORE replace.
+        QVERIFY2(dlg.matchSummaryText().contains(QStringLiteral("4")),
+                 qPrintable(QStringLiteral("Expected the default 4-match count, got: ")
+                            + dlg.matchSummaryText()));
+        QVERIFY2(!invoked, "Counting must never mutate the document");
+    }
+
+    void dialogScopeCurrentPageAndRange() {
+        const QString path = createThreePagePdf(m_tmpDir, QStringLiteral("dialog_scope.pdf"));
+        QVERIFY2(!path.isEmpty(), "PDF creation failed");
+
+        FindReplaceDialog dlg;
+        dlg.setDocumentContext(path, 3, 2, [](const ReplaceOptions&) { return ReplaceOutcome{}; });
+
+        auto* search = dlg.findChild<QLineEdit*>(QStringLiteral("frSearch"));
+        auto* scope = dlg.findChild<QComboBox*>(QStringLiteral("frScope"));
+        auto* range = dlg.findChild<QLineEdit*>(QStringLiteral("frRange"));
+        QVERIFY(search && scope && range);
+        search->setText(QStringLiteral("alpha"));
+
+        // Current page = page 2 (1-based) → exactly one match on page index 1.
+        scope->setCurrentIndex(1);
+        dlg.recount();
+        QVERIFY2(!dlg.matchSummaryText().contains(QStringLiteral("4 match")),
+                 qPrintable(dlg.matchSummaryText()));
+        QVERIFY2(dlg.matchSummaryText().contains(QStringLiteral("1 match")),
+                 qPrintable(dlg.matchSummaryText()));
+
+        // Range "1-2" (pages 0..1) → 3 matches on that scope: "Alpha" +
+        // the "alphabet" interior hit on page 0, "ALPHA" on page 1.
+        scope->setCurrentIndex(2);
+        range->setText(QStringLiteral("1-2"));
+        dlg.recount();
+        QVERIFY2(dlg.matchSummaryText().contains(QStringLiteral("3 match")),
+                 qPrintable(dlg.matchSummaryText()));
+
+        // The composed options must carry the 0-based scope {0, 1}.
+        const ReplaceOptions options = dlg.currentOptions();
+        QCOMPARE(options.pages.size(), 2);
+        QCOMPARE(options.pages.first(), 0);
+        QCOMPARE(options.pages.last(), 1);
+    }
+
+    void dialogReplaceRoutesThroughSingleInvoker() {
+        const QString path = createThreePagePdf(m_tmpDir, QStringLiteral("dialog_apply.pdf"));
+        QVERIFY2(!path.isEmpty(), "PDF creation failed");
+
+        FindReplaceDialog dlg;
+        ReplaceOptions captured;
+        int calls = 0;
+        dlg.setDocumentContext(path, 3, 1,
+            [&](const ReplaceOptions& o) {
+                ++calls;
+                captured = o;
+                ReplaceOutcome out;
+                out.ok = true;
+                out.requested = 4;
+                out.applied = 4;
+                out.widthChanged = 2;
+                out.message = QStringLiteral("Replaced 4 of 4 occurrence(s).");
+                return out;
+            });
+
+        auto* search = dlg.findChild<QLineEdit*>(QStringLiteral("frSearch"));
+        auto* replace = dlg.findChild<QLineEdit*>(QStringLiteral("frReplace"));
+        auto* regex = dlg.findChild<QCheckBox*>(QStringLiteral("frRegex"));
+        auto* caseBox = dlg.findChild<QCheckBox*>(QStringLiteral("frMatchCase"));
+        QVERIFY(search && replace && regex && caseBox);
+        search->setText(QStringLiteral("al\\w+"));
+        replace->setText(QStringLiteral("OMEGA"));
+        regex->setChecked(true);
+        caseBox->setChecked(true);
+        dlg.applyReplace();
+
+        QCOMPARE(calls, 1);
+        QCOMPARE(captured.searchText, QStringLiteral("al\\w+"));
+        QCOMPARE(captured.replaceText, QStringLiteral("OMEGA"));
+        QVERIFY(captured.useRegex);
+        QVERIFY(captured.matchCase);
+        QVERIFY2(captured.pages.isEmpty(),
+                 "Default scope (All pages) must pass an empty page list");
+
+        // The outcome pane must surface the measured geometry warnings.
+        QVERIFY2(dlg.outcomeText().contains(QStringLiteral("width")),
+                 qPrintable(dlg.outcomeText()));
+        QVERIFY2(dlg.outcomeText().contains(QStringLiteral("Replaced 4 of 4")),
+                 qPrintable(dlg.outcomeText()));
+    }
+
+    // WP-R07 (WHOLE-PRODUCT-AND-PLAN-REVIEW-2026-09-10): Replace All success
+    // counts come from COMMITTED outcomes only. When the save fails, the
+    // pipeline hands back ok=false with the in-memory count — the dialog must
+    // report the failure, never a "Replaced N" success line, and no geometry
+    // breakdown for an outcome that never landed on disk.
+    void refusedOutcomeIsNeverReportedAsSuccessCount() {
+        FindReplaceDialog dlg;
+        dlg.setDocumentContext(QStringLiteral("unused.pdf"), 3, 1,
+            [](const ReplaceOptions&) {
+                ReplaceOutcome out;
+                out.ok = false;
+                out.requested = 4;
+                out.applied = 4;   // drawn in memory, then the save failed
+                out.message = QStringLiteral(
+                    "The replacements were applied in memory, but the file "
+                    "could not be saved. Check that the disk is not full and "
+                    "the file is not write-protected.");
+                return out;
+            });
+
+        auto* search = dlg.findChild<QLineEdit*>(QStringLiteral("frSearch"));
+        auto* btn = dlg.findChild<QPushButton*>(QStringLiteral("frReplaceAll"));
+        QVERIFY(search && btn);
+        search->setText(QStringLiteral("alpha"));
+        btn->click();
+
+        const QString outcome = dlg.outcomeText();
+        QVERIFY2(outcome.contains(QStringLiteral("could not be saved")),
+                 qPrintable(QStringLiteral("the failure reason must be shown; got: ")
+                            + outcome));
+        QVERIFY2(!outcome.contains(QStringLiteral("Replaced")),
+                 "WP-R07: a failed save must never be reported as a success count");
+        QVERIFY2(!outcome.contains(QStringLiteral("Geometry:")),
+                 "WP-R07: no geometry breakdown for an outcome that never committed");
+    }
+
+    // WP-R07: an unusable scope must be refused EXPLICITLY. An empty page
+    // list flows downstream as "all pages", so a malformed range (or one that
+    // lies entirely outside the document) must never silently widen the
+    // mutation to the whole document — the dialog refuses in plain text and
+    // the invoker is never called for the refused scope.
+    void unusableRangeIsRefusedInsteadOfWideningScope() {
+        const QString path = createThreePagePdf(m_tmpDir, QStringLiteral("dialog_range_refusal.pdf"));
+        QVERIFY2(!path.isEmpty(), "PDF creation failed");
+
+        FindReplaceDialog dlg;
+        int calls = 0;
+        ReplaceOptions captured;
+        dlg.setDocumentContext(path, 3, 2,
+            [&](const ReplaceOptions& o) {
+                ++calls;
+                captured = o;
+                ReplaceOutcome out;
+                out.ok = true;
+                return out;
+            });
+
+        auto* search = dlg.findChild<QLineEdit*>(QStringLiteral("frSearch"));
+        auto* scope = dlg.findChild<QComboBox*>(QStringLiteral("frScope"));
+        auto* range = dlg.findChild<QLineEdit*>(QStringLiteral("frRange"));
+        auto* replaceAll = dlg.findChild<QPushButton*>(QStringLiteral("frReplaceAll"));
+        QVERIFY(search && scope && range && replaceAll);
+        search->setText(QStringLiteral("alpha"));
+        scope->setCurrentIndex(2);
+
+        // Garbage range text must be refused, not counted over all pages.
+        range->setText(QStringLiteral("abc"));
+        dlg.recount();
+        QVERIFY2(dlg.matchSummaryText().contains(QStringLiteral("refused")),
+                 qPrintable(QStringLiteral("malformed range must be refused; got: ")
+                            + dlg.matchSummaryText()));
+
+        // A range entirely outside the 3-page document: the same refusal, and
+        // Replace All must not fall back to the whole document.
+        range->setText(QStringLiteral("9-9"));
+        dlg.recount();
+        QVERIFY2(dlg.matchSummaryText().contains(QStringLiteral("refused")),
+                 qPrintable(QStringLiteral("out-of-document range must be refused; got: ")
+                            + dlg.matchSummaryText()));
+        replaceAll->click();
+        QCOMPARE(calls, 0);
+        QVERIFY2(dlg.outcomeText().contains(QStringLiteral("refused")),
+                 qPrintable(QStringLiteral("the refusal must be shown in the outcome; got: ")
+                            + dlg.outcomeText()));
+
+        // A VALID range still goes through — the refusal is not sticky — and
+        // the invoked scope is exactly the requested 0-based page.
+        range->setText(QStringLiteral("2-2"));
+        dlg.recount();
+        QVERIFY2(!dlg.matchSummaryText().contains(QStringLiteral("refused")),
+                 qPrintable(dlg.matchSummaryText()));
+        replaceAll->click();
+        QCOMPARE(calls, 1);
+        QCOMPARE(captured.pages.size(), 1);
+        QCOMPARE(captured.pages.first(), 1);
+    }
+
+private:
+    static bool page2Contains(PdfiumBackend& reader, const QString& needle) {
+        return reader.extractText(2).contains(needle, Qt::CaseInsensitive);
+    }
+};
+
+QTEST_MAIN(TestFindReplace)
+#include "TestFindReplace.moc"

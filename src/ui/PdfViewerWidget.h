@@ -72,6 +72,9 @@ public:
     // §9.7 P0: arm the pending signature image produced by the Draw/Type/Upload
     // picker (SignaturePickerDialog) for the AddSignatureTyped/Upload modes.
     void setPendingSignatureImage(const QImage &img);
+    // T2-6: arm the resolved dynamic stamp text for the Stamp placement mode
+    // (call AFTER setToolMode(ToolMode::Stamp) — setMode clears it elsewhere).
+    void setPendingStampText(const QString &text);
     void deleteSelectedAnnotation();
     QList<AnnotationItem> annotations() const;
     // ── G14 (QUALITY-GATE-2026-09-09): sidecar persistence vs PDF commit ────

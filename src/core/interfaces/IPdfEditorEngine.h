@@ -118,6 +118,27 @@ struct DocumentPermissions {
     bool assemble = false;
 };
 
+// ── T2-2: Find & Replace — one planned text replacement ────────────────────
+// `rect` is the match geometry in Qt top-left user space (the coordinate
+// contract shared with PatternRedactor / TextMatchFinder / applyRedactions);
+// `fontSize` is the matched text's size in points (0 → engine default 12);
+// `text` is the replacement string ("\n" starts a new drawn line).
+struct TextReplacementSpec {
+    int pageIndex = 0;
+    QRectF rect;
+    QString text;
+    double fontSize = 0;
+};
+
+// ── T2-9: one outline (bookmark) entry for the outline write seam ──────────
+// A flat entry carrying its own child list; `targetPage` is 0-based and must
+// be < page count when the entry is committed.
+struct OutlineEntry {
+    QString title;
+    int targetPage = 0;
+    QList<OutlineEntry> children;
+};
+
 // ── Role interfaces (AR-10 D1) ──────────────────────────────────────────────
 //
 // The ~60-method IPdfEditorEngine god-interface is decomposed into cohesive
@@ -292,6 +313,28 @@ public:
     virtual bool addImageWatermark(const ImageWatermarkOptions &options) = 0;
 };
 
+/// T2-2: Find & Replace — in-place text replacement over the content stream.
+/// The honest replace pipeline: matched glyph operators are EXCISED (the same
+/// content-stream surgery the redaction path uses), the region is covered
+/// white, and the replacement text is drawn at the match origin in the
+/// match's font size with a standard-14 substitute font. Surrounding layout
+/// never reflows; callers surface the per-match drawn-width deltas as the
+/// reflow/geometry warnings the research pack requires (moat M8).
+class ITextReplacer {
+public:
+    virtual ~ITextReplacer() = default;
+    /// Apply every replacement in one resident-document pass, grouped by
+    /// page internally. Rects in Qt top-left user space. On success
+    /// `drawnWidthsOut` (when non-null) receives one measured drawn width
+    /// (points, standard-14 Helvetica at the spec's font size) per spec, in
+    /// spec order — the metric the UI compares against the match width to
+    /// report "this replacement changed the text width". Returns false and
+    /// leaves nothing committed to disk when any page is invalid or its
+    /// content stream is unparseable (the caller must then not save).
+    virtual bool replaceTextRegions(const QList<TextReplacementSpec>& specs,
+                                    QList<double>* drawnWidthsOut = nullptr) = 0;
+};
+
 /// Redaction (region- and pattern-based).
 class IRedactor {
 public:
@@ -315,6 +358,26 @@ public:
     virtual bool applyPatternRedactionsMulti(const QStringList& patterns,
                                              const QList<int>& pages = QList<int>(),
                                              const QString& outputPath = QString()) = 0;
+};
+
+/// T2-9: outline (bookmark) write/read seam for auto-bookmarks and any
+/// outline management. `getOutline` reads the on-disk file (never touches the
+/// resident document); `replaceOutline` follows the standard path-based
+/// mutator contract (resolve resident → mutate → single committed write, G06
+/// rollback on commit failure) and REPLACES the whole tree — reading back an
+/// outline written by this engine round-trips exactly; foreign outlines with
+/// exotic destinations are approximated (named destinations resolve to a
+/// bare page target or drop their target, which the preview discloses).
+class IOutlineEditor {
+public:
+    virtual ~IOutlineEditor() = default;
+    /// Read the outline of `path` from disk. Empty list = no outline.
+    virtual QList<OutlineEntry> getOutline(const QString& path) = 0;
+    /// Replace the whole outline of the document at `path` in ONE committed
+    /// write (see IOutlineEditor). Returns false without committing when the
+    /// document cannot be loaded, an entry is out of range, or the save fails.
+    virtual bool replaceOutline(const QString& path,
+                                const QList<OutlineEntry>& entries) = 0;
 };
 
 /// Encryption / decryption (password + certificate).
@@ -364,7 +427,9 @@ public:
 class IPdfEditorEngine : public IPdfDocumentIO,
                          public IPageEditor,
                          public IImageEditor,
+                         public ITextReplacer,
                          public IRedactor,
+                         public IOutlineEditor,
                          public IEncryptor,
                          public IExporter,
                          public ISignatureAware {
