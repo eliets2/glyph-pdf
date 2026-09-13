@@ -379,6 +379,25 @@ silently miscalculate tax forms.
 **Decision requested:** approve A (link quickjs-ng), B, or C. Silence = no dependency
 (Option C stands).
 
+### 6.1 Runtime pin of record (R18c, 2026-09-13)
+
+Option A was user-authorized and implemented (ledger 2026-09-10 form-JS Phase 1 row;
+the §6 table's "0.15.1-1" was the pacman INDEX version seen while researching — the
+AUTHORIZED and installed package release is 0.15.0-1, which is what the goldens pin).
+The exact runtime of record, now enforced at configure time by
+`GLYPHPDF_QUICKJS_PIN` (CMake hard-fails when the linked headers advertise anything
+else — an unversioned `find_package(qjs)` is not a pin):
+
+| Item | Value |
+|---|---|
+| Upstream | quickjs-ng (<https://github.com/quickjs-ng/quickjs>), MIT |
+| Headers advertise | QJS_VERSION 0.15.0 (quickjs.h) |
+| MSYS2 package | `mingw-w64-ucrt-x86_64-quickjs-ng 0.15.0-1` (UCRT64 repo, dep: cc-libs) |
+| Runtime DLL | `libqjs-0.dll` sha256 `dd3100904db03feaadf63a231c868286ab9c69053820ab4e3037022dd9573a4c` |
+| Import lib | `libqjs.dll.a` sha256 `beca98957496adf8b8d48d50913ef0834d77b6739275adee42b945ea75eb8dd7` |
+| Attribution | `LICENSE-3RD-PARTY.md` quickjs-ng row; CapabilityRegistry FormJavaScript disclosure carries the linked version (`GLYPHPDF_QUICKJS_VERSION` compile definition); AF shim attribution (pdf.js, Apache-2.0, © Mozilla) in `src/engines/formjs/AFormShim.cpp` |
+| Deliberate-upgrade path | bump `GLYPHPDF_QUICKJS_PIN`, re-run the TestFormJsCalc goldens, record the new package/runtime hash + re-authorization in the ledger |
+
 ---
 
 ## 7. Source register

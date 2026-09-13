@@ -589,6 +589,64 @@ endif()
 if(TARGET qjs)
     target_link_libraries(pdfws_engines PUBLIC qjs)
     target_compile_definitions(pdfws_engines PUBLIC HAS_QUICKJS)
+
+    # R18(c): the exact quickjs-ng version is an ENFORCED PIN, not a comment
+    # (PERFORMANCE-AND-SCRIPT-REVIEW-2026-09-10: "Comments and an unversioned
+    # find_package(qjs) are not an enforced dependency pin"). The sandbox and
+    # AF-shim goldens (tests/TestFormJsCalc.cpp) pin the scripting semantics of
+    # the authorized package (ledger rows 2026-09-10 form-JS Phase 1 and
+    # 2026-09-13 R18: user-authorized Option A, MSYS2
+    # mingw-w64-ucrt-x86_64-quickjs-ng 0.15.0-1, MIT, runtime DLL
+    # libqjs-0.dll sha256 dd3100904db03feaadf63a231c868286ab9c69053820ab4e3037022dd9573a4c);
+    # an unreviewed runtime bump silently changes those semantics. The check
+    # parses the version the LINKED headers advertise (quickjs.h QJS_VERSION_*)
+    # and hard-fails on mismatch. The deliberate-upgrade path: bump
+    # GLYPHPDF_QUICKJS_PIN, re-run the goldens, record the new package/runtime
+    # hash + re-authorization in the ledger.
+    set(GLYPHPDF_QUICKJS_PIN "0.15.0" CACHE STRING
+        "Enforced quickjs-ng version pin (R18c); upgrade deliberately, see ledger")
+    get_target_property(_qjs_inc_dirs qjs INTERFACE_INCLUDE_DIRECTORIES)
+    set(_qjs_version_header "")
+    foreach(_dir ${_qjs_inc_dirs})
+        if(EXISTS "${_dir}/quickjs.h")
+            set(_qjs_version_header "${_dir}/quickjs.h")
+            break()
+        endif()
+    endforeach()
+    if(NOT _qjs_version_header)
+        message(FATAL_ERROR
+            "quickjs-ng pin check: quickjs.h not found under ${_qjs_inc_dirs} — refusing to link an unverifiable scripting runtime")
+    endif()
+    file(STRINGS "${_qjs_version_header}" _qjs_ver_lines
+        REGEX "^#define QJS_VERSION_(MAJOR|MINOR|PATCH|SUFFIX)")
+    set(_qjs_found "")
+    foreach(_line IN LISTS _qjs_ver_lines)
+        if(_line MATCHES "#define QJS_VERSION_MAJOR ([0-9]+)")
+            string(APPEND _qjs_found "${CMAKE_MATCH_1}")
+        elseif(_line MATCHES "#define QJS_VERSION_MINOR ([0-9]+)")
+            string(APPEND _qjs_found ".${CMAKE_MATCH_1}")
+        elseif(_line MATCHES "#define QJS_VERSION_PATCH ([0-9]+)")
+            string(APPEND _qjs_found ".${CMAKE_MATCH_1}")
+        elseif(_line MATCHES "#define QJS_VERSION_SUFFIX \"?([^\"]*)\"?")
+            string(APPEND _qjs_found "${CMAKE_MATCH_1}")
+        endif()
+    endforeach()
+    if(NOT _qjs_found)
+        message(FATAL_ERROR
+            "quickjs-ng pin check: could not parse QJS_VERSION_* from ${_qjs_version_header} — refusing to link an unpinned scripting runtime")
+    endif()
+    if(NOT _qjs_found STREQUAL GLYPHPDF_QUICKJS_PIN)
+        message(FATAL_ERROR
+            "quickjs-ng version pin violated: the linked headers advertise ${_qjs_found}, the enforced pin is ${GLYPHPDF_QUICKJS_PIN}. "
+            "Authorized package: mingw-w64-ucrt-x86_64-quickjs-ng 0.15.0-1 (ledger 2026-09-10/2026-09-13). "
+            "A runtime bump changes the scripting semantics the AF-shim goldens pin — upgrade deliberately: "
+            "bump GLYPHPDF_QUICKJS_PIN, re-run the golden tests, record the new package/runtime hash in the ledger.")
+    endif()
+    # Attribution: the engine version is compiled in so the CapabilityRegistry
+    # disclosure and diagnostics name exactly what is linked.
+    target_compile_definitions(pdfws_engines PUBLIC GLYPHPDF_QUICKJS_VERSION="${_qjs_found}")
+    message(STATUS "quickjs-ng version pin satisfied: ${_qjs_found} (enforced, R18c)")
+
     # L05: the runtime-DLL staging path is a Windows concept; on Linux the
     # system libqjs resolves at link time, so no runtime artifact is tracked.
     if(WIN32)

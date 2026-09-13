@@ -577,10 +577,13 @@ Capability probeFormJavaScript(const QVariant&)
     Capability c;
 #ifdef HAS_QUICKJS
     c.status = Availability::Available;
+    // R18(c): name the exact linked engine version — attribution, not a guess
+    // (the version comes from the CMake-enforced pin, GLYPHPDF_QUICKJS_VERSION).
     c.detail = QObject::tr("AcroForm Calculate (/AA /C) and Format (/AA /F) scripts "
-                           "run in-process via quickjs-ng (sandboxed: 16 MiB memory cap, "
+                           "run in-process via quickjs-ng %1 (sandboxed: 16 MiB memory cap, "
                            "hard per-event/cascade execution deadline, no host I/O; "
-                           "submitForm/mail-style verbs are blocked and reported).");
+                           "submitForm/mail-style verbs are blocked and reported).")
+                   .arg(QStringLiteral(GLYPHPDF_QUICKJS_VERSION));
     return c;
 #else
     c.status = Availability::UnavailableBuild;
