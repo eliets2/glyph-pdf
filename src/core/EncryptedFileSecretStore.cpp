@@ -31,8 +31,9 @@ constexpr int    kTagLen   = 16;   // GCM tag
 //  0x01 — AES-256-GCM under SHA-256(keyMaterial override), or — legacy, kept
 //         for reading pre-EC04 stores and for non-Windows default-path writes —
 //         under SHA-256 of the per-user seed described in resolveKey().
+//         LEGACY (readable, never written) since SEP13:5.
 //  0x02 — Windows DPAPI (CryptProtectData) wrapped secret. EC04: the DEFAULT
-//         Windows path stores this format, because DPAPI protection is
+//         Windows path stored this format, because DPAPI protection is
 //         intentionally non-deterministic: deriving an AES key by re-protecting
 //         on every read (the pre-fix resolveKey()) produced a DIFFERENT key at
 //         decrypt time than at encrypt time, so the store could never reread
@@ -40,8 +41,23 @@ constexpr int    kTagLen   = 16;   // GCM tag
 //         Windows user account (+machine) by DPAPI itself — no app-managed key
 //         material exists or is persisted; the description string
 //         "GlyphPDF.SecretStore.Secret.v2" labels the blobs.
-constexpr quint8 kVersionAes   = 0x01;
-constexpr quint8 kVersionDpapi = 0x02;
+//         LEGACY (readable, never written) since SEP13:5.
+//  0x03 — SEP13:5 v3 generation: AES-256-GCM with the SERVICE NAME as the GCM
+//         AAD. Ciphertext+tag authenticate the entry identity, so a blob moved
+//         to another JSON entry fails authentication instead of decrypting to
+//         the wrong secret.
+//  0x04 — SEP13:5 v3 generation, Windows default path: DPAPI wrapped with the
+//         SERVICE NAME as the optional entropy (description string
+//         "GlyphPDF.SecretStore.Secret.v3"). The blob is bound to the entry
+//         identity it was written under — cross-entry blob swaps fail
+//         unprotection loudly (the v2 format's constant description + missing
+//         entropy let a local actor with store write-access swap blobs
+//         between entries undetected).
+constexpr quint8 kVersionAes   = 0x01;  // legacy — readable, never written
+constexpr quint8 kVersionDpapi = 0x02;  // legacy — readable, never written
+constexpr quint8 kVersionAesAad   = 0x03;
+constexpr quint8 kVersionDpapiV3  = 0x04;
+const wchar_t kDpapiV3Description[] = L"GlyphPDF.SecretStore.Secret.v3";
 
 // Explicit on-disk marker so the file is self-describing / labelled.
 const QString kMarker = QStringLiteral("glyphpdf-encrypted-secret-store");
@@ -73,7 +89,9 @@ QByteArray EncryptedFileSecretStore::resolveKey() const
     // without an override (non-Windows). EC04: on Windows the default path no
     // longer writes through this derivation at all — a fresh DPAPI blob is not
     // a deterministic key-derivation function, so hashing it per call made
-    // every write unreadable. New Windows writes are DPAPI-wrapped (0x02).
+    // every write unreadable. SEP13:5: the no-override non-Windows path now
+    // writes 0x03 (same key derivation, plus the entry identity as AAD); the
+    // derivation itself is unchanged so legacy stores stay readable.
     // The seed components below are account/machine IDENTIFIERS, not
     // confidential entropy: on non-Windows the derivation is best-effort
     // obfuscation only, documented as such in the header.
@@ -85,20 +103,29 @@ QByteArray EncryptedFileSecretStore::resolveKey() const
     return QCryptographicHash::hash(seed, QCryptographicHash::Sha256);
 }
 
-QByteArray EncryptedFileSecretStore::encrypt(const QByteArray& plaintext) const
+QByteArray EncryptedFileSecretStore::encrypt(const QString& service,
+                                             const QByteArray& plaintext) const
 {
+    // SEP13:5: the entry identity travels WITH the protection — the service
+    // name authenticates the blob (GCM AAD / DPAPI entropy), so a ciphertext
+    // is only recoverable under the entry it was written for.
+    const QByteArray identity = service.toUtf8();
 #ifdef _WIN32
     // EC04: default path — protect the secret DIRECTLY with the platform
     // primitive. DPAPI wraps the plaintext under the user's account key; the
     // unwrapped secret is recoverable by the same user (any process, any
     // instance, any later session) and by nobody else. No derived AES key, no
-    // persisted master key.
+    // persisted master key. SEP13:5 v3: the service name rides as the
+    // optional entropy, binding the blob to its JSON entry.
     if (m_keyOverride.isEmpty()) {
+        DATA_BLOB entropy{};
+        entropy.pbData = reinterpret_cast<BYTE*>(const_cast<char*>(identity.constData()));
+        entropy.cbData = static_cast<DWORD>(identity.size());
         DATA_BLOB in{};
         in.pbData = reinterpret_cast<BYTE*>(const_cast<char*>(plaintext.constData()));
         in.cbData = static_cast<DWORD>(plaintext.size());
         DATA_BLOB out{};
-        if (!CryptProtectData(&in, L"GlyphPDF.SecretStore.Secret.v2", nullptr,
+        if (!CryptProtectData(&in, kDpapiV3Description, &entropy,
                               nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &out)) {
             const DWORD err = GetLastError();
             qWarning() << "EncryptedFileSecretStore: CryptProtectData failed"
@@ -106,7 +133,7 @@ QByteArray EncryptedFileSecretStore::encrypt(const QByteArray& plaintext) const
             return {};  // explicit failure — the caller never claims success
         }
         QByteArray blob;
-        blob.append(static_cast<char>(kVersionDpapi));
+        blob.append(static_cast<char>(kVersionDpapiV3));
         blob.append(reinterpret_cast<const char*>(out.pbData),
                     static_cast<int>(out.cbData));
         LocalFree(out.pbData);
@@ -131,6 +158,13 @@ QByteArray EncryptedFileSecretStore::encrypt(const QByteArray& plaintext) const
                            reinterpret_cast<const unsigned char*>(key.constData()),
                            nonce) != 1) return {};
 
+    // SEP13:5: authenticate the entry identity — the AAD is not part of the
+    // ciphertext but IS covered by the tag.
+    int aadLen = 0;
+    if (EVP_EncryptUpdate(ctx, nullptr, &aadLen,
+                          reinterpret_cast<const unsigned char*>(identity.constData()),
+                          identity.size()) != 1) return {};
+
     QByteArray cipher(plaintext.size(), Qt::Uninitialized);
     int cipherLen = 0;
     if (EVP_EncryptUpdate(ctx,
@@ -147,24 +181,53 @@ QByteArray EncryptedFileSecretStore::encrypt(const QByteArray& plaintext) const
     if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, kTagLen, tag) != 1) return {};
 
     QByteArray blob;
-    blob.append(static_cast<char>(kVersionAes));
+    blob.append(static_cast<char>(kVersionAesAad));
     blob.append(reinterpret_cast<const char*>(nonce), kNonceLen);
     blob.append(reinterpret_cast<const char*>(tag), kTagLen);
     blob.append(cipher);
     return blob;
 }
 
-QByteArray EncryptedFileSecretStore::decrypt(const QByteArray& blob) const
+QByteArray EncryptedFileSecretStore::decrypt(const QString& service,
+                                             const QByteArray& blob) const
 {
     if (blob.size() < 1 + kNonceLen + kTagLen) return {};
 
     const unsigned char* p = reinterpret_cast<const unsigned char*>(blob.constData());
+    const quint8 version = static_cast<quint8>(blob.at(0));
+    // SEP13:5: the entry identity must match the one the blob was protected
+    // under — the service name IS part of the authentication material.
+    const QByteArray identity = service.toUtf8();
 
 #ifdef _WIN32
-    // EC04: DPAPI-wrapped secret — unwrap through CryptUnprotectData. A failed
-    // unprotection (different user/machine, corrupted blob) is an EXPLICIT
-    // failure: empty result, never garbage, never a crash.
-    if (static_cast<quint8>(blob.at(0)) == kVersionDpapi) {
+    // SEP13:5 v3 DPAPI blob: unprotection REQUIRES the entry's service name
+    // as the optional entropy. A blob swapped between JSON entries (or a
+    // corrupted one) fails here — explicitly, never to garbage.
+    if (version == kVersionDpapiV3) {
+        DATA_BLOB entropy{};
+        entropy.pbData = reinterpret_cast<BYTE*>(const_cast<char*>(identity.constData()));
+        entropy.cbData = static_cast<DWORD>(identity.size());
+        DATA_BLOB in{};
+        in.pbData = const_cast<BYTE*>(p + 1);
+        in.cbData = static_cast<DWORD>(blob.size() - 1);
+        DATA_BLOB out{};
+        if (!CryptUnprotectData(&in, nullptr, &entropy, nullptr, nullptr,
+                                CRYPTPROTECT_UI_FORBIDDEN, &out)) {
+            const DWORD err = GetLastError();
+            qWarning() << "EncryptedFileSecretStore: CryptUnprotectData failed"
+                       << "(Win32 error" << err
+                       << "); the blob does not belong to this entry, belongs "
+                          "to a different user/machine, or is corrupted";
+            return {};
+        }
+        QByteArray plain(reinterpret_cast<const char*>(out.pbData),
+                         static_cast<int>(out.cbData));
+        LocalFree(out.pbData);
+        return plain;
+    }
+    // EC04 legacy v2 blob — readable for migration (no entry binding; new
+    // writes no longer use this format).
+    if (version == kVersionDpapi) {
         DATA_BLOB in{};
         in.pbData = const_cast<BYTE*>(p + 1);
         in.cbData = static_cast<DWORD>(blob.size() - 1);
@@ -186,14 +249,14 @@ QByteArray EncryptedFileSecretStore::decrypt(const QByteArray& blob) const
 #else
     // A DPAPI blob can only be produced (and read) on Windows; elsewhere it is
     // an explicit failure, not silence.
-    if (static_cast<quint8>(blob.at(0)) == kVersionDpapi) {
+    if (version == kVersionDpapiV3 || version == kVersionDpapi) {
         qWarning() << "EncryptedFileSecretStore: DPAPI-wrapped secret found on "
                       "a non-Windows platform; cannot decrypt";
         return {};
     }
 #endif
 
-    if (static_cast<quint8>(blob.at(0)) != kVersionAes) return {};
+    if (version != kVersionAesAad && version != kVersionAes) return {};
 
     const QByteArray key = resolveKey();
     if (key.size() != kKeyLen) return {};
@@ -214,6 +277,15 @@ QByteArray EncryptedFileSecretStore::decrypt(const QByteArray& blob) const
                            reinterpret_cast<const unsigned char*>(key.constData()),
                            nonce) != 1) return {};
 
+    // SEP13:5: v3 blobs authenticate the entry identity through the GCM AAD.
+    // Legacy 0x01 blobs carry no AAD and are read without it (migration).
+    if (version == kVersionAesAad) {
+        int aadLen = 0;
+        if (EVP_DecryptUpdate(ctx, nullptr, &aadLen,
+                              reinterpret_cast<const unsigned char*>(identity.constData()),
+                              identity.size()) != 1) return {};
+    }
+
     QByteArray plain(cipherLen, Qt::Uninitialized);
     int plainLen = 0;
     if (EVP_DecryptUpdate(ctx,
@@ -227,7 +299,10 @@ QByteArray EncryptedFileSecretStore::decrypt(const QByteArray& blob) const
     if (EVP_DecryptFinal_ex(ctx,
                             reinterpret_cast<unsigned char*>(plain.data()) + plainLen,
                             &finalLen) != 1) {
-        return {};  // authentication failure
+        qWarning() << "EncryptedFileSecretStore: authentication failed for an "
+                      "entry blob (corrupted, wrong key, or a blob moved "
+                      "between entries); refusing to return data";
+        return {};  // authentication failure — never garbage
     }
     plain.resize(plainLen + finalLen);
     return plain;
@@ -247,7 +322,7 @@ bool EncryptedFileSecretStore::storeSecret(const QString& service, const QString
     }
     root.insert(QStringLiteral("_marker"), kMarker);
 
-    const QByteArray blob = encrypt(secret.toUtf8());
+    const QByteArray blob = encrypt(service, secret.toUtf8());
     if (blob.isEmpty()) {
         qWarning() << "EncryptedFileSecretStore: encryption failed; secret NOT stored for" << service;
         return false;  // never claim success
@@ -294,7 +369,7 @@ QString EncryptedFileSecretStore::readSecret(const QString& service) const
     const QString b64 = entries.value(service).toString();
     if (b64.isEmpty()) return {};
     const QByteArray blob = QByteArray::fromBase64(b64.toLatin1());
-    const QByteArray plain = decrypt(blob);
+    const QByteArray plain = decrypt(service, blob);
     if (plain.isEmpty()) return {};
     return QString::fromUtf8(plain);
 }

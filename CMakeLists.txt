@@ -1339,10 +1339,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSecretStore.cpp")
         tests/TestSecretStore.cpp
     )
     target_include_directories(TestSecretStore PRIVATE src tests)
+    # SEP13:5: OpenSSL::Crypto crafts the legacy 0x01 (no-AAD) migration
+    # fixture; Crypt32 crafts the legacy 0x02 DPAPI migration fixture.
     target_link_libraries(TestSecretStore PRIVATE
         pdfws_engines pdfws_core
+        OpenSSL::Crypto
         Qt6::Test Qt6::Core Qt6::Gui
     )
+    if(WIN32)
+        target_link_libraries(TestSecretStore PRIVATE Crypt32)
+    endif()
     add_test(NAME TestSecretStore COMMAND TestSecretStore)
     set_tests_properties(TestSecretStore PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
