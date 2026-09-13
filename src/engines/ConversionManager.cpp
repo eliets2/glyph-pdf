@@ -9,6 +9,7 @@
 #include <QDebug>
 #include <QFile>
 #include <QHash>
+#include <QMap>
 #include <QTextStream>
 #include "core/TempFileManager.h"
 
@@ -835,22 +836,39 @@ bool ConversionManager::exportToExcelInHouse(const QString &outputPath, const QL
             // V03: the column letter is the element's geometry-derived
             // column (not the running non-empty index), so a real B column
             // survives and an empty interior cell shifts nothing.
+            //
+            // SEP13:3: geometry-derived columns can COLLIDE — two runs on one
+            // baseline whose x-anchors resolve to the same column (faux-bold
+            // double draws, shadow text, near-overlapping runs). The original
+            // loop wrote one <c r="B2"> PER RUN, so a collided row emitted
+            // duplicate cell references in one <row> — invalid OOXML that
+            // Excel flags as corrupt and "repairs". Policy (PINNED, aligned
+            // with the OpenXLSX path in exportToExcel, where the later
+            // assignment to the same cell coordinate overwrites the earlier
+            // one): LAST-WRITE-WINS in the column-stable (extracted) order.
+            // Emitting through the QMap also restores the strictly increasing
+            // r-order the part header promises, even when the extraction
+            // delivered the row's runs out of column order.
             QList<TextElement> sorted = row;
             std::stable_sort(sorted.begin(), sorted.end(),
                              [](const TextElement &a, const TextElement &b) {
                                  return a.column < b.column;
                              });
+            QMap<int, QString> cellByColumn;   // 1-based column -> text
             for (const auto &el : sorted) {
                 const QString text = sanitizeTextForXml(el.text);
                 if (text.isEmpty()) continue;
-                const int colIdx = el.column + 1;
+                cellByColumn.insert(el.column + 1, text);
+            }
+            for (auto it = cellByColumn.constBegin();
+                 it != cellByColumn.constEnd(); ++it) {
                 xml.writeStartElement("c");
-                xml.writeAttribute("r", xlsxColumnName(colIdx) + QString::number(rowIdx));
+                xml.writeAttribute("r", xlsxColumnName(it.key()) + QString::number(rowIdx));
                 xml.writeAttribute("t", "inlineStr");
                 xml.writeStartElement("is");
                 xml.writeStartElement("t");
                 xml.writeAttribute("xml:space", "preserve");
-                xml.writeCharacters(text);
+                xml.writeCharacters(it.value());
                 xml.writeEndElement(); // t
                 xml.writeEndElement(); // is
                 xml.writeEndElement(); // c
