@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "ui/PdfViewerWidget.h"
+#include "ui/PrintJob.h"                 // WP-R08: owned print job
 #include "GpMainWindow.h"
 #include "shell/StatusBar.h"
 #include "core/AnnotationSerializer.h"
@@ -1416,129 +1417,67 @@ bool PdfViewerWidget::mergeDocuments(const QStringList &files, const QString &ou
     return true;
 }
 
+// WP-R08 (WHOLE-PRODUCT-AND-PLAN-REVIEW-2026-09-10 PP03): the previous
+// implementation ignored the print dialog's page-range selection (it always
+// walked pages 0..N-1) and spawned render threads over the LIVE view-owned
+// QPdfDocument — a switch/close during printing dereferenced a document this
+// widget owns, and render/painter failures were silently swallowed.
+//
+// The dialog's selection is now mapped to an explicit page sequence and the
+// whole job (immutable snapshot document, workers, painter, progress/cancel)
+// is owned by gp::PrintJob, which never touches this widget or its document.
 void PdfViewerWidget::printDocument()
 {
+    const int pageCount = isLoaded() ? m_document->pageCount() : 0;
+    if (pageCount <= 0)
+        return;
+
     QPrinter *printer = new QPrinter(QPrinter::HighResolution);
     QPrintDialog dlg(printer, this);
+    dlg.setMinMax(1, pageCount);   // the dialog can now clamp a manual range
     if (dlg.exec() != QDialog::Accepted) {
         delete printer;
         return;
     }
 
-    int totalPages = m_document->pageCount();
-    if (totalPages <= 0) {
+    // PP03: the dialog's choices actually reach the printed sequence.
+    const QVector<int> pages = gp::PrintJob::pageSequence(
+        printer->printRange(), printer->fromPage(), printer->toPage(),
+        pageCount, printer->pageOrder(),
+        m_pageNavigator ? m_pageNavigator->currentPage() + 1 : 0);
+    if (pages.isEmpty()) {
         delete printer;
+        QMessageBox::warning(this, tr("Print"),
+            tr("The selected print range does not contain any pages of this "
+               "document. Nothing was printed."));
         return;
     }
 
-    QProgressDialog *progress = new QProgressDialog(
-        tr("Rendering pages for print..."), tr("Cancel"), 0, totalPages, this);
-    progress->setWindowModality(Qt::WindowModal);
-    progress->setMinimumDuration(0);
-    progress->setValue(0);
+    // The job owns an immutable snapshot: its OWN QPdfDocument opened on the
+    // displayed file. (While a safe-save parks this widget's handle the live
+    // document is deliberately empty, so printing is unreachable in exactly
+    // the window where file bytes and displayed bytes could disagree.)
+    gp::PrintJob::Snapshot snapshot;
+    snapshot.filePath = m_filePath;
+    printer->setDocName(QFileInfo(m_filePath).fileName());
 
-    struct PrintState {
-        QPrinter *printer = nullptr;
-        QPainter *painter = nullptr;
-        std::atomic<bool> canceled{false};
-        int currentPage = 0;
-        int totalPages = 0;
-        std::function<void()> printNextPage;
-    };
-    auto state = std::make_shared<PrintState>();
-    state->printer = printer;
-    state->painter = new QPainter(printer);
-    state->totalPages = totalPages;
-
-    connect(progress, &QProgressDialog::canceled, this, [state]() {
-        state->canceled.store(true);
+    auto *job = gp::PrintJob::start(snapshot, printer, pages, this);
+    // Truthful outcomes — failures are never silent, cancel is acknowledged.
+    connect(job, &gp::PrintJob::finished, this,
+            [this](int printed, bool canceled, const QString &error) {
+        if (!error.isEmpty()) {
+            QMessageBox::warning(this, tr("Print"),
+                tr("Printing failed after %1 page(s): %2").arg(printed).arg(error));
+        }
+        // Status text for every terminal outcome (the modal box above is the
+        // loud channel for failures).
+        if (auto *win = qobject_cast<gp::MainWindow*>(window()))
+            win->statusBar()->showMessage(
+                error.isEmpty() ? (canceled ? tr("Printing canceled after %1 page(s).").arg(printed)
+                                            : tr("Printing finished: %1 page(s).").arg(printed))
+                                : tr("Printing failed: %1").arg(error),
+                5000);
     });
-
-    QPointer<PdfViewerWidget> guard(this);
-    QPdfDocument *doc = m_document;
-
-    state->printNextPage = [guard, doc, progress, state]() {
-        auto cleanup = [state, progress]() {
-            if (state->painter) {
-                state->painter->end();
-                delete state->painter;
-                state->painter = nullptr;
-            }
-            if (state->printer) {
-                delete state->printer;
-                state->printer = nullptr;
-            }
-            progress->close();
-            progress->deleteLater();
-            state->printNextPage = nullptr; // break circular reference
-        };
-
-        if (!guard || state->canceled.load()) {
-            cleanup();
-            return;
-        }
-
-        if (state->currentPage >= state->totalPages) {
-            cleanup();
-            return;
-        }
-
-        int pageIdx = state->currentPage;
-        progress->setValue(pageIdx);
-
-        // Spawn worker thread to render pageIdx
-        QThread *worker = QThread::create([guard, doc, pageIdx, state, progress]() {
-            QSizeF pageSize = doc->pagePointSize(pageIdx);
-            QSize imageSize(pageSize.width() * 3.0, pageSize.height() * 3.0);
-            QPdfDocumentRenderOptions opts;
-            QImage pageImage = doc->render(pageIdx, imageSize, opts);
-
-            // Once rendered, pass to GUI thread to paint, then print next page
-            QMetaObject::invokeMethod(guard.data(), [guard, pageImage, state]() {
-                if (!guard || state->canceled.load()) {
-                    if (state->painter) {
-                        state->painter->end();
-                        delete state->painter;
-                        state->painter = nullptr;
-                    }
-                    if (state->printer) {
-                        delete state->printer;
-                        state->printer = nullptr;
-                    }
-                    state->printNextPage = nullptr; // break circular reference
-                    return;
-                }
-
-                // Paint the image
-                if (state->currentPage > 0 && state->printer) {
-                    state->printer->newPage();
-                }
-
-                if (state->painter) {
-                    QRect target = state->painter->viewport();
-                    QSize scaledSize = pageImage.size().scaled(target.size(), Qt::KeepAspectRatio);
-                    QRect centered((target.width() - scaledSize.width()) / 2,
-                                   (target.height() - scaledSize.height()) / 2,
-                                   scaledSize.width(), scaledSize.height());
-                    state->painter->drawImage(centered, pageImage);
-                }
-
-                // Advance page index
-                state->currentPage++;
-
-                // Trigger next page!
-                if (state->printNextPage) {
-                    state->printNextPage();
-                }
-            }, Qt::QueuedConnection);
-        });
-
-        connect(worker, &QThread::finished, worker, &QObject::deleteLater);
-        worker->start();
-    };
-
-    // Start the printing sequence!
-    state->printNextPage();
 }
 
 void PdfViewerWidget::setOcrResults(const QList<OcrResult> &results) { if (m_annotationLayer) m_annotationLayer->setOcrResults(results); }
