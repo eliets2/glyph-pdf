@@ -3366,6 +3366,19 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPrintJob.cpp")
     set_tests_properties(TestPrintJob PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 300 LABELS "unit;print;ui;headless")
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestTempOwnership.cpp")
+    add_executable(TestTempOwnership
+        tests/TestTempOwnership.cpp
+        src/core/TempFileManager.cpp
+    )
+    target_include_directories(TestTempOwnership PRIVATE src tests)
+    target_link_libraries(TestTempOwnership PRIVATE
+        Qt6::Test Qt6::Core
+    )
+    add_test(NAME TestTempOwnership COMMAND TestTempOwnership)
+    set_tests_properties(TestTempOwnership PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 300 LABELS "unit;temp;infrastructure;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCleanupCli.cpp")
     add_executable(TestCleanupCli
         tests/TestCleanupCli.cpp
