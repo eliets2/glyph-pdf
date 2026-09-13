@@ -33,6 +33,7 @@
 #include "core/AppContext.h"
 #include "core/FormStaleFieldTracker.h"
 #include "core/interfaces/IFormManager.h"
+#include "commands/EditFormFieldCommand.h"
 #include "engines/FormManager.h"
 #include "engines/DocumentSession.h"
 #include "modes/FormFieldPropertiesPanel.h"
@@ -119,9 +120,36 @@ QString makeFormPdf(const QString& dir, const QString& name,
     return path;
 }
 
+// Reads a text field's /V straight from the on-disk artifact (r18-review F2:
+// the undo/redo pins assert the PERSISTED values, not the session state).
+QString pdfValueOf(const QString& path, const QString& name)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(path.toUtf8().constData());
+        auto* acroForm = doc.GetAcroForm();
+        if (!acroForm) return {};
+        for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
+            auto& field = acroForm->GetFieldAt(i);
+            if (QString::fromStdString(field.GetFullName()) != name) continue;
+            if (field.GetType() != PoDoFo::PdfFieldType::TextBox) return {};
+            auto* t = dynamic_cast<PoDoFo::PdfTextBox*>(&field);
+            if (!t) return {};
+            auto text = t->GetText(); // nullable: non-const accessors
+            if (!text.has_value()) return {};
+            return QString::fromUtf8(text.value().GetString().data(),
+                                     static_cast<qsizetype>(text.value().GetString().size()));
+        }
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "pdfValueOf failed:" << e.what();
+    }
+    return {};
+}
+
 // Drives any active modal dialog closed (the panel's warning box) — the
 // established bounded offscreen modal pattern; asserts the box really opened.
 class ModalCloser : public QObject {
+
 public:
     int closes = 0;
     void start() { m_timer.start(10, this); }
@@ -404,6 +432,228 @@ private slots:
 #else
         QSKIP("This build was compiled without a JavaScript engine (disclosure state).");
 #endif
+    }
+
+    // ── r18-review F1 (2026-09-13): stack arithmetic is not a success result ──
+
+    // Fixture shared by the two panel-apply regression tests: `total` succeeds
+    // while input ≤ 100 (value = input × 2) and THROWS above it — so undo and
+    // re-apply can move the cascade outcome between clean and failed.
+    QString makeConditionalTotalForm(const QString& name)
+    {
+        return makeFormPdf(m_dir.path(), name,
+        {
+            { QStringLiteral("input"), {}, QStringLiteral("1") },
+            { QStringLiteral("total"),
+              QStringLiteral("var v = Number(this.getField('input').value); "
+                             "if (v > 100) { throw new Error('value too large'); } "
+                             "event.value = v * 2;"),
+              QStringLiteral("0") },
+        },
+        { QStringLiteral("total") });
+    }
+
+    // r18-review F1, case 1 (configured undo limit): with undoLimit = 2 a
+    // successful push DELETES the oldest command so count() stays EQUAL — the
+    // old `count == before + 1` heuristic read that as "not applied" and
+    // skipped the tracker feed exactly when a real recompute happened.
+    void panelApplyFeedsTrackerWhenTheUndoLimitDiscards()
+    {
+#ifdef HAS_QUICKJS
+        const QString path = makeConditionalTotalForm(QStringLiteral("stale-undolimit"));
+        QVERIFY(!path.isEmpty());
+
+        AppContext ctx;
+        ctx.forms = std::make_shared<FormManager>();
+        ctx.document = std::make_shared<DocumentSession>();
+        ctx.document->setPath(path);
+        ctx.undoStack = std::make_shared<QUndoStack>();
+        ctx.formStale = std::make_shared<FormStaleFieldTracker>();
+        ctx.undoStack->setUndoLimit(2);
+
+        // Fill the stack with two real, applying edits (no tracker — they are
+        // not panel applies; their cascades succeed and touch nothing stale).
+        for (const QString& v : { QStringLiteral("3"), QStringLiteral("5") }) {
+            EditFormFieldProperties p;
+            p.defaultVal = v;
+            ctx.undoStack->push(new EditFormFieldCommand(
+                ctx.forms.get(), ctx.document.get(), QStringLiteral("input"), p));
+        }
+        QCOMPARE(ctx.undoStack->count(), 2);
+
+        FormFieldPropertiesPanel panel(&ctx);
+        panel.setFieldName(QStringLiteral("input"));
+        QLineEdit* defaultEdit = nullptr;
+        for (QLineEdit* e : panel.findChildren<QLineEdit*>())
+            if (e->placeholderText() == QLatin1String("Default value")) defaultEdit = e;
+        QVERIFY(defaultEdit);
+        defaultEdit->setText(QStringLiteral("200")); // total's script will THROW
+
+        ModalCloser closer;
+        closer.start();
+        QToolButton* applyBtn = nullptr;
+        for (QToolButton* b : panel.findChildren<QToolButton*>())
+            if (b->text() == QLatin1String("Apply")) applyBtn = b;
+        QVERIFY(applyBtn);
+        applyBtn->click();
+        closer.stop();
+        QTest::qWait(30);
+
+        // The undo limit really held: the push discarded the oldest command,
+        // so count() is UNCHANGED even though this apply succeeded.
+        QCOMPARE(ctx.undoStack->count(), 2);
+        QVERIFY2(ctx.formStale->isStale(path, QStringLiteral("total")),
+                 "a real recompute inside an undo-limit-discard push must still "
+                 "feed the stale tracker (old stack arithmetic skipped it)");
+#else
+        QSKIP("This build was compiled without a JavaScript engine (disclosure state).");
+#endif
+    }
+
+    // r18-review F1, case 2 (edit after undo): the push flushes the redo
+    // entries so count() DROPS (1 → 1 here: delete the undone command, append
+    // the new one) — the old heuristic again read "not applied". The stale
+    // warning must follow the ACTUAL recompute: the successful restore cleared
+    // it, the re-applied failing value must re-record it.
+    void panelApplyAfterUndoFeedsTrackerNotStackArithmetic()
+    {
+#ifdef HAS_QUICKJS
+        const QString path = makeConditionalTotalForm(QStringLiteral("stale-reapply"));
+        QVERIFY(!path.isEmpty());
+
+        AppContext ctx;
+        ctx.forms = std::make_shared<FormManager>();
+        ctx.document = std::make_shared<DocumentSession>();
+        ctx.document->setPath(path);
+        ctx.undoStack = std::make_shared<QUndoStack>();
+        ctx.formStale = std::make_shared<FormStaleFieldTracker>();
+
+        FormFieldPropertiesPanel panel(&ctx);
+        panel.setFieldName(QStringLiteral("input"));
+        QLineEdit* defaultEdit = nullptr;
+        for (QLineEdit* e : panel.findChildren<QLineEdit*>())
+            if (e->placeholderText() == QLatin1String("Default value")) defaultEdit = e;
+        QVERIFY(defaultEdit);
+        QToolButton* applyBtn = nullptr;
+        for (QToolButton* b : panel.findChildren<QToolButton*>())
+            if (b->text() == QLatin1String("Apply")) applyBtn = b;
+        QVERIFY(applyBtn);
+
+        // Apply 1: input = 200 → total throws → stale recorded.
+        defaultEdit->setText(QStringLiteral("200"));
+        ModalCloser closer1;
+        closer1.start();
+        applyBtn->click();
+        closer1.stop();
+        QTest::qWait(30);
+        QVERIFY2(ctx.formStale->isStale(path, QStringLiteral("total")),
+                 "apply 1: the failing cascade is recorded");
+
+        // Undo: the restore recomputes from input = 1 → cascade succeeds →
+        // the stale set CLEARS (this is also the F2 restore-feeding pin).
+        ctx.undoStack->undo();
+        QVERIFY2(!ctx.formStale->isStale(path, QStringLiteral("total")),
+                 "the restore's successful recompute clears the stale warning");
+        QCOMPARE(pdfValueOf(path, QStringLiteral("input")), QStringLiteral("1"));
+        QCOMPARE(pdfValueOf(path, QStringLiteral("total")), QStringLiteral("2"));
+
+        // Re-apply: input = 300 → the push flushes the redo entry (count stays
+        // 1) and total's script throws again. The old stack arithmetic would
+        // skip the feed here — omitting the warning exactly when the user's
+        // new value made the script fail.
+        defaultEdit->setText(QStringLiteral("300"));
+        ModalCloser closer2;
+        closer2.start();
+        applyBtn->click();
+        closer2.stop();
+        QTest::qWait(30);
+        QCOMPARE(ctx.undoStack->count(), 1); // the arithmetic blind spot, pinned
+        QVERIFY2(ctx.formStale->isStale(path, QStringLiteral("total")),
+                 "apply after undo: the re-applied failing recompute must feed "
+                 "the tracker (the redo-stack flush defeats stack arithmetic)");
+#else
+        QSKIP("This build was compiled without a JavaScript engine (disclosure state).");
+#endif
+    }
+
+    // ── r18-review F2 (2026-09-13): history traversal feeds the tracker ──────
+    //
+    // Artifact-backed: every step asserts BOTH the on-disk field values
+    // (reopened PoDoFo document) AND the tracker state. The cascade outcome is
+    // value-dependent (input > 100 → total throws), so undo and redo really
+    // move the stale state.
+    void undoRedoTraversalFeedsTheTrackerArtifactBacked()
+    {
+#ifdef HAS_QUICKJS
+        const QString path = makeConditionalTotalForm(QStringLiteral("stale-undoredo"));
+        QVERIFY(!path.isEmpty());
+
+        AppContext ctx;
+        ctx.forms = std::make_shared<FormManager>();
+        ctx.document = std::make_shared<DocumentSession>();
+        ctx.document->setPath(path);
+        ctx.undoStack = std::make_shared<QUndoStack>();
+        ctx.formStale = std::make_shared<FormStaleFieldTracker>();
+
+        // Panel-equivalent apply via the command itself (tracker attached).
+        EditFormFieldProperties p;
+        p.defaultVal = QStringLiteral("200");
+        ctx.undoStack->push(new EditFormFieldCommand(
+            ctx.forms.get(), ctx.document.get(), QStringLiteral("input"), p,
+            nullptr, ctx.formStale.get()));
+
+        // After apply: input = 200 on disk; total THREW and kept "0"; stale.
+        QCOMPARE(pdfValueOf(path, QStringLiteral("input")), QStringLiteral("200"));
+        QCOMPARE(pdfValueOf(path, QStringLiteral("total")), QStringLiteral("0"));
+        QVERIFY2(ctx.formStale->isStale(path, QStringLiteral("total")),
+                 "apply: the failed recompute is recorded");
+
+        // UNDO: the restore recomputes from input = 1 — values AND stale state
+        // move (pre-fix, the traversal never touched the tracker).
+        ctx.undoStack->undo();
+        QCOMPARE(pdfValueOf(path, QStringLiteral("input")), QStringLiteral("1"));
+        QCOMPARE(pdfValueOf(path, QStringLiteral("total")), QStringLiteral("2"));
+        QVERIFY2(!ctx.formStale->isStale(path, QStringLiteral("total")),
+                 "undo: the restore's successful recompute CLEARS the stale state");
+
+        // REDO: the re-applied snapshot recomputes from input = 200 — total
+        // throws again and keeps its CURRENT value ("2"), stale re-recorded.
+        ctx.undoStack->redo();
+        QCOMPARE(pdfValueOf(path, QStringLiteral("input")), QStringLiteral("200"));
+        QCOMPARE(pdfValueOf(path, QStringLiteral("total")), QStringLiteral("2"));
+        QVERIFY2(ctx.formStale->isStale(path, QStringLiteral("total")),
+                 "redo: the failed recompute re-records the stale state");
+#else
+        QSKIP("This build was compiled without a JavaScript engine (disclosure state).");
+#endif
+    }
+
+    // ── r18-review F3 (2026-09-13): the disclosure is SESSION-scoped ─────────
+    //
+    // Decision, pinned: the warnings persist within the session (across
+    // recomputes, switches, rebuilds — pinned by the tests above) and across
+    // in-session document switches, NOT across restarts. The tracker is
+    // deliberately in-memory only; a fresh instance — the restart-equivalent
+    // state — starts clean, and nothing is shared between instances.
+    void trackerIsSessionOnlyNoDurableState()
+    {
+        const QString doc = QStringLiteral("/doc/session.pdf");
+        FormStaleFieldTracker session;
+        session.applyCascadeOutcome(doc, { failure(QStringLiteral("total"),
+                                                  QStringLiteral("timeout"),
+                                                  QStringLiteral("deadline during the event")) });
+        QVERIFY(session.isStale(doc, QStringLiteral("total")));
+
+        FormStaleFieldTracker freshAsAfterRestart;
+        QVERIFY2(!freshAsAfterRestart.isStale(doc, QStringLiteral("total")),
+                 "a fresh tracker — the restart-equivalent state — starts clean: "
+                 "the disclosure is session-only, not durable across restarts");
+        // ...and the two instances do not share state in either direction.
+        QVERIFY2(freshAsAfterRestart.staleFields(doc).isEmpty(),
+                 "no hidden shared/durable store behind the instances");
+        session.clearDocument(doc);
+        QVERIFY2(!session.isStale(doc, QStringLiteral("total")),
+                 "clearDocument works as before (no hidden second store)");
     }
 };
 

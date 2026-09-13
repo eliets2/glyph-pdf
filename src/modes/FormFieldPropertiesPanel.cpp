@@ -245,30 +245,34 @@ void FormFieldPropertiesPanel::onApplyClicked()
     newProps.validRegex  = m_regexEdit->text();
 
     QList<FormJsFailure> jsFailures;
+    // r18-review F1: the apply result is the COMMAND's explicit outcome,
+    // captured into this caller-owned sink during push's initial redo (the
+    // sink outlives a push that deletes an obsolete command). The old
+    // stack-count heuristic could not tell an applied command from an
+    // undo-limit discard (count() stays EQUAL — the oldest entry is deleted)
+    // or a redo-stack flush (count() DROPS, e.g. edit after undo) and skipped
+    // the stale-field feed exactly when a real recompute happened.
+    bool applyResult = false;
     auto* cmd = new EditFormFieldCommand(
         m_ctx->forms.get(),
         m_ctx->document.get(),
         m_fieldName,
         newProps,
-        &jsFailures
+        &jsFailures,
+        m_ctx->formStale.get(),   // r18-review F2: the command feeds the tracker
+        &applyResult
     );
-    // The stack deletes an obsolete (failed) command during push — the count
-    // tells the two cases apart: pushed+applied (the tracker consumes the
-    // cascade outcome) vs failed (nothing was recomputed; the previous stale
-    // state stays).
-    const int stackCountBefore = m_ctx->undoStack->count();
     m_ctx->undoStack->push(cmd);
-    const bool commandApplied = m_ctx->undoStack->count() == stackCountBefore + 1;
 
     const QString applied = newProps.name.isEmpty() ? m_fieldName : newProps.name;
     m_fieldName = applied;
     emit propertiesApplied(applied);
     emit geometryCommitted(fieldRect());
 
-    // R18(a): commit path → the tracker records the cascade outcome. A failed
-    // edit changed nothing on disk, so the previous stale state stays truthful.
-    if (commandApplied && m_ctx->formStale && m_ctx->document)
-        m_ctx->formStale->applyCascadeOutcome(m_ctx->document->path(), jsFailures);
+    // r18-review F1/F2: the stale-field tracker is fed by the COMMAND at the
+    // one shared committed-transaction boundary (panel apply, redo traversal
+    // AND undo/redo restore) — the panel no longer derives success from stack
+    // arithmetic, and history traversal updates the stale state too.
 
     // Phase-1 form-JS honesty contract: the edit persisted, but calculated
     // fields whose scripts failed are named — never a silent wrong value.
