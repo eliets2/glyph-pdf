@@ -34,6 +34,13 @@ private slots:
     // The premise: the existing backend boundary already decodes these fonts.
     void backendPlainExtractDecodesSubsetEncoding();
     void backendPlainExtractDecodesWinAnsiAccents();
+    // R13 (PERF-05): extracted text must not carry the FPDFText_GetText API
+    // terminator — exact-string fixtures (one-word, multiline, empty page,
+    // accented, image-only/no-text).
+    void extractTextOneWordIsExactWithoutTerminator();
+    void extractTextMultilineIsExactWithoutTerminator();
+    void extractTextEmptyPageAndImageOnlyPageAreEmpty();
+    void extractTextAccentedPageIsExactWithoutTerminator();
     // The complaint: the CONVERSION extractor must produce the same text.
     void subsetFontExportsDecodedUnicodeNotGlyphCodes();
     void accentedLatinOctalEscapesDecodeInConversion();
@@ -294,6 +301,89 @@ void TestConversionExtraction::backendPlainExtractDecodesWinAnsiAccents() {
     QVERIFY2(text.contains(QStringLiteral("caf") + QChar(0x00E9)),
              qPrintable(QStringLiteral("PDFium must decode the WinAnsi octal escapes; "
                                       "got %1").arg(text)));
+}
+
+// ── R13 (PERF-05): no API terminator in extracted text ──────────────────────
+// FPDFText_GetText's return count includes the trailing NUL terminator it
+// writes into the buffer, and extractText used to hand that count straight to
+// QString::fromUtf16 — every page's text ended in U+0000, so the LAST word
+// token of every page leaked a NUL into the comparison tokens and every other
+// extraction consumer (reviewer probe: "Beta\u0000", "Gamma\u0000"). These
+// fixtures pin EXACT extracted strings; the one-word case is the smallest
+// reproducer (its only token was contaminated).
+
+void TestConversionExtraction::extractTextOneWordIsExactWithoutTerminator() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = createTextPdf(tmp.path(), "oneword.pdf", {"Beta"});
+    QVERIFY(!pdf.isEmpty());
+
+    PdfiumBackend backend;
+    QVERIFY(backend.loadDocument(pdf));
+    const QString text = backend.extractText(0);
+    QCOMPARE(text, QStringLiteral("Beta"));  // exact — no trailing U+0000
+}
+
+void TestConversionExtraction::extractTextMultilineIsExactWithoutTerminator() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = createMultilinePdf(tmp.path(), "r13_multi.pdf");
+    QVERIFY(!pdf.isEmpty());
+
+    PdfiumBackend backend;
+    QVERIFY(backend.loadDocument(pdf));
+    const QString text = backend.extractText(0);
+    QVERIFY2(!text.contains(QChar(0x0000)),
+             qPrintable(QStringLiteral("extracted text must not contain the API "
+                                      "terminator; got %1")
+                           .arg(QString::fromUtf8(text.toUtf8().toBase64()))));
+    // The interior line separators are document content and must survive;
+    // every line must be exact (pre-fix the last line ended in U+0000).
+    const QStringList lines = text.split(QRegularExpression("\\r?\\n"),
+                                         Qt::SkipEmptyParts);
+    QStringList trimmed;
+    for (const QString& l : lines)
+        trimmed << l.trimmed();
+    const QStringList expected{QStringLiteral("alpha line"),
+                               QStringLiteral("beta line"),
+                               QStringLiteral("gamma line")};
+    QCOMPARE(trimmed, expected);
+}
+
+void TestConversionExtraction::extractTextEmptyPageAndImageOnlyPageAreEmpty() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    PdfiumBackend backend;
+
+    // A page with an empty content stream and a page with no text operators
+    // at all must both extract as the EMPTY string — the early-out path never
+    // sees the API buffer, and there is no terminator to add.
+    const QString emptyPage = createTextPdf(tmp.path(), "r13_empty.pdf", {""});
+    QVERIFY(!emptyPage.isEmpty());
+    QVERIFY(backend.loadDocument(emptyPage));
+    QCOMPARE(backend.extractText(0), QString());
+    backend.closeDocument();
+
+    const QString imageOnly = createImageOnlyPdf(tmp.path(), "r13_no_text.pdf");
+    QVERIFY(!imageOnly.isEmpty());
+    QVERIFY(backend.loadDocument(imageOnly));
+    QCOMPARE(backend.extractText(0), QString());
+}
+
+void TestConversionExtraction::extractTextAccentedPageIsExactWithoutTerminator() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = createAccentedPdf(tmp.path(), "r13_accented.pdf");
+    QVERIFY(!pdf.isEmpty());
+
+    PdfiumBackend backend;
+    QVERIFY(backend.loadDocument(pdf));
+    const QString expected = QStringLiteral("caf") + QChar(0x00E9)
+                             + QStringLiteral(" r") + QChar(0x00E9)
+                             + QStringLiteral("sum") + QChar(0x00E9);
+    // Exact — accented content is preserved and no terminator is appended
+    // (pre-fix this returned "café résumé\u0000").
+    QCOMPARE(backend.extractText(0), expected);
 }
 
 // F07 core: convertTo's text export must carry the DECODED Unicode, not the

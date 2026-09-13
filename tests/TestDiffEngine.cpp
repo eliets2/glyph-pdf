@@ -673,6 +673,45 @@ private slots:
                  "a pure middle removal must not be misclassified as a move");
     }
 
+    // ── R13 (PERF-05): comparison tokens carry no API terminator ─────────────
+    // extractText used to include FPDFText_GetText's trailing NUL, so the LAST
+    // word token of every page leaked U+0000 into the diff tokens. On a
+    // one-word page that is the ONLY token — exact token equality was
+    // impossible ("Beta\u0000" vs "Gamma\u0000").
+
+    void oneWordPagesDiffWithExactTokens() {
+        const QString before = createPagePdf(m_dir.path(), "nul_before.pdf", {"Beta"});
+        const QString after  = createPagePdf(m_dir.path(), "nul_after.pdf", {"Gamma"});
+        QVERIFY(!before.isEmpty() && !after.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(before, after);
+
+        QVERIFY(!r.isIdentical);
+        QCOMPARE(r.pages.size(), 1);
+        // EXACT token equality — no U+0000 appended to the page-final words.
+        QCOMPARE(r.pages.first().textRemoved, QStringList{QStringLiteral("Beta")});
+        QCOMPARE(r.pages.first().textAdded, QStringList{QStringLiteral("Gamma")});
+    }
+
+    void pageFinalTokensAreExactOnMultiwordPages() {
+        // The terminator used to contaminate exactly the page-final token:
+        // "omega psi" extracted as {"omega", "psi\u0000"}. Pin the exact
+        // token list on a rewrite whose removed side is the full page text.
+        const QString before = createPagePdf(m_dir.path(), "nul_mv_before.pdf",
+                                             {"omega psi"});
+        const QString after  = createPagePdf(m_dir.path(), "nul_mv_after.pdf",
+                                             {"omega sigma"});
+        QVERIFY(!before.isEmpty() && !after.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(before, after);
+
+        QCOMPARE(r.pages.size(), 1);
+        QCOMPARE(r.pages.first().textRemoved, QStringList{QStringLiteral("psi")});
+        QCOMPARE(r.pages.first().textAdded, QStringList{QStringLiteral("sigma")});
+    }
+
     // ── V04: an in-place page edit is a CONTENT change, not a structural one ─
     // The alignment leftovers used to fall through to PageRemoved + PageAdded
     // whenever their word-set similarity missed the 0.80 fuzzy floor — so a
@@ -706,8 +745,8 @@ private slots:
                                 "changes, not add/remove").arg(r.pageChanges.size())));
         QVERIFY(r.pageMoves.isEmpty());
         // The content change itself must be present as an ordinary page diff.
-        // PDFium extraction carries a trailing NUL (pinned §9.10-a behavior),
-        // so word-token checks go through a substring match on the joined list.
+        // (R13 removed the trailing NUL extraction used to carry; the token
+        // checks below work either way via the joined-list form.)
         QCOMPARE(r.pages.size(), 1);
         QVERIFY2(r.pages.first().textRemoved.join(QLatin1Char(' '))
                      .contains(QStringLiteral("Apple")),
@@ -745,8 +784,8 @@ private slots:
         QCOMPARE(r.pages.size(), 3);
         QVERIFY(r.pages.at(0).textRemoved.isEmpty()
                 && r.pages.at(0).textAdded.isEmpty());
-        // PDFium extraction carries a trailing NUL (pinned §9.10-a behavior):
-        // match word tokens as substrings of the joined list.
+        // (R13 removed the trailing NUL extraction used to carry; the token
+        // checks below work either way via the joined-list form.)
         QVERIFY2(r.pages.at(1).textRemoved.join(QLatin1Char(' '))
                      .contains(QStringLiteral("page")),
                  "the old middle-page wording must be reported as content removed");
