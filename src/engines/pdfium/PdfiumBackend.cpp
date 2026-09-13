@@ -264,7 +264,22 @@ QString PdfiumBackend::extractText(int pageIndex) {
     QList<unsigned short> buffer(charCount + 1);
     int written = FPDFText_GetText(textPage, 0, charCount, buffer.data());
 
-    QString text = QString::fromUtf16(reinterpret_cast<const char16_t*>(buffer.data()), written);
+    // R13 (PERF-05): FPDFText_GetText's return count INCLUDES the trailing NUL
+    // terminator it writes (fpdf_text.h: "Number of characters written into
+    // the result buffer, including the trailing terminator"). Handing that
+    // count straight to QString::fromUtf16 appended U+0000 to every page's
+    // text, so the LAST word token of every page leaked a NUL into the diff
+    // tokens and every other extraction consumer. Strip EXACTLY that one
+    // terminator: validate the count against the buffer first and drop the
+    // final character only when it actually is NUL. Interior U+0000 characters
+    // (a ToUnicode CMap may legitimately map a glyph to 0x0000) are document
+    // content and are preserved — only the API's own terminator is removed.
+    int textLen = written;
+    if (written > 0 && written <= buffer.size() && buffer[written - 1] == 0)
+        --textLen;  // the single API terminator, nothing else
+
+    QString text = QString::fromUtf16(reinterpret_cast<const char16_t*>(buffer.data()),
+                                      textLen > 0 ? textLen : 0);
 
     FPDFText_ClosePage(textPage);
     FPDF_ClosePage(page);
