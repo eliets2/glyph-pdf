@@ -37,6 +37,7 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QFontDatabase>
+#include <QTimer>
 
 #ifdef HAS_PDFIUM
 #include <fpdfview.h>
@@ -161,6 +162,30 @@ static QString createSupplementaryInlinePdf(const QTemporaryDir& tmpDir, const Q
         doc.Save(path.toUtf8().constData());
     } catch (const std::exception& e) {
         qWarning() << "createSupplementaryInlinePdf failed:" << e.what();
+        return {};
+    }
+    return path;
+}
+
+// packa-F4 fixture: ONE page with a long single run of 'x' (no 'y' anywhere)
+// — the classic catastrophic-backtracking shape under the 256K input cap.
+static QString createLargeXPagePdf(const QTemporaryDir& tmpDir, const QString& name,
+                                   int xCount = 24000) {
+    const QString path = tmpDir.filePath(name);
+    try {
+        PoDoFo::PdfMemDocument doc;
+        auto& page = doc.GetPages().CreatePage(
+            PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+        PoDoFo::PdfPainter painter;
+        painter.SetCanvas(page);
+        auto& font = doc.GetFonts().GetStandard14Font(
+            PoDoFo::PdfStandard14FontType::Helvetica);
+        painter.TextState.SetFont(font, 6.0);
+        painter.DrawText(std::string(xCount, 'x'), 20, 800);
+        painter.FinishDrawing();
+        doc.Save(path.toUtf8().constData());
+    } catch (const std::exception& e) {
+        qWarning() << "createLargeXPagePdf failed:" << e.what();
         return {};
     }
     return path;
@@ -878,6 +903,91 @@ private slots:
         QVERIFY2(h.readAll() != before,
                  "the valid-scope control must actually mutate the document");
         h.close();
+    }
+
+    // ── packa-F4: debounced recount, bounded matching primitive ──────────
+
+    // packa-F4: the dialog must not re-run the finder synchronously on every
+    // keystroke — the cheap affordances update immediately, the match count
+    // arrives once per pause through the debounce timer (fired here
+    // deterministically; no sleeps).
+    void recountIsDebouncedNotPerKeystroke() {
+        const QString path = createThreePagePdf(
+            m_tmpDir, QStringLiteral("debounce.pdf"));
+        QVERIFY2(!path.isEmpty(), "PDF creation failed");
+
+        FindReplaceDialog dlg;
+        dlg.setDocumentContext(path, 3, 1,
+            [](const ReplaceOptions&) { return ReplaceOutcome{}; });
+        auto* search = dlg.findChild<QLineEdit*>(QStringLiteral("frSearch"));
+        QVERIFY(search);
+        QVERIFY2(dlg.matchSummaryText().contains(QStringLiteral("Enter text")),
+                 qPrintable(dlg.matchSummaryText()));
+
+        auto* timer = dlg.findChild<QTimer*>(QStringLiteral("frRecountDebounce"));
+        QVERIFY2(timer, "packa-F4: the dialog must own a recount debounce timer");
+        QVERIFY2(timer->isSingleShot(), "the debounce timer must be single-shot");
+
+        search->setFocus();
+        QTest::keyClicks(search, QStringLiteral("alpha"));
+        QVERIFY2(timer->isActive(),
+                 "typing must arm the debounce timer");
+        QVERIFY2(dlg.matchSummaryText().contains(QStringLiteral("Enter text")),
+                 "typing must NOT synchronously re-run the finder (packa-F4)");
+
+        // Fire the timer deterministically instead of waiting it out.
+        QMetaObject::invokeMethod(timer, "timeout");
+        QVERIFY2(dlg.matchSummaryText().contains(QStringLiteral("4 match")),
+                 qPrintable(dlg.matchSummaryText()));
+    }
+
+    // packa-F4: the budget stops the scan at the real boundaries — between
+    // pages and between matches — deterministically (cancelled flag, and a
+    // zero deadline that fires before the first page since the job timer
+    // starts before the document load).
+    void matchBudgetStopsTheScanDeterministically() {
+        const QString path = createThreePagePdf(
+            m_tmpDir, QStringLiteral("budget.pdf"));
+        QVERIFY2(!path.isEmpty(), "PDF creation failed");
+        const QRegularExpression rx = TextMatchFinder::buildPattern(
+            QStringLiteral("alpha"), false, false, false);
+
+        // Default budget: normal complete result (existing behavior pinned).
+        QCOMPARE(TextMatchFinder::findMatches(path, {0, 1, 2}, rx).size(), 4);
+
+        // Pre-cancelled job: zero matches.
+        TextMatchFinder::MatchBudget cancelled;
+        cancelled.deadlineMs = 1000000;
+        cancelled.cancelled = true;
+        QCOMPARE(TextMatchFinder::findMatches(path, {0, 1, 2}, rx, &cancelled).size(), 0);
+
+        // Zero deadline: the job timer (started before the document load)
+        // is already past it when the first page is about to be scanned.
+        TextMatchFinder::MatchBudget zeroDeadline;
+        zeroDeadline.deadlineMs = 0;
+        QCOMPARE(TextMatchFinder::findMatches(path, {0, 1, 2}, rx, &zeroDeadline).size(), 0);
+    }
+
+    // packa-F4 adversarial fixture: catastrophic-backtracking pattern over a
+    // large page must RETURN (bounded by the input cap + PCRE2's internal
+    // match limit; the job budget then stops the scan). Hang guard: if the
+    // bound is lost this test hangs/fails on the generous 30s ceiling.
+    void adversarialRegexOnLargePageIsBounded() {
+        const QString path = createLargeXPagePdf(
+            m_tmpDir, QStringLiteral("adversarial.pdf"));
+        QVERIFY2(!path.isEmpty(), "PDF creation failed");
+
+        const QRegularExpression rx = TextMatchFinder::buildPattern(
+            QStringLiteral("(x+x+)+y"), true, false, true);
+        QVERIFY(rx.isValid());
+
+        QElapsedTimer guard;
+        guard.start();
+        const QList<TextMatch> matches = TextMatchFinder::findMatches(path, {0}, rx);
+        QCOMPARE(matches.size(), 0);   // no 'y' on the page: no match
+        QVERIFY2(guard.elapsed() < 30000,
+                 qPrintable(QStringLiteral("adversarial regex must stay bounded; "
+                                           "took %1 ms").arg(guard.elapsed())));
     }
 
 private:

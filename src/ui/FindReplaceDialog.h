@@ -12,6 +12,7 @@ class QComboBox;
 class QLabel;
 class QPushButton;
 class QPlainTextEdit;
+class QTimer;
 
 // ── T2-2: Find & Replace ────────────────────────────────────────────────────
 // The full find+replace surface (Edit > Find & Replace, Ctrl+H). Competing
@@ -66,6 +67,16 @@ private:
     // every scope edit re-evaluates immediately.
     void updateActionAvailability();
 
+    // packa-F4: the CHEAP parts of a recount — button availability plus the
+    // terminal messages (no document / refused scope / empty search / bad
+    // regex) — with no PDF parsing. Returns true when the expensive matching
+    // part is warranted.
+    bool recountUiOnly();
+
+    // packa-F4: typing path — immediate recountUiOnly(), deferred matching
+    // (one debounced recount per pause, not one per keystroke).
+    void scheduleRecount();
+
     // WP-R07: non-empty when the SELECTED scope cannot be honored (malformed
     // range, range entirely outside the document, out-of-range current page).
     // The dialog refuses the scope explicitly instead of silently widening it
@@ -83,6 +94,7 @@ private:
     QPushButton* m_countBtn = nullptr;
     QPushButton* m_replaceAllBtn = nullptr;
     QPlainTextEdit* m_details = nullptr;
+    QTimer* m_recountDebounce = nullptr;   // packa-F4 (250ms single shot)
 
     QString m_docPath;
     int m_pageCount = 0;
