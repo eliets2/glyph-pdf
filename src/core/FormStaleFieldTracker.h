@@ -16,9 +16,19 @@ namespace gp {
 // committed /V and names every calculated field an aborted cascade never
 // reached ("skipped"). A transient dialog is not enough: the disclosure must
 // SURVIVE until the field recomputes or the user acknowledges it. This tracker
-// is the session-scoped store behind that persistent warning; it outlives the
-// dialogs and the properties panel (AppContext lifetime) and is keyed by
-// document path, so the warning follows the document across panel rebuilds.
+// is the store behind that persistent warning; it outlives the dialogs and the
+// properties panel (AppContext lifetime) and is keyed by document path, so the
+// warning follows the document across panel rebuilds and in-session document
+// switches.
+//
+// SCOPE OF "persistent" (r18-review F3, 2026-09-13 — decision, not an
+// accident): the warnings persist WITHIN THE SESSION — across recomputes,
+// field switches, panel rebuilds and in-session document switches — NOT
+// across application restarts. The tracker is deliberately in-memory only
+// (no QSettings, no file): a stale flag describes the relationship between a
+// stored value and the fields it is calculated from, which the next session
+// re-derives from the document itself on its first cascade. A fresh tracker
+// instance starts clean; there is no durable/shared store behind it.
 //
 // Update rule (per document): a cascade outcome REPLACES the stale set.
 //   * every calculated field NAMED in the cascade's failures is stale — it
