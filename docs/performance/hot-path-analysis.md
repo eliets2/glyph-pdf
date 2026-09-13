@@ -1,5 +1,42 @@
 # GlyphPDF Hot-Path Analysis (M7-P2 D2)
 
+> ## CORRECTION (2026-09-13) — the caller map below was re-measured and is wrong for the current tree
+>
+> **Measured method:** `tools/render_path_profile.cpp` (WP-R12) — offscreen
+> QApplication driving the REAL `PdfViewerWidget`, `QPdfView`, and
+> `RenderCache` classes over generated Letter fixtures; raw samples + medians
+> (`.context/evidence-2026-09-08/r11r12-render-profile/`). The measured
+> evidence and the harness source supersede the static claims below wherever
+> they differ.
+>
+> **What is actually hot (measured, Release, offscreen):**
+> 1. `Hot Path 1`'s caller map is **wrong**: `RenderCache::getOrRender`'s only
+>    production caller is `ThumbnailSidebar` (`src/ui/ThumbnailSidebar.cpp`,
+>    via its `ThumbnailRenderer` seam at 75 DPI) — NOT `PdfViewerWidget` or
+>    `CompareWidget`, and `prefetchViewport` has **no production caller**.
+>    The main single-page viewer is `QPdfView` with Qt's own page cache.
+> 2. The real shared bottom allocator is `PdfViewerWidget::renderPage`
+>    (`QPdfDocument::render`): the two-page spread renders each page at
+>    `zoom × 2` there, thumbnails reach it through RenderCache, and snapshots
+>    and exports use it directly. Measured cold ≈ 2.8 ms per Letter page at
+>    2×, cached ≈ 0.30 ms; a cold two-page spread ≈ 5.2 ms, warm ≈ 0.76 ms;
+>    thumbnails ≈ 0.87 ms cold at 75 DPI and ~0 μs on RenderCache hits
+>    (12 hits / 12 misses in the profiled pass).
+> 3. `QPdfDocument::render` (the allocator underneath QPdfView) costs ≈ 1.8 ms
+>    per Letter page cold at 2×; Qt's internal page cache shows no measurable
+>    warm advantage for single-page sequential navigation in this setup — do
+>    not quote a "QPdfView cache hit" figure we cannot instrument.
+> 4. The genuinely dangerous path was NOT frequent-lookup overhead but
+>    **unchecked render dimensions** in `PdfViewerWidget::renderPage`
+>    (page points × zoom with no finite check or pixel ceiling): measured
+>    pre-guard, a 40000×40000 pt page at scale 2 rendered 80,000×80,000 px
+>    (6,400 Mpx) in ~12.7 s with a ~11.7 GiB peak working set, and deep
+>    zoom-reversal steps cost ~9.1 s each. Fixed in WP-R12: one shared
+>    checked-size/pixel-budget guard (64 Mpx ceiling) applied before the
+>    allocation, finite-scale zoom entry points, and bounded refusal for
+>    non-finite scales — after the fix the same extremes render bounded
+>    (~78 ms, ~0.19 s) and normal-path timings are unchanged within noise.
+
 **Date:** 2026-06-02  
 **Method:** Code-review-based analysis (static complexity + algorithmic reasoning).  
 **Data source:** Source inspection + wall-clock timings from TestPerformance.cpp benchmarks.  
