@@ -188,6 +188,176 @@ public:
     // loaded or the encryption is removed.
     QString encryptionPassword;
 
+    // ── WP-R02 (WHOLE-ARCHITECTURE-REVIEW A01): pre-mutation resident baseline.
+    //
+    // G06's rollback rebuilds the resident document from the DISK bytes of
+    // currentFile. That is exact for a freshly loaded resident (resident ==
+    // disk), but this API also has RESIDENT-ONLY mutators (addTextWatermark,
+    // addImageWatermark, editTextInline, setMetadata, encryptDocument) that
+    // change memory without committing, and any commit (a later user Save,
+    // or a later mutation command) can FAIL. Restoring from disk after such a
+    // failure destroyed the EARLIER accepted edits (the reviewed
+    // "watermark then failed Save" trigger). The rule is therefore:
+    //
+    //   residentMatchesDisk == true  → the disk-restore fallback is already
+    //      the exact pre-mutation state; no snapshot needed (G06 behavior and
+    //      cost unchanged for the fresh-load lineage).
+    //   residentMatchesDisk == false → every mutating entry captures the full
+    //      resident state into mutationBaseline BEFORE mutating; a failed
+    //      commit restores THAT (the complete pre-operation resident state,
+    //      including all earlier accepted work), never the disk bytes.
+    //
+    // The baseline is a serialized copy of the resident document (the same
+    // vector<char> device extractPageAsBytes uses). It is cleared after every
+    // commit attempt is resolved: success (resident re-synced) or restore
+    // (resident == baseline again, the next mutation re-captures).
+    QByteArray mutationBaseline;
+    bool residentMatchesDisk = true;
+
+    // WP-R09b (WHOLE-ARCHITECTURE-REVIEW A05): external source-version
+    // baseline of the file this resident lineage was loaded from. Captured at
+    // every successful load (and at setCurrentFile, i.e. after a repaired
+    // load re-anchors to the original path), checked IMMEDIATELY BEFORE any
+    // in-place replacement of that file, and refreshed from the committed
+    // bytes after a successful commit. Size + mtime + full SHA-256: a
+    // modification time alone is not an equality proof (same-size
+    // replacements with preserved timestamps must still be detected).
+    struct SourceBaseline {
+        bool valid = false;
+        QString path;          // canonical path the baseline describes
+        qint64 size = -1;
+        QDateTime mtime;
+        QByteArray sha256;
+    };
+    SourceBaseline sourceBaseline;
+    // Sticky until the next successful load / commit: the shell consults it
+    // after a failed in-place save to offer conflict resolution instead of a
+    // generic write-failure message. A conflict NEVER rolls the resident back
+    // — the local work must stay reviewable and Save-As-able.
+    bool externalConflictDetected = false;
+
+    static QByteArray fileSha256(const QString& path) {
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly)) return {};
+        QCryptographicHash hash(QCryptographicHash::Sha256);
+        hash.addData(&f);
+        return hash.result();
+    }
+
+    void captureSourceBaseline(const QString& path) {
+        sourceBaseline = SourceBaseline();
+        QFileInfo info(path);
+        if (!info.exists()) return;   // nothing on disk yet: nothing to guard
+        sourceBaseline.valid = true;
+        sourceBaseline.path = info.canonicalFilePath();
+        sourceBaseline.size = info.size();
+        sourceBaseline.mtime = info.lastModified();
+        sourceBaseline.sha256 = fileSha256(path);
+        externalConflictDetected = false;
+    }
+
+    // True when the file on disk still matches the captured baseline. FULL
+    // content hash on every check: size/mtime are only recorded for
+    // diagnostics — a same-size replacement or a preserved timestamp must
+    // never slip through a stat shortcut (WP-R09b acceptance explicitly
+    // covers both; mtime granularity collisions make them timing-flaky too).
+    bool sourceMatchesBaseline(const QString& path) const {
+        if (!sourceBaseline.valid) return true;   // nothing to compare against
+        const QFileInfo info(path);
+        if (!info.exists()) return false;
+        if (info.canonicalFilePath() != sourceBaseline.path) return false;
+        const QByteArray current = fileSha256(path);
+        if (current.isEmpty()) return false;      // unreadable: treat as changed
+        return current == sourceBaseline.sha256;
+    }
+
+    bool sourceBaselineCovers(const QString& path) const {
+        if (!sourceBaseline.valid) return false;
+        QFileInfo info(path);
+        if (!info.exists()) return false;
+        return info.canonicalFilePath() == sourceBaseline.path;
+    }
+
+    // ── WP-R02: the mutation-transaction boundary every resident-mutating
+    // entry opens before touching the document.
+    bool beginResidentMutation() {
+        mutationBaseline.clear();
+        if (!document || currentFile.isEmpty()) return true;  // nothing resident to protect
+        if (residentMatchesDisk) return true;  // disk fallback == pre-mutation state
+        try {
+            std::vector<char> buffer;
+            PoDoFo::VectorStreamDevice device(buffer);
+            document->Save(device);
+            mutationBaseline = QByteArray(buffer.data(), static_cast<int>(buffer.size()));
+            return true;
+        } catch (const std::exception& e) {
+            qCritical() << "PoDoFoBackend: cannot snapshot the resident document for a "
+                           "revertible mutation; mutation refused:" << e.what();
+        } catch (...) {
+            qCritical() << "PoDoFoBackend: cannot snapshot the resident document for a "
+                           "revertible mutation; mutation refused.";
+        }
+        return false;   // fail closed: never mutate without a revertible state
+    }
+
+    // A resident-only mutation succeeded: the resident now differs from the
+    // source file's bytes, so the disk-restore fallback is no longer exact.
+    void noteResidentDiverged() { residentMatchesDisk = false; }
+
+    // A commit for the resident's own file succeeded: the resident and the
+    // committed destination agree (a same-file save re-seats from the
+    // validated candidate bytes), so the disk fallback is exact again.
+    void commitResidentMutationResolved() {
+        mutationBaseline.clear();
+        residentMatchesDisk = true;
+        externalConflictDetected = false;
+    }
+
+    // WP-R02 rollback: restore the complete pre-operation resident state —
+    // the captured baseline when one exists (earlier accepted edits are
+    // PRESERVED), otherwise the disk bytes (G06 behavior for the fresh-load
+    // lineage, where the two coincide). If even the baseline cannot be
+    // reopened, fall back to the disk reload; if that fails too, drop the
+    // resident document entirely — a rejected mutation must never stay
+    // resident (G06 rule, unchanged).
+    void rollbackResidentMutation() {
+        if (!mutationBaseline.isEmpty()) {
+            auto restored = std::make_unique<PoDoFo::PdfMemDocument>();
+            bool baselineOk = true;
+            try {
+                restored->LoadFromBuffer(
+                    PoDoFo::bufferview(mutationBaseline.constData(),
+                                       static_cast<size_t>(mutationBaseline.size())),
+                    encryptionPassword.toStdString());
+                // Force the lazy parse NOW: a broken baseline must fall back
+                // to the disk restore here, not poison the next access.
+                (void)restored->GetPages().GetCount();
+            } catch (const PoDoFo::PdfError& e) {
+                baselineOk = false;
+                qCritical() << "PoDoFoBackend: rejected-mutation baseline could not be "
+                               "reopened; falling back to the disk bytes:" << e.what();
+            } catch (...) {
+                baselineOk = false;
+                qCritical() << "PoDoFoBackend: rejected-mutation baseline could not be "
+                               "reopened; falling back to the disk bytes.";
+            }
+            if (baselineOk) {
+                reseatBuffer = mutationBaseline;
+                mutationBaseline.clear();
+                document = std::move(restored);
+                // currentFile and encryptionPassword are UNCHANGED: the
+                // baseline is the same document lineage, only without the
+                // rejected mutation. The restored resident generally still
+                // differs from disk (it holds the earlier accepted edits),
+                // so further mutations keep snapshotting.
+                residentMatchesDisk = false;
+                return;
+            }
+        }
+        restoreResidentFromSource();
+        residentMatchesDisk = true;
+    }
+
     PoDoFo::PdfMemDocument& resolveDocument(const QString& path) {
         // Already the loaded document (possibly with unsaved in-memory edits) — operate on it.
         if (document && currentFile == path) {
@@ -230,6 +400,7 @@ public:
         currentFile.clear();
         reseatBuffer.clear();
         encryptionPassword.clear();
+        mutationBaseline.clear();
         if (src.isEmpty()) return;   // already no resident state to leak
         auto restored = std::make_unique<PoDoFo::PdfMemDocument>();
         try {
@@ -243,6 +414,7 @@ public:
         }
         document = std::move(restored);
         currentFile = src;
+        residentMatchesDisk = true;   // WP-R02: resident == disk again
     }
 
     PdfImageInfo* findImageByName(int pageIndex, const QString& xobjectName, PoDoFoBackend* parent) {
@@ -273,6 +445,12 @@ bool PoDoFoBackend::loadDocument(const QString &path) {
         d->currentFile = path;
         d->reseatBuffer.clear();   // file-backed document: no re-seat buffer pinned
         d->encryptionPassword.clear();   // G01: credentials belong to the old lineage
+        // WP-R02: a fresh resident equals the disk bytes it was parsed from.
+        d->mutationBaseline.clear();
+        d->residentMatchesDisk = true;
+        // WP-R09b: this successful load defines the external source-version
+        // baseline the in-place commits are checked against.
+        d->captureSourceBaseline(path);
         return true;
     } catch (const PoDoFo::PdfError& e) {
         // E-05/E-18: log unconditionally (not only in Debug). In a Release build the
@@ -330,6 +508,34 @@ bool PoDoFoBackend::saveDocument(const QString &path) {
         sameFile = !curCanon.isEmpty() && curCanon == dstCanon;
     }
 
+    // ── WP-R09b (A05): the recovery-destination gate. A cross-path commit
+    // that replaces a PRIMED target (the recovery Save committing the
+    // autosave INPUT to the ORIGINAL path — primed at recovery bind) is
+    // conflict-guarded exactly like an in-place save: the destination may
+    // have changed on disk after the baseline was captured, and that change
+    // must never be silently clobbered.
+    if (!sameFile && d->sourceBaselineCovers(path) && !d->sourceMatchesBaseline(path)) {
+        d->externalConflictDetected = true;
+        qCritical() << "PoDoFoBackend::saveDocument: the commit destination changed on "
+                       "disk since its baseline was captured (external modification); "
+                       "refusing to overwrite it. path:" << path;
+        return false;
+    }
+
+    // ── WP-R09b (A05): the SAME-FILE external-conflict gate, run BEFORE any
+    // candidate work. A file-backed resident parses lazily from the source
+    // device; after an external replacement an attempted serialization would
+    // fail with a generic parse error instead of the truthful conflict
+    // report. Checking first keeps the failure reason honest and the
+    // shell's conflict resolution available.
+    if (sameFile && d->sourceBaselineCovers(path) && !d->sourceMatchesBaseline(path)) {
+        d->externalConflictDetected = true;
+        qCritical() << "PoDoFoBackend::saveDocument: the file changed on disk since it "
+                       "was loaded (external modification); refusing to overwrite it."
+                    << "path:" << path;
+        return false;
+    }
+
     QString candidate;
     QString err;
     if (!gp::SafeSave::makeUniqueCandidate(&candidate, &err)) {
@@ -374,6 +580,22 @@ bool PoDoFoBackend::saveDocument(const QString &path) {
     }
 
     if (sameFile) {
+        // ── WP-R09b (WHOLE-ARCHITECTURE-REVIEW A05): external source-version
+        // conflict gate. The LAST check before the in-place replacement
+        // machinery starts: if the file on disk is no longer the bytes this
+        // resident lineage was loaded from (a colleague, a sync client, a
+        // second instance), refuse the commit. The disk file is untouched,
+        // the conflict is flagged for the shell's review/reload/Save-As
+        // resolution, and the resident work is deliberately KEPT for a
+        // Save-As — never silently clobbered, never destroyed.
+        if (d->sourceBaselineCovers(path) && !d->sourceMatchesBaseline(path)) {
+            d->externalConflictDetected = true;
+            qCritical() << "PoDoFoBackend::saveDocument: the file changed on disk since it "
+                           "was loaded (external modification); refusing to overwrite it."
+                        << "path:" << path;
+            return false;
+        }
+
         // Re-seat the resident document from the validated candidate bytes via
         // an in-memory buffer: destroying the previous document closes its
         // device on the file that is about to be replaced (so the atomic
@@ -422,6 +644,21 @@ bool PoDoFoBackend::saveDocument(const QString &path) {
     // a same-file save) is byte-identical to the committed destination, and no
     // document holds a device on the candidate — the guard can always remove
     // it.
+
+    if (sameFile) {
+        // WP-R02: the committed revision IS the resident state now — the
+        // disk-restore fallback is exact again and any pre-mutation baseline
+        // is obsolete. WP-R09b: the baseline describing the committed bytes
+        // (candidate content, post-commit stat) defines what a LATER external
+        // change is measured against.
+        d->commitResidentMutationResolved();
+        QFileInfo committedInfo(path);
+        d->sourceBaseline.valid = true;
+        d->sourceBaseline.path = committedInfo.canonicalFilePath();
+        d->sourceBaseline.size = committedInfo.size();
+        d->sourceBaseline.mtime = committedInfo.lastModified();
+        d->sourceBaseline.sha256 = d->fileSha256(candidate);
+    }
 
 #ifdef QT_DEBUG
     qDebug() << "PoDoFo Engine structurally saved document to:" << path;
@@ -490,6 +727,7 @@ bool PoDoFoBackend::setMetadata(const PdfMetadata &metadata) {
 #ifdef QT_DEBUG
         qDebug() << "Successfully updated document metadata.";
 #endif
+        d->noteResidentDiverged();   // WP-R02: resident-only edit — disk fallback no longer exact
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "PoDoFo error during setMetadata:" << e.what();
@@ -504,25 +742,52 @@ bool PoDoFoBackend::writeDocument(const QString &path) {
 }
 
 bool PoDoFoBackend::writeUpdate(const QString &path) {
+    // WP-R02 (WHOLE-ARCHITECTURE-REVIEW A01): this is the USER-SAVE commit
+    // (HomeController's embedAnnotations route, the signed Replace-All
+    // append). Save semantics: the resident state being committed is the
+    // user's accepted work — a refused commit KEEPS it resident (retryable),
+    // exactly like a failed plain saveDocument. It must never be replaced by
+    // the disk bytes.
+    return commitMutationImpl(path, /*mutationTransaction=*/false);
+}
+
+bool PoDoFoBackend::commitMutation(const QString &path) {
+    // WP-R02: the MUTATION-command commit (rotatePage/cropPage/… internal
+    // step). A refused commit is a transaction rollback: the rejected
+    // mutation must not stay resident (G06), while earlier accepted edits
+    // survive (see rollbackResidentMutation).
+    return commitMutationImpl(path, /*mutationTransaction=*/true);
+}
+
+bool PoDoFoBackend::commitMutationImpl(const QString &path, bool mutationTransaction) {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
 
     // G06 (P1, QUALITY-GATE-2026-09-09): common mutation-transaction rollback.
-    // writeUpdate is THE commit step of every path-based mutator (cropPage,
+    // commitMutation is THE commit step of every path-based mutator (cropPage,
     // rotatePage, resizePage, reorder*, addHeaderFooter, applyBatesNumbering,
     // deleteObjectAt/applyRedactions, …) and the mutator has ALREADY mutated
     // the resident document when it gets here. If the commit fails, the
     // command is dropped and the disk is untouched — the resident document
-    // must then be restored to the pre-mutation state (for every resident
-    // lineage that is exactly the source file's bytes), or dropped entirely
-    // when even the reload fails. Without this, a supposedly rejected
+    // must then be restored to the PRE-MUTATION state, or dropped entirely
+    // when even the restore fails. Without this, a supposedly rejected
     // mutation silently persisted on a later ordinary save (gate probe:
     // EC05_LATER_SAVE). This is the COMMON rule at the shared commit
     // boundary, not a crop-specific workaround. A failed plain saveDocument
     // (user Save / autosave) deliberately does NOT roll back: that path keeps
     // the in-memory work — including an uncommitted encryptDocument() setup —
     // alive for retry.
+    //
+    // WP-R02 (WHOLE-ARCHITECTURE-REVIEW A01): the pre-mutation state is the
+    // DISK bytes only while no resident-only edit has diverged from them.
+    // rollbackResidentMutation() restores the captured pre-mutation resident
+    // baseline when one exists (earlier accepted edits — a watermark, an
+    // inline text edit — SURVIVE a failed commit and stay retryable), and the
+    // G06 disk restore exactly when the resident never diverged. The
+    // user-Save route (writeUpdate → mutationTransaction == false) never
+    // rolls back: the resident keeps every accepted edit for retry.
     const auto rollbackResidentIfSameFile = [&]() {
+        if (!mutationTransaction) return;   // save semantics: keep the resident work
         const QString cur = d->currentFile;
         bool sameFile = !cur.isEmpty() && QString::compare(cur, path, Qt::CaseInsensitive) == 0;
         if (!sameFile && !cur.isEmpty()) {
@@ -532,8 +797,33 @@ bool PoDoFoBackend::writeUpdate(const QString &path) {
             const QString dstCanon = dstInfo.canonicalFilePath();
             sameFile = !curCanon.isEmpty() && curCanon == dstCanon;
         }
-        if (sameFile) d->restoreResidentFromSource();
+        if (sameFile) d->rollbackResidentMutation();
     };
+
+    // ── WP-R09b (A05): the EARLY external-conflict gate. Checked BEFORE the
+    // signature inspection and BEFORE any candidate serialization: a
+    // file-backed resident parses lazily from the source device, so once the
+    // file was replaced underneath it, an attempted serialization would fail
+    // with a generic parse error instead of the truthful conflict report —
+    // and could even read through the replaced bytes. The stat fast-path
+    // keeps the unchanged case free; any difference falls through to the
+    // full content hash.
+    {
+        const QString cur = d->currentFile;
+        bool sameTarget = !cur.isEmpty() && QString::compare(cur, path, Qt::CaseInsensitive) == 0;
+        if (!sameTarget && !cur.isEmpty()) {
+            const QString curCanon = QFileInfo(cur).canonicalFilePath();
+            const QString dstCanon = QFileInfo(path).canonicalFilePath();
+            sameTarget = !curCanon.isEmpty() && curCanon == dstCanon;
+        }
+        if (sameTarget && d->sourceBaselineCovers(path) && !d->sourceMatchesBaseline(path)) {
+            d->externalConflictDetected = true;
+            qCritical() << "PoDoFoBackend: the file changed on disk since it was loaded "
+                           "(external modification); refusing to overwrite it. path:" << path;
+            if (mutationTransaction) d->rollbackResidentMutation();
+            return false;
+        }
+    }
 
     // §6 non-negotiable: when signatures exist, a full rewrite changes the byte
     // offsets that every /ByteRange points at and silently invalidates the
@@ -556,7 +846,9 @@ bool PoDoFoBackend::writeUpdate(const QString &path) {
     }
 
     if (!hasSignatures) {
-        // No signatures to protect — a full save is safe.
+        // No signatures to protect — a full save is safe. Its same-file
+        // transaction resolves the mutation bookkeeping (WP-R02) and runs the
+        // external-conflict gate (WP-R09b) internally.
         const bool ok = saveDocument(path);
         if (!ok) rollbackResidentIfSameFile();
         return ok;
@@ -580,12 +872,40 @@ bool PoDoFoBackend::writeUpdate(const QString &path) {
                 rollbackResidentIfSameFile();
                 return false;
             }
+        } else {
+            // WP-R09b (A05): same-file incremental append — the LAST gate
+            // before the in-place replacement of the loaded file's bytes.
+            // An external modification (colleague, sync client, second
+            // instance) must never be silently appended-over.
+            if (d->sourceBaselineCovers(path) && !d->sourceMatchesBaseline(path)) {
+                d->externalConflictDetected = true;
+                qCritical() << "PoDoFoBackend::writeUpdate: the file changed on disk since "
+                               "it was loaded (external modification); refusing the "
+                               "incremental update. path:" << path;
+                rollbackResidentIfSameFile();
+                return false;
+            }
         }
         // GUI-held-handle coordination: a same-path SaveUpdate appends to the
         // very file the viewer may display. The scope releases the viewer's
         // handle for the append and restores it on every outcome (SafeSave.h).
         const gp::SafeSave::ScopedFileHandleCoordination coordinationScope(path);
         d->document->SaveUpdate(path.toUtf8().constData());
+        // WP-R02/WP-R09b: the append committed the resident state to `path`.
+        // Same file: resident and disk agree again. (Cross-path appends keep
+        // the resident lineage attached to currentFile — a subsequent
+        // mutation re-captures its baseline.)
+        if (QString::compare(d->currentFile, path, Qt::CaseInsensitive) == 0) {
+            d->commitResidentMutationResolved();
+            QFileInfo committedInfo(path);
+            d->sourceBaseline.valid = true;
+            d->sourceBaseline.path = committedInfo.canonicalFilePath();
+            d->sourceBaseline.size = committedInfo.size();
+            d->sourceBaseline.mtime = committedInfo.lastModified();
+            d->sourceBaseline.sha256 = d->fileSha256(path);
+        } else {
+            d->noteResidentDiverged();
+        }
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qCritical() << "PoDoFoBackend::writeUpdate: incremental SaveUpdate failed:"
@@ -636,9 +956,26 @@ QString PoDoFoBackend::currentFile() const {
     return d->currentFile;
 }
 
+bool PoDoFoBackend::lastCommitRefusedForExternalConflict() const {
+    QMutexLocker locker(&d->mutex);
+    return d->externalConflictDetected;
+}
+
+void PoDoFoBackend::primeExternalBaseline(const QString &path) {
+    QMutexLocker locker(&d->mutex);
+    d->captureSourceBaseline(path);
+}
+
 void PoDoFoBackend::setCurrentFile(const QString &path) {
     QMutexLocker locker(&d->mutex);
     d->currentFile = path;
+    // WP-R09b: after a repaired load re-anchors the resident to the original
+    // path, the external source-version baseline describes THAT file's bytes
+    // (what the session believes is on disk). WP-R02: the resident (repaired
+    // bytes) differs from the disk source — mutations keep snapshotting.
+    d->captureSourceBaseline(path);
+    d->mutationBaseline.clear();
+    d->residentMatchesDisk = false;
 }
 
 namespace {
@@ -807,6 +1144,7 @@ QStringList PoDoFoBackend::getLayers() {
 
 bool PoDoFoBackend::rotatePage(const QString &path, int pageIndex, int degrees) {
     QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& doc = d->resolveDocument(path);
         auto& pages = doc.GetPages();
@@ -815,7 +1153,7 @@ bool PoDoFoBackend::rotatePage(const QString &path, int pageIndex, int degrees) 
         auto& page = pages.GetPageAt(pageIndex);
         int current = static_cast<int>(page.GetRotation());
         page.SetRotation((current + degrees) % 360);
-        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (...) {
         return false;
@@ -844,6 +1182,7 @@ QByteArray PoDoFoBackend::extractPageAsBytes(const QString &path, int pageIndex)
 
 bool PoDoFoBackend::insertPageFromBytes(const QString &path, int atIndex, const QByteArray &pageData) {
     QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     if (pageData.size() > 10 * 1024 * 1024) {
         qCritical() << "SECURITY: Rejected page data exceeding maximum allowed buffer size (10MB).";
         return false;
@@ -861,7 +1200,7 @@ bool PoDoFoBackend::insertPageFromBytes(const QString &path, int atIndex, const 
         }
 
         doc.GetPages().InsertDocumentPageAt(atIndex, sourceDoc, 0);
-        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (...) {
         return false;
@@ -870,13 +1209,14 @@ bool PoDoFoBackend::insertPageFromBytes(const QString &path, int atIndex, const 
 
 bool PoDoFoBackend::deletePage(const QString &path, int pageIndex) {
     QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& doc = d->resolveDocument(path);
         auto& pages = doc.GetPages();
         if (pageIndex < 0 || static_cast<size_t>(pageIndex) >= pages.GetCount()) return false;
 
         pages.RemovePageAt(pageIndex);
-        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (...) {
         return false;
@@ -885,11 +1225,12 @@ bool PoDoFoBackend::deletePage(const QString &path, int pageIndex) {
 
 bool PoDoFoBackend::insertBlankPage(const QString &path, int atIndex) {
     QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& doc = d->resolveDocument(path);
 
         doc.GetPages().CreatePageAt(atIndex, PoDoFo::PdfPageSize::A4);
-        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (...) {
         return false;
@@ -904,6 +1245,7 @@ bool PoDoFoBackend::insertBlankPage(const QString &path, int atIndex) {
 // artifact, or the document is exactly as it was.
 bool PoDoFoBackend::restorePageFromBytes(const QString &path, int pageIndex, const QByteArray &pageData) {
     QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     if (pageData.size() > 10 * 1024 * 1024) {
         qCritical() << "SECURITY: Rejected page data exceeding maximum allowed buffer size (10MB).";
         return false;
@@ -923,7 +1265,7 @@ bool PoDoFoBackend::restorePageFromBytes(const QString &path, int pageIndex, con
 
         pages.InsertDocumentPageAt(pageIndex, sourceDoc, 0);   // restored copy at pageIndex
         pages.RemovePageAt(pageIndex + 1);                     // displaced edited copy out
-        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (...) {
         return false;
@@ -1049,6 +1391,7 @@ bool PoDoFoBackend::editTextInline(int pageIndex, const QRectF &rect, const QStr
 #ifdef QT_DEBUG
         qDebug() << "Editing text inline via PoDoFo on page" << pageIndex << "font:" << extractedFontName.c_str() << "size:" << extractedFontSize;
 #endif
+        d->noteResidentDiverged();   // WP-R02: resident-only edit — disk fallback no longer exact
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "PoDoFo error editing text:" << e.what();
@@ -1058,11 +1401,12 @@ bool PoDoFoBackend::editTextInline(int pageIndex, const QRectF &rect, const QStr
 
 bool PoDoFoBackend::deleteObjectAt(int pageIndex, const QPointF &pos) {
     QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     QRectF redactionRect(pos.x() - 5, pos.y() - 5, 10, 10);
     if (!applyRedactions(pageIndex, {redactionRect})) return false;
     if (d->currentFile.isEmpty()) return false;
     try {
-        if (!writeUpdate(d->currentFile)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(d->currentFile)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "deleteObjectAt save error:" << e.what();
@@ -1316,6 +1660,7 @@ bool PoDoFoBackend::pageCropBoxInfo(const QString &path, int pageIndex,
 
 bool PoDoFoBackend::removePageCropBox(const QString &path, int pageIndex) {
     QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& doc = d->resolveDocument(path);
         auto& pages = doc.GetPages();
@@ -1327,7 +1672,7 @@ bool PoDoFoBackend::removePageCropBox(const QString &path, int pageIndex) {
         // shows through again. Idempotent when no explicit key is present.
         if (!page.GetDictionary().RemoveKey("CropBox"))
             return true;
-        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (...) {
         return false;
@@ -1364,6 +1709,7 @@ void PoDoFoBackend::releaseResidentFile(const QString &path) {
 
 bool PoDoFoBackend::cropPage(const QString &path, int pageIndex, const QRectF &cropRect) {
     QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& doc = d->resolveDocument(path);
         auto& pages = doc.GetPages();
@@ -1373,7 +1719,7 @@ bool PoDoFoBackend::cropPage(const QString &path, int pageIndex, const QRectF &c
         PoDoFo::Rect podofoRect(cropRect.x(), cropRect.y(), cropRect.width(), cropRect.height());
         page.GetDictionary().AddKey("CropBox", podofoRect.ToArray());
         
-        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (...) {
         return false;
@@ -1382,6 +1728,7 @@ bool PoDoFoBackend::cropPage(const QString &path, int pageIndex, const QRectF &c
 
 bool PoDoFoBackend::resizePage(const QString &path, int pageIndex, const QSizeF &size) {
     QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& doc = d->resolveDocument(path);
         auto& pages = doc.GetPages();
@@ -1392,7 +1739,7 @@ bool PoDoFoBackend::resizePage(const QString &path, int pageIndex, const QSizeF 
         PoDoFo::Rect newMedia(oldMedia.X, oldMedia.Y, size.width(), size.height());
         page.GetDictionary().AddKey("MediaBox", newMedia.ToArray());
         
-        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (...) {
         return false;
@@ -1401,6 +1748,7 @@ bool PoDoFoBackend::resizePage(const QString &path, int pageIndex, const QSizeF 
 
 bool PoDoFoBackend::reorderPages(const QString &path, int fromIndex, int toIndex) {
     QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& doc = d->resolveDocument(path);
         auto& pages = doc.GetPages();
@@ -1421,7 +1769,7 @@ bool PoDoFoBackend::reorderPages(const QString &path, int fromIndex, int toIndex
         
         pages.InsertDocumentPageAt(toIndex, tempDoc, 0);
         
-        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (...) {
         return false;
@@ -1430,6 +1778,7 @@ bool PoDoFoBackend::reorderPages(const QString &path, int fromIndex, int toIndex
 
 bool PoDoFoBackend::reorderAllPages(const QString &path, const QList<int> &permutation) {
     QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& doc = d->resolveDocument(path);
         auto& pages = doc.GetPages();
@@ -1462,7 +1811,7 @@ bool PoDoFoBackend::reorderAllPages(const QString &path, const QList<int> &permu
             pages.InsertDocumentPageAt(i, tempDoc, i);
         }
 
-        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (...) {
         return false;
@@ -1471,6 +1820,7 @@ bool PoDoFoBackend::reorderAllPages(const QString &path, const QList<int> &permu
 
 bool PoDoFoBackend::addHeaderFooter(const QString &path, const HeaderFooterOptions &options) {
     QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& doc = d->resolveDocument(path);
         auto& pages = doc.GetPages();
@@ -1491,7 +1841,7 @@ bool PoDoFoBackend::addHeaderFooter(const QString &path, const HeaderFooterOptio
             appendEscapedText(doc, page, text, options.position, options.fontSize, fontName);
         }
         
-        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (...) {
         return false;
@@ -1506,6 +1856,7 @@ bool PoDoFoBackend::applyBatesNumbering(const QString &path, const BatesNumberin
 
 bool PoDoFoBackend::applyBatesNumbering(const QString &path, const BatesNumberingOptions &options, int *lastNumberOut) {
     QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& doc = d->resolveDocument(path);
         auto& pages = doc.GetPages();
@@ -1541,7 +1892,7 @@ bool PoDoFoBackend::applyBatesNumbering(const QString &path, const BatesNumberin
         // repeats a number.
         if (lastNumberOut) *lastNumberOut = currentNumber - 1;
 
-        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (...) {
         return false;
@@ -2302,6 +2653,7 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
             }
         }
 
+        d->noteResidentDiverged();   // WP-R02: resident-only edit — disk fallback no longer exact
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qCritical() << "SECURITY: Redaction failed on page" << pageIndex << "-" << e.what()
@@ -2540,6 +2892,7 @@ static void ensureCompleteCidSets(PoDoFo::PdfMemDocument& doc) {
 bool PoDoFoBackend::exportPdfA(const QString &outputPath, int conformanceLevel) {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
 
     try {
         using namespace PoDoFo;
@@ -2627,7 +2980,7 @@ bool PoDoFoBackend::exportPdfA(const QString &outputPath, int conformanceLevel) 
         // subset (required under ISO 19005-1; harmless under 19005-2/3).
         ensureCompleteCidSets(*d->document);
 
-        if (!writeUpdate(outputPath)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(outputPath)) throw std::runtime_error("writeUpdate failed");
 #ifdef QT_DEBUG
         qDebug() << "Successfully exported PDF/A-" << conformanceLevel << "b to:" << outputPath;
 #endif
@@ -2671,6 +3024,7 @@ bool PoDoFoBackend::encryptDocument(const QString &userPassword, const QString &
 #ifdef QT_DEBUG
         qDebug() << "Applied AES-256 encryption to document.";
 #endif
+        d->noteResidentDiverged();   // WP-R02: resident-only edit — disk fallback no longer exact
         return true;
     } catch (const PoDoFo::PdfError& e) {
         // E-05/E-12: encryption is security-critical — a failed SetEncrypted in
@@ -2692,6 +3046,7 @@ bool PoDoFoBackend::removeEncryption(const QString &ownerPassword) {
         // Remove encryption
         d->document->SetEncrypt(nullptr);
         d->encryptionPassword.clear();   // G01: credentials no longer apply
+        d->noteResidentDiverged();   // WP-R02: resident-only edit — disk fallback no longer exact
 #ifdef QT_DEBUG
         qDebug() << "Removed encryption from document.";
 #endif
@@ -3191,6 +3546,7 @@ QList<PdfImageInfo> PoDoFoBackend::listImages(int pageIndex) {
 bool PoDoFoBackend::moveImage(int pageIndex, const QString &xobjectName, double dx, double dy) {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& page = d->document->GetPages().GetPageAt(pageIndex);
         
@@ -3210,7 +3566,7 @@ bool PoDoFoBackend::moveImage(int pageIndex, const QString &xobjectName, double 
             -h * sinR, h * cosR,
             newE, newF);
         
-        if (ok) if (!writeUpdate(d->currentFile)) throw std::runtime_error("writeUpdate failed");
+        if (ok) if (!commitMutation(d->currentFile)) throw std::runtime_error("writeUpdate failed");
         return ok;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "moveImage error:" << e.what();
@@ -3221,6 +3577,7 @@ bool PoDoFoBackend::moveImage(int pageIndex, const QString &xobjectName, double 
 bool PoDoFoBackend::resizeImage(int pageIndex, const QString &xobjectName, double newWidth, double newHeight) {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& page = d->document->GetPages().GetPageAt(pageIndex);
         
@@ -3236,7 +3593,7 @@ bool PoDoFoBackend::resizeImage(int pageIndex, const QString &xobjectName, doubl
             -newHeight * sinR, newHeight * cosR,
             target->placement.x(), target->placement.y());
         
-        if (ok) if (!writeUpdate(d->currentFile)) throw std::runtime_error("writeUpdate failed");
+        if (ok) if (!commitMutation(d->currentFile)) throw std::runtime_error("writeUpdate failed");
         return ok;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "resizeImage error:" << e.what();
@@ -3247,6 +3604,7 @@ bool PoDoFoBackend::resizeImage(int pageIndex, const QString &xobjectName, doubl
 bool PoDoFoBackend::rotateImage(int pageIndex, const QString &xobjectName, double degrees) {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& page = d->document->GetPages().GetPageAt(pageIndex);
         
@@ -3269,7 +3627,7 @@ bool PoDoFoBackend::rotateImage(int pageIndex, const QString &xobjectName, doubl
             -h * sinR, h * cosR,
             newE, newF);
         
-        if (ok) if (!writeUpdate(d->currentFile)) throw std::runtime_error("writeUpdate failed");
+        if (ok) if (!commitMutation(d->currentFile)) throw std::runtime_error("writeUpdate failed");
         return ok;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "rotateImage error:" << e.what();
@@ -3280,6 +3638,7 @@ bool PoDoFoBackend::rotateImage(int pageIndex, const QString &xobjectName, doubl
 bool PoDoFoBackend::replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath) {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& page = d->document->GetPages().GetPageAt(pageIndex);
         auto resources = page.GetResources();
@@ -3326,7 +3685,7 @@ bool PoDoFoBackend::replaceImage(int pageIndex, const QString &xobjectName, cons
         dict.RemoveKey("Filter");
         dict.RemoveKey("DecodeParms");
         
-        if (!writeUpdate(d->currentFile)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(d->currentFile)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "replaceImage error:" << e.what();
@@ -3337,6 +3696,7 @@ bool PoDoFoBackend::replaceImage(int pageIndex, const QString &xobjectName, cons
 bool PoDoFoBackend::deleteImage(int pageIndex, const QString &xobjectName) {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& page = d->document->GetPages().GetPageAt(pageIndex);
         
@@ -3415,7 +3775,7 @@ bool PoDoFoBackend::deleteImage(int pageIndex, const QString &xobjectName) {
             stream.SetData(content);
         }
         
-        if (!writeUpdate(d->currentFile)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(d->currentFile)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "deleteImage error:" << e.what();
@@ -3891,6 +4251,7 @@ static void applyAnnotationsToDoc(PoDoFo::PdfMemDocument& doc,
 bool PoDoFoBackend::embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations)
 {
     QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         // AR-7 D1: In-place save (inputPath == outputPath). The previous
         // dedicated branch loaded a separate local PdfMemDocument and swapped
@@ -3910,7 +4271,7 @@ bool PoDoFoBackend::embedAnnotations(const QString &inputPath, const QString &ou
         // there is deliberately no remove-then-rename fallback.
         auto& doc = d->resolveDocument(inputPath);
         applyAnnotationsToDoc(doc, annotations);
-        if (!writeUpdate(outputPath)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(outputPath)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "Error embedding annotations:" << e.what();
@@ -4500,6 +4861,7 @@ bool PoDoFoBackend::addTextWatermark(const TextWatermarkOptions &options)
             appendPageContent(doc, page, wm.str());
         }
 
+        d->noteResidentDiverged();   // WP-R02: resident-only edit — disk fallback no longer exact
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "Error adding text watermark:" << e.what();
@@ -4666,6 +5028,7 @@ bool PoDoFoBackend::addImageWatermark(const ImageWatermarkOptions &options)
             contentsObj->GetObject().GetOrCreateStream().SetData(newBuf);
         }
 
+        d->noteResidentDiverged();   // WP-R02: resident-only edit — disk fallback no longer exact
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "Error adding image watermark:" << e.what();
@@ -4910,6 +5273,7 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
 {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
 
     try {
         auto& doc = *d->document;
@@ -5224,7 +5588,7 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
             }
         }
 
-        if (!writeUpdate(outputPath)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(outputPath)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "Error optimizing document:" << e.what();
