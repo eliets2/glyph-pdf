@@ -9,6 +9,7 @@
 #include "engines/PdfEditorEngine.h"
 #include "engines/ocr/OcrPipeline.h"
 #include "engines/podofo/PdfPageOps.h"
+#include "engines/pdfium/PdfiumBackend.h" // N3: per-page has-text probe (PDFium text extraction)
 #include "engines/PatternRedactor.h" // §9.12 P1: named PII preset keys
 
 // §9.12 P1: the async merge worker appends input-by-input so it can report
@@ -451,6 +452,23 @@ void BatchMode::buildOperationPanel(QWidget* host) {
         }
         m_ocrLanguage->setCurrentIndex(savedIdx);
         lay->addWidget(m_ocrLanguage);
+
+        // N3 (pdf24 §1.3 skip-already-text pattern): the CLI's "-skipFilesWithText
+        // / -skipPagesWithText … force OCR" switches mirrored in the GUI. A
+        // skipped file is reported truthfully in the batch summary — never as
+        // completed OCR work. Force overrides both skips.
+        m_ocrSkipFilesWithText = new QCheckBox(tr("Skip files that already contain text"));
+        m_ocrSkipFilesWithText->setChecked(
+            QSettings().value(QStringLiteral("ocr/skipFilesWithText"), false).toBool());
+        lay->addWidget(m_ocrSkipFilesWithText);
+        m_ocrSkipPagesWithText = new QCheckBox(tr("Skip pages that already contain text (keep original page)"));
+        m_ocrSkipPagesWithText->setChecked(
+            QSettings().value(QStringLiteral("ocr/skipPagesWithText"), false).toBool());
+        lay->addWidget(m_ocrSkipPagesWithText);
+        m_ocrForceOcr = new QCheckBox(tr("Force OCR (override skip options)"));
+        m_ocrForceOcr->setChecked(
+            QSettings().value(QStringLiteral("ocr/forceOcr"), false).toBool());
+        lay->addWidget(m_ocrForceOcr);
 
         lay->addWidget(new QLabel(tr("Output Folder:")));
         auto* dirRow = new QHBoxLayout;
@@ -994,6 +1012,7 @@ void BatchMode::onRunClicked() {
     m_errorLog.clear();
     m_successCount = 0;
     m_failCount    = 0;
+    m_skipCount    = 0;
     m_accountedIndices.clear();   // G12: per-run exactly-once accounting ledger
     m_exportLogBtn->setVisible(false);
     m_runBtn->setEnabled(false);
@@ -1049,6 +1068,13 @@ void BatchMode::onRunClicked() {
     const QString capturedOcrLang = m_ocrLanguage
         ? ocrEngineLanguageCode(m_ocrLanguage->currentData().toString())
         : QStringLiteral("eng");
+    // N3 (pdf24 skip-already-text): checkbox state captured on the GUI thread
+    // (QSettings-backed state is GUI-affine); the worker only gets values.
+    const bool capturedOcrSkipFiles = m_ocrSkipFilesWithText
+        ? m_ocrSkipFilesWithText->isChecked() : false;
+    const bool capturedOcrSkipPages = m_ocrSkipPagesWithText
+        ? m_ocrSkipPagesWithText->isChecked() : false;
+    const bool capturedOcrForce = m_ocrForceOcr ? m_ocrForceOcr->isChecked() : false;
     // §9.4 P0 / U08: the SAME preprocessing options as the interactive path —
     // deskew/binarize/denoise/orientDetect are persisted prefs read on the GUI
     // thread (QSettings is not thread-safe); the worker only gets a copy.
@@ -1147,6 +1173,10 @@ void BatchMode::onRunClicked() {
                 techDetail = QStringLiteral("IConversionEngine not available");
             }
         } else if (capturedOp == OpOCR) {
+            // N3 (pdf24 skip-already-text): force-OCR overrides both skip
+            // switches — the user's explicit "OCR everything" wins.
+            const bool skipFiles = capturedOcrSkipFiles && !capturedOcrForce;
+            const bool skipPages = capturedOcrSkipPages && !capturedOcrForce;
             // OCR uses the SHARED engine (OcrEngine + OcrPipeline are not
             // thread-safe), so it stays serialized behind the engine mutex.
             QMutexLocker locker(engineMutexPtr);
@@ -1160,6 +1190,37 @@ void BatchMode::onRunClicked() {
                     techDetail = QStringLiteral("Failed to open PDF for rendering: %1").arg(inputPath);
                     ok = false;
                 } else {
+                    // N3: probe per-page text ONCE through the PDFium text
+                    // extraction seam (the same one the Bates tests read) —
+                    // inside the engine mutex, because PDFium is not
+                    // thread-safe either. A FAILED probe never enables a skip
+                    // (skipping is only honest on positive evidence of text).
+                    QList<bool> pageHasText;
+                    if (skipFiles || skipPages) {
+                        PdfiumBackend probe;
+                        if (probe.loadDocument(inputPath)) {
+                            for (int p = 0; p < pdf.pageCount(); ++p) {
+                                bool has = false;
+                                const auto runs = probe.extractPageTextRuns(p);
+                                for (const auto& run : runs) {
+                                    if (!run.text.trimmed().isEmpty()) { has = true; break; }
+                                }
+                                pageHasText.append(has);
+                            }
+                        }
+                    }
+
+                    // N3: skip-files-with-text — any existing text layer means
+                    // the file is already searchable. Report as SKIPPED (its
+                    // own truthful bucket), never as success or failure.
+                    if (skipFiles && pageHasText.contains(true)) {
+                        locker.unlock();
+                        result.skipped = true;
+                        result.skipReason = QStringLiteral(
+                            "already contains a text layer — not OCRed (skip-files-with-text)");
+                        return result;
+                    }
+
                     capturedCtx->ocr->initialize(capturedOcrLang);
                     OcrPipeline pipeline(capturedCtx->ocr);
                     pipeline.setStrategy(OcrStrategy::PrimaryOnly);
@@ -1168,6 +1229,27 @@ void BatchMode::onRunClicked() {
                     // deskew/binarize/denoise/orientDetect, no divergence.
                     OcrPreprocessOptions preprocessOpts = capturedOcrPreprocess;
                     pipeline.setPreprocessing(preprocessOpts);
+
+                    // N3: skip-pages-with-text — pages WITH text pass through
+                    // UNCHANGED (extractPageAsBytes + the N09 page-copy
+                    // writer keep the original page content, so the text page
+                    // in the output is the original page, not a re-encoded
+                    // image); pages WITHOUT text are OCRed into a per-page
+                    // MRC fragment and assembled in order. When the probe
+                    // found no text page at all this is a no-op vs. the
+                    // plain path except for the per-page assembly.
+                    if (skipPages && !pageHasText.isEmpty()) {
+                        bool anyNeedsOcr = false;
+                        for (bool has : pageHasText)
+                            if (!has) { anyNeedsOcr = true; break; }
+                        if (!anyNeedsOcr) {
+                            locker.unlock();
+                            result.skipped = true;
+                            result.skipReason = QStringLiteral(
+                                "every page already contains text — not OCRed (skip-pages-with-text)");
+                            return result;
+                        }
+                    }
 
                     QList<QImage> images;
                     QList<PageOcrResult> pageResults;
@@ -1185,27 +1267,83 @@ void BatchMode::onRunClicked() {
                         pr.success   = true;
                         pageResults.append(pr);
                     }
+
                     if (!capturedCtx->pdfEditor) {
                         techDetail = QStringLiteral("PDF editor engine not available");
                         ok = false;
+                    } else if (skipPages && !pageHasText.isEmpty()) {
+                        // N3: mixed assembly — original text pages + OCRed
+                        // image-only pages, in the original page order.
+                        QList<QByteArray> pageDocs;
+                        int keptCount = 0;
+                        bool assemblyOk = true;
+                        for (int p = 0; p < pdf.pageCount() && assemblyOk; ++p) {
+                            if (pageHasText.at(p)) {
+                                const QByteArray orig =
+                                    capturedCtx->pdfEditor->extractPageAsBytes(inputPath, p);
+                                if (!orig.isEmpty()) {
+                                    pageDocs.append(orig);
+                                    ++keptCount;
+                                    continue;
+                                }
+                                // Extraction failed — fall back to OCR for
+                                // this page rather than emit a broken page.
+                            }
+                            const QString pageTmp =
+                                result.outputPath + QStringLiteral(".page%1.mrc").arg(p);
+                            if (!capturedCtx->pdfEditor->exportMrcPdfA(
+                                    pageTmp, { images.at(p) }, { pageResults.at(p) })) {
+                                techDetail = QStringLiteral(
+                                    "per-page MRC export failed on page %1: %2")
+                                    .arg(p + 1)
+                                    .arg(capturedCtx->pdfEditor->lastError().technicalDetails);
+                                assemblyOk = false;
+                                break;
+                            }
+                            {
+                                QFile f(pageTmp);
+                                if (f.open(QIODevice::ReadOnly)) pageDocs.append(f.readAll());
+                                f.close();
+                            }
+                            QFile::remove(pageTmp);
+                            if (pageDocs.size() != p + 1) {
+                                techDetail = QStringLiteral(
+                                    "could not read the per-page MRC fragment for page %1").arg(p + 1);
+                                assemblyOk = false;
+                            }
+                        }
+                        if (assemblyOk)
+                            ok = gp::writeDocumentFromPages(pageDocs, result.outputPath);
+                        if (ok) {
+                            result.reviewNote = QStringLiteral(
+                                "%1 of %2 page(s) already contained text and were "
+                                "kept unchanged (skip-pages-with-text)")
+                                .arg(keptCount).arg(pdf.pageCount());
+                        }
                     } else {
                         ok = capturedCtx->pdfEditor->exportMrcPdfA(result.outputPath, images, pageResults);
                         if (!ok) techDetail = capturedCtx->pdfEditor->lastError().technicalDetails;
-                        // §9.12 P0: surface OcrPipeline's confidence data — flag
-                        // low-confidence words for review instead of reporting a
-                        // bare pass/fail with zero visibility.
-                        if (ok) {
-                            result.reviewNote = lowConfidenceNote(pageResults);
-                            // U08: report the intentionally unsupported batch
-                            // engine option alongside the confidence note —
-                            // never a silent divergence from the interactive
-                            // path.
-                            if (!capturedOcrReviewNote.isEmpty()) {
-                                result.reviewNote = result.reviewNote.isEmpty()
-                                    ? capturedOcrReviewNote
-                                    : capturedOcrReviewNote + QLatin1Char(' ')
-                                          + result.reviewNote;
-                            }
+                    }
+                    // §9.12 P0: surface OcrPipeline's confidence data — flag
+                    // low-confidence words for review instead of reporting a
+                    // bare pass/fail with zero visibility. The N3 kept-pages
+                    // note (skip-pages mode) is preserved and appended to.
+                    if (ok) {
+                        const QString confidenceNote = lowConfidenceNote(pageResults);
+                        QString extra = confidenceNote;
+                        // U08: report the intentionally unsupported batch
+                        // engine option alongside the confidence note —
+                        // never a silent divergence from the interactive
+                        // path.
+                        if (!capturedOcrReviewNote.isEmpty()) {
+                            extra = extra.isEmpty()
+                                ? capturedOcrReviewNote
+                                : capturedOcrReviewNote + QLatin1Char(' ') + extra;
+                        }
+                        if (!extra.isEmpty()) {
+                            result.reviewNote = result.reviewNote.isEmpty()
+                                ? extra
+                                : result.reviewNote + QLatin1Char(' ') + extra;
                         }
                     }
                 }
@@ -1465,10 +1603,21 @@ void BatchMode::accountResultAt(int idx) {
         return;                 // G12: a late queued callback cannot double count
     m_accountedIndices.insert(idx);
     BatchFileResult res = m_watcher.resultAt(idx);
-    int completed = m_successCount + m_failCount + 1;
+    int completed = m_successCount + m_failCount + m_skipCount + 1;
     int total = m_filesToProcess.size();
 
-    if (res.success) {
+    // N3: a deliberate skip (skip-already-text) is its own truthful bucket —
+    // never success ("not processed" would be wrong too: nothing failed).
+    if (res.skipped) {
+        ++m_skipCount;
+        appendLog(QStringLiteral("  \xE2\x8F\xAD %1 \xe2\x80\x94 skipped: %2")
+                      .arg(QFileInfo(res.inputPath).fileName(), res.skipReason), "#7a9c6f");
+        ErrorInfo info = ErrorInfo::error(
+            tr("Skipped: %1").arg(QFileInfo(res.inputPath).fileName()),
+            res.skipReason, ErrorInfo::Skip);
+        info.sourceFile = res.inputPath;
+        m_errorLog.append(std::move(info));
+    } else if (res.success) {
         ++m_successCount;
         appendFileResult(res.inputPath, true, res.outputPath);
         // §9.12 P0: a successful file can still need review (low-confidence
@@ -1685,7 +1834,9 @@ void BatchMode::appendFileResult(const QString& file, bool success, const QStrin
 }
 
 void BatchMode::showSummary() {
-    int total    = m_successCount + m_failCount;
+    // N3: skipped files are part of the honest total (they WERE looked at and
+    // deliberately left alone), reported in their own bucket.
+    int total    = m_successCount + m_failCount + m_skipCount;
     int warnings = m_errorLog.warningCount();
     // U08: remaining = files neither succeeded nor failed (mid-run this is the
     // in-flight tail; after a cancel these were NOT processed — say so).
@@ -1694,6 +1845,8 @@ void BatchMode::showSummary() {
     QString summary = tr("BATCH COMPLETE — %1 of %2 succeeded").arg(m_successCount).arg(total);
     if (m_failCount > 0)
         summary += tr(", %1 failed").arg(m_failCount);
+    if (m_skipCount > 0)
+        summary += tr(", %1 skipped (already contained text)").arg(m_skipCount);
     if (warnings > 0)
         summary += tr(", %1 warnings").arg(warnings);
     if (remaining > 0)
