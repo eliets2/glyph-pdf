@@ -6,12 +6,17 @@
 #include <QDebug>
 #include <QThread>
 #include <QFile>
+#include <QFileInfo>
 #include <QtConcurrent/QtConcurrent>
 #include <QFutureWatcher>
 #include <QPointer>
 
 #ifdef _WIN32
 #include <windows.h>
+#else
+#include <cstdio>     // ::rename
+#include <fcntl.h>    // ::open, O_RDONLY, O_DIRECTORY
+#include <unistd.h>   // ::fsync, ::close
 #endif
 
 static bool atomicRename(const QString &from, const QString &to)
@@ -21,10 +26,40 @@ static bool atomicRename(const QString &from, const QString &to)
     std::wstring toW = to.toStdWString();
     return MoveFileExW(fromW.c_str(), toW.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
 #else
-    if (QFile::exists(to)) {
-        QFile::remove(to);
+    // L08 (NATIVE-LINUX-READINESS-2026-09-10): the previous POSIX branch was
+    // QFile::remove(to) followed by QFile::rename(from, to) — a non-atomic
+    // delete-then-rename. If the process died (or the rename failed) between
+    // the two calls, the ONLY recovery artifact was already gone. POSIX
+    // rename(2) atomically REPLACES the destination: at every instant the
+    // final path resolves to complete old-or-new bytes, never missing or
+    // partial.
+    //
+    // Same-filesystem semantics: from/to live in the same directory by
+    // construction (capturedFile + ".autosave.pdf.tmp" -> capturedFile +
+    // ".autosave.pdf"), so the rename never crosses a mount point.
+    //
+    // Durability: fsync the containing directory after the rename so the
+    // replacement itself survives sudden power loss (the analogue of
+    // MOVEFILE_WRITE_THROUGH on the Windows branch). An fsync failure is
+    // logged but does not undo the (already atomic) rename.
+    const QByteArray fromName = QFile::encodeName(from);
+    const QByteArray toName = QFile::encodeName(to);
+    if (::rename(fromName.constData(), toName.constData()) != 0) {
+        return false;
     }
-    return QFile::rename(from, to);
+    const QByteArray dirName = QFile::encodeName(QFileInfo(to).absolutePath());
+    const int dirFd = ::open(dirName.constData(), O_RDONLY
+#if defined(O_DIRECTORY)
+                             | O_DIRECTORY
+#endif
+    );
+    if (dirFd >= 0) {
+        if (::fsync(dirFd) != 0) {
+            qWarning() << "AutosaveManager: directory fsync failed after atomic rename of" << to;
+        }
+        ::close(dirFd);
+    }
+    return true;
 #endif
 }
 
