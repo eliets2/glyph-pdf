@@ -17,12 +17,18 @@
 #include <QUndoStack>
 #include <QTableWidget>
 #include <QLabel>
+#include <QTimer>
+#include <QApplication>
 #include <podofo/podofo.h>
 
 #include "engines/HeadingOutlineDetector.h"
 #include "engines/PdfEditorEngine.h"
 #include "commands/SetOutlineCommand.h"
 #include "ui/AutoBookmarkDialog.h"
+#include "mocks/MockPdfEditorEngine.h"
+#include "GpMainWindow.h"
+#include "app/Bootstrapper.h"
+#include "shell/controllers/EditController.h"
 
 #ifdef DrawText
 #undef DrawText
@@ -269,6 +275,90 @@ private slots:
         // And redo re-applies the auto-bookmarks.
         stack.redo();
         QVERIFY(sameOutline(engine.getOutline(path), entries));
+    }
+
+    // ── packa-F3: one user action = ONE committed outline write ───────────
+    //
+    // Base defect (re-confirmed at tip 586d6e4): runAutoBookmarks committed
+    // the outline directly AND pushed SetOutlineCommand whose initial redo
+    // wrote the same outline again — two full path-based saves per run. The
+    // fix gives the producer single-writer ownership: the command's first
+    // redo only reloads. Driven through the REAL controller + window with a
+    // counting engine, so the write count is the committed artifact count.
+
+    void autoBookmarkFirstApplyWritesExactlyOnce() {
+        const QString path = createTwoPageDoc(
+            m_tmpDir, QStringLiteral("single_write.pdf"));
+        QVERIFY2(!path.isEmpty(), "fixture creation failed");
+
+        AppContext ctx = Bootstrapper::createContext();
+        auto mock = std::make_shared<MockPdfEditorEngine>();
+        mock->m_loaded = true;
+        mock->m_outline = {};   // snapshot the controller will read: empty
+        ctx.pdfEditor = mock;   // inject BEFORE the window copies the context
+        gp::MainWindow win(ctx);
+        win.show();
+        win.openDocument(path);
+        QTRY_COMPARE_WITH_TIMEOUT(win.pdfViewer()->pageCount(), 2, 20000);
+        auto* edit = win.findChild<gp::EditController*>();
+        QVERIFY2(edit, "the window must own the canonical EditController");
+
+        // Accept the preview dialog deterministically: queued pick inside
+        // the modal's nested loop (no sleeps). Rows default to checked.
+        QTimer::singleShot(0, [] {
+            if (auto* dlg = qobject_cast<AutoBookmarkDialog*>(
+                    QApplication::activeModalWidget())) {
+                QMetaObject::invokeMethod(dlg, "accept");
+            }
+        });
+        edit->runAutoBookmarks();
+
+        QVERIFY2(mock->m_lastOutline.size() >= 1,
+                 "the confirmed candidates must reach the engine");
+        QCOMPARE(mock->m_outlineWrites, 1);   // packa-F3: exactly ONE write
+
+        // Undo restores the previous (empty) outline — one more write.
+        ctx.undoStack->undo();
+        QCOMPARE(mock->m_outlineWrites, 2);
+        QCOMPARE(mock->m_lastOutline.size(), 0);
+
+        // Redo re-applies — third write, entries back.
+        ctx.undoStack->redo();
+        QCOMPARE(mock->m_outlineWrites, 3);
+        QVERIFY(mock->m_lastOutline.size() >= 1);
+    }
+
+    // packa-F3 failure path: a failed first write must leave NO history
+    // entry (no false "Create auto-bookmarks" undo step for a write that
+    // never landed) and exactly one attempted write.
+    void autoBookmarkFailedWriteCreatesNoHistoryEntry() {
+        const QString path = createTwoPageDoc(
+            m_tmpDir, QStringLiteral("failed_write.pdf"));
+        QVERIFY2(!path.isEmpty(), "fixture creation failed");
+
+        AppContext ctx = Bootstrapper::createContext();
+        auto mock = std::make_shared<MockPdfEditorEngine>();
+        mock->m_loaded = true;
+        mock->m_outlineFails = true;   // the committed write fails
+        ctx.pdfEditor = mock;
+        gp::MainWindow win(ctx);
+        win.show();
+        win.openDocument(path);
+        QTRY_COMPARE_WITH_TIMEOUT(win.pdfViewer()->pageCount(), 2, 20000);
+        auto* edit = win.findChild<gp::EditController*>();
+        QVERIFY(edit);
+        QCOMPARE(ctx.undoStack->count(), 0);
+
+        QTimer::singleShot(0, [] {
+            if (auto* dlg = qobject_cast<AutoBookmarkDialog*>(
+                    QApplication::activeModalWidget())) {
+                QMetaObject::invokeMethod(dlg, "accept");
+            }
+        });
+        edit->runAutoBookmarks();
+
+        QCOMPARE(mock->m_outlineWrites, 1);   // one attempted, refused write
+        QCOMPARE(ctx.undoStack->count(), 0);  // no false history entry
     }
 
     // ── the preview dialog over a real fixture ────────────────────────────

@@ -702,11 +702,15 @@ void EditController::runAutoBookmarks() {
 
     // Undoable (restores the previous outline) + viewer reload. The command
     // takes the IPdfEditorEngine interface (IOutlineEditor seam).
+    // packa-F3: the outline was JUST committed above — the command is pushed
+    // with alreadyApplied=true so its initial redo only reloads (single-
+    // writer ownership: one user action = one expensive path-based save).
     if (_ctx->undoStack && _ctx->document) {
         _ctx->document->setPath(path);
         _ctx->undoStack->push(new SetOutlineCommand(
             _ctx->pdfEditor.get(),
-            _ctx->document.get(), viewer, path, previous, entries));
+            _ctx->document.get(), viewer, path, previous, entries,
+            /*alreadyApplied=*/true));
     } else if (_ctx->document) {
         _ctx->document->markReload();
         viewer->reload();
