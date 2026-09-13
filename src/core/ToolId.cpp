@@ -130,6 +130,15 @@ QString toolIdToString(ToolId id) {
         { ToolId::PatternRedact,  QStringLiteral("patternRedact") },
         { ToolId::RegexRedact,    QStringLiteral("regexRedact") },
         { ToolId::ExpiryDate,     QStringLiteral("expiryDate") },
+        // T2-6: dynamic stamps + library
+        { ToolId::StampApproved,     QStringLiteral("stamp-approved") },
+        { ToolId::StampDraft,        QStringLiteral("stamp-draft") },
+        { ToolId::StampConfidential, QStringLiteral("stamp-confidential") },
+        { ToolId::StampReceived,     QStringLiteral("stamp-received") },
+        { ToolId::StampReviewed,     QStringLiteral("stamp-reviewed") },
+        { ToolId::StampLibraryManage, QStringLiteral("stamp-library") },
+        // T2-9: auto-bookmarks from text styles
+        { ToolId::AutoBookmarks,  QStringLiteral("auto-bookmarks") },
     };
     return map.value(id, QStringLiteral("unknown"));
 }
@@ -275,6 +284,16 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         add(ToolId::PatternRedact,  {"patternRedact", "patternredact"});
         add(ToolId::RegexRedact,    {"regexRedact", "regexredact"});
         add(ToolId::ExpiryDate,     {"expiryDate", "expirydate", "expiry-date", "setExpiry"});
+
+        // ── T2-6: dynamic stamps + library ──
+        add(ToolId::StampApproved,     {"stamp-approved", "stampapproved", "stampApproved"});
+        add(ToolId::StampDraft,        {"stamp-draft", "stampdraft", "stampDraft"});
+        add(ToolId::StampConfidential, {"stamp-confidential", "stampconfidential", "stampConfidential"});
+        add(ToolId::StampReceived,     {"stamp-received", "stampreceived", "stampReceived"});
+        add(ToolId::StampReviewed,     {"stamp-reviewed", "stampreviewed", "stampReviewed"});
+        add(ToolId::StampLibraryManage, {"stamp-library", "stamplibrary", "stampLibrary", "custom-stamp", "customstamp", "customStamp"});
+        // T2-9: auto-bookmarks from text styles
+        add(ToolId::AutoBookmarks, {"auto-bookmarks", "autobookmarks", "autoBookmarks", "bookmarks-from-text"});
 
         return m;
     }();

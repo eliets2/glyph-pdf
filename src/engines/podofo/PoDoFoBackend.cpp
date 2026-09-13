@@ -18,6 +18,7 @@
 #include <cmath>
 #include <sstream>
 #include <algorithm>
+#include <functional>
 #include <utility>
 #include <QMap>
 #include <set>
@@ -2455,6 +2456,71 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
     }
 }
 
+// ── T2-2: shared content-stream excision core ───────────────────────────────
+// Extracted from applyRedactions so the Find & Replace pipeline can run the
+// SAME proven glyph-excision surgery (inline-image/binary guard +
+// redactCanvasRecursively + tagged-PDF structure cleanup) WITHOUT the
+// redaction-specific tail (black cover fill + removal of annotations that
+// intersect the region — a replace must never delete annotations).
+// Returns false when the page's content stream is unparseable or binary
+// (the caller must abort the whole operation — no visual-only half edit).
+static bool exciseContentRegions(PoDoFo::PdfMemDocument* document,
+                                 PoDoFo::PdfPage& page,
+                                 const std::vector<PoDoFo::Rect>& pdfRects,
+                                 int pageIndexForLog,
+                                 std::set<int64_t>& redactedMcids) {
+    auto* contentsObj = page.GetContents();
+    if (!contentsObj) return false;
+
+    PoDoFo::charbuff streamBuf;
+    contentsObj->CopyTo(streamBuf);
+    std::string streamStr(streamBuf.data(), streamBuf.size());
+
+    bool hasInlineImage = (streamStr.find("\nID ") != std::string::npos
+                        || streamStr.find("\nID\n") != std::string::npos
+                        || streamStr.find(" ID ") != std::string::npos);
+    bool hasBinaryContent = false;
+    for (size_t i = 0; i < std::min(streamStr.size(), size_t(512)); ++i) {
+        unsigned char c = static_cast<unsigned char>(streamStr[i]);
+        if (c == 0 || (c < 9 && c != 0)) { hasBinaryContent = true; break; }
+    }
+
+    if (hasInlineImage || hasBinaryContent) {
+        qWarning() << "exciseContentRegions: stream contains inline images or binary data on page"
+                   << pageIndexForLog << "— aborting (no visual-only half edit).";
+        return false;
+    }
+
+    redactCanvasRecursively(page.GetObject(), pdfRects, page, document, redactedMcids);
+
+    // Tagged PDF structure tree sanitization (D3): drop structure content
+    // backed by excised marked-content ids.
+    if (!redactedMcids.empty()) {
+        auto& catalog = document->GetCatalog();
+        auto* structTreeRootObj = catalog.GetDictionary().FindKey("StructTreeRoot");
+        if (structTreeRootObj) {
+            if (structTreeRootObj->IsReference()) {
+                structTreeRootObj = &document->GetObjects().MustGetObject(structTreeRootObj->GetReference());
+            }
+            if (structTreeRootObj->IsDictionary()) {
+                auto& rootDict = structTreeRootObj->GetDictionary();
+                auto* kKey = rootDict.FindKey("K");
+                if (kKey) {
+                    PoDoFo::PdfReference pageRef = page.GetObject().GetReference();
+                    if (kKey->IsArray()) {
+                        for (auto& kid : kKey->GetArray()) {
+                            cleanStructElement(&kid, pageRef, redactedMcids, document);
+                        }
+                    } else {
+                        cleanStructElement(kKey, pageRef, redactedMcids, document);
+                    }
+                }
+            }
+        }
+    }
+    return true;
+}
+
 bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
     QMutexLocker locker(&d->mutex);
     if (!d->document || pageIndex < 0 || (unsigned)pageIndex >= d->document->GetPages().GetCount()) return false;
@@ -2482,59 +2548,17 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
         }
 
         std::set<int64_t> redactedMcids;
+        // Original semantics preserved: a page with NO /Contents object never
+        // ran content surgery here (black fill + annotation removal still
+        // apply); a page WITH contents must survive the surgery or the whole
+        // redaction aborts (no insecure visual-only overlay).
         auto* contentsObj = page.GetContents();
-        bool streamFilterApplied = false;
-        if (contentsObj) {
-            PoDoFo::charbuff streamBuf;
-            contentsObj->CopyTo(streamBuf);
-            std::string streamStr(streamBuf.data(), streamBuf.size());
-
-            bool hasInlineImage = (streamStr.find("\nID ") != std::string::npos
-                                || streamStr.find("\nID\n") != std::string::npos
-                                || streamStr.find(" ID ") != std::string::npos);
-            bool hasBinaryContent = false;
-            for (size_t i = 0; i < std::min(streamStr.size(), size_t(512)); ++i) {
-                unsigned char c = static_cast<unsigned char>(streamStr[i]);
-                if (c == 0 || (c < 9 && c != 0)) { hasBinaryContent = true; break; }
-            }
-
-            if (hasInlineImage || hasBinaryContent) {
-                qWarning() << "Redaction: stream contains inline images or binary data on page"
-                           << pageIndex << "— skipping content surgery, applying visual overlay only.";
-            } else {
-                redactCanvasRecursively(page.GetObject(), pdfRects, page, d->document.get(), redactedMcids);
-                streamFilterApplied = true;
-            }
-        }
-
-        if (!streamFilterApplied && contentsObj) {
+        if (contentsObj && !exciseContentRegions(d->document.get(), page, pdfRects,
+                                                 pageIndex, redactedMcids)) {
             qCritical() << "SECURITY: Redaction on page" << pageIndex
                         << "failed to apply content stream surgery due to unparseable or binary content."
                            " Aborting operation to prevent insecure visual-only overlay.";
             return false;
-        }
-
-        // D3: Tagged PDF structure tree sanitization
-        auto& catalog = d->document->GetCatalog();
-        auto* structTreeRootObj = catalog.GetDictionary().FindKey("StructTreeRoot");
-        if (structTreeRootObj && !redactedMcids.empty()) {
-            if (structTreeRootObj->IsReference()) {
-                structTreeRootObj = &d->document->GetObjects().MustGetObject(structTreeRootObj->GetReference());
-            }
-            if (structTreeRootObj->IsDictionary()) {
-                auto& rootDict = structTreeRootObj->GetDictionary();
-                auto* kKey = rootDict.FindKey("K");
-                if (kKey) {
-                    PoDoFo::PdfReference pageRef = page.GetObject().GetReference();
-                    if (kKey->IsArray()) {
-                        for (auto& kid : kKey->GetArray()) {
-                            cleanStructElement(&kid, pageRef, redactedMcids, d->document.get());
-                        }
-                    } else {
-                        cleanStructElement(kKey, pageRef, redactedMcids, d->document.get());
-                    }
-                }
-            }
         }
 
         PoDoFo::PdfPainter painter;
@@ -2664,6 +2688,110 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
         return false;
     } catch (...) {
         qCritical() << "SECURITY: Unknown exception during redaction on page" << pageIndex;
+        return false;
+    }
+}
+
+// ── T2-2: Find & Replace — excise + white-cover + redraw ────────────────────
+// The honest in-place replace: matched glyph operators are excised from the
+// content stream (exciseContentRegions — the same surgery the redaction path
+// uses, WITHOUT its annotation-removal tail: a replace must never delete
+// annotations), the region is covered WHITE (redaction covers black), and the
+// replacement text is drawn at the match origin in the match's font size with
+// a standard-14 Helvetica substitute. The MEASURED drawn width of every
+// replacement is reported back so the UI can surface "this replacement
+// changed the text width" (moat M8 — never silently reflow).
+bool PoDoFoBackend::replaceTextRegions(const QList<TextReplacementSpec>& specs,
+                                       QList<double>* drawnWidthsOut) {
+    QMutexLocker locker(&d->mutex);
+    if (!d->document) return false;
+    if (specs.isEmpty()) {
+        if (drawnWidthsOut) drawnWidthsOut->clear();
+        return true;
+    }
+
+    try {
+        const size_t pageCount = d->document->GetPages().GetCount();
+        for (const auto& spec : specs) {
+            if (spec.pageIndex < 0 || static_cast<size_t>(spec.pageIndex) >= pageCount) return false;
+        }
+
+        // Group by page (specs arrive page-grouped from the planner anyway),
+        // preserving the caller's order inside each page.
+        QMap<int, QList<const TextReplacementSpec*>> perPage;
+        for (const auto& spec : specs)
+            perPage[spec.pageIndex].append(&spec);
+
+        if (drawnWidthsOut) drawnWidthsOut->clear();
+
+        const PoDoFo::PdfFont& font = d->document->GetFonts().GetStandard14Font(
+            PoDoFo::PdfStandard14FontType::Helvetica);
+
+        for (auto it = perPage.constBegin(); it != perPage.constEnd(); ++it) {
+            PoDoFo::PdfPage& page = d->document->GetPages().GetPageAt(it.key());
+            const double pageHeight = page.GetMediaBox().Height;
+
+            std::vector<PoDoFo::Rect> pdfRects;
+            pdfRects.reserve(it.value().size());
+            for (const auto* spec : it.value()) {
+                const QRectF& r = spec->rect;
+                pdfRects.push_back(PoDoFo::Rect(r.x(), pageHeight - r.y() - r.height(),
+                                                r.width(), r.height()));
+            }
+
+            std::set<int64_t> mcids;
+            if (!exciseContentRegions(d->document.get(), page, pdfRects, it.key(), mcids)) {
+                qCritical() << "SECURITY: Replace on page" << it.key()
+                            << "could not excise matched content — aborting (nothing saved).";
+                return false;
+            }
+
+            PoDoFo::PdfPainter painter;
+            painter.SetCanvas(page);
+
+            // White cover over the excised regions, then the replacement text.
+            painter.GraphicsState.SetNonStrokingColor(PoDoFo::PdfColor(1.0, 1.0, 1.0));
+            for (const auto& r : pdfRects) {
+                painter.DrawRectangle(r.X, r.Y, r.Width, r.Height, PoDoFo::PdfPathDrawMode::Fill);
+            }
+
+            for (const auto* spec : it.value()) {
+                const double fontSize = spec->fontSize > 0.0 ? spec->fontSize : 12.0;
+                const QRectF& r = spec->rect;
+                // Baseline: the match rect's top edge minus an ascent
+                // approximation, so the drawn line sits where the excised
+                // glyphs sat (PDFium boxes span ascender..descender ink).
+                const double pdfTop = pageHeight - r.y();
+                double baseline = pdfTop - fontSize * 0.8;
+                painter.GraphicsState.SetNonStrokingColor(PoDoFo::PdfColor(0.0, 0.0, 0.0));
+                painter.TextState.SetFont(font, fontSize);
+                const QStringList lines = spec->text.split(QLatin1Char('\n'));
+                for (const QString& line : lines) {
+                    painter.DrawText(line.toUtf8().constData(), r.x(), baseline);
+                    baseline -= fontSize * 1.2;
+                }
+                if (drawnWidthsOut) {
+                    PoDoFo::PdfTextState ts;
+                    ts.Font = &font;
+                    ts.FontSize = fontSize;
+                    // Measured width of the FIRST drawn line — the metric the
+                    // UI compares against the match width.
+                    drawnWidthsOut->append(
+                        font.GetStringLength(lines.first().toUtf8().constData(), ts));
+                }
+            }
+            painter.FinishDrawing();
+        }
+        return true;
+    } catch (const PoDoFo::PdfError& e) {
+        qCritical() << "SECURITY: Replace failed -" << e.what()
+                    << "— document state may be inconsistent, do NOT save.";
+        return false;
+    } catch (const std::exception& e) {
+        qCritical() << "SECURITY: General exception during replace -" << e.what();
+        return false;
+    } catch (...) {
+        qCritical() << "SECURITY: Unknown exception during replace";
         return false;
     }
 }
@@ -4285,6 +4413,127 @@ bool PoDoFoBackend::embedAnnotations(const QString &inputPath, const QString &ou
 }
 
 // ── M6-PROMPT-4 D4: load annotations back from a PDF ────────────────────────
+// ── T2-9: outline (bookmark) read/write ─────────────────────────────────────
+
+namespace {
+
+// Depth-first walk of the outline tree into OutlineEntry values. Titles are
+// read from a THROWAWAY document (getOutline loads its own copy), so the
+// E-1 COW rule is respected — this document is never re-serialized.
+void collectOutlineItems(PoDoFo::PdfOutlineItem* first, QList<OutlineEntry>& out,
+                         PoDoFo::PdfMemDocument& doc) {
+    for (PoDoFo::PdfOutlineItem* it = first; it; it = it->Next()) {
+        OutlineEntry e;
+        e.title = QString::fromUtf8(it->GetTitle().GetString());
+        e.targetPage = -1;
+        try {
+            auto dest = it->GetDestination();
+            if (dest.has_value()) {   // nullable: explicit has_value (no bool conv.)
+                if (PoDoFo::PdfPage* page = dest->GetPage()) {
+                    auto& pages = doc.GetPages();
+                    for (unsigned i = 0; i < pages.GetCount(); ++i) {
+                        if (&pages.GetPageAt(i) == page) {
+                            e.targetPage = static_cast<int>(i);
+                            break;
+                        }
+                    }
+                }
+            }
+        } catch (...) {
+            e.targetPage = -1;   // unresolvable destination: keep the entry, drop the target
+        }
+        if (it->First())
+            collectOutlineItems(it->First(), e.children, doc);
+        out.append(e);
+    }
+}
+
+} // namespace
+
+QList<OutlineEntry> PoDoFoBackend::getOutline(const QString& path) {
+    QMutexLocker locker(&d->mutex);
+    QList<OutlineEntry> out;
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(path.toUtf8().constData());
+        if (PoDoFo::PdfOutlines* outlines = doc.GetOutlines()) {
+            if (outlines->First())
+                collectOutlineItems(outlines->First(), out, doc);
+        }
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "PoDoFoBackend::getOutline failed:" << e.what() << "path:" << path;
+        return {};
+    } catch (...) {
+        return {};
+    }
+    return out;
+}
+
+bool PoDoFoBackend::replaceOutline(const QString& path, const QList<OutlineEntry>& entries) {
+    QMutexLocker locker(&d->mutex);
+    try {
+        auto& doc = d->resolveDocument(path);
+        const int pageCount = static_cast<int>(doc.GetPages().GetCount());
+
+        // Validate BEFORE touching the tree (fail = nothing changed).
+        std::function<bool(const QList<OutlineEntry>&, int)> valid =
+            [&](const QList<OutlineEntry>& es, int depth) -> bool {
+            if (depth > 5) return false;   // sane nesting bound
+            for (const auto& e : es) {
+                if (e.title.trimmed().isEmpty()) return false;
+                if (e.targetPage < 0 || e.targetPage >= pageCount) return false;
+                if (!valid(e.children, depth + 1)) return false;
+            }
+            return true;
+        };
+        if (!valid(entries, 0)) return false;
+
+        // Erase the existing tree (if any) — replace means replace.
+        if (PoDoFo::PdfOutlines* existing = doc.GetOutlines()) {
+            while (PoDoFo::PdfOutlineItem* f = existing->First())
+                f->Erase();
+        }
+
+        std::function<void(const QList<OutlineEntry>&, PoDoFo::PdfOutlineItem*)> build =
+            [&](const QList<OutlineEntry>& es, PoDoFo::PdfOutlineItem* parentItem) {
+            PoDoFo::PdfOutlineItem* cur = nullptr;
+            for (const auto& e : es) {
+                PoDoFo::PdfOutlineItem* item = nullptr;
+                const PoDoFo::PdfString title(e.title.toUtf8().constData());
+                if (!cur)
+                    item = parentItem ? &parentItem->CreateChild(title)
+                                      : &doc.GetOrCreateOutlines().CreateRoot(title);
+                else
+                    item = &cur->CreateNext(title);
+
+                auto dest = doc.CreateDestination();
+                dest->SetDestination(doc.GetPages().GetPageAt(
+                    static_cast<unsigned>(e.targetPage)), PoDoFo::PdfDestinationFit::Fit);
+                item->SetDestination(*dest);
+
+                cur = item;
+                if (!e.children.isEmpty())
+                    build(e.children, item);
+            }
+        };
+        if (!entries.isEmpty())
+            build(entries, nullptr);
+
+        // Path-based mutator contract: ONE committed write after mutation.
+        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+        return true;
+    } catch (const PoDoFo::PdfError& e) {
+        qCritical() << "PoDoFoBackend::replaceOutline failed:" << e.what()
+                    << "— document state may be inconsistent, do NOT save.";
+        return false;
+    } catch (const std::exception& e) {
+        qCritical() << "PoDoFoBackend::replaceOutline failed:" << e.what();
+        return false;
+    } catch (...) {
+        return false;
+    }
+}
+
 QList<AnnotationItem> PoDoFoBackend::extractAnnotations(const QString &inputPath)
 {
     QList<AnnotationItem> result;

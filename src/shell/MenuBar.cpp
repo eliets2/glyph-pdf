@@ -78,6 +78,7 @@ const QList<MenuActionSpec>& MenuBar::actionSpecs() {
         { "resize",          MenuDispatch::Registry },
         { "page-numbers",    MenuDispatch::Registry },
         { "headers-footers", MenuDispatch::Registry },  // alias → AddHeader
+        { "auto-bookmarks",  MenuDispatch::Registry },  // T2-9
 
         // ── Tools ──
         { "ocr",          MenuDispatch::Local    },
@@ -96,7 +97,14 @@ const QList<MenuActionSpec>& MenuBar::actionSpecs() {
         { "note",            MenuDispatch::Registry },
         { "textbox",         MenuDispatch::Registry },
         { "callout",         MenuDispatch::Registry },
-        { "custom-stamp",    MenuDispatch::Disabled },  // ribbon: "customStamp"
+        // T2-6: dynamic stamps + library (previously unconnected no-ops)
+        { "stamp-approved",     MenuDispatch::Registry },
+        { "stamp-draft",        MenuDispatch::Registry },
+        { "stamp-confidential", MenuDispatch::Registry },
+        { "stamp-received",     MenuDispatch::Registry },
+        { "stamp-reviewed",     MenuDispatch::Registry },
+        { "stamp-library",      MenuDispatch::Registry },
+        { "custom-stamp",    MenuDispatch::Registry },  // alias → stampLibrary (T2-6)
         { "pencil",          MenuDispatch::Registry },
         { "line",            MenuDispatch::Registry },
         { "arrow",           MenuDispatch::Registry },
@@ -187,9 +195,14 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
 
         connect(action, &QAction::triggered, mainWindow, [mainWindow, toolId, action]() {
             if (toolId == "find" || toolId == "find-replace") {
-                // The FindBar contains both search and replace controls, so
-                // "Find & Replace" opens the same bar as "Find".
-                mainWindow->toggleFindBar();
+                // T2-2: "Find & Replace" opens the DEDICATED replace dialog
+                // (live match count, scope, measured reflow warnings); the
+                // plain "Find" opens the quick FindBar. Both mutate through
+                // the same EditController pipeline.
+                if (toolId == "find-replace")
+                    mainWindow->showFindReplaceDialog();
+                else
+                    mainWindow->toggleFindBar();
             } else if (toolId == "exit") {
                 qApp->quit();
             } else if (toolId == "close") {
@@ -331,6 +344,8 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
     docMenu->addSeparator();
     addActionToMenu(docMenu, tr("Page &Numbers…"), "page-numbers");
     addActionToMenu(docMenu, tr("&Headers & Footers…"), "headers-footers");
+    // T2-9: auto-bookmarks from text styles (heading heuristics + TOC pages)
+    addActionToMenu(docMenu, tr("Auto-&Bookmarks…"), "auto-bookmarks");
 
     // ==========================================
     // 5. TOOLS MENU
@@ -361,9 +376,20 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
     commentsMenu->addSeparator();
 
     auto* stampsMenu = commentsMenu->addMenu(tr("&Stamps"));
-    stampsMenu->addAction(tr("Approved"));
-    stampsMenu->addAction(tr("Draft"));
-    stampsMenu->addAction(tr("Confidential"));
+    // T2-6: the three previously UNCONNECTED stamp actions (Approved/Draft/
+    // Confidential were plain menu no-ops — matrix row "customStamp") are
+    // now canonical registry commands of the real dynamic-stamp flow
+    // (placeholders resolved at apply time; the placed annotation carries the
+    // concrete text). Received/Reviewed complete the five built-ins the
+    // research row names; "Custom Stamp…" opens the library that manages the
+    // persisted custom stamps.
+    addActionToMenu(stampsMenu, tr("&Approved"), "stamp-approved");
+    addActionToMenu(stampsMenu, tr("&Draft"), "stamp-draft");
+    addActionToMenu(stampsMenu, tr("&Confidential"), "stamp-confidential");
+    addActionToMenu(stampsMenu, tr("Re&ceived"), "stamp-received");
+    addActionToMenu(stampsMenu, tr("Re&viewed"), "stamp-reviewed");
+    stampsMenu->addSeparator();
+    addActionToMenu(stampsMenu, tr("Stamp &Library…"), "stamp-library");
     stampsMenu->addSeparator();
     addActionToMenu(stampsMenu, tr("Custom &Stamp…"), "custom-stamp");
 

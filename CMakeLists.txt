@@ -396,6 +396,10 @@ add_library(pdfws_engines STATIC
     src/engines/AutosaveManager.h    src/engines/AutosaveManager.cpp
     src/engines/BackendRouter.h      src/engines/BackendRouter.cpp
     src/engines/PatternRedactor.h       src/engines/PatternRedactor.cpp
+    src/engines/TextMatchFinder.h       src/engines/TextMatchFinder.cpp
+    src/engines/ReviewSummaryWriter.h   src/engines/ReviewSummaryWriter.cpp
+    src/engines/HeadingOutlineDetector.h src/engines/HeadingOutlineDetector.cpp
+    src/core/StampLibrary.h             src/core/StampLibrary.cpp
     src/engines/podofo/PdfStringEscape.h src/engines/podofo/PdfStringEscape.cpp
     src/engines/podofo/GlyphAdvanceCalculator.h src/engines/podofo/GlyphAdvanceCalculator.cpp
     src/engines/podofo/PoDoFoBackend.h src/engines/podofo/PoDoFoBackend.cpp
@@ -817,6 +821,9 @@ add_library(pdfws_ui STATIC
 
     src/ui/WelcomeWidget.h           src/ui/WelcomeWidget.cpp
     src/ui/FindBar.h                 src/ui/FindBar.cpp
+    src/ui/FindReplaceDialog.h       src/ui/FindReplaceDialog.cpp
+    src/ui/StampLibraryDialog.h      src/ui/StampLibraryDialog.cpp
+    src/ui/AutoBookmarkDialog.h      src/ui/AutoBookmarkDialog.cpp
     src/ui/ResizeDialog.h            src/ui/ResizeDialog.cpp
     src/ui/HeaderFooterDialog.h      src/ui/HeaderFooterDialog.cpp
     src/ui/BatesNumberingDialog.h    src/ui/BatesNumberingDialog.cpp
@@ -2847,6 +2854,128 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPatternRedact.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 60
         LABELS "unit;security;redaction;patterns;qt;headless"
+    )
+endif()
+
+# T2-2 Find & Replace: flag-aware matcher (exact/case/whole-words/regex) over
+# the PDFium text layer, the ITextReplacer excise+redraw engine seam verified
+# in a saved+reopened artifact, measured width warnings, and the modeless
+# FindReplaceDialog (match count before replace, page scoping, injected
+# invoker — no MainWindow, no modals).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFindReplace.cpp")
+    add_executable(TestFindReplace
+        tests/TestFindReplace.cpp
+    )
+    target_include_directories(TestFindReplace PRIVATE src tests)
+    target_link_libraries(TestFindReplace PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestFindReplace POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestFindReplace>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestFindReplace>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestFindReplace"
+    )
+    add_test(NAME TestFindReplace COMMAND TestFindReplace)
+    set_tests_properties(TestFindReplace PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;edit;find-replace;t2-2;qt;headless"
+    )
+endif()
+
+# T2-3 review-summary document: grouped printable summary artifact (page →
+# author → date, statuses, timestamps, totals header) verified as a real
+# saved+reopened PDF, plus the displayed-scope export contract on
+# CommentsWidget (filter respected, empty scope refused).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestReviewSummary.cpp")
+    add_executable(TestReviewSummary
+        tests/TestReviewSummary.cpp
+    )
+    target_include_directories(TestReviewSummary PRIVATE src tests)
+    target_link_libraries(TestReviewSummary PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestReviewSummary POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestReviewSummary>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestReviewSummary>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestReviewSummary"
+    )
+    add_test(NAME TestReviewSummary COMMAND TestReviewSummary)
+    set_tests_properties(TestReviewSummary PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;comments;review-summary;t2-3;qt;headless"
+    )
+endif()
+
+# T2-6 dynamic stamps: apply-time placeholder substitution, custom-stamp
+# persistence (file written + reloaded, built-in ids protected), the SAVED
+# annotation text carrying the resolved values (real embed/extract roundtrip),
+# the placement gesture consuming the pending resolution, and the library
+# dialog + registry wiring of the previously silent Stamps menu items.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestDynamicStamps.cpp")
+    add_executable(TestDynamicStamps
+        tests/TestDynamicStamps.cpp
+    )
+    target_include_directories(TestDynamicStamps PRIVATE src tests)
+    target_link_libraries(TestDynamicStamps PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestDynamicStamps POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestDynamicStamps>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestDynamicStamps>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestDynamicStamps"
+    )
+    add_test(NAME TestDynamicStamps COMMAND TestDynamicStamps)
+    set_tests_properties(TestDynamicStamps PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;comments;stamps;t2-6;qt;headless"
+    )
+endif()
+
+# T2-9 auto-bookmarks: heading/TOC heuristics (disclosed basis), the
+# IOutlineEditor committed outline write verified in a saved+reopened
+# artifact, the preview dialog (editable titles, uncheckable rows), and the
+# undoable SetOutlineCommand (undo restores the previous outline from disk).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAutoBookmarks.cpp")
+    add_executable(TestAutoBookmarks
+        tests/TestAutoBookmarks.cpp
+    )
+    target_include_directories(TestAutoBookmarks PRIVATE src tests)
+    target_link_libraries(TestAutoBookmarks PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestAutoBookmarks POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestAutoBookmarks>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
+            "$<TARGET_FILE_DIR:TestAutoBookmarks>/platforms/qoffscreen.dll"
+        COMMENT "Deploying qoffscreen platform plugin for TestAutoBookmarks"
+    )
+    add_test(NAME TestAutoBookmarks COMMAND TestAutoBookmarks)
+    set_tests_properties(TestAutoBookmarks PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;edit;auto-bookmarks;t2-9;qt;headless"
     )
 endif()
 

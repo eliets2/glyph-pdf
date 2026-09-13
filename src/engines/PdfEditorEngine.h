@@ -106,12 +106,19 @@ public:
     bool deleteImage(int pageIndex, const QString &xobjectName) override;
     bool applyRedactions(int pageIndex, const QList<QRectF> &rects) override;
     bool applyMarkRedactions(const QList<AnnotationItem>& marks) override;
+    // T2-2 (ITextReplacer): Find & Replace engine seam — see ITextReplacer.
+    bool replaceTextRegions(const QList<TextReplacementSpec>& specs,
+                            QList<double>* drawnWidthsOut = nullptr) override;
     bool applyPatternRedactions(const QRegularExpression& pattern,
                                 const QList<int>& pages = QList<int>(), const QString& outputPath = QString()) override;
     bool applyPatternRedactionsMulti(const QStringList& patterns,
                                      const QList<int>& pages = QList<int>(),
                                      const QString& outputPath = QString()) override;
     bool embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations) override;
+
+    // T2-9 (IOutlineEditor): outline read/write — see IOutlineEditor.
+    QList<OutlineEntry> getOutline(const QString& path) override;
+    bool replaceOutline(const QString& path, const QList<OutlineEntry>& entries) override;
 
     // Watermarking (Session 13)
     bool addTextWatermark(const TextWatermarkOptions &options) override;

@@ -24,6 +24,9 @@
 #include <QtTest/QtTest>
 #include <QApplication>
 #include <QTemporaryDir>
+#include <QLineEdit>
+#include <QPlainTextEdit>
+#include <QPushButton>
 #include <QFileInfo>
 #include <QTimer>
 #include <QPdfWriter>
@@ -37,6 +40,7 @@
 #include "core/PdfEnums.h"
 #include "engines/DocumentSession.h"
 #include "engines/PdfEditorEngine.h"
+#include "engines/pdfium/PdfiumBackend.h"
 #include "ui/PdfViewerWidget.h"
 
 using gp::MainWindow;
@@ -268,6 +272,72 @@ private slots:
         m_win->openDocument(b);
         QVERIFY2(!m_win->pdfViewer()->isReadOnly(),
                  "ARC07: a fresh non-expired open must not stay read-only");
+    }
+
+    // ── WP-R07 (WHOLE-PRODUCT-AND-PLAN-REVIEW-2026-09-10): T2-2 replace ──
+    // Find & Replace's Replace All is a MUTATION like any other: in read-only
+    // it must refuse with the shared wording, report NO success count
+    // (counts are committed-outcomes-only), and the artifact on disk must
+    // keep its original extractable text (never a paint-over pretending to
+    // have replaced). Every T2-2 surface symbol is resolved at RUNTIME (slot
+    // invoke + objectName lookups) so this suite still COMPILES against a
+    // pre-T2-2 baseline — where the invoke fails and this regression fails
+    // exactly at the missing surface/enforcement.
+    void readOnlyBlocksReplaceAllAndReportsNoSuccessCount()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString a = dir.filePath("a.pdf");
+        makeMultiPagePdf(a, { "P1", "P2" });
+        auto *viewer = m_win->pdfViewer();
+
+        // The expired fixture's XMP round-trip is intermittently unreliable
+        // (setExpiryDate succeeds but the date does not read back — the
+        // engine-writer nuance this suite already documents for the engine
+        // lane). Retry the FIXTURE creation; the read-only assertions below
+        // stay strict and unconditioned.
+        QString expired;
+        for (int attempt = 0; attempt < 2 && expired.isEmpty(); ++attempt) {
+            const QString candidate = dir.filePath(QStringLiteral("expired%1.pdf").arg(attempt));
+            makeExpiredCopy(a, candidate);
+            if (PdfEditorEngine::readExpiryDate(candidate).isValid())
+                expired = candidate;
+        }
+        QVERIFY2(!expired.isEmpty(),
+                 "an expired fixture copy must be producible (engine-lane XMP writer flake)");
+        scheduleModalDismiss();
+        m_win->openDocument(expired);
+        QVERIFY(viewer->isReadOnly());
+        QCOMPARE(viewer->pageCount(), 2);
+
+        // The production entry (Edit > Find & Replace, Ctrl+H).
+        QVERIFY2(QMetaObject::invokeMethod(m_win.get(), "showFindReplaceDialog"),
+                 "MainWindow::showFindReplaceDialog() must exist (T2-2 surface)");
+
+        auto *search = m_win->findChild<QLineEdit*>(QStringLiteral("frSearch"));
+        auto *replace = m_win->findChild<QLineEdit*>(QStringLiteral("frReplace"));
+        auto *replaceAll = m_win->findChild<QPushButton*>(QStringLiteral("frReplaceAll"));
+        auto *details = m_win->findChild<QPlainTextEdit*>(QStringLiteral("frDetails"));
+        QVERIFY2(search && replace && replaceAll && details,
+                 "the Find & Replace surface must expose its fields");
+
+        search->setText(QStringLiteral("P1"));
+        replace->setText(QStringLiteral("XX"));
+        replaceAll->click();
+
+        const QString outcome = details->toPlainText();
+        QVERIFY2(outcome.contains(QStringLiteral("read-only")),
+                 qPrintable(QStringLiteral("WP-R07: Replace All must refuse read-only "
+                                           "with the shared wording; got: ") + outcome));
+        QVERIFY2(!outcome.contains(QStringLiteral("Replaced")),
+                 "WP-R07: a refused replace must never report a success count");
+
+        // Disk truth: the marker text is still extractable — no write of any
+        // kind happened, and certainly no white-box paint-over.
+        PdfiumBackend reader;
+        QVERIFY(reader.loadDocument(expired));
+        QVERIFY2(reader.extractText(0).contains(QStringLiteral("P1")),
+                 "WP-R07: read-only Replace All must leave the original text extractable");
     }
 };
 

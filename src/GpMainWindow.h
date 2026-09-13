@@ -6,6 +6,7 @@
 
 class PdfViewerWidget;
 class FindBar;
+class FindReplaceDialog;
 class QFrame;
 class WelcomeWidget;
 class QStackedWidget;
@@ -106,6 +107,12 @@ public slots:
     void onScreenSelected(const QString& id);
     void toggleTheme();
     void onToolActivated(const QString& id);
+    // T2-2: the full Find & Replace surface (Edit > Find & Replace, Ctrl+H).
+    // Modeless; lazily created, reused while the window lives. A slot so the
+    // regression suites can invoke the production entry by name (the
+    // revert-verification suites stay compile-compatible with pre-T2-2
+    // baselines, where the slot does not exist and the invoke fails).
+    void showFindReplaceDialog();
 
 private slots:
     void onTabChanged(const QString& tab);
@@ -135,6 +142,7 @@ private:
     Ribbon*         _ribbon      = nullptr;
     ModeStrip*      _modeStrip   = nullptr;
     FindBar*        _findBar     = nullptr;
+    FindReplaceDialog* _findReplaceDialog = nullptr;   // T2-2 (lazy)
     ScreenNav*      _screenNav   = nullptr;
     StatusBar*      _status      = nullptr;
     TaskStateSync*  _taskSync    = nullptr;   // U02: the single visible-state writer

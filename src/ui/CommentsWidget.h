@@ -57,6 +57,12 @@ public:
     QString displayedCsv() const;
     bool exportDisplayedCsv(const QString &filePath) const;
 
+    // T2-3: review-summary DOCUMENT (grouped by page → author → date, with
+    // status labels, timestamps, full text and a per-status totals header) of
+    // the DISPLAYED scope — the same scope contract as exportDisplayedCsv.
+    // Written by engines/ReviewSummaryWriter (a standalone printable PDF).
+    bool exportReviewSummaryPdf(const QString &filePath) const;
+
 public slots:
     void reloadAnnotations();
 

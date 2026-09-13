@@ -32,6 +32,9 @@
 #include <QHeaderView>
 #include <QFileDialog>
 #include <QFile>
+#include <QFileInfo>
+#include <QMessageBox>
+#include "engines/ReviewSummaryWriter.h"
 #include <functional>
 #include <QToolButton>
 #include <QTextCursor>
@@ -197,6 +200,15 @@ CommentsWidget::CommentsWidget(QWidget *parent)
     exportBtn->setObjectName(QStringLiteral("commentsExportCsv"));
     exportBtn->setToolTip(tr("Export the displayed comments to a CSV file"));
     summaryLayout->addWidget(exportBtn);
+
+    // T2-3: the review-summary DOCUMENT (the loop-closer Acrobat/PDF-XChange/
+    // Bluebeam all ship): a printable PDF of the displayed scope, grouped by
+    // page with statuses, timestamps and full comment text.
+    auto *summaryBtn = new QToolButton(this);
+    summaryBtn->setText(tr("Summary PDF\u2026"));
+    summaryBtn->setObjectName(QStringLiteral("commentsExportSummary"));
+    summaryBtn->setToolTip(tr("Export the displayed comments as a review-summary PDF document"));
+    summaryLayout->addWidget(summaryBtn);
     layout->addLayout(summaryLayout);
 
     m_tree = new QTreeWidget(this);
@@ -359,7 +371,25 @@ CommentsWidget::CommentsWidget(QWidget *parent)
         if (path.isEmpty()) return;
         exportDisplayedCsv(path);
     });
-    // Table activation reuses the SAME navigation plumbing as the list:
+    // T2-3: review-summary document export over the DISPLAYED scope.
+    connect(summaryBtn, &QToolButton::clicked, this, [this]() {
+        if (m_lastFiltered.isEmpty()) return;
+        QString suggested = QStringLiteral("review-summary.pdf");
+        if (!m_filePath.isEmpty())
+            suggested = QFileInfo(m_filePath).completeBaseName()
+                        + QStringLiteral("-review-summary.pdf");
+        const QString path = QFileDialog::getSaveFileName(
+            this, tr("Export Review Summary PDF"), suggested,
+            tr("PDF files (*.pdf);;All files (*)"));
+        if (path.isEmpty()) return;
+        if (exportReviewSummaryPdf(path))
+            QMessageBox::information(this, tr("Review Summary"),
+                                     tr("Review summary saved:\n%1").arg(path));
+        else
+            QMessageBox::warning(this, tr("Review Summary"),
+                                 tr("Could not write the review-summary PDF."));
+    });
+    // U07: table activation reuses the SAME navigation plumbing as the list:
     // commentDoubleClicked(pageIndex) → Sidebar → viewer->goToPage().
     connect(m_table, &QTableWidget::cellDoubleClicked, this, [this](int row, int column) {
         Q_UNUSED(column)
@@ -368,6 +398,33 @@ CommentsWidget::CommentsWidget(QWidget *parent)
         const int page = m_table->item(row, 0)->data(Qt::UserRole + 1).toInt(&ok);
         if (ok && page >= 0)
             emit commentDoubleClicked(page);
+    });
+
+    // T2-3: review states are settable from the TABLE presentation too — the
+    // same five states, routed through the SAME applyReviewState undoable
+    // path the tree context menu uses. One state model, two views.
+    m_table->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_table, &QTableWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
+        const int row = m_table->rowAt(pos.y());
+        if (row < 0 || !m_table->item(row, 0)) return;
+        const QString annoId = m_table->item(row, 0)->data(Qt::UserRole).toString();
+        if (annoId.isEmpty()) return;
+
+        QMenu menu(this);
+        menu.setStyleSheet(QString());
+        auto *actOpen      = menu.addAction(tr("Mark Open"));
+        auto *actAccepted  = menu.addAction(tr("Mark Accepted"));
+        auto *actRejected  = menu.addAction(tr("Mark Rejected"));
+        auto *actCompleted = menu.addAction(tr("Mark Completed"));
+        auto *actCancelled = menu.addAction(tr("Mark Cancelled"));
+
+        connect(actOpen,      &QAction::triggered, this, [=]{ applyReviewState(annoId, ReviewState::Open); });
+        connect(actAccepted,  &QAction::triggered, this, [=]{ applyReviewState(annoId, ReviewState::Accepted); });
+        connect(actRejected,  &QAction::triggered, this, [=]{ applyReviewState(annoId, ReviewState::Rejected); });
+        connect(actCompleted, &QAction::triggered, this, [=]{ applyReviewState(annoId, ReviewState::Completed); });
+        connect(actCancelled, &QAction::triggered, this, [=]{ applyReviewState(annoId, ReviewState::Cancelled); });
+
+        menu.exec(m_table->viewport()->mapToGlobal(pos));
     });
 
     m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -797,6 +854,17 @@ bool CommentsWidget::exportDisplayedCsv(const QString &filePath) const
     }
     file.close();
     return true;
+}
+
+// T2-3: the review-summary DOCUMENT over the displayed scope — the same
+// scope the CSV export covers, as a standalone printable PDF written by
+// engines/ReviewSummaryWriter (grouped by page → author → date, status
+// labels, timestamps, full text, per-status totals header).
+bool CommentsWidget::exportReviewSummaryPdf(const QString &filePath) const
+{
+    if (m_lastFiltered.isEmpty()) return false;   // same guard as the button
+    QString error;
+    return ReviewSummaryWriter::write(filePath, m_filePath, m_lastFiltered, &error);
 }
 
 void CommentsWidget::addComment()

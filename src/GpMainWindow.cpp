@@ -35,6 +35,7 @@
 #include "shell/ToolRegistry.h"
 #include "shell/EditPolicy.h"
 #include "ui/FindBar.h"
+#include "ui/FindReplaceDialog.h"
 #include "engines/DocumentSession.h"
 #include "engines/PdfEditorEngine.h"
 #include <QUndoStack>   // ARC01: history is scoped to one document at the open boundary
@@ -866,6 +867,27 @@ void MainWindow::toggleFindBar() {
             _findBar->setFocus();
         }
     }
+}
+
+// T2-2: the full Find & Replace dialog. The document facts (path, page count,
+// current page) are pushed in on every open, and the replace mutation goes
+// through EditController::replaceAllInDocument — the SAME canonical pipeline
+// the FindBar's Replace All uses; there is no second replace implementation.
+void MainWindow::showFindReplaceDialog() {
+    if (!_findReplaceDialog) {
+        _findReplaceDialog = new FindReplaceDialog(this);
+    }
+    auto* viewer = pdfViewer();
+    const QString path = viewer ? viewer->filePath() : QString();
+    const int pageCount = viewer ? viewer->pageCount() : 0;
+    const int current = viewer ? viewer->currentPage() : 1;
+    auto invoker = [this](const ReplaceOptions& options) -> ReplaceOutcome {
+        return _edit ? _edit->replaceAllInDocument(options) : ReplaceOutcome{};
+    };
+    _findReplaceDialog->setDocumentContext(path, pageCount, current, invoker);
+    _findReplaceDialog->show();
+    _findReplaceDialog->raise();
+    _findReplaceDialog->activateWindow();
 }
 
 void MainWindow::setFullScreenMode(bool fullscreen) {

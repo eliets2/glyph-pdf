@@ -19,6 +19,11 @@
 #include "commands/EditTextInlineCommand.h"
 #include "ui/AnnotationLayer.h"
 #include "ui/FindBar.h"
+#include "ui/FindReplaceDialog.h"
+#include "ui/StampLibraryDialog.h"
+#include "ui/AutoBookmarkDialog.h"
+#include "commands/SetOutlineCommand.h"
+#include "core/StampLibrary.h"
 #include "ui/EditToolBar.h"
 #include "ui/SignaturePicker.h" // §9.7 P0: Draw/Type/Upload signature picker
 #include "engines/DocumentSession.h" // §9.7 P1: session-scoped signature cache
@@ -87,7 +92,12 @@ QList<ToolId> EditController::handledTools() const {
         ToolId::Rectangle, ToolId::Oval,
         ToolId::Line, ToolId::Arrow,
         ToolId::Image, ToolId::EditImage,
-        ToolId::Cut, ToolId::Copy, ToolId::DeleteSelection
+        ToolId::Cut, ToolId::Copy, ToolId::DeleteSelection,
+        // T2-6: dynamic stamp presets + library management
+        ToolId::StampApproved, ToolId::StampDraft, ToolId::StampConfidential,
+        ToolId::StampReceived, ToolId::StampReviewed, ToolId::StampLibraryManage,
+        // T2-9: auto-bookmarks from text styles
+        ToolId::AutoBookmarks
     };
 }
 
@@ -196,6 +206,24 @@ void EditController::activate(ToolId id) {
         }
         break;
     }
+    case ToolId::StampApproved:
+    case ToolId::StampDraft:
+    case ToolId::StampConfidential:
+    case ToolId::StampReceived:
+    case ToolId::StampReviewed:
+        // T2-6: the previously silent Stamps menu items route to the REAL
+        // stamp flow — placeholders resolved at apply time, placement armed.
+        armDynamicStamp(stampTemplateIdForTool(id));
+        break;
+    case ToolId::StampLibraryManage:
+        // T2-6: the "Custom Stamp…" wire target — the library dialog
+        // (built-ins listed, custom stamps add/remove/persist/place).
+        openStampLibraryDialog();
+        break;
+    case ToolId::AutoBookmarks:
+        // T2-9: heading detection + preview + undoable outline commit.
+        runAutoBookmarks();
+        break;
     default:
         if (toolModes.contains(id)) {
             viewer->setToolMode(toolModes.value(id));
@@ -368,101 +396,172 @@ void EditController::onSearchRequested(const QString &text, bool forward, bool m
     }
 }
 
-void EditController::onReplaceRequested(const QString &searchText, const QString &replaceText,
-                                        bool matchCase, bool wholeWords, bool useRegex) {
-    auto* viewer = _mainWindow->pdfViewer();
-    if (!viewer || !_ctx || !_ctx->pdfEditor) return;
-
-    _ctx->pdfEditor->loadDocumentForEditing(viewer->filePath());
-
-    // Replace current match using PoDoFo content stream text substitution
-    auto* sm = viewer->searchModel();
-    if (!sm || _currentMatchIndex < 0 || _currentMatchIndex >= sm->rowCount(QModelIndex()))
-        return;
-
-    QModelIndex idx = sm->index(_currentMatchIndex, 0);
-    int page = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Page)).toInt();
-    QPointF loc = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Location)).toPointF();
-
-    QRectF rect(loc.x(), loc.y() - 15, 200, 20);
-    if (_ctx->undoStack) {
-        _ctx->document->setPath(viewer->filePath());
-        _ctx->undoStack->push(new EditTextInlineCommand(
-            _ctx->pdfEditor.get(), _ctx->document.get(), page, rect, replaceText,
-            _fontFamily, _fontSize, _fontColor, _fontBold, _fontItalic, _fontAlignment));
+// ── T2-2: Find & Replace — the real replace pipeline ────────────────────────
+//
+// The previous implementation painted a white 200×20 rectangle with the
+// replacement text OVER each QPdfSearchModel hit: the original glyphs were
+// never removed, the flags (match case / whole words / regex) were ignored by
+// the locator, and nothing warned about changed text metrics. This pipeline:
+//   1. locates matches in the REAL text layer (TextMatchFinder — PDFium
+//      per-character boxes, decoded Unicode, flag-aware pattern),
+//   2. EXCISES the matched glyphs via the engine's content-stream surgery
+//      (ITextReplacer::replaceTextRegions — the redaction engine's excision
+//      core, without its annotation-removal tail), covers the region white
+//      and draws the replacement at the match origin in the match's size,
+//   3. compares each MEASURED drawn width with the match width and reports
+//      the count as the reflow/geometry warning (moat M8 — never silently
+//      reflow; the caller surfaces this before and after apply),
+//   4. saves through the signed-aware path and reloads the viewer.
+ReplaceOutcome
+EditController::replaceAllInDocument(const ReplaceOptions &options) {
+    ReplaceOutcome out;
+    auto *viewer = _mainWindow ? _mainWindow->pdfViewer() : nullptr;
+    if (!_ctx || !_ctx->pdfEditor || !viewer || viewer->filePath().isEmpty()) {
+        out.message = tr("No document is open — nothing to replace.");
+        return out;
+    }
+    // ARC07: shared read-only gate (same policy as every other mutation).
+    if (EditPolicy::mutationBlocked(_ctx->document.get())) {
+        out.message = EditPolicy::readOnlyMessage();
+        return out;
+    }
+    if (options.searchText.isEmpty()) {
+        out.message = tr("Enter text to search for.");
+        return out;
     }
 
-    _mainWindow->statusBar()->showMessage(
-        tr("Replaced match %1 on page %2").arg(_currentMatchIndex + 1).arg(page + 1), 3000);
+    const QString path = viewer->filePath();
+    const QRegularExpression rx = TextMatchFinder::buildPattern(
+        options.searchText, options.matchCase, options.wholeWords, options.useRegex);
+    if (!rx.isValid()) {
+        out.message = tr("Invalid regular expression: %1").arg(rx.errorString());
+        return out;
+    }
 
-    // Re-search to update counts
-    onSearchRequested(searchText, true, matchCase, wholeWords, useRegex, FindBar::ScopeDocumentText);
+    // Scope: explicit page list, or every page of the document.
+    QList<int> pages = options.pages;
+    if (pages.isEmpty()) {
+        const int pageCount = viewer->pageCount();
+        pages.reserve(pageCount);
+        for (int p = 0; p < pageCount; ++p) pages.append(p);
+    }
+
+    const QList<TextMatch> matches = TextMatchFinder::findMatches(path, pages, rx);
+    out.requested = matches.size();
+    out.matches = matches;
+    if (matches.isEmpty()) {
+        out.ok = true;
+        out.message = tr("No matches to replace.");
+        return out;
+    }
+
+    QList<TextReplacementSpec> specs;
+    specs.reserve(matches.size());
+    for (const auto &m : matches) {
+        TextReplacementSpec s;
+        s.pageIndex = m.pageIndex;
+        s.rect = m.rect;
+        s.text = options.replaceText;
+        s.fontSize = m.fontSize;
+        specs.append(s);
+    }
+
+    // Excise + redraw on the RESIDENT document (single pass over all pages).
+    _ctx->pdfEditor->loadDocumentForEditing(path);
+    QList<double> drawnWidths;
+    if (!_ctx->pdfEditor->replaceTextRegions(specs, &drawnWidths)) {
+        out.message = tr("Replace failed: a page's content could not be edited. "
+                         "Nothing was saved — the document is unchanged on disk.");
+        return out;
+    }
+
+    // Measured geometry warnings: the drawn replacement's width vs the match
+    // box width (side bearings included in the box, hence the tolerance).
+    for (int i = 0; i < drawnWidths.size() && i < matches.size(); ++i) {
+        if (qAbs(drawnWidths.at(i) - matches.at(i).rect.width()) > 0.5) {
+            if (out.widthChanged == 0)
+                out.firstChangedPage = tr("page %1").arg(matches.at(i).pageIndex + 1);
+            ++out.widthChanged;
+        }
+    }
+    out.applied = specs.size();
+
+    // Checked save (D3/R2-2): signed documents go through the incremental
+    // update path so /ByteRange signatures stay intact.
+    const bool isSigned = _ctx->pdfEditor->hasPdfSignatures();
+    const bool saveOk = isSigned ? _ctx->pdfEditor->writeUpdate(path)
+                                 : _ctx->pdfEditor->saveDocument(path);
+    if (!saveOk) {
+        out.message = tr("The replacements were applied in memory, but the file "
+                         "could not be saved. Check that the disk is not full and "
+                         "the file is not write-protected.");
+        return out;
+    }
+    out.ok = true;
+
+    // Reload so the viewer shows the committed result.
+    if (_ctx->document) {
+        _ctx->document->setPath(path);
+        _ctx->document->markReload();
+    }
+    viewer->loadDocument(path);
+
+    out.message = tr("Replaced %1 of %2 occurrence(s).")
+                      .arg(out.applied).arg(out.requested);
+    if (out.widthChanged > 0)
+        out.message += tr(" %1 replacement(s) changed the text width (first on %2) — "
+                          "check those pages for overlapping text.")
+                           .arg(out.widthChanged).arg(out.firstChangedPage);
+    return out;
+}
+
+void EditController::onReplaceRequested(const QString &searchText, const QString &replaceText,
+                                        bool matchCase, bool wholeWords, bool useRegex) {
+    auto* viewer = _mainWindow ? _mainWindow->pdfViewer() : nullptr;
+    if (!viewer || !_ctx || !_ctx->pdfEditor) return;
+
+    // Replace the FIRST match at or after the current page, honoring the
+    // flags (the old path used the case-insensitive locator index and painted
+    // an overlay without removing the original glyphs).
+    ReplaceOptions options;
+    options.searchText = searchText;
+    options.replaceText = replaceText;
+    options.matchCase = matchCase;
+    options.wholeWords = wholeWords;
+    options.useRegex = useRegex;
+    const int from = qMax(0, viewer->currentPage());
+    for (int p = from; p < viewer->pageCount(); ++p)
+        options.pages.append(p);
+    // Single replacement: shrink the scope after the scan to the first hit.
+    const QRegularExpression rx = TextMatchFinder::buildPattern(
+        searchText, matchCase, wholeWords, useRegex);
+    if (!rx.isValid()) {
+        _mainWindow->statusBar()->showMessage(tr("Invalid regular expression."), 4000);
+        return;
+    }
+    const QList<TextMatch> scoped = TextMatchFinder::findMatches(
+        viewer->filePath(), options.pages, rx);
+    if (scoped.isEmpty()) {
+        _mainWindow->statusBar()->showMessage(tr("No matches to replace."), 3000);
+        return;
+    }
+    options.pages = { scoped.first().pageIndex };
+    const ReplaceOutcome out = replaceAllInDocument(options);
+    _mainWindow->statusBar()->showMessage(out.message, 5000);
 }
 
 void EditController::onReplaceAllRequested(const QString &searchText, const QString &replaceText,
                                            bool matchCase, bool wholeWords, bool useRegex) {
-    auto* viewer = _mainWindow->pdfViewer();
-    if (!viewer || !_ctx || !_ctx->pdfEditor) return;
-    // ARC07: FindBar entries bypass the registry — shared read-only gate.
-    if (EditPolicy::mutationBlocked(_ctx->document.get())) {
-        _mainWindow->statusBar()->showMessage(EditPolicy::readOnlyMessage(), 5000);
-        return;
-    }
-
-    _ctx->pdfEditor->loadDocumentForEditing(viewer->filePath());
-
-    auto* sm = viewer->searchModel();
-    if (!sm) return;
-
-    int count = sm->rowCount(QModelIndex());
-    if (count == 0) {
-        _mainWindow->statusBar()->showMessage(tr("No matches to replace."), 3000);
-        return;
-    }
-
-    // Iterate all matches from last to first (reverse order to preserve positions)
-    for (int i = count - 1; i >= 0; --i) {
-        QModelIndex idx = sm->index(i, 0);
-        int page = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Page)).toInt();
-        QPointF loc = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Location)).toPointF();
-
-        QRectF rect(loc.x(), loc.y() - 15, 200, 20);
-        _ctx->pdfEditor->editTextInline(page, rect, replaceText,
-                                        _fontFamily, _fontSize, _fontColor,
-                                        _fontBold, _fontItalic, _fontAlignment);
-    }
-
-    // R2-1 D2: route through incremental update when document is signed, so
-    // existing /ByteRange signatures are not invalidated by a full rewrite.
-    // D3 (R2-2): check the save return value — a silent discard here means
-    // the user sees "Replaced N occurrences" while the file was never written.
-    {
-        const bool isSigned = _ctx->pdfEditor->hasPdfSignatures();
-        const bool saveOk = isSigned
-            ? _ctx->pdfEditor->writeUpdate(viewer->filePath())
-            : _ctx->pdfEditor->saveDocument(viewer->filePath());
-        if (!saveOk) {
-            QMessageBox::critical(
-                _mainWindow,
-                tr("Save Failed"),
-                tr("The replacements were applied in memory, but the file could not "
-                   "be saved. Check that the disk is not full and the file is not "
-                   "write-protected."));
-            _mainWindow->statusBar()->showMessage(tr("Replace All: save failed."), 5000);
-            return;
-        }
-    }
-
-    if (_ctx->document) {
-        _ctx->document->setPath(viewer->filePath());
-        _ctx->document->markReload();
-    }
-
-    _mainWindow->statusBar()->showMessage(
-        tr("Replaced %1 occurrences.").arg(count), 5000);
-
-    // Reload to reflect changes
-    viewer->loadDocument(viewer->filePath());
+    // FindBar's Replace All: whole-document scope through the SAME pipeline
+    // as the Find & Replace dialog — no parallel implementation.
+    ReplaceOptions options;
+    options.searchText = searchText;
+    options.replaceText = replaceText;
+    options.matchCase = matchCase;
+    options.wholeWords = wholeWords;
+    options.useRegex = useRegex;   // empty list = all pages
+    const ReplaceOutcome out = replaceAllInDocument(options);
+    _mainWindow->statusBar()->showMessage(out.message, 6000);
 }
 
 void EditController::onRedactAllRequested(const QString &text, bool matchCase, bool wholeWords) {
@@ -482,6 +581,121 @@ void EditController::onRedactAllRequested(const QString &text, bool matchCase, b
             viewer->loadDocument(viewer->filePath());
         }
     }
+}
+
+// ── T2-6: dynamic stamps ────────────────────────────────────────────────────
+
+// Pure seam: the stamp template id behind each dynamic-stamp ToolId.
+QString EditController::stampTemplateIdForTool(ToolId id) {
+    switch (id) {
+    case ToolId::StampApproved:     return QStringLiteral("builtin:approved");
+    case ToolId::StampDraft:        return QStringLiteral("builtin:draft");
+    case ToolId::StampConfidential: return QStringLiteral("builtin:confidential");
+    case ToolId::StampReceived:     return QStringLiteral("builtin:received");
+    case ToolId::StampReviewed:     return QStringLiteral("builtin:reviewed");
+    default:                        return QString();
+    }
+}
+
+void EditController::armDynamicStamp(const QString &templateId) {
+    auto* viewer = _mainWindow ? _mainWindow->pdfViewer() : nullptr;
+    if (!viewer) {
+        if (_mainWindow) _mainWindow->statusBar()->showMessage(tr("No document is open."), 3000);
+        return;
+    }
+    const auto tmpl = StampLibrary::findById(templateId);
+    if (!tmpl) {
+        _mainWindow->statusBar()->showMessage(tr("Unknown stamp: %1").arg(templateId), 4000);
+        return;
+    }
+    // ARC07: read-only documents may not receive stamps.
+    if (EditPolicy::mutationBlocked(_ctx ? _ctx->document.get() : nullptr)) {
+        _mainWindow->statusBar()->showMessage(EditPolicy::readOnlyMessage(), 5000);
+        return;
+    }
+
+    // Placeholders are substituted AT APPLY TIME (now, when the user picked
+    // the stamp) — the annotation saved into the PDF carries the concrete
+    // author/date, never a live template.
+    const QString author = QSettings().value(QStringLiteral("stamps/author")).toString();
+    const QString resolved = StampLibrary::resolveText(tmpl->textTemplate,
+                                                       author,
+                                                       QDateTime::currentDateTime());
+    viewer->setToolMode(ToolMode::Stamp);          // arm FIRST (clears pending)
+    viewer->setPendingStampText(resolved);         // then the resolved text
+    _mainWindow->statusBar()->showMessage(
+        tr("Stamp '%1' ready — click or drag on the page. Text: %2")
+            .arg(tmpl->name, resolved), 6000);
+}
+
+void EditController::openStampLibraryDialog() {
+    if (!_mainWindow) return;
+    auto* dialog = _mainWindow->findChild<StampLibraryDialog*>(QStringLiteral("stampLibraryDialog"));
+    if (!dialog) {
+        dialog = new StampLibraryDialog(_mainWindow);
+        dialog->setObjectName(QStringLiteral("stampLibraryDialog"));
+        // Place requests come back through the SAME armDynamicStamp path as
+        // the menu items — one stamp flow, several entry points.
+        QObject::connect(dialog, &StampLibraryDialog::placeRequested,
+                         _mainWindow, [this](const QString& templateId) {
+                             armDynamicStamp(templateId);
+                         });
+    }
+    dialog->reload();
+    dialog->show();
+    dialog->raise();
+    dialog->activateWindow();
+}
+
+// ── T2-9: auto-bookmarks from text styles ───────────────────────────────────
+// Detect → preview (heuristic disclosed, rows editable) → undoable commit.
+// The engine write REPLACES the whole outline in one committed step; the
+// pre-change outline is snapshotted and restored by undo (SetOutlineCommand).
+void EditController::runAutoBookmarks() {
+    auto* viewer = _mainWindow ? _mainWindow->pdfViewer() : nullptr;
+    if (!_ctx || !_ctx->pdfEditor || !viewer || viewer->filePath().isEmpty()) {
+        if (_mainWindow) _mainWindow->statusBar()->showMessage(tr("No document is open."), 3000);
+        return;
+    }
+    if (EditPolicy::mutationBlocked(_ctx->document.get())) {
+        _mainWindow->statusBar()->showMessage(EditPolicy::readOnlyMessage(), 5000);
+        return;
+    }
+
+    const QString path = viewer->filePath();
+    AutoBookmarkDialog dialog(path, _mainWindow);
+    if (dialog.exec() != QDialog::Accepted)
+        return;   // reviewed, then cancelled — nothing written
+
+    const QList<OutlineEntry> entries = dialog.buildTree();
+    if (entries.isEmpty()) {
+        _mainWindow->statusBar()->showMessage(tr("No bookmarks selected — nothing was changed."), 4000);
+        return;
+    }
+
+    // Snapshot BEFORE the write so undo restores the document's own history.
+    const QList<OutlineEntry> previous = _ctx->pdfEditor->getOutline(path);
+    if (!_ctx->pdfEditor->replaceOutline(path, entries)) {
+        _mainWindow->statusBar()->showMessage(
+            tr("Could not write the bookmarks — the file is unchanged."), 5000);
+        return;
+    }
+
+    // Undoable (restores the previous outline) + viewer reload. The command
+    // takes the IPdfEditorEngine interface (IOutlineEditor seam).
+    if (_ctx->undoStack && _ctx->document) {
+        _ctx->document->setPath(path);
+        _ctx->undoStack->push(new SetOutlineCommand(
+            _ctx->pdfEditor.get(),
+            _ctx->document.get(), viewer, path, previous, entries));
+    } else if (_ctx->document) {
+        _ctx->document->markReload();
+        viewer->reload();
+    }
+
+    _mainWindow->statusBar()->showMessage(
+        tr("Created %1 bookmark(s). Undo restores the previous outline.")
+            .arg(entries.size()), 6000);
 }
 
 // ── OCR ─────────────────────────────────────────────────────────────────────
