@@ -8,6 +8,7 @@
 #include "ui/ExportPresetsPanel.h"
 #include "engines/ConversionManager.h"
 #include "engines/DocumentSession.h"   // ARC04: session clean baseline after a checked save
+#include "engines/SafeSave.h"          // WP-R04: external-writer transaction (candidate → validate → commit)
 #include "commands/CheckedHistory.h"   // G08: checked undo traversal (no index move on failed restore)
 
 #ifdef Q_OS_WIN
@@ -35,6 +36,8 @@
 #include <QProgressDialog>
 #include <QtConcurrent/QtConcurrent>
 #include <QFutureWatcher>
+#include <atomic>
+#include <memory>
 #include <algorithm>
 #include "shell/StatusBar.h"
 #include "core/interfaces/IPdfEditorEngine.h"
@@ -467,6 +470,16 @@ void HomeController::shareViaEmail(const QString& filePath) {
 
 // Secure sharing (§9.11): bundle the PDF into an AES-256 encrypted ZIP using a
 // 7-Zip executable (PATH, common install dirs, or bundled next to the app).
+//
+// WP-R04 (WHOLE-ARCHITECTURE-REVIEW-2026-09-10 A03): the previous flow deleted
+// the destination before launching 7-Zip and let the tool write the FINAL path
+// under an unbounded waitForFinished(-1) — a failed launch, a failed tool run
+// or a mid-write exit destroyed the previous package. The flow now runs the
+// SafeSave external-writer transaction (engines/SafeSave.h): 7-Zip writes a
+// unique owned CANDIDATE, the candidate is validated (readable + `7z t`
+// read-back with the chosen password), and only a validated candidate is
+// committed atomically over the destination. The existing file is never
+// touched before commit; Cancel kills the 7-Zip process we own.
 void HomeController::createEncryptedPackage(const QString& filePath) {
     QString sevenZip = QStandardPaths::findExecutable(QStringLiteral("7z"));
     if (sevenZip.isEmpty()) {
@@ -498,27 +511,54 @@ void HomeController::createEncryptedPackage(const QString& filePath) {
     if (outPath.isEmpty()) return;
     if (!outPath.endsWith(QLatin1String(".zip"), Qt::CaseInsensitive))
         outPath += QStringLiteral(".zip");
-    QFile::remove(outPath);  // 7z appends to an existing archive — start fresh
+    // WP-R04: the previous destination is NOT removed here anymore. Overwrite
+    // consent authorizes replacing a completed result — it does not authorize
+    // destroying it before a result exists (7-Zip now writes a candidate; the
+    // checked atomic commit replaces the destination only after validation).
 
-    // 7z a -tzip -mem=AES256 -p<pwd> <out.zip> <pdf>
-    QStringList args;
-    args << QStringLiteral("a") << QStringLiteral("-tzip")
-         << QStringLiteral("-mem=AES256")
-         << (QStringLiteral("-p") + password)
-         << QDir::toNativeSeparators(outPath)
-         << QDir::toNativeSeparators(filePath);
+    // 7z a -tzip -mem=AES256 -p<pwd> <candidate.zip> <pdf> — the tool writes
+    // the candidate it owns; the destination is never an argument.
+    auto buildArgs = [password, filePath](const QString& candidate) {
+        return QStringList{ QStringLiteral("a"), QStringLiteral("-tzip"),
+                            QStringLiteral("-mem=AES256"),
+                            QStringLiteral("-p") + password,
+                            QDir::toNativeSeparators(candidate),
+                            QDir::toNativeSeparators(filePath) };
+    };
+    // Candidate validation: `7z t -p<pwd> <candidate>` must read the archive
+    // with the chosen password before the candidate may replace the
+    // destination.
+    auto validateCandidate = [sevenZip, password](const QString& candidate) -> QString {
+        bool canceled = false;
+        int exitCode = -1;
+        QString err;
+        const bool finished = gp::SafeSave::runBoundedProcess(
+            sevenZip,
+            QStringList{ QStringLiteral("t"),
+                         QStringLiteral("-p") + password,
+                         QDir::toNativeSeparators(candidate) },
+            60000, {}, &canceled, &exitCode, &err);
+        if (!finished || exitCode != 0) {
+            return QObject::tr("the candidate archive failed the encrypted "
+                               "read-back check (%1)").arg(
+                err.isEmpty() ? QObject::tr("exit code %1").arg(exitCode) : err);
+        }
+        return {};
+    };
 
-    // P8: run 7-Zip off the GUI thread. The previous proc.waitForFinished(-1)
-    // blocked the event loop for the entire (unbounded) packaging time, freezing
-    // the UI. Mirror the QFutureWatcher + QProgressDialog pattern used by the
-    // Office/Images converters below. The QProcess lives entirely inside the
-    // worker; only a small result struct crosses back to the GUI thread.
-    struct PackResult { bool launched = false; bool ok = false; int exitCode = 0; };
+    // P8: run 7-Zip off the GUI thread (QFutureWatcher + QProgressDialog
+    // pattern). WP-R04 adds owned cancellation: the dialog's Cancel sets an
+    // atomic the transaction polls, which KILLS the 7-Zip process we own; the
+    // wait is bounded (no waitForFinished(-1)).
+    auto cancelFlag = std::make_shared<std::atomic<bool>>(false);
+    struct PackResult { bool ok = false; bool canceled = false; QString error; };
 
     auto* progress = new QProgressDialog(
-        tr("Creating encrypted package…"), QString(), 0, 0, _mainWindow);
+        tr("Creating encrypted package…"), tr("Cancel"), 0, 0, _mainWindow);
     progress->setWindowModality(Qt::WindowModal);
     progress->setMinimumDuration(500);
+    QObject::connect(progress, &QProgressDialog::canceled, progress,
+                     [cancelFlag]() { cancelFlag->store(true); });
 
     auto* watcher = new QFutureWatcher<PackResult>(_mainWindow);
     QObject::connect(watcher, &QFutureWatcher<PackResult>::finished, _mainWindow, [=]() {
@@ -527,33 +567,32 @@ void HomeController::createEncryptedPackage(const QString& filePath) {
         const PackResult r = watcher->result();
         watcher->deleteLater();
 
-        if (!r.launched) {
-            QMessageBox::warning(_mainWindow, tr("Encrypted Package"),
-                tr("Could not launch 7-Zip."));
-            return;
-        }
-        if (r.ok && QFileInfo::exists(outPath)) {
+        if (r.ok) {
             _mainWindow->statusBar()->showMessage(
                 tr("Encrypted package created: %1").arg(QFileInfo(outPath).fileName()), 5000);
             QMessageBox::information(_mainWindow, tr("Encrypted Package"),
                 tr("AES-256 encrypted package created:\n%1").arg(outPath));
+        } else if (r.canceled) {
+            // The previous package was never touched — say so.
+            _mainWindow->statusBar()->showMessage(tr("Encrypted package canceled."), 5000);
+            QMessageBox::information(_mainWindow, tr("Encrypted Package"),
+                tr("Package creation canceled. The existing file was not modified."));
         } else {
             QMessageBox::warning(_mainWindow, tr("Encrypted Package"),
-                tr("7-Zip failed to create the package (exit code %1).").arg(r.exitCode));
+                tr("7-Zip failed to create the package. %1\nYour existing file "
+                   "'%2' was not modified.").arg(r.error, QFileInfo(outPath).fileName()));
         }
     });
 
-    watcher->setFuture(QtConcurrent::run([sevenZip, args]() -> PackResult {
+    watcher->setFuture(QtConcurrent::run([sevenZip, buildArgs, validateCandidate,
+                                          outPath, cancelFlag]() -> PackResult {
         PackResult r;
-        QProcess proc;
-        proc.start(sevenZip, args);
-        if (!proc.waitForStarted(5000)) {
-            return r;  // launched == false
-        }
-        r.launched = true;
-        proc.waitForFinished(-1);
-        r.exitCode = proc.exitCode();
-        r.ok = (proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0);
+        const gp::SafeSave::ExternalWriteResult w = gp::SafeSave::runExternalWriterCommit(
+            sevenZip, buildArgs, outPath, QStringLiteral(".zip"), 120000,
+            [cancelFlag]() { return cancelFlag->load(); }, validateCandidate);
+        r.ok = w.ok;
+        r.canceled = w.canceled;
+        r.error = w.error;
         return r;
     }));
     progress->show();

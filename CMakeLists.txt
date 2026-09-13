@@ -3331,6 +3331,19 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEngineSave.cpp")
     set_tests_properties(TestEngineSave PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120 LABELS "unit;engine;save;persistence;qt;headless")
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEncryptedPackageSafeWrite.cpp")
+    add_executable(TestEncryptedPackageSafeWrite
+        tests/TestEncryptedPackageSafeWrite.cpp
+        src/engines/SafeSave.cpp
+    )
+    target_include_directories(TestEncryptedPackageSafeWrite PRIVATE src tests)
+    target_link_libraries(TestEncryptedPackageSafeWrite PRIVATE
+        Qt6::Test Qt6::Core Qt6::Gui
+    )
+    add_test(NAME TestEncryptedPackageSafeWrite COMMAND TestEncryptedPackageSafeWrite)
+    set_tests_properties(TestEncryptedPackageSafeWrite PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 300 LABELS "unit;export;safesave;shell;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCleanupCli.cpp")
     add_executable(TestCleanupCli
         tests/TestCleanupCli.cpp
