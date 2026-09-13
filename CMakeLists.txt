@@ -4020,3 +4020,56 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPersistenceOutcomes.cpp")
         LABELS "unit;session;persistence;identity;integration;qt;headless"
     )
 endif()
+
+# ── R12 (PERF-04): render-path profiling harness (tools/) ──────────────────
+# Measures the real QPdfView / two-page / thumbnail render paths offscreen and
+# records guard behaviour on the named extremes. A measurement tool, NOT a
+# ctest gate — numbers are machine-dependent raw samples (see file header).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools/render_path_profile.cpp")
+    add_executable(render_path_profile
+        tools/render_path_profile.cpp
+    )
+    target_include_directories(render_path_profile PRIVATE src tests)
+    target_link_libraries(render_path_profile PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core
+        Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET render_path_profile POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:render_path_profile>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:render_path_profile>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for render_path_profile"
+    )
+endif()
+
+# ── R12 (PERF-04): render-guard regression tests ───────────────────────────
+# Finite scale/dimension checks, the pixel-allocation ceiling, zoom clamps and
+# stale-output suppression on the real viewer render path.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRenderGuards.cpp")
+    add_executable(TestRenderGuards
+        tests/TestRenderGuards.cpp
+    )
+    target_include_directories(TestRenderGuards PRIVATE src tests)
+    target_link_libraries(TestRenderGuards PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestRenderGuards POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestRenderGuards>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestRenderGuards>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestRenderGuards"
+    )
+    add_test(NAME TestRenderGuards COMMAND TestRenderGuards)
+    set_tests_properties(TestRenderGuards PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;render;guards;perf04;qt;headless"
+    )
+endif()
