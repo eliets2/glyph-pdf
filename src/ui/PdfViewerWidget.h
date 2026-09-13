@@ -220,6 +220,11 @@ protected:
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
+    // R17: keyboard-complete core navigation — PageUp/PageDown (and Prior/
+    // Next) turn pages, Home/End jump to the first/last page. The widget is
+    // Tab-reachable (StrongFocus), so the navigate route is keyboard-complete
+    // without reaching for the mouse.
+    void keyPressEvent(QKeyEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
 
     void onPageChanged();
