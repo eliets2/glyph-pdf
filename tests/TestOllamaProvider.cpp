@@ -84,7 +84,9 @@ public:
         Status500,      // 500 + JSON error body
         Silent,         // accept and never answer
         DelayedSuccess, // answer Success after delayMs (after any deadline)
-        Redirect        // 302 to a remote Location — must NOT be followed
+        Redirect,       // 302 to a remote Location — must NOT be followed
+        HugeBody        // SEP13:6: 200 + a huge VALID chat JSON (content
+                        // filled past any sane cap)
     };
 
     StubOllamaServer()
@@ -111,6 +113,7 @@ public:
     QByteArray lastBody;     // request body of the last completed request
     Mode mode = Mode::Success;
     int  delayMs = 0;
+    int  hugeBodyFillerBytes = 128 * 1024;   // SEP13:6 HugeBody filler size
 
 private:
     void consume(QTcpSocket* s)
@@ -168,6 +171,24 @@ private:
             head += "Content-Length: 0\r\n";
             head += "Connection: close\r\n\r\n";
             s->write(head);
+            break;
+        }
+        case Mode::HugeBody:
+        {
+            // A HUGE body that is still VALID Ollama chat JSON: pre-fix the
+            // provider buffered and parsed it in full (the defect — ok=true
+            // with the huge text); post-fix the bounded accumulator aborts
+            // with the honest over-cap error.
+            const QByteArray filler(hugeBodyFillerBytes, 'x');
+            const QByteArray body =
+                "{\"model\":\"stub\",\"created_at\":\"now\","
+                "\"message\":{\"role\":\"assistant\","
+                "\"content\":\"" + filler + "\"},\"done\":true}";
+            QByteArray head;
+            head += "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n";
+            head += "Content-Length: " + QByteArray::number(body.size()) + "\r\n";
+            head += "Connection: close\r\n\r\n";
+            s->write(head + body);
             break;
         }
         case Mode::DelayedSuccess:
@@ -360,10 +381,70 @@ private slots:
     {
         for (const char* key : { "ai/ollamaEndpoint", "ai/ollamaModel",
                                  "ai/ollamaTimeoutMs", "ai/ollamaTrustAnyHttps",
-                                 "ai/ollamaAllowedHosts" })
+                                 "ai/ollamaAllowedHosts",
+                                 "ai/ollamaMaxResponseBytes" })
             QSettings().remove(QString::fromLatin1(key));
         drainEvents(2);
     }
+
+    // ── SEP13:6: bounded response buffering ───────────────────────────────
+    // The whole HTTP body used to be readAll()-ed into memory with no cap, so
+    // a malicious/compromised endpoint could exhaust it. The fix accumulates
+    // the body through a bounded buffer and aborts with an honest error once
+    // the configured cap is crossed.
+
+    // A body past the configured cap must NOT be delivered — the request ends
+    // with the honest over-cap error. The stub's huge body is VALID Ollama
+    // chat JSON, so on the pre-fix code this test FAILED for the exact defect
+    // reason: the huge reply was buffered and delivered (ok=true).
+    void overCapResponseAbortsHonestly()
+    {
+        StubOllamaServer server;
+        QVERIFY(server.start());
+        server.mode = StubOllamaServer::Mode::HugeBody;
+        server.hugeBodyFillerBytes = 128 * 1024;   // 128 KiB content
+        setDeadlineMs(3000);
+        QSettings().setValue(QStringLiteral("ai/ollamaMaxResponseBytes"), 4096);
+
+        gp::OllamaProvider provider(endpointFor(server));
+        gp::AiOptions opts;
+        QFuture<gp::AiResult> future =
+            provider.chat({ { QStringLiteral("user"), QStringLiteral("ping") } }, opts);
+
+        const gp::AiResult r = waitResult(future, 10000);
+        QSettings().remove(QStringLiteral("ai/ollamaMaxResponseBytes"));
+        QVERIFY2(!r.ok, "an over-cap response must never be delivered");
+        QVERIFY2(r.text.isEmpty(), "no unbounded text may survive the abort");
+        QVERIFY2(r.errorMsg.contains(QStringLiteral("exceeded")),
+                 qPrintable(QStringLiteral(
+                     "the failure must name the response cap (got: %1)")
+                                .arg(r.errorMsg)));
+        QCOMPARE(future.resultCount(), 1);   // exactly one terminal result
+    }
+
+    // Control: with the cap NOT crossed, a normal small reply still succeeds —
+    // the bound never throttles legitimate traffic.
+    void underCapResponseStillSucceeds()
+    {
+        StubOllamaServer server;
+        QVERIFY(server.start());
+        server.mode = StubOllamaServer::Mode::Success;
+        setDeadlineMs(3000);
+        // Floor cap (4096) with a small body — success must be unaffected.
+        QSettings().setValue(QStringLiteral("ai/ollamaMaxResponseBytes"), 4096);
+
+        gp::OllamaProvider provider(endpointFor(server));
+        gp::AiOptions opts;
+        QFuture<gp::AiResult> future =
+            provider.chat({ { QStringLiteral("user"), QStringLiteral("ping") } }, opts);
+
+        const gp::AiResult r = waitResult(future, 10000);
+        QSettings().remove(QStringLiteral("ai/ollamaMaxResponseBytes"));
+        QVERIFY2(r.ok, qPrintable(QStringLiteral("small reply must succeed, got: ")
+                                      + r.errorMsg));
+        QCOMPARE(r.text, QStringLiteral("hello from local ollama"));
+    }
+
 
     // ── R03: request lifetime ─────────────────────────────────────────────
 
