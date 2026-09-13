@@ -24,13 +24,24 @@ public:
     // display-resolution assumption.
     static int columnsForWidth(int availableWidth, int cardMinWidth, int spacing);
 
+    // R16: mark a task route as not available in this installation (optional
+    // dependency absent, e.g. OCR models or the LibreOffice converter). The
+    // card stays VISIBLE but disabled with the reason + alternative disclosed
+    // on tooltip/statusTip/accessibleDescription — the same honesty contract
+    // as the ribbon's planned entries (never a silent grey card).
+    void setTaskAvailable(const QString& task, const QString& disclosure);
+
 signals:
     void openFileRequested();
     void mergeFilesRequested();
-    void convertRequested();
-    void protectRequested();
     void importOfficeRequested();
     void imagesToPdfRequested();
+    // R16 (PP07/UI03/UI04): the task-oriented welcome. One signal carries the
+    // chosen task id ("edit", "convert", "ocr", "compress", "splitExtract",
+    // "organize", "annotate", "fillSign", "protect" — open-dependent; and
+    // "batch", "compare" — standalone tasks). The host preserves the intent
+    // through file selection and applies it after the load.
+    void taskRouteRequested(const QString& task);
     void recentFileRequested(const QString& filePath);
     void removeRecentFileRequested(const QString& filePath);
 

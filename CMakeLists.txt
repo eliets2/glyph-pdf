@@ -1995,6 +1995,37 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCommandBinding.cpp")
     )
 endif()
 
+# ── TestWelcomeRoutes (R16 2026-09-13: task-oriented welcome) ───────────────
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestWelcomeRoutes.cpp")
+    add_executable(TestWelcomeRoutes
+        tests/TestWelcomeRoutes.cpp
+        src/app/Bootstrapper.h  src/app/Bootstrapper.cpp
+    )
+    target_include_directories(TestWelcomeRoutes PRIVATE src tests)
+    target_compile_definitions(TestWelcomeRoutes PRIVATE
+        DJOT_LIB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/third_party/djot"
+    )
+    target_link_libraries(TestWelcomeRoutes PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestWelcomeRoutes POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestWelcomeRoutes>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestWelcomeRoutes>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestWelcomeRoutes"
+    )
+    add_test(NAME TestWelcomeRoutes COMMAND TestWelcomeRoutes)
+    set_tests_properties(TestWelcomeRoutes PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 300
+        LABELS "unit;ui;welcome;routes;r16;qt;headless"
+    )
+endif()
+
 # ── Integration tests (Session 20) ───────────────────────────────────────
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestIntegration.cpp")
     add_executable(TestIntegration
