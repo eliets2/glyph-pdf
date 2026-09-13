@@ -11,6 +11,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QPlainTextEdit>
+#include <QTimer>
 #include <QRegularExpression>
 #include <QSet>
 #include <utility>
@@ -56,11 +57,20 @@ FindReplaceDialog::FindReplaceDialog(QWidget* parent)
     grid->addWidget(new QLabel(tr("Scope:"), this), 3, 0);
     grid->addWidget(m_scope, 3, 1);
     grid->addWidget(m_range, 3, 2);
+    // packa-F4: typing in the search/range fields debounces the expensive
+    // re-match; deliberate actions (scope combo, option toggles, Count)
+    // recount immediately.
+    m_recountDebounce = new QTimer(this);
+    m_recountDebounce->setObjectName(QStringLiteral("frRecountDebounce"));
+    m_recountDebounce->setSingleShot(true);
+    m_recountDebounce->setInterval(250);
+    connect(m_recountDebounce, &QTimer::timeout, this, [this]() { recount(); });
+
     connect(m_scope, &QComboBox::currentIndexChanged, this, [this](int) {
         updateScopeEnabled();
         recount();
     });
-    connect(m_range, &QLineEdit::textChanged, this, [this]() { recount(); });
+    connect(m_range, &QLineEdit::textChanged, this, [this]() { scheduleRecount(); });
 
     auto* btns = new QHBoxLayout;
     m_countBtn = new QPushButton(tr("Count"), this);
@@ -101,7 +111,7 @@ FindReplaceDialog::FindReplaceDialog(QWidget* parent)
     connect(m_countBtn, &QPushButton::clicked, this, [this]() { recount(); });
     connect(m_replaceAllBtn, &QPushButton::clicked, this, [this]() { applyReplace(); });
     connect(closeBtn, &QPushButton::clicked, this, &QDialog::close);
-    connect(m_search, &QLineEdit::textChanged, this, [this]() { recount(); });
+    connect(m_search, &QLineEdit::textChanged, this, [this]() { scheduleRecount(); });
     connect(m_matchCase, &QCheckBox::toggled, this, [this]() { recount(); });
     connect(m_wholeWords, &QCheckBox::toggled, this, [this]() { recount(); });
     connect(m_useRegex, &QCheckBox::toggled, this, [this]() { recount(); });
@@ -130,6 +140,9 @@ ReplaceOptions FindReplaceDialog::currentOptions() const {
     options.matchCase = m_matchCase && m_matchCase->isChecked();
     options.wholeWords = m_wholeWords && m_wholeWords->isChecked();
     options.useRegex = m_useRegex && m_useRegex->isChecked();
+    // packa-F1: an unusable scope is its OWN state — never the same empty
+    // page list that means "all pages" downstream.
+    options.scopeValid = scopeRefusal().isEmpty();
 
     const int scope = m_scope ? m_scope->currentIndex() : 0;
     if (scope == 1) {
@@ -183,33 +196,53 @@ QString FindReplaceDialog::scopeRefusal() const {
     return QString();
 }
 
-void FindReplaceDialog::recount() {
-    if (!m_matchSummary) return;
+// packa-F4: typing path. The cheap UI (buttons + terminal messages) updates
+// NOW so affordances never lag; the expensive finder runs once per pause via
+// the debounce timer instead of once per keystroke.
+void FindReplaceDialog::scheduleRecount() {
+    recountUiOnly();
+    if (m_recountDebounce) m_recountDebounce->start();
+}
+
+// The cheap prefix of a recount. Returns true when the matching part should
+// run (document open, usable scope, non-empty search, valid regex).
+bool FindReplaceDialog::recountUiOnly() {
+    if (!m_matchSummary) return false;
+    updateActionAvailability();
     if (m_docPath.isEmpty()) {
         m_matchSummary->setText(tr("No document is open."));
-        return;
+        return false;
     }
     const QString refusal = scopeRefusal();
     if (!refusal.isEmpty()) {
         m_matchSummary->setText(refusal);
-        return;
+        return false;
     }
-    ReplaceOptions options = currentOptions();
-    if (options.searchText.isEmpty()) {
+    if (!m_search || m_search->text().isEmpty()) {
         m_matchSummary->setText(tr("Enter text to search for."));
-        return;
+        return false;
     }
     const QRegularExpression rx = TextMatchFinder::buildPattern(
-        options.searchText, options.matchCase, options.wholeWords, options.useRegex);
+        m_search->text(), m_matchCase && m_matchCase->isChecked(),
+        m_wholeWords && m_wholeWords->isChecked(),
+        m_useRegex && m_useRegex->isChecked());
     if (!rx.isValid()) {
         m_matchSummary->setText(tr("Invalid regular expression: %1").arg(rx.errorString()));
-        return;
+        return false;
     }
+    return true;
+}
+
+void FindReplaceDialog::recount() {
+    if (!recountUiOnly()) return;
+    ReplaceOptions options = currentOptions();
     QList<int> pages = options.pages;
     if (pages.isEmpty() && m_pageCount > 0) {
         for (int p = 0; p < m_pageCount; ++p) pages.append(p);
     }
-    const QList<TextMatch> matches = TextMatchFinder::findMatches(m_docPath, pages, rx);
+    const QList<TextMatch> matches = TextMatchFinder::findMatches(m_docPath, pages,
+        TextMatchFinder::buildPattern(options.searchText, options.matchCase,
+                                      options.wholeWords, options.useRegex));
     QSet<int> pagesHit;
     for (const auto& m : matches) pagesHit.insert(m.pageIndex);
     m_matchSummary->setText(tr("%1 match(es) on %2 page(s) — count shown before replace.")
@@ -218,6 +251,15 @@ void FindReplaceDialog::recount() {
 
 QString FindReplaceDialog::matchSummaryText() const {
     return m_matchSummary ? m_matchSummary->text() : QString();
+}
+
+// packa-F1: Count/Replace are DISABLED until the scope is usable. A refused
+// scope must not be clickable (and the mouse path on a disabled button is a
+// no-op) — applyReplace()'s textual refusal stays as defense in depth.
+void FindReplaceDialog::updateActionAvailability() {
+    const bool usable = !m_docPath.isEmpty() && scopeRefusal().isEmpty();
+    if (m_countBtn) m_countBtn->setEnabled(usable);
+    if (m_replaceAllBtn) m_replaceAllBtn->setEnabled(usable);
 }
 
 void FindReplaceDialog::applyReplace() {

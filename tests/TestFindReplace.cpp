@@ -18,18 +18,32 @@
 
 #include <QtTest>
 #include <QTemporaryDir>
+#include <QFile>
 #include <podofo/podofo.h>
 #include "engines/TextMatchFinder.h"
 #include "engines/PdfEditorEngine.h"
 #include "engines/pdfium/PdfiumBackend.h"
 #include "mocks/MockPdfEditorEngine.h"
 #include "ui/FindReplaceDialog.h"
+#include "ui/PdfViewerWidget.h"
+#include "GpMainWindow.h"
+#include "app/Bootstrapper.h"
+#include "shell/controllers/EditController.h"
 
 #include <QLineEdit>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QFileInfo>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QFontDatabase>
+#include <QTimer>
+
+#ifdef HAS_PDFIUM
+#include <fpdfview.h>
+#include <fpdf_text.h>
+#include "engines/pdfium/PdfiumEnvironment.h"
+#endif
 
 // The PDFium/windows headers define `DrawText` as a macro (Win32 DrawTextW),
 // which collides with PoDoFo::PdfPainter::DrawText. Drop the macro — the
@@ -72,6 +86,106 @@ static QString createThreePagePdf(const QTemporaryDir& tmpDir, const QString& na
         doc.Save(path.toUtf8().constData());
     } catch (const std::exception& e) {
         qWarning() << "createThreePagePdf failed:" << e.what();
+        return {};
+    }
+    return path;
+}
+
+// ---------------------------------------------------------------------------
+// Pack A review F2 fixture: a page with SUPPLEMENTARY (astral-plane) text.
+//   page 0, one font for every run (y descending, 60pt line gap):
+//     y=760: "\u{1F600}\u{1F600}\u{1F600}\u{1F600}"   (4 supplementary chars)
+//     y=700: "alpha"                                   (search target)
+//     y=640: "omega"                                   (must-survive neighbor)
+// ---------------------------------------------------------------------------
+// The emoji U+1F600 cannot be encoded by the Standard-14 fonts, so the
+// fixture loads a real Windows emoji font (Segoe UI Emoji). When the font is
+// unavailable the supplementary tests skip: their premise (a supplementary
+// code point in the extracted text layer) cannot be built on that machine.
+static QString supplementaryFontPath() {
+    static const QString path =
+        QStringLiteral("C:/Windows/Fonts/seguiemj.ttf");
+    return QFileInfo::exists(path) ? path : QString();
+}
+
+static QString createSupplementaryPdf(const QTemporaryDir& tmpDir, const QString& name) {
+    const QString fontPath = supplementaryFontPath();
+    if (fontPath.isEmpty()) return {};
+    const QString path = tmpDir.filePath(name);
+    const char32_t emoji[4] = { 0x1F600, 0x1F600, 0x1F600, 0x1F600 };
+    try {
+        PoDoFo::PdfMemDocument doc;
+        auto& page = doc.GetPages().CreatePage(
+            PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+        PoDoFo::PdfPainter painter;
+        painter.SetCanvas(page);
+        auto& font = doc.GetFonts().GetOrCreateFont(
+            fontPath.toStdString(), 0);
+        painter.TextState.SetFont(font, 12.0);
+        const QByteArray emojiLine = QString::fromUcs4(emoji, 4).toUtf8();
+        painter.DrawText(emojiLine.constData(), 50, 760);
+        painter.DrawText("alpha", 50, 700);
+        painter.DrawText("omega", 50, 640);
+        painter.FinishDrawing();
+        doc.Save(path.toUtf8().constData());
+    } catch (const std::exception& e) {
+        qWarning() << "createSupplementaryPdf failed:" << e.what();
+        return {};
+    }
+    return path;
+}
+
+// F2 scenario B: supplementary char INSIDE the match on one line, with a
+// far-away neighbor glyph on the same line that must stay out of the match
+// box (x=500 vs the match span at x<=130). Runs are separate text operators
+// so operator-granularity excision removes exactly the matched run.
+static QString createSupplementaryInlinePdf(const QTemporaryDir& tmpDir, const QString& name) {
+    const QString fontPath = supplementaryFontPath();
+    if (fontPath.isEmpty()) return {};
+    const QString path = tmpDir.filePath(name);
+    const char32_t emoji[1] = { 0x1F600 };
+    try {
+        PoDoFo::PdfMemDocument doc;
+        auto& page = doc.GetPages().CreatePage(
+            PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+        PoDoFo::PdfPainter painter;
+        painter.SetCanvas(page);
+        auto& font = doc.GetFonts().GetOrCreateFont(
+            fontPath.toStdString(), 0);
+        painter.TextState.SetFont(font, 12.0);
+        painter.DrawText("x", 50, 700);
+        const QString matchRun = QStringLiteral("b")
+            + QString::fromUcs4(emoji, 1) + QStringLiteral("c");
+        painter.DrawText(matchRun.toUtf8().constData(), 90, 700);
+        painter.DrawText("d", 500, 700);
+        painter.FinishDrawing();
+        doc.Save(path.toUtf8().constData());
+    } catch (const std::exception& e) {
+        qWarning() << "createSupplementaryInlinePdf failed:" << e.what();
+        return {};
+    }
+    return path;
+}
+
+// packa-F4 fixture: ONE page with a long single run of 'x' (no 'y' anywhere)
+// — the classic catastrophic-backtracking shape under the 256K input cap.
+static QString createLargeXPagePdf(const QTemporaryDir& tmpDir, const QString& name,
+                                   int xCount = 24000) {
+    const QString path = tmpDir.filePath(name);
+    try {
+        PoDoFo::PdfMemDocument doc;
+        auto& page = doc.GetPages().CreatePage(
+            PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+        PoDoFo::PdfPainter painter;
+        painter.SetCanvas(page);
+        auto& font = doc.GetFonts().GetStandard14Font(
+            PoDoFo::PdfStandard14FontType::Helvetica);
+        painter.TextState.SetFont(font, 6.0);
+        painter.DrawText(std::string(xCount, 'x'), 20, 800);
+        painter.FinishDrawing();
+        doc.Save(path.toUtf8().constData());
+    } catch (const std::exception& e) {
+        qWarning() << "createLargeXPagePdf failed:" << e.what();
         return {};
     }
     return path;
@@ -190,6 +304,155 @@ private slots:
         QCOMPARE(TextMatchFinder::findMatches(path, {}, rx).size(), 0);
 #endif
     }
+
+    // ── Pack A review F2: supplementary characters and match geometry ─────
+    //
+    // Pack A preservation review F2: extractCharBoxes stores one CharBox per
+    // PDFium char index, but a supplementary code point (emoji etc.) becomes
+    // TWO UTF-16 units in the reconstructed page text, so QString match
+    // offsets (UTF-16 units) stopped lining up with the CharBox array —
+    // matches on pages with supplementary text got the WRONG geometry and the
+    // replace pipeline excised/redrew the wrong glyphs.
+
+#ifdef HAS_PDFIUM
+    // Premise probe: how does PDFium expose supplementary chars? Dump the raw
+    // char stream of the supplementary fixture (index → unicode + box). The
+    // F2 defect exists exactly when a supplementary code point occupies ONE
+    // char index while contributing TWO UTF-16 units to the QString offsets.
+    void probeSupplementaryExtraction() {
+        const QString path = createSupplementaryPdf(
+            m_tmpDir, QStringLiteral("probe.pdf"));
+        if (path.isEmpty())
+            QSKIP("seguiemj.ttf unavailable — supplementary premise not constructible");
+
+        PdfiumEnvironment env;
+        FPDF_DOCUMENT doc = FPDF_LoadDocument(path.toLocal8Bit().constData(), nullptr);
+        QVERIFY2(doc, "probe fixture must load");
+        FPDF_PAGE page = FPDF_LoadPage(doc, 0);
+        QVERIFY(page);
+        FPDF_TEXTPAGE textPage = FPDFText_LoadPage(page);
+        QVERIFY(textPage);
+        const int count = FPDFText_CountChars(textPage);
+        qDebug() << "FPDFText_CountChars =" << count;
+        QString reconstructed;
+        for (int i = 0; i < count; ++i) {
+            const unsigned int u = FPDFText_GetUnicode(textPage, i);
+            double l = 0, r = 0, b = 0, t = 0;
+            const bool hasBox = FPDFText_GetCharBox(textPage, i, &l, &r, &b, &t);
+            const char32_t cp = static_cast<char32_t>(u);
+            reconstructed.append(QString::fromUcs4(&cp, 1));
+            qDebug().nospace() << "char[" << i << "] U+" << QString::number(u, 16)
+                               << " box=" << hasBox;
+        }
+        QString unitsDump;
+        for (const QChar c : reconstructed)
+            unitsDump += QStringLiteral("U+%1 ").arg(QString::number(c.unicode(), 16));
+        qDebug().noquote() << "reconstructed units:" << unitsDump;
+        const char32_t emojiCp = 0x1F600;
+        qDebug() << "reconstructed =" << reconstructed
+                 << "utf16 units =" << reconstructed.size()
+                 << "vs char indexes =" << count
+                 << "contains emoji pair:" << reconstructed.contains(
+                        QString::fromUcs4(&emojiCp, 1));
+        FPDFText_ClosePage(textPage);
+        FPDF_ClosePage(page);
+        FPDF_CloseDocument(doc);
+    }
+
+    // F2 scenario A: supplementary chars BEFORE the match. The match rect
+    // must stay on the "alpha" line — a UTF-16/CharBox misalignment drags
+    // glyphs from the neighbouring lines (60pt apart) into the union box.
+    void supplementaryBeforeMatchKeepsMatchGeometry() {
+        const QString path = createSupplementaryPdf(
+            m_tmpDir, QStringLiteral("supp_before.pdf"));
+        if (path.isEmpty())
+            QSKIP("seguiemj.ttf unavailable — supplementary premise not constructible");
+        const QRegularExpression rx = TextMatchFinder::buildPattern(
+            QStringLiteral("alpha"), true, false, false);
+        const QList<TextMatch> matches = TextMatchFinder::findMatches(path, {0}, rx);
+        QVERIFY2(matches.size() == 1,
+                 qPrintable(QStringLiteral("expected exactly the 'alpha' match, got %1")
+                                .arg(matches.size())));
+        const QRectF rect = matches.first().rect;
+        QVERIFY2(!rect.isEmpty(), "match must carry real geometry");
+        QVERIFY2(rect.height() < 40.0,
+                 qPrintable(QStringLiteral("match box must stay on the alpha line "
+                                           "(single-line height), got height %1 — "
+                                           "supplementary chars shifted the geometry")
+                               .arg(rect.height())));
+        // And it must be the alpha line (y=700), not the emoji (760) or the
+        // omega line (640): in Qt top-left coords the alpha band is around
+        // pageHeight(842)-712 .. 842-700.
+        QVERIFY2(rect.top() > 842.0 - 760.0 && rect.bottom() < 842.0 - 640.0,
+                 qPrintable(QStringLiteral("match box must sit in the alpha line band, "
+                                           "got %1x%2+%3+%4")
+                               .arg(rect.width()).arg(rect.height())
+                               .arg(rect.x()).arg(rect.y())));
+    }
+
+    // F2 scenario B: supplementary char INSIDE the matched span. The match
+    // text must come back as the exact decoded string (b + U+1F600 + c) and
+    // the box must span only that run — not the far-away 'd' at x=500.
+    void supplementaryInsideMatchKeepsNeighborGeometry() {
+        const QString path = createSupplementaryInlinePdf(
+            m_tmpDir, QStringLiteral("supp_inside.pdf"));
+        if (path.isEmpty())
+            QSKIP("seguiemj.ttf unavailable — supplementary premise not constructible");
+        const char32_t emojiCp[1] = { 0x1F600 };
+        const QString needle = QStringLiteral("b") + QString::fromUcs4(emojiCp, 1)
+            + QStringLiteral("c");
+        const QRegularExpression rx = TextMatchFinder::buildPattern(needle, true, false, false);
+        const QList<TextMatch> matches = TextMatchFinder::findMatches(path, {0}, rx);
+        QVERIFY2(matches.size() == 1,
+                 qPrintable(QStringLiteral("the emoji-spanning needle must match once; "
+                                           "got %1 (was the emoji text mangled?)")
+                                .arg(matches.size())));
+        QCOMPARE(matches.first().text, needle);
+        QVERIFY2(matches.first().rect.width() < 200.0,
+                 qPrintable(QStringLiteral("match box must not swallow the far "
+                                           "neighbor 'd' (x=500); width=%1")
+                               .arg(matches.first().rect.width())));
+    }
+
+    // F2 end-to-end: replace on a page WITH supplementary text must excise
+    // exactly the matched operator, keep the emoji and the neighbour line,
+    // and survive save + reopen.
+    void supplementaryPageReplaceRoundTrip() {
+        const QString path = createSupplementaryPdf(
+            m_tmpDir, QStringLiteral("supp_replace.pdf"));
+        if (path.isEmpty())
+            QSKIP("seguiemj.ttf unavailable — supplementary premise not constructible");
+        const QRegularExpression rx = TextMatchFinder::buildPattern(
+            QStringLiteral("alpha"), true, false, false);
+        const QList<TextMatch> matches = TextMatchFinder::findMatches(path, {0}, rx);
+        QVERIFY(matches.size() == 1);
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(path));
+        TextReplacementSpec s;
+        s.pageIndex = matches.first().pageIndex;
+        s.rect = matches.first().rect;
+        s.text = QStringLiteral("OMEGA");
+        s.fontSize = matches.first().fontSize;
+        QList<double> widths;
+        QVERIFY2(engine.replaceTextRegions({s}, &widths),
+                 "replace must succeed on the supplementary page");
+        QVERIFY(engine.saveDocument(path));
+
+        PdfiumBackend reader;
+        QVERIFY(reader.loadDocument(path));
+        const QString page0 = reader.extractText(0);
+        QVERIFY2(page0.contains(QStringLiteral("OMEGA")),
+                 "the replacement must land in the saved artifact");
+        QVERIFY2(!page0.contains(QStringLiteral("alpha")),
+                 "the matched text must be excised");
+        QVERIFY2(page0.contains(QStringLiteral("omega")),
+                 "the neighbour line must survive the replace");
+        const char32_t emojiCp[1] = { 0x1F600 };
+        QVERIFY2(page0.contains(QString::fromUcs4(emojiCp, 1)),
+                 "the supplementary text must survive the replace");
+    }
+#endif
 
     // ── Engine replace: excision + redraw, measured widths, SAVED artifact ──
 
@@ -507,14 +770,21 @@ private slots:
                             + dlg.matchSummaryText()));
 
         // A range entirely outside the 3-page document: the same refusal, and
-        // Replace All must not fall back to the whole document.
+        // Replace All must not fall back to the whole document. packa-F1
+        // strengthened this: Count/Replace are DISABLED for a refused scope,
+        // so the click path itself is closed (the mouse path on a disabled
+        // button is a no-op).
         range->setText(QStringLiteral("9-9"));
         dlg.recount();
         QVERIFY2(dlg.matchSummaryText().contains(QStringLiteral("refused")),
                  qPrintable(QStringLiteral("out-of-document range must be refused; got: ")
                             + dlg.matchSummaryText()));
-        replaceAll->click();
+        QVERIFY2(!replaceAll->isEnabled(),
+                 "packa-F1: Replace All must be disabled for a refused scope");
         QCOMPARE(calls, 0);
+        // Defense in depth: even a FORCED applyReplace() (bypassing the
+        // disabled button) refuses and never reaches the invoker.
+        dlg.applyReplace();
         QVERIFY2(dlg.outcomeText().contains(QStringLiteral("refused")),
                  qPrintable(QStringLiteral("the refusal must be shown in the outcome; got: ")
                             + dlg.outcomeText()));
@@ -529,6 +799,195 @@ private slots:
         QCOMPARE(calls, 1);
         QCOMPARE(captured.pages.size(), 1);
         QCOMPARE(captured.pages.first(), 1);
+    }
+
+    // ── packa-F1: invalid scope is its own state; Count/Replace disabled ───
+
+    // packa-F1: a malformed range must disable Count AND Replace All (not
+    // merely show a refusal while the buttons stay armed). A disabled button
+    // ignores the real mouse path; a valid scope re-enables them.
+    void invalidScopeDisablesCountAndReplaceButtons() {
+        FindReplaceDialog dlg;   // no document yet
+        auto* count = dlg.findChild<QPushButton*>(QStringLiteral("frCount"));
+        auto* replaceAll = dlg.findChild<QPushButton*>(QStringLiteral("frReplaceAll"));
+        QVERIFY(count && replaceAll);
+        QVERIFY2(!count->isEnabled() && !replaceAll->isEnabled(),
+                 "without a document, Count/Replace must start disabled");
+
+        const QString path = createThreePagePdf(
+            m_tmpDir, QStringLiteral("dlg_buttons.pdf"));
+        QVERIFY2(!path.isEmpty(), "PDF creation failed");
+        int calls = 0;
+        dlg.setDocumentContext(path, 3, 2,
+            [&](const ReplaceOptions&) { ++calls; return ReplaceOutcome{}; });
+        auto* search = dlg.findChild<QLineEdit*>(QStringLiteral("frSearch"));
+        auto* scope = dlg.findChild<QComboBox*>(QStringLiteral("frScope"));
+        auto* range = dlg.findChild<QLineEdit*>(QStringLiteral("frRange"));
+        QVERIFY(search && scope && range);
+
+        search->setText(QStringLiteral("alpha"));
+        dlg.recount();
+        QVERIFY2(count->isEnabled() && replaceAll->isEnabled(),
+                 "a usable whole-document scope must leave Count/Replace enabled");
+
+        scope->setCurrentIndex(2);   // Range… with garbage text
+        range->setText(QStringLiteral("abc"));
+        QVERIFY2(!count->isEnabled() && !replaceAll->isEnabled(),
+                 "a malformed range must disable Count AND Replace All (packa F1)");
+        // The real mouse path on a disabled button is a no-op.
+        QTest::mouseClick(replaceAll, Qt::LeftButton);
+        QTest::mouseClick(count, Qt::LeftButton);
+        QCOMPARE(calls, 0);
+
+        // The encoded options carry the refused state, never an empty list
+        // that downstream would widen to all pages.
+        const ReplaceOptions refused = dlg.currentOptions();
+        QVERIFY2(!refused.scopeValid,
+                 "a malformed range must set scopeValid=false");
+
+        range->setText(QStringLiteral("2-2"));   // valid — not sticky
+        dlg.recount();
+        QVERIFY2(count->isEnabled() && replaceAll->isEnabled(),
+                 "a valid range must re-enable Count/Replace");
+        QVERIFY(dlg.currentOptions().scopeValid);
+    }
+
+    // packa-F1, controller boundary: ReplaceOptions that mark the scope
+    // unusable are refused by EditController::replaceAllInDocument itself
+    // with ZERO mutation — the whole-document widening path is closed at the
+    // shared boundary, not only in the dialog. Runs the REAL window +
+    // controller over a real artifact (bytes compared before/after).
+    void controllerRefusesInvalidScopeWithZeroMutation() {
+        const QString path = createThreePagePdf(
+            m_tmpDir, QStringLiteral("ctrl_zero.pdf"));
+        QVERIFY2(!path.isEmpty(), "PDF creation failed");
+
+        gp::MainWindow win(Bootstrapper::createContext());
+        win.show();
+        win.openDocument(path);
+        QTRY_COMPARE_WITH_TIMEOUT(win.pdfViewer()->pageCount(), 3, 20000);
+        auto* edit = win.findChild<gp::EditController*>();
+        QVERIFY2(edit, "the window must own the canonical EditController");
+
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        const QByteArray before = f.readAll();
+        f.close();
+
+        ReplaceOptions bad;
+        bad.searchText = QStringLiteral("alpha");
+        bad.replaceText = QStringLiteral("MUTATED");
+        bad.scopeValid = false;   // pages empty: without the guard = ALL pages
+        const ReplaceOutcome refused = edit->replaceAllInDocument(bad);
+        QVERIFY2(!refused.ok,
+                 "an invalid scope must be refused at the pipeline boundary");
+        QVERIFY2(refused.message.contains(QStringLiteral("scope")),
+                 qPrintable(refused.message));
+        QVERIFY2(refused.applied == 0 && refused.requested == 0,
+                 "a refused scope must not even count, let alone replace");
+
+        QFile g(path);
+        QVERIFY(g.open(QIODevice::ReadOnly));
+        QCOMPARE(g.readAll(), before);   // ZERO mutation on bad input
+        g.close();
+
+        // Contrast: the same request with a valid scope DOES run the
+        // pipeline (proves the guard, not a broken pipeline, refused above).
+        ReplaceOptions good = bad;
+        good.scopeValid = true;
+        const ReplaceOutcome applied = edit->replaceAllInDocument(good);
+        QVERIFY2(applied.ok && applied.applied == 4,
+                 qPrintable(applied.message));
+        QFile h(path);
+        QVERIFY(h.open(QIODevice::ReadOnly));
+        QVERIFY2(h.readAll() != before,
+                 "the valid-scope control must actually mutate the document");
+        h.close();
+    }
+
+    // ── packa-F4: debounced recount, bounded matching primitive ──────────
+
+    // packa-F4: the dialog must not re-run the finder synchronously on every
+    // keystroke — the cheap affordances update immediately, the match count
+    // arrives once per pause through the debounce timer (fired here
+    // deterministically; no sleeps).
+    void recountIsDebouncedNotPerKeystroke() {
+        const QString path = createThreePagePdf(
+            m_tmpDir, QStringLiteral("debounce.pdf"));
+        QVERIFY2(!path.isEmpty(), "PDF creation failed");
+
+        FindReplaceDialog dlg;
+        dlg.setDocumentContext(path, 3, 1,
+            [](const ReplaceOptions&) { return ReplaceOutcome{}; });
+        auto* search = dlg.findChild<QLineEdit*>(QStringLiteral("frSearch"));
+        QVERIFY(search);
+        QVERIFY2(dlg.matchSummaryText().contains(QStringLiteral("Enter text")),
+                 qPrintable(dlg.matchSummaryText()));
+
+        auto* timer = dlg.findChild<QTimer*>(QStringLiteral("frRecountDebounce"));
+        QVERIFY2(timer, "packa-F4: the dialog must own a recount debounce timer");
+        QVERIFY2(timer->isSingleShot(), "the debounce timer must be single-shot");
+
+        search->setFocus();
+        QTest::keyClicks(search, QStringLiteral("alpha"));
+        QVERIFY2(timer->isActive(),
+                 "typing must arm the debounce timer");
+        QVERIFY2(dlg.matchSummaryText().contains(QStringLiteral("Enter text")),
+                 "typing must NOT synchronously re-run the finder (packa-F4)");
+
+        // Fire the timer deterministically instead of waiting it out.
+        QMetaObject::invokeMethod(timer, "timeout");
+        QVERIFY2(dlg.matchSummaryText().contains(QStringLiteral("4 match")),
+                 qPrintable(dlg.matchSummaryText()));
+    }
+
+    // packa-F4: the budget stops the scan at the real boundaries — between
+    // pages and between matches — deterministically (cancelled flag, and a
+    // zero deadline that fires before the first page since the job timer
+    // starts before the document load).
+    void matchBudgetStopsTheScanDeterministically() {
+        const QString path = createThreePagePdf(
+            m_tmpDir, QStringLiteral("budget.pdf"));
+        QVERIFY2(!path.isEmpty(), "PDF creation failed");
+        const QRegularExpression rx = TextMatchFinder::buildPattern(
+            QStringLiteral("alpha"), false, false, false);
+
+        // Default budget: normal complete result (existing behavior pinned).
+        QCOMPARE(TextMatchFinder::findMatches(path, {0, 1, 2}, rx).size(), 4);
+
+        // Pre-cancelled job: zero matches.
+        TextMatchFinder::MatchBudget cancelled;
+        cancelled.deadlineMs = 1000000;
+        cancelled.cancelled = true;
+        QCOMPARE(TextMatchFinder::findMatches(path, {0, 1, 2}, rx, &cancelled).size(), 0);
+
+        // Zero deadline: the job timer (started before the document load)
+        // is already past it when the first page is about to be scanned.
+        TextMatchFinder::MatchBudget zeroDeadline;
+        zeroDeadline.deadlineMs = 0;
+        QCOMPARE(TextMatchFinder::findMatches(path, {0, 1, 2}, rx, &zeroDeadline).size(), 0);
+    }
+
+    // packa-F4 adversarial fixture: catastrophic-backtracking pattern over a
+    // large page must RETURN (bounded by the input cap + PCRE2's internal
+    // match limit; the job budget then stops the scan). Hang guard: if the
+    // bound is lost this test hangs/fails on the generous 30s ceiling.
+    void adversarialRegexOnLargePageIsBounded() {
+        const QString path = createLargeXPagePdf(
+            m_tmpDir, QStringLiteral("adversarial.pdf"));
+        QVERIFY2(!path.isEmpty(), "PDF creation failed");
+
+        const QRegularExpression rx = TextMatchFinder::buildPattern(
+            QStringLiteral("(x+x+)+y"), true, false, true);
+        QVERIFY(rx.isValid());
+
+        QElapsedTimer guard;
+        guard.start();
+        const QList<TextMatch> matches = TextMatchFinder::findMatches(path, {0}, rx);
+        QCOMPARE(matches.size(), 0);   // no 'y' on the page: no match
+        QVERIFY2(guard.elapsed() < 30000,
+                 qPrintable(QStringLiteral("adversarial regex must stay bounded; "
+                                           "took %1 ms").arg(guard.elapsed())));
     }
 
 private:

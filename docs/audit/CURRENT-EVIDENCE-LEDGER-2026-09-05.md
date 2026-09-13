@@ -689,3 +689,13 @@ external captcha errors; this lane needs no network).
 Gate: full `ninja -C build-sep13 -j 2` no-op → full serial `ctest` from
 build-sep13 (`sep13-final-gate-ctest.txt`). Baseline proof at cb92aa0: the six
 touched suites green (`sep13-baseline-*.txt`). Handoff: `.context/sep13-wip.md`.
+
+## 2026-09-14 — PackA+R15 remediation lane (feat/parity-glm-packafix)
+
+| ID | Surface | Finding | Status | Fix | Test + revert-verify | Commit |
+|----|---------|---------|--------|-----|----------------------|--------|
+| packa-F1 | FindReplaceDialog/EditController | Invalid/empty Find&Replace range encoded as empty page list = whole-document replace | implemented-awaiting-review | invalid scope is its own state; Count/Replace disabled until valid; zero mutation at the boundary | TestFindReplace invalid-range slots (zero mutation) | 911b905 |
+| packa-F2 | TextMatchFinder | Match offsets are UTF-16 units but CharBox is per-codepoint — supplementary chars shifted excision/redraw geometry | implemented-awaiting-review | unitToChar translation list (UTF-16 offset → char index); fixtures: supplementary before/inside match, neighbor preservation, save+reopen | TestFindReplace supplementary slots; revert-verify = compile-floor (tests reference MatchBudget, fail to compile on prefix) | 88d5686 |
+| packa-F3 | EditController/SetOutlineCommand | Auto-bookmark initial outline written twice (controller commit + command redo) | implemented-awaiting-review | single-writer ownership of the initial write; first-apply/failure/undo/redo covered | TestAutoBookmarks slots | bee2c02 |
+| packa-F4 | TextMatchFinder/FindReplaceDialog | Match budget checked only BETWEEN matches — one long regex match stalled past deadline; dialog recounted synchronously per keystroke | implemented-awaiting-review | budget spans the WHOLE job (load + every page); dialog recount under the same budget with cancellation; honest bound documented at MatchBudget | TestFindReplace long-run fixture (F4); revert-verify compile-floor | 88d5686 |
+| r15-F1/F2/F3 | TestUiAccessibility | Keyboard tests asserted shortcut metadata + trigger() instead of delivering keys; CJK probe used UTF-8 byte escapes in a UTF-16 literal (mojibake); export-surface coverage overclaim | implemented-awaiting-review — coverage correction + coordinator-executed | QTest::keySequence delivery + QSignalSpy; fromUtf8 CJK literal; renamed to actual coverage | both scale variants green (11/11; 12/12 @ QT_SCALE_FACTOR=2) | 6b9f622 |
