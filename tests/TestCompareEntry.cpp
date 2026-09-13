@@ -790,11 +790,11 @@ private slots:
     // U04/R11 follow-up: a page inserted BETWEEN existing pages must reach
     // the tree, the add/remove filter gate and the reports as exactly ONE
     // structural addition at its true position — the surrounding pages stay
-    // matched (never a removed+added chain). Note the per-page token rows
-    // above the structural row still pair pages index-wise (pages[i] of the
-    // old document versus pages[i] of the new document), which is the
-    // documented residual limitation of the pages list; the structural
-    // sequence itself is fingerprint-aligned.
+    // matched (never a removed+added chain). R06 (PERF-01): the token rows
+    // consume the SAME alignment mapping as the structural sequence, so the
+    // unchanged matched pages produce NO false content rows — the tree holds
+    // exactly the one insertion row (pre-fix two spurious index-wise token
+    // rows accompanied it).
     void middleInsertionRendersSingleAddRowFilterGateAndReport()
     {
         const QString three = createPagePdf("mi_three.pdf",
@@ -809,12 +809,22 @@ private slots:
         QCOMPARE(r.pageChanges.size(), 1);
         QCOMPARE(r.pageChanges.first().type, DiffResult::PageChangeType::PageAdded);
         QCOMPARE(r.pageChanges.first().newPage, 1);
+        // No false content rows on the matched pages (R06).
+        QCOMPARE(r.pages.size(), 3);
+        for (const auto& pd : r.pages) {
+            QVERIFY(pd.textAdded.isEmpty() && pd.textRemoved.isEmpty()
+                    && pd.moves.isEmpty() && pd.pixelDiffCount == 0);
+        }
 
         gp::CompareMode mode;
         mode.showDiffResult(r);
 
         auto* tree = mode.findChild<QTreeWidget*>(QStringLiteral("cmpChangesTree"));
         QVERIFY(tree);
+
+        // R06: the ONLY row in the tree is the insertion — unchanged matched
+        // pages must not appear as token rows (pre-fix: 3 rows).
+        QCOMPARE(tree->topLevelItemCount(), 1);
 
         // Exactly one add/remove-tagged row: the insertion, at page 2
         // (1-based), named as living on the revised side.

@@ -7,18 +7,36 @@
 #include "engines/MyersDiff.h"
 
 struct PageDiff {
-    int         pageIndex      = 0;
+    int         pageIndex      = 0;   ///< legacy single position (doc1 side; kept for
+                                      ///< back-compat rows that predate the alignment)
+    int         oldPage        = -1;  ///< R06: 0-based index in doc1 (aligned pair; >= 0
+                                      ///< for every engine-produced row)
+    int         newPage        = -1;  ///< R06: 0-based index in doc2 (aligned pair; >= 0
+                                      ///< for every engine-produced row)
     QImage      diffImage;           ///< visual pixel-diff overlay
     QStringList textRemoved;         ///< tokens deleted (non-move deletes)
     QStringList textAdded;           ///< tokens inserted (non-move inserts)
     QList<MoveOperation> moves;      ///< tokens that moved position
     int         pixelDiffCount = 0;
+
+    /// R06: resolved sides. Rows produced by the engine always carry the
+    /// explicit old/new alignment; synthetic or back-compat rows that only
+    /// set the legacy single index compare i-to-i through the fallback.
+    int oldSide() const { return oldPage >= 0 ? oldPage : (newPage >= 0 ? -1 : pageIndex); }
+    int newSide() const { return newPage >= 0 ? newPage : (oldPage >= 0 ? -1 : pageIndex); }
 };
 
 struct DiffResult {
     bool isIdentical = false;
     int  pageCount1  = 0;
     int  pageCount2  = 0;
+    /// R06 (PERF-01): one row per two-sided page pair of THE alignment
+    /// mapping, in doc1 order — each row compares its old page with ITS
+    /// aligned new page (oldPage/newPage), never an index-wise neighbor, so
+    /// an inserted page never turns unchanged matched pages into false
+    /// content changes. Content comparison, navigation and the exported
+    /// reports all read this one mapping (plus pageChanges for the one-sided
+    /// remainder).
     QList<PageDiff> pages;
 
     /// A page from doc1 that appears at a different index in doc2 (reorder).

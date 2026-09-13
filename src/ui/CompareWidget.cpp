@@ -218,7 +218,10 @@ void CompareWidget::showOverlayForChange(int anchorIndex)
             const int target = anchor.newPage >= 0 ? anchor.newPage : anchor.oldPage;
             if (target >= 0) {
                 for (int j = 0; j < m_diffResult.pages.size(); ++j) {
-                    if (m_diffResult.pages.at(j).pageIndex == target) {
+                    // R06: match the row through the same aligned mapping —
+                    // a page pair whose old OR new side sits on the target.
+                    const PageDiff& p = m_diffResult.pages.at(j);
+                    if (p.newSide() == target || p.oldSide() == target) {
                         pageIdx = j;
                         break;
                     }
@@ -313,11 +316,20 @@ QString CompareWidget::buildHtml()
             continue;
 
         const QString aid = QString("chg%1").arg(m_anchors.size());
-        m_anchors.append({aid, page.pageIndex, page.pageIndex, -1, j});
+        // R06: page rows anchor on the SAME aligned old/new sides the engine
+        // mapped (a shifted pair navigates left→old, right→new exactly like a
+        // structural change does).
+        m_anchors.append({aid, page.oldSide(), page.newSide(), -1, j});
 
-        html += QString("<p><a name='%1'/><b style='color:#a8abb0'>Page %2</b></p>")
-                    .arg(aid)
-                    .arg(page.pageIndex + 1);
+        const int os = page.oldSide();
+        const int ns = page.newSide();
+        const QString heading = (os == ns)
+            ? QString("<p><a name='%1'/><b style='color:#a8abb0'>Page %2</b></p>")
+                  .arg(aid).arg(os + 1)
+            : QString("<p><a name='%1'/><b style='color:#a8abb0'>Page %2"
+                      " <span style='color:#71747a'>&#x2192;</span> %3</b></p>")
+                  .arg(aid).arg(os + 1).arg(ns + 1);
+        html += heading;
 
         // Moves (orange)
         for (const MoveOperation& mv : page.moves) {
