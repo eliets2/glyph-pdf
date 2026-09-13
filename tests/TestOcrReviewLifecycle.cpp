@@ -193,6 +193,48 @@ private slots:
         panel.onRunOcr();
         panel.notifyOcrFailed(blocker);
         QCOMPARE(panel.reviewState(), OCRMode::ReviewState::RecoverableError);
+    }
+
+    // ── ARC07 residual: read-only accept export refuses in-place, keeps Save-As
+    void ocrAcceptWriteBlockerPins()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString src = dir.filePath("ro-source.pdf");
+        QFile f(src);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n");
+        f.close();
+
+        // Read-only + the document itself (exact and case-alias): refused with
+        // the read-only wording and the Save-As guidance.
+        const QString blocker =
+            EditController::ocrAcceptWriteBlocker(true, src, src);
+        QVERIFY2(!blocker.isEmpty(), "in-place write on a read-only doc must be refused");
+        QVERIFY2(blocker.contains("read-only"), "refusal must carry the read-only reason");
+
+        const QString alias = dir.filePath("RO-SOURCE.PDF");
+        QVERIFY(!EditController::ocrAcceptWriteBlocker(true, src, alias).isEmpty());
+
+        // Read-only + a DIFFERENT destination: the Save-As route stays open.
+        QVERIFY(EditController::ocrAcceptWriteBlocker(
+                    true, src, dir.filePath("searchable-copy.pdf")).isEmpty());
+
+        // Not read-only + same path: allowed (the normal accept flow).
+        QVERIFY(EditController::ocrAcceptWriteBlocker(false, src, src).isEmpty());
+
+        // Empty paths never produce a false refusal.
+        QVERIFY(EditController::ocrAcceptWriteBlocker(true, QString(), QString()).isEmpty());
+    }
+
+    // ── Not read-only: the retryable panel keeps its Run enabled ─────────────
+    void retryablePanelKeepsRunEnabled()
+    {
+        OCRMode panel;
+        panel.onRunOcr();
+        panel.notifyOcrFailed(EditController::ocrDispatchBlocker(QString(), -1));
+        panel.notifyOcrFailed(QStringLiteral("boom"));
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::RecoverableError);
         QVERIFY(runButton(panel)->isEnabled());
         QVERIFY(!acceptButton(panel)->isEnabled());
     }
