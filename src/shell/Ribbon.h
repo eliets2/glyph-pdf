@@ -7,8 +7,10 @@ class QTabBar;
 class QStackedWidget;
 class QToolButton;
 class QLabel;
+class QAction;
 
 namespace gp {
+class ToolRegistry;
 
 // Ribbon = QTabBar on top + a swap-on-tab QStackedWidget body of tool groups.
 // U02: the ribbon is collapsible (Microsoft Fluent contract — tabs stay
@@ -36,6 +38,15 @@ public:
     int bodyHeight() const;             // 0 while collapsed
     QString collapsedLabel() const;
 
+    // ── R15: canonical command binding (UI02) ──
+    // Give the ribbon the ONE enablement authority. Every non-planned button
+    // resolves its ToolId through the registry's canonical QAction and mirrors
+    // `enabledChanged`, so ribbon enablement is the same predicate that gates
+    // dispatch (EditPolicy via the owning controller). Planned entries stay
+    // disabled with their reason + alternative disclosure. Called once after
+    // the controllers are registered; buttons built later bind at build time.
+    void setToolRegistry(ToolRegistry* registry);
+
 signals:
     void toolActivated(const QString& toolId);
     void tabChanged(const QString& tabName);
@@ -48,6 +59,12 @@ private:
     QWidget* buildBody(int tabIdx);
     QToolButton* makeTool(const QString& id, const QString& label,
                           const QString& icon, bool big);
+    // R15: if the id is planned, leave the button visible but disabled and
+    // attach its reason + alternative disclosure (tooltip, status tip and
+    // accessible description — never tooltip-only). Returns true when planned.
+    bool applyPlannedState(QToolButton* btn, const QString& id);
+    // R15: mirror the canonical registry action's enablement onto the button.
+    void bindButtonToRegistry(QToolButton* btn, const QString& id);
     int tabIndexFor(const QString& tabName) const;
 
     QTabBar*        _tabs       = nullptr;
@@ -59,6 +76,8 @@ private:
     bool            _raiseInProgress = false;   // raiseTab() → currentChanged guard
     // tool-id -> QToolButton* (cached across all built tabs) for active-state updates
     QHash<QString, QToolButton*> _buttons;
+    // R15: the canonical enablement authority (null until setToolRegistry).
+    ToolRegistry*   _registry   = nullptr;
 };
 
 } // namespace gp

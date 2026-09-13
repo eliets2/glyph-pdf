@@ -29,6 +29,7 @@
 #include "shell/controllers/ConvertController.h"
 #include "shell/controllers/FormsController.h"
 #include "shell/controllers/SecurityController.h"
+#include "shell/controllers/TaskNavController.h"   // R15: task-surface routes
 
 #include "ui/PdfViewerWidget.h"
 #include "ui/ThumbnailSidebar.h"
@@ -181,6 +182,19 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
     _toolRegistry->registerController(_convert);
     _toolRegistry->registerController(_forms);
     _toolRegistry->registerController(_security);
+    // R15: the promoted task-surface entries (measure/panes/batch/…) resolve
+    // through the same registry so enablement and dispatch stay one seam.
+    _taskNavCtrl = new TaskNavController(_ctx, this, this);
+    _toolRegistry->registerController(_taskNavCtrl);
+
+    // R15 (UI02): the ribbon binds to the ONE enablement predicate — every
+    // non-planned button mirrors the canonical QAction, which re-queries the
+    // owning controller (EditPolicy) on every session change. Planned entries
+    // stay visibly disabled with their reason + alternative.
+    _ribbon->setToolRegistry(_toolRegistry);
+    // R15: menu items that dispatch through the registry mirror the same
+    // canonical enablement (menu/ribbon/shortcut share one command state).
+    _menu->bindToolRegistry(_toolRegistry);
 
     // Engine-lane residual (step-2 ledger note, EC01 follow-up): same-path
     // engine writes failed "Access is denied" at the SafeSave commit while the
@@ -667,6 +681,20 @@ void MainWindow::showWelcome() {
 void MainWindow::showWorkspace() {
     if (_rootStack && _rootStack->count() > 1)
         _rootStack->setCurrentIndex(1);   // index 1 == workspace host
+}
+
+// R15: the View-panes entries land on the sidebar pane that owns the feature
+// (thumbnails/bookmarks/comments on the left; layers on the right). The pane
+// switch is the real effect — no parallel widget path.
+void MainWindow::showSidebarPane(const QString& pane)
+{
+    if (pane == QLatin1String("pages")
+        || pane == QLatin1String("bookmarks")
+        || pane == QLatin1String("comments")) {
+        if (_left) _left->showPane(pane);
+    } else if (pane == QLatin1String("layers")) {
+        if (_right) _right->showPane(pane);
+    }
 }
 
 void MainWindow::openDocument(const QString& filePath) {

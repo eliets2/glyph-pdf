@@ -865,6 +865,7 @@ add_library(pdfws_ui STATIC
     src/shell/controllers/ConvertController.h src/shell/controllers/ConvertController.cpp
     src/shell/controllers/FormsController.h  src/shell/controllers/FormsController.cpp
     src/shell/controllers/SecurityController.h src/shell/controllers/SecurityController.cpp
+    src/shell/controllers/TaskNavController.h src/shell/controllers/TaskNavController.cpp
     src/util/GpTheme.h
     # D-07 fix: OCR sources removed from pdfws_ui — they are compiled once in
     # pdfws_engines (lines above) and exposed to pdfws_ui via the PRIVATE link.
@@ -1960,6 +1961,37 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestMenuBarIntegrity.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
         LABELS "unit;menubar;integrity;ui;qt;headless"
+    )
+endif()
+
+# ── TestCommandBinding (R15 2026-09-13: canonical command binding) ──────────
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCommandBinding.cpp")
+    add_executable(TestCommandBinding
+        tests/TestCommandBinding.cpp
+        src/app/Bootstrapper.h  src/app/Bootstrapper.cpp
+    )
+    target_include_directories(TestCommandBinding PRIVATE src tests)
+    target_compile_definitions(TestCommandBinding PRIVATE
+        DJOT_LIB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/third_party/djot"
+    )
+    target_link_libraries(TestCommandBinding PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestCommandBinding POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestCommandBinding>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestCommandBinding>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestCommandBinding"
+    )
+    add_test(NAME TestCommandBinding COMMAND TestCommandBinding)
+    set_tests_properties(TestCommandBinding PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 240
+        LABELS "unit;ui;ribbon;menubar;binding;r15;qt;headless"
     )
 endif()
 

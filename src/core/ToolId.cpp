@@ -139,6 +139,19 @@ QString toolIdToString(ToolId id) {
         { ToolId::StampLibraryManage, QStringLiteral("stamp-library") },
         // T2-9: auto-bookmarks from text styles
         { ToolId::AutoBookmarks,  QStringLiteral("auto-bookmarks") },
+        // R15: promoted planned entries
+        { ToolId::FindReplace,    QStringLiteral("findReplace") },
+        { ToolId::Measure,        QStringLiteral("measure") },
+        { ToolId::MeasureDistance,QStringLiteral("distance") },
+        { ToolId::MeasureArea,    QStringLiteral("area") },
+        { ToolId::OcrVerify,      QStringLiteral("ocrVerify") },
+        { ToolId::OcrLanguage,    QStringLiteral("ocrLang") },
+        { ToolId::PanePages,      QStringLiteral("thumbs") },
+        { ToolId::PaneBookmarks,  QStringLiteral("bookmarks") },
+        { ToolId::PaneComments,   QStringLiteral("comments") },
+        { ToolId::PaneLayers,     QStringLiteral("layers") },
+        { ToolId::BatchConvert,   QStringLiteral("batchConv") },
+        { ToolId::WatchFolder,    QStringLiteral("watch") },
     };
     return map.value(id, QStringLiteral("unknown"));
 }
@@ -245,7 +258,7 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         add(ToolId::ToText,         {"toText", "to-text", "totext"});
         add(ToolId::ToPPT,          {"toPPT", "to-ppt", "toppt", "powerpoint"});
         add(ToolId::ToImage,        {"toImage", "to-image", "toimage"});
-        add(ToolId::Compress,       {"compress"});
+        add(ToolId::Compress,       {"compress", "reduce"});
         add(ToolId::Linearize,      {"linearize"});
         add(ToolId::PdfA,           {"pdfA", "pdfa"});
         add(ToolId::ImportOffice,   {"importOffice", "import-office", "officeToPdf", "fromFile"});
@@ -259,7 +272,7 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         add(ToolId::CreateForm,     {"createForm", "createform"});
         add(ToolId::ListBox,        {"listbox"});
         add(ToolId::Button,         {"button"});
-        add(ToolId::CalcField,      {"calcField", "calcfield", "calc-field", "calculatedField"});
+        add(ToolId::CalcField,      {"calcField", "calcfield", "calc-field", "calculatedField", "calc"});
         add(ToolId::DateField,      {"dateField", "datefield", "date-field"});
         add(ToolId::NumField,       {"numField", "numfield", "num-field"});
         add(ToolId::SigField,       {"sigField", "sigfield", "signature-field", "signaturefield"});
@@ -294,6 +307,20 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         add(ToolId::StampLibraryManage, {"stamp-library", "stamplibrary", "stampLibrary", "custom-stamp", "customstamp", "customStamp"});
         // T2-9: auto-bookmarks from text styles
         add(ToolId::AutoBookmarks, {"auto-bookmarks", "autobookmarks", "autoBookmarks", "bookmarks-from-text"});
+
+        // ── R15: promoted planned entries ──
+        add(ToolId::FindReplace,    {"findReplace", "find-replace", "findrep", "findRep", "regex"});
+        add(ToolId::Measure,        {"measure", "measurePanel", "measure-panel"});
+        add(ToolId::MeasureDistance, {"distance", "measure-dist", "measureDist", "measureDistance"});
+        add(ToolId::MeasureArea,    {"area", "measure-area", "measureArea"});
+        add(ToolId::OcrVerify,      {"ocrVerify", "ocr-verify", "ocrVerifyText"});
+        add(ToolId::OcrLanguage,    {"ocrLang", "ocr-language"});
+        add(ToolId::PanePages,      {"thumbs", "thumbnails", "panePages"});
+        add(ToolId::PaneBookmarks,  {"bookmarks", "paneBookmarks"});
+        add(ToolId::PaneComments,   {"comments", "paneComments"});
+        add(ToolId::PaneLayers,     {"layers", "paneLayers"});
+        add(ToolId::BatchConvert,   {"batchConv", "batch-convert", "batch"});
+        add(ToolId::WatchFolder,    {"watch", "watchFolder", "hotFolder"});
 
         return m;
     }();

@@ -152,6 +152,24 @@ enum class ToolId {
     // ── T2-9: auto-bookmarks from text styles ──
     AutoBookmarks,
 
+    // ── R15: promoted planned entries (canonical command identity) ──
+    // Appended AFTER AutoBookmarks so existing ToolId ordinals stay stable
+    // (same append-only rule as the stamp ids above). These ids give the
+    // formerly hidden ribbon entries ONE canonical dispatch/enablement
+    // identity through ToolRegistry + TaskNav.
+    FindReplace,       // T2-2 dialog route (ribbon "findRep" / "regex")
+    Measure,           // T1 measure task panel (ribbon "measure")
+    MeasureDistance,   // ribbon "distance"
+    MeasureArea,       // ribbon "area"
+    OcrVerify,         // OCR Verify screen (ribbon "ocrVerify")
+    OcrLanguage,       // OCR Verify screen language selection (ribbon "ocrLang")
+    PanePages,         // View ▸ Panes: thumbnails (ribbon "thumbs")
+    PaneBookmarks,     // View ▸ Panes: bookmarks panel
+    PaneComments,      // View ▸ Panes: comments review list
+    PaneLayers,        // View ▸ Panes: OCG layer list
+    BatchConvert,      // Batch workspace (ribbon "batchConv")
+    WatchFolder,       // Batch hot-folder section (ribbon "watch")
+
     COUNT  // sentinel for array sizing — must be last
 };
 

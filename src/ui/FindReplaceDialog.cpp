@@ -18,6 +18,7 @@
 FindReplaceDialog::FindReplaceDialog(QWidget* parent)
     : QDialog(parent)
 {
+    setObjectName(QStringLiteral("findReplaceDialog"));   // R15: test seam
     setWindowTitle(tr("Find & Replace"));
     setModal(false);
 
