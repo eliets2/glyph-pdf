@@ -2,6 +2,7 @@
 #include "Bootstrapper.h"
 #include "core/AppContext.h"
 #include "core/Capability.h"
+#include "core/FormStaleFieldTracker.h"
 
 #include "engines/scheduling/LaneScheduler.h"
 #include "engines/OcrEngine.h"
@@ -57,6 +58,9 @@ AppContext Bootstrapper::createContext() {
     // invalidate after environment changes ("Download LibreOffice…", prefs).
     ctx.capabilities = std::make_shared<gp::CapabilityRegistry>();
     ctx.capabilities->registerEngineProbes();
+
+    // R18(a): the persistent stale-calculated-field disclosure store.
+    ctx.formStale = std::make_shared<gp::FormStaleFieldTracker>();
 
     return ctx;
 }

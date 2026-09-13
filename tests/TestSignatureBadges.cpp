@@ -23,6 +23,8 @@
 #include <QImage>
 #include <QLabel>
 #include <QScrollBar>
+#include <QSettings>
+#include <QTemporaryDir>
 
 #include "ui/PdfViewerWidget.h"
 #include "modes/SignaturesPanel.h"
@@ -560,6 +562,121 @@ private slots:
         const SignatureOutcomeDetail d = mock.lastSignOutcomeDetail();
         QVERIFY2(!d.dssMissing && !d.docTimestampMissing,
                  "the default detail must report no missing pieces");
+    }
+
+    // ── R19(a–c): settings-driven signing configuration — pure pins ──────────
+
+    // R19c: the attained-level label names the HIGHEST standard level whose
+    // required pieces are all present given the outcome detail.
+    void attainedLevelLabelPins() {
+        SignatureOutcomeDetail clean;
+        using L = PAdESLevel;
+        QCOMPARE(gp::SecurityController::attainedLevelLabel(L::B_B, clean), QStringLiteral("B-B"));
+        QCOMPARE(gp::SecurityController::attainedLevelLabel(L::B_T, clean), QStringLiteral("B-T"));
+        QCOMPARE(gp::SecurityController::attainedLevelLabel(L::B_LT, clean), QStringLiteral("B-LT"));
+        QCOMPARE(gp::SecurityController::attainedLevelLabel(L::B_LTA, clean), QStringLiteral("B-LTA"));
+
+        SignatureOutcomeDetail docTsMissing;
+        docTsMissing.docTimestampMissing = true;
+        // The handoff's example: requested B_LTA with a missing archive
+        // timestamp attests B-LT, never a silent claim of the full level.
+        QCOMPARE(gp::SecurityController::attainedLevelLabel(L::B_LTA, docTsMissing),
+                 QStringLiteral("B-LT"));
+
+        SignatureOutcomeDetail dssMissing;
+        dssMissing.dssMissing = true;
+        QCOMPARE(gp::SecurityController::attainedLevelLabel(L::B_LTA, dssMissing),
+                 QStringLiteral("B-T"));
+        QCOMPARE(gp::SecurityController::attainedLevelLabel(L::B_LT, dssMissing),
+                 QStringLiteral("B-T"));
+
+        SignatureOutcomeDetail both;
+        both.dssMissing = true;
+        both.docTimestampMissing = true;
+        QCOMPARE(gp::SecurityController::attainedLevelLabel(L::B_LTA, both),
+                 QStringLiteral("B-T"));
+    }
+
+    // R19a: the stored combo value maps to the engine level; unknown values
+    // fall to B-B — the only honest level without a TSA.
+    void padesLevelFromSettingPins() {
+        using L = PAdESLevel;
+        QCOMPARE(gp::SecurityController::padesLevelFromSetting(QStringLiteral("B-B")), L::B_B);
+        QCOMPARE(gp::SecurityController::padesLevelFromSetting(QStringLiteral("B-T")), L::B_T);
+        QCOMPARE(gp::SecurityController::padesLevelFromSetting(QStringLiteral("B-LT")), L::B_LT);
+        QCOMPARE(gp::SecurityController::padesLevelFromSetting(QStringLiteral("B-LTA")), L::B_LTA);
+        QCOMPARE(gp::SecurityController::padesLevelFromSetting(QStringLiteral("garbage")), L::B_B);
+        QCOMPARE(gp::SecurityController::padesLevelFromSetting(QString()), L::B_B);
+    }
+
+    // R19a: readSigningConfig reads the two documented keys from an INI
+    // settings file (temp dir — the developer's real settings are untouched).
+    void readSigningConfigReadsTheDocumentedKeys() {
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        QSettings ini(tmp.filePath("settings.ini"), QSettings::IniFormat);
+        ini.setValue(QStringLiteral("signing/tsaUrl"), QStringLiteral(" https://ts.example.com "));
+        ini.setValue(QStringLiteral("signing/padesLevel"), QStringLiteral("B-LTA"));
+        ini.sync();
+        const auto cfg = gp::SecurityController::readSigningConfig(&ini);
+        QCOMPARE(cfg.tsaUrl, QStringLiteral("https://ts.example.com")); // trimmed
+        QCOMPARE(cfg.level, PAdESLevel::B_LTA);
+
+        QSettings empty(tmp.filePath("empty.ini"), QSettings::IniFormat);
+        const auto defaults = gp::SecurityController::readSigningConfig(&empty);
+        QVERIFY2(defaults.tsaUrl.isEmpty(), "an unconfigured TSA URL stays empty");
+        QCOMPARE(defaults.level, PAdESLevel::B_B);
+    }
+
+    // R19b: the honest pre-flight — a level above B-B with no TSA URL is
+    // refused BEFORE any attempt with the exact reason (the engine would
+    // silently downgrade it to B-B while reporting Success).
+    void signingPreflightRefusalPins() {
+        using L = PAdESLevel;
+        // B-B needs no TSA — never refused.
+        QVERIFY(gp::SecurityController::signingPreflightRefusal(L::B_B, QString()).isEmpty());
+        // A configured TSA never refuses the pre-flight (reachability is the
+        // engine's honest failure to disclose, not a pre-flight matter).
+        QVERIFY(gp::SecurityController::signingPreflightRefusal(L::B_LTA,
+                                                                QStringLiteral("http://ts.example.com")).isEmpty());
+        // Every level above B-B without a TSA: refused, naming what is
+        // missing and where to set it.
+        for (const L level : { L::B_T, L::B_LT, L::B_LTA }) {
+            const QString refusal = gp::SecurityController::signingPreflightRefusal(level, QString());
+            QVERIFY2(!refusal.isEmpty(),
+                     "a level above B-B without a TSA URL must be refused");
+            QVERIFY2(refusal.contains(QStringLiteral("TSA")),
+                     "the refusal names what is missing (the timestamp authority)");
+            QVERIFY2(refusal.contains(QStringLiteral("Preferences")),
+                     "the refusal says where to set it");
+            QVERIFY2(refusal.contains(QStringLiteral("No signature was attempted")),
+                     "the refusal is honest that nothing was attempted");
+        }
+        // The document-timestamp flow ALWAYS needs a TSA — even at B-B.
+        QVERIFY2(!gp::SecurityController::signingPreflightRefusal(L::B_B, QString(),
+                                                                  /*forTimestamp=*/true).isEmpty(),
+                 "timestamping without a TSA is refused before any attempt");
+        QVERIFY2(gp::SecurityController::signingPreflightRefusal(L::B_B,
+                                                                 QStringLiteral("http://127.0.0.1:9/"),
+                                                                 true).isEmpty(),
+                 "a configured TSA passes the pre-flight (the refusal names it on failure instead)");
+    }
+
+    // R19c: the degradation warning carries the ATTAINED level.
+    void signingOutcomeWarningCarriesTheAttainedLevel() {
+        SignatureOutcomeDetail docTsMissing;
+        docTsMissing.docTimestampMissing = true;
+        const QString text = gp::SecurityController::buildSigningOutcomeWarning(
+            SignOutcome::PartialLtvMissing, QStringLiteral("out.pdf"), docTsMissing, false,
+            PAdESLevel::B_LTA);
+        QVERIFY2(text.contains(QStringLiteral("attained PAdES B-LT")),
+                 qPrintable(QStringLiteral("a requested B-LTA whose archive timestamp failed "
+                                          "must attest B-LT — got: %1").arg(text)));
+        QVERIFY2(text.contains(QStringLiteral("archive timestamp (B-LTA)")),
+                 "the wording still names exactly which piece is missing");
+
+        // A fully-successful B-LTA keeps its full label in the Success STATUS
+        // (attainedLevelLabel(B_LTA, clean) == "B-LTA" — pinned above).
     }
 
 };

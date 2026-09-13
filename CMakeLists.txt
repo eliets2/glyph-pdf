@@ -377,6 +377,7 @@ add_library(pdfws_engines STATIC
     src/core/ErrorInfo.h             src/core/ErrorInfo.cpp
     src/core/PageLabels.h            src/core/PageLabels.cpp
     src/core/Capability.h            src/core/Capability.cpp
+    src/core/FormStaleFieldTracker.h src/core/FormStaleFieldTracker.cpp
     src/core/TempFileManager.h       src/core/TempFileManager.cpp
     src/core/CredentialManager.h     src/core/CredentialManager.cpp
     src/core/ISecretStore.h
@@ -588,6 +589,64 @@ endif()
 if(TARGET qjs)
     target_link_libraries(pdfws_engines PUBLIC qjs)
     target_compile_definitions(pdfws_engines PUBLIC HAS_QUICKJS)
+
+    # R18(c): the exact quickjs-ng version is an ENFORCED PIN, not a comment
+    # (PERFORMANCE-AND-SCRIPT-REVIEW-2026-09-10: "Comments and an unversioned
+    # find_package(qjs) are not an enforced dependency pin"). The sandbox and
+    # AF-shim goldens (tests/TestFormJsCalc.cpp) pin the scripting semantics of
+    # the authorized package (ledger rows 2026-09-10 form-JS Phase 1 and
+    # 2026-09-13 R18: user-authorized Option A, MSYS2
+    # mingw-w64-ucrt-x86_64-quickjs-ng 0.15.0-1, MIT, runtime DLL
+    # libqjs-0.dll sha256 dd3100904db03feaadf63a231c868286ab9c69053820ab4e3037022dd9573a4c);
+    # an unreviewed runtime bump silently changes those semantics. The check
+    # parses the version the LINKED headers advertise (quickjs.h QJS_VERSION_*)
+    # and hard-fails on mismatch. The deliberate-upgrade path: bump
+    # GLYPHPDF_QUICKJS_PIN, re-run the goldens, record the new package/runtime
+    # hash + re-authorization in the ledger.
+    set(GLYPHPDF_QUICKJS_PIN "0.15.0" CACHE STRING
+        "Enforced quickjs-ng version pin (R18c); upgrade deliberately, see ledger")
+    get_target_property(_qjs_inc_dirs qjs INTERFACE_INCLUDE_DIRECTORIES)
+    set(_qjs_version_header "")
+    foreach(_dir ${_qjs_inc_dirs})
+        if(EXISTS "${_dir}/quickjs.h")
+            set(_qjs_version_header "${_dir}/quickjs.h")
+            break()
+        endif()
+    endforeach()
+    if(NOT _qjs_version_header)
+        message(FATAL_ERROR
+            "quickjs-ng pin check: quickjs.h not found under ${_qjs_inc_dirs} — refusing to link an unverifiable scripting runtime")
+    endif()
+    file(STRINGS "${_qjs_version_header}" _qjs_ver_lines
+        REGEX "^#define QJS_VERSION_(MAJOR|MINOR|PATCH|SUFFIX)")
+    set(_qjs_found "")
+    foreach(_line IN LISTS _qjs_ver_lines)
+        if(_line MATCHES "#define QJS_VERSION_MAJOR ([0-9]+)")
+            string(APPEND _qjs_found "${CMAKE_MATCH_1}")
+        elseif(_line MATCHES "#define QJS_VERSION_MINOR ([0-9]+)")
+            string(APPEND _qjs_found ".${CMAKE_MATCH_1}")
+        elseif(_line MATCHES "#define QJS_VERSION_PATCH ([0-9]+)")
+            string(APPEND _qjs_found ".${CMAKE_MATCH_1}")
+        elseif(_line MATCHES "#define QJS_VERSION_SUFFIX \"?([^\"]*)\"?")
+            string(APPEND _qjs_found "${CMAKE_MATCH_1}")
+        endif()
+    endforeach()
+    if(NOT _qjs_found)
+        message(FATAL_ERROR
+            "quickjs-ng pin check: could not parse QJS_VERSION_* from ${_qjs_version_header} — refusing to link an unpinned scripting runtime")
+    endif()
+    if(NOT _qjs_found STREQUAL GLYPHPDF_QUICKJS_PIN)
+        message(FATAL_ERROR
+            "quickjs-ng version pin violated: the linked headers advertise ${_qjs_found}, the enforced pin is ${GLYPHPDF_QUICKJS_PIN}. "
+            "Authorized package: mingw-w64-ucrt-x86_64-quickjs-ng 0.15.0-1 (ledger 2026-09-10/2026-09-13). "
+            "A runtime bump changes the scripting semantics the AF-shim goldens pin — upgrade deliberately: "
+            "bump GLYPHPDF_QUICKJS_PIN, re-run the golden tests, record the new package/runtime hash in the ledger.")
+    endif()
+    # Attribution: the engine version is compiled in so the CapabilityRegistry
+    # disclosure and diagnostics name exactly what is linked.
+    target_compile_definitions(pdfws_engines PUBLIC GLYPHPDF_QUICKJS_VERSION="${_qjs_found}")
+    message(STATUS "quickjs-ng version pin satisfied: ${_qjs_found} (enforced, R18c)")
+
     # L05: the runtime-DLL staging path is a Windows concept; on Linux the
     # system libqjs resolves at link time, so no runtime artifact is tracked.
     if(WIN32)
@@ -1396,7 +1455,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignatureRealCrypto.cpp")
         target_compile_definitions(TestSignatureRealCrypto PRIVATE GLYPH_TESTING=1)
     endif()
     target_link_libraries(TestSignatureRealCrypto PRIVATE
-        pdfws_engines pdfws_core
+        pdfws_ui pdfws_engines pdfws_core
         OpenSSL::SSL OpenSSL::Crypto
         Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets podofo::podofo
     )
@@ -3564,6 +3623,43 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormJsCalc.cpp")
     endif()
     add_test(NAME TestFormJsCalc COMMAND TestFormJsCalc)
     set_tests_properties(TestFormJsCalc PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 240 LABELS "unit;forms;form-js;javascript;persistence;qt;headless")
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormStaleDisclosure.cpp")
+    add_executable(TestFormStaleDisclosure
+        tests/TestFormStaleDisclosure.cpp
+    )
+    target_include_directories(TestFormStaleDisclosure PRIVATE src tests)
+    target_link_libraries(TestFormStaleDisclosure PRIVATE
+        pdfws_engines pdfws_core pdfws_commands pdfws_ui podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET TestFormStaleDisclosure POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestFormStaleDisclosure>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestFormStaleDisclosure>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFormStaleDisclosure"
+    )
+    if(WIN32)
+        add_custom_command(TARGET TestFormStaleDisclosure POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestFormStaleDisclosure>/libpodofo.dll"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestFormStaleDisclosure"
+        )
+    endif()
+    if(QUICKJS_RUNTIME_DLL AND EXISTS "${QUICKJS_RUNTIME_DLL}")
+        add_custom_command(TARGET TestFormStaleDisclosure POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${QUICKJS_RUNTIME_DLL}"
+                "$<TARGET_FILE_DIR:TestFormStaleDisclosure>"
+            COMMENT "Deploying quickjs-ng runtime DLL for TestFormStaleDisclosure"
+        )
+    endif()
+    add_test(NAME TestFormStaleDisclosure COMMAND TestFormStaleDisclosure)
+    set_tests_properties(TestFormStaleDisclosure PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 240 LABELS "unit;forms;form-js;persistence;qt;headless")
 endif()
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEngineSave.cpp")

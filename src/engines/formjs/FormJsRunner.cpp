@@ -231,12 +231,39 @@ CascadeReport FormJsRunner::runCalculateCascade(PoDoFo::PdfMemDocument& doc,
         const size_t coSize = coOrder.size();
         size_t guard = coSize * 2 + 8;
 
+        // R18(a): a failure BEFORE the first field ran (sandbox unavailable,
+        // shim or snapshot install refused) leaves EVERY calculated field at
+        // its committed value — the same honest "skipped" disclosure an
+        // aborted cascade produces, so the stale-field warning surface names
+        // them all instead of only reporting an anonymous engine error.
+        const auto discloseAllUnreached = [&]() {
+            std::set<std::string> disclosed;
+            for (const auto& ref : coOrder) {
+                const std::string key = ref.ToString();
+                if (!disclosed.insert(key).second) continue;
+                const auto it = byRef.find(key);
+                if (it == byRef.end()) continue;
+                PoDoFo::PdfField* field = it->second;
+                QString skippedScript;
+                if (!extractActionScript(*field, 'C', &skippedScript, nullptr))
+                    continue; // no runnable calculate action — nothing to disclose
+                FieldJsFailure f;
+                f.fieldName = QString::fromStdString(field->GetFullName());
+                f.kind = QStringLiteral("skipped");
+                f.reason = QStringLiteral("the calculate cascade could not start; this field was "
+                                          "not recalculated and its stored value may be stale "
+                                          "(see the preceding failure for the reason)");
+                report.failures.append(f);
+            }
+        };
+
         FormJsSandbox sandbox;
         if (!sandbox.isValid()) {
             FieldJsFailure f;
             f.kind = QStringLiteral("engine");
             f.reason = QStringLiteral("quickjs runtime is unavailable in this build");
             report.failures.append(f);
+            discloseAllUnreached();
             report.engineAborted = true;
             return report;
         }
@@ -246,6 +273,7 @@ CascadeReport FormJsRunner::runCalculateCascade(PoDoFo::PdfMemDocument& doc,
             f.kind = QStringLiteral("engine");
             f.reason = shimError;
             report.failures.append(f);
+            discloseAllUnreached();
             report.engineAborted = true;
             return report;
         }
@@ -259,6 +287,7 @@ CascadeReport FormJsRunner::runCalculateCascade(PoDoFo::PdfMemDocument& doc,
             f.reason = QStringLiteral("the form value snapshot could not be installed; no field was calculated: %1")
                            .arg(snapshotError);
             report.failures.append(f);
+            discloseAllUnreached();
             report.engineAborted = true;
             return report;
         }
@@ -281,7 +310,8 @@ CascadeReport FormJsRunner::runCalculateCascade(PoDoFo::PdfMemDocument& doc,
             QString why;
             if (!extractActionScript(*field, 'C', &script, &why)) {
                 // A /CO entry without a runnable calculate action is ordinary
-                // (setTabOrder also appends non-calculated fields) — skip.
+                // (third-party authors may list non-calculated fields in the
+                // calculation order) — skip.
                 Q_UNUSED(why);
                 continue;
             }
@@ -408,6 +438,88 @@ CascadeReport FormJsRunner::runCalculateCascade(PoDoFo::PdfMemDocument& doc,
         report.engineAborted = true;
     }
     return report;
+}
+
+// ── P2 (R18f): Validate /AA /V ───────────────────────────────────────────────
+
+FormJsRunner::ValidateOutcome FormJsRunner::runValidateEvent(PoDoFo::PdfMemDocument& doc,
+                                                             const QString& name,
+                                                             const QString& proposedValue,
+                                                             int eventDeadlineMs)
+{
+    ValidateOutcome out;
+    if (!executionEnabledFlag())
+        return out; // no engine: nothing validates; the CapabilityRegistry discloses
+
+    // Locate the field (first full-name match — the same policy as
+    // writeFieldValue). Phase-2 scope: TextBox, the only type a Phase-1/2
+    // script event can honestly read and write back.
+    PoDoFo::PdfField* target = nullptr;
+    try {
+        auto* acroForm = doc.GetAcroForm();
+        if (!acroForm) return out;
+        for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
+            auto& field = acroForm->GetFieldAt(i);
+            if (QString::fromStdString(field.GetFullName()) == name) {
+                target = &field;
+                break;
+            }
+        }
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "FormJsRunner::runValidateEvent:" << e.what();
+        return out;
+    }
+    if (!target || target->GetType() != PoDoFo::PdfFieldType::TextBox)
+        return out;
+
+    QString script;
+    QString why;
+    if (!extractActionScript(*target, 'V', &script, &why)) {
+        Q_UNUSED(why);
+        return out; // no /AA /V — ordinary field, nothing validates
+    }
+    out.ran = true;
+
+    FormJsSandbox sandbox;
+    if (!sandbox.isValid() || !sandbox.installShim(nullptr)) {
+        out.allowed = false;
+        out.failure = FieldJsFailure{ name, QStringLiteral("engine"),
+                                      QStringLiteral("quickjs runtime is unavailable in this build") };
+        return out;
+    }
+    // R05/JS-01: the snapshot install is an engine entry; without it the
+    // validate script would silently compute on missing values.
+    QString snapshotError;
+    if (!sandbox.setFieldValues(collectFieldValues(doc), &snapshotError)) {
+        out.allowed = false;
+        out.failure = FieldJsFailure{ name, QStringLiteral("engine"),
+                                      QStringLiteral("the form value snapshot could not be installed: %1")
+                                          .arg(snapshotError) };
+        return out;
+    }
+
+    // event.value = the PROPOSED value; the whole operation runs under the
+    // caller's budget (the fill transaction's caller-owned deadline shape).
+    const JsEvalResult r = sandbox.runEvent(script, name, QStringLiteral("Validate"),
+                                            proposedValue, eventDeadlineMs);
+    if (!r.ok) {
+        out.allowed = false;
+        // Fail closed: ANY script failure refuses the change (a partially
+        // validated value must never commit). The field keeps its /V.
+        out.failure = FieldJsFailure{ name, QLatin1String(kindString(r.kind)), r.message };
+        return out;
+    }
+    if (!r.rc) {
+        out.allowed = false;
+        out.failure = FieldJsFailure{ name, QStringLiteral("rejected"),
+                                      QStringLiteral("the field's Validate script set event.rc = false; "
+                                                     "the value was not committed") };
+        return out;
+    }
+    // Acrobat semantics: a Validate script may TRANSFORM event.value.
+    out.valueToCommit = r.hasValue ? r.value : proposedValue;
+    out.allowed = true;
+    return out;
 }
 
 // ── Format (display-only) ────────────────────────────────────────────────────
