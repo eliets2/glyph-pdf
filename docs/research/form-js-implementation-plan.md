@@ -398,6 +398,44 @@ else — an unversioned `find_package(qjs)` is not a pin):
 | Attribution | `LICENSE-3RD-PARTY.md` quickjs-ng row; CapabilityRegistry FormJavaScript disclosure carries the linked version (`GLYPHPDF_QUICKJS_VERSION` compile definition); AF shim attribution (pdf.js, Apache-2.0, © Mozilla) in `src/engines/formjs/AFormShim.cpp` |
 | Deliberate-upgrade path | bump `GLYPHPDF_QUICKJS_PIN`, re-run the TestFormJsCalc goldens, record the new package/runtime hash + re-authorization in the ledger |
 
+### 6.2 No-engine build proof (R18e, 2026-09-13)
+
+The no-JavaScript-engine configuration is a SUPPORTED state (§5's honest alternative):
+every form-JS entry point must compile and run through its `#else // !HAS_QUICKJS`
+disclosure body. Proven at two levels (D03 methodology, SEP13:2 precedent; evidence in
+`.context/evidence-2026-09-08/r18-forms/r18e/`):
+
+1. **TU-compile probe** (`r18e-qtonly-compile.py`): the EXACT ninja commands for
+   FormJsSandbox.cpp / FormJsRunner.cpp / AFormShim.cpp extracted from
+   `compile_commands.json`, minus `-DHAS_QUICKJS`/`-DUSING_QJS_SHARED` (both come from
+   the qjs target) and minus the `-include cmake_pch.hxx` PCH flag (the PCH was
+   precompiled under the engine configuration — an engine-built PCH has no place in a
+   no-engine proof). All three TUs compile CLEAN through their no-engine bodies.
+   Controls: a with-engine compile of the same TUs (the stripped flag shape is not what
+   makes them pass) and a TEETH check — `nm` on the no-engine object shows ZERO
+   `JS_*` symbol references while the with-engine object references them, proving the
+   probe really compiled the no-engine path.
+2. **Full no-qjs configure+build+run** (`noeng-configure-build.log`,
+   `TestFormJsCalc-noeng.txt`): sibling configure with
+   `-DCMAKE_DISABLE_FIND_PACKAGE_qjs=ON` (CMake honors it for the CONFIG-QUIET
+   `find_package(qjs)`; the `if(TARGET qjs)` block — link, `HAS_QUICKJS`, and the
+   R18c pin check — is skipped entirely), `pdfws_engines` + `TestFormJsCalc` +
+   `TestCapabilityRegistry` + `TestFormSafety` + `TestFormStaleDisclosure` all build
+   and link; TestFormJsCalc self-skips with the honest disclosure message ("This build
+   was compiled without a JavaScript engine (disclosure state)"),
+   TestCapabilityRegistry 22 passed / 1 skipped, TestFormSafety 12/12,
+   TestFormStaleDisclosure 9 passed / 1 skipped — no hard-coded engine expectation
+   anywhere in the surface.
+
+Negative control (handoff-specified PCH hazard, `pch-hazard-control.sh`): re-including
+the production PCH in a compile without the engine defines does NOT smuggle
+`HAS_QUICKJS` — GCC's PCH validity check refuses the engine-built PCH outright
+(`cc1plus: warning: cmake_pch.hxx.gch: not used because 'USING_QJS_SHARED' not defined
+[-Winvalid-pch]`), and `nm` confirms the no-engine path was compiled even with the PCH
+flag present. The handoff's macro-leak hypothesis is thereby REFUTED on this toolchain
+with the mechanism identified; the probe still drops the PCH flag (methodology + belt)
+and its teeth check remains the independent proof of the compiled path.
+
 ---
 
 ## 7. Source register
