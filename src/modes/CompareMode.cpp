@@ -276,9 +276,17 @@ void CompareMode::showDiffResult(const DiffResult& result) {
                                .arg(page.textRemoved.size())
                                .arg(page.moves.size())
                                .arg(page.pixelDiffCount);
+            // R06: name the pair the row actually compares — the same
+            // old/new mapping the engine aligned (identical when the page
+            // kept its position, "old → new" when it shifted/was moved).
+            const int os = page.oldSide();
+            const int ns = page.newSide();
+            const QString pageLabel = (os == ns)
+                ? QString("p.%1").arg(os + 1)
+                : QString("p.%1 \xE2\x86\x92 p.%2").arg(os + 1).arg(ns + 1);
             auto* item = new QTreeWidgetItem(m_tree,
                 {QString::number(totalChanges),
-                 QString("p.%1").arg(page.pageIndex + 1),
+                 pageLabel,
                  desc});
             // §9.10: tag the row with the change types it actually contains.
             item->setData(0, kHasTextRole,
@@ -595,7 +603,14 @@ QString CompareMode::buildHtmlReport(const CompareChangeFilter& filter) const {
     for (const auto& page : m_lastResult.pages) {
         if (!pageVisible(page)) continue;
 
-        o << "<h2>Page " << (page.pageIndex + 1) << "</h2>\n";
+        // R06: the heading names the pair the row compares (same aligned
+        // old/new mapping as the CHANGES tree and the navigation).
+        const int os = page.oldSide();
+        const int ns = page.newSide();
+        if (os == ns)
+            o << "<h2>Page " << (os + 1) << "</h2>\n";
+        else
+            o << "<h2>Page " << (os + 1) << " (revised page " << (ns + 1) << ")</h2>\n";
         o << "<table class=\"diff\"><tr><th>Removed</th><th>Added</th></tr>\n";
         o << "<tr><td class=\"removed\">"
           << (page.textRemoved.isEmpty() ? QStringLiteral("<span class=\"unchanged\">\xE2\x80\x94</span>")
@@ -717,7 +732,13 @@ QString CompareMode::buildTextReport(const CompareChangeFilter& filter) const {
     for (const auto& page : m_lastResult.pages) {
         if (!pageVisible(page)) continue;
 
-        o << "--- Page " << (page.pageIndex + 1) << " ---\n";
+        // R06: same aligned old/new mapping as the HTML report.
+        const int os = page.oldSide();
+        const int ns = page.newSide();
+        if (os == ns)
+            o << "--- Page " << (os + 1) << " ---\n";
+        else
+            o << "--- Page " << (os + 1) << " (revised page " << (ns + 1) << ") ---\n";
         for (const QString& w : page.textRemoved)
             o << "- " << w << "\n";
         for (const QString& w : page.textAdded)

@@ -522,6 +522,86 @@ private slots:
         }
         QCOMPARE(widget->changeCount(), 2);
     }
+
+    // ── R06 (PERF-01): ONE old/new mapping across engine, tree, navigation
+    // and exports. The reviewer's insertion fixture: old [alpha, beta, gamma]
+    // vs new [alpha, inserted, beta, gamma]. The page-insertion is detected
+    // exactly once, the unchanged matched pages produce NO text/pixel/export
+    // changes, and the tree, the navigable sequence and both report builders
+    // agree on that.
+    void middleInsertionAgreesAcrossEngineTreeNavigationAndReports()
+    {
+        const QString base = pagePdf("r06_base.pdf", {
+            QStringLiteral("alpha page"),
+            QStringLiteral("beta page"),
+            QStringLiteral("gamma page")});
+        const QString revised = pagePdf("r06_rev.pdf", {
+            QStringLiteral("alpha page"),
+            QStringLiteral("inserted page"),
+            QStringLiteral("beta page"),
+            QStringLiteral("gamma page")});
+        QVERIFY(!base.isEmpty() && !revised.isEmpty());
+
+        // Engine level: the mapping and the content rows agree.
+        DiffEngine engine;
+        const DiffResult direct = engine.compare(base, revised);
+        QCOMPARE(direct.pageChanges.size(), 1);   // inserted page appears exactly once
+        QCOMPARE(direct.pageChanges.first().type, DiffResult::PageChangeType::PageAdded);
+        QCOMPARE(direct.pageChanges.first().newPage, 1);
+        QCOMPARE(direct.pages.size(), 3);
+        for (const auto& pd : direct.pages) {
+            QVERIFY2(pd.textAdded.isEmpty() && pd.textRemoved.isEmpty()
+                         && pd.moves.isEmpty() && pd.pixelDiffCount == 0,
+                     "unchanged matched pages must produce no content changes");
+        }
+
+        // End-to-end through the real async mode.
+        gp::CompareMode mode;
+        mode.compareFiles(base, revised);
+        waitForDiffFinished(mode);
+
+        // CHANGES tree: exactly the structural insertion row — no false
+        // token rows (pre-fix: two spurious rows, "Beta → Inserted" and
+        // "Gamma → Beta").
+        auto* tree = mode.findChild<QTreeWidget*>(QStringLiteral("cmpChangesTree"));
+        QVERIFY(tree);
+        QCOMPARE(tree->topLevelItemCount(), 1);
+        QVERIFY(tree->topLevelItem(0)->data(0, gp::CompareMode::kIsPageAddRemoveRole).toBool());
+
+        // Navigation: exactly one change in the shared sequence, anchored on
+        // the inserted page (no old side, new side = page index 1).
+        auto* widget = mode.findChild<CompareWidget*>();
+        QVERIFY(widget);
+        QCOMPARE(widget->changeCount(), 1);
+        const auto anchor = widget->anchorAt(0);
+        QCOMPARE(anchor.structuralIndex, 0);
+        QCOMPARE(anchor.pageDiffIndex, -1);
+        QCOMPARE(anchor.oldPage, -1);
+        QCOMPARE(anchor.newPage, 1);
+
+        // Exports agree: the insertion is named, and NO word/pixel change
+        // sections exist anywhere in either report.
+        const QString txt = mode.buildTextReport();
+        QVERIFY2(txt.contains(QStringLiteral("Page 2 added in revised document")),
+                 qPrintable(QStringLiteral("text report: %1").arg(txt)));
+        const QStringList txtLines = txt.split(QLatin1Char('\n'));
+        for (const QString& line : txtLines) {
+            const QString t = line.trimmed();
+            QVERIFY2(!t.startsWith(QLatin1Char('-')) && !t.startsWith(QLatin1Char('+'))
+                         && !t.startsWith(QLatin1Char('~')),
+                     qPrintable(QStringLiteral(
+                                    "text report must not contain false word-change "
+                                    "lines; got: %1").arg(t)));
+        }
+        QVERIFY2(!txt.contains(QStringLiteral("pixels differ")),
+                 qPrintable(QStringLiteral("text report: %1").arg(txt)));
+
+        const QString html = mode.buildHtmlReport();
+        QVERIFY2(html.contains(QStringLiteral("Page 2 added in revised document")),
+                 "html report must name the inserted page at its true position");
+        QVERIFY2(!html.contains(QStringLiteral("<table class=\"diff\">")),
+                 "html report must not contain false per-page word-diff tables");
+    }
 };
 
 QTEST_MAIN(TestCompareIntegration)

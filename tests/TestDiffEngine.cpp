@@ -394,6 +394,25 @@ private slots:
             QVERIFY2(any.type == DiffResult::PageChangeType::PageMoved,
                      "a reordered page must not be double-counted as added/removed");
         }
+
+        // R06 (PERF-01): the content rows consume the SAME mapping — each
+        // row compares a page with ITSELF at its new position, so a pure
+        // reorder produces NO text/pixel changes (pre-fix the index-wise walk
+        // compared Alpha-vs-Beta and Beta-vs-Alpha and reported both pages as
+        // rewritten).
+        QCOMPARE(r.pages.size(), 2);
+        for (const auto& pd : r.pages) {
+            QVERIFY2(pd.textAdded.isEmpty() && pd.textRemoved.isEmpty()
+                         && pd.moves.isEmpty(),
+                     "a pure reorder must not produce false text changes");
+            QCOMPARE(pd.pixelDiffCount, 0);
+        }
+        // Mapping rows: doc1 page 0 (Alpha) matched to new position 1, doc1
+        // page 1 (Beta) matched to new position 0.
+        QCOMPARE(r.pages.at(0).oldPage, 0);
+        QCOMPARE(r.pages.at(0).newPage, 1);
+        QCOMPARE(r.pages.at(1).oldPage, 1);
+        QCOMPARE(r.pages.at(1).newPage, 0);
     }
 
     void repeatedIdenticalPagesYieldSingleChange() {
@@ -523,6 +542,33 @@ private slots:
         // them, and no move records either.
         QVERIFY2(r.pageMoves.isEmpty(),
                  "a pure insertion must not be misclassified as a page move");
+
+        // ── R06 (PERF-01): the content rows consume the SAME mapping ────────
+        // The insertion surfaces exactly once (above) and the unchanged
+        // matched pages produce NO text/pixel changes. Pre-fix, content
+        // comparison walked index-wise while the alignment used its own
+        // mapping, so this fixture reported "Beta → Inserted" and
+        // "Gamma → Beta" — the reviewer's false-change symptom.
+        QCOMPARE(r.pages.size(), 3);
+        for (const auto& pd : r.pages) {
+            QVERIFY2(pd.textAdded.isEmpty() && pd.textRemoved.isEmpty()
+                         && pd.moves.isEmpty(),
+                     qPrintable(QStringLiteral(
+                                    "unchanged matched page (old %1 -> new %2) must "
+                                    "not produce content changes (added=%3 removed=%4)")
+                                    .arg(pd.oldPage).arg(pd.newPage)
+                                    .arg(pd.textAdded.join(QLatin1Char(' ')),
+                                         pd.textRemoved.join(QLatin1Char(' ')))));
+            QCOMPARE(pd.pixelDiffCount, 0);
+        }
+        // The mapping is the alignment's: (0,0), (1,2), (2,3) — Beta compares
+        // with Beta at its shifted position, Gamma with Gamma.
+        QCOMPARE(r.pages.at(0).oldPage, 0);
+        QCOMPARE(r.pages.at(0).newPage, 0);
+        QCOMPARE(r.pages.at(1).oldPage, 1);
+        QCOMPARE(r.pages.at(1).newPage, 2);
+        QCOMPARE(r.pages.at(2).oldPage, 2);
+        QCOMPARE(r.pages.at(2).newPage, 3);
     }
 
     void duplicateOfExistingPageInsertionPinsDeterministicTieBreak() {
@@ -554,6 +600,15 @@ private slots:
         QCOMPARE(ch.newPage, 1);
         QVERIFY2(r.pageMoves.isEmpty(),
                  "a duplicate insertion is not a move");
+
+        // R06: the matched pages produce no false content rows either — the
+        // duplicate insertion is the ONLY change (pre-fix the index-wise walk
+        // compared doc1's Gamma against doc2's first Beta copy).
+        QCOMPARE(r.pages.size(), 3);
+        for (const auto& pd : r.pages) {
+            QVERIFY(pd.textAdded.isEmpty() && pd.textRemoved.isEmpty()
+                    && pd.moves.isEmpty() && pd.pixelDiffCount == 0);
+        }
     }
 
     void insertionWithTextEditOnOtherPageAlignsInsertionAtTruePosition() {
@@ -627,22 +682,65 @@ private slots:
                                      }),
                  "insertion + text edit must not be classified as page moves");
 
-        // (4) V04: the below-floor rewrite is accounted as CONTENT changes on
-        // the aligned pair, not as a structural removal. The page diffs for
-        // the modified pair (old Q at index 1, reworded Q' at index 2) must
-        // still carry the real word changes. (PDFium extraction carries a
-        // trailing NUL — pinned §9.10-a behavior — so word-token checks are
-        // substring matches on the joined list.)
+        // (4) V04 + R06: the content rows consume the SAME alignment mapping.
+        // The aligned modified pair (old page 1 paired with new page 1 by the
+        // substitution stage) carries its real word changes, while the matched
+        // R pair (old 2 -> new 3) produces NO content rows — pre-fix the
+        // index-wise walk compared old R against the reworded Q' and reported
+        // "here → reworded", exactly the false-change class PERF-01 documents.
+        // (R13 removed the trailing NUL extraction used to carry; the token
+        // checks below work either way via the joined-list form.)
+        QCOMPARE(r.pages.size(), 3);
+        // Mapping rows (sorted by doc1 position): (0,0), substitution (1,1),
+        // matched (2,3).
+        QCOMPARE(r.pages.at(0).oldPage, 0);
+        QCOMPARE(r.pages.at(0).newPage, 0);
+        QCOMPARE(r.pages.at(1).oldPage, 1);
+        QCOMPARE(r.pages.at(1).newPage, 1);
+        QCOMPARE(r.pages.at(2).oldPage, 2);
+        QCOMPARE(r.pages.at(2).newPage, 3);
+        QVERIFY(r.pages.at(0).textRemoved.isEmpty()
+                && r.pages.at(0).textAdded.isEmpty());
         QVERIFY2(r.pages.at(1).textRemoved.join(QLatin1Char(' '))
                      .contains(QStringLiteral("omega"))
                      && r.pages.at(1).textAdded.join(QLatin1Char(' '))
                             .contains(QStringLiteral("alpha")),
                  "the aligned modified pair must report its content changes");
-        QVERIFY2(r.pages.at(2).textRemoved.join(QLatin1Char(' '))
-                     .contains(QStringLiteral("here"))
-                     && r.pages.at(2).textAdded.join(QLatin1Char(' '))
-                            .contains(QStringLiteral("reworded")),
-                 "the shifted page pair must report its content changes");
+        QVERIFY(r.pages.at(2).textRemoved.isEmpty()
+                && r.pages.at(2).textAdded.isEmpty()
+                && r.pages.at(2).pixelDiffCount == 0);
+    }
+
+    // R06 (PERF-01) prepend case: an insertion BEFORE all matched pages must
+    // shift every correspondence — old [Beta, Gamma] vs new [Alpha, Beta,
+    // Gamma] — with no false content rows on the matched pages.
+    void prependInsertionProducesNoFalseContentChanges() {
+        const QString two =
+            createPagePdf(m_dir.path(), "pre_two.pdf", {"Beta page", "Gamma page"});
+        const QString three = createPagePdf(m_dir.path(), "pre_three.pdf",
+                                            {"Alpha page", "Beta page", "Gamma page"});
+        QVERIFY(!two.isEmpty() && !three.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(two, three);
+
+        QCOMPARE(r.pageCount1, 2);
+        QCOMPARE(r.pageCount2, 3);
+        QVERIFY(!r.isIdentical);
+        // Exactly one structural change: the prepended page at position 0.
+        QCOMPARE(r.pageChanges.size(), 1);
+        QCOMPARE(r.pageChanges.first().type, DiffResult::PageChangeType::PageAdded);
+        QCOMPARE(r.pageChanges.first().newPage, 0);
+        // The matched pages (1,0) and (2,1) produce no content changes.
+        QCOMPARE(r.pages.size(), 2);
+        for (const auto& pd : r.pages) {
+            QVERIFY(pd.textAdded.isEmpty() && pd.textRemoved.isEmpty()
+                    && pd.moves.isEmpty() && pd.pixelDiffCount == 0);
+        }
+        QCOMPARE(r.pages.at(0).oldPage, 0);
+        QCOMPARE(r.pages.at(0).newPage, 1);
+        QCOMPARE(r.pages.at(1).oldPage, 1);
+        QCOMPARE(r.pages.at(1).newPage, 2);
     }
 
     void reversedSidesTurnMiddleInsertionIntoSingleRemoval() {
@@ -671,6 +769,22 @@ private slots:
         QCOMPARE(ch.oldPage, 1);
         QVERIFY2(r.pageMoves.isEmpty(),
                  "a pure middle removal must not be misclassified as a move");
+
+        // R06: the surviving matched pages compare with their own counterparts
+        // across the removal shift — (0,0), (2,1), (3,2) — and produce NO
+        // false content rows (pre-fix the index-wise walk compared doc1's
+        // inserted page against doc2's Beta, and Beta against Gamma).
+        QCOMPARE(r.pages.size(), 3);
+        for (const auto& pd : r.pages) {
+            QVERIFY(pd.textAdded.isEmpty() && pd.textRemoved.isEmpty()
+                    && pd.moves.isEmpty() && pd.pixelDiffCount == 0);
+        }
+        QCOMPARE(r.pages.at(0).oldPage, 0);
+        QCOMPARE(r.pages.at(0).newPage, 0);
+        QCOMPARE(r.pages.at(1).oldPage, 2);
+        QCOMPARE(r.pages.at(1).newPage, 1);
+        QCOMPARE(r.pages.at(2).oldPage, 3);
+        QCOMPARE(r.pages.at(2).newPage, 2);
     }
 
     // ── R13 (PERF-05): comparison tokens carry no API terminator ─────────────
