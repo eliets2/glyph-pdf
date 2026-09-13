@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 #include <QString>
+#include <QStringList>
 #include <functional>
 
 namespace gp {
@@ -24,7 +25,63 @@ namespace SafeSave {
 // Reserve a unique candidate path in the system temp dir. The handle is
 // released before any writer produces the candidate so the writer owns the
 // file exclusively. Returns false with a user-presentable `err` on failure.
-bool makeUniqueCandidate(QString* out, QString* err);
+// `suffix` selects the candidate extension (default ".pdf"; the encrypted
+// package writer reserves ".zip" — WP-R04).
+bool makeUniqueCandidate(QString* out, QString* err, const QString& suffix = QStringLiteral(".pdf"));
+
+// ── WP-R04: external-writer transaction (unique candidate → tool → validate →
+// checked atomic replace) ────────────────────────────────────────────────────
+//
+// WHOLE-ARCHITECTURE-REVIEW-2026-09-10 A03: the encrypted-package flow deleted
+// the destination BEFORE launching 7-Zip and let the tool write the FINAL path
+// with an unbounded waitForFinished(-1) — a failed launch, a failed tool run,
+// or a mid-write exit destroyed the previous package. The SafeSave transaction
+// shape closes that: the external tool writes a unique OWNED candidate, the
+// candidate is validated, and only then is the destination replaced through
+// commitFileToDestination (atomic; destination untouched on any failure). The
+// caller's destination is NEVER removed, truncated or written before commit.
+//
+// Process lifecycle is owned: the launched process belongs to this call, the
+// wait is bounded by `timeoutMs`, and `isCanceled` is polled while the tool
+// runs — a cancellation or timeout KILLS the process we own before returning.
+// The reserved candidate file starts empty (size 0), so appending writers such
+// as `7z a` still produce a fresh archive.
+struct ExternalWriteResult {
+    enum class Stage { None, Launch, Tool, ValidateCandidate, Commit };
+    bool ok = false;            // true exactly when the destination was replaced
+    bool canceled = false;      // isCanceled fired (process was killed)
+    Stage stage = Stage::None;  // where a !ok run stopped
+    int exitCode = -1;          // tool exit code when one was observed
+    QString error;              // user-presentable when !ok
+    QString candidatePath;      // the operation's own candidate (always removed)
+};
+
+// `buildArgs` receives the candidate path and returns the FULL argument list
+// for `program` (the tool must WRITE the candidate; it never sees the
+// destination). `validateCandidate` (optional) runs after the tool exited
+// successfully: it receives the candidate path and returns an empty string on
+// success or a user-presentable reason to refuse the commit.
+using ExternalWriteArgsFn = std::function<QStringList(const QString& candidate)>;
+using ExternalWriteValidateFn = std::function<QString(const QString& candidate)>;
+
+// One bounded, cancellable process run owned by the caller (the same lifecycle
+// discipline the transaction applies, exposed for tool-side validation steps
+// such as an encrypted-archive read-back check). Returns true when the process
+// exited normally (exitCode set); false with `error` when it could not start,
+// was canceled (`*canceled`), crashed, or hit `timeoutMs` — in the cancel and
+// timeout cases the process we own is KILLED before returning.
+bool runBoundedProcess(const QString& program, const QStringList& args,
+                       qint64 timeoutMs, const std::function<bool()>& isCanceled,
+                       bool* canceled, int* exitCode, QString* error);
+
+ExternalWriteResult runExternalWriterCommit(
+    const QString& program,
+    const ExternalWriteArgsFn& buildArgs,
+    const QString& destination,
+    const QString& candidateSuffix,
+    qint64 timeoutMs,
+    const std::function<bool()>& isCanceled = {},
+    const ExternalWriteValidateFn& validateCandidate = {});
 
 // Deterministic test seam for the commit step (mirrors FormManager's
 // SaveFault::Commit injection point: after the bounded copy, before
