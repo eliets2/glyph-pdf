@@ -27,6 +27,7 @@
 #include <QFileInfo>
 #include <QStandardPaths>
 #include <limits>
+#include <QtMath>
 #include <QThread>
 #include <QPointer>
 #include <QProgressDialog>
@@ -433,17 +434,30 @@ bool PdfViewerWidget::isLoaded() const
 
 // ---- Zoom ----
 
+// R12 (PERF-04): zoom bounds. The upper clamp keeps the two-page spread's
+// zoom*2 render inside the checked-size pixel budget for ordinary pages, and
+// every entry point rejects non-finite programmatic scales instead of passing
+// them into QPdfView or the renderers. 16.0 (1600%) also bounds what the
+// Qt-owned single-page QPdfView allocates for a Letter page (~124 Mpx) —
+// beyond that QPdfView's full-page buffer is not ours to tile.
+static constexpr qreal kMinZoom = 0.1;
+static constexpr qreal kMaxZoom = 16.0;
+
 void PdfViewerWidget::zoomIn()
 {
-    m_zoomFactor *= 1.25;
+    // R12: finite + upper clamp — the old code let m_zoomFactor grow without
+    // bound (1.25^n) toward gigapixel spread renders.
+    const qreal next = qIsFinite(m_zoomFactor) ? m_zoomFactor * 1.25 : kMaxZoom;
+    m_zoomFactor = qBound(kMinZoom, next, kMaxZoom);
     m_pdfView->setZoomFactor(m_zoomFactor);
     if (m_badgeOverlay) m_badgeOverlay->update();   // §9.7 P0: badges follow zoom
 }
 
 void PdfViewerWidget::zoomOut()
 {
-    m_zoomFactor /= 1.25;
-    if (m_zoomFactor < 0.1) m_zoomFactor = 0.1;
+    // R12: finite + lower clamp (existing floor made explicit with the guard).
+    const qreal next = qIsFinite(m_zoomFactor) ? m_zoomFactor / 1.25 : kMinZoom;
+    m_zoomFactor = qBound(kMinZoom, next, kMaxZoom);
     m_pdfView->setZoomFactor(m_zoomFactor);
     if (m_badgeOverlay) m_badgeOverlay->update();   // §9.7 P0: badges follow zoom
 }
@@ -460,7 +474,15 @@ void PdfViewerWidget::zoomFitPage()
 
 void PdfViewerWidget::setZoomLevel(qreal level)
 {
-    m_zoomFactor = level;
+    // R12 (PERF-04): programmatic scales are checked before use — NaN/inf are
+    // refused (current zoom kept, useful refusal) and finite levels are
+    // clamped into the operating band instead of reaching the renderers raw.
+    if (!qIsFinite(level)) {
+        qWarning() << "PdfViewerWidget::setZoomLevel: refusing non-finite "
+                      "zoom level" << level << "— keeping" << m_zoomFactor;
+        return;
+    }
+    m_zoomFactor = qBound(kMinZoom, level, kMaxZoom);
     m_pdfView->setZoomMode(QPdfView::ZoomMode::Custom);
     m_pdfView->setZoomFactor(m_zoomFactor);
     if (m_badgeOverlay) m_badgeOverlay->update();   // §9.7 P0: badges follow zoom
@@ -1133,6 +1155,65 @@ static qint64 pixmapSizeInBytes(const QPixmap &pixmap)
     return static_cast<qint64>(pixmap.width()) * pixmap.height() * pixmap.depth() / 8;
 }
 
+// ── R12 (PERF-04): the shared checked-size / pixel-budget guard ────────────
+// Every real rendering boundary (two-page spread, thumbnails via RenderCache,
+// snapshots) funnels through PdfViewerWidget::renderPage, and every scale
+// enters through zoomIn/zoomOut/setZoomLevel. This helper is the single
+// allocation guard applied BEFORE any pixel buffer is requested:
+//   * rejects non-finite / non-positive scales (programmatic NaN/inf zoom) —
+//     the old path converted them through QSize(int) and failed only by
+//     undefined behaviour;
+//   * rejects non-finite or degenerate page sizes;
+//   * bounds page-size × scale to a pixel budget by scaling the request down
+//     proportionally (a bounded render, never a multi-GB allocation and never
+//     int overflow), with a hard per-side cap.
+// Returns false only when nothing renderable remains (useful refusal);
+// on true, \a outPx receives the safe pixel size and \a outClamped reports
+// whether the request had to be shrunk to fit the budget.
+namespace {
+
+// 64 Mpx ≈ 256 MiB of ARGB32 — far above any display/HiDPI need (a 4K
+// viewport at device pixel ratio 2 is ~33 Mpx), far below the unbounded
+// allocations a large /MediaBox × deep zoom product used to produce
+// (measured pre-guard: a 40000×40000 pt page at scale 2 rendered 6,400 Mpx
+// in ~12.7 s with a ~11.7 GiB peak working set).
+constexpr qint64 kMaxRenderPixels = 64 * 1000 * 1000;
+constexpr int   kMaxRenderSide    = 32767;   // QImage hard per-side limit
+constexpr qreal kMinRenderScale   = 0.01;
+
+bool checkedRenderSize(qreal scaleFactor, qreal widthPt, qreal heightPt,
+                       QSize *outPx, bool *outClamped)
+{
+    if (outPx) *outPx = QSize();
+    if (outClamped) *outClamped = false;
+
+    if (!qIsFinite(scaleFactor) || scaleFactor < kMinRenderScale) return false;
+    if (!qIsFinite(widthPt) || !qIsFinite(heightPt)
+        || widthPt <= 0.0 || heightPt <= 0.0) return false;
+
+    double w = double(widthPt) * double(scaleFactor);
+    double h = double(heightPt) * double(scaleFactor);
+    if (!qIsFinite(w) || !qIsFinite(h) || w <= 0.0 || h <= 0.0) return false;
+
+    const double pixels = w * h;
+    if (pixels > double(kMaxRenderPixels)) {
+        // Bounded render: shrink proportionally so the buffer fits the budget.
+        const double fit = std::sqrt(double(kMaxRenderPixels) / pixels);
+        w = std::floor(w * fit);
+        h = std::floor(h * fit);
+        if (outClamped) *outClamped = true;
+    }
+    if (w > double(kMaxRenderSide)) { w = kMaxRenderSide; if (outClamped) *outClamped = true; }
+    if (h > double(kMaxRenderSide)) { h = kMaxRenderSide; if (outClamped) *outClamped = true; }
+    if (w < 1.0) w = 1.0;
+    if (h < 1.0) h = 1.0;
+
+    if (outPx) *outPx = QSize(int(w), int(h));
+    return true;
+}
+
+} // namespace
+
 QImage PdfViewerWidget::renderPage(int page, qreal scaleFactor) const
 {
     if (page < 0 || page >= m_document->pageCount())
@@ -1147,8 +1228,27 @@ QImage PdfViewerWidget::renderPage(int page, qreal scaleFactor) const
         return m_pageCache.value(page).pixmap.toImage();
     }
 
-    QSizeF pageSize = m_document->pagePointSize(page);
-    QSize imageSize(pageSize.width() * scaleFactor, pageSize.height() * scaleFactor);
+    // R12 (PERF-04): finite/bounded dimension checks BEFORE the allocation.
+    // The old code handed pageSize × scaleFactor straight to
+    // QPdfDocument::render — an unchecked allocation for large MediaBoxes,
+    // deep zoom or a non-finite programmatic scale.
+    const QSizeF pageSize = m_document->pagePointSize(page);
+    QSize imageSize;
+    bool clamped = false;
+    if (!checkedRenderSize(scaleFactor, pageSize.width(), pageSize.height(),
+                           &imageSize, &clamped)) {
+        qWarning() << "PdfViewerWidget::renderPage: refusing non-finite or "
+                      "degenerate render request (page" << page
+                   << "scale" << scaleFactor
+                   << "pageSize" << pageSize << ")";
+        return QImage();
+    }
+    if (clamped) {
+        qWarning() << "PdfViewerWidget::renderPage: request for page" << page
+                   << "at scale" << scaleFactor
+                   << "exceeds" << (kMaxRenderPixels / 1000000) << "MP — "
+                      "rendering bounded" << imageSize << "instead";
+    }
 
     // §9.1 P0: no render-options rotation here — orientation lives in the
     // document /Rotate after an engine-side rotate + reload, and PDFium
@@ -1161,15 +1261,22 @@ QImage PdfViewerWidget::renderPage(int page, qreal scaleFactor) const
     // whole cache on every insert. If this page already had an entry (e.g. cached
     // at a different scale), discount its bytes before inserting the replacement.
     m_cacheAccessCounter++;
-    if (const auto old = m_pageCache.constFind(page); old != m_pageCache.constEnd()) {
-        m_cacheTotalBytes -= old->bytes;
-    }
     CachedPage item;
     item.pixmap = QPixmap::fromImage(result);
     item.scaleFactor = scaleFactor;
     item.rotation = m_rotation;
     item.lastAccessed = m_cacheAccessCounter;
     item.bytes = pixmapSizeInBytes(item.pixmap);
+
+    // R12: a single render larger than the WHOLE cache budget would evict
+    // every other entry on insert and thrash the cache — serve it uncached.
+    if (item.bytes > MaxCacheBytes) {
+        return result;
+    }
+
+    if (const auto old = m_pageCache.constFind(page); old != m_pageCache.constEnd()) {
+        m_cacheTotalBytes -= old->bytes;
+    }
     m_cacheTotalBytes += item.bytes;
     m_pageCache.insert(page, item);
 

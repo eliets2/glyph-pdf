@@ -6,6 +6,7 @@
 #include <QCryptographicHash>
 #include <QColor>
 #include <QDebug>
+#include <QHash>
 #include <QRegularExpression>
 #include <QSet>
 #include <QVector>
@@ -14,7 +15,47 @@
 DiffEngine::DiffEngine() {}
 DiffEngine::~DiffEngine() {}
 
-DiffResult DiffEngine::compare(const QString &file1, const QString &file2, int dpi) {
+namespace {
+
+// ── R11 (PERF-02) resource bounds for the comparison operation ─────────────
+
+/// Chunk size for the streaming file hash: peak hash memory is one chunk,
+/// never the whole file (the old readAll() held both documents in RAM).
+constexpr qint64 kHashChunkBytes = 1 << 20;  // 1 MiB
+
+/// R11: hard pixel ceiling for a RETAINED diff overlay. The overlay is only
+/// built when a pair actually has changed pixels, and only within this many
+/// pixels (~256 MiB of ARGB32); beyond it the pixel count is still recorded
+/// but no overlay image is kept. The backend render itself is already clamped
+/// (NF-4: ≤ 20,000 px per side, ≤ 120 Mpx per buffer).
+constexpr qint64 kMaxOverlayPixels = 64 * 1000 * 1000;
+
+/// R11: page-alignment DP budget. The exact-fingerprint LCS matrix is
+/// (n1+1)×(n2+1) ints; documents beyond ~2,000 pages per side fall back to
+/// the bounded order-preserving match instead of allocating an unbounded
+/// matrix (the old code allocated it unconditionally).
+constexpr qint64 kMaxAlignDpCells = 4 * 1000 * 1000;  // ≈16 MiB of int cells
+
+/// Stream a file through SHA-256 in bounded chunks, honouring the
+/// cancellation probe between chunks. Returns false when cancelled.
+bool hashFileStreaming(QFile &f, QByteArray &out,
+                       const std::function<bool()> &cancelled)
+{
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    while (!f.atEnd()) {
+        if (cancelled && cancelled()) return false;
+        const QByteArray chunk = f.read(kHashChunkBytes);
+        if (chunk.isEmpty()) break;   // EOF (or read error; treat as end)
+        hash.addData(chunk);
+    }
+    out = hash.result();
+    return true;
+}
+
+} // anonymous namespace
+
+DiffResult DiffEngine::compare(const QString &file1, const QString &file2, int dpi,
+                               const std::function<bool()> &cancelled) {
     DiffResult result;
     result.isIdentical = false;
 
@@ -24,9 +65,16 @@ DiffResult DiffEngine::compare(const QString &file1, const QString &file2, int d
         return result;
     }
 
-    QByteArray hash1 = QCryptographicHash::hash(f1.readAll(), QCryptographicHash::Sha256);
-    QByteArray hash2 = QCryptographicHash::hash(f2.readAll(), QCryptographicHash::Sha256);
-    
+    // R11 (PERF-02): stream both hashes — peak hash memory is one chunk, and
+    // the cancellation probe is honoured between chunks.
+    QByteArray hash1;
+    QByteArray hash2;
+    if (!hashFileStreaming(f1, hash1, cancelled) ||
+        !hashFileStreaming(f2, hash2, cancelled)) {
+        result.cancelled = true;
+        return result;
+    }
+
     if (hash1 == hash2) {
         result.isIdentical = true;
         return result;
@@ -53,8 +101,14 @@ DiffResult DiffEngine::compare(const QString &file1, const QString &file2, int d
     QStringList text2;
     text1.reserve(n1);
     text2.reserve(n2);
-    for (int i = 0; i < n1; ++i) text1.append(backend1.extractText(i));
-    for (int j = 0; j < n2; ++j) text2.append(backend2.extractText(j));
+    for (int i = 0; i < n1; ++i) {
+        if (cancelled && cancelled()) { result.cancelled = true; return result; }
+        text1.append(backend1.extractText(i));
+    }
+    for (int j = 0; j < n2; ++j) {
+        if (cancelled && cancelled()) { result.cancelled = true; return result; }
+        text2.append(backend2.extractText(j));
+    }
 
     // ── THE one old/new page-pair mapping ───────────────────────────────────
     // R06 (PERF-01): the alignment is computed FIRST, as an explicit sequence
@@ -143,16 +197,24 @@ DiffResult DiffEngine::compare(const QString &file1, const QString &file2, int d
             return !a.isEmpty() && !b.isEmpty() && a == b;
         };
 
-        // LCS over page sequences (equal := exact fingerprint match).
+        // LCS over page sequences (equal := exact fingerprint match) — the
+        // classic order-preserving DP when its matrix fits the R11 budget.
+        QSet<int> alignedA, alignedB;
+        const qint64 dpCells = qint64(n1 + 1) * qint64(n2 + 1);
+        if (dpCells <= kMaxAlignDpCells) {
         QVector<QVector<int>> dp(n1 + 1, QVector<int>(n2 + 1, 0));
-        for (int i = 1; i <= n1; ++i)
+        for (int i = 1; i <= n1; ++i) {
+            if ((i & 63) == 1 && cancelled && cancelled()) {
+                result.cancelled = true;
+                return result;
+            }
             for (int j = 1; j <= n2; ++j)
                 dp[i][j] = exactMatch(fpHash1[i - 1], fpHash2[j - 1])
                     ? dp[i - 1][j - 1] + 1
                     : qMax(dp[i - 1][j], dp[i][j - 1]);
+        }
 
         // Backtrack: aligned (stable) pages become the first mapping pairs.
-        QSet<int> alignedA, alignedB;
         for (int i = n1, j = n2; i > 0 && j > 0; ) {
             if (exactMatch(fpHash1[i - 1], fpHash2[j - 1])
                 && dp[i][j] == dp[i - 1][j - 1] + 1) {
@@ -164,6 +226,51 @@ DiffResult DiffEngine::compare(const QString &file1, const QString &file2, int d
                 --i;
             } else {
                 --j;
+            }
+        }
+        } else {
+            // ── R11 bounded alignment fallback (PERF-02) ────────────────────
+            // Documents far beyond ~2,000 pages per side would need an
+            // unbounded LCS matrix; match their page fingerprints with an
+            // order-preserving greedy scan instead: common page prefix and
+            // suffix first, then each doc2 middle page takes the earliest
+            // unconsumed doc1 position after the last match. Not a minimal
+            // alignment — an honest, deterministic, O(n) memory substitute
+            // for inputs the exact DP cannot afford. Leftover pages still
+            // flow through the fuzzy and substitution stages below.
+            int lo = 0;
+            while (lo < n1 && lo < n2 && exactMatch(fpHash1[lo], fpHash2[lo])) {
+                alignedA.insert(lo); alignedB.insert(lo);
+                pairs.append({lo, lo});
+                ++lo;
+            }
+            int hiA = n1 - 1, hiB = n2 - 1;
+            while (hiA >= lo && hiB >= lo && exactMatch(fpHash1[hiA], fpHash2[hiB])) {
+                alignedA.insert(hiA); alignedB.insert(hiB);
+                pairs.append({hiA, hiB});
+                --hiA; --hiB;
+            }
+            QHash<QByteArray, QList<int>> positions1;
+            for (int i = lo; i <= hiA; ++i)
+                if (!fpHash1[i].isEmpty()) positions1[fpHash1[i]].append(i);
+            QHash<QByteArray, int> nextIdx;
+            int lastA = lo - 1;
+            for (int j = lo; j <= hiB; ++j) {
+                const QByteArray &fh = fpHash2[j];
+                if (fh.isEmpty()) continue;
+                auto itP = positions1.find(fh);
+                if (itP == positions1.end()) continue;
+                int &k = nextIdx[fh];
+                const QList<int> &list = itP.value();
+                while (k < list.size() && list[k] <= lastA) ++k;
+                if (k < list.size()) {
+                    const int aIdx = list[k];
+                    ++k;
+                    alignedA.insert(aIdx);
+                    alignedB.insert(j);
+                    pairs.append({aIdx, j});
+                    lastA = aIdx;
+                }
             }
         }
 
@@ -291,19 +398,28 @@ DiffResult DiffEngine::compare(const QString &file1, const QString &file2, int d
               [](const PagePair& l, const PagePair& r) { return l.oldPage < r.oldPage; });
 
     for (const PagePair& pr : pairs) {
+        if (cancelled && cancelled()) { result.cancelled = true; return result; }
+
         PageDiff pd;
         pd.oldPage   = pr.oldPage;
         pd.newPage   = pr.newPage;
         pd.pageIndex = pr.oldPage;  // legacy doc1-side position
         pd.pixelDiffCount = 0;
 
-        // Text diff via Myers 1986 LCS + move-detection post-pass.
+        // Text diff via Myers 1986 LCS + move-detection post-pass. R11
+        // (PERF-03): the diff runs inside a bounded trace budget; when the
+        // budget forces the coarse fallback the pair is flagged so the UI
+        // can disclose "diff truncated" instead of implying an exact result.
         const QString& t1 = text1[pr.oldPage];
         const QString& t2 = text2[pr.newPage];
         const QStringList words1 = t1.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
         const QStringList words2 = t2.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
 
-        const QList<EditOp> edits = MyersDiff::compute(words1, words2);
+        bool truncated = false;
+        const QList<EditOp> edits = MyersDiff::compute(words1, words2,
+                                                       MyersDiff::Options(),
+                                                       &truncated);
+        pd.textDiffTruncated = truncated;
         pd.moves = MyersDiff::detectMoves(edits);
 
         // Populate textRemoved / textAdded from non-move edits for backward compat.
@@ -334,42 +450,76 @@ DiffResult DiffEngine::compare(const QString &file1, const QString &file2, int d
             }
         }
 
-        // Pixel diff
+        // Pixel diff — R11 (PERF-02): the scan always counts changed pixels
+        // (pixelDiffCount drives the rows, filters and exports), but the
+        // overlay image is allocated lazily at the FIRST changed pixel and
+        // retained ONLY when the pair actually changed, within the overlay
+        // pixel ceiling. Unchanged pairs no longer hold a full transparent
+        // page image each (25,245,000 retained bytes for three unchanged
+        // Letter pages at 150 DPI before this fix).
         QImage img1 = backend1.renderPage(pr.oldPage, dpi);
         QImage img2 = backend2.renderPage(pr.newPage, dpi);
 
         if (!img1.isNull() && !img2.isNull()) {
+            if (img1.format() != QImage::Format_ARGB32)
+                img1 = img1.convertToFormat(QImage::Format_ARGB32);
+            if (img2.format() != QImage::Format_ARGB32)
+                img2 = img2.convertToFormat(QImage::Format_ARGB32);
+
             int w = qMax(img1.width(), img2.width());
             int h = qMax(img1.height(), img2.height());
 
-            QImage diffImg(w, h, QImage::Format_ARGB32);
-            diffImg.fill(Qt::transparent);
+            const bool overlayAllowed =
+                qint64(w) * qint64(h) <= kMaxOverlayPixels;
+            QImage diffImg;   // allocated on the first changed pixel
 
             for (int y = 0; y < h; ++y) {
+                if ((y & 63) == 0 && cancelled && cancelled()) {
+                    result.cancelled = true;
+                    return result;
+                }
+                const QRgb* l1 =
+                    (y < img1.height() && img1.constBits())
+                        ? reinterpret_cast<const QRgb*>(img1.constScanLine(y))
+                        : nullptr;
+                const QRgb* l2 =
+                    (y < img2.height() && img2.constBits())
+                        ? reinterpret_cast<const QRgb*>(img2.constScanLine(y))
+                        : nullptr;
+
                 for (int x = 0; x < w; ++x) {
-                    bool in1 = (x < img1.width() && y < img1.height());
-                    bool in2 = (x < img2.width() && y < img2.height());
+                    const bool in1 = (l1 && x < img1.width());
+                    const bool in2 = (l2 && x < img2.width());
 
+                    bool changed;
                     if (in1 && in2) {
-                        QRgb p1 = img1.pixel(x, y);
-                        QRgb p2 = img2.pixel(x, y);
+                        const QRgb p1 = l1[x];
+                        const QRgb p2 = l2[x];
 
-                        int rDiff = qAbs(qRed(p1) - qRed(p2));
-                        int gDiff = qAbs(qGreen(p1) - qGreen(p2));
-                        int bDiff = qAbs(qBlue(p1) - qBlue(p2));
+                        const int rDiff = qAbs(qRed(p1) - qRed(p2));
+                        const int gDiff = qAbs(qGreen(p1) - qGreen(p2));
+                        const int bDiff = qAbs(qBlue(p1) - qBlue(p2));
 
                         // Antialiasing threshold
-                        if (rDiff > 30 || gDiff > 30 || bDiff > 30) {
-                            diffImg.setPixel(x, y, qRgba(255, 0, 0, 150)); // Red overlay
-                            pd.pixelDiffCount++;
+                        changed = (rDiff > 30 || gDiff > 30 || bDiff > 30);
+                    } else {
+                        changed = (in1 || in2);  // one-sided region is a change
+                    }
+                    if (!changed) continue;
+
+                    ++pd.pixelDiffCount;
+                    if (overlayAllowed) {
+                        if (diffImg.isNull()) {
+                            diffImg = QImage(w, h, QImage::Format_ARGB32);
+                            diffImg.fill(Qt::transparent);
                         }
-                    } else if (in1 || in2) {
-                        diffImg.setPixel(x, y, qRgba(255, 0, 0, 150));
-                        pd.pixelDiffCount++;
+                        diffImg.setPixel(x, y, qRgba(255, 0, 0, 150)); // Red overlay
                     }
                 }
             }
-            pd.diffImage = diffImg;
+            // R11: retain the overlay only when the pair actually changed.
+            if (!diffImg.isNull())
+                pd.diffImage = diffImg;
         }
 
         result.pages.append(pd);

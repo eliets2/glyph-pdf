@@ -134,6 +134,11 @@ public:
 
     // Export
     QImage renderPage(int page, qreal scaleFactor = 2.0) const;
+
+    /// R12: drop the internal rendered-page cache (document switches do this
+    /// automatically). Public so measurement harnesses and tests can pin the
+    /// cold-vs-cached behaviour of the real view.
+    void clearPageCache();
     void extractPages(int from, int to, const QString &outputFile);
     void deletePages(int from, int to, const QString &outputFile);
     void insertBlankPage(int index, const QString &outputFile);
@@ -221,7 +226,6 @@ protected:
     void updateRotation();
 
 private:
-    void clearPageCache();
 
     // ARC02 (TEAM-ARCHITECTURE-REVIEW-2026-09-07): document-identity helpers.
     // flushPendingAnnotationSave() writes any PENDING debounced sidecar work

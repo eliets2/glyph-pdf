@@ -4,6 +4,7 @@
 #include <QList>
 #include <QImage>
 #include <QStringList>
+#include <functional>
 #include "engines/MyersDiff.h"
 
 struct PageDiff {
@@ -13,11 +14,19 @@ struct PageDiff {
                                       ///< for every engine-produced row)
     int         newPage        = -1;  ///< R06: 0-based index in doc2 (aligned pair; >= 0
                                       ///< for every engine-produced row)
-    QImage      diffImage;           ///< visual pixel-diff overlay
+    QImage      diffImage;           ///< visual pixel-diff overlay (R11: retained
+                                      ///< ONLY for pairs with pixelDiffCount > 0 and
+                                      ///< within the overlay pixel ceiling — an
+                                      ///< unchanged or skipped pair carries a null image)
     QStringList textRemoved;         ///< tokens deleted (non-move deletes)
     QStringList textAdded;           ///< tokens inserted (non-move inserts)
     QList<MoveOperation> moves;      ///< tokens that moved position
     int         pixelDiffCount = 0;
+    bool        textDiffTruncated = false;  ///< R11 (PERF-03): the word diff for
+                                      ///< this pair exceeded its resource budget and
+                                      ///< was completed with the coarse (non-minimal)
+                                      ///< fallback — callers must disclose this
+                                      ///< rather than presenting it as an exact diff.
 
     /// R06: resolved sides. Rows produced by the engine always carry the
     /// explicit old/new alignment; synthetic or back-compat rows that only
@@ -30,6 +39,11 @@ struct DiffResult {
     bool isIdentical = false;
     int  pageCount1  = 0;
     int  pageCount2  = 0;
+    /// R11: set when the operation was abandoned through its cancellation
+    /// probe. The result is a partial artifact (whatever was computed before
+    /// cancellation) — consumers must treat it as incomplete, never as a
+    /// complete "no changes" report.
+    bool cancelled   = false;
     /// R06 (PERF-01): one row per two-sided page pair of THE alignment
     /// mapping, in doc1 order — each row compares its old page with ITS
     /// aligned new page (oldPage/newPage), never an index-wise neighbor, so
@@ -81,5 +95,17 @@ public:
     DiffEngine();
     ~DiffEngine();
 
-    DiffResult compare(const QString &file1, const QString &file2, int dpi = 150);
+    /// R11 (PERF-02/03) resource contracts, all driven by the optional
+    /// \p cancelled probe (return true to abandon the operation):
+    ///   - file hashes are streamed in bounded chunks (never readAll),
+    ///   - page alignment never allocates an unbounded LCS matrix,
+    ///   - pixel overlays are retained ONLY for pairs whose comparison
+    ///     found changed pixels, within a hard pixel ceiling,
+    ///   - the word diff runs inside MyersDiff's trace budget with an
+    ///     honest per-pair truncation flag (PageDiff::textDiffTruncated).
+    /// Checks run inside every expensive loop (hashing, extraction,
+    /// alignment, per-pair diff, pixel scanning); an abandoned comparison
+    /// returns a partial result with DiffResult::cancelled set.
+    DiffResult compare(const QString &file1, const QString &file2, int dpi = 150,
+                       const std::function<bool()> &cancelled = {});
 };
