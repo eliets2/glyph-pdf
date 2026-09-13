@@ -494,6 +494,12 @@ bool FormManager::fillForm(const QString &pdfFilePath, const QVariantMap &fieldD
     // type fillForm cannot set) are reported back instead of vanishing quietly.
     QStringList appliedNames;
     QList<FormJsFailure> localJsFailures;
+    // R18(f): the /AA /V Validate event may REJECT or TRANSFORM a proposed
+    // value, so the change-presence validator compares against what the
+    // transaction actually committed (captured post-cascade), not the raw
+    // request. Fields without script events capture the requested value —
+    // the historical comparison, unchanged.
+    QMap<QString, QString> committedTextValues;
 
     const bool ok = runFormSaveTransaction(
         pdfFilePath, outputPath,
@@ -514,7 +520,27 @@ bool FormManager::fillForm(const QString &pdfFilePath, const QVariantMap &fieldD
                     case PoDoFo::PdfFieldType::TextBox: {
                         auto* textField = dynamic_cast<PoDoFo::PdfTextBox*>(&field);
                         if (textField) {
-                            textField->SetText(PoDoFo::PdfString(val.toString().toStdString()));
+                            // R18(f): the /AA /V Validate event runs INSIDE the
+                            // transaction on the PROPOSED value (Acrobat order:
+                            // validate → commit) under the caller-owned budget.
+                            // Blocked (rc=false) or failed (fail closed) → the
+                            // previous /V stays and the failure is disclosed
+                            // field-attributed; the user's OTHER fields still
+                            // commit. A script may TRANSFORM event.value
+                            // (Acrobat semantics) — the transformed value is
+                            // what commits.
+                            const QString proposed = val.toString();
+                            const auto vr = gp::formjs::FormJsRunner::runValidateEvent(doc, name, proposed);
+                            if (vr.ran && !vr.allowed) {
+                                localJsFailures.append(FormJsFailure{ vr.failure.fieldName,
+                                                                      vr.failure.kind,
+                                                                      vr.failure.reason });
+                                qWarning() << "fillForm: validate blocked" << name
+                                           << "(" << vr.failure.kind << "):" << vr.failure.reason;
+                                break; // keep the previous /V — never the blocked value
+                            }
+                            const QString committed = vr.ran ? vr.valueToCommit : proposed;
+                            textField->SetText(PoDoFo::PdfString(committed.toStdString()));
                         }
                         break;
                     }
@@ -557,12 +583,37 @@ bool FormManager::fillForm(const QString &pdfFilePath, const QVariantMap &fieldD
             // Phase-1 form-JS: run the /AA /C cascade on the mutated document
             // BEFORE serialization — user values + recalculated /V commit as
             // one atomic write. Failures keep committed values and are
-            // reported (never a wrong value, never a half-write).
-            localJsFailures = runInTransactionCalculateCascade(doc);
+            // reported (never a wrong value, never a half-write). Validate
+            // failures from the fill loop above are preserved alongside.
+            const QList<FormJsFailure> cascadeFailures = runInTransactionCalculateCascade(doc);
+            for (const FormJsFailure& f : cascadeFailures)
+                localJsFailures.append(f);
+
+            // R18(f): capture what the transaction actually committed for the
+            // filled text fields (post-validate, post-cascade) — the reopened
+            // candidate must match THIS.
+            for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
+                auto& field = acroForm->GetFieldAt(i);
+                const QString name = QString::fromStdString(field.GetFullName());
+                if (!appliedNames.contains(name)) continue;
+                if (field.GetType() != PoDoFo::PdfFieldType::TextBox) continue;
+                if (auto* t = dynamic_cast<PoDoFo::PdfTextBox*>(&field)) {
+                    // A rejected field with NO previous /V commits "no value"
+                    // — capture that state too, not just real strings.
+                    auto text = t->GetText(); // nullable: non-const accessors
+                    committedTextValues.insert(name,
+                        text.has_value()
+                            ? QString::fromUtf8(text.value().GetString().data(),
+                                                static_cast<qsizetype>(text.value().GetString().size()))
+                            : QString());
+                }
+            }
         },
         // Validate the applied values on the reopened candidate. Text and
         // checkbox state round-trip exactly; combo/list selection is
         // viewer-semantic (/V//I), so those are gated on presence + type.
+        // R18(f): text values compare against what the transaction committed
+        // (a Validate event may reject or transform the request).
         [&](PoDoFo::PdfMemDocument& reopened) {
             for (const QString& name : appliedNames) {
                 const PoDoFo::PdfField* f = findFieldByName(reopened, name);
@@ -573,9 +624,15 @@ bool FormManager::fillForm(const QString &pdfFilePath, const QVariantMap &fieldD
                         auto* t = dynamic_cast<const PoDoFo::PdfTextBox*>(f);
                         if (!t) return false;
                         auto text = t->GetText(); // nullable: non-const accessors
-                        if (!text.has_value()) return false;
-                        if (std::string(text.value().GetString().data(), text.value().GetString().size())
-                                != val.toString().toStdString()) return false;
+                        const QString committedOnDisk =
+                            text.has_value()
+                                ? QString::fromUtf8(text.value().GetString().data(),
+                                                    static_cast<qsizetype>(text.value().GetString().size()))
+                                : QString();
+                        const QString expected = committedTextValues.contains(name)
+                            ? committedTextValues.value(name)
+                            : val.toString();
+                        if (committedOnDisk != expected) return false;
                         break;
                     }
                     case PoDoFo::PdfFieldType::CheckBox: {

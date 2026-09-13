@@ -64,6 +64,7 @@ struct FieldSpec {
     QString calcScript;   // /AA /C body (may be empty)
     QString formatScript; // /AA /F body (may be empty)
     QString initial;      // initial /V (may be empty)
+    QString validateScript; // /AA /V body (may be empty; R18f)
 };
 
 QString fieldValueOf(const PoDoFo::PdfField& field)
@@ -220,7 +221,7 @@ private:
                 auto& field = page.CreateField<PoDoFo::PdfTextBox>(spec.name.toStdString(), rect);
                 auto* textBox = dynamic_cast<PoDoFo::PdfTextBox*>(&field);
                 textBox->SetText(PoDoFo::PdfString(spec.initial.toStdString()));
-                if (!spec.calcScript.isEmpty() || !spec.formatScript.isEmpty()) {
+                if (!spec.calcScript.isEmpty() || !spec.formatScript.isEmpty() || !spec.validateScript.isEmpty()) {
                     PoDoFo::PdfDictionary aa;
                     if (!spec.calcScript.isEmpty()) {
                         PoDoFo::PdfDictionary action;
@@ -233,6 +234,12 @@ private:
                         action.AddKey(PoDoFo::PdfName("S"), PoDoFo::PdfName("JavaScript"));
                         action.AddKey(PoDoFo::PdfName("JS"), PoDoFo::PdfString(spec.formatScript.toStdString()));
                         aa.AddKey(PoDoFo::PdfName("F"), action);
+                    }
+                    if (!spec.validateScript.isEmpty()) {
+                        PoDoFo::PdfDictionary action;
+                        action.AddKey(PoDoFo::PdfName("S"), PoDoFo::PdfName("JavaScript"));
+                        action.AddKey(PoDoFo::PdfName("JS"), PoDoFo::PdfString(spec.validateScript.toStdString()));
+                        aa.AddKey(PoDoFo::PdfName("V"), action);
                     }
                     field.GetDictionary().AddKey(PoDoFo::PdfName("AA"), aa);
                 }
@@ -441,6 +448,13 @@ private slots:
     void dependentChainMidCascadeFailureIsFieldAttributedAndDownstreamComputesFromCommittedState();
     void dependentChainTimeoutAbortsMidCascadeAndDisclosesDownstreamStale();
     void preCascadeEngineFailureNamesEveryCalculatedFieldStale();
+
+    // ── R18(f): the Validate (/AA /V) event, caller-owned-budget shape ───────
+
+    void validateRejectsBlockedValueKeepsPreviousAndDiscloses();
+    void validateTransformsTheValueAcrobatSemantics();
+    void validateTimeoutBlocksCommitAndTheRestStillFills();
+    void fillWithoutValidateScriptNeverBlocks();
 
     // ── R18(d): runtime closure after an aborted cascade ─────────────────────
     // A timed-out/aborted cascade's runtime is DISCARDED — no hostile global
@@ -1365,6 +1379,130 @@ void TestFormJsCalc::preCascadeEngineFailureNamesEveryCalculatedFieldStale()
     // The user's data is unchanged and the calculated field kept its stored
     // value — never a wrong computed value.
     QCOMPARE(pdfFieldValue(out, QStringLiteral("total")), QStringLiteral("0"));
+}
+
+// ── R18(f): the Validate (/AA /V) event ─────────────────────────────────────
+
+void TestFormJsCalc::validateRejectsBlockedValueKeepsPreviousAndDiscloses()
+{
+    // Acrobat order: validate → commit. A Validate script that sets
+    // event.rc = false must block ITS value only: the field keeps its
+    // previous /V, the failure is field-attributed ("rejected"), and the
+    // user's OTHER fields still commit through the same transaction.
+    const QString form = makeFormPdf(QStringLiteral("validate-reject.pdf"),
+    {
+        { QStringLiteral("qty"), {}, {}, QStringLiteral("3"),
+          QStringLiteral("if (Number(event.value) > 10) { event.rc = false; }") },
+        { QStringLiteral("note"), {}, {}, {}, {} },
+    },
+    {});
+    QVERIFY(!form.isEmpty());
+
+    const QString out = m_dir.path() + QStringLiteral("/validate-reject-out.pdf");
+    QList<FormJsFailure> failures;
+    QVERIFY(fillAndFill(form,
+                        { { QStringLiteral("qty"), QStringLiteral("11") },
+                          { QStringLiteral("note"), QStringLiteral("hello") } },
+                        out, &failures));
+
+    QStringList kinds;
+    for (const auto& f : failures) kinds << f.fieldName + QLatin1Char(':') + f.kind;
+    QVERIFY2(kinds.contains(QStringLiteral("qty:rejected")), qPrintable(kinds.join(QStringLiteral(", "))));
+    for (const auto& f : failures)
+        if (f.fieldName == QLatin1String("qty"))
+            QVERIFY2(f.reason.contains(QLatin1String("rc = false")), qPrintable(f.reason));
+
+    // The blocked value never committed; the sibling did.
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("qty")), QStringLiteral("3"));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("note")), QStringLiteral("hello"));
+    QCOMPARE(qpdfFieldValue(out, QStringLiteral("qty")), QStringLiteral("3"));
+}
+
+void TestFormJsCalc::validateTransformsTheValueAcrobatSemantics()
+{
+    // A Validate script may TRANSFORM event.value — the transformed value is
+    // what commits (Acrobat semantics; Phase 1's format pass never did this).
+    const QString form = makeFormPdf(QStringLiteral("validate-transform.pdf"),
+    {
+        { QStringLiteral("qty"), {}, {}, QStringLiteral("0"),
+          QStringLiteral("event.value = Number(event.value) * 2;") },
+    },
+    {});
+    QVERIFY(!form.isEmpty());
+
+    const QString out = m_dir.path() + QStringLiteral("/validate-transform-out.pdf");
+    QList<FormJsFailure> failures;
+    QVERIFY(fillAndFill(form, { { QStringLiteral("qty"), QStringLiteral("5") } }, out, &failures));
+    QVERIFY2(failures.isEmpty(), qPrintable(failureNames(failures).join(QStringLiteral(", "))));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("qty")), QStringLiteral("10"));
+    QCOMPARE(qpdfFieldValue(out, QStringLiteral("qty")), QStringLiteral("10"));
+}
+
+void TestFormJsCalc::validateTimeoutBlocksCommitAndTheRestStillFills()
+{
+    // A looping Validate script hits the caller-owned whole-operation budget:
+    // fail closed for THIS field (previous /V kept), the failure attributed,
+    // and the rest of the transaction (fill + calculate cascade) still runs.
+    const QString form = makeFormPdf(QStringLiteral("validate-timeout.pdf"),
+    {
+        { QStringLiteral("qty"), {}, {}, QStringLiteral("3"), QStringLiteral("while (true) {}") },
+        { QStringLiteral("total"),
+          QStringLiteral("AFSimple_Calculate('SUM', new Array('qty'));"), {}, QStringLiteral("0") },
+    },
+    { QStringLiteral("total") });
+    QVERIFY(!form.isEmpty());
+
+    const QString out = m_dir.path() + QStringLiteral("/validate-timeout-out.pdf");
+    QElapsedTimer clock;
+    clock.start();
+    QList<FormJsFailure> failures;
+    QVERIFY(fillAndFill(form, { { QStringLiteral("qty"), QStringLiteral("7") } }, out, &failures));
+    QVERIFY2(clock.elapsed() < 15000, qPrintable(QStringLiteral("fill took %1 ms").arg(clock.elapsed())));
+
+    QStringList kinds;
+    for (const auto& f : failures) kinds << f.fieldName + QLatin1Char(':') + f.kind;
+    QVERIFY2(kinds.contains(QStringLiteral("qty:timeout")), qPrintable(kinds.join(QStringLiteral(", "))));
+
+    // Fail closed for the validated field; the cascade computed from the
+    // COMMITTED value (3), not the blocked proposal (7).
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("qty")), QStringLiteral("3"));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("total")), QStringLiteral("3"));
+
+    // The caller-owned-budget shape at the runner seam: an explicit short
+    // deadline terminates the same hostile script deterministically.
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(out.toUtf8().constData());
+        QElapsedTimer runnerClock;
+        runnerClock.start();
+        const auto vr = FormJsRunner::runValidateEvent(doc, QStringLiteral("qty"),
+                                                       QStringLiteral("9"), /*eventDeadlineMs=*/100);
+        QVERIFY2(vr.ran, "the /AA /V script is present and ran");
+        QVERIFY2(!vr.allowed, "a looping Validate script must fail closed");
+        QCOMPARE(vr.failure.kind, QStringLiteral("timeout"));
+        QVERIFY2(runnerClock.elapsed() < 5000,
+                 qPrintable(QStringLiteral("runner deadline took %1 ms").arg(runnerClock.elapsed())));
+    } catch (const PoDoFo::PdfError& e) {
+        QFAIL(qPrintable(QStringLiteral("reload failed: %1").arg(QString::fromLatin1(e.what()))));
+    }
+}
+
+void TestFormJsCalc::fillWithoutValidateScriptNeverBlocks()
+{
+    // The common case stays the common case: a field without /AA /V commits
+    // the requested value with no validate overhead or disclosure.
+    const QString form = makeFormPdf(QStringLiteral("validate-none.pdf"),
+    {
+        { QStringLiteral("qty"), {}, {}, QStringLiteral("0") },
+    },
+    {});
+    QVERIFY(!form.isEmpty());
+
+    const QString out = m_dir.path() + QStringLiteral("/validate-none-out.pdf");
+    QList<FormJsFailure> failures;
+    QVERIFY(fillAndFill(form, { { QStringLiteral("qty"), QStringLiteral("42") } }, out, &failures));
+    QVERIFY2(failures.isEmpty(), qPrintable(failureNames(failures).join(QStringLiteral(", "))));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("qty")), QStringLiteral("42"));
 }
 
 // ── R18(d): runtime closure after an aborted cascade ────────────────────────
