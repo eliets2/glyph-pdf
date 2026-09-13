@@ -330,6 +330,13 @@ QString CompareWidget::buildHtml()
                       " <span style='color:#71747a'>&#x2192;</span> %3</b></p>")
                   .arg(aid).arg(os + 1).arg(ns + 1);
         html += heading;
+        // R11 (PERF-03): disclose a budget-forced coarse word diff instead of
+        // silently presenting it as an exact minimal result.
+        if (page.textDiffTruncated)
+            html += QStringLiteral("<p><span style='color:#e5c07b'>⚠ token diff "
+                                   "truncated — the page's word lists exceeded the "
+                                   "diff budget; shown changes are coarse, not "
+                                   "minimal.</span></p>");
 
         // Moves (orange)
         for (const MoveOperation& mv : page.moves) {

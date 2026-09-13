@@ -13,26 +13,42 @@
 // Diagonal k = x - y.  V[k] = rightmost x reached along diagonal k.
 // We use a 1-D array V of size 2*(N+M)+1, offset by (N+M) so index k maps
 // to V[k + MAX].
+//
+// R11 (PERF-03) bounding. The unbounded implementation retained one full
+// frontier snapshot per edit-distance step — O((N+M)D) retained memory, which
+// measured ~134 MiB of peak working set for 2,000 entirely-divergent tokens
+// per side. The bounded implementation:
+//   1. trims the common prefix and suffix first (exact, and typical small
+//      edits become nearly free),
+//   2. retains snapshots only while Options::traceBudgetBytes allows,
+//   3. when the exact script cannot fit the budget, anchors on the diagonal
+//      with the furthest (x+y) progress of the last completed step,
+//      backtracks the exact path to that anchor, and emits the remaining
+//      middle as one coarse delete+insert hunk — a valid, non-minimal edit
+//      script flagged truncated=true so callers can disclose it.
 // ---------------------------------------------------------------------------
 
 namespace {
 
-/// Backtrack through the trace snapshots to produce the ordered edit script.
-static QList<EditOp> backtrack(
-    const QStringList&          a,
-    const QStringList&          b,
+/// Backtrack through the trace snapshots to produce the ordered edit script
+/// for the sub-path that ends at (xEnd, yEnd) after step D. Tokens and
+/// indices are absolute (caller passes offset views through a/b/offA/offB).
+static QList<EditOp> backtrackRange(
+    const QStringList&           a,
+    const QStringList&           b,
+    int                          offA,
+    int                          offB,
     const QVector<QVector<int>>& trace,  // trace[d] = V after step d
-    int                          D)
+    int                          D,
+    int                          xEnd,
+    int                          yEnd)
 {
-    const int N   = a.size();
-    const int M   = b.size();
-    const int MAX = N + M;
+    const int MAX = trace.isEmpty() ? 0 : (trace.first().size() - 1) / 2;
 
     QList<EditOp> ops;
-    int x = N, y = M;
+    int x = xEnd, y = yEnd;
 
     for (int d = D; d > 0; --d) {
-        const QVector<int>& Vd = trace[d];      // V after step d
         const QVector<int>& Vp = trace[d - 1];  // V after step d-1 (= before step d)
         const int k = x - y;
 
@@ -58,20 +74,19 @@ static QList<EditOp> backtrack(
             editX = prevX;
             editY = prevY + 1;
         }
-        (void)Vd;  // Vd was used during forward pass; not needed here
 
         // Snake: diagonal moves from (editX, editY) to (x, y)
         for (int sx = x - 1, sy = y - 1; sx >= editX && sy >= editY; --sx, --sy) {
-            ops.prepend(EditOp{EditOp::Type::Keep, a[sx], sx, sy});
+            ops.prepend(EditOp{EditOp::Type::Keep, a[offA + sx], offA + sx, offB + sy});
         }
 
         // The single edit step
         if (prevK < k) {
-            // delete: a[prevX] was consumed moving right
-            ops.prepend(EditOp{EditOp::Type::Delete, a[prevX], prevX, -1});
+            // delete: a[offA + prevX] was consumed moving right
+            ops.prepend(EditOp{EditOp::Type::Delete, a[offA + prevX], offA + prevX, -1});
         } else {
-            // insert: b[prevY] was consumed moving down
-            ops.prepend(EditOp{EditOp::Type::Insert, b[prevY], -1, prevY});
+            // insert: b[offB + prevY] was consumed moving down
+            ops.prepend(EditOp{EditOp::Type::Insert, b[offB + prevY], -1, offB + prevY});
         }
 
         x = prevX;
@@ -80,9 +95,122 @@ static QList<EditOp> backtrack(
 
     // Remaining snake at d=0 (from (0,0) onwards)
     for (int sx = x - 1, sy = y - 1; sx >= 0 && sy >= 0; --sx, --sy) {
-        ops.prepend(EditOp{EditOp::Type::Keep, a[sx], sx, sy});
+        ops.prepend(EditOp{EditOp::Type::Keep, a[offA + sx], offA + sx, offB + sy});
     }
 
+    return ops;
+}
+
+/// Bounded forward Myers over the middle ranges a[offA .. offA+lenA) and
+/// b[offB .. offB+lenB), emitting absolute-index ops. Sets *truncated when
+/// the budget (or cancellation) forced the coarse fallback.
+static QList<EditOp> computeMiddleBounded(
+    const QStringList& a, const QStringList& b,
+    int offA, int offB, int lenA, int lenB,
+    const MyersDiff::Options& opt, bool* truncated)
+{
+    *truncated = false;
+
+    const int MAX = lenA + lenB;
+    // V[k + MAX] = rightmost x reached on diagonal k
+    QVector<int> V(2 * MAX + 1, 0);
+
+    // R11: how many frontier snapshots fit in the retained-trace budget.
+    const qint64 snapshotBytes = (2 * qint64(MAX) + 1) * qint64(sizeof(int));
+    const int stepCap = snapshotBytes > 0
+        ? int(qBound<qint64>(0, opt.traceBudgetBytes / snapshotBytes, qint64(MAX)))
+        : MAX;
+
+    QVector<QVector<int>> trace;
+    trace.reserve(size_t(stepCap) + 1);
+
+    int lastStep = -1;      // last step actually recorded in trace
+    bool stoppedEarly = false;
+
+    for (int D = 0; D <= stepCap; ++D) {
+        if (opt.cancelled && opt.cancelled()) {  // R11: cancellation hook
+            stoppedEarly = true;
+            break;
+        }
+
+        bool found = false;
+        for (int k = -D; k <= D; k += 2) {
+            int x;
+            if (k == -D || (k != D && V[k - 1 + MAX] < V[k + 1 + MAX])) {
+                x = V[k + 1 + MAX];       // insert: move down from k+1
+            } else {
+                x = V[k - 1 + MAX] + 1;  // delete: move right from k-1
+            }
+            int y = x - k;
+
+            // Diagonal snake
+            while (x < lenA && y < lenB && a[offA + x] == b[offB + y]) {
+                ++x; ++y;
+            }
+            V[k + MAX] = x;
+
+            if (x >= lenA && y >= lenB) {
+                found = true;
+                break;
+            }
+        }
+
+        trace.push_back(V);  // snapshot after step D
+        lastStep = D;
+        if (found) {
+            // Exact minimal script fits the budget (and was not cancelled).
+            return backtrackRange(a, b, offA, offB, trace, D, lenA, lenB);
+        }
+    }
+
+    // ── R11 honest fallback: the exact script does not fit the budget ─────
+    // Anchor on the diagonal with the furthest (x+y) progress among the
+    // diagonals written by the last completed step (parity-matched: only
+    // those hold a fresh, reachable frontier value), emit the exact path to
+    // that anchor, then one coarse delete+insert hunk for the remainder.
+    *truncated = true;
+    (void)stoppedEarly;
+
+    QList<EditOp> ops;
+    if (lastStep < 0) {
+        // No step ran (tiny budget or immediate cancellation): coarse hunk only.
+        for (int x = 0; x < lenA; ++x)
+            ops.append(EditOp{EditOp::Type::Delete, a[offA + x], offA + x, -1});
+        for (int y = 0; y < lenB; ++y)
+            ops.append(EditOp{EditOp::Type::Insert, b[offB + y], -1, offB + y});
+        return ops;
+    }
+
+    int bestK = 0;
+    qint64 bestSum = -1;
+    for (int k = -lastStep; k <= lastStep; k += 2) {
+        const int x = V[k + MAX];
+        const int y = x - k;
+        // R11: once an edit-graph edge is reachable (stepCap > lenA/lenB),
+        // the forward loop can fabricate frontier values beyond the edges on
+        // extreme diagonals. They are not real paths — never anchor on them
+        // (anchoring on one reads tokens past the sequences' ends).
+        if (x < 0 || x > lenA || y < 0 || y > lenB) continue;
+        const qint64 sum = 2 * qint64(x) - k;   // x + y with y = x - k
+        if (sum > bestSum) { bestSum = sum; bestK = k; }
+    }
+    if (bestSum < 0) {
+        // No grid-valid anchor (defensive; diagonal parity-matching always
+        // leaves at least one valid frontier): emit the coarse hunk outright.
+        for (int x = 0; x < lenA; ++x)
+            ops.append(EditOp{EditOp::Type::Delete, a[offA + x], offA + x, -1});
+        for (int y = 0; y < lenB; ++y)
+            ops.append(EditOp{EditOp::Type::Insert, b[offB + y], -1, offB + y});
+        return ops;
+    }
+    const int xEnd = V[bestK + MAX];
+    const int yEnd = xEnd - bestK;
+
+    ops = backtrackRange(a, b, offA, offB, trace, lastStep, xEnd, yEnd);
+    for (int x = xEnd; x < lenA; ++x)
+        ops.append(EditOp{EditOp::Type::Delete, a[offA + x], offA + x, -1});
+    for (int y = yEnd; y < lenB; ++y)
+        ops.append(EditOp{EditOp::Type::Insert, b[offB + y], -1, offB + y});
     return ops;
 }
 
@@ -94,6 +222,14 @@ static QList<EditOp> backtrack(
 
 QList<EditOp> MyersDiff::compute(const QStringList& a, const QStringList& b)
 {
+    return compute(a, b, Options(), nullptr);
+}
+
+QList<EditOp> MyersDiff::compute(const QStringList& a, const QStringList& b,
+                                 const Options& opt, bool* truncated)
+{
+    if (truncated) *truncated = false;
+
     const int N = a.size();
     const int M = b.size();
 
@@ -114,49 +250,41 @@ QList<EditOp> MyersDiff::compute(const QStringList& a, const QStringList& b)
         return ops;
     }
 
-    const int MAX = N + M;
-    // V[k + MAX] = rightmost x reached on diagonal k
-    QVector<int> V(2 * MAX + 1, 0);
-    // trace[d] = snapshot of V after processing step d
-    QVector<QVector<int>> trace;
-    trace.reserve(MAX + 1);
+    // ── R11: common prefix / suffix trim ────────────────────────────────────
+    // Exact: keeps outside the divergent middle never need the edit graph,
+    // which makes identical and near-identical inputs nearly free and keeps
+    // the bounded algorithm's work proportional to the DIVERGENCE, not the
+    // document size.
+    int pre = 0;
+    while (pre < N && pre < M && a[pre] == b[pre]) ++pre;
+    int suf = 0;
+    while (suf < N - pre && suf < M - pre && a[N - 1 - suf] == b[M - 1 - suf]) ++suf;
 
-    // Initial state: d=0, starting snake from (0,0)
-    // Before step 0 we need a "trace[-1]"-equivalent.  We push a zeroed V first
-    // so that d=1 backtracking can look up trace[0] = state before step 1 = after step 0.
-    // Actually we push BEFORE updating V each step so trace[d] = V before step d.
-    // → We push trace AFTER updating so trace[d] = V after step d.
+    const int midA = N - pre - suf;
+    const int midB = M - pre - suf;
 
-    for (int D = 0; D <= MAX; ++D) {
-        bool found = false;
+    QList<EditOp> ops;
+    ops.reserve(N + M);
+    for (int i = 0; i < pre; ++i)
+        ops.append(EditOp{EditOp::Type::Keep, a[i], i, i});
 
-        for (int k = -D; k <= D; k += 2) {
-            int x;
-            if (k == -D || (k != D && V[k - 1 + MAX] < V[k + 1 + MAX])) {
-                x = V[k + 1 + MAX];       // insert: move down from k+1
-            } else {
-                x = V[k - 1 + MAX] + 1;  // delete: move right from k-1
-            }
-            int y = x - k;
-
-            // Diagonal snake
-            while (x < N && y < M && a[x] == b[y]) {
-                ++x; ++y;
-            }
-            V[k + MAX] = x;
-
-            if (x >= N && y >= M) {
-                found = true;
-                break;
-            }
-        }
-
-        trace.push_back(V);  // snapshot after step D
-        if (found) return backtrack(a, b, trace, D);
+    if (midB == 0) {
+        for (int i = 0; i < midA; ++i)
+            ops.append(EditOp{EditOp::Type::Delete, a[pre + i], pre + i, -1});
+    } else if (midA == 0) {
+        for (int j = 0; j < midB; ++j)
+            ops.append(EditOp{EditOp::Type::Insert, b[pre + j], -1, pre + j});
+    } else {
+        bool midTruncated = false;
+        ops.append(computeMiddleBounded(a, b, pre, pre, midA, midB, opt, &midTruncated));
+        if (truncated) *truncated = midTruncated;
     }
 
-    // Should not reach here for finite sequences
-    return {};
+    for (int i = 0; i < suf; ++i)
+        ops.append(EditOp{EditOp::Type::Keep, a[N - suf + i], N - suf + i,
+                          M - suf + i});
+
+    return ops;
 }
 
 QList<MoveOperation> MyersDiff::detectMoves(const QList<EditOp>& edits)

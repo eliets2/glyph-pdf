@@ -2,6 +2,10 @@
 #include <QFile>
 #include <QTemporaryDir>
 #include <algorithm>
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <psapi.h>
+#endif
 #include "engines/MyersDiff.h"
 #include "engines/DiffEngine.h"
 
@@ -77,6 +81,52 @@ private slots:
     void initTestCase() {
         QVERIFY2(m_dir.isValid(), "temporary fixture directory must be usable");
     }
+
+#ifdef Q_OS_WIN
+    void myersDivergentInputStaysWithinBudget() {
+        // R11 (PERF-03) bound assertion, run FIRST so the process peak
+        // working set baseline is this binary's startup. 2,000
+        // entirely-divergent tokens per side must stay inside the
+        // retained-trace budget plus working slack. Pre-fix the unbounded
+        // O((N+M)D) trace measured ~132 MiB of peak working set for exactly
+        // this workload; bounded, the whole growth stays under the budget.
+        QStringList a, b;
+        a.reserve(2000);
+        b.reserve(2000);
+        for (int i = 0; i < 2000; ++i) {
+            a.append(QStringLiteral("A%1").arg(i));
+            b.append(QStringLiteral("B%1").arg(i));
+        }
+
+        PROCESS_MEMORY_COUNTERS before{};
+        before.cb = sizeof(before);
+        QVERIFY(GetProcessMemoryInfo(GetCurrentProcess(), &before, sizeof(before)));
+        const auto ops = MyersDiff::compute(a, b);
+        PROCESS_MEMORY_COUNTERS after{};
+        after.cb = sizeof(after);
+        QVERIFY(GetProcessMemoryInfo(GetCurrentProcess(), &after, sizeof(after)));
+
+        // The fallback stays a truthful edit script covering both sides.
+        int keeps = 0, inserts = 0, deletes = 0;
+        for (const auto& op : ops) {
+            if (op.type == EditOp::Type::Keep) ++keeps;
+            else if (op.type == EditOp::Type::Insert) ++inserts;
+            else ++deletes;
+        }
+        QCOMPARE(keeps, 0);
+        QCOMPARE(inserts, 2000);
+        QCOMPARE(deletes, 2000);
+
+        const qint64 deltaBytes =
+            qint64(after.PeakWorkingSetSize) - qint64(before.PeakWorkingSetSize);
+        QVERIFY2(deltaBytes < qint64(64) * 1024 * 1024,
+                 qPrintable(QStringLiteral(
+                                "divergent 2000+2000 token diff grew peak "
+                                "working set by %1 MiB (budget: 64 MiB incl. "
+                                "slack)")
+                                .arg(double(deltaBytes) / 1048576.0, 0, 'f', 1)));
+    }
+#endif
 
 
     // ── Myers LCS correctness ─────────────────────────────────────────────
@@ -176,6 +226,98 @@ private slots:
                 reconstructed.append(op.token);
         }
         QCOMPARE(reconstructed, b);
+    }
+
+    // ── R11 (PERF-03): bounded diff with honest truncation disclosure ─────
+
+    void myersTinyBudgetDisclosesTruncation() {
+        // 100 entirely-divergent tokens per side with a trace budget far too
+        // small for the exact script: the result must be TRUTHFUL (still a
+        // valid edit script covering both sides) and flagged truncated.
+        QStringList a, b;
+        for (int i = 0; i < 100; ++i) {
+            a.append(QStringLiteral("A%1").arg(i));
+            b.append(QStringLiteral("B%1").arg(i));
+        }
+        MyersDiff::Options opt;
+        opt.traceBudgetBytes = 4096;
+        bool truncated = false;
+        const auto ops = MyersDiff::compute(a, b, opt, &truncated);
+
+        QVERIFY2(truncated, "a budget-starved divergent diff must be flagged "
+                            "truncated, not silently degraded");
+        int keeps = 0, inserts = 0, deletes = 0;
+        QStringList reconstructed;
+        for (const auto& op : ops) {
+            if (op.type == EditOp::Type::Keep) { ++keeps; reconstructed.append(op.token); }
+            else if (op.type == EditOp::Type::Insert) { ++inserts; reconstructed.append(op.token); }
+            else ++deletes;
+        }
+        QCOMPARE(keeps, 0);
+        QCOMPARE(inserts, 100);
+        QCOMPARE(deletes, 100);
+        // Even the coarse fallback must reconstruct b exactly.
+        QCOMPARE(reconstructed, b);
+    }
+
+    void myersTinyBudgetIdenticalInputIsExact() {
+        // Identical inputs never enter the edit graph at all (prefix/suffix
+        // trim), so even a tiny budget yields the exact script, untruncated.
+        QStringList seq;
+        for (int i = 0; i < 500; ++i) seq.append(QStringLiteral("w%1").arg(i));
+        MyersDiff::Options opt;
+        opt.traceBudgetBytes = 4096;
+        bool truncated = true;
+        const auto ops = MyersDiff::compute(seq, seq, opt, &truncated);
+        QVERIFY2(!truncated, "identical inputs are exact regardless of budget");
+        QCOMPARE(ops.size(), 500);
+        for (const auto& op : ops)
+            QCOMPARE(op.type, EditOp::Type::Keep);
+    }
+
+    void myersDefaultBudgetTypicalEditsNotTruncated() {
+        // The common case must not regress: a one-word edit inside a
+        // 1,000-token page under DEFAULT options stays exact and minimal.
+        QStringList a, b;
+        for (int i = 0; i < 1000; ++i) a.append(QStringLiteral("w%1").arg(i));
+        b = a;
+        b[500] = QStringLiteral("EDITED");
+        bool truncated = false;
+        const auto ops = MyersDiff::compute(a, b, MyersDiff::Options(), &truncated);
+        QVERIFY2(!truncated, "typical small edits must stay exact (not truncated)");
+        int keeps = 0, inserts = 0, deletes = 0;
+        for (const auto& op : ops) {
+            if (op.type == EditOp::Type::Keep) ++keeps;
+            else if (op.type == EditOp::Type::Insert) ++inserts;
+            else ++deletes;
+        }
+        QCOMPARE(keeps, 999);
+        QCOMPARE(inserts, 1);
+        QCOMPARE(deletes, 1);
+        // Same behaviour through the legacy 2-arg overload.
+        const auto ops2 = MyersDiff::compute(a, b);
+        QCOMPARE(ops2.size(), ops.size());
+    }
+
+    void myersHonoursCancellation() {
+        QStringList a, b;
+        for (int i = 0; i < 2000; ++i) {
+            a.append(QStringLiteral("A%1").arg(i));
+            b.append(QStringLiteral("B%1").arg(i));
+        }
+        MyersDiff::Options opt;
+        opt.cancelled = []() { return true; };
+        bool truncated = false;
+        const auto ops = MyersDiff::compute(a, b, opt, &truncated);
+        QVERIFY2(truncated, "a cancelled diff must not claim an exact result");
+        // Still a truthful script covering both sides.
+        int inserts = 0, deletes = 0;
+        for (const auto& op : ops) {
+            if (op.type == EditOp::Type::Insert) ++inserts;
+            else if (op.type == EditOp::Type::Delete) ++deletes;
+        }
+        QCOMPARE(inserts, 2000);
+        QCOMPARE(deletes, 2000);
     }
 
     // ── Move detection ────────────────────────────────────────────────────
@@ -908,6 +1050,116 @@ private slots:
                  "the new middle-page wording must be reported as content added");
         QVERIFY(r.pages.at(2).textRemoved.isEmpty()
                 && r.pages.at(2).textAdded.isEmpty());
+    }
+
+    // ── R11 (PERF-02): changed-pairs-only overlay retention ────────────────
+    // Pre-fix every PageDiff retained a full ARGB overlay even when no pixel
+    // differed: the reviewer's control fixture (three identical Letter pages,
+    // byte-different containers) held 25,245,000 retained overlay bytes at
+    // 150 DPI, and 24 unchanged pages held 201,960,000. The bound assertions
+    // below COMPILE against pre-fix sources and FAIL there (revert-verify).
+
+    void unchangedPagesRetainNoOverlays() {
+        const QStringList pages = {"Alpha", "Beta", "Gamma"};
+        const QString a = createPagePdf(m_dir.path(), "r11_same_a.pdf", pages);
+        const QString b = createPagePdf(m_dir.path(), "r11_same_b.pdf", pages);
+        QVERIFY(!a.isEmpty() && !b.isEmpty());
+        QByteArray diffBytes = "\n% metadata-only container difference\n";
+        {
+            QFile f(b);
+            QVERIFY(f.open(QIODevice::Append));
+            f.write(diffBytes);
+        }
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(a, b, 150);
+
+        QVERIFY2(!r.isIdentical,
+                 "byte-different containers must not shortcut to identical");
+        QCOMPARE(r.pages.size(), 3);
+        qint64 overlayBytes = 0;
+        for (const auto& pd : r.pages) {
+            QVERIFY2(pd.diffImage.isNull(),
+                     qPrintable(QStringLiteral(
+                                    "unchanged pair (old %1 -> new %2) must not "
+                                    "retain a diff overlay")
+                                    .arg(pd.oldPage).arg(pd.newPage)));
+            QCOMPARE(pd.pixelDiffCount, 0);
+            overlayBytes += pd.diffImage.sizeInBytes();
+        }
+        QCOMPARE(overlayBytes, qint64(0));
+    }
+
+    void onlyChangedPairsRetainOverlays() {
+        const QString before =
+            createPagePdf(m_dir.path(), "r11_mix_before.pdf",
+                          {"Alpha page", "Beta page", "Gamma page"});
+        const QString after =
+            createPagePdf(m_dir.path(), "r11_mix_after.pdf",
+                          {"Alpha page", "Beta rewritten", "Gamma page"});
+        QVERIFY(!before.isEmpty() && !after.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(before, after, 150);
+
+        QCOMPARE(r.pages.size(), 3);
+        for (const auto& pd : r.pages) {
+            const bool changed = pd.pixelDiffCount > 0;
+            QCOMPARE(pd.diffImage.isNull(), !changed);
+        }
+        // The rewritten middle page must be the only changed pair.
+        QVERIFY(r.pages.at(1).pixelDiffCount > 0);
+        QVERIFY(!r.pages.at(1).diffImage.isNull());
+        QCOMPARE(r.pages.at(0).pixelDiffCount, 0);
+        QVERIFY(r.pages.at(0).diffImage.isNull());
+        QCOMPARE(r.pages.at(2).pixelDiffCount, 0);
+        QVERIFY(r.pages.at(2).diffImage.isNull());
+    }
+
+    void changedPageStillCarriesOverlay() {
+        // Control against over-dropping: a genuinely changed page keeps a
+        // usable overlay.
+        const QString a = createPagePdf(m_dir.path(), "r11_chg_a.pdf", {"Apple page"});
+        const QString b = createPagePdf(m_dir.path(), "r11_chg_b.pdf", {"Orange page"});
+        QVERIFY(!a.isEmpty() && !b.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(a, b, 150);
+
+        QCOMPARE(r.pages.size(), 1);
+        QVERIFY2(r.pages.first().pixelDiffCount > 0,
+                 "a rewritten page must report changed pixels at 150 DPI");
+        QVERIFY(!r.pages.first().diffImage.isNull());
+    }
+
+    void compareHonoursCancellation() {
+        // R11: the operation-level cancellation probe abandons the compare
+        // (checked while hashing) and the result is marked partial.
+        const QString a = createPagePdf(m_dir.path(), "r11_cancel_a.pdf",
+                                        {"First page"});
+        const QString b = createPagePdf(m_dir.path(), "r11_cancel_b.pdf",
+                                        {"Second page"});
+        QVERIFY(!a.isEmpty() && !b.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(a, b, 150, []() { return true; });
+        QVERIFY2(r.cancelled, "a cancelled compare must set DiffResult::cancelled");
+        QVERIFY(r.pages.isEmpty());
+    }
+
+    void compareWithoutCancellationRunsToCompletion() {
+        // Control: the default (no probe) overload behaves exactly as before.
+        const QString a = createPagePdf(m_dir.path(), "r11_nocancel_a.pdf",
+                                        {"First page"});
+        const QString b = createPagePdf(m_dir.path(), "r11_nocancel_b.pdf",
+                                        {"Second page"});
+        QVERIFY(!a.isEmpty() && !b.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(a, b, 150);
+        QVERIFY(!r.cancelled);
+        QVERIFY(!r.isIdentical);
+        QVERIFY(!r.pages.isEmpty());
     }
 };
 
