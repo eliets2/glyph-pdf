@@ -1,0 +1,1 @@
+#pragma once`n#include <string>`n`nnamespace pdfws {`n`nclass IDjotCodec {`npublic:`n    virtual ~IDjotCodec() = default;`n    virtual std::string DecodeToAst(const std::string& djotText) = 0;`n};`n`n}

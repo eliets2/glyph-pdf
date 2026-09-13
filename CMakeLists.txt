@@ -117,6 +117,9 @@ target_link_libraries(pdfws_core INTERFACE
 )
 
 # ── pdfws_engines (STATIC) ───────────────────────────────────────────────
+add_subdirectory(third_party)
+add_subdirectory(src/pdfws_djot)
+
 add_library(pdfws_engines STATIC
     src/core/AnnotationSerializer.h  src/core/AnnotationSerializer.cpp
     src/core/ErrorInfo.h             src/core/ErrorInfo.cpp

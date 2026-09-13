@@ -1,0 +1,1 @@
+#pragma once`n#include <string>`n#include <memory>`n`nnamespace docmodel { class Document; }`n`nnamespace pdfws {`n`nclass IDjotMapper {`npublic:`n    virtual ~IDjotMapper() = default;`n    virtual std::shared_ptr<docmodel::Document> MapAstToDocument(const std::string& astJson) = 0;`n};`n`n}
