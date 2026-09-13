@@ -5,6 +5,7 @@
 #include "shell/StatusBar.h"
 #include "core/AnnotationSerializer.h"
 #include <QDebug>
+#include <QKeyEvent>
 #include <QDesktopServices>
 #include <QBuffer>
 #include <QUrl>
@@ -194,6 +195,10 @@ PdfViewerWidget::PdfViewerWidget(QWidget *parent)
     m_annotationLayer->setPageAtCallback([this](QPoint){
         return m_pageNavigator->currentPage();
     });
+
+    // R17: the reading canvas is a keyboard stop (F6 cycling reaches it) and
+    // owns the core navigation keys — see keyPressEvent().
+    setFocusPolicy(Qt::StrongFocus);
 
     // Use the view's built-in page navigator
     m_pageNavigator = m_pdfView->pageNavigator();
@@ -903,6 +908,37 @@ void PdfViewerWidget::syncBadgeOverlayGeometry()
 {
     if (m_badgeOverlay && m_pdfView)
         m_badgeOverlay->setGeometry(m_pdfView->geometry());
+}
+
+// ── R17: keyboard-complete core navigation ───────────────────────────────────
+// PageUp/PageDown turn pages, Home/End jump to
+// the first/last page — the navigate core route is complete without a mouse.
+// Unhandled keys fall through to QWidget (the inner QPdfView keeps its own
+// scroll handling when IT holds focus).
+void PdfViewerWidget::keyPressEvent(QKeyEvent *event)
+{
+    const int pageTotal = m_document ? m_document->pageCount() : 0;
+    switch (event->key()) {
+    case Qt::Key_PageDown:
+        if (pageTotal > 0)
+            goToPage(qMin(currentPage() + 1, pageTotal - 1));
+        return;
+    case Qt::Key_PageUp:
+        if (pageTotal > 0)
+            goToPage(qMax(currentPage() - 1, 0));
+        return;
+    case Qt::Key_Home:
+        if (pageTotal > 0)
+            goToPage(0);
+        return;
+    case Qt::Key_End:
+        if (pageTotal > 0)
+            goToPage(pageTotal - 1);
+        return;
+    default:
+        break;
+    }
+    QWidget::keyPressEvent(event);
 }
 
 void PdfViewerWidget::setPageMode(QPdfView::PageMode mode)

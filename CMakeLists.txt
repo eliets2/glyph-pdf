@@ -2026,6 +2026,46 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestWelcomeRoutes.cpp")
     )
 endif()
 
+# ── TestUiAccessibility (R17 2026-09-13: keyboard/RTL/CJK/DPI pass) ─────────
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestUiAccessibility.cpp")
+    add_executable(TestUiAccessibility
+        tests/TestUiAccessibility.cpp
+        src/app/Bootstrapper.h  src/app/Bootstrapper.cpp
+    )
+    target_include_directories(TestUiAccessibility PRIVATE src tests)
+    target_compile_definitions(TestUiAccessibility PRIVATE
+        DJOT_LIB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/third_party/djot"
+    )
+    target_link_libraries(TestUiAccessibility PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestUiAccessibility POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestUiAccessibility>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestUiAccessibility>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestUiAccessibility"
+    )
+    add_test(NAME TestUiAccessibility COMMAND TestUiAccessibility)
+    set_tests_properties(TestUiAccessibility PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 240
+        LABELS "unit;ui;accessibility;keyboard;rtl;r17;qt;headless"
+    )
+    # R17: the 200%-scale entry runs the SAME binary with the scale factor
+    # applied — every accessibility pin must hold at high DPI too, and
+    # highDpiScaleFactorIsAppliedAndLayoutStable asserts the factor itself.
+    add_test(NAME TestUiAccessibility200 COMMAND TestUiAccessibility)
+    set_tests_properties(TestUiAccessibility200 PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_SCALE_FACTOR=2"
+        TIMEOUT 240
+        LABELS "unit;ui;accessibility;dpi;r17;qt;headless"
+    )
+endif()
+
 # ── Integration tests (Session 20) ───────────────────────────────────────
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestIntegration.cpp")
     add_executable(TestIntegration
