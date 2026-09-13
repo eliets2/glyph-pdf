@@ -377,6 +377,7 @@ add_library(pdfws_engines STATIC
     src/core/ErrorInfo.h             src/core/ErrorInfo.cpp
     src/core/PageLabels.h            src/core/PageLabels.cpp
     src/core/Capability.h            src/core/Capability.cpp
+    src/core/FormStaleFieldTracker.h src/core/FormStaleFieldTracker.cpp
     src/core/TempFileManager.h       src/core/TempFileManager.cpp
     src/core/CredentialManager.h     src/core/CredentialManager.cpp
     src/core/ISecretStore.h
@@ -3461,6 +3462,43 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormJsCalc.cpp")
     endif()
     add_test(NAME TestFormJsCalc COMMAND TestFormJsCalc)
     set_tests_properties(TestFormJsCalc PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 240 LABELS "unit;forms;form-js;javascript;persistence;qt;headless")
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormStaleDisclosure.cpp")
+    add_executable(TestFormStaleDisclosure
+        tests/TestFormStaleDisclosure.cpp
+    )
+    target_include_directories(TestFormStaleDisclosure PRIVATE src tests)
+    target_link_libraries(TestFormStaleDisclosure PRIVATE
+        pdfws_engines pdfws_core pdfws_commands pdfws_ui podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET TestFormStaleDisclosure POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestFormStaleDisclosure>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestFormStaleDisclosure>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFormStaleDisclosure"
+    )
+    if(WIN32)
+        add_custom_command(TARGET TestFormStaleDisclosure POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestFormStaleDisclosure>/libpodofo.dll"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestFormStaleDisclosure"
+        )
+    endif()
+    if(QUICKJS_RUNTIME_DLL AND EXISTS "${QUICKJS_RUNTIME_DLL}")
+        add_custom_command(TARGET TestFormStaleDisclosure POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${QUICKJS_RUNTIME_DLL}"
+                "$<TARGET_FILE_DIR:TestFormStaleDisclosure>"
+            COMMENT "Deploying quickjs-ng runtime DLL for TestFormStaleDisclosure"
+        )
+    endif()
+    add_test(NAME TestFormStaleDisclosure COMMAND TestFormStaleDisclosure)
+    set_tests_properties(TestFormStaleDisclosure PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 240 LABELS "unit;forms;form-js;persistence;qt;headless")
 endif()
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEngineSave.cpp")

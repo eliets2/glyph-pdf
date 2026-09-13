@@ -59,6 +59,9 @@ private:
     QLabel*     m_nameStatus      = nullptr;
     QLabel*     m_scriptBadge     = nullptr;
     QLabel*     m_displayPreview  = nullptr;
+    // R18(a): persistent stale-value warning + its acknowledge control.
+    QLabel*     m_staleBanner     = nullptr;
+    QToolButton* m_staleAckBtn    = nullptr;
     QToolButton* m_applyBtn       = nullptr;
 
     QDoubleSpinBox* m_spinX = nullptr;

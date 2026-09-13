@@ -433,6 +433,15 @@ private slots:
     void tabOrderRespectsAuthorTabsDeclaration();
     void tabOrderWithNoMatchingFieldIsRefusedAndKeepsBytes();
 
+    // ── R18(a): dependent calculation chains under failure ──────────────────
+    // Real-form chains A→B→C: a mid-cascade failure leaves the earlier
+    // values COMMITTED, the failed field at its committed /V, and every
+    // never-reached downstream field honestly disclosed as stale.
+
+    void dependentChainMidCascadeFailureIsFieldAttributedAndDownstreamComputesFromCommittedState();
+    void dependentChainTimeoutAbortsMidCascadeAndDisclosesDownstreamStale();
+    void preCascadeEngineFailureNamesEveryCalculatedFieldStale();
+
     // ── R18(d): runtime closure after an aborted cascade ─────────────────────
     // A timed-out/aborted cascade's runtime is DISCARDED — no hostile global
     // state (a replaced end-event helper) may bleed into the next operation.
@@ -1226,6 +1235,136 @@ void TestFormJsCalc::tabOrderWithNoMatchingFieldIsRefusedAndKeepsBytes()
     QCOMPARE(coNameSequenceOf(form),
              (QStringList{ QStringLiteral("line1"), QStringLiteral("line2"), QStringLiteral("total") }));
     QCOMPARE(page0TabsValue(form), QString());
+}
+
+// ── R18(a): dependent calculation chains under failure ──────────────────────
+
+void TestFormJsCalc::dependentChainMidCascadeFailureIsFieldAttributedAndDownstreamComputesFromCommittedState()
+{
+    // Dependent chain input → a → b → total, where b's script THROWS after a
+    // recomputed successfully. R01 + R05/JS-01 transaction policy:
+    //   * the user's input and a's recomputed value COMMIT (earlier values are
+    //     never lost to a later failure);
+    //   * b keeps its committed /V and is named with kind + reason;
+    //   * total still recomputes — from the COMMITTED snapshot (a's new value,
+    //     b's kept value), never from a fabricated one.
+    const QString form = makeFormPdf(QStringLiteral("chain-exception.pdf"),
+    {
+        { QStringLiteral("input"), {}, {}, {} },
+        { QStringLiteral("a"), QStringLiteral("event.value = Number(this.getField('input').value);"), {}, {} },
+        { QStringLiteral("b"), QStringLiteral("throw new Error('boom');"), {}, QStringLiteral("7") },
+        { QStringLiteral("total"),
+          QStringLiteral("AFSimple_Calculate('SUM', new Array('a','b'));"), {}, QStringLiteral("0") },
+    },
+    { QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("total") });
+    QVERIFY(!form.isEmpty());
+
+    const QString out = m_dir.path() + QStringLiteral("/chain-exception-out.pdf");
+    QList<FormJsFailure> failures;
+    QVERIFY(fillAndFill(form, { { QStringLiteral("input"), QStringLiteral("5") } }, out, &failures));
+
+    // Field-attributed failure: b threw and kept its committed value (7).
+    bool bNamed = false;
+    for (const auto& f : failures) {
+        if (f.fieldName == QLatin1String("b")) {
+            bNamed = true;
+            QVERIFY2(f.kind == QLatin1String("exception"), qPrintable(f.kind));
+            QVERIFY2(!f.reason.isEmpty(), "the failure carries the engine's reason");
+        }
+        // total recomputed from committed state — it must NOT be disclosed.
+        QVERIFY2(f.fieldName != QLatin1String("total"), qPrintable(f.fieldName));
+    }
+    QVERIFY2(bNamed, qPrintable(failureNames(failures).join(QStringLiteral(", "))));
+
+    // Earlier values committed; downstream honest over the committed snapshot:
+    // a = 5 (recomputed), b = 7 (kept), total = 5 + 7 = 12.
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("input")), QStringLiteral("5"));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("a")), QStringLiteral("5"));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("b")), QStringLiteral("7"));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("total")), QStringLiteral("12"));
+    QCOMPARE(qpdfFieldValue(out, QStringLiteral("total")), QStringLiteral("12"));
+}
+
+void TestFormJsCalc::dependentChainTimeoutAbortsMidCascadeAndDisclosesDownstreamStale()
+{
+    // The same chain with a mid-cascade TIMEOUT (a computed, then b loops):
+    // the engine is no longer trusted, the cascade aborts, and every
+    // calculated field it never reached (total) is NAMED as potentially
+    // stale — the disclosure the persistent stale-field warning is built on.
+    const QString form = makeFormPdf(QStringLiteral("chain-timeout.pdf"),
+    {
+        { QStringLiteral("input"), {}, {}, {} },
+        { QStringLiteral("a"), QStringLiteral("event.value = Number(this.getField('input').value);"), {}, {} },
+        { QStringLiteral("b"),
+          QStringLiteral("while (true) {}"), {}, QStringLiteral("7") },
+        { QStringLiteral("total"),
+          QStringLiteral("AFSimple_Calculate('SUM', new Array('a','b'));"), {}, QStringLiteral("0") },
+    },
+    { QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("total") });
+    QVERIFY(!form.isEmpty());
+
+    const QString out = m_dir.path() + QStringLiteral("/chain-timeout-out.pdf");
+    QElapsedTimer clock;
+    clock.start();
+    QList<FormJsFailure> failures;
+    QVERIFY(fillAndFill(form, { { QStringLiteral("input"), QStringLiteral("5") } }, out, &failures));
+    QVERIFY2(clock.elapsed() < 15000, qPrintable(QStringLiteral("cascade took %1 ms").arg(clock.elapsed())));
+
+    QStringList kinds;
+    for (const auto& f : failures) kinds << f.fieldName + QLatin1Char(':') + f.kind;
+    QVERIFY2(kinds.contains(QStringLiteral("b:timeout")), qPrintable(kinds.join(QStringLiteral(", "))));
+    QVERIFY2(kinds.contains(QStringLiteral("total:skipped")), qPrintable(kinds.join(QStringLiteral(", "))));
+    for (const auto& f : failures)
+        if (f.kind == QLatin1String("skipped"))
+            QVERIFY2(f.reason.contains(QLatin1String("stale")), qPrintable(f.reason));
+
+    // a COMMITTED before the abort; b keeps its value; total was never
+    // recomputed and keeps its stored 0 — never a wrong computed value.
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("input")), QStringLiteral("5"));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("a")), QStringLiteral("5"));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("b")), QStringLiteral("7"));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("total")), QStringLiteral("0"));
+}
+
+void TestFormJsCalc::preCascadeEngineFailureNamesEveryCalculatedFieldStale()
+{
+    // A cascade that cannot even START (the value snapshot exceeds the host
+    // transfer cap: one field carries a 5 MiB /V against the 4 MiB cap) must
+    // disclose EVERY calculated /CO field as skipped — not just report an
+    // anonymous engine error. The user's fill still commits (R01 policy).
+    FieldSpec big;
+    big.name = QStringLiteral("big");
+    big.initial = QString(5 * 1024 * 1024, QLatin1Char('x'));
+    const QString form = makeFormPdf(QStringLiteral("chain-precascade.pdf"),
+    {
+        big,
+        { QStringLiteral("total"),
+          QStringLiteral("AFSimple_Calculate('SUM', new Array('big'));"), {}, QStringLiteral("0") },
+    },
+    { QStringLiteral("total") });
+    QVERIFY(!form.isEmpty());
+
+    const QString out = m_dir.path() + QStringLiteral("/chain-precascade-out.pdf");
+    QList<FormJsFailure> failures;
+    // Fill nothing: the 5 MiB stored /V is what makes the snapshot install
+    // refuse — the cascade must disclose its calculated fields as skipped.
+    QVERIFY(fillAndFill(form, {}, out, &failures));
+
+    bool engineNamed = false;
+    bool totalSkipped = false;
+    for (const auto& f : failures) {
+        if (f.fieldName.isEmpty() && f.kind == QLatin1String("engine")) engineNamed = true;
+        if (f.fieldName == QLatin1String("total") && f.kind == QLatin1String("skipped")) {
+            totalSkipped = true;
+            QVERIFY2(f.reason.contains(QLatin1String("could not start")), qPrintable(f.reason));
+        }
+    }
+    QVERIFY2(engineNamed, qPrintable(failureNames(failures).join(QStringLiteral(", "))));
+    QVERIFY2(totalSkipped, qPrintable(failureNames(failures).join(QStringLiteral(", "))));
+
+    // The user's data is unchanged and the calculated field kept its stored
+    // value — never a wrong computed value.
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("total")), QStringLiteral("0"));
 }
 
 // ── R18(d): runtime closure after an aborted cascade ────────────────────────
