@@ -106,6 +106,14 @@ public:
     /// left with Run disabled forever.
     static QString ocrDispatchBlocker(const QString& filePath, int page);
 
+    /// ARC07 residual, pure seam: why the OCR-accept export may not write to
+    /// `outPath`. The export is Save-As-shaped, so a read-only document keeps
+    /// the route — but the destination must not be the read-only document
+    /// itself (that would be an in-place overwrite). Empty == may proceed.
+    static QString ocrAcceptWriteBlocker(bool sessionReadOnly,
+                                         const QString& sessionSourcePath,
+                                         const QString& outPath);
+
     /// Pure seam: classify one job completion. jobGeneration != currentGeneration
     /// means a newer request superseded it; an empty currentSourcePath means the
     /// viewer/editor was gone. V05: jobSourceRevision/currentSourceRevision are

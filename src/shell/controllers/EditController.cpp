@@ -718,6 +718,30 @@ QString EditController::ocrDispatchBlocker(const QString& filePath, int page)
     return QString();
 }
 
+// ARC07 residual: the accept flow exports a searchable COPY, so a read-only
+// document keeps the route (Save-As shape — same policy that leaves Save As
+// available). The one refused shape is writing over the read-only document
+// itself. Case-insensitive compare catches a case-alias of the open file;
+// canonical paths catch it when both sides exist.
+QString EditController::ocrAcceptWriteBlocker(bool sessionReadOnly,
+                                              const QString& sessionSourcePath,
+                                              const QString& outPath)
+{
+    if (!sessionReadOnly || outPath.isEmpty() || sessionSourcePath.isEmpty())
+        return QString();
+    const QFileInfo outInfo(outPath);
+    const QFileInfo srcInfo(sessionSourcePath);
+    const bool sameFile =
+        (!outInfo.canonicalFilePath().isEmpty()
+         && outInfo.canonicalFilePath().compare(srcInfo.canonicalFilePath(), Qt::CaseInsensitive) == 0)
+        || (outInfo.size() == srcInfo.size()
+            && outInfo.absoluteFilePath().compare(srcInfo.absoluteFilePath(), Qt::CaseInsensitive) == 0);
+    if (!sameFile)
+        return QString();
+    return EditPolicy::readOnlyMessage()
+        + EditController::tr(" Choose a different output file to export the searchable copy.");
+}
+
 // R07 (F11): one classification for every terminal outcome of a dispatched job.
 // Order matters: a superseded generation wins (the newer job owns the user's
 // attention), then the worker error, then source-identity staleness.
@@ -1478,6 +1502,16 @@ void EditController::onOcrAcceptRequested(const QList<OcrReviewedWord>& reviewed
     if (outPath.isEmpty()) {
         // Cancelled save: nothing written, review edits retained.
         emit ocrSaveFinished(false, true, QString());
+        return;
+    }
+
+    // ARC07 residual: a read-only document keeps the export route, but the
+    // destination must not be the read-only document itself.
+    const QString writeBlocker = ocrAcceptWriteBlocker(
+        _ctx->document ? _ctx->document->isReadOnly() : false,
+        m_reviewSession.sourcePath, outPath);
+    if (!writeBlocker.isEmpty()) {
+        emit ocrSaveFinished(false, false, writeBlocker);
         return;
     }
 
