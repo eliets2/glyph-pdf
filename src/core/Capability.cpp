@@ -73,6 +73,27 @@ QString visibleSignatureKindDisclosure()
                        "flow for a cryptographically verifiable signature.");
 }
 
+// N2 — XFA honesty disclosure (the okular §1.4 pattern: the user is TOLD the
+// form is unsupported rather than it silently mis-filling). GlyphPDF renders
+// the AcroForm field dicts an XFA document also carries, but never executes
+// XFA itself — the disclosure names both halves of that truth.
+QString xfaFormsWhyNot()
+{
+    return QObject::tr("This document uses an XFA form (LiveCycle Designer "
+                       "form). GlyphPDF does not run XFA, so XFA-specific "
+                       "fields, calculations and validation will not work and "
+                       "saved values may not match what an XFA-aware reader "
+                       "shows.");
+}
+
+QString xfaFormsAlternative()
+{
+    return QObject::tr("For full XFA support, fill or print the document in "
+                       "the application that created it. GlyphPDF can still "
+                       "fill, flatten and sign the plain AcroForm fields this "
+                       "document contains.");
+}
+
 // ── Registry core ─────────────────────────────────────────────────────────────
 
 CapabilityRegistry::CapabilityRegistry(QObject* parent)

@@ -48,6 +48,7 @@ enum class CapId {
     VisibleSignatureGraphic,  // SignaturePicker Draw/Type/Upload graphic stamp
     PdfAValidation,           // veraPDF CLI present (runtime probe)
     FormJavaScript,           // run-side AcroForm Calculate/Format (quickjs-ng)
+    XfaForms,                 // N2: XFA form present (param = file path) — Degraded
     COUNT
 };
 
@@ -66,6 +67,8 @@ QString officeImportAlternative();
 QString mrcWhyNot();                     // canonical MRC fallback wording
 QString mrcAlternative();
 QString visibleSignatureKindDisclosure(); // U08: graphic stamp vs certificate-backed kind label
+QString xfaFormsWhyNot();                 // N2: XFA form disclosure (okular pattern)
+QString xfaFormsAlternative();            // N2: what to do instead (source application)
 
 class CapabilityRegistry : public QObject {
     Q_OBJECT

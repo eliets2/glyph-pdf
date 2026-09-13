@@ -40,6 +40,8 @@
 #include "engines/DocumentSession.h"
 #include "engines/PdfEditorEngine.h"
 #include "core/Capability.h"   // R16: welcome card capability gating
+#include "core/Capability.h"               // N2: XFA honesty disclosure via the registry
+#include "core/interfaces/IFormManager.h"  // N2: hasXfaForms probe input
 #include <QUndoStack>   // ARC01: history is scoped to one document at the open boundary
 #include "util/GpTheme.h"
 
@@ -918,6 +920,29 @@ void MainWindow::openDocument(const QString& filePath) {
             if (!err.userMessage.isEmpty() && err.severity == ErrorInfo::Warning) {
                 ErrorDialog::show(err, this);
                 _ctx->pdfEditor->clearError();
+            }
+        }
+
+        // N2 (backlog 2026-09-10): XFA honesty banner — the okular pattern
+        // (HasUnsupportedXfaForm): when the opened document carries an XFA
+        // form, TELL the user what works (the plain AcroForm fields) and what
+        // does not (XFA execution) instead of silently rendering AcroForm-only
+        // and letting XFA fields mis-fill. The wording is the CapabilityRegistry's
+        // (Degraded ⇒ non-empty whyNot + alternative, enforced by query()).
+        // A document without XFA raises nothing.
+        if (_ctx && _ctx->forms && _ctx->capabilities) {
+            const bool hasXfa = _ctx->forms->hasXfaForms(filePath);
+            _ctx->capabilities->invalidate(gp::CapId::XfaForms);
+            const gp::Capability xfa =
+                _ctx->capabilities->query(gp::CapId::XfaForms, filePath);
+            if (hasXfa && xfa.status == gp::Availability::Degraded) {
+                statusBar()->showMessage(tr("XFA form — limited support."), 8000);
+                QMessageBox box(QMessageBox::Warning,
+                                tr("XFA form — limited support"),
+                                gp::xfaFormsWhyNot(),
+                                QMessageBox::Ok, this);
+                box.setInformativeText(gp::xfaFormsAlternative());
+                box.exec();
             }
         }
 
