@@ -14,29 +14,41 @@
 // the secret lives in an app-managed file, not the OS vault; and the on-disk
 // file carries an explicit header marker.
 //
-// EC04 — at-rest formats (the first byte of every blob; entries live as
-// base64 inside the labelled JSON store `secrets.enc.json`):
+// EC04 / SEP13:5 — at-rest formats (the first byte of every blob; entries
+// live as base64 inside the labelled JSON store `secrets.enc.json`):
 //
-//   0x02  Windows default path: the secret is wrapped DIRECTLY by DPAPI
-//         (CryptProtectData/CryptUnprotectData, advapi32). DPAPI binds the
-//         blob to the Windows user account (+ machine); no app-managed key
-//         exists. Pre-fix this path re-derived an AES key from a fresh DPAPI
-//         blob on every call — DPAPI protection is non-deterministic, so the
-//         store could never reread its own writes (storeSecret always failed
-//         its verification).
-//   0x01  AES-256-GCM under SHA-256(injected key material) — used by tests
-//         and hosts that supply explicit key material; and (legacy, pre-EC04)
-//         by the no-override path on every platform.
+//   0x04  Windows default path (v3 generation): the secret is wrapped
+//         DIRECTLY by DPAPI (CryptProtectData/CryptUnprotectData, advapi32)
+//         with the SERVICE NAME as the optional entropy. The blob is bound
+//         to the entry identity it was written under: swapping base64 blobs
+//         between JSON entries fails unprotection loudly (SEP13:5 — the v2
+//         format below used a constant description and no entropy, so a
+//         local actor with write access to the store could swap blobs
+//         between entries undetected). DPAPI binds the blob to the Windows
+//         user account (+ machine); no app-managed key exists.
+//   0x03  AES-256-GCM (v3 generation) under SHA-256(injected key material) —
+//         used by tests and hosts that supply explicit key material — or
+//         under the non-Windows derived key (see resolveKey()), with the
+//         SERVICE NAME as the GCM AAD. Ciphertext+tag authenticate the entry
+//         identity: a blob moved to another entry fails authentication
+//         instead of decrypting to the wrong secret (SEP13:5).
+//   0x02  (legacy, readable for migration) Windows DPAPI WITHOUT entry
+//         entropy — EC04's format. Still readable; no longer written.
+//   0x01  (legacy, readable for migration) AES-256-GCM WITHOUT AAD — the
+//         pre-SEP13:5 override-key and non-Windows format. Still readable;
+//         no longer written.
 //
 // Migration: Windows default-path 0x01 data is NOT recoverable — it was never
 // readable (every such write failed its own verification and storeSecret
-// returned false), so there is nothing to migrate; 0x02 replaces it. 0x01
-// stores written WITH an override key, and non-Windows 0x01 stores, remain
-// readable as before. Non-Windows 0x01 keys derive from home-path/machine
-// identifiers — those are identifiers, not confidential entropy, so the
-// non-Windows default path is honest obfuscation only (no OS protection
-// primitive exists there); the Windows default path carries the real
-// per-user encryption guarantee.
+// returned false), so there was nothing to migrate (EC04). 0x01 stores
+// written WITH an override key, non-Windows 0x01 stores, and Windows 0x02
+// stores remain readable as before; new writes use the v3 generation
+// (0x03/0x04), which binds every blob to its entry identity. Non-Windows
+// 0x01/0x03 keys derive from home-path/machine identifiers — those are
+// identifiers, not confidential entropy, so the non-Windows default path is
+// honest obfuscation only (no OS protection primitive exists there); the
+// Windows default path carries the real per-user encryption guarantee, now
+// additionally bound to the entry identity.
 //
 // It NEVER silent-fails: storeSecret returns false (and writes nothing) if it
 // cannot durably persist; it never returns true without the ciphertext hitting
@@ -68,10 +80,15 @@ private:
     // note above; on Windows the default path no longer WRITES this format).
     QByteArray resolveKey() const;
 
-    // AES-256-GCM. Returns empty on failure (caller treats empty as failure and
-    // never persists / never claims success).
-    QByteArray encrypt(const QByteArray& plaintext) const;
-    QByteArray decrypt(const QByteArray& blob) const;  // empty on auth failure
+    // AES-256-GCM (v3, 0x03) or DPAPI (v3, 0x04) — the entry identity is
+    // part of the protection: the service name is the GCM AAD / the DPAPI
+    // optional entropy. Returns empty on failure (caller treats empty as
+    // failure and never persists / never claims success).
+    QByteArray encrypt(const QString& service, const QByteArray& plaintext) const;
+    // Empty on auth failure, entry-identity mismatch (a blob read under a
+    // service it was not written for), corruption, or a legacy blob whose
+    // key material is unavailable.
+    QByteArray decrypt(const QString& service, const QByteArray& blob) const;
 
     QString    m_filePath;
     QByteArray m_keyOverride;  // test-injected key material (optional)
