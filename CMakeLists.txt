@@ -2419,6 +2419,9 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchOpsCoverage.cpp")
             "$<TARGET_FILE_DIR:TestBatchOpsCoverage>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestBatchOpsCoverage>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestBatchOpsCoverage"
+    )
     # L05 (NATIVE-LINUX-READINESS-2026-09-10): podofo DLL staging is Windows-only —
     # Linux links the vendored .so directly (no runtime staging).
     if(WIN32)
@@ -2429,9 +2432,6 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchOpsCoverage.cpp")
             COMMENT "Deploying podofo 1.1.0 DLL for TestBatchOpsCoverage"
         )
     endif()
-            "$<TARGET_FILE_DIR:TestBatchOpsCoverage>/platforms/${GLYPH_QPA_PLUGIN}"
-        COMMENT "Deploying qoffscreen platform plugin for TestBatchOpsCoverage"
-    )
     add_test(NAME TestBatchOpsCoverage COMMAND TestBatchOpsCoverage)
     set_tests_properties(TestBatchOpsCoverage PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
