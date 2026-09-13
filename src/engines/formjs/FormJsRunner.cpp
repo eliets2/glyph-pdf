@@ -10,6 +10,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <vector>
 
 // wingdi.h defines GetObject as an object-like macro in UNICODE builds; it
 // collides with PoDoFo::PdfField::GetObject (same guard as TestFormSafety).
@@ -210,19 +211,24 @@ CascadeReport FormJsRunner::runCalculateCascade(PoDoFo::PdfMemDocument& doc,
         if (!co || !co->IsArray()) return report;
 
         // name → field table (first occurrence wins on duplicate full names,
-        // the same policy every other FormManager mutation documents).
+        // the same policy every other FormManager mutation documents); the
+        // /CO order is snapshotted as references up front so the abort path
+        // can name every calculated field the cascade never reached. Cyclic/
+        // malformed entries terminate: a reference resolved twice is skipped
+        // (pdf.js `_isCalculating` equivalent) and the loop is hard-capped —
+        // a corrupt /CO can never spin the cascade.
         std::map<std::string, PoDoFo::PdfField*> byRef;
         for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
             auto& field = acroForm->GetFieldAt(i);
             byRef[(field.GetObject)().GetIndirectReference().ToString()] = &field;
         }
+        std::vector<PoDoFo::PdfReference> coOrder;
+        for (const auto& item : co->GetArray())
+            if (item.IsReference()) coOrder.push_back(item.GetReference());
 
-        // Resolve the /CO order. Cyclic/malformed entries terminate: a
-        // reference resolved twice is skipped (pdf.js `_isCalculating`
-        // equivalent) and the loop is hard-capped — a corrupt /CO can never
-        // spin the cascade.
+        // Resolve the /CO order into a run/skip sequence (see above).
         std::set<std::string> calculatedOnce;
-        const size_t coSize = co->GetArray().GetSize();
+        const size_t coSize = coOrder.size();
         size_t guard = coSize * 2 + 8;
 
         FormJsSandbox sandbox;
@@ -243,15 +249,28 @@ CascadeReport FormJsRunner::runCalculateCascade(PoDoFo::PdfMemDocument& doc,
             report.engineAborted = true;
             return report;
         }
-        sandbox.setFieldValues(collectFieldValues(doc));
+        // The snapshot install is an engine entry (R05/JS-01): without an
+        // installed snapshot every later calculation would silently compute
+        // on missing values — refuse the cascade instead.
+        QString snapshotError;
+        if (!sandbox.setFieldValues(collectFieldValues(doc), &snapshotError)) {
+            FieldJsFailure f;
+            f.kind = QStringLiteral("engine");
+            f.reason = QStringLiteral("the form value snapshot could not be installed; no field was calculated: %1")
+                           .arg(snapshotError);
+            report.failures.append(f);
+            report.engineAborted = true;
+            return report;
+        }
 
         QElapsedTimer cascadeClock;
         cascadeClock.start();
 
-        for (const auto& item : co->GetArray()) {
+        bool cascadeAborted = false;
+        for (size_t coIndex = 0; coIndex < coOrder.size(); ++coIndex) {
             if (guard-- == 0) break;
-            if (!item.IsReference()) continue;
-            const auto it = byRef.find(item.GetReference().ToString());
+            const auto& itemRef = coOrder[coIndex];
+            const auto it = byRef.find(itemRef.ToString());
             if (it == byRef.end()) continue; // dangling /CO ref — nothing to run
             PoDoFo::PdfField* field = it->second;
             const QString name = QString::fromStdString(field->GetFullName());
@@ -279,6 +298,7 @@ CascadeReport FormJsRunner::runCalculateCascade(PoDoFo::PdfMemDocument& doc,
                                .arg(cascadeDeadlineMs);
                 report.failures.append(f);
                 report.engineAborted = true;
+                cascadeAborted = true;
                 break;
             }
             const int deadline = qMin(eventDeadlineMs, remaining);
@@ -297,6 +317,7 @@ CascadeReport FormJsRunner::runCalculateCascade(PoDoFo::PdfMemDocument& doc,
                 if (r.kind == JsErrorKind::Timeout || r.kind == JsErrorKind::Memory) {
                     // Poisoned budget/engine: abort the remaining cascade.
                     report.engineAborted = true;
+                    cascadeAborted = true;
                     break;
                 }
                 continue; // syntax/exception: other fields still calculate
@@ -333,8 +354,51 @@ CascadeReport FormJsRunner::runCalculateCascade(PoDoFo::PdfMemDocument& doc,
                 report.failures.append(f);
                 continue;
             }
-            sandbox.updateFieldValue(name, r.value);
             ++report.calculated;
+            // R05/JS-01: the snapshot refresh is itself script-reachable (a
+            // hostile script can install a looping setter on the snapshot
+            // global). If it fails, later entries would silently compute on
+            // STALE inputs — stop and disclose instead of continuing.
+            QString refreshError;
+            if (!sandbox.updateFieldValue(name, r.value, &refreshError)) {
+                FieldJsFailure f;
+                f.fieldName = name;
+                f.kind = QStringLiteral("engine");
+                f.reason = QStringLiteral("the calculated value was written to %1, but the sandbox value "
+                                          "snapshot could not be refreshed (%2); the remaining cascade was "
+                                          "skipped and later calculated fields may hold stale values")
+                               .arg(name, refreshError);
+                report.failures.append(f);
+                report.engineAborted = true;
+                cascadeAborted = true;
+                break;
+            }
+        }
+
+        if (cascadeAborted) {
+            // Honest disclosure (R05/JS-01 transaction policy): name every
+            // calculated field the cascade never reached — its stored /V may
+            // now be stale relative to the user's committed input.
+            std::set<std::string> disclosed;
+            for (const auto& ref : coOrder) {
+                const std::string key = ref.ToString();
+                if (!disclosed.insert(key).second) continue;
+                const auto it = byRef.find(key);
+                if (it == byRef.end()) continue;
+                PoDoFo::PdfField* field = it->second;
+                if (calculatedOnce.count((field->GetObject)().GetIndirectReference().ToString()))
+                    continue; // this field DID run in this cascade — no staleness
+                QString skippedScript;
+                if (!extractActionScript(*field, 'C', &skippedScript, nullptr))
+                    continue; // no runnable calculate action — nothing to disclose
+                FieldJsFailure f;
+                f.fieldName = QString::fromStdString(field->GetFullName());
+                f.kind = QStringLiteral("skipped");
+                f.reason = QStringLiteral("the calculate cascade was aborted before this field; it was not "
+                                          "recalculated and its stored value may be stale (see the "
+                                          "preceding failure for the abort reason)");
+                report.failures.append(f);
+            }
         }
     } catch (const PoDoFo::PdfError& e) {
         FieldJsFailure f;
@@ -382,7 +446,18 @@ QString FormJsRunner::formatForDisplay(PoDoFo::PdfMemDocument& doc,
         }
         return {};
     }
-    sandbox.setFieldValues(collectFieldValues(doc));
+    // R05/JS-01: the snapshot install is an engine entry; without it the
+    // format script would silently compute on missing values.
+    QString snapshotError;
+    if (!sandbox.setFieldValues(collectFieldValues(doc), &snapshotError)) {
+        if (failure) {
+            failure->fieldName = name;
+            failure->kind = QStringLiteral("engine");
+            failure->reason = QStringLiteral("the form value snapshot could not be installed: %1")
+                                  .arg(snapshotError);
+        }
+        return {};
+    }
 
     const JsEvalResult r = sandbox.runEvent(script, name, QStringLiteral("Format"),
                                             readValue(field), eventDeadlineMs);

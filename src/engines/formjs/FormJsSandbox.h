@@ -35,6 +35,15 @@ struct SandboxLimits {
     qsizetype stackLimitBytes  = 1024 * 1024;      // JS_SetMaxStackSize
     int eventDeadlineMs = 250;                     // per single event
     int cascadeDeadlineMs = 1000;                  // per calculate cascade
+    // C++-side host allocation caps (R05/JS-01). The JS heap cap does NOT
+    // bound host memory: every string crossing the C↔C++ boundary is
+    // re-materialized on the host (JS_ToCStringLen → QString::fromUtf8 →
+    // toUtf8 → QJsonDocument each copy it), so a getter returning a
+    // near-cap string is amplified several-fold. These caps refuse the
+    // transfer honestly instead. 4 MiB is orders of magnitude above any
+    // honest form-event payload (a value, a few log lines).
+    qsizetype maxScriptBytes   = 4 * 1024 * 1024; // authored script text
+    qsizetype maxTransferBytes = 4 * 1024 * 1024; // any JS→C++ string
 };
 
 // One sandbox = one quickjs-ng JSRuntime + JSContext, fresh per run unit
@@ -42,7 +51,13 @@ struct SandboxLimits {
 //
 // Sandbox contract (design doc §3 — non-negotiable, enforced HERE):
 //   * JS_SetMemoryLimit + JS_SetMaxStackSize set from SandboxLimits.
-//   * JS_SetInterruptHandler with a monotonic per-evaluation deadline.
+//   * JS_SetInterruptHandler with ONE absolute whole-operation deadline:
+//     every call into the engine — setup, the authored script, exception
+//     property reads, string/number coercion inside shim glue, toJSON hooks,
+//     result collection — executes potentially hostile code, so the entire
+//     operation (setup → eval → result extraction) runs under a single
+//     deadline owned by the C++ caller (R05/JS-01: the per-eval-only deadline
+//     with -1 gaps was reproducibly bypassable).
 //   * ZERO host I/O: no quickjs-libc module is ever initialized — the engine
 //     core exposes no stdin/stdout/filesystem/network primitives at all; the
 //     only globals are the ECMAScript intrinsics plus the AF shim (AFormShim)
@@ -65,14 +80,24 @@ public:
     bool installShim(QString* error);
 
     // Sets/updates the field-value snapshot the shim's getField()/AFSimple_
-    // Calculate read. Values are the fields' current /V strings.
-    void setFieldValues(const QVariantMap& nameToValue);
-    void updateFieldValue(const QString& name, const QString& value);
+    // Calculate read. Values are the fields' current /V strings. The snapshot
+    // install is an engine entry (a hostile script can have replaced
+    // `globalThis.__gpFieldValues` with a looping setter), so it runs under
+    // its own whole-operation deadline; false = the install failed (`error`
+    // carries the honest reason — the host-side map is still updated so a
+    // later successful install sees the latest values).
+    bool setFieldValues(const QVariantMap& nameToValue, QString* error = nullptr);
+    bool updateFieldValue(const QString& name, const QString& value,
+                          QString* error = nullptr);
 
     // Resets the event object and log sinks, then evaluates `script`.
     // `fieldName`/`eventKind` only shape the event object (honest attribution).
-    // `deadlineMs` is this evaluation's hard deadline (the interrupt handler
-    // aborts execution when it fires). Returns the classified outcome.
+    // `deadlineMs` is the WHOLE OPERATION's hard deadline — one absolute
+    // budget spanning the setup eval, the script eval, exception inspection,
+    // the end-event result collection and every coercion/getter/toJSON it
+    // triggers (the interrupt handler aborts the engine wherever it is when
+    // the budget fires). Returns the classified outcome; on Timeout the
+    // caller keeps the field's committed value (transaction policy).
     JsEvalResult runEvent(const QString& script,
                           const QString& fieldName,
                           const QString& eventKind,
@@ -87,6 +112,11 @@ public:
 
 private:
     struct Impl;
+    // Shared body of setFieldValues/updateFieldValue — installs the host-side
+    // field map into the engine under a whole-operation deadline (the
+    // assignment can hit a hostile looping setter installed by an earlier
+    // script) and reports honest failure instead of silently continuing.
+    bool installFieldSnapshot(QString* error);
     SandboxLimits m_limits;
     std::unique_ptr<Impl> m_impl;
     QVariantMap m_fieldValues;

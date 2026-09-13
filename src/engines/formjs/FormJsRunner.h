@@ -26,7 +26,7 @@ namespace gp::formjs {
 
 struct FieldJsFailure {
     QString fieldName;
-    QString kind;    // "timeout" | "memory" | "syntax" | "exception" | "rejected" | "engine"
+    QString kind;    // "timeout" | "memory" | "syntax" | "exception" | "rejected" | "engine" | "skipped"
     QString reason;  // engine/classifier reason, user-presentable
 };
 
@@ -61,6 +61,10 @@ public:
     //                                the cascade so other fields still compute;
     //   timeout/memory             → skip that field and ABORT the remaining
     //                                cascade (engine state is not trusted);
+    //   snapshot refresh failure   → abort + disclose (later fields would
+    //                                compute on stale inputs);
+    //   a "skipped" failure entry names every calculated field the aborted
+    //   cascade never reached — its stored /V may be stale (R05/JS-01);
     //   the document is left consistent either way; failures are returned.
     static CascadeReport runCalculateCascade(PoDoFo::PdfMemDocument& doc,
                                              int eventDeadlineMs = 250,
