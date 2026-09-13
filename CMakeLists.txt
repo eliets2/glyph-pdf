@@ -2448,6 +2448,34 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchOpsCoverage.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPdfACidSetSafety.cpp")
+    # SEP13:1 — CID /W out-of-bounds heap write + DoS in exportPdfA's
+    # ensureCompleteCidSets: crafted hostile-/W fixtures through the real
+    # engine export, CIDSet read back from the saved artifacts.
+    add_executable(TestPdfACidSetSafety
+        tests/TestPdfACidSetSafety.cpp
+    )
+    target_include_directories(TestPdfACidSetSafety PRIVATE src tests)
+    target_link_libraries(TestPdfACidSetSafety PRIVATE
+        pdfws_engines pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    if(WIN32)
+        add_custom_command(TARGET TestPdfACidSetSafety POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestPdfACidSetSafety>"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestPdfACidSetSafety"
+        )
+    endif()
+    add_test(NAME TestPdfACidSetSafety COMMAND TestPdfACidSetSafety)
+    set_tests_properties(TestPdfACidSetSafety PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 240
+        LABELS "unit;pdfa;security;qt;headless"
+    )
+endif()
+
 # §9.14 P1: the reading-order heuristic threshold is a NAMED, documented
 # constant (kReadingOrderSlotTolerance) with boundary tests — displacement of
 # exactly 2 slots is not flagged, exactly 3 is.
