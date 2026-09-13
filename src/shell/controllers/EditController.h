@@ -11,6 +11,7 @@
 #include "core/interfaces/IToolController.h"
 #include "engines/ocr/OcrPipeline.h" // PageOcrResult / MergedOcrWord (§9.4 Accept seam)
 #include "modes/OcrReviewSession.h"  // R08: review session + reviewed word records
+#include "engines/TextMatchFinder.h" // T2-2: TextMatch (replace outcome payload)
 
 struct AppContext;
 class EditToolBar;
@@ -39,6 +40,43 @@ public:
     void onReplaceAllRequested(const QString &searchText, const QString &replaceText,
                                bool matchCase, bool wholeWords, bool useRegex);
     void onRedactAllRequested(const QString &text, bool matchCase, bool wholeWords);
+
+    // ── T2-2: Find & Replace — the canonical replace pipeline ────────────────
+    // Request/outcome payload types (ReplaceOptions / ReplaceOutcome) live in
+    // engines/TextMatchFinder.h beside TextMatch so the ui-layer
+    // FindReplaceDialog can speak the same language without depending on the
+    // shell layer. `pages` is the 0-based inclusive scope; an empty list
+    // means ALL pages ("scope: current doc, all pages, page range" research
+    // row). Exact + regex + match-case + whole-words are folded into the
+    // pattern by TextMatchFinder::buildPattern.
+    // THE mutation entry: find in scope → excise + redraw via the engine's
+    // ITextReplacer seam → checked save (writeUpdate when signed) → viewer
+    // reload. Not undoable (direct engine write, like Bates/watermark); the
+    // engine aborts BEFORE any disk write when a page cannot be edited.
+    ReplaceOutcome replaceAllInDocument(const ReplaceOptions &options);
+
+    // ── T2-6: dynamic stamps ─────────────────────────────────────────────────
+    // Resolve the template's placeholders AT APPLY TIME and arm the Stamp
+    // placement mode with the resolved text. The committed annotation carries
+    // the concrete author/date (never a live template); the tool stays armed
+    // but the resolution is consumed after one placement.
+    void armDynamicStamp(const QString &templateId);
+    // Pure seam: which stamp template id a ToolId maps to (empty = none).
+    static QString stampTemplateIdForTool(ToolId id);
+
+    // ── T2-9: auto-bookmarks from text styles ────────────────────────────────
+    // Detect heading candidates, show the preview dialog (heuristic basis
+    // disclosed, titles editable, rows uncheckable), then commit the outline
+    // as ONE undoable engine write. No-op (with a status message) without a
+    // document or when nothing was detected.
+    void runAutoBookmarks();
+
+private:
+    // T2-6: lazily created modeless library dialog; Place requests re-enter
+    // armDynamicStamp. Private — reached through activate(StampLibraryManage).
+    void openStampLibraryDialog();
+
+public:
 
     // §9.15 test seam: build the page-text matcher for the document-text search
     // path. Returns an inactive pattern when the flags are all off (the caller

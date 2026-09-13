@@ -48,6 +48,14 @@ public:
     // placement modes; consumed when the user clicks/drags on the page.
     void setPendingSignatureImage(const QImage &img);
 
+    // T2-6: the RESOLVED dynamic stamp text (placeholders already substituted
+    // by StampLibrary::resolveText at arm time). Rides the placement gesture
+    // exactly like the pending signature image and becomes the committed
+    // item's text — so the SAVED annotation carries the concrete author/date,
+    // never a live template. Consumed (cleared) after one placement.
+    void setPendingStampText(const QString &text);
+    QString pendingStampText() const { return m_pendingStampText; }
+
     void setImageOverlays(const QList<PdfImageInfo> &images);
     void setSelectedImageName(const QString &name);
     QString selectedImageName() const { return m_selectedImageName; }
@@ -114,6 +122,8 @@ private:
     QImage m_overlayImage;
     // §9.7 P0: pending signature image for the Type/Upload placement modes.
     QImage m_pendingSignatureImage;
+    // T2-6: pending resolved stamp text for the Stamp placement mode.
+    QString m_pendingStampText;
 
     // ── T1 measurement draft state ──────────────────────────────────────────
     gp::measure::Scale m_measureScale = gp::measure::ptScale();
