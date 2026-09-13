@@ -79,6 +79,13 @@ struct ReplaceOptions {
     bool wholeWords = false;
     bool useRegex = false;
     QList<int> pages;   // 0-based inclusive scope; empty = ALL pages
+    // packa-F1: an empty `pages` list legitimately means "all pages", so an
+    // UNUSABLE scope (malformed range, range outside the document) must be
+    // its own state — never encoded as the same empty list. Producers set
+    // scopeValid=false for a refused scope; EditController::replaceAllInDocument
+    // refuses scopeValid=false with zero mutation instead of widening to the
+    // whole document.
+    bool scopeValid = true;
 };
 
 struct ReplaceOutcome {

@@ -3002,8 +3002,15 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFindReplace.cpp")
     add_executable(TestFindReplace
         tests/TestFindReplace.cpp
+        # packa-F1: the controller-boundary regression drives the REAL
+        # MainWindow + EditController (Bootstrapper context) for the
+        # zero-mutation guarantee at the shared pipeline boundary.
+        src/app/Bootstrapper.h  src/app/Bootstrapper.cpp
     )
     target_include_directories(TestFindReplace PRIVATE src tests)
+    target_compile_definitions(TestFindReplace PRIVATE
+        DJOT_LIB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/third_party/djot"
+    )
     target_link_libraries(TestFindReplace PRIVATE
         pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
         Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
