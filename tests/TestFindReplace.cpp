@@ -28,8 +28,16 @@
 #include <QLineEdit>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QFileInfo>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QFontDatabase>
+
+#ifdef HAS_PDFIUM
+#include <fpdfview.h>
+#include <fpdf_text.h>
+#include "engines/pdfium/PdfiumEnvironment.h"
+#endif
 
 // The PDFium/windows headers define `DrawText` as a macro (Win32 DrawTextW),
 // which collides with PoDoFo::PdfPainter::DrawText. Drop the macro — the
@@ -72,6 +80,82 @@ static QString createThreePagePdf(const QTemporaryDir& tmpDir, const QString& na
         doc.Save(path.toUtf8().constData());
     } catch (const std::exception& e) {
         qWarning() << "createThreePagePdf failed:" << e.what();
+        return {};
+    }
+    return path;
+}
+
+// ---------------------------------------------------------------------------
+// Pack A review F2 fixture: a page with SUPPLEMENTARY (astral-plane) text.
+//   page 0, one font for every run (y descending, 60pt line gap):
+//     y=760: "\u{1F600}\u{1F600}\u{1F600}\u{1F600}"   (4 supplementary chars)
+//     y=700: "alpha"                                   (search target)
+//     y=640: "omega"                                   (must-survive neighbor)
+// ---------------------------------------------------------------------------
+// The emoji U+1F600 cannot be encoded by the Standard-14 fonts, so the
+// fixture loads a real Windows emoji font (Segoe UI Emoji). When the font is
+// unavailable the supplementary tests skip: their premise (a supplementary
+// code point in the extracted text layer) cannot be built on that machine.
+static QString supplementaryFontPath() {
+    static const QString path =
+        QStringLiteral("C:/Windows/Fonts/seguiemj.ttf");
+    return QFileInfo::exists(path) ? path : QString();
+}
+
+static QString createSupplementaryPdf(const QTemporaryDir& tmpDir, const QString& name) {
+    const QString fontPath = supplementaryFontPath();
+    if (fontPath.isEmpty()) return {};
+    const QString path = tmpDir.filePath(name);
+    const char32_t emoji[4] = { 0x1F600, 0x1F600, 0x1F600, 0x1F600 };
+    try {
+        PoDoFo::PdfMemDocument doc;
+        auto& page = doc.GetPages().CreatePage(
+            PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+        PoDoFo::PdfPainter painter;
+        painter.SetCanvas(page);
+        auto& font = doc.GetFonts().GetOrCreateFont(
+            fontPath.toStdString(), 0);
+        painter.TextState.SetFont(font, 12.0);
+        const QByteArray emojiLine = QString::fromUcs4(emoji, 4).toUtf8();
+        painter.DrawText(emojiLine.constData(), 50, 760);
+        painter.DrawText("alpha", 50, 700);
+        painter.DrawText("omega", 50, 640);
+        painter.FinishDrawing();
+        doc.Save(path.toUtf8().constData());
+    } catch (const std::exception& e) {
+        qWarning() << "createSupplementaryPdf failed:" << e.what();
+        return {};
+    }
+    return path;
+}
+
+// F2 scenario B: supplementary char INSIDE the match on one line, with a
+// far-away neighbor glyph on the same line that must stay out of the match
+// box (x=500 vs the match span at x<=130). Runs are separate text operators
+// so operator-granularity excision removes exactly the matched run.
+static QString createSupplementaryInlinePdf(const QTemporaryDir& tmpDir, const QString& name) {
+    const QString fontPath = supplementaryFontPath();
+    if (fontPath.isEmpty()) return {};
+    const QString path = tmpDir.filePath(name);
+    const char32_t emoji[1] = { 0x1F600 };
+    try {
+        PoDoFo::PdfMemDocument doc;
+        auto& page = doc.GetPages().CreatePage(
+            PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+        PoDoFo::PdfPainter painter;
+        painter.SetCanvas(page);
+        auto& font = doc.GetFonts().GetOrCreateFont(
+            fontPath.toStdString(), 0);
+        painter.TextState.SetFont(font, 12.0);
+        painter.DrawText("x", 50, 700);
+        const QString matchRun = QStringLiteral("b")
+            + QString::fromUcs4(emoji, 1) + QStringLiteral("c");
+        painter.DrawText(matchRun.toUtf8().constData(), 90, 700);
+        painter.DrawText("d", 500, 700);
+        painter.FinishDrawing();
+        doc.Save(path.toUtf8().constData());
+    } catch (const std::exception& e) {
+        qWarning() << "createSupplementaryInlinePdf failed:" << e.what();
         return {};
     }
     return path;
@@ -190,6 +274,155 @@ private slots:
         QCOMPARE(TextMatchFinder::findMatches(path, {}, rx).size(), 0);
 #endif
     }
+
+    // ── Pack A review F2: supplementary characters and match geometry ─────
+    //
+    // Pack A preservation review F2: extractCharBoxes stores one CharBox per
+    // PDFium char index, but a supplementary code point (emoji etc.) becomes
+    // TWO UTF-16 units in the reconstructed page text, so QString match
+    // offsets (UTF-16 units) stopped lining up with the CharBox array —
+    // matches on pages with supplementary text got the WRONG geometry and the
+    // replace pipeline excised/redrew the wrong glyphs.
+
+#ifdef HAS_PDFIUM
+    // Premise probe: how does PDFium expose supplementary chars? Dump the raw
+    // char stream of the supplementary fixture (index → unicode + box). The
+    // F2 defect exists exactly when a supplementary code point occupies ONE
+    // char index while contributing TWO UTF-16 units to the QString offsets.
+    void probeSupplementaryExtraction() {
+        const QString path = createSupplementaryPdf(
+            m_tmpDir, QStringLiteral("probe.pdf"));
+        if (path.isEmpty())
+            QSKIP("seguiemj.ttf unavailable — supplementary premise not constructible");
+
+        PdfiumEnvironment env;
+        FPDF_DOCUMENT doc = FPDF_LoadDocument(path.toLocal8Bit().constData(), nullptr);
+        QVERIFY2(doc, "probe fixture must load");
+        FPDF_PAGE page = FPDF_LoadPage(doc, 0);
+        QVERIFY(page);
+        FPDF_TEXTPAGE textPage = FPDFText_LoadPage(page);
+        QVERIFY(textPage);
+        const int count = FPDFText_CountChars(textPage);
+        qDebug() << "FPDFText_CountChars =" << count;
+        QString reconstructed;
+        for (int i = 0; i < count; ++i) {
+            const unsigned int u = FPDFText_GetUnicode(textPage, i);
+            double l = 0, r = 0, b = 0, t = 0;
+            const bool hasBox = FPDFText_GetCharBox(textPage, i, &l, &r, &b, &t);
+            const char32_t cp = static_cast<char32_t>(u);
+            reconstructed.append(QString::fromUcs4(&cp, 1));
+            qDebug().nospace() << "char[" << i << "] U+" << QString::number(u, 16)
+                               << " box=" << hasBox;
+        }
+        QString unitsDump;
+        for (const QChar c : reconstructed)
+            unitsDump += QStringLiteral("U+%1 ").arg(QString::number(c.unicode(), 16));
+        qDebug().noquote() << "reconstructed units:" << unitsDump;
+        const char32_t emojiCp = 0x1F600;
+        qDebug() << "reconstructed =" << reconstructed
+                 << "utf16 units =" << reconstructed.size()
+                 << "vs char indexes =" << count
+                 << "contains emoji pair:" << reconstructed.contains(
+                        QString::fromUcs4(&emojiCp, 1));
+        FPDFText_ClosePage(textPage);
+        FPDF_ClosePage(page);
+        FPDF_CloseDocument(doc);
+    }
+
+    // F2 scenario A: supplementary chars BEFORE the match. The match rect
+    // must stay on the "alpha" line — a UTF-16/CharBox misalignment drags
+    // glyphs from the neighbouring lines (60pt apart) into the union box.
+    void supplementaryBeforeMatchKeepsMatchGeometry() {
+        const QString path = createSupplementaryPdf(
+            m_tmpDir, QStringLiteral("supp_before.pdf"));
+        if (path.isEmpty())
+            QSKIP("seguiemj.ttf unavailable — supplementary premise not constructible");
+        const QRegularExpression rx = TextMatchFinder::buildPattern(
+            QStringLiteral("alpha"), true, false, false);
+        const QList<TextMatch> matches = TextMatchFinder::findMatches(path, {0}, rx);
+        QVERIFY2(matches.size() == 1,
+                 qPrintable(QStringLiteral("expected exactly the 'alpha' match, got %1")
+                                .arg(matches.size())));
+        const QRectF rect = matches.first().rect;
+        QVERIFY2(!rect.isEmpty(), "match must carry real geometry");
+        QVERIFY2(rect.height() < 40.0,
+                 qPrintable(QStringLiteral("match box must stay on the alpha line "
+                                           "(single-line height), got height %1 — "
+                                           "supplementary chars shifted the geometry")
+                               .arg(rect.height())));
+        // And it must be the alpha line (y=700), not the emoji (760) or the
+        // omega line (640): in Qt top-left coords the alpha band is around
+        // pageHeight(842)-712 .. 842-700.
+        QVERIFY2(rect.top() > 842.0 - 760.0 && rect.bottom() < 842.0 - 640.0,
+                 qPrintable(QStringLiteral("match box must sit in the alpha line band, "
+                                           "got %1x%2+%3+%4")
+                               .arg(rect.width()).arg(rect.height())
+                               .arg(rect.x()).arg(rect.y())));
+    }
+
+    // F2 scenario B: supplementary char INSIDE the matched span. The match
+    // text must come back as the exact decoded string (b + U+1F600 + c) and
+    // the box must span only that run — not the far-away 'd' at x=500.
+    void supplementaryInsideMatchKeepsNeighborGeometry() {
+        const QString path = createSupplementaryInlinePdf(
+            m_tmpDir, QStringLiteral("supp_inside.pdf"));
+        if (path.isEmpty())
+            QSKIP("seguiemj.ttf unavailable — supplementary premise not constructible");
+        const char32_t emojiCp[1] = { 0x1F600 };
+        const QString needle = QStringLiteral("b") + QString::fromUcs4(emojiCp, 1)
+            + QStringLiteral("c");
+        const QRegularExpression rx = TextMatchFinder::buildPattern(needle, true, false, false);
+        const QList<TextMatch> matches = TextMatchFinder::findMatches(path, {0}, rx);
+        QVERIFY2(matches.size() == 1,
+                 qPrintable(QStringLiteral("the emoji-spanning needle must match once; "
+                                           "got %1 (was the emoji text mangled?)")
+                                .arg(matches.size())));
+        QCOMPARE(matches.first().text, needle);
+        QVERIFY2(matches.first().rect.width() < 200.0,
+                 qPrintable(QStringLiteral("match box must not swallow the far "
+                                           "neighbor 'd' (x=500); width=%1")
+                               .arg(matches.first().rect.width())));
+    }
+
+    // F2 end-to-end: replace on a page WITH supplementary text must excise
+    // exactly the matched operator, keep the emoji and the neighbour line,
+    // and survive save + reopen.
+    void supplementaryPageReplaceRoundTrip() {
+        const QString path = createSupplementaryPdf(
+            m_tmpDir, QStringLiteral("supp_replace.pdf"));
+        if (path.isEmpty())
+            QSKIP("seguiemj.ttf unavailable — supplementary premise not constructible");
+        const QRegularExpression rx = TextMatchFinder::buildPattern(
+            QStringLiteral("alpha"), true, false, false);
+        const QList<TextMatch> matches = TextMatchFinder::findMatches(path, {0}, rx);
+        QVERIFY(matches.size() == 1);
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(path));
+        TextReplacementSpec s;
+        s.pageIndex = matches.first().pageIndex;
+        s.rect = matches.first().rect;
+        s.text = QStringLiteral("OMEGA");
+        s.fontSize = matches.first().fontSize;
+        QList<double> widths;
+        QVERIFY2(engine.replaceTextRegions({s}, &widths),
+                 "replace must succeed on the supplementary page");
+        QVERIFY(engine.saveDocument(path));
+
+        PdfiumBackend reader;
+        QVERIFY(reader.loadDocument(path));
+        const QString page0 = reader.extractText(0);
+        QVERIFY2(page0.contains(QStringLiteral("OMEGA")),
+                 "the replacement must land in the saved artifact");
+        QVERIFY2(!page0.contains(QStringLiteral("alpha")),
+                 "the matched text must be excised");
+        QVERIFY2(page0.contains(QStringLiteral("omega")),
+                 "the neighbour line must survive the replace");
+        const char32_t emojiCp[1] = { 0x1F600 };
+        QVERIFY2(page0.contains(QString::fromUcs4(emojiCp, 1)),
+                 "the supplementary text must survive the replace");
+    }
+#endif
 
     // ── Engine replace: excision + redraw, measured widths, SAVED artifact ──
 

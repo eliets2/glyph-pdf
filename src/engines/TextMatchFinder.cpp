@@ -101,6 +101,13 @@ QList<CharBox> extractCharBoxes(FPDF_DOCUMENT doc, int pageIndex) {
 // hit with the union box of its characters and the largest font size in the
 // span. Carries the M-3 ReDoS bounds (input cap + wall-clock budget) copied
 // from PatternRedactor::matchChars.
+//
+// packa-F2: match offsets are UTF-16 units in `pageText`, but a CharBox's
+// text can span MORE than one UTF-16 unit (supplementary code points). The
+// unitToChar map is the single translation layer between the two worlds, so
+// the geometry stays correct regardless of how many UTF-16 units one
+// CharBox contributes (verified for supplementary-before-match,
+// supplementary-inside-match and neighbor preservation in TestFindReplace).
 QList<TextMatch> matchCharBoxes(const QList<CharBox>& chars, int pageIndex,
                                 const QRegularExpression& pattern) {
     QList<TextMatch> results;
@@ -108,7 +115,13 @@ QList<TextMatch> matchCharBoxes(const QList<CharBox>& chars, int pageIndex,
 
     QString pageText;
     pageText.reserve(chars.size());
-    for (const auto& cb : chars) pageText.append(cb.ch);
+    QList<int> unitToChar;   // pageText UTF-16 offset -> index into `chars`
+    unitToChar.reserve(chars.size());
+    for (int ci = 0; ci < chars.size(); ++ci) {
+        pageText.append(chars[ci].ch);
+        for (int u = 0, n = chars[ci].ch.size(); u < n; ++u)
+            unitToChar.append(ci);
+    }
 
     constexpr int kMaxRegexInput = 256 * 1024;   // chars (M-3)
     constexpr qint64 kMatchBudgetMs = 1500;      // wall clock (M-3)
@@ -117,6 +130,7 @@ QList<TextMatch> matchCharBoxes(const QList<CharBox>& chars, int pageIndex,
         qWarning() << "TextMatchFinder — page text truncated from" << pageText.size()
                    << "to" << kMaxRegexInput << "chars to bound regex backtracking (M-3)";
         pageText.truncate(kMaxRegexInput);
+        unitToChar.resize(pageText.size());   // shrink with the capped text
     }
 
     QElapsedTimer timer;
@@ -133,11 +147,16 @@ QList<TextMatch> matchCharBoxes(const QList<CharBox>& chars, int pageIndex,
         const int startIdx = m.capturedStart();
         const int endIdx = m.capturedEnd();  // exclusive
         if (startIdx < 0 || endIdx <= startIdx) continue;
+        if (startIdx >= unitToChar.size()) continue;   // defensive: past cap
+
+        // UTF-16 span -> CharBox span through the map (packa F2).
+        const int firstChar = unitToChar[startIdx];
+        const int lastChar = unitToChar[qMin(endIdx, unitToChar.size()) - 1];
 
         QRectF box;
         double size = 0;
         bool first = true;
-        for (int i = startIdx; i < endIdx && i < chars.size(); ++i) {
+        for (int i = firstChar; i <= lastChar && i < chars.size(); ++i) {
             const CharBox& cb = chars[i];
             if (cb.bbox.isNull() || cb.bbox.isEmpty()) continue;
             box = first ? cb.bbox : box.united(cb.bbox);
