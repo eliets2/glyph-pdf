@@ -2,6 +2,7 @@
 #include "engines/SignatureManager.h"
 #include "engines/SafeSave.h"
 #include <memory>
+#include <exception>
 
 // Windows CryptoAPI must come BEFORE OpenSSL to prevent wincrypt.h from
 // defining OCSP_REQUEST, OCSP_RESPONSE, X509_NAME etc. as macros that
@@ -625,8 +626,39 @@ public:
             };
 
             TimestampSigner tsSigner(this);
-            FileStreamDevice output(filePath.toStdString(), FileMode::Append);
-            SignDocument(doc, output, tsSigner, ts);
+            // E-06 (R19b, refused-loopback finding): the timestamp append must
+            // be ALL-OR-NOTHING. PoDoFo's SignDocument appends the signature
+            // reservation increment BEFORE ComputeSignature runs, so a failed
+            // TSA fetch (unreachable/refused TSA) used to leave a PARTIAL
+            // incremental update whose ghost /DocTimeStamp field survived in
+            // the file while the outcome honestly said docTimestampMissing —
+            // a document claiming a timestamp it does not have. Record the
+            // size and truncate back on failure: a failed timestamp leaves
+            // the file byte-identical to its pre-append state.
+            const qint64 sizeBefore = QFileInfo(filePath).size();
+            bool appended = false;
+            std::exception_ptr appendFailure;
+            try {
+                FileStreamDevice output(filePath.toStdString(), FileMode::Append);
+                SignDocument(doc, output, tsSigner, ts);
+                appended = true;
+            } catch (...) {
+                // the stream is closed (RAII) before anything below runs
+                appendFailure = std::current_exception();
+            }
+            if (!appended) {
+                QFile f(filePath);
+                if (f.open(QIODevice::ReadWrite)) {
+                    f.resize(sizeBefore);
+                    f.close();
+                    qWarning() << "B-LTA: partial timestamp append discarded — file restored to"
+                               << sizeBefore << "bytes";
+                } else {
+                    qWarning() << "B-LTA: could not reopen the file to discard the partial"
+                               << " timestamp append — the document may carry a ghost /DocTimeStamp";
+                }
+                std::rethrow_exception(appendFailure);
+            }
             return true;
         } catch (const PdfError &e) {
             qWarning() << "B-LTA timestamp addition failed:" << e.what();
