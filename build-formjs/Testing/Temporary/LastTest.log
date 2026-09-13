@@ -1,0 +1,2553 @@
+Start testing: Sep 13 12:58 Middle East Daylight Time
+----------------------------------------------------------
+1/134 Testing: UnitTests
+1/134 Test: UnitTests
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/UnitTests.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"UnitTests" start time: Sep 13 12:58 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   1.58 sec
+----------------------------------------------------------
+Test Passed.
+"UnitTests" end time: Sep 13 12:58 Middle East Daylight Time
+"UnitTests" time elapsed: 00:00:01
+----------------------------------------------------------
+
+2/134 Testing: TestInterfaces
+2/134 Test: TestInterfaces
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestInterfaces.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestInterfaces" start time: Sep 13 12:58 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.04 sec
+----------------------------------------------------------
+Test Passed.
+"TestInterfaces" end time: Sep 13 12:58 Middle East Daylight Time
+"TestInterfaces" time elapsed: 00:00:00
+----------------------------------------------------------
+
+3/134 Testing: TestExpiryInterface
+3/134 Test: TestExpiryInterface
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestExpiryInterface.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestExpiryInterface" start time: Sep 13 12:58 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.44 sec
+----------------------------------------------------------
+Test Passed.
+"TestExpiryInterface" end time: Sep 13 12:58 Middle East Daylight Time
+"TestExpiryInterface" time elapsed: 00:00:00
+----------------------------------------------------------
+
+4/134 Testing: SmokeTest
+4/134 Test: SmokeTest
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/SmokeTest.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"SmokeTest" start time: Sep 13 12:58 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.52 sec
+----------------------------------------------------------
+Test Passed.
+"SmokeTest" end time: Sep 13 12:58 Middle East Daylight Time
+"SmokeTest" time elapsed: 00:00:00
+----------------------------------------------------------
+
+5/134 Testing: TestSanitization
+5/134 Test: TestSanitization
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestSanitization.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestSanitization" start time: Sep 13 12:58 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+Fontconfig error: Cannot load default config file: File not found
+<end of output>
+Test time =   0.29 sec
+----------------------------------------------------------
+Test Passed.
+"TestSanitization" end time: Sep 13 12:58 Middle East Daylight Time
+"TestSanitization" time elapsed: 00:00:00
+----------------------------------------------------------
+
+6/134 Testing: TestAutosave
+6/134 Test: TestAutosave
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestAutosave.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestAutosave" start time: Sep 13 12:58 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.72 sec
+----------------------------------------------------------
+Test Passed.
+"TestAutosave" end time: Sep 13 12:59 Middle East Daylight Time
+"TestAutosave" time elapsed: 00:00:00
+----------------------------------------------------------
+
+7/134 Testing: TestDocumentIdentity
+7/134 Test: TestDocumentIdentity
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestDocumentIdentity.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestDocumentIdentity" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+WARNING: C:/msys64/tmp/TestDocumentIdentity-YRTlmS/junk.pdf: can't find PDF header
+WARNING: C:/msys64/tmp/TestDocumentIdentity-YRTlmS/junk.pdf: file is damaged
+WARNING: C:/msys64/tmp/TestDocumentIdentity-YRTlmS/junk.pdf: can't find startxref
+WARNING: C:/msys64/tmp/TestDocumentIdentity-YRTlmS/junk.pdf: Attempting to reconstruct cross-reference table
+WARNING: application did not handle error: C:/msys64/tmp/TestDocumentIdentity-YRTlmS/junk.pdf: unable to find trailer dictionary while recovering damaged file
+<end of output>
+Test time =   2.83 sec
+----------------------------------------------------------
+Test Passed.
+"TestDocumentIdentity" end time: Sep 13 12:59 Middle East Daylight Time
+"TestDocumentIdentity" time elapsed: 00:00:02
+----------------------------------------------------------
+
+8/134 Testing: TestBatesBatchSafety
+8/134 Test: TestBatesBatchSafety
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestBatesBatchSafety.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestBatesBatchSafety" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+Fontconfig error: Cannot load default config file: File not found
+WARNING: C:/msys64/tmp/glyphpdf-candidates/glyphpdf-BPCCPn.pdf: can't find PDF header
+WARNING: C:/msys64/tmp/glyphpdf-candidates/glyphpdf-BPCCPn.pdf: file is damaged
+WARNING: C:/msys64/tmp/glyphpdf-candidates/glyphpdf-BPCCPn.pdf: can't find startxref
+WARNING: C:/msys64/tmp/glyphpdf-candidates/glyphpdf-BPCCPn.pdf: Attempting to reconstruct cross-reference table
+WARNING: application did not handle error: C:/msys64/tmp/glyphpdf-candidates/glyphpdf-BPCCPn.pdf: unable to find trailer dictionary while recovering damaged file
+WARNING: C:/msys64/tmp/TestBatesBatchSafety-TInJTh/active.pdf: can't find PDF header
+WARNING: C:/msys64/tmp/TestBatesBatchSafety-TInJTh/active.pdf: file is damaged
+WARNING: C:/msys64/tmp/TestBatesBatchSafety-TInJTh/active.pdf: can't find startxref
+WARNING: C:/msys64/tmp/TestBatesBatchSafety-TInJTh/active.pdf: Attempting to reconstruct cross-reference table
+WARNING: application did not handle error: C:/msys64/tmp/TestBatesBatchSafety-TInJTh/active.pdf: unable to find trailer dictionary while recovering damaged file
+<end of output>
+Test time =   1.69 sec
+----------------------------------------------------------
+Test Passed.
+"TestBatesBatchSafety" end time: Sep 13 12:59 Middle East Daylight Time
+"TestBatesBatchSafety" time elapsed: 00:00:01
+----------------------------------------------------------
+
+9/134 Testing: TestRecoverySave
+9/134 Test: TestRecoverySave
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestRecoverySave.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestRecoverySave" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.81 sec
+----------------------------------------------------------
+Test Passed.
+"TestRecoverySave" end time: Sep 13 12:59 Middle East Daylight Time
+"TestRecoverySave" time elapsed: 00:00:00
+----------------------------------------------------------
+
+10/134 Testing: TestReadOnlyGate
+10/134 Test: TestReadOnlyGate
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestReadOnlyGate.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestReadOnlyGate" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.88 sec
+----------------------------------------------------------
+Test Passed.
+"TestReadOnlyGate" end time: Sep 13 12:59 Middle East Daylight Time
+"TestReadOnlyGate" time elapsed: 00:00:00
+----------------------------------------------------------
+
+11/134 Testing: TestSidecarReopenState
+11/134 Test: TestSidecarReopenState
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestSidecarReopenState.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestSidecarReopenState" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.73 sec
+----------------------------------------------------------
+Test Passed.
+"TestSidecarReopenState" end time: Sep 13 12:59 Middle East Daylight Time
+"TestSidecarReopenState" time elapsed: 00:00:00
+----------------------------------------------------------
+
+12/134 Testing: TestSignatureValidationMock
+12/134 Test: TestSignatureValidationMock
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestSignatureValidationMock.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestSignatureValidationMock" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.04 sec
+----------------------------------------------------------
+Test Passed.
+"TestSignatureValidationMock" end time: Sep 13 12:59 Middle East Daylight Time
+"TestSignatureValidationMock" time elapsed: 00:00:00
+----------------------------------------------------------
+
+13/134 Testing: TestRobustness
+13/134 Test: TestRobustness
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestRobustness.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestRobustness" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+WARNING: C:/msys64/tmp/TestRobustness-sHPxot/truncated.pdf: file is damaged
+WARNING: C:/msys64/tmp/TestRobustness-sHPxot/truncated.pdf: can't find startxref
+WARNING: C:/msys64/tmp/TestRobustness-sHPxot/truncated.pdf: Attempting to reconstruct cross-reference table
+WARNING: C:/msys64/tmp/TestRobustness-sHPxot/truncated.pdf (object 1 0, offset 19): parse error while reading object
+WARNING: C:/msys64/tmp/TestRobustness-sHPxot/truncated.pdf (object 1 0, offset 19): unexpected EOF
+WARNING: application did not handle error: C:/msys64/tmp/TestRobustness-sHPxot/truncated.pdf: unable to find trailer dictionary while recovering damaged file
+WARNING: C:/msys64/tmp/TestRobustness-sHPxot/malformed.pdf: can't find PDF header
+WARNING: C:/msys64/tmp/TestRobustness-sHPxot/malformed.pdf: file is damaged
+WARNING: C:/msys64/tmp/TestRobustness-sHPxot/malformed.pdf: can't find startxref
+WARNING: C:/msys64/tmp/TestRobustness-sHPxot/malformed.pdf: Attempting to reconstruct cross-reference table
+WARNING: application did not handle error: C:/msys64/tmp/TestRobustness-sHPxot/malformed.pdf: unable to find trailer dictionary while recovering damaged file
+WARNING: application did not handle error: C:/msys64/tmp/TestRobustness-sHPxot/password_encrypted.pdf: invalid password
+<end of output>
+Test time =   0.23 sec
+----------------------------------------------------------
+Test Passed.
+"TestRobustness" end time: Sep 13 12:59 Middle East Daylight Time
+"TestRobustness" time elapsed: 00:00:00
+----------------------------------------------------------
+
+14/134 Testing: TestSecretStore
+14/134 Test: TestSecretStore
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestSecretStore.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestSecretStore" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.23 sec
+----------------------------------------------------------
+Test Passed.
+"TestSecretStore" end time: Sep 13 12:59 Middle East Daylight Time
+"TestSecretStore" time elapsed: 00:00:00
+----------------------------------------------------------
+
+15/134 Testing: TestSignatureValidation
+15/134 Test: TestSignatureValidation
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestSignatureValidation.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestSignatureValidation" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.19 sec
+----------------------------------------------------------
+Test Passed.
+"TestSignatureValidation" end time: Sep 13 12:59 Middle East Daylight Time
+"TestSignatureValidation" time elapsed: 00:00:00
+----------------------------------------------------------
+
+16/134 Testing: TestSignatureRealCrypto
+16/134 Test: TestSignatureRealCrypto
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestSignatureRealCrypto.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestSignatureRealCrypto" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   1.06 sec
+----------------------------------------------------------
+Test Passed.
+"TestSignatureRealCrypto" end time: Sep 13 12:59 Middle East Daylight Time
+"TestSignatureRealCrypto" time elapsed: 00:00:01
+----------------------------------------------------------
+
+17/134 Testing: TestEraseSignedGuard
+17/134 Test: TestEraseSignedGuard
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestEraseSignedGuard.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestEraseSignedGuard" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.20 sec
+----------------------------------------------------------
+Test Passed.
+"TestEraseSignedGuard" end time: Sep 13 12:59 Middle East Daylight Time
+"TestEraseSignedGuard" time elapsed: 00:00:00
+----------------------------------------------------------
+
+18/134 Testing: TestSignatureAppearance
+18/134 Test: TestSignatureAppearance
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestSignatureAppearance.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestSignatureAppearance" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.26 sec
+----------------------------------------------------------
+Test Passed.
+"TestSignatureAppearance" end time: Sep 13 12:59 Middle East Daylight Time
+"TestSignatureAppearance" time elapsed: 00:00:00
+----------------------------------------------------------
+
+19/134 Testing: TestOptimizeSignedGuard
+19/134 Test: TestOptimizeSignedGuard
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestOptimizeSignedGuard.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestOptimizeSignedGuard" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.15 sec
+----------------------------------------------------------
+Test Passed.
+"TestOptimizeSignedGuard" end time: Sep 13 12:59 Middle East Daylight Time
+"TestOptimizeSignedGuard" time elapsed: 00:00:00
+----------------------------------------------------------
+
+20/134 Testing: TestImageDedup
+20/134 Test: TestImageDedup
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestImageDedup.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestImageDedup" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.14 sec
+----------------------------------------------------------
+Test Passed.
+"TestImageDedup" end time: Sep 13 12:59 Middle East Daylight Time
+"TestImageDedup" time elapsed: 00:00:00
+----------------------------------------------------------
+
+21/134 Testing: TestChain1
+21/134 Test: TestChain1
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestChain1.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestChain1" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.04 sec
+----------------------------------------------------------
+Test Passed.
+"TestChain1" end time: Sep 13 12:59 Middle East Daylight Time
+"TestChain1" time elapsed: 00:00:00
+----------------------------------------------------------
+
+22/134 Testing: TestRedaction
+22/134 Test: TestRedaction
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestRedaction.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestRedaction" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+Fontconfig error: Cannot load default config file: File not found
+<end of output>
+Test time =   0.60 sec
+----------------------------------------------------------
+Test Passed.
+"TestRedaction" end time: Sep 13 12:59 Middle East Daylight Time
+"TestRedaction" time elapsed: 00:00:00
+----------------------------------------------------------
+
+23/134 Testing: TestDedupSMask
+23/134 Test: TestDedupSMask
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestDedupSMask.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestDedupSMask" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.20 sec
+----------------------------------------------------------
+Test Passed.
+"TestDedupSMask" end time: Sep 13 12:59 Middle East Daylight Time
+"TestDedupSMask" time elapsed: 00:00:00
+----------------------------------------------------------
+
+24/134 Testing: TestCompressJpegReencode
+24/134 Test: TestCompressJpegReencode
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestCompressJpegReencode.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestCompressJpegReencode" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.93 sec
+----------------------------------------------------------
+Test Passed.
+"TestCompressJpegReencode" end time: Sep 13 12:59 Middle East Daylight Time
+"TestCompressJpegReencode" time elapsed: 00:00:00
+----------------------------------------------------------
+
+25/134 Testing: TestOptimizeEstimate
+25/134 Test: TestOptimizeEstimate
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestOptimizeEstimate.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestOptimizeEstimate" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.13 sec
+----------------------------------------------------------
+Test Passed.
+"TestOptimizeEstimate" end time: Sep 13 12:59 Middle East Daylight Time
+"TestOptimizeEstimate" time elapsed: 00:00:00
+----------------------------------------------------------
+
+26/134 Testing: TestRapidOcr
+26/134 Test: TestRapidOcr
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestRapidOcr.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestRapidOcr" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+[0;93m2026-09-13 12:59:13.5499813 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.0.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.5502549 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.6.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.5505285 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.0.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.5507812 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.3.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6191922 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.4.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6193351 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.26.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6197184 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.2.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6200221 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.46.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6202933 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.6.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6206058 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.35.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6208751 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.7.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6211553 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.39.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6214319 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.3.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6217202 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.50.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6220441 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.34.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6223543 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.53.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6226372 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.21.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6229562 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.36.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6232693 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.47.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6235465 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.38.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6238556 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.40.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6241656 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.41.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6244433 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.42.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6247321 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.43.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6250542 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.1.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6253139 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.48.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6256758 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.49.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6259978 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.51.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6262859 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.8.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6265509 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.9.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.6268854 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.13.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.8705191 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.0.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.8707680 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.6.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.8710095 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.0.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.8712099 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.3.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9293994 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.4.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9296198 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.26.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9297978 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.2.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9300195 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.46.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9302463 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.6.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9304504 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.35.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9306562 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.7.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9308456 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.39.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9310442 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.3.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9313177 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.50.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9315973 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.34.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9318274 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.53.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9320465 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.21.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9322709 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.36.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9324839 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.47.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9326915 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.38.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9329033 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.40.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9331229 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.41.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9333359 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.42.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9335803 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.43.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9338042 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.1.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9340139 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.48.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9342333 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.49.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9344585 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.51.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9346869 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.8.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9348971 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.9.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:13.9350999 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.13.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.2739874 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.0.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.2743361 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.6.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.2746625 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.0.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.2749608 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.3.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3347154 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.4.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3349641 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.26.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3351943 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.2.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3354733 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.46.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3356958 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.6.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3359510 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.35.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3361828 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.7.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3364158 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.39.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3366591 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.3.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3368720 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.50.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3371139 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.34.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3373184 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.53.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3375661 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.21.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3378094 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.36.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3380629 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.47.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3382851 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.38.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3384469 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.40.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3387083 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.41.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3389200 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.42.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3391733 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.43.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3394048 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.1.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3396210 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.48.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3398479 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.49.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3400480 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.51.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3403055 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.8.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3405312 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.9.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-13 12:59:14.3407694 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.13.0'. It is not used by any node and should be removed from the model.[m
+<end of output>
+Test time =   1.22 sec
+----------------------------------------------------------
+Test Passed.
+"TestRapidOcr" end time: Sep 13 12:59 Middle East Daylight Time
+"TestRapidOcr" time elapsed: 00:00:01
+----------------------------------------------------------
+
+27/134 Testing: TestLayoutEnsemble
+27/134 Test: TestLayoutEnsemble
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestLayoutEnsemble.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestLayoutEnsemble" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.08 sec
+----------------------------------------------------------
+Test Passed.
+"TestLayoutEnsemble" end time: Sep 13 12:59 Middle East Daylight Time
+"TestLayoutEnsemble" time elapsed: 00:00:00
+----------------------------------------------------------
+
+28/134 Testing: TestOcrPipeline
+28/134 Test: TestOcrPipeline
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestOcrPipeline.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestOcrPipeline" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.52 sec
+----------------------------------------------------------
+Test Passed.
+"TestOcrPipeline" end time: Sep 13 12:59 Middle East Daylight Time
+"TestOcrPipeline" time elapsed: 00:00:00
+----------------------------------------------------------
+
+29/134 Testing: TestOcrReviewLifecycle
+29/134 Test: TestOcrReviewLifecycle
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestOcrReviewLifecycle.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestOcrReviewLifecycle" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.37 sec
+----------------------------------------------------------
+Test Passed.
+"TestOcrReviewLifecycle" end time: Sep 13 12:59 Middle East Daylight Time
+"TestOcrReviewLifecycle" time elapsed: 00:00:00
+----------------------------------------------------------
+
+30/134 Testing: TestOcrVerifyNavigation
+30/134 Test: TestOcrVerifyNavigation
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestOcrVerifyNavigation.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestOcrVerifyNavigation" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.23 sec
+----------------------------------------------------------
+Test Passed.
+"TestOcrVerifyNavigation" end time: Sep 13 12:59 Middle East Daylight Time
+"TestOcrVerifyNavigation" time elapsed: 00:00:00
+----------------------------------------------------------
+
+31/134 Testing: TestOcrPreprocessor
+31/134 Test: TestOcrPreprocessor
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestOcrPreprocessor.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestOcrPreprocessor" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.92 sec
+----------------------------------------------------------
+Test Passed.
+"TestOcrPreprocessor" end time: Sep 13 12:59 Middle East Daylight Time
+"TestOcrPreprocessor" time elapsed: 00:00:00
+----------------------------------------------------------
+
+32/134 Testing: TestOcrDjotMapper
+32/134 Test: TestOcrDjotMapper
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestOcrDjotMapper.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestOcrDjotMapper" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.06 sec
+----------------------------------------------------------
+Test Passed.
+"TestOcrDjotMapper" end time: Sep 13 12:59 Middle East Daylight Time
+"TestOcrDjotMapper" time elapsed: 00:00:00
+----------------------------------------------------------
+
+33/134 Testing: TestThreadSafety
+33/134 Test: TestThreadSafety
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestThreadSafety.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestThreadSafety" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   2.49 sec
+----------------------------------------------------------
+Test Passed.
+"TestThreadSafety" end time: Sep 13 12:59 Middle East Daylight Time
+"TestThreadSafety" time elapsed: 00:00:02
+----------------------------------------------------------
+
+34/134 Testing: TestEncryption
+34/134 Test: TestEncryption
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestEncryption.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestEncryption" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+Fontconfig error: Cannot load default config file: File not found
+<end of output>
+Test time =   0.21 sec
+----------------------------------------------------------
+Test Passed.
+"TestEncryption" end time: Sep 13 12:59 Middle East Daylight Time
+"TestEncryption" time elapsed: 00:00:00
+----------------------------------------------------------
+
+35/134 Testing: TestResourceLimits
+35/134 Test: TestResourceLimits
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestResourceLimits.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestResourceLimits" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+WARNING: application did not handle error: open C:/msys64/tmp/TestResourceLimits-YoyCvv/nonexistent_huge.pdf: No such file or directory
+WARNING: C:/msys64/tmp/TestResourceLimits-YoyCvv/malformed_stream.pdf: file is damaged
+WARNING: C:/msys64/tmp/TestResourceLimits-YoyCvv/malformed_stream.pdf (offset 340): xref not found
+WARNING: C:/msys64/tmp/TestResourceLimits-YoyCvv/malformed_stream.pdf: Attempting to reconstruct cross-reference table
+WARNING: C:/msys64/tmp/TestResourceLimits-YoyCvv/malformed_stream.pdf, object 3 0 at offset 125: kid 0 (from 0) Resources is missing or invalid; repairing
+WARNING: C:/msys64/tmp/TestResourceLimits-YoyCvv/malformed_stream.pdf (object 4 0, offset 427): expected endstream
+WARNING: C:/msys64/tmp/TestResourceLimits-YoyCvv/malformed_stream.pdf (object 4 0, offset 245): attempting to recover stream length
+WARNING: C:/msys64/tmp/TestResourceLimits-YoyCvv/malformed_stream.pdf (object 4 0, offset 245): recovered stream length: 4
+<end of output>
+Test time =   0.15 sec
+----------------------------------------------------------
+Test Passed.
+"TestResourceLimits" end time: Sep 13 12:59 Middle East Daylight Time
+"TestResourceLimits" time elapsed: 00:00:00
+----------------------------------------------------------
+
+36/134 Testing: TestControllers
+36/134 Test: TestControllers
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestControllers.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestControllers" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.23 sec
+----------------------------------------------------------
+Test Passed.
+"TestControllers" end time: Sep 13 12:59 Middle East Daylight Time
+"TestControllers" time elapsed: 00:00:00
+----------------------------------------------------------
+
+37/134 Testing: TestRibbonIntegrity
+37/134 Test: TestRibbonIntegrity
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestRibbonIntegrity.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestRibbonIntegrity" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.24 sec
+----------------------------------------------------------
+Test Passed.
+"TestRibbonIntegrity" end time: Sep 13 12:59 Middle East Daylight Time
+"TestRibbonIntegrity" time elapsed: 00:00:00
+----------------------------------------------------------
+
+38/134 Testing: TestMenuBarIntegrity
+38/134 Test: TestMenuBarIntegrity
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestMenuBarIntegrity.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestMenuBarIntegrity" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.23 sec
+----------------------------------------------------------
+Test Passed.
+"TestMenuBarIntegrity" end time: Sep 13 12:59 Middle East Daylight Time
+"TestMenuBarIntegrity" time elapsed: 00:00:00
+----------------------------------------------------------
+
+39/134 Testing: TestIntegration
+39/134 Test: TestIntegration
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestIntegration.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestIntegration" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+WARNING: input.pdf, object 3 0 at offset 119: kid 0 (from 0) Resources is missing or invalid; repairing
+Fontconfig error: Cannot load default config file: File not found
+<end of output>
+Test time =   0.16 sec
+----------------------------------------------------------
+Test Passed.
+"TestIntegration" end time: Sep 13 12:59 Middle East Daylight Time
+"TestIntegration" time elapsed: 00:00:00
+----------------------------------------------------------
+
+40/134 Testing: TestPerformance
+40/134 Test: TestPerformance
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestPerformance.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestPerformance" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.17 sec
+----------------------------------------------------------
+Test Passed.
+"TestPerformance" end time: Sep 13 12:59 Middle East Daylight Time
+"TestPerformance" time elapsed: 00:00:00
+----------------------------------------------------------
+
+41/134 Testing: TestVeraPdf
+41/134 Test: TestVeraPdf
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestVeraPdf.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestVeraPdf" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.05 sec
+----------------------------------------------------------
+Test Passed.
+"TestVeraPdf" end time: Sep 13 12:59 Middle East Daylight Time
+"TestVeraPdf" time elapsed: 00:00:00
+----------------------------------------------------------
+
+42/134 Testing: TestReadingOrderAsync
+42/134 Test: TestReadingOrderAsync
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestReadingOrderAsync.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestReadingOrderAsync" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.33 sec
+----------------------------------------------------------
+Test Passed.
+"TestReadingOrderAsync" end time: Sep 13 12:59 Middle East Daylight Time
+"TestReadingOrderAsync" time elapsed: 00:00:00
+----------------------------------------------------------
+
+43/134 Testing: TestLaneScheduler
+43/134 Test: TestLaneScheduler
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestLaneScheduler.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestLaneScheduler" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   3.18 sec
+----------------------------------------------------------
+Test Passed.
+"TestLaneScheduler" end time: Sep 13 12:59 Middle East Daylight Time
+"TestLaneScheduler" time elapsed: 00:00:03
+----------------------------------------------------------
+
+44/134 Testing: TestFormBuilder
+44/134 Test: TestFormBuilder
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestFormBuilder.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestFormBuilder" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.38 sec
+----------------------------------------------------------
+Test Passed.
+"TestFormBuilder" end time: Sep 13 12:59 Middle East Daylight Time
+"TestFormBuilder" time elapsed: 00:00:00
+----------------------------------------------------------
+
+45/134 Testing: TestFormPersistence
+45/134 Test: TestFormPersistence
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestFormPersistence.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestFormPersistence" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.17 sec
+----------------------------------------------------------
+Test Passed.
+"TestFormPersistence" end time: Sep 13 12:59 Middle East Daylight Time
+"TestFormPersistence" time elapsed: 00:00:00
+----------------------------------------------------------
+
+46/134 Testing: TestCompareEntry
+46/134 Test: TestCompareEntry
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestCompareEntry.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestCompareEntry" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.79 sec
+----------------------------------------------------------
+Test Passed.
+"TestCompareEntry" end time: Sep 13 12:59 Middle East Daylight Time
+"TestCompareEntry" time elapsed: 00:00:00
+----------------------------------------------------------
+
+47/134 Testing: TestCompareIntegration
+47/134 Test: TestCompareIntegration
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestCompareIntegration.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestCompareIntegration" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.64 sec
+----------------------------------------------------------
+Test Passed.
+"TestCompareIntegration" end time: Sep 13 12:59 Middle East Daylight Time
+"TestCompareIntegration" time elapsed: 00:00:00
+----------------------------------------------------------
+
+48/134 Testing: TestPagesMode
+48/134 Test: TestPagesMode
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestPagesMode.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestPagesMode" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   1.92 sec
+----------------------------------------------------------
+Test Passed.
+"TestPagesMode" end time: Sep 13 12:59 Middle East Daylight Time
+"TestPagesMode" time elapsed: 00:00:01
+----------------------------------------------------------
+
+49/134 Testing: TestPageLabels
+49/134 Test: TestPageLabels
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestPageLabels.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestPageLabels" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.21 sec
+----------------------------------------------------------
+Test Passed.
+"TestPageLabels" end time: Sep 13 12:59 Middle East Daylight Time
+"TestPageLabels" time elapsed: 00:00:00
+----------------------------------------------------------
+
+50/134 Testing: TestBatchMode
+50/134 Test: TestBatchMode
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestBatchMode.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestBatchMode" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   1.45 sec
+----------------------------------------------------------
+Test Passed.
+"TestBatchMode" end time: Sep 13 12:59 Middle East Daylight Time
+"TestBatchMode" time elapsed: 00:00:01
+----------------------------------------------------------
+
+51/134 Testing: TestBatchOcrLanguage
+51/134 Test: TestBatchOcrLanguage
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestBatchOcrLanguage.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestBatchOcrLanguage" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.19 sec
+----------------------------------------------------------
+Test Passed.
+"TestBatchOcrLanguage" end time: Sep 13 12:59 Middle East Daylight Time
+"TestBatchOcrLanguage" time elapsed: 00:00:00
+----------------------------------------------------------
+
+52/134 Testing: TestOcrPreprocessPrefs
+52/134 Test: TestOcrPreprocessPrefs
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestOcrPreprocessPrefs.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestOcrPreprocessPrefs" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.15 sec
+----------------------------------------------------------
+Test Passed.
+"TestOcrPreprocessPrefs" end time: Sep 13 12:59 Middle East Daylight Time
+"TestOcrPreprocessPrefs" time elapsed: 00:00:00
+----------------------------------------------------------
+
+53/134 Testing: TestBatesCrossDoc
+53/134 Test: TestBatesCrossDoc
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestBatesCrossDoc.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestBatesCrossDoc" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+Fontconfig error: Cannot load default config file: File not found
+<end of output>
+Test time =   0.23 sec
+----------------------------------------------------------
+Test Passed.
+"TestBatesCrossDoc" end time: Sep 13 12:59 Middle East Daylight Time
+"TestBatesCrossDoc" time elapsed: 00:00:00
+----------------------------------------------------------
+
+54/134 Testing: TestOpenRouting
+54/134 Test: TestOpenRouting
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestOpenRouting.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestOpenRouting" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.11 sec
+----------------------------------------------------------
+Test Passed.
+"TestOpenRouting" end time: Sep 13 12:59 Middle East Daylight Time
+"TestOpenRouting" time elapsed: 00:00:00
+----------------------------------------------------------
+
+55/134 Testing: TestExcisionCorruption
+55/134 Test: TestExcisionCorruption
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestExcisionCorruption.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestExcisionCorruption" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+Fontconfig error: Cannot load default config file: File not found
+<end of output>
+Test time =   0.16 sec
+----------------------------------------------------------
+Test Passed.
+"TestExcisionCorruption" end time: Sep 13 12:59 Middle East Daylight Time
+"TestExcisionCorruption" time elapsed: 00:00:00
+----------------------------------------------------------
+
+56/134 Testing: TestBatchOpsCoverage
+56/134 Test: TestBatchOpsCoverage
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestBatchOpsCoverage.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestBatchOpsCoverage" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+Fontconfig error: Cannot load default config file: File not found
+<end of output>
+Test time =   0.82 sec
+----------------------------------------------------------
+Test Passed.
+"TestBatchOpsCoverage" end time: Sep 13 12:59 Middle East Daylight Time
+"TestBatchOpsCoverage" time elapsed: 00:00:00
+----------------------------------------------------------
+
+57/134 Testing: TestReadingOrderThreshold
+57/134 Test: TestReadingOrderThreshold
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestReadingOrderThreshold.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestReadingOrderThreshold" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.12 sec
+----------------------------------------------------------
+Test Passed.
+"TestReadingOrderThreshold" end time: Sep 13 12:59 Middle East Daylight Time
+"TestReadingOrderThreshold" time elapsed: 00:00:00
+----------------------------------------------------------
+
+58/134 Testing: TestLinkBookmarkRoundTrip
+58/134 Test: TestLinkBookmarkRoundTrip
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestLinkBookmarkRoundTrip.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestLinkBookmarkRoundTrip" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.10 sec
+----------------------------------------------------------
+Test Passed.
+"TestLinkBookmarkRoundTrip" end time: Sep 13 12:59 Middle East Daylight Time
+"TestLinkBookmarkRoundTrip" time elapsed: 00:00:00
+----------------------------------------------------------
+
+59/134 Testing: TestSignatureSessionCache
+59/134 Test: TestSignatureSessionCache
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestSignatureSessionCache.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestSignatureSessionCache" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.14 sec
+----------------------------------------------------------
+Test Passed.
+"TestSignatureSessionCache" end time: Sep 13 12:59 Middle East Daylight Time
+"TestSignatureSessionCache" time elapsed: 00:00:00
+----------------------------------------------------------
+
+60/134 Testing: TestCapabilityRegistry
+60/134 Test: TestCapabilityRegistry
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestCapabilityRegistry.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestCapabilityRegistry" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.67 sec
+----------------------------------------------------------
+Test Passed.
+"TestCapabilityRegistry" end time: Sep 13 12:59 Middle East Daylight Time
+"TestCapabilityRegistry" time elapsed: 00:00:00
+----------------------------------------------------------
+
+61/134 Testing: TestTaskNavRegistry
+61/134 Test: TestTaskNavRegistry
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestTaskNavRegistry.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestTaskNavRegistry" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.06 sec
+----------------------------------------------------------
+Test Passed.
+"TestTaskNavRegistry" end time: Sep 13 12:59 Middle East Daylight Time
+"TestTaskNavRegistry" time elapsed: 00:00:00
+----------------------------------------------------------
+
+62/134 Testing: TestScreenStateSync
+62/134 Test: TestScreenStateSync
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestScreenStateSync.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestScreenStateSync" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.15 sec
+----------------------------------------------------------
+Test Passed.
+"TestScreenStateSync" end time: Sep 13 12:59 Middle East Daylight Time
+"TestScreenStateSync" time elapsed: 00:00:00
+----------------------------------------------------------
+
+63/134 Testing: TestRibbonCollapse
+63/134 Test: TestRibbonCollapse
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestRibbonCollapse.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestRibbonCollapse" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.16 sec
+----------------------------------------------------------
+Test Passed.
+"TestRibbonCollapse" end time: Sep 13 12:59 Middle East Daylight Time
+"TestRibbonCollapse" time elapsed: 00:00:00
+----------------------------------------------------------
+
+64/134 Testing: TestStatusBarSlim
+64/134 Test: TestStatusBarSlim
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestStatusBarSlim.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestStatusBarSlim" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.29 sec
+----------------------------------------------------------
+Test Passed.
+"TestStatusBarSlim" end time: Sep 13 12:59 Middle East Daylight Time
+"TestStatusBarSlim" time elapsed: 00:00:00
+----------------------------------------------------------
+
+65/134 Testing: TestCommentsReview
+65/134 Test: TestCommentsReview
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestCommentsReview.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestCommentsReview" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.18 sec
+----------------------------------------------------------
+Test Passed.
+"TestCommentsReview" end time: Sep 13 12:59 Middle East Daylight Time
+"TestCommentsReview" time elapsed: 00:00:00
+----------------------------------------------------------
+
+66/134 Testing: TestWelcomeLayout
+66/134 Test: TestWelcomeLayout
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestWelcomeLayout.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestWelcomeLayout" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.17 sec
+----------------------------------------------------------
+Test Passed.
+"TestWelcomeLayout" end time: Sep 13 12:59 Middle East Daylight Time
+"TestWelcomeLayout" time elapsed: 00:00:00
+----------------------------------------------------------
+
+67/134 Testing: TestSignatureBadges
+67/134 Test: TestSignatureBadges
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestSignatureBadges.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestSignatureBadges" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.29 sec
+----------------------------------------------------------
+Test Passed.
+"TestSignatureBadges" end time: Sep 13 12:59 Middle East Daylight Time
+"TestSignatureBadges" time elapsed: 00:00:00
+----------------------------------------------------------
+
+68/134 Testing: TestBatchOcrConfidence
+68/134 Test: TestBatchOcrConfidence
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestBatchOcrConfidence.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestBatchOcrConfidence" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.14 sec
+----------------------------------------------------------
+Test Passed.
+"TestBatchOcrConfidence" end time: Sep 13 12:59 Middle East Daylight Time
+"TestBatchOcrConfidence" time elapsed: 00:00:00
+----------------------------------------------------------
+
+69/134 Testing: TestInspector
+69/134 Test: TestInspector
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestInspector.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestInspector" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.49 sec
+----------------------------------------------------------
+Test Passed.
+"TestInspector" end time: Sep 13 12:59 Middle East Daylight Time
+"TestInspector" time elapsed: 00:00:00
+----------------------------------------------------------
+
+70/134 Testing: TestPatternRedact
+70/134 Test: TestPatternRedact
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestPatternRedact.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestPatternRedact" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+Fontconfig error: Cannot load default config file: File not found
+<end of output>
+Test time =   0.26 sec
+----------------------------------------------------------
+Test Passed.
+"TestPatternRedact" end time: Sep 13 12:59 Middle East Daylight Time
+"TestPatternRedact" time elapsed: 00:00:00
+----------------------------------------------------------
+
+71/134 Testing: TestFindReplace
+71/134 Test: TestFindReplace
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestFindReplace.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestFindReplace" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+Fontconfig error: Cannot load default config file: File not found
+<end of output>
+Test time =   0.27 sec
+----------------------------------------------------------
+Test Passed.
+"TestFindReplace" end time: Sep 13 12:59 Middle East Daylight Time
+"TestFindReplace" time elapsed: 00:00:00
+----------------------------------------------------------
+
+72/134 Testing: TestReviewSummary
+72/134 Test: TestReviewSummary
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestReviewSummary.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestReviewSummary" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.21 sec
+----------------------------------------------------------
+Test Passed.
+"TestReviewSummary" end time: Sep 13 12:59 Middle East Daylight Time
+"TestReviewSummary" time elapsed: 00:00:00
+----------------------------------------------------------
+
+73/134 Testing: TestDynamicStamps
+73/134 Test: TestDynamicStamps
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestDynamicStamps.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestDynamicStamps" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.19 sec
+----------------------------------------------------------
+Test Passed.
+"TestDynamicStamps" end time: Sep 13 12:59 Middle East Daylight Time
+"TestDynamicStamps" time elapsed: 00:00:00
+----------------------------------------------------------
+
+74/134 Testing: TestAutoBookmarks
+74/134 Test: TestAutoBookmarks
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestAutoBookmarks.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestAutoBookmarks" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.34 sec
+----------------------------------------------------------
+Test Passed.
+"TestAutoBookmarks" end time: Sep 13 12:59 Middle East Daylight Time
+"TestAutoBookmarks" time elapsed: 00:00:00
+----------------------------------------------------------
+
+75/134 Testing: TestDjotRoundtrip
+75/134 Test: TestDjotRoundtrip
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestDjotRoundtrip.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestDjotRoundtrip" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.13 sec
+----------------------------------------------------------
+Test Passed.
+"TestDjotRoundtrip" end time: Sep 13 12:59 Middle East Daylight Time
+"TestDjotRoundtrip" time elapsed: 00:00:00
+----------------------------------------------------------
+
+76/134 Testing: TestDjotFuzz
+76/134 Test: TestDjotFuzz
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestDjotFuzz.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestDjotFuzz" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.17 sec
+----------------------------------------------------------
+Test Passed.
+"TestDjotFuzz" end time: Sep 13 12:59 Middle East Daylight Time
+"TestDjotFuzz" time elapsed: 00:00:00
+----------------------------------------------------------
+
+77/134 Testing: TestUpdateChecker
+77/134 Test: TestUpdateChecker
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestUpdateChecker.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestUpdateChecker" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.05 sec
+----------------------------------------------------------
+Test Passed.
+"TestUpdateChecker" end time: Sep 13 12:59 Middle East Daylight Time
+"TestUpdateChecker" time elapsed: 00:00:00
+----------------------------------------------------------
+
+78/134 Testing: TestWatermarkFont
+78/134 Test: TestWatermarkFont
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestWatermarkFont.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestWatermarkFont" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+Fontconfig error: Cannot load default config file: File not found
+<end of output>
+Test time =   0.18 sec
+----------------------------------------------------------
+Test Passed.
+"TestWatermarkFont" end time: Sep 13 12:59 Middle East Daylight Time
+"TestWatermarkFont" time elapsed: 00:00:00
+----------------------------------------------------------
+
+79/134 Testing: TestOcrLanguage
+79/134 Test: TestOcrLanguage
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestOcrLanguage.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestOcrLanguage" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.05 sec
+----------------------------------------------------------
+Test Passed.
+"TestOcrLanguage" end time: Sep 13 12:59 Middle East Daylight Time
+"TestOcrLanguage" time elapsed: 00:00:00
+----------------------------------------------------------
+
+80/134 Testing: TestRedactClearMarks
+80/134 Test: TestRedactClearMarks
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestRedactClearMarks.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestRedactClearMarks" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.18 sec
+----------------------------------------------------------
+Test Passed.
+"TestRedactClearMarks" end time: Sep 13 12:59 Middle East Daylight Time
+"TestRedactClearMarks" time elapsed: 00:00:00
+----------------------------------------------------------
+
+81/134 Testing: TestLinkSchemeSafety
+81/134 Test: TestLinkSchemeSafety
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestLinkSchemeSafety.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestLinkSchemeSafety" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.11 sec
+----------------------------------------------------------
+Test Passed.
+"TestLinkSchemeSafety" end time: Sep 13 12:59 Middle East Daylight Time
+"TestLinkSchemeSafety" time elapsed: 00:00:00
+----------------------------------------------------------
+
+82/134 Testing: TestThumbnailZoom
+82/134 Test: TestThumbnailZoom
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestThumbnailZoom.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestThumbnailZoom" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.12 sec
+----------------------------------------------------------
+Test Passed.
+"TestThumbnailZoom" end time: Sep 13 12:59 Middle East Daylight Time
+"TestThumbnailZoom" time elapsed: 00:00:00
+----------------------------------------------------------
+
+83/134 Testing: TestMergeSuccess
+83/134 Test: TestMergeSuccess
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestMergeSuccess.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestMergeSuccess" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.12 sec
+----------------------------------------------------------
+Test Passed.
+"TestMergeSuccess" end time: Sep 13 12:59 Middle East Daylight Time
+"TestMergeSuccess" time elapsed: 00:00:00
+----------------------------------------------------------
+
+84/134 Testing: TestFillFormLock
+84/134 Test: TestFillFormLock
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestFillFormLock.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestFillFormLock" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.11 sec
+----------------------------------------------------------
+Test Passed.
+"TestFillFormLock" end time: Sep 13 12:59 Middle East Daylight Time
+"TestFillFormLock" time elapsed: 00:00:00
+----------------------------------------------------------
+
+85/134 Testing: TestFillFormNoOp
+85/134 Test: TestFillFormNoOp
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestFillFormNoOp.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestFillFormNoOp" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.10 sec
+----------------------------------------------------------
+Test Passed.
+"TestFillFormNoOp" end time: Sep 13 12:59 Middle East Daylight Time
+"TestFillFormNoOp" time elapsed: 00:00:00
+----------------------------------------------------------
+
+86/134 Testing: TestReadingOrderInheritance
+86/134 Test: TestReadingOrderInheritance
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestReadingOrderInheritance.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestReadingOrderInheritance" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.13 sec
+----------------------------------------------------------
+Test Passed.
+"TestReadingOrderInheritance" end time: Sep 13 12:59 Middle East Daylight Time
+"TestReadingOrderInheritance" time elapsed: 00:00:00
+----------------------------------------------------------
+
+87/134 Testing: TestShapeInkPersistence
+87/134 Test: TestShapeInkPersistence
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestShapeInkPersistence.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestShapeInkPersistence" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.10 sec
+----------------------------------------------------------
+Test Passed.
+"TestShapeInkPersistence" end time: Sep 13 12:59 Middle East Daylight Time
+"TestShapeInkPersistence" time elapsed: 00:00:00
+----------------------------------------------------------
+
+88/134 Testing: TestMeasurePanelHonesty
+88/134 Test: TestMeasurePanelHonesty
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestMeasurePanelHonesty.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestMeasurePanelHonesty" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.15 sec
+----------------------------------------------------------
+Test Passed.
+"TestMeasurePanelHonesty" end time: Sep 13 12:59 Middle East Daylight Time
+"TestMeasurePanelHonesty" time elapsed: 00:00:00
+----------------------------------------------------------
+
+89/134 Testing: TestMeasureCore
+89/134 Test: TestMeasureCore
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestMeasureCore.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestMeasureCore" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.05 sec
+----------------------------------------------------------
+Test Passed.
+"TestMeasureCore" end time: Sep 13 12:59 Middle East Daylight Time
+"TestMeasureCore" time elapsed: 00:00:00
+----------------------------------------------------------
+
+90/134 Testing: TestMeasureRoundTrip
+90/134 Test: TestMeasureRoundTrip
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestMeasureRoundTrip.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestMeasureRoundTrip" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.20 sec
+----------------------------------------------------------
+Test Passed.
+"TestMeasureRoundTrip" end time: Sep 13 12:59 Middle East Daylight Time
+"TestMeasureRoundTrip" time elapsed: 00:00:00
+----------------------------------------------------------
+
+91/134 Testing: TestCompressStripSanitize
+91/134 Test: TestCompressStripSanitize
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestCompressStripSanitize.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestCompressStripSanitize" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.10 sec
+----------------------------------------------------------
+Test Passed.
+"TestCompressStripSanitize" end time: Sep 13 12:59 Middle East Daylight Time
+"TestCompressStripSanitize" time elapsed: 00:00:00
+----------------------------------------------------------
+
+92/134 Testing: TestCompressDialogHonesty
+92/134 Test: TestCompressDialogHonesty
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestCompressDialogHonesty.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestCompressDialogHonesty" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.15 sec
+----------------------------------------------------------
+Test Passed.
+"TestCompressDialogHonesty" end time: Sep 13 12:59 Middle East Daylight Time
+"TestCompressDialogHonesty" time elapsed: 00:00:00
+----------------------------------------------------------
+
+93/134 Testing: TestFieldMetadata
+93/134 Test: TestFieldMetadata
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestFieldMetadata.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestFieldMetadata" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.12 sec
+----------------------------------------------------------
+Test Passed.
+"TestFieldMetadata" end time: Sep 13 12:59 Middle East Daylight Time
+"TestFieldMetadata" time elapsed: 00:00:00
+----------------------------------------------------------
+
+94/134 Testing: TestFormSafety
+94/134 Test: TestFormSafety
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestFormSafety.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestFormSafety" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   1.09 sec
+----------------------------------------------------------
+Test Passed.
+"TestFormSafety" end time: Sep 13 12:59 Middle East Daylight Time
+"TestFormSafety" time elapsed: 00:00:01
+----------------------------------------------------------
+
+95/134 Testing: TestFormJsCalc
+95/134 Test: TestFormJsCalc
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestFormJsCalc.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestFormJsCalc" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   2.71 sec
+----------------------------------------------------------
+Test Passed.
+"TestFormJsCalc" end time: Sep 13 12:59 Middle East Daylight Time
+"TestFormJsCalc" time elapsed: 00:00:02
+----------------------------------------------------------
+
+96/134 Testing: TestEngineSave
+96/134 Test: TestEngineSave
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestEngineSave.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestEngineSave" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+Fontconfig error: Cannot load default config file: File not found
+WARNING: C:/msys64/tmp/TestEngineSave-tqJcqN/r09a-corrupt.pdf: file is damaged
+WARNING: C:/msys64/tmp/TestEngineSave-tqJcqN/r09a-corrupt.pdf: can't find startxref
+WARNING: C:/msys64/tmp/TestEngineSave-tqJcqN/r09a-corrupt.pdf: Attempting to reconstruct cross-reference table
+WARNING: C:/msys64/tmp/TestEngineSave-tqJcqN/r09a-corrupt.pdf (object 5 0, offset 17936): EOF after endobj
+WARNING: C:/msys64/tmp/TestEngineSave-tqJcqN/r09a-corrupt.pdf: unable to find trailer dictionary while recovering damaged file
+WARNING: C:/msys64/tmp/TestEngineSave-tqJcqN/r09a-corrupt.pdf: file is damaged
+WARNING: C:/msys64/tmp/TestEngineSave-tqJcqN/r09a-corrupt.pdf: can't find startxref
+WARNING: C:/msys64/tmp/TestEngineSave-tqJcqN/r09a-corrupt.pdf: Attempting to reconstruct cross-reference table
+WARNING: C:/msys64/tmp/TestEngineSave-tqJcqN/r09a-corrupt.pdf (object 5 0, offset 17936): EOF after endobj
+WARNING: C:/msys64/tmp/TestEngineSave-tqJcqN/r09a-corrupt.pdf: unable to find trailer dictionary while recovering damaged file
+<end of output>
+Test time =   1.24 sec
+----------------------------------------------------------
+Test Passed.
+"TestEngineSave" end time: Sep 13 12:59 Middle East Daylight Time
+"TestEngineSave" time elapsed: 00:00:01
+----------------------------------------------------------
+
+97/134 Testing: TestEncryptedPackageSafeWrite
+97/134 Test: TestEncryptedPackageSafeWrite
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestEncryptedPackageSafeWrite.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestEncryptedPackageSafeWrite" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   2.75 sec
+----------------------------------------------------------
+Test Passed.
+"TestEncryptedPackageSafeWrite" end time: Sep 13 12:59 Middle East Daylight Time
+"TestEncryptedPackageSafeWrite" time elapsed: 00:00:02
+----------------------------------------------------------
+
+98/134 Testing: TestPrintJob
+98/134 Test: TestPrintJob
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestPrintJob.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestPrintJob" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   1.88 sec
+----------------------------------------------------------
+Test Passed.
+"TestPrintJob" end time: Sep 13 12:59 Middle East Daylight Time
+"TestPrintJob" time elapsed: 00:00:01
+----------------------------------------------------------
+
+99/134 Testing: TestTempOwnership
+99/134 Test: TestTempOwnership
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestTempOwnership.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestTempOwnership" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.09 sec
+----------------------------------------------------------
+Test Passed.
+"TestTempOwnership" end time: Sep 13 12:59 Middle East Daylight Time
+"TestTempOwnership" time elapsed: 00:00:00
+----------------------------------------------------------
+
+100/134 Testing: TestCleanupCli
+100/134 Test: TestCleanupCli
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestCleanupCli.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestCleanupCli" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   7.31 sec
+----------------------------------------------------------
+Test Passed.
+"TestCleanupCli" end time: Sep 13 12:59 Middle East Daylight Time
+"TestCleanupCli" time elapsed: 00:00:07
+----------------------------------------------------------
+
+101/134 Testing: TestFormUndo
+101/134 Test: TestFormUndo
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestFormUndo.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestFormUndo" start time: Sep 13 12:59 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.69 sec
+----------------------------------------------------------
+Test Passed.
+"TestFormUndo" end time: Sep 13 13:00 Middle East Daylight Time
+"TestFormUndo" time elapsed: 00:00:00
+----------------------------------------------------------
+
+102/134 Testing: TestValidateAllSignatures
+102/134 Test: TestValidateAllSignatures
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestValidateAllSignatures.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestValidateAllSignatures" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.11 sec
+----------------------------------------------------------
+Test Passed.
+"TestValidateAllSignatures" end time: Sep 13 13:00 Middle East Daylight Time
+"TestValidateAllSignatures" time elapsed: 00:00:00
+----------------------------------------------------------
+
+103/134 Testing: TestExportPathBadge
+103/134 Test: TestExportPathBadge
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestExportPathBadge.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestExportPathBadge" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.29 sec
+----------------------------------------------------------
+Test Passed.
+"TestExportPathBadge" end time: Sep 13 13:00 Middle East Daylight Time
+"TestExportPathBadge" time elapsed: 00:00:00
+----------------------------------------------------------
+
+104/134 Testing: TestImageEditWiring
+104/134 Test: TestImageEditWiring
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestImageEditWiring.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestImageEditWiring" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.08 sec
+----------------------------------------------------------
+Test Passed.
+"TestImageEditWiring" end time: Sep 13 13:00 Middle East Daylight Time
+"TestImageEditWiring" time elapsed: 00:00:00
+----------------------------------------------------------
+
+105/134 Testing: TestRedactSanitizeBundle
+105/134 Test: TestRedactSanitizeBundle
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestRedactSanitizeBundle.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestRedactSanitizeBundle" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.16 sec
+----------------------------------------------------------
+Test Passed.
+"TestRedactSanitizeBundle" end time: Sep 13 13:00 Middle East Daylight Time
+"TestRedactSanitizeBundle" time elapsed: 00:00:00
+----------------------------------------------------------
+
+106/134 Testing: TestRedactTransaction
+106/134 Test: TestRedactTransaction
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestRedactTransaction.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestRedactTransaction" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+Fontconfig error: Cannot load default config file: File not found
+<end of output>
+Test time =   1.85 sec
+----------------------------------------------------------
+Test Passed.
+"TestRedactTransaction" end time: Sep 13 13:00 Middle East Daylight Time
+"TestRedactTransaction" time elapsed: 00:00:01
+----------------------------------------------------------
+
+107/134 Testing: TestRedactionProof
+107/134 Test: TestRedactionProof
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestRedactionProof.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestRedactionProof" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+Fontconfig error: Cannot load default config file: File not found
+<end of output>
+Test time =   0.68 sec
+----------------------------------------------------------
+Test Passed.
+"TestRedactionProof" end time: Sep 13 13:00 Middle East Daylight Time
+"TestRedactionProof" time elapsed: 00:00:00
+----------------------------------------------------------
+
+108/134 Testing: TestPptxOverlayAlpha
+108/134 Test: TestPptxOverlayAlpha
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestPptxOverlayAlpha.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestPptxOverlayAlpha" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.15 sec
+----------------------------------------------------------
+Test Passed.
+"TestPptxOverlayAlpha" end time: Sep 13 13:00 Middle East Daylight Time
+"TestPptxOverlayAlpha" time elapsed: 00:00:00
+----------------------------------------------------------
+
+109/134 Testing: TestAutoDetectHeuristic
+109/134 Test: TestAutoDetectHeuristic
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestAutoDetectHeuristic.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestAutoDetectHeuristic" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.09 sec
+----------------------------------------------------------
+Test Passed.
+"TestAutoDetectHeuristic" end time: Sep 13 13:00 Middle East Daylight Time
+"TestAutoDetectHeuristic" time elapsed: 00:00:00
+----------------------------------------------------------
+
+110/134 Testing: TestConversionExtraction
+110/134 Test: TestConversionExtraction
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestConversionExtraction.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestConversionExtraction" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.27 sec
+----------------------------------------------------------
+Test Passed.
+"TestConversionExtraction" end time: Sep 13 13:00 Middle East Daylight Time
+"TestConversionExtraction" time elapsed: 00:00:00
+----------------------------------------------------------
+
+111/134 Testing: TestTextExtractionCoords
+111/134 Test: TestTextExtractionCoords
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestTextExtractionCoords.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestTextExtractionCoords" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.11 sec
+----------------------------------------------------------
+Test Passed.
+"TestTextExtractionCoords" end time: Sep 13 13:00 Middle East Daylight Time
+"TestTextExtractionCoords" time elapsed: 00:00:00
+----------------------------------------------------------
+
+112/134 Testing: TestEraseWiring
+112/134 Test: TestEraseWiring
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestEraseWiring.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestEraseWiring" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.10 sec
+----------------------------------------------------------
+Test Passed.
+"TestEraseWiring" end time: Sep 13 13:00 Middle East Daylight Time
+"TestEraseWiring" time elapsed: 00:00:00
+----------------------------------------------------------
+
+113/134 Testing: TestAnnotationToolBar
+113/134 Test: TestAnnotationToolBar
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestAnnotationToolBar.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestAnnotationToolBar" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.05 sec
+----------------------------------------------------------
+Test Passed.
+"TestAnnotationToolBar" end time: Sep 13 13:00 Middle East Daylight Time
+"TestAnnotationToolBar" time elapsed: 00:00:00
+----------------------------------------------------------
+
+114/134 Testing: TestViewerRotation
+114/134 Test: TestViewerRotation
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestViewerRotation.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestViewerRotation" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.17 sec
+----------------------------------------------------------
+Test Passed.
+"TestViewerRotation" end time: Sep 13 13:00 Middle East Daylight Time
+"TestViewerRotation" time elapsed: 00:00:00
+----------------------------------------------------------
+
+115/134 Testing: TestTwoPageOverlay
+115/134 Test: TestTwoPageOverlay
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestTwoPageOverlay.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestTwoPageOverlay" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.23 sec
+----------------------------------------------------------
+Test Passed.
+"TestTwoPageOverlay" end time: Sep 13 13:00 Middle East Daylight Time
+"TestTwoPageOverlay" time elapsed: 00:00:00
+----------------------------------------------------------
+
+116/134 Testing: TestSignaturePicker
+116/134 Test: TestSignaturePicker
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestSignaturePicker.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestSignaturePicker" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.23 sec
+----------------------------------------------------------
+Test Passed.
+"TestSignaturePicker" end time: Sep 13 13:00 Middle East Daylight Time
+"TestSignaturePicker" time elapsed: 00:00:00
+----------------------------------------------------------
+
+117/134 Testing: TestOcrAcceptSeam
+117/134 Test: TestOcrAcceptSeam
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestOcrAcceptSeam.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestOcrAcceptSeam" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.12 sec
+----------------------------------------------------------
+Test Passed.
+"TestOcrAcceptSeam" end time: Sep 13 13:00 Middle East Daylight Time
+"TestOcrAcceptSeam" time elapsed: 00:00:00
+----------------------------------------------------------
+
+118/134 Testing: TestSearchFlags
+118/134 Test: TestSearchFlags
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestSearchFlags.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestSearchFlags" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.12 sec
+----------------------------------------------------------
+Test Passed.
+"TestSearchFlags" end time: Sep 13 13:00 Middle East Daylight Time
+"TestSearchFlags" time elapsed: 00:00:00
+----------------------------------------------------------
+
+119/134 Testing: TestExportPresets
+119/134 Test: TestExportPresets
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestExportPresets.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestExportPresets" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.10 sec
+----------------------------------------------------------
+Test Passed.
+"TestExportPresets" end time: Sep 13 13:00 Middle East Daylight Time
+"TestExportPresets" time elapsed: 00:00:00
+----------------------------------------------------------
+
+120/134 Testing: TestOcrAcceptScope
+120/134 Test: TestOcrAcceptScope
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestOcrAcceptScope.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestOcrAcceptScope" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.14 sec
+----------------------------------------------------------
+Test Passed.
+"TestOcrAcceptScope" end time: Sep 13 13:00 Middle East Daylight Time
+"TestOcrAcceptScope" time elapsed: 00:00:00
+----------------------------------------------------------
+
+121/134 Testing: TestViewerLinkSeam
+121/134 Test: TestViewerLinkSeam
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestViewerLinkSeam.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestViewerLinkSeam" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.23 sec
+----------------------------------------------------------
+Test Passed.
+"TestViewerLinkSeam" end time: Sep 13 13:00 Middle East Daylight Time
+"TestViewerLinkSeam" time elapsed: 00:00:00
+----------------------------------------------------------
+
+122/134 Testing: TestHyperlinkNavigation
+122/134 Test: TestHyperlinkNavigation
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestHyperlinkNavigation.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestHyperlinkNavigation" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.08 sec
+----------------------------------------------------------
+Test Passed.
+"TestHyperlinkNavigation" end time: Sep 13 13:00 Middle East Daylight Time
+"TestHyperlinkNavigation" time elapsed: 00:00:00
+----------------------------------------------------------
+
+123/134 Testing: TestRedactMarkAll
+123/134 Test: TestRedactMarkAll
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestRedactMarkAll.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestRedactMarkAll" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+Entity: line 1: parser error : Start tag expected, '<' not found
+<?xpacket xmp-secret?>
+                      ^
+Fontconfig error: Cannot load default config file: File not found
+Entity: line 1: parser error : Start tag expected, '<' not found
+<?xpacket xmp-secret?>
+                      ^
+Entity: line 1: parser error : Start tag expected, '<' not found
+<?xpacket xmp-secret?>
+                      ^
+Entity: line 1: parser error : Start tag expected, '<' not found
+<?xpacket xmp-secret?>
+                      ^
+Entity: line 1: parser error : Start tag expected, '<' not found
+<?xpacket xmp-secret?>
+                      ^
+Entity: line 1: parser error : Start tag expected, '<' not found
+<?xpacket xmp-secret?>
+                      ^
+Entity: line 1: parser error : Start tag expected, '<' not found
+<?xpacket xmp-secret?>
+                      ^
+Entity: line 1: parser error : Start tag expected, '<' not found
+<?xpacket xmp-secret?>
+                      ^
+Entity: line 1: parser error : Start tag expected, '<' not found
+<?xpacket xmp-secret?>
+                      ^
+Entity: line 1: parser error : Start tag expected, '<' not found
+<?xpacket xmp-secret?>
+                      ^
+<end of output>
+Test time =   0.60 sec
+----------------------------------------------------------
+Test Passed.
+"TestRedactMarkAll" end time: Sep 13 13:00 Middle East Daylight Time
+"TestRedactMarkAll" time elapsed: 00:00:00
+----------------------------------------------------------
+
+124/134 Testing: TestRedactApplyMarks
+124/134 Test: TestRedactApplyMarks
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestRedactApplyMarks.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestRedactApplyMarks" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+Fontconfig error: Cannot load default config file: File not found
+<end of output>
+Test time =   0.14 sec
+----------------------------------------------------------
+Test Passed.
+"TestRedactApplyMarks" end time: Sep 13 13:00 Middle East Daylight Time
+"TestRedactApplyMarks" time elapsed: 00:00:00
+----------------------------------------------------------
+
+125/134 Testing: TestAnnotationDjot
+125/134 Test: TestAnnotationDjot
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestAnnotationDjot.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestAnnotationDjot" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.26 sec
+----------------------------------------------------------
+Test Passed.
+"TestAnnotationDjot" end time: Sep 13 13:00 Middle East Daylight Time
+"TestAnnotationDjot" time elapsed: 00:00:00
+----------------------------------------------------------
+
+126/134 Testing: TestAiProvider
+126/134 Test: TestAiProvider
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestAiProvider.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestAiProvider" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.06 sec
+----------------------------------------------------------
+Test Passed.
+"TestAiProvider" end time: Sep 13 13:00 Middle East Daylight Time
+"TestAiProvider" time elapsed: 00:00:00
+----------------------------------------------------------
+
+127/134 Testing: TestOllamaProvider
+127/134 Test: TestOllamaProvider
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestOllamaProvider.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestOllamaProvider" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =  37.43 sec
+----------------------------------------------------------
+Test Passed.
+"TestOllamaProvider" end time: Sep 13 13:00 Middle East Daylight Time
+"TestOllamaProvider" time elapsed: 00:00:37
+----------------------------------------------------------
+
+128/134 Testing: TestDiffEngine
+128/134 Test: TestDiffEngine
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestDiffEngine.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestDiffEngine" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.64 sec
+----------------------------------------------------------
+Test Passed.
+"TestDiffEngine" end time: Sep 13 13:00 Middle East Daylight Time
+"TestDiffEngine" time elapsed: 00:00:00
+----------------------------------------------------------
+
+129/134 Testing: TestOfficeImport
+129/134 Test: TestOfficeImport
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestOfficeImport.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestOfficeImport" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.13 sec
+----------------------------------------------------------
+Test Passed.
+"TestOfficeImport" end time: Sep 13 13:00 Middle East Daylight Time
+"TestOfficeImport" time elapsed: 00:00:00
+----------------------------------------------------------
+
+130/134 Testing: TestMrcPipeline
+130/134 Test: TestMrcPipeline
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestMrcPipeline.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestMrcPipeline" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.34 sec
+----------------------------------------------------------
+Test Passed.
+"TestMrcPipeline" end time: Sep 13 13:00 Middle East Daylight Time
+"TestMrcPipeline" time elapsed: 00:00:00
+----------------------------------------------------------
+
+131/134 Testing: TestCheckedMutationCoverage
+131/134 Test: TestCheckedMutationCoverage
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestCheckedMutationCoverage.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestCheckedMutationCoverage" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.39 sec
+----------------------------------------------------------
+Test Passed.
+"TestCheckedMutationCoverage" end time: Sep 13 13:00 Middle East Daylight Time
+"TestCheckedMutationCoverage" time elapsed: 00:00:00
+----------------------------------------------------------
+
+132/134 Testing: TestHistoryIntegrity
+132/134 Test: TestHistoryIntegrity
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestHistoryIntegrity.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestHistoryIntegrity" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.70 sec
+----------------------------------------------------------
+Test Passed.
+"TestHistoryIntegrity" end time: Sep 13 13:00 Middle East Daylight Time
+"TestHistoryIntegrity" time elapsed: 00:00:00
+----------------------------------------------------------
+
+133/134 Testing: TestPersistenceOutcomes
+133/134 Test: TestPersistenceOutcomes
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestPersistenceOutcomes.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestPersistenceOutcomes" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   1.20 sec
+----------------------------------------------------------
+Test Passed.
+"TestPersistenceOutcomes" end time: Sep 13 13:00 Middle East Daylight Time
+"TestPersistenceOutcomes" time elapsed: 00:00:01
+----------------------------------------------------------
+
+134/134 Testing: TestRenderGuards
+134/134 Test: TestRenderGuards
+Command: "C:/Users/User/Projects/pdf-inst/build-formjs/TestRenderGuards.exe"
+Directory: C:/Users/User/Projects/pdf-inst/build-formjs
+"TestRenderGuards" start time: Sep 13 13:00 Middle East Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   1.62 sec
+----------------------------------------------------------
+Test Passed.
+"TestRenderGuards" end time: Sep 13 13:00 Middle East Daylight Time
+"TestRenderGuards" time elapsed: 00:00:01
+----------------------------------------------------------
+
+End testing: Sep 13 13:00 Middle East Daylight Time
+
+accept =   0.26 sec*proc
+
+accessibility =   0.58 sec*proc
+
+ai =  37.49 sec*proc
+
+annot =   0.26 sec*proc
+
+annotations =   1.08 sec*proc
+
+appearance =   0.26 sec*proc
+
+async =   0.33 sec*proc
+
+auto-bookmarks =   0.34 sec*proc
+
+autodetect =   0.09 sec*proc
+
+autosave =   0.72 sec*proc
+
+badge =   0.29 sec*proc
+
+batch =   2.82 sec*proc
+
+bates =   1.92 sec*proc
+
+benchmark =   0.17 sec*proc
+
+builder =   0.38 sec*proc
+
+cache =   0.14 sec*proc
+
+capability =   0.67 sec*proc
+
+chain1 =   0.04 sec*proc
+
+cleanup-cli =   7.31 sec*proc
+
+codec =   0.30 sec*proc
+
+collapse =   0.16 sec*proc
+
+commands =   0.75 sec*proc
+
+comments =   0.58 sec*proc
+
+compare =   1.44 sec*proc
+
+compression =   2.14 sec*proc
+
+concurrency =   3.18 sec*proc
+
+confidence =   0.14 sec*proc
+
+controllers =   0.23 sec*proc
+
+conversion =   0.92 sec*proc
+
+convert =   0.13 sec*proc
+
+core =   0.21 sec*proc
+
+corruption =   0.16 sec*proc
+
+cross-page =   0.52 sec*proc
+
+crypto =   1.06 sec*proc
+
+dedup =   0.20 sec*proc
+
+diff =   0.64 sec*proc
+
+djot =   0.62 sec*proc
+
+e2e =   0.16 sec*proc
+
+edit =   0.61 sec*proc
+
+editing =   0.19 sec*proc
+
+encryption =   0.21 sec*proc
+
+endpoint =  37.43 sec*proc
+
+engine =   1.24 sec*proc
+
+ensemble =   0.08 sec*proc
+
+erase =   0.30 sec*proc
+
+estimate =   0.13 sec*proc
+
+excision =   0.16 sec*proc
+
+expiry =   0.44 sec*proc
+
+export =   3.14 sec*proc
+
+extraction =   0.27 sec*proc
+
+find-replace =   0.27 sec*proc
+
+flags =   0.12 sec*proc
+
+font =   0.18 sec*proc
+
+form-fields =   2.65 sec*proc
+
+form-js =   2.71 sec*proc
+
+forms =   5.46 sec*proc
+
+fuzz =   0.17 sec*proc
+
+guards =   1.62 sec*proc
+
+headless = 102.65 sec*proc
+
+history =   1.09 sec*proc
+
+honesty =   0.30 sec*proc
+
+identity =   4.03 sec*proc
+
+images =   0.22 sec*proc
+
+import =   0.24 sec*proc
+
+infrastructure =   7.39 sec*proc
+
+inspector =   0.49 sec*proc
+
+integration =  11.52 sec*proc
+
+integrity =   0.47 sec*proc
+
+interface =   0.04 sec*proc
+
+interfaces =   0.48 sec*proc
+
+iou =   0.08 sec*proc
+
+javascript =   2.71 sec*proc
+
+jpeg =   0.93 sec*proc
+
+lane-scheduler =   3.18 sec*proc
+
+language =   0.24 sec*proc
+
+layout =   0.26 sec*proc
+
+lcs =   0.64 sec*proc
+
+lifecycle =   0.37 sec*proc
+
+lifetime =  37.43 sec*proc
+
+links =   0.40 sec*proc
+
+mapper =   0.06 sec*proc
+
+measure =   0.40 sec*proc
+
+menubar =   0.23 sec*proc
+
+merge =   0.95 sec*proc
+
+ml =   1.22 sec*proc
+
+mock =   0.10 sec*proc
+
+modes =   4.80 sec*proc
+
+mrc =   0.34 sec*proc
+
+myers =   0.64 sec*proc
+
+navigation =   0.67 sec*proc
+
+ocr =   4.19 sec*proc
+
+office =   0.13 sec*proc
+
+ollama =  37.43 sec*proc
+
+open =   0.11 sec*proc
+
+optimize =   0.14 sec*proc
+
+orientation =   0.92 sec*proc
+
+pagelabels =   0.21 sec*proc
+
+pages =   4.18 sec*proc
+
+patterns =   0.26 sec*proc
+
+pdfa =   1.66 sec*proc
+
+perf04 =   1.62 sec*proc
+
+performance =   0.17 sec*proc
+
+persistence =   9.11 sec*proc
+
+picker =   0.23 sec*proc
+
+pipeline =   0.52 sec*proc
+
+pptx =   0.27 sec*proc
+
+preprocess =   1.07 sec*proc
+
+presets =   0.10 sec*proc
+
+print =   1.88 sec*proc
+
+privacy =   3.03 sec*proc
+
+proof =   0.68 sec*proc
+
+properties =   0.49 sec*proc
+
+provenance =   0.17 sec*proc
+
+provider =  37.49 sec*proc
+
+qt =  93.74 sec*proc
+
+rapidocr =   1.22 sec*proc
+
+reading-order =   0.45 sec*proc
+
+readonly =   0.88 sec*proc
+
+real-crypto =   0.19 sec*proc
+
+recovery =   0.81 sec*proc
+
+redact =   0.82 sec*proc
+
+redaction =   4.63 sec*proc
+
+regression =   2.32 sec*proc
+
+render =   1.62 sec*proc
+
+resources =   0.15 sec*proc
+
+review =   0.78 sec*proc
+
+review-summary =   0.21 sec*proc
+
+ribbon =   0.40 sec*proc
+
+richtext =   0.26 sec*proc
+
+robustness =   0.23 sec*proc
+
+rotation =   0.17 sec*proc
+
+roundtrip =   0.59 sec*proc
+
+routing =   0.11 sec*proc
+
+rover =   0.52 sec*proc
+
+safesave =   2.75 sec*proc
+
+sandwich =   0.34 sec*proc
+
+sanitization =   0.56 sec*proc
+
+sanitize =   0.10 sec*proc
+
+save =   1.24 sec*proc
+
+scheduling =   3.18 sec*proc
+
+seam =   0.23 sec*proc
+
+search =   0.24 sec*proc
+
+secrets =   0.23 sec*proc
+
+security =   7.80 sec*proc
+
+session =   4.84 sec*proc
+
+shell =   5.03 sec*proc
+
+sidecar =   0.73 sec*proc
+
+signatures =   2.66 sec*proc
+
+smoke =   0.52 sec*proc
+
+stamps =   0.19 sec*proc
+
+statusbar =   0.29 sec*proc
+
+structural =   0.06 sec*proc
+
+subprocess =   0.05 sec*proc
+
+sync =   0.15 sec*proc
+
+t2-2 =   0.27 sec*proc
+
+t2-3 =   0.21 sec*proc
+
+t2-6 =   0.19 sec*proc
+
+t2-9 =   0.34 sec*proc
+
+tasknav =   0.06 sec*proc
+
+temp =   0.09 sec*proc
+
+threads =   2.49 sec*proc
+
+timing =   0.52 sec*proc
+
+toolbar =   0.05 sec*proc
+
+tools =   7.31 sec*proc
+
+transaction =   1.85 sec*proc
+
+twopage =   0.23 sec*proc
+
+u02 =   0.66 sec*proc
+
+u03 =   0.23 sec*proc
+
+u08 =   0.67 sec*proc
+
+ui =   8.20 sec*proc
+
+undo =   1.39 sec*proc
+
+unit = 100.37 sec*proc
+
+update =   0.05 sec*proc
+
+verapdf =   0.05 sec*proc
+
+viewing =   0.71 sec*proc
+
+watermark =   1.00 sec*proc
+
+welcome =   0.17 sec*proc
+

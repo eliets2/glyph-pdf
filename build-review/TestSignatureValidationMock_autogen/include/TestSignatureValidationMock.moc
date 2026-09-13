@@ -1,0 +1,188 @@
+/****************************************************************************
+** Meta object code from reading C++ file 'TestSignatureValidationMock.cpp'
+**
+** Created by: The Qt Meta Object Compiler version 69 (Qt 6.11.0)
+**
+** WARNING! All changes made in this file will be lost!
+*****************************************************************************/
+
+#include <QtCore/qmetatype.h>
+
+#include <QtCore/qtmochelpers.h>
+
+#include <memory>
+
+
+#include <QtCore/qxptype_traits.h>
+#if !defined(Q_MOC_OUTPUT_REVISION)
+#error "The header file 'TestSignatureValidationMock.cpp' doesn't include <QObject>."
+#elif Q_MOC_OUTPUT_REVISION != 69
+#error "This file was generated using the moc from 6.11.0. It"
+#error "cannot be used with the include files from this version of Qt."
+#error "(The moc has changed too much.)"
+#endif
+
+#ifndef Q_CONSTINIT
+#define Q_CONSTINIT
+#endif
+
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
+QT_WARNING_DISABLE_GCC("-Wuseless-cast")
+namespace {
+struct qt_meta_tag_ZN27TestSignatureValidationMockE_t {};
+} // unnamed namespace
+
+template <> constexpr inline auto TestSignatureValidationMock::qt_create_metaobjectdata<qt_meta_tag_ZN27TestSignatureValidationMockE_t>()
+{
+    namespace QMC = QtMocConstants;
+    QtMocHelpers::StringRefStorage qt_stringData {
+        "TestSignatureValidationMock",
+        "testNoSignaturesOnFreshDocument",
+        "",
+        "testValidateReturnsConfiguredSignatures",
+        "testInvalidSignatureDoesNotCrash",
+        "testMultipleSignaturesMixedValidity",
+        "testBadByteRangeSignatureReportsInvalid",
+        "testOverlappingByteRangeSignatureReportsInvalid",
+        "testZeroLengthByteRangeDoesNotCrash",
+        "testSelfSignedUntrustedCertReportsInvalid",
+        "testIncompleteByteRangeReportsInvalid",
+        "testSignDocumentSuccess",
+        "testSignDocumentFailure",
+        "testSignWithEmptyPaths",
+        "testMultipleValidateCalls",
+        "testSetSignatureLevelDefaultIsB_T",
+        "testSetSignatureLevelB_LT",
+        "testSetSignatureLevelB_LTA",
+        "testSetSignatureLevelB_B",
+        "testValidationReportsHasDssWhenPresent",
+        "testValidationReportsDocTimestampForB_LTA",
+        "testBasicSignatureHasNoDss",
+        "testSignLevelPassedCorrectly"
+    };
+
+    QtMocHelpers::UintData qt_methods {
+        // Slot 'testNoSignaturesOnFreshDocument'
+        QtMocHelpers::SlotData<void()>(1, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testValidateReturnsConfiguredSignatures'
+        QtMocHelpers::SlotData<void()>(3, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testInvalidSignatureDoesNotCrash'
+        QtMocHelpers::SlotData<void()>(4, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testMultipleSignaturesMixedValidity'
+        QtMocHelpers::SlotData<void()>(5, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testBadByteRangeSignatureReportsInvalid'
+        QtMocHelpers::SlotData<void()>(6, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testOverlappingByteRangeSignatureReportsInvalid'
+        QtMocHelpers::SlotData<void()>(7, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testZeroLengthByteRangeDoesNotCrash'
+        QtMocHelpers::SlotData<void()>(8, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testSelfSignedUntrustedCertReportsInvalid'
+        QtMocHelpers::SlotData<void()>(9, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testIncompleteByteRangeReportsInvalid'
+        QtMocHelpers::SlotData<void()>(10, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testSignDocumentSuccess'
+        QtMocHelpers::SlotData<void()>(11, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testSignDocumentFailure'
+        QtMocHelpers::SlotData<void()>(12, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testSignWithEmptyPaths'
+        QtMocHelpers::SlotData<void()>(13, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testMultipleValidateCalls'
+        QtMocHelpers::SlotData<void()>(14, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testSetSignatureLevelDefaultIsB_T'
+        QtMocHelpers::SlotData<void()>(15, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testSetSignatureLevelB_LT'
+        QtMocHelpers::SlotData<void()>(16, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testSetSignatureLevelB_LTA'
+        QtMocHelpers::SlotData<void()>(17, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testSetSignatureLevelB_B'
+        QtMocHelpers::SlotData<void()>(18, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testValidationReportsHasDssWhenPresent'
+        QtMocHelpers::SlotData<void()>(19, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testValidationReportsDocTimestampForB_LTA'
+        QtMocHelpers::SlotData<void()>(20, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testBasicSignatureHasNoDss'
+        QtMocHelpers::SlotData<void()>(21, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testSignLevelPassedCorrectly'
+        QtMocHelpers::SlotData<void()>(22, 2, QMC::AccessPrivate, QMetaType::Void),
+    };
+    QtMocHelpers::UintData qt_properties {
+    };
+    QtMocHelpers::UintData qt_enums {
+    };
+    return QtMocHelpers::metaObjectData<TestSignatureValidationMock, qt_meta_tag_ZN27TestSignatureValidationMockE_t>(QMC::MetaObjectFlag{}, qt_stringData,
+            qt_methods, qt_properties, qt_enums);
+}
+Q_CONSTINIT const QMetaObject TestSignatureValidationMock::staticMetaObject = { {
+    QMetaObject::SuperData::link<QObject::staticMetaObject>(),
+    qt_staticMetaObjectStaticContent<qt_meta_tag_ZN27TestSignatureValidationMockE_t>.stringdata,
+    qt_staticMetaObjectStaticContent<qt_meta_tag_ZN27TestSignatureValidationMockE_t>.data,
+    qt_static_metacall,
+    nullptr,
+    qt_staticMetaObjectRelocatingContent<qt_meta_tag_ZN27TestSignatureValidationMockE_t>.metaTypes,
+    nullptr
+} };
+
+void TestSignatureValidationMock::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, void **_a)
+{
+    auto *_t = static_cast<TestSignatureValidationMock *>(_o);
+    if (_c == QMetaObject::InvokeMetaMethod) {
+        switch (_id) {
+        case 0: _t->testNoSignaturesOnFreshDocument(); break;
+        case 1: _t->testValidateReturnsConfiguredSignatures(); break;
+        case 2: _t->testInvalidSignatureDoesNotCrash(); break;
+        case 3: _t->testMultipleSignaturesMixedValidity(); break;
+        case 4: _t->testBadByteRangeSignatureReportsInvalid(); break;
+        case 5: _t->testOverlappingByteRangeSignatureReportsInvalid(); break;
+        case 6: _t->testZeroLengthByteRangeDoesNotCrash(); break;
+        case 7: _t->testSelfSignedUntrustedCertReportsInvalid(); break;
+        case 8: _t->testIncompleteByteRangeReportsInvalid(); break;
+        case 9: _t->testSignDocumentSuccess(); break;
+        case 10: _t->testSignDocumentFailure(); break;
+        case 11: _t->testSignWithEmptyPaths(); break;
+        case 12: _t->testMultipleValidateCalls(); break;
+        case 13: _t->testSetSignatureLevelDefaultIsB_T(); break;
+        case 14: _t->testSetSignatureLevelB_LT(); break;
+        case 15: _t->testSetSignatureLevelB_LTA(); break;
+        case 16: _t->testSetSignatureLevelB_B(); break;
+        case 17: _t->testValidationReportsHasDssWhenPresent(); break;
+        case 18: _t->testValidationReportsDocTimestampForB_LTA(); break;
+        case 19: _t->testBasicSignatureHasNoDss(); break;
+        case 20: _t->testSignLevelPassedCorrectly(); break;
+        default: ;
+        }
+    }
+    (void)_a;
+}
+
+const QMetaObject *TestSignatureValidationMock::metaObject() const
+{
+    return QObject::d_ptr->metaObject ? QObject::d_ptr->dynamicMetaObject() : &staticMetaObject;
+}
+
+void *TestSignatureValidationMock::qt_metacast(const char *_clname)
+{
+    if (!_clname) return nullptr;
+    if (!strcmp(_clname, qt_staticMetaObjectStaticContent<qt_meta_tag_ZN27TestSignatureValidationMockE_t>.strings))
+        return static_cast<void*>(this);
+    return QObject::qt_metacast(_clname);
+}
+
+int TestSignatureValidationMock::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
+{
+    _id = QObject::qt_metacall(_c, _id, _a);
+    if (_id < 0)
+        return _id;
+    if (_c == QMetaObject::InvokeMetaMethod) {
+        if (_id < 21)
+            qt_static_metacall(this, _c, _id, _a);
+        _id -= 21;
+    }
+    if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
+        if (_id < 21)
+            *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType();
+        _id -= 21;
+    }
+    return _id;
+}
+QT_WARNING_POP

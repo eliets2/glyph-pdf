@@ -1,0 +1,249 @@
+/****************************************************************************
+** Meta object code from reading C++ file 'TestOllamaProvider.cpp'
+**
+** Created by: The Qt Meta Object Compiler version 69 (Qt 6.11.0)
+**
+** WARNING! All changes made in this file will be lost!
+*****************************************************************************/
+
+#include <QtCore/qmetatype.h>
+
+#include <QtCore/qtmochelpers.h>
+
+#include <memory>
+
+
+#include <QtCore/qxptype_traits.h>
+#if !defined(Q_MOC_OUTPUT_REVISION)
+#error "The header file 'TestOllamaProvider.cpp' doesn't include <QObject>."
+#elif Q_MOC_OUTPUT_REVISION != 69
+#error "This file was generated using the moc from 6.11.0. It"
+#error "cannot be used with the include files from this version of Qt."
+#error "(The moc has changed too much.)"
+#endif
+
+#ifndef Q_CONSTINIT
+#define Q_CONSTINIT
+#endif
+
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
+QT_WARNING_DISABLE_GCC("-Wuseless-cast")
+namespace {
+struct qt_meta_tag_ZN14PanelLikeOwnerE_t {};
+} // unnamed namespace
+
+template <> constexpr inline auto PanelLikeOwner::qt_create_metaobjectdata<qt_meta_tag_ZN14PanelLikeOwnerE_t>()
+{
+    namespace QMC = QtMocConstants;
+    QtMocHelpers::StringRefStorage qt_stringData {
+        "PanelLikeOwner"
+    };
+
+    QtMocHelpers::UintData qt_methods {
+    };
+    QtMocHelpers::UintData qt_properties {
+    };
+    QtMocHelpers::UintData qt_enums {
+    };
+    return QtMocHelpers::metaObjectData<PanelLikeOwner, qt_meta_tag_ZN14PanelLikeOwnerE_t>(QMC::MetaObjectFlag{}, qt_stringData,
+            qt_methods, qt_properties, qt_enums);
+}
+Q_CONSTINIT const QMetaObject PanelLikeOwner::staticMetaObject = { {
+    QMetaObject::SuperData::link<QObject::staticMetaObject>(),
+    qt_staticMetaObjectStaticContent<qt_meta_tag_ZN14PanelLikeOwnerE_t>.stringdata,
+    qt_staticMetaObjectStaticContent<qt_meta_tag_ZN14PanelLikeOwnerE_t>.data,
+    qt_static_metacall,
+    nullptr,
+    qt_staticMetaObjectRelocatingContent<qt_meta_tag_ZN14PanelLikeOwnerE_t>.metaTypes,
+    nullptr
+} };
+
+void PanelLikeOwner::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, void **_a)
+{
+    auto *_t = static_cast<PanelLikeOwner *>(_o);
+    (void)_t;
+    (void)_c;
+    (void)_id;
+    (void)_a;
+}
+
+const QMetaObject *PanelLikeOwner::metaObject() const
+{
+    return QObject::d_ptr->metaObject ? QObject::d_ptr->dynamicMetaObject() : &staticMetaObject;
+}
+
+void *PanelLikeOwner::qt_metacast(const char *_clname)
+{
+    if (!_clname) return nullptr;
+    if (!strcmp(_clname, qt_staticMetaObjectStaticContent<qt_meta_tag_ZN14PanelLikeOwnerE_t>.strings))
+        return static_cast<void*>(this);
+    return QObject::qt_metacast(_clname);
+}
+
+int PanelLikeOwner::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
+{
+    _id = QObject::qt_metacall(_c, _id, _a);
+    return _id;
+}
+namespace {
+struct qt_meta_tag_ZN18TestOllamaProviderE_t {};
+} // unnamed namespace
+
+template <> constexpr inline auto TestOllamaProvider::qt_create_metaobjectdata<qt_meta_tag_ZN18TestOllamaProviderE_t>()
+{
+    namespace QMC = QtMocConstants;
+    QtMocHelpers::StringRefStorage qt_stringData {
+        "TestOllamaProvider",
+        "initTestCase",
+        "",
+        "cleanup",
+        "successOverLoopbackDeliversExactlyOneResult",
+        "responseAfterDeadlineIsTimeoutWithAbortedIo",
+        "connectionRefusedReportsReachabilityError",
+        "httpErrorStatusIsDistinguishedFromNetworkError",
+        "malformedJsonIsDistinguishedFromEmptyResponse",
+        "emptyResponseIsDistinguishedFromMalformedJson",
+        "requestCancellationAbortsPendingIo",
+        "providerDestructionMidWorkStillDeliversOneResult",
+        "providerDestructionBeforeDeadlineTimesOutCleanly",
+        "panelOwnerDestroyedMidRequestNoCallbackExactlyOneResult",
+        "panelOwnerDestroyedBeforeQueuedDeliveryNoLateCallback",
+        "panelRetryAfterFailureOnSameProviderSucceeds",
+        "oversizedSystemPromptIsTruncatedTo32k",
+        "endpointPolicyMatrixHttp_data",
+        "endpointPolicyMatrixHttp",
+        "endpointPolicyHttps_data",
+        "endpointPolicyHttps",
+        "invalidSuppliedEndpointFailsInsteadOfFallback",
+        "storedInvalidEndpointFallsBackToDefaultEndpoint",
+        "redirectsAreDisabledAndReported"
+    };
+
+    QtMocHelpers::UintData qt_methods {
+        // Slot 'initTestCase'
+        QtMocHelpers::SlotData<void()>(1, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'cleanup'
+        QtMocHelpers::SlotData<void()>(3, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'successOverLoopbackDeliversExactlyOneResult'
+        QtMocHelpers::SlotData<void()>(4, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'responseAfterDeadlineIsTimeoutWithAbortedIo'
+        QtMocHelpers::SlotData<void()>(5, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'connectionRefusedReportsReachabilityError'
+        QtMocHelpers::SlotData<void()>(6, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'httpErrorStatusIsDistinguishedFromNetworkError'
+        QtMocHelpers::SlotData<void()>(7, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'malformedJsonIsDistinguishedFromEmptyResponse'
+        QtMocHelpers::SlotData<void()>(8, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'emptyResponseIsDistinguishedFromMalformedJson'
+        QtMocHelpers::SlotData<void()>(9, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'requestCancellationAbortsPendingIo'
+        QtMocHelpers::SlotData<void()>(10, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'providerDestructionMidWorkStillDeliversOneResult'
+        QtMocHelpers::SlotData<void()>(11, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'providerDestructionBeforeDeadlineTimesOutCleanly'
+        QtMocHelpers::SlotData<void()>(12, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'panelOwnerDestroyedMidRequestNoCallbackExactlyOneResult'
+        QtMocHelpers::SlotData<void()>(13, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'panelOwnerDestroyedBeforeQueuedDeliveryNoLateCallback'
+        QtMocHelpers::SlotData<void()>(14, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'panelRetryAfterFailureOnSameProviderSucceeds'
+        QtMocHelpers::SlotData<void()>(15, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'oversizedSystemPromptIsTruncatedTo32k'
+        QtMocHelpers::SlotData<void()>(16, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'endpointPolicyMatrixHttp_data'
+        QtMocHelpers::SlotData<void()>(17, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'endpointPolicyMatrixHttp'
+        QtMocHelpers::SlotData<void()>(18, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'endpointPolicyHttps_data'
+        QtMocHelpers::SlotData<void()>(19, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'endpointPolicyHttps'
+        QtMocHelpers::SlotData<void()>(20, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'invalidSuppliedEndpointFailsInsteadOfFallback'
+        QtMocHelpers::SlotData<void()>(21, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'storedInvalidEndpointFallsBackToDefaultEndpoint'
+        QtMocHelpers::SlotData<void()>(22, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'redirectsAreDisabledAndReported'
+        QtMocHelpers::SlotData<void()>(23, 2, QMC::AccessPrivate, QMetaType::Void),
+    };
+    QtMocHelpers::UintData qt_properties {
+    };
+    QtMocHelpers::UintData qt_enums {
+    };
+    return QtMocHelpers::metaObjectData<TestOllamaProvider, qt_meta_tag_ZN18TestOllamaProviderE_t>(QMC::MetaObjectFlag{}, qt_stringData,
+            qt_methods, qt_properties, qt_enums);
+}
+Q_CONSTINIT const QMetaObject TestOllamaProvider::staticMetaObject = { {
+    QMetaObject::SuperData::link<QObject::staticMetaObject>(),
+    qt_staticMetaObjectStaticContent<qt_meta_tag_ZN18TestOllamaProviderE_t>.stringdata,
+    qt_staticMetaObjectStaticContent<qt_meta_tag_ZN18TestOllamaProviderE_t>.data,
+    qt_static_metacall,
+    nullptr,
+    qt_staticMetaObjectRelocatingContent<qt_meta_tag_ZN18TestOllamaProviderE_t>.metaTypes,
+    nullptr
+} };
+
+void TestOllamaProvider::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, void **_a)
+{
+    auto *_t = static_cast<TestOllamaProvider *>(_o);
+    if (_c == QMetaObject::InvokeMetaMethod) {
+        switch (_id) {
+        case 0: _t->initTestCase(); break;
+        case 1: _t->cleanup(); break;
+        case 2: _t->successOverLoopbackDeliversExactlyOneResult(); break;
+        case 3: _t->responseAfterDeadlineIsTimeoutWithAbortedIo(); break;
+        case 4: _t->connectionRefusedReportsReachabilityError(); break;
+        case 5: _t->httpErrorStatusIsDistinguishedFromNetworkError(); break;
+        case 6: _t->malformedJsonIsDistinguishedFromEmptyResponse(); break;
+        case 7: _t->emptyResponseIsDistinguishedFromMalformedJson(); break;
+        case 8: _t->requestCancellationAbortsPendingIo(); break;
+        case 9: _t->providerDestructionMidWorkStillDeliversOneResult(); break;
+        case 10: _t->providerDestructionBeforeDeadlineTimesOutCleanly(); break;
+        case 11: _t->panelOwnerDestroyedMidRequestNoCallbackExactlyOneResult(); break;
+        case 12: _t->panelOwnerDestroyedBeforeQueuedDeliveryNoLateCallback(); break;
+        case 13: _t->panelRetryAfterFailureOnSameProviderSucceeds(); break;
+        case 14: _t->oversizedSystemPromptIsTruncatedTo32k(); break;
+        case 15: _t->endpointPolicyMatrixHttp_data(); break;
+        case 16: _t->endpointPolicyMatrixHttp(); break;
+        case 17: _t->endpointPolicyHttps_data(); break;
+        case 18: _t->endpointPolicyHttps(); break;
+        case 19: _t->invalidSuppliedEndpointFailsInsteadOfFallback(); break;
+        case 20: _t->storedInvalidEndpointFallsBackToDefaultEndpoint(); break;
+        case 21: _t->redirectsAreDisabledAndReported(); break;
+        default: ;
+        }
+    }
+    (void)_a;
+}
+
+const QMetaObject *TestOllamaProvider::metaObject() const
+{
+    return QObject::d_ptr->metaObject ? QObject::d_ptr->dynamicMetaObject() : &staticMetaObject;
+}
+
+void *TestOllamaProvider::qt_metacast(const char *_clname)
+{
+    if (!_clname) return nullptr;
+    if (!strcmp(_clname, qt_staticMetaObjectStaticContent<qt_meta_tag_ZN18TestOllamaProviderE_t>.strings))
+        return static_cast<void*>(this);
+    return QObject::qt_metacast(_clname);
+}
+
+int TestOllamaProvider::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
+{
+    _id = QObject::qt_metacall(_c, _id, _a);
+    if (_id < 0)
+        return _id;
+    if (_c == QMetaObject::InvokeMetaMethod) {
+        if (_id < 22)
+            qt_static_metacall(this, _c, _id, _a);
+        _id -= 22;
+    }
+    if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
+        if (_id < 22)
+            *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType();
+        _id -= 22;
+    }
+    return _id;
+}
+QT_WARNING_POP

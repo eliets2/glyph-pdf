@@ -1,0 +1,1059 @@
+[1/686] Automatic MOC and UIC for target docmodel
+[2/686] Automatic MOC and UIC for target liblua
+[3/686] Building CXX object src/docmodel/CMakeFiles/docmodel.dir/docmodel_autogen/mocs_compilation.cpp.obj
+[4/686] Building CXX object third_party/CMakeFiles/liblua.dir/liblua_autogen/mocs_compilation.cpp.obj
+[5/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lauxlib.c.obj
+[6/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lapi.c.obj
+[7/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lbaselib.c.obj
+[8/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lcorolib.c.obj
+[9/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lcode.c.obj
+[10/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lctype.c.obj
+[11/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/ldblib.c.obj
+[12/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/ldebug.c.obj
+[13/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/ldo.c.obj
+[14/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/ldump.c.obj
+[15/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lfunc.c.obj
+[16/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/linit.c.obj
+[17/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lgc.c.obj
+[18/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/liolib.c.obj
+[19/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/llex.c.obj
+[20/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lmem.c.obj
+[21/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lmathlib.c.obj
+[22/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lobject.c.obj
+[23/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lopcodes.c.obj
+[24/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/loslib.c.obj
+[25/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lparser.c.obj
+[26/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lstate.c.obj
+[27/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lstring.c.obj
+[28/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/loadlib.c.obj
+[29/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lstrlib.c.obj
+[30/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/ltable.c.obj
+[31/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/ltm.c.obj
+[32/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/ltablib.c.obj
+[33/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lundump.c.obj
+[34/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lutf8lib.c.obj
+[35/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lzio.c.obj
+[36/686] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lvm.c.obj
+[37/686] Building CXX object src/docmodel/CMakeFiles/docmodel.dir/Inline.cpp.obj
+[38/686] Building CXX object src/docmodel/CMakeFiles/docmodel.dir/Block.cpp.obj
+[39/686] Building CXX object src/docmodel/CMakeFiles/docmodel.dir/SemanticDocument.cpp.obj
+[40/686] Linking CXX static library third_party\libliblua.a
+[41/686] Automatic MOC and UIC for target libjbig2enc
+[42/686] Building CXX object third_party/jbig2enc/CMakeFiles/libjbig2enc.dir/libjbig2enc_autogen/mocs_compilation.cpp.obj
+[43/686] Building CXX object src/docmodel/CMakeFiles/docmodel.dir/DocumentFuzzer.cpp.obj
+[44/686] Building CXX object third_party/jbig2enc/CMakeFiles/libjbig2enc.dir/src/jbig2arith.cc.obj
+C:/Users/User/Projects/pdf-inst/third_party/jbig2enc/src/jbig2arith.cc: In function 'void jbig2enc_refine(jbig2enc_ctx*, const uint8_t*, int, int, const uint8_t*, int, int, int, int)':
+C:/Users/User/Projects/pdf-inst/third_party/jbig2enc/src/jbig2arith.cc:605:14: warning: variable 'image_counter' set but not used [-Wunused-but-set-variable=]
+  605 |   static int image_counter = 0;
+      |              ^~~~~~~~~~~~~
+[45/686] Linking CXX static library src\docmodel\libdocmodel.a
+[46/686] Automatic MOC and UIC for target pdfws_djot
+[47/686] Building CXX object src/pdfws_djot/CMakeFiles/pdfws_djot.dir/pdfws_djot_autogen/mocs_compilation.cpp.obj
+[48/686] Building CXX object third_party/jbig2enc/CMakeFiles/libjbig2enc.dir/src/jbig2comparator.cc.obj
+[49/686] Building CXX object src/pdfws_djot/CMakeFiles/pdfws_djot.dir/ProvenanceGuard.cpp.obj
+[50/686] Building CXX object src/pdfws_djot/CMakeFiles/pdfws_djot.dir/LuaDjotCodec.cpp.obj
+[51/686] Building CXX object src/pdfws_djot/CMakeFiles/pdfws_djot.dir/PdfStructureMapper.cpp.obj
+[52/686] Building CXX object src/pdfws_djot/CMakeFiles/pdfws_djot.dir/DjotToRichTextXhtml.cpp.obj
+[53/686] Building CXX object third_party/jbig2enc/CMakeFiles/libjbig2enc.dir/src/jbig2sym.cc.obj
+[54/686] Linking CXX static library src\pdfws_djot\libpdfws_djot.a
+[55/686] Automatic MOC and UIC for target pdfws_commands
+[56/686] Building CXX object CMakeFiles/pdfws_commands.dir/pdfws_commands_autogen/mocs_compilation.cpp.obj
+[57/686] Building CXX object third_party/jbig2enc/CMakeFiles/libjbig2enc.dir/src/jbig2enc.cc.obj
+[58/686] Linking CXX static library third_party\jbig2enc\liblibjbig2enc.a
+[59/686] Building CXX object CMakeFiles/pdfws_commands.dir/src/commands/ReorderPermutationCommand.cpp.obj
+[60/686] Automatic MOC and UIC for target pdfws_engines
+[61/686] Building CXX object CMakeFiles/pdfws_commands.dir/src/commands/CropPageCommand.cpp.obj
+[62/686] Building CXX object CMakeFiles/pdfws_commands.dir/src/commands/AutoDetectPlacement.cpp.obj
+[63/686] Linking CXX static library libpdfws_commands.a
+[64/686] Generating glyphpdf_ar.qm
+Updating 'C:/Users/User/Projects/pdf-inst/build-rel/glyphpdf_ar.qm'...
+    Generated 0 translation(s) (0 finished and 0 unfinished)
+    Ignored 1394 untranslated source text(s)
+[65/686] Generating glyphpdf_de.qm
+Updating 'C:/Users/User/Projects/pdf-inst/build-rel/glyphpdf_de.qm'...
+    Generated 0 translation(s) (0 finished and 0 unfinished)
+    Ignored 1394 untranslated source text(s)
+[66/686] Generating glyphpdf_fr.qm
+Updating 'C:/Users/User/Projects/pdf-inst/build-rel/glyphpdf_fr.qm'...
+    Generated 0 translation(s) (0 finished and 0 unfinished)
+    Ignored 1394 untranslated source text(s)
+[67/686] Building CXX object CMakeFiles/pdfws_engines.dir/cmake_pch.hxx.gch
+[68/686] Automatic MOC and UIC for target TestInterfaces
+[69/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/AnnotationSerializer.cpp.obj
+[70/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/ErrorInfo.cpp.obj
+[71/686] Building CXX object CMakeFiles/pdfws_engines.dir/pdfws_engines_autogen/mocs_compilation.cpp.obj
+[72/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/PageLabels.cpp.obj
+[73/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/Capability.cpp.obj
+[74/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/TempFileManager.cpp.obj
+[75/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/CredentialManager.cpp.obj
+[76/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/OcrEngine.cpp.obj
+[77/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/EncryptedFileSecretStore.cpp.obj
+[78/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/FormManager.cpp.obj
+[79/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/SafeSave.cpp.obj
+[80/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/PdfEditorEngine.cpp.obj
+[81/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/RedactOperation.cpp.obj
+[82/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/SignatureManager.cpp.obj
+[83/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ConversionManager.cpp.obj
+[84/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/DocumentSession.cpp.obj
+[85/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/BackendRouter.cpp.obj
+[86/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/AutosaveManager.cpp.obj
+[87/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/podofo/PdfStringEscape.cpp.obj
+[88/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/PatternRedactor.cpp.obj
+[89/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/podofo/GlyphAdvanceCalculator.cpp.obj
+[90/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/podofo/PdfEncryptPubSec.cpp.obj
+[91/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/podofo/PdfPageOps.cpp.obj
+[92/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/pdfium/PdfiumEnvironment.cpp.obj
+[93/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/podofo/PoDoFoBackend.cpp.obj
+[94/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/pdfium/PdfiumBackend.cpp.obj
+[95/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/qpdf/QpdfBackend.cpp.obj
+[96/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/DiffEngine.cpp.obj
+[97/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/RenderCache.cpp.obj
+[98/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/MyersDiff.cpp.obj
+[99/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/VeraPdfValidator.cpp.obj
+[100/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/PpDocLayoutDetector.cpp.obj
+[101/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/scheduling/LaneScheduler.cpp.obj
+[102/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/SuryaDetector.cpp.obj
+[103/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/OcrPreprocessor.cpp.obj
+[104/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/LayoutEnsemble.cpp.obj
+[105/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/OcrPipeline.cpp.obj
+[106/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/PpOcrDecoder.cpp.obj
+C:/Users/User/Projects/pdf-inst/src/engines/ocr/PpOcrDecoder.cpp: In member function 'QList<QPolygonF> PpOcrDecoder::detect(const QImage&) const':
+C:/Users/User/Projects/pdf-inst/src/engines/ocr/PpOcrDecoder.cpp:399:36: warning: comparison of integer expressions of different signedness: 'size_t' {aka 'long long unsigned int'} and 'long long int' [-Wsign-compare]
+  399 |         if (info.GetElementCount() != 1LL * 1 * mh * mw) return polys;
+      |             ~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~
+C:/Users/User/Projects/pdf-inst/src/engines/ocr/PpOcrDecoder.cpp: In member function 'PpOcrDecoder::RecResult PpOcrDecoder::recognizeCrop(const QImage&) const':
+C:/Users/User/Projects/pdf-inst/src/engines/ocr/PpOcrDecoder.cpp:521:36: warning: comparison of integer expressions of different signedness: 'size_t' {aka 'long long unsigned int'} and 'long long int' [-Wsign-compare]
+  521 |         if (info.GetElementCount() != 1LL * T * C) return res;
+      |             ~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~
+C:/Users/User/Projects/pdf-inst/src/engines/ocr/PpOcrDecoder.cpp: In member function 'QList<OcrResult> PpOcrDecoder::run(const QImage&) const':
+C:/Users/User/Projects/pdf-inst/src/engines/ocr/PpOcrDecoder.cpp:565:39: warning: 'QImage QImage::mirrored(bool, bool) const &' is deprecated: Use flipped(Qt::Orientations) instead [-Wdeprecated-declarations]
+  565 |             lineImg = lineImg.mirrored(true, true);   // 180deg rotation
+      |                       ~~~~~~~~~~~~~~~~^~~~~~~~~~~~
+In file included from C:/msys64/ucrt64/include/qt6/QtGui/QImage:1,
+                 from C:/Users/User/Projects/pdf-inst/build-rel/CMakeFiles/pdfws_engines.dir/cmake_pch.hxx:9,
+                 from <command-line>:
+C:/msys64/ucrt64/include/qt6/QtGui/qimage.h:220:26: note: declared here
+  220 |     [[nodiscard]] QImage mirrored(bool horizontally = false, bool vertically = true) const &
+      |                          ^~~~~~~~
+[107/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/OcrDjotMapper.cpp.obj
+[108/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/RapidOcrEngine.cpp.obj
+[109/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/conversion/DjvuImporter.cpp.obj
+[110/686] Automatic MOC and UIC for target TestSignatureValidationMock
+[111/686] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/mrc/MrcPageProcessor.cpp.obj
+[112/686] Linking CXX static library libpdfws_engines.a
+[113/686] Automatic MOC and UIC for target TestChain1
+[114/686] Automatic MOC and UIC for target UnitTests
+[115/686] Automatic MOC and UIC for target TestExpiryInterface
+[116/686] Automatic MOC and UIC for target SmokeTest
+[117/686] Automatic MOC and UIC for target TestSanitization
+[118/686] Automatic MOC and UIC for target TestAutosave
+[119/686] Automatic MOC and UIC for target pdfws_ui
+[120/686] Automatic MOC and UIC for target TestRobustness
+[121/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/RibbonModel.cpp.obj
+[122/686] Building CXX object CMakeFiles/pdfws_ui.dir/cmake_pch.hxx.gch
+[123/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/OCRMode.cpp.obj
+[124/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/PdfViewerWidget.cpp.obj
+[125/686] Building CXX object CMakeFiles/pdfws_ui.dir/pdfws_ui_autogen/mocs_compilation.cpp.obj
+[126/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/EditAnnotationCommand.cpp.obj
+[127/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/WelcomeWidget.cpp.obj
+[128/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/FindBar.cpp.obj
+[129/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/ResizeDialog.cpp.obj
+[130/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/HeaderFooterDialog.cpp.obj
+[131/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/BatesNumberingDialog.cpp.obj
+[132/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/EditToolBar.cpp.obj
+[133/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/CompareWidget.cpp.obj
+[134/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/InspectorWidget.cpp.obj
+[135/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/BookmarkPanel.cpp.obj
+[136/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/DocumentPropertiesWidget.cpp.obj
+[137/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/SignaturesWidget.cpp.obj
+[138/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/CommentsWidget.cpp.obj
+[139/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/PageManagementDialog.cpp.obj
+[140/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/EncryptionDialog.cpp.obj
+[141/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/PermissionsDialog.cpp.obj
+[142/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/SignatureDialog.cpp.obj
+[143/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/SignaturePicker.cpp.obj
+[144/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/MetadataDialog.cpp.obj
+[145/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/AnnotationLayer.cpp.obj
+[146/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/ThumbnailSidebar.cpp.obj
+[147/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/ShortcutHelpDialog.cpp.obj
+[148/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/UpdateDialog.cpp.obj
+[149/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/PreferencesDialog.cpp.obj
+[150/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/RecoveryDialog.cpp.obj
+[151/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/ErrorDialog.cpp.obj
+[152/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/PageSetupDialog.cpp.obj
+[153/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/ExportPresetsPanel.cpp.obj
+[154/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/core/ToolId.cpp.obj
+[155/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/core/UpdateChecker.cpp.obj
+[156/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/ToolRegistry.cpp.obj
+[157/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/HomeController.cpp.obj
+[158/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/GpMainWindow.cpp.obj
+[159/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/ViewController.cpp.obj
+[160/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/PagesController.cpp.obj
+[161/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/EditController.cpp.obj
+[162/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/ConvertController.cpp.obj
+[163/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/FormsController.cpp.obj
+[164/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/util/Icons.cpp.obj
+[165/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/util/Badge.cpp.obj
+[166/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/util/Slider.cpp.obj
+[167/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/SecurityController.cpp.obj
+[168/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/MenuBar.cpp.obj
+[169/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/Ribbon.cpp.obj
+[170/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/ScreenNav.cpp.obj
+[171/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/StatusBar.cpp.obj
+[172/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/TaskNav.cpp.obj
+[173/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/TaskStateSync.cpp.obj
+[174/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/ModeStrip.cpp.obj
+[175/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/Sidebar.cpp.obj
+[176/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/OcrConfidence.cpp.obj
+[177/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/OcrScanCanvas.cpp.obj
+C:/Users/User/Projects/pdf-inst/src/ui/OcrScanCanvas.cpp:16:13: warning: 'gp::{anonymous}::kPaper' defined but not used [-Wunused-variable]
+   16 | const char* kPaper = "#f4f1ea";
+      |             ^~~~~~
+[178/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/OcrWordMagnifier.cpp.obj
+[179/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/ModeController.cpp.obj
+[180/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/RedactApplyDialog.cpp.obj
+[181/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/RedactMode.cpp.obj
+[182/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/CompareMode.cpp.obj
+[183/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/PagesMode.cpp.obj
+[184/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/FormBuilderMode.cpp.obj
+[185/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/FormFieldPropertiesPanel.cpp.obj
+[186/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/AIChatPanel.cpp.obj
+[187/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/BatchMode.cpp.obj
+[188/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/engines/ai/OllamaProvider.cpp.obj
+[189/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/SignaturesPanel.cpp.obj
+[190/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/CompressDialog.cpp.obj
+[191/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/PdfAValidationPanel.cpp.obj
+[192/686] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/WatermarkDialog.cpp.obj
+[193/686] Linking CXX static library libpdfws_ui.a
+[194/686] Automatic MOC and UIC for target PdfWorkstation
+[195/686] Automatic MOC and UIC for target TestSecretStore
+[196/686] Automatic MOC and UIC for target TestDocumentIdentity
+[197/686] Automatic MOC and UIC for target TestReadOnlyGate
+[198/686] Automatic MOC and UIC for target TestSignatureValidation
+[199/686] Automatic MOC and UIC for target TestSignatureRealCrypto
+[200/686] Automatic MOC and UIC for target TestEraseSignedGuard
+[201/686] Automatic MOC and UIC for target TestSignatureAppearance
+[202/686] Automatic MOC and UIC for target TestOptimizeSignedGuard
+[203/686] Automatic MOC and UIC for target TestRedaction
+[204/686] Automatic MOC and UIC for target TestDedupSMask
+[205/686] Automatic MOC and UIC for target TestCompressJpegReencode
+[206/686] Automatic MOC and UIC for target TestOptimizeEstimate
+[207/686] Automatic MOC and UIC for target TestRapidOcr
+[208/686] Automatic MOC and UIC for target TestLayoutEnsemble
+[209/686] Automatic MOC and UIC for target TestOcrPipeline
+[210/686] Automatic MOC and UIC for target TestOcrReviewLifecycle
+[211/686] Automatic MOC and UIC for target TestOcrVerifyNavigation
+[212/686] Automatic MOC and UIC for target TestOcrPreprocessor
+[213/686] Automatic MOC and UIC for target TestOcrDjotMapper
+[214/686] Automatic MOC and UIC for target TestThreadSafety
+[215/686] Automatic MOC and UIC for target TestEncryption
+[216/686] Automatic MOC and UIC for target TestResourceLimits
+[217/686] Automatic MOC and UIC for target TestControllers
+[218/686] Automatic MOC and UIC for target TestRibbonIntegrity
+[219/686] Automatic MOC and UIC for target TestMenuBarIntegrity
+[220/686] Automatic MOC and UIC for target TestIntegration
+[221/686] Automatic MOC and UIC for target TestPerformance
+[222/686] Automatic MOC and UIC for target TestVeraPdf
+[223/686] Automatic MOC and UIC for target TestReadingOrderAsync
+[224/686] Automatic MOC and UIC for target TestLaneScheduler
+[225/686] Automatic MOC and UIC for target TestFormBuilder
+[226/686] Automatic MOC and UIC for target TestFormPersistence
+[227/686] Automatic MOC and UIC for target TestCompareEntry
+[228/686] Automatic MOC and UIC for target TestCompareIntegration
+[229/686] Automatic MOC and UIC for target TestPagesMode
+[230/686] Automatic MOC and UIC for target TestPageLabels
+[231/686] Automatic MOC and UIC for target TestBatchMode
+[232/686] Automatic MOC and UIC for target TestBatchOcrLanguage
+[233/686] Automatic MOC and UIC for target TestOcrPreprocessPrefs
+[234/686] Automatic MOC and UIC for target TestOpenRouting
+[235/686] Automatic MOC and UIC for target TestBatesCrossDoc
+[236/686] Automatic MOC and UIC for target TestBatchOpsCoverage
+[237/686] Automatic MOC and UIC for target TestExcisionCorruption
+[238/686] Automatic MOC and UIC for target TestReadingOrderThreshold
+[239/686] Automatic MOC and UIC for target TestLinkBookmarkRoundTrip
+[240/686] Automatic MOC and UIC for target TestSignatureSessionCache
+[241/686] Automatic MOC and UIC for target TestCapabilityRegistry
+[242/686] Automatic MOC and UIC for target TestTaskNavRegistry
+[243/686] Automatic MOC and UIC for target TestScreenStateSync
+[244/686] Automatic MOC and UIC for target TestRibbonCollapse
+[245/686] Automatic MOC and UIC for target TestStatusBarSlim
+[246/686] Automatic MOC and UIC for target TestCommentsReview
+[247/686] Automatic MOC and UIC for target TestWelcomeLayout
+[248/686] Automatic MOC and UIC for target TestSignatureBadges
+[249/686] Automatic MOC and UIC for target TestBatchOcrConfidence
+[250/686] Automatic MOC and UIC for target TestInspector
+[251/686] Automatic MOC and UIC for target TestPatternRedact
+[252/686] Automatic MOC and UIC for target TestDjotRoundtrip
+[253/686] Automatic MOC and UIC for target TestDjotFuzz
+[254/686] Automatic MOC and UIC for target TestUpdateChecker
+[255/686] Automatic MOC and UIC for target TestOcrLanguage
+[256/686] Automatic MOC and UIC for target TestWatermarkFont
+[257/686] Automatic MOC and UIC for target TestRedactClearMarks
+[258/686] Automatic MOC and UIC for target TestLinkSchemeSafety
+[259/686] Automatic MOC and UIC for target TestThumbnailZoom
+[260/686] Automatic MOC and UIC for target TestMergeSuccess
+[261/686] Automatic MOC and UIC for target TestFillFormLock
+[262/686] Automatic MOC and UIC for target TestFillFormNoOp
+[263/686] Automatic MOC and UIC for target TestReadingOrderInheritance
+[264/686] Automatic MOC and UIC for target TestShapeInkPersistence
+[265/686] Automatic MOC and UIC for target TestMeasureCore
+[266/686] Automatic MOC and UIC for target TestCompressStripSanitize
+[267/686] Automatic MOC and UIC for target TestMeasureRoundTrip
+[268/686] Automatic MOC and UIC for target TestCompressDialogHonesty
+[269/686] Automatic MOC and UIC for target TestFieldMetadata
+[270/686] Automatic MOC and UIC for target TestFormSafety
+[271/686] Automatic MOC and UIC for target TestEngineSave
+[272/686] Automatic MOC and UIC for target TestCleanupCli
+[273/686] Automatic MOC and UIC for target TestFormUndo
+[274/686] Automatic MOC and UIC for target TestValidateAllSignatures
+[275/686] Automatic MOC and UIC for target TestExportPathBadge
+[276/686] Automatic MOC and UIC for target TestImageEditWiring
+[277/686] Automatic MOC and UIC for target TestRedactSanitizeBundle
+[278/686] Automatic MOC and UIC for target TestRedactTransaction
+[279/686] Automatic MOC and UIC for target TestPptxOverlayAlpha
+[280/686] Automatic MOC and UIC for target TestAutoDetectHeuristic
+[281/686] Automatic MOC and UIC for target TestConversionExtraction
+[282/686] Automatic MOC and UIC for target TestTextExtractionCoords
+[283/686] Automatic MOC and UIC for target TestEraseWiring
+[284/686] Automatic MOC and UIC for target TestAnnotationToolBar
+[285/686] Automatic MOC and UIC for target TestViewerRotation
+[286/686] Automatic MOC and UIC for target TestTwoPageOverlay
+[287/686] Automatic MOC and UIC for target TestSignaturePicker
+[288/686] Automatic MOC and UIC for target TestOcrAcceptSeam
+[289/686] Automatic MOC and UIC for target TestSearchFlags
+[290/686] Automatic MOC and UIC for target TestExportPresets
+[291/686] Automatic MOC and UIC for target TestOcrAcceptScope
+[292/686] Automatic MOC and UIC for target TestViewerLinkSeam
+[293/686] Automatic MOC and UIC for target TestHyperlinkNavigation
+[294/686] Automatic MOC and UIC for target TestRedactApplyMarks
+[295/686] Automatic MOC and UIC for target TestRedactMarkAll
+[296/686] Automatic MOC and UIC for target TestAiProvider
+[297/686] Automatic MOC and UIC for target TestAnnotationDjot
+[298/686] Automatic MOC and UIC for target TestDiffEngine
+[299/686] Automatic MOC and UIC for target TestOllamaProvider
+[300/686] Automatic MOC and UIC for target TestMrcPipeline
+[301/686] Automatic MOC and UIC for target TestOfficeImport
+[302/686] Automatic MOC and UIC for target TestPersistenceOutcomes
+[303/686] Running rcc for resource PdfWorkstation_translations
+[304/686] Automatic MOC and UIC for target TestHistoryIntegrity
+[305/686] Building CXX object CMakeFiles/UnitTests.dir/UnitTests_autogen/mocs_compilation.cpp.obj
+[306/686] Automatic RCC for resources.qrc
+[307/686] Building CXX object CMakeFiles/PdfWorkstation.dir/PdfWorkstation_autogen/mocs_compilation.cpp.obj
+[308/686] Building CXX object CMakeFiles/UnitTests.dir/tests/UnitTests.cpp.obj
+[309/686] Building CXX object CMakeFiles/PdfWorkstation.dir/src/app/main.cpp.obj
+C:/Users/User/Projects/pdf-inst/src/app/main.cpp: In function 'int main(int, char**)':
+C:/Users/User/Projects/pdf-inst/src/app/main.cpp:98:25: warning: loop variable 'f' of type 'const QString&' binds to a temporary constructed from type 'const char* const' [-Wrange-loop-construct]
+   98 |     for (const QString& f : {":/fonts/Manrope-Regular.ttf",
+      |                         ^
+C:/Users/User/Projects/pdf-inst/src/app/main.cpp:98:25: note: use non-reference type 'const QString' to make the copy explicit or 'const char* const&' to prevent copying
+[310/686] Building RC object CMakeFiles/PdfWorkstation.dir/src/app/app_icon.rc.obj
+[311/686] Building RC object CMakeFiles/PdfWorkstation.dir/version.rc.obj
+[312/686] Building CXX object CMakeFiles/PdfWorkstation.dir/build-rel/.qt/rcc/qrc_PdfWorkstation_translations.cpp.obj
+[313/686] Building CXX object CMakeFiles/PdfWorkstation.dir/PdfWorkstation_autogen/EWIEGA46WW/qrc_resources.cpp.obj
+[314/686] Building CXX object CMakeFiles/PdfWorkstation.dir/src/app/Bootstrapper.cpp.obj
+[315/686] Building CXX object CMakeFiles/TestInterfaces.dir/TestInterfaces_autogen/mocs_compilation.cpp.obj
+[316/686] Building CXX object CMakeFiles/TestInterfaces.dir/src/engines/DocumentSession.cpp.obj
+[317/686] Building CXX object CMakeFiles/TestExpiryInterface.dir/TestExpiryInterface_autogen/mocs_compilation.cpp.obj
+[318/686] Building CXX object CMakeFiles/TestInterfaces.dir/tests/TestPdfEditorInterface.cpp.obj
+[319/686] Building CXX object CMakeFiles/SmokeTest.dir/SmokeTest_autogen/mocs_compilation.cpp.obj
+[320/686] Building CXX object CMakeFiles/TestExpiryInterface.dir/tests/TestExpiryInterface.cpp.obj
+[321/686] Building CXX object CMakeFiles/TestSanitization.dir/TestSanitization_autogen/mocs_compilation.cpp.obj
+[322/686] Building CXX object CMakeFiles/SmokeTest.dir/tests/smoke_test.cpp.obj
+[323/686] Building CXX object CMakeFiles/TestSanitization.dir/src/engines/DocumentSession.cpp.obj
+[324/686] Building CXX object CMakeFiles/TestAutosave.dir/TestAutosave_autogen/mocs_compilation.cpp.obj
+[325/686] Building CXX object CMakeFiles/TestSanitization.dir/tests/TestSanitization.cpp.obj
+[326/686] Building CXX object CMakeFiles/TestDocumentIdentity.dir/TestDocumentIdentity_autogen/mocs_compilation.cpp.obj
+[327/686] Building CXX object CMakeFiles/TestAutosave.dir/tests/TestAutosave.cpp.obj
+[328/686] Building CXX object CMakeFiles/TestDocumentIdentity.dir/tests/TestDocumentIdentity.cpp.obj
+[329/686] Building CXX object CMakeFiles/TestReadOnlyGate.dir/TestReadOnlyGate_autogen/mocs_compilation.cpp.obj
+[330/686] Building CXX object CMakeFiles/TestDocumentIdentity.dir/src/app/Bootstrapper.cpp.obj
+[331/686] Building CXX object CMakeFiles/TestReadOnlyGate.dir/src/app/Bootstrapper.cpp.obj
+[332/686] Building CXX object CMakeFiles/TestSignatureValidationMock.dir/TestSignatureValidationMock_autogen/mocs_compilation.cpp.obj
+[333/686] Building CXX object CMakeFiles/TestReadOnlyGate.dir/tests/TestReadOnlyGate.cpp.obj
+[334/686] Building CXX object CMakeFiles/TestRobustness.dir/TestRobustness_autogen/mocs_compilation.cpp.obj
+[335/686] Building CXX object CMakeFiles/TestSignatureValidationMock.dir/tests/TestSignatureValidationMock.cpp.obj
+[336/686] Building CXX object CMakeFiles/TestSecretStore.dir/TestSecretStore_autogen/mocs_compilation.cpp.obj
+[337/686] Building CXX object CMakeFiles/TestRobustness.dir/tests/TestRobustness.cpp.obj
+[338/686] Building CXX object CMakeFiles/TestSignatureValidation.dir/TestSignatureValidation_autogen/mocs_compilation.cpp.obj
+[339/686] Building CXX object CMakeFiles/TestSecretStore.dir/tests/TestSecretStore.cpp.obj
+[340/686] Building CXX object CMakeFiles/TestSignatureRealCrypto.dir/TestSignatureRealCrypto_autogen/mocs_compilation.cpp.obj
+[341/686] Building CXX object CMakeFiles/TestSignatureValidation.dir/tests/TestSignatureValidation.cpp.obj
+[342/686] Building CXX object CMakeFiles/TestEraseSignedGuard.dir/TestEraseSignedGuard_autogen/mocs_compilation.cpp.obj
+[343/686] Building CXX object CMakeFiles/TestSignatureRealCrypto.dir/tests/TestSignatureRealCrypto.cpp.obj
+C:/Users/User/Projects/pdf-inst/tests/TestSignatureRealCrypto.cpp: In member function 'void TestSignatureRealCrypto::testTamperedPdfInvalid()':
+C:/Users/User/Projects/pdf-inst/tests/TestSignatureRealCrypto.cpp:525:28: warning: unused variable 'off1' [-Wunused-variable]
+  525 |                     qint64 off1 = parts[0].toLongLong();
+      |                            ^~~~
+[344/686] Building CXX object CMakeFiles/TestSignatureAppearance.dir/TestSignatureAppearance_autogen/mocs_compilation.cpp.obj
+[345/686] Building CXX object CMakeFiles/TestEraseSignedGuard.dir/tests/TestEraseSignedGuard.cpp.obj
+[346/686] Building CXX object CMakeFiles/TestOptimizeSignedGuard.dir/TestOptimizeSignedGuard_autogen/mocs_compilation.cpp.obj
+[347/686] Building CXX object CMakeFiles/TestOptimizeSignedGuard.dir/tests/TestOptimizeSignedGuard.cpp.obj
+[348/686] Building CXX object CMakeFiles/TestChain1.dir/TestChain1_autogen/mocs_compilation.cpp.obj
+[349/686] Building CXX object CMakeFiles/TestSignatureAppearance.dir/tests/TestSignatureAppearance.cpp.obj
+C:/Users/User/Projects/pdf-inst/tests/TestSignatureAppearance.cpp: In function 'QDateTime {anonymous}::fixedClaimedTime()':
+C:/Users/User/Projects/pdf-inst/tests/TestSignatureAppearance.cpp:50:86: warning: 'QDateTime::QDateTime(QDate, QTime, Qt::TimeSpec, int)' is deprecated: Pass QTimeZone instead [-Wdeprecated-declarations]
+   50 |     return QDateTime(QDate(2026, 9, 5), QTime(14, 30, 0), Qt::OffsetFromUTC, 2 * 3600);
+      |                                                                                      ^
+In file included from C:/msys64/ucrt64/include/qt6/QtCore/qcborvalue.h:11,
+                 from C:/msys64/ucrt64/include/qt6/QtCore/qcborarray.h:8,
+                 from C:/msys64/ucrt64/include/qt6/QtCore/QtCore:55,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/QtTestDepends:3,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/QtTest:3,
+                 from C:/Users/User/Projects/pdf-inst/tests/TestSignatureAppearance.cpp:15:
+C:/msys64/ucrt64/include/qt6/QtCore/qdatetime.h:390:5: note: declared here
+  390 |     QDateTime(QDate date, QTime time, Qt::TimeSpec spec, int offsetSeconds = 0);
+      |     ^~~~~~~~~
+[350/686] Building CXX object CMakeFiles/TestRedaction.dir/TestRedaction_autogen/mocs_compilation.cpp.obj
+[351/686] Building CXX object CMakeFiles/TestChain1.dir/tests/TestChain1.cpp.obj
+[352/686] Building CXX object CMakeFiles/TestDedupSMask.dir/TestDedupSMask_autogen/mocs_compilation.cpp.obj
+[353/686] Building CXX object CMakeFiles/TestRedaction.dir/tests/TestRedaction.cpp.obj
+[354/686] Building CXX object CMakeFiles/TestCompressJpegReencode.dir/TestCompressJpegReencode_autogen/mocs_compilation.cpp.obj
+[355/686] Building CXX object CMakeFiles/TestDedupSMask.dir/tests/TestDedupSMask.cpp.obj
+[356/686] Building CXX object CMakeFiles/TestOptimizeEstimate.dir/TestOptimizeEstimate_autogen/mocs_compilation.cpp.obj
+[357/686] Building CXX object CMakeFiles/TestCompressJpegReencode.dir/tests/TestCompressJpegReencode.cpp.obj
+[358/686] Building CXX object CMakeFiles/TestRapidOcr.dir/TestRapidOcr_autogen/mocs_compilation.cpp.obj
+[359/686] Building CXX object CMakeFiles/TestOptimizeEstimate.dir/tests/TestOptimizeEstimate.cpp.obj
+[360/686] Building CXX object CMakeFiles/TestLayoutEnsemble.dir/TestLayoutEnsemble_autogen/mocs_compilation.cpp.obj
+[361/686] Building CXX object CMakeFiles/TestRapidOcr.dir/tests/TestRapidOcr.cpp.obj
+[362/686] Building CXX object CMakeFiles/TestOcrPipeline.dir/TestOcrPipeline_autogen/mocs_compilation.cpp.obj
+[363/686] Building CXX object CMakeFiles/TestLayoutEnsemble.dir/tests/TestLayoutEnsemble.cpp.obj
+[364/686] Building CXX object CMakeFiles/TestOcrReviewLifecycle.dir/TestOcrReviewLifecycle_autogen/mocs_compilation.cpp.obj
+[365/686] Building CXX object CMakeFiles/TestOcrPipeline.dir/tests/TestOcrPipeline.cpp.obj
+[366/686] Building CXX object CMakeFiles/TestOcrVerifyNavigation.dir/TestOcrVerifyNavigation_autogen/mocs_compilation.cpp.obj
+[367/686] Building CXX object CMakeFiles/TestOcrReviewLifecycle.dir/tests/TestOcrReviewLifecycle.cpp.obj
+[368/686] Building CXX object CMakeFiles/TestOcrPreprocessor.dir/TestOcrPreprocessor_autogen/mocs_compilation.cpp.obj
+[369/686] Building CXX object CMakeFiles/TestOcrVerifyNavigation.dir/tests/TestOcrVerifyNavigation.cpp.obj
+[370/686] Building CXX object CMakeFiles/TestOcrDjotMapper.dir/TestOcrDjotMapper_autogen/mocs_compilation.cpp.obj
+[371/686] Building CXX object CMakeFiles/TestOcrPreprocessor.dir/tests/TestOcrPreprocessor.cpp.obj
+[372/686] Building CXX object CMakeFiles/TestThreadSafety.dir/TestThreadSafety_autogen/mocs_compilation.cpp.obj
+[373/686] Building CXX object CMakeFiles/TestOcrDjotMapper.dir/tests/TestOcrDjotMapper.cpp.obj
+[374/686] Building CXX object CMakeFiles/TestEncryption.dir/TestEncryption_autogen/mocs_compilation.cpp.obj
+[375/686] Building CXX object CMakeFiles/TestThreadSafety.dir/tests/TestThreadSafety.cpp.obj
+[376/686] Building CXX object CMakeFiles/TestResourceLimits.dir/TestResourceLimits_autogen/mocs_compilation.cpp.obj
+[377/686] Building CXX object CMakeFiles/TestEncryption.dir/tests/TestEncryption.cpp.obj
+C:/Users/User/Projects/pdf-inst/tests/TestEncryption.cpp: In static member function 'static QByteArray TestEncryption::aesGcmDecrypt(const QByteArray&, const QByteArray&)':
+C:/Users/User/Projects/pdf-inst/tests/TestEncryption.cpp:184:23: warning: comparison of integer expressions of different signedness: 'qsizetype' {aka 'long long int'} and 'long long unsigned int' [-Wsign-compare]
+  184 |         if (in.size() < 1 + kNonceLen + kTagLen || in[0] != kVersionGCM) return {};
+      |             ~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~
+C:/Users/User/Projects/pdf-inst/tests/TestEncryption.cpp: In member function 'void TestEncryption::testCertificateEncryption()':
+C:/Users/User/Projects/pdf-inst/tests/TestEncryption.cpp:218:27: warning: 'RSA* RSA_new()' is deprecated: Since OpenSSL 3.0 [-Wdeprecated-declarations]
+  218 |         RSA* rsa = RSA_new();
+      |                    ~~~~~~~^~
+In file included from C:/msys64/ucrt64/include/openssl/x509.h:38,
+                 from C:/Users/User/Projects/pdf-inst/tests/TestEncryption.cpp:6:
+C:/msys64/ucrt64/include/openssl/rsa.h:212:28: note: declared here
+  212 | OSSL_DEPRECATEDIN_3_0 RSA *RSA_new(void);
+      |                            ^~~~~~~
+C:/Users/User/Projects/pdf-inst/tests/TestEncryption.cpp:219:28: warning: 'int RSA_generate_key_ex(RSA*, int, BIGNUM*, BN_GENCB*)' is deprecated: Since OpenSSL 3.0 [-Wdeprecated-declarations]
+  219 |         RSA_generate_key_ex(rsa, 2048, bn, nullptr);
+      |         ~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~
+C:/msys64/ucrt64/include/openssl/rsa.h:270:27: note: declared here
+  270 | OSSL_DEPRECATEDIN_3_0 int RSA_generate_key_ex(RSA *rsa, int bits, BIGNUM *e,
+      |                           ^~~~~~~~~~~~~~~~~~~
+[378/686] Building CXX object CMakeFiles/TestControllers.dir/TestControllers_autogen/mocs_compilation.cpp.obj
+[379/686] Building CXX object CMakeFiles/TestResourceLimits.dir/tests/TestResourceLimits.cpp.obj
+[380/686] Building CXX object CMakeFiles/TestRibbonIntegrity.dir/TestRibbonIntegrity_autogen/mocs_compilation.cpp.obj
+[381/686] Building CXX object CMakeFiles/TestControllers.dir/tests/TestControllers.cpp.obj
+[382/686] Building CXX object CMakeFiles/TestMenuBarIntegrity.dir/TestMenuBarIntegrity_autogen/mocs_compilation.cpp.obj
+[383/686] Building CXX object CMakeFiles/TestRibbonIntegrity.dir/tests/TestRibbonIntegrity.cpp.obj
+[384/686] Building CXX object CMakeFiles/TestIntegration.dir/TestIntegration_autogen/mocs_compilation.cpp.obj
+[385/686] Building CXX object CMakeFiles/TestMenuBarIntegrity.dir/tests/TestMenuBarIntegrity.cpp.obj
+[386/686] Building CXX object CMakeFiles/TestPerformance.dir/TestPerformance_autogen/mocs_compilation.cpp.obj
+[387/686] Building CXX object CMakeFiles/TestIntegration.dir/tests/TestIntegration.cpp.obj
+[388/686] Building CXX object CMakeFiles/TestVeraPdf.dir/TestVeraPdf_autogen/mocs_compilation.cpp.obj
+[389/686] Building CXX object CMakeFiles/TestPerformance.dir/tests/TestPerformance.cpp.obj
+[390/686] Building CXX object CMakeFiles/TestReadingOrderAsync.dir/TestReadingOrderAsync_autogen/mocs_compilation.cpp.obj
+[391/686] Building CXX object CMakeFiles/TestVeraPdf.dir/tests/TestVeraPdf.cpp.obj
+[392/686] Building CXX object CMakeFiles/TestLaneScheduler.dir/TestLaneScheduler_autogen/mocs_compilation.cpp.obj
+[393/686] Building CXX object CMakeFiles/TestReadingOrderAsync.dir/tests/TestReadingOrderAsync.cpp.obj
+[394/686] Building CXX object CMakeFiles/TestFormBuilder.dir/TestFormBuilder_autogen/mocs_compilation.cpp.obj
+[395/686] Building CXX object CMakeFiles/TestLaneScheduler.dir/tests/TestLaneScheduler.cpp.obj
+[396/686] Building CXX object CMakeFiles/TestFormBuilder.dir/tests/TestFormBuilder.cpp.obj
+[397/686] Building CXX object CMakeFiles/TestFormBuilder.dir/src/engines/DocumentSession.cpp.obj
+[398/686] Building CXX object CMakeFiles/TestFormPersistence.dir/TestFormPersistence_autogen/mocs_compilation.cpp.obj
+[399/686] Building CXX object CMakeFiles/TestFormPersistence.dir/src/engines/DocumentSession.cpp.obj
+[400/686] Building CXX object CMakeFiles/TestCompareEntry.dir/TestCompareEntry_autogen/mocs_compilation.cpp.obj
+[401/686] Building CXX object CMakeFiles/TestFormPersistence.dir/tests/TestFormPersistence.cpp.obj
+[402/686] Building CXX object CMakeFiles/TestCompareIntegration.dir/TestCompareIntegration_autogen/mocs_compilation.cpp.obj
+[403/686] Building CXX object CMakeFiles/TestCompareEntry.dir/tests/TestCompareEntry.cpp.obj
+[404/686] Building CXX object CMakeFiles/TestPagesMode.dir/TestPagesMode_autogen/mocs_compilation.cpp.obj
+[405/686] Building CXX object CMakeFiles/TestCompareIntegration.dir/tests/TestCompareIntegration.cpp.obj
+[406/686] Building CXX object CMakeFiles/TestPageLabels.dir/TestPageLabels_autogen/mocs_compilation.cpp.obj
+[407/686] Building CXX object CMakeFiles/TestPageLabels.dir/tests/TestPageLabels.cpp.obj
+[408/686] Building CXX object CMakeFiles/TestPagesMode.dir/tests/TestPagesMode.cpp.obj
+[409/686] Building CXX object CMakeFiles/TestBatchMode.dir/TestBatchMode_autogen/mocs_compilation.cpp.obj
+[410/686] Building CXX object CMakeFiles/TestPageLabels.dir/src/core/PageLabels.cpp.obj
+[411/686] Building CXX object CMakeFiles/TestBatchOcrLanguage.dir/TestBatchOcrLanguage_autogen/mocs_compilation.cpp.obj
+[412/686] Building CXX object CMakeFiles/TestBatchMode.dir/tests/TestBatchMode.cpp.obj
+[413/686] Building CXX object CMakeFiles/TestOcrPreprocessPrefs.dir/TestOcrPreprocessPrefs_autogen/mocs_compilation.cpp.obj
+[414/686] Building CXX object CMakeFiles/TestBatchOcrLanguage.dir/tests/TestBatchOcrLanguage.cpp.obj
+[415/686] Building CXX object CMakeFiles/TestBatesCrossDoc.dir/TestBatesCrossDoc_autogen/mocs_compilation.cpp.obj
+[416/686] Building CXX object CMakeFiles/TestOcrPreprocessPrefs.dir/tests/TestOcrPreprocessPrefs.cpp.obj
+[417/686] Building CXX object CMakeFiles/TestOpenRouting.dir/TestOpenRouting_autogen/mocs_compilation.cpp.obj
+[418/686] Building CXX object CMakeFiles/TestBatesCrossDoc.dir/tests/TestBatesCrossDoc.cpp.obj
+[419/686] Building CXX object CMakeFiles/TestExcisionCorruption.dir/TestExcisionCorruption_autogen/mocs_compilation.cpp.obj
+[420/686] Building CXX object CMakeFiles/TestOpenRouting.dir/tests/TestOpenRouting.cpp.obj
+[421/686] Building CXX object CMakeFiles/TestBatchOpsCoverage.dir/TestBatchOpsCoverage_autogen/mocs_compilation.cpp.obj
+[422/686] Building CXX object CMakeFiles/TestExcisionCorruption.dir/tests/TestExcisionCorruption.cpp.obj
+[423/686] Building CXX object CMakeFiles/TestReadingOrderThreshold.dir/TestReadingOrderThreshold_autogen/mocs_compilation.cpp.obj
+[424/686] Building CXX object CMakeFiles/TestBatchOpsCoverage.dir/tests/TestBatchOpsCoverage.cpp.obj
+[425/686] Building CXX object CMakeFiles/TestLinkBookmarkRoundTrip.dir/TestLinkBookmarkRoundTrip_autogen/mocs_compilation.cpp.obj
+[426/686] Building CXX object CMakeFiles/TestReadingOrderThreshold.dir/tests/TestReadingOrderThreshold.cpp.obj
+[427/686] Building CXX object CMakeFiles/TestSignatureSessionCache.dir/TestSignatureSessionCache_autogen/mocs_compilation.cpp.obj
+[428/686] Building CXX object CMakeFiles/TestLinkBookmarkRoundTrip.dir/tests/TestLinkBookmarkRoundTrip.cpp.obj
+[429/686] Building CXX object CMakeFiles/TestCapabilityRegistry.dir/TestCapabilityRegistry_autogen/mocs_compilation.cpp.obj
+[430/686] Building CXX object CMakeFiles/TestSignatureSessionCache.dir/tests/TestSignatureSessionCache.cpp.obj
+[431/686] Building CXX object CMakeFiles/TestTaskNavRegistry.dir/TestTaskNavRegistry_autogen/mocs_compilation.cpp.obj
+[432/686] Building CXX object CMakeFiles/TestCapabilityRegistry.dir/tests/TestCapabilityRegistry.cpp.obj
+[433/686] Building CXX object CMakeFiles/TestScreenStateSync.dir/TestScreenStateSync_autogen/mocs_compilation.cpp.obj
+[434/686] Building CXX object CMakeFiles/TestTaskNavRegistry.dir/tests/TestTaskNavRegistry.cpp.obj
+[435/686] Building CXX object CMakeFiles/TestRibbonCollapse.dir/TestRibbonCollapse_autogen/mocs_compilation.cpp.obj
+[436/686] Building CXX object CMakeFiles/TestScreenStateSync.dir/tests/TestScreenStateSync.cpp.obj
+[437/686] Building CXX object CMakeFiles/TestStatusBarSlim.dir/TestStatusBarSlim_autogen/mocs_compilation.cpp.obj
+[438/686] Building CXX object CMakeFiles/TestRibbonCollapse.dir/tests/TestRibbonCollapse.cpp.obj
+[439/686] Building CXX object CMakeFiles/TestCommentsReview.dir/TestCommentsReview_autogen/mocs_compilation.cpp.obj
+[440/686] Building CXX object CMakeFiles/TestStatusBarSlim.dir/tests/TestStatusBarSlim.cpp.obj
+[441/686] Building CXX object CMakeFiles/TestWelcomeLayout.dir/TestWelcomeLayout_autogen/mocs_compilation.cpp.obj
+[442/686] Building CXX object CMakeFiles/TestCommentsReview.dir/tests/TestCommentsReview.cpp.obj
+[443/686] Building CXX object CMakeFiles/TestSignatureBadges.dir/TestSignatureBadges_autogen/mocs_compilation.cpp.obj
+[444/686] Building CXX object CMakeFiles/TestWelcomeLayout.dir/tests/TestWelcomeLayout.cpp.obj
+[445/686] Building CXX object CMakeFiles/TestBatchOcrConfidence.dir/TestBatchOcrConfidence_autogen/mocs_compilation.cpp.obj
+[446/686] Building CXX object CMakeFiles/TestSignatureBadges.dir/tests/TestSignatureBadges.cpp.obj
+[447/686] Building CXX object CMakeFiles/TestInspector.dir/TestInspector_autogen/mocs_compilation.cpp.obj
+[448/686] Building CXX object CMakeFiles/TestBatchOcrConfidence.dir/tests/TestBatchOcrConfidence.cpp.obj
+[449/686] Building CXX object CMakeFiles/TestPatternRedact.dir/TestPatternRedact_autogen/mocs_compilation.cpp.obj
+[450/686] Building CXX object CMakeFiles/TestInspector.dir/tests/TestInspector.cpp.obj
+[451/686] Building CXX object CMakeFiles/TestDjotRoundtrip.dir/TestDjotRoundtrip_autogen/mocs_compilation.cpp.obj
+[452/686] Building CXX object CMakeFiles/TestPatternRedact.dir/tests/TestPatternRedact.cpp.obj
+[453/686] Building CXX object CMakeFiles/TestDjotFuzz.dir/TestDjotFuzz_autogen/mocs_compilation.cpp.obj
+[454/686] Building CXX object CMakeFiles/TestDjotRoundtrip.dir/tests/TestDjotRoundtrip.cpp.obj
+[455/686] Building CXX object CMakeFiles/TestUpdateChecker.dir/TestUpdateChecker_autogen/mocs_compilation.cpp.obj
+[456/686] Building CXX object CMakeFiles/TestDjotFuzz.dir/tests/TestDjotFuzz.cpp.obj
+[457/686] Building CXX object CMakeFiles/TestUpdateChecker.dir/tests/TestUpdateChecker.cpp.obj
+[458/686] Building CXX object CMakeFiles/TestUpdateChecker.dir/src/core/TempFileManager.cpp.obj
+[459/686] Building CXX object CMakeFiles/TestWatermarkFont.dir/TestWatermarkFont_autogen/mocs_compilation.cpp.obj
+[460/686] Building CXX object CMakeFiles/TestUpdateChecker.dir/src/core/UpdateChecker.cpp.obj
+[461/686] Building CXX object CMakeFiles/TestOcrLanguage.dir/TestOcrLanguage_autogen/mocs_compilation.cpp.obj
+[462/686] Building CXX object CMakeFiles/TestOcrLanguage.dir/tests/TestOcrLanguage.cpp.obj
+[463/686] Building CXX object CMakeFiles/TestWatermarkFont.dir/tests/TestWatermarkFont.cpp.obj
+[464/686] Building CXX object CMakeFiles/TestRedactClearMarks.dir/TestRedactClearMarks_autogen/mocs_compilation.cpp.obj
+[465/686] Building CXX object CMakeFiles/TestLinkSchemeSafety.dir/TestLinkSchemeSafety_autogen/mocs_compilation.cpp.obj
+[466/686] Building CXX object CMakeFiles/TestLinkSchemeSafety.dir/tests/TestLinkSchemeSafety.cpp.obj
+[467/686] Building CXX object CMakeFiles/TestThumbnailZoom.dir/TestThumbnailZoom_autogen/mocs_compilation.cpp.obj
+[468/686] Building CXX object CMakeFiles/TestRedactClearMarks.dir/tests/TestRedactClearMarks.cpp.obj
+[469/686] Building CXX object CMakeFiles/TestMergeSuccess.dir/TestMergeSuccess_autogen/mocs_compilation.cpp.obj
+[470/686] Building CXX object CMakeFiles/TestThumbnailZoom.dir/tests/TestThumbnailZoom.cpp.obj
+[471/686] Building CXX object CMakeFiles/TestMergeSuccess.dir/tests/TestMergeSuccess.cpp.obj
+[472/686] Building CXX object CMakeFiles/TestFillFormLock.dir/TestFillFormLock_autogen/mocs_compilation.cpp.obj
+[473/686] Building CXX object CMakeFiles/TestFillFormLock.dir/src/engines/DocumentSession.cpp.obj
+[474/686] Building CXX object CMakeFiles/TestFillFormNoOp.dir/TestFillFormNoOp_autogen/mocs_compilation.cpp.obj
+[475/686] Building CXX object CMakeFiles/TestFillFormLock.dir/tests/TestFillFormLock.cpp.obj
+[476/686] Building CXX object CMakeFiles/TestFillFormNoOp.dir/src/engines/DocumentSession.cpp.obj
+[477/686] Building CXX object CMakeFiles/TestReadingOrderInheritance.dir/TestReadingOrderInheritance_autogen/mocs_compilation.cpp.obj
+[478/686] Building CXX object CMakeFiles/TestFillFormNoOp.dir/tests/TestFillFormNoOp.cpp.obj
+[479/686] Building CXX object CMakeFiles/TestShapeInkPersistence.dir/TestShapeInkPersistence_autogen/mocs_compilation.cpp.obj
+[480/686] Building CXX object CMakeFiles/TestReadingOrderInheritance.dir/tests/TestReadingOrderInheritance.cpp.obj
+[481/686] Building CXX object CMakeFiles/TestMeasureCore.dir/TestMeasureCore_autogen/mocs_compilation.cpp.obj
+[482/686] Building CXX object CMakeFiles/TestShapeInkPersistence.dir/tests/TestShapeInkPersistence.cpp.obj
+[483/686] Building CXX object CMakeFiles/TestMeasureRoundTrip.dir/TestMeasureRoundTrip_autogen/mocs_compilation.cpp.obj
+[484/686] Building CXX object CMakeFiles/TestMeasureCore.dir/tests/TestMeasureCore.cpp.obj
+[485/686] Building CXX object CMakeFiles/TestCompressStripSanitize.dir/TestCompressStripSanitize_autogen/mocs_compilation.cpp.obj
+[486/686] Building CXX object CMakeFiles/TestMeasureRoundTrip.dir/tests/TestMeasureRoundTrip.cpp.obj
+[487/686] Building CXX object CMakeFiles/TestCompressDialogHonesty.dir/TestCompressDialogHonesty_autogen/mocs_compilation.cpp.obj
+[488/686] Building CXX object CMakeFiles/TestCompressStripSanitize.dir/tests/TestCompressStripSanitize.cpp.obj
+[489/686] Building CXX object CMakeFiles/TestFieldMetadata.dir/TestFieldMetadata_autogen/mocs_compilation.cpp.obj
+[490/686] Building CXX object CMakeFiles/TestCompressDialogHonesty.dir/tests/TestCompressDialogHonesty.cpp.obj
+[491/686] Building CXX object CMakeFiles/TestFieldMetadata.dir/src/engines/DocumentSession.cpp.obj
+[492/686] Building CXX object CMakeFiles/TestFormSafety.dir/TestFormSafety_autogen/mocs_compilation.cpp.obj
+[493/686] Building CXX object CMakeFiles/TestFieldMetadata.dir/tests/TestFieldMetadata.cpp.obj
+[494/686] Building CXX object CMakeFiles/TestFormSafety.dir/src/engines/DocumentSession.cpp.obj
+[495/686] Building CXX object CMakeFiles/TestEngineSave.dir/TestEngineSave_autogen/mocs_compilation.cpp.obj
+[496/686] Building CXX object CMakeFiles/TestFormSafety.dir/tests/TestFormSafety.cpp.obj
+[497/686] Building CXX object CMakeFiles/TestEngineSave.dir/src/engines/DocumentSession.cpp.obj
+[498/686] Building CXX object CMakeFiles/TestCleanupCli.dir/TestCleanupCli_autogen/mocs_compilation.cpp.obj
+[499/686] Building CXX object CMakeFiles/TestEngineSave.dir/tests/TestEngineSave.cpp.obj
+[500/686] Building CXX object CMakeFiles/TestFormUndo.dir/TestFormUndo_autogen/mocs_compilation.cpp.obj
+[501/686] Building CXX object CMakeFiles/TestCleanupCli.dir/tests/TestCleanupCli.cpp.obj
+[502/686] Building CXX object CMakeFiles/TestFormUndo.dir/src/engines/DocumentSession.cpp.obj
+[503/686] Building CXX object CMakeFiles/TestValidateAllSignatures.dir/TestValidateAllSignatures_autogen/mocs_compilation.cpp.obj
+[504/686] Building CXX object CMakeFiles/TestFormUndo.dir/tests/TestFormUndo.cpp.obj
+[505/686] Building CXX object CMakeFiles/TestExportPathBadge.dir/TestExportPathBadge_autogen/mocs_compilation.cpp.obj
+[506/686] Building CXX object CMakeFiles/TestValidateAllSignatures.dir/tests/TestValidateAllSignatures.cpp.obj
+[507/686] Building CXX object CMakeFiles/TestImageEditWiring.dir/TestImageEditWiring_autogen/mocs_compilation.cpp.obj
+[508/686] Building CXX object CMakeFiles/TestExportPathBadge.dir/tests/TestExportPathBadge.cpp.obj
+[509/686] Building CXX object CMakeFiles/TestRedactSanitizeBundle.dir/TestRedactSanitizeBundle_autogen/mocs_compilation.cpp.obj
+[510/686] Building CXX object CMakeFiles/TestImageEditWiring.dir/tests/TestImageEditWiring.cpp.obj
+[511/686] Building CXX object CMakeFiles/TestRedactTransaction.dir/TestRedactTransaction_autogen/mocs_compilation.cpp.obj
+[512/686] Building CXX object CMakeFiles/TestRedactSanitizeBundle.dir/tests/TestRedactSanitizeBundle.cpp.obj
+[513/686] Building CXX object CMakeFiles/TestPptxOverlayAlpha.dir/TestPptxOverlayAlpha_autogen/mocs_compilation.cpp.obj
+[514/686] Building CXX object CMakeFiles/TestRedactTransaction.dir/tests/TestRedactTransaction.cpp.obj
+[515/686] Building CXX object CMakeFiles/TestPptxOverlayAlpha.dir/tests/TestPptxOverlayAlpha.cpp.obj
+[516/686] Building CXX object CMakeFiles/TestAutoDetectHeuristic.dir/TestAutoDetectHeuristic_autogen/mocs_compilation.cpp.obj
+[517/686] Building CXX object CMakeFiles/TestAutoDetectHeuristic.dir/src/engines/DocumentSession.cpp.obj
+[518/686] Building CXX object CMakeFiles/TestConversionExtraction.dir/TestConversionExtraction_autogen/mocs_compilation.cpp.obj
+[519/686] Building CXX object CMakeFiles/TestAutoDetectHeuristic.dir/tests/TestAutoDetectHeuristic.cpp.obj
+[520/686] Building CXX object CMakeFiles/TestTextExtractionCoords.dir/TestTextExtractionCoords_autogen/mocs_compilation.cpp.obj
+[521/686] Building CXX object CMakeFiles/TestConversionExtraction.dir/tests/TestConversionExtraction.cpp.obj
+[522/686] Building CXX object CMakeFiles/TestEraseWiring.dir/TestEraseWiring_autogen/mocs_compilation.cpp.obj
+[523/686] Building CXX object CMakeFiles/TestTextExtractionCoords.dir/tests/TestTextExtractionCoords.cpp.obj
+[524/686] Building CXX object CMakeFiles/TestAnnotationToolBar.dir/TestAnnotationToolBar_autogen/mocs_compilation.cpp.obj
+[525/686] Building CXX object CMakeFiles/TestEraseWiring.dir/tests/TestEraseWiring.cpp.obj
+[526/686] Building CXX object CMakeFiles/TestViewerRotation.dir/TestViewerRotation_autogen/mocs_compilation.cpp.obj
+[527/686] Building CXX object CMakeFiles/TestAnnotationToolBar.dir/tests/TestAnnotationToolBar.cpp.obj
+[528/686] Building CXX object CMakeFiles/TestTwoPageOverlay.dir/TestTwoPageOverlay_autogen/mocs_compilation.cpp.obj
+[529/686] Building CXX object CMakeFiles/TestViewerRotation.dir/tests/TestViewerRotation.cpp.obj
+[530/686] Building CXX object CMakeFiles/TestSignaturePicker.dir/TestSignaturePicker_autogen/mocs_compilation.cpp.obj
+[531/686] Building CXX object CMakeFiles/TestTwoPageOverlay.dir/tests/TestTwoPageOverlay.cpp.obj
+[532/686] Building CXX object CMakeFiles/TestOcrAcceptSeam.dir/TestOcrAcceptSeam_autogen/mocs_compilation.cpp.obj
+[533/686] Building CXX object CMakeFiles/TestSignaturePicker.dir/tests/TestSignaturePicker.cpp.obj
+[534/686] Building CXX object CMakeFiles/TestSearchFlags.dir/TestSearchFlags_autogen/mocs_compilation.cpp.obj
+[535/686] Building CXX object CMakeFiles/TestOcrAcceptSeam.dir/tests/TestOcrAcceptSeam.cpp.obj
+[536/686] Building CXX object CMakeFiles/TestExportPresets.dir/TestExportPresets_autogen/mocs_compilation.cpp.obj
+[537/686] Building CXX object CMakeFiles/TestSearchFlags.dir/tests/TestSearchFlags.cpp.obj
+[538/686] Building CXX object CMakeFiles/TestOcrAcceptScope.dir/TestOcrAcceptScope_autogen/mocs_compilation.cpp.obj
+[539/686] Building CXX object CMakeFiles/TestExportPresets.dir/tests/TestExportPresets.cpp.obj
+[540/686] Building CXX object CMakeFiles/TestViewerLinkSeam.dir/TestViewerLinkSeam_autogen/mocs_compilation.cpp.obj
+[541/686] Building CXX object CMakeFiles/TestOcrAcceptScope.dir/tests/TestOcrAcceptScope.cpp.obj
+[542/686] Building CXX object CMakeFiles/TestHyperlinkNavigation.dir/TestHyperlinkNavigation_autogen/mocs_compilation.cpp.obj
+[543/686] Building CXX object CMakeFiles/TestViewerLinkSeam.dir/tests/TestViewerLinkSeam.cpp.obj
+[544/686] Building CXX object CMakeFiles/TestRedactMarkAll.dir/TestRedactMarkAll_autogen/mocs_compilation.cpp.obj
+[545/686] Building CXX object CMakeFiles/TestHyperlinkNavigation.dir/tests/TestHyperlinkNavigation.cpp.obj
+[546/686] Building CXX object CMakeFiles/TestRedactApplyMarks.dir/TestRedactApplyMarks_autogen/mocs_compilation.cpp.obj
+[547/686] Building CXX object CMakeFiles/TestRedactMarkAll.dir/tests/TestRedactMarkAll.cpp.obj
+[548/686] Building CXX object CMakeFiles/TestAnnotationDjot.dir/TestAnnotationDjot_autogen/mocs_compilation.cpp.obj
+[549/686] Building CXX object CMakeFiles/TestRedactApplyMarks.dir/tests/TestRedactApplyMarks.cpp.obj
+[550/686] Building CXX object CMakeFiles/TestAiProvider.dir/TestAiProvider_autogen/mocs_compilation.cpp.obj
+[551/686] Building CXX object CMakeFiles/TestAnnotationDjot.dir/tests/TestAnnotationDjot.cpp.obj
+[552/686] Building CXX object CMakeFiles/TestOllamaProvider.dir/TestOllamaProvider_autogen/mocs_compilation.cpp.obj
+[553/686] Building CXX object CMakeFiles/TestAiProvider.dir/tests/TestAiProvider.cpp.obj
+[554/686] Building CXX object CMakeFiles/TestDiffEngine.dir/TestDiffEngine_autogen/mocs_compilation.cpp.obj
+[555/686] Building CXX object CMakeFiles/TestDiffEngine.dir/tests/TestDiffEngine.cpp.obj
+[556/686] Building CXX object CMakeFiles/TestOfficeImport.dir/TestOfficeImport_autogen/mocs_compilation.cpp.obj
+[557/686] Building CXX object CMakeFiles/TestOllamaProvider.dir/tests/TestOllamaProvider.cpp.obj
+[558/686] Building CXX object CMakeFiles/TestMrcPipeline.dir/TestMrcPipeline_autogen/mocs_compilation.cpp.obj
+[559/686] Building CXX object CMakeFiles/TestMrcPipeline.dir/tests/TestMrcPipeline.cpp.obj
+[560/686] Building CXX object CMakeFiles/TestOfficeImport.dir/tests/TestOfficeImport.cpp.obj
+[561/686] Building CXX object CMakeFiles/TestHistoryIntegrity.dir/TestHistoryIntegrity_autogen/mocs_compilation.cpp.obj
+[562/686] Building CXX object CMakeFiles/TestHistoryIntegrity.dir/src/engines/DocumentSession.cpp.obj
+[563/686] Building CXX object CMakeFiles/TestPersistenceOutcomes.dir/TestPersistenceOutcomes_autogen/mocs_compilation.cpp.obj
+[564/686] Building CXX object CMakeFiles/TestHistoryIntegrity.dir/tests/TestHistoryIntegrity.cpp.obj
+[565/686] Building CXX object CMakeFiles/TestPersistenceOutcomes.dir/tests/TestPersistenceOutcomes.cpp.obj
+[566/686] Building CXX object CMakeFiles/TestPersistenceOutcomes.dir/src/app/Bootstrapper.cpp.obj
+[567/686] Linking CXX executable UnitTests.exe
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[568/686] Linking CXX executable TestInterfaces.exe
+[569/686] Linking CXX executable TestExpiryInterface.exe; Deploying podofo 1.1.0 DLL for TestExpiryInterface
+lto-wrapper.exe: warning: using serial compilation of 14 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[570/686] Linking CXX executable SmokeTest.exe
+lto-wrapper.exe: warning: using serial compilation of 19 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[571/686] Linking CXX executable TestSanitization.exe
+lto-wrapper.exe: warning: using serial compilation of 14 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[572/686] Linking CXX executable TestAutosave.exe
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[573/686] Linking CXX executable PdfWorkstation.exe; AR-11 D4: Stripping DWARF paths from Release PdfWorkstation.exe
+lto-wrapper.exe: warning: using serial compilation of 73 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lstrlib.c:967:17:
+C:/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[574/686] Linking CXX executable TestDocumentIdentity.exe; Deploying qoffscreen platform plugin for TestDocumentIdentity
+C:/Users/User/Projects/pdf-inst/src/modes/PdfAValidationPanel.h:36:7: warning: type 'struct PdfAValidationPanel' violates the C++ One Definition Rule [-Wodr]
+   36 | class PdfAValidationPanel : public QFrame {
+      |       ^
+C:/Users/User/Projects/pdf-inst/src/modes/PdfAValidationPanel.h:36:7: note: a different type is defined in another translation unit
+   36 | class PdfAValidationPanel : public QFrame {
+      |       ^
+C:/Users/User/Projects/pdf-inst/src/modes/PdfAValidationPanel.h:88:24: note: the first difference of corresponding definitions is field 'm_issuesLayout'
+   88 |     class QVBoxLayout* m_issuesLayout{nullptr};
+      |                        ^
+C:/Users/User/Projects/pdf-inst/src/modes/PdfAValidationPanel.h:88:24: note: a field of same name but different type is defined in another translation unit
+   88 |     class QVBoxLayout* m_issuesLayout{nullptr};
+      |                        ^
+C:/Users/User/Projects/pdf-inst/src/modes/PdfAValidationPanel.h:88:11: note: type name 'gp::QVBoxLayout' should match type name 'QVBoxLayout'
+   88 |     class QVBoxLayout* m_issuesLayout{nullptr};
+      |           ^
+C:/msys64/ucrt64/include/qt6/QtWidgets/qboxlayout.h:91:24: note: the incompatible type is defined here
+   91 | class Q_WIDGETS_EXPORT QVBoxLayout : public QBoxLayout
+      |                        ^
+lto-wrapper.exe: warning: using serial compilation of 73 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lstrlib.c:967:17:
+C:/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[575/686] Linking CXX executable TestSignatureValidationMock.exe
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[576/686] Linking CXX executable TestRobustness.exe
+lto-wrapper.exe: warning: using serial compilation of 14 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[577/686] Linking CXX executable TestSecretStore.exe
+[578/686] Linking CXX executable TestReadOnlyGate.exe; Deploying qoffscreen platform plugin for TestReadOnlyGate
+lto-wrapper.exe: warning: using serial compilation of 72 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lstrlib.c:967:17:
+C:/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[579/686] Linking CXX executable TestSignatureValidation.exe
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[580/686] Linking CXX executable TestSignatureRealCrypto.exe; Deploying podofo 1.1.0 DLL for TestSignatureRealCrypto
+lto-wrapper.exe: warning: using serial compilation of 4 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[581/686] Linking CXX executable TestSignatureAppearance.exe; Deploying podofo 1.1.0 DLL for TestSignatureAppearance
+lto-wrapper.exe: warning: using serial compilation of 4 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[582/686] Linking CXX executable TestEraseSignedGuard.exe; Deploying podofo 1.1.0 DLL for TestEraseSignedGuard
+lto-wrapper.exe: warning: using serial compilation of 14 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[583/686] Linking CXX executable TestChain1.exe
+[584/686] Linking CXX executable TestOptimizeSignedGuard.exe; Deploying podofo 1.1.0 DLL for TestOptimizeSignedGuard
+lto-wrapper.exe: warning: using serial compilation of 13 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[585/686] Linking CXX executable TestRedaction.exe
+lto-wrapper.exe: warning: using serial compilation of 15 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[586/686] Linking CXX executable TestDedupSMask.exe; Deploying podofo 1.1.0 DLL for TestDedupSMask
+lto-wrapper.exe: warning: using serial compilation of 14 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[587/686] Linking CXX executable TestCompressJpegReencode.exe; Deploying podofo 1.1.0 DLL for TestCompressJpegReencode
+lto-wrapper.exe: warning: using serial compilation of 15 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[588/686] Linking CXX executable TestRapidOcr.exe; Deploying qoffscreen platform plugin for TestRapidOcr
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[589/686] Linking CXX executable TestLayoutEnsemble.exe
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[590/686] Linking CXX executable TestOptimizeEstimate.exe; Deploying podofo 1.1.0 DLL for TestOptimizeEstimate
+lto-wrapper.exe: warning: using serial compilation of 14 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[591/686] Linking CXX executable TestOcrPipeline.exe
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[592/686] Linking CXX executable TestOcrReviewLifecycle.exe; Deploying qoffscreen platform plugin for TestOcrReviewLifecycle
+lto-wrapper.exe: warning: using serial compilation of 19 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[593/686] Linking CXX executable TestOcrPreprocessor.exe
+[594/686] Linking CXX executable TestOcrDjotMapper.exe
+lto-wrapper.exe: warning: using serial compilation of 8 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lstrlib.c:967:17:
+C:/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[595/686] Linking CXX executable TestOcrVerifyNavigation.exe; Deploying qoffscreen platform plugin for TestOcrVerifyNavigation
+lto-wrapper.exe: warning: using serial compilation of 31 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[596/686] Linking CXX executable TestThreadSafety.exe
+lto-wrapper.exe: warning: using serial compilation of 16 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[597/686] Linking CXX executable TestEncryption.exe
+lto-wrapper.exe: warning: using serial compilation of 14 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[598/686] Linking CXX executable TestResourceLimits.exe
+lto-wrapper.exe: warning: using serial compilation of 14 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[599/686] Linking CXX executable TestControllers.exe; Deploying qoffscreen platform plugin for TestControllers
+lto-wrapper.exe: warning: using serial compilation of 54 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[600/686] Linking CXX executable TestRibbonIntegrity.exe; Deploying qoffscreen platform plugin for TestRibbonIntegrity
+lto-wrapper.exe: warning: using serial compilation of 55 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[601/686] Linking CXX executable TestIntegration.exe
+lto-wrapper.exe: warning: using serial compilation of 14 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[602/686] Linking CXX executable TestPerformance.exe
+lto-wrapper.exe: warning: using serial compilation of 15 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[603/686] Linking CXX executable TestVeraPdf.exe
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[604/686] Linking CXX executable TestMenuBarIntegrity.exe; Deploying qoffscreen platform plugin for TestMenuBarIntegrity
+lto-wrapper.exe: warning: using serial compilation of 55 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[605/686] Linking CXX executable TestLaneScheduler.exe
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[606/686] Linking CXX executable TestFormBuilder.exe; Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFormBuilder
+lto-wrapper.exe: warning: using serial compilation of 4 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[607/686] Linking CXX executable TestFormPersistence.exe; Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFormPersistence
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[608/686] Linking CXX executable TestCompareEntry.exe; Deploying qoffscreen platform plugin for TestCompareEntry
+lto-wrapper.exe: warning: using serial compilation of 8 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[609/686] Linking CXX executable TestReadingOrderAsync.exe
+C:/Users/User/Projects/pdf-inst/src/modes/PdfAValidationPanel.h:36:7: warning: type 'struct PdfAValidationPanel' violates the C++ One Definition Rule [-Wodr]
+   36 | class PdfAValidationPanel : public QFrame {
+      |       ^
+C:/Users/User/Projects/pdf-inst/src/modes/PdfAValidationPanel.h:36:7: note: a different type is defined in another translation unit
+   36 | class PdfAValidationPanel : public QFrame {
+      |       ^
+C:/Users/User/Projects/pdf-inst/src/modes/PdfAValidationPanel.h:85:19: note: the first difference of corresponding definitions is field 'm_statusLabel'
+   85 |     class QLabel* m_statusLabel{nullptr};
+      |                   ^
+C:/Users/User/Projects/pdf-inst/src/modes/PdfAValidationPanel.h:85:19: note: a field of same name but different type is defined in another translation unit
+   85 |     class QLabel* m_statusLabel{nullptr};
+      |                   ^
+C:/Users/User/Projects/pdf-inst/src/modes/PdfAValidationPanel.h:85:11: note: type name 'gp::QLabel' should match type name 'QLabel'
+   85 |     class QLabel* m_statusLabel{nullptr};
+      |           ^
+C:/msys64/ucrt64/include/qt6/QtWidgets/qlabel.h:20:24: note: the incompatible type is defined here
+   20 | class Q_WIDGETS_EXPORT QLabel : public QFrame
+      |                        ^
+lto-wrapper.exe: warning: using serial compilation of 39 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[610/686] Linking CXX executable TestCompareIntegration.exe; Deploying qoffscreen platform plugin for TestCompareIntegration
+lto-wrapper.exe: warning: using serial compilation of 6 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[611/686] Linking CXX executable TestPageLabels.exe; Deploying podofo 1.1.0 DLL for TestPageLabels
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[612/686] Linking CXX executable TestPagesMode.exe; Deploying qoffscreen platform plugin for TestPagesMode
+lto-wrapper.exe: warning: using serial compilation of 20 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[613/686] Linking CXX executable TestBatchMode.exe; Deploying qoffscreen platform plugin for TestBatchMode
+lto-wrapper.exe: warning: using serial compilation of 19 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[614/686] Linking CXX executable TestOcrPreprocessPrefs.exe; Deploying qoffscreen platform plugin for TestOcrPreprocessPrefs
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[615/686] Linking CXX executable TestBatchOcrLanguage.exe; Deploying qoffscreen platform plugin for TestBatchOcrLanguage
+lto-wrapper.exe: warning: using serial compilation of 18 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[616/686] Linking CXX executable TestOpenRouting.exe; Deploying qoffscreen platform plugin for TestOpenRouting
+[617/686] Linking CXX executable TestBatesCrossDoc.exe; Deploying qoffscreen platform plugin for TestBatesCrossDoc
+lto-wrapper.exe: warning: using serial compilation of 13 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[618/686] Linking CXX executable TestExcisionCorruption.exe; Deploying qoffscreen platform plugin for TestExcisionCorruption
+lto-wrapper.exe: warning: using serial compilation of 14 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[619/686] Linking CXX executable TestReadingOrderThreshold.exe; Deploying qoffscreen platform plugin for TestReadingOrderThreshold
+[620/686] Linking CXX executable TestLinkBookmarkRoundTrip.exe; Deploying qoffscreen platform plugin for TestLinkBookmarkRoundTrip
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[621/686] Linking CXX executable TestBatchOpsCoverage.exe; Deploying qoffscreen platform plugin for TestBatchOpsCoverage
+lto-wrapper.exe: warning: using serial compilation of 19 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[622/686] Linking CXX executable TestSignatureSessionCache.exe; Deploying qoffscreen platform plugin for TestSignatureSessionCache
+[623/686] Linking CXX executable TestCapabilityRegistry.exe; Deploying qoffscreen platform plugin for TestCapabilityRegistry
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[624/686] Linking CXX executable TestTaskNavRegistry.exe; Deploying qoffscreen platform plugin for TestTaskNavRegistry
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[625/686] Linking CXX executable TestScreenStateSync.exe; Deploying qoffscreen platform plugin for TestScreenStateSync
+lto-wrapper.exe: warning: using serial compilation of 4 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[626/686] Linking CXX executable TestRibbonCollapse.exe; Deploying qoffscreen platform plugin for TestRibbonCollapse
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[627/686] Linking CXX executable TestCommentsReview.exe; Deploying qoffscreen platform plugin for TestCommentsReview
+lto-wrapper.exe: warning: using serial compilation of 5 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[628/686] Linking CXX executable TestWelcomeLayout.exe; Deploying qoffscreen platform plugin for TestWelcomeLayout
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[629/686] Linking CXX executable TestSignatureBadges.exe; Deploying qoffscreen platform plugin for TestSignatureBadges
+lto-wrapper.exe: warning: using serial compilation of 6 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[630/686] Linking CXX executable TestBatchOcrConfidence.exe; Deploying qoffscreen platform plugin for TestBatchOcrConfidence
+lto-wrapper.exe: warning: using serial compilation of 17 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[631/686] Linking CXX executable TestInspector.exe; Deploying qoffscreen platform plugin for TestInspector
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[632/686] Linking CXX executable TestStatusBarSlim.exe; Deploying qoffscreen platform plugin for TestStatusBarSlim
+lto-wrapper.exe: warning: using serial compilation of 41 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[633/686] Linking CXX executable TestDjotRoundtrip.exe
+lto-wrapper.exe: warning: using serial compilation of 7 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lstrlib.c:967:17:
+C:/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[634/686] Linking CXX executable TestPatternRedact.exe; Deploying qoffscreen platform plugin for TestPatternRedact
+lto-wrapper.exe: warning: using serial compilation of 14 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[635/686] Linking CXX executable TestUpdateChecker.exe
+[636/686] Linking CXX executable TestWatermarkFont.exe; Deploying qoffscreen platform plugin for TestWatermarkFont
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[637/686] Linking CXX executable TestOcrLanguage.exe
+[638/686] Linking CXX executable TestDjotFuzz.exe
+lto-wrapper.exe: warning: using serial compilation of 7 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lstrlib.c:967:17:
+C:/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[639/686] Linking CXX executable TestLinkSchemeSafety.exe
+[640/686] Linking CXX executable TestThumbnailZoom.exe
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[641/686] Linking CXX executable TestMergeSuccess.exe
+[642/686] Linking CXX executable TestFillFormLock.exe; Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFillFormLock
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[643/686] Linking CXX executable TestFillFormNoOp.exe; Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFillFormNoOp
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[644/686] Linking CXX executable TestReadingOrderInheritance.exe
+[645/686] Linking CXX executable TestShapeInkPersistence.exe; Deploying podofo 1.1.0 DLL for TestShapeInkPersistence
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[646/686] Linking CXX executable TestMeasureCore.exe
+[647/686] Linking CXX executable TestRedactClearMarks.exe
+lto-wrapper.exe: warning: using serial compilation of 20 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[648/686] Linking CXX executable TestCompressStripSanitize.exe; Deploying podofo 1.1.0 DLL for TestCompressStripSanitize
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[649/686] Linking CXX executable TestMeasureRoundTrip.exe; Deploying podofo 1.1.0 DLL for TestMeasureRoundTrip
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[650/686] Linking CXX executable TestFieldMetadata.exe; Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFieldMetadata
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[651/686] Linking CXX executable TestCompressDialogHonesty.exe; Deploying qoffscreen platform plugin for TestCompressDialogHonesty
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[652/686] Linking CXX executable TestFormSafety.exe; Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFormSafety
+lto-wrapper.exe: warning: using serial compilation of 4 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[653/686] Linking CXX executable TestCleanupCli.exe
+[654/686] Linking CXX executable TestFormUndo.exe; Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFormUndo
+lto-wrapper.exe: warning: using serial compilation of 4 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[655/686] Linking CXX executable TestValidateAllSignatures.exe
+[656/686] Linking CXX executable TestEngineSave.exe; Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestEngineSave
+lto-wrapper.exe: warning: using serial compilation of 14 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[657/686] Linking CXX executable TestExportPathBadge.exe
+lto-wrapper.exe: warning: using serial compilation of 6 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[658/686] Linking CXX executable TestImageEditWiring.exe
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[659/686] Linking CXX executable TestRedactSanitizeBundle.exe; Deploying podofo 1.1.0 DLL for TestRedactSanitizeBundle
+lto-wrapper.exe: warning: using serial compilation of 14 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[660/686] Linking CXX executable TestPptxOverlayAlpha.exe
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[661/686] Linking CXX executable TestRedactTransaction.exe; Deploying qoffscreen platform plugin and podofo DLL for TestRedactTransaction
+lto-wrapper.exe: warning: using serial compilation of 17 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[662/686] Linking CXX executable TestAutoDetectHeuristic.exe; Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestAutoDetectHeuristic
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[663/686] Linking CXX executable TestConversionExtraction.exe
+lto-wrapper.exe: warning: using serial compilation of 4 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[664/686] Linking CXX executable TestTextExtractionCoords.exe
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[665/686] Linking CXX executable TestEraseWiring.exe
+[666/686] Linking CXX executable TestAnnotationToolBar.exe
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[667/686] Linking CXX executable TestViewerRotation.exe
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[668/686] Linking CXX executable TestTwoPageOverlay.exe; Deploying podofo 1.1.0 DLL for TestTwoPageOverlay
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[669/686] Linking CXX executable TestOcrAcceptSeam.exe
+[670/686] Linking CXX executable TestSearchFlags.exe
+[671/686] Linking CXX executable TestSignaturePicker.exe; Deploying podofo 1.1.0 DLL for TestSignaturePicker
+lto-wrapper.exe: warning: using serial compilation of 4 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[672/686] Linking CXX executable TestExportPresets.exe
+[673/686] Linking CXX executable TestViewerLinkSeam.exe
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[674/686] Linking CXX executable TestHyperlinkNavigation.exe; Deploying podofo 1.1.0 DLL for TestHyperlinkNavigation
+[675/686] Linking CXX executable TestOcrAcceptScope.exe
+lto-wrapper.exe: warning: using serial compilation of 9 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[676/686] Linking CXX executable TestRedactApplyMarks.exe; Deploying podofo 1.1.0 DLL for TestRedactApplyMarks
+lto-wrapper.exe: warning: using serial compilation of 14 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[677/686] Linking CXX executable TestRedactMarkAll.exe; Deploying podofo 1.1.0 DLL for TestRedactMarkAll
+lto-wrapper.exe: warning: using serial compilation of 20 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[678/686] Linking CXX executable TestAnnotationDjot.exe; Deploying qoffscreen platform plugin for TestAnnotationDjot
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[679/686] Linking CXX executable TestAiProvider.exe
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[680/686] Linking CXX executable TestOllamaProvider.exe
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[681/686] Linking CXX executable TestDiffEngine.exe
+lto-wrapper.exe: warning: using serial compilation of 4 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[682/686] Linking CXX executable TestOfficeImport.exe
+lto-wrapper.exe: warning: using serial compilation of 4 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[683/686] Linking CXX executable TestMrcPipeline.exe
+lto-wrapper.exe: warning: using serial compilation of 15 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[684/686] Linking CXX executable TestHistoryIntegrity.exe; Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestHistoryIntegrity
+lto-wrapper.exe: warning: using serial compilation of 17 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[685/686] Staging runtime DLLs into build dir
+[686/686] Linking CXX executable TestPersistenceOutcomes.exe; Deploying qoffscreen platform plugin for TestPersistenceOutcomes
+lto-wrapper.exe: warning: using serial compilation of 72 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at C:/Users/User/Projects/pdf-inst/third_party/lua-5.4/src/lstrlib.c:967:17:
+C:/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+BUILD_EXIT=0

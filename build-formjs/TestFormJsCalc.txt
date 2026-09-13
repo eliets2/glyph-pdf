@@ -1,0 +1,39 @@
+********* Start testing of TestFormJsCalc *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestFormJsCalc::initTestCase()
+PASS   : TestFormJsCalc::goldenNumberFormat()
+PASS   : TestFormJsCalc::goldenPercentAndParse()
+PASS   : TestFormJsCalc::goldenDateFormat()
+PASS   : TestFormJsCalc::goldenSimpleCalculateOps()
+PASS   : TestFormJsCalc::sandboxHasNoHostIoCapabilities()
+PASS   : TestFormJsCalc::sandboxBlocksEgressVerbsAndRecordsThem()
+PASS   : TestFormJsCalc::sandboxInfiniteLoopHitsDeadline()
+PASS   : TestFormJsCalc::sandboxMemoryBombRefused()
+PASS   : TestFormJsCalc::sandboxSyntaxErrorClassified()
+QDEBUG : TestFormJsCalc::orderFormCascadePersistsThroughSave() Filling form data at: "C:/msys64/tmp/TestFormJsCalc-xkgjCa/order-filled.pdf"
+QDEBUG : TestFormJsCalc::orderFormCascadePersistsThroughSave() form-JS: cascade recalculated 3 field(s)
+PASS   : TestFormJsCalc::orderFormCascadePersistsThroughSave()
+QDEBUG : TestFormJsCalc::cascadeRecomputesWhenLineItemChanges() Filling form data at: "C:/msys64/tmp/TestFormJsCalc-xkgjCa/order-cascade-out.pdf"
+QDEBUG : TestFormJsCalc::cascadeRecomputesWhenLineItemChanges() form-JS: cascade recalculated 3 field(s)
+QDEBUG : TestFormJsCalc::cascadeRecomputesWhenLineItemChanges() Filling form data at: "C:/msys64/tmp/TestFormJsCalc-xkgjCa/order-cascade-out2.pdf"
+QDEBUG : TestFormJsCalc::cascadeRecomputesWhenLineItemChanges() form-JS: cascade recalculated 3 field(s)
+PASS   : TestFormJsCalc::cascadeRecomputesWhenLineItemChanges()
+QDEBUG : TestFormJsCalc::formatIsDisplayOnlyAndNeverWritesV() Filling form data at: "C:/msys64/tmp/TestFormJsCalc-xkgjCa/order-format-out.pdf"
+QDEBUG : TestFormJsCalc::formatIsDisplayOnlyAndNeverWritesV() form-JS: cascade recalculated 3 field(s)
+PASS   : TestFormJsCalc::formatIsDisplayOnlyAndNeverWritesV()
+QDEBUG : TestFormJsCalc::syntaxErrorKeepsCommittedValueAndOthersCalculate() Filling form data at: "C:/msys64/tmp/TestFormJsCalc-xkgjCa/order-syntax-out.pdf"
+QWARN  : TestFormJsCalc::syntaxErrorKeepsCommittedValueAndOthersCalculate() form-JS: calculate failed for field "line1" ( "syntax" ): "SyntaxError: Unexpected end of input (at <Calculate:line1>:1:1)"
+QDEBUG : TestFormJsCalc::syntaxErrorKeepsCommittedValueAndOthersCalculate() form-JS: cascade recalculated 2 field(s)
+PASS   : TestFormJsCalc::syntaxErrorKeepsCommittedValueAndOthersCalculate()
+QDEBUG : TestFormJsCalc::infiniteLoopKeepsValueAndSaveProceeds() Filling form data at: "C:/msys64/tmp/TestFormJsCalc-xkgjCa/order-loop-out.pdf"
+QWARN  : TestFormJsCalc::infiniteLoopKeepsValueAndSaveProceeds() form-JS: calculate failed for field "total" ( "timeout" ): "execution was aborted after exceeding the 250 ms deadline"
+PASS   : TestFormJsCalc::infiniteLoopKeepsValueAndSaveProceeds()
+QDEBUG : TestFormJsCalc::cyclicCalculationOrderTerminates() Filling form data at: "C:/msys64/tmp/TestFormJsCalc-xkgjCa/cyclic-co-out.pdf"
+QDEBUG : TestFormJsCalc::cyclicCalculationOrderTerminates() form-JS: cascade recalculated 2 field(s)
+PASS   : TestFormJsCalc::cyclicCalculationOrderTerminates()
+QDEBUG : TestFormJsCalc::revertVerifyDisabledExecutionIsPreFixState() Filling form data at: "C:/msys64/tmp/TestFormJsCalc-xkgjCa/order-revert-out.pdf"
+PASS   : TestFormJsCalc::revertVerifyDisabledExecutionIsPreFixState()
+PASS   : TestFormJsCalc::capabilityRegistryDisclosesFormJavaScript()
+PASS   : TestFormJsCalc::cleanupTestCase()
+Totals: 19 passed, 0 failed, 0 skipped, 0 blacklisted, 944ms
+********* Finished testing of TestFormJsCalc *********

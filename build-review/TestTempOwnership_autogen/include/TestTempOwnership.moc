@@ -1,0 +1,152 @@
+/****************************************************************************
+** Meta object code from reading C++ file 'TestTempOwnership.cpp'
+**
+** Created by: The Qt Meta Object Compiler version 69 (Qt 6.11.0)
+**
+** WARNING! All changes made in this file will be lost!
+*****************************************************************************/
+
+#include <QtCore/qmetatype.h>
+
+#include <QtCore/qtmochelpers.h>
+
+#include <memory>
+
+
+#include <QtCore/qxptype_traits.h>
+#if !defined(Q_MOC_OUTPUT_REVISION)
+#error "The header file 'TestTempOwnership.cpp' doesn't include <QObject>."
+#elif Q_MOC_OUTPUT_REVISION != 69
+#error "This file was generated using the moc from 6.11.0. It"
+#error "cannot be used with the include files from this version of Qt."
+#error "(The moc has changed too much.)"
+#endif
+
+#ifndef Q_CONSTINIT
+#define Q_CONSTINIT
+#endif
+
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
+QT_WARNING_DISABLE_GCC("-Wuseless-cast")
+namespace {
+struct qt_meta_tag_ZN17TestTempOwnershipE_t {};
+} // unnamed namespace
+
+template <> constexpr inline auto TestTempOwnership::qt_create_metaobjectdata<qt_meta_tag_ZN17TestTempOwnershipE_t>()
+{
+    namespace QMC = QtMocConstants;
+    QtMocHelpers::StringRefStorage qt_stringData {
+        "TestTempOwnership",
+        "init",
+        "",
+        "cleanup",
+        "initTestCase",
+        "liveOldSessionSurvivesSecondInstanceCleanup",
+        "livenessFollowsARealProcess",
+        "deadStaleSessionIsRemoved",
+        "deadButFreshSessionIsKept",
+        "unownedMatchingEntriesAreNeverTouched",
+        "corruptMarkerIsNotOwnership",
+        "ownSessionIsNeverSelfRemoved",
+        "createdSessionCarriesOwnershipRecord",
+        "failClosedWhenPrivateRootUnavailable"
+    };
+
+    QtMocHelpers::UintData qt_methods {
+        // Slot 'init'
+        QtMocHelpers::SlotData<void()>(1, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'cleanup'
+        QtMocHelpers::SlotData<void()>(3, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'initTestCase'
+        QtMocHelpers::SlotData<void()>(4, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'liveOldSessionSurvivesSecondInstanceCleanup'
+        QtMocHelpers::SlotData<void()>(5, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'livenessFollowsARealProcess'
+        QtMocHelpers::SlotData<void()>(6, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'deadStaleSessionIsRemoved'
+        QtMocHelpers::SlotData<void()>(7, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'deadButFreshSessionIsKept'
+        QtMocHelpers::SlotData<void()>(8, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'unownedMatchingEntriesAreNeverTouched'
+        QtMocHelpers::SlotData<void()>(9, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'corruptMarkerIsNotOwnership'
+        QtMocHelpers::SlotData<void()>(10, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'ownSessionIsNeverSelfRemoved'
+        QtMocHelpers::SlotData<void()>(11, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'createdSessionCarriesOwnershipRecord'
+        QtMocHelpers::SlotData<void()>(12, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'failClosedWhenPrivateRootUnavailable'
+        QtMocHelpers::SlotData<void()>(13, 2, QMC::AccessPrivate, QMetaType::Void),
+    };
+    QtMocHelpers::UintData qt_properties {
+    };
+    QtMocHelpers::UintData qt_enums {
+    };
+    return QtMocHelpers::metaObjectData<TestTempOwnership, qt_meta_tag_ZN17TestTempOwnershipE_t>(QMC::MetaObjectFlag{}, qt_stringData,
+            qt_methods, qt_properties, qt_enums);
+}
+Q_CONSTINIT const QMetaObject TestTempOwnership::staticMetaObject = { {
+    QMetaObject::SuperData::link<QObject::staticMetaObject>(),
+    qt_staticMetaObjectStaticContent<qt_meta_tag_ZN17TestTempOwnershipE_t>.stringdata,
+    qt_staticMetaObjectStaticContent<qt_meta_tag_ZN17TestTempOwnershipE_t>.data,
+    qt_static_metacall,
+    nullptr,
+    qt_staticMetaObjectRelocatingContent<qt_meta_tag_ZN17TestTempOwnershipE_t>.metaTypes,
+    nullptr
+} };
+
+void TestTempOwnership::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, void **_a)
+{
+    auto *_t = static_cast<TestTempOwnership *>(_o);
+    if (_c == QMetaObject::InvokeMetaMethod) {
+        switch (_id) {
+        case 0: _t->init(); break;
+        case 1: _t->cleanup(); break;
+        case 2: _t->initTestCase(); break;
+        case 3: _t->liveOldSessionSurvivesSecondInstanceCleanup(); break;
+        case 4: _t->livenessFollowsARealProcess(); break;
+        case 5: _t->deadStaleSessionIsRemoved(); break;
+        case 6: _t->deadButFreshSessionIsKept(); break;
+        case 7: _t->unownedMatchingEntriesAreNeverTouched(); break;
+        case 8: _t->corruptMarkerIsNotOwnership(); break;
+        case 9: _t->ownSessionIsNeverSelfRemoved(); break;
+        case 10: _t->createdSessionCarriesOwnershipRecord(); break;
+        case 11: _t->failClosedWhenPrivateRootUnavailable(); break;
+        default: ;
+        }
+    }
+    (void)_a;
+}
+
+const QMetaObject *TestTempOwnership::metaObject() const
+{
+    return QObject::d_ptr->metaObject ? QObject::d_ptr->dynamicMetaObject() : &staticMetaObject;
+}
+
+void *TestTempOwnership::qt_metacast(const char *_clname)
+{
+    if (!_clname) return nullptr;
+    if (!strcmp(_clname, qt_staticMetaObjectStaticContent<qt_meta_tag_ZN17TestTempOwnershipE_t>.strings))
+        return static_cast<void*>(this);
+    return QObject::qt_metacast(_clname);
+}
+
+int TestTempOwnership::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
+{
+    _id = QObject::qt_metacall(_c, _id, _a);
+    if (_id < 0)
+        return _id;
+    if (_c == QMetaObject::InvokeMetaMethod) {
+        if (_id < 12)
+            qt_static_metacall(this, _c, _id, _a);
+        _id -= 12;
+    }
+    if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
+        if (_id < 12)
+            *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType();
+        _id -= 12;
+    }
+    return _id;
+}
+QT_WARNING_POP

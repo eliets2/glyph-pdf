@@ -1,0 +1,21 @@
+libjbig2enc_autogen/timestamp: \
+	C:/Users/User/Projects/pdf-inst/third_party/jbig2enc/CMakeLists.txt \
+	C:/Users/User/Projects/pdf-inst/third_party/jbig2enc/src/jbig2arith.cc \
+	C:/Users/User/Projects/pdf-inst/third_party/jbig2enc/src/jbig2arith.h \
+	C:/Users/User/Projects/pdf-inst/third_party/jbig2enc/src/jbig2comparator.cc \
+	C:/Users/User/Projects/pdf-inst/third_party/jbig2enc/src/jbig2comparator.h \
+	C:/Users/User/Projects/pdf-inst/third_party/jbig2enc/src/jbig2enc.cc \
+	C:/Users/User/Projects/pdf-inst/third_party/jbig2enc/src/jbig2enc.h \
+	C:/Users/User/Projects/pdf-inst/third_party/jbig2enc/src/jbig2segments.h \
+	C:/Users/User/Projects/pdf-inst/third_party/jbig2enc/src/jbig2structs.h \
+	C:/Users/User/Projects/pdf-inst/third_party/jbig2enc/src/jbig2sym.cc \
+	C:/Users/User/Projects/pdf-inst/third_party/jbig2enc/src/jbig2sym.h \
+	C:/msys64/ucrt64/lib/cmake/leptonica/LeptonicaConfig-version.cmake \
+	C:/msys64/ucrt64/lib/cmake/leptonica/LeptonicaConfig.cmake \
+	C:/msys64/ucrt64/lib/cmake/leptonica/LeptonicaTargets-release.cmake \
+	C:/msys64/ucrt64/lib/cmake/leptonica/LeptonicaTargets.cmake \
+	C:/msys64/ucrt64/share/cmake/Modules/CMakeFindDependencyMacro.cmake \
+	C:/msys64/ucrt64/share/cmake/Modules/FindPackageHandleStandardArgs.cmake \
+	C:/msys64/ucrt64/share/cmake/Modules/FindPackageMessage.cmake \
+	C:/msys64/ucrt64/share/cmake/Modules/FindPkgConfig.cmake \
+	C:/msys64/ucrt64/bin/cmake.exe

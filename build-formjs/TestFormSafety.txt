@@ -1,0 +1,54 @@
+********* Start testing of TestFormSafety *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestFormSafety::initTestCase()
+QDEBUG : TestFormSafety::sameFileAddPreservesTextAndContent() Added text field "f01_field" on page 0
+PASS   : TestFormSafety::sameFileAddPreservesTextAndContent()
+QDEBUG : TestFormSafety::separateDestinationPreservesSource() Added text field "sep_field" on page 0
+PASS   : TestFormSafety::separateDestinationPreservesSource()
+QWARN  : TestFormSafety::occupiedDestinationHandleFailsKeepingOriginal() Error adding text field: "commit to destination failed: Access is denied."
+PASS   : TestFormSafety::occupiedDestinationHandleFailsKeepingOriginal()
+QDEBUG : TestFormSafety::setTabOrderSameFileNoLeftovers() Added text field "field_c" on page 0
+QDEBUG : TestFormSafety::setTabOrderSameFileNoLeftovers() Added text field "field_a" on page 0
+QDEBUG : TestFormSafety::setTabOrderSameFileNoLeftovers() Added text field "field_b" on page 0
+QDEBUG : TestFormSafety::setTabOrderSameFileNoLeftovers() setTabOrder: wrote 3 ordered entries to /CO
+PASS   : TestFormSafety::setTabOrderSameFileNoLeftovers()
+QDEBUG : TestFormSafety::addCommandUndoRedoRoundTrip() Added text field "rt_field" on page 0
+QDEBUG : TestFormSafety::addCommandUndoRedoRoundTrip() Removed field "rt_field" and saved to "C:/msys64/tmp/TestFormSafety-oakSDh/undo.pdf"
+QDEBUG : TestFormSafety::addCommandUndoRedoRoundTrip() Added text field "rt_field" on page 0
+PASS   : TestFormSafety::addCommandUndoRedoRoundTrip()
+QWARN  : TestFormSafety::injectedFaultsLeaveOriginalIntact() Error adding text field: "injected candidate-save failure (test seam)"
+QWARN  : TestFormSafety::injectedFaultsLeaveOriginalIntact() Error adding text field: "injected validation failure (test seam)"
+QWARN  : TestFormSafety::injectedFaultsLeaveOriginalIntact() Error adding text field: "injected commit failure (test seam)"
+QDEBUG : TestFormSafety::injectedFaultsLeaveOriginalIntact() Added text field "ok_field" on page 0
+PASS   : TestFormSafety::injectedFaultsLeaveOriginalIntact()
+QWARN  : TestFormSafety::failedAddCommandLeavesNoSuccessUndoEntry() Error adding text field: "injected candidate-save failure (test seam)"
+QWARN  : TestFormSafety::failedAddCommandLeavesNoSuccessUndoEntry() AddFormFieldCommand::redo failed for "never_field" — command marked obsolete, document not reloaded
+QWARN  : TestFormSafety::failedAddCommandLeavesNoSuccessUndoEntry() Error adding text field: "injected candidate-save failure (test seam)"
+QWARN  : TestFormSafety::failedAddCommandLeavesNoSuccessUndoEntry() AddFormFieldCommand::redo failed for "never_field" — command marked obsolete, document not reloaded
+PASS   : TestFormSafety::failedAddCommandLeavesNoSuccessUndoEntry()
+QDEBUG : TestFormSafety::otherMutatorsPersistThroughBoundary() Added text field "m_text" on page 0
+QDEBUG : TestFormSafety::otherMutatorsPersistThroughBoundary() Added checkbox "m_check" on page 0
+QDEBUG : TestFormSafety::otherMutatorsPersistThroughBoundary() Filling form data at: "C:/msys64/tmp/TestFormSafety-MFUhPt/mut.pdf"
+QDEBUG : TestFormSafety::otherMutatorsPersistThroughBoundary() Updated rect for field "m_text" on page 0
+QDEBUG : TestFormSafety::otherMutatorsPersistThroughBoundary() Removed field "m_check" and saved to "C:/msys64/tmp/TestFormSafety-MFUhPt/mut.pdf"
+PASS   : TestFormSafety::otherMutatorsPersistThroughBoundary()
+QDEBUG : TestFormSafety::autoDetectPlacesFieldsAsOneUndoableCompound() Added text field "v06_auto_name" on page 0
+QDEBUG : TestFormSafety::autoDetectPlacesFieldsAsOneUndoableCompound() Added date field "v06_auto_date" on page 0
+QDEBUG : TestFormSafety::autoDetectPlacesFieldsAsOneUndoableCompound() Added checkbox "v06_auto_check" on page 0
+QDEBUG : TestFormSafety::autoDetectPlacesFieldsAsOneUndoableCompound() Removed field "v06_auto_check" and saved to "C:/msys64/tmp/TestFormSafety-sWlGSo/v06_compound.pdf"
+QDEBUG : TestFormSafety::autoDetectPlacesFieldsAsOneUndoableCompound() Removed field "v06_auto_date" and saved to "C:/msys64/tmp/TestFormSafety-sWlGSo/v06_compound.pdf"
+QDEBUG : TestFormSafety::autoDetectPlacesFieldsAsOneUndoableCompound() Removed field "v06_auto_name" and saved to "C:/msys64/tmp/TestFormSafety-sWlGSo/v06_compound.pdf"
+QDEBUG : TestFormSafety::autoDetectPlacesFieldsAsOneUndoableCompound() Added text field "v06_auto_name" on page 0
+QDEBUG : TestFormSafety::autoDetectPlacesFieldsAsOneUndoableCompound() Added date field "v06_auto_date" on page 0
+QDEBUG : TestFormSafety::autoDetectPlacesFieldsAsOneUndoableCompound() Added checkbox "v06_auto_check" on page 0
+PASS   : TestFormSafety::autoDetectPlacesFieldsAsOneUndoableCompound()
+QDEBUG : TestFormSafety::autoDetectPartialFailureCountsAccuratelyAndStaysRecoverable() Added text field "v06_ok_field" on page 0
+QWARN  : TestFormSafety::autoDetectPartialFailureCountsAccuratelyAndStaysRecoverable() Error adding text field: "injected candidate-save failure (test seam)"
+QWARN  : TestFormSafety::autoDetectPartialFailureCountsAccuratelyAndStaysRecoverable() AddFormFieldCommand::redo failed for "v06_faulty_a" — command marked obsolete, document not reloaded
+QWARN  : TestFormSafety::autoDetectPartialFailureCountsAccuratelyAndStaysRecoverable() Error adding text field: "injected candidate-save failure (test seam)"
+QWARN  : TestFormSafety::autoDetectPartialFailureCountsAccuratelyAndStaysRecoverable() AddFormFieldCommand::redo failed for "v06_faulty_b" — command marked obsolete, document not reloaded
+QDEBUG : TestFormSafety::autoDetectPartialFailureCountsAccuratelyAndStaysRecoverable() Removed field "v06_ok_field" and saved to "C:/msys64/tmp/TestFormSafety-oHfrLA/v06_partial.pdf"
+PASS   : TestFormSafety::autoDetectPartialFailureCountsAccuratelyAndStaysRecoverable()
+PASS   : TestFormSafety::cleanupTestCase()
+Totals: 12 passed, 0 failed, 0 skipped, 0 blacklisted, 1144ms
+********* Finished testing of TestFormSafety *********

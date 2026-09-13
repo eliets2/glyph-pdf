@@ -1,0 +1,12 @@
+docmodel_autogen/timestamp: \
+	C:/Users/User/Projects/pdf-inst/src/docmodel/Block.cpp \
+	C:/Users/User/Projects/pdf-inst/src/docmodel/Block.h \
+	C:/Users/User/Projects/pdf-inst/src/docmodel/CMakeLists.txt \
+	C:/Users/User/Projects/pdf-inst/src/docmodel/DocumentFuzzer.cpp \
+	C:/Users/User/Projects/pdf-inst/src/docmodel/DocumentFuzzer.h \
+	C:/Users/User/Projects/pdf-inst/src/docmodel/Inline.cpp \
+	C:/Users/User/Projects/pdf-inst/src/docmodel/Inline.h \
+	C:/Users/User/Projects/pdf-inst/src/docmodel/ProvenanceTag.h \
+	C:/Users/User/Projects/pdf-inst/src/docmodel/SemanticDocument.cpp \
+	C:/Users/User/Projects/pdf-inst/src/docmodel/SemanticDocument.h \
+	C:/msys64/ucrt64/bin/cmake.exe

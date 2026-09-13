@@ -1,0 +1,196 @@
+/****************************************************************************
+** Meta object code from reading C++ file 'TestOcrPreprocessor.cpp'
+**
+** Created by: The Qt Meta Object Compiler version 69 (Qt 6.11.0)
+**
+** WARNING! All changes made in this file will be lost!
+*****************************************************************************/
+
+#include <QtCore/qmetatype.h>
+
+#include <QtCore/qtmochelpers.h>
+
+#include <memory>
+
+
+#include <QtCore/qxptype_traits.h>
+#if !defined(Q_MOC_OUTPUT_REVISION)
+#error "The header file 'TestOcrPreprocessor.cpp' doesn't include <QObject>."
+#elif Q_MOC_OUTPUT_REVISION != 69
+#error "This file was generated using the moc from 6.11.0. It"
+#error "cannot be used with the include files from this version of Qt."
+#error "(The moc has changed too much.)"
+#endif
+
+#ifndef Q_CONSTINIT
+#define Q_CONSTINIT
+#endif
+
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
+QT_WARNING_DISABLE_GCC("-Wuseless-cast")
+namespace {
+struct qt_meta_tag_ZN19TestOcrPreprocessorE_t {};
+} // unnamed namespace
+
+template <> constexpr inline auto TestOcrPreprocessor::qt_create_metaobjectdata<qt_meta_tag_ZN19TestOcrPreprocessorE_t>()
+{
+    namespace QMC = QtMocConstants;
+    QtMocHelpers::StringRefStorage qt_stringData {
+        "TestOcrPreprocessor",
+        "orientDetectDefaultsToOff",
+        "",
+        "flagOffLeavesUprightPageUntouched",
+        "flagOffLeavesRotatedScanUntouched",
+        "uprightPageIsNotRotated",
+        "rotated90IsDetectedAndCorrected",
+        "rotated180IsDetectedAndCorrected",
+        "rotated270IsDetectedAndCorrected",
+        "nullImageIsHandled",
+        "tinyOneByOneImageIsHandled",
+        "binarizeAllWhiteStaysLight",
+        "binarizeAllBlackComesOutLightPerLeptonicaSemantics",
+        "binarizedDocumentKeepsDarkInkOnLightPaper",
+        "processDefaultsKeepDarkInkOnLightPaper",
+        "binarizeGrayscaleAndColoredInputsPreservePolarity",
+        "binarizePreservesDpiMetadata",
+        "denoisePreservesDimensionsAndDpiMetadata",
+        "binarizePreservesDimensionsResolutionAndPolarity",
+        "deskewCorrectsThreeDegreeTiltBothSigns",
+        "deskewBlankPageIsDocumentedNoOp",
+        "deskewTinyImageIsDocumentedNoOp",
+        "deskewInverseTransformMapsPointsBack",
+        "deskewComposesWithDpiNormalization",
+        "deskewWithOrientationComposesFullPipeline"
+    };
+
+    QtMocHelpers::UintData qt_methods {
+        // Slot 'orientDetectDefaultsToOff'
+        QtMocHelpers::SlotData<void()>(1, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'flagOffLeavesUprightPageUntouched'
+        QtMocHelpers::SlotData<void()>(3, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'flagOffLeavesRotatedScanUntouched'
+        QtMocHelpers::SlotData<void()>(4, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'uprightPageIsNotRotated'
+        QtMocHelpers::SlotData<void()>(5, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'rotated90IsDetectedAndCorrected'
+        QtMocHelpers::SlotData<void()>(6, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'rotated180IsDetectedAndCorrected'
+        QtMocHelpers::SlotData<void()>(7, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'rotated270IsDetectedAndCorrected'
+        QtMocHelpers::SlotData<void()>(8, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'nullImageIsHandled'
+        QtMocHelpers::SlotData<void()>(9, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'tinyOneByOneImageIsHandled'
+        QtMocHelpers::SlotData<void()>(10, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'binarizeAllWhiteStaysLight'
+        QtMocHelpers::SlotData<void()>(11, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'binarizeAllBlackComesOutLightPerLeptonicaSemantics'
+        QtMocHelpers::SlotData<void()>(12, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'binarizedDocumentKeepsDarkInkOnLightPaper'
+        QtMocHelpers::SlotData<void()>(13, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'processDefaultsKeepDarkInkOnLightPaper'
+        QtMocHelpers::SlotData<void()>(14, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'binarizeGrayscaleAndColoredInputsPreservePolarity'
+        QtMocHelpers::SlotData<void()>(15, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'binarizePreservesDpiMetadata'
+        QtMocHelpers::SlotData<void()>(16, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'denoisePreservesDimensionsAndDpiMetadata'
+        QtMocHelpers::SlotData<void()>(17, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'binarizePreservesDimensionsResolutionAndPolarity'
+        QtMocHelpers::SlotData<void()>(18, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'deskewCorrectsThreeDegreeTiltBothSigns'
+        QtMocHelpers::SlotData<void()>(19, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'deskewBlankPageIsDocumentedNoOp'
+        QtMocHelpers::SlotData<void()>(20, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'deskewTinyImageIsDocumentedNoOp'
+        QtMocHelpers::SlotData<void()>(21, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'deskewInverseTransformMapsPointsBack'
+        QtMocHelpers::SlotData<void()>(22, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'deskewComposesWithDpiNormalization'
+        QtMocHelpers::SlotData<void()>(23, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'deskewWithOrientationComposesFullPipeline'
+        QtMocHelpers::SlotData<void()>(24, 2, QMC::AccessPrivate, QMetaType::Void),
+    };
+    QtMocHelpers::UintData qt_properties {
+    };
+    QtMocHelpers::UintData qt_enums {
+    };
+    return QtMocHelpers::metaObjectData<TestOcrPreprocessor, qt_meta_tag_ZN19TestOcrPreprocessorE_t>(QMC::MetaObjectFlag{}, qt_stringData,
+            qt_methods, qt_properties, qt_enums);
+}
+Q_CONSTINIT const QMetaObject TestOcrPreprocessor::staticMetaObject = { {
+    QMetaObject::SuperData::link<QObject::staticMetaObject>(),
+    qt_staticMetaObjectStaticContent<qt_meta_tag_ZN19TestOcrPreprocessorE_t>.stringdata,
+    qt_staticMetaObjectStaticContent<qt_meta_tag_ZN19TestOcrPreprocessorE_t>.data,
+    qt_static_metacall,
+    nullptr,
+    qt_staticMetaObjectRelocatingContent<qt_meta_tag_ZN19TestOcrPreprocessorE_t>.metaTypes,
+    nullptr
+} };
+
+void TestOcrPreprocessor::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, void **_a)
+{
+    auto *_t = static_cast<TestOcrPreprocessor *>(_o);
+    if (_c == QMetaObject::InvokeMetaMethod) {
+        switch (_id) {
+        case 0: _t->orientDetectDefaultsToOff(); break;
+        case 1: _t->flagOffLeavesUprightPageUntouched(); break;
+        case 2: _t->flagOffLeavesRotatedScanUntouched(); break;
+        case 3: _t->uprightPageIsNotRotated(); break;
+        case 4: _t->rotated90IsDetectedAndCorrected(); break;
+        case 5: _t->rotated180IsDetectedAndCorrected(); break;
+        case 6: _t->rotated270IsDetectedAndCorrected(); break;
+        case 7: _t->nullImageIsHandled(); break;
+        case 8: _t->tinyOneByOneImageIsHandled(); break;
+        case 9: _t->binarizeAllWhiteStaysLight(); break;
+        case 10: _t->binarizeAllBlackComesOutLightPerLeptonicaSemantics(); break;
+        case 11: _t->binarizedDocumentKeepsDarkInkOnLightPaper(); break;
+        case 12: _t->processDefaultsKeepDarkInkOnLightPaper(); break;
+        case 13: _t->binarizeGrayscaleAndColoredInputsPreservePolarity(); break;
+        case 14: _t->binarizePreservesDpiMetadata(); break;
+        case 15: _t->denoisePreservesDimensionsAndDpiMetadata(); break;
+        case 16: _t->binarizePreservesDimensionsResolutionAndPolarity(); break;
+        case 17: _t->deskewCorrectsThreeDegreeTiltBothSigns(); break;
+        case 18: _t->deskewBlankPageIsDocumentedNoOp(); break;
+        case 19: _t->deskewTinyImageIsDocumentedNoOp(); break;
+        case 20: _t->deskewInverseTransformMapsPointsBack(); break;
+        case 21: _t->deskewComposesWithDpiNormalization(); break;
+        case 22: _t->deskewWithOrientationComposesFullPipeline(); break;
+        default: ;
+        }
+    }
+    (void)_a;
+}
+
+const QMetaObject *TestOcrPreprocessor::metaObject() const
+{
+    return QObject::d_ptr->metaObject ? QObject::d_ptr->dynamicMetaObject() : &staticMetaObject;
+}
+
+void *TestOcrPreprocessor::qt_metacast(const char *_clname)
+{
+    if (!_clname) return nullptr;
+    if (!strcmp(_clname, qt_staticMetaObjectStaticContent<qt_meta_tag_ZN19TestOcrPreprocessorE_t>.strings))
+        return static_cast<void*>(this);
+    return QObject::qt_metacast(_clname);
+}
+
+int TestOcrPreprocessor::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
+{
+    _id = QObject::qt_metacall(_c, _id, _a);
+    if (_id < 0)
+        return _id;
+    if (_c == QMetaObject::InvokeMetaMethod) {
+        if (_id < 23)
+            qt_static_metacall(this, _c, _id, _a);
+        _id -= 23;
+    }
+    if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
+        if (_id < 23)
+            *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType();
+        _id -= 23;
+    }
+    return _id;
+}
+QT_WARNING_POP

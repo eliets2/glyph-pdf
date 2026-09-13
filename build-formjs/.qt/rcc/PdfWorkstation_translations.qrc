@@ -1,0 +1,8 @@
+<RCC>
+  <qresource prefix="/translations">
+    <file alias="glyphpdf_ar.qm">C:/Users/User/Projects/pdf-inst/build-formjs/glyphpdf_ar.qm</file>
+    <file alias="glyphpdf_fr.qm">C:/Users/User/Projects/pdf-inst/build-formjs/glyphpdf_fr.qm</file>
+    <file alias="glyphpdf_de.qm">C:/Users/User/Projects/pdf-inst/build-formjs/glyphpdf_de.qm</file>
+  </qresource>
+</RCC>
+

@@ -1,0 +1,44 @@
+********* Start testing of TestFormUndo *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestFormUndo::initTestCase()
+QDEBUG : TestFormUndo::undoRestoresTooltipRequiredAndValue() Added text field "f1" on page 0
+QDEBUG : TestFormUndo::undoRestoresTooltipRequiredAndValue() Filling form data at: "C:/msys64/tmp/TestFormUndo-yZSszW/f09.pdf"
+PASS   : TestFormUndo::undoRestoresTooltipRequiredAndValue()
+QDEBUG : TestFormUndo::redoAppliesExplicitlyEmptyValue() Added text field "f1" on page 0
+QDEBUG : TestFormUndo::redoAppliesExplicitlyEmptyValue() Filling form data at: "C:/msys64/tmp/TestFormUndo-AsQVwD/empty.pdf"
+PASS   : TestFormUndo::redoAppliesExplicitlyEmptyValue()
+QDEBUG : TestFormUndo::undoRestoresClearedTooltip() Added text field "f1" on page 0
+QDEBUG : TestFormUndo::undoRestoresClearedTooltip() Filling form data at: "C:/msys64/tmp/TestFormUndo-GZrkKi/tip.pdf"
+PASS   : TestFormUndo::undoRestoresClearedTooltip()
+QDEBUG : TestFormUndo::panelDefaultRowEditsCurrentValue() Added text field "f1" on page 0
+QDEBUG : TestFormUndo::panelDefaultRowEditsCurrentValue() Filling form data at: "C:/msys64/tmp/TestFormUndo-XbSmDM/vv.pdf"
+PASS   : TestFormUndo::panelDefaultRowEditsCurrentValue()
+QDEBUG : TestFormUndo::dvPreservedThroughEditUndo() Added text field "f1" on page 0
+QDEBUG : TestFormUndo::dvPreservedThroughEditUndo() Filling form data at: "C:/msys64/tmp/TestFormUndo-xSIWyg/dv.pdf"
+PASS   : TestFormUndo::dvPreservedThroughEditUndo()
+QDEBUG : TestFormUndo::secondFieldUntouchedByNeighborEdit() Added text field "fa" on page 0
+QDEBUG : TestFormUndo::secondFieldUntouchedByNeighborEdit() Filling form data at: "C:/msys64/tmp/TestFormUndo-JIadcL/two.pdf"
+QDEBUG : TestFormUndo::secondFieldUntouchedByNeighborEdit() Added text field "fb" on page 0
+QDEBUG : TestFormUndo::secondFieldUntouchedByNeighborEdit() Filling form data at: "C:/msys64/tmp/TestFormUndo-JIadcL/two.pdf"
+PASS   : TestFormUndo::secondFieldUntouchedByNeighborEdit()
+QDEBUG : TestFormUndo::missingFieldFailsExplicitly() Added text field "real" on page 0
+QDEBUG : TestFormUndo::missingFieldFailsExplicitly() Filling form data at: "C:/msys64/tmp/TestFormUndo-sKaMWg/ghost.pdf"
+QWARN  : TestFormUndo::missingFieldFailsExplicitly() EditFormFieldCommand::redo: field not found: "ghost" — command marked obsolete
+QWARN  : TestFormUndo::missingFieldFailsExplicitly() EditFormFieldCommand::redo: field not found: "ghost" — command marked obsolete
+PASS   : TestFormUndo::missingFieldFailsExplicitly()
+QDEBUG : TestFormUndo::failedSaveIsAtomicNoPartialPersist() Added text field "f1" on page 0
+QDEBUG : TestFormUndo::failedSaveIsAtomicNoPartialPersist() Filling form data at: "C:/msys64/tmp/TestFormUndo-zytgRZ/atomic.pdf"
+QWARN  : TestFormUndo::failedSaveIsAtomicNoPartialPersist() applyFieldSnapshot error: "injected commit failure (test seam)"
+QWARN  : TestFormUndo::failedSaveIsAtomicNoPartialPersist() EditFormFieldCommand::redo failed for "f1" — command marked obsolete, document not reloaded
+QWARN  : TestFormUndo::failedSaveIsAtomicNoPartialPersist() applyFieldSnapshot error: "injected commit failure (test seam)"
+QWARN  : TestFormUndo::failedSaveIsAtomicNoPartialPersist() EditFormFieldCommand::redo failed for "f1" — command marked obsolete, document not reloaded
+PASS   : TestFormUndo::failedSaveIsAtomicNoPartialPersist()
+QDEBUG : TestFormUndo::absentValueStaysAbsentThroughUndo() Added text field "f1" on page 0
+QDEBUG : TestFormUndo::absentValueStaysAbsentThroughUndo() Filling form data at: "C:/msys64/tmp/TestFormUndo-sPBBfc/absent.pdf"
+PASS   : TestFormUndo::absentValueStaysAbsentThroughUndo()
+QDEBUG : TestFormUndo::redoDoesNotRecaptureEditedState() Added text field "f1" on page 0
+QDEBUG : TestFormUndo::redoDoesNotRecaptureEditedState() Filling form data at: "C:/msys64/tmp/TestFormUndo-ROjcFH/recap.pdf"
+PASS   : TestFormUndo::redoDoesNotRecaptureEditedState()
+PASS   : TestFormUndo::cleanupTestCase()
+Totals: 12 passed, 0 failed, 0 skipped, 0 blacklisted, 617ms
+********* Finished testing of TestFormUndo *********

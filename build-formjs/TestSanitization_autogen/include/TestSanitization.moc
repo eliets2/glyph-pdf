@@ -1,0 +1,172 @@
+/****************************************************************************
+** Meta object code from reading C++ file 'TestSanitization.cpp'
+**
+** Created by: The Qt Meta Object Compiler version 69 (Qt 6.11.0)
+**
+** WARNING! All changes made in this file will be lost!
+*****************************************************************************/
+
+#include <QtCore/qmetatype.h>
+
+#include <QtCore/qtmochelpers.h>
+
+#include <memory>
+
+
+#include <QtCore/qxptype_traits.h>
+#if !defined(Q_MOC_OUTPUT_REVISION)
+#error "The header file 'TestSanitization.cpp' doesn't include <QObject>."
+#elif Q_MOC_OUTPUT_REVISION != 69
+#error "This file was generated using the moc from 6.11.0. It"
+#error "cannot be used with the include files from this version of Qt."
+#error "(The moc has changed too much.)"
+#endif
+
+#ifndef Q_CONSTINIT
+#define Q_CONSTINIT
+#endif
+
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
+QT_WARNING_DISABLE_GCC("-Wuseless-cast")
+namespace {
+struct qt_meta_tag_ZN16TestSanitizationE_t {};
+} // unnamed namespace
+
+template <> constexpr inline auto TestSanitization::qt_create_metaobjectdata<qt_meta_tag_ZN16TestSanitizationE_t>()
+{
+    namespace QMC = QtMocConstants;
+    QtMocHelpers::StringRefStorage qt_stringData {
+        "TestSanitization",
+        "testSanitizeSucceedsOnLoadedDocument",
+        "",
+        "testSanitizeFailsWhenEngineRejects",
+        "testSanitizeSkipsWithEmptyDocPath",
+        "testSanitizeSkipsWithEmptyOutputPath",
+        "testSanitizeSkipsWithNullEngine",
+        "testSanitizeSkipsWithNullDocument",
+        "testMockSanitizeRemovesMetadata",
+        "testMockSanitizeRequiresLoad",
+        "testMultipleSanitizeCallsTracked",
+        "testSanitizeGeneratesUniqueTrailerID",
+        "testIntegrationSanitization",
+        "testIntegrationSanitizationExtendedVectors",
+        "testPdfEscapeLiteralStringInvariants",
+        "testWatermarkInjectionIsPrevented",
+        "testAnnotationInjectionIsPrevented",
+        "testHeaderFooterInjectionIsPrevented",
+        "testBatesInjectionIsPrevented"
+    };
+
+    QtMocHelpers::UintData qt_methods {
+        // Slot 'testSanitizeSucceedsOnLoadedDocument'
+        QtMocHelpers::SlotData<void()>(1, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testSanitizeFailsWhenEngineRejects'
+        QtMocHelpers::SlotData<void()>(3, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testSanitizeSkipsWithEmptyDocPath'
+        QtMocHelpers::SlotData<void()>(4, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testSanitizeSkipsWithEmptyOutputPath'
+        QtMocHelpers::SlotData<void()>(5, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testSanitizeSkipsWithNullEngine'
+        QtMocHelpers::SlotData<void()>(6, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testSanitizeSkipsWithNullDocument'
+        QtMocHelpers::SlotData<void()>(7, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testMockSanitizeRemovesMetadata'
+        QtMocHelpers::SlotData<void()>(8, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testMockSanitizeRequiresLoad'
+        QtMocHelpers::SlotData<void()>(9, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testMultipleSanitizeCallsTracked'
+        QtMocHelpers::SlotData<void()>(10, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testSanitizeGeneratesUniqueTrailerID'
+        QtMocHelpers::SlotData<void()>(11, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testIntegrationSanitization'
+        QtMocHelpers::SlotData<void()>(12, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testIntegrationSanitizationExtendedVectors'
+        QtMocHelpers::SlotData<void()>(13, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testPdfEscapeLiteralStringInvariants'
+        QtMocHelpers::SlotData<void()>(14, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testWatermarkInjectionIsPrevented'
+        QtMocHelpers::SlotData<void()>(15, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testAnnotationInjectionIsPrevented'
+        QtMocHelpers::SlotData<void()>(16, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testHeaderFooterInjectionIsPrevented'
+        QtMocHelpers::SlotData<void()>(17, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'testBatesInjectionIsPrevented'
+        QtMocHelpers::SlotData<void()>(18, 2, QMC::AccessPrivate, QMetaType::Void),
+    };
+    QtMocHelpers::UintData qt_properties {
+    };
+    QtMocHelpers::UintData qt_enums {
+    };
+    return QtMocHelpers::metaObjectData<TestSanitization, qt_meta_tag_ZN16TestSanitizationE_t>(QMC::MetaObjectFlag{}, qt_stringData,
+            qt_methods, qt_properties, qt_enums);
+}
+Q_CONSTINIT const QMetaObject TestSanitization::staticMetaObject = { {
+    QMetaObject::SuperData::link<QObject::staticMetaObject>(),
+    qt_staticMetaObjectStaticContent<qt_meta_tag_ZN16TestSanitizationE_t>.stringdata,
+    qt_staticMetaObjectStaticContent<qt_meta_tag_ZN16TestSanitizationE_t>.data,
+    qt_static_metacall,
+    nullptr,
+    qt_staticMetaObjectRelocatingContent<qt_meta_tag_ZN16TestSanitizationE_t>.metaTypes,
+    nullptr
+} };
+
+void TestSanitization::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, void **_a)
+{
+    auto *_t = static_cast<TestSanitization *>(_o);
+    if (_c == QMetaObject::InvokeMetaMethod) {
+        switch (_id) {
+        case 0: _t->testSanitizeSucceedsOnLoadedDocument(); break;
+        case 1: _t->testSanitizeFailsWhenEngineRejects(); break;
+        case 2: _t->testSanitizeSkipsWithEmptyDocPath(); break;
+        case 3: _t->testSanitizeSkipsWithEmptyOutputPath(); break;
+        case 4: _t->testSanitizeSkipsWithNullEngine(); break;
+        case 5: _t->testSanitizeSkipsWithNullDocument(); break;
+        case 6: _t->testMockSanitizeRemovesMetadata(); break;
+        case 7: _t->testMockSanitizeRequiresLoad(); break;
+        case 8: _t->testMultipleSanitizeCallsTracked(); break;
+        case 9: _t->testSanitizeGeneratesUniqueTrailerID(); break;
+        case 10: _t->testIntegrationSanitization(); break;
+        case 11: _t->testIntegrationSanitizationExtendedVectors(); break;
+        case 12: _t->testPdfEscapeLiteralStringInvariants(); break;
+        case 13: _t->testWatermarkInjectionIsPrevented(); break;
+        case 14: _t->testAnnotationInjectionIsPrevented(); break;
+        case 15: _t->testHeaderFooterInjectionIsPrevented(); break;
+        case 16: _t->testBatesInjectionIsPrevented(); break;
+        default: ;
+        }
+    }
+    (void)_a;
+}
+
+const QMetaObject *TestSanitization::metaObject() const
+{
+    return QObject::d_ptr->metaObject ? QObject::d_ptr->dynamicMetaObject() : &staticMetaObject;
+}
+
+void *TestSanitization::qt_metacast(const char *_clname)
+{
+    if (!_clname) return nullptr;
+    if (!strcmp(_clname, qt_staticMetaObjectStaticContent<qt_meta_tag_ZN16TestSanitizationE_t>.strings))
+        return static_cast<void*>(this);
+    return QObject::qt_metacast(_clname);
+}
+
+int TestSanitization::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
+{
+    _id = QObject::qt_metacall(_c, _id, _a);
+    if (_id < 0)
+        return _id;
+    if (_c == QMetaObject::InvokeMetaMethod) {
+        if (_id < 17)
+            qt_static_metacall(this, _c, _id, _a);
+        _id -= 17;
+    }
+    if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
+        if (_id < 17)
+            *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType();
+        _id -= 17;
+    }
+    return _id;
+}
+QT_WARNING_POP

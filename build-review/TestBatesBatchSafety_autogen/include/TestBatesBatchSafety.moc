@@ -1,0 +1,144 @@
+/****************************************************************************
+** Meta object code from reading C++ file 'TestBatesBatchSafety.cpp'
+**
+** Created by: The Qt Meta Object Compiler version 69 (Qt 6.11.0)
+**
+** WARNING! All changes made in this file will be lost!
+*****************************************************************************/
+
+#include <QtCore/qmetatype.h>
+
+#include <QtCore/qtmochelpers.h>
+
+#include <memory>
+
+
+#include <QtCore/qxptype_traits.h>
+#if !defined(Q_MOC_OUTPUT_REVISION)
+#error "The header file 'TestBatesBatchSafety.cpp' doesn't include <QObject>."
+#elif Q_MOC_OUTPUT_REVISION != 69
+#error "This file was generated using the moc from 6.11.0. It"
+#error "cannot be used with the include files from this version of Qt."
+#error "(The moc has changed too much.)"
+#endif
+
+#ifndef Q_CONSTINIT
+#define Q_CONSTINIT
+#endif
+
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
+QT_WARNING_DISABLE_GCC("-Wuseless-cast")
+namespace {
+struct qt_meta_tag_ZN20TestBatesBatchSafetyE_t {};
+} // unnamed namespace
+
+template <> constexpr inline auto TestBatesBatchSafety::qt_create_metaobjectdata<qt_meta_tag_ZN20TestBatesBatchSafetyE_t>()
+{
+    namespace QMC = QtMocConstants;
+    QtMocHelpers::StringRefStorage qt_stringData {
+        "TestBatesBatchSafety",
+        "initTestCase",
+        "",
+        "normalBatchStampsBothOutputs",
+        "missingInputPreservesExistingDestination",
+        "collidingOutputRefusedAndSecondSourceSurvives",
+        "diskGeometry",
+        "PageGeometry",
+        "path",
+        "interactiveEditAfterSuccessfulBatch",
+        "interactiveEditAfterPartialBatch",
+        "interactiveEditAfterFailedBatch",
+        "vanishedActiveDocumentNeverLeavesEngineOnCandidate"
+    };
+
+    QtMocHelpers::UintData qt_methods {
+        // Slot 'initTestCase'
+        QtMocHelpers::SlotData<void()>(1, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'normalBatchStampsBothOutputs'
+        QtMocHelpers::SlotData<void()>(3, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'missingInputPreservesExistingDestination'
+        QtMocHelpers::SlotData<void()>(4, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'collidingOutputRefusedAndSecondSourceSurvives'
+        QtMocHelpers::SlotData<void()>(5, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'diskGeometry'
+        QtMocHelpers::SlotData<PageGeometry(const QString &)>(6, 2, QMC::AccessPrivate, 0x80000000 | 7, {{
+            { QMetaType::QString, 8 },
+        }}),
+        // Slot 'interactiveEditAfterSuccessfulBatch'
+        QtMocHelpers::SlotData<void()>(9, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'interactiveEditAfterPartialBatch'
+        QtMocHelpers::SlotData<void()>(10, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'interactiveEditAfterFailedBatch'
+        QtMocHelpers::SlotData<void()>(11, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'vanishedActiveDocumentNeverLeavesEngineOnCandidate'
+        QtMocHelpers::SlotData<void()>(12, 2, QMC::AccessPrivate, QMetaType::Void),
+    };
+    QtMocHelpers::UintData qt_properties {
+    };
+    QtMocHelpers::UintData qt_enums {
+    };
+    return QtMocHelpers::metaObjectData<TestBatesBatchSafety, qt_meta_tag_ZN20TestBatesBatchSafetyE_t>(QMC::MetaObjectFlag{}, qt_stringData,
+            qt_methods, qt_properties, qt_enums);
+}
+Q_CONSTINIT const QMetaObject TestBatesBatchSafety::staticMetaObject = { {
+    QMetaObject::SuperData::link<QObject::staticMetaObject>(),
+    qt_staticMetaObjectStaticContent<qt_meta_tag_ZN20TestBatesBatchSafetyE_t>.stringdata,
+    qt_staticMetaObjectStaticContent<qt_meta_tag_ZN20TestBatesBatchSafetyE_t>.data,
+    qt_static_metacall,
+    nullptr,
+    qt_staticMetaObjectRelocatingContent<qt_meta_tag_ZN20TestBatesBatchSafetyE_t>.metaTypes,
+    nullptr
+} };
+
+void TestBatesBatchSafety::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, void **_a)
+{
+    auto *_t = static_cast<TestBatesBatchSafety *>(_o);
+    if (_c == QMetaObject::InvokeMetaMethod) {
+        switch (_id) {
+        case 0: _t->initTestCase(); break;
+        case 1: _t->normalBatchStampsBothOutputs(); break;
+        case 2: _t->missingInputPreservesExistingDestination(); break;
+        case 3: _t->collidingOutputRefusedAndSecondSourceSurvives(); break;
+        case 4: { PageGeometry _r = _t->diskGeometry((*reinterpret_cast<std::add_pointer_t<QString>>(_a[1])));
+            if (_a[0]) *reinterpret_cast<PageGeometry*>(_a[0]) = std::move(_r); }  break;
+        case 5: _t->interactiveEditAfterSuccessfulBatch(); break;
+        case 6: _t->interactiveEditAfterPartialBatch(); break;
+        case 7: _t->interactiveEditAfterFailedBatch(); break;
+        case 8: _t->vanishedActiveDocumentNeverLeavesEngineOnCandidate(); break;
+        default: ;
+        }
+    }
+}
+
+const QMetaObject *TestBatesBatchSafety::metaObject() const
+{
+    return QObject::d_ptr->metaObject ? QObject::d_ptr->dynamicMetaObject() : &staticMetaObject;
+}
+
+void *TestBatesBatchSafety::qt_metacast(const char *_clname)
+{
+    if (!_clname) return nullptr;
+    if (!strcmp(_clname, qt_staticMetaObjectStaticContent<qt_meta_tag_ZN20TestBatesBatchSafetyE_t>.strings))
+        return static_cast<void*>(this);
+    return QObject::qt_metacast(_clname);
+}
+
+int TestBatesBatchSafety::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
+{
+    _id = QObject::qt_metacall(_c, _id, _a);
+    if (_id < 0)
+        return _id;
+    if (_c == QMetaObject::InvokeMetaMethod) {
+        if (_id < 9)
+            qt_static_metacall(this, _c, _id, _a);
+        _id -= 9;
+    }
+    if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
+        if (_id < 9)
+            *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType();
+        _id -= 9;
+    }
+    return _id;
+}
+QT_WARNING_POP
