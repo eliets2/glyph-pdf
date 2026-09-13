@@ -10,7 +10,13 @@
 //   * the sandbox has a 16 MiB memory cap, a hard interrupt deadline and NO
 //     host-I/O capability; egress verbs (submitForm/mailDoc/...) are recorded,
 //     never executed;
-//   * cyclic /CO terminates (each field calculated at most once per cascade).
+//   * cyclic /CO terminates (each field calculated at most once per cascade);
+//   * keyboard TAB order (page /Annots + /Tabs /W) and CALCULATION order (the
+//     AcroForm /CO array) are separate concepts — a tab-order edit never
+//     rewrites /CO, and the cascade still computes in the author's /CO order
+//     (R18(b));
+//   * an aborted cascade's runtime is DISCARDED — no hostile global state
+//     bleeds into the next operation (R18(d)).
 //
 // Golden values for the AF shim were pinned against the ported pdf.js
 // reference running under quickjs-ng 0.15.0 (qjs), 2026-09-09.
@@ -25,6 +31,7 @@
 #include <QTemporaryDir>
 #include <QFile>
 #include <QDir>
+#include <QCryptographicHash>
 #include <QPdfWriter>
 #include <QPainter>
 #include <QJsonDocument>
@@ -66,6 +73,110 @@ QString fieldValueOf(const PoDoFo::PdfField& field)
         return QString::fromUtf8(v->GetString().GetString().data(),
                                  static_cast<qsizetype>(v->GetString().GetString().size()));
     return {};
+}
+
+// Field name for an object reference (merged field/widget or /Kids widget);
+// empty when the reference is not a known field (non-widget annotation).
+QString fieldNameByRef(const PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfReference& ref)
+{
+    auto* acroForm = doc.GetAcroForm();
+    if (!acroForm) return {};
+    for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
+        auto& f = acroForm->GetFieldAt(i);
+        if ((f.GetObject)().GetIndirectReference() == ref)
+            return QString::fromStdString(f.GetFullName());
+        if (const PoDoFo::PdfObject* kids = f.GetDictionary().FindKey("Kids");
+            kids && kids->IsArray()) {
+            for (const auto& kid : kids->GetArray())
+                if (kid.IsReference() && kid.GetReference() == ref)
+                    return QString::fromStdString(f.GetFullName());
+        }
+    }
+    return {};
+}
+
+// The AcroForm /CO calculation order as a FIELD-NAME sequence on disk.
+QStringList coNameSequenceOf(const QString& path)
+{
+    QStringList names;
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(path.toUtf8().constData());
+        auto* acroForm = doc.GetAcroForm();
+        if (!acroForm) return names;
+        const PoDoFo::PdfObject* co = acroForm->GetDictionary().FindKey("CO");
+        if (!co || !co->IsArray()) return names;
+        for (const auto& item : co->GetArray()) {
+            if (!item.IsReference()) { names << QStringLiteral("<direct>"); continue; }
+            const QString n = fieldNameByRef(doc, item.GetReference());
+            names << (n.isEmpty() ? QStringLiteral("<dangling>") : n);
+        }
+    } catch (const PoDoFo::PdfError&) {}
+    return names;
+}
+
+// Page 0's widget-annotation order as field names ("<nonfield>" for every
+// annotation that is not a known form widget) — the keyboard tab order.
+QStringList page0AnnotNameSequence(const QString& path)
+{
+    QStringList names;
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(path.toUtf8().constData());
+        const PoDoFo::PdfObject* annots = doc.GetPages().GetPageAt(0).GetDictionary().FindKey("Annots");
+        if (!annots || !annots->IsArray()) return names;
+        for (const auto& item : annots->GetArray()) {
+            if (!item.IsReference()) { names << QStringLiteral("<direct>"); continue; }
+            const QString n = fieldNameByRef(doc, item.GetReference());
+            names << (n.isEmpty() ? QStringLiteral("<nonfield>") : n);
+        }
+    } catch (const PoDoFo::PdfError&) {}
+    return names;
+}
+
+// Page 0's /Tabs declaration ("" when absent).
+QString page0TabsValue(const QString& path)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(path.toUtf8().constData());
+        const PoDoFo::PdfObject* tabs = doc.GetPages().GetPageAt(0).GetDictionary().FindKey("Tabs");
+        if (tabs && tabs->IsName())
+            return QString::fromLatin1(tabs->GetName().GetString().data(),
+                                       qsizetype(tabs->GetName().GetString().size()));
+    } catch (const PoDoFo::PdfError&) {}
+    return {};
+}
+
+// Replaces the page-0 /Tabs declaration (fixture helper for author-declared
+// tab orders). Saves to `out` (a NEW path — never same-file).
+QString withTabsDeclaration(const QString& src, const QString& out, const char* tabs)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(src.toUtf8().constData());
+        doc.GetPages().GetPageAt(0).GetDictionary().AddKey(PoDoFo::PdfName("Tabs"),
+                                                           PoDoFo::PdfName(tabs));
+        doc.Save(out.toUtf8().constData());
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "withTabsDeclaration fixture failed:" << e.what();
+        return {};
+    }
+    return out;
+}
+
+QString sha256OfFile(const QString& path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return {};
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    char buf[65536];
+    while (true) {
+        const qint64 n = f.read(buf, sizeof(buf));
+        if (n <= 0) break;
+        hash.addData(QByteArrayView(buf, int(n)));
+    }
+    return QString::fromLatin1(hash.result().toHex());
 }
 
 } // namespace
@@ -313,6 +424,20 @@ private slots:
     void cyclicCalculationOrderTerminates();
     void revertVerifyDisabledExecutionIsPreFixState();
     void capabilityRegistryDisclosesFormJavaScript();
+
+    // ── R18(b): keyboard TAB order vs CALCULATION order ──────────────────────
+    // The two orders are different PDF concepts (/Annots + /Tabs /W vs the
+    // AcroForm /CO array) and must be pinned where they DIFFER.
+
+    void tabOrderReordersWidgetsButNeverTouchesCalculationOrder();
+    void tabOrderRespectsAuthorTabsDeclaration();
+    void tabOrderWithNoMatchingFieldIsRefusedAndKeepsBytes();
+
+    // ── R18(d): runtime closure after an aborted cascade ─────────────────────
+    // A timed-out/aborted cascade's runtime is DISCARDED — no hostile global
+    // state (a replaced end-event helper) may bleed into the next operation.
+
+    void abortedCascadeDiscardsRuntimeNoStateBleedsIntoNextRun();
 };
 
 void TestFormJsCalc::goldenNumberFormat()
@@ -1005,6 +1130,154 @@ void TestFormJsCalc::capabilityRegistryDisclosesFormJavaScript()
     QVERIFY(!c.whyNot.isEmpty());
     QVERIFY(!c.alternative.isEmpty());
 #endif
+}
+
+// ── R18(b): keyboard tab order vs calculation order ─────────────────────────
+
+void TestFormJsCalc::tabOrderReordersWidgetsButNeverTouchesCalculationOrder()
+{
+    // A real form where the two orders DIFFER: the author's /CO dependency
+    // order is line1 → line2 → total, while the user re-orders TABS as
+    // total → qty1 → line2. After the tab-order edit:
+    //   * the page's widget annotations carry the requested tab order
+    //     (declared as PDF 2.0 /Tabs /W — widget order);
+    //   * /CO is EXACTLY what the author wrote — a tab edit may never change
+    //     WHEN dependent fields recompute;
+    //   * and the cascade still computes correctly on the edited document
+    //     (the old implementation overwrote /CO with the tab order, which made
+    //     `total` compute FIRST, on stale line items).
+    const QString form = makeOrderForm(QStringLiteral("order-tab-vs-co.pdf"));
+    QVERIFY(!form.isEmpty());
+
+    const QStringList tabRequest = {
+        QStringLiteral("total"), QStringLiteral("qty1"), QStringLiteral("line2")
+    };
+    FormManager fm;
+    QVERIFY(fm.setTabOrder(form, tabRequest, form));
+
+    // Tab order: the requested widgets occupy the front of page 0's /Annots in
+    // request order (everything else keeps its original relative order behind
+    // them), declared as /Tabs /W on this previously-undeclared page.
+    const QStringList annots = page0AnnotNameSequence(form);
+    QCOMPARE(annots.mid(0, tabRequest.size()), tabRequest);
+    QCOMPARE(page0TabsValue(form), QStringLiteral("W"));
+
+    // Calculation order: untouched.
+    QCOMPARE(coNameSequenceOf(form),
+             (QStringList{ QStringLiteral("line1"), QStringLiteral("line2"), QStringLiteral("total") }));
+
+    // The cascade on the tab-reordered document still computes in /CO order:
+    // total == (5×2) + (3×4) = 22, never a stale value computed before its
+    // dependencies.
+    const QString out = m_dir.path() + QStringLiteral("/order-tab-vs-co-out.pdf");
+    QList<FormJsFailure> failures;
+    QVERIFY(fillAndFill(form,
+                        { { QStringLiteral("qty1"), QStringLiteral("5") },
+                          { QStringLiteral("price1"), QStringLiteral("2") },
+                          { QStringLiteral("qty2"), QStringLiteral("3") },
+                          { QStringLiteral("price2"), QStringLiteral("4") } },
+                        out, &failures));
+    QVERIFY2(failures.isEmpty(), qPrintable(failureNames(failures).join(QStringLiteral(", "))));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("line1")), QStringLiteral("10"));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("line2")), QStringLiteral("12"));
+    QCOMPARE(pdfFieldValue(out, QStringLiteral("total")), QStringLiteral("22"));
+
+    // And the saved artifact's own /CO still reads line1 → line2 → total via
+    // the independent qpdf parser (second read path).
+    QCOMPARE(qpdfFieldValue(out, QStringLiteral("total")), QStringLiteral("22"));
+}
+
+void TestFormJsCalc::tabOrderRespectsAuthorTabsDeclaration()
+{
+    // A page whose author already declared a tab order (/S structure order —
+    // e.g. an accessibility-authored document) keeps that declaration: the
+    // widget reorder lands in /Annots, but /Tabs is NEVER overwritten.
+    const QString base = makeOrderForm(QStringLiteral("order-tabs-declared-base.pdf"));
+    QVERIFY(!base.isEmpty());
+    const QString form = withTabsDeclaration(base,
+        m_dir.path() + QStringLiteral("/order-tabs-declared.pdf"), "S");
+    QVERIFY(!form.isEmpty());
+
+    FormManager fm;
+    QVERIFY(fm.setTabOrder(form, { QStringLiteral("total"), QStringLiteral("qty1") }, form));
+
+    // Widgets reordered, author's /Tabs preserved, /CO untouched.
+    const QStringList annots = page0AnnotNameSequence(form);
+    QCOMPARE(annots.mid(0, 2), (QStringList{ QStringLiteral("total"), QStringLiteral("qty1") }));
+    QCOMPARE(page0TabsValue(form), QStringLiteral("S"));
+    QCOMPARE(coNameSequenceOf(form),
+             (QStringList{ QStringLiteral("line1"), QStringLiteral("line2"), QStringLiteral("total") }));
+}
+
+void TestFormJsCalc::tabOrderWithNoMatchingFieldIsRefusedAndKeepsBytes()
+{
+    // An operation that would match no field is a silent no-op in the making:
+    // it must be REFUSED before any byte changes (the old implementation
+    // "succeeded" while rewriting /CO to a degenerate order).
+    const QString form = makeOrderForm(QStringLiteral("order-refused.pdf"));
+    QVERIFY(!form.isEmpty());
+    const QString bytesBefore = sha256OfFile(form);
+
+    FormManager fm;
+    QVERIFY2(!fm.setTabOrder(form, { QStringLiteral("no_such_field") }, form),
+             "a tab-order request matching no field must be refused");
+    QCOMPARE(sha256OfFile(form), bytesBefore);
+    // Nothing about the document's orders changed.
+    QCOMPARE(coNameSequenceOf(form),
+             (QStringList{ QStringLiteral("line1"), QStringLiteral("line2"), QStringLiteral("total") }));
+    QCOMPARE(page0TabsValue(form), QString());
+}
+
+// ── R18(d): runtime closure after an aborted cascade ────────────────────────
+
+void TestFormJsCalc::abortedCascadeDiscardsRuntimeNoStateBleedsIntoNextRun()
+{
+    // Cascade 1 runs on a document whose /AA /C script replaces the shim's
+    // end-event helper with an infinite loop: the whole-operation deadline
+    // aborts the cascade (user value commits, downstream disclosed). The
+    // runner builds ONE runtime per operation and discards it — the NEXT
+    // operation must therefore behave as a clean room:
+    //   * a subsequent cascade on a clean document computes fully (no leaked
+    //     hostile helper, no leaked logs/blocked audit entries);
+    //   * a format evaluation (fresh sandbox by contract) still works.
+    // If a future change hoists the sandbox into shared/session state, the
+    // leaked loop helper times out every event below and this test fails.
+    const QString hostile = makeFormPdf(QStringLiteral("closure-hostile.pdf"),
+    {
+        { QStringLiteral("qty1"), {}, {}, {} },
+        { QStringLiteral("blocker"),
+          QStringLiteral("globalThis.__gpEndEvent = function () { while (true) {} }; event.value = 'x';"), {}, {} },
+        { QStringLiteral("fmt"),
+          {}, QStringLiteral("AFNumber_Format(2, 0, 0, 0, \"$\", true);"), QStringLiteral("1234.5") },
+    },
+    { QStringLiteral("blocker") });
+    QVERIFY(!hostile.isEmpty());
+
+    const QString hostileOut = m_dir.path() + QStringLiteral("/closure-hostile-out.pdf");
+    QList<FormJsFailure> first;
+    QVERIFY(fillAndFill(hostile, { { QStringLiteral("qty1"), QStringLiteral("1") } }, hostileOut, &first));
+    QVERIFY2(first.count() >= 1, "the hostile cascade must abort with disclosed failures");
+
+    // Cascade 2 — a CLEAN document through the same runner must compute fully.
+    const QString clean = makeOrderForm(QStringLiteral("closure-clean.pdf"));
+    QVERIFY(!clean.isEmpty());
+    const QString cleanOut = m_dir.path() + QStringLiteral("/closure-clean-out.pdf");
+    QList<FormJsFailure> second;
+    QVERIFY(fillAndFill(clean,
+                        { { QStringLiteral("qty1"), QStringLiteral("5") },
+                          { QStringLiteral("price1"), QStringLiteral("2") },
+                          { QStringLiteral("qty2"), QStringLiteral("3") },
+                          { QStringLiteral("price2"), QStringLiteral("4") } },
+                        cleanOut, &second));
+    QVERIFY2(second.isEmpty(), qPrintable(failureNames(second).join(QStringLiteral(", "))));
+    QCOMPARE(pdfFieldValue(cleanOut, QStringLiteral("total")), QStringLiteral("22"));
+    QCOMPARE(qpdfFieldValue(cleanOut, QStringLiteral("total")), QStringLiteral("22"));
+
+    // Format evaluation after the aborted cascade — fresh sandbox, correct
+    // display value, no hostile-hook interference.
+    FormManager fm2;
+    const QString formatted = fm2.formatFieldValue(hostileOut, QStringLiteral("fmt"));
+    QCOMPARE(formatted, QStringLiteral("$1,234.50"));
 }
 
 QTEST_MAIN(TestFormJsCalc)
