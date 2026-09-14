@@ -25,7 +25,7 @@
 | L5 | Proof ignores /Rotate + MediaBox origin → false `VerifiedNoTextInRegion` | **CONFIRMED** (runtime) | `TestSep13LeadRedactionProof` |
 | L6 | Proof recall = source-side extraction only; pack wording overclaims | **CONFIRMED** (structural; runtime fixture not forced) | §L6 |
 | L7 | Proof attribution blind to annotation/form strings → false PASS | **CONFIRMED** (runtime, mixed-page false PASS) | `TestSep13LeadRedactionProof` |
-| L8 | Overlay label Y ignores MediaBox origin | **CONFIRMED** (runtime) + **ESCALATED**: excision itself misses on offset pages | `TestSep13LeadRedactionProof` |
+| L8 | Overlay label Y ignores MediaBox origin | **CONFIRMED** (runtime) + **ESCALATED → DATA-LOSS-CLASS**: excision itself misses on offset pages (composes with L5+L7 into silent certified secret loss — NOT LOW) | `TestSep13LeadRedactionProof` |
 | L9 | Merge failed-save appends phantom N+1th result + false successes | **CONFIRMED** (runtime) | `TestSep13LeadBatchMerge` |
 | L10 | Cancelled merge reports successes pointing at never-written output | **CONFIRMED** (runtime) | `TestSep13LeadBatchMerge` |
 | L11 | `onRejectResults`/`onReOcrRegion` lack the ReviewState guard | **CONFIRMED** (runtime) | `TestSep13LeadOcrGuards` |
@@ -209,6 +209,26 @@ PoDoFo redaction rect is flipped with the same Height-only math), the operation
 still reports `Completed`, and the secret survives. Combined with L5 (the proof
 certifies the region clean) this is user-data-loss with a false-success report —
 the highest-severity measured outcome of this lane.
+
+**Severity reclassified: NOT LOW — user-DATA-LOSS-CLASS false success**
+(final docs commit of the redactfix lane, 2026-09-14). The original LOW rating
+assumed a cosmetic overlay offset. Runtime measurement composition L5+L7+L8
+shows the composed defect class: on offset-origin pages the excision silently
+misses (L8) while the operation reports `Completed`, and the proof certifies
+the surviving region clean (L5); on annotation-resident secrets the proof can
+certify a clean PASS outright (L7 mixed fixture). Every leg erases the only
+signal the user had — the composition is a silent, certified loss of secret
+material, not a display glitch.
+
+**Remediation status (redactfix lane, implemented-awaiting-review, never
+"verified"):** L5 `1e2ab02` (shared `PageSpace` viewer→user transform in the
+proof path), L8 `938401b` (same transform for excision rects + burn-in overlay
+label), L7 `f2a9d06` (annotation/form-field strings become attribution
+targets; object-table sweep no longer aborts on object-stream-resident
+strings), L6 `811938d` (pack disclaimer states the extraction recall limit
+honestly). Contract: the `TestSep13LeadRedactionProof` repros (1f87c4c) are
+green at the fix tip and were re-confirmed to fail against the pre-fix tree
+by scoped revert.
 
 ## L9 — Merge failed-save phantom result + false successes — CONFIRMED (runtime)
 
