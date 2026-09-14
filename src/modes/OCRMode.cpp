@@ -932,6 +932,10 @@ bool OCRMode::applyWordCorrection(int stableId, const QString& text)
     // The source box (rec.boundingBox) is deliberately untouched, and the
     // model confidence is NOT rewritten (provenance stays separate from
     // review status — corrections never become 100%).
+    // M5 (SEP13): the scan-canvas overlay must reflect the edit — without
+    // this refresh the canvas kept showing the pre-edit words until some
+    // state transition re-rendered it.
+    if (m_scanCanvas) m_scanCanvas->setWords(m_reviewWords);
     updateConfidenceOverlay();
     updateWordInspector();
     updateNavigationButtons();   // a correction keeps LOW words uncertain
@@ -944,6 +948,9 @@ bool OCRMode::markWordDeleted(int stableId)
     OcrReviewedWord& rec = m_reviewWords[stableId];
     rec.deleted = true;
     rec.reviewedText.clear();
+    // M5 (SEP13): refresh the overlay so the deleted word leaves the canvas
+    // immediately (same stale-overlay gap as applyWordCorrection).
+    if (m_scanCanvas) m_scanCanvas->setWords(m_reviewWords);
     updateConfidenceOverlay();
     updateWordInspector();
     updateNavigationButtons();   // removed words leave the uncertain walk
