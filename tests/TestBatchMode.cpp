@@ -487,13 +487,20 @@ private slots:
 
         // The GUI thread stays free: pump the event loop and watch per-item
         // progress arrive WHILE the merge is still running.
+        // SEP13 leads 9+10: the mid-run instrument is batchProgress(int),
+        // not successCount. Result publication for OpMerge is deferred until
+        // the output's fate is known (streaming per-input successes before
+        // the save WAS the false-success defect this lane fixed), while the
+        // worker's own progress still streams per file boundary — preserving
+        // exactly the async property this probe exists to pin.
+        QSignalSpy progressSpy(&bm, &gp::BatchMode::batchProgress);
         int observedMidRun = 0;
         int waited = 0;
-        while (bm.successCount() < 3 && bm.isBatchRunning() && waited < 10000) {
+        while (progressSpy.count() < 3 && bm.isBatchRunning() && waited < 10000) {
             QTest::qWait(10);
             waited += 10;
-            if (bm.successCount() > observedMidRun)
-                observedMidRun = bm.successCount();
+            if (progressSpy.count() > observedMidRun)
+                observedMidRun = progressSpy.count();
         }
         QVERIFY2(observedMidRun > 0,
                  "no per-item progress was observed while the merge ran — "
@@ -547,23 +554,28 @@ private slots:
         bm.setAppContext(&ctx);
         bm.addFilesForTest(inputs);
         bm.setOperationForTest(4); // OpMerge
-        // 120ms per boundary: the first item is appended and accounted while
-        // the worker is still grinding through the rest — cancel lands mid-run
+        // 120ms per boundary: the first item crosses its boundary while the
+        // worker is still grinding through the rest — cancel lands mid-run
         // deterministically at a file boundary.
         bm.setMergeBoundaryHookForTest([](int) { QThread::msleep(120); });
 
         QSignalSpy finishedSpy(&bm, &gp::BatchMode::batchFinished);
+        QSignalSpy progressSpy(&bm, &gp::BatchMode::batchProgress);
         bm.onRunBatch();
         QVERIFY2(bm.isBatchRunning(),
                  "merge must run asynchronously (isBatchRunning() false right after staging)");
 
-        // Wait until at least one file boundary produced a result, then cancel.
+        // Wait until at least one file boundary passed, then cancel.
+        // SEP13 leads 9+10: the wait instrument is batchProgress(int), not
+        // successCount — merge results are published only once the output's
+        // fate is known, so mid-run success accounting was the false-success
+        // defect this lane fixed.
         int waited = 0;
-        while (bm.successCount() < 1 && waited < 5000) {
+        while (progressSpy.count() < 1 && bm.isBatchRunning() && waited < 5000) {
             QTest::qWait(10);
             waited += 10;
         }
-        QVERIFY2(bm.successCount() >= 1,
+        QVERIFY2(progressSpy.count() >= 1,
                  "no per-item progress observed — the merge blocked the GUI thread");
         bm.onCancelBatch();
 
@@ -573,11 +585,10 @@ private slots:
             QVERIFY2(finishedSpy.wait(10000), "cancelled merge did not finish within 10 seconds");
         QVERIFY2(!bm.isBatchRunning(), "batch still running after batchFinished");
 
-        // Cancellation stopped the merge before all inputs were appended…
-        QVERIFY2(bm.successCount() < inputs.size(),
-            qPrintable(QString("expected cancel to stop the merge before all %1 files; "
-                               "%2 were appended")
-                           .arg(inputs.size()).arg(bm.successCount())));
+        // SEP13 lead 10 contract: a cancelled merge writes no output, so NO
+        // input may be counted as a success against it (the old pin accepted
+        // partial successes — exactly the confirmed false-success defect).
+        QCOMPARE(bm.successCount(), 0);
         // …the un-appended tail is reported as not processed…
         QVERIFY2(bm.remainingCount() > 0,
                  "files neither appended nor failed must be reported as not processed");
