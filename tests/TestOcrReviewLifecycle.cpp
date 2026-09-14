@@ -214,7 +214,18 @@ private slots:
         QVERIFY2(blocker.contains("read-only"), "refusal must carry the read-only reason");
 
         const QString alias = dir.filePath("RO-SOURCE.PDF");
-        QVERIFY(!EditController::ocrAcceptWriteBlocker(true, src, alias).isEmpty());
+        // R22 (2026-09-14): the case-alias refusal is a CASE-INSENSITIVE
+        // filesystem contract. On Windows the alias's canonicalFilePath()
+        // resolves to the existing ro-source.pdf so the blocker fires; on a
+        // case-sensitive filesystem it stays empty and RO-SOURCE.PDF is a
+        // genuinely different file — no refusal is the correct answer there
+        // (the Save-As route stays open). Pin the honest behaviour for BOTH
+        // filesystem semantics instead of assuming NTFS.
+        if (!QFileInfo(alias).canonicalFilePath().isEmpty()) {
+            QVERIFY(!EditController::ocrAcceptWriteBlocker(true, src, alias).isEmpty());
+        } else {
+            QVERIFY(EditController::ocrAcceptWriteBlocker(true, src, alias).isEmpty());
+        }
 
         // Read-only + a DIFFERENT destination: the Save-As route stays open.
         QVERIFY(EditController::ocrAcceptWriteBlocker(
