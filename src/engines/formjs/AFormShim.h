@@ -19,11 +19,17 @@ namespace gp::formjs {
 //   AFParseDateEx, AFMergeChange, AFMakeNumber, AFMakeArrayFromList,
 //   AFExtractNums. The util subset (printf/printd/scand) backs them.
 //
-// Deliberately NOT in the Phase 1 shim (P2/P3 hooks, never stubbed — the
+// R18(f) Keystroke tier (the /AA /K event is real): the willCommit-gated
+//   AFDate_Keystroke/Ex, AFTime_Keystroke/Ex, AFNumber_Keystroke,
+//   AFPercent_Keystroke (pdf.js port — no-ops while typing, rc=false on an
+//   unparseable commit). AFMergeChange implements the Acrobat merge (the
+//   change spliced into event.value at [selStart,selEnd)).
+//
+// Deliberately NOT in the shim (P2/P3 hooks, never stubbed — the
 // scripts see them as absent, per design doc §3.1 "absent, not stubbed"):
-//   Keystroke family (AF*_Keystroke*) → Phase 2 /AA /K events
-//   AFRange_Validate                  → Phase 2 /AA /V events
-//   AFSpecial_*                       → later (same phase as Keystroke)
+//   AFRange_Validate                  → /AA /V authors use plain scripts
+//   AFSpecial_Keystroke/Ex, AFExactMatch → absent until a faithful port
+//                                        exists (no mask machinery here)
 //
 // Host contract installed by the shim (all names are globalThis properties):
 //   __gpFieldValues   plain map fieldName -> current /V string (host-provided)

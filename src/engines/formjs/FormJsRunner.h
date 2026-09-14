@@ -107,6 +107,38 @@ public:
                                             const QString& proposedValue,
                                             int eventDeadlineMs = 250);
 
+    // ── P2 (R18f): the Keystroke event — the Qt line-edit layer ──────────────
+    //
+    // Runs the named field's /AA /K (Keystroke) script for ONE text-changing
+    // edit BEFORE it takes effect (Acrobat: the event fires as the user types,
+    // willCommit=false). `valueBefore` is the field text BEFORE the edit,
+    // `change` the inserted/replaced text, [selStart, selEnd) the range of
+    // `valueBefore` it replaces — the shim's AFMergeChange splices exactly
+    // this (the host IS the "app EventDispatcher" pdf.js delegates to).
+    // The WHOLE operation runs under the caller's `eventDeadlineMs` budget.
+    // Host decision table:
+    //   * no runnable /AA /K (the common case) or no engine → ran=false, the
+    //     typed text stands (the app authored no gating script);
+    //   * ok + rc=true → allowed; when the script TRANSFORMED event.value
+    //     (Acrobat's filtered-keystroke idiom, e.g. masks/auto-format),
+    //     valueToApply carries the text the field must show instead;
+    //   * rc=false → NOT allowed (kind "rejected"): the keystroke is
+    //     rejected — the edit never took (the host reverts the line edit);
+    //   * any script failure (timeout/memory/syntax/exception) → NOT allowed
+    //     (fail closed): a partially gated edit must never take.
+    struct KeystrokeOutcome {
+        bool ran = false;
+        bool allowed = true;
+        QString valueToApply;   // non-empty = the script transformed the text
+        FieldJsFailure failure;
+    };
+    static KeystrokeOutcome runKeystrokeEvent(PoDoFo::PdfMemDocument& doc,
+                                              const QString& name,
+                                              const QString& valueBefore,
+                                              const QString& change,
+                                              int selStart, int selEnd,
+                                              int eventDeadlineMs = 250);
+
     // Inspection helpers (no execution):
     static bool fieldHasActionScript(const PoDoFo::PdfField& field, char actionKey);
     static bool hasCalculateEntries(PoDoFo::PdfMemDocument& doc); // non-empty /CO
@@ -117,12 +149,9 @@ public:
     static bool writeFieldValue(PoDoFo::PdfMemDocument& doc, const QString& name,
                                 const QString& value);
 
-    // ── P2/P3 hooks (present, deliberately unimplemented — no stubs) ────────
-    // Phase 2: runKeystrokeEvent    — /AA /K in the Qt line-edit layer
-    //                                 (AFMergeChange semantics). Validate /AA /V
-    //                                 is IMPLEMENTED above (R18f).
-    // Phase 3: runDocumentOpenAction/NamedScripts — consent-gated, per-document
-    //                                 session runtime with an audit surface.
+    // ── P3 hooks (present, deliberately unimplemented — no stubs) ───────────
+    // runDocumentOpenAction/NamedScripts — consent-gated, per-document
+    // session runtime with an audit surface.
 };
 
 } // namespace gp::formjs

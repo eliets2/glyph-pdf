@@ -3752,6 +3752,43 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormStaleDisclosure.cpp")
     set_tests_properties(TestFormStaleDisclosure PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 240 LABELS "unit;forms;form-js;persistence;qt;headless")
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormKeystroke.cpp")
+    add_executable(TestFormKeystroke
+        tests/TestFormKeystroke.cpp
+    )
+    target_include_directories(TestFormKeystroke PRIVATE src tests)
+    target_link_libraries(TestFormKeystroke PRIVATE
+        pdfws_engines pdfws_core pdfws_commands pdfws_ui podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET TestFormKeystroke POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestFormKeystroke>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestFormKeystroke>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFormKeystroke"
+    )
+    if(WIN32)
+        add_custom_command(TARGET TestFormKeystroke POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestFormKeystroke>/libpodofo.dll"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestFormKeystroke"
+        )
+    endif()
+    if(QUICKJS_RUNTIME_DLL AND EXISTS "${QUICKJS_RUNTIME_DLL}")
+        add_custom_command(TARGET TestFormKeystroke POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${QUICKJS_RUNTIME_DLL}"
+                "$<TARGET_FILE_DIR:TestFormKeystroke>"
+            COMMENT "Deploying quickjs-ng runtime DLL for TestFormKeystroke"
+        )
+    endif()
+    add_test(NAME TestFormKeystroke COMMAND TestFormKeystroke)
+    set_tests_properties(TestFormKeystroke PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 240 LABELS "unit;forms;form-js;qt;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEngineSave.cpp")
     add_executable(TestEngineSave
         tests/TestEngineSave.cpp

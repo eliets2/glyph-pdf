@@ -64,6 +64,10 @@ public:
     bool fieldHasCalculateScript(const QString &pdfFilePath, const QString &fieldName) override;
     bool fieldHasFormatScript(const QString &pdfFilePath, const QString &fieldName) override;
     QString formatFieldValue(const QString &pdfFilePath, const QString &fieldName, FormJsFailure *failure = nullptr) override;
+    // R18(f): the /AA /K Keystroke event for the Qt line-edit layer.
+    FormKeystrokeResult runKeystrokeEvent(const QString &pdfFilePath, const QString &fieldName,
+                                          const QString &valueBefore, const QString &change,
+                                          int selStart, int selEnd, FormJsFailure *failure = nullptr) override;
 
     QList<FieldSuggestion> autoDetectFields(const QString &pdfFilePath, int pageIndex) override;
 

@@ -56,6 +56,7 @@ using gp::formjs::FormJsSandbox;
 using gp::formjs::FormJsRunner;
 using gp::formjs::CascadeReport;
 using gp::formjs::FieldJsFailure;
+using gp::formjs::JsEvalResult;
 
 namespace {
 
@@ -65,6 +66,7 @@ struct FieldSpec {
     QString formatScript; // /AA /F body (may be empty)
     QString initial;      // initial /V (may be empty)
     QString validateScript; // /AA /V body (may be empty; R18f)
+    QString keystrokeScript; // /AA /K body (may be empty; R18f)
 };
 
 QString fieldValueOf(const PoDoFo::PdfField& field)
@@ -221,7 +223,7 @@ private:
                 auto& field = page.CreateField<PoDoFo::PdfTextBox>(spec.name.toStdString(), rect);
                 auto* textBox = dynamic_cast<PoDoFo::PdfTextBox*>(&field);
                 textBox->SetText(PoDoFo::PdfString(spec.initial.toStdString()));
-                if (!spec.calcScript.isEmpty() || !spec.formatScript.isEmpty() || !spec.validateScript.isEmpty()) {
+                if (!spec.calcScript.isEmpty() || !spec.formatScript.isEmpty() || !spec.validateScript.isEmpty() || !spec.keystrokeScript.isEmpty()) {
                     PoDoFo::PdfDictionary aa;
                     if (!spec.calcScript.isEmpty()) {
                         PoDoFo::PdfDictionary action;
@@ -240,6 +242,12 @@ private:
                         action.AddKey(PoDoFo::PdfName("S"), PoDoFo::PdfName("JavaScript"));
                         action.AddKey(PoDoFo::PdfName("JS"), PoDoFo::PdfString(spec.validateScript.toStdString()));
                         aa.AddKey(PoDoFo::PdfName("V"), action);
+                    }
+                    if (!spec.keystrokeScript.isEmpty()) {
+                        PoDoFo::PdfDictionary action;
+                        action.AddKey(PoDoFo::PdfName("S"), PoDoFo::PdfName("JavaScript"));
+                        action.AddKey(PoDoFo::PdfName("JS"), PoDoFo::PdfString(spec.keystrokeScript.toStdString()));
+                        aa.AddKey(PoDoFo::PdfName("K"), action);
                     }
                     field.GetDictionary().AddKey(PoDoFo::PdfName("AA"), aa);
                 }
@@ -455,6 +463,23 @@ private slots:
     void validateTransformsTheValueAcrobatSemantics();
     void validateTimeoutBlocksCommitAndTheRestStillFills();
     void fillWithoutValidateScriptNeverBlocks();
+
+    // ── R18(f): the Keystroke (/AA /K) event — the Qt line-edit layer ────────
+    // The event fires for ONE text-changing edit BEFORE it takes effect:
+    // event.value = the text before the keystroke, event.change = the edit,
+    // [selStart, selEnd) the replaced range (what AFMergeChange splices).
+    // rc=false or ANY script failure → the edit is rejected (fail closed);
+    // a transformed event.value is what the field shows.
+
+    void afMergeChangeMergesChangeIntoValueAtTheSelectionRange();
+    void keystrokeRcFalseRejectsTheChange();
+    void keystrokeScriptTransformsTheProposal();
+    void keystrokeScriptLeftUntouchedLeavesTypingAlone();
+    void keystrokeEventCarriesWillCommitFalseChangeAndSelection();
+    void keystrokeTimeoutFailsClosed();
+    void keystrokeWithoutScriptNeverRunsAndTypingStands();
+    void keystrokeKeystrokeFamilyIsPresentAndWillCommitGated();
+    void keystrokeEgressVerbsAreRecordedNeverExecuted();
 
     // ── R18(d): runtime closure after an aborted cascade ─────────────────────
     // A timed-out/aborted cascade's runtime is DISCARDED — no hostile global
@@ -1503,6 +1528,290 @@ void TestFormJsCalc::fillWithoutValidateScriptNeverBlocks()
     QVERIFY(fillAndFill(form, { { QStringLiteral("qty"), QStringLiteral("42") } }, out, &failures));
     QVERIFY2(failures.isEmpty(), qPrintable(failureNames(failures).join(QStringLiteral(", "))));
     QCOMPARE(pdfFieldValue(out, QStringLiteral("qty")), QStringLiteral("42"));
+}
+
+// ── R18(f): the Keystroke (/AA /K) event — the Qt line-edit layer ────────────
+
+void TestFormJsCalc::afMergeChangeMergesChangeIntoValueAtTheSelectionRange()
+{
+    // The host IS the "app EventDispatcher" pdf.js delegates keystroke
+    // merging to: AFMergeChange splices `change` into `value` at
+    // [selStart, selEnd); a commit event's value IS the final text.
+    FormJsSandbox sandbox;
+    QVERIFY(sandbox.isValid());
+    QVERIFY(sandbox.installShim(nullptr));
+    QString out, err;
+    // Mid-string insertion at the cursor.
+    QVERIFY2(sandbox.evalHelper(QStringLiteral(
+                 "AFMergeChange({ value: 'ab', change: 'X', selStart: 1, selEnd: 1, willCommit: false })"),
+                 &out, &err), qPrintable(err));
+    QCOMPARE(out, QStringLiteral("aXb"));
+    // Selection replacement (select 'b' and type 'Y').
+    QVERIFY2(sandbox.evalHelper(QStringLiteral(
+                 "AFMergeChange({ value: 'ab', change: 'Y', selStart: 1, selEnd: 2, willCommit: false })"),
+                 &out, &err), qPrintable(err));
+    QCOMPARE(out, QStringLiteral("aY"));
+    // No selection given → plain concatenation (end insertion).
+    QVERIFY2(sandbox.evalHelper(QStringLiteral(
+                 "AFMergeChange({ value: 'ab', change: 'XY', willCommit: false })"),
+                 &out, &err), qPrintable(err));
+    QCOMPARE(out, QStringLiteral("abXY"));
+    // A null change (pure deletion) deletes exactly the selected range.
+    QVERIFY2(sandbox.evalHelper(QStringLiteral(
+                 "AFMergeChange({ value: 'abc', change: null, selStart: 1, selEnd: 3, willCommit: false })"),
+                 &out, &err), qPrintable(err));
+    QCOMPARE(out, QStringLiteral("a"));
+    // A commit event: the value IS the final text — the change is not merged.
+    QVERIFY2(sandbox.evalHelper(QStringLiteral(
+                 "AFMergeChange({ value: 'final', change: 'ignored', willCommit: true })"),
+                 &out, &err), qPrintable(err));
+    QCOMPARE(out, QStringLiteral("final"));
+}
+
+void TestFormJsCalc::keystrokeRcFalseRejectsTheChange()
+{
+    // Acrobat keystroke semantics: event.rc = false REJECTS the edit — here
+    // a max-length gate (merged text longer than 3 chars is refused).
+    const QString form = makeFormPdf(QStringLiteral("keystroke-reject.pdf"),
+    {
+        { QStringLiteral("qty"), {}, {}, {}, {},
+          QStringLiteral("if (AFMergeChange(event).length > 3) { event.rc = false; }") },
+    },
+    {});
+    QVERIFY(!form.isEmpty());
+
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(form.toUtf8().constData());
+        // Three characters merge to exactly 3 — allowed; nothing transformed.
+        auto r = FormJsRunner::runKeystrokeEvent(doc, QStringLiteral("qty"),
+                                                 QString(), QStringLiteral("abc"), 0, 0);
+        QVERIFY2(r.ran, "the /AA /K script is present and ran");
+        QVERIFY2(r.allowed, "the 3-char proposal must pass the length gate");
+        QVERIFY(r.valueToApply.isEmpty());
+
+        // The 4th character is REJECTED (fail closed is the host's job on
+        // failures; rc=false is the script's own rejection).
+        r = FormJsRunner::runKeystrokeEvent(doc, QStringLiteral("qty"),
+                                            QStringLiteral("abc"), QStringLiteral("d"), 3, 3);
+        QVERIFY(r.ran);
+        QVERIFY2(!r.allowed, "the 4-char proposal must be rejected by rc=false");
+        QCOMPARE(r.failure.kind, QStringLiteral("rejected"));
+        QVERIFY2(r.failure.reason.contains(QLatin1String("rc = false")), qPrintable(r.failure.reason));
+        QVERIFY(r.valueToApply.isEmpty());
+    } catch (const PoDoFo::PdfError& e) {
+        QFAIL(qPrintable(QStringLiteral("reload failed: %1").arg(QString::fromLatin1(e.what()))));
+    }
+}
+
+void TestFormJsCalc::keystrokeScriptTransformsTheProposal()
+{
+    // The filtered-keystroke idiom: event.value = AFMergeChange(event)
+    // transformed — the script's event.value is what the field must show.
+    const QString form = makeFormPdf(QStringLiteral("keystroke-transform.pdf"),
+    {
+        { QStringLiteral("code"), {}, {}, {}, {},
+          QStringLiteral("event.value = AFMergeChange(event).toUpperCase();") },
+    },
+    {});
+    QVERIFY(!form.isEmpty());
+
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(form.toUtf8().constData());
+        const auto r = FormJsRunner::runKeystrokeEvent(doc, QStringLiteral("code"),
+                                                       QStringLiteral("ab"), QStringLiteral("c"), 2, 2);
+        QVERIFY(r.ran);
+        QVERIFY2(r.allowed, "the transform script never rejects");
+        QVERIFY2(r.valueToApply == QStringLiteral("ABC"),
+                 qPrintable(QStringLiteral("the merged proposal must come back transformed, got '%1'")
+                                .arg(r.valueToApply)));
+    } catch (const PoDoFo::PdfError& e) {
+        QFAIL(qPrintable(QStringLiteral("reload failed: %1").arg(QString::fromLatin1(e.what()))));
+    }
+}
+
+void TestFormJsCalc::keystrokeScriptLeftUntouchedLeavesTypingAlone()
+{
+    // A script that reads but does not write event.value leaves the typed
+    // text standing (the seeded event.value is the pre-keystroke text; the
+    // host treats "value unchanged" as "no transform proposed").
+    const QString form = makeFormPdf(QStringLiteral("keystroke-observe.pdf"),
+    {
+        { QStringLiteral("note"), {}, {}, {}, {},
+          QStringLiteral("if (AFMergeChange(event).length > 100) { app.alert('too long'); }") },
+    },
+    {});
+    QVERIFY(!form.isEmpty());
+
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(form.toUtf8().constData());
+        const auto r = FormJsRunner::runKeystrokeEvent(doc, QStringLiteral("note"),
+                                                       QStringLiteral("hel"), QStringLiteral("l"), 3, 3);
+        QVERIFY(r.ran);
+        QVERIFY(r.allowed);
+        QVERIFY2(r.valueToApply.isEmpty(),
+                 "an observing script must not rewrite the user's typing");
+    } catch (const PoDoFo::PdfError& e) {
+        QFAIL(qPrintable(QStringLiteral("reload failed: %1").arg(QString::fromLatin1(e.what()))));
+    }
+}
+
+void TestFormJsCalc::keystrokeEventCarriesWillCommitFalseChangeAndSelection()
+{
+    // The event shape the Qt layer relies on: willCommit=false (the host owns
+    // the commit), the change text, and the replaced selection range.
+    const QString form = makeFormPdf(QStringLiteral("keystroke-shape.pdf"),
+    {
+        { QStringLiteral("f"), {}, {}, {}, {},
+          QStringLiteral("event.value = [event.willCommit, event.change, event.selStart, event.selEnd].join('|');") },
+    },
+    {});
+    QVERIFY(!form.isEmpty());
+
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(form.toUtf8().constData());
+        const auto r = FormJsRunner::runKeystrokeEvent(doc, QStringLiteral("f"),
+                                                       QStringLiteral("ab"), QStringLiteral("X"), 1, 2);
+        QVERIFY(r.ran);
+        QVERIFY(r.allowed);
+        QVERIFY2(r.valueToApply == QStringLiteral("false|X|1|2"),
+                 qPrintable(QStringLiteral("the event object must carry willCommit=false + change + "
+                                          "selection, got '%1'").arg(r.valueToApply)));
+    } catch (const PoDoFo::PdfError& e) {
+        QFAIL(qPrintable(QStringLiteral("reload failed: %1").arg(QString::fromLatin1(e.what()))));
+    }
+}
+
+void TestFormJsCalc::keystrokeTimeoutFailsClosed()
+{
+    // A looping Keystroke script hits the caller-owned whole-operation
+    // budget: fail closed (the edit is refused), classified, and fast.
+    const QString form = makeFormPdf(QStringLiteral("keystroke-timeout.pdf"),
+    {
+        { QStringLiteral("qty"), {}, {}, {}, {}, QStringLiteral("while (true) {}") },
+    },
+    {});
+    QVERIFY(!form.isEmpty());
+
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(form.toUtf8().constData());
+        QElapsedTimer clock;
+        clock.start();
+        const auto r = FormJsRunner::runKeystrokeEvent(doc, QStringLiteral("qty"),
+                                                       QString(), QStringLiteral("7"), 0, 0,
+                                                       /*eventDeadlineMs=*/100);
+        QVERIFY2(r.ran, "the /AA /K script is present and ran");
+        QVERIFY2(!r.allowed, "a looping Keystroke script must fail closed");
+        QCOMPARE(r.failure.kind, QStringLiteral("timeout"));
+        QVERIFY2(clock.elapsed() < 5000,
+                 qPrintable(QStringLiteral("keystroke deadline took %1 ms").arg(clock.elapsed())));
+    } catch (const PoDoFo::PdfError& e) {
+        QFAIL(qPrintable(QStringLiteral("reload failed: %1").arg(QString::fromLatin1(e.what()))));
+    }
+}
+
+void TestFormJsCalc::keystrokeWithoutScriptNeverRunsAndTypingStands()
+{
+    // The common case stays the common case: a field without /AA /K never
+    // runs an event for typing.
+    const QString form = makeFormPdf(QStringLiteral("keystroke-none.pdf"),
+    {
+        { QStringLiteral("qty"), {}, {}, {}, {} },
+    },
+    {});
+    QVERIFY(!form.isEmpty());
+
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(form.toUtf8().constData());
+        const auto r = FormJsRunner::runKeystrokeEvent(doc, QStringLiteral("qty"),
+                                                       QString(), QStringLiteral("42"), 0, 0);
+        QVERIFY2(!r.ran, "no /AA /K — nothing runs");
+        QVERIFY2(r.allowed, "the typed text stands");
+        QVERIFY(r.valueToApply.isEmpty());
+        // A missing field behaves the same (the gate simply does not fire).
+        const auto ghost = FormJsRunner::runKeystrokeEvent(doc, QStringLiteral("ghost"),
+                                                           QString(), QStringLiteral("x"), 0, 0);
+        QVERIFY(!ghost.ran);
+        QVERIFY(ghost.allowed);
+    } catch (const PoDoFo::PdfError& e) {
+        QFAIL(qPrintable(QStringLiteral("reload failed: %1").arg(QString::fromLatin1(e.what()))));
+    }
+}
+
+void TestFormJsCalc::keystrokeKeystrokeFamilyIsPresentAndWillCommitGated()
+{
+    // The AF*_Keystroke family the app itself authors into /AA /K
+    // (AFDate_KeystrokeEx / AFNumber_Keystroke, FormManager::addDateField/
+    // addNumericField) must be present and GATED ON willCommit: while typing
+    // (willCommit=false) they are no-ops — typing a partial date must never
+    // be rejected character-by-character. On a commit they refuse
+    // unparseable values (event.rc = false).
+    FormJsSandbox sandbox;
+    QVERIFY(sandbox.isValid());
+    QVERIFY(sandbox.installShim(nullptr));
+    QString out, err;
+    // While typing: a no-op — rc stays whatever the host seeded (true).
+    QVERIFY2(sandbox.evalHelper(QStringLiteral(
+                 "globalThis.event = { value: '2026-', willCommit: false, rc: true };"
+                 "AFDate_KeystrokeEx('yyyy-mm-dd'); globalThis.event.rc"), &out, &err),
+             qPrintable(err));
+    QCOMPARE(out, QStringLiteral("true"));
+    QVERIFY2(sandbox.evalHelper(QStringLiteral(
+                 "globalThis.event = { value: '12x', willCommit: false, rc: true };"
+                 "AFNumber_Keystroke(2, 0, 0, 0, '', true); globalThis.event.rc"), &out, &err),
+             qPrintable(err));
+    QCOMPARE(out, QStringLiteral("true"));
+    // On a commit: unparseable values are refused.
+    QVERIFY2(sandbox.evalHelper(QStringLiteral(
+                 "globalThis.event = { value: 'not-a-date', willCommit: true, rc: true };"
+                 "AFDate_KeystrokeEx('yyyy-mm-dd'); globalThis.event.rc"), &out, &err),
+             qPrintable(err));
+    QCOMPARE(out, QStringLiteral("false"));
+    QVERIFY2(sandbox.evalHelper(QStringLiteral(
+                 "globalThis.event = { value: '2026-09-14', willCommit: true, rc: true };"
+                 "AFDate_KeystrokeEx('yyyy-mm-dd'); globalThis.event.rc"), &out, &err),
+             qPrintable(err));
+    QCOMPARE(out, QStringLiteral("true"));
+    // On a commit: unparseable values are refused. NOTE the probe must be
+    // unparseable under the shim's AFMakeNumber (trim, ','→'.', parseFloat
+    // PREFIX semantics — '3.5.2' parses as 3.5, '12x' as 12); a leading
+    // non-numeric string is the honest unparseable case.
+    QVERIFY2(sandbox.evalHelper(QStringLiteral(
+                 "globalThis.event = { value: 'abc', willCommit: true, rc: true };"
+                 "AFNumber_Keystroke(2, 0, 0, 0, '', true); globalThis.event.rc"), &out, &err),
+             qPrintable(err));
+    QCOMPARE(out, QStringLiteral("false"));
+    QVERIFY2(sandbox.evalHelper(QStringLiteral(
+                 "globalThis.event = { value: '-12.5', willCommit: true, rc: true };"
+                 "AFNumber_Keystroke(2, 0, 0, 0, '', true); globalThis.event.rc"), &out, &err),
+             qPrintable(err));
+    QCOMPARE(out, QStringLiteral("true"));
+}
+
+void TestFormJsCalc::keystrokeEgressVerbsAreRecordedNeverExecuted()
+{
+    // The sandbox contract holds for the Keystroke event too: an egress verb
+    // in a /AA /K script is a recorded no-op (never executed) and the merge
+    // idiom still computes.
+    FormJsSandbox sandbox;
+    QVERIFY(sandbox.isValid());
+    QVERIFY(sandbox.installShim(nullptr));
+    QString err;
+    QVariantMap values;
+    values.insert(QStringLiteral("qty"), QStringLiteral("ab"));
+    QVERIFY(sandbox.setFieldValues(values, &err));
+    const JsEvalResult r = sandbox.runKeystrokeEvent(
+        QStringLiteral("app.launchURL('https://attacker.example'); event.value = AFMergeChange(event);"),
+        QStringLiteral("qty"), QStringLiteral("ab"), QStringLiteral("c"), 2, 2, 250);
+    QVERIFY2(r.ok, qPrintable(r.message));
+    QVERIFY2(!r.blocked.isEmpty(),
+             "the attempted egress must be recorded in the audit list");
+    QCOMPARE(r.value, QStringLiteral("abc"));
 }
 
 // ── R18(d): runtime closure after an aborted cascade ────────────────────────

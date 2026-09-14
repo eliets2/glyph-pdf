@@ -3,6 +3,7 @@
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
+#include <QJsonObject>
 #include <memory>
 
 namespace gp::formjs {
@@ -104,6 +105,21 @@ public:
                           const QString& currentValue,
                           int deadlineMs);
 
+    // R18(f): the Keystroke (/AA /K) event — one text-changing edit BEFORE it
+    // is committed. `currentValue` is the field text BEFORE the keystroke
+    // (Acrobat's event.value), `change` the inserted/replaced text, and
+    // [selStart, selEnd) the range of `currentValue` it replaces — exactly
+    // what the shim's AFMergeChange splices. willCommit is always false (the
+    // host owns the commit decision from the outcome). Same contract as
+    // runEvent: ONE absolute whole-operation deadline spanning setup, script,
+    // exception reads and result collection; zero I/O; egress verbs recorded.
+    JsEvalResult runKeystrokeEvent(const QString& script,
+                                   const QString& fieldName,
+                                   const QString& currentValue,
+                                   const QString& change,
+                                   int selStart, int selEnd,
+                                   int deadlineMs);
+
     // Evaluates a snippet in the shim's context and returns its string result
     // (used by tests and by the clock seam; not for authored scripts).
     bool evalHelper(const QString& code, QString* result, QString* error);
@@ -112,6 +128,16 @@ public:
 
 private:
     struct Impl;
+    // Shared body of runEvent/runKeystrokeEvent: one absolute whole-operation
+    // deadline (the interrupt handler aborts the engine wherever it is when
+    // the budget fires) around the setup eval, the authored script, exception
+    // inspection and the end-event result collection. `eventSetup` is the
+    // JSON the shim's __gpBeginEvent consumes (the event object it builds).
+    JsEvalResult runScriptedEvent(const QString& script,
+                                  const QString& fieldName,
+                                  const QString& eventKind,
+                                  const QJsonObject& eventSetup,
+                                  int deadlineMs);
     // Shared body of setFieldValues/updateFieldValue — installs the host-side
     // field map into the engine under a whole-operation deadline (the
     // assignment can hit a hostile looping setter installed by an earlier

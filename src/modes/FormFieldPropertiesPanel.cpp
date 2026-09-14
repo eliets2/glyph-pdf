@@ -54,7 +54,24 @@ FormFieldPropertiesPanel::FormFieldPropertiesPanel(const AppContext* ctx, QWidge
 
     m_defaultEdit = new QLineEdit;
     m_defaultEdit->setPlaceholderText(tr("Default value"));
+    m_defaultEdit->setObjectName(QStringLiteral("defaultValueEdit"));
+    // R18(f): every text-changing edit runs the field's /AA /K Keystroke
+    // script (Acrobat semantics) — the edit is reverted when the script
+    // rejects it, and the field shows the script-transformed text when it
+    // rewrites event.value (AFMergeChange idiom). The sandbox caps apply:
+    // one 250 ms whole-operation budget per keystroke, zero I/O, egress
+    // verbs hard no-ops (FormJsSandbox).
+    connect(m_defaultEdit, &QLineEdit::textChanged, this, &FormFieldPropertiesPanel::onDefaultTextChanged);
     form->addRow(tr("Default:"), m_defaultEdit);
+
+    // R18(f): the honest disclosure for what the keystroke gate did — a
+    // rejected or script-transformed keystroke is never silent.
+    m_keystrokeStatus = new QLabel;
+    m_keystrokeStatus->setObjectName(QStringLiteral("keystrokeStatus"));
+    m_keystrokeStatus->setStyleSheet("QLabel { color: #b00; font-size: 10px; }");
+    m_keystrokeStatus->setWordWrap(true);
+    m_keystrokeStatus->setVisible(false);
+    form->addRow(QString(), m_keystrokeStatus);
 
     // Phase-1 form-JS (U08 idiom): a calculated field is NAMED before the user
     // wonders why its value changes, and a format script's effect is shown as
@@ -144,11 +161,12 @@ void FormFieldPropertiesPanel::setFieldName(const QString& name)
     m_nameEdit->setText(name);
     m_tooltipEdit->clear();
     m_requiredCheck->setChecked(false);
-    m_defaultEdit->clear();
+    setValueText(QString());
     m_placeholderEdit->clear();
     m_regexEdit->clear();
     m_nameStatus->setVisible(false);
     m_regexStatus->setVisible(false);
+    if (m_keystrokeStatus) m_keystrokeStatus->setVisible(false);
     refreshScriptState();
 }
 
@@ -158,15 +176,89 @@ void FormFieldPropertiesPanel::clearFields()
     m_nameEdit->clear();
     m_tooltipEdit->clear();
     m_requiredCheck->setChecked(false);
-    m_defaultEdit->clear();
+    setValueText(QString());
     m_placeholderEdit->clear();
     m_regexEdit->clear();
     m_nameStatus->setVisible(false);
     m_regexStatus->setVisible(false);
     m_scriptBadge->setVisible(false);
     m_displayPreview->setVisible(false);
+    if (m_keystrokeStatus) m_keystrokeStatus->setVisible(false);
     if (m_staleBanner) m_staleBanner->setVisible(false);
     if (m_staleAckBtn) m_staleAckBtn->setVisible(false);
+}
+
+void FormFieldPropertiesPanel::setValueText(const QString& text)
+{
+    // Programmatic writes (population, keystroke revert, script transform)
+    // never run the keystroke event — only the USER's edit does.
+    m_syncingValueText = true;
+    m_defaultEdit->setText(text);
+    m_syncingValueText = false;
+    m_keystrokeBase = text;
+}
+
+void FormFieldPropertiesPanel::onDefaultTextChanged(const QString& text)
+{
+    if (!m_keystrokeStatus || !m_defaultEdit) return;
+    if (m_syncingValueText) { m_keystrokeBase = text; return; } // belt and braces
+    m_keystrokeStatus->setVisible(false);
+    if (text == m_keystrokeBase) return;
+
+    const QString before = m_keystrokeBase;
+    const QString path = (m_ctx && m_ctx->document) ? m_ctx->document->path() : QString();
+    if (m_fieldName.isEmpty() || path.isEmpty() || !m_ctx || !m_ctx->forms) {
+        m_keystrokeBase = text; // no form context: plain typing, no event
+        return;
+    }
+
+    // The edit in Acrobat's event shape: [selStart, selEnd) of the OLD text
+    // was replaced by `change`. Common-prefix/suffix trim reduces end
+    // insertions, end deletions, mid-string edits and select-all+type to
+    // this one model — exactly what the shim's AFMergeChange splices.
+    int p = 0;
+    const int maxP = qMin(before.size(), text.size());
+    while (p < maxP && before.at(p) == text.at(p)) ++p;
+    int s = 0;
+    const int maxS = qMin(before.size(), text.size()) - p;
+    while (s < maxS && before.at(before.size() - 1 - s) == text.at(text.size() - 1 - s)) ++s;
+    const QString change = text.mid(p, text.size() - p - s);
+
+    FormJsFailure failure;
+    const auto r = m_ctx->forms->runKeystrokeEvent(path, m_fieldName, before, change,
+                                                   p, before.size() - s, &failure);
+    if (!r.ran) {
+        m_keystrokeBase = text; // no runnable /AA /K: typing stands
+        // An engine-level failure (e.g. the document could not be loaded)
+        // must not silently pretend the gate approved — disclose it.
+        if (!failure.kind.isEmpty()) {
+            m_keystrokeStatus->setStyleSheet("QLabel { color: #b00; font-size: 10px; }");
+            m_keystrokeStatus->setText(tr("Keystroke script not evaluated (%1): %2 — "
+                                          "the text was kept.").arg(failure.kind, failure.reason));
+            m_keystrokeStatus->setVisible(true);
+        }
+        return;
+    }
+
+    if (!r.allowed) {
+        // Acrobat semantics: rc=false (or any script failure) REJECTS the
+        // keystroke — the edit never took; the line edit reverts.
+        if (text != before) setValueText(before);
+        m_keystrokeStatus->setStyleSheet("QLabel { color: #b00; font-size: 10px; }");
+        m_keystrokeStatus->setText(tr("Keystroke blocked (%1): %2").arg(failure.kind, failure.reason));
+        m_keystrokeStatus->setVisible(true);
+        return;
+    }
+    if (!r.valueToApply.isEmpty() && r.valueToApply != text) {
+        // The script TRANSFORMED the proposal (event.value) — the field shows
+        // the transformed text (Acrobat's filtered-keystroke idiom).
+        setValueText(r.valueToApply);
+        m_keystrokeStatus->setText(tr("Adjusted by the field's keystroke script."));
+        m_keystrokeStatus->setStyleSheet("QLabel { color: #666; font-size: 10px; }");
+        m_keystrokeStatus->setVisible(true);
+        return;
+    }
+    m_keystrokeBase = text;
 }
 
 void FormFieldPropertiesPanel::refreshScriptState()
