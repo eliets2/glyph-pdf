@@ -737,7 +737,21 @@ QString pdfStringToText(const PoDoFo::PdfString& s)
 
 void collectAnnotStrings(PoDoFo::PdfAnnotation& annot, QList<AnnotString>* out)
 {
-    const PoDoFo::Rect r = annot.GetRect();
+    // F1 (independent review 2026-09-14): read the RAW /Rect from the
+    // annotation dictionary — PoDoFo's GetRect() pipes the dictionary value
+    // through TransformCornersPage, which folds the PAGE's /Rotate into the
+    // rect at read time (measured: raw /Rect [100 650 300 680] on a
+    // MediaBox [0 200 612 1042] + /Rotate 90 page came back as
+    // (450, 512, 30x200)). ISO 32000-1 §12.5.2 puts /Rect in DEFAULT USER
+    // space — exactly the space PageSpace::viewerToUser maps the viewer mark
+    // into (the L5/L8 shared law), so attribution must intersect the raw
+    // /Rect against the transformed mark. GetRect()'s pre-adjusted rect made
+    // rotated-page annot attribution miss while the proof certified a clean
+    // PASS over a surviving annot secret (data-loss-class false success).
+    // GetRectRaw() is PoDoFo's own dictionary accessor (raises when /Rect is
+    // absent — same failure shape GetRect() had, caught by the caller's
+    // honest UNSWEPT handling below).
+    const PoDoFo::Rect r = annot.GetRectRaw().GetNormalized();
     const QRectF rect(qMin(r.GetLeft(), r.GetRight()),
                       qMin(r.GetBottom(), r.GetTop()),
                       qAbs(r.GetRight() - r.GetLeft()),

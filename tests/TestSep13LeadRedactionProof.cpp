@@ -183,6 +183,85 @@ QString makeMixedAnnotationPdf(const QString& path) {
     }
 }
 
+// F1 fixture (independent review R14, 2026-09-14): offset-origin + /Rotate 90
+// COMPOSED page — MediaBox [0 200 612 1042], /Rotate 90. The only SECRET
+// lives in a FreeText annotation (/Rect [100 650 300 680], contents
+// "AnnotSecretZebra"); the content stream carries a benign line ONLY (well
+// clear of the annotation mark) so the stream DECODES and a wrong run yields
+// the pure false PASS shape (passed=true, removed=[], failures=[]), not an
+// UNSWEPT bailout.
+QString makeRotatedAnnotSecretPdf(const QString& path) {
+    try {
+        PoDoFo::PdfMemDocument doc;
+        auto& font = doc.GetFonts().GetStandard14Font(
+            PoDoFo::PdfStandard14FontType::Helvetica);
+        auto& page = doc.GetPages().CreatePage(
+            PoDoFo::Rect(0.0, kOffY, kOffW, kOffH));
+        page.GetDictionary().AddKey(PoDoFo::PdfName("Rotate"),
+                                    PoDoFo::PdfObject(int64_t(90)));
+        {   // Benign content only — keeps the stream decodable.
+            PoDoFo::PdfPainter painter;
+            painter.SetCanvas(page);
+            painter.TextState.SetFont(font, 12.0);
+            (painter.DrawText)("KeepThisVisible public info", 100.0, 860.0);
+            painter.FinishDrawing();
+        }
+        auto& annot = page.GetAnnotations().CreateAnnot(
+            PoDoFo::PdfAnnotationType::FreeText,
+            PoDoFo::Rect(100.0, 650.0, 200.0, 30.0));
+        annot.SetContents(PoDoFo::PdfString("AnnotSecretZebra"));
+        doc.Save(path.toUtf8().constData());
+        return path;
+    } catch (const std::exception& e) {
+        qWarning() << "makeRotatedAnnotSecretPdf failed:" << e.what();
+        return {};
+    }
+}
+
+// F1 control: the SAME offset-origin annotation geometry with NO /Rotate.
+// On unrotated pages PoDoFo's GetRect() equals the raw /Rect, so the L7
+// contract already held there — this control separates "annot attribution
+// broken for /Rotate" from "broken in general".
+QString makeOffsetAnnotSecretPdf(const QString& path) {
+    try {
+        PoDoFo::PdfMemDocument doc;
+        auto& font = doc.GetFonts().GetStandard14Font(
+            PoDoFo::PdfStandard14FontType::Helvetica);
+        auto& page = doc.GetPages().CreatePage(
+            PoDoFo::Rect(0.0, kOffY, kOffW, kOffH));
+        {   PoDoFo::PdfPainter painter;
+            painter.SetCanvas(page);
+            painter.TextState.SetFont(font, 12.0);
+            (painter.DrawText)("KeepThisVisible public info", 100.0, 860.0);
+            painter.FinishDrawing(); }
+        auto& annot = page.GetAnnotations().CreateAnnot(
+            PoDoFo::PdfAnnotationType::FreeText,
+            PoDoFo::Rect(100.0, 650.0, 200.0, 30.0));
+        annot.SetContents(PoDoFo::PdfString("AnnotSecretZebra"));
+        doc.Save(path.toUtf8().constData());
+        return path;
+    } catch (const std::exception& e) {
+        qWarning() << "makeOffsetAnnotSecretPdf failed:" << e.what();
+        return {};
+    }
+}
+
+// Raw-bytes + hex-string occurrence count in a saved PDF (independent read
+// path: no PDF library — straight file bytes, literal and <hex> forms).
+int rawStringHits(const QString& pdfPath, const char* needle) {
+    int hits = 0;
+    QFile f(pdfPath);
+    if (f.open(QIODevice::ReadOnly)) {
+        const QByteArray all = f.readAll();
+        hits = all.count(needle);
+        QByteArray hex;
+        for (const char* p = needle; *p; ++p)
+            hex += QByteArray::number(uchar(*p), 16).right(2);
+        hits += all.count(hex);
+    }
+    return hits;
+}
+
 void dumpRuns(const QString& label, PdfiumBackend& backend, int page) {
     const auto runs = backend.extractPageTextRuns(page);
     qInfo() << label << "page" << page << "runs:" << runs.size();
@@ -395,6 +474,185 @@ private slots:
                  "annotation-only secret 'AnnotationSecret' survives in the "
                  "output — attribution is content-only, so the mark over the "
                  "annotation attributed nothing and certified the region clean");
+    }
+
+    // F1 (independent review R14, 2026-09-14) DECISIVE SLOT: annotation-only
+    // secret on a ROTATED + offset page. The spec-correct viewer mark (ISO
+    // 32000-1 §12.5.2: /Rect is default user space; /Rotate rotates the whole
+    // presentation — same display law as content) maps via the shared
+    // PageSpace::viewerToUser onto the RAW /Rect, so the mark MUST attribute
+    // "AnnotSecretZebra" and the surviving secret must force an honest proof
+    // FAILURE. The pre-fix path attributed via PoDoFo GetRect(), which folds
+    // /Rotate into the rect at read time (raw [100 650 300 680] → adjusted
+    // (450,512,30x200) on this fixture) — attribution missed, nothing was
+    // swept for, and the proof certified a clean PASS over the surviving
+    // annotation secret.
+    void rotatedPageAnnotOnlySecretMustNotFalsePass() {
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        const QString src = makeRotatedAnnotSecretPdf(tmp.filePath("src.pdf"));
+        QVERIFY(!src.isEmpty());
+
+        {   // Confirm the content side sees only the BENIGN run: the secret
+            // is annotation-borne, and PDFium is annot-blind.
+            PdfiumBackend backend;
+            QVERIFY(backend.loadDocument(src));
+            const auto runs = backend.extractPageTextRuns(0);
+            QCOMPARE(runs.size(), 1);
+            QVERIFY(!runs.first().text.contains(QLatin1String("AnnotSecretZebra")));
+        }
+        {   // Diagnostic evidence (mirrors the reviewer's probe dump): what
+            // PoDoFo reports for the annotation on the freshly loaded source.
+            PoDoFo::PdfMemDocument d;
+            d.Load(src.toUtf8().constData());
+            auto& annos = d.GetPages().GetPageAt(0).GetAnnotations();
+            qInfo() << "annot count =" << int(annos.GetCount());
+            for (unsigned i = 0; i < annos.GetCount(); ++i) {
+                auto& a = annos.GetAnnotAt(i);
+                const PoDoFo::Rect adjusted = a.GetRect();
+                const PoDoFo::Rect raw = a.GetRectRaw().GetNormalized();
+                qInfo().nospace() << "annot " << i << " raw /Rect = ("
+                                  << raw.X << "," << raw.Y << "," << raw.Width
+                                  << "x" << raw.Height << ")  GetRect() = ("
+                                  << adjusted.X << "," << adjusted.Y << ","
+                                  << adjusted.Width << "x" << adjusted.Height
+                                  << ")";
+            }
+        }
+
+        const QString out = tmp.filePath("out.pdf");
+        QVERIFY(copyFile(src, out)); // output still CONTAINS the annotation
+
+        // Spec-correct viewer mark: /Rect x [100,300], y [650,680] with
+        // y0=200 → dy ∈ [450,480]; under /Rotate 90 display = (dy, dx):
+        // viewer x [450,480], viewer y [100,300].
+        Request req;
+        req.sourcePath = src;
+        req.outputPath = out;
+        req.redactionsByPage[0] = { QRectF(450.0, 100.0, 30.0, 200.0) };
+        const Result proof = verify(req);
+        QVERIFY(proof.proofRan);
+        const auto& e = proof.entries.first();
+        qInfo() << "rotated-annot-only: status =" << int(e.status)
+                << "removed =" << e.removedStrings
+                << "passed =" << proof.proofPassed
+                << "failures =" << proof.failureReasons;
+
+        // TIGHTENED attribution assertion (the old L7 slots' !proofPassed was
+        // also satisfiable via UNSWEPT stream problems): the mark must
+        // attribute the annotation string itself.
+        bool annotAttributed = false;
+        for (const auto& s : e.removedStrings)
+            annotAttributed |= s.contains(QLatin1String("AnnotSecretZebra"));
+        QVERIFY2(annotAttributed,
+                 "F1 CONFIRMED: a spec-correct viewer mark over the displayed "
+                 "annotation attributed nothing on the /Rotate 90 offset page "
+                 "— attribution interpreted /Rect under PoDoFo's rotated "
+                 "space, so the annotation-only secret was never swept for");
+        QVERIFY2(!proof.proofPassed,
+                 "F1 CONFIRMED: the proof certified a clean PASS while "
+                 "AnnotSecretZebra survives in the output — the data-loss "
+                 "false success");
+    }
+
+    // F1 control: rotate-0 offset page, same annotation geometry. PoDoFo's
+    // GetRect() equals the raw /Rect here, so attribution must work BOTH
+    // before and after the F1 fix — this isolates the /Rotate composition.
+    void offsetOnlyPageAnnotAttributionControl() {
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        const QString src = makeOffsetAnnotSecretPdf(tmp.filePath("src.pdf"));
+        QVERIFY(!src.isEmpty());
+        const QString out = tmp.filePath("out.pdf");
+        QVERIFY(copyFile(src, out));
+
+        // Viewer mark (rotate 0 display law: viewer y = y0+H − user y):
+        // user y 650..680 → viewer y [1042−680, 1042−650] = [362, 392].
+        Request req;
+        req.sourcePath = src;
+        req.outputPath = out;
+        req.redactionsByPage[0] = { QRectF(100.0, 362.0, 200.0, 30.0) };
+        const Result proof = verify(req);
+        QVERIFY(proof.proofRan);
+        const auto& e = proof.entries.first();
+        qInfo() << "offset-only-annot control: removed =" << e.removedStrings
+                << "passed =" << proof.proofPassed;
+        bool annotAttributed = false;
+        for (const auto& s : e.removedStrings)
+            annotAttributed |= s.contains(QLatin1String("AnnotSecretZebra"));
+        QVERIFY2(annotAttributed,
+                 "control: annot attribution must work on offset-only "
+                 "(rotate 0) pages");
+        QVERIFY2(!proof.proofPassed,
+                 "control: honest failure while the annot secret survives");
+    }
+
+    // F1 EXCISION cross-check: a REAL redaction (RedactOperation::run) whose
+    // only mark covers the displayed annotation on the rotated fixture must
+    // REMOVE the annotation-borne secret from the SAVED artifact. The
+    // pre-fix excision compared PoDoFo GetRect() (its own /Rotate-adjusted
+    // space) against raw user-space excision rects — on /Rotate pages the
+    // annotation never intersected and survived verbatim. Evidence over the
+    // SAVED artifact via independent read paths (mirrors the reviewer's L8
+    // pattern): raw file bytes (+ hex form), a PoDoFo object walk, and
+    // PDFium extraction (which must stay annot-blind — the secret must not
+    // leak into page content either).
+    void realRedactionRemovesRotatedAnnotSecret() {
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        const QString src = makeRotatedAnnotSecretPdf(tmp.filePath("src.pdf"));
+        QVERIFY(!src.isEmpty());
+        const QString dest = tmp.filePath("dest.pdf");
+
+        // Same spec-correct viewer mark as the proof slot above.
+        RedactRequest rq;
+        rq.sourcePath = src;
+        rq.destinationPath = dest;
+        rq.redactionsByPage[0] = { QRectF(450.0, 100.0, 30.0, 200.0) };
+
+        RedactOperation op(rq);
+        RedactResult res;
+        QObject::connect(&op, &RedactOperation::finished,
+                         [&res](const RedactResult& r) { res = r; });
+        op.run();
+        qInfo() << "redact outcome =" << int(res.outcome) << res.error;
+        QVERIFY(QFile::exists(dest));
+        QVERIFY2(res.outcome == RedactOutcome::Completed ||
+                 res.outcome == RedactOutcome::PartialRedactedOnly,
+                 "the real redaction must complete on the rotated annot page");
+
+        // Read path 1: raw file bytes — the annotation /Contents string must
+        // be GONE from the saved artifact (literal + hex-string forms).
+        QCOMPARE(rawStringHits(dest, "AnnotSecretZebra"), 0);
+
+        // Read path 2: PoDoFo object walk of the SAVED artifact — the
+        // annotation itself must be removed (it was the only one).
+        {
+            PoDoFo::PdfMemDocument d;
+            d.Load(dest.toUtf8().constData());
+            auto& annos = d.GetPages().GetPageAt(0).GetAnnotations();
+            qInfo() << "saved-artifact annot count =" << int(annos.GetCount());
+            QCOMPARE(int(annos.GetCount()), 0);
+        }
+
+        // Read path 3: PDFium extraction of the SAVED artifact — annot-blind
+        // by design (that is the L7 premise), so this pins that the secret
+        // did not leak into PAGE content via the cover/overlay surgery, and
+        // that the benign line was NOT over-excised (the mark covers the
+        // annotation region only).
+        {
+            PdfiumBackend backend;
+            QVERIFY(backend.loadDocument(dest));
+            bool benignSurvives = false;
+            for (const auto& r : backend.extractPageTextRuns(0)) {
+                QVERIFY2(!r.text.contains(QLatin1String("AnnotSecretZebra")),
+                         "annotation secret must never leak into page content");
+                benignSurvives |= r.text.contains(QLatin1String("KeepThisVisible"));
+            }
+            QVERIFY2(benignSurvives,
+                     "no over-excision: the benign line is outside the mark "
+                     "and must survive");
+        }
     }
 
     // LEAD 8 CONFIRMATION (expected FAILURE on the candidate): the burn-in
