@@ -29,7 +29,7 @@
 | L9 | Merge failed-save appends phantom N+1th result + false successes | **CONFIRMED** (runtime) | `TestSep13LeadBatchMerge` |
 | L10 | Cancelled merge reports successes pointing at never-written output | **CONFIRMED** (runtime) | `TestSep13LeadBatchMerge` |
 | L11 | `onRejectResults`/`onReOcrRegion` lack the ReviewState guard | **CONFIRMED** (runtime) | `TestSep13LeadOcrGuards` |
-| L12 | `applyChangeTypeFilters` O(rows×anchors) per toggle | **CONFIRMED** (measured perf-only) | `TestSep13LeadComparePerf` |
+| L12 | `applyChangeTypeFilters` O(rows×anchors) per toggle | **fixed** (2026-09-15, follow-ups lane — anchor-index memo in CompareWidget; probe re-contracted CONFIRMED-instrument → GUARD; ratio 15.8–16.5x → ~7x) | `TestSep13LeadComparePerf` |
 | L13 | `deriveColumns` misassigns ragged columns | **CONFIRMED** (runtime) | `TestSep13LeadConversionExport` |
 | M1 | `releaseResidentFile` never clears `encryptionPassword` | **CONFIRMED** (static, LOW) | §M1 |
 | M2 | (= L10) | **CONFIRMED** | see L10 |
@@ -285,7 +285,7 @@ Totals: 3 passed, 1 failed (accept control pin PASS)
 the host to drop pending save state; re-OCR re-entrancy can be requested while
 another run is Running/Saving. Workflow/integrity defect, no direct data loss.
 
-## L12 — Filter toggle recomputes anchor roles O(rows×anchors) — CONFIRMED (measured, perf-only)
+## L12 — Filter toggle recomputes anchor roles O(rows×anchors) — CONFIRMED (measured, perf-only) → **fixed** (2026-09-15)
 
 Anchors: `CompareMode.cpp` `applyChangeTypeFilters` per-row remap (~388-417);
 `CompareWidget.cpp:152/160` `anchorIndexFor*` linear scans.
@@ -303,6 +303,19 @@ superlinear growth (ratio ≥ 8 at 4× rows), so a DEFECT presence makes it PASS
 the measured 16.8× ≈ 16× is the confirmation. **Impact:** perf-only — each
 filter toggle on a large diff stalls the GUI thread; mapping result stays
 correct (U04 rebuild).
+
+**FIXED (2026-09-15, follow-ups lane, commit 4d0b606):** CompareWidget
+memoizes pageDiffIndex → anchor index (`m_anchorIndexByPage`), rebuilt in the
+one funnel that rebuilds `m_anchors` (buildHtml), so `anchorIndexForPage` is a
+hash lookup and the per-toggle recompute is O(rows). Per-toggle work at 2000
+rows: 0.64 ms → ~0.009 ms. The probe was RE-CONTRACTED from
+CONFIRMED-instrument to GUARD (`anchorRoleRecomputeStaysNearLinear`, ratio
+< 10.0 at 4× rows — threshold measured: fixed memo 6.3–8.2x, regressed scan
+15.8–17.8x; calibration floor raised 20 ms → 100 ms so the guard cannot flake
+on timer quantization). Fail-before: the old probe FAILS post-fix (ratio 6.3)
+— that is the success signal. Negative control: scoped revert to the linear
+scan → guard FAILS at 16.6/17.8 → restored → 3/3 green. Full evidence:
+CURRENT-EVIDENCE-LEDGER-2026-09-05.md § 2026-09-15 FU-3.
 
 ## L13 — deriveColumns misassigns ragged (right-aligned) columns — CONFIRMED (runtime)
 
