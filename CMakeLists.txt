@@ -4573,3 +4573,176 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRenderGuards.cpp")
         LABELS "unit;render;guards;perf04;qt;headless"
     )
 endif()
+
+# ── SEP13-LEADS adversarial-confirmation repros (2026-09-14, review-only lane)
+# One block per lead cluster; expected failures are the confirmation evidence.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSep13LeadCapability.cpp")
+    add_executable(TestSep13LeadCapability tests/TestSep13LeadCapability.cpp)
+    target_include_directories(TestSep13LeadCapability PRIVATE src tests)
+    target_link_libraries(TestSep13LeadCapability PRIVATE
+        pdfws_engines pdfws_core
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET TestSep13LeadCapability POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestSep13LeadCapability>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestSep13LeadCapability>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestSep13LeadCapability"
+    )
+    add_test(NAME TestSep13LeadCapability COMMAND TestSep13LeadCapability)
+    set_tests_properties(TestSep13LeadCapability PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;core;capability;sep13leads;qt;headless"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSep13LeadBatchMerge.cpp")
+    add_executable(TestSep13LeadBatchMerge tests/TestSep13LeadBatchMerge.cpp)
+    target_include_directories(TestSep13LeadBatchMerge PRIVATE src tests)
+    target_link_libraries(TestSep13LeadBatchMerge PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestSep13LeadBatchMerge POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestSep13LeadBatchMerge>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestSep13LeadBatchMerge>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestSep13LeadBatchMerge"
+    )
+    add_test(NAME TestSep13LeadBatchMerge COMMAND TestSep13LeadBatchMerge)
+    set_tests_properties(TestSep13LeadBatchMerge PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 180
+        LABELS "unit;modes;batch;sep13leads;qt;headless"
+        RESOURCE_LOCK BatchModeIO
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSep13LeadOcrGuards.cpp")
+    add_executable(TestSep13LeadOcrGuards tests/TestSep13LeadOcrGuards.cpp)
+    target_include_directories(TestSep13LeadOcrGuards PRIVATE src tests)
+    target_link_libraries(TestSep13LeadOcrGuards PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+    )
+    add_custom_command(TARGET TestSep13LeadOcrGuards POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestSep13LeadOcrGuards>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestSep13LeadOcrGuards>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestSep13LeadOcrGuards"
+    )
+    add_test(NAME TestSep13LeadOcrGuards COMMAND TestSep13LeadOcrGuards)
+    set_tests_properties(TestSep13LeadOcrGuards PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;modes;ocr;sep13leads;qt;headless"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSep13LeadConversionExport.cpp")
+    add_executable(TestSep13LeadConversionExport tests/TestSep13LeadConversionExport.cpp)
+    target_include_directories(TestSep13LeadConversionExport PRIVATE src tests)
+    target_link_libraries(TestSep13LeadConversionExport PRIVATE
+        pdfws_engines pdfws_core libzip::zip Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_test(NAME TestSep13LeadConversionExport COMMAND TestSep13LeadConversionExport)
+    set_tests_properties(TestSep13LeadConversionExport PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;conversion;sep13leads;qt;headless"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSep13LeadRedactionProof.cpp")
+    add_executable(TestSep13LeadRedactionProof tests/TestSep13LeadRedactionProof.cpp)
+    target_include_directories(TestSep13LeadRedactionProof PRIVATE src tests)
+    target_link_libraries(TestSep13LeadRedactionProof PRIVATE
+        pdfws_ui pdfws_engines pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET TestSep13LeadRedactionProof POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestSep13LeadRedactionProof>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestSep13LeadRedactionProof>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestSep13LeadRedactionProof"
+    )
+    add_test(NAME TestSep13LeadRedactionProof COMMAND TestSep13LeadRedactionProof)
+    set_tests_properties(TestSep13LeadRedactionProof PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 180
+        LABELS "unit;core;redactionproof;sep13leads;qt;headless"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSep13LeadBtDowngrade.cpp")
+    add_executable(TestSep13LeadBtDowngrade tests/TestSep13LeadBtDowngrade.cpp)
+    target_include_directories(TestSep13LeadBtDowngrade PRIVATE src tests)
+    target_compile_definitions(TestSep13LeadBtDowngrade PRIVATE
+        SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    )
+    target_link_libraries(TestSep13LeadBtDowngrade PRIVATE
+        pdfws_ui pdfws_engines pdfws_core
+        OpenSSL::SSL OpenSSL::Crypto
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets podofo::podofo
+    )
+    if(WIN32)
+        target_link_libraries(TestSep13LeadBtDowngrade PRIVATE Crypt32)
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestSep13LeadBtDowngrade POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestSep13LeadBtDowngrade>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestSep13LeadBtDowngrade"
+            )
+        endif()
+    endif()
+    add_custom_command(TARGET TestSep13LeadBtDowngrade POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestSep13LeadBtDowngrade>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestSep13LeadBtDowngrade>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestSep13LeadBtDowngrade"
+    )
+    add_test(NAME TestSep13LeadBtDowngrade COMMAND TestSep13LeadBtDowngrade)
+    set_tests_properties(TestSep13LeadBtDowngrade PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 300
+        LABELS "unit;engines;signature;sep13leads;qt;headless"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSep13LeadComparePerf.cpp")
+    add_executable(TestSep13LeadComparePerf tests/TestSep13LeadComparePerf.cpp)
+    target_include_directories(TestSep13LeadComparePerf PRIVATE src tests)
+    target_link_libraries(TestSep13LeadComparePerf PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestSep13LeadComparePerf POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestSep13LeadComparePerf>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestSep13LeadComparePerf>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestSep13LeadComparePerf"
+    )
+    add_test(NAME TestSep13LeadComparePerf COMMAND TestSep13LeadComparePerf)
+    set_tests_properties(TestSep13LeadComparePerf PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;modes;compare;perf;sep13leads;qt;headless"
+    )
+endif()
