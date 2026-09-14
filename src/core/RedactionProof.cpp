@@ -1157,10 +1157,15 @@ const char* kDisclaimer =
     "assert no authority and are trivially recomputable by anyone holding the files. "
     "String-level sweeps cannot see text rendered as raster images (scans): for "
     "scanned regions use a redaction method that rasterizes, and treat those "
-    "regions as out of this proof's scope. Text encoded with non-standard glyph "
-    "encodings is covered by decode-level text extraction, not by literal byte "
-    "search alone. A PASS is the strongest statement this tool makes: every check "
-    "it knows how to run found nothing.";
+    "regions as out of this proof's scope. What a redaction is swept for is "
+    "exactly what attribution can name: strings from PDFium's decode-level "
+    "extraction of page content plus the annotation and form-field strings "
+    "readable on the marked pages. Text whose glyph encoding defeats that "
+    "extraction (for example a subset font without a usable /ToUnicode map) is "
+    "invisible to attribution and to the extracted-text survivor sweep alike, "
+    "and literal byte search cannot decode glyph identifiers — such text is "
+    "NOT covered by a PASS. A PASS is the strongest statement this tool makes: "
+    "every check it knows how to run found nothing.";
 
 QJsonObject surfaceJson(const SurfaceReport& r)
 {
