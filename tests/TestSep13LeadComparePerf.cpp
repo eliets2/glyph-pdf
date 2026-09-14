@@ -39,14 +39,16 @@ DiffResult makeResultWithChanges(int rows) {
     return r;
 }
 
-qint64 measureToggleWorkMs(CompareWidget& widget, int rows) {
-    // One filter toggle's worth of anchor-role recomputation:
-    // exactly what applyChangeTypeFilters does per visible row.
+qint64 measureToggleWorkMs(CompareWidget& widget, int rows, int repeats = 1) {
+    // One filter toggle's worth of anchor-role recomputation,
+    // exactly what applyChangeTypeFilters does per visible row,
+    // repeated to stay above the ms-timer resolution floor.
     QElapsedTimer timer;
     timer.start();
     volatile qint64 sink = 0;
-    for (int i = 0; i < rows; ++i)
-        sink += widget.anchorIndexForPage(i);
+    for (int r = 0; r < repeats; ++r)
+        for (int i = 0; i < rows; ++i)
+            sink += widget.anchorIndexForPage(i);
     return timer.elapsed();
 }
 
@@ -63,17 +65,23 @@ private slots:
         const int large = 8000;
 
         widget.setDiffResult(makeResultWithChanges(small));
-        const qint64 tSmall = measureToggleWorkMs(widget, small);
+        int repeats = 1;
+        qint64 tSmallTotal = measureToggleWorkMs(widget, small, repeats);
+        while (tSmallTotal < 20 && repeats < 4096) {
+            repeats *= 4;
+            tSmallTotal = measureToggleWorkMs(widget, small, repeats);
+        }
+        const double tSmall = double(tSmallTotal) / repeats;
 
         widget.setDiffResult(makeResultWithChanges(large));
-        const qint64 tLarge = measureToggleWorkMs(widget, large);
+        const qint64 tLargeTotal = measureToggleWorkMs(widget, large, repeats);
+        const double tLarge = double(tLargeTotal) / repeats;
 
-        const double ratio = tSmall > 0 ? double(tLarge) / double(tSmall) : -1.0;
-        qInfo() << "anchor-role recompute: rows =" << small << "->" << tSmall << "ms;"
-                << "rows =" << large << "->" << tLarge << "ms; ratio =" << ratio
+        const double ratio = tLarge / tSmall;
+        qInfo() << "anchor-role recompute: rows =" << small << "->" << tSmall << "ms/pass"
+                << "over" << repeats << "repeats;"
+                << "rows =" << large << "->" << tLarge << "ms/pass; ratio =" << ratio
                 << "(linear expectation ~4x, O(rows x anchors) expectation ~16x)";
-
-        QVERIFY2(tSmall > 0, "measurement must be non-zero (increase sizes if too fast)");
         QVERIFY2(ratio >= 8.0,
                  QStringLiteral("SEP13 lead 12 CONFIRMED: anchor-index recompute grows superlinearly "
                  "(ratio %1 at 4x rows) — applyChangeTypeFilters is O(rows x anchors) "
