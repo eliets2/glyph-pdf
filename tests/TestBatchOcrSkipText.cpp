@@ -25,6 +25,7 @@
 
 #include <QtTest/QtTest>
 #include <QApplication>
+#include <QAtomicInt>
 #include <QCheckBox>
 #include <QFile>
 #include <QFileInfo>
@@ -42,6 +43,10 @@ class StubOcr final : public IOcrEngine {
 public:
     bool initialize(const QString &, const QString &) override { return true; }
     QList<OcrResult> processImage(const QImage &) override {
+        // Q1 seam: every processImage call IS one OCR invocation of one page
+        // image — the test counts these to pin "exactly one OCR call for the
+        // one image-only page of a mixed document".
+        calls.fetchAndAddRelaxed(1);
         OcrResult r;
         r.text        = QStringLiteral("ocrlayer");
         r.boundingBox = QRectF(10, 10, 80, 20);
@@ -50,6 +55,7 @@ public:
     }
     QString getRawText(const QImage &) override { return QStringLiteral("ocrlayer"); }
     bool isMockImplementation() const override { return true; }
+    QAtomicInt calls{0};
 };
 
 // ── Fixtures (hand-written PDFs; byte-accurate xref, Bates-test layout) ──────
@@ -153,6 +159,9 @@ class TestBatchOcrSkipText : public QObject {
 private:
     struct Harness {
         QTemporaryDir tmp;
+        // Kept as a harness member (not just ctx.ocr) so tests can read the
+        // Q1 OCR-call counter of the exact engine instance the batch used.
+        std::shared_ptr<StubOcr> ocr = std::make_shared<StubOcr>();
         AppContext ctx;
         gp::BatchMode bm;
     };
@@ -163,7 +172,7 @@ private:
         auto h = std::make_unique<Harness>();
         if (!h->tmp.isValid()) return h;
         h->ctx.pdfEditor = std::make_shared<PdfEditorEngine>();
-        h->ctx.ocr       = std::make_shared<StubOcr>();
+        h->ctx.ocr       = h->ocr;
         h->bm.setAppContext(&h->ctx);
         return h;
     }
@@ -248,6 +257,43 @@ private slots:
         const QString out = h->tmp.filePath("mixed_ocr.pdf");
         QVERIFY2(QFileInfo::exists(out), "the mixed document must produce an output");
         QCOMPARE(pdfiumTextOf(out, 0), originalPage0Text);
+        QVERIFY2(pdfiumTextOf(out, 1).contains(QStringLiteral("ocrlayer")),
+                 "the image-only page must be OCRed");
+    }
+
+    // ── 2b. Q1: the per-page skip decision runs BEFORE the render/OCR work ───
+    // A MIXED 2-page document (page 1 text, page 2 image-only) under
+    // skip-pages-with-text must trigger exactly ONE OCR invocation: the text
+    // page is decided as "kept" per page, before any rendering happens. The
+    // pre-Q1 worker rendered + OCRed EVERY page and then discarded the text
+    // page's OCR result in the mixed assembly — wasted engine work (and real
+    // GPU/CPU OCR time) proportional to the kept-page count.
+    void skipPagesOcrsOnlyPagesWithoutText() {
+        auto h = makeHarness();
+        QVERIFY(h->tmp.isValid());
+        const QString mixed = mixedPdf(h->tmp.path(), "mixed.pdf");
+        QVERIFY(!mixed.isEmpty());
+
+        QCheckBox* skipPages = findCheckBox(&h->bm, kSkipPagesText);
+        QVERIFY2(skipPages, "the skip-pages checkbox must exist in the OCR panel");
+        skipPages->setChecked(true);
+
+        h->ocr->calls.storeRelaxed(0);
+        h->bm.addFilesForTest({ mixed });
+        h->bm.setOperationForTest(5); // OpOCR (m_opCombo order)
+        h->bm.onRunBatch();
+        pumpUntilDone(h->bm);
+
+        QCOMPARE(h->bm.skipCount(), 0);   // the FILE was processed…
+        QCOMPARE(h->bm.successCount(), 1);
+        QCOMPARE(h->bm.failCount(), 0);
+        // Exactly ONE OCR call: only the image-only page is rendered + OCRed.
+        QCOMPARE(h->ocr->calls.loadAcquire(), 1);
+
+        const QString out = h->tmp.filePath("mixed_ocr.pdf");
+        QVERIFY2(QFileInfo::exists(out), "the mixed document must produce an output");
+        QVERIFY2(pdfiumTextOf(out, 0).contains(QStringLiteral("PageOne Words")),
+                 "the text page must be kept original");
         QVERIFY2(pdfiumTextOf(out, 1).contains(QStringLiteral("ocrlayer")),
                  "the image-only page must be OCRed");
     }
