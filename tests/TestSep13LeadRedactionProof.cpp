@@ -76,8 +76,12 @@ QString makeOffsetOriginPdf(const QString& path) {
 }
 
 // Rotated page: A4 MediaBox [0 0 595 842] with /Rotate 90. Secret at user
-// (100, 300); in the ROTATED viewer this displays at x_v = 842-300 = 542,
-// y_v = 100.
+// (100, 300). Measured PDFium display convention (render probe, redactfix
+// lane 2026-09-14): user offset (dx, dy) from the MediaBox origin displays at
+// (dy, dx) — the page renders rotated CLOCKWISE, so the line's viewer
+// position is baseline (300, 100) with the glyphs running DOWN from there
+// (viewer band x≈[288,312] = user y 288..312 incl. ascent, y≈[100,198] =
+// user x 100..198 glyph extent).
 QString makeRotatedPdf(const QString& path) {
     try {
         PoDoFo::PdfMemDocument doc;
@@ -278,11 +282,19 @@ private slots:
         const QString out = tmp.filePath("out.pdf");
         QVERIFY(copyFile(src, out));
 
-        // Viewer (rotated) mark over the text (mapping derived above).
+        // Viewer (rotated) mark over the text at its MEASURED display position
+        // (baseline (300,100), glyphs run down; see makeRotatedPdf above).
+        // Mark x [288,312] covers user y 288..312 (∋ baseline 300); mark
+        // y [88,262] covers user x 88..262 (∋ the full 100..198 glyph extent).
+        // (The original repro mark (528,88,28,174) was derived from a
+        // display mapping no real viewer produces — x from the /Rotate 270
+        // law, y from the /Rotate 90 law — and covered empty page under the
+        // corrected convention; fixed to the true viewer contract 2026-09-14,
+        // assertions unchanged.)
         Request req;
         req.sourcePath = src;
         req.outputPath = out;
-        req.redactionsByPage[0] = { QRectF(528.0, 88.0, 28.0, 174.0) };
+        req.redactionsByPage[0] = { QRectF(288.0, 88.0, 24.0, 174.0) };
         const Result proof = verify(req);
         QVERIFY(proof.proofRan);
         const auto& e = proof.entries.first();

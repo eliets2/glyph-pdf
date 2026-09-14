@@ -10,6 +10,7 @@
 
 #include <podofo/podofo.h>
 
+#include "core/PageSpaceTransform.h"
 #include "engines/pdfium/PdfiumBackend.h"
 
 // Windows headers pulled in transitively define `#define DrawText DrawTextW`;
@@ -676,13 +677,16 @@ QString rectText(const QRectF& r)
              QString::number(r.width(), 'f', 1), QString::number(r.height(), 'f', 1));
 }
 
-// Overlap between a redaction mark (viewer top-down coords, as the whole
-// transaction uses them) and a PDFium text run (rect anchored at the baseline
-// origin in PDF user space, Y up, width = glyph extent). Deliberately
-// GENEROUS on the vertical axis: attribution only decides WHAT to sweep for,
-// and over-attribution is the safe direction — sweeping for a string that
-// must already be gone can only tighten the proof, never loosen it.
-bool runIntersects(const PdfiumBackend::TextRun& run, const QRectF& mark, double pageHeight)
+// Overlap between a redaction mark and a PDFium text run (rect anchored at
+// the baseline origin in PDF user space, Y up, width = glyph extent). The
+// mark arrives ALREADY transformed into user space (PageSpace::viewerToUser —
+// the shared transform that honors the MediaBox lower-left origin and /Rotate;
+// SEP13 L5: the old Height-only flip certified regions on offset/rotated pages
+// that still contained the secret). Deliberately GENEROUS on the vertical
+// axis: attribution only decides WHAT to sweep for, and over-attribution is
+// the safe direction — sweeping for a string that must already be gone can
+// only tighten the proof, never loosen it.
+bool runIntersects(const PdfiumBackend::TextRun& run, const QRectF& userMark)
 {
     const double x0 = run.rect.x();
     const double x1 = run.rect.x() + run.rect.width();
@@ -690,11 +694,9 @@ bool runIntersects(const PdfiumBackend::TextRun& run, const QRectF& mark, double
     const double fs = run.fontSize > 0 ? run.fontSize : 12.0;
     const double runTop = baselineY + 3.0 * fs;       // ascender headroom
     const double runBottom = baselineY - 1.5 * fs;    // descender
-    const double markTop = pageHeight - mark.y();
-    const double markBottom = pageHeight - mark.y() - mark.height();
-    const double markLo = qMin(markTop, markBottom);
-    const double markHi = qMax(markTop, markBottom);
-    const bool horiz = (x1 >= mark.x()) && (x0 <= mark.x() + mark.width());
+    const double markLo = userMark.y();               // lower edge (y-up)
+    const double markHi = userMark.y() + userMark.height();
+    const bool horiz = (x1 >= userMark.x()) && (x0 <= userMark.x() + userMark.width());
     const bool vert = (runBottom <= markHi) && (runTop >= markLo);
     return horiz && vert;
 }
@@ -810,14 +812,20 @@ Result verify(const Request& request)
     for (auto it = request.redactionsByPage.constBegin();
          it != request.redactionsByPage.constEnd(); ++it) {
         const int page = it.key();
-        const double pageHeight = srcDoc.GetPages().GetPageAt(page).GetMediaBox().Height;
+        // SEP13 L5: the mark→region mapping MUST honor the MediaBox lower-left
+        // origin AND /Rotate (the shared PageSpace transform). The old
+        // Height-only flip certified regions on offset/rotated pages that
+        // still contained the secret.
+        const PageSpace::PageGeometry pageGeo =
+            PageSpace::pageGeometry(srcDoc.GetPages().GetPageAt(page));
         for (const QRectF& mark : it.value()) {
+            const QRectF userMark = PageSpace::viewerToUser(mark, pageGeo);
             EntryWork w;
             w.entry.pageIndex = page;
             w.entry.region = mark;
             w.entry.method = Method::Excision;
             for (const auto& run : srcRuns.runs.value(page)) {
-                if (runIntersects(run, mark, pageHeight) && !run.text.trimmed().isEmpty())
+                if (runIntersects(run, userMark) && !run.text.trimmed().isEmpty())
                     w.entry.removedStrings.append(run.text.trimmed());
             }
             works.append(w);
