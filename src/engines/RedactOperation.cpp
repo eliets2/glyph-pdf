@@ -10,6 +10,8 @@
 #include <mutex>
 #include <podofo/podofo.h>
 
+#include "core/PageSpaceTransform.h"
+
 // Windows headers pulled in transitively define `#define DrawText DrawTextW`,
 // which would rewrite the PoDoFo painter calls below.
 #ifdef DrawText
@@ -160,9 +162,12 @@ constexpr double kOverlayFontSize = 7.0;
 
 // Burn-in paint ONLY: runs on the saved CANDIDATE after the engine's content
 // surgery is complete, so excision semantics are untouched. Each redaction
-// rect (still in viewer top-down coordinates) is flipped the same way
-// PoDoFoBackend::applyRedactions flips it, and the overlay text is drawn
-// centered in white. Boxes too small to fit the text are skipped.
+// rect (still in viewer top-down coordinates) is mapped into raw user space
+// by the SHARED PageSpace transform — the same transform
+// PoDoFoBackend::applyRedactions uses for the excision itself (SEP13 L8: the
+// old Height-only flip dropped the MediaBox lower-left origin, painting the
+// label ~200pt below the mark on offset-origin pages) — and the overlay text
+// is drawn centered in white. Boxes too small to fit the text are skipped.
 bool drawOverlayTextOnCandidate(const QString& candidatePath,
                                 const QMap<int, QList<QRectF>>& redactionsByPage,
                                 const QString& rawOverlayText,
@@ -186,7 +191,8 @@ bool drawOverlayTextOnCandidate(const QString& candidatePath,
             if (it.key() < 0 || it.key() >= static_cast<int>(pages.GetCount()))
                 continue; // preflight already rejected out-of-range pages
             PoDoFo::PdfPage& page = pages.GetPageAt(it.key());
-            const double pageHeight = page.GetMediaBox().Height;
+            // SEP13 L8: shared viewer→user transform (MediaBox origin + /Rotate).
+            const PageSpace::PageGeometry pageGeo = PageSpace::pageGeometry(page);
 
             PoDoFo::PdfPainter painter;
             painter.SetCanvas(page);
@@ -214,17 +220,22 @@ bool drawOverlayTextOnCandidate(const QString& candidatePath,
             painter.SetPrecision(8);
 
             for (const QRectF& r : it.value()) {
+                // SEP13 L8: the glyphs paint in RAW USER space, so every fit
+                // verdict and the centering run on the transformed rect (its
+                // width/height are the user-space extents, swapped for
+                // /Rotate 90/270).
+                const QRectF user = PageSpace::viewerToUser(r, pageGeo);
                 // N08: "too small" is a METRIC verdict — a box shorter than
                 // the ascent+descent extent cannot carry the glyphs; skip it
                 // (auto-fit precedent) rather than draw outside or clip.
-                if (r.height() < glyphExtent) continue;         // too small
-                if (r.width() < textWidth) continue;             // no horizontal fit
-                const double pdfY = pageHeight - r.y() - r.height();
-                const double x = r.x() + (r.width() - textWidth) / 2.0;
+                if (user.height() < glyphExtent) continue;       // too small
+                if (user.width() < textWidth) continue;           // no horizontal fit
+                const double pdfY = user.y();                     // lower edge, y-up
+                const double x = user.x() + (user.width() - textWidth) / 2.0;
                 // Vertically center the ascender..descender extent: at the
                 // metric minimum (height == glyphExtent) the extent exactly
                 // touches both box edges and never crosses them.
-                const double baselineY = pdfY + (r.height() - glyphExtent) / 2.0 + descent;
+                const double baselineY = pdfY + (user.height() - glyphExtent) / 2.0 + descent;
                 (painter.DrawText)(utf8.constData(), x, baselineY);
             }
             painter.FinishDrawing();

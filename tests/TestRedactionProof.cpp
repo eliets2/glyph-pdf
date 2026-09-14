@@ -329,6 +329,25 @@ private slots:
         QVERIFY(!root["files"].toObject()["output_sha256"].toString().isEmpty());
         QVERIFY(root["disclaimer"].toString().contains(QStringLiteral("audit stamp")));
 
+        // SEP13 L6 — the pack must claim exactly what PDFium-only extraction
+        // plus annotation/form scanning delivers. The old wording claimed
+        // "text encoded with non-standard glyph encodings is covered by
+        // decode-level text extraction", but decode-level extraction IS the
+        // gap: attribution and the extracted-text sweep share it, so a font
+        // PDFium cannot decode (subset, no /ToUnicode) is invisible to the
+        // verdict. The disclaimer must state that limit, not overclaim.
+        const QString disclaimer = root["disclaimer"].toString();
+        QVERIFY2(!disclaimer.contains(
+                     QStringLiteral("is covered by decode-level text extraction")),
+                 "SEP13 L6: the overclaim must stay out of the pack — decode-level "
+                 "extraction is the recall LIMIT, not the coverage");
+        QVERIFY2(disclaimer.contains(QStringLiteral("NOT covered")),
+                 "SEP13 L6: the disclaimer must state the extraction-blind limit "
+                 "as a NOT-covered scope, honestly");
+        QVERIFY2(disclaimer.contains(QStringLiteral("form-field")),
+                 "SEP13 L6: the disclaimer must name annotation/form-field "
+                 "strings as part of what attribution actually scans");
+
         const QJsonArray entries = root["excisions"].toArray();
         QCOMPARE(entries.size(), 1);
         const QJsonObject e0 = entries.at(0).toObject();

@@ -2,6 +2,7 @@
 #include "engines/podofo/PoDoFoBackend.h"
 #include "engines/SafeSave.h"
 #include "core/MeasureCore.h"
+#include "core/PageSpaceTransform.h"
 #include <memory>
 #include "PdfStringEscape.h"
 #include "GlyphAdvanceCalculator.h"
@@ -2540,11 +2541,17 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
         }();
 
         PoDoFo::PdfPage& page = d->document->GetPages().GetPageAt(pageIndex);
-        double pageHeight = page.GetMediaBox().Height;
+        // SEP13 L8: the excision rects MUST land in raw user space via the
+        // shared viewer→user transform — the old Height-only flip dropped the
+        // MediaBox lower-left origin (the excision MISSED the secret on
+        // offset-origin pages while still reporting Completed) and ignored
+        // /Rotate entirely.
+        const gp::PageSpace::PageGeometry pageGeo = gp::PageSpace::pageGeometry(page);
 
         std::vector<PoDoFo::Rect> pdfRects;
         for (const auto& r : rects) {
-            pdfRects.push_back(PoDoFo::Rect(r.x(), pageHeight - r.y() - r.height(), r.width(), r.height()));
+            const QRectF user = gp::PageSpace::viewerToUser(r, pageGeo); // y-up: y() = lower edge
+            pdfRects.push_back(PoDoFo::Rect(user.x(), user.y(), user.width(), user.height()));
         }
 
         std::set<int64_t> redactedMcids;

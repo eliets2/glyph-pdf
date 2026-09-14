@@ -10,12 +10,18 @@
 
 #include <podofo/podofo.h>
 
+#include "core/PageSpaceTransform.h"
 #include "engines/pdfium/PdfiumBackend.h"
 
 // Windows headers pulled in transitively define `#define DrawText DrawTextW`;
 // keep the guard consistent with the other PoDoFo TUs.
 #ifdef DrawText
 #undef DrawText
+#endif
+// Same hazard for `GetObject` (→ GetObjectW): PdfAnnotation::GetObject() is
+// needed for the SEP13 L7 annotation/form attribution walk.
+#ifdef GetObject
+#undef GetObject
 #endif
 
 #include <functional>
@@ -374,11 +380,24 @@ void sweepDocument(PoDoFo::PdfMemDocument& doc,
                     for (int i = 0; i < targets.strings.size(); ++i) {
                         if (containsAny(value, targets.needles[i])) {
                             r.survivors.append(targets.strings[i]);
-                            r.locations.append(QStringLiteral(
-                                "%1: string value in object %2 %3 R")
-                                .arg(role)
-                                .arg(obj->GetReference().ObjectNumber())
-                                .arg(obj->GetReference().GenerationNumber()));
+                            // SEP13 L7: name the object WITHOUT going through
+                            // PdfObject::GetReference() — it is VARIANT-typed
+                            // in PoDoFo 1.1 and raises InvalidDataType for an
+                            // indirect object whose variant carries a string
+                            // (annotation strings living in object streams —
+                            // the common compressed case), which aborted the
+                            // whole object walk mid-scan. TryGetReference is
+                            // the non-throwing form; a direct object is named
+                            // as such.
+                            PoDoFo::PdfReference ref;
+                            r.locations.append(
+                                obj->TryGetReference(ref)
+                                    ? QStringLiteral("%1: string value in object %2 %3 R")
+                                          .arg(role)
+                                          .arg(ref.ObjectNumber())
+                                          .arg(ref.GenerationNumber())
+                                    : QStringLiteral("%1: string value in a direct object "
+                                                     "(object-stream resident)").arg(role));
                         }
                     }
                 }
@@ -443,21 +462,30 @@ void sweepDocument(PoDoFo::PdfMemDocument& doc,
                     }
                 }
                 if (!scanned) {
-                    unsweptStreams.append(QStringLiteral("object %1 %2 R")
-                        .arg(obj->GetReference().ObjectNumber())
-                        .arg(obj->GetReference().GenerationNumber()));
+                    // TryGetReference: GetReference() is variant-typed and
+                    // throws for non-reference variants (SEP13 L7 sweep fix).
+                    PoDoFo::PdfReference ref;
+                    unsweptStreams.append(
+                        obj->TryGetReference(ref)
+                            ? QStringLiteral("object %1 %2 R")
+                                  .arg(ref.ObjectNumber()).arg(ref.GenerationNumber())
+                            : QStringLiteral("a direct stream object"));
                     continue;
                 }
                 if (rawOnly) ++r.itemsRawOnly;
                 for (int i = 0; i < targets.strings.size(); ++i) {
                     if (containsAny(bytes, targets.needles[i])) {
                         r.survivors.append(targets.strings[i]);
-                        r.locations.append(QStringLiteral("%1: %2 stream in object %3 %4 R")
+                        PoDoFo::PdfReference ref;
+                        r.locations.append(QStringLiteral("%1: %2 stream%3")
                             .arg(role,
                                  rawOnly ? QStringLiteral("media/raw scan")
                                          : QStringLiteral("decoded"),
-                             QString::number(obj->GetReference().ObjectNumber()),
-                             QString::number(obj->GetReference().GenerationNumber())));
+                             obj->TryGetReference(ref)
+                                 ? QStringLiteral(" in object %1 %2 R")
+                                       .arg(ref.ObjectNumber())
+                                       .arg(ref.GenerationNumber())
+                                 : QString()));
                     }
                 }
             }
@@ -676,13 +704,78 @@ QString rectText(const QRectF& r)
              QString::number(r.width(), 'f', 1), QString::number(r.height(), 'f', 1));
 }
 
-// Overlap between a redaction mark (viewer top-down coords, as the whole
-// transaction uses them) and a PDFium text run (rect anchored at the baseline
-// origin in PDF user space, Y up, width = glyph extent). Deliberately
-// GENEROUS on the vertical axis: attribution only decides WHAT to sweep for,
-// and over-attribution is the safe direction — sweeping for a string that
-// must already be gone can only tighten the proof, never loosen it.
-bool runIntersects(const PdfiumBackend::TextRun& run, const QRectF& mark, double pageHeight)
+// ── SEP13 L7: annotation / form-field strings are attribution targets ───────
+//
+// PDFium page-content extraction never sees text that lives only in an
+// annotation (e.g. a FreeText /Contents) or a form-field value (/V) —
+// attribution that derives targets from page runs alone certified clean
+// outputs while such a secret survived verbatim. Annotation /Rect values and
+// field values live in raw user space (a page's /Rotate never applies to
+// annotations), so they intersect the mark's user rect directly.
+struct AnnotString {
+    QRectF rect;    // raw user space, stored y-up (y() = lower edge)
+    QString text;
+};
+
+QString pdfStringToText(const PoDoFo::PdfString& s)
+{
+    const std::string_view raw = s.GetString();
+    const char* d = raw.data();
+    const size_t n = raw.size();
+    if (n >= 2 && static_cast<unsigned char>(d[0]) == 0xFE
+               && static_cast<unsigned char>(d[1]) == 0xFF) {
+        // UTF-16BE with BOM (the PDF text-string form).
+        QString out;
+        out.reserve(int(n / 2));
+        for (size_t i = 2; i + 1 < n; i += 2)
+            out.append(QChar(int(static_cast<unsigned char>(d[i]) << 8)
+                             | static_cast<unsigned char>(d[i + 1])));
+        return out;
+    }
+    return QString::fromUtf8(d, static_cast<int>(n));
+}
+
+void collectAnnotStrings(PoDoFo::PdfAnnotation& annot, QList<AnnotString>* out)
+{
+    const PoDoFo::Rect r = annot.GetRect();
+    const QRectF rect(qMin(r.GetLeft(), r.GetRight()),
+                      qMin(r.GetBottom(), r.GetTop()),
+                      qAbs(r.GetRight() - r.GetLeft()),
+                      qAbs(r.GetTop() - r.GetBottom()));
+
+    auto add = [&](const QString& text) {
+        if (!text.trimmed().isEmpty())
+            out->append(AnnotString{ rect, text });
+    };
+
+    // FreeText / Text annotation content.
+    auto contents = annot.GetContents(); // nullable<const PdfString&>
+    if (contents.has_value())
+        add(pdfStringToText(contents.value()));
+
+    // Widget annotation /V, plus the field's inherited /V up the /Parent
+    // chain (a kid widget often carries only the geometry, the value lives
+    // on an ancestor field).
+    const PoDoFo::PdfObject* obj = &annot.GetObject();
+    for (int depth = 0; obj != nullptr && depth < 16; ++depth) {
+        if (const PoDoFo::PdfObject* v = obj->GetDictionary().FindKey("V")) {
+            if (v->IsString())
+                add(pdfStringToText(v->GetString()));
+        }
+        obj = obj->GetDictionary().FindKey("Parent");
+    }
+}
+
+// Overlap between a redaction mark and a PDFium text run (rect anchored at
+// the baseline origin in PDF user space, Y up, width = glyph extent). The
+// mark arrives ALREADY transformed into user space (PageSpace::viewerToUser —
+// the shared transform that honors the MediaBox lower-left origin and /Rotate;
+// SEP13 L5: the old Height-only flip certified regions on offset/rotated pages
+// that still contained the secret). Deliberately GENEROUS on the vertical
+// axis: attribution only decides WHAT to sweep for, and over-attribution is
+// the safe direction — sweeping for a string that must already be gone can
+// only tighten the proof, never loosen it.
+bool runIntersects(const PdfiumBackend::TextRun& run, const QRectF& userMark)
 {
     const double x0 = run.rect.x();
     const double x1 = run.rect.x() + run.rect.width();
@@ -690,11 +783,9 @@ bool runIntersects(const PdfiumBackend::TextRun& run, const QRectF& mark, double
     const double fs = run.fontSize > 0 ? run.fontSize : 12.0;
     const double runTop = baselineY + 3.0 * fs;       // ascender headroom
     const double runBottom = baselineY - 1.5 * fs;    // descender
-    const double markTop = pageHeight - mark.y();
-    const double markBottom = pageHeight - mark.y() - mark.height();
-    const double markLo = qMin(markTop, markBottom);
-    const double markHi = qMax(markTop, markBottom);
-    const bool horiz = (x1 >= mark.x()) && (x0 <= mark.x() + mark.width());
+    const double markLo = userMark.y();               // lower edge (y-up)
+    const double markHi = userMark.y() + userMark.height();
+    const bool horiz = (x1 >= userMark.x()) && (x0 <= userMark.x() + userMark.width());
     const bool vert = (runBottom <= markHi) && (runTop >= markLo);
     return horiz && vert;
 }
@@ -804,21 +895,56 @@ Result verify(const Request& request)
     }
     out.pagesAfter = int(outDoc.GetPages().GetCount());
 
-    // Per-mark attributed strings, derived from the source's decoded runs.
+    // Per-mark attributed strings, derived from the source's decoded runs
+    // and (SEP13 L7) from the marked pages' annotation/form strings.
+    QMap<int, QList<AnnotString>> annotStrings;
+    for (auto it = request.redactionsByPage.constBegin();
+         it != request.redactionsByPage.constEnd(); ++it) {
+        const int page = it.key();
+        QList<AnnotString> pageAnnots;
+        try {
+            auto& annos = srcDoc.GetPages().GetPageAt(page).GetAnnotations();
+            const unsigned annotCount = annos.GetCount();
+            for (unsigned i = 0; i < annotCount; ++i)
+                collectAnnotStrings(annos.GetAnnotAt(i), &pageAnnots);
+        } catch (const PoDoFo::PdfError&) {
+            // Honest failure: this page's annotation strings cannot become
+            // attribution targets, so the derived sweep is blind to them.
+            srcStreamProblems.append(QStringLiteral(
+                "page %1 annotations could not be read for string attribution")
+                .arg(page + 1));
+        }
+        annotStrings[page] = pageAnnots;
+    }
+
     struct EntryWork { ExcisionEntry entry; };
     QList<EntryWork> works;
     for (auto it = request.redactionsByPage.constBegin();
          it != request.redactionsByPage.constEnd(); ++it) {
         const int page = it.key();
-        const double pageHeight = srcDoc.GetPages().GetPageAt(page).GetMediaBox().Height;
+        // SEP13 L5: the mark→region mapping MUST honor the MediaBox lower-left
+        // origin AND /Rotate (the shared PageSpace transform). The old
+        // Height-only flip certified regions on offset/rotated pages that
+        // still contained the secret.
+        const PageSpace::PageGeometry pageGeo =
+            PageSpace::pageGeometry(srcDoc.GetPages().GetPageAt(page));
         for (const QRectF& mark : it.value()) {
+            const QRectF userMark = PageSpace::viewerToUser(mark, pageGeo);
             EntryWork w;
             w.entry.pageIndex = page;
             w.entry.region = mark;
             w.entry.method = Method::Excision;
             for (const auto& run : srcRuns.runs.value(page)) {
-                if (runIntersects(run, mark, pageHeight) && !run.text.trimmed().isEmpty())
+                if (runIntersects(run, userMark) && !run.text.trimmed().isEmpty())
                     w.entry.removedStrings.append(run.text.trimmed());
+            }
+            for (const AnnotString& as : annotStrings.value(page)) {
+                const bool hit = as.rect.right() >= userMark.left()
+                              && as.rect.left() <= userMark.right()
+                              && as.rect.bottom() >= userMark.top()
+                              && as.rect.top() <= userMark.bottom();
+                if (hit)
+                    w.entry.removedStrings.append(as.text.trimmed());
             }
             works.append(w);
         }
@@ -1031,10 +1157,15 @@ const char* kDisclaimer =
     "assert no authority and are trivially recomputable by anyone holding the files. "
     "String-level sweeps cannot see text rendered as raster images (scans): for "
     "scanned regions use a redaction method that rasterizes, and treat those "
-    "regions as out of this proof's scope. Text encoded with non-standard glyph "
-    "encodings is covered by decode-level text extraction, not by literal byte "
-    "search alone. A PASS is the strongest statement this tool makes: every check "
-    "it knows how to run found nothing.";
+    "regions as out of this proof's scope. What a redaction is swept for is "
+    "exactly what attribution can name: strings from PDFium's decode-level "
+    "extraction of page content plus the annotation and form-field strings "
+    "readable on the marked pages. Text whose glyph encoding defeats that "
+    "extraction (for example a subset font without a usable /ToUnicode map) is "
+    "invisible to attribution and to the extracted-text survivor sweep alike, "
+    "and literal byte search cannot decode glyph identifiers — such text is "
+    "NOT covered by a PASS. A PASS is the strongest statement this tool makes: "
+    "every check it knows how to run found nothing.";
 
 QJsonObject surfaceJson(const SurfaceReport& r)
 {
