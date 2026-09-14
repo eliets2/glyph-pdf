@@ -687,6 +687,61 @@ private slots:
         // (attainedLevelLabel(B_LTA, clean) == "B-LTA" — pinned above).
     }
 
+    // ── SEP13 lead-1 residual: the B-T degradation surfaces in the UI wording ─
+    // The engine (SEP13 lead 1) returns PartialLtvMissing with the
+    // timestampMissing detail when a REQUESTED B-T timestamp (TSA URL
+    // configured) could not be fetched/embedded — the signature attained B-B.
+    // The UI wording must render that piece exactly like the DSS/archive
+    // pieces: the missing-pieces list names the timestamp, a plain-language
+    // note says the timestamp server was unreachable, and the attained-level
+    // label attests B-B — never the requested B-T.
+    void timestampMissingWarningAndAttainedLabel() {
+        using L = PAdESLevel;
+        SignatureOutcomeDetail tsMissing;
+        tsMissing.timestampMissing = true;
+
+        // Attained label: a requested B-T whose token fetch failed attests B-B.
+        QCOMPARE(gp::SecurityController::attainedLevelLabel(L::B_T, tsMissing),
+                 QStringLiteral("B-B"));
+        // B-LT/B-LTA REQUIRE the B-T timestamp: without the token the
+        // signature is B-B regardless of the other pieces.
+        QCOMPARE(gp::SecurityController::attainedLevelLabel(L::B_LT, tsMissing),
+                 QStringLiteral("B-B"));
+        QCOMPARE(gp::SecurityController::attainedLevelLabel(L::B_LTA, tsMissing),
+                 QStringLiteral("B-B"));
+        // A clean detail keeps the requested label (no regression).
+        QCOMPARE(gp::SecurityController::attainedLevelLabel(L::B_T, SignatureOutcomeDetail{}),
+                 QStringLiteral("B-T"));
+
+        // The warning: names the missing timestamp piece, says in plain
+        // language that no timestamp server was reachable, and attests the
+        // ATTAINED level.
+        const QString text = gp::SecurityController::buildSigningOutcomeWarning(
+            SignOutcome::PartialLtvMissing, QStringLiteral("out.pdf"), tsMissing, false, L::B_T);
+        QVERIFY2(text.contains(QStringLiteral("out.pdf")),
+                 "the B-T degradation warning still tells the user WHERE the file is");
+        QVERIFY2(text.contains(QStringLiteral("timestamp (B-T)")),
+                 "the warning must name the signature timestamp as the missing piece");
+        QVERIFY2(text.contains(QStringLiteral("No timestamp server was reachable")),
+                 "the plain-language reason must say no timestamp server was reachable");
+        QVERIFY2(text.contains(QStringLiteral("attained PAdES B-B")),
+                 qPrintable(QStringLiteral("the warning must attest the ATTAINED level B-B — got: %1")
+                                .arg(text)));
+
+        // Combined degradation (timestamp + DSS, requested B-LT): names BOTH
+        // pieces and still attests the B-B floor.
+        SignatureOutcomeDetail tsDss;
+        tsDss.timestampMissing = true;
+        tsDss.dssMissing = true;
+        const QString combo = gp::SecurityController::buildSigningOutcomeWarning(
+            SignOutcome::PartialLtvMissing, QStringLiteral("out.pdf"), tsDss, false, L::B_LT);
+        QVERIFY2(combo.contains(QStringLiteral("timestamp (B-T)")) &&
+                     combo.contains(QStringLiteral("DSS dictionary (B-LT)")),
+                 "a combined degradation names every missing piece");
+        QVERIFY2(combo.contains(QStringLiteral("attained PAdES B-B")),
+                 "a requested B-LT without its timestamp attests B-B");
+    }
+
     // -----------------------------------------------------------------------
     // R19 verify (2026-09-14): the MISSING end-to-end pin — the production
     // chain Preferences surface → Save → persisted bytes → readSigningConfig.

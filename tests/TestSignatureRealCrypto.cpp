@@ -1246,9 +1246,13 @@ private slots:
     // -----------------------------------------------------------------------
     // R19(b+c): a CONFIGURED-but-unreachable TSA is deterministic (refused
     // loopback — no network, no sleeps). The settings-driven B-LTA attempt:
-    //   * outcome PartialLtvMissing with EXACT detail (docTimestampMissing,
-    //     DSS not flagged),
-    //   * attainedLevelLabel(B_LTA, detail) == "B-LT" (the R19c disclosure),
+    //   * outcome PartialLtvMissing with EXACT detail: the refused TSA fails
+    //     BOTH the B-T signature timestamp (SEP13 lead 1: timestampMissing)
+    //     AND the archive timestamp (docTimestampMissing); the DSS itself is
+    //     built (not flagged),
+    //   * attainedLevelLabel(B_LTA, detail) == "B-B" — without the B-T token
+    //     the signature is B-B (the pre-lead-1 "B-LT" expectation was the
+    //     dishonest label this residual lane removes),
     //   * N06 non-regression: the destination is never left broken — the
     //     partial result is written through checked replacement and still
     //     carries an intact signature (E-06: no malformed /DocTimeStamp).
@@ -1277,12 +1281,16 @@ private slots:
         const SignatureOutcomeDetail detail = mgr.lastSignOutcomeDetail();
         QVERIFY2(detail.docTimestampMissing,
                  "the refused TSA must flag exactly the archive timestamp as missing");
+        QVERIFY2(detail.timestampMissing,
+                 "the refused TSA must ALSO flag the B-T signature timestamp as missing "
+                 "(SEP13 lead 1) — the token fetch fails for the same reason");
         QVERIFY2(!detail.dssMissing,
                  "the DSS itself must NOT be flagged missing");
 
-        // R19c: the attained-level disclosure for this outcome is B-LT.
+        // R19c: the attained-level disclosure for this outcome is B-B —
+        // without the timestamp token the signature attests no level above B-B.
         QCOMPARE(gp::SecurityController::attainedLevelLabel(PAdESLevel::B_LTA, detail),
-                 QStringLiteral("B-LT"));
+                 QStringLiteral("B-B"));
 
         // N06 non-regression: the destination went through checked replacement
         // and is a valid, intact signed document — never a broken file.

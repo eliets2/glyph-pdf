@@ -126,10 +126,14 @@ QString SecurityController::signingPreflightRefusal(PAdESLevel level, const QStr
 QString SecurityController::attainedLevelLabel(PAdESLevel requested, const SignatureOutcomeDetail& detail)
 {
     // The label names the HIGHEST standard level whose required pieces are all
-    // present given the tracked detail: B-LT requires the DSS dictionary,
-    // B-LTA additionally the archive timestamp. B-T has no tracked failure
-    // mode here (its token-fetch downgrade is refused before any attempt —
-    // signingPreflightRefusal).
+    // present given the tracked detail: every level above B-B requires the
+    // B-T timestamp token (SEP13 lead 1: a CONFIGURED-but-unreachable TSA
+    // degrades the signature to B-B — signingPreflightRefusal only covers the
+    // no-TSA-configured case; the in-flight fetch failure surfaces here as
+    // detail.timestampMissing). B-LT additionally requires the DSS
+    // dictionary, B-LTA the archive timestamp on top of that.
+    if (requested > PAdESLevel::B_B && detail.timestampMissing)
+        return QStringLiteral("B-B");
     switch (requested) {
         case PAdESLevel::B_B:  return QStringLiteral("B-B");
         case PAdESLevel::B_T:  return QStringLiteral("B-T");
@@ -574,10 +578,12 @@ QString SecurityController::buildValidationSummary(const QList<SignatureInfo>& i
 
 // §9.7 P1: pure degradation-wording builder — unit-testable without UI. For a
 // PartialLtvMissing outcome it names EXACTLY which long-term-validation piece
-// is missing (DSS dictionary and/or archive timestamp) — and, since R19c, the
-// ATTAINED level (attainedLevelLabel): a requested B-LTA whose archive
-// timestamp failed attests B-LT, never a silent claim of the full level.
-// Every other outcome yields no warning at all.
+// is missing (DSS dictionary / archive timestamp / SEP13 lead 1: the B-T
+// signature timestamp) — and, since R19c, the ATTAINED level
+// (attainedLevelLabel): a requested B-LTA whose archive timestamp failed
+// attests B-LT; a requested B-T whose timestamp server was unreachable
+// attests B-B, with the plain-language reason spelled out. Every other
+// outcome yields no warning at all.
 QString SecurityController::buildSigningOutcomeWarning(SignOutcome outcome,
                                                        const QString &outputPath,
                                                        const SignatureOutcomeDetail &detail,
@@ -591,13 +597,23 @@ QString SecurityController::buildSigningOutcomeWarning(SignOutcome outcome,
         missing << QObject::tr("the DSS dictionary (B-LT)");
     if (detail.docTimestampMissing)
         missing << QObject::tr("the archive timestamp (B-LTA)");
+    if (detail.timestampMissing)
+        missing << QObject::tr("the timestamp (B-T)");
+    // SEP13 lead 1 residual: the plain-language reason for the B-T piece —
+    // the TSA was configured (the pre-flight passed) but unreachable at sign
+    // time, so the requested level degraded to the attained one.
+    const QString unreachableNote = detail.timestampMissing
+        ? QObject::tr(" No timestamp server was reachable — the signature is %1, not %2.")
+              .arg(attainedLevelLabel(requested, detail), attainedLevelLabel(requested, {}))
+        : QString();
     return QObject::tr("The document was %1 and saved to %2. The signature attained PAdES %3, "
-                       "but %4 could not be embedded. "
+                       "but %4 could not be embedded.%5 "
                        "The cryptographic signature itself is valid and the file is usable "
                        "now — retry signing to embed the missing long-term validation data, "
                        "or keep the file as-is.")
         .arg(certified ? QObject::tr("certified") : QObject::tr("signed"),
-             outputPath, attainedLevelLabel(requested, detail), missing.join(QObject::tr(" and ")));
+             outputPath, attainedLevelLabel(requested, detail), missing.join(QObject::tr(" and ")),
+             unreachableNote);
 }
 
 void SecurityController::sanitizeDocument() {

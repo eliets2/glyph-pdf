@@ -32,11 +32,12 @@ public:
 
     // §9.7 P1: pure degradation-wording builder for a PARTIAL signing outcome.
     // Names EXACTLY which long-term-validation piece is missing (DSS
-    // dictionary / archive timestamp) so the warning is actionable; returns an
-    // empty string for every non-degradation outcome. `certified` picks the
-    // verb — the certify flow gets the same exact wording. `requested` (R19c)
-    // lets the wording carry the ATTAINED PAdES level (attainedLevelLabel),
-    // not silently the requested one.
+    // dictionary / archive timestamp / SEP13 lead 1: the B-T signature
+    // timestamp) so the warning is actionable; returns an empty string for
+    // every non-degradation outcome. `certified` picks the verb — the certify
+    // flow gets the same exact wording. `requested` (R19c) lets the wording
+    // carry the ATTAINED PAdES level (attainedLevelLabel), not silently the
+    // requested one.
     static QString buildSigningOutcomeWarning(SignOutcome outcome, const QString &outputPath,
                                               const SignatureOutcomeDetail &detail,
                                               bool certified = false,
@@ -72,11 +73,15 @@ public:
                                            bool forTimestamp = false);
 
     // R19c: pure attained-level label — the HIGHEST standard PAdES level whose
-    // required pieces are all present given the outcome detail (B-LT needs the
-    // DSS; B-LTA needs DSS + archive timestamp). B_LTA requested with a
-    // missing archive timestamp attests "B-LT", etc. The engine's silent
-    // B-T→B-B downgrade with an empty TSA URL is unreachable through the
-    // controller (signingPreflightRefusal refuses it before any attempt).
+    // required pieces are all present given the outcome detail (every level
+    // above B-B needs the B-T timestamp token — SEP13 lead 1: a configured-
+    // but-unreachable TSA degrades the signature to B-B; B-LT needs the DSS;
+    // B-LTA needs DSS + archive timestamp). B_LTA requested with a missing
+    // archive timestamp attests "B-LT"; B_T requested with a missing timestamp
+    // token attests "B-B". The engine's SILENT B-T→B-B downgrade with an empty
+    // TSA URL stays unreachable through the controller (signingPreflightRefusal
+    // refuses it before any attempt); the in-flight fetch-failure degradation
+    // is disclosed here instead.
     static QString attainedLevelLabel(PAdESLevel requested, const SignatureOutcomeDetail& detail);
 
 private:
