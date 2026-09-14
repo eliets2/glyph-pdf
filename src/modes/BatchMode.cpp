@@ -32,6 +32,7 @@ using TargetFormat = IConversionEngine::TargetFormat;
 #include <QLabel>
 #include <QLineEdit>
 #include <QListView>
+#include <QMap>
 #include <QMessageBox>
 #include <QMimeData>
 #include <QPushButton>
@@ -1251,21 +1252,47 @@ void BatchMode::onRunClicked() {
                         }
                     }
 
-                    QList<QImage> images;
-                    QList<PageOcrResult> pageResults;
+                    // Q1: the skip decision gates the RENDER/OCR work itself,
+                    // not just the assembly. Pages that will be KEPT as
+                    // original page objects (skip-pages active, page has
+                    // text) are never rasterized nor pushed through the OCR
+                    // engine — the old code rendered + OCRed every page up
+                    // front and then silently discarded the text pages'
+                    // results. Work is memoized per page so a lazy fallback
+                    // (kept-page extraction failure, below) re-renders a page
+                    // at most once.
+                    const bool perPageSkipActive = skipPages && !pageHasText.isEmpty();
+                    QMap<int, QImage> ocrImageByPage;
+                    QMap<int, PageOcrResult> ocrResultByPage;
                     const double dpi = 150.0;
-                    for (int p = 0; p < pdf.pageCount(); ++p) {
+                    const auto renderAndOcrPage = [&](int p) {
+                        if (ocrResultByPage.contains(p)) return;
                         const QSizeF pts = pdf.pagePointSize(p);
                         const QSize px(qMax(1, int(pts.width()  * dpi / 72.0)),
                                        qMax(1, int(pts.height() * dpi / 72.0)));
                         const QImage img = pdf.render(p, px);
-                        images.append(img);
-
                         PageOcrResult pr;
                         pr.pageIndex = p;
                         pr.words     = img.isNull() ? QList<MergedOcrWord>() : pipeline.run(img);
                         pr.success   = true;
-                        pageResults.append(pr);
+                        ocrImageByPage.insert(p, img);
+                        ocrResultByPage.insert(p, pr);
+                    };
+                    for (int p = 0; p < pdf.pageCount(); ++p) {
+                        // Kept text pages skip the render+OCR pipeline
+                        // entirely; everything else is OCRed (in page order).
+                        if (perPageSkipActive && pageHasText.at(p)) continue;
+                        renderAndOcrPage(p);
+                    }
+                    // Ordered snapshots for the legacy whole-document export
+                    // and the confidence note (QMap iterates in key order;
+                    // kept pages default-construct with no words, which the
+                    // low-confidence note correctly ignores).
+                    QList<QImage> images;
+                    QList<PageOcrResult> pageResults;
+                    for (int p = 0; p < pdf.pageCount(); ++p) {
+                        images.append(ocrImageByPage.value(p));
+                        pageResults.append(ocrResultByPage.value(p));
                     }
 
                     if (!capturedCtx->pdfEditor) {
@@ -1274,13 +1301,32 @@ void BatchMode::onRunClicked() {
                     } else if (skipPages && !pageHasText.isEmpty()) {
                         // N3: mixed assembly — original text pages + OCRed
                         // image-only pages, in the original page order.
+                        // Q1: kept-page extraction needs its OWN loaded
+                        // engine. The captured shared engine never runs
+                        // loadDocumentForEditing in the batch worker, so its
+                        // PoDoFo backend is null and extractPageAsBytes
+                        // returned empty for EVERY page — the "keep the
+                        // original page" path was silently dead and every
+                        // text page fell back to an MRC re-encode. A fresh
+                        // per-file engine (the same pattern the editor ops
+                        // below use) with a real load makes extraction work;
+                        // created lazily, only when a page actually needs
+                        // keeping.
+                        std::unique_ptr<PdfEditorEngine> keptPageExtractor;
+                        auto extractKeptPage = [&](int p) -> QByteArray {
+                            if (!keptPageExtractor) {
+                                keptPageExtractor = std::make_unique<PdfEditorEngine>();
+                                if (!keptPageExtractor->loadDocumentForEditing(inputPath))
+                                    return {};   // caller falls back to OCR
+                            }
+                            return keptPageExtractor->extractPageAsBytes(inputPath, p);
+                        };
                         QList<QByteArray> pageDocs;
                         int keptCount = 0;
                         bool assemblyOk = true;
                         for (int p = 0; p < pdf.pageCount() && assemblyOk; ++p) {
                             if (pageHasText.at(p)) {
-                                const QByteArray orig =
-                                    capturedCtx->pdfEditor->extractPageAsBytes(inputPath, p);
+                                const QByteArray orig = extractKeptPage(p);
                                 if (!orig.isEmpty()) {
                                     pageDocs.append(orig);
                                     ++keptCount;
@@ -1288,11 +1334,16 @@ void BatchMode::onRunClicked() {
                                 }
                                 // Extraction failed — fall back to OCR for
                                 // this page rather than emit a broken page.
+                                // Q1: this page was scheduled to be KEPT, so
+                                // it was never rendered above — render+OCR it
+                                // lazily now (memoized, at most once).
+                                renderAndOcrPage(p);
                             }
                             const QString pageTmp =
                                 result.outputPath + QStringLiteral(".page%1.mrc").arg(p);
                             if (!capturedCtx->pdfEditor->exportMrcPdfA(
-                                    pageTmp, { images.at(p) }, { pageResults.at(p) })) {
+                                    pageTmp, { ocrImageByPage.value(p) },
+                                    { ocrResultByPage.value(p) })) {
                                 techDetail = QStringLiteral(
                                     "per-page MRC export failed on page %1: %2")
                                     .arg(p + 1)
