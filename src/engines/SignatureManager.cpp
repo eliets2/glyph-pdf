@@ -92,6 +92,15 @@ struct EvpPkeyDeleter {
 };
 using EvpPkeyPtr = std::unique_ptr<EVP_PKEY, EvpPkeyDeleter>;
 
+// SEP13 lead 4: RAII for the signing certs. loadP12 hands out raw X509*
+// ownership (leaf + issuer) with manual frees scattered on only SOME error
+// paths; every early return and every thrown exception between the load and
+// the (single) cleanup leaked both certs per attempt.
+struct X509Deleter {
+    void operator()(X509 *c) const noexcept { if (c) X509_free(c); }
+};
+using X509Ptr = std::unique_ptr<X509, X509Deleter>;
+
 // Additional RAII guards for OpenSSL objects used inside validateSignatures
 // — protects against leaks if CMS_verify or any inner call throws (Fix J).
 struct X509StoreDeleter {
@@ -1313,12 +1322,22 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
         charbuff certData;
         EVP_PKEY *pkeyRaw = nullptr;
         QList<QByteArray> certChain;
-        X509 *leafCert = nullptr, *issuerCert = nullptr;
+        X509 *leafCertRaw = nullptr, *issuerCertRaw = nullptr;
 
-        if (!d->loadP12(certPath, password, certData, &pkeyRaw, certChain, &leafCert, &issuerCert)) {
+        // loadP12 keeps ownership of everything until it returns true (all its
+        // own failure paths free what they allocated and leave the out-params
+        // untouched), so the raw temporaries are safe to observe here.
+        if (!d->loadP12(certPath, password, certData, &pkeyRaw, certChain,
+                        &leafCertRaw, &issuerCertRaw)) {
             qWarning() << "Failed to load P12 certificate";
             return SignOutcome::Failed;
         }
+        // SEP13 lead 4: RAII on both certs — every early return below (weak
+        // key, i2d failure, candidate reservation, certification refusal,
+        // post-condition/integrity failure, commit failure) and every thrown
+        // exception now frees what previous code freed on only some paths.
+        X509Ptr leafCert(leafCertRaw);
+        X509Ptr issuerCert(issuerCertRaw);
         // RAII guard: ensures EVP_PKEY_free runs on every exit path, including
         // exceptions thrown by PoDoFo while we still own the key.
         EvpPkeyPtr pkey(pkeyRaw);
@@ -1327,14 +1346,12 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
         // EVP_PKEY_RSA check: if the public key in the leaf cert is RSA < 2048 bits,
         // refuse to sign. This mirrors the M2-P4 pre-decided design choice #1.
         if (leafCert) {
-            EVP_PKEY *pubKey = X509_get0_pubkey(leafCert);
+            EVP_PKEY *pubKey = X509_get0_pubkey(leafCert.get());
             if (pubKey && EVP_PKEY_id(pubKey) == EVP_PKEY_RSA) {
                 if (EVP_PKEY_bits(pubKey) < 2048) {
                     qWarning() << "SignatureManager: Signing rejected — RSA key size"
                                << EVP_PKEY_bits(pubKey) << "bits < 2048 bits (weak key)";
-                    if (issuerCert) X509_free(issuerCert);
-                    X509_free(leafCert);
-                    return SignOutcome::Failed;
+                    return SignOutcome::Failed;   // certs freed by RAII (lead 4)
                 }
             }
         }
@@ -1483,7 +1500,7 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
             QString signerCN;
             if (leafCert) {
                 char cnBuf[256] = { 0 };
-                X509_NAME *subjectName = X509_get_subject_name(leafCert);
+                X509_NAME *subjectName = X509_get_subject_name(leafCert.get());
                 if (subjectName &&
                     X509_NAME_get_text_by_NID(subjectName, NID_commonName, cnBuf, sizeof(cnBuf)) > 0) {
                     signerCN = QString::fromUtf8(cnBuf).trimmed();
@@ -1516,9 +1533,7 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
                 default:
                     qWarning() << "certifyDocument: invalid certification level"
                                << certificationLevel << "— refusing to sign";
-                    if (issuerCert) X509_free(issuerCert);
-                    if (leafCert)   X509_free(leafCert);
-                    return SignOutcome::Failed;
+                    return SignOutcome::Failed;   // certs freed by RAII (lead 4)
             }
             try {
                 signature->AddCertificationReference(perm);
@@ -1527,9 +1542,7 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
                             << "reference (level" << certificationLevel << "):" << e.what()
                             << "— ABORTING; document will NOT be silently downgraded to an"
                             << "ordinary signature.";
-                if (issuerCert) X509_free(issuerCert);
-                if (leafCert)   X509_free(leafCert);
-                return SignOutcome::Failed;
+                return SignOutcome::Failed;   // certs freed by RAII (lead 4)
             }
         }
 
@@ -1622,7 +1635,7 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
             // Fetch and verify OCSP for leaf cert before embedding in DSS
             QList<QByteArray> ocsps;
             if (leafCert && issuerCert) {
-                QByteArray ocspRaw = d->fetchOcspResponse(leafCert, issuerCert, certPath);
+                QByteArray ocspRaw = d->fetchOcspResponse(leafCert.get(), issuerCert.get(), certPath);
                 if (!ocspRaw.isEmpty()) {
                     // D3: Verify OCSP response with OCSP_basic_verify before embedding
                     const unsigned char *ocspPtr = reinterpret_cast<const unsigned char*>(ocspRaw.constData());
@@ -1643,7 +1656,7 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
                             QString unusedStr;
                             d->getTrustStore(unusedStr, ocspStoreGuard);
 
-                            X509_STORE_add_cert(ocspStoreGuard.get(), issuerCert);
+                            X509_STORE_add_cert(ocspStoreGuard.get(), issuerCert.get());
 
                             // The signer's chain may contain intermediate certs useful for chain building,
                             // but they MUST NOT be blindly trusted.
@@ -1694,9 +1707,8 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
             }
         }
 
-        // Cleanup X509 objects
-        if (leafCert) X509_free(leafCert);
-        if (issuerCert) X509_free(issuerCert);
+        // Cleanup X509 objects: handled by the X509Ptr RAII guards (SEP13
+        // lead 4) — freed on EVERY exit path, not just this one.
 
         // ----------------------------------------------------------------
         // B-LTA: document timestamp over DSS-augmented file
