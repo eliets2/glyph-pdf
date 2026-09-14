@@ -186,13 +186,26 @@ private:
         return nullptr;
     }
 
-    static void pumpUntilDone(gp::BatchMode& bm) {
+    static void pumpUntilDone(gp::BatchMode& bm, int expectedAccounted = -1) {
         int waited = 0;
         while (bm.isBatchRunning() && waited < 30000) {
             QTest::qWait(50);
             waited += 50;
         }
         QVERIFY2(!bm.isBatchRunning(), "Batch did not complete within 30 seconds");
+        // Q2 (test-harness fix): the per-result callbacks are
+        // Qt::QueuedConnection, so they can lag the future's completion by an
+        // event-loop pass — isRunning() flips false before the queued
+        // resultReadyAt handlers update the counters (observed as
+        // "BATCH COMPLETE — 1 of 1 succeeded" in the log while
+        // successCount()==0). Drain until the accounting catches up, bounded.
+        waited = 0;
+        while (expectedAccounted >= 0
+               && bm.successCount() + bm.failCount() + bm.skipCount() < expectedAccounted
+               && waited < 5000) {
+            QTest::qWait(25);
+            waited += 25;
+        }
     }
 
 private slots:
@@ -212,7 +225,7 @@ private slots:
         h->bm.addFilesForTest({ texty, scanned });
         h->bm.setOperationForTest(5); // OpOCR (m_opCombo order)
         h->bm.onRunBatch();
-        pumpUntilDone(h->bm);
+        pumpUntilDone(h->bm, 2);
 
         // Truthful accounting: the text file SKIPPED (its own bucket), the
         // image-only file OCR'd, nothing failed.
@@ -249,7 +262,7 @@ private slots:
         h->bm.addFilesForTest({ mixed });
         h->bm.setOperationForTest(5);
         h->bm.onRunBatch();
-        pumpUntilDone(h->bm);
+        pumpUntilDone(h->bm, 1);
 
         QCOMPARE(h->bm.skipCount(), 0);   // the FILE was processed…
         QCOMPARE(h->bm.successCount(), 1);
@@ -281,7 +294,7 @@ private slots:
         h->bm.addFilesForTest({ mixed });
         h->bm.setOperationForTest(5);
         h->bm.onRunBatch();
-        pumpUntilDone(h->bm);
+        pumpUntilDone(h->bm, 1);
 
         QCOMPARE(h->bm.skipCount(), 0);
         QCOMPARE(h->bm.successCount(), 1);
@@ -316,7 +329,7 @@ private slots:
         h->bm.addFilesForTest({ texty });
         h->bm.setOperationForTest(5);
         h->bm.onRunBatch();
-        pumpUntilDone(h->bm);
+        pumpUntilDone(h->bm, 1);
 
         QCOMPARE(h->bm.skipCount(), 0);
         QCOMPARE(h->bm.successCount(), 1);
@@ -340,7 +353,7 @@ private slots:
         h->bm.addFilesForTest({ scanned });
         h->bm.setOperationForTest(5);
         h->bm.onRunBatch();
-        pumpUntilDone(h->bm);
+        pumpUntilDone(h->bm, 1);
         QCOMPARE(h->bm.skipCount(), 0);
         QCOMPARE(h->bm.successCount(), 1);
         const QString out = h->tmp.filePath("scanned_ocr.pdf");
@@ -348,12 +361,27 @@ private slots:
 
         // Run 2 over the OUTPUT: it now carries the invisible text layer, so
         // the same skip-files run must leave it alone — a no-op.
-        h->bm.addFilesForTest({ out });
-        h->bm.onRunBatch();
-        pumpUntilDone(h->bm);
-        QCOMPARE(h->bm.skipCount(), 1);
-        QCOMPARE(h->bm.successCount(), 0);
-        QCOMPARE(h->bm.failCount(), 0);
+        // Q2: run 2 uses a FRESH harness holding ONLY run 1's output.
+        // addFilePaths has append semantics (BatchMode.cpp), so reusing h
+        // would resubmit BOTH scanned.pdf and its output; the multi-file
+        // AR-8 overwrite pre-check then pops a modal QMessageBox::warning
+        // that blocks THIS thread inside onRunBatch() under offscreen — an
+        // unbounded hang (the old test never reached pumpUntilDone). A fresh
+        // harness makes run 2 a clean single-file run whose own output
+        // (scanned_ocr_ocr.pdf) does not exist, so no dialog can appear.
+        // h stays in scope, keeping its QTemporaryDir (and `out`) alive.
+        auto h2 = makeHarness();
+        QVERIFY(h2->tmp.isValid());
+        QCheckBox* skipFiles2 = findCheckBox(&h2->bm, kSkipFilesText);
+        QVERIFY2(skipFiles2, "the skip-files checkbox must exist in the OCR panel");
+        skipFiles2->setChecked(true);
+        h2->bm.addFilesForTest({ out });
+        h2->bm.setOperationForTest(5);
+        h2->bm.onRunBatch();
+        pumpUntilDone(h2->bm, 1);
+        QCOMPARE(h2->bm.skipCount(), 1);
+        QCOMPARE(h2->bm.successCount(), 0);
+        QCOMPARE(h2->bm.failCount(), 0);
     }
 
     // ── 5. defaults unchanged: no flags → full MRC path, nothing skipped ─────
@@ -366,7 +394,7 @@ private slots:
         h->bm.addFilesForTest({ texty });
         h->bm.setOperationForTest(5);
         h->bm.onRunBatch();
-        pumpUntilDone(h->bm);
+        pumpUntilDone(h->bm, 1);
 
         QCOMPARE(h->bm.skipCount(), 0);
         QCOMPARE(h->bm.successCount(), 1);
