@@ -462,6 +462,40 @@ FormManager::FormManager() : d(std::make_unique<Private>())
 
 FormManager::~FormManager() = default;
 
+// ── R18(f): the /AA /K Keystroke event for the Qt line-edit layer ────────────
+FormKeystrokeResult FormManager::runKeystrokeEvent(const QString &pdfFilePath, const QString &fieldName,
+                                                   const QString &valueBefore, const QString &change,
+                                                   int selStart, int selEnd, FormJsFailure *failure)
+{
+    if (failure) *failure = {};
+    FormKeystrokeResult out;
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(pdfFilePath.toUtf8().constData());
+        const auto r = gp::formjs::FormJsRunner::runKeystrokeEvent(doc, fieldName, valueBefore,
+                                                                   change, selStart, selEnd);
+        out.ran = r.ran;
+        out.allowed = r.allowed;
+        out.valueToApply = r.valueToApply;
+        if (failure && !r.failure.kind.isEmpty())
+            *failure = FormJsFailure{ r.failure.fieldName, r.failure.kind, r.failure.reason };
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "runKeystrokeEvent error:" << e.what();
+        // The document could not be loaded: the gate cannot run, but the
+        // keystroke must not silently pretend the script approved — disclose
+        // the engine failure and keep the typed text (never block honest
+        // typing on a broken file, never claim the script passed).
+        out.ran = false;
+        out.allowed = true;
+        if (failure) {
+            failure->fieldName = fieldName;
+            failure->kind = QStringLiteral("engine");
+            failure->reason = pdfErrorText(e);
+        }
+    }
+    return out;
+}
+
 bool FormManager::extractFormFields(const QString &pdfFilePath)
 {
     qDebug() << "Extracting AcroForm objects from:" << pdfFilePath;

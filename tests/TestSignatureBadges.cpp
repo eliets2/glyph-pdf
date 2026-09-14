@@ -19,14 +19,22 @@
 //     test's file-ownership lane).
 #include <QtTest/QtTest>
 #include <QAbstractScrollArea>
+#include <QApplication>
+#include <QBasicTimer>
+#include <QComboBox>
+#include <QDialogButtonBox>
+#include <QFile>
 #include <QFileInfo>
 #include <QImage>
 #include <QLabel>
+#include <QLineEdit>
+#include <QPushButton>
 #include <QScrollBar>
 #include <QSettings>
 #include <QTemporaryDir>
 
 #include "ui/PdfViewerWidget.h"
+#include "ui/PreferencesDialog.h"
 #include "modes/SignaturesPanel.h"
 #include "mocks/MockSignatureManager.h"
 #include "engines/SignatureManager.h"
@@ -677,6 +685,131 @@ private slots:
 
         // A fully-successful B-LTA keeps its full label in the Success STATUS
         // (attainedLevelLabel(B_LTA, clean) == "B-LTA" — pinned above).
+    }
+
+    // -----------------------------------------------------------------------
+    // R19 verify (2026-09-14): the MISSING end-to-end pin — the production
+    // chain Preferences surface → Save → persisted bytes → readSigningConfig.
+    // The pins above exercise the documented keys through QSettings on BOTH
+    // sides, and the engine pins in TestSignatureRealCrypto apply the config
+    // by hand; none of them drove the real dialog, so a silent drop of the
+    // two signing keys in PreferencesDialog::saveSettings would pass every
+    // other pin. The persisted state is additionally read back INDEPENDENTLY
+    // of QSettings (raw line parse of the INI bytes) before the production
+    // read path consumes the same file.
+    // -----------------------------------------------------------------------
+    void preferencesSavePersistsSigningKeysAndProductionReadPathSeesThem() {
+        // Redirect the QSettings the dialog constructs (default ctor) to a
+        // temp INI tree; isolated org/app — the developer's real settings,
+        // registry included, are untouched.
+        const QString org = QStringLiteral("GlyphPDFTests");
+        const QString app = QStringLiteral("TestSignatureBadges-R19");
+        const QString prevOrg = QCoreApplication::organizationName();
+        const QString prevApp = QCoreApplication::applicationName();
+        QCoreApplication::setOrganizationName(org);
+        QCoreApplication::setApplicationName(app);
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, tmp.path());
+
+        gp::PreferencesDialog dialog;
+        auto* tsaEdit = dialog.findChild<QLineEdit*>(QStringLiteral("tsaUrlEdit"));
+        auto* levelCombo = dialog.findChild<QComboBox*>(QStringLiteral("padesLevelCombo"));
+        QVERIFY2(tsaEdit && levelCombo,
+                 "the Security tab must expose the TSA URL + PAdES level controls");
+        tsaEdit->setText(QStringLiteral(" https://ts.example.com "));
+        const int idx = levelCombo->findData(QStringLiteral("B-LT"));
+        QVERIFY2(idx >= 0, "the level combo must offer B-LT");
+        levelCombo->setCurrentIndex(idx);
+
+        auto* box = dialog.findChild<QDialogButtonBox*>();
+        QVERIFY2(box, "the dialog must carry a button box");
+        QPushButton* save = box->button(QDialogButtonBox::Save);
+        QVERIFY2(save, "the dialog must expose its Save button");
+
+        // The production Save path ends with a MODAL "Preferences Saved"
+        // message box (PreferencesDialog::saveSettings); offscreen, nothing
+        // ever dismisses it and a naive click() would block the slot until
+        // QtTest's 300 s per-function fatal timeout. Bounded modal driver
+        // (the TestFormStaleDisclosure pattern): a repeating timer closes
+        // whatever modal appears, letting saveSettings continue into
+        // accept() and return.
+        struct ModalAutoCloser : QObject {
+            QBasicTimer timer;
+            int closes = 0;
+            void start() { timer.start(10, this); }
+            void stop() { timer.stop(); }
+        protected:
+            void timerEvent(QTimerEvent* ev) override {
+                if (ev->timerId() != timer.timerId()) return;
+                if (QWidget* w = QApplication::activeModalWidget()) {
+                    w->close();
+                    ++closes;
+                }
+            }
+        } closer;
+        closer.start();
+        save->click(); // accepted() -> saveSettings() (modal dismissed above)
+        closer.stop();
+        QVERIFY2(closer.closes >= 1,
+                 "the production Save path must show its confirmation modal "
+                 "(the driver should have dismissed exactly that box)");
+
+        QSettings().sync(); // flush before reading the file bytes
+
+        const QString iniPath = tmp.path() + QStringLiteral("/%1/%2.ini").arg(org, app);
+        QVERIFY2(QFileInfo::exists(iniPath),
+                 qPrintable(QStringLiteral("the redirected settings file must exist: %1").arg(iniPath)));
+
+        // Independent read path — the persisted bytes parsed as plain text
+        // (no QSettings involved): the dialog really wrote BOTH keys. Qt INI
+        // layout note: a "signing/tsaUrl" key becomes a "[signing]" SECTION
+        // header with "tsaUrl=" under it — the flat "signing/tsaUrl=" line
+        // never appears in the file, so the parser must track sections.
+        QString persistedTsa, persistedLevel;
+        QFile ini(iniPath);
+        QVERIFY(ini.open(QIODevice::ReadOnly | QIODevice::Text));
+        QString section;
+        while (!ini.atEnd()) {
+            const QString line = QString::fromUtf8(ini.readLine()).trimmed();
+            if (line.startsWith(QLatin1Char('[')) && line.endsWith(QLatin1Char(']'))) {
+                section = line.mid(1, line.size() - 2);
+                continue;
+            }
+            if (section != QLatin1String("signing"))
+                continue;
+            // INI string values may be quoted (QSettings escapes when needed).
+            const auto unquote = [](const QString& raw) {
+                return raw.size() >= 2 && raw.startsWith(QLatin1Char('"'))
+                           && raw.endsWith(QLatin1Char('"'))
+                           ? raw.mid(1, raw.size() - 2) : raw;
+            };
+            if (line.startsWith(QLatin1String("tsaUrl=")))
+                persistedTsa = unquote(line.mid(qstrlen("tsaUrl=")));
+            else if (line.startsWith(QLatin1String("padesLevel=")))
+                persistedLevel = unquote(line.mid(qstrlen("padesLevel=")));
+        }
+        ini.close();
+        QVERIFY2(persistedTsa == QStringLiteral("https://ts.example.com"),
+                 qPrintable(QStringLiteral("the trimmed TSA URL must be on disk, got '%1'")
+                                .arg(persistedTsa)));
+        QVERIFY2(persistedLevel == QStringLiteral("B-LT"),
+                 qPrintable(QStringLiteral("the level must be on disk verbatim, got '%1'")
+                                .arg(persistedLevel)));
+
+        // The production read path consumes the SAME persisted file.
+        QSettings persistedIni(iniPath, QSettings::IniFormat);
+        const auto cfg = gp::SecurityController::readSigningConfig(&persistedIni);
+        QCOMPARE(cfg.tsaUrl, QStringLiteral("https://ts.example.com"));
+        QCOMPARE(cfg.level, PAdESLevel::B_LT);
+
+        // Restore the process-global QSettings state (this is the LAST slot,
+        // but the restores keep the slot order-independent).
+        QSettings::setDefaultFormat(QSettings::NativeFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, QString());
+        QCoreApplication::setOrganizationName(prevOrg);
+        QCoreApplication::setApplicationName(prevApp);
     }
 
 };

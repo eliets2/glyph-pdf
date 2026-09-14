@@ -522,6 +522,98 @@ FormJsRunner::ValidateOutcome FormJsRunner::runValidateEvent(PoDoFo::PdfMemDocum
     return out;
 }
 
+// ── P2 (R18f): Keystroke /AA /K — the Qt line-edit layer ─────────────────────
+
+FormJsRunner::KeystrokeOutcome FormJsRunner::runKeystrokeEvent(PoDoFo::PdfMemDocument& doc,
+                                                               const QString& name,
+                                                               const QString& valueBefore,
+                                                               const QString& change,
+                                                               int selStart, int selEnd,
+                                                               int eventDeadlineMs)
+{
+    KeystrokeOutcome out;
+    if (!executionEnabledFlag())
+        return out; // no engine: the authored /AA /K cannot gate anything; the CapabilityRegistry discloses
+
+    // Locate the field (first full-name match — the same policy as
+    // writeFieldValue / runValidateEvent). Phase-2 scope: TextBox, the only
+    // type the Qt line-edit layer edits.
+    PoDoFo::PdfField* target = nullptr;
+    try {
+        auto* acroForm = doc.GetAcroForm();
+        if (!acroForm) return out;
+        for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
+            auto& field = acroForm->GetFieldAt(i);
+            if (QString::fromStdString(field.GetFullName()) == name) {
+                target = &field;
+                break;
+            }
+        }
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "FormJsRunner::runKeystrokeEvent:" << e.what();
+        return out;
+    }
+    if (!target || target->GetType() != PoDoFo::PdfFieldType::TextBox)
+        return out;
+
+    QString script;
+    QString why;
+    if (!extractActionScript(*target, 'K', &script, &why)) {
+        Q_UNUSED(why);
+        return out; // no /AA /K — ordinary field, typing stands
+    }
+    out.ran = true;
+
+    FormJsSandbox sandbox;
+    if (!sandbox.isValid() || !sandbox.installShim(nullptr)) {
+        out.allowed = false;
+        out.failure = FieldJsFailure{ name, QStringLiteral("engine"),
+                                      QStringLiteral("quickjs runtime is unavailable in this build") };
+        return out;
+    }
+    // R05/JS-01: the snapshot install is an engine entry; without it the
+    // keystroke script would silently compute on missing values.
+    QString snapshotError;
+    if (!sandbox.setFieldValues(collectFieldValues(doc), &snapshotError)) {
+        out.allowed = false;
+        out.failure = FieldJsFailure{ name, QStringLiteral("engine"),
+                                      QStringLiteral("the form value snapshot could not be installed: %1")
+                                          .arg(snapshotError) };
+        return out;
+    }
+
+    // event.value = the text BEFORE the keystroke, event.change = the edit,
+    // [selStart, selEnd) = the replaced range; willCommit=false (the host owns
+    // the commit). The whole operation runs under the caller's budget.
+    const JsEvalResult r = sandbox.runKeystrokeEvent(script, name, valueBefore, change,
+                                                     selStart, selEnd, eventDeadlineMs);
+    if (!r.ok) {
+        out.allowed = false;
+        // Fail closed: ANY script failure refuses the edit (a partially gated
+        // keystroke must never take). The host reverts the line edit.
+        out.failure = FieldJsFailure{ name, QLatin1String(kindString(r.kind)), r.message };
+        return out;
+    }
+    if (!r.rc) {
+        out.allowed = false;
+        out.failure = FieldJsFailure{ name, QStringLiteral("rejected"),
+                                      QStringLiteral("the field's Keystroke script set event.rc = false; "
+                                                     "the change was rejected") };
+        return out;
+    }
+    // Acrobat's filtered-keystroke semantics: a script may TRANSFORM the
+    // proposal via event.value (the AFMergeChange idiom: event.value =
+    // AFMergeChange(event)). The event's seeded value is valueBefore, so a
+    // script that left event.value alone reads back valueBefore and the typed
+    // text stands. (A script resetting event.value to valueBefore to swallow
+    // the change is indistinguishable from leaving it untouched — Acrobat's
+    // rejection idiom is event.rc = false, handled above.)
+    if (r.hasValue && r.value != valueBefore)
+        out.valueToApply = r.value;
+    out.allowed = true;
+    return out;
+}
+
 // ── Format (display-only) ────────────────────────────────────────────────────
 
 QString FormJsRunner::formatForDisplay(PoDoFo::PdfMemDocument& doc,

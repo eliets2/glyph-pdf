@@ -53,6 +53,16 @@ struct FormFieldSnapshot {
     QString defaultValue;
 };
 
+/// R18(f): ONE /AA /K (Keystroke) evaluation for the Qt line-edit layer —
+/// the form field's script gate on a text-changing edit BEFORE it takes
+/// effect (Acrobat: the event fires as the user types, willCommit=false).
+struct FormKeystrokeResult {
+    bool ran = false;         // false = no runnable /AA /K (typing always stands)
+    bool allowed = true;      // rc=false or any script failure → false (fail closed)
+    QString valueToApply;     // non-empty = the script TRANSFORMED the text
+    FormJsFailure failure;    // field-attributed reason when !allowed
+};
+
 class IFormManager {
 public:
     virtual ~IFormManager() = default;
@@ -124,6 +134,18 @@ public:
     /// no format script; on script failure returns the unformatted value and
     /// fills `failure` (field-attributed, honest).
     virtual QString formatFieldValue(const QString &pdfFilePath, const QString &fieldName, FormJsFailure *failure = nullptr) = 0;
+
+    /// R18(f) Keystroke (/AA /K): runs the named field's keystroke script for
+    /// ONE text-changing edit (`valueBefore` = field text before the edit,
+    /// `change` = the inserted/replaced text, [selStart, selEnd) = the range
+    /// of valueBefore it replaces — what AFMergeChange splices). Same
+    /// caller-owned 250 ms event budget as the other form-JS events. No
+    /// runnable script → ran=false (typing stands); rc=false or any script
+    /// failure → allowed=false (the edit is rejected, fail closed);
+    /// valueToApply carries the script-transformed text when it set one.
+    virtual FormKeystrokeResult runKeystrokeEvent(const QString &pdfFilePath, const QString &fieldName,
+                                                  const QString &valueBefore, const QString &change,
+                                                  int selStart, int selEnd, FormJsFailure *failure = nullptr) = 0;
 
     virtual QList<FieldSuggestion> autoDetectFields(const QString &pdfFilePath, int pageIndex) = 0;
 

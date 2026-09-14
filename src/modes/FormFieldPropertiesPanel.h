@@ -37,6 +37,11 @@ private slots:
     void onApplyClicked();
     void onNameChanged(const QString& text);
     void onRegexChanged(const QString& text);
+    // R18(f): the /AA /K Keystroke event — the Default-value line edit runs
+    // the field's keystroke script for EVERY text-changing edit and rejects
+    // (reverts) the edit when the script refuses it (Acrobat keystroke
+    // semantics; the host merges via AFMergeChange).
+    void onDefaultTextChanged(const QString& text);
 
 private:
     void validateName();
@@ -45,6 +50,9 @@ private:
     // /AA /C script and, when an /AA /F format script exists, a DISPLAY-ONLY
     // preview of the formatted value (the stored /V is never rewritten).
     void refreshScriptState();
+    // R18(f): writes the value line edit programmatically (populate, revert,
+    // script transform) without re-triggering the keystroke event.
+    void setValueText(const QString& text);
 
     const AppContext* m_ctx       = nullptr;
     QString           m_fieldName;   // original name before edits
@@ -53,6 +61,12 @@ private:
     QLineEdit*  m_tooltipEdit     = nullptr;
     QCheckBox*  m_requiredCheck   = nullptr;
     QLineEdit*  m_defaultEdit     = nullptr;
+    // R18(f): the keystroke gate for m_defaultEdit — the text BEFORE the
+    // pending edit (Acrobat's event.value), the programmatic-write guard, and
+    // the disclosure label for rejected/blocked/transformed keystrokes.
+    QString     m_keystrokeBase;
+    bool        m_syncingValueText = false;
+    QLabel*     m_keystrokeStatus = nullptr;
     QLineEdit*  m_placeholderEdit = nullptr;
     QLineEdit*  m_regexEdit       = nullptr;
     QLabel*     m_regexStatus     = nullptr;

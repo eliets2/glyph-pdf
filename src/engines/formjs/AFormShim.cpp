@@ -8,8 +8,9 @@ namespace gp::formjs {
 
 const char* aformShimVersion()
 {
-    // pdf.js master (fetched 2026-09-09); Phase-1 shim tier.
-    return "pdf.js scripting_api aform.js/util.js @ 2026-09-09, Phase-1 tier";
+    // pdf.js master (fetched 2026-09-09); Phase-1 + Keystroke-tier shim
+    // (the /AA /K family landed with R18f, 2026-09-14).
+    return "pdf.js scripting_api aform.js/util.js @ 2026-09-09, Phase-1+Keystroke tier";
 }
 
 const char* aformShimSource()
@@ -506,11 +507,78 @@ globalThis.AFExtractNums = function (str) {
 };
 
 // DEVIATION: pdf.js delegates the !willCommit branch to the app's
-// EventDispatcher (keystroke merging). Phase 1 events always commit.
+// EventDispatcher (keystroke merging) and returns the raw change there.
+// R18(f): the Keystroke (/AA /K) event is now real, so this port implements
+// the HOST side of that dispatcher and restores the Acrobat contract here:
+// a commit event's value IS the final text; a keystroke event's value is the
+// text BEFORE the keystroke and the merged proposal is `change` spliced into
+// it at [selStart, selEnd) (plain concatenation when the host supplies no
+// selection range). No keystroke event ran before R18(f) — Phase-1 events
+// always commit — so the !willCommit branch's behavior change is
+// unobservable to every previously existing caller.
 function AFMergeChange(event = globalThis.event) {
-  return event.willCommit ? event.value.toString() : String(event.change ?? "");
+  if (event.willCommit) return event.value.toString();
+  const v = event.value == null ? "" : event.value.toString();
+  const ch = event.change == null ? "" : String(event.change);
+  if (typeof event.selStart !== "number" || typeof event.selEnd !== "number") return v + ch;
+  return v.substring(0, event.selStart) + ch + v.substring(event.selEnd);
 }
 globalThis.AFMergeChange = AFMergeChange;
+
+// ── Keystroke family (Phase 2 tier, R18f) ───────────────────────────────────
+// Ported from pdf.js aform.js (Apache-2.0): every AF*_Keystroke function is
+// GATED ON willCommit — while the user is typing (our /AA /K events run with
+// willCommit=false, the host owns the merge via AFMergeChange) they are
+// deliberate no-ops, and on a commit they set event.rc = false when the
+// value does not parse. This matters for honesty in BOTH directions: an
+// app-authored AFDate_KeystrokeEx /AA /K script must not reject typing
+// character-by-character (partial dates would never parse), and a commit
+// must not silently accept an unparseable value.
+//
+// AFSpecial_Keystroke/Ex and AFRange_Validate remain ABSENT, not stubbed
+// (design doc §3.1) — scripts referencing them fail with the honest
+// ReferenceError, classified and disclosed by the event runner.
+function AFDate_KeystrokeEx(cFormat) {
+  if (!event.willCommit) {
+    return;
+  }
+  const date = __parseDate(cFormat, event.value);
+  if (date === null) {
+    event.rc = false;
+  }
+}
+globalThis.AFDate_KeystrokeEx = AFDate_KeystrokeEx;
+
+globalThis.AFDate_Keystroke = function (pdf) {
+  AFDate_KeystrokeEx(DateFormats[pdf] ?? pdf);
+};
+
+globalThis.AFTime_KeystrokeEx = function (cFormat) {
+  AFDate_KeystrokeEx(cFormat);
+};
+globalThis.AFTime_Keystroke = function (pdf) {
+  AFDate_KeystrokeEx(TimeFormats[pdf] ?? pdf);
+};
+
+globalThis.AFNumber_Keystroke = function (
+  nDec, sepStyle, negStyle, currStyle, strCurrency, bCurrencyPrepend
+) {
+  if (event.willCommit) {
+    const num = AFMakeNumber(event.value);
+    if (num === null) {
+      event.rc = false;
+    }
+  }
+};
+
+globalThis.AFPercent_Keystroke = function (nDec, sepStyle) {
+  if (event.willCommit) {
+    const num = AFMakeNumber(event.value);
+    if (num === null) {
+      event.rc = false;
+    }
+  }
+};
 
 globalThis.AFParseDateEx = function (cString, cOrder) {
   return __parseDate(cOrder, cString);
@@ -736,16 +804,24 @@ globalThis.__gpBeginEvent = function (setup) {
     value,
     valueAsString: value === null ? "" : String(value),
     rc: true,
-    willCommit: true,
-    name: setup.eventKind,      // "Calculate" | "Format" (Acrobat event names)
+    // R18(f): the Keystroke event fires for a text-changing edit BEFORE it
+    // commits, so the host passes willCommit=false there (AFMergeChange and
+    // the commit semantics both branch on it). Phase-1 events always commit.
+    willCommit: setup.willCommit === undefined ? true : !!setup.willCommit,
+    name: setup.eventKind,      // "Calculate" | "Format" | "Keystroke" (Acrobat event names)
     type: "field",
     target,
     source: target,             // Phase 1: /CO-driven; the source is the target
     targetName: `[ ${setup.name} ]`,
+    // R18(f) Keystroke additions (Acrobat's event shape): the pending change
+    // and the [selStart, selEnd) range of `value` it replaces — what
+    // AFMergeChange splices. Undefined for the other event kinds.
+    change: setup.change === undefined ? undefined : String(setup.change),
+    selStart: setup.selStart === undefined ? undefined : setup.selStart,
+    selEnd: setup.selEnd === undefined ? undefined : setup.selEnd,
     // P2/P3 hooks (present in Acrobat's event object, intentionally ABSENT
-    // here — Phase 2 events will add them with the event kinds that need
-    // them): change, changeEx, commitKey, keyDown, modifier, selStart,
-    // selEnd, shift, richChange/richValue.
+    // here — no event kind in this build consumes them): changeEx, commitKey,
+    // keyDown, modifier, shift, richChange/richValue.
   };
   return true;
 };

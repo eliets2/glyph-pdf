@@ -282,6 +282,37 @@ JsEvalResult FormJsSandbox::runEvent(const QString& script,
                                      const QString& currentValue,
                                      int deadlineMs)
 {
+    QJsonObject setup;
+    setup.insert(QStringLiteral("name"), fieldName);
+    setup.insert(QStringLiteral("value"), currentValue);
+    setup.insert(QStringLiteral("eventKind"), eventKind);
+    return runScriptedEvent(script, fieldName, eventKind, setup, deadlineMs);
+}
+
+JsEvalResult FormJsSandbox::runKeystrokeEvent(const QString& script,
+                                              const QString& fieldName,
+                                              const QString& currentValue,
+                                              const QString& change,
+                                              int selStart, int selEnd,
+                                              int deadlineMs)
+{
+    QJsonObject setup;
+    setup.insert(QStringLiteral("name"), fieldName);
+    setup.insert(QStringLiteral("value"), currentValue);
+    setup.insert(QStringLiteral("eventKind"), QStringLiteral("Keystroke"));
+    setup.insert(QStringLiteral("change"), change);
+    setup.insert(QStringLiteral("willCommit"), false);
+    setup.insert(QStringLiteral("selStart"), selStart);
+    setup.insert(QStringLiteral("selEnd"), selEnd);
+    return runScriptedEvent(script, fieldName, QStringLiteral("Keystroke"), setup, deadlineMs);
+}
+
+JsEvalResult FormJsSandbox::runScriptedEvent(const QString& script,
+                                             const QString& fieldName,
+                                             const QString& eventKind,
+                                             const QJsonObject& setup,
+                                             int deadlineMs)
+{
     JsEvalResult out;
     if (!isValid()) {
         out.kind = JsErrorKind::Exception;
@@ -310,10 +341,6 @@ JsEvalResult FormJsSandbox::runEvent(const QString& script,
     m_impl->beginOperation(int(opDeadline), "the event setup");
 
     // 1. Reset the event + sinks.
-    QJsonObject setup;
-    setup.insert(QStringLiteral("name"), fieldName);
-    setup.insert(QStringLiteral("value"), currentValue);
-    setup.insert(QStringLiteral("eventKind"), eventKind);
     const QString begin = QStringLiteral("globalThis.__gpBeginEvent(%1);")
                               .arg(QString::fromUtf8(QJsonDocument(setup).toJson(QJsonDocument::Compact)));
     {
@@ -552,6 +579,14 @@ bool FormJsSandbox::updateFieldValue(const QString&, const QString&, QString* er
     return false;
 }
 JsEvalResult FormJsSandbox::runEvent(const QString&, const QString&, const QString&, const QString&, int)
+{
+    JsEvalResult out;
+    out.kind = JsErrorKind::Exception;
+    out.message = QStringLiteral("this build was compiled without a JavaScript engine");
+    return out;
+}
+JsEvalResult FormJsSandbox::runKeystrokeEvent(const QString&, const QString&, const QString&,
+                                              const QString&, int, int, int)
 {
     JsEvalResult out;
     out.kind = JsErrorKind::Exception;
