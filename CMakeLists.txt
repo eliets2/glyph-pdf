@@ -4793,6 +4793,58 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSep13LeadRedactionProof.cpp")
     )
 endif()
 
+# R14 INDEPENDENT REVIEWER probe (temporary registration — restored after review).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/R14ProbeRedactSpace.cpp")
+    add_executable(R14ProbeRedactSpace tests/R14ProbeRedactSpace.cpp)
+    target_include_directories(R14ProbeRedactSpace PRIVATE src tests)
+    target_link_libraries(R14ProbeRedactSpace PRIVATE
+        pdfws_ui pdfws_engines pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET R14ProbeRedactSpace POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:R14ProbeRedactSpace>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:R14ProbeRedactSpace>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for R14ProbeRedactSpace"
+    )
+    add_test(NAME R14ProbeRedactSpace COMMAND R14ProbeRedactSpace)
+    set_tests_properties(R14ProbeRedactSpace PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 180
+        LABELS "unit;core;redactionproof;r14review;qt;headless"
+    )
+endif()
+
+# R14 INDEPENDENT REVIEWER probe 2 (temporary registration — restored after review).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/R14ProbeSep13Fixes.cpp")
+    add_executable(R14ProbeSep13Fixes tests/R14ProbeSep13Fixes.cpp)
+    set_target_properties(R14ProbeSep13Fixes PROPERTIES OUTPUT_NAME "R14ProbeSep13Fixes-r2") # stale-exe lock workaround
+    target_include_directories(R14ProbeSep13Fixes PRIVATE src tests)
+    target_compile_definitions(R14ProbeSep13Fixes PRIVATE
+        SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    )
+    target_link_libraries(R14ProbeSep13Fixes PRIVATE
+        pdfws_ui pdfws_engines pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+    )
+    add_custom_command(TARGET R14ProbeSep13Fixes POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:R14ProbeSep13Fixes>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:R14ProbeSep13Fixes>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for R14ProbeSep13Fixes"
+    )
+    add_test(NAME R14ProbeSep13Fixes COMMAND R14ProbeSep13Fixes)
+    set_tests_properties(R14ProbeSep13Fixes PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 300
+        LABELS "unit;core;r14review;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSep13LeadBtDowngrade.cpp")
     add_executable(TestSep13LeadBtDowngrade tests/TestSep13LeadBtDowngrade.cpp)
     target_include_directories(TestSep13LeadBtDowngrade PRIVATE src tests)
