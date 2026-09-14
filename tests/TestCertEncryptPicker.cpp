@@ -190,6 +190,13 @@ class TestCertEncryptPicker : public QObject {
 private slots:
 
     void initTestCase() {
+        // Suite isolation (follow-ups): redirect QSettings the
+        // TestBatchOcrLanguage way. The engine paths this suite drives
+        // default-construct QSettings — without the redirect they would read
+        // whatever user/sibling-test preference sits in the shared default
+        // location; this suite never writes settings, so no restore is needed.
+        QCoreApplication::setOrganizationName(QStringLiteral("GlyphPDFTests"));
+        QCoreApplication::setApplicationName(QStringLiteral("TestCertEncryptPicker"));
         QVERIFY(m_tmp.isValid());
         m_r1 = makeRecipient(QStringLiteral("Test Recipient One"),
                              m_tmp.filePath("recipient1.pem"));

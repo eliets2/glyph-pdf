@@ -170,6 +170,14 @@ class TestCertifySelector : public QObject {
 private slots:
 
     void initTestCase() {
+        // Suite isolation (follow-ups): redirect QSettings the
+        // TestBatchOcrLanguage way. The engine paths this suite drives
+        // (SignatureManager trust-store load, engine save) default-construct
+        // QSettings — without the redirect they would read whatever
+        // user/sibling-test preference sits in the shared default location;
+        // this suite never writes settings, so no restore is needed.
+        QCoreApplication::setOrganizationName(QStringLiteral("GlyphPDFTests"));
+        QCoreApplication::setApplicationName(QStringLiteral("TestCertifySelector"));
         QVERIFY(m_tmp.isValid());
         QVERIFY2(makeSigner(m_tmp.filePath("signer.p12"), m_signer),
                  "the in-test signer P12 must be generated");
