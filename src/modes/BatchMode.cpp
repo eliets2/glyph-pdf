@@ -458,17 +458,30 @@ void BatchMode::buildOperationPanel(QWidget* host) {
         // / -skipPagesWithText … force OCR" switches mirrored in the GUI. A
         // skipped file is reported truthfully in the batch summary — never as
         // completed OCR work. Force overrides both skips.
+        // Q3: the checkboxes READ their state from QSettings on construction,
+        // so persistence is the advertised behavior — write back on every
+        // change (write-on-change), or the user's choice silently evaporates
+        // on the next app start.
         m_ocrSkipFilesWithText = new QCheckBox(tr("Skip files that already contain text"));
         m_ocrSkipFilesWithText->setChecked(
             QSettings().value(QStringLiteral("ocr/skipFilesWithText"), false).toBool());
+        connect(m_ocrSkipFilesWithText, &QCheckBox::toggled, this, [](bool on) {
+            QSettings().setValue(QStringLiteral("ocr/skipFilesWithText"), on);
+        });
         lay->addWidget(m_ocrSkipFilesWithText);
         m_ocrSkipPagesWithText = new QCheckBox(tr("Skip pages that already contain text (keep original page)"));
         m_ocrSkipPagesWithText->setChecked(
             QSettings().value(QStringLiteral("ocr/skipPagesWithText"), false).toBool());
+        connect(m_ocrSkipPagesWithText, &QCheckBox::toggled, this, [](bool on) {
+            QSettings().setValue(QStringLiteral("ocr/skipPagesWithText"), on);
+        });
         lay->addWidget(m_ocrSkipPagesWithText);
         m_ocrForceOcr = new QCheckBox(tr("Force OCR (override skip options)"));
         m_ocrForceOcr->setChecked(
             QSettings().value(QStringLiteral("ocr/forceOcr"), false).toBool());
+        connect(m_ocrForceOcr, &QCheckBox::toggled, this, [](bool on) {
+            QSettings().setValue(QStringLiteral("ocr/forceOcr"), on);
+        });
         lay->addWidget(m_ocrForceOcr);
 
         lay->addWidget(new QLabel(tr("Output Folder:")));

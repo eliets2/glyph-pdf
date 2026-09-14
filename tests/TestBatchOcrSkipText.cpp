@@ -210,6 +210,31 @@ private:
 
 private slots:
 
+    // Q3: isolate QSettings so the test neither reads the user's real
+    // preference nor clobbers it (TestBatchOcrLanguage idiom). Must run
+    // BEFORE the first harness — the BatchMode ctor reads QSettings.
+    void initTestCase() {
+        QCoreApplication::setOrganizationName(QStringLiteral("GlyphPDFTests"));
+        QCoreApplication::setApplicationName(QStringLiteral("TestBatchOcrSkipText"));
+    }
+    void cleanupTestCase() {
+        QSettings().remove(QStringLiteral("ocr/skipFilesWithText"));
+        QSettings().remove(QStringLiteral("ocr/skipPagesWithText"));
+        QSettings().remove(QStringLiteral("ocr/forceOcr"));
+    }
+    // Per-test wipe: every slot starts from a clean settings store, and the
+    // write-on-change toggles of one slot never leak into the next.
+    void init() {
+        QSettings().remove(QStringLiteral("ocr/skipFilesWithText"));
+        QSettings().remove(QStringLiteral("ocr/skipPagesWithText"));
+        QSettings().remove(QStringLiteral("ocr/forceOcr"));
+    }
+    void cleanup() {
+        QSettings().remove(QStringLiteral("ocr/skipFilesWithText"));
+        QSettings().remove(QStringLiteral("ocr/skipPagesWithText"));
+        QSettings().remove(QStringLiteral("ocr/forceOcr"));
+    }
+
     // ── 1. skip-files: mixed corpus → output only for the image-only file ────
     void skipFileProducesOutputsOnlyForImageOnlyFiles() {
         auto h = makeHarness();
@@ -382,6 +407,40 @@ private slots:
         QCOMPARE(h2->bm.skipCount(), 1);
         QCOMPARE(h2->bm.successCount(), 0);
         QCOMPARE(h2->bm.failCount(), 0);
+    }
+
+    // ── 6. Q3: skip options persist across an app restart (write-on-change) ──
+    // The OCR panel initializes the three skip checkboxes FROM QSettings, so
+    // persistence is clearly the advertised behavior — but nothing ever wrote
+    // the values back: the user's choice silently evaporated on restart.
+    void skipOptionsPersistAcrossRestart() {
+        // init() wiped the three keys: a fresh harness starts all-unchecked.
+        {
+            auto h = makeHarness();
+            QVERIFY(h->tmp.isValid());
+            QCheckBox* skipFiles = findCheckBox(&h->bm, kSkipFilesText);
+            QCheckBox* skipPages = findCheckBox(&h->bm, kSkipPagesText);
+            QCheckBox* force     = findCheckBox(&h->bm, kForceText);
+            QVERIFY(skipFiles && skipPages && force);
+            QVERIFY(!skipFiles->isChecked());
+            QVERIFY(!skipPages->isChecked());
+            QVERIFY(!force->isChecked());
+            // Toggling must write through to QSettings immediately.
+            skipFiles->setChecked(true);
+            skipPages->setChecked(true);
+            force->setChecked(true);
+            QSettings().sync();
+        }
+        // A FRESH harness — the next app start — restores the choice.
+        auto h2 = makeHarness();
+        QVERIFY(h2->tmp.isValid());
+        QCheckBox* skipFiles2 = findCheckBox(&h2->bm, kSkipFilesText);
+        QCheckBox* skipPages2 = findCheckBox(&h2->bm, kSkipPagesText);
+        QCheckBox* force2     = findCheckBox(&h2->bm, kForceText);
+        QVERIFY(skipFiles2 && skipPages2 && force2);
+        QVERIFY2(skipFiles2->isChecked(), "skip-files choice must persist across restart");
+        QVERIFY2(skipPages2->isChecked(), "skip-pages choice must persist across restart");
+        QVERIFY2(force2->isChecked(), "force-OCR choice must persist across restart");
     }
 
     // ── 5. defaults unchanged: no flags → full MRC path, nothing skipped ─────
