@@ -29,14 +29,17 @@
 #include <QCheckBox>
 #include <QFile>
 #include <QFileInfo>
+#include <QSet>
 #include <QSettings>
 #include <QTemporaryDir>
+#include <cmath>
 
 #include "core/AppContext.h"
 #include "core/interfaces/IOcrEngine.h"
 #include "modes/BatchMode.h"
 #include "engines/PdfEditorEngine.h"
 #include "engines/pdfium/PdfiumBackend.h"
+#include <podofo/podofo.h> // Q4: artifact checks on the SAVED file
 
 // ── OCR stub: returns one confident word per image (no external engine) ──────
 
@@ -144,12 +147,86 @@ QString mixedPdf(const QString& dir, const QString& name) {
                     { "BT /F1 12 Tf 72 700 Td (PageOne Words) Tj ET", "" });
 }
 
+// Q4 fixture: page 0 carries real text PLUS annotations (a Link and a form
+// Widget) and a catalog /AcroForm referencing the Widget; page 1 carries a
+// REAL 1x1 DeviceRGB uncompressed image XObject drawn full-page and no text
+// operators. Byte-accurate xref, same hand-written idiom as writePdf.
+// Object map: 1 catalog, 2 pages, 3/4 pages, 5/6 contents, 7 font,
+// 8 Widget, 9 Link, 10 image XObject.
+QString richMixedPdf(const QString& dir, const QString& name) {
+    const QString path = dir + "/" + name;
+    QByteArray pdf;
+    pdf += "%PDF-1.4\n";
+    QList<int> offsets;
+    const auto mark = [&offsets, &pdf]() { offsets.append(pdf.size()); };
+    const auto obj = [&pdf](int n, const QByteArray& body) {
+        pdf += QByteArray::number(n) + " 0 obj" + body + "endobj\n";
+    };
+
+    mark(); obj(1, "<</Type/Catalog/Pages 2 0 R/AcroForm<</Fields[8 0 R]>>>>\n");
+    mark(); obj(2, "<</Type/Pages/Kids[3 0 R 4 0 R]/Count 2>>\n");
+    mark(); obj(3, "<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]"
+                   "/Contents 5 0 R/Resources<</Font<</F1 7 0 R>>>>"
+                   "/Annots[9 0 R 8 0 R]>>\n");
+    mark(); obj(4, "<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]"
+                   "/Contents 6 0 R/Resources<</XObject<</Im0 10 0 R>>>>>>\n");
+    const QByteArray c0 = "BT /F1 12 Tf 72 700 Td (PageOne Words) Tj ET";
+    mark(); obj(5, "<</Length " + QByteArray::number(c0.size())
+                   + ">>stream\n" + c0 + "endstream\n");
+    const QByteArray c1 = "q 612 0 0 792 0 0 cm /Im0 Do Q";
+    mark(); obj(6, "<</Length " + QByteArray::number(c1.size())
+                   + ">>stream\n" + c1 + "endstream\n");
+    mark(); obj(7, "<</Type/Font/Subtype/Type1/BaseFont/Helvetica"
+                   "/Encoding/WinAnsiEncoding>>\n");
+    mark(); obj(8, "<</Type/Annot/Subtype/Widget/FT/Tx/T (SigLine)"
+                   "/Rect[40 700 200 720]/V()>>\n");
+    mark(); obj(9, "<</Type/Annot/Subtype/Link/Rect[60 60 200 80]/Border[0 0 0]"
+                   "/A<</S/URI/URI(https://example.org/)>>>>\n");
+    const QByteArray px = QByteArray::fromHex("FF0000"); // one DeviceRGB pixel
+    mark(); obj(10, "<</Type/XObject/Subtype/Image/Width 1/Height 1"
+                    "/ColorSpace/DeviceRGB/BitsPerComponent 8/Length "
+                    + QByteArray::number(px.size()) + ">>stream\n" + px + "endstream\n");
+
+    constexpr int totalObjects = 10;
+    const int xrefStart = pdf.size();
+    pdf += "xref\n0 " + QByteArray::number(totalObjects + 1) + "\n";
+    pdf += "0000000000 65535 f \n";
+    for (int off : offsets)
+        pdf += QByteArray::number(static_cast<qulonglong>(off))
+                   .rightJustified(10, '0') + " 00000 n \n";
+    pdf += "trailer<</Size " + QByteArray::number(totalObjects + 1)
+           + "/Root 1 0 R>>\nstartxref\n"
+           + QByteArray::number(xrefStart) + "\n%%EOF\n";
+
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly) || f.write(pdf) != pdf.size()) return {};
+    return path;
+}
+
 QString pdfiumTextOf(const QString& path, int page) {
     PdfiumBackend reader;
     if (!reader.loadDocument(path)) return QStringLiteral("<load failed>");
     QString text;
     for (const auto& run : reader.extractPageTextRuns(page)) text += run.text;
     return text;
+}
+
+// Q4 helper: MediaBox [x y w h] equality within a point tolerance (the MRC
+// re-encode may round page geometry slightly).
+bool mediaBoxNearly(PoDoFo::PdfPage& page, double x, double y, double w, double h,
+                    double tol = 0.01) {
+    auto* mb = page.GetDictionary().FindKey("MediaBox");
+    if (!mb || !mb->IsArray()) return false;
+    const auto& arr = mb->GetArray();
+    if (arr.GetSize() != 4) return false;
+    const double want[4] = { x, y, w, h };
+    for (int i = 0; i < 4; ++i) {
+        const auto* o = arr.FindAt(i);
+        if (!o) return false;
+        if (std::abs(static_cast<double>(o->GetNumber()) - want[i]) > tol)
+            return false;
+    }
+    return true;
 }
 
 } // namespace
@@ -441,6 +518,100 @@ private slots:
         QVERIFY2(skipFiles2->isChecked(), "skip-files choice must persist across restart");
         QVERIFY2(skipPages2->isChecked(), "skip-pages choice must persist across restart");
         QVERIFY2(force2->isChecked(), "force-OCR choice must persist across restart");
+    }
+
+    // ── 7. Q4: the preservation contract, checked on the SAVED file ──────────
+    // The honest guarantee is EXTRACTED-TEXT EQUALITY plus object-level page
+    // preservation — NOT byte identity: kept pages are the original page
+    // objects carried over by the N09 page-copy writer (annotations included);
+    // OCRed pages are re-encoded MRC fragments. So the fixture page 0 carries
+    // a Link and a form Widget plus a catalog /AcroForm, and page 1 carries a
+    // REAL image XObject; everything below is verified on the saved OUTPUT.
+    void skipPagesPreservesPageObjectsOnSavedFile() {
+        auto h = makeHarness();
+        QVERIFY(h->tmp.isValid());
+        const QString rich = richMixedPdf(h->tmp.path(), "rich.pdf");
+        QVERIFY(!rich.isEmpty());
+        const QString originalPage0Text = pdfiumTextOf(rich, 0);
+        QVERIFY(originalPage0Text.contains(QStringLiteral("PageOne Words")));
+
+        QCheckBox* skipPages = findCheckBox(&h->bm, kSkipPagesText);
+        QVERIFY2(skipPages, "the skip-pages checkbox must exist in the OCR panel");
+        skipPages->setChecked(true);
+        h->bm.addFilesForTest({ rich });
+        h->bm.setOperationForTest(5);
+        h->bm.onRunBatch();
+        pumpUntilDone(h->bm, 1);
+        QCOMPARE(h->bm.skipCount(), 0);
+        QCOMPARE(h->bm.successCount(), 1);
+        QCOMPARE(h->bm.failCount(), 0);
+
+        const QString out = h->tmp.filePath("rich_ocr.pdf");
+        QVERIFY2(QFileInfo::exists(out), "the mixed document must produce an output");
+
+        // Extracted-text equality on the kept page; invisible OCR layer on
+        // the OCRed page. (Byte identity of the FILE is explicitly NOT the
+        // contract — the OCRed page is a different, re-encoded object.)
+        QCOMPARE(pdfiumTextOf(out, 0), originalPage0Text);
+        QVERIFY2(pdfiumTextOf(out, 1).contains(QStringLiteral("ocrlayer")),
+                 "the image-only page must be OCRed");
+
+        // Artifact checks on the SAVED file via PoDoFo.
+        PoDoFo::PdfMemDocument doc;
+        bool loadedOut = false;
+        try {
+            doc.Load(out.toUtf8().constData());
+            loadedOut = true;
+        } catch (const std::exception& e) {
+            QFAIL(qPrintable(QStringLiteral("the saved output must load: %1")
+                                 .arg(QString::fromUtf8(e.what()))));
+        } catch (...) {
+            QFAIL("the saved output must load (non-standard exception)");
+        }
+        QVERIFY(loadedOut);
+        QCOMPARE(doc.GetPages().GetCount(), 2u);
+
+        // Kept page: original page OBJECTS — annotations survive, including
+        // the form Widget annotation.
+        auto& pg0 = doc.GetPages().GetPageAt(0);
+        auto& annots0 = pg0.GetAnnotations();
+        QCOMPARE(annots0.GetCount(), 2u);
+        QSet<QString> subtypes;
+        for (unsigned i = 0; i < annots0.GetCount(); ++i) {
+            auto& a = annots0.GetAnnotAt(i);
+            if (auto* st = a.GetDictionary().FindKey("Subtype"); st && st->IsName())
+                subtypes.insert(QString::fromStdString(
+                    std::string(st->GetName().GetString())));
+        }
+        QVERIFY2(subtypes.contains(QStringLiteral("Widget")),
+                 "the kept page must preserve its form Widget annotation");
+        QVERIFY2(subtypes.contains(QStringLiteral("Link")),
+                 "the kept page must preserve its Link annotation");
+        QVERIFY2(pg0.GetDictionary().HasKey("Resources"),
+                 "the kept page must keep its /Resources");
+        QVERIFY2(mediaBoxNearly(pg0, 0, 0, 612, 792),
+                 "the kept page must keep its MediaBox");
+
+        // OCRed page: re-encoded MRC, but page geometry is preserved and the
+        // page still carries /Resources (the MRC image + text layer).
+        auto& pg1 = doc.GetPages().GetPageAt(1);
+        QVERIFY2(pg1.GetDictionary().HasKey("Resources"),
+                 "the OCRed page must carry /Resources");
+        QVERIFY2(mediaBoxNearly(pg1, 0, 0, 612, 792, 0.5),
+                 "the OCRed page must keep its MediaBox geometry");
+
+        // KNOWN PRODUCTION GAP (surfaced, never silently weakened): the
+        // page-copy path preserves the Widget ANNOTATIONS but does not
+        // re-create the catalog-level /AcroForm (verified down to the
+        // single-page extract itself), so the output is no longer a
+        // registered fillable form. Tracked in the Q-lane ledger; if the
+        // writer gains AcroForm reconstruction this XFAIL flips to XPASS and
+        // this assertion should be promoted to a hard requirement.
+        QEXPECT_FAIL("", "Q4 production finding: catalog /AcroForm is dropped "
+                         "by extractPageAsBytes + writeDocumentFromPages",
+                     Continue);
+        QVERIFY2(doc.GetCatalog().GetDictionary().HasKey("AcroForm"),
+                 "the catalog /AcroForm should survive the page-copy assembly");
     }
 
     // ── 5. defaults unchanged: no flags → full MRC path, nothing skipped ─────
