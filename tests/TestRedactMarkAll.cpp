@@ -21,6 +21,7 @@
 #include <podofo/podofo.h>
 #include "modes/RedactMode.h"
 #include "modes/RedactApplyDialog.h"
+#include "engines/RedactOperation.h" // SEP13 M8 lifetime pin: child-count observation
 #include "engines/PdfEditorEngine.h"
 #include "engines/pdfium/PdfiumBackend.h"
 #include "core/AppContext.h"
@@ -48,6 +49,9 @@ private slots:
     void sanitizeCopyCheckboxProducesCleanOutput();
     void redactPanelShowsLocalClaim();
     void sanitizeUncheckedKeepsMetadata();
+    // SEP13 M8 (static-LOW): the finished RedactOperation must be deleted —
+    // no accumulate-per-run leak of the mode-owned operation object.
+    void redactOperationIsDeletedAfterCompletion();
     // §9.8 P1: the panel needs an honest Cancel/Exit affordance — the AR-8 D3
     // plan removed the broken button instead of fixing the missing control.
     // Cancel must emit exitRequested() (the mode-exit contract) and must NOT
@@ -487,6 +491,53 @@ void TestRedactMarkAll::sanitizeUncheckedKeepsMetadata() {
     QVERIFY2(catalogHasKey(out, "OpenAction"),
              "with the checkbox off, hidden data is intentionally retained — "
              "this documents the honest difference between the two modes");
+}
+
+// SEP13 M8 (static-LOW): RedactOperation LIFETIME. The Apply flow heap-
+// allocates the operation with the mode as parent and runs it asynchronously;
+// nothing ever deleted it, so every run leaked one QObject (accumulate-per-
+// run). The fix mirrors the sibling mode-owned worker idiom (ConvertController
+// et al.): deleteLater on the completion signal — D02 already guarantees the
+// durable execution state outlives the QObject, so deferred deletion after
+// the queued finished() can never free a running worker. The observation is
+// an object count: after completion the mode must have NO RedactOperation
+// children left — pre-fix the finished operation stays parented forever.
+void TestRedactMarkAll::redactOperationIsDeletedAfterCompletion() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = createRiskyRedactablePdf(tmp, "m8_lifetime.pdf");
+    QVERIFY2(!pdf.isEmpty(), "risky fixture failed");
+
+    PdfEditorEngine engine;
+    QVERIFY(engine.loadDocumentForEditing(pdf));
+    AppContext ctx;
+    ctx.pdfEditor = std::shared_ptr<IPdfEditorEngine>(&engine, [](IPdfEditorEngine*){});
+
+    PdfViewerWidget viewer;
+    QVERIFY(viewer.loadDocument(pdf));
+    gp::RedactMode mode;
+    mode.setAppContext(&ctx);
+    mode.setViewer(&viewer);
+
+    AnnotationItem mark;
+    mark.mode = ToolMode::Redact;
+    mark.pageIndex = 0;
+    mark.rect = QRectF(40, 130, 300, 30); // covers the drawn text at (50,700)
+    viewer.setAnnotations({mark});
+    ApplyFlowDriver driver;
+    QVERIFY(QMetaObject::invokeMethod(&mode, "onApplyRedactions"));
+
+    // Async-completion sync point (same as the sibling Apply-flow pins): the
+    // finished handler cleared the marks.
+    QTRY_VERIFY2(redactMarkCount(viewer) == 0,
+                 "the operation must complete (marks cleared after commit)");
+
+    // THE pin: the finished operation must be GONE — deleteLater on the
+    // completion signal drained it from the mode's children. Pre-fix this
+    // times out: the per-run operation object stays parented (a leak per run).
+    QTRY_VERIFY2(mode.findChildren<gp::RedactOperation*>().isEmpty(),
+                 "the finished RedactOperation must be deleted after completion — "
+                 "it must not accumulate per run");
 }
 
 void TestRedactMarkAll::redactPanelShowsLocalClaim() {
