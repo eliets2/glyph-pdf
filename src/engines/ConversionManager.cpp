@@ -324,6 +324,36 @@ bool ConversionManager::exportToExcel(const QString &outputPath, const QList<QLi
 #endif
 }
 
+namespace {
+
+// SEP13 lead 2: a PDF font name is attacker-controlled input (every byte that
+// is neither a delimiter nor whitespace is legal inside a PDF name, including
+// ';' ':' ''' '"'). exportToHtml interpolates it into
+// style="...font-family: '%4';" — CSS-string-inside-HTML-attribute context.
+// Escape the CSS metacharacters with backslashes (an unescaped ';' still
+// terminates the CSS declaration and a quote breaks the CSS string), while
+// toHtmlEscaped() at the writer keeps the HTML attribute quoting unbreakable.
+QString cssEscapeFontName(const QString &name)
+{
+    QString esc;
+    esc.reserve(name.size() + 8);
+    for (const QChar ch : name) {
+        switch (ch.unicode()) {
+        case u'\\': esc += QStringLiteral("\\\\"); break;
+        case u';':  esc += QStringLiteral("\\;");  break;
+        case u':':  esc += QStringLiteral("\\:");  break;
+        case u'\'': esc += QStringLiteral("\\'");  break;
+        case u'"':  esc += QStringLiteral("\\\""); break;
+        case u'\n':
+        case u'\r': esc += u' '; break; // a font name never spans lines
+        default:    esc += ch;  break;
+        }
+    }
+    return esc;
+}
+
+} // namespace
+
 bool ConversionManager::exportToHtml(const QString &pdfPath, const QString &outputPath) {
     // PDFium text extraction + positional CSS layout
 #ifdef HAS_PDFIUM
@@ -356,7 +386,9 @@ bool ConversionManager::exportToHtml(const QString &pdfPath, const QString &outp
             // the box to its top, matching the pre-R09 anchor contract.
             double htmlY = size.height() - el.rect.y() - el.fontSize;
             out << QString("<div class=\"text\" style=\"left: %1pt; top: %2pt; font-size: %3pt; font-family: '%4';\">%5</div>\n")
-                       .arg(el.rect.x()).arg(htmlY).arg(el.fontSize).arg(el.fontName).arg(el.text.toHtmlEscaped());
+                       .arg(el.rect.x()).arg(htmlY).arg(el.fontSize)
+                       .arg(cssEscapeFontName(el.fontName).toHtmlEscaped())
+                       .arg(el.text.toHtmlEscaped());
         }
 
         out << "</div>\n";
