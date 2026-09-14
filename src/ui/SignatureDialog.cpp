@@ -5,6 +5,7 @@
 #include "util/GpTheme.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QComboBox>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
@@ -14,6 +15,7 @@
 #include <QMessageBox>
 #include <QPainter>
 #include <QPainterPath>
+#include <QStandardItemModel>
 
 // ---------------------------------------------------------------------------
 // SignatureAppearancePreview — live QPainter rendering of the /AP /N
@@ -127,7 +129,60 @@ namespace {
 // placeholder in the identity line; the real CN is derived from the
 // certificate inside SignatureManager at signing time.
 const QString kPreviewSignerName = QStringLiteral("Signer Name");
+
+// N18 consume-once certify-level slot (dialog-published, request-consumed).
+int s_pendingCertificationLevel = 0;
 } // namespace
+
+QString SignatureDialog::certificationLevelLabel(int level)
+{
+    // 1:1 with the engine's contract (SignatureManager::certifyDocument →
+    // PdfCertPermission NoPerms=1 / FormFill=2 / Annotations=3 → /DocMDP P).
+    // Anything else: EMPTY — the level does not exist, so no wording exists.
+    switch (level) {
+        case 1:
+            return tr("1 — No changes allowed (DocMDP P=1)");
+        case 2:
+            return tr("2 — Form filling allowed (DocMDP P=2)");
+        case 3:
+            return tr("3 — Form filling and commenting allowed (DocMDP P=3)");
+        default:
+            return QString();
+    }
+}
+
+QString SignatureDialog::attainmentWord(SignOutcome outcome, int requestedLevel)
+{
+    // The engine attains the requested level EXACTLY or fails loud (audit
+    // E-01: no silent downgrade to an ordinary signature) — so "attained" is
+    // the requested level whenever the outcome says a signature exists.
+    switch (outcome) {
+        case SignOutcome::Success:
+            return tr("Certified — /DocMDP level %1 attained.").arg(requestedLevel);
+        case SignOutcome::PartialLtvMissing:
+            return tr("Certified — /DocMDP level %1 attained, but long-term-validation "
+                      "data is missing (the signature itself is intact).")
+                .arg(requestedLevel);
+        case SignOutcome::Failed:
+            return tr("Not certified — the certification was refused and no certified "
+                      "output was written. Nothing is attested.");
+        case SignOutcome::NotRun:
+        default:
+            return tr("No certification was attempted.");
+    }
+}
+
+void SignatureDialog::setPendingCertificationLevel(int level)
+{
+    s_pendingCertificationLevel = level;
+}
+
+int SignatureDialog::takePendingCertificationLevel()
+{
+    const int level = s_pendingCertificationLevel;
+    s_pendingCertificationLevel = 0;
+    return level;
+}
 
 SignatureDialog::SignatureDialog(QWidget *parent)
     : QDialog(parent)
@@ -149,11 +204,48 @@ SignatureDialog::SignatureDialog(QWidget *parent)
     trustLabel->setWordWrap(true);
     mainLayout->addWidget(trustLabel);
 
+    // ── N18: certify-vs-approve purpose + DocMDP level ──────────────────────
+    m_purposeCombo = new QComboBox(this);
+    m_purposeCombo->setObjectName(QStringLiteral("signaturePurposeCombo"));
+    m_purposeCombo->setAccessibleName(tr("Signature purpose"));
+    // Ordinals are pinned: 0 = Approve (default), 1 = Certify.
+    m_purposeCombo->addItem(tr("Approve signature"));
+    m_purposeCombo->addItem(tr("Certify"));
+    connect(m_purposeCombo, &QComboBox::currentIndexChanged,
+            this, &SignatureDialog::updateCertifyUi);
+
+    m_levelCombo = new QComboBox(this);
+    m_levelCombo->setObjectName(QStringLiteral("signatureLevelCombo"));
+    m_levelCombo->setAccessibleName(tr("Certification level"));
+    for (int level = 1; level <= 3; ++level)
+        m_levelCombo->addItem(certificationLevelLabel(level), level);
+    connect(m_levelCombo, &QComboBox::currentIndexChanged,
+            this, &SignatureDialog::updateCertifyUi);
+
+    m_levelDescription = new QLabel(this);
+    m_levelDescription->setObjectName(QStringLiteral("certLevelDescriptionLabel"));
+    m_levelDescription->setWordWrap(true);
+
+    m_certifyUnavailableLabel = new QLabel(this);
+    m_certifyUnavailableLabel->setObjectName(QStringLiteral("certifyUnavailableLabel"));
+    m_certifyUnavailableLabel->setWordWrap(true);
+    m_certifyUnavailableLabel->setStyleSheet(QStringLiteral("color: #b00020;"));
+    m_certifyUnavailableLabel->hide();
+
+    QFormLayout *certifyForm = new QFormLayout();
+    certifyForm->setLabelAlignment(Qt::AlignRight);
+    certifyForm->addRow(tr("Purpose:"), m_purposeCombo);
+    certifyForm->addRow(tr("Level:"), m_levelCombo);
+    mainLayout->addLayout(certifyForm);
+    mainLayout->addWidget(m_levelDescription);
+    mainLayout->addWidget(m_certifyUnavailableLabel);
+
     QFormLayout *formLayout = new QFormLayout();
     formLayout->setLabelAlignment(Qt::AlignRight);
     formLayout->setSpacing(10);
 
     m_certPathEdit = new QLineEdit();
+    m_certPathEdit->setObjectName(QStringLiteral("signatureCertPathEdit"));
     m_certPathEdit->setPlaceholderText(tr("Select .p12 or .pfx certificate..."));
     m_certPathEdit->setAccessibleName(tr("Certificate file"));
     m_certPathEdit->setAccessibleDescription(tr("Path to the signing certificate file"));
@@ -167,6 +259,7 @@ SignatureDialog::SignatureDialog(QWidget *parent)
     certLayout->addWidget(browseBtn);
 
     m_passwordEdit = new QLineEdit();
+    m_passwordEdit->setObjectName(QStringLiteral("signaturePasswordEdit"));
     m_passwordEdit->setEchoMode(QLineEdit::Password);
     m_passwordEdit->setPlaceholderText(tr("Certificate Password"));
     m_passwordEdit->setAccessibleName(tr("Certificate password"));
@@ -239,6 +332,13 @@ SignatureDialog::SignatureDialog(QWidget *parent)
             m_passwordEdit->setFocus(Qt::OtherFocusReason);
             return;
         }
+        // N18: an accepted CERTIFY dialog publishes the chosen level through
+        // the consume-once slot; the signing request consumes it (approve
+        // publishes nothing — its outcome is the plain signature flow).
+        if (isCertifySelected())
+            setPendingCertificationLevel(certificationLevel());
+        else
+            setPendingCertificationLevel(0);
         // Hand the optional appearance image to the engine. Consume-once: the
         // next signDocument/certifyDocument embeds it; a null image clears any
         // stale slot entry so no image from a previous dialog can leak.
@@ -259,6 +359,9 @@ SignatureDialog::SignatureDialog(QWidget *parent)
         "QPushButton:hover { background-color: #FFD700; }"
     ).arg(gp::Theme::accent().name()));
 
+    // All N18 selector members exist now — the construction-time signals fired
+    // early (guarded), so compute the initial approve-mode UI state explicitly.
+    updateCertifyUi();
     updatePreview();
 }
 
@@ -266,6 +369,68 @@ QString SignatureDialog::certificatePath() const { return m_certPathEdit->text()
 QString SignatureDialog::password() const { return m_passwordEdit->text(); }
 QString SignatureDialog::reason() const { return m_reasonEdit->text(); }
 QString SignatureDialog::location() const { return m_locationEdit->text(); }
+
+// ── N18: certify-vs-approve selector ────────────────────────────────────────
+
+int SignatureDialog::certificationLevel() const
+{
+    // 0 = Approve (plain signature); 1..3 = the selected DocMDP level. The
+    // engine fail-louds anything outside 1..3 for certify and treats 0 as
+    // "ordinary signature", so this mapping is exactly the engine's contract.
+    if (!isCertifySelected())
+        return 0;
+    const int level = m_levelCombo->currentData().toInt();
+    return (level >= 1 && level <= 3) ? level : 0;
+}
+
+bool SignatureDialog::isCertifySelected() const
+{
+    // Ordinal 1 = Certify (pinned construction order).
+    return m_purposeCombo && m_purposeCombo->currentIndex() == 1;
+}
+
+void SignatureDialog::setExistingSignatureCount(int count)
+{
+    m_existingSignatureCount = count;
+    auto *model = qobject_cast<QStandardItemModel *>(m_purposeCombo->model());
+    const int certifyIdx = m_purposeCombo->findText(QStringLiteral("Certify"));
+    if (count > 0) {
+        // Visible-but-disabled refusal with the exact reason: a certification
+        // signature must be the FIRST signature in the document, so certifying
+        // a document that already carries signatures is refused HERE — before
+        // an engine call that could only fail loud (never lie about success).
+        m_certifyUnavailableLabel->setText(
+            tr("Certify is unavailable: this document already has %1 signature(s). "
+               "A certification (author) signature must be the FIRST signature "
+               "in a document, so it cannot be added on top of existing ones. "
+               "Use Approve instead, or certify before any signing.")
+                .arg(count));
+        m_certifyUnavailableLabel->show();
+        if (model && certifyIdx >= 0) {
+            QStandardItem *item = model->item(certifyIdx);
+            item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
+        }
+        if (m_purposeCombo->currentIndex() == certifyIdx)
+            m_purposeCombo->setCurrentIndex(0);
+    } else {
+        m_certifyUnavailableLabel->hide();
+        if (model && certifyIdx >= 0) {
+            QStandardItem *item = model->item(certifyIdx);
+            item->setFlags(item->flags() | Qt::ItemIsEnabled);
+        }
+    }
+    updateCertifyUi();
+}
+
+void SignatureDialog::updateCertifyUi()
+{
+    if (!m_purposeCombo || !m_levelCombo || !m_levelDescription)
+        return;   // construction order — signals fire while members populate
+    const bool certify = isCertifySelected();
+    m_levelCombo->setEnabled(certify);
+    m_levelDescription->setText(certify ? certificationLevelLabel(m_levelCombo->currentData().toInt())
+                                        : tr("Approval signature: signs as you, adds no document restrictions."));
+}
 
 void SignatureDialog::browseCertificate()
 {
