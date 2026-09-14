@@ -18,6 +18,7 @@
 #include "shell/controllers/ConvertController.h"
 #include "shell/controllers/FormsController.h"
 #include "shell/controllers/SecurityController.h"
+#include "shell/controllers/CertEncryptController.h"   // N17
 #include "shell/controllers/TaskNavController.h"   // R15: task-surface routes
 
 class TestRibbonIntegrity : public QObject {
@@ -35,10 +36,11 @@ private slots:
         gp::ConvertController  convert(&m_ctx, nullptr);
         gp::FormsController    forms(&m_ctx, nullptr);
         gp::SecurityController security(&m_ctx, nullptr);
+        gp::CertEncryptController certEncrypt(&m_ctx, nullptr);   // N17
         gp::TaskNavController  taskNav(&m_ctx, nullptr);   // R15: task-surface routes
 
         QVector<IToolController*> controllers = {
-            &home, &view, &edit, &pages, &convert, &forms, &security, &taskNav
+            &home, &view, &edit, &pages, &convert, &forms, &security, &certEncrypt, &taskNav
         };
 
         // Collect all ToolIds that have at least one controller
@@ -98,11 +100,12 @@ private slots:
         gp::ConvertController  convert(&m_ctx, nullptr);
         gp::FormsController    forms(&m_ctx, nullptr);
         gp::SecurityController security(&m_ctx, nullptr);
+        gp::CertEncryptController certEncrypt(&m_ctx, nullptr);   // N17
         gp::TaskNavController  taskNav(&m_ctx, nullptr);
 
         QSet<ToolId> handled;
         const QVector<IToolController*> controllers = {
-            &home, &view, &edit, &pages, &convert, &forms, &security, &taskNav
+            &home, &view, &edit, &pages, &convert, &forms, &security, &certEncrypt, &taskNav
         };
         for (auto* ctrl : controllers)
             for (ToolId id : ctrl->handledTools())
@@ -164,10 +167,11 @@ private slots:
         gp::ConvertController  convert(&m_ctx, nullptr);
         gp::FormsController    forms(&m_ctx, nullptr);
         gp::SecurityController security(&m_ctx, nullptr);
+        gp::CertEncryptController certEncrypt(&m_ctx, nullptr);   // N17
         gp::TaskNavController  taskNav(&m_ctx, nullptr);   // R15: task-surface routes
 
         QVector<IToolController*> controllers = {
-            &home, &view, &edit, &pages, &convert, &forms, &security, &taskNav
+            &home, &view, &edit, &pages, &convert, &forms, &security, &certEncrypt, &taskNav
         };
 
         QSet<ToolId> handled;

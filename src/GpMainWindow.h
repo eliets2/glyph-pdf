@@ -33,6 +33,7 @@ class PagesController;
 class ConvertController;
 class FormsController;
 class SecurityController;
+class CertEncryptController;
 class TaskNavController;
 class ToolRegistry;
 class TaskStateSync;
@@ -152,6 +153,7 @@ private:
     ConvertController*  _convert = nullptr;
     FormsController*    _forms = nullptr;
     SecurityController* _security = nullptr;
+    CertEncryptController* _certEncrypt = nullptr;   // N17: certificate-encryption picker
     TaskNavController*  _taskNavCtrl = nullptr;   // R15: promoted task-surface routes
     ToolRegistry*       _toolRegistry = nullptr;
 

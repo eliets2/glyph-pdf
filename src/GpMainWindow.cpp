@@ -29,6 +29,7 @@
 #include "shell/controllers/ConvertController.h"
 #include "shell/controllers/FormsController.h"
 #include "shell/controllers/SecurityController.h"
+#include "shell/controllers/CertEncryptController.h"
 #include "shell/controllers/TaskNavController.h"   // R15: task-surface routes
 
 #include "ui/PdfViewerWidget.h"
@@ -176,6 +177,9 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
     _convert = new ConvertController(_ctx, this, this);
     _forms = new FormsController(_ctx, this, this);
     _security = new SecurityController(_ctx, this, this);
+    // N17: certificate-encryption recipient picker — sibling controller so the
+    // lane-locked SecurityController.cpp stays untouched.
+    _certEncrypt = new CertEncryptController(_ctx, this, this);
 
     _toolRegistry = new ToolRegistry(this);
     _toolRegistry->registerController(_home);
@@ -185,6 +189,7 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
     _toolRegistry->registerController(_convert);
     _toolRegistry->registerController(_forms);
     _toolRegistry->registerController(_security);
+    _toolRegistry->registerController(_certEncrypt);
     // R15: the promoted task-surface entries (measure/panes/batch/…) resolve
     // through the same registry so enablement and dispatch stay one seam.
     _taskNavCtrl = new TaskNavController(_ctx, this, this);
