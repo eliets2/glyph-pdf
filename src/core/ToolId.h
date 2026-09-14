@@ -170,6 +170,11 @@ enum class ToolId {
     BatchConvert,      // Batch workspace (ribbon "batchConv")
     WatchFolder,       // Batch hot-folder section (ribbon "watch")
 
+    // ── N17 (parity 2026-09-14): certificate-encryption recipient picker ──
+    // Appended AFTER WatchFolder so existing ToolId ordinals stay stable
+    // (same append-only rule as the stamp/auto-bookmark ids above).
+    CertEncrypt,       // Protect ▸ Security "Encrypt (Certs)" (ribbon "certEncrypt")
+
     COUNT  // sentinel for array sizing — must be last
 };
 

@@ -897,6 +897,7 @@ add_library(pdfws_ui STATIC
     src/ui/EncryptionDialog.h        src/ui/EncryptionDialog.cpp
     src/ui/PermissionsDialog.h       src/ui/PermissionsDialog.cpp
     src/ui/SignatureDialog.h         src/ui/SignatureDialog.cpp
+    src/ui/RecipientPickerDialog.h   src/ui/RecipientPickerDialog.cpp
     src/ui/SignaturePicker.h         src/ui/SignaturePicker.cpp
     src/ui/MetadataDialog.h          src/ui/MetadataDialog.cpp
     src/ui/AnnotationLayer.h         src/ui/AnnotationLayer.cpp
@@ -924,6 +925,7 @@ add_library(pdfws_ui STATIC
     src/shell/controllers/ConvertController.h src/shell/controllers/ConvertController.cpp
     src/shell/controllers/FormsController.h  src/shell/controllers/FormsController.cpp
     src/shell/controllers/SecurityController.h src/shell/controllers/SecurityController.cpp
+    src/shell/controllers/CertEncryptController.h src/shell/controllers/CertEncryptController.cpp
     src/shell/controllers/TaskNavController.h src/shell/controllers/TaskNavController.cpp
     src/util/GpTheme.h
     # D-07 fix: OCR sources removed from pdfws_ui — they are compiled once in
@@ -971,6 +973,9 @@ target_link_libraries(pdfws_ui
     PRIVATE Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets Qt6::PrintSupport Qt6::Svg Qt6::Network
             Qt6::Concurrent podofo::podofo pdfws_djot docmodel
             pdfws_engines  # D2: ThumbnailSidebar uses RenderCache for thumbnails
+    # N17: RecipientPickerDialog parses recipient certificates itself
+    # (subject + SHA-256 fingerprint) so the list shows certificate identity.
+    PRIVATE OpenSSL::Crypto
 )
 target_compile_definitions(pdfws_ui PRIVATE GLYPH_HAS_SVG=1)
 
@@ -4192,6 +4197,63 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignaturePicker.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 300
         LABELS "unit;signatures;picker;regression;qt;headless"
+    )
+endif()
+
+# N17: certificate-encryption recipient picker — dialog honesty + engine
+# boundary through the dialog's recipient list, verified on the SAVED artifact
+# via an independent PoDoFo read and per-recipient CMS FEK recovery.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCertEncryptPicker.cpp")
+    add_executable(TestCertEncryptPicker tests/TestCertEncryptPicker.cpp)
+    target_include_directories(TestCertEncryptPicker PRIVATE src tests)
+    target_link_libraries(TestCertEncryptPicker PRIVATE
+        pdfws_ui pdfws_engines pdfws_core podofo::podofo OpenSSL::Crypto
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    if(WIN32)
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestCertEncryptPicker POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestCertEncryptPicker>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestCertEncryptPicker"
+            )
+        endif()
+    endif()
+    add_test(NAME TestCertEncryptPicker COMMAND TestCertEncryptPicker)
+    set_tests_properties(TestCertEncryptPicker PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;security;encryption;recipients;n17;qt;headless"
+    )
+endif()
+
+# N18: DocMDP certify-vs-approve selector — dialog honesty + engine boundary:
+# dialog-selected levels fed to certifyDocument produce saved artifacts whose
+# /DocMDP /P (independent fresh-PoDoFo read) equals the requested level, and
+# out-of-range levels fail loud with no output.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCertifySelector.cpp")
+    add_executable(TestCertifySelector tests/TestCertifySelector.cpp)
+    target_include_directories(TestCertifySelector PRIVATE src tests)
+    target_link_libraries(TestCertifySelector PRIVATE
+        pdfws_ui pdfws_engines pdfws_core podofo::podofo OpenSSL::Crypto
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    if(WIN32)
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestCertifySelector POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestCertifySelector>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestCertifySelector"
+            )
+        endif()
+    endif()
+    add_test(NAME TestCertifySelector COMMAND TestCertifySelector)
+    set_tests_properties(TestCertifySelector PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 180
+        LABELS "unit;security;signatures;certify;n18;qt;headless"
     )
 endif()
 

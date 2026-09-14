@@ -152,6 +152,8 @@ QString toolIdToString(ToolId id) {
         { ToolId::PaneLayers,     QStringLiteral("layers") },
         { ToolId::BatchConvert,   QStringLiteral("batchConv") },
         { ToolId::WatchFolder,    QStringLiteral("watch") },
+        // N17: certificate-encryption recipient picker
+        { ToolId::CertEncrypt,    QStringLiteral("certEncrypt") },
     };
     return map.value(id, QStringLiteral("unknown"));
 }
@@ -321,6 +323,8 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         add(ToolId::PaneLayers,     {"layers", "paneLayers"});
         add(ToolId::BatchConvert,   {"batchConv", "batch-convert", "batch"});
         add(ToolId::WatchFolder,    {"watch", "watchFolder", "hotFolder"});
+        // N17: certificate-encryption recipient picker
+        add(ToolId::CertEncrypt,    {"certEncrypt", "cert-encrypt", "certencrypt"});
 
         return m;
     }();
