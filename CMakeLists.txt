@@ -2484,8 +2484,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchOcrSkipText.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestBatchOcrSkipText>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestBatchOcrSkipText>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestBatchOcrSkipText>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestBatchOcrSkipText"
     )
     add_test(NAME TestBatchOcrSkipText COMMAND TestBatchOcrSkipText)
@@ -2818,13 +2818,23 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestXfaHonestyBanner.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestXfaHonestyBanner>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestXfaHonestyBanner>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestXfaHonestyBanner>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestXfaHonestyBanner"
+    )
+    # R22 (2026-09-14): the podofo DLL copy previously shared the custom_command
+    # above UNGUARDED — on Linux PODOFO_VENDOR_DLL is the empty string, so
+    # copy_if_different collapsed to a single argument and failed the build
+    # (same L05-mangling class the ledger records for TestBatchOpsCoverage).
+    # Split out and WIN32-gated like every other podofo staging block.
+    if(WIN32)
+    add_custom_command(TARGET TestXfaHonestyBanner POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${PODOFO_VENDOR_DLL}"
             "$<TARGET_FILE_DIR:TestXfaHonestyBanner>/libpodofo.dll"
-        COMMENT "Deploying qoffscreen plugin + podofo DLL for TestXfaHonestyBanner"
+        COMMENT "Deploying podofo 1.1.0 DLL for TestXfaHonestyBanner"
     )
+    endif()
     add_test(NAME TestXfaHonestyBanner COMMAND TestXfaHonestyBanner)
     set_tests_properties(TestXfaHonestyBanner PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
@@ -3147,8 +3157,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFindReplace.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestFindReplace>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestFindReplace>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestFindReplace>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestFindReplace"
     )
     add_test(NAME TestFindReplace COMMAND TestFindReplace)
@@ -3177,8 +3187,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestReviewSummary.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestReviewSummary>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestReviewSummary>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestReviewSummary>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestReviewSummary"
     )
     add_test(NAME TestReviewSummary COMMAND TestReviewSummary)
@@ -3208,8 +3218,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestDynamicStamps.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestDynamicStamps>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestDynamicStamps>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestDynamicStamps>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestDynamicStamps"
     )
     add_test(NAME TestDynamicStamps COMMAND TestDynamicStamps)
@@ -3244,8 +3254,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAutoBookmarks.cpp")
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:TestAutoBookmarks>/platforms"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${QT6_PLUGINS_DIR}/platforms/qoffscreen.dll"
-            "$<TARGET_FILE_DIR:TestAutoBookmarks>/platforms/qoffscreen.dll"
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestAutoBookmarks>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for TestAutoBookmarks"
     )
     add_test(NAME TestAutoBookmarks COMMAND TestAutoBookmarks)

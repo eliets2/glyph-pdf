@@ -41,8 +41,10 @@
 #include <algorithm>
 #include <cstdio>
 #include <limits>
+#if defined(_WIN32)
 #include <windows.h>
 #include <psapi.h>
+#endif
 
 #include "core/interfaces/IPdfRenderer.h"
 #include "engines/RenderCache.h"
@@ -54,12 +56,30 @@ constexpr int kProfilePages = 12;
 constexpr double kTwoPageZoom = 1.0;         // viewer zoom; spread renders at zoom*2
 constexpr double kThumbDpi = 75.0;
 
+// R22 (2026-09-14): the harness previously included <windows.h> unconditionally
+// and so never compiled on any POSIX target. VmHWM (peak RSS from
+// /proc/self/status) is the honest Linux analogue of PeakWorkingSetSize — the
+// two count shared pages slightly differently; samples are machine-dependent
+// raw numbers by design (file header), never cross-OS comparable.
 qint64 peakWorkingSetBytes() {
+#if defined(_WIN32)
     PROCESS_MEMORY_COUNTERS pmc{};
     pmc.cb = sizeof(pmc);
     return GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))
                ? static_cast<qint64>(pmc.PeakWorkingSetSize)
                : -1;
+#else
+    QFile status(QStringLiteral("/proc/self/status"));
+    if (!status.open(QIODevice::ReadOnly)) return -1;
+    const QStringList lines = QString::fromLatin1(status.readAll()).split(QLatin1Char('\n'));
+    for (const QString &line : lines) {
+        if (!line.startsWith(QStringLiteral("VmHWM:"))) continue;
+        const QStringList parts = line.mid(static_cast<int>(qstrlen("VmHWM:")))
+                                      .split(QLatin1Char(' '), Qt::SkipEmptyParts);
+        if (!parts.isEmpty()) return parts.first().toLongLong() * 1024;
+    }
+    return -1;
+#endif
 }
 
 QString makeDocPdf(const QTemporaryDir &dir, const QString &name, int pages,
