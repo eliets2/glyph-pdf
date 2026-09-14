@@ -1707,6 +1707,10 @@ void PoDoFoBackend::releaseResidentFile(const QString &path) {
     d->document.reset();
     d->currentFile.clear();
     d->reseatBuffer.clear();   // the buffer backed the dropped document's lineage
+    // M1 (SEP13): credentials belong to the released lineage, same rule as the
+    // G01 clears on lineage changes — leaving the password resident keeps a
+    // secret in memory for a document this backend no longer holds.
+    d->encryptionPassword.clear();
 }
 
 bool PoDoFoBackend::cropPage(const QString &path, int pageIndex, const QRectF &cropRect) {

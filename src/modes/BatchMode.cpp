@@ -1596,17 +1596,22 @@ void BatchMode::startMergeWorker(const QStringList& files, const QString& outPat
     auto mergeWorker = [files, outPath, boundaryHook](QPromise<BatchFileResult>& promise) {
         promise.setProgressRange(0, files.size());
         bool anyAppended = false;
-        const auto failOutput = [&promise, &outPath](const QString& why) {
-            BatchFileResult r;
-            r.inputPath = outPath;   // the failed item is the output artifact
-            r.success    = false;
-            r.errorMessage = why;
-            promise.addResult(r);
-        };
+        // SEP13 leads 9+10: per-input results are published ONLY once the
+        // output's fate is known. The old code streamed per-input
+        // success=true entries during the append loop (pointing at an output
+        // that did not exist yet) and, on save failure or cancel, added an
+        // N+1th "output artifact" result on top — a phantom beyond one
+        // result per input file, with false successes against a
+        // never-written output. QPromise results are append-only, so honest
+        // accounting requires deferring publication.
+        QList<BatchFileResult> perInput;
         try {
             PoDoFo::PdfMemDocument dst;
             for (int i = 0; i < files.size(); ++i) {
-                // Cancel is honored at file boundaries only — never mid-document.
+                // Cancel is honored at file boundaries only — never
+                // mid-document. Nothing has been published yet, so a
+                // cancelled merge reports zero results: no success may point
+                // at the output that will never be written (lead 10).
                 if (promise.isCanceled()) return;
                 if (boundaryHook) boundaryHook(i);
 
@@ -1635,22 +1640,49 @@ void BatchMode::startMergeWorker(const QStringList& files, const QString& outPat
                     r.errorMessage = QStringLiteral("Unknown error appending this file");
                     qCritical() << "BatchMode merge: unknown error appending" << files.at(i);
                 }
-                promise.addResult(r);            // per-item accounting
+                perInput.append(r);
                 promise.setProgressValue(i + 1); // file-boundary progress
             }
             if (!anyAppended) {
-                failOutput(QStringLiteral("No input could be merged — no output written"));
+                // Nothing was appended: every per-input result already
+                // carries its own failure reason. Publish them 1:1 with the
+                // inputs — the old extra "output artifact" item was a
+                // phantom (lead 9).
+                for (const auto& r : perInput)
+                    promise.addResult(r);
                 return;
             }
             // Cancelled between the last append and the save: the accumulated
-            // pages are discarded, never written as a partial merge.
+            // pages are discarded, never written as a partial merge — and no
+            // result may claim success against an output that is never written.
             if (promise.isCanceled()) return;
             dst.Save(outPath.toUtf8().constData());
+            // The output exists: NOW the per-input successes are real.
+            for (const auto& r : perInput)
+                promise.addResult(r);
         } catch (const std::exception& e) {
-            failOutput(QStringLiteral("Merge failed — %1").arg(QString::fromUtf8(e.what())));
+            // Save failed: no output exists, so NO input may report success.
+            // Re-mark appended successes as failures — one result per input
+            // file, all truthful (lead 9's contract (b)).
+            for (auto r : perInput) {
+                if (r.success) {
+                    r.success = false;
+                    r.outputPath.clear();
+                    r.errorMessage = QStringLiteral("Merge failed — %1 (no output written)")
+                                         .arg(QString::fromUtf8(e.what()));
+                }
+                promise.addResult(r);
+            }
             qWarning() << "BatchMode merge: save failed for" << outPath << ":" << e.what();
         } catch (...) {
-            failOutput(QStringLiteral("Merge failed — unknown error"));
+            for (auto r : perInput) {
+                if (r.success) {
+                    r.success = false;
+                    r.outputPath.clear();
+                    r.errorMessage = QStringLiteral("Merge failed — unknown error (no output written)");
+                }
+                promise.addResult(r);
+            }
             qCritical() << "BatchMode merge: unknown error saving" << outPath;
         }
     };
@@ -1738,6 +1770,10 @@ void BatchMode::onBatchProgress(int value) {
     int total = m_filesToProcess.size();
     int pct = total > 0 ? (value * 100 / total) : 0;
     m_overallProgress->setValue(pct);
+    // SEP13 leads 9+10: make the worker's own progress observable (used by
+    // the async-merge contract test; see mergeWorker for why per-item result
+    // accounting cannot stream before the merge output's fate is known).
+    emit batchProgress(value);
 }
 
 void BatchMode::onBatchFinished() {

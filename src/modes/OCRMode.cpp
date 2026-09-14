@@ -616,6 +616,12 @@ void OCRMode::onAcceptResults()
 
 void OCRMode::onRejectResults()
 {
+    // SEP13 lead 11: same ReviewState guard as onAcceptResults — reject is
+    // only meaningful while results are actually under review. Without this
+    // guard a reject landing during an in-flight save (Saving) wiped the
+    // review words/session/canvas and emitted reviewRejected() mid-save,
+    // asking the host to drop pending save state.
+    if (m_reviewState != ReviewState::ReviewReady) return;
     // Reject clears the current OCR overlay/results so the page returns to its
     // pre-OCR state; the host is notified to drop any pending applied text.
     // U03: the source-image view is cleared with them.
@@ -706,6 +712,11 @@ void OCRMode::onImagePaneContextMenu(const QPoint &pos)
 
 void OCRMode::onReOcrRegion()
 {
+    // SEP13 lead 11: emitting reOcrRegionRequested unconditionally allowed a
+    // second OCR run to be requested from Idle (nothing to re-recognize) or
+    // while another run was Running/Saving (re-entrancy). Guard it like the
+    // accept path: regional re-OCR is a REVIEW action on delivered words.
+    if (m_reviewState != ReviewState::ReviewReady) return;
     emit reOcrRegionRequested(m_contextRegionBbox);
 }
 
@@ -921,6 +932,10 @@ bool OCRMode::applyWordCorrection(int stableId, const QString& text)
     // The source box (rec.boundingBox) is deliberately untouched, and the
     // model confidence is NOT rewritten (provenance stays separate from
     // review status — corrections never become 100%).
+    // M5 (SEP13): the scan-canvas overlay must reflect the edit — without
+    // this refresh the canvas kept showing the pre-edit words until some
+    // state transition re-rendered it.
+    if (m_scanCanvas) m_scanCanvas->setWords(m_reviewWords);
     updateConfidenceOverlay();
     updateWordInspector();
     updateNavigationButtons();   // a correction keeps LOW words uncertain
@@ -933,6 +948,9 @@ bool OCRMode::markWordDeleted(int stableId)
     OcrReviewedWord& rec = m_reviewWords[stableId];
     rec.deleted = true;
     rec.reviewedText.clear();
+    // M5 (SEP13): refresh the overlay so the deleted word leaves the canvas
+    // immediately (same stale-overlay gap as applyWordCorrection).
+    if (m_scanCanvas) m_scanCanvas->setWords(m_reviewWords);
     updateConfidenceOverlay();
     updateWordInspector();
     updateNavigationButtons();   // removed words leave the uncertain walk

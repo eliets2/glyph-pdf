@@ -144,6 +144,12 @@ public:
 signals:
     // Emitted from onBatchFinished so tests can spy on completion.
     void batchFinished();
+    // SEP13 leads 9+10: per-item FUTURE progress (raw worker value, e.g.
+    // merge file boundaries) re-emitted from onBatchProgress. With merge
+    // result publication deferred until the output's fate is known, this is
+    // the honest mid-run observable for "the worker advances on its own"
+    // (per-item success accounting no longer streams before the save).
+    void batchProgress(int value);
 
 protected:
     void dragEnterEvent(QDragEnterEvent* e) override;

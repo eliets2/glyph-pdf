@@ -50,12 +50,13 @@ enum class SignOutcome {
 };
 
 /// §9.7 P1: WHY the most recent outcome was PartialLtvMissing — exactly which
-/// long-term-validation enhancement could not be embedded. A partial result
-/// with NO flagged piece is impossible; at least one flag is set whenever the
-/// outcome is PartialLtvMissing.
+/// requested enhancement could not be embedded. A partial result with NO
+/// flagged piece is impossible; at least one flag is set whenever the outcome
+/// is PartialLtvMissing.
 struct SignatureOutcomeDetail {
     bool dssMissing = false;          ///< B-LT: the DSS dictionary could not be built/embedded
     bool docTimestampMissing = false; ///< B-LTA: the /DocTimeStamp could not be added
+    bool timestampMissing = false;    ///< SEP13 lead 1: B-T — the RFC 3161 signature timestamp was requested (TSA URL configured) but could not be fetched/embedded; the signature attained B-B
 };
 
 class ISignatureManager {

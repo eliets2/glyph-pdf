@@ -210,6 +210,20 @@ void CapabilityRegistry::applyToWidget(QWidget* w, CapId id, const QVariant& par
         }
         return;
     case Availability::Degraded:
+        // SEP13 lead 3: Degraded must reverse the registry's OWNED disable on
+        // ALL transitions, exactly like the Available branch (D06). The old
+        // code only set a tooltip, so an unavailable -> invalidate -> degraded
+        // transition left the widget stuck disabled through the entire
+        // Degraded window — the one phase whose contract is "disclose but
+        // keep the control usable". Only our own claim is reversed (G11
+        // ownership semantics: the property stores whether the registry took
+        // an ENABLED widget to disabled, so a foreign disable is never
+        // cleared), then the degraded disclosure replaces the stale tooltip.
+        if (w->property(kOwnedDisable).toBool()) {
+            w->setEnabled(true);
+            w->setStatusTip(QString());
+            w->setProperty(kOwnedDisable, {});
+        }
         // Disclose but keep the control usable.
         w->setToolTip(c.detail.isEmpty() ? combineWhyNot(c) : c.detail);
         return;
