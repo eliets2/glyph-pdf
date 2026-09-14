@@ -123,6 +123,16 @@ QString SecurityController::signingPreflightRefusal(PAdESLevel level, const QStr
         .arg(attainedLevelLabel(level, {}));
 }
 
+// ── N18 (follow-ups lane): the certify request's DocMDP level from the
+// dialog's consume-once pending slot. Certify (1..3) is carried through 1:1;
+// Approve (0 — no certification requested) and out-of-range garbage keep the
+// historical default level 1 — exactly what this entry point did before the
+// selector existed — instead of feeding the engine a level it must refuse.
+int SecurityController::certifyLevelFromDialog(int pendingLevel)
+{
+    return (pendingLevel >= 1 && pendingLevel <= 3) ? pendingLevel : 1;
+}
+
 QString SecurityController::attainedLevelLabel(PAdESLevel requested, const SignatureOutcomeDetail& detail)
 {
     // The label names the HIGHEST standard level whose required pieces are all
@@ -977,6 +987,15 @@ void SecurityController::certifyDocument() {
 
     SignatureDialog dlg(_mainWindow);
     dlg.setWindowTitle(tr("Certify Document"));
+    // N18 (follow-ups lane): refuse-safely BEFORE the dialog runs. A
+    // certification signature must be the FIRST signature in a document, so
+    // the dialog must start out knowing the document's current signature
+    // count — the Certify choice then stays VISIBLE but disabled with the
+    // exact reason (count + why) instead of failing loud only at the engine.
+    // Same validation source the Signatures panel uses.
+    if (!viewer->filePath().isEmpty())
+        dlg.setExistingSignatureCount(
+            _ctx->signing->validateSignatures(viewer->filePath()).size());
     if (dlg.exec() == QDialog::Accepted) {
         if (dlg.certificatePath().isEmpty() || dlg.password().isEmpty()) {
             QMessageBox::warning(_mainWindow, tr("Error"), tr("Certificate path and password are required."));
@@ -994,8 +1013,16 @@ void SecurityController::certifyDocument() {
         // B-LT/B-LTA piece is missing) instead of the old one-liner.
         SigningRequest req;
         req.certify = true;
-        // Just hardcode level 1 (no changes allowed) for now since UI doesn't expose it
-        req.certLevel = 1;
+        // N18 seam (the n17n18 lane's documented handoff): the accepted dialog
+        // published its purpose/level through the consume-once pending slot;
+        // consume it here EXACTLY ONCE (it equals dlg.certificationLevel() at
+        // accept). A requested certification (1..3) drives the /DocMDP level;
+        // Approve (0 — no certification requested) keeps the historical
+        // default via certifyLevelFromDialog instead of feeding the engine a
+        // level it must refuse. The request carries the level, so a
+        // PartialLtvMissing Retry re-dispatches the SAME level.
+        req.certLevel = certifyLevelFromDialog(
+            SignatureDialog::takePendingCertificationLevel());
         // R19(b): same settings capture as the sign flow (certLevel is the
         // /DocMDP level; req.level is the PAdES conformance level).
         const SigningConfig cfg = readSigningConfig();

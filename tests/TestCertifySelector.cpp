@@ -34,6 +34,7 @@
 #include "core/interfaces/ISignatureManager.h"
 #include "engines/PdfEditorEngine.h"
 #include "engines/SignatureManager.h"
+#include "shell/controllers/SecurityController.h"
 #include "ui/SignatureDialog.h"
 
 #include <podofo/podofo.h>
@@ -333,6 +334,123 @@ private slots:
     }
 
     // ── 2. Engine boundary: dialog levels → /DocMDP P on saved artifacts ────
+
+    void certifyLevelFromDialogPolicyIsPinned()
+    {
+        // The follow-ups seam (SecurityController::certifyLevelFromDialog):
+        // the controller's ONE consumption line maps the dialog's published
+        // pending level onto the certify request. Certify (1..3) passes
+        // through 1:1; Approve (0 — no certification requested) and
+        // out-of-range garbage keep the HISTORICAL default level 1 — the
+        // pre-selector behaviour of the certify entry point — instead of
+        // feeding the engine a level it must refuse.
+        QCOMPARE(gp::SecurityController::certifyLevelFromDialog(1), 1);
+        QCOMPARE(gp::SecurityController::certifyLevelFromDialog(2), 2);
+        QCOMPARE(gp::SecurityController::certifyLevelFromDialog(3), 3);
+        QCOMPARE(gp::SecurityController::certifyLevelFromDialog(0), 1);
+        QCOMPARE(gp::SecurityController::certifyLevelFromDialog(-5), 1);
+        QCOMPARE(gp::SecurityController::certifyLevelFromDialog(99), 1);
+    }
+
+    void productionSeamDialogLevel2YieldsDocMDP2()
+    {
+        // THE follow-ups pin: the accepted REAL dialog's level must reach the
+        // saved artifact through the production consumption chain — dialog
+        // accept → pending slot → the controller's consume expression
+        // (takePendingCertificationLevel through certifyLevelFromDialog) →
+        // the SAME engine entry runSigning dispatches for a concrete manager
+        // (certifyDocumentWithAppearance) → /DocMDP /P == 2 via an
+        // independent fresh-PoDoFo read. The controller glue itself sits
+        // behind native dialogs (undrivable offscreen — same boundary the
+        // n17n18 lane documented); every function it composes is pinned here,
+        // in order.
+        delete m_signing;
+        m_signing = new SignatureManager();
+
+        SignatureDialog::setPendingCertificationLevel(0);   // clear stale slot
+        SignatureDialog dlg;
+        auto *purpose = dlg.findChild<QComboBox *>(QStringLiteral("signaturePurposeCombo"));
+        purpose->setCurrentIndex(purpose->findText(QStringLiteral("Certify")));
+        auto *levelCombo = dlg.findChild<QComboBox *>(QStringLiteral("signatureLevelCombo"));
+        levelCombo->setCurrentIndex(1);   // level 2
+        auto *certEdit = dlg.findChild<QLineEdit *>(QStringLiteral("signatureCertPathEdit"));
+        auto *pwdEdit = dlg.findChild<QLineEdit *>(QStringLiteral("signaturePasswordEdit"));
+        certEdit->setText(m_signer.p12Path);
+        pwdEdit->setText(m_signer.password);
+        auto *buttons = dlg.findChild<QDialogButtonBox *>();
+        buttons->button(QDialogButtonBox::Ok)->click();
+        QCOMPARE(dlg.result(), static_cast<int>(QDialog::Accepted));
+        QCOMPARE(dlg.certificationLevel(), 2);
+
+        // The controller's exact consumption expression.
+        const int reqLevel = gp::SecurityController::certifyLevelFromDialog(
+            SignatureDialog::takePendingCertificationLevel());
+        QCOMPARE(reqLevel, 2);
+
+        // The engine entry runSigning dispatches for a concrete SignatureManager.
+        const QString out = m_tmp.filePath(QStringLiteral("seam_p2.pdf"));
+        const SignOutcome outcome = m_signing->certifyDocumentWithAppearance(
+            m_seed, out, m_signer.p12Path, m_signer.password,
+            reqLevel, QImage(), QStringLiteral("followups seam level 2"), QString());
+        QVERIFY2(outcome == SignOutcome::Success,
+                 qPrintable(QStringLiteral("production-dispatch certify at level 2 must succeed, got %1")
+                                .arg(int(outcome))));
+
+        // Independent read path over the SAVED artifact.
+        bool ok = false;
+        const int p = readDocMDP_P(out, &ok);
+        QVERIFY2(ok, "the seam artifact must carry a readable /DocMDP /P");
+        QCOMPARE(p, 2);
+    }
+
+    void alreadySignedDisablesCertifyThroughProductionCount()
+    {
+        // The follow-ups refuse-safely pin, fed the way the production call
+        // site feeds it: the count comes from the SAME validation the
+        // controller passes to setExistingSignatureCount before exec
+        // (validateSignatures on the document on disk), driven into a REAL
+        // dialog. Certify must end up disabled with the disclosed reason, and
+        // an accepted Approve dialog must publish pending 0 so the
+        // controller's consume can never see a certification level.
+        delete m_signing;
+        m_signing = new SignatureManager();
+
+        const QString signedFirst = m_tmp.filePath("seam_signed.pdf");
+        QCOMPARE(m_signing->signDocument(m_seed, signedFirst, m_signer.p12Path,
+                                         m_signer.password, QStringLiteral("seam approve"),
+                                         QString()),
+                 SignOutcome::Success);
+
+        // The production count expression (SecurityController::certifyDocument).
+        const int count = m_signing->validateSignatures(signedFirst).size();
+        QVERIFY2(count > 0, "the signed artifact must carry at least one signature");
+
+        SignatureDialog::setPendingCertificationLevel(0);
+        SignatureDialog dlg;
+        dlg.setExistingSignatureCount(count);
+
+        auto *purpose = dlg.findChild<QComboBox *>(QStringLiteral("signaturePurposeCombo"));
+        const int certifyIdx = purpose->findText(QStringLiteral("Certify"));
+        QVERIFY2(!purpose->model()->flags(purpose->model()->index(certifyIdx, 0))
+                      .testFlag(Qt::ItemIsEnabled),
+                 "Certify must be DISABLED when the production count reports signatures");
+        QCOMPARE(dlg.certificationLevel(), 0);
+
+        auto *reason = dlg.findChild<QLabel *>(QStringLiteral("certifyUnavailableLabel"));
+        QVERIFY2(reason && reason->text().contains(QString::number(count)),
+                 "the visible refusal must disclose the production count");
+
+        // Accept the dialog the way a user would (credentials filled): the
+        // published pending level stays 0 — refuse-safely, before any engine.
+        auto *certEdit = dlg.findChild<QLineEdit *>(QStringLiteral("signatureCertPathEdit"));
+        auto *pwdEdit = dlg.findChild<QLineEdit *>(QStringLiteral("signaturePasswordEdit"));
+        certEdit->setText(m_signer.p12Path);
+        pwdEdit->setText(m_signer.password);
+        auto *buttons = dlg.findChild<QDialogButtonBox *>();
+        buttons->button(QDialogButtonBox::Ok)->click();
+        QCOMPARE(dlg.result(), static_cast<int>(QDialog::Accepted));
+        QCOMPARE(SignatureDialog::takePendingCertificationLevel(), 0);
+    }
 
     void certifyAtEachLevelWritesMatchingDocMDP()
     {

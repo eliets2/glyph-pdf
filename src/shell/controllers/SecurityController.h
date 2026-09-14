@@ -84,6 +84,17 @@ public:
     // is disclosed here instead.
     static QString attainedLevelLabel(PAdESLevel requested, const SignatureOutcomeDetail& detail);
 
+    // ── N18 (follow-ups lane): certify DocMDP level from the dialog ──────────
+    // Pure seam so the certify request's level mapping is unit-testable
+    // without a MainWindow (buildValidationSummary idiom). The accepted dialog
+    // publishes its choice through the consume-once pending slot
+    // (SignatureDialog::takePendingCertificationLevel — it equals
+    // dlg.certificationLevel() at accept); a Certify choice (1..3) is carried
+    // through 1:1, while Approve (0 — no certification requested) and any
+    // out-of-range garbage keep this entry point's HISTORICAL default
+    // (level 1) instead of feeding the engine a level it must refuse.
+    static int certifyLevelFromDialog(int pendingLevel);
+
 private:
     void encryptDocument();
     void signDocument();
