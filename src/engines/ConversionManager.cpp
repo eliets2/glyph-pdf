@@ -191,7 +191,14 @@ QList<QList<ConversionManager::TextElement>> ConversionManager::Private::cluster
     for (const TextElement &el : elements) {
         bool placed = false;
         for (LineGroup &g : groups) {
-            const double tol = qMax(1.0, 0.5 * qMax(el.fontSize, g.maxFont));
+            // SEP13 M7: the join tolerance is bounded by the SMALLER of the
+            // two font sizes. Under the previous half-of-the-LARGER-font rule
+            // a small line up to half a big glyph below a heading was swallowed
+            // into the heading's row (an 8pt line 10pt below a 24pt line
+            // merged, destroying the small line's independence). Same-line
+            // elements share their baseline within sub-point jitter, so this
+            // stays far above what same-line clustering needs.
+            const double tol = qMax(1.0, 0.5 * qMin(el.fontSize, g.maxFont));
             if (std::fabs(el.rect.y() - g.baselineY) <= tol) {
                 g.els.append(el);
                 g.maxFont = qMax(g.maxFont, el.fontSize);
@@ -225,9 +232,22 @@ QList<QList<ConversionManager::TextElement>> ConversionManager::Private::cluster
 // at multi-em gaps). Anchors are then re-ranked left-to-right so column order
 // matches visual order. Elements keep their extracted order; the writers use
 // `column` to place cells and to preserve empty interior cells.
+//
+// SEP13 lead 13 (ragged / right-aligned columns): an element whose x-start
+// matches no anchor within the tolerance used to become a NEW anchor, splitting
+// one visual column in two ("Total" ends a label row at x≈287; the value "5"
+// right-aligned under it starts at 295 — same column, but 35pt from the
+// label's x-start). Each anchor therefore also tracks the RIGHT extent of the
+// elements assigned to it; an element that matches no anchor but STARTS just
+// past a column's current extent (within one em of its own font — the backend
+// itself only splits runs at multi-em gaps, so a sub-em offset cannot be a
+// distinct cell) continues that column instead of founding a spurious one.
+// A start inside or at the extent still creates a new anchor: overlapping
+// column bands stay as unambiguous as before.
 void ConversionManager::Private::deriveColumns(QList<QList<TextElement>> &rows)
 {
     QList<double> anchors;
+    QList<double> extents;   // rightmost edge reached by each column so far
     QList<QList<int>> rowAnchor(rows.size());
     for (int r = 0; r < rows.size(); ++r) {
         rowAnchor[r].reserve(rows[r].size());
@@ -244,8 +264,24 @@ void ConversionManager::Private::deriveColumns(QList<QList<TextElement>> &rows)
                 }
             }
             if (best < 0) {
+                // Ragged-continuation check (SEP13 lead 13): strictly past a
+                // column's extent and within one em of it → same column.
+                double bestGap = 0.0;
+                for (int a = 0; a < anchors.size(); ++a) {
+                    const double gap = el.rect.x() - extents.at(a);
+                    if (gap > 0.0 && gap <= el.fontSize
+                        && (best < 0 || gap < bestGap)) {
+                        best = a;
+                        bestGap = gap;
+                    }
+                }
+            }
+            if (best < 0) {
                 anchors.append(el.rect.x());
+                extents.append(el.rect.right());
                 best = anchors.size() - 1;
+            } else {
+                extents[best] = qMax(extents.at(best), el.rect.right());
             }
             rowAnchor[r].append(best);
         }

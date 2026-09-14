@@ -137,7 +137,14 @@ private slots:
         const QString out = tmp.filePath("ragged.csv");
         ConversionManager conv;
         QVERIFY(conv.convertTo(src, out, TargetFormat::Csv));
-        const QStringList lines = readFile(out).split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        // EOL-agnostic: the CSV writer emits RFC 4180 CRLF; strip the CR so
+        // the CELL-CONTENT contract below is what is actually asserted (a
+        // literal split on '\n' leaves '\r' on every line and can never pass
+        // on any platform — harness artifact, not contract).
+        QStringList lines;
+        const QStringList rawLines = readFile(out).split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        for (const QString &raw : rawLines)
+            lines.append(raw.trimmed());
         QVERIFY2(lines.size() >= 2, "expected two extracted rows");
         qInfo() << "CSV row1:" << lines.at(0) << "| row2:" << lines.at(1);
 
