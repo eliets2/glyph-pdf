@@ -2588,7 +2588,15 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
         std::vector<unsigned> toRemove;
         for (unsigned i = 0; i < annos.GetCount(); ++i) {
             auto& anno = annos.GetAnnotAt(i);
-            auto r = anno.GetRect();
+            // F1 (independent review 2026-09-14): intersect against the RAW
+            // /Rect. GetRect() folds the page's /Rotate into the rect at read
+            // time, but pdfRects above are RAW USER space (the shared
+            // PageSpace viewer→user law, SEP13 L8) — on /Rotate pages the
+            // mismatched spaces made annotations carrying redacted content
+            // survive the excision entirely (annotation-borne data loss).
+            // ISO 32000-1 §12.5.2: /Rect lives in default user space, the
+            // same space the excision rects were mapped into.
+            const PoDoFo::Rect r = anno.GetRectRaw().GetNormalized();
             bool intersects = false;
             for (const auto& redRect : pdfRects) {
                 if (r.X < (redRect.X + redRect.Width) && (r.X + r.Width) > redRect.X &&
