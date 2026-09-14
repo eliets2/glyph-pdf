@@ -1,35 +1,42 @@
-# GLM resume state — 2026-09-14
+# GLM resume state — 2026-09-15 (post-integration push)
 
-Integration candidate: `feat/parity-glm` (this tree, pdf-clean) at the merge of
-`feat/parity-glm-packafix` (8/8 remediation findings) into origin tip `54d5bcd` + resid2.
-Worktrees: pdf-parity = quick-wins (N3 preserved in `2a82738`; 4 quick-review findings open —
-skip-before-render, idempotency modal, settings persistence, real page-preservation contract);
-pdf-inst = packafix (8/8 merged here); pdf-sec = resid2 (ARC07 gate, merged here); pdf-clean =
-integration + this doc; pdf-r15/pdf-r18 = idle; pdf/keyA/keyC/redaction/worktrees = foreign/legacy.
+**PUSHED: `origin/feat/parity-glm` @ `2f755244`** — the 2026-09-14/15 integration wave, final serial
+gate 153/153 (one order-flake trio in run 1, green standalone + on rerun; noted, not chased).
+Record branches on origin: quick (2b81fc2), resid2 (9129788), packafix (5ae4153), integration
+(= mainline), r18f (7d5ae67), sep13-leads (b0fd829), sep13-fixes (e8b9a19), n17n18 (819d84a),
+sep13-residual (c7e9ecf). Project physically at D:\pdf\ (junctions keep every old C: path valid).
 
-Landed (implemented-awaiting-review unless noted): repair-prompt steps 1–5; G01–G23; form-JS
-P1 + R05/JS-01 deadline (9 bypasses); R02/R03/R09; R04/R08/R10; R06/R13; R11/R12; Pack A
-(T2-2/3/6/9); R15–R17 UI wave; SEP13 hardening (6 confirmed); Linux R20/R21 compile-level;
-cleanup pass; deletion audit (6 safe/1 recovered/5 unknown/0 loss — gc/prune FORBIDDEN until
-recovery ref `recovery/temp-stage-push-20260909` and the 5 unknowns resolve); research backlog;
-feature-command matrix (300×21).
+**What this wave contains (all implemented-awaiting-review unless R14 flips):** quick-findings
+Q1–Q4 (OCR skip-before-render; kept-page path was silently dead — fixed; idempotency modal;
+QSettings persistence; real preservation contract; XFAIL pins /AcroForm dropped by page-copy —
+OPEN engine gap); SEP13 redaction false-success fixes L5/L7/L8 (composed user-data-loss class,
+severity reclassified) + L6 wording; SEP13 fixes L1 (B-T downgrade honesty) L2 (HTML injection)
+L3 (Degraded reversal) L4 (cert RAII) L9/L10 (batch result honesty) L11 (OCR guards) L13+M7
+(columns) + M1/M3/M5; R18(f) Keystroke /AA /K tier + R19 settings end-to-end pin; N17
+cert-encryption recipient picker + N18 DocMDP certify selector (NEW parity features, engine
+seams were pre-existing); residuals: signing-outcome B-T→B-B disclosure + M8 RedactOperation
+lifetime. L12 stays CONFIRMED-unfixed (perf-only, probe pins 15.78× ratio).
 
-Open (in execution order):
-1. Quick-findings finisher (4 findings on the N3 WIP, `quick-review.md`).
-2. packafix-F4 re-verify + r15 encoding recheck at this merged tip (full serial ctest).
-3. R14 independent review finisher (dead reviewer's probes in pdf-inst `.context/review-r14/`).
-4. R15–R19 residuals: R18(f) Keystroke /AA /K (WIP-handoff), R19 end-to-end settings verify.
-5. R20-tail/R22–R23 Linux desktop continuation (container `glyphpdf-linux` up+provisioned;
-   desktop gates stay honestly unclaimed from a container).
-6. R24 policy/diagnostics; R25 release evidence + 48h soak (start early).
-7. R26/R27 expansions + pilot (pilot contact = user authorization).
-8. END: 16-role ponytail sweep (W1 native-adversary+fuzz+security → W2 gsd-verifier+
-   guarantee+testing → W3 perf+arch+emergence+archaeologist+devops+ui+ux+research) →
-   fix lanes → consolidated report + UI acceptance + perf baseline.
+**Open queue (execution order):**
+1. R14 independent review — RUNNING (pdf-r18 @ feat/parity-glm-review): flips rows to
+   verified via own probes + negative controls; deliverable docs/audit/INDEPENDENT-REVIEW.
+2. R22 installed-resources Linux gate — RUNNING (pdf-inst @ feat/parity-glm-r22, container
+   glyphpdf-linux rebound to pdf-inst). Desktop gates stay UNTESTED-honest.
+3. R25 48h soak — RUNNING (pdf-keyC @ feat/soak-48h; detached loop → D:\soak-48h.log;
+   verdict due ~2026-09-17; doc docs/audit/SOAK-48H-2026-09-15.md).
+4. Follow-ups queued: N17/N18 seam wiring (SecurityController::certifyDocument still hardcodes
+   certLevel=1; setExistingSignatureCount call site); suite-isolation finding (new cert tests
+   suspected of order-perturbing CommandBinding/EngineSave/EncryptedPackageSafeWrite —
+   standalone green, in-suite order-flake); L12 perf fix (probe-pinned); R24 policy/diagnostics;
+   R26/27 (batch-presets P1 design settled; pilot external contact = USER auth).
+5. END PHASE: 16-role ponytail sweep W1 (native-adversary + fuzz + security-auditor) → W2
+   (gsd-verifier + guarantee-verification + testing — only they flip verified) → W3 (perf/arch/
+   emergence/archaeologist/devops/ui/ux/research) → fix lanes → consolidated report + UI
+   acceptance + perf baseline.
 
-Build/test: MSYS2 UCRT64 wrapper; -j 2 always; QtTest -o file.txt,txt; offscreen for GUI;
-PCH gch purge after header edits/branch switches; full ctest only when ninja no-op AND
-graphify log idle; known flakes rerun-once: TestOllamaProvider/TestBatchMode/TestLaneScheduler/
-TestReadOnlyGate/TestBatchOpsCoverage + TestEngineSave×TestRedactTransaction parallel interference.
-Quota windows ([1308]/[1310]) kill subagents — coordinator builds/tests/commits directly;
-captcha kills dispatches probabilistically — retry once.
+Build/test unchanged: MSYS2 UCRT64 wrapper; -j 2; QtTest -o txt; offscreen; PCH purge after
+header edits/branch switches; full ctest only when ninja no-op + graphify idle; known flakes
+rerun-once. Docker: plain Git Bash, no apt installs mid-lane. Quota/captcha/model-request
+failures: fresh finisher + measured handoff state + git tree; dispatches retry once.
+
+gc/prune FORBIDDEN (recovery ref + 5 unknowns open). Pilot external contact = USER auth.
