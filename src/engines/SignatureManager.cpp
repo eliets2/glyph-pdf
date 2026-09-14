@@ -1771,6 +1771,9 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
                     // N06: the CANDIDATE is broken — drop it and preserve the
                     // previous output (the old code deleted the output here,
                     // destroying a preserved partial result).
+                    // M3 (SEP13): the drop was documented but never performed —
+                    // the reserved candidate file was orphaned per occurrence.
+                    cleanupCandidate();
                 } else {
                     QFile::remove(outputPath);
                 }
@@ -1788,6 +1791,7 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
                 qWarning() << "SignatureManager: checked replacement of" << outputPath
                            << "failed — previous output preserved:" << commitErr;
                 d->lastOutcome = SignOutcome::Failed;
+                cleanupCandidate();   // M3 (SEP13): never committed — drop the orphan
                 return SignOutcome::Failed;
             }
             candidateCommitted = true;
