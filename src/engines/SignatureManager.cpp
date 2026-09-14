@@ -130,6 +130,11 @@ public:
     // signing attempt.
     bool dssMissing = false;
     bool docTimestampMissing = false;
+    // SEP13 lead 1: B-T piece of the same slate — the RFC 3161 token was
+    // requested (level >= B-T with a TSA URL) but could not be embedded, so
+    // the signature on disk attained B-B. Reset at the start of every
+    // signing attempt (see signDocumentImpl).
+    bool timestampMissing = false;
 
     // -----------------------------------------------------------------------
     // Populate X509_STORE with trust roots
@@ -1271,6 +1276,7 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
     // §9.7 P1: a fresh attempt starts with a clean degradation slate.
     d->dssMissing = false;
     d->docTimestampMissing = false;
+    d->timestampMissing = false;   // SEP13 lead 1: B-T piece of the same slate
     // N06 (QUALITY-GATE-2026-09-09): checked replacement at the signing
     // boundary. When the result goes to a DIFFERENT file than the source
     // (the SecurityController retry/replacement contract), every write below
@@ -1369,6 +1375,10 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
                 baseCms.ComputeSignature(contents, dryrun);
 
                 if (m_priv->level >= PAdESLevel::B_T && !m_priv->tsaUrl.isEmpty()) {
+                    // SEP13 lead 1: a requested-but-missing timestamp is a
+                    // degradation that MUST surface in the outcome. Presume
+                    // missing; clear only when the token is actually embedded.
+                    m_priv->timestampMissing = true;
                     const unsigned char *p = reinterpret_cast<const unsigned char*>(contents.data());
                     CMS_ContentInfo *cms = d2i_CMS_ContentInfo(nullptr, &p, contents.size());
                     if (!cms) return;
@@ -1383,8 +1393,9 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
                             QByteArray tsToken = m_priv->fetchTimestampToken(digest);
 
                             if (!tsToken.isEmpty()) {
-                                CMS_unsigned_add1_attr_by_NID(si, NID_id_smime_aa_timeStampToken, 
+                                CMS_unsigned_add1_attr_by_NID(si, NID_id_smime_aa_timeStampToken,
                                                               V_ASN1_SEQUENCE, tsToken.constData(), tsToken.size());
+                                m_priv->timestampMissing = false;   // token embedded: B-T attained
                                 qDebug() << "B-T: id-aa-signatureTimeStampToken appended to SignerInfo";
                             } else {
                                 qWarning() << "B-T: TSA returned empty token — signature downgrades to B-B";
@@ -1700,6 +1711,17 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
             }
         }
 
+        // SEP13 lead 1: same disclosure duty for the B-T piece — when a
+        // timestamp was requested (level >= B-T, TSA configured) but the
+        // token could not be fetched/embedded, the signature attained B-B.
+        // That is a PARTIAL outcome, never a plain Success.
+        if (d->level >= PAdESLevel::B_T && !d->tsaUrl.isEmpty() && d->timestampMissing) {
+            overallOk = false;
+            qWarning() << "B-T: timestamp token missing — signature bytes written but the requested"
+                       << "RFC 3161 timestamp could not be embedded (attained B-B). The caller MUST"
+                       << "inform the user that timestamped-signature assurances are not in effect.";
+        }
+
         // E-02: at this point the cryptographic signature bytes ARE on disk
         // (SignDocument completed above). If overallOk is false it is purely the
         // B-LT/B-LTA enhancement that failed — record that distinctly so the UI
@@ -1829,6 +1851,7 @@ SignatureOutcomeDetail SignatureManager::lastSignOutcomeDetail()
     SignatureOutcomeDetail detail;
     detail.dssMissing = d->dssMissing;
     detail.docTimestampMissing = d->docTimestampMissing;
+    detail.timestampMissing = d->timestampMissing;   // SEP13 lead 1
     return detail;
 }
 
