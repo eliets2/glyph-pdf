@@ -218,12 +218,18 @@ QList<TextMatch> TextMatchFinder::findMatches(const QString& pdfPath,
 
 #else // !HAS_PDFIUM
 
+// R22 (2026-09-14): signature aligned with the header — packa-F4 (88d5686)
+// added the MatchBudget* parameter to the declaration and the HAS_PDFIUM
+// branch but not this stub, which Windows never compiles (pdfium is always
+// vendored there); every engine-less Linux build hard-fails.
 QList<TextMatch> TextMatchFinder::findMatches(const QString& pdfPath,
                                               const QList<int>& pages,
-                                              const QRegularExpression& pattern) {
+                                              const QRegularExpression& pattern,
+                                              MatchBudget* budget) {
     Q_UNUSED(pdfPath);
     Q_UNUSED(pages);
     Q_UNUSED(pattern);
+    Q_UNUSED(budget);
     qWarning() << "TextMatchFinder: PDFium not available — cannot locate text matches.";
     return {};
 }
