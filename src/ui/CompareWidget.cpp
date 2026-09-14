@@ -159,10 +159,12 @@ int CompareWidget::anchorIndexForStructuralChange(int pageChangeIndex) const
 
 int CompareWidget::anchorIndexForPage(int pageDiffIndex) const
 {
-    for (int i = 0; i < m_anchors.size(); ++i)
-        if (m_anchors.at(i).pageDiffIndex == pageDiffIndex)
-            return i;
-    return -1;
+    // L12: memoized (see m_anchorIndexByPage). applyChangeTypeFilters calls
+    // this once per visible row per filter toggle; the linear scan it
+    // replaced made each toggle O(rows × anchors) on the GUI thread.
+    return m_anchorIndexByPage.contains(pageDiffIndex)
+               ? m_anchorIndexByPage.value(pageDiffIndex)
+               : -1;
 }
 
 int CompareWidget::leftPageCount() const
@@ -241,9 +243,19 @@ void CompareWidget::showOverlayForChange(int anchorIndex)
 QString CompareWidget::buildHtml()
 {
     m_anchors.clear();
+    m_anchorIndexByPage.clear();
 
     if (m_diffResult.isIdentical)
         return QStringLiteral("<span style='color:#4ec96d'>Files are identical.</span>");
+
+    // L12: one append path so the memo and the sequence can never disagree —
+    // first-match-wins insertion in append order replicates the first hit of
+    // the linear scan anchorIndexForPage replaced.
+    auto appendAnchor = [this](const ChangeAnchor &anchor) {
+        if (!m_anchorIndexByPage.contains(anchor.pageDiffIndex))
+            m_anchorIndexByPage.insert(anchor.pageDiffIndex, m_anchors.size());
+        m_anchors.append(anchor);
+    };
 
     QString html;
     html.reserve(4096);
@@ -259,7 +271,7 @@ QString CompareWidget::buildHtml()
         if (!visible)
             continue;
         const QString aid = QString("chg%1").arg(m_anchors.size());
-        m_anchors.append({aid, ch.oldPage, ch.newPage, i, -1});
+        appendAnchor({aid, ch.oldPage, ch.newPage, i, -1});
         QString line;
         switch (ch.type) {
         case DiffResult::PageChangeType::PageAdded:
@@ -319,7 +331,7 @@ QString CompareWidget::buildHtml()
         // R06: page rows anchor on the SAME aligned old/new sides the engine
         // mapped (a shifted pair navigates left→old, right→new exactly like a
         // structural change does).
-        m_anchors.append({aid, page.oldSide(), page.newSide(), -1, j});
+        appendAnchor({aid, page.oldSide(), page.newSide(), -1, j});
 
         const int os = page.oldSide();
         const int ns = page.newSide();

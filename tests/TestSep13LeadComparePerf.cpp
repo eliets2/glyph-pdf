@@ -1,17 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
 // SEP13 lead 12 — CompareMode::applyChangeTypeFilters recomputes the
 // anchor-index role for EVERY row on EVERY filter toggle, and each lookup
-// (CompareWidget::anchorIndexForPage / anchorIndexForStructuralChange) is a
-// LINEAR SCAN over the anchor list — O(rows x anchors) per toggle on the GUI
-// thread (quadratic in the change count).
+// (CompareWidget::anchorIndexForPage / anchorIndexForStructuralChange) used to
+// be a LINEAR SCAN over the anchor list — O(rows x anchors) per toggle on the
+// GUI thread (quadratic in the change count).
 //
 // PARITY-GLM-REVIEW-2026-09-13 lead (CompareMode.cpp ~392). Impact:
 // perf-only (each toggle on a large diff stalls the GUI thread); the mapping
 // result itself is correct (U04 rebuilds it each time).
 //
-// This probe measures exactly the per-toggle work (N lookups over N anchors)
-// at two sizes and asserts SUPERLINEAR growth — the O(N^2) signature. The
-// measured numbers are the confirmation evidence; the assert is the formality.
+// FIXED (follow-ups lane, 2026-09-15): CompareWidget memoizes pageDiffIndex →
+// anchor index in m_anchorIndexByPage, rebuilt in the ONE funnel that rebuilds
+// m_anchors (buildHtml), so anchorIndexForPage is a hash lookup and the
+// per-toggle recompute is O(rows) instead of O(rows x anchors).
+//
+// This probe is now the GUARD against regression: it measures exactly the
+// per-toggle work (N lookups over N anchors) at two sizes 4x apart and asserts
+// the growth stays NEAR-LINEAR. Measured at the tip (evidence, followups
+// lane): regressed (linear scan) ≈ 15.8–16.5x; fixed (memo) ≈ 6–8x — the
+// residual growth above the naive ~4x is memory hierarchy (the memo table
+// itself outgrows cache at 8000 entries), which is why the guard sits at
+// < 10.0x, the measured midpoint with wide margins on both sides. The probe
+// calibrates its repeat count to a 100 ms floor per sample so the ratio is
+// stable run-to-run (a 20 ms floor produced 6.3–8.2x scatter on the FIXED
+// code — the guard must never flake on timer quantization).
 #include <QtTest/QtTest>
 #include <QElapsedTimer>
 
@@ -58,7 +70,7 @@ class TestSep13LeadComparePerf : public QObject {
     Q_OBJECT
 
 private slots:
-    void anchorRoleRecomputeIsSuperlinear() {
+    void anchorRoleRecomputeStaysNearLinear() {
         CompareWidget widget;
 
         const int small = 2000;
@@ -67,7 +79,7 @@ private slots:
         widget.setDiffResult(makeResultWithChanges(small));
         int repeats = 1;
         qint64 tSmallTotal = measureToggleWorkMs(widget, small, repeats);
-        while (tSmallTotal < 20 && repeats < 4096) {
+        while (tSmallTotal < 100 && repeats < (1 << 20)) {
             repeats *= 4;
             tSmallTotal = measureToggleWorkMs(widget, small, repeats);
         }
@@ -81,11 +93,15 @@ private slots:
         qInfo() << "anchor-role recompute: rows =" << small << "->" << tSmall << "ms/pass"
                 << "over" << repeats << "repeats;"
                 << "rows =" << large << "->" << tLarge << "ms/pass; ratio =" << ratio
-                << "(linear expectation ~4x, O(rows x anchors) expectation ~16x)";
-        QVERIFY2(ratio >= 8.0,
-                 QStringLiteral("SEP13 lead 12 CONFIRMED: anchor-index recompute grows superlinearly "
-                 "(ratio %1 at 4x rows) — applyChangeTypeFilters is O(rows x anchors) "
-                 "per filter toggle on the GUI thread")
+                << "(linear expectation ~4x, memo cache effects push the fixed "
+                   "baseline to ~6-8x; the O(rows x anchors) regression measured "
+                   "15.8-16.5x)";
+        QVERIFY2(ratio < 10.0,
+                 QStringLiteral("SEP13 lead 12 REGRESSED: anchor-index recompute grows "
+                 "superlinearly again (ratio %1 at 4x rows; fixed baseline is ~6-8x, "
+                 "the pre-fix O(rows x anchors) scan measured 15.8-16.5x) — is "
+                 "CompareWidget::m_anchorIndexByPage still consulted by "
+                 "anchorIndexForPage, and is it still rebuilt in buildHtml?")
                      .arg(ratio, 0, 'f', 1).toUtf8().constData());
     }
 };

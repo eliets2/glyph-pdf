@@ -3,6 +3,7 @@
 
 #include <QWidget>
 #include <QImage>
+#include <QHash>
 #include "engines/DiffEngine.h"
 
 class PdfViewerWidget;
@@ -157,6 +158,15 @@ private:
     // changes first, then one entry per visible page row).
     QList<ChangeAnchor> m_anchors;
     int              m_currentAnchor = -1;
+
+    // L12 (SEP13 lead 12): memoized pageDiffIndex → anchor index over
+    // m_anchors, rebuilt in the ONE funnel that rebuilds m_anchors
+    // (buildHtml — setDiffResult, setChangeFilter and every diff reset go
+    // through it, so the memo can never go stale). First match wins, exactly
+    // like the linear scan it replaced: CompareMode::applyChangeTypeFilters
+    // maps EVERY visible row on EVERY filter toggle, and the memo turns that
+    // per-toggle cost from O(rows × anchors) into O(rows).
+    QHash<int, int>  m_anchorIndexByPage;
 
     // Linked scrolling (U04). m_syncingScroll cuts the valueChanged loop the
     // moment one side drives the other; m_suppressSync keeps anchor-driven
