@@ -577,6 +577,16 @@ void RedactMode::runRedactOperation(const RedactRequest& request) {
                 }
                 emit self->statusMessageRequested(RedactResultPresenter::bannerText(effective));
             });
+    // SEP13 M8 (static-LOW): the operation object was heap-allocated with no
+    // deleter — one QObject leaked per run. Delete it on the completion
+    // signal (the sibling mode-owned worker idiom, ConvertController et al.).
+    // Safe against early free by construction (D02): the worker holds the
+    // durable ExecutionState and never dereferences the QObject, and
+    // ~RedactOperation detaches the guarded owner under the delivery mutex,
+    // so the deferred delete cannot race an emission or kill a running
+    // worker. Connected AFTER the result handler so the handler's queued
+    // delivery happens first; the handler itself never touches `op`.
+    connect(op, &RedactOperation::finished, op, &QObject::deleteLater);
     op->start();
 }
 

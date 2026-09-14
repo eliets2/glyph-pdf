@@ -853,6 +853,12 @@ void SecurityController::applyRedactions() {
                 self->_mainWindow->statusBar()->showMessage(
                     RedactResultPresenter::bannerText(effective), 8000);
             });
+    // SEP13 M8 (static-LOW): same lifetime contract as the RedactMode path —
+    // deleteLater on the completion signal (no accumulate-per-run leak).
+    // Connected AFTER the result handler; the handler never touches `op`, and
+    // the D02 durable execution state makes the deferred delete safe against
+    // both early free and an in-flight run.
+    connect(op, &RedactOperation::finished, op, &QObject::deleteLater);
     op->start();
 }
 
