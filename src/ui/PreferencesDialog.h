@@ -37,6 +37,9 @@ private slots:
     void onAiTestKey();
     void refreshAiStatus();
 
+    // R24(b): writes a redacted support-bundle.json into a user-chosen dir.
+    void onExportSupportBundle();
+
 private:
     QComboBox*   _langCombo   = nullptr;
     QComboBox*   _themeCombo  = nullptr;

@@ -916,6 +916,9 @@ add_library(pdfws_ui STATIC
     # always visible in Preferences (never silently).
     src/core/PolicyController.h      src/core/PolicyController.cpp
 
+    # R24(b): redacted support bundle (counts only, no paths/PDF content).
+    src/core/SupportBundle.h         src/core/SupportBundle.cpp
+
     src/core/ToolId.h                       src/core/ToolId.cpp
     src/shell/ToolRegistry.h                src/shell/ToolRegistry.cpp
     src/core/interfaces/IToolController.h
@@ -4286,6 +4289,25 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPolicyController.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
         LABELS "unit;policy;r24;qt;headless"
+    )
+endif()
+
+# R24(b): redacted support bundle — redaction-by-construction pin (a bundle
+# built from a state seeded with usernames/PDF-text/TSA-URL secrets must not
+# contain any of them in its bytes), counts-only recents/documents, the
+# settings allowlist with disclosed exclusions, capability disclosure without
+# probe detail, and the dialog entry point.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSupportBundle.cpp")
+    add_executable(TestSupportBundle tests/TestSupportBundle.cpp)
+    target_include_directories(TestSupportBundle PRIVATE src tests)
+    target_link_libraries(TestSupportBundle PRIVATE
+        pdfws_ui pdfws_engines pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_test(NAME TestSupportBundle COMMAND TestSupportBundle)
+    set_tests_properties(TestSupportBundle PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;support-bundle;privacy;r24;qt;headless"
     )
 endif()
 

@@ -2,17 +2,21 @@
 #include "PreferencesDialog.h"
 #include "core/UpdateChecker.h"
 #include "core/PolicyController.h"
+#include "core/SupportBundle.h"
 #include "GpMainWindow.h"
 #include "core/AppContext.h"
 #include "engines/AutosaveManager.h"
+#include "engines/DocumentSession.h"
 #include "engines/ai/OllamaProvider.h"
 #include <QFutureWatcher>
 
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDialogButtonBox>
 #include <QFile>
+#include <QFileDialog>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -147,6 +151,33 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
     form->addRow(QString{}, _autoPrune);
 
     col->addWidget(genGroup);
+
+    // ── R24(b): Diagnostics — the redacted support bundle export. ────────
+    {
+        auto* diagGroup = new QGroupBox(tr("Diagnostics"));
+        auto* diagLay = new QVBoxLayout(diagGroup);
+
+        auto* bundleBtn = new QPushButton(tr("Export support bundle…"));
+        bundleBtn->setObjectName(QStringLiteral("exportSupportBundleBtn"));
+        bundleBtn->setAccessibleName(tr("Export a redacted support bundle"));
+        // STUB (fail-first): the real builder is wired before the commit.
+        connect(bundleBtn, &QPushButton::clicked, this,
+                &PreferencesDialog::onExportSupportBundle);
+        diagLay->addWidget(bundleBtn);
+
+        auto* bundleNote = new QLabel(
+            tr("Writes a support-bundle JSON file you can attach to a bug "
+               "report: app version, build info, enabled capabilities, "
+               "machine-policy state, feature toggles, and network-feature "
+               "on/off states. Never includes document names, paths, PDF "
+               "content, document metadata, URLs or network history."), this);
+        bundleNote->setObjectName(QStringLiteral("bundleDisclosureLabel"));
+        bundleNote->setWordWrap(true);
+        bundleNote->setStyleSheet("color:#888; font-size:8pt;");
+        diagLay->addWidget(bundleNote);
+
+        col->addWidget(diagGroup);
+    }
 
     // Updates group
     auto* updateGroup = new QGroupBox(tr("Updates"));
@@ -593,6 +624,53 @@ void PreferencesDialog::saveSettings()
     QMessageBox::information(this, tr("Preferences Saved"),
         tr("Some changes require a restart to take effect."));
     accept();
+}
+
+void PreferencesDialog::onExportSupportBundle()
+{
+    // R24(b): the user picks the destination; the bundle is REDACTED BY
+    // CONSTRUCTION (see SupportBundle.h) — counts only for recents and
+    // documents, no paths, no PDF content, no URLs, no network history.
+    const QString dir = QFileDialog::getExistingDirectory(
+        this, tr("Choose a destination folder for support-bundle.json"),
+        QString(), QFileDialog::ShowDirsOnly);
+    if (dir.isEmpty())
+        return;
+
+    gp::SupportBundleInput in;
+    // Counts only — the open-document COUNT, never its identity.
+    MainWindow* mainWin = qobject_cast<MainWindow*>(parentWidget());
+    if (mainWin && mainWin->appContext()
+        && mainWin->appContext()->document
+        && !mainWin->appContext()->document->path().isEmpty())
+        in.openDocumentCount = 1;
+    if (mainWin && mainWin->appContext())
+        in.capabilities = mainWin->appContext()->capabilities.get();
+
+    QSettings user;
+    const QJsonObject bundle = gp::SupportBundle::buildFromSettings(user, in);
+    const QString stamp =
+        QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss"));
+    const QString path = dir + QStringLiteral("/support-bundle-")
+                         + UpdateChecker::currentVersion()
+                         + QStringLiteral("-") + stamp
+                         + QStringLiteral(".json");
+
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        QMessageBox::warning(this, tr("Export failed"),
+                             tr("Could not write %1").arg(path));
+        return;
+    }
+    f.write(gp::SupportBundle::serialize(bundle));
+    f.close();
+
+    QMessageBox::information(
+        this, tr("Support bundle exported"),
+        tr("Written to %1\n\nThe bundle contains no PDF content, no document "
+           "metadata, no file paths, no URL values and no network history — "
+           "counts and on/off states only.")
+            .arg(path));
 }
 
 void PreferencesDialog::onCheckNow()
