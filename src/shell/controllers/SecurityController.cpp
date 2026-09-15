@@ -45,6 +45,7 @@
 #include <QVBoxLayout>
 #include <QLabel>
 #include "engines/PdfEditorEngine.h"
+#include "core/PolicyController.h"  // R24(a): machine policy over signing prefs (additive)
 #include <memory>
 #include <atomic>
 #include "shell/StatusBar.h"
@@ -98,10 +99,27 @@ SecurityController::SigningConfig SecurityController::readSigningConfig(QSetting
         owned = new QSettings();
     QSettings& s = overrideSettings ? *overrideSettings : *owned;
 
+    // R24(a): machine policy wins over the stored user values at load time.
+    // The override is disclosed in Preferences (disabled widget carrying the
+    // policy value + "managed by policy" wording + status line) and in the
+    // support bundle — it is never silent. ADDITIVE hook (the one unavoidable
+    // seam: this is the ONE production reader of the signing settings).
+    auto& policy = gp::PolicyController::instance();
+    policy.ensureLoaded();
+
     SigningConfig cfg;
-    cfg.tsaUrl = s.value(QStringLiteral("signing/tsaUrl")).toString().trimmed();
+    cfg.tsaUrl = policy
+        .effectiveValue(QStringLiteral("signing/tsaUrl"),
+                        s.value(QStringLiteral("signing/tsaUrl")).toString())
+        .toString()
+        .trimmed();
     cfg.level = padesLevelFromSetting(
-        s.value(QStringLiteral("signing/padesLevel"), QStringLiteral("B-B")).toString());
+        policy
+            .effectiveValue(QStringLiteral("signing/padesLevel"),
+                            s.value(QStringLiteral("signing/padesLevel"),
+                                    QStringLiteral("B-B"))
+                                .toString())
+            .toString());
     delete owned;
     return cfg;
 }

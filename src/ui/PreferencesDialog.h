@@ -9,6 +9,8 @@ class QPushButton;
 class QLabel;
 class QLineEdit;
 class QSpinBox;
+class QSettings;
+class QVariant;
 
 namespace gp {
 
@@ -20,6 +22,12 @@ public:
     explicit PreferencesDialog(QWidget* parent = nullptr);
     ~PreferencesDialog() override;
 
+    // R24(a): settings write guard. Refuses to persist a machine-managed key
+    // (the policy wins at load time, so a user edit must not silently diverge
+    // from what the app will actually do). Unmanaged keys persist normally.
+    static void persistSetting(QSettings& store, const QString& key,
+                               const QVariant& value);
+
 private slots:
     void saveSettings();
     void onCheckNow();
@@ -28,6 +36,9 @@ private slots:
     // AI tab slots
     void onAiTestKey();
     void refreshAiStatus();
+
+    // R24(b): writes a redacted support-bundle.json into a user-chosen dir.
+    void onExportSupportBundle();
 
 private:
     QComboBox*   _langCombo   = nullptr;

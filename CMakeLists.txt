@@ -913,6 +913,16 @@ add_library(pdfws_ui STATIC
 
     src/core/UpdateChecker.h         src/core/UpdateChecker.cpp
 
+    # R24(a): machine-level policy — overrides bounded user prefs, override
+    # always visible in Preferences (never silently).
+    src/core/PolicyController.h      src/core/PolicyController.cpp
+
+    # R24(b): redacted support bundle (counts only, no paths/PDF content).
+    src/core/SupportBundle.h         src/core/SupportBundle.cpp
+
+    # R24(c): network touchpoint enumeration (read-only audit surface).
+    src/core/NetworkTouchpoints.h    src/core/NetworkTouchpoints.cpp
+
     src/core/ToolId.h                       src/core/ToolId.cpp
     src/shell/ToolRegistry.h                src/shell/ToolRegistry.cpp
     src/core/interfaces/IToolController.h
@@ -4302,6 +4312,61 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCertifySelector.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 180
         LABELS "unit;security;signatures;certify;n18;qt;headless"
+    )
+endif()
+
+# R24(a): machine-level policy (policy.json overrides bounded user prefs,
+# override visible in Preferences). Pins precedence, the readSigningConfig
+# consumption seam, the visible managed-row disclosure, the save guard, and
+# honest invalid/tampered-policy handling.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPolicyController.cpp")
+    add_executable(TestPolicyController tests/TestPolicyController.cpp)
+    target_include_directories(TestPolicyController PRIVATE src tests)
+    target_link_libraries(TestPolicyController PRIVATE
+        pdfws_ui pdfws_engines pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_test(NAME TestPolicyController COMMAND TestPolicyController)
+    set_tests_properties(TestPolicyController PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;policy;r24;qt;headless"
+    )
+endif()
+
+# R24(b): redacted support bundle — redaction-by-construction pin (a bundle
+# built from a state seeded with usernames/PDF-text/TSA-URL secrets must not
+# contain any of them in its bytes), counts-only recents/documents, the
+# settings allowlist with disclosed exclusions, capability disclosure without
+# probe detail, and the dialog entry point.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSupportBundle.cpp")
+    add_executable(TestSupportBundle tests/TestSupportBundle.cpp)
+    target_include_directories(TestSupportBundle PRIVATE src tests)
+    target_link_libraries(TestSupportBundle PRIVATE
+        pdfws_ui pdfws_engines pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_test(NAME TestSupportBundle COMMAND TestSupportBundle)
+    set_tests_properties(TestSupportBundle PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;support-bundle;privacy;r24;qt;headless"
+    )
+endif()
+
+# R24(c): network behavior made explicit — one read-only enumeration of every
+# network touchpoint (Ollama/TSA/OCSP/update-check/OCR download) with states
+# derived from existing code paths, rendered on a Preferences "Network" page
+# and carried (on/off only) into the support bundle.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestNetworkDisclosure.cpp")
+    add_executable(TestNetworkDisclosure tests/TestNetworkDisclosure.cpp)
+    target_include_directories(TestNetworkDisclosure PRIVATE src tests)
+    target_link_libraries(TestNetworkDisclosure PRIVATE
+        pdfws_ui pdfws_engines pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_test(NAME TestNetworkDisclosure COMMAND TestNetworkDisclosure)
+    set_tests_properties(TestNetworkDisclosure PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;network-disclosure;privacy;r24;qt;headless"
     )
 endif()
 
