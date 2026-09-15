@@ -1614,10 +1614,20 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
         // output file in Read/Write mode (FileMode::Open). FileMode::Append is write-only
         // and SignDocument needs to both read existing content (to compute ByteRange offsets)
         // and write the incremental update to the same file.
-        FileStreamDevice outputStream(signTarget.toStdString(),
-                                      inputHasSigs ? FileMode::Open : FileMode::Create);
-        SignDocument(doc, outputStream, actualSigner, *signature,
-                     inputHasSigs ? PdfSaveOptions::None : PdfSaveOptions::SaveOnSigning);
+        //
+        // Inner scope: this FileStreamDevice is the only OS device held on the
+        // candidate, and it must be CLOSED before any candidate removal runs —
+        // the post-condition failure cleanups below, or the success-path drop
+        // after the destination commit. Windows cannot delete a file with a
+        // live handle, and without this scope the device lives until the end
+        // of the try block, past every QFile::remove (PoDoFo's
+        // FileStreamDevice exposes no public Close()).
+        {
+            FileStreamDevice outputStream(signTarget.toStdString(),
+                                          inputHasSigs ? FileMode::Open : FileMode::Create);
+            SignDocument(doc, outputStream, actualSigner, *signature,
+                         inputHasSigs ? PdfSaveOptions::None : PdfSaveOptions::SaveOnSigning);
+        }
 
         // ----------------------------------------------------------------
         // B-LT / B-LTA outcome tracking — bytes are written, but DSS / TSA
@@ -1795,6 +1805,13 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
                 return SignOutcome::Failed;
             }
             candidateCommitted = true;
+            // The commit copied the candidate's bytes into the destination —
+            // drop the candidate from <temp>/glyphpdf-candidates (the same
+            // cleanup every failure path performs). The flag stays set so a
+            // later cleanupCandidate() cannot double-remove. The candidate is
+            // a separate file from the resident input (D02/G-A keeps the INPUT
+            // open, never the candidate), so this remove always succeeds.
+            QFile::remove(signingCandidate);
         }
         return d->lastOutcome;
     } catch (const PdfError &e) {
@@ -1904,6 +1921,7 @@ bool SignatureManager::addDocTimeStamp(const QString &inputPath, const QString &
             QFile::remove(candidate);
             return false;
         }
+        QFile::remove(candidate);   // committed bytes were copied; drop the candidate
         return true;
     }
     return d->addDocTimestamp(outputPath);
