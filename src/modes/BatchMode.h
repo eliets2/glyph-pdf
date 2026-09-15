@@ -2,6 +2,7 @@
 #pragma once
 #include "core/ErrorInfo.h"
 #include "core/AppContext.h"
+#include "core/BatchPreset.h" // R26 (batch-presets P1): named preset model + JSON store
 #include "core/OcrTypes.h" // ocrLanguages()/ocrEngineLanguageCode (§9.12 batch OCR language)
 #include "engines/ocr/OcrPipeline.h" // PageOcrResult (§9.12 low-confidence seam)
                                      // Safe here: BatchMode.h already requires
@@ -141,6 +142,47 @@ public:
     // call from the GUI thread (tests, or onRunClicked's capture phase).
     QStringList checkedRedactPresetKeys() const;
 
+    // ── R26 (batch-presets P1): named preset surface ─────────────────────────
+    // Presets are DATA (docs/research/batch-presets-implementation-plan.md
+    // §5.1): a preset changes WHAT runs, never HOW results are accounted —
+    // a preset run flows through the same per-file worker, SafeSave
+    // transactional commit and G12 exactly-once accounting as every other op.
+    //
+    // The store root is redirected for tests (settings isolation); production
+    // uses <AppDataLocation>/presets (BatchPresetStore::defaultRootDir).
+    static void setPresetStoreDirForTest(const QString& dir);
+
+    // Capture the CURRENTLY configured classic operation (Compress/Watermark/
+    // Export-PDF/A/Redact) as a one-step named preset. Convert/Merge/OCR
+    // configurations are refused with an honest explanation (those engines
+    // are not preset steps in this build). GUI thread only.
+    bool saveConfiguredOpAsPresetForTest(const QString& name, QString* err = nullptr);
+
+    // Load + display the preset with `id` (the same path the picker's
+    // currentIndexChanged takes). False when the id is unknown.
+    bool selectPresetForTest(const QString& id);
+
+    // The step/capability disclosure text shown for the selected preset:
+    // one line per step (op + key params) plus, per registry-gated step,
+    // the CapabilityRegistry's whyNot + alternative. Empty when no preset
+    // is selected.
+    QString presetStepsDisplayForTest() const;
+
+    QStringList presetIdsForTest() const;
+
+    // Rename edits the DISPLAY NAME only; the id (and file) stay stable.
+    bool renamePresetForTest(const QString& id, const QString& newName, QString* err = nullptr);
+    // Delete WITHOUT the interactive confirm (the button path asks; this seam
+    // is the post-confirm action so tests never drive a native modal).
+    bool deletePresetForTest(const QString& id, QString* err = nullptr);
+
+    // Re-read the preset store into the picker (tests root preset files into
+    // the store externally; production refreshes on save/rename/delete).
+    void refreshPresetsForTest() { refreshPresetPicker(); }
+    // The GUI-thread run gate for the currently selected preset (empty =
+    // runnable) — the same answer onRunClicked stages per file.
+    QString presetRunBlockerForTest() const { return presetRunBlocker(); }
+
 signals:
     // Emitted from onBatchFinished so tests can spy on completion.
     void batchFinished();
@@ -168,6 +210,11 @@ private slots:
     void onOperationChanged(int index);
     void onToggleHotFolder();
     void onHotFolderChanged(const QString& path);
+    // R26 (batch-presets P1)
+    void onPresetSelected(int index);
+    void onSaveAsPresetClicked();
+    void onRenamePresetClicked();
+    void onDeletePresetClicked();
 
 private:
     void buildFilePanel(QWidget* host);
@@ -177,6 +224,22 @@ private:
     void syncFileList();
     QString resolveOutputPath(const QString& inputPath) const;
     bool confirmOverwrite(const QString& path);
+
+    // R26 (batch-presets P1): the preset config panel (picker + step/capability
+    // disclosure + Save as/Rename/Delete) and its store plumbing.
+    void buildPresetPanel(QWidget* host);
+    void refreshPresetPicker(const QString& selectId = {});
+    // The store over the test-re-pointable root (rebuilt per call on purpose:
+    // tests may re-point the root between construction and use).
+    static BatchPresetStore presetStore();
+    bool captureConfiguredOpAsPreset(const QString& name, QString* err);
+    // GUI-thread run gate for the selected preset: non-empty whyNot when the
+    // preset is unselected, has no steps, requires a newer app, or carries a
+    // step whose capability is currently unavailable (registry-queried).
+    QString presetRunBlocker() const;
+    // The step/capability disclosure text (shared by the panel and the test seam).
+    static QString presetStepsDisplayText(const BatchPreset& preset,
+                                          const gp::CapabilityRegistry* capabilities);
 
     void appendLog(const QString& text, const QString& color = {});
     void appendFileResult(const QString& file, bool success, const QString& detail = {});
@@ -230,6 +293,15 @@ private:
     QList<class QCheckBox*> m_redactPresets;             // §9.12 P1: named PII quick picks
     QLineEdit*          m_redactOutDir   = nullptr;
 
+    // R26 (batch-presets P1): Preset Pipeline panel
+    QComboBox*          m_presetCombo      = nullptr;
+    QLabel*             m_presetStepsLabel = nullptr;
+    QLabel*             m_presetBrokenLabel = nullptr;
+    QLineEdit*          m_presetOutDir     = nullptr;
+    BatchPreset         m_selectedPreset;              // valid only when m_presetSelected
+    bool                m_presetSelected    = false;
+    static QString      s_presetStoreDirForTest;       // settings-isolation seam
+
     // Progress
     QProgressBar*       m_overallProgress = nullptr;
     QProgressBar*       m_fileProgress    = nullptr;
@@ -270,6 +342,12 @@ private:
         OpMerge     = 4,
         OpOCR       = 5,
         OpRedact    = 6,
+        // R26 (batch-presets P1): appended AFTER Redact — the append-only rule
+        // keeps every existing OpIndex (and every test that drives
+        // setOperationForTest by index) stable. The plan (§4.1) places the
+        // preset entry FIRST in the combo; that would renumber every existing
+        // op, so the additive position wins (recorded deviation).
+        OpPresetPipeline = 7,
     };
 
     // Special-case handler for Merge (single combined output, not per-file mapped).

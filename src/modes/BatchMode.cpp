@@ -7,6 +7,8 @@
 #include "core/interfaces/IConversionEngine.h"
 #include "core/interfaces/IOcrEngine.h"
 #include "engines/PdfEditorEngine.h"
+#include "engines/SafeSave.h"          // R26: the preset candidate chain commits through SafeSave
+#include "engines/VeraPdfValidator.h"  // R26: pdfa-check step (the registry's PdfAValidation probe)
 #include "engines/ocr/OcrPipeline.h"
 #include "engines/podofo/PdfPageOps.h"
 #include "engines/pdfium/PdfiumBackend.h" // N3: per-page has-text probe (PDFium text extraction)
@@ -24,6 +26,8 @@ using TargetFormat = IConversionEngine::TargetFormat;
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QFileDialog>
@@ -33,6 +37,7 @@ using TargetFormat = IConversionEngine::TargetFormat;
 #include <QLineEdit>
 #include <QListView>
 #include <QMap>
+#include <QHash>
 #include <QMessageBox>
 #include <QMimeData>
 #include <QPushButton>
@@ -57,6 +62,13 @@ using TargetFormat = IConversionEngine::TargetFormat;
 #include <QtConcurrent/QtConcurrent>
 
 namespace gp {
+
+// R26: the preset schema validates targetDpi against ITS OWN copy of the
+// engine's clamp range (core must not depend on modes). If the engine range
+// ever changes, this pin breaks the build instead of letting the two drift.
+static_assert(BatchMode::kMinTargetDpi == 36 && BatchMode::kMaxTargetDpi == 600,
+              "BatchPreset schema targetDpi range (36-600) must match "
+              "BatchMode's engine clamp constants");
 
 // ── Constructor ───────────────────────────────────────────────────────────────
 
@@ -215,6 +227,7 @@ void BatchMode::buildOperationPanel(QWidget* host) {
     m_opCombo->addItem(tr("Merge PDFs"));            // OpMerge = 4
     m_opCombo->addItem(tr("OCR (searchable PDF)"));  // OpOCR = 5
     m_opCombo->addItem(tr("Redact (Search Pattern)")); // OpRedact = 6
+    m_opCombo->addItem(tr("Preset Pipeline"));         // OpPresetPipeline = 7 (R26: append-only)
     opRow->addWidget(m_opCombo);
     vlay->addLayout(opRow);
 
@@ -555,6 +568,11 @@ void BatchMode::buildOperationPanel(QWidget* host) {
     }
     m_cfgStack->addWidget(pRedact);  // index 6
 
+    // ── Panel 7: Preset Pipeline (R26, batch-presets P1) ──────────────────
+    auto* pPreset = new QFrame;
+    buildPresetPanel(pPreset);
+    m_cfgStack->addWidget(pPreset);  // index 7
+
     vlay->addWidget(m_cfgStack, 1);
 
     connect(m_opCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -655,6 +673,14 @@ void BatchMode::setAppContext(const AppContext* ctx) {
             }
         }
     }
+
+    // R26 (batch-presets): the preset panel is built before the context (and
+    // its capability registry) arrives — re-render the selected preset's
+    // step/capability disclosure with the real registry answers.
+    if (m_presetSelected && m_presetStepsLabel)
+        m_presetStepsLabel->setText(
+            presetStepsDisplayText(m_selectedPreset,
+                                   m_ctx ? m_ctx->capabilities.get() : nullptr));
 }
 
 // ── Drag-drop (D1) ────────────────────────────────────────────────────────────
@@ -922,6 +948,22 @@ QString BatchMode::resolveOutputPath(const QString& inputPath) const {
         outDir = pickOutDir(m_redactOutDir);
         if (outDir.isEmpty()) outDir = QFileInfo(inputPath).absolutePath();
         return QDir(outDir).filePath(outName + "_redacted.pdf");
+    case OpPresetPipeline: {
+        // R26: the naming template is resolved exactly as the worker resolves
+        // it (same pure function, same file index from the list order), so
+        // the overwrite pre-check and the actual commit always agree.
+        if (!m_presetSelected) return {};
+        outDir = pickOutDir(m_presetOutDir);
+        if (outDir.isEmpty()) outDir = QFileInfo(inputPath).absolutePath();
+        const int n = m_filesToProcess.indexOf(inputPath) + 1;
+        QString name;
+        QString namingErr;
+        if (!BatchPresetSchema::resolveNaming(m_selectedPreset.outputNaming, outName,
+                                              m_selectedPreset.id, n,
+                                              QDate::currentDate(), &name, &namingErr))
+            return {};
+        return QDir(outDir).filePath(name);
+    }
     default:
         return {};
     }
@@ -935,6 +977,196 @@ bool BatchMode::confirmOverwrite(const QString& path) {
         QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
     return btn == QMessageBox::Yes;
 }
+
+// ── R26 (batch-presets P1): the per-file preset candidate chain ───────────────
+// plan §3.1: per input file, steps run as a CANDIDATE CHAIN — each mutating
+// step writes a unique SafeSave temp candidate, the candidate is validated
+// (reopens as a PDF; page count equals the input's — every P1 preset op is
+// page-count invariant), and the final candidate is committed ONCE through
+// SafeSave::commitFileToDestination. A failed step aborts that file's chain,
+// every intermediate is removed on every outcome, and the original is left
+// byte-identical on failure. A preset changes WHAT runs — never HOW results
+// are accounted: results flow through the same mapped pipeline + G12 ledger.
+
+namespace {
+
+// Schema level strings → the engine's conformance codes — the SAME codes the
+// Export PDF/A combo feeds exportPdfA (1=1B, 2=2B, 4=2U, 3=3B, 5=3U;
+// PoDoFoBackend::exportPdfA's switch).
+int pdfaLevelCode(const QString& level) {
+    if (level == QLatin1String("1b")) return 1;
+    if (level == QLatin1String("2b")) return 2;
+    if (level == QLatin1String("2u")) return 4;
+    if (level == QLatin1String("3b")) return 3;
+    if (level == QLatin1String("3u")) return 5;
+    return 2;
+}
+
+PdfAConformance pdfaConformance(const QString& level) {
+    if (level == QLatin1String("1b")) return PdfAConformance::PDF_A_1B;
+    if (level == QLatin1String("2u")) return PdfAConformance::PDF_A_2U;
+    if (level == QLatin1String("3b")) return PdfAConformance::PDF_A_3B;
+    if (level == QLatin1String("3u")) return PdfAConformance::PDF_A_3U;
+    return PdfAConformance::PDF_A_2B;
+}
+
+// One MUTATING preset step against a freshly loaded editor, writing `dest`.
+// The engine seams are exactly the single-op batch worker's set plus the
+// strip-metadata sanitize pass — no new engine surface.
+bool runPresetMutatingStep(PdfEditorEngine& editor, const BatchPresetStep& step,
+                           const QString& dest, QString* techDetail) {
+    bool ok = false;
+    if (step.op == QLatin1String("compress")) {
+        OptimizeOptions opts;
+        opts.jpegQuality = step.params.value(QStringLiteral("quality"), 75).toInt();
+        opts.targetDpi   = BatchMode::resolveCompressTargetDpi(
+            step.params.value(QStringLiteral("targetDpi"), 150).toInt());
+        ok = editor.optimizeDocument(dest, opts);
+    } else if (step.op == QLatin1String("watermark")) {
+        TextWatermarkOptions opts;
+        opts.text    = step.params.value(QStringLiteral("text"), QStringLiteral("CONFIDENTIAL")).toString();
+        opts.opacity = step.params.value(QStringLiteral("opacity"), 30).toInt() / 100.0;
+        ok = editor.addTextWatermark(opts);
+        if (ok) ok = editor.saveDocument(dest);
+    } else if (step.op == QLatin1String("pdfa-export")) {
+        ok = editor.exportPdfA(dest, pdfaLevelCode(
+            step.params.value(QStringLiteral("level"), QStringLiteral("2b")).toString()));
+    } else if (step.op == QLatin1String("strip-metadata")) {
+        // Resident mutation FIRST (metadata), then ONE terminal write — the
+        // sanitize pass writes the already-cleared document.
+        const bool clearInfoDict = step.params.value(QStringLiteral("clearInfoDict"), true).toBool();
+        const bool sanitize      = step.params.value(QStringLiteral("sanitize"), true).toBool();
+        ok = true;
+        if (clearInfoDict)
+            ok = editor.setMetadata(PdfMetadata{});
+        if (ok)
+            ok = sanitize ? editor.sanitizeDocument(dest) : editor.saveDocument(dest);
+    } else if (step.op == QLatin1String("redact")) {
+        const QStringList patterns = BatchMode::effectiveRedactPatterns(
+            step.params.value(QStringLiteral("presets")).toStringList(),
+            step.params.value(QStringLiteral("patterns")).toStringList());
+        ok = editor.applyPatternRedactionsMulti(patterns, QList<int>(), dest);
+    }
+    if (!ok)
+        *techDetail = editor.lastError().technicalDetails;
+    return ok;
+}
+
+// pdfa-check: a NON-mutating step — validates the candidate in flight and
+// never touches the destination (plan §3.1 step 4). A failed check fails the
+// file honestly: a "web-optimize" that cannot pass its declared PDF/A level
+// reports the failure instead of shipping an unverified file. When no
+// capability registry was available to gate the step, the validator's own
+// unavailable-report still fails the file — never a silent skip.
+bool runPresetCheckStep(const QString& current, const BatchPresetStep& step,
+                        QString* techDetail) {
+    const QString level =
+        step.params.value(QStringLiteral("level"), QStringLiteral("2b")).toString();
+    const auto report = VeraPdfValidator::validate(current, pdfaConformance(level));
+    if (!report.validatorAvailable) {
+        *techDetail = QStringLiteral("PDF/A-%1 check could not run — %2")
+                          .arg(level, report.errorMessage.isEmpty()
+                                          ? QStringLiteral("the veraPDF validator is not available")
+                                          : report.errorMessage);
+        return false;
+    }
+    if (!report.isValid) {
+        QStringList clauses;
+        for (const auto& v : report.violations) {
+            clauses << v.ruleId;
+            if (clauses.size() >= 5) break;
+        }
+        *techDetail = QStringLiteral("PDF/A-%1 check failed — %2 rule violation(s)%3")
+                          .arg(level).arg(report.violations.size())
+                          .arg(clauses.isEmpty()
+                                   ? QString()
+                                   : QStringLiteral(": %1").arg(clauses.join(QStringLiteral(", "))));
+        return false;
+    }
+    return true;
+}
+
+bool runPresetChain(const QString& inputPath, const QString& outputPath,
+                    const BatchPreset& preset, QMutex* engineMutex, QString* techDetail) {
+    // PDFium (QPdfDocument) is not thread-safe: the read-side probes of the
+    // chain are serialized behind the SAME engine mutex the batch OCR path
+    // uses for its PDFium probes (PoDoFo writer steps stay parallel).
+    QMutexLocker pdfiumLock(engineMutex);
+    QPdfDocument baseline;
+    baseline.load(inputPath);
+    if (baseline.status() != QPdfDocument::Status::Ready || baseline.pageCount() <= 0) {
+        *techDetail = QStringLiteral("Failed to open PDF: %1").arg(inputPath);
+        return false;
+    }
+    const int expectedPages = baseline.pageCount();
+    pdfiumLock.unlock();
+
+    QString current = inputPath;
+    QStringList intermediates;
+    bool ok = true;
+    for (int i = 0; i < preset.steps.size() && ok; ++i) {
+        const BatchPresetStep& step = preset.steps.at(i);
+
+        // A check step validates the candidate in flight — no candidate of
+        // its own.
+        if (step.op == QLatin1String("pdfa-check")) {
+            ok = runPresetCheckStep(current, step, techDetail);
+            continue;
+        }
+
+        QString candidate;
+        QString candidateErr;
+        if (!SafeSave::makeUniqueCandidate(&candidate, &candidateErr)) {
+            *techDetail = candidateErr;
+            ok = false;
+            break;
+        }
+        intermediates.append(candidate);
+        {
+            // Fresh per-file engine per step — the same TRUE-parallel pattern
+            // the single-op editor workers use (self-contained load/save).
+            PdfEditorEngine editor;
+            if (!editor.loadDocumentForEditing(current)) {
+                *techDetail = editor.lastError().technicalDetails;
+                ok = false;
+            } else {
+                ok = runPresetMutatingStep(editor, step, candidate, techDetail);
+            }
+        }
+        if (ok) {
+            // Validate the candidate: it must open as a PDF and preserve the
+            // page count. A step that breaks the document never becomes the
+            // new chain link.
+            QMutexLocker lock(engineMutex);
+            QPdfDocument probe;
+            probe.load(candidate);
+            if (probe.status() != QPdfDocument::Status::Ready
+                || probe.pageCount() != expectedPages) {
+                *techDetail = QStringLiteral("step %1 (%2) produced an invalid candidate — "
+                                             "the file is left unchanged")
+                                  .arg(i + 1).arg(step.op);
+                ok = false;
+            }
+        }
+        if (ok)
+            current = candidate;
+    }
+
+    if (ok) {
+        QString commitErr;
+        ok = SafeSave::commitFileToDestination(current, outputPath, &commitErr);
+        if (!ok && techDetail->isEmpty())
+            *techDetail = commitErr;
+    }
+
+    // Intermediates are removed on EVERY outcome (the committed candidate
+    // included — commitFileToDestination copied it to the destination).
+    for (const QString& path : intermediates)
+        QFile::remove(path);
+    return ok;
+}
+
+} // namespace
 
 // ── Execution engine (D3) ─────────────────────────────────────────────────────
 
@@ -990,31 +1222,58 @@ void BatchMode::onRunClicked() {
         return;
     }
 
+    // R26 (batch-presets): a preset run needs a SELECTED preset. A preset
+    // changes WHAT runs, not HOW results are accounted — the run below flows
+    // through the same per-file mapped pipeline, SafeSave commit and G12
+    // exactly-once accounting as every other op.
+    QString presetBlocker;
+    if (opIdx == OpPresetPipeline) {
+        if (!m_presetSelected) {
+            QMessageBox::information(this, tr("No Preset Selected"),
+                tr("Select a preset to run, or configure an operation and "
+                   "choose \u201cSave as preset\u2026\u201d to create one."));
+            return;
+        }
+        // Run gate: steps present, minAppVersion satisfied, and every step's
+        // capability re-queried NOW (GUI thread, cached probes). An
+        // unavailable step blocks the run with the registry's whyNot +
+        // alternative — disclosed per file below, never silently skipped,
+        // never faked.
+        presetBlocker = presetRunBlocker();
+    }
+
     // AR-8 D4: Pre-check output paths for overwrite conflicts.
     // For single-file runs, show a per-file dialog.
     // For multi-file runs, collect all conflicting paths and show one summary
     // dialog rather than flooding the user with N dialogs.
-    if (m_filesToProcess.size() == 1) {
-        QString out = resolveOutputPath(m_filesToProcess.first());
-        if (!out.isEmpty() && !confirmOverwrite(out)) return;
-    } else if (m_filesToProcess.size() > 1) {
-        QStringList willOverwrite;
-        for (const QString& src : m_filesToProcess) {
-            QString out = resolveOutputPath(src);
-            if (!out.isEmpty() && QFileInfo::exists(out))
-                willOverwrite << QFileInfo(out).fileName();
-        }
-        if (!willOverwrite.isEmpty()) {
-            const auto btn = QMessageBox::warning(
-                this,
-                tr("Overwrite Existing Files?"),
-                tr("%1 output file(s) already exist and will be overwritten:\n\n%2\n\n"
-                   "This operation cannot be undone. Continue?")
-                    .arg(willOverwrite.size())
-                    .arg(willOverwrite.join(QStringLiteral("\n"))),
-                QMessageBox::Yes | QMessageBox::Cancel,
-                QMessageBox::Cancel);
-            if (btn != QMessageBox::Yes) return;
+    // R26: a preset carrying onConflict "overwrite" has already answered the
+    // conflict question in its file — the interactive confirm is skipped.
+    const bool presetOverwriteConfirmed =
+        (opIdx == OpPresetPipeline && m_presetSelected
+         && m_selectedPreset.onConflict == QLatin1String("overwrite"));
+    if (!presetOverwriteConfirmed) {
+        if (m_filesToProcess.size() == 1) {
+            QString out = resolveOutputPath(m_filesToProcess.first());
+            if (!out.isEmpty() && !confirmOverwrite(out)) return;
+        } else if (m_filesToProcess.size() > 1) {
+            QStringList willOverwrite;
+            for (const QString& src : m_filesToProcess) {
+                QString out = resolveOutputPath(src);
+                if (!out.isEmpty() && QFileInfo::exists(out))
+                    willOverwrite << QFileInfo(out).fileName();
+            }
+            if (!willOverwrite.isEmpty()) {
+                const auto btn = QMessageBox::warning(
+                    this,
+                    tr("Overwrite Existing Files?"),
+                    tr("%1 output file(s) already exist and will be overwritten:\n\n%2\n\n"
+                       "This operation cannot be undone. Continue?")
+                        .arg(willOverwrite.size())
+                        .arg(willOverwrite.join(QStringLiteral("\n"))),
+                    QMessageBox::Yes | QMessageBox::Cancel,
+                    QMessageBox::Cancel);
+                if (btn != QMessageBox::Yes) return;
+            }
         }
     }
 
@@ -1121,6 +1380,14 @@ void BatchMode::onRunClicked() {
                                                                      Qt::SkipEmptyParts)
                                     : QStringList());
 
+    const BatchPreset capturedPreset = m_selectedPreset;
+    const QString capturedPresetBlocker = presetBlocker;
+    QMap<QString, QString> capturedOutputs;
+    if (opIdx == OpPresetPipeline) {
+        for (const QString& f : capturedFiles)
+            capturedOutputs.insert(f, resolveOutputPath(f));
+    }
+
     // Worker lambda — runs on QtConcurrent thread pool.
     // All captured values are by-value copies of GUI state taken above on the GUI thread.
     // 'this' is not captured to avoid dangling if BatchMode is destroyed mid-batch.
@@ -1154,6 +1421,11 @@ void BatchMode::onRunClicked() {
             result.outputPath = QDir(outDir).filePath(baseName + ext);
             break;
         }
+        case OpPresetPipeline:
+            // R26: resolved on the GUI thread from the SAME naming resolution
+            // the overwrite pre-check used — the worker never recomputes it.
+            result.outputPath = capturedOutputs.value(inputPath);
+            break;
         case OpCompress:
             result.outputPath = QDir(resolveDir(capturedCompressOutDir)).filePath(baseName + "_compressed.pdf");
             break;
@@ -1177,7 +1449,19 @@ void BatchMode::onRunClicked() {
         bool ok = false;
         QString techDetail;
 
-        if (capturedOp == OpConvert) {
+        if (capturedOp == OpPresetPipeline) {
+            // R26: the transactional per-file candidate chain (SafeSave
+            // candidate per step, validated, ONE atomic commit). Failures are
+            // file-scoped and honest — the original is untouched, every
+            // intermediate removed.
+            if (result.outputPath.isEmpty()) {
+                techDetail = QStringLiteral("no output path was resolved for this file");
+                ok = false;
+            } else {
+                ok = runPresetChain(inputPath, result.outputPath, capturedPreset,
+                                    engineMutexPtr, &techDetail);
+            }
+        } else if (capturedOp == OpConvert) {
             // convertTo is specified as stateless (takes full pdfPath arg) — no mutex needed
             if (capturedCtx && capturedCtx->conversion) {
                 ok = capturedCtx->conversion->convertTo(inputPath, result.outputPath, capturedFmt);
@@ -1519,7 +1803,14 @@ void BatchMode::onRunClicked() {
     QStringList runnableFiles;
     const gp::CapabilityRegistry* caps = m_ctx ? m_ctx->capabilities.get() : nullptr;
     for (const QString& f : capturedFiles) {
-        const QString blocker = preFlightBlocker(capturedOp, f, caps);
+        QString blocker = preFlightBlocker(capturedOp, f, caps);
+        // R26 (batch-presets): a preset-level blocker (a step whose capability
+        // is unavailable, a newer required app version, an empty step list)
+        // applies to EVERY file — each is staged as failed with the registry's
+        // whyNot + alternative so the summary stays truthful. Never a silent
+        // skip, never a fake success.
+        if (blocker.isEmpty())
+            blocker = capturedPresetBlocker;
         if (blocker.isEmpty()) {
             runnableFiles << f;
             continue;
@@ -1868,6 +2159,417 @@ QStringList BatchMode::checkedRedactPresetKeys() const {
         if (chk && chk->isChecked())
             keys << chk->property("presetKey").toString();
     return keys;
+}
+
+// ── R26 (batch-presets P1): named preset surface ──────────────────────────────
+// Presets are data (plan §5.1): the picker lists saved presets with their ops,
+// "Save as preset…" captures the currently configured classic operation, and
+// the step/capability disclosure shows every step with the CapabilityRegistry's
+// answer BEFORE anything runs. The store is file-per-preset JSON under
+// <AppDataLocation>/presets (plan §2.1) — QSettings is never the source of
+// truth; the test seam re-points the root for settings isolation.
+
+QString BatchMode::s_presetStoreDirForTest;
+
+BatchPresetStore BatchMode::presetStore() {
+    // Re-built per call (never a static local): a test may re-point the store
+    // directory between BatchMode construction and use.
+    return BatchPresetStore(s_presetStoreDirForTest);
+}
+
+void BatchMode::setPresetStoreDirForTest(const QString& dir) {
+    s_presetStoreDirForTest = dir;
+}
+
+void BatchMode::buildPresetPanel(QWidget* host) {
+    auto* lay = new QVBoxLayout(host);
+
+    // Broken-file disclosure: a preset file this build refuses to load is
+    // never silently hidden from the user (store honesty surface).
+    m_presetBrokenLabel = new QLabel;
+    m_presetBrokenLabel->setWordWrap(true);
+    m_presetBrokenLabel->setStyleSheet("color:#c8442b; font-size:10px;");
+    m_presetBrokenLabel->hide();
+
+    m_presetCombo = new QComboBox;
+    m_presetCombo->setObjectName(QStringLiteral("batchPresetPicker"));
+
+    m_presetStepsLabel = new QLabel(tr("No preset selected."));
+    m_presetStepsLabel->setObjectName(QStringLiteral("batchPresetStepsLabel"));
+    m_presetStepsLabel->setWordWrap(true);
+    m_presetStepsLabel->setAlignment(Qt::AlignTop | Qt::AlignLeft);
+    m_presetStepsLabel->setStyleSheet("color:#71747a; font-size:10px;");
+
+    auto* btnRow = new QHBoxLayout;
+    auto* saveBtn = new QPushButton(tr("Save as preset…"));
+    saveBtn->setObjectName(QStringLiteral("batchPresetSaveBtn"));
+    saveBtn->setToolTip(tr("Save the currently configured operation as a reusable preset.\n"
+                           "Convert, Merge and OCR runs cannot be saved as presets in this "
+                           "version."));
+    auto* renameBtn = new QPushButton(tr("Rename…"));
+    renameBtn->setObjectName(QStringLiteral("batchPresetRenameBtn"));
+    auto* deleteBtn = new QPushButton(tr("Delete"));
+    deleteBtn->setObjectName(QStringLiteral("batchPresetDeleteBtn"));
+    btnRow->addWidget(saveBtn);
+    btnRow->addWidget(renameBtn);
+    btnRow->addWidget(deleteBtn);
+    btnRow->addStretch(1);
+
+    lay->addWidget(m_presetBrokenLabel);
+    lay->addWidget(new QLabel(tr("Preset:")));
+    lay->addWidget(m_presetCombo);
+    lay->addWidget(m_presetStepsLabel, 1);
+    lay->addLayout(btnRow);
+
+    lay->addWidget(new QLabel(tr("Output Folder:")));
+    auto* dirRow = new QHBoxLayout;
+    m_presetOutDir = new QLineEdit;
+    m_presetOutDir->setObjectName(QStringLiteral("batchPresetOutDir"));
+    m_presetOutDir->setPlaceholderText(tr("Same folder as source"));
+    auto* pickBtn = new QPushButton(tr("…"));
+    pickBtn->setFixedWidth(28);
+    dirRow->addWidget(m_presetOutDir);
+    dirRow->addWidget(pickBtn);
+    lay->addLayout(dirRow);
+    connect(pickBtn, &QPushButton::clicked, this, [this]() {
+        QString dir = QFileDialog::getExistingDirectory(this, tr("Select Output Folder"));
+        if (!dir.isEmpty()) m_presetOutDir->setText(dir);
+    });
+    lay->addStretch(1);
+
+    connect(m_presetCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &BatchMode::onPresetSelected);
+    connect(saveBtn,   &QPushButton::clicked, this, &BatchMode::onSaveAsPresetClicked);
+    connect(renameBtn, &QPushButton::clicked, this, &BatchMode::onRenamePresetClicked);
+    connect(deleteBtn, &QPushButton::clicked, this, &BatchMode::onDeletePresetClicked);
+
+    refreshPresetPicker();
+}
+
+void BatchMode::refreshPresetPicker(const QString& selectId) {
+    if (!m_presetCombo)
+        return;
+    QSignalBlocker block(m_presetCombo);
+    m_presetCombo->clear();
+
+    const auto store = presetStore();
+    const auto presets = store.list();
+    for (const BatchPreset& p : presets) {
+        // The picker lists each preset WITH the ops it contains (the honest
+        // "what will this run?" summary at a glance).
+        QStringList ops;
+        for (const BatchPresetStep& s : p.steps)
+            ops << s.op;
+        m_presetCombo->addItem(
+            QStringLiteral("%1 (%2)").arg(p.name, ops.join(QStringLiteral(", "))), p.id);
+    }
+    if (presets.isEmpty()) {
+        // Honest empty state: say HOW a preset is created instead of showing
+        // a dead picker.
+        m_presetCombo->addItem(
+            tr("(no presets saved yet \u2014 configure an operation and choose "
+               "\u201cSave as preset\u2026\u201d)"), QString());
+    }
+
+    const auto broken = store.brokenFiles();
+    if (broken.isEmpty()) {
+        m_presetBrokenLabel->clear();
+        m_presetBrokenLabel->hide();
+    } else {
+        m_presetBrokenLabel->setText(
+            tr("%1 unreadable preset file(s) in the preset store will not run \u2014 delete or "
+               "fix them. First: %2")
+                .arg(broken.size())
+                .arg(QFileInfo(broken.first().path).fileName()
+                     + QStringLiteral(" \u2014 ") + broken.first().error));
+        m_presetBrokenLabel->show();
+    }
+
+    int sel = selectId.isEmpty() ? -1 : m_presetCombo->findData(selectId);
+    if (sel < 0)
+        sel = 0;   // placeholder (empty store) or first preset
+    m_presetCombo->setCurrentIndex(sel);
+    block.unblock();
+    onPresetSelected(m_presetCombo->currentIndex());
+}
+
+void BatchMode::onPresetSelected(int index) {
+    m_presetSelected = false;
+    m_selectedPreset = BatchPreset{};
+    if (!m_presetCombo || !m_presetStepsLabel)
+        return;
+    const QString id = m_presetCombo->itemData(index).toString();
+    if (id.isEmpty()) {
+        m_presetStepsLabel->setText(tr("No preset selected."));
+        return;
+    }
+    BatchPreset p;
+    QString err;
+    if (!presetStore().get(id, &p, &err)) {
+        // The store changed underneath the picker (external delete/corrupt):
+        // disclose, never pretend the preset is runnable.
+        m_presetStepsLabel->setText(tr("Preset could not be loaded: %1").arg(err));
+        return;
+    }
+    m_selectedPreset = p;
+    m_presetSelected = true;
+    m_presetStepsLabel->setText(
+        presetStepsDisplayText(p, m_ctx ? m_ctx->capabilities.get() : nullptr));
+}
+
+QString BatchMode::presetStepsDisplayText(const BatchPreset& preset,
+                                          const gp::CapabilityRegistry* capabilities) {
+    QStringList lines;
+    lines << QObject::tr("Steps (%1):").arg(preset.steps.size());
+    for (int i = 0; i < preset.steps.size(); ++i) {
+        const BatchPresetStep& step = preset.steps.at(i);
+        QString line = QStringLiteral("  %1. %2").arg(i + 1).arg(step.op);
+        if (!step.label.isEmpty())
+            line += QStringLiteral(" \u2014 %1").arg(step.label);
+        lines << line;
+    }
+    // Design-time capability disclosure (plan §5.2): every non-Available step
+    // shows the registry's whyNot + alternative. A disclosed-unavailable step
+    // will refuse to run — the display says so before the user tries.
+    for (int i = 0; i < preset.steps.size(); ++i) {
+        const BatchPresetStep& step = preset.steps.at(i);
+        const Capability c = batchPresetStepCapability(step, capabilities);
+        if (c.status != Availability::Available)
+            lines << QStringLiteral("  \u26A0 %1: %2")
+                         .arg(step.op, CapabilityRegistry::combineWhyNot(c));
+    }
+    return lines.join(QLatin1Char('\n'));
+}
+
+QString BatchMode::presetRunBlocker() const {
+    if (!m_presetSelected)
+        return tr("Select a preset to run first.");
+    if (m_selectedPreset.steps.isEmpty())
+        return tr("Preset \u201c%1\u201d has no steps \u2014 nothing to run.")
+                   .arg(m_selectedPreset.name);
+    const gp::CapabilityRegistry* caps = m_ctx ? m_ctx->capabilities.get() : nullptr;
+    for (const BatchPresetStep& step : m_selectedPreset.steps) {
+        const Capability c = batchPresetStepCapability(step, caps);
+        if (c.status == Availability::UnavailableRuntime
+            || c.status == Availability::UnavailableBuild)
+            return tr("Step \u201c%1\u201d cannot run: %2")
+                       .arg(step.op, CapabilityRegistry::combineWhyNot(c));
+    }
+    if (!m_selectedPreset.minAppVersion.isEmpty()) {
+        const QString appVersion = QCoreApplication::applicationVersion();
+        if (!appVersion.isEmpty()
+            && BatchPresetSchema::compareVersions(appVersion,
+                                                  m_selectedPreset.minAppVersion) < 0)
+            return tr("This preset requires GlyphPDF %1 or newer (this app reports %2).")
+                       .arg(m_selectedPreset.minAppVersion, appVersion);
+    }
+    return {};
+}
+
+bool BatchMode::captureConfiguredOpAsPreset(const QString& name, QString* err) {
+    const auto failWith = [err](const QString& message) {
+        if (err) *err = message;
+        return false;
+    };
+    const QString trimmed = name.trimmed();
+    if (trimmed.isEmpty())
+        return failWith(tr("Enter a name for the preset."));
+
+    const int opIdx = m_opCombo ? m_opCombo->currentIndex() : 0;
+
+    BatchPreset p;
+    p.name = trimmed;
+    p.created = p.modified = QDateTime::currentDateTimeUtc();
+    if (!QCoreApplication::applicationVersion().isEmpty())
+        p.authorApp = QStringLiteral("GlyphPDF %1")
+                          .arg(QCoreApplication::applicationVersion());
+
+    BatchPresetStep step;
+    switch (opIdx) {
+    case OpCompress: {
+        step.op = QStringLiteral("compress");
+        step.params.insert(QStringLiteral("quality"),
+                           m_qualitySlider ? m_qualitySlider->value() : 75);
+        step.params.insert(QStringLiteral("targetDpi"),
+                           m_dpiSpin ? m_dpiSpin->value() : kDefaultTargetDpi);
+        break;
+    }
+    case OpWatermark: {
+        step.op = QStringLiteral("watermark");
+        const QString text = m_wmTextEdit ? m_wmTextEdit->text().trimmed() : QString();
+        step.params.insert(QStringLiteral("text"),
+                           text.isEmpty() ? QStringLiteral("CONFIDENTIAL") : text);
+        step.params.insert(QStringLiteral("opacity"),
+                           m_wmOpacity ? m_wmOpacity->value() : 30);
+        break;
+    }
+    case OpExportPdfA: {
+        step.op = QStringLiteral("pdfa-export");
+        // The combo's data codes are the engine's conformance codes
+        // (1=1B, 2=2B, 4=2U, 3=3B, 5=3U) — mapped back to the schema strings.
+        static const QHash<int, QString> levelNames = {
+            { 1, QStringLiteral("1b") }, { 2, QStringLiteral("2b") },
+            { 4, QStringLiteral("2u") }, { 3, QStringLiteral("3b") },
+            { 5, QStringLiteral("3u") } };
+        const int code = m_pdfaLevel ? m_pdfaLevel->currentData().toInt() : 2;
+        step.params.insert(QStringLiteral("level"),
+                           levelNames.value(code, QStringLiteral("2b")));
+        break;
+    }
+    case OpRedact: {
+        step.op = QStringLiteral("redact");
+        const QStringList presets = checkedRedactPresetKeys();
+        const QStringList freeForm = m_redactPatterns
+            ? m_redactPatterns->text().split(QLatin1Char(','), Qt::SkipEmptyParts)
+            : QStringList();
+        if (effectiveRedactPatterns(presets, freeForm).isEmpty())
+            return failWith(tr("This redaction configuration has no effective patterns \u2014 "
+                               "check a quick preset or enter a regex before saving it as a "
+                               "preset."));
+        step.params.insert(QStringLiteral("presets"), presets);
+        QStringList trimmedPatterns;
+        for (const QString& pattern : freeForm) {
+            const QString t = pattern.trimmed();
+            if (!t.isEmpty()) trimmedPatterns << t;
+        }
+        step.params.insert(QStringLiteral("patterns"), trimmedPatterns);
+        break;
+    }
+    default:
+        return failWith(tr("Convert, Merge and OCR runs cannot be saved as presets in this "
+                           "version \u2014 only Compress, Watermark, Export PDF/A and Redact."));
+    }
+    p.steps.append(step);
+
+    auto store = presetStore();
+    if (!store.save(&p, err))
+        return false;
+    refreshPresetPicker(p.id);
+    // Switch to the Preset Pipeline showing the fresh preset - the configured
+    // run has been captured; what follows is the preset view of it (and a
+    // following Run would otherwise re-run the captured classic op).
+    m_opCombo->setCurrentIndex(OpPresetPipeline);
+    return true;
+}
+
+void BatchMode::onSaveAsPresetClicked() {
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("Save as Preset"));
+    auto* lay = new QVBoxLayout(&dlg);
+    lay->addWidget(new QLabel(tr("Preset name:"), &dlg));
+    auto* edit = new QLineEdit(&dlg);
+    edit->setObjectName(QStringLiteral("presetNameEdit"));
+    lay->addWidget(edit);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    lay->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+    QString err;
+    if (!captureConfiguredOpAsPreset(edit->text(), &err)) {
+        QMessageBox::warning(this, tr("Save as Preset"), err);
+        return;
+    }
+    appendLog(tr("Preset saved: %1").arg(edit->text().trimmed()), "#5b9bd5");
+}
+
+void BatchMode::onRenamePresetClicked() {
+    if (!m_presetSelected) {
+        QMessageBox::information(this, tr("Rename Preset"),
+            tr("Select a preset to rename first."));
+        return;
+    }
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("Rename Preset"));
+    auto* lay = new QVBoxLayout(&dlg);
+    lay->addWidget(new QLabel(tr("New name:"), &dlg));
+    auto* edit = new QLineEdit(m_selectedPreset.name, &dlg);
+    edit->setObjectName(QStringLiteral("presetRenameEdit"));
+    lay->addWidget(edit);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    lay->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+    QString err;
+    if (!renamePresetForTest(m_selectedPreset.id, edit->text(), &err)) {
+        QMessageBox::warning(this, tr("Rename Preset"), err);
+        return;
+    }
+    appendLog(tr("Preset renamed: %1").arg(edit->text().trimmed()), "#5b9bd5");
+}
+
+void BatchMode::onDeletePresetClicked() {
+    if (!m_presetSelected) {
+        QMessageBox::information(this, tr("Delete Preset"),
+            tr("Select a preset to delete first."));
+        return;
+    }
+    // Files are user data — deletion is confirmed (default No).
+    const auto btn = QMessageBox::question(this, tr("Delete Preset?"),
+        tr("Delete preset \u201c%1\u201d?\n\nThe preset file will be removed from disk. This "
+           "cannot be undone.").arg(m_selectedPreset.name),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (btn != QMessageBox::Yes)
+        return;
+    QString err;
+    if (!deletePresetForTest(m_selectedPreset.id, &err)) {
+        QMessageBox::warning(this, tr("Delete Preset"), err);
+        return;
+    }
+    appendLog(tr("Preset deleted: %1").arg(m_selectedPreset.name), "#71747a");
+}
+
+bool BatchMode::saveConfiguredOpAsPresetForTest(const QString& name, QString* err) {
+    return captureConfiguredOpAsPreset(name, err);
+}
+
+bool BatchMode::selectPresetForTest(const QString& id) {
+    if (!m_presetCombo)
+        return false;
+    const int idx = m_presetCombo->findData(id);
+    if (idx < 0)
+        return false;
+    m_presetCombo->setCurrentIndex(idx);   // fires onPresetSelected
+    return true;
+}
+
+QString BatchMode::presetStepsDisplayForTest() const {
+    return m_presetStepsLabel ? m_presetStepsLabel->text() : QString();
+}
+
+QStringList BatchMode::presetIdsForTest() const {
+    QStringList ids;
+    if (!m_presetCombo)
+        return ids;
+    for (int i = 0; i < m_presetCombo->count(); ++i) {
+        const QString id = m_presetCombo->itemData(i).toString();
+        if (!id.isEmpty())
+            ids << id;
+    }
+    return ids;
+}
+
+bool BatchMode::renamePresetForTest(const QString& id, const QString& newName, QString* err) {
+    auto store = presetStore();
+    if (!store.rename(id, newName, err))
+        return false;
+    refreshPresetPicker(id);
+    return true;
+}
+
+bool BatchMode::deletePresetForTest(const QString& id, QString* err) {
+    auto store = presetStore();
+    if (!store.remove(id, err))
+        return false;
+    if (m_presetSelected && m_selectedPreset.id == id) {
+        m_presetSelected = false;
+        m_selectedPreset = BatchPreset{};
+    }
+    refreshPresetPicker();
+    return true;
 }
 
 // ── U08 pre-flight seams ──────────────────────────────────────────────────────
