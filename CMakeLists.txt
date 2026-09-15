@@ -4794,6 +4794,9 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSep13LeadRedactionProof.cpp")
 endif()
 
 # R14 INDEPENDENT REVIEWER probe (temporary registration — restored after review).
+# Registration removed at integration: the probe demonstrates the F1 false-PASS and
+# now fails BY DESIGN since the F1 fix (7189149) landed; its demonstration slots
+# live permanently in TestSep13LeadRedactionProof. Probe source kept unregistered.
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/R14ProbeRedactSpace.cpp")
     add_executable(R14ProbeRedactSpace tests/R14ProbeRedactSpace.cpp)
     target_include_directories(R14ProbeRedactSpace PRIVATE src tests)
@@ -4808,12 +4811,6 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/R14ProbeRedactSpace.cpp")
             "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
             "$<TARGET_FILE_DIR:R14ProbeRedactSpace>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for R14ProbeRedactSpace"
-    )
-    add_test(NAME R14ProbeRedactSpace COMMAND R14ProbeRedactSpace)
-    set_tests_properties(R14ProbeRedactSpace PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
-        TIMEOUT 180
-        LABELS "unit;core;redactionproof;r14review;qt;headless"
     )
 endif()
 
