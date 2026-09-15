@@ -35,6 +35,8 @@
 #include "engines/SafeSave.h"
 #include "engines/pdfium/PdfiumBackend.h"
 #include "core/AnnotationTypes.h"
+#include "ui/CommentsWidget.h"
+#include "ui/PdfViewerWidget.h"
 
 namespace {
 
@@ -388,6 +390,70 @@ private slots:
         QVERIFY(reader.loadDocument(out));
         QVERIFY2(wholeText(reader).contains(QStringLiteral("Legacy call path")),
                  "The T2-3 seam still produces the summary content");
+    }
+
+    // ── widget seam: the panel action carries the document's proof pack ───
+
+    void widgetSeamCarriesDocumentProofPackAndPrintableSurface() {
+        // The reviewed document and the deterministic proof-pack path the
+        // redaction transaction writes beside a committed output.
+        const QString doc = m_tmpDir.filePath(QStringLiteral("reviewed-spec.pdf"));
+        const QString pack = m_tmpDir.filePath(
+            QStringLiteral("reviewed-spec_redaction-proof.json"));
+        QFile packFile(pack);
+        QVERIFY2(packFile.open(QIODevice::WriteOnly), "write fixture pack");
+        const QByteArray packJson = makeProofPack(
+            QStringLiteral("FAIL"), 2, QStringLiteral("2026-09-15T05:11:00Z"));
+        QCOMPARE(packFile.write(packJson), qint64(packJson.size()));
+        packFile.close();
+
+        PdfViewerWidget viewer;
+        CommentsWidget comments;
+        comments.setViewer(&viewer);
+        comments.setDocumentFile(doc);
+        const QList<AnnotationItem> items = {
+            makeComment(QStringLiteral("w1"), QStringLiteral("alice"), ReviewState::Open, 0,
+                        QStringLiteral("Panel-scope finding one"),
+                        QStringLiteral("2026-09-15T06:00:00")),
+            makeComment(QStringLiteral("w2"), QStringLiteral("bob"), ReviewState::Accepted, 1,
+                        QStringLiteral("Panel-scope finding two"),
+                        QStringLiteral("2026-09-15T06:30:00")),
+        };
+        viewer.setAnnotations(items);
+        comments.reloadAnnotations();
+
+        const QString out = m_tmpDir.filePath(QStringLiteral("widget_printable.pdf"));
+        QString error;
+        QVERIFY2(comments.exportReviewSummaryPdf(out) || !error.isEmpty(),
+                 "export seam runs");
+        QVERIFY2(QFile::exists(out), "the printable summary was written");
+        PdfiumBackend reader;
+        QVERIFY(reader.loadDocument(out));
+        const QString text = wholeText(reader);
+        QVERIFY2(text.contains(QStringLiteral("Redaction proof: FAIL")),
+                 "The pack verdict discovered beside the document must be carried");
+        QVERIFY2(text.contains(QStringLiteral("2 excision(s)")),
+                 "The pack excision count must be carried");
+        QVERIFY2(text.contains(QStringLiteral("2026-09-15T05:11:00Z")),
+                 "The pack's own generation time must be shown");
+        QVERIFY2(text.contains(QStringLiteral("Contents")),
+                 "The panel action produces the PRINTABLE surface");
+        QVERIFY2(text.contains(QStringLiteral("Page 1 of 1")),
+                 "Sheet footers present through the widget seam");
+
+        // Control: without the pack the section flips to the honest
+        // not-available wording (and the stale verdict is gone).
+        QFile::remove(pack);
+        const QString out2 = m_tmpDir.filePath(QStringLiteral("widget_printable2.pdf"));
+        QVERIFY2(comments.exportReviewSummaryPdf(out2),
+                 "export without a pack still writes the summary");
+        PdfiumBackend reader2;
+        QVERIFY(reader2.loadDocument(out2));
+        const QString text2 = wholeText(reader2);
+        QVERIFY2(text2.contains(QStringLiteral("Redaction proof: not available")),
+                 "Without a pack the section must be listed as not available");
+        QVERIFY2(!text2.contains(QStringLiteral("Redaction proof: FAIL")),
+                 "No stale verdict may survive the pack removal");
     }
 };
 

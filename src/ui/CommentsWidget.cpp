@@ -203,11 +203,15 @@ CommentsWidget::CommentsWidget(QWidget *parent)
 
     // T2-3: the review-summary DOCUMENT (the loop-closer Acrobat/PDF-XChange/
     // Bluebeam all ship): a printable PDF of the displayed scope, grouped by
-    // page with statuses, timestamps and full comment text.
+    // page with statuses, timestamps and full comment text. R27 tail: the
+    // PRINTABLE surface — table of entries, numbered entries, sheet footers,
+    // redaction-proof availability — through the same writer content model.
     auto *summaryBtn = new QToolButton(this);
     summaryBtn->setText(tr("Summary PDF\u2026"));
     summaryBtn->setObjectName(QStringLiteral("commentsExportSummary"));
-    summaryBtn->setToolTip(tr("Export the displayed comments as a review-summary PDF document"));
+    summaryBtn->setToolTip(tr("Export the displayed comments as a print-ready "
+                              "review-summary PDF (table of entries, page "
+                              "footers, redaction-proof status)"));
     summaryLayout->addWidget(summaryBtn);
     layout->addLayout(summaryLayout);
 
@@ -372,8 +376,15 @@ CommentsWidget::CommentsWidget(QWidget *parent)
         exportDisplayedCsv(path);
     });
     // T2-3: review-summary document export over the DISPLAYED scope.
+    // R27 tail: an empty scope is answered TRUTHFULLY ("nothing to
+    // summarize") — the action never produces an empty or fabricated PDF.
     connect(summaryBtn, &QToolButton::clicked, this, [this]() {
-        if (m_lastFiltered.isEmpty()) return;
+        if (m_lastFiltered.isEmpty()) {
+            QMessageBox::information(this, tr("Review Summary"),
+                                     tr("Nothing to summarize: the document has "
+                                        "no comments in the displayed scope."));
+            return;
+        }
         QString suggested = QStringLiteral("review-summary.pdf");
         if (!m_filePath.isEmpty())
             suggested = QFileInfo(m_filePath).completeBaseName()
@@ -860,11 +871,29 @@ bool CommentsWidget::exportDisplayedCsv(const QString &filePath) const
 // scope the CSV export covers, as a standalone printable PDF written by
 // engines/ReviewSummaryWriter (grouped by page → author → date, status
 // labels, timestamps, full text, per-status totals header).
+// R27 tail: written through the writer's PRINTABLE surface (table of
+// entries, numbered entries, sheet footers) — and the redaction-proof
+// section follows the document: when the redaction transaction's proof
+// pack (<base>_redaction-proof.json) sits beside the open document, its
+// verdict + the pack's own generation time are carried into the summary
+// header; when not, the header lists the section as not available (never
+// silently omitted). Delivery goes through the writer's SafeSave
+// candidate transaction — an existing destination is only ever replaced
+// by a validated artifact.
 bool CommentsWidget::exportReviewSummaryPdf(const QString &filePath) const
 {
     if (m_lastFiltered.isEmpty()) return false;   // same guard as the button
+    ReviewSummaryWriter::PrintOptions options;
+    if (!m_filePath.isEmpty()) {
+        const QFileInfo docInfo(m_filePath);
+        const QString pack = docInfo.absolutePath() + QLatin1Char('/')
+            + docInfo.completeBaseName() + QStringLiteral("_redaction-proof.json");
+        if (QFileInfo::exists(pack))
+            options.proofPackPath = pack;
+    }
     QString error;
-    return ReviewSummaryWriter::write(filePath, m_filePath, m_lastFiltered, &error);
+    return ReviewSummaryWriter::writePrintable(filePath, m_filePath,
+                                               m_lastFiltered, options, &error);
 }
 
 void CommentsWidget::addComment()
