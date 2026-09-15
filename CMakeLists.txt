@@ -381,6 +381,7 @@ add_library(pdfws_engines STATIC
     src/core/TempFileManager.h       src/core/TempFileManager.cpp
     src/core/CredentialManager.h     src/core/CredentialManager.cpp
     src/core/ISecretStore.h
+    src/core/BatchPreset.h           src/core/BatchPreset.cpp
     src/core/EncryptedFileSecretStore.h src/core/EncryptedFileSecretStore.cpp
     src/engines/OcrEngine.h          src/engines/OcrEngine.cpp
     src/engines/PdfEditorEngine.h    src/engines/PdfEditorEngine.cpp
@@ -2436,6 +2437,43 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchMode.cpp")
         # Timing-sensitive batch progress assertions flake under parallel
         # ctest (-j4); run alone.
         RUN_SERIAL TRUE
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchPresets.cpp")
+    add_executable(TestBatchPresets
+        tests/TestBatchPresets.cpp
+    )
+    target_include_directories(TestBatchPresets PRIVATE src tests)
+    target_link_libraries(TestBatchPresets PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestBatchPresets POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestBatchPresets>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestBatchPresets>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestBatchPresets"
+    )
+    # R26 (batch-presets): the run fixtures are written with PoDoFo directly
+    # (TestBatchOpsCoverage idiom), so the vendored DLL is staged on Windows;
+    # Linux links the vendored .so directly (no runtime staging).
+    if(WIN32)
+        add_custom_command(TARGET TestBatchPresets POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestBatchPresets>"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestBatchPresets"
+        )
+    endif()
+    add_test(NAME TestBatchPresets COMMAND TestBatchPresets)
+    set_tests_properties(TestBatchPresets PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 300
+        LABELS "unit;modes;batch;presets;ui;qt;headless"
     )
 endif()
 
