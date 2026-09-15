@@ -19,6 +19,7 @@
 #include <QtTest/QtTest>
 #include <QTemporaryDir>
 #include <QSettings>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QByteArray>
@@ -88,6 +89,14 @@ private:
         QString dst = m_tmpDir.filePath(QFileInfo(srcPath).fileName());
         QFile::copy(srcPath, dst);
         return dst;
+    }
+
+    // Leftover SafeSave candidates in the dedicated temp dir (must not grow).
+    // Delta-based like TestFormSafety/TestEngineSave so cross-process debris
+    // from killed runs cannot fail the assertion.
+    static int leftoverCandidates() {
+        return QDir(QDir::tempPath() + QStringLiteral("/glyphpdf-candidates"))
+            .entryList(QStringList() << QStringLiteral("glyphpdf-*.pdf"), QDir::Files).size();
     }
 
 private slots:
@@ -1305,6 +1314,49 @@ private slots:
                  "a refused TSA must not leave a (malformed) /DocTimeStamp (E-06)");
         X509_STORE_free(store);
         mgr.setTrustStoreForTest(nullptr);
+    }
+
+    // -----------------------------------------------------------------------
+    // Candidate-leak pin: a SUCCESSFUL sign/certify must not leave its
+    // committed SafeSave candidate in <temp>/glyphpdf-candidates/. Before the
+    // fix, signDocumentImpl set candidateCommitted=true after
+    // commitFileToDestination and cleanupCandidate() then skipped removal —
+    // every successful sign leaked one stray PDF into the shared temp dir
+    // (observed: TestCertifySelector grew the dir ~5 files per pass).
+    // Certify shares signDocumentImpl, so one slot pins both entry points.
+    // -----------------------------------------------------------------------
+    void successfulSignLeavesNoCandidate()
+    {
+        REQUIRE_FIXTURES();
+        QVERIFY(m_tmpDir.isValid());
+
+        const int candidatesBefore = leftoverCandidates();
+
+        // Sign: the shared success path under test.
+        QString signedOut = m_tmpDir.filePath("candidate_leak_sign.pdf");
+        {
+            SignatureManager mgr;
+            QCOMPARE(mgr.signDocument(kInputPdf, signedOut, kP12Path, kP12Pass,
+                                      "CandidateLeakPin", ""),
+                     SignOutcome::Success);
+            QVERIFY2(QFileInfo::exists(signedOut), "signed output must exist");
+        }
+        QVERIFY2(leftoverCandidates() == candidatesBefore,
+                 "a successful signDocument must remove its committed candidate "
+                 "from <temp>/glyphpdf-candidates");
+
+        // Certify: shares signDocumentImpl — same success path, pinned too.
+        QString certifiedOut = m_tmpDir.filePath("candidate_leak_certify.pdf");
+        {
+            SignatureManager mgr;
+            QCOMPARE(mgr.certifyDocument(kInputPdf, certifiedOut, kP12Path, kP12Pass,
+                                         2, "CandidateLeakPin", ""),
+                     SignOutcome::Success);
+            QVERIFY2(QFileInfo::exists(certifiedOut), "certified output must exist");
+        }
+        QVERIFY2(leftoverCandidates() == candidatesBefore,
+                 "a successful certifyDocument must remove its committed candidate "
+                 "from <temp>/glyphpdf-candidates");
     }
 };
 
