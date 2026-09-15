@@ -3247,6 +3247,38 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestReviewSummary.cpp")
     )
 endif()
 
+# R27 tail: printable review summary — the print-ready SURFACE over the T2-3
+# content model (numbered entries + table of entries, per-sheet footers,
+# redaction-proof availability honesty, SafeSave overwrite guard on the
+# destination). Serial offscreen only (the guard pin uses the process-global
+# SafeSave commit-fault seam and the shared %TEMP%/glyphpdf-candidates class).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPrintableSummary.cpp")
+    add_executable(TestPrintableSummary
+        tests/TestPrintableSummary.cpp
+    )
+    target_include_directories(TestPrintableSummary PRIVATE src tests)
+    target_link_libraries(TestPrintableSummary PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestPrintableSummary POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestPrintableSummary>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestPrintableSummary>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestPrintableSummary"
+    )
+    add_test(NAME TestPrintableSummary COMMAND TestPrintableSummary)
+    set_tests_properties(TestPrintableSummary PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 180
+        RUN_SERIAL TRUE
+        LABELS "unit;comments;printable-summary;qt;headless"
+    )
+endif()
+
 # T2-6 dynamic stamps: apply-time placeholder substitution, custom-stamp
 # persistence (file written + reloaded, built-in ids protected), the SAVED
 # annotation text carrying the resolved values (real embed/extract roundtrip),
