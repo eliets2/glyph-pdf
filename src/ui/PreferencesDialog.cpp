@@ -3,6 +3,7 @@
 #include "core/UpdateChecker.h"
 #include "core/PolicyController.h"
 #include "core/SupportBundle.h"
+#include "core/NetworkTouchpoints.h"
 #include "GpMainWindow.h"
 #include "core/AppContext.h"
 #include "engines/AutosaveManager.h"
@@ -521,6 +522,51 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
     secCol->addWidget(signGroup);
     secCol->addStretch();
     tabs->addTab(secTab, tr("Security"));
+
+    // ────────────────────────────────────────────────────────────────────
+    // TAB 5 — Network (R24(c)): read-only disclosure of EVERY network
+    // touchpoint with the consent setting that governs it. Displaying this
+    // page performs no network requests; the enumeration is a pure
+    // QSettings read (core/NetworkTouchpoints.h honesty contract).
+    // ────────────────────────────────────────────────────────────────────
+    {
+        auto* netTab = new QWidget;
+        auto* netCol = new QVBoxLayout(netTab);
+
+        auto* netIntro = new QLabel(
+            tr("Every network touchpoint in GlyphPDF, with the consent "
+               "setting that governs it. Displaying this page performs no "
+               "network requests."), this);
+        netIntro->setObjectName(QStringLiteral("networkPageIntro"));
+        netIntro->setWordWrap(true);
+        netCol->addWidget(netIntro);
+
+        const auto touchpoints = gp::NetworkTouchpoints::enumerate(settings);
+        for (const auto& tp : touchpoints) {
+            const QString state =
+                tp.enabled ? tr("Enabled") : tr("Disabled");
+            QString text = QStringLiteral("<b>%1</b> — %2 (%3)")
+                               .arg(tp.label.toHtmlEscaped(), state,
+                                    tp.invocation.toHtmlEscaped())
+                               + QStringLiteral(
+                                     "<br><span style='color:#888; "
+                                     "font-size:8pt;'>%1</span>")
+                                     .arg(tp.disclosure.toHtmlEscaped());
+            if (!tp.consentKey.isEmpty())
+                text += QStringLiteral(
+                            "<br><span style='color:#888; font-size:8pt;'>"
+                            "%1</span>")
+                            .arg(tr("Consent setting: %1")
+                                     .arg(tp.consentKey.toHtmlEscaped()));
+            auto* row = new QLabel(text, this);
+            row->setObjectName(QStringLiteral("networkRow_") + tp.id);
+            row->setWordWrap(true);
+            netCol->addWidget(row);
+        }
+
+        netCol->addStretch();
+        tabs->addTab(netTab, tr("Network"));
+    }
 
     // ── Footer — QDialogButtonBox for platform-consistent button order ────────
     // AR-8 D6: use QDialogButtonBox so Cancel/OK ordering follows the platform

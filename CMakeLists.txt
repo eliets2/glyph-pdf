@@ -919,6 +919,9 @@ add_library(pdfws_ui STATIC
     # R24(b): redacted support bundle (counts only, no paths/PDF content).
     src/core/SupportBundle.h         src/core/SupportBundle.cpp
 
+    # R24(c): network touchpoint enumeration (read-only audit surface).
+    src/core/NetworkTouchpoints.h    src/core/NetworkTouchpoints.cpp
+
     src/core/ToolId.h                       src/core/ToolId.cpp
     src/shell/ToolRegistry.h                src/shell/ToolRegistry.cpp
     src/core/interfaces/IToolController.h
@@ -4308,6 +4311,24 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSupportBundle.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
         LABELS "unit;support-bundle;privacy;r24;qt;headless"
+    )
+endif()
+
+# R24(c): network behavior made explicit — one read-only enumeration of every
+# network touchpoint (Ollama/TSA/OCSP/update-check/OCR download) with states
+# derived from existing code paths, rendered on a Preferences "Network" page
+# and carried (on/off only) into the support bundle.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestNetworkDisclosure.cpp")
+    add_executable(TestNetworkDisclosure tests/TestNetworkDisclosure.cpp)
+    target_include_directories(TestNetworkDisclosure PRIVATE src tests)
+    target_link_libraries(TestNetworkDisclosure PRIVATE
+        pdfws_ui pdfws_engines pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_test(NAME TestNetworkDisclosure COMMAND TestNetworkDisclosure)
+    set_tests_properties(TestNetworkDisclosure PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;network-disclosure;privacy;r24;qt;headless"
     )
 endif()
 

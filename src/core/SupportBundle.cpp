@@ -6,6 +6,7 @@
 #include "core/SupportBundle.h"
 
 #include "core/Capability.h"
+#include "core/NetworkTouchpoints.h"
 #include "core/PolicyController.h"
 #include "core/UpdateChecker.h"
 
@@ -239,19 +240,12 @@ QJsonObject SupportBundle::buildFromSettings(QSettings& user,
     }
 
     // ── Network: on/off states only (no history, no destinations) ────────
+    // R24(c): the SAME enumeration that renders the Preferences "Network"
+    // page feeds the bundle — on/off states and invocation wording only.
     QJsonObject network;
-    network.insert(QStringLiteral("aiChatOllamaLocal"), true); // on demand, local
-    network.insert(QStringLiteral("tsaTimestamping"),
-                   !user.value(QStringLiteral("signing/tsaUrl"))
-                        .toString()
-                        .trimmed()
-                        .isEmpty());
-    network.insert(QStringLiteral("ocspDuringValidation"), true);
-    network.insert(QStringLiteral("updateCheckOnStartup"),
-                   user.value(QStringLiteral("update/checkOnStartup"), false).toBool());
-    network.insert(QStringLiteral("updateCheckManual"), true);
-    network.insert(QStringLiteral("ocrTraineddataDownload"),
-                   user.value(QStringLiteral("ocr/allowNetworkDownload"), false).toBool());
+    network.insert(QStringLiteral("touchpoints"),
+                   NetworkTouchpoints::onOffJson(
+                       NetworkTouchpoints::enumerate(user)));
     network.insert(QStringLiteral("disclosure"),
                    bundleTr("On/off states only — the bundle never carries network "
                       "history or destinations."));
