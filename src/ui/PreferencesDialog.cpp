@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "PreferencesDialog.h"
 #include "core/UpdateChecker.h"
+#include "core/PolicyController.h"
 #include "GpMainWindow.h"
 #include "core/AppContext.h"
 #include "engines/AutosaveManager.h"
@@ -37,6 +38,25 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
     setAccessibleName(tr("Preferences"));
     setAccessibleDescription(tr("Application settings for language, theme, AI keys, and more"));
 
+    // R24(a): machine policy is loaded ONCE per process (default:
+    // %PROGRAMDATA%/GlyphPDF/policy.json, GLYPHPDF_POLICY_PATH overrides the
+    // location for tests). Managed keys win over the stored user values at
+    // load time — the override below is always VISIBLE (disabled widget with
+    // the policy value + "managed by policy" wording + status line), never
+    // silent.
+    auto& policy = gp::PolicyController::instance();
+    policy.ensureLoaded();
+
+    // Marks a field as machine-managed: disabled, badged, tooltip names the
+    // enforcement wiring; the row label gets the visible "(managed by
+    // policy)" suffix.
+    auto markManaged = [](QFormLayout* form, QWidget* field) {
+        field->setProperty("managedByPolicy", true);
+        field->setEnabled(false);
+        if (auto* lbl = qobject_cast<QLabel*>(form->labelForField(field)))
+            lbl->setText(lbl->text() + QStringLiteral(" (managed by policy)"));
+    };
+
     auto* outer = new QVBoxLayout(this);
 
     auto* tabs = new QTabWidget;
@@ -47,6 +67,36 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
     // ────────────────────────────────────────────────────────────────────
     auto* generalTab = new QWidget;
     auto* col = new QVBoxLayout(generalTab);
+
+    // ── R24(a): machine policy status — ALWAYS visible, even when absent
+    // ("No machine policy found (checked …)") so the disclosure itself is
+    // never hidden.
+    {
+        auto* policyGroup = new QGroupBox(tr("Machine policy"));
+        policyGroup->setObjectName(QStringLiteral("policyStatusGroup"));
+        auto* policyLay = new QVBoxLayout(policyGroup);
+
+        auto* statusLabel = new QLabel(policy.statusLine(), this);
+        statusLabel->setObjectName(QStringLiteral("policyStatusLabel"));
+        statusLabel->setWordWrap(true);
+        statusLabel->setProperty("mono", true);
+        statusLabel->setStyleSheet("font-size:8pt; color:#888;");
+        policyLay->addWidget(statusLabel);
+
+        const QStringList managed = policy.managedKeys();
+        QString keyText;
+        for (const QString& k : managed)
+            keyText += k + QStringLiteral(" — ")
+                       + gp::PolicyController::enforcementNote(k)
+                       + QStringLiteral("\n");
+        auto* keysLabel = new QLabel(keyText.trimmed(), this);
+        keysLabel->setObjectName(QStringLiteral("policyKeysLabel"));
+        keysLabel->setWordWrap(true);
+        keysLabel->setVisible(!managed.isEmpty());
+        policyLay->addWidget(keysLabel);
+
+        col->addWidget(policyGroup);
+    }
 
     auto* genGroup = new QGroupBox(tr("General"));
     auto* form = new QFormLayout(genGroup);
@@ -106,8 +156,19 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
     // A first-run transparency notice was landed in v1.3.1 (GpMainWindow::initUpdateChecker).
     // The default here matches the in-session preference: opt-in rather than opt-out.
     _autoUpdate = new QCheckBox(tr("Check for updates on startup"));
+    _autoUpdate->setObjectName(QStringLiteral("autoUpdateCheck"));
     _autoUpdate->setChecked(settings.value("update/checkOnStartup", false).toBool());
     _autoUpdate->setAccessibleName(tr("Automatically check for updates when the application starts"));
+    if (policy.isManaged(QStringLiteral("update/checkOnStartup"))) {
+        // R24(a): policy value shown, widget locked, override disclosed.
+        _autoUpdate->setChecked(
+            policy.policyValue(QStringLiteral("update/checkOnStartup")).toBool());
+        _autoUpdate->setEnabled(false);
+        _autoUpdate->setProperty("managedByPolicy", true);
+        _autoUpdate->setText(tr("Check for updates on startup (managed by policy)"));
+        _autoUpdate->setToolTip(
+            gp::PolicyController::enforcementNote(QStringLiteral("update/checkOnStartup")));
+    }
     updateLay->addWidget(_autoUpdate);
 
     auto* channelRow = new QHBoxLayout;
@@ -121,6 +182,18 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
             _updateChannel->setCurrentIndex(i);
             break;
         }
+    }
+    if (policy.isManaged(QStringLiteral("update/channel"))) {
+        const QString policyChannel =
+            policy.policyValue(QStringLiteral("update/channel")).toString();
+        for (int i = 0; i < _updateChannel->count(); ++i) {
+            if (_updateChannel->itemData(i).toString() == policyChannel)
+                _updateChannel->setCurrentIndex(i);
+        }
+        _updateChannel->setEnabled(false);
+        _updateChannel->setProperty("managedByPolicy", true);
+        _updateChannel->setToolTip(
+            gp::PolicyController::enforcementNote(QStringLiteral("update/channel")));
     }
     channelRow->addWidget(_updateChannel);
     channelRow->addStretch(1);
@@ -283,7 +356,20 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
     _ollamaEndpointEdit->setAccessibleName(tr("Ollama endpoint URL"));
     _ollamaEndpointEdit->setText(QSettings().value(QStringLiteral("ai/ollamaEndpoint"),
                                                     QStringLiteral("http://localhost:11434")).toString());
+    if (policy.isManaged(QStringLiteral("ai/ollamaEndpoint"))) {
+        _ollamaEndpointEdit->setText(
+            policy.policyValue(QStringLiteral("ai/ollamaEndpoint")).toString());
+        _ollamaEndpointEdit->setEnabled(false);
+        _ollamaEndpointEdit->setProperty("managedByPolicy", true);
+    }
     aiForm->addRow(tr("Ollama endpoint:"), _ollamaEndpointEdit);
+    if (policy.isManaged(QStringLiteral("ai/ollamaEndpoint"))) {
+        // Label suffix after the row exists (labelForField needs it built).
+        if (auto* lbl = qobject_cast<QLabel*>(aiForm->labelForField(_ollamaEndpointEdit)))
+            lbl->setText(lbl->text() + QStringLiteral(" (managed by policy)"));
+        _ollamaEndpointEdit->setToolTip(
+            gp::PolicyController::enforcementNote(QStringLiteral("ai/ollamaEndpoint")));
+    }
 
     // Ollama model
     auto* ollamaModelEdit = new QLineEdit;
@@ -349,7 +435,15 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
     _tsaUrlEdit->setAccessibleName(tr("Timestamp authority (TSA) URL"));
     _tsaUrlEdit->setText(QSettings().value(QStringLiteral("signing/tsaUrl"),
                                            QString()).toString());
+    if (policy.isManaged(QStringLiteral("signing/tsaUrl"))) {
+        _tsaUrlEdit->setText(
+            policy.policyValue(QStringLiteral("signing/tsaUrl")).toString());
+        _tsaUrlEdit->setToolTip(
+            gp::PolicyController::enforcementNote(QStringLiteral("signing/tsaUrl")));
+    }
     signForm->addRow(tr("TSA URL:"), _tsaUrlEdit);
+    if (policy.isManaged(QStringLiteral("signing/tsaUrl")))
+        markManaged(signForm, _tsaUrlEdit);
 
     // PAdES conformance level (ETSI EN 319 132-1). Default B-B: the honest
     // floor — it is the only level that needs no timestamp authority.
@@ -370,7 +464,19 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
             }
         }
     }
+    if (policy.isManaged(QStringLiteral("signing/padesLevel"))) {
+        const QString policyLevel =
+            policy.policyValue(QStringLiteral("signing/padesLevel")).toString();
+        for (int i = 0; i < _padesLevelCombo->count(); ++i) {
+            if (_padesLevelCombo->itemData(i).toString() == policyLevel)
+                _padesLevelCombo->setCurrentIndex(i);
+        }
+        _padesLevelCombo->setToolTip(
+            gp::PolicyController::enforcementNote(QStringLiteral("signing/padesLevel")));
+    }
     signForm->addRow(tr("PAdES level:"), _padesLevelCombo);
+    if (policy.isManaged(QStringLiteral("signing/padesLevel")))
+        markManaged(signForm, _padesLevelCombo);
 
     auto* signNote = new QLabel(
         tr("Levels above B-B embed RFC 3161 timestamp and long-term-validation "
@@ -411,13 +517,31 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
 
 PreferencesDialog::~PreferencesDialog() = default;
 
+void PreferencesDialog::persistSetting(QSettings& store, const QString& key,
+                                       const QVariant& value)
+{
+    // R24(a): the machine policy wins at load time, so a managed key is
+    // never persisted from the UI — a user edit must not silently diverge
+    // from what the app will actually do. The override is disclosed in the
+    // dialog (disabled widget with the policy value + status line), never
+    // silently applied.
+    auto& policy = gp::PolicyController::instance();
+    policy.ensureLoaded();
+    if (policy.isManaged(key))
+        return;
+    store.setValue(key, value);
+}
+
 void PreferencesDialog::saveSettings()
 {
     QSettings settings;
     settings.setValue("ui/language", _langCombo->currentData().toString());
     settings.setValue("ui/theme", _themeCombo->currentData().toString());
-    settings.setValue("update/checkOnStartup", _autoUpdate->isChecked());
-    settings.setValue("update/channel", _updateChannel->currentData().toString());
+    // R24(a): policy-governed keys go through the write guard — a managed
+    // key is never persisted from the UI (the widget above is already locked
+    // and badged; this keeps the stored value from silently diverging).
+    persistSetting(settings, "update/checkOnStartup", _autoUpdate->isChecked());
+    persistSetting(settings, "update/channel", _updateChannel->currentData().toString());
     settings.setValue("recent/autoPrune", _autoPrune->isChecked());
 
     int intervalMinutes = _autosaveIntervalSpin->value();
@@ -440,7 +564,7 @@ void PreferencesDialog::saveSettings()
     if (_ollamaEndpointEdit) {
         const QString endpoint = _ollamaEndpointEdit->text().trimmed();
         if (!endpoint.isEmpty())
-            settings.setValue("ai/ollamaEndpoint", endpoint);
+            persistSetting(settings, "ai/ollamaEndpoint", endpoint);
     }
     if (auto* modelEdit = findChild<QLineEdit*>("ollamaModelEdit")) {
         const QString model = modelEdit->text().trimmed();
@@ -453,10 +577,11 @@ void PreferencesDialog::saveSettings()
     // trimmed; explicitly clearing it is allowed (it honestly restricts
     // signing to B-B, which the controller enforces).
     if (_tsaUrlEdit)
-        settings.setValue(QStringLiteral("signing/tsaUrl"), _tsaUrlEdit->text().trimmed());
+        persistSetting(settings, QStringLiteral("signing/tsaUrl"),
+                       _tsaUrlEdit->text().trimmed());
     if (_padesLevelCombo)
-        settings.setValue(QStringLiteral("signing/padesLevel"),
-                          _padesLevelCombo->currentData().toString());
+        persistSetting(settings, QStringLiteral("signing/padesLevel"),
+                       _padesLevelCombo->currentData().toString());
 
     // Live apply to AutosaveManager
     MainWindow* mainWin = qobject_cast<MainWindow*>(parentWidget());
@@ -511,8 +636,17 @@ void PreferencesDialog::onUpdateResult(const QString& msg)
 
 void PreferencesDialog::onAiTestKey()
 {
-    const QString endpoint = _ollamaEndpointEdit ? _ollamaEndpointEdit->text().trimmed()
-                                        : QStringLiteral("http://localhost:11434");
+    // R24(a): a managed endpoint is honored here (the widget is locked to
+    // the policy value; effectiveValue keeps that true even if the field
+    // were edited programmatically).
+    auto& policy = gp::PolicyController::instance();
+    policy.ensureLoaded();
+    const QString endpoint = policy
+        .effectiveValue(QStringLiteral("ai/ollamaEndpoint"),
+                        _ollamaEndpointEdit
+                            ? _ollamaEndpointEdit->text().trimmed()
+                            : QStringLiteral("http://localhost:11434"))
+        .toString();
     const QString model    = QSettings().value("ai/ollamaModel",
                                                QStringLiteral("llama3")).toString();
 
@@ -543,8 +677,14 @@ void PreferencesDialog::onAiTestKey()
 void PreferencesDialog::refreshAiStatus()
 {
     if (!_aiStatusLabel) return;
-    const QString endpoint = QSettings().value("ai/ollamaEndpoint",
-                                               QStringLiteral("http://localhost:11434")).toString();
+    // R24(a): a managed endpoint is disclosed here too (policy value wins).
+    auto& policy = gp::PolicyController::instance();
+    policy.ensureLoaded();
+    const QString endpoint = policy
+        .effectiveValue(QStringLiteral("ai/ollamaEndpoint"),
+                        QSettings().value("ai/ollamaEndpoint",
+                                          QStringLiteral("http://localhost:11434")))
+        .toString();
     const QString model    = QSettings().value("ai/ollamaModel",
                                                QStringLiteral("llama3")).toString();
     _aiStatusLabel->setText(tr("Ollama endpoint: %1  ·  model: %2").arg(endpoint, model));

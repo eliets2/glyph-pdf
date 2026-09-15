@@ -912,6 +912,10 @@ add_library(pdfws_ui STATIC
 
     src/core/UpdateChecker.h         src/core/UpdateChecker.cpp
 
+    # R24(a): machine-level policy — overrides bounded user prefs, override
+    # always visible in Preferences (never silently).
+    src/core/PolicyController.h      src/core/PolicyController.cpp
+
     src/core/ToolId.h                       src/core/ToolId.cpp
     src/shell/ToolRegistry.h                src/shell/ToolRegistry.cpp
     src/core/interfaces/IToolController.h
@@ -4264,6 +4268,24 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCertifySelector.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 180
         LABELS "unit;security;signatures;certify;n18;qt;headless"
+    )
+endif()
+
+# R24(a): machine-level policy (policy.json overrides bounded user prefs,
+# override visible in Preferences). Pins precedence, the readSigningConfig
+# consumption seam, the visible managed-row disclosure, the save guard, and
+# honest invalid/tampered-policy handling.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPolicyController.cpp")
+    add_executable(TestPolicyController tests/TestPolicyController.cpp)
+    target_include_directories(TestPolicyController PRIVATE src tests)
+    target_link_libraries(TestPolicyController PRIVATE
+        pdfws_ui pdfws_engines pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_test(NAME TestPolicyController COMMAND TestPolicyController)
+    set_tests_properties(TestPolicyController PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;policy;r24;qt;headless"
     )
 endif()
 
