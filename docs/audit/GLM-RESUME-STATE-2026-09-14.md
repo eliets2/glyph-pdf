@@ -1,38 +1,33 @@
 # GLM resume state — 2026-09-15 (post-integration push)
 
-**PUSHED: `origin/feat/parity-glm` @ `2f755244`** — the 2026-09-14/15 integration wave, final serial
-gate 153/153 (one order-flake trio in run 1, green standalone + on rerun; noted, not chased).
-Record branches on origin: quick (2b81fc2), resid2 (9129788), packafix (5ae4153), integration
-(= mainline), r18f (7d5ae67), sep13-leads (b0fd829), sep13-fixes (e8b9a19), n17n18 (819d84a),
-sep13-residual (c7e9ecf). Project physically at D:\pdf\ (junctions keep every old C: path valid).
+**PUSHED: `origin/feat/parity-glm` @ `6f156d6`** — integration wave + same-day follow-through:
+R22 Linux gate (install-tree independence PROVEN + 4 build-gate defects fixed), R14 independent
+review (21 rows verified; its one PARTIAL F1 — rotated-annotation attribution — FIXED @ 7189149),
+follow-ups (N17/N18 seam wiring; cert-suite isolation; L12 perf FIXED, probe now a regression
+guard), candidate-leak fix (signing success-path candidate removal + a defeated-mid-try-cleanup
+device-lifetime defect), batch-presets P1 (R26 flagship: versioned JSON presets, capability-honest
+transactional pipeline), R24 (managed policy with visible overrides, redaction-by-construction
+support bundle, explicit network-touchpoint page). Record branches on origin: quick, resid2,
+packafix, integration, r18f, sep13-leads, sep13-fixes, n17n18, sep13-residual, r22, review,
+candidate-leak-fix, followups-2026-09-15, l7-rotate-annot, soak-48h, batch-presets-p1, r24-policy.
+Gates: 153-155 targets, green (known order-flakes rerun-once: TestReadOnlyGate/TestBatchMode
+standalone-green after in-suite red). Project at D:\pdf\ (junctions keep old C: paths valid).
 
-**What this wave contains (all implemented-awaiting-review unless R14 flips):** quick-findings
-Q1–Q4 (OCR skip-before-render; kept-page path was silently dead — fixed; idempotency modal;
-QSettings persistence; real preservation contract; XFAIL pins /AcroForm dropped by page-copy —
-OPEN engine gap); SEP13 redaction false-success fixes L5/L7/L8 (composed user-data-loss class,
-severity reclassified) + L6 wording; SEP13 fixes L1 (B-T downgrade honesty) L2 (HTML injection)
-L3 (Degraded reversal) L4 (cert RAII) L9/L10 (batch result honesty) L11 (OCR guards) L13+M7
-(columns) + M1/M3/M5; R18(f) Keystroke /AA /K tier + R19 settings end-to-end pin; N17
-cert-encryption recipient picker + N18 DocMDP certify selector (NEW parity features, engine
-seams were pre-existing); residuals: signing-outcome B-T→B-B disclosure + M8 RedactOperation
-lifetime. L12 stays CONFIRMED-unfixed (perf-only, probe pins 15.78× ratio).
-
-**Open queue (execution order):**
-1. R14 independent review — RUNNING (pdf-r18 @ feat/parity-glm-review): flips rows to
-   verified via own probes + negative controls; deliverable docs/audit/INDEPENDENT-REVIEW.
-2. R22 installed-resources Linux gate — RUNNING (pdf-inst @ feat/parity-glm-r22, container
-   glyphpdf-linux rebound to pdf-inst). Desktop gates stay UNTESTED-honest.
-3. R25 48h soak — RUNNING (pdf-keyC @ feat/soak-48h; detached loop → D:\soak-48h.log;
-   verdict due ~2026-09-17; doc docs/audit/SOAK-48H-2026-09-15.md).
-4. Follow-ups queued: N17/N18 seam wiring (SecurityController::certifyDocument still hardcodes
-   certLevel=1; setExistingSignatureCount call site); suite-isolation finding (new cert tests
-   suspected of order-perturbing CommandBinding/EngineSave/EncryptedPackageSafeWrite —
-   standalone green, in-suite order-flake); L12 perf fix (probe-pinned); R24 policy/diagnostics;
-   R26/27 (batch-presets P1 design settled; pilot external contact = USER auth).
-5. END PHASE: 16-role ponytail sweep W1 (native-adversary + fuzz + security-auditor) → W2
-   (gsd-verifier + guarantee-verification + testing — only they flip verified) → W3 (perf/arch/
-   emergence/archaeologist/devops/ui/ux/research) → fix lanes → consolidated report + UI
-   acceptance + perf baseline.
+**Open queue:**
+1. RUNNING: send-for-signing P1 (pdf-keyA @ feat/send-for-signing-p1 — the last Tier-1 moat
+   gap: multi-signer workflow, versioned sidecar requests, no network per plan scope cuts);
+   printable summaries (pdf-sec @ feat/printable-summaries — small R27 tail).
+2. R25 48h soak — RUNNING detached (D:\soak-48h.log, started 2026-09-15T01:44+03, verdict
+   ~2026-09-17 01:44; doc SOAK-48H-2026-09-15.md; watch item: one-off failing test differs
+   per pass — a RECURRING single test would be a candidate finding).
+3. END PHASE: 16-role ponytail sweep W1 (native-adversary + fuzz + security-auditor) → W2
+   (gsd-verifier + guarantee-verification + testing) → W3 (perf/arch/emergence/archaeologist/
+   devops/ui/ux/research) → fix lanes → consolidated report + UI acceptance + perf baseline.
+4. Known residuals: R24's 4 policy keys enforcement-pending (wiring points documented);
+   OCSP consent-switch gap disclosed; SuiteIsolation: ctest -j shared %TEMP%/glyphpdf-candidates
+   collision class (RUN_SERIAL/RESOURCE grouping candidates); accessibility authoring T2-4
+   (last big Tier-2 feature, not started); Linux 33-fail triage list (dominant pdfium-stub
+   class) in feat/parity-glm-r22's R22 doc; pilot external contact = USER auth.
 
 Build/test unchanged: MSYS2 UCRT64 wrapper; -j 2; QtTest -o txt; offscreen; PCH purge after
 header edits/branch switches; full ctest only when ninja no-op + graphify idle; known flakes
