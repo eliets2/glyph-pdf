@@ -55,7 +55,11 @@ struct BatchPreset {
     QString   minAppVersion;// optional semver; older running app may load but not run
     QList<BatchPresetStep> steps;
     QString   outputNaming; // "" = default "{basename}_{preset}.pdf"; tokens {basename},{preset},{n},{date}
-    QString   onConflict;   // "ask" (default) | "overwrite" ("rename" refused by this build)
+    QString   onConflict;   // "ask" (default) | "overwrite" ("rename" refused by this build).
+                            // W1-01: "overwrite" never bypasses the run-time
+                            // AR-8 overwrite confirmation — it maps to the
+                            // same interactive "ask" path (decline cancels);
+                            // there is no silent overwrite.
     QString   onFileFailure;// "continue" (default) ("stop" refused by this build)
 
     bool operator==(const BatchPreset& other) const {
@@ -96,6 +100,12 @@ QString defaultNamingTemplate();
 // index), {date} (ISO run date). Unknown {…} tokens are rejected (V7) and
 // every replacement value is filename-sanitized so no path separator can be
 // smuggled through a token (plan §3.6). The template itself must end ".pdf".
+// W1-01: the RESOLVED result is containment-checked — it must be a single
+// bare path component (no '/', '\', ':', no '.'/'..'), so the caller's
+// QDir(outDir).filePath(result) can never leave the user-chosen output
+// directory. Hostile templates are refused here, which fixes parse()-time
+// validation, the GUI overwrite pre-check and the worker's captured output
+// through the same guard.
 bool resolveNaming(const QString& naming, const QString& basename,
                    const QString& presetId, int fileIndex, const QDate& runDate,
                    QString* outName, QString* err);

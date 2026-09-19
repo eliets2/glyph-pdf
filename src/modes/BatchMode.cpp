@@ -1246,34 +1246,33 @@ void BatchMode::onRunClicked() {
     // For single-file runs, show a per-file dialog.
     // For multi-file runs, collect all conflicting paths and show one summary
     // dialog rather than flooding the user with N dialogs.
-    // R26: a preset carrying onConflict "overwrite" has already answered the
-    // conflict question in its file — the interactive confirm is skipped.
-    const bool presetOverwriteConfirmed =
-        (opIdx == OpPresetPipeline && m_presetSelected
-         && m_selectedPreset.onConflict == QLatin1String("overwrite"));
-    if (!presetOverwriteConfirmed) {
-        if (m_filesToProcess.size() == 1) {
-            QString out = resolveOutputPath(m_filesToProcess.first());
-            if (!out.isEmpty() && !confirmOverwrite(out)) return;
-        } else if (m_filesToProcess.size() > 1) {
-            QStringList willOverwrite;
-            for (const QString& src : m_filesToProcess) {
-                QString out = resolveOutputPath(src);
-                if (!out.isEmpty() && QFileInfo::exists(out))
-                    willOverwrite << QFileInfo(out).fileName();
-            }
-            if (!willOverwrite.isEmpty()) {
-                const auto btn = QMessageBox::warning(
-                    this,
-                    tr("Overwrite Existing Files?"),
-                    tr("%1 output file(s) already exist and will be overwritten:\n\n%2\n\n"
-                       "This operation cannot be undone. Continue?")
-                        .arg(willOverwrite.size())
-                        .arg(willOverwrite.join(QStringLiteral("\n"))),
-                    QMessageBox::Yes | QMessageBox::Cancel,
-                    QMessageBox::Cancel);
-                if (btn != QMessageBox::Yes) return;
-            }
+    // W1-01: a preset's onConflict "overwrite" NEVER bypasses this
+    // confirmation — a preset is data, and the file it rides in is not the
+    // user's answer to "may I destroy this output file?". "overwrite" maps to
+    // the same interactive path as "ask": the user is asked exactly once (the
+    // AR-8 summary dialog for multi-file runs), and declining cancels the run.
+    // There is no silent overwrite.
+    if (m_filesToProcess.size() == 1) {
+        QString out = resolveOutputPath(m_filesToProcess.first());
+        if (!out.isEmpty() && !confirmOverwrite(out)) return;
+    } else if (m_filesToProcess.size() > 1) {
+        QStringList willOverwrite;
+        for (const QString& src : m_filesToProcess) {
+            QString out = resolveOutputPath(src);
+            if (!out.isEmpty() && QFileInfo::exists(out))
+                willOverwrite << QFileInfo(out).fileName();
+        }
+        if (!willOverwrite.isEmpty()) {
+            const auto btn = QMessageBox::warning(
+                this,
+                tr("Overwrite Existing Files?"),
+                tr("%1 output file(s) already exist and will be overwritten:\n\n%2\n\n"
+                   "This operation cannot be undone. Continue?")
+                    .arg(willOverwrite.size())
+                    .arg(willOverwrite.join(QStringLiteral("\n"))),
+                QMessageBox::Yes | QMessageBox::Cancel,
+                QMessageBox::Cancel);
+            if (btn != QMessageBox::Yes) return;
         }
     }
 

@@ -119,6 +119,34 @@ bool resolveNaming(const QString& naming, const QString& basename,
             ++i;
         }
     }
+
+    // W1-01 containment gate: the CONTRACT is a bare FILE NAME — resolveNaming
+    // produces the operand QDir(outDir).filePath() joins with the user-chosen
+    // output directory, so the resolved RESULT (not the token values — plan
+    // §3.6 only ever guarded those) must be a single path component. Any '/',
+    // '\' or ':' in the result escapes that contract ('/'/'\' = directory
+    // traversal incl. UNC; ':' = drive-absolute or NTFS alternate data
+    // stream), and '.'/'..' as the whole name are reserved device names.
+    // sanitizeNameComponent already strips these from token VALUES; this guard
+    // covers the template LITERAL and is the one shared choke point:
+    // parse()-time validation, the GUI overwrite pre-check and the worker's
+    // captured output all resolve through here, so a hostile preset is refused
+    // at import and can never reach the commit seam.
+    const QString containmentErr = QStringLiteral(
+        "output.naming: %1 — the resolved name %2 is not a plain file name "
+        "(path separators, drive letters and '..' are not allowed: every "
+        "output lands inside the output directory chosen at run time)")
+        .arg(tmpl, result);
+    for (const QChar& ch : result) {
+        if (ch == QLatin1Char('/') || ch == QLatin1Char('\\') || ch == QLatin1Char(':')) {
+            if (err) *err = containmentErr;
+            return false;
+        }
+    }
+    if (result == QLatin1String("..") || result == QLatin1String(".")) {
+        if (err) *err = containmentErr;
+        return false;
+    }
     if (outName) *outName = result;
     return true;
 }
