@@ -209,8 +209,10 @@ private slots:
         QVERIFY(keys);
         QVERIFY(keys->text().contains(QStringLiteral("signing/tsaUrl")));
         QVERIFY(keys->text().contains(QStringLiteral("update/checkOnStartup")));
-        // Enforcement honesty: enforced vs pending is stated per key.
-        QVERIFY(keys->text().contains(QStringLiteral("pending"),
+        // Enforcement honesty (R24 wiring closure): every allowlist key is
+        // enforced this build — the wording says so and never claims a
+        // "pending" state that no longer exists.
+        QVERIFY(!keys->text().contains(QStringLiteral("pending"),
                                        Qt::CaseInsensitive));
         QVERIFY(keys->text().contains(QStringLiteral("Enforced")));
     }
@@ -320,14 +322,22 @@ private slots:
         const QStringList known = PolicyController::knownKeys();
         QVERIFY(known.size() >= 4);
         QVERIFY(known.size() <= 8);
-        // The keys enforced app-wide THIS build are the signing pair.
-        QVERIFY(PolicyController::isEnforcedKey(QStringLiteral("signing/tsaUrl")));
-        QVERIFY(PolicyController::isEnforcedKey(QStringLiteral("signing/padesLevel")));
-        // A recognized-but-not-yet-enforced key must say so (visible honesty).
-        QVERIFY(!PolicyController::enforcementNote(QStringLiteral("update/checkOnStartup"))
-                     .isEmpty());
-        QVERIFY(PolicyController::enforcementNote(QStringLiteral("update/checkOnStartup"))
-                    .contains(QStringLiteral("pending"), Qt::CaseInsensitive));
+        // R24 wiring closure: EVERY allowlist key is enforced app-wide this
+        // build — pinned at the observable enforcement points by
+        // TestPolicyWiring (decision statics, endpoint gate, model-load gate).
+        for (const QString& key : known) {
+            QVERIFY2(PolicyController::isEnforcedKey(key),
+                     qPrintable(QStringLiteral("key not enforced: %1").arg(key)));
+            // The per-key note names the wiring point, says "Enforced
+            // app-wide", and no longer carries any "pending" wording.
+            const QString note = PolicyController::enforcementNote(key);
+            QVERIFY(!note.isEmpty());
+            QVERIFY2(note.contains(QStringLiteral("Enforced app-wide")),
+                     qPrintable(QStringLiteral("%1: %2").arg(key, note)));
+            QVERIFY2(!note.contains(QStringLiteral("pending"),
+                                    Qt::CaseInsensitive),
+                     qPrintable(QStringLiteral("%1: %2").arg(key, note)));
+        }
     }
 };
 
