@@ -18,6 +18,7 @@
 #include "modes/AIChatPanel.h"
 #include "modes/SignaturesPanel.h"
 #include "modes/PdfAValidationPanel.h"
+#include "modes/AccessibilityPanel.h"
 #include "modes/MeasureMode.h"
 #include "modes/CompressDialog.h"
 #include "modes/WatermarkDialog.h"
@@ -676,6 +677,8 @@ void MainWindow::recoverDocument(const QString& originalPath) {
         // a new identity and the panel must follow it while active.
         if (_pdfaPanel && _modes && _modes->currentScreen() == QLatin1String("pdfa"))
             refreshPdfAPanel();
+        if (_a11yPanel && _modes && _modes->currentScreen() == QLatin1String("accessibility"))
+            refreshA11yPanel();
         statusBar()->showMessage(tr("Recovered from autosave. Please Save to restore permanently."));
     }
 }
@@ -967,6 +970,9 @@ void MainWindow::openDocument(const QString& filePath) {
         // describing the previous document — or the empty state).
         if (_pdfaPanel && _modes && _modes->currentScreen() == QLatin1String("pdfa"))
             refreshPdfAPanel();
+        // T2-4: the accessibility checker obeys the same identity contract.
+        if (_a11yPanel && _modes && _modes->currentScreen() == QLatin1String("accessibility"))
+            refreshA11yPanel();
 
         // R16 (PP07/UI03): the task chosen on the welcome screen survives the
         // Open that served it — consume the armed intent exactly once, after
@@ -1149,6 +1155,20 @@ void MainWindow::onScreenSelected(const QString& id) {
         // even though the viewer had a PDF open.
         refreshPdfAPanel();
         replaceRight(_pdfaPanel);
+    } else if (id == "accessibility") {
+        // T2-4 accessibility P1: checker panel (detection + disclosure only —
+        // no auto-tagging, no PDF/UA claim; the panel carries that wording).
+        if (!_a11yPanel) {
+            _a11yPanel = new AccessibilityPanel(this);
+            // Fixes are run by the shell: resident-document coordination and
+            // the FormManager seam for /TU live here, the panel stays a view.
+            _a11yPanel->setFixRunner(
+                [this](const gp::A11yFixRequest& req) { return runA11yFix(req); });
+            connect(_a11yPanel, &AccessibilityPanel::documentMutated, this,
+                    [this](const QString& m) { _status->setOperation(m); });
+        }
+        refreshA11yPanel();
+        replaceRight(_a11yPanel);
     } else if (id == "measure") {
         if (!_measurePanel) {
             _measurePanel = new MeasureMode(this);
@@ -1178,13 +1198,62 @@ void MainWindow::refreshPdfAPanel() {
     _pdfaPanel->setDocument(path);
 }
 
+// T2-4 accessibility P1: ARC06 twin of refreshPdfAPanel — give the checker
+// panel the ACTIVE document identity whenever it is the active right panel.
+void MainWindow::refreshA11yPanel() {
+    if (!_a11yPanel) return;
+    auto* viewer = pdfViewer();
+    const QString path = viewer ? viewer->filePath() : QString();
+    _a11yPanel->setDocument(path);
+}
+
+// T2-4 P1: the panel's injected fix runner. The shell owns the mutation
+// boundaries — release the resident document before the in-place write
+// (FormsController form-import precedent), route /TU through the EXISTING
+// FormManager field-mutation seam (Required bit preserved via an explicit
+// read), and let applyAccessibilityFix's SafeSave transaction handle the
+// rest.
+gp::A11yFixOutcome MainWindow::runA11yFix(const gp::A11yFixRequest& request) {
+    gp::A11yFixOutcome out;
+    auto* viewer = pdfViewer();
+    const QString path = viewer ? viewer->filePath() : QString();
+    if (path.isEmpty() || !_ctx || !_ctx->pdfEditor) {
+        out.message = tr("no document open");
+        return out;
+    }
+    // Same-file write: park the resident document (the next resolveDocument
+    // lazily re-loads from disk).
+    _ctx->pdfEditor->releaseResidentFile(path);
+
+    if (request.kind == gp::A11yFixKind::SetFieldTu) {
+        bool required = false;
+        QString err;
+        if (!gp::readFieldRequiredFlag(path, request.fieldName, &required, &err)) {
+            out.message = err.isEmpty() ? tr("cannot read the field") : err;
+            return out;
+        }
+        if (!_ctx->forms
+            || !_ctx->forms->setFieldMetadata(path, request.fieldName,
+                                              request.text, required, path)) {
+            out.message = tr("the form-field transaction refused the /TU write");
+            return out;
+        }
+        out.ok = true;
+        out.message = tr("/TU set on field \"%1\" (required flag preserved)")
+                          .arg(request.fieldName);
+        return out;
+    }
+
+    return gp::applyAccessibilityFix(path, request);
+}
+
 void MainWindow::replaceRight(QWidget* w) {
     auto* row = _modes->parentWidget();
     auto* rowLay = qobject_cast<QHBoxLayout*>(row->layout());
     if (!rowLay) return;
 
     // Hide all known right-side candidates, show only `w`.
-    for (QWidget* candidate : QWidgetList{ _right, _sigPanel, _pdfaPanel, _measurePanel, _ai }) {
+    for (QWidget* candidate : QWidgetList{ _right, _sigPanel, _pdfaPanel, _measurePanel, _a11yPanel, _ai }) {
         if (!candidate) continue;
         if (rowLay->indexOf(candidate) == -1) continue;
         candidate->setVisible(false);

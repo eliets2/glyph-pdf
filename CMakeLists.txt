@@ -387,6 +387,10 @@ add_library(pdfws_engines STATIC
     src/engines/PdfEditorEngine.h    src/engines/PdfEditorEngine.cpp
     src/engines/FormManager.h        src/engines/FormManager.cpp
     src/engines/SafeSave.h           src/engines/SafeSave.cpp
+    # T2-4 accessibility P1: gap DETECTION (checker) + the cheap structural
+    # fixes — no auto-tagging, no PDF/UA conformance claim (disclosed in UI).
+    src/engines/AccessibilityChecker.h src/engines/AccessibilityChecker.cpp
+    src/engines/AccessibilityFixes.h   src/engines/AccessibilityFixes.cpp
     src/engines/formjs/AFormShim.h   src/engines/formjs/AFormShim.cpp
     src/engines/formjs/FormJsSandbox.h src/engines/formjs/FormJsSandbox.cpp
     src/engines/formjs/FormJsRunner.h src/engines/formjs/FormJsRunner.cpp
@@ -978,6 +982,8 @@ add_library(pdfws_ui STATIC
     src/engines/ai/OllamaProvider.h         src/engines/ai/OllamaProvider.cpp
     src/modes/SignaturesPanel.h             src/modes/SignaturesPanel.cpp
     src/modes/PdfAValidationPanel.h         src/modes/PdfAValidationPanel.cpp
+    # T2-4 accessibility P1: checker panel (detection + disclosure only).
+    src/modes/AccessibilityPanel.h          src/modes/AccessibilityPanel.cpp
     src/modes/MeasureMode.h                 src/modes/MeasureMode.cpp
     src/modes/CompressDialog.h              src/modes/CompressDialog.cpp
     src/modes/WatermarkDialog.h             src/modes/WatermarkDialog.cpp
@@ -2256,6 +2262,55 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestReadingOrderAsync.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 60
         LABELS "unit;pdfa;accessibility;reading-order;async;qt;headless"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAccessibilityChecker.cpp")
+    add_executable(TestAccessibilityChecker tests/TestAccessibilityChecker.cpp)
+    target_include_directories(TestAccessibilityChecker PRIVATE src tests)
+    target_link_libraries(TestAccessibilityChecker PRIVATE
+        pdfws_engines pdfws_core
+        Qt6::Test Qt6::Core podofo::podofo
+    )
+    add_test(NAME TestAccessibilityChecker COMMAND TestAccessibilityChecker)
+    set_tests_properties(TestAccessibilityChecker PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;accessibility;a11y-checker;qt;headless"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAccessibilityPanel.cpp")
+    add_executable(TestAccessibilityPanel tests/TestAccessibilityPanel.cpp)
+    target_include_directories(TestAccessibilityPanel PRIVATE src tests)
+    target_link_libraries(TestAccessibilityPanel PRIVATE
+        pdfws_ui pdfws_engines pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_test(NAME TestAccessibilityPanel COMMAND TestAccessibilityPanel)
+    set_tests_properties(TestAccessibilityPanel PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;accessibility;a11y-panel;qt;headless"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAccessibilityFixes.cpp")
+    add_executable(TestAccessibilityFixes tests/TestAccessibilityFixes.cpp)
+    target_include_directories(TestAccessibilityFixes PRIVATE src tests)
+    target_link_libraries(TestAccessibilityFixes PRIVATE
+        pdfws_engines pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_test(NAME TestAccessibilityFixes COMMAND TestAccessibilityFixes)
+    set_tests_properties(TestAccessibilityFixes PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        # Same seam class as TestPrintableSummary: process-global commit
+        # fault + shared SafeSave candidate temp dir — run alone.
+        RUN_SERIAL TRUE
+        LABELS "unit;accessibility;a11y-fixes;qt;headless"
     )
 endif()
 
