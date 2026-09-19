@@ -3,6 +3,9 @@
 #include <QMainWindow>
 #include <functional>
 #include "core/AppContext.h"
+// T2-4 accessibility P1: fix request/outcome types for runA11yFix's signature.
+#include "engines/AccessibilityChecker.h"
+#include "engines/AccessibilityFixes.h"
 
 class PdfViewerWidget;
 class FindBar;
@@ -19,6 +22,7 @@ class Ribbon;
 class ModeStrip;
 class ScreenNav;
 class StatusBar;
+
 class Sidebar;
 class ModeController;
 class AIChatPanel;
@@ -194,6 +198,10 @@ private:
     // T2-4 accessibility P1: same ARC06 re-binding contract as the PDF/A
     // panel — the checker describes the ACTIVE document or nothing.
     void refreshA11yPanel();
+    // T2-4 P1: run one accessibility fix (the panel's injected runner).
+    // Owns resident-document coordination and routes /TU through the
+    // FormManager seam; everything else via applyAccessibilityFix.
+    gp::A11yFixOutcome runA11yFix(const gp::A11yFixRequest& request);
     void initUpdateChecker();
     // §9.16 P1: unified-flow conversions (same engines/progress/failure
     // handling as the Welcome cards in HomeController, minus their pick/save

@@ -96,6 +96,8 @@ void collectImageGaps(PoDoFo::PdfMemDocument& doc, const PdfObject* resources,
                 f.checkId = QStringLiteral("image-alt");
                 f.severity = A11ySeverity::Medium;
                 f.page = pageIdx;
+                f.targetId = QString::fromLatin1(name.GetString().data(),
+                                                 static_cast<qsizetype>(name.GetString().size()));
                 f.where = (pageNamedInWhere
                                ? QStringLiteral("page %1 · image %2%3")
                                      .arg(pageIdx + 1)
@@ -158,6 +160,7 @@ void collectFieldGaps(PoDoFo::PdfMemDocument& doc, const PdfObject* fieldsArray,
                 f.checkId = QStringLiteral("field-tu");
                 f.severity = A11ySeverity::Medium;
                 f.page = -1;
+                f.targetId = fullName;
                 f.where = QStringLiteral("field \"%1\"")
                               .arg(fullName.isEmpty()
                                        ? QStringLiteral("(unnamed)")
@@ -260,7 +263,8 @@ A11yReport scanAccessibility(const QString& path) {
         if (infoObj != nullptr && infoObj->IsDictionary())
             title = stringAt(infoObj->GetDictionary(), "Title");
     }
-    if (title.isEmpty()) {
+    r.hasDocTitle = !title.isEmpty();
+    if (!r.hasDocTitle) {
         A11yFinding f;
         f.checkId = QStringLiteral("doc-title");
         f.severity = A11ySeverity::Medium;

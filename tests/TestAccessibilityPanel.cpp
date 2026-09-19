@@ -83,6 +83,8 @@ private slots:
     void emptyStateIsHonest();
     void defectsProduceSeveritiesAndDisclosure();
     void cleanDocumentNeverClaimsConformance();
+    void fixRunnerReceivesRequestAndRescanHappens();
+    void fixButtonsAppearOnlyWithRunner();
 
 private:
     // Wait for the panel's async scan to deliver (the default-constructed
@@ -162,6 +164,92 @@ void TestAccessibilityPanel::cleanDocumentNeverClaimsConformance() {
              qPrintable(st->text()));
     QVERIFY2(!st->text().contains(QStringLiteral("conform")),
              qPrintable(st->text()));
+}
+
+void TestAccessibilityPanel::fixButtonsAppearOnlyWithRunner() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = tmp.filePath("defective.pdf");
+    QVERIFY(makeDefectivePdf(pdf));  // 5 findings: 3 fixable (lang, ddt, image)
+
+    gp::AccessibilityPanel panel;
+    panel.setDocument(pdf);
+    QVERIFY(waitForScan(&panel));
+    // Without a runner there must be NO fix buttons (never dead controls).
+    const auto namePrefix = QStringLiteral("a11yFixButton_");
+    const auto fixButtonsOf = [&namePrefix](gp::AccessibilityPanel* p) {
+        QList<QPushButton*> out;
+        const auto all = p->findChildren<QPushButton*>();
+        for (QPushButton* b : all)
+            if (b->objectName().startsWith(namePrefix)) out << b;
+        return out;
+    };
+    QVERIFY(fixButtonsOf(&panel).isEmpty());
+
+    gp::A11yFixRequest captured;
+    panel.setFixRunner([&captured](const gp::A11yFixRequest& req) {
+        captured = req;
+        return gp::A11yFixOutcome{true, QStringLiteral("ok")};
+    });
+
+    // Runner set AFTER the scan — force a re-scan to rebuild the rows.
+    panel.setDocument(pdf);
+    QVERIFY(waitForScan(&panel));
+    const QList<QPushButton*> buttons = fixButtonsOf(&panel);
+    QCOMPARE(buttons.size(), 3);  // doc-language + display-doc-title + image-alt
+
+    // The display-doc-title FIX must be DISABLED here: the fixture has no
+    // /Info /Title (honest refusal built into the UI). Findings order:
+    // struct-tree(0), doc-language(1), doc-title(2), display-doc-title(3).
+    for (const QPushButton* b : buttons) {
+        if (b->objectName() == QStringLiteral("a11yFixButton_3")) {
+            QVERIFY2(!b->isEnabled(),
+                     "DisplayDocTitle fix must refuse without a /Title");
+        }
+    }
+}
+
+void TestAccessibilityPanel::fixRunnerReceivesRequestAndRescanHappens() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = tmp.filePath("defective.pdf");
+    QVERIFY(makeDefectivePdf(pdf));
+
+    gp::AccessibilityPanel panel;
+    panel.setDocument(pdf);
+    QVERIFY(waitForScan(&panel));
+
+    gp::A11yFixRequest captured;
+    int calls = 0;
+    bool mutated = false;
+    QObject::connect(&panel, &gp::AccessibilityPanel::documentMutated,
+                     &panel, [&mutated]() { mutated = true; });
+    panel.setFixRunner([&captured, &calls](const gp::A11yFixRequest& req) {
+        ++calls;
+        captured = req;
+        return gp::A11yFixOutcome{true, QStringLiteral("document language set")};
+    });
+
+    gp::A11yFixRequest req;
+    req.kind = gp::A11yFixKind::SetLanguage;
+    req.language = QStringLiteral("de-DE");
+    panel.applyFix(req);
+
+    QCOMPARE(calls, 1);
+    QCOMPARE(captured.kind, gp::A11yFixKind::SetLanguage);
+    QCOMPARE(captured.language, QStringLiteral("de-DE"));
+    QVERIFY(mutated);
+    // Success ⇒ automatic re-scan of the same identity.
+    QCOMPARE(panel.currentDocumentPath(), pdf);
+    QVERIFY(waitForScan(&panel));
+
+    // A failing runner must report the refusal honestly, with no re-scan.
+    panel.setFixRunner([](const gp::A11yFixRequest&) {
+        return gp::A11yFixOutcome{false, QStringLiteral("disk said no")};
+    });
+    panel.applyFix(req);
+    QVERIFY2(statusOf(&panel)->text().contains(QStringLiteral("disk said no")),
+             qPrintable(statusOf(&panel)->text()));
 }
 
 #include "TestAccessibilityPanel.moc"

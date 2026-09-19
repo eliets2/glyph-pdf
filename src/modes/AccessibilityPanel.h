@@ -6,6 +6,7 @@
 #include <QFutureWatcher>
 
 #include "engines/AccessibilityChecker.h"
+#include "engines/AccessibilityFixes.h"
 
 class QLabel;
 class QPushButton;
@@ -39,11 +40,24 @@ public:
     // Read access for tests / wiring.
     const A11yReport& lastReport() const { return m_lastReport; }
 
+    // D2 cheap fixes: the fix runner is INJECTED — the panel never mutates
+    // documents itself; the shell owns resident-document coordination and the
+    // FormManager seam for /TU. Without a runner no fix affordances exist
+    // (never a dead control).
+    void setFixRunner(
+        std::function<A11yFixOutcome(const A11yFixRequest&)> runner);
+
 public slots:
     void setDocument(const QString& path);
+    // One fix, end to end: run it, report the outcome honestly in the status
+    // line, and on success re-scan (setDocument on the same identity).
+    void applyFix(const A11yFixRequest& request);
 
 signals:
     void scanCompleted();
+    // Emitted when a fix succeeded (message is user-presentable) so the host
+    // can surface it in the status bar.
+    void documentMutated(const QString& message);
 
 private slots:
     void runScan();
@@ -52,10 +66,15 @@ private slots:
 private:
     void updateDisplay(const A11yReport& report);
     void clearFindings();
+    // Inline editor row (combo for /Lang, line edit for /Alt and /TU)
+    // inserted under the finding; Apply routes an A11yFixRequest to the
+    // injected runner.
+    void showEditorForFinding(int findingIndex);
 
     QString m_currentDocPath;
     QString m_submittedScanPath;   // ARC06 identity tie for in-flight scans
     A11yReport m_lastReport;
+    std::function<A11yFixOutcome(const A11yFixRequest&)> m_fixRunner;
 
     QFutureWatcher<A11yReport>* m_scanWatcher = nullptr;
 

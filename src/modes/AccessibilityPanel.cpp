@@ -3,8 +3,10 @@
 
 #include "util/GpTheme.h"
 
+#include <QComboBox>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QStringList>
@@ -33,6 +35,25 @@ QString severityName(A11ySeverity s) {
     }
     return {};
 }
+
+// The bounded language list for the /Lang fix — a SHORT curated set with
+// BCP-47 tags; the user picks, the tool never guesses the document language.
+struct LangOption { const char* tag; const char* label; };
+const QVector<LangOption> kLanguages = {
+    { "en",    "English" },
+    { "de-DE", "Deutsch" },
+    { "fr-FR", "Français" },
+    { "es-ES", "Español" },
+    { "it-IT", "Italiano" },
+    { "pt-PT", "Português" },
+    { "nl-NL", "Nederlands" },
+    { "pl-PL", "Polski" },
+    { "tr-TR", "Türkçe" },
+    { "ru-RU", "Русский" },
+    { "ar",    "العربية" },
+    { "ja",    "日本語" },
+    { "zh-CN", "中文（简体）" },
+};
 
 } // namespace
 
@@ -175,6 +196,103 @@ void AccessibilityPanel::clearFindings() {
     m_findingsHeading->hide();
 }
 
+void AccessibilityPanel::setFixRunner(
+    std::function<A11yFixOutcome(const A11yFixRequest&)> runner) {
+    m_fixRunner = std::move(runner);
+}
+
+void AccessibilityPanel::applyFix(const A11yFixRequest& request) {
+    if (!m_fixRunner) return;   // no runner → no fix affordances, no path here
+    const A11yFixOutcome out = m_fixRunner(request);
+    if (out.ok) {
+        emit documentMutated(out.message);
+        m_statusLabel->setText(tr("Fix applied — re-running check…"));
+        // Re-scan the SAME identity so the user sees the finding disappear.
+        setDocument(m_currentDocPath);
+    } else {
+        // Honest refusal — say why, change nothing.
+        m_statusLabel->setText(tr("Fix not applied: %1").arg(out.message));
+    }
+}
+
+void AccessibilityPanel::showEditorForFinding(int findingIndex) {
+    if (findingIndex < 0 || findingIndex >= m_lastReport.findings.size()) return;
+    const A11yFinding& f = m_lastReport.findings.at(findingIndex);
+
+    // Map the finding to a concrete fix request. targetId is the
+    // machine-readable name set by the engine (image resource name or fully
+    // qualified field name).
+    A11yFixRequest req;
+    req.page = f.page;
+    req.resourceName = f.targetId;
+    req.fieldName = f.targetId;
+    if (f.checkId == QStringLiteral("doc-language"))
+        req.kind = A11yFixKind::SetLanguage;
+    else if (f.checkId == QStringLiteral("display-doc-title"))
+        req.kind = A11yFixKind::EnableDisplayDocTitle;
+    else if (f.checkId == QStringLiteral("image-alt"))
+        req.kind = A11yFixKind::SetImageAltText;
+    else if (f.checkId == QStringLiteral("field-tu"))
+        req.kind = A11yFixKind::SetFieldTu;
+    else
+        return;   // struct-tree / doc-title: no cheap fix in P1
+
+    auto* editor = new QFrame;
+    editor->setStyleSheet(
+        "background:#141518; border:1px solid #393b40; padding:6px 8px; margin-bottom:6px;");
+    auto* h = new QHBoxLayout(editor);
+    h->setContentsMargins(0, 0, 0, 0);
+    h->setSpacing(6);
+
+    QComboBox* combo = nullptr;
+    QLineEdit* edit = nullptr;
+    if (req.kind == A11yFixKind::SetLanguage) {
+        combo = new QComboBox(editor);
+        combo->setObjectName(QStringLiteral("a11yLanguageCombo"));
+        for (const LangOption& l : kLanguages)
+            combo->addItem(QString::fromUtf8(l.label), QString::fromUtf8(l.tag));
+        combo->setToolTip(tr("Pick the document's language — the tool never guesses it"));
+        h->addWidget(new QLabel(tr("Language:"), editor), 0);
+        h->addWidget(combo, 1);
+    } else {
+        edit = new QLineEdit(editor);
+        edit->setObjectName(QStringLiteral("a11yAltTextEdit"));
+        edit->setPlaceholderText(req.kind == A11yFixKind::SetFieldTu
+                                     ? tr("Describe what the field is for")
+                                     : tr("Describe the image for screen readers"));
+        h->addWidget(edit, 1);
+    }
+
+    auto* apply = new QPushButton(tr("Apply"), editor);
+    apply->setObjectName(QStringLiteral("a11yApplyFixButton"));
+    auto* cancel = new QPushButton(tr("Cancel"), editor);
+    h->addWidget(apply);
+    h->addWidget(cancel);
+
+    const int row = findingIndex + 1;  // insert directly under the finding
+    m_findingsLayout->insertWidget(row, editor);
+
+    // Values are read from the LIVE widgets at click time (never captured by
+    // reference into a transient frame).
+    connect(apply, &QPushButton::clicked, this, [this, req, combo, edit, editor]() {
+        A11yFixRequest finalReq = req;
+        if (finalReq.kind == A11yFixKind::SetLanguage) {
+            if (!combo) return;
+            finalReq.language = combo->currentData().toString();
+        } else {
+            if (!edit) return;
+            finalReq.text = edit->text().trimmed();
+            if (finalReq.text.isEmpty())
+                return;   // never write an empty /Alt or /TU
+        }
+        editor->deleteLater();
+        applyFix(finalReq);
+    });
+    connect(cancel, &QPushButton::clicked, editor, [editor]() {
+        editor->deleteLater();
+    });
+}
+
 void AccessibilityPanel::updateDisplay(const A11yReport& report) {
     clearFindings();
     m_lastReport = report;
@@ -207,7 +325,9 @@ void AccessibilityPanel::updateDisplay(const A11yReport& report) {
     m_findingsHeading->setText(tr("GAPS · %1").arg(n));
     m_findingsHeading->show();
 
+    int findingIndex = -1;
     for (const A11yFinding& f : report.findings) {
+        ++findingIndex;
         auto* w = new QFrame;
         w->setStyleSheet(
             QString("background:#1a1b1e; border:1px solid #393b40;"
@@ -230,6 +350,43 @@ void AccessibilityPanel::updateDisplay(const A11yReport& report) {
         lbl->setWordWrap(true);
         h->addWidget(dot);
         h->addWidget(lbl, 1);
+
+        // D2 cheap fixes: only when a runner is wired, and only for the four
+        // fixable findings. No runner → no buttons (never dead controls).
+        if (m_fixRunner) {
+            const bool fixable =
+                f.checkId == QStringLiteral("doc-language") ||
+                f.checkId == QStringLiteral("display-doc-title") ||
+                f.checkId == QStringLiteral("image-alt") ||
+                f.checkId == QStringLiteral("field-tu");
+            if (fixable) {
+                auto* fixBtn = new QPushButton(tr("FIX"), w);
+                fixBtn->setObjectName(
+                    QStringLiteral("a11yFixButton_%1").arg(findingIndex));
+                if (f.checkId == QStringLiteral("display-doc-title")) {
+                    // "title from /Info": needs a title to exist. Without one
+                    // the button is disabled and says why — honest refusal.
+                    const bool hasTitle = report.hasDocTitle;
+                    fixBtn->setEnabled(hasTitle);
+                    fixBtn->setToolTip(hasTitle
+                        ? tr("Show the document title in the window title bar")
+                        : tr("No /Title in this document — set one under "
+                             "Document Properties first"));
+                    const A11yFixRequest req{A11yFixKind::EnableDisplayDocTitle,
+                                             QString(), -1, QString(), QString(), QString()};
+                    connect(fixBtn, &QPushButton::clicked, this, [this, req]() {
+                        applyFix(req);
+                    });
+                } else {
+                    fixBtn->setToolTip(tr("Fix this gap"));
+                    const int idx = findingIndex;
+                    connect(fixBtn, &QPushButton::clicked, this, [this, idx]() {
+                        showEditorForFinding(idx);
+                    });
+                }
+                h->addWidget(fixBtn);
+            }
+        }
         m_findingsLayout->addWidget(w);
     }
     m_findingsList->show();

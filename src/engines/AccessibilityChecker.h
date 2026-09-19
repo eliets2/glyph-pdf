@@ -33,6 +33,9 @@ struct A11yFinding {
     QString where;   // human-readable target: "page 3 · image /Im0"
     QString whyNot;  // honest explanation of the gap
     int page = -1;   // 0-based page, -1 = document-level / n/a
+    // Machine-readable target for fixes: image resource name ("Im0") or
+    // fully-qualified field name; empty for document-level findings.
+    QString targetId;
 };
 
 struct A11yReport {
@@ -46,6 +49,10 @@ struct A11yReport {
     int imagesTotal = 0;
     int fieldsReported = 0;
     int fieldsTotal = 0;
+
+    // Whether /Info /Title exists — gates the /DisplayDocTitle fix ("title
+    // from /Info"); the /Title gap itself is fixed via Document Properties.
+    bool hasDocTitle = false;
 
     QList<A11yFinding> findings;
 

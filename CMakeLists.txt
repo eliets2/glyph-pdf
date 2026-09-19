@@ -390,6 +390,7 @@ add_library(pdfws_engines STATIC
     # T2-4 accessibility P1: gap DETECTION (checker) + the cheap structural
     # fixes — no auto-tagging, no PDF/UA conformance claim (disclosed in UI).
     src/engines/AccessibilityChecker.h src/engines/AccessibilityChecker.cpp
+    src/engines/AccessibilityFixes.h   src/engines/AccessibilityFixes.cpp
     src/engines/formjs/AFormShim.h   src/engines/formjs/AFormShim.cpp
     src/engines/formjs/FormJsSandbox.h src/engines/formjs/FormJsSandbox.cpp
     src/engines/formjs/FormJsRunner.h src/engines/formjs/FormJsRunner.cpp
@@ -2246,6 +2247,21 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAccessibilityPanel.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
         LABELS "unit;accessibility;a11y-panel;qt;headless"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAccessibilityFixes.cpp")
+    add_executable(TestAccessibilityFixes tests/TestAccessibilityFixes.cpp)
+    target_include_directories(TestAccessibilityFixes PRIVATE src tests)
+    target_link_libraries(TestAccessibilityFixes PRIVATE
+        pdfws_engines pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_test(NAME TestAccessibilityFixes COMMAND TestAccessibilityFixes)
+    set_tests_properties(TestAccessibilityFixes PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;accessibility;a11y-fixes;qt;headless"
     )
 endif()
 

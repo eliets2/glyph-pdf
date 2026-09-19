@@ -1148,7 +1148,15 @@ void MainWindow::onScreenSelected(const QString& id) {
     } else if (id == "accessibility") {
         // T2-4 accessibility P1: checker panel (detection + disclosure only —
         // no auto-tagging, no PDF/UA claim; the panel carries that wording).
-        if (!_a11yPanel) _a11yPanel = new AccessibilityPanel(this);
+        if (!_a11yPanel) {
+            _a11yPanel = new AccessibilityPanel(this);
+            // Fixes are run by the shell: resident-document coordination and
+            // the FormManager seam for /TU live here, the panel stays a view.
+            _a11yPanel->setFixRunner(
+                [this](const gp::A11yFixRequest& req) { return runA11yFix(req); });
+            connect(_a11yPanel, &AccessibilityPanel::documentMutated, this,
+                    [this](const QString& m) { _status->setOperation(m); });
+        }
         refreshA11yPanel();
         replaceRight(_a11yPanel);
     } else if (id == "measure") {
@@ -1187,6 +1195,46 @@ void MainWindow::refreshA11yPanel() {
     auto* viewer = pdfViewer();
     const QString path = viewer ? viewer->filePath() : QString();
     _a11yPanel->setDocument(path);
+}
+
+// T2-4 P1: the panel's injected fix runner. The shell owns the mutation
+// boundaries — release the resident document before the in-place write
+// (FormsController form-import precedent), route /TU through the EXISTING
+// FormManager field-mutation seam (Required bit preserved via an explicit
+// read), and let applyAccessibilityFix's SafeSave transaction handle the
+// rest.
+gp::A11yFixOutcome MainWindow::runA11yFix(const gp::A11yFixRequest& request) {
+    gp::A11yFixOutcome out;
+    auto* viewer = pdfViewer();
+    const QString path = viewer ? viewer->filePath() : QString();
+    if (path.isEmpty() || !_ctx || !_ctx->pdfEditor) {
+        out.message = tr("no document open");
+        return out;
+    }
+    // Same-file write: park the resident document (the next resolveDocument
+    // lazily re-loads from disk).
+    _ctx->pdfEditor->releaseResidentFile(path);
+
+    if (request.kind == gp::A11yFixKind::SetFieldTu) {
+        bool required = false;
+        QString err;
+        if (!gp::readFieldRequiredFlag(path, request.fieldName, &required, &err)) {
+            out.message = err.isEmpty() ? tr("cannot read the field") : err;
+            return out;
+        }
+        if (!_ctx->forms
+            || !_ctx->forms->setFieldMetadata(path, request.fieldName,
+                                              request.text, required, path)) {
+            out.message = tr("the form-field transaction refused the /TU write");
+            return out;
+        }
+        out.ok = true;
+        out.message = tr("/TU set on field \"%1\" (required flag preserved)")
+                          .arg(request.fieldName);
+        return out;
+    }
+
+    return gp::applyAccessibilityFix(path, request);
 }
 
 void MainWindow::replaceRight(QWidget* w) {
