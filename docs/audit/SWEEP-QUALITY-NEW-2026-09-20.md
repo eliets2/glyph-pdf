@@ -116,4 +116,23 @@ Filled in §Fixes-log at the bottom after the runs (kept in .context/sweep-quali
 
 ## Fixes-log
 
-- (appended per commit; see git log)
+- `0c1aeab` refactor(core,engines) — D1/D2/N3: `VersionedJson::atomicWrite` (new core
+  module) behind `BatchPresetStore::save`/`rename` (identical message contract);
+  `PoFoDictRead.h` shared `resolve`/`stringAt` for AccessibilityChecker/AccessibilityFixes;
+  TestSendForSigning `RUN_SERIAL` registration.
+- `288c281` test(policy,support) — P1/P2 pins + this doc.
+
+### Suites before → after (offscreen, `-o txt`, serial; raw outputs in `.context/results/`)
+
+| Suite | Before | After |
+|-------|--------|-------|
+| TestBatchPresets | 14 passed, 0 failed | 14 passed, 0 failed |
+| TestAccessibilityChecker | 10 / 0 | 10 / 0 |
+| TestAccessibilityFixes | 9 / 0 | 9 / 0 |
+| TestSupportBundle | 9 / 0 | 9 / 0 |
+| TestPolicyController | 12 / 0 | **13** / 0 (new env-seam pin) |
+| TestSendForSigning | 12 / 0 | 12 / 0 |
+| TestAccessibilityPanel (adjacent) | — | 7 / 0 |
+| TestBatchMode (adjacent, store consumer) | — | 17 / 0 |
+
+Zero behavior change on every pre-existing suite; the only delta is the added P1 pin.
