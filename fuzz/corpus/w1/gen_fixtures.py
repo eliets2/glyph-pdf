@@ -70,8 +70,12 @@ def name_obj(s: str) -> bytes:
 
 
 def page(res: str = "", extra: str = "") -> bytes:
-    return name_obj(f"/Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] "
-                    f"/Resources {res} {extra}")
+    parts = ["/Type /Page", "/Parent 2 0 R", "/MediaBox [0 0 200 200]"]
+    if res:
+        parts.append(f"/Resources {res}")
+    if extra:
+        parts.append(extra)
+    return name_obj(" ".join(parts))
 
 
 # ═══════════════════════════════════ S1: signreq ═══════════════════════════
