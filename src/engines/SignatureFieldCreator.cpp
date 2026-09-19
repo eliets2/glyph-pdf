@@ -131,15 +131,17 @@ bool SignatureFieldCreator::createSignatureFields(const QString &srcPath,
                 s.fieldName.toStdString(),
                 PoDoFo::Rect(userRect.x(), userRect.y(),
                              userRect.width(), userRect.height()));
-            // PoDoFo 1.1.0's CreateField<PdfSignature> pre-creates the /V
-            // signature dictionary with a PLACEHOLDER /ByteRange (the pre-sign
-            // beacon shape /ByteRange[0 1234567890 …]). Left in place, every
-            // consumer — validateSignatures and SignatureManager's own
-            // unsigned-field scan — would classify the fresh field as
-            // ALREADY SIGNED. An empty signature field is the honest prepared
-            // state: drop the placeholder /V (it can sit on the field dict,
-            // the widget dict, or both); the engine recreates it at the real
-            // signing step (EnsureValueObject).
+            // DEFENSE-IN-DEPTH (negative-control-verified no-op on PoDoFo
+            // 1.1.0: CreateField<PdfSignature> creates NO /V — the value
+            // object appears only at the real signing step via
+            // EnsureValueObject). Other PoDoFo writer versions are known to
+            // pre-create a placeholder /V (pre-sign beacon shape
+            // /ByteRange[0 1234567890 …]); left in place, every engine
+            // consumer would classify the fresh field as ALREADY SIGNED. The
+            // honest prepared state is UNSIGNED: drop any placeholder /V (it
+            // can sit on the field dict, the widget dict, or both) — and the
+            // post-save validation below refuses the candidate if one
+            // survived anyway.
             field.GetDictionary().RemoveKey(PoDoFo::PdfName("V"));
             if (auto *widget = field.GetWidget())
                 widget->GetDictionary().RemoveKey(PoDoFo::PdfName("V"));
