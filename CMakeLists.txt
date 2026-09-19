@@ -382,6 +382,10 @@ add_library(pdfws_engines STATIC
     src/core/CredentialManager.h     src/core/CredentialManager.cpp
     src/core/ISecretStore.h
     src/core/BatchPreset.h           src/core/BatchPreset.cpp
+    # Shared versioned-JSON file mechanics (SWEEP-QUALITY-NEW D1): the one
+    # atomic artifact write behind BatchPreset store files / signing-request
+    # sidecars / policy.json (fail-closed envelope laws stay per-surface).
+    src/core/VersionedJson.h         src/core/VersionedJson.cpp
     src/core/EncryptedFileSecretStore.h src/core/EncryptedFileSecretStore.cpp
     src/engines/OcrEngine.h          src/engines/OcrEngine.cpp
     src/engines/PdfEditorEngine.h    src/engines/PdfEditorEngine.cpp
@@ -389,6 +393,8 @@ add_library(pdfws_engines STATIC
     src/engines/SafeSave.h           src/engines/SafeSave.cpp
     # T2-4 accessibility P1: gap DETECTION (checker) + the cheap structural
     # fixes — no auto-tagging, no PDF/UA conformance claim (disclosed in UI).
+    # PoFoDictRead.h: shared read-only PoDoFo dictionary helpers (D2).
+    src/engines/PoFoDictRead.h
     src/engines/AccessibilityChecker.h src/engines/AccessibilityChecker.cpp
     src/engines/AccessibilityFixes.h   src/engines/AccessibilityFixes.cpp
     src/engines/formjs/AFormShim.h   src/engines/formjs/AFormShim.cpp
@@ -1544,6 +1550,11 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSendForSigning.cpp")
     set_tests_properties(TestSendForSigning PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 240
+        # FU-2 seam class (same as TestPrintableSummary/TestAccessibilityFixes):
+        # the suite counts the SHARED %TEMP%/glyphpdf-candidates dir
+        # (leftover-candidate leak pin), so a concurrent SafeSave suite would
+        # perturb the count — run alone.
+        RUN_SERIAL TRUE
         LABELS "integration;security;signatures;workflow;qt;headless"
     )
 endif()
