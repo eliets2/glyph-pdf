@@ -19,6 +19,7 @@
 #include "shell/controllers/FormsController.h"
 #include "shell/controllers/SecurityController.h"
 #include "shell/controllers/CertEncryptController.h"   // N17
+#include "shell/controllers/SendForSigningController.h"   // S4S P1
 #include "shell/controllers/TaskNavController.h"   // R15: task-surface routes
 
 class TestRibbonIntegrity : public QObject {
@@ -37,10 +38,11 @@ private slots:
         gp::FormsController    forms(&m_ctx, nullptr);
         gp::SecurityController security(&m_ctx, nullptr);
         gp::CertEncryptController certEncrypt(&m_ctx, nullptr);   // N17
+        gp::SendForSigningController sendForSigning(&m_ctx, nullptr);   // S4S P1
         gp::TaskNavController  taskNav(&m_ctx, nullptr);   // R15: task-surface routes
 
         QVector<IToolController*> controllers = {
-            &home, &view, &edit, &pages, &convert, &forms, &security, &certEncrypt, &taskNav
+            &home, &view, &edit, &pages, &convert, &forms, &security, &certEncrypt, &sendForSigning, &taskNav
         };
 
         // Collect all ToolIds that have at least one controller
