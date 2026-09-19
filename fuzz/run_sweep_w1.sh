@@ -33,10 +33,10 @@ export TMPDIR="$(cygpath -w "$SCRATCH")"
 export QT_QPA_PLATFORM=offscreen
 export QT_LOGGING_RULES="*.debug=false"
 
-# Runtime DLLs: Qt6/leptonica/etc from ucrt64, vendored podofo + pdfium from
-# wherever the build deployed them.
+# Runtime DLLs: the build dir FIRST (vendored podofo 1.1.0 + pdfium DLLs are
+# staged there — the ucrt64 system libpodofo.dll must never win), then Qt/etc.
 for d in "$ROOT/build-fz" "$ROOT/third_party/podofo/install/bin" \
-         "$ROOT/third_party/pdfium"; do
+         "$ROOT/third_party/pdfium" "/c/msys64/ucrt64/bin"; do
   [ -d "$d" ] && PATH="$d:$PATH"
 done
 export PATH
