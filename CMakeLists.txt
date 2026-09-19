@@ -5085,3 +5085,22 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSep13LeadComparePerf.cpp")
         LABELS "unit;modes;compare;perf;sep13leads;qt;headless"
     )
 endif()
+
+# ── SWEEP-W1 ADVERSARY (2026-09-19) — failing repros + probes ────────────────
+# REVIEW-ONLY round: these suites prove (or refute) the sweep's hostile-input
+# findings. Tests are expected to FAIL until the corresponding defect is
+# fixed; probes pin defended behavior. Do not "fix the tests" — fix the code.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSweepW1PresetAdversary.cpp")
+    add_executable(TestSweepW1PresetAdversary tests/TestSweepW1PresetAdversary.cpp)
+    target_include_directories(TestSweepW1PresetAdversary PRIVATE src tests)
+    target_link_libraries(TestSweepW1PresetAdversary PRIVATE
+        pdfws_ui pdfws_engines pdfws_core
+        Qt6::Test Qt6::Core Qt6::Gui
+    )
+    add_test(NAME TestSweepW1PresetAdversary COMMAND TestSweepW1PresetAdversary)
+    set_tests_properties(TestSweepW1PresetAdversary PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;batch;presets;adversary;sweep-w1;qt;headless"
+    )
+endif()
