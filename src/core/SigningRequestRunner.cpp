@@ -130,6 +130,49 @@ SigningRequestRunner::Refusal SigningRequestRunner::precheck(SignatureManager &s
             return r;
         }
     }
+    // W1-03 — the engine's GLOBAL one-unsigned-field precondition, consulted
+    // HERE, before any mutation. SignatureManager's D6 post-condition fails
+    // every sign whose document still contains ANY unsigned signature field
+    // (an unsigned field validates with integrityIntact=false), and the step
+    // can consume exactly one field — its own bound one (existing unsigned, or
+    // lazily created at the anchor). The binding gate above validates only the
+    // ENTRY; an unsigned field that NO entry binds makes every remaining step
+    // of this request unfulfillable, and running the step anyway used to
+    // mutate the document first (lazy placement wrote the anchored field onto
+    // docPath) and then fail forever — a polluted document plus a permanent
+    // deadlock behind a lying "the document is unchanged" error.
+    // Scope: a field bound by ANOTHER entry of this request is the request's
+    // own business (advisory order — precheck accepts, and the engine remains
+    // the honest backstop that fails without claiming anything); only an
+    // UNMANAGED unsigned field refuses here. Pure read — on refusal the
+    // document is byte-identical and the request surfaces an actionable,
+    // non-deadlocked state instead of an engine error loop.
+    {
+        QSet<QString> unsignedFields;
+        for (const auto &a : anchors)
+            unsignedFields.insert(a.fieldName.trimmed());
+        for (const SignatureInfo &info : infos)
+            if (isSignedEntry(info))
+                unsignedFields.remove(info.fieldName.trimmed());
+        QStringList managed;
+        for (const SigningRequestModel::Signer &s : in.model.signers)
+            managed << s.fieldName.trimmed();
+        QString offender;
+        for (const QString &f : unsignedFields) {
+            if (!managed.contains(f)) { offender = f; break; }
+        }
+        if (!offender.isEmpty()) {
+            r.code = StepRefusal::ForeignUnsignedField;
+            r.message = QStringLiteral(
+                "The document contains an unsigned signature field (%1) that "
+                "no signer of this request is bound to. The signing engine "
+                "refuses to sign while any unsigned field remains, so this "
+                "step can never succeed and nothing has been changed — the "
+                "request stays blocked until that field is removed or signed "
+                "outside this request.").arg(offender);
+            return r;
+        }
+    }
     return r;
 }
 

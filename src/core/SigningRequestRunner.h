@@ -63,7 +63,11 @@ public:
         DocumentChanged,   // bytes differ from prepared AND reconfirmed hashes
         MissingField,      // bound field does not exist and no anchor to create it
         FieldAlreadySigned, // the bound field already carries a signature
-        FieldCreateFailed  // the step's own anchored field could not be created
+        FieldCreateFailed, // the step's own anchored field could not be created
+        ForeignUnsignedField // W1-03: an unsigned field NO entry binds survives
+                             // on the document — the engine's one-unsigned-field
+                             // precondition can never be met for this request;
+                             // refused in precheck, before any mutation
     };
     struct Refusal {
         StepRefusal code = StepRefusal::None;
