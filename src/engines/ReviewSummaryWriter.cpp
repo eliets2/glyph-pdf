@@ -141,6 +141,67 @@ QStringList wrapText(const QString& text, int maxChars) {
     return lines;
 }
 
+// ── W1-04: per-string encoding sanitizer at the ONE draw boundary ────────────
+// The writer draws through PoDoFo 1.1.0's standard-14 Helvetica (WinAnsi /
+// CP1252). A per-string encoding fault there THROWS
+// (PdfErrorCode::InvalidFontData, "The provided string can't be converted to
+// CID encoding") and used to abort the ENTIRE export because one comment
+// carried a TAB (0x09), another C0 control, CJK text or an emoji — ordinary
+// annotation content, no malice required. The honest failure mode degrades
+// the STRING, never the FILE: every codepoint the WinAnsi table cannot
+// encode is replaced 1:1 before it reaches the font —
+//   TAB / CR / LF      → space (whitespace stays whitespace in print)
+//   NUL and the rest
+//   of the C0/C1 range,
+//   DEL, noncharacters,
+//   surrogates, all
+//   non-WinAnsi text   → '?' (a visible hole, counted for disclosure)
+// and the draw site reports the substitution total so the artifact carries an
+// explicit "shown as ?" note instead of silently mangling content. Kept
+// verbatim: printable ASCII, the Latin-1 supplement (0xA0-0xFF, identical in
+// CP1252) and the 27 CP1252-specific codepoints (€, typographic quotes,
+// dashes, ‰ …) — a document reviewed in Western European text loses nothing.
+// 1:1 replacement is deliberate: the wrap/pagination bounds are char-counted.
+struct WinAnsiSafeString {
+    QString text;
+    int substituted = 0;
+};
+
+WinAnsiSafeString sanitizeForStandard14(const QString& in) {
+    static const char16_t kCp1252Specials[] = {
+        0x20AC, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6,
+        0x2030, 0x0160, 0x2039, 0x0152, 0x017D, 0x2018, 0x2019, 0x201C,
+        0x201D, 0x2022, 0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A,
+        0x0153, 0x017E, 0x0178 };
+    static const QSet<char16_t> kSpecials = [] {
+        QSet<char16_t> s;
+        for (char16_t c : kCp1252Specials) s.insert(c);
+        return s;
+    }();
+
+    WinAnsiSafeString out;
+    out.text.reserve(in.size());
+    for (const QChar& qc : in) {
+        const char16_t ch = qc.unicode();
+        bool keep = false;
+        if (ch == 0x09 || ch == 0x0A || ch == 0x0D) {
+            out.text += QLatin1Char(' ');          // whitespace → whitespace
+            ++out.substituted;
+            continue;
+        }
+        if (ch >= 0x20 && ch <= 0x7E) keep = true;             // printable ASCII
+        else if (ch >= 0xA0 && ch <= 0xFF) keep = true;        // Latin-1 = CP1252 here
+        else if (kSpecials.contains(ch)) keep = true;          // CP1252 specials
+        if (keep) {
+            out.text += qc;
+        } else {
+            out.text += QLatin1Char('?');   // NUL, C0/C1 rest, DEL, CJK, emoji…
+            ++out.substituted;
+        }
+    }
+    return out;
+}
+
 // Renders the summary into the document already attached to the painter's
 // canvas stream: header block, redaction-proof availability line, table of
 // entries, numbered entries grouped by page. Footers are stamped later in a
@@ -158,9 +219,16 @@ void renderSummaryDocument(PoDoFo::PdfMemDocument& doc,
 
     double y = kPageH - kMargin;
 
+    // W1-04: substitution accounting for the honesty note — every draw goes
+    // through drawLine (or the sanitized footers below), so the count covers
+    // the whole artifact.
+    int substitutedTotal = 0;
+
     auto drawLine = [&](const QString& text, PoDoFo::PdfFont* font, double size) {
+        const WinAnsiSafeString safe = sanitizeForStandard14(text);
+        substitutedTotal += safe.substituted;
         painter.TextState.SetFont(*font, size);
-        painter.DrawText(text.toUtf8().constData(), kMargin, y);
+        painter.DrawText(safe.text.toUtf8().constData(), kMargin, y);
         y -= kLineStep;
     };
     auto ensureRoom = [&](double needed) {
@@ -261,6 +329,17 @@ void renderSummaryDocument(PoDoFo::PdfMemDocument& doc,
         drawLine(QObject::tr("No comments in the selected scope."), regular, kBodySize);
     }
 
+    // W1-04 honesty note: content the printable font cannot carry was
+    // substituted — disclose it in the artifact instead of silently mangling
+    // (or, before the fix, aborting the whole export over one string).
+    if (substitutedTotal > 0) {
+        ensureRoom(kLineStep);
+        drawLine(QObject::tr("Note: %1 character(s) could not be rendered in the "
+                             "printable summary font and are shown as \"?\".")
+                     .arg(substitutedTotal),
+                 regular, kBodySize);
+    }
+
     painter.FinishDrawing();
 
     // ── Sheet footers ────────────────────────────────────────────────────
@@ -277,7 +356,12 @@ void renderSummaryDocument(PoDoFo::PdfMemDocument& doc,
             auto& page = doc.GetPages().GetPageAt(i);
             footerPainter.SetCanvas(page);
             footerPainter.TextState.SetFont(*regular, 8);
-            footerPainter.DrawText(footerLeft.toUtf8().constData(),
+            // W1-04: the footer names the reviewed document — same sanitizing
+            // rule as the body, so a hostile/non-Latin title can neither
+            // abort the export nor corrupt the footer stream.
+            const WinAnsiSafeString footerLeftSafe =
+                sanitizeForStandard14(footerLeft);
+            footerPainter.DrawText(footerLeftSafe.text.toUtf8().constData(),
                                    kMargin, kMargin / 2.0);
             const QString footerRight = QObject::tr("Page %1 of %2").arg(i + 1).arg(totalPages);
             footerPainter.DrawText(footerRight.toUtf8().constData(),
