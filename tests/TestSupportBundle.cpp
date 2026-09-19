@@ -106,6 +106,15 @@ private slots:
         QCoreApplication::setApplicationName(QStringLiteral("TestSupportBundle"));
         QCoreApplication::setApplicationVersion(QStringLiteral("9.9.9"));
         QVERIFY(m_dir.isValid());
+        // HERMETICITY (SWEEP-QUALITY-NEW P2): buildFromSettings() consults the
+        // policy singleton (ensureLoaded). Without this env override the suite
+        // would read whatever policy.json exists on the RUNNER machine
+        // (GenericDataLocation/GlyphPDF/policy.json), making the bundle's
+        // policy section machine-dependent. Point the env test seam at a
+        // controlled absent file: every test sees the deterministic NoPolicy
+        // state unless it loads an explicit fixture path itself.
+        qputenv("GLYPHPDF_POLICY_PATH",
+                m_dir.filePath(QStringLiteral("no-policy-here.json")).toUtf8());
     }
 
     void init()

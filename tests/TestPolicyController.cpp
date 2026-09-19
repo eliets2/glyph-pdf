@@ -66,8 +66,9 @@ class TestPolicyController : public QObject {
 
     QTemporaryDir m_dir;
 
-    // Loads `root` as the machine policy via the env-var seam (the production
-    // default path %PROGRAMDATA%/GlyphPDF/policy.json must never be touched).
+    // Loads `root` as the machine policy via an EXPLICIT load(path) — the
+    // production default path is never touched. (The env-var seam itself is
+    // pinned separately below: defaultPolicyPathHonorsEnvSeam.)
     bool loadPolicy(const QJsonObject& root)
     {
         const QString path = m_dir.filePath(QStringLiteral("policy.json"));
@@ -135,6 +136,30 @@ private slots:
         // The honest status line names where the app looked.
         QVERIFY(pc.statusLine().contains(QStringLiteral("policy"),
                                          Qt::CaseInsensitive));
+    }
+
+    // ── Pin: the default-path env seam (SWEEP-QUALITY-NEW P1) ────────────
+    // GLYPHPDF_POLICY_PATH decides the production default path; every
+    // ensureLoaded() consumer (support bundle, Preferences status line)
+    // rides on it. Pin the seam so it can never silently break.
+    void defaultPolicyPathHonorsEnvSeam()
+    {
+        const QString envPath =
+            m_dir.filePath(QStringLiteral("env-seam-policy.json"));
+        qputenv("GLYPHPDF_POLICY_PATH", envPath.toUtf8());
+        QCOMPARE(PolicyController::defaultPolicyPath(), envPath);
+
+        // Without the variable: the machine default location — assert the
+        // SHAPE (never an absolute pin; GenericDataLocation is per-machine).
+        qunsetenv("GLYPHPDF_POLICY_PATH");
+        const QString fallback = PolicyController::defaultPolicyPath();
+        QVERIFY(fallback.endsWith(QStringLiteral("GlyphPDF/policy.json")));
+        QVERIFY(fallback != envPath);
+
+        // An EMPTY value means "no override" for the production reader —
+        // leave the environment in that neutral state for later slots.
+        qputenv("GLYPHPDF_POLICY_PATH", "");
+        QCOMPARE(PolicyController::defaultPolicyPath(), fallback);
     }
 
     // ── Pin 2: the consumption seam ──────────────────────────────────────
