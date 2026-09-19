@@ -377,6 +377,11 @@ add_library(pdfws_engines STATIC
     src/core/ErrorInfo.h             src/core/ErrorInfo.cpp
     src/core/PageLabels.h            src/core/PageLabels.cpp
     src/core/Capability.h            src/core/Capability.cpp
+    # R24 wiring closure: machine policy lives BELOW the UI layer so the
+    # engine-layer enforcement points (OcrEngine download gate) can honor it
+    # directly; pdfws_ui consumers (PreferencesDialog, GpMainWindow,
+    # SupportBundle, NetworkTouchpoints, OllamaProvider) link it transitively.
+    src/core/PolicyController.h      src/core/PolicyController.cpp
     src/core/FormStaleFieldTracker.h src/core/FormStaleFieldTracker.cpp
     src/core/TempFileManager.h       src/core/TempFileManager.cpp
     src/core/CredentialManager.h     src/core/CredentialManager.cpp
@@ -912,10 +917,6 @@ add_library(pdfws_ui STATIC
     src/ui/ExportPresetsPanel.h      src/ui/ExportPresetsPanel.cpp
 
     src/core/UpdateChecker.h         src/core/UpdateChecker.cpp
-
-    # R24(a): machine-level policy — overrides bounded user prefs, override
-    # always visible in Preferences (never silently).
-    src/core/PolicyController.h      src/core/PolicyController.cpp
 
     # R24(b): redacted support bundle (counts only, no paths/PDF content).
     src/core/SupportBundle.h         src/core/SupportBundle.cpp
@@ -4361,6 +4362,24 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPolicyController.cpp")
     set_tests_properties(TestPolicyController PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
+        LABELS "unit;policy;r24;qt;headless"
+    )
+endif()
+
+# R24 wiring closure: the four "enforcement pending" policy keys pinned at
+# their REAL enforcement points (startup update check/channel, Ollama
+# endpoint gate, OCR download gate) + the network page's policy-aware rows.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPolicyWiring.cpp")
+    add_executable(TestPolicyWiring tests/TestPolicyWiring.cpp)
+    target_include_directories(TestPolicyWiring PRIVATE src tests)
+    target_link_libraries(TestPolicyWiring PRIVATE
+        pdfws_ui pdfws_engines pdfws_core
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network
+    )
+    add_test(NAME TestPolicyWiring COMMAND TestPolicyWiring)
+    set_tests_properties(TestPolicyWiring PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 300
         LABELS "unit;policy;r24;qt;headless"
     )
 endif()

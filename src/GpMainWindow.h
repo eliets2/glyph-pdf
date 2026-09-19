@@ -94,6 +94,16 @@ public:
         }
     };
     static DropPlan planDrop(const QStringList& localPaths);
+
+    // ── R24 wiring closure: startup update decisions ──────────────────────
+    // The machine policy (PolicyController) overrides the stored user prefs
+    // AT these decision points — initUpdateChecker consults exactly these
+    // functions, so the observable startup behavior honors the policy even
+    // when the user preference says otherwise. Factored out as statics so
+    // the decision is testable without instantiating a full MainWindow.
+    static bool startupUpdateCheckEnabled();
+    static QString startupUpdateChannel();
+
     // Navigate to a named screen (delegates to onScreenSelected).
     // Usable by controllers that hold a MainWindow* but not ModeController*.
     void activateScreen(const QString& id);

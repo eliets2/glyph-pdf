@@ -10,12 +10,17 @@
 #include <QJsonObject>
 #include <QSettings>
 
+#include "core/PolicyController.h"  // R24 wiring: effective-value disclosure
+
 namespace gp {
 
 QList<NetworkTouchpoint> NetworkTouchpoints::enumerate(QSettings& s)
 {
     QList<NetworkTouchpoint> out;
 
+    // R24 wiring closure: the states below are derived from the EFFECTIVE
+    // values (machine policy over the passed user settings) — under a policy
+    // this page must not show the user's raw preference as the state.
     // 1. OllamaProvider — local AI chat. POSTs to the user-configured
     //    endpoint (default http://localhost:11434) only when AI Chat or
     //    Preferences → Test connection is used. No consent switch exists:
@@ -74,9 +79,16 @@ QList<NetworkTouchpoint> NetworkTouchpoints::enumerate(QSettings& s)
 
     // 4. UpdateChecker — manifest GET (HTTPS enforced). The startup leg is
     //    governed by update/checkOnStartup (default OFF); Check Now in
-    //    Preferences is manual on demand.
+    //    Preferences is manual on demand. R24 wiring: the machine policy
+    //    overrides the stored preference at the decision point
+    //    (MainWindow::initUpdateChecker), so the state follows the policy.
+    auto& policy = PolicyController::instance();
+    policy.ensureLoaded();
     const bool updateOnStartup =
-        s.value(QStringLiteral("update/checkOnStartup"), false).toBool();
+        policy
+            .effectiveValue(QStringLiteral("update/checkOnStartup"),
+                            s.value(QStringLiteral("update/checkOnStartup"), false))
+            .toBool();
     out.append(NetworkTouchpoint{
         QStringLiteral("update-check"),
         QObject::tr("Update check"),
@@ -94,9 +106,13 @@ QList<NetworkTouchpoint> NetworkTouchpoints::enumerate(QSettings& s)
     // 5. OcrEngine downloadTrainedData — only when a Tesseract language pack
     //    is missing AND ocr/allowNetworkDownload is ON (default OFF).
     //    Bundled / AppData packs are used first, so OCR normally needs no
-    //    network at all.
+    //    network at all. R24 wiring: the machine policy overrides the stored
+    //    preference at the engine's model-load gate.
     const bool ocrDownload =
-        s.value(QStringLiteral("ocr/allowNetworkDownload"), false).toBool();
+        policy
+            .effectiveValue(QStringLiteral("ocr/allowNetworkDownload"),
+                            s.value(QStringLiteral("ocr/allowNetworkDownload"), false))
+            .toBool();
     out.append(NetworkTouchpoint{
         QStringLiteral("ocr-traineddata"),
         QObject::tr("OCR language-pack download"),

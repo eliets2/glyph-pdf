@@ -16,6 +16,8 @@
 #include <QSettings>
 #include <QCoreApplication>
 
+#include "core/PolicyController.h"  // R24 wiring: ai/ollamaEndpoint gate
+
 namespace gp {
 
 // N-1 FIX: Only localhost/loopback or HTTPS endpoints are permitted.
@@ -98,7 +100,19 @@ static bool isAllowedEndpoint(const QUrl& url)
     return true;
 }
 
-static QString resolveEndpoint(const QString& supplied) {
+// OllamaProvider::resolveEndpoint — declared in the header (R24 wiring
+// closure: the ONE endpoint gate). The machine policy (ai/ollamaEndpoint)
+// overrides the stored user pref here:
+//   * policy-managed with a non-empty value → that value IS the endpoint
+//     (validated by the unchanged R04 guard);
+//   * policy-managed with an EMPTY value → AI chat is disabled for the
+//     machine: the endpoint resolves to EMPTY — no silent fallback to the
+//     user's endpoint or the default (that would defeat the admin's choice);
+//     isReady() reports honestly unavailable and chat() refuses with a
+//     whyNot naming the policy;
+//   * not managed → the stored user pref exactly as before (invalid stored
+//     endpoint still falls back to the safe default).
+QString OllamaProvider::resolveEndpoint(const QString& supplied) {
     if (!supplied.isEmpty()) {
         // R04: an invalid user-supplied endpoint must fail loudly — silently
         // connecting to the stored/default endpoint instead would be a
@@ -107,8 +121,18 @@ static QString resolveEndpoint(const QString& supplied) {
             return supplied;
         return QString();
     }
-    const QString storedEndpoint = QSettings().value("ai/ollamaEndpoint",
-                             QStringLiteral("http://localhost:11434")).toString();
+    auto& policy = gp::PolicyController::instance();
+    policy.ensureLoaded();
+    const QString storedEndpoint = policy
+        .effectiveValue(QStringLiteral("ai/ollamaEndpoint"),
+                        QSettings().value("ai/ollamaEndpoint",
+                                          QStringLiteral("http://localhost:11434")))
+        .toString();
+    // R24 wiring: a policy-managed EMPTY endpoint means "AI disabled" —
+    // honor it instead of falling back to a default the admin overrode.
+    if (policy.isManaged(QStringLiteral("ai/ollamaEndpoint"))
+        && storedEndpoint.trimmed().isEmpty())
+        return QString();
     const QUrl endpointUrl(storedEndpoint);
     if (!isAllowedEndpoint(endpointUrl)) {
         qWarning() << "R04: Stored Ollama endpoint is not allowed:" << storedEndpoint
@@ -134,7 +158,21 @@ QFuture<AiResult> OllamaProvider::chat(const QList<AiMessage>& history,
         qWarning() << "R04: Request blocked — endpoint failed validation:"
                    << m_endpoint;
         const QString supplied = m_endpoint;
-        return QtConcurrent::run([supplied]() -> AiResult {
+        // R24 wiring: distinguish the machine-policy disable from a merely
+        // missing configuration — the whyNot must NAME the policy.
+        auto& policy = gp::PolicyController::instance();
+        policy.ensureLoaded();
+        const bool disabledByPolicy =
+            supplied.isEmpty() && endpoint.isEmpty()
+            && policy.isManaged(QStringLiteral("ai/ollamaEndpoint"))
+            && policy.policyValue(QStringLiteral("ai/ollamaEndpoint"))
+                   .toString().trimmed().isEmpty();
+        return QtConcurrent::run([supplied, disabledByPolicy]() -> AiResult {
+            if (disabledByPolicy)
+                return {false, {},
+                        QStringLiteral("AI chat is disabled by machine policy "
+                                       "(ai/ollamaEndpoint is empty in the deployed "
+                                       "policy.json — ask your administrator).")};
             if (supplied.isEmpty())
                 return {false, {},
                         QStringLiteral("Ollama endpoint is not configured "
