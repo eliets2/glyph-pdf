@@ -29,6 +29,8 @@ const QVector<TaskSpec>& TaskNav::tasks() {
         { "form",      "Form Builder",TaskKind::Workspace, ToolId::CreateForm, false, "form",    "Forms"    },
         { "compress",  "Compress",    TaskKind::Dialog,    ToolId::Compress,   true,  "",        "Convert"  },
         { "pdfa",      "PDF/A",       TaskKind::Panel,     ToolId::COUNT,      false, "",        "Convert"  },
+        // T2-4 accessibility P1: checker panel (detection + disclosure only).
+        { "accessibility", "Accessibility", TaskKind::Panel, ToolId::COUNT,    false, "",        ""         },
         { "watermark", "Watermark",   TaskKind::Dialog,    ToolId::Watermark,  true,  "",        "Organize" },
     };
     return table;

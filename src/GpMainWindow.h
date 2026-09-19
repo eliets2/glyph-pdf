@@ -25,6 +25,7 @@ class AIChatPanel;
 class SignaturesPanel;
 class PdfAValidationPanel;
 class MeasureMode;
+class AccessibilityPanel;
 
 class HomeController;
 class ViewController;
@@ -175,6 +176,7 @@ private:
     SignaturesPanel* _sigPanel   = nullptr;
     PdfAValidationPanel* _pdfaPanel = nullptr;
     MeasureMode* _measurePanel = nullptr;
+    AccessibilityPanel* _a11yPanel = nullptr;   // T2-4 accessibility P1
     UpdateChecker*  _updater     = nullptr;
     QFrame*         _updateBar   = nullptr;
     bool            _aiVisible   = false;
@@ -189,6 +191,9 @@ private:
     // refresh it on successful document changes while the panel is the
     // active right panel. Empty path = the honest "No document loaded." state.
     void refreshPdfAPanel();
+    // T2-4 accessibility P1: same ARC06 re-binding contract as the PDF/A
+    // panel — the checker describes the ACTIVE document or nothing.
+    void refreshA11yPanel();
     void initUpdateChecker();
     // §9.16 P1: unified-flow conversions (same engines/progress/failure
     // handling as the Welcome cards in HomeController, minus their pick/save
