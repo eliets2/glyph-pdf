@@ -4,6 +4,7 @@
 #include "core/PolicyController.h"
 #include "core/SupportBundle.h"
 #include "core/NetworkTouchpoints.h"
+#include "ui/OcspConsentDialog.h"  // R24 wiring closure: OCSP consent key
 #include "GpMainWindow.h"
 #include "core/AppContext.h"
 #include "engines/AutosaveManager.h"
@@ -510,11 +511,40 @@ PreferencesDialog::PreferencesDialog(QWidget* parent)
     if (policy.isManaged(QStringLiteral("signing/padesLevel")))
         markManaged(signForm, _padesLevelCombo);
 
+    // R24 wiring closure: the OCSP network consent switch — the gap the
+    // network-disclosure lane disclosed (OCSP fired with no switch at all).
+    // "ask" = the per-document consent dialog before each B-LT/B-LTA signing
+    // dispatch (allow once / allow for this document / deny); "never" = the
+    // global never-network floor: no dialog, B-LT/B-LTA refused up front.
+    _ocspNetworkPolicy = new QComboBox;
+    _ocspNetworkPolicy->setObjectName(QStringLiteral("ocspNetworkPolicyCombo"));
+    _ocspNetworkPolicy->setAccessibleName(tr("OCSP network consent"));
+    _ocspNetworkPolicy->addItem(
+        tr("Ask per document (allow once / allow for this document / deny)"),
+        QStringLiteral("ask"));
+    _ocspNetworkPolicy->addItem(
+        tr("Never — no OCSP network access (B-LT/B-LTA refused)"),
+        QStringLiteral("never"));
+    {
+        const QString savedOcsp =
+            QSettings().value(QLatin1String(OcspNetworkPolicyKey),
+                              QStringLiteral("ask")).toString();
+        for (int i = 0; i < _ocspNetworkPolicy->count(); ++i) {
+            if (_ocspNetworkPolicy->itemData(i).toString() == savedOcsp) {
+                _ocspNetworkPolicy->setCurrentIndex(i);
+                break;
+            }
+        }
+    }
+    signForm->addRow(tr("OCSP revocation checks:"), _ocspNetworkPolicy);
+
     auto* signNote = new QLabel(
         tr("Levels above B-B embed RFC 3161 timestamp and long-term-validation "
            "data and require a reachable TSA URL. If the TSA is missing or "
            "unreachable, signing refuses or discloses the attained level — it "
-           "never silently produces a lower level."));
+           "never silently produces a lower level. B-LT/B-LTA additionally "
+           "contact the certificate's OCSP responder; that network request is "
+           "governed by the OCSP revocation-check consent above."));
     signNote->setWordWrap(true);
     signNote->setStyleSheet(QStringLiteral("color:#888; font-size:8pt;"));
     signForm->addRow(QString{}, signNote);
@@ -659,6 +689,12 @@ void PreferencesDialog::saveSettings()
     if (_padesLevelCombo)
         persistSetting(settings, QStringLiteral("signing/padesLevel"),
                        _padesLevelCombo->currentData().toString());
+
+    // R24 wiring closure: the OCSP network consent switch (consumed by
+    // SecurityController::runSigning before any B-LT/B-LTA dispatch).
+    if (_ocspNetworkPolicy)
+        persistSetting(settings, QLatin1String(OcspNetworkPolicyKey),
+                       _ocspNetworkPolicy->currentData().toString());
 
     // Live apply to AutosaveManager
     MainWindow* mainWin = qobject_cast<MainWindow*>(parentWidget());

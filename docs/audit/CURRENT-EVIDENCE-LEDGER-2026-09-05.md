@@ -911,6 +911,38 @@ Manual native check only: the folder picker for bundle export uses the native
 dialog (N17 precedent); builder + disclosure pinned offscreen. (3) No
 machine-policy deployment tooling (GPO/registry seed) — the file contract is
 documented in PolicyController.h for the next lane.
+(Residual (1) and the OCSP consent gap CLOSED below — R24 wiring closure.)
+## 2026-09-19 — R24 wiring closure (feat/r24-wiring)
+Lane on `feat/r24-wiring` (base = feat/parity-glm @ cee38d7, the
+printable-summaries merge), worktree pdf-inst, build dir build-presets
+(reused; PCH purged after the branch switch), UCRT64, -j 2, offscreen
+QtTest, serial. Method per work item: failing pins first (stub/symbol
+additions so pins compile, runtime FAILs captured) -> implement -> green ->
+NEGATIVE CONTROL (scoped bypass/revert -> pins fail -> restore -> green) ->
+one commit per work item -> docs. All rows implemented-awaiting-review
+(NEVER "verified").
+| ID | Deliverable | Fix/pin summary | Test evidence | Negative control | Commit |
+|----|-------------|-----------------|---------------|------------------|--------|
+| R24-W1 | The four "enforcement pending" policy keys enforced at their REAL decision points (existing user-pref path bypassed when the policy overrides) | update/checkOnStartup + update/channel meet the policy in NEW MainWindow::startupUpdateCheckEnabled/startupUpdateChannel — the one place initUpdateChecker consults (no check even starts; channel decides the manifest URL); ai/ollamaEndpoint meets it in OllamaProvider::resolveEndpoint, promoted to the public static ONE endpoint gate feeding isReady/chat — a policy-managed EMPTY endpoint disables AI chat for the machine (probe honestly unavailable; chat whyNot NAMES the policy; no silent fallback; R04 guard unchanged); ocr/allowNetworkDownload meets it at OcrEngine's model-load gate (the shared gate all OCR callers — OCRMode/BatchMode/EditController, off-limits — pass through; the pre-existing gate read became policy-aware since the direct callers are off-limits and pdfws_engines cannot see pdfws_ui). PolicyController.{h,cpp} moved pdfws_ui -> pdfws_engines (Capability.cpp precedent) so the engine layer honors policy; UI consumers link it transitively. NetworkTouchpoints derives the update-check/ocr-traineddata states from EFFECTIVE values — under a policy the network page no longer shows the user's raw preference | TestPolicyWiring 10/10 offscreen pinning OBSERVABLE behavior (not the seam): decision statics under policy/user/no-policy; resolveEndpoint policy value + empty-disabled + isReady false + chat whyNot naming the policy + R04 guard intact; OcrEngine::initialize REFUSES with the honest refusal warning (qInstallMessageHandler capture) and zero download artifacts; network-page row states under policy. Fail-first: stub 4 passed/6 failed (build-presets/r24wire-stub.txt) | effectiveValue precedence bypass (returns userValue always) -> the same 6 pins FAIL (r24wire-neg.txt); restored -> 10/10. Adjacent: TestPolicyController 12/12, TestNetworkDisclosure 7/7, TestSupportBundle 9/9 | 03f4606 |
+| R24-W2 | OCSP consent switch — the disclosed consent gap (OCSP egress had NO switch, unlike TSA/Ollama) closed per the send-for-signing plan's consent design (D1a) | NEW src/ui/OcspConsentDialog.{h,cpp}: per-document consent dialog (allow once / allow for this document / deny; disclosure names what fires — cert AIA responder, HTTPS-only, certificate identifiers only, never document content); remember-for-document (session-scoped; deny NEVER remembered — a misclick cannot lock the user out); global never-network switch signing/ocspNetworkPolicy = "never" (fail-closed on unknown values, honest floor like padesLevelFromSetting) refusing WITHOUT any dialog. SecurityController::runSigning (the ONE dispatch that can reach the engine's DSS/OCSP build, level >= B_LT) calls OcspConsent::obtain BEFORE dispatch; a denied decision REFUSES up front with an honest whyNot naming the consent state and the way out (B-T/B-B need no OCSP egress) — R19(b) discipline: no silent downgrade, engine OCSP code untouched (UI/controller gate driving existing engine seams). NetworkTouchpoints ocsp row: consent key carried, enabled derives from the effective switch, the old gap wording is gone; Preferences Security tab gains the OCSP revocation-checks combo (ask/never), persisted through the policy write guard | TestOcspConsent 9/9 offscreen (dialog-driving via QTimer::singleShot + QApplication::activeModalWidget): each button branch decides correctly; disclosure honesty markers (OCSP/AIA/HTTPS/never); per-document remember scope (a.pdf remembered, b.pdf asks again, a.pdf still remembered); deny-not-remembered; never-switch refuses silently + unknown value fail-closed + "ask" asks; refusalReason names key + value + way out + "No signature was attempted"; Preferences row values + persist. TestNetworkDisclosure pin 3 flipped gap->switch, 7/7 | never-switch bypassed in obtain (returns AllowedOnce) -> globalNeverNetworkRefusesWithoutDialog FAIL (wi2-neg.txt); restored -> 9/9. Adjacent: TestSignatureValidationMock 23/23, TestSignatureValidation 9/9, TestControllers 13/13 | d574530 |
+| R24-W3 | Enforcement wording flipped pending -> enforced (only where now actually enforced — W1 pins are the verification, not hope) | PolicyController::isEnforcedKey returns true for the WHOLE allowlist (was: signing pair only); enforcementNote: the four notes name their exact wiring points, carry "Enforced app-wide", zero "pending" anywhere; PolicyController.h honesty contract rewritten to match; the bundle's per-key enforcement disclosure flows through enforcementNote unchanged | TestPolicyController 12/12: allowlistIsBoundedAndSignedKeysEnforced asserts isEnforcedKey==true + "Enforced app-wide" + NO "pending" for EVERY allowlist key; preferencesDialogDisclosesManagedRows asserts the managed-keys label no longer contains "pending" | PolicyController.cpp reverted to the pending wording -> 2 pins FAIL (wi3-neg.txt: pending-label + isEnforcedKey(update/checkOnStartup)===false); restored -> 12/12. Adjacent: TestPolicyWiring 10/10, TestSupportBundle 9/9 | cbd599b |
+Lane boundary honored: new files OcspConsentDialog.{h,cpp} + tests
+TestPolicyWiring/TestOcspConsent + CMake blocks; additive edits to
+GpMainWindow.{h,cpp} (startup decision statics + their consultation),
+OllamaProvider.{h,cpp} (resolveEndpoint promotion + policy read + policy-disabled
+whyNot), OcrEngine.cpp (gate read became policy-aware — noted: the wiring point
+sits in the engine because both direct callers are off-limits files),
+NetworkTouchpoints.cpp, PreferencesDialog.{h,cpp} (one combo row),
+SecurityController.cpp (additive consent gate after the TSA preflight),
+TestNetworkDisclosure.cpp (pin 3 gap->switch + policy hermeticity),
+TestPolicyController.cpp (wording pins), PolicyController.{h,cpp} (wording +
+target move), CMakeLists.txt. Off-limits files untouched (BatchMode.cpp,
+SignatureManager.cpp internals, TextMatchFinder.*, FindReplaceDialog.*,
+EditController.*, ConversionManager.cpp, Capability.cpp internals, OCRMode.cpp,
+RedactionProof*/RedactOperation*, formjs/*, FormManager core all clean —
+git log --stat on the three commits shows only the declared surfaces).
+Nothing pushed. TestOllamaProvider standalone x2 at the tip: 62/62, 62/62
+(policy-adjacent; flake-listed — both runs recorded, zero failures).
 ## 2026-09-15 — printable summaries (feat/printable-summaries)
 R27 tail on Pack A's T2-3 comment-status summary writer
 (engines/ReviewSummaryWriter): the print-ready PDF surface, on

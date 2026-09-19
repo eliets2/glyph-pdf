@@ -161,11 +161,17 @@ QStringList PolicyController::knownKeys() { return knownKeysImpl(); }
 
 bool PolicyController::isEnforcedKey(const QString& settingsKey)
 {
-    // Enforcement wired in THIS build: SecurityController::readSigningConfig
-    // (the ONE production reader of the signing settings) applies the policy
-    // before every sign/certify/timestamp dispatch.
-    return settingsKey == QLatin1String("signing/tsaUrl")
-           || settingsKey == QLatin1String("signing/padesLevel");
+    // Enforcement wired in THIS build (R24 wiring closure — each key is
+    // pinned at its OBSERVABLE enforcement point by TestPolicyWiring):
+    //   * signing pair → SecurityController::readSigningConfig (the ONE
+    //     production reader of the signing settings) applies the policy
+    //     before every sign/certify/timestamp dispatch;
+    //   * update pair → MainWindow::startupUpdateCheckEnabled /
+    //     startupUpdateChannel (consulted by initUpdateChecker);
+    //   * ai/ollamaEndpoint → OllamaProvider::resolveEndpoint (the ONE
+    //     endpoint gate feeding isReady/chat);
+    //   * ocr/allowNetworkDownload → the OcrEngine model-load gate.
+    return knownKeysImpl().contains(settingsKey);
 }
 
 QString PolicyController::enforcementNote(const QString& settingsKey)
@@ -177,17 +183,21 @@ QString PolicyController::enforcementNote(const QString& settingsKey)
         return tr("Enforced app-wide: every sign/certify dispatch uses this "
                   "PAdES level.");
     if (settingsKey == QLatin1String("update/checkOnStartup"))
-        return tr("Locked in Preferences; enforcement of the startup check "
-                  "is pending (wiring point: GpMainWindow update check).");
+        return tr("Enforced app-wide: the startup update check runs only "
+                  "when this key allows it (MainWindow::initUpdateChecker "
+                  "consults the effective value).");
     if (settingsKey == QLatin1String("update/channel"))
-        return tr("Locked in Preferences (manual Check Now honors it); "
-                  "startup channel wiring pending.");
+        return tr("Enforced app-wide: the startup update check uses this "
+                  "channel's manifest (MainWindow::initUpdateChecker).");
     if (settingsKey == QLatin1String("ai/ollamaEndpoint"))
-        return tr("Locked in Preferences (Test connection honors it); AI "
-                  "chat panel wiring pending.");
+        return tr("Enforced app-wide: every AI chat request and probe "
+                  "resolves its endpoint through this key "
+                  "(OllamaProvider::resolveEndpoint); an empty policy value "
+                  "disables AI chat.");
     if (settingsKey == QLatin1String("ocr/allowNetworkDownload"))
-        return tr("No Preferences row exists; OCR download gate wiring "
-                  "pending (wiring point: OcrEngine traineddata path).");
+        return tr("Enforced app-wide: OCR language-pack downloads are "
+                  "attempted only when this key allows it (the OcrEngine "
+                  "model-load gate).");
     return {};
 }
 

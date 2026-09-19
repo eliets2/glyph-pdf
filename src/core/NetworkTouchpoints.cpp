@@ -10,12 +10,20 @@
 #include <QJsonObject>
 #include <QSettings>
 
+#include "core/PolicyController.h"  // R24 wiring: effective-value disclosure
+// R24 wiring closure: the OCSP consent key's single definition lives with
+// the consent surface (both files are pdfws_ui; the literal must not drift).
+#include "ui/OcspConsentDialog.h"
+
 namespace gp {
 
 QList<NetworkTouchpoint> NetworkTouchpoints::enumerate(QSettings& s)
 {
     QList<NetworkTouchpoint> out;
 
+    // R24 wiring closure: the states below are derived from the EFFECTIVE
+    // values (machine policy over the passed user settings) — under a policy
+    // this page must not show the user's raw preference as the state.
     // 1. OllamaProvider — local AI chat. POSTs to the user-configured
     //    endpoint (default http://localhost:11434) only when AI Chat or
     //    Preferences → Test connection is used. No consent switch exists:
@@ -55,28 +63,54 @@ QList<NetworkTouchpoint> NetworkTouchpoints::enumerate(QSettings& s)
                           "enforced (HTTP URLs are refused)."),
     });
 
-    // 3. SignatureManager fetchOcspResponse — during signature validation
-    //    the responder URL from the certificate's AIA extension is contacted
-    //    automatically. NO consent switch exists today — disclosed here
-    //    honestly rather than papered over.
+    // 3. SignatureManager fetchOcspResponse — during a B-LT/B-LTA signing
+    //    dispatch the responder URL from the certificate's AIA extension is
+    //    contacted to build the DSS. R24 wiring closure: this USED to fire
+    //    with no consent switch at all — it is now gated by
+    //    signing/ocspNetworkPolicy (SecurityController refuses the B-LT/B-LTA
+    //    dispatch before any network attempt when consent is "never" or not
+    //    granted per document).
+    auto& policy = PolicyController::instance();
+    policy.ensureLoaded();
+    const QString ocspPolicy =
+        policy
+            .effectiveValue(QLatin1String(OcspNetworkPolicyKey),
+                            s.value(QLatin1String(OcspNetworkPolicyKey),
+                                    QStringLiteral("ask")))
+            .toString();
+    const bool ocspEgressPossible = ocspPolicy == QLatin1String("ask");
     out.append(NetworkTouchpoint{
         QStringLiteral("ocsp"),
         QObject::tr("Certificate revocation check (OCSP)"),
-        QObject::tr("automatic"),
-        true,
-        QString(),
-        QObject::tr("Fires automatically during signature validation: the "
-                    "responder URL embedded in the certificate (AIA "
-                    "extension) is contacted. No Preferences consent switch "
-                    "exists yet — this is disclosed here rather than "
-                    "silently assumed away."),
+        ocspEgressPossible ? QObject::tr("on consent, per document")
+                           : QObject::tr("never"),
+        ocspEgressPossible,
+        QLatin1String(OcspNetworkPolicyKey),
+        ocspEgressPossible
+            ? QObject::tr("Consent-gated: before signing at PAdES B-LT/B-LTA "
+                          "(the levels that build long-term-validation data) "
+                          "a consent dialog asks once per document — allow "
+                          "once, allow for the document, or deny. The "
+                          "responder URL comes from the certificate's AIA "
+                          "extension; the request is HTTPS-only and carries "
+                          "certificate identifiers, never document content.")
+            : QObject::tr("Disabled: the network consent setting "
+                          "signing/ocspNetworkPolicy is not \"ask\", so "
+                          "signing never contacts an OCSP responder (B-LT/"
+                          "B-LTA signing is refused up front with that "
+                          "reason; B-B/B-T need no OCSP)."),
     });
 
     // 4. UpdateChecker — manifest GET (HTTPS enforced). The startup leg is
     //    governed by update/checkOnStartup (default OFF); Check Now in
-    //    Preferences is manual on demand.
+    //    Preferences is manual on demand. R24 wiring: the machine policy
+    //    overrides the stored preference at the decision point
+    //    (MainWindow::initUpdateChecker), so the state follows the policy.
     const bool updateOnStartup =
-        s.value(QStringLiteral("update/checkOnStartup"), false).toBool();
+        policy
+            .effectiveValue(QStringLiteral("update/checkOnStartup"),
+                            s.value(QStringLiteral("update/checkOnStartup"), false))
+            .toBool();
     out.append(NetworkTouchpoint{
         QStringLiteral("update-check"),
         QObject::tr("Update check"),
@@ -94,9 +128,13 @@ QList<NetworkTouchpoint> NetworkTouchpoints::enumerate(QSettings& s)
     // 5. OcrEngine downloadTrainedData — only when a Tesseract language pack
     //    is missing AND ocr/allowNetworkDownload is ON (default OFF).
     //    Bundled / AppData packs are used first, so OCR normally needs no
-    //    network at all.
+    //    network at all. R24 wiring: the machine policy overrides the stored
+    //    preference at the engine's model-load gate.
     const bool ocrDownload =
-        s.value(QStringLiteral("ocr/allowNetworkDownload"), false).toBool();
+        policy
+            .effectiveValue(QStringLiteral("ocr/allowNetworkDownload"),
+                            s.value(QStringLiteral("ocr/allowNetworkDownload"), false))
+            .toBool();
     out.append(NetworkTouchpoint{
         QStringLiteral("ocr-traineddata"),
         QObject::tr("OCR language-pack download"),

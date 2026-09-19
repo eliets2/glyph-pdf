@@ -60,6 +60,9 @@ private:
     // SecurityController before every sign/certify/timestamp dispatch.
     QLineEdit*   _tsaUrlEdit      = nullptr;
     QComboBox*   _padesLevelCombo = nullptr;
+    // R24 wiring closure: the OCSP network consent switch (ask per document
+    // / never), consumed by SecurityController::runSigning.
+    QComboBox*   _ocspNetworkPolicy = nullptr;
 };
 
 } // namespace gp

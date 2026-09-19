@@ -43,6 +43,7 @@
 #include "engines/DocumentSession.h"
 #include "engines/PdfEditorEngine.h"
 #include "core/Capability.h"   // R16: welcome card capability gating
+#include "core/PolicyController.h"  // R24 wiring: startup update decisions
 #include "core/Capability.h"               // N2: XFA honesty disclosure via the registry
 #include "core/interfaces/IFormManager.h"  // N2: hasXfaForms probe input
 #include <QUndoStack>   // ARC01: history is scoped to one document at the open boundary
@@ -1543,11 +1544,38 @@ void MainWindow::closeEvent(QCloseEvent* event) {
     QMainWindow::closeEvent(event);
 }
 
+bool MainWindow::startupUpdateCheckEnabled() {
+    // R24 wiring: the machine policy overrides the stored user pref AT the
+    // decision point — the startup check runs only when the EFFECTIVE value
+    // allows it (update/checkOnStartup; default OFF per AR-8 D6).
+    auto& policy = gp::PolicyController::instance();
+    policy.ensureLoaded();
+    return policy
+        .effectiveValue(QStringLiteral("update/checkOnStartup"),
+                        QSettings().value(QStringLiteral("update/checkOnStartup"),
+                                          false))
+        .toBool();
+}
+
+QString MainWindow::startupUpdateChannel() {
+    // R24 wiring: the machine policy overrides the stored user pref AT the
+    // decision point — the startup manifest comes from the EFFECTIVE channel.
+    auto& policy = gp::PolicyController::instance();
+    policy.ensureLoaded();
+    return policy
+        .effectiveValue(QStringLiteral("update/channel"),
+                        QSettings().value(QStringLiteral("update/channel"),
+                                          QStringLiteral("stable")))
+        .toString();
+}
+
 void MainWindow::initUpdateChecker() {
     QSettings settings;
     // AR-8 D6: default OFF (audit preference; first-run consent notice in v1.3.1
     // explains the update check to users who later opt in via Preferences).
-    if (!settings.value("update/checkOnStartup", false).toBool())
+    // R24 wiring: the decision lives in startupUpdateCheckEnabled() — the ONE
+    // place where the stored user pref meets the machine policy.
+    if (!startupUpdateCheckEnabled())
         return;
 
     // One-time transparency notice — tell the user we check for updates and how
@@ -1593,7 +1621,9 @@ void MainWindow::initUpdateChecker() {
     // --- UpdateChecker ---
     _updater = new UpdateChecker(this);
 
-    QString channel = settings.value("update/channel", "stable").toString();
+    // R24 wiring: the channel decision lives in startupUpdateChannel() — the
+    // ONE place where the stored user pref meets the machine policy.
+    const QString channel = startupUpdateChannel();
     if (channel == "beta") {
         _updater->setManifestUrl(UpdateChecker::manifestUrlForChannel(channel));
     }

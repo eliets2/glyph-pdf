@@ -46,16 +46,19 @@ namespace gp {
 //     disclosed like unknown keys.
 //
 // Enforcement scope (declared per key — never claimed where not wired):
-//   * signing/tsaUrl + signing/padesLevel are ENFORCED app-wide this build:
-//     SecurityController::readSigningConfig (the ONE production reader of the
-//     signing settings) applies the policy over the stored user values before
-//     every sign/certify/timestamp dispatch.
-//   * The remaining allowlist keys are RECOGNIZED: Preferences locks the
-//     widget to the policy value and refuses to persist user edits, but their
-//     app-wide consumption seams (startup update check, AI chat panel, OCR
-//     download gate) are wired in a follow-up — enforcementNote() says
-//     "pending" for them, and the UI shows that wording. Never claim more
-//     enforcement than exists.
+//   ALL allowlist keys are ENFORCED app-wide this build (R24 wiring closure),
+//   each pinned at its observable enforcement point by TestPolicyWiring:
+//   * signing/tsaUrl + signing/padesLevel → SecurityController::readSigningConfig
+//     (the ONE production reader of the signing settings) applies the policy
+//     over the user values before every sign/certify/timestamp dispatch;
+//   * update/checkOnStartup + update/channel → MainWindow::
+//     startupUpdateCheckEnabled()/startupUpdateChannel(), consulted by
+//     MainWindow::initUpdateChecker (the startup check honors the policy);
+//   * ai/ollamaEndpoint → OllamaProvider::resolveEndpoint (the ONE endpoint
+//     gate feeding isReady()/chat()); a policy-managed EMPTY endpoint
+//     disables AI chat with an honest whyNot naming the policy;
+//   * ocr/allowNetworkDownload → the OcrEngine model-load gate (the shared
+//     download gate all OCR callers pass through).
 class PolicyController : public QObject {
     Q_OBJECT
 public:
@@ -82,10 +85,11 @@ public:
 
     // The bounded allowlist (schema v1): machine-admin stories only.
     static QStringList knownKeys();
-    // True for keys enforced app-wide in THIS build (see class comment).
+    // True for keys enforced app-wide in THIS build (see class comment —
+    // this is the whole allowlist since the R24 wiring closure).
     static bool isEnforcedKey(const QString& settingsKey);
-    // Per-key enforcement wording: names the wiring point; contains "pending"
-    // for recognized-but-not-yet-enforced keys (never empty for known keys).
+    // Per-key enforcement wording: names the exact wiring point (never empty
+    // for known keys; contains "Enforced app-wide" for every allowlist key).
     static QString enforcementNote(const QString& settingsKey);
 
     bool        isManaged(const QString& settingsKey) const;
