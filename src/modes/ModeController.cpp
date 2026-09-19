@@ -30,7 +30,9 @@ void ModeController::setScreen(const QString& id) {
     _currentScreen = id;
     // Screens that are panel-only (no center swap): signature, ai, pdfa, compress, watermark
     if (id == "signature" || id == "ai" || id == "pdfa" ||
-        id == "compress"  || id == "watermark" || id == "measure") {
+        id == "compress"  || id == "watermark" || id == "measure" ||
+        // T2-4 accessibility P1: right-panel-only checker screen.
+        id == "accessibility") {
         setCurrentWidget(_viewer);
         emit screenChanged(id);
         return;
