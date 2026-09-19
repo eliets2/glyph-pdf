@@ -105,6 +105,7 @@ inline bool isMutatingTool(ToolId id)
     case ToolId::RegexRedact:
     case ToolId::ExpiryDate:
     case ToolId::CertEncrypt:   // N17: re-encrypts the session document
+    case ToolId::PrepareSigningRequest: // R26: creates signature fields in place
     // Home: save-in-place (Save As stays available).
     case ToolId::Save:
         return true;

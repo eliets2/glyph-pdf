@@ -154,6 +154,8 @@ QString toolIdToString(ToolId id) {
         { ToolId::WatchFolder,    QStringLiteral("watch") },
         // N17: certificate-encryption recipient picker
         { ToolId::CertEncrypt,    QStringLiteral("certEncrypt") },
+        // R26: send-for-signing workflow
+        { ToolId::PrepareSigningRequest, QStringLiteral("prepareSigningReq") },
     };
     return map.value(id, QStringLiteral("unknown"));
 }
@@ -325,6 +327,9 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         add(ToolId::WatchFolder,    {"watch", "watchFolder", "hotFolder"});
         // N17: certificate-encryption recipient picker
         add(ToolId::CertEncrypt,    {"certEncrypt", "cert-encrypt", "certencrypt"});
+        // R26: send-for-signing workflow
+        add(ToolId::PrepareSigningRequest, {"prepareSigningReq", "prepare-signing-request",
+                                            "signingrequest", "signrequest"});
 
         return m;
     }();
