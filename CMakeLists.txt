@@ -5104,3 +5104,36 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSweepW1PresetAdversary.cpp")
         LABELS "unit;batch;presets;adversary;sweep-w1;qt;headless"
     )
 endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSweepW1SigningAdversary.cpp")
+    add_executable(TestSweepW1SigningAdversary tests/TestSweepW1SigningAdversary.cpp)
+    target_include_directories(TestSweepW1SigningAdversary PRIVATE src tests)
+    target_compile_definitions(TestSweepW1SigningAdversary PRIVATE
+        SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    )
+    if(GLYPHPDF_ENABLE_TEST_FIXTURES)
+        target_compile_definitions(TestSweepW1SigningAdversary PRIVATE GLYPH_TESTING=1)
+    endif()
+    target_link_libraries(TestSweepW1SigningAdversary PRIVATE
+        pdfws_engines pdfws_ui pdfws_engines pdfws_core
+        OpenSSL::SSL OpenSSL::Crypto
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets podofo::podofo
+    )
+    if(WIN32)
+        target_link_libraries(TestSweepW1SigningAdversary PRIVATE Crypt32)
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestSweepW1SigningAdversary POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestSweepW1SigningAdversary>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestSweepW1SigningAdversary"
+            )
+        endif()
+    endif()
+    add_test(NAME TestSweepW1SigningAdversary COMMAND TestSweepW1SigningAdversary)
+    set_tests_properties(TestSweepW1SigningAdversary PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 240
+        LABELS "integration;security;signatures;workflow;adversary;sweep-w1;qt;headless"
+    )
+endif()
