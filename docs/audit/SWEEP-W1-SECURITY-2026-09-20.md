@@ -231,3 +231,93 @@ one place the *reporting* of that state goes wrong under policy.
 | `build_probe.py` | Builds the probe against `build-presets` using the gateA lane's ninja link-line recipe | build exit 0 |
 | `SweepW1SecProbe.log` | Probe output (quoted above per finding) | in tree |
 | `SweepW1SecProbe.moc`, `*-build.log`, `dlls.txt`, `run1.txt`, `probe-run.txt` | build/runtime debris | removable |
+
+---
+
+## REFUTED (suspicion raised, code pin closes it)
+
+| Suspicion | Pin that covers it |
+|-----------|--------------------|
+| Ollama can be pointed at a remote/exfil host | OllamaProvider.cpp R04/SECFIX-5 endpoint matrix (lines 21-98): HTTP only loopback spellings, HTTPS only allowlisted hosts, user-info rejected, ManualRedirectPolicy, 64 MiB response cap; fallback to localhost on tampered setting. The "local server only" disclosure is enforced. |
+| Policy-set `http://` tsaUrl → plaintext digest exfil | SignatureManager.cpp:255 refuses `http://` for TSA/OCSP (qWarning SECURITY + empty). |
+| Update check phones home at startup / auto-installs | GpMainWindow.cpp:1550 gate, default OFF; download+install only from UpdateDialog clicks; ctor+setter https enforcement; B-03 manifest fail-closed; N-2 Authenticode + apply-time SHA re-verify with deny-share handle; non-Windows refuses msiexec. |
+| OCR silently downloads language packs | OcrEngine.cpp:217 gate default OFF; fixed https URL, zero redirects, 100 MiB cap, QSaveFile. |
+| Keystroke tier (R18f /AA /K) weakened the quickjs sandbox | FormJsRunner.cpp:584 uses default-constructed FormJsSandbox → SandboxLimits defaults (16 MiB heap, 1 MiB stack, 4 MiB script/transfer caps); one absolute whole-operation deadline (default 250 ms via FormJsRunner.h:108) spanning setup→script→result; zero-I/O by construction (no quickjs-libc); egress verbs recorded no-ops; rc=false or ANY failure → edit refused (fail-closed). PASS. |
+| encryptionPassword lingers after document switch / release | Cleared at every lineage change: PoDoFoBackend.cpp:449 (loadDocument), :1713 (releaseDocument, M1 SEP13), :3238 (removeEncryption), :404 (rollback drop). The clear-on-release fix is in place; residual: QString::clear is not a secure wipe (heap copy may persist) — noted below, not a finding (PoDoFo/OpenSSL hold equivalent material in their own buffers). |
+| P12 passphrase persisted to disk | SignatureDialog has no QSettings/storeKey path at all; the passphrase lives only in the in-memory SigningRequest (restartable Retry), captured per dialog accept. DPAPI secret store (EncryptedFileSecretStore v3, AAD/entropy entry-binding) has no P12 consumers; CredentialManager (AI keys) is currently DEAD CODE — zero UI consumers (observation, YAGNI rung-1 candidate for a future cleanup lane, not a vulnerability). |
+| Support bundle leaks recents/metadata | Allowlist-only settings (URL keys excluded AND disclosed), recents/documents counts only, capabilities omit c.detail, scrub pass over every string. Residual nuance = F6 only. |
+| Accessibility panel overclaims conformance | AccessibilityPanel.cpp:96-99 always-visible "Detection only … never certifies PDF/UA" box; zero-findings wording "not a PDF/UA verdict" (:307-311); AccessibilityChecker.h "NEVER issues a PDF/UA verdict"; no auto-tagging claimed. HONEST. |
+| Policy UI is a silent override | PreferencesDialog::persistSetting refuses to persist any managed key (:598-608); managed rows show policy value + "Managed by policy" + enforcementNote; statusLine names the path. The R24(a) visible-in-UI contract holds. |
+
+## Disclosure-claims spot-check (11 labels verified)
+
+1. "Enforced app-wide: every sign/certify/timestamp dispatch uses this TSA URL" — TRUE (all
+   4 dispatch sites go through readSigningConfig; grep found no other reader).
+2. "enforcement pending" notes for update/channel/ai/ocr keys — TRUE (raw-QSettings reads
+   at GpMainWindow:1550, OllamaProvider:110, OcrEngine:217; policy genuinely not applied).
+3. "refuses to persist user edits" (managed keys) — TRUE (persistSetting guard).
+4. Sidecar "fail-closed handshake" — TRUE for schema; the re-confirm wording is the F3 gap.
+5. "B-B attained" honest-degradation labels — TRUE for missing pieces, FALSE for garbage
+   tokens (F2).
+6. "HTTPS enforced (HTTP URLs are refused)" — TRUE (httpPost :255; UpdateChecker ctor/setter).
+7. "not a PDF/UA verdict" — TRUE.
+8. "Every network touchpoint in GlyphPDF" — TRUE as an inventory; the enabled-state
+   derivation is wrong under policy (F4).
+9. "Talks to the LOCAL endpoint" (AI) — TRUE (allowlist).
+10. "This bundle contains no … file paths" — MOSTLY TRUE; one redacted path can appear (F6).
+11. "Signing order is advisory … not enforcement" — TRUE (panel shows the disclosure verbatim;
+    runner records out-of-order fieldMatch honestly).
+
+## INCONCLUSIVE (exact missing piece)
+
+| Item | Missing piece |
+|------|---------------|
+| Post-install ACL of a REAL admin-deployed `C:\ProgramData\GlyphPDF\policy.json` (can a non-admin replace it?) | Needs a live deployed-machine ACL probe (`icacls`) — the code performs no verification either way, so F1 stands regardless of the answer; only F1's post-install variant is gated on it. |
+| OCSP response crypto-validation quality (stale/rewrapped responses) | fetchOcspResponse plumbing is SEP13-reviewed; a full OCSP nonce/response-status matrix needs a hostile OCSP responder harness — out of W1 time budget; the transport gate (https-enforced, disclosed-ungated) is verified. |
+| Whether `attainedLevelLabel`'s B-LT/B-LTA branches are reachable with garbage DSS/DocTimeStamp artifacts analogous to F2 | Same missing token-validity plumbing; F2's fix shape (validate before claiming) covers all three branches — verified statically that DSS/doc-timestamp "presence" checks are also embedding-presence, not validity, but no repro was built for the two archive branches. |
+
+## Coverage matrix
+
+- Policy trust boundary (F1): Complete (code + repro + installer check).
+- Signing-request sidecar (F3, F5, forgery limits): Complete.
+- Never-network egress grep: Complete (6 construction sites, all gated; table above).
+- Secrets at rest: Complete (P12 flow, DPAPI v2/v3 store, encryptionPassword clears, bundle scrub).
+- Disclosure claims: 11 of the security-adjacent labels verified (selection documented above).
+- quickjs sandbox post-keystroke-tier: Complete (spot-check PASS).
+- Not reviewed (out of W1 scope): fuzz corpus health (pdf-keyA W1-fuzz lane), PDFium/PoDoFo
+  parser CVE posture, redaction byte-excision internals (SEP13 M8 + independent review
+  passed them; spot-checks only), install-time MSI attack surface, Linux build deltas.
+
+## Suites + totals at audit HEAD
+
+- Build: 511/511 steps green (`cmake --build build-presets -j 2`, UCRT64).
+- Security-relevant ctest: 9/9 PASS — TestPolicyController (15.6 s), TestNetworkDisclosure
+  (21.3 s), TestSupportBundle (7.6 s), TestSendForSigning (9.3 s), TestSidecarReopenState
+  (4.2 s), TestSignatureValidation (10.6 s), TestSignatureValidationMock (0.6 s),
+  TestSignatureRealCrypto (18.9 s standalone; parallel flake per known-flakes list),
+  TestFormJsCalc (30.2 s).
+- Probe: SweepW1SecProbe 5/5 failing slots as designed (the only failures in the tree, by
+  design; gitignored).
+
+## Residuals (accepted/documented, not findings)
+
+1. Sidecar is unsigned JSON — the P1-documented residual. F3 is its sharpest edge; a
+   signature/MAC over the sidecar (or moving the re-confirm authorization out of the
+   sidecar) is the structural close, owned by the R26 lane.
+2. OCSP has no consent switch — disclosed in NetworkTouchpoints (R24(c) chose disclosure
+   over gating); a consent gate is a product decision, not an audit fix.
+3. QString-based secrets are not securely wiped on clear (including SigningRequest::pwd,
+   encryptionPassword) — heap copies can persist until page reuse. Systemic, matches
+   C++/Qt idiom across the codebase.
+4. CredentialManager (AI key store) is dead code this build.
+5. The policy TOCTOU answer is "snapshot at first load, no in-process race" — but nothing
+   re-validates the policy mid-session by design ("Last load wins"); a session-long admin
+   policy change requires app restart. Documented behavior, disclosed by statusLine.
+
+## SHA log
+
+- Base: `8f62a17` (feat/parity-glm tip, includes accessibility merge)
+- Audit branch: `feat/sweep-w1-security`
+- Commits: `022d0ec` (findings F1-F3), `30f9282` (F4-F6 + egress grep table + repro
+  inventory), and this commit (refuted/inconclusive/coverage/suites/residuals + SHA log).
+
