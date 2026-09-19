@@ -30,6 +30,7 @@
 #include "shell/controllers/FormsController.h"
 #include "shell/controllers/SecurityController.h"
 #include "shell/controllers/CertEncryptController.h"
+#include "shell/controllers/SendForSigningController.h" // R26: send-for-signing workflow
 #include "shell/controllers/TaskNavController.h"   // R15: task-surface routes
 
 #include "ui/PdfViewerWidget.h"
@@ -180,6 +181,9 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
     // N17: certificate-encryption recipient picker — sibling controller so the
     // lane-locked SecurityController.cpp stays untouched.
     _certEncrypt = new CertEncryptController(_ctx, this, this);
+    // R26: send-for-signing workflow — sibling controller, same discipline;
+    // owns Protect ▸ Sign ▸ Prepare Request and the fill-flow surface.
+    _sendForSigning = new SendForSigningController(_ctx, this, this);
 
     _toolRegistry = new ToolRegistry(this);
     _toolRegistry->registerController(_home);
@@ -190,6 +194,7 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
     _toolRegistry->registerController(_forms);
     _toolRegistry->registerController(_security);
     _toolRegistry->registerController(_certEncrypt);
+    _toolRegistry->registerController(_sendForSigning);
     // R15: the promoted task-surface entries (measure/panes/batch/…) resolve
     // through the same registry so enablement and dispatch stay one seam.
     _taskNavCtrl = new TaskNavController(_ctx, this, this);
@@ -884,6 +889,11 @@ void MainWindow::openDocument(const QString& filePath) {
         if (_ctx && _ctx->undoStack) {
             _ctx->undoStack->clear();
         }
+        // R26: a document with a signing-request sidecar opens its
+        // signing-progress surface (modeless, dismissible; handshake-refusing
+        // sidecars are disclosed and ignored inside the controller).
+        if (_sendForSigning)
+            _sendForSigning->onDocumentOpened(filePath);
         // Track recent files (D4)
         _home->addRecentFile(filePath);
         _menu->refreshRecentFiles();

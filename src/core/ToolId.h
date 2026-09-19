@@ -175,6 +175,11 @@ enum class ToolId {
     // (same append-only rule as the stamp/auto-bookmark ids above).
     CertEncrypt,       // Protect ▸ Security "Encrypt (Certs)" (ribbon "certEncrypt")
 
+    // ── R26: send-for-signing workflow (single-document request) ───────────
+    // Appended AFTER CertEncrypt so existing ToolId ordinals stay stable
+    // (same append-only rule).
+    PrepareSigningRequest, // Protect ▸ Sign "Prepare Request" (ribbon "prepareSigningReq")
+
     COUNT  // sentinel for array sizing — must be last
 };
 

@@ -393,6 +393,9 @@ add_library(pdfws_engines STATIC
     src/engines/RedactOperation.h    src/engines/RedactOperation.cpp
     src/core/RedactionProof.h        src/core/RedactionProof.cpp
     src/engines/SignatureManager.h   src/engines/SignatureManager.cpp
+    src/core/SigningRequestModel.h   src/core/SigningRequestModel.cpp
+    src/core/SigningRequestRunner.h  src/core/SigningRequestRunner.cpp
+    src/engines/SignatureFieldCreator.h src/engines/SignatureFieldCreator.cpp
     src/engines/ConversionManager.h  src/engines/ConversionManager.cpp
     src/engines/DocumentSession.h    src/engines/DocumentSession.cpp
     src/engines/AutosaveManager.h    src/engines/AutosaveManager.cpp
@@ -898,6 +901,8 @@ add_library(pdfws_ui STATIC
     src/ui/EncryptionDialog.h        src/ui/EncryptionDialog.cpp
     src/ui/PermissionsDialog.h       src/ui/PermissionsDialog.cpp
     src/ui/SignatureDialog.h         src/ui/SignatureDialog.cpp
+    src/ui/SigningRequestDialog.h    src/ui/SigningRequestDialog.cpp
+    src/ui/SigningProgressPanel.h    src/ui/SigningProgressPanel.cpp
     src/ui/RecipientPickerDialog.h   src/ui/RecipientPickerDialog.cpp
     src/ui/SignaturePicker.h         src/ui/SignaturePicker.cpp
     src/ui/MetadataDialog.h          src/ui/MetadataDialog.cpp
@@ -937,6 +942,7 @@ add_library(pdfws_ui STATIC
     src/shell/controllers/FormsController.h  src/shell/controllers/FormsController.cpp
     src/shell/controllers/SecurityController.h src/shell/controllers/SecurityController.cpp
     src/shell/controllers/CertEncryptController.h src/shell/controllers/CertEncryptController.cpp
+    src/shell/controllers/SendForSigningController.h src/shell/controllers/SendForSigningController.cpp
     src/shell/controllers/TaskNavController.h src/shell/controllers/TaskNavController.cpp
     src/util/GpTheme.h
     # D-07 fix: OCR sources removed from pdfws_ui — they are compiled once in
@@ -1493,6 +1499,46 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignatureRealCrypto.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
         LABELS "integration;security;signatures;crypto;qt;headless"
+    )
+endif()
+
+# R26 send-for-signing P1: signing-request sidecar + workflow. Real-crypto
+# where the fixtures exist (same estate as TestSignatureRealCrypto: synthetic
+# P12, offline B-B). Model/handshake/creator slots run without fixtures.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSendForSigning.cpp")
+    add_executable(TestSendForSigning
+        tests/TestSendForSigning.cpp
+    )
+    target_include_directories(TestSendForSigning PRIVATE src tests)
+    target_compile_definitions(TestSendForSigning PRIVATE
+        SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    )
+    if(GLYPHPDF_ENABLE_TEST_FIXTURES)
+        target_compile_definitions(TestSendForSigning PRIVATE GLYPH_TESTING=1)
+    endif()
+    target_link_libraries(TestSendForSigning PRIVATE
+        pdfws_ui pdfws_engines pdfws_core
+        OpenSSL::SSL OpenSSL::Crypto
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets podofo::podofo
+    )
+    if(WIN32)
+        target_link_libraries(TestSendForSigning PRIVATE Crypt32)
+        # Deploy the vendored podofo 1.1.0 DLL (same pattern as
+        # TestSignatureRealCrypto).
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestSendForSigning POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestSendForSigning>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestSendForSigning"
+            )
+        endif()
+    endif()
+    add_test(NAME TestSendForSigning COMMAND TestSendForSigning)
+    set_tests_properties(TestSendForSigning PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 240
+        LABELS "integration;security;signatures;workflow;qt;headless"
     )
 endif()
 
