@@ -195,6 +195,38 @@ SigningRequestModel::LoadResult SigningRequestModel::fromJson(const QString &jso
         m.signers.append(s);
     }
 
+    // W1-02 — the 1-field==1-signer lint at the ONLY untrusted boundary. One
+    // signature field carries exactly one signature, so no two entries may
+    // bind the same field (compared trimmed — whitespace must not launder an
+    // alias). The prepare path already enforces this
+    // (SigningRequestDialog::saveRequest: "Signature field %1 is bound more
+    // than once.", SignatureFieldCreator refuses duplicates); fromJson is
+    // where attacker-crafted bytes enter, so it enforces it too. Scope: a
+    // duplicate binding among entries still AWAITING signature is a work
+    // order the workflow can never fulfill — a structured SchemaInvalid
+    // refusal. A record where every aliased entry claims a COMPLETED
+    // signature parses as history; its truth is exactly what
+    // SigningRequestRunner::verifyAgainstDocument audits, which flags aliased
+    // bindings as out-of-sync (defense in depth, never silent).
+    for (int i = 0; i < m.signers.size(); ++i) {
+        const QString fieldI = m.signers[i].fieldName.trimmed();
+        for (int j = i + 1; j < m.signers.size(); ++j) {
+            if (m.signers[j].fieldName.trimmed() != fieldI)
+                continue;
+            if (!m.signers[i].isSigned || !m.signers[j].isSigned) {
+                result.error = LoadError::SchemaInvalid;
+                result.detail = QStringLiteral(
+                    "Signature field %1 is bound more than once (signers %2 "
+                    "and %3) — one signature field carries exactly one "
+                    "signer's signature, so the request cannot be fulfilled "
+                    "as bound.")
+                    .arg(m.signers[i].fieldName.trimmed())
+                    .arg(i + 1).arg(j + 1);
+                return result;
+            }
+        }
+    }
+
     result.model = m;
     return result;
 }

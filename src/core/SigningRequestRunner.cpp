@@ -10,6 +10,7 @@
 #include <QDateTime>
 #include <QFile>
 #include <QFileInfo>
+#include <QMap>
 #include <QSet>
 
 namespace SafeSave = gp::SafeSave;        // gp::SafeSave is a NAMESPACE of primitives
@@ -334,6 +335,33 @@ SigningRequestRunner::VerificationReport SigningRequestRunner::verifyAgainstDocu
         if (v.entrySigned) ++report.signedEntryCount;
         report.perSigner.append(v);
     }
+
+    // W1-02 defense-in-depth: one field carries one signature, so two entries
+    // bound to the same field can never both be honestly fulfilled. Parse
+    // refuses that shape while any aliased entry is still unsigned
+    // (SigningRequestModel::fromJson); a record whose aliased entries ALL
+    // claim completed signatures parses as history and is audited HERE —
+    // per-field coverage alone cannot see the alias (both entries match the
+    // same field's signature) and the count check passes whenever the
+    // document carries as many real signatures as entries. An aliased
+    // binding is an out-of-sync request: disclosed, never "consistent".
+    {
+        QMap<QString, QList<int>> bindings;   // trimmed field name -> entry indexes
+        for (int i = 0; i < model.signers.size(); ++i)
+            bindings[model.signers[i].fieldName.trimmed()].append(i);
+        for (auto it = bindings.constBegin(); it != bindings.constEnd(); ++it) {
+            if (it.value().size() < 2) continue;
+            QStringList who;
+            for (int idx : it.value())
+                who << QString::number(idx + 1);
+            report.warnings << QStringLiteral(
+                "Signers %1 are all bound to the same field %2 — a signature "
+                "field carries exactly one signature, so this request cannot "
+                "be fulfilled as bound.")
+                .arg(who.join(QStringLiteral(", ")), it.key());
+        }
+    }
+
     if (report.documentSignatureCount < report.signedEntryCount)
         report.warnings << QStringLiteral(
             "The document carries %1 signature(s), fewer than the %2 recorded by the "
