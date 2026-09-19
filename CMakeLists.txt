@@ -2261,6 +2261,9 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAccessibilityFixes.cpp")
     set_tests_properties(TestAccessibilityFixes PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
+        # Same seam class as TestPrintableSummary: process-global commit
+        # fault + shared SafeSave candidate temp dir — run alone.
+        RUN_SERIAL TRUE
         LABELS "unit;accessibility;a11y-fixes;qt;headless"
     )
 endif()
