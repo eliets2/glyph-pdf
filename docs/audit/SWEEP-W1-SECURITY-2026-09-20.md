@@ -145,3 +145,89 @@ refresh and the warnings are surfaced in the panel title (SigningProgressPanel.c
 (SigningRequestRunner.cpp:227-244) and `applyStepToModel` refuses anything without
 committed bytes. The sidecar's attested records are display-trusted but
 document-verified — the residual is social-engineering display, not enforcement.
+
+---
+
+## F4 — Network disclosure surface misreports TSA state under policy (Medium)
+
+**Contract under audit** (NetworkTouchpoints.h:19-23): "`enabled` = the touchpoint **will
+fire** under the CURRENT settings when its invocation moment comes."
+
+`NetworkTouchpoints::enumerate` reads the RAW QSettings value
+(`NetworkTouchpoints.cpp:40-41`) while enforcement uses the policy-effective value
+(SecurityController readSigningConfig). With a policy-managed `signing/tsaUrl` and an empty
+user setting, the Preferences "Network" page — which introduces itself with "Every network
+touchpoint in GlyphPDF" (PreferencesDialog.cpp:537) — and the support bundle both report
+the TSA touchpoint as **Disabled** while the next signing above B-B (or any document
+timestamp) **will** fetch from the policy URL. The R24 keys with "pending" enforcement
+(update/ai/ocr) are consistent today; only the enforced tsa key misreports.
+
+**Repro** (`networkTouchpointMissingPolicyEnabledTsa`):
+```
+FAIL!  : SweepW1SecProbe::networkTouchpointMissingPolicyEnabledTsa() 'tsa->enabled' returned FALSE.
+  (TSA touchpoint shown DISABLED while the enforced policy URL makes it fire …)
+```
+
+## F5 — Sidecar anchor rect: no page-bounds clamp → invisible signature fields (Low-Med)
+
+The fill flow's lazy placement consumes the sidecar's `anchorPage`/`anchorRect` with only
+these checks: `rectFromJson` demands x,y ≥ 0 and w,h > 0 (SigningRequestModel.cpp:38);
+precheck demands `anchorRect.isValid()` (SigningRequestRunner.cpp:111-112);
+`SignatureFieldCreator` validates positive size + page-index range (lines 95-121) — and
+**nothing bounds the rect against the page MediaBox**. A crafted `<doc>.signrequest.json`
+can therefore bind the signer's field at (200000, 200000): the field is created off-page
+(widgets outside the MediaBox render in no viewer), the signer clicks "Sign as this
+signer", enters their P12, and the signature is committed to a field they can never see.
+Page-index IS range-checked, so no crash — the impact is pure placement honesty.
+
+**Repro** (`sidecarAnchorNotClampedToPage`):
+```
+FAIL!  : SweepW1SecProbe::sidecarAnchorNotClampedToPage() '!created' returned FALSE.
+  (createSignatureFields accepted an off-page anchor — an invisible signature field can be planted via the sidecar)
+```
+
+## F6 — Support bundle "no file paths" note vs the policy disclosure path (Low)
+
+`buildFromSettings` embeds `policy.statusLine()` verbatim (SupportBundle.cpp:206), which by
+design names the policy path (PolicyController.cpp:127-148). For the default location that
+is `C:/ProgramData/…` — harmless — but with `GLYPHPDF_POLICY_PATH` (test seam, sanctioned
+for portable installs) pointing into a profile, the bundle carries
+`C:/Users/<redacted>/…` after the scrub pass. The username is scrubbed (the scrub regex
+covers /Users|/home on both slash spellings), yet the privacyNote still asserts "no file
+paths" (SupportBundle.cpp:254-256) — an overclaim by one redacted path. All other emitted
+strings verified: settings allowlist (10 keys, URL-shaped keys excluded AND disclosed as
+excluded), recents/documents as counts only, capabilities omit `c.detail` precisely because
+it can carry absolute paths, network = id+enabled+invocation only.
+
+---
+
+## Never-network claim: complete egress grep table
+
+Every socket/HTTP/TLS/process-egress construction site in `src/`, traced to its gate:
+
+| # | Construction site | Destination | Gate (honor check) |
+|---|-------------------|-------------|--------------------|
+| 1 | SignatureManager.cpp:268 `QNetworkAccessManager s_nam` (httpPost) — TSA fetch (fetchTimestampToken :247) + OCSP fetch (AIA URL) | user/policy TSA URL; cert-AIA URL | Scheme: `http://` refused at :255 (https enforced). TSA fires only when `tsaUrl` non-empty + preflight refusals (SecurityController signingPreflightRefusal) at all 4 dispatch sites. OCSP: **no consent switch — fires automatically during Validate Signatures; disclosed, not gated** (NetworkTouchpoints.cpp:62-73). Destination = attacker-influenceable via the PDF's own cert AIA (disclosed). |
+| 2 | OllamaProvider.cpp:239 `QNetworkAccessManager nam` (AI chat / Test connection) | `ai/ollamaEndpoint` (default localhost:11434) | User-invoked only (chat UI / Test connection). Endpoint allowlist R04/SECFIX-5: HTTP only loopback spellings (localhost/127/8/::1 via QHostAddress), HTTPS only allowlisted hosts, user-info rejected, redirects Manual. Raw QSettings read — policy `ai/ollamaEndpoint` NOT enforced, matching its "pending" disclosure. |
+| 3 | OcrEngine.cpp:53 `QNetworkAccessManager networkManager` (traineddata download) | fixed `https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/…` | Gated at OcrEngine.cpp:217 by `ocr/allowNetworkDownload` **default OFF** (raw QSettings; policy pending — disclosed). Fixed https host, `setMaximumRedirectsAllowed(0)`, 100 MiB cap, language allowlist, QSaveFile commit. |
+| 4 | UpdateChecker.cpp:32 `m_nam` (manifest GET + MSI download) | `update/manifestUrl` / manifest downloadUrl | Startup leg gated at GpMainWindow.cpp:1550 `update/checkOnStartup` **default OFF**; Check Now is a dialog click (UpdateDialog.cpp:91,99). HTTPS enforced in ctor AND setManifestUrl; manifest refuses non-https downloadUrl / missing sha256 (B-03, fail-closed BEFORE advertising); mandatory SHA-256 re-verify at download+apply time; Authenticode required before msiexec (:326-340); non-Windows refuses to launch; `NoLessSafeRedirectPolicy`. |
+| 5 | UpdateChecker.cpp:352 `QProcess::startDetached("msiexec.exe")` | local installer | Reachable only via applyUpdate() after the full verify chain above; user clicked through UpdateDialog. |
+| 6 | VeraPdfValidator.cpp:91 `QProcess proc` (veraPDF CLI) | local CLI, argv = pdfPath + flags | Local validation subprocess; no network in invocation or flags. Not a network touchpoint (consistent with its absence from the enumeration). |
+
+Grep coverage: `QNetworkAccessManager|QTcpSocket|QUdpSocket|QSslSocket|QNetworkRequest|
+QNetworkReply|curl|QProcess|::execute|ShellExecute|system\(|BIO_new_connect|SSL_connect|
+getaddrinfo|::socket\(|::connect\(` across src/**. {1..6} is the complete construction
+set; no font/theme/other downloaders exist. QDesktopServices::openUrl (browser handoff) is
+not in-app network I/O. **Verdict: no ungated network path found; the claim's honest form
+is "no network except: user-invoked local chat, configured TSA, automatic-but-disclosed
+OCSP, opt-in updates, opt-in OCR downloads" — which the Network page states.** F4 shows the
+one place the *reporting* of that state goes wrong under policy.
+
+## Repro inventory (`.context/sweep-w1-sec/`, gitignored by repo policy)
+
+| File | Purpose | Result at base 8f62a17 |
+|------|---------|------------------------|
+| `SweepW1SecProbe.cpp` | 5 failing repros (S1↔F3, S2↔F5, S3↔F2, S4↔F1, S5↔F4), QtTest, offscreen, FU-2 unique temp dirs | 5 failed, 0 passed of the 5 slots (exit 5) — each FAIL is the finding |
+| `build_probe.py` | Builds the probe against `build-presets` using the gateA lane's ninja link-line recipe | build exit 0 |
+| `SweepW1SecProbe.log` | Probe output (quoted above per finding) | in tree |
+| `SweepW1SecProbe.moc`, `*-build.log`, `dlls.txt`, `run1.txt`, `probe-run.txt` | build/runtime debris | removable |
