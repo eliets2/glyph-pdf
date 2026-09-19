@@ -204,6 +204,11 @@ QJsonObject SupportBundle::buildFromSettings(QSettings& user,
             break;
     }
     policySection.insert(QStringLiteral("disclosure"), policy.statusLine());
+    // W1-05/F1: the bundle carries the trust model as its own field too (the
+    // disclosure line embeds it as well) — the machine-policy overrides are
+    // only as trustworthy as the machine's user accounts.
+    policySection.insert(QStringLiteral("trustModel"),
+                         PolicyController::trustModelNote());
     QJsonArray managed;
     for (const QString& k : policy.managedKeys()) {
         managed.append(QJsonObject{

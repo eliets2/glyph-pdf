@@ -82,6 +82,12 @@ public:
 
     // The bounded allowlist (schema v1): machine-admin stories only.
     static QStringList knownKeys();
+    // W1-05/F1 trust-model honesty: the policy file is machine-TRUSTED — no
+    // origin, ownership or integrity verification exists, so whoever can
+    // write its location can set these overrides. One canonical sentence
+    // shared by every policy surface (statusLine, Preferences, support
+    // bundle).
+    static QString trustModelNote();
     // True for keys enforced app-wide in THIS build (see class comment).
     static bool isEnforcedKey(const QString& settingsKey);
     // Per-key enforcement wording: names the wiring point; contains "pending"
