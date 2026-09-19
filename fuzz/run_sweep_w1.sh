@@ -21,7 +21,7 @@ BUDGET="${2:-10000}"
 
 FUZZ_BIN="$ROOT/build-fz/fuzz"
 SCRATCH="$ROOT/fuzz/scratch/w1"
-FINDINGS="$ROOT/fuzz/findings/w1"
+FINDINGS="${FINDINGS_OUT:-$ROOT/fuzz/findings/w1}"
 mkdir -p "$SCRATCH" "$FINDINGS"
 
 # Memory hygiene: ALL driver scratch (staged inputs, SafeSave candidates,
@@ -35,10 +35,9 @@ export QT_LOGGING_RULES="*.debug=false"
 
 # Runtime DLLs: the build dir FIRST (vendored podofo 1.1.0 + pdfium DLLs are
 # staged there — the ucrt64 system libpodofo.dll must never win), then Qt/etc.
-for d in "$ROOT/build-fz" "$ROOT/third_party/podofo/install/bin" \
-         "$ROOT/third_party/pdfium" "/c/msys64/ucrt64/bin"; do
-  [ -d "$d" ] && PATH="$d:$PATH"
-done
+# Both msys64 roots: the build may resolve quickjs (libqjs-0.dll) from the
+# D:\pdf\msys64 toolchain root while the interactive shell uses C:\msys64.
+PATH="$ROOT/build-fz:$ROOT/third_party/podofo/install/bin:$ROOT/third_party/pdfium:/c/msys64/ucrt64/bin:/d/pdf/msys64/ucrt64/bin:$PATH"
 export PATH
 
 DRIVERS="fuzz_signreq fuzz_batchpreset fuzz_policy fuzz_a11y fuzz_reviewsummary"
@@ -64,7 +63,7 @@ for drv in $DRIVERS; do
     continue
   fi
   echo "== $drv (corpus $(ls "$corp" | wc -l) seeds x $MUTS mutants, budget ${BUDGET}ms)"
-  "./$exe" campaign "$corp" "$MUTS" "$BUDGET" > "$log" 2> "$log.err"
+  "$exe" campaign "$corp" "$MUTS" "$BUDGET" > "$log" 2> "$log.err"
   rc=$?
   execs=$(grep -c '^EXEC ' "$log" || true)
   finds=$(grep -c 'FINDING' "$log" || true)
@@ -85,9 +84,9 @@ for drv in $DRIVERS; do
     bucket="$FINDINGS/${drv}-${base%.???}-${kind//[^A-Za-z0-9_]/}"
     mkdir -p "$bucket"
     cp "$file" "$bucket/seed-source.bin" 2>/dev/null
-    "./$exe" materialize "$file" "$idx" "$bucket/seed.bin" > /dev/null 2>&1
+    "$exe" materialize "$file" "$idx" "$bucket/seed.bin" > /dev/null 2>&1
     # Single-seed repro from the preserved file alone:
-    "./$exe" one "$bucket/seed.bin" > "$bucket/repro.log" 2>&1
+    "$exe" one "$bucket/seed.bin" > "$bucket/repro.log" 2>&1
     rc2=$?
     echo "$drv seed=$base idx=$idx kind=$kind repro_rc=$rc2" >> "$bucket/EVIDENCE.txt"
     cp "$line" "$bucket/original-exec-line.txt" 2>/dev/null
@@ -108,8 +107,8 @@ for drv in $DRIVERS; do
       bucket="$FINDINGS/${drv}-crash-$(basename "$file" | tr -d '.')-$idx"
       mkdir -p "$bucket"
       cp "$file" "$bucket/seed-source.bin" 2>/dev/null
-      "./$exe" materialize "$file" "$idx" "$bucket/seed.bin" > /dev/null 2>&1
-      "./$exe" one "$bucket/seed.bin" > "$bucket/repro.log" 2>&1
+      "$exe" materialize "$file" "$idx" "$bucket/seed.bin" > /dev/null 2>&1
+      "$exe" one "$bucket/seed.bin" > "$bucket/repro.log" 2>&1
       rc2=$?
       echo "$drv seed=$(basename "$file") idx=$idx CAMPAIGN_DEATH rc=$rc campaign_repro_rc=$rc2" \
         >> "$bucket/EVIDENCE.txt"
