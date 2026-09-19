@@ -5137,3 +5137,28 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSweepW1SigningAdversary.cpp")
         LABELS "integration;security;signatures;workflow;adversary;sweep-w1;qt;headless"
     )
 endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSweepW1SummaryPolicyAdversary.cpp")
+    add_executable(TestSweepW1SummaryPolicyAdversary tests/TestSweepW1SummaryPolicyAdversary.cpp)
+    target_include_directories(TestSweepW1SummaryPolicyAdversary PRIVATE src tests)
+    target_link_libraries(TestSweepW1SummaryPolicyAdversary PRIVATE
+        pdfws_ui pdfws_engines pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    if(WIN32)
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestSweepW1SummaryPolicyAdversary POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestSweepW1SummaryPolicyAdversary>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestSweepW1SummaryPolicyAdversary"
+            )
+        endif()
+    endif()
+    add_test(NAME TestSweepW1SummaryPolicyAdversary COMMAND TestSweepW1SummaryPolicyAdversary)
+    set_tests_properties(TestSweepW1SummaryPolicyAdversary PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 300
+        LABELS "unit;engines;summary;policy;adversary;sweep-w1;qt;headless"
+    )
+endif()
