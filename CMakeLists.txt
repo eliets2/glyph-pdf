@@ -905,6 +905,11 @@ add_library(pdfws_ui STATIC
     src/ui/SignatureDialog.h         src/ui/SignatureDialog.cpp
     src/ui/RecipientPickerDialog.h   src/ui/RecipientPickerDialog.cpp
     src/ui/SignaturePicker.h         src/ui/SignaturePicker.cpp
+
+    # R24 wiring closure: the OCSP network consent surface (per-document
+    # consent dialog + global never-network switch consumed by
+    # SecurityController::runSigning; see OcspConsentDialog.h).
+    src/ui/OcspConsentDialog.h       src/ui/OcspConsentDialog.cpp
     src/ui/MetadataDialog.h          src/ui/MetadataDialog.cpp
     src/ui/AnnotationLayer.h         src/ui/AnnotationLayer.cpp
     src/ui/ThumbnailSidebar.h        src/ui/ThumbnailSidebar.cpp
@@ -4381,6 +4386,23 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPolicyWiring.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 300
         LABELS "unit;policy;r24;qt;headless"
+    )
+endif()
+
+# R24 wiring closure: OCSP consent — per-document consent dialog (allow
+# once / allow for this document / deny), remember-for-document, and the
+# global never-network switch; offscreen dialog-driving pins.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcspConsent.cpp")
+    add_executable(TestOcspConsent tests/TestOcspConsent.cpp)
+    target_include_directories(TestOcspConsent PRIVATE src tests)
+    target_link_libraries(TestOcspConsent PRIVATE
+        pdfws_ui pdfws_engines pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_test(NAME TestOcspConsent COMMAND TestOcspConsent)
+    set_tests_properties(TestOcspConsent PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 300
+        LABELS "unit;policy;r24;network;qt;headless"
     )
 endif()
 

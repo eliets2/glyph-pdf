@@ -11,6 +11,7 @@
 #include "ui/PermissionsDialog.h"
 #include "ui/SignatureDialog.h"
 #include "ui/MetadataDialog.h"
+#include "ui/OcspConsentDialog.h"  // R24 wiring closure: OCSP network consent
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "core/interfaces/ISignatureManager.h"
 #include "engines/SignatureManager.h" // N06: explicit-appearance signing entry points
@@ -197,6 +198,35 @@ void SecurityController::runSigning(const SigningRequest &req)
             req.certify ? tr("Certification not attempted — no TSA URL configured.")
                         : tr("Signing not attempted — no TSA URL configured."), 5000);
         return;
+    }
+
+    // R24 wiring closure: OCSP network consent (the gap the network-disclosure
+    // lane found — OCSP fired with no switch at all). Levels B-LT/B-LTA build
+    // the DSS, which fetches fresh OCSP data from the certificate's AIA
+    // responder: a NETWORK request. Per the send-for-signing consent design
+    // (D1a): per-document consent with remember-for-document, and a global
+    // never-network switch (signing/ocspNetworkPolicy = "never") that refuses
+    // WITHOUT asking. A denied decision refuses BEFORE any dispatch (R19(b)
+    // honest-preflight discipline) — the engine would otherwise contact the
+    // responder without consent, and a silently degraded B-T outcome is not
+    // an honest substitution for the level the user chose. The whyNot names
+    // the way out: B-T/B-B need no OCSP egress; granting consent unblocks
+    // B-LT/B-LTA. The engine's OCSP code is untouched.
+    if (req.level >= PAdESLevel::B_LT) {
+        const auto ocspDecision =
+            gp::OcspConsent::obtain(_mainWindow, req.sourcePath);
+        if (!gp::OcspConsent::egressAllowed(ocspDecision)) {
+            QMessageBox::warning(_mainWindow,
+                                 req.certify ? tr("Certification Not Attempted")
+                                             : tr("Signing Not Attempted"),
+                                 gp::OcspConsent::refusalReason(ocspDecision));
+            _mainWindow->statusBar()->showMessage(
+                req.certify
+                    ? tr("Certification not attempted — OCSP network consent not granted.")
+                    : tr("Signing not attempted — OCSP network consent not granted."),
+                5000);
+            return;
+        }
     }
 
     auto* progress = new QProgressDialog(req.certify ? tr("Certifying document...")

@@ -17,10 +17,13 @@
 #include <QTemporaryDir>
 
 #include "core/NetworkTouchpoints.h"
+#include "core/PolicyController.h"
 #include "core/SupportBundle.h"
+#include "ui/OcspConsentDialog.h"
 #include "ui/PreferencesDialog.h"
 
 using gp::NetworkTouchpoints;
+using gp::PolicyController;
 using gp::PreferencesDialog;
 
 namespace {
@@ -51,6 +54,18 @@ private slots:
         QCoreApplication::setOrganizationName(QStringLiteral("GlyphPDFTests"));
         QCoreApplication::setApplicationName(QStringLiteral("TestNetworkDisclosure"));
         QVERIFY(m_dir.isValid());
+    }
+
+    // R24 wiring: enumeration reads EFFECTIVE values — keep the machine
+    // policy hermetic (never consult a real deployed policy.json here).
+    void init()
+    {
+        PolicyController::instance().resetForTesting();
+    }
+
+    void cleanup()
+    {
+        PolicyController::instance().resetForTesting();
     }
 
     // ── Pin 1: every enumerated source appears ───────────────────────────
@@ -119,22 +134,42 @@ private slots:
         QCOMPARE(enabled.value(QStringLiteral("update-check")), true);
     }
 
-    // ── Pin 3: the OCSP consent gap is disclosed, not hidden ─────────────
-    void ocspDisclosesMissingConsentSwitch()
+    // ── Pin 3: the OCSP touchpoint carries its consent switch honestly ───
+    // (R24 wiring closure: this USED to pin the consent GAP — no switch
+    // existed and the surface said so. The gap is now closed by the OCSP
+    // consent surface, so the pin follows it: the switch key is named, its
+    // states derive honestly, and the disclosure keeps its honesty markers.)
+    void ocspDisclosesConsentSwitch()
     {
         QSettings store(seededIniPath(m_dir), QSettings::IniFormat);
+        // Default consent mode is "ask": egress is possible per document,
+        // and the row names the switch that governs it.
         for (const auto& tp : NetworkTouchpoints::enumerate(store)) {
             if (tp.id != QLatin1String("ocsp"))
                 continue;
-            // No consent setting exists for OCSP — say so instead of
-            // pretending a switch governs it.
-            QVERIFY(tp.consentKey.isEmpty());
-            QVERIFY(tp.disclosure.contains(QStringLiteral("automatic"),
-                                           Qt::CaseInsensitive));
+            QCOMPARE(tp.consentKey,
+                     QLatin1String(gp::OcspNetworkPolicyKey));
+            QVERIFY(tp.enabled);
             QVERIFY(tp.disclosure.contains(QStringLiteral("consent"),
-                                           Qt::CaseInsensitive)
-                    || tp.disclosure.contains(QStringLiteral("no Preferences"),
-                                              Qt::CaseInsensitive));
+                                           Qt::CaseInsensitive));
+            QVERIFY(tp.disclosure.contains(QStringLiteral("per document"),
+                                           Qt::CaseInsensitive));
+            // The old "no switch exists" honesty gap is gone.
+            QVERIFY(!tp.disclosure.contains(QStringLiteral("No Preferences"),
+                                            Qt::CaseInsensitive));
+
+            // The global never-network value flips the row to Disabled with
+            // a disclosure naming the switch.
+            store.setValue(QLatin1String(gp::OcspNetworkPolicyKey),
+                           QStringLiteral("never"));
+            store.sync();
+            for (const auto& gated : NetworkTouchpoints::enumerate(store)) {
+                if (gated.id == QLatin1String("ocsp")) {
+                    QVERIFY(!gated.enabled);
+                    QVERIFY(gated.disclosure.contains(
+                        QLatin1String(gp::OcspNetworkPolicyKey)));
+                }
+            }
             return;
         }
         QFAIL("ocsp touchpoint missing");
