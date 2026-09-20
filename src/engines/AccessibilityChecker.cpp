@@ -213,6 +213,16 @@ A11yReport scanAccessibility(const QString& path) {
     }
 
     r.loadOk = true;
+
+    // SWEEP-W1 fuzz S3b: the "never throws" contract (AccessibilityChecker.h)
+    // covers the WHOLE scan, not just the load. Post-load lazy parses
+    // (GetCatalog / GetTrailer / traversal) throw PdfError::BrokenFile /
+    // InvalidObject / InvalidDataType out of this function and terminate
+    // callers that rely on the contract. Contained at the seam, mirroring
+    // applyAccessibilityFix's discipline: whatever was collected so far comes
+    // back as a PARTIAL report with an explicit truncation finding — the gap
+    // is disclosed, never papered over and never fatal.
+    try {
     auto& catalog = doc.GetCatalog().GetDictionary();
 
     // 1) Structure tree — the tagged-document gate. Detection only: P1 does
@@ -331,6 +341,30 @@ A11yReport scanAccessibility(const QString& path) {
         std::set<PdfReference> visitedFields;
         collectFieldGaps(doc, acro->GetDictionary().FindKey(PdfName("Fields")),
                          QString(), r, 0, visitedFields);
+    }
+    } catch (const PoDoFo::PdfError& e) {
+        A11yFinding f;
+        f.checkId = QStringLiteral("scan-incomplete");
+        f.severity = A11ySeverity::Low;
+        f.page = -1;
+        f.where = QStringLiteral("document");
+        f.whyNot = QObject::tr(
+            "the accessibility scan stopped early on a broken PDF object "
+            "(%1) — the findings above may be incomplete, and the document "
+            "itself is damaged").arg(QString::fromUtf8(e.what()));
+        r.findings.append(f);
+        return r;
+    } catch (const std::exception& e) {
+        A11yFinding f;
+        f.checkId = QStringLiteral("scan-incomplete");
+        f.severity = A11ySeverity::Low;
+        f.page = -1;
+        f.where = QStringLiteral("document");
+        f.whyNot = QObject::tr(
+            "the accessibility scan stopped early (%1) — the findings above "
+            "may be incomplete").arg(QString::fromUtf8(e.what()));
+        r.findings.append(f);
+        return r;
     }
 
     return r;
