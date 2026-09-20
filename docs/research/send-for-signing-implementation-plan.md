@@ -6,6 +6,20 @@ code and no build files are touched by this document. Section 7 carries **decisi
 the user**; nothing here self-authorizes a standing network consent policy (RQ10 discipline of
 `.context/RESEARCH-RECONCILIATION-2026-09-08.md`, extended to consent surfaces).
 
+> **2026-09-20 STATUS (sweep W3 reconciliation).** **P1 is LANDED** at tip `ec9f16f` —
+> single-document signing-request workflow with an ordered multi-signer sidecar, no network:
+> `57cca6d`/`0591693`/`97c59a1`/`bc0ade4` (model+handshake, fill runner, SignatureFieldCreator,
+> dialog/panel/controller; TestSendForSigning 12/0), all implemented-awaiting-review.
+> **§1.2's headline finding is SUPERSEDED:** R19 `abc87de2` made PAdES/TSA settings-driven
+> (`SecurityController.cpp:1114` feeds `setTsaUrl`/`setSignatureLevel` from
+> `readSigningConfig`; `timestampDocument()` is a live command; failed B-T = honest
+> PartialLtvMissing), and R24-W2 `d574530` landed the OCSP consent switch this plan's §5/D1a
+> designed (ask/never, deny-not-remembered). The B-B-only wording below is preserved as the
+> 2026-09-09 snapshot it was. **Still open:** P2 package routing, P3 reminders/audit-trail PDF,
+> P4 LTV/DSS display, prepare-time DocMDP certification (deliberately out of P1 scope), and the
+> §7 decision requests not yet answered (ISecretStore persistence stayed out — per-step
+> password/P12 was the recorded P1 decision).
+
 **Sources for status claims (all read at pinned revision `a5840dc` unless noted):**
 `src/core/interfaces/ISignatureManager.h`, `src/engines/SignatureManager.{h,cpp}`,
 `src/shell/controllers/SecurityController.{h,cpp}`, `src/ui/SignatureDialog.cpp`,
