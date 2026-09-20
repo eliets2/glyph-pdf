@@ -136,6 +136,23 @@ SigningRequestModel::LoadResult SigningRequestModel::fromJson(const QString &jso
         result.error = LoadError::MissingMagic;
         return result;
     }
+    // SWEEP-W1 fuzz S1/FZ-3: the handshake is the PAIR
+    // "glyphpdf-signrequest": 1 — the key's VALUE is verified exactly as
+    // strictly as schemaVersion. Key presence alone accepted 999 / 1.5 /
+    // true / null / "one" as valid requests, and Qt keeps the LAST duplicate
+    // key, so a duplicated magic with a doctored trailing value sailed
+    // through: the documented forward-compat gatekeep ("a different magic
+    // value means a different dialect") did not exist. A wrong magic value is
+    // not a GlyphPDF request — refused.
+    if (!magic.isDouble() || magic.toInt(-1) != kSchemaVersion) {
+        result.error = LoadError::MissingMagic;
+        result.detail = QStringLiteral(
+            "the magic key must carry the value %1 (found: %2) — this is not "
+            "a GlyphPDF signing request this build can read")
+            .arg(kSchemaVersion)
+            .arg(magic.toVariant().toString());
+        return result;
+    }
     const int version = root.value(QStringLiteral("schemaVersion")).toInt(-1);
     if (version != kSchemaVersion) {
         result.error = LoadError::UnknownVersion;
