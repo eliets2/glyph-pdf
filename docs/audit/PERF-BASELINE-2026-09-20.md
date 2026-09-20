@@ -12,9 +12,12 @@ acceptance should describe what users feel": *"Use the following as **proposed
 initial targets**, to be calibrated on a named reference machine and document
 corpus—not as measured current performance"*).
 
-Status: **PROVISIONAL numbers below** (loaded-box run, load context recorded
-per block). The QUIET re-run (`wait_quiet` gate: <2 build processes for 10
-minutes) is appended at the bottom — **only the quiet run is THE baseline**.
+Status: **FINAL**. Section 4 holds the provisional (loaded-box) numbers;
+section 7 holds the QUIET run (gate passed: <1 build process sustained for
+10 consecutive minutes at 18:44–19:20 +0300). **Section 7 is THE baseline**;
+section 4 is retained for the load-honesty comparison the lane was tasked
+with. Both runs used identical binaries, fixtures (regenerated from the same
+seed) and methodology.
 
 ## 1. Reference machine and environment
 
@@ -122,9 +125,10 @@ concurrent builds during this window — the QUIET run below supersedes it).
 | mem-compare-50 peak WS (MiB) | 1 | 461 | — | — | — |
 
 Batch detail: 50/50 success, 0 failed, 0 skipped, `finished=true` every run;
-~5–10 ms/file. OCR skip decision measured exactly as BatchMode decides it:
-1 ms median on a 20-page text document — the near-zero skip path the Q1
-remediation predicted, now measured.
+~7–11 ms/file in the loaded run, ~5.5 ms/file in the quiet run. OCR skip
+decision measured exactly as BatchMode decides it: 1 ms median on a 20-page
+text document — the near-zero skip path the Q1 remediation predicted, now
+measured.
 
 ## 5. Findings (documented, NOT fixed — this lane optimizes nothing)
 
@@ -133,7 +137,7 @@ remediation predicted, now measured.
   ~0 ms; the constructor is the whole cost. Cold start (169 ms median external
   wall) is nowhere near the 2 s gate even with the driver's disclosed
   resource-loading null-paths.
-- **F2 — 50-page compare is the heaviest measured operation: ~0.9 s wall,
+- **F2 — 50-page compare is the heaviest measured operation: ~0.8–0.9 s wall,
   ~461 MiB peak WS (~9 MiB/page at 150 DPI).** The readiness review's
   concrete worry (empty overlays retained for unchanged pages, 25.245 MB for
   3 pages in its probe) remains directionally visible here as a large
@@ -168,7 +172,72 @@ remediation predicted, now measured.
 - R7: GPU-accelerated rendering paths (offscreen = software raster).
 - R8: Multi-monitor/display-scale effects; battery/thermal profiles.
 
-## 7. QUIET RUN (final baseline)
+## 7. QUIET RUN — THE BASELINE (final)
 
-To be filled after the `wait_quiet` gate (build processes < 2 sustained 10
-minutes) passes and the identical suite re-runs with `-Label quiet-final`.
+Gate: `wait_quiet.ps1` — build-process count 0 sustained 10 consecutive
+minutes (18:44–19:20 +0300; several earlier attempts were reset by other
+lanes' builds, which is the gate working as intended). Suite started 2026-09-20
+19:20:07, finished 19:21:38.
+
+### 7.1 Quiet-run metrics (median / p95, ms unless noted)
+
+| Metric | n | median | p95 | min | max | Loaded-run median (for comparison) |
+|---|---|---|---|---|---|---|
+| startup-external-wall | 20 | 150 | 174 | 144 | 407¹ | 169 |
+| startup-main-to-window-shown | 20 | 11 | 13 | 10 | 16 | 13 |
+| startup-MainWindow-ctor | 20 | 95 | 112 | 91 | 112 | 106 |
+| open-small-first-page (engine) | 20 | 6 | 8 | 5 | 8 | 6 |
+| paginate-small-full (20p @2x) | 20 | 51 | 55 | 46 | 56 | 50 |
+| open-medium-first-page (engine) | 10 | 33 | 37 | 31 | 37 | 36 |
+| paginate-medium-full (40p @2x) | 10 | 279 | 292 | 271 | 292 | 302 |
+| open-large-first-page (engine) | 3 | 144 | 148 | 143 | 148 | 157 |
+| paginate-large-full (150p @2x) | 3 | 1298 | 1298 | 1275 | 1298 | 1395 |
+| open-app-real-mainwindow | 20 | 12 | 21 | 12 | 27 | 13 |
+| redact-apply | 20 | 77² | 131 | 28 | 133 | 32 |
+| ocr-skip-decision | 20 | 1 | 2 | 1 | 3 | 1 |
+| compare-50p (150 DPI) | 5 | 807 | 831 | 797 | 831 | 926 |
+| convert-export-docx | 10 | 3 | 5 | 3 | 5 | 3 |
+| convert-export-xlsx | 10 | 4 | 7 | 4 | 7 | 3 |
+| sign-local-p12 (no TSA) | 10 | 33 | 40 | 31 | 40 | 74 |
+| save-roundtrip | 20 | 27 | 30 | 24 | 30 | 69 |
+| batch-50-preset-compress | 3 | 275 | 277 | 269 | 277 | 524 |
+| mem-open-large peak WS | 1 | 178.9 MiB | — | — | — | 179 MiB |
+| mem-compare-50 peak WS | 1 | 461.4 MiB | — | — | — | 461 MiB |
+
+Per-scale page render (20-page fixture, page 0, quiet run): 0.5x=2 ms, 1x=2,
+2x=3, 4x=7, 8x=21, 16x=84 — identical to the loaded run (raster work, not
+load-sensitive at these sizes).
+
+¹ One 407 ms outlier among the 20 spawns (fresh burst of another lane's
+build reaching the box as the run started); median/p95 unaffected.
+² Unexplained within-block variance: the redact block ran with 0 build
+processes and 5–10 % CPU, its minimum (28 ms) matches the loaded run's floor
+(29 ms), yet the median tripled (32 → 77). Reported as measured; a future
+lane should re-probe redact-apply specifically (per-iteration sub-timers:
+apply vs save) before quoting either number as authoritative.
+
+### 7.2 Quiet-run load honesty
+
+Per-block load context (sampled immediately before/after each block):
+open-medium through save-roundtrip — build processes 0, CPU 4–32 %. The
+`open-small` block's before-sample caught the tail of a burst (2 procs, 26 %
+CPU); the last three blocks (batch, mem-open, mem-compare, page-scale)
+overlapped a NEW burst starting 2–4 procs at ~19:21:21 — a new build began
+mid-run, as recorded. Timing impact there is negligible (batch matches its
+smoke-run value; peak WS is load-insensitive and byte-comparable to the
+loaded run), but the context is disclosed, not hidden. Baseline verdicts in
+section 4.1 hold under the quiet numbers — every measured target has MORE
+headroom in the quiet run than the provisional one.
+
+### 7.3 What the quiet run settles
+
+- Cold start P95 (whole process, incl. loader): **174 ms** vs the 2 s
+  proposed gate — 11x headroom.
+- 20-page open to first useful page P95: **8 ms** engine / **21 ms** real
+  MainWindow path vs the 1 s proposed gate — ~50x headroom.
+- Heaviest everyday op, 50-page compare: **807 ms median**; everything else
+  users wait on interactively is ≤ 300 ms median except full pagination of
+  the 100+ MB class (1298 ms, a bulk operation, not an interaction).
+- Memory: 100+ MB document open ≈ **179 MiB** peak WS; 50-page compare ≈
+  **461 MiB**. No numeric target existed; these are the first calibrated
+  datapoints for the per-job budget definition the review asks for.

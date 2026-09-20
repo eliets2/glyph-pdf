@@ -1,7 +1,7 @@
 # SWEEP-W3-PERF quiet-box gate (PowerShell 5.1).
 #
 # Blocks until the machine has been QUIET (< the process-count threshold) for
-# the full quiet window — the precondition for the FINAL baseline run (the
+# the full quiet window -- the precondition for the FINAL baseline run (the
 # load-honesty contract: only the quiet run is the baseline).
 #
 # Usage: powershell -File tools\perf\wait_quiet.ps1 [-QuietMinutes 10] [-MaxBuildProcs 1]
@@ -34,7 +34,7 @@ while ($true) {
         }
     } else {
         if ($null -ne $quietStart) {
-            Write-Host ("[{0}] busy again (buildProcs={1}) — quiet timer reset" -f $now.ToString("HH:mm:ss"), $count)
+            Write-Host ("[{0}] busy again (buildProcs={1}) -- quiet timer reset" -f $now.ToString("HH:mm:ss"), $count)
         }
         $quietStart = $null
     }
