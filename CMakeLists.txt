@@ -1291,6 +1291,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatesBatchSafety.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
         LABELS "unit;pages;bates;integration;qt;headless"
+        RESOURCE_LOCK GlyphpdfCandidates
     )
 endif()
 
@@ -1511,6 +1512,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSignatureRealCrypto.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
         LABELS "integration;security;signatures;crypto;qt;headless"
+        RESOURCE_LOCK GlyphpdfCandidates
     )
 endif()
 
@@ -1551,6 +1553,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSendForSigning.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 240
         LABELS "integration;security;signatures;workflow;qt;headless"
+        RESOURCE_LOCK GlyphpdfCandidates
     )
 endif()
 
@@ -2490,6 +2493,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPagesMode.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 60
         LABELS "unit;modes;pages;ui;qt;headless"
+        RESOURCE_LOCK GlyphpdfCandidates
     )
 endif()
 
@@ -2523,6 +2527,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPageLabels.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
         LABELS "unit;pages;pagelabels;core;qt;headless"
+        RESOURCE_LOCK GlyphpdfCandidates
     )
 endif()
 
@@ -3750,7 +3755,9 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestMeasureCore.cpp")
         pdfws_core Qt6::Test Qt6::Core
     )
     add_test(NAME TestMeasureCore COMMAND TestMeasureCore)
-    set_tests_properties(TestMeasureCore PROPERTIES TIMEOUT 60 LABELS "unit;measure;qt;headless")
+    set_tests_properties(TestMeasureCore PROPERTIES TIMEOUT 60 LABELS "unit;measure;qt;headless"
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
 endif()
 
 # T1 measurement toolset: saved-artifact round-trip (extractAnnotations + raw
@@ -3924,7 +3931,9 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormSafety.cpp")
         )
     endif()
     add_test(NAME TestFormSafety COMMAND TestFormSafety)
-    set_tests_properties(TestFormSafety PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120 LABELS "unit;forms;form-fields;persistence;qt;headless")
+    set_tests_properties(TestFormSafety PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120 LABELS "unit;forms;form-fields;persistence;qt;headless"
+        RESOURCE_LOCK GlyphpdfCandidates
+    )
 endif()
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormJsCalc.cpp")
@@ -4069,7 +4078,9 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEngineSave.cpp")
         )
     endif()
     add_test(NAME TestEngineSave COMMAND TestEngineSave)
-    set_tests_properties(TestEngineSave PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120 LABELS "unit;engine;save;persistence;qt;headless")
+    set_tests_properties(TestEngineSave PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120 LABELS "unit;engine;save;persistence;qt;headless"
+        RESOURCE_LOCK GlyphpdfCandidates
+    )
 endif()
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEncryptedPackageSafeWrite.cpp")
@@ -4082,7 +4093,9 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEncryptedPackageSafeWrite.cpp")
         Qt6::Test Qt6::Core Qt6::Gui
     )
     add_test(NAME TestEncryptedPackageSafeWrite COMMAND TestEncryptedPackageSafeWrite)
-    set_tests_properties(TestEncryptedPackageSafeWrite PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 300 LABELS "unit;export;safesave;shell;headless")
+    set_tests_properties(TestEncryptedPackageSafeWrite PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 300 LABELS "unit;export;safesave;shell;headless"
+        RESOURCE_LOCK GlyphpdfCandidates
+    )
 endif()
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPrintJob.cpp")
@@ -4254,6 +4267,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRedactTransaction.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 180
         LABELS "unit;redaction;transaction;security;privacy;qt;headless"
+        RESOURCE_LOCK GlyphpdfCandidates
     )
 endif()
 
@@ -4471,6 +4485,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCertEncryptPicker.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
         LABELS "unit;security;encryption;recipients;n17;qt;headless"
+        RESOURCE_LOCK GlyphpdfCandidates
     )
 endif()
 
@@ -4799,6 +4814,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOfficeImport.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
         LABELS "unit;convert;office;import;images;qt;headless"
+        RESOURCE_LOCK GlyphpdfCandidates
     )
 endif()
 
@@ -4881,6 +4897,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCheckedMutationCoverage.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
         LABELS "unit;history;persistence;qt;headless"
+        RESOURCE_LOCK GlyphpdfCandidates
     )
 endif()
 
@@ -4953,6 +4970,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPersistenceOutcomes.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
         LABELS "unit;session;persistence;identity;integration;qt;headless"
+        RESOURCE_LOCK GlyphpdfCandidates
     )
 endif()
 
@@ -5247,6 +5265,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSweepW1PresetAdversary.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
         LABELS "unit;batch;presets;adversary;sweep-w1;qt;headless"
+        RESOURCE_LOCK GlyphpdfCandidates
     )
 endif()
 
@@ -5280,6 +5299,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSweepW1SigningAdversary.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 240
         LABELS "integration;security;signatures;workflow;adversary;sweep-w1;qt;headless"
+        RESOURCE_LOCK GlyphpdfCandidates
     )
 endif()
 
