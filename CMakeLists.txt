@@ -5217,3 +5217,40 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSweepW1SummaryPolicyAdversary.c
         LABELS "unit;engines;summary;policy;adversary;sweep-w1;qt;headless"
     )
 endif()
+
+# ── SWEEP-W1 SECURITY (2026-09-20) — failing repros from the security lane ───
+# REVIEW-ONLY probe: asserts the DESIRED security behavior from
+# docs/audit/SWEEP-W1-SECURITY-2026-09-20.md. Slots FAIL until the finding is
+# remediated (S4/F1 is the documented design item). Do not "fix the tests".
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/SweepW1SecProbe.cpp")
+    add_executable(TestSweepW1SecProbe tests/SweepW1SecProbe.cpp)
+    target_include_directories(TestSweepW1SecProbe PRIVATE src tests)
+    target_compile_definitions(TestSweepW1SecProbe PRIVATE
+        SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    )
+    if(GLYPHPDF_ENABLE_TEST_FIXTURES)
+        target_compile_definitions(TestSweepW1SecProbe PRIVATE GLYPH_TESTING=1)
+    endif()
+    target_link_libraries(TestSweepW1SecProbe PRIVATE
+        pdfws_engines pdfws_ui pdfws_engines pdfws_core
+        OpenSSL::SSL OpenSSL::Crypto
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets podofo::podofo
+    )
+    if(WIN32)
+        target_link_libraries(TestSweepW1SecProbe PRIVATE Crypt32)
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestSweepW1SecProbe POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestSweepW1SecProbe>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestSweepW1SecProbe"
+            )
+        endif()
+    endif()
+    add_test(NAME TestSweepW1SecProbe COMMAND TestSweepW1SecProbe)
+    set_tests_properties(TestSweepW1SecProbe PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 240
+        LABELS "integration;security;signatures;workflow;security-sweep-w1;qt;headless"
+    )
+endif()

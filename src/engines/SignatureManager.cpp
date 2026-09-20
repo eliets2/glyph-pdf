@@ -144,6 +144,10 @@ public:
     // the signature on disk attained B-B. Reset at the start of every
     // signing attempt (see signDocumentImpl).
     bool timestampMissing = false;
+    // SWEEP-W1 F2: set only when the TSA response parsed as an RFC 3161
+    // TS_RESP (d2i_TS_RESP) AND was embedded. A non-token HTTP-200 body is
+    // never embedded and never clears timestampMissing.
+    bool timestampTokenValid = false;
 
     // -----------------------------------------------------------------------
     // Populate X509_STORE with trust roots
@@ -1286,6 +1290,7 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
     d->dssMissing = false;
     d->docTimestampMissing = false;
     d->timestampMissing = false;   // SEP13 lead 1: B-T piece of the same slate
+    d->timestampTokenValid = false;   // SWEEP-W1 F2: clean slate per attempt
     // N06 (QUALITY-GATE-2026-09-09): checked replacement at the signing
     // boundary. When the result goes to a DIFFERENT file than the source
     // (the SecurityController retry/replacement contract), every write below
@@ -1410,10 +1415,26 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
                             QByteArray tsToken = m_priv->fetchTimestampToken(digest);
 
                             if (!tsToken.isEmpty()) {
-                                CMS_unsigned_add1_attr_by_NID(si, NID_id_smime_aa_timeStampToken,
-                                                              V_ASN1_SEQUENCE, tsToken.constData(), tsToken.size());
-                                m_priv->timestampMissing = false;   // token embedded: B-T attained
-                                qDebug() << "B-T: id-aa-signatureTimeStampToken appended to SignerInfo";
+                                // SWEEP-W1 F2: presence of an HTTP-200 body is
+                                // NOT attainment. Parse the response as an RFC
+                                // 3161 TS_RESP BEFORE embedding it; a garbage /
+                                // error-page body is neither embedded nor
+                                // credited — the honest timestampMissing
+                                // degradation (SEP13 lead 1) stands.
+                                const unsigned char *respP = reinterpret_cast<const unsigned char*>(
+                                    tsToken.constData());
+                                TS_RESP *parsedResp = d2i_TS_RESP(nullptr, &respP, tsToken.size());
+                                if (parsedResp) {
+                                    TS_RESP_free(parsedResp);
+                                    CMS_unsigned_add1_attr_by_NID(si, NID_id_smime_aa_timeStampToken,
+                                                                  V_ASN1_SEQUENCE, tsToken.constData(), tsToken.size());
+                                    m_priv->timestampMissing = false;   // token embedded: B-T attained
+                                    m_priv->timestampTokenValid = true; // F2: token parsed, not just received
+                                    qDebug() << "B-T: id-aa-signatureTimeStampToken appended to SignerInfo";
+                                } else {
+                                    qWarning() << "B-T: TSA response is not a valid RFC 3161 TS_RESP "
+                                                  "(not embedded) — signature downgrades to B-B";
+                                }
                             } else {
                                 qWarning() << "B-T: TSA returned empty token — signature downgrades to B-B";
                             }
@@ -1885,6 +1906,7 @@ SignatureOutcomeDetail SignatureManager::lastSignOutcomeDetail()
     detail.dssMissing = d->dssMissing;
     detail.docTimestampMissing = d->docTimestampMissing;
     detail.timestampMissing = d->timestampMissing;   // SEP13 lead 1
+    detail.timestampTokenValid = d->timestampTokenValid;   // SWEEP-W1 F2
     return detail;
 }
 
