@@ -3743,6 +3743,28 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestMeasureRoundTrip.cpp")
     set_tests_properties(TestMeasureRoundTrip PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;measure;annotations;persistence;qt;headless")
 endif()
 
+# sweep-legacy (2026-09-19): the /Rotate + offset-MediaBox origin class at the
+# annotation embed/extract and form-field creation/update boundaries — the same
+# law PageSpaceTransform.h established for redaction (SEP13 L5/L8, F1), pinned
+# for the legacy annotation and form surfaces via raw /Rect arrays + PDFium.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestLegacyOriginSpace.cpp")
+    add_executable(TestLegacyOriginSpace tests/TestLegacyOriginSpace.cpp)
+    target_include_directories(TestLegacyOriginSpace PRIVATE src tests)
+    target_link_libraries(TestLegacyOriginSpace PRIVATE
+        pdfws_engines pdfws_core podofo::podofo Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    if(WIN32)
+    add_custom_command(TARGET TestLegacyOriginSpace POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PODOFO_VENDOR_DLL}"
+            "$<TARGET_FILE_DIR:TestLegacyOriginSpace>/libpodofo.dll"
+        COMMENT "Deploying podofo 1.1.0 DLL for TestLegacyOriginSpace"
+    )
+    endif()
+    add_test(NAME TestLegacyOriginSpace COMMAND TestLegacyOriginSpace)
+    set_tests_properties(TestLegacyOriginSpace PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;annotations;forms;persistence;qt;headless")
+endif()
+
 # N1 (backlog 2026-09-10): measurement CSV export — the item the T1 lane
 # explicitly deferred. Pins the RFC-4180 CSV contract (calibrated perimeter
 # rows reproduce value+unit+page; empty export = headers only) plus the
