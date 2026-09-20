@@ -3079,6 +3079,33 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRibbonCollapse.cpp")
     )
 endif()
 
+# ── TestModeStripPins (SWEEP-W2 — matrix gap pins: mode pills, toggle-ai, task-chooser) ──
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestModeStripPins.cpp")
+    add_executable(TestModeStripPins
+        tests/TestModeStripPins.cpp
+    )
+    target_include_directories(TestModeStripPins PRIVATE src tests)
+    target_link_libraries(TestModeStripPins PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestModeStripPins POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestModeStripPins>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestModeStripPins>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestModeStripPins"
+    )
+    add_test(NAME TestModeStripPins COMMAND TestModeStripPins)
+    set_tests_properties(TestModeStripPins PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;shell;mode-strip;matrix-pins;sweep-w2;qt;headless"
+    )
+endif()
+
 # ── TestStatusBarSlim (U02 — slim status bar + details facts) ───────────────
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestStatusBarSlim.cpp")
     add_executable(TestStatusBarSlim
