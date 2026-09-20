@@ -114,8 +114,14 @@ SigningRequestRunner::Refusal SigningRequestRunner::precheck(SignatureManager &s
     const QList<ISignatureManager::SignatureFieldAnchor> anchors =
         signing.signatureFieldAnchors(in.docPath);
     bool fieldExists = false;
-    for (const auto &a : anchors)
-        if (a.fieldName == bound) { fieldExists = true; break; }
+    ISignatureManager::SignatureFieldAnchor boundField;
+    for (const auto &a : anchors) {
+        if (a.fieldName == bound) {
+            fieldExists = true;
+            boundField = a;
+            break;
+        }
+    }
     if (!fieldExists) {
         const bool canCreate = entry.createdField && entry.anchorPage >= 0
                                && entry.anchorRect.isValid();
@@ -127,6 +133,42 @@ SigningRequestRunner::Refusal SigningRequestRunner::precheck(SignatureManager &s
                             .arg(bound);
             return r;
         }
+    } else if (entry.createdField && entry.anchorPage >= 0
+               && entry.anchorRect.isValid()
+               && (boundField.pageIndex != entry.anchorPage
+                   || qAbs(boundField.rect.x()      - entry.anchorRect.x())      > 0.5
+                   || qAbs(boundField.rect.y()      - entry.anchorRect.y())      > 0.5
+                   || qAbs(boundField.rect.width()  - entry.anchorRect.width())  > 0.5
+                   || qAbs(boundField.rect.height() - entry.anchorRect.height()) > 0.5)) {
+        // emergence E-4 (SWEEP-W3-EMERGENCE §2c): the cross-version replay
+        // trap. A field PHYSICALLY created by a pre-W2B-1 build carries the
+        // known-corrupted /Rect (CreateField double-transformed view-space
+        // rects on rotated pages); when its fill attempt failed after
+        // creation, the runner published the post-create hash — the retry is
+        // therefore hash-clean and the mutation gate cannot see the
+        // corruption. The entry's anchor IS the request's own placement
+        // expectation (the same rect lazy placement would use), so a
+        // divergent stored rect refuses the step here: never a silently
+        // misplaced visible signature. (Anchors project the raw /Rect
+        // through the page-space law; placement stores it verbatim, so a
+        // post-fix-created field matches exactly and is never false-refused.)
+        r.code = StepRefusal::AnchorMismatch;
+        r.message = QStringLiteral(
+            "The signature field %1 exists, but its on-page position or size "
+            "does not match the anchored position this request recorded "
+            "(expected page %2 at %3,%4 %5x%6; found page %7 at %8,%9 %10x%11). "
+            "The field was likely placed by an older version with a rotated-"
+            "page geometry defect — signing it would put the visible "
+            "signature in the wrong place. Nothing has been changed: remove "
+            "or re-place the field, then re-prepare the request.")
+            .arg(bound)
+            .arg(entry.anchorPage + 1)
+            .arg(entry.anchorRect.x()).arg(entry.anchorRect.y())
+            .arg(entry.anchorRect.width()).arg(entry.anchorRect.height())
+            .arg(boundField.pageIndex + 1)
+            .arg(boundField.rect.x()).arg(boundField.rect.y())
+            .arg(boundField.rect.width()).arg(boundField.rect.height());
+        return r;
     }
     const QList<SignatureInfo> infos = signing.validateSignatures(in.docPath);
     for (const SignatureInfo &info : infos) {
