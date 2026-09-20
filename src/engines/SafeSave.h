@@ -2,6 +2,7 @@
 #pragma once
 #include <QString>
 #include <QStringList>
+#include <QByteArray>
 #include <functional>
 
 namespace gp {
@@ -90,14 +91,40 @@ enum class CommitFaultForTesting { None = 0, FailBeforeCommit };
 void setCommitFaultForTesting(CommitFaultForTesting fault);
 CommitFaultForTesting commitFaultForTesting();
 
+// ── emergence E-6 (SWEEP-W3-EMERGENCE §7): the destination-identity ──────────
+// precondition. commitFileToDestination replaces WHATEVER is on disk with the
+// validated candidate; a second instance (or a sync client, or any other
+// writer) committing the same document between this operation's first read
+// and its commit is silently dropped — the worst case being instance B's
+// stale in-memory bytes erasing instance A's just-added signature. The
+// precondition closes exactly that at the shared boundary:
+//   * captureDestinationIdentity(destPath) records what the destination holds
+//     when the operation STARTS (full SHA-256 — size/mtime are not equality
+//     proofs: a same-size replacement with a preserved timestamp must still
+//     be caught), and
+//   * commitFileToDestination(…, expected) re-hashes the destination
+//     immediately before the atomic rename and REFUSES on divergence —
+//     nothing is overwritten and the failure says so honestly.
+// An INVALID identity (destination absent at capture) imposes no precondition;
+// a VALID one whose file has since VANISHED is a mismatch too (committing
+// would equally erase the other writer's delete).
+struct DestinationIdentity {
+    bool valid = false;
+    QByteArray sha256;   // raw (non-hex) SHA-256 of the expected destination bytes
+};
+DestinationIdentity captureDestinationIdentity(const QString& destPath);
+
 // Bounded copy of the validated candidate into QSaveFile + checked commit().
 // QSaveFile writes a hidden temp in the destination's directory and atomically
 // renames over the destination at commit(); a failed or canceled commit never
 // touches the original. Returns false with `err` on any failure; on failure the
 // destination is byte-identical (it may pre-exist and is only replaced by the
-// atomic rename).
+// atomic rename). `expected` (default: no precondition — every existing caller
+// keeps its exact semantics) additionally refuses the commit when the
+// destination's bytes diverge from the identity captured at operation start.
 bool commitFileToDestination(const QString& candidate, const QString& destPath, QString* err,
-                             CommitFaultForTesting fault = CommitFaultForTesting::None);
+                             CommitFaultForTesting fault = CommitFaultForTesting::None,
+                             const DestinationIdentity& expected = DestinationIdentity());
 
 // ── GUI-held-handle coordination (engine-lane residual, step-2 ledger) ──────
 //

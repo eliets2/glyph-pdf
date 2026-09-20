@@ -1289,6 +1289,12 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
                                         const QString &location,
                                         const QImage &appearanceImage)
 {
+    // emergence E-6: record what the destination holds when the operation
+    // STARTS — the shared commit boundary refuses at the end if a second
+    // writer replaced those bytes in the meantime (a stale candidate must
+    // never erase another instance's freshly added signature).
+    const gp::SafeSave::DestinationIdentity destIdentity =
+        gp::SafeSave::captureDestinationIdentity(outputPath);
     // E-02: assume failure until we know the core signature bytes were written.
     d->lastOutcome = SignOutcome::Failed;
     // §9.7 P1: a fresh attempt starts with a clean degradation slate.
@@ -1824,7 +1830,9 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
             // failure the destination is byte-identical and the outcome is
             // Failed. No direct-write fallback.
             QString commitErr;
-            if (!gp::SafeSave::commitFileToDestination(signingCandidate, outputPath, &commitErr)) {
+            if (!gp::SafeSave::commitFileToDestination(signingCandidate, outputPath, &commitErr,
+                                                       gp::SafeSave::CommitFaultForTesting::None,
+                                                       destIdentity)) {
                 qWarning() << "SignatureManager: checked replacement of" << outputPath
                            << "failed — previous output preserved:" << commitErr;
                 d->lastOutcome = SignOutcome::Failed;
@@ -1931,6 +1939,10 @@ bool SignatureManager::addDocTimeStamp(const QString &inputPath, const QString &
             qWarning() << "SignatureManager: cannot reserve a timestamp candidate:" << err;
             return false;
         }
+        // emergence E-6: what the destination holds when the operation starts;
+        // the commit below refuses if a second writer replaced those bytes.
+        const gp::SafeSave::DestinationIdentity destIdentity =
+            gp::SafeSave::captureDestinationIdentity(outputPath);
         // makeUniqueCandidate reserved (created) the name; QFile::copy
         // refuses an existing destination, so drop our own empty reservation
         // first — it is owned by this call.
@@ -1944,7 +1956,9 @@ bool SignatureManager::addDocTimeStamp(const QString &inputPath, const QString &
             QFile::remove(candidate);
             return false;
         }
-        if (!gp::SafeSave::commitFileToDestination(candidate, outputPath, &err)) {
+        if (!gp::SafeSave::commitFileToDestination(candidate, outputPath, &err,
+                                                   gp::SafeSave::CommitFaultForTesting::None,
+                                                   destIdentity)) {
             qWarning() << "SignatureManager: checked replacement of" << outputPath
                        << "failed — previous output preserved:" << err;
             QFile::remove(candidate);

@@ -237,6 +237,11 @@ SigningRequestRunner::FillStepResult SigningRequestRunner::runFillStep(Signature
     }
     result.attempted = true;
 
+    // emergence E-6: the docPath bytes this step last observed on disk —
+    // the post-create hash when the lazy placement below runs, otherwise the
+    // mutation gate's current-bytes hash. Empty = no precondition.
+    QString stepDiskIdentityHex;
+
     // LAZY PLACEMENT: create the anchored field for THIS step when it does not
     // exist yet. After the creation the document contains exactly ONE unsigned
     // signature field (this step's own) — the engine's post-condition
@@ -266,6 +271,11 @@ SigningRequestRunner::FillStepResult SigningRequestRunner::runFillStep(Signature
             // prepared identity even if the signing half of the step fails
             // (a retried step must not refuse its own creation).
             result.documentSha256 = sha256OfFile(in.docPath);
+            // emergence E-6: those post-create bytes are ALSO the destination
+            // identity the final commit verifies (see the commit below —
+            // result.documentSha256 is repurposed for the CANDIDATE hash
+            // after signing, so this observation is kept separately).
+            stepDiskIdentityHex = result.documentSha256;
         }
     }
 
@@ -350,8 +360,24 @@ SigningRequestRunner::FillStepResult SigningRequestRunner::runFillStep(Signature
                                          : actualInfo.trustStatus);
 
     result.documentSha256 = sha256OfFile(candidate);
+    // emergence E-6: the destination identity this workflow last verified on
+    // disk — the post-create bytes when this step placed its own field,
+    // otherwise the mutation gate's current-bytes hash. (result.documentSha256
+    // is now the CANDIDATE's hash — the engine-attested post-step identity the
+    // model advances to — and must NOT be used here.) A second writer landing
+    // between the workflow's observation and the commit refuses the step
+    // instead of being overwritten.
+    SafeSave::DestinationIdentity destIdentity;
+    const QString observedHex = !stepDiskIdentityHex.isEmpty() ? stepDiskIdentityHex
+                                                               : refusal.documentSha256;
+    if (!observedHex.isEmpty()) {
+        destIdentity.valid = true;
+        destIdentity.sha256 = QByteArray::fromHex(observedHex.toLatin1());
+    }
     QString commitErr;
-    if (!SafeSave::commitFileToDestination(candidate, in.docPath, &commitErr)) {
+    if (!SafeSave::commitFileToDestination(candidate, in.docPath, &commitErr,
+                                           SafeSave::CommitFaultForTesting::None,
+                                           destIdentity)) {
         result.error = QStringLiteral("The signed document could not be committed to %1 "
                                       "— the previous document is preserved: %2")
                            .arg(in.docPath, commitErr);
