@@ -75,6 +75,52 @@ Defender scan window).
 
 In-suite ×2 grids: §2.2 (below) after the unpatched full `ctest -j 2` runs complete.
 
+### 2.2 In-suite ×2 grids (full `ctest -j 2`, UNPATCHED, 171 targets, ~210 s per run)
+
+| Suite | unpatched r1 | unpatched r2 | standalone x3 |
+|---|---|---|---|
+| TestOllamaProvider | Passed | Passed | 3/3 |
+| TestBatchMode | Passed | Passed | 3/3 |
+| TestLaneScheduler | Passed | Passed | **1/3** (+2/5 extended) |
+| TestReadOnlyGate | Passed | Passed | 3/3 |
+| TestBatchOpsCoverage | Passed | Passed | 3/3 |
+| TestCommandBinding | Passed | Passed | 3/3 |
+| TestWelcomeRoutes | Passed | Passed | 3/3 |
+| TestEngineSave | Passed | Passed | 3/3 |
+| TestRedactTransaction | Passed | Passed | 3/3 |
+| TestSep13LeadComparePerf | Passed | Passed | 3/3 |
+| TestSignatureRealCrypto (FU-2 sibling of the recorded pair) | **Failed** | Passed | 3/3 |
+| TestEncryptedPackageSafeWrite (FU-2) | **Failed** | **Failed** | 3/3 |
+
+In-suite failures, verbatim evidence (from `--output-on-failure` logs):
+
+- r1 `TestSignatureRealCrypto::successfulSignLeavesNoCandidate` — `'leftoverCandidates() ==
+  candidatesBefore' returned FALSE. (a successful signDocument must remove its committed candidate
+  from <temp>/glyphpdf-candidates)` — delta assertion broken by a CONCURRENT suite's writer.
+- r1 + r2 `TestEncryptedPackageSafeWrite` — three slots
+  (`injectedCommitFaultPreservesExistingPackage`, `successReplacesDestinationWithCandidateBytes`,
+  `cancelKillsWriterAndPreservesExistingPackage`) — `Compared values are not the same — Actual
+  (candidateFileCount()): 6, Expected (beforeCandidates): 5`: a live candidate from a parallel
+  suite landed between the "before" snapshot and the check.
+
+### 2.3 Final classification (all 10 recorded flakes)
+
+| Recorded flake | Class | Evidence | Fix ownership |
+|---|---|---|---|
+| TestOllamaProvider | clean under protocol (loopback stub; deadline tunable) | 3/3 standalone, 2/2 in-suite | none (watch on loaded CI) |
+| TestBatchMode | clean — existing protection works | 3/3 + 2/2 (already `RESOURCE_LOCK BatchModeIO` + `RUN_SERIAL`) | none |
+| TestLaneScheduler | **genuinely-flaky timing guard** (test bug) | 3 pass / 5 fail IDLE; failures 1000-1025 ms vs `<1000 ms` bound = serial-time straddle; designed ~250 ms overlap not achieved on this host | fix lane: structural overlap assertion or higher bound (proposal in §2.1) |
+| TestReadOnlyGate | clean | 3/3 + 2/2 | none |
+| TestBatchOpsCoverage | clean | 3/3 + 2/2 (1 skipped: external tool absent) | none |
+| TestCommandBinding | clean (one first-run rc=2 one-off, unreproducible ×9) | 3/3 + 2/2 | none |
+| TestWelcomeRoutes | clean | 3/3 + 2/2 | none |
+| TestEngineSave×TestRedactTransaction | **FU-2 order/concurrency interference class** (both are SafeSave writers; the class DEMONSTRATED live via sibling scanners TestSignatureRealCrypto 1/2 and TestEncryptedPackageSafeWrite 3/3-standalone-clean but failing in-suite) | §2.2 failure verbatims | **fixed this lane** — `RESOURCE_LOCK GlyphpdfCandidates` on 15 suites (§3.1); patched in-suite run green |
+| TestSep13LeadComparePerf | load-robust by design (ratio bound) — held at `-j 2` | 3/3 standalone + 2/2 in-suite | none; residual risk only under heavier load than `-j 2` |
+| (pair) TestRedactTransaction | covered by FU-2 class above | 3/3 + 2/2 once isolated | same patch |
+
+Totals: 30 standalone runs + 10 instrumented LaneScheduler runs + 3 full in-suite runs
+(2 unpatched + 1 patched). Machine: Windows 11, MSYS2 UCRT64, Qt 6.11.0, Ninja `-j 2`.
+
 ## 3. FU-2 shared-tempdir class — mechanism and patch
 
 Production seam: `SafeSave::makeUniqueCandidate` (src/engines/SafeSave.cpp:54) creates candidates in
@@ -105,6 +151,33 @@ TestSep13LeadBatchMerge (`RESOURCE_LOCK BatchModeIO`).
 writer/scanner suites (surgical: serializes candidate users against each other while still
 allowing the other ~150 suites to run in parallel). See §3.1 for the exact diff and the
 in-suite verification runs.
+
+### 3.1 Patch — applied and verified
+
+CMakeLists.txt: +15 × `RESOURCE_LOCK GlyphpdfCandidates` on
+TestEncryptedPackageSafeWrite, TestEngineSave, TestFormSafety, TestSendForSigning,
+TestSignatureRealCrypto, TestSweepW1SigningAdversary, TestRedactTransaction, TestBatesBatchSafety,
+TestCheckedMutationCoverage, TestCertEncryptPicker, TestOfficeImport, TestPageLabels,
+TestPersistenceOutcomes, TestPagesMode, TestSweepW1PresetAdversary;
++ `ENVIRONMENT "QT_QPA_PLATFORM=offscreen"` on TestMeasureCore (H3, GUI-less main — uniformity).
+Behavior-preserving test-infra change only: no test source, no production code touched.
+(Pre-existing protection left as-is: TestLaneScheduler `RUN_SERIAL`; TestBatchMode
+`BatchModeIO` lock + `RUN_SERIAL`; TestPrintableSummary, TestAccessibilityFixes `RUN_SERIAL`;
+TestSep13LeadBatchMerge `BatchModeIO` lock. A shared-`RESOURCE_LOCK` was chosen over
+blanket `RUN_SERIAL` so the ~150 suites that never touch the candidate dir keep running
+in parallel with the group.)
+
+**Verification (patched, full `ctest -j 2`): 171/171 passed, 0 failures**
+(`insuite-patched-r1.log`) — including the three suites that had just failed unpatched
+(TestSignatureRealCrypto, TestEncryptedPackageSafeWrite ×2 runs) and the pair named in the
+recorded flake list (TestEngineSave, TestRedactTransaction). TestModeStripPins and
+TestMeasureCore also green in the same run.
+
+Incident note (transparency): the first application of the patch script corrupted 4
+single-line property blocks (slice-offset bug, `set_tests_properties(ies(`); detected via the
+phase-3 MISS guard, repaired by exact-string replacement before this commit; cmake reconfigured
+clean and the diff above is the post-repair state. The broken pattern is documented in
+`.context/sweep-w2-testing-wip.md` so the cleanup phase does not reuse it.
 
 ## 4. Dead / orphaned (flagged; NOT deleted)
 
@@ -155,7 +228,7 @@ Source: docs/audit/FEATURE-COMMAND-MATRIX-2026-09-09.csv (300 rows; 237 `impleme
 - 224/237 rows carry a `test_or_repro` reference; all 18 distinct referenced tests exist (0 stale).
 - **13 rows have NO test reference** — all shell-navigation: 5 mode-strip pills (`mode-view/edit/comment/form/protect`), `toggle-ai`, `task-chooser`, 6 side-pane tab rows (incl. duplicate id `pane-comments` in the matrix itself).
 - Incidental coverage exists (TestCommandBinding.paneEntriesSwitchTheRealSidebarPanes for panes; TestScreenStateSync for pill/tab state application), but no suite drives the USER path (pill click → screen transition).
-- Top-3 pins added (§6.1): mode-pill click switching (5 pills, one suite), toggle-ai, task-chooser.
+- Top-3 pins ADDED: new suite `tests/TestModeStripPins.cpp` — mode-pill click switching (5 pills, data-driven), toggle-ai signal, Tools-chooser composition + taskSelected payload, programmatic-setMode silence, pill exclusivity (11 test executions). Registered offscreen TIMEOUT 60. 11/11 standalone; Passed in all three full in-suite runs.
 
 ## 7. Harness hygiene findings
 
@@ -168,4 +241,14 @@ Source: docs/audit/FEATURE-COMMAND-MATRIX-2026-09-09.csv (300 rows; 237 `impleme
 
 ## 8. Commits (this lane)
 
-(filled at end)
+| SHA | Content |
+|---|---|
+| `8b28085` | §1-§7 static findings (inventory, FU-2 mechanism map, duplicate map, orphan, gaps, hygiene) |
+| `8593541` | §2.1 standalone flake grids + TestLaneScheduler classification |
+| `0ef416d` | test(pins): TestModeStripPins suite + registration |
+| `ae636a5` | test(infra): FU-2 RESOURCE_LOCK patch (15 suites) + TestMeasureCore env; patched 171/171 verification |
+
+Residuals for the cleanup/fix lanes: TestLaneScheduler bound redesign (§2.1);
+TestSignatureValidation merge-or-retire proposal with 3 unique pins to port (§5);
+R14ProbeBatchSkip register-or-delete decision (§4); TestEngineSave real-store QSettings
+remove (H2, low). No deletions were performed by this lane.
