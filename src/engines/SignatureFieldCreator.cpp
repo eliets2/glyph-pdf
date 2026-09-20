@@ -125,24 +125,27 @@ bool SignatureFieldCreator::createSignatureFields(const QString &srcPath,
             // THE one shared page-space law (SEP13 L5/L8): viewer rect (top-left,
             // Y down, displayed size) → RAW USER space for the /Rect. Never
             // re-derive this flip locally.
-            const QRectF userRect = PageSpace::viewerToUser(
-                s.viewerRect, PageSpace::pageGeometry(page));
+            const PageSpace::PageGeometry pageGeo = PageSpace::pageGeometry(page);
+            const QRectF userRect = PageSpace::viewerToUser(s.viewerRect, pageGeo);
             // SWEEP-W1 F5: an anchor that cannot be VISIBLE on its page is
             // refused — an invisible signature field can be planted through a
             // crafted sidecar (the fill flow's lazy placement trusts
             // anchorPage/anchorRect), and the signer would commit a signature
             // to a field no viewer ever renders. Containment is checked in the
-            // converted USER space against the page's own MediaBox (0.5 pt
-            // tolerance for rounding through the viewer/user flip).
-            const PoDoFo::Rect mediaBox = page.GetMediaBox();
+            // converted USER space against the page's RAW MediaBox — the same
+            // box viewerToUser mapped into (W2B-1: PdfPage::GetMediaBox() is
+            // rotation-normalized and W/H-swapped on /Rotate 90/270; comparing
+            // raw-space coords against that box would false-refuse perfectly
+            // placed anchors). 0.5 pt tolerance for rounding through the
+            // viewer/user flip.
             constexpr double kBoundsTolerance = 0.5;
             const bool anchorOnPage =
-                userRect.x() >= mediaBox.X - kBoundsTolerance
-                && userRect.y() >= mediaBox.Y - kBoundsTolerance
+                userRect.x() >= pageGeo.x0 - kBoundsTolerance
+                && userRect.y() >= pageGeo.y0 - kBoundsTolerance
                 && userRect.x() + userRect.width()
-                       <= mediaBox.X + mediaBox.Width + kBoundsTolerance
+                       <= pageGeo.x0 + pageGeo.width + kBoundsTolerance
                 && userRect.y() + userRect.height()
-                       <= mediaBox.Y + mediaBox.Height + kBoundsTolerance;
+                       <= pageGeo.y0 + pageGeo.height + kBoundsTolerance;
             if (!anchorOnPage) {
                 if (err)
                     *err = QStringLiteral(
@@ -155,7 +158,7 @@ bool SignatureFieldCreator::createSignatureFields(const QString &srcPath,
                                .arg(userRect.x()).arg(userRect.y())
                                .arg(userRect.width()).arg(userRect.height())
                                .arg(s.pageIndex + 1)
-                               .arg(mediaBox.Width).arg(mediaBox.Height);
+                               .arg(pageGeo.width).arg(pageGeo.height);
                 dropCandidate();
                 return false;
             }
@@ -163,6 +166,25 @@ bool SignatureFieldCreator::createSignatureFields(const QString &srcPath,
                 s.fieldName.toStdString(),
                 PoDoFo::Rect(userRect.x(), userRect.y(),
                              userRect.width(), userRect.height()));
+            // W2B-1 blast radius (found by TestRotate270PageSpace on
+            // /Rotate 90+270 pages): PoDoFo's CreateField rect parameter is
+            // /Rotate-View-space and gets TRANSFORMED on write (same probe-
+            // verified behavior FormManager::setRawFieldRect documents), so
+            // the law-mapped raw user rect must be stored VERBATIM on the
+            // field + widget dictionaries after creation. On /Rotate 0 the
+            // transform is the identity — these writes store exactly the
+            // pre-W2B-1 numbers.
+            {
+                const PoDoFo::Corners rawCorners(
+                    userRect.x(), userRect.y(),
+                    userRect.x() + userRect.width(),
+                    userRect.y() + userRect.height());
+                if (auto *widget = field.GetWidget())
+                    widget->SetRectRaw(rawCorners);
+                PoDoFo::PdfArray rectArr;
+                rawCorners.ToArray(rectArr);
+                field.GetDictionary().AddKey(PoDoFo::PdfName("Rect"), rectArr);
+            }
             // DEFENSE-IN-DEPTH (negative-control-verified no-op on PoDoFo
             // 1.1.0: CreateField<PdfSignature> creates NO /V — the value
             // object appears only at the real signing step via

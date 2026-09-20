@@ -67,6 +67,13 @@ QList<PageSpec> pageSpecs()
         { PoDoFo::Rect(0, 200, 612, 842), 0 },  // page 1: offset origin
         { PoDoFo::Rect(0, 0, 612, 792), 90 },   // page 2: rotated
         { PoDoFo::Rect(0, 200, 612, 842), 90 }, // page 3: rotated + offset
+        // W2B-1 (sweep-w2b-verify 2026-09-20): the original fixture covered
+        // rot {0, 90} + offset only — exactly the shapes where the law's
+        // formula never reads the MediaBox W/H, so the rotation-normalized
+        // GetMediaBox defect was INVISIBLE here while /Rotate 270 pages
+        // stored transposed rects. Page 4 is the blind spot, pinned with
+        // hand-computed literals below.
+        { PoDoFo::Rect(0, 200, 612, 842), 270 }, // page 4: rotated + offset, opposite handedness
     };
 }
 
@@ -261,9 +268,10 @@ private slots:
                                     .arg(p).arg(rectStr(viaPdfium), rectStr(expected))));
         }
 
-        // Hardcoded literals for the two decisive shapes (independent arithmetic,
-        // not computed through the law): page 1 (offset, /Rotate 0) and
-        // page 3 (/Rotate 90 + offset) for drawn (100,150,80,40).
+        // Hardcoded literals for the decisive shapes (independent arithmetic,
+        // not computed through the law): page 1 (offset, /Rotate 0),
+        // page 3 (/Rotate 90 + offset) and page 4 (/Rotate 270 + offset, the
+        // W2B-1 blind spot) for drawn (100,150,80,40).
         {
             const QList<QRectF> raw1 = rawAnnotRects(out, 1);
             const QRectF expect1(QPointF(100, 852), QPointF(180, 892));
@@ -276,54 +284,73 @@ private slots:
             QVERIFY2(rectClose(raw3.first(), expect3),
                      qPrintable(QString("page3 %1 != [150 300 190 380]").arg(rectStr(raw3.first()))));
         }
+        {
+            // Page 4: raw box (0,200,612,842), /Rotate 270. vx 100..180,
+            // vy 150..190 → ux = 612-190..612-150 = 422..462;
+            // uy = 200+842-180..200+842-100 = 862..942. The user rect is
+            // 40 wide x 80 tall (the display 80x40 swapped) — a transposed
+            // (doubly-rotated) store would be 80x40.
+            const QList<QRectF> raw4 = rawAnnotRects(out, 4);
+            const QRectF expect4(QPointF(422, 862), QPointF(462, 942));
+            QVERIFY2(rectClose(raw4.first(), expect4),
+                     qPrintable(QString("W2B-1: page4 (rot 270+offset) %1 != [422 862 462 942]")
+                                    .arg(rectStr(raw4.first()))));
+        }
     }
 
     // Annotation geometry arrays (/InkList for freehand) must follow the same
     // law point-by-point — the /Rect alone does not carry a freehand stroke.
     void freehandInkListFollowsTheSameLaw()
     {
-        PoDoFoBackend engine;
-        QVERIFY(engine.loadDocument(fixturePath()));
+        // W2B-1: parameterized over the rotated+offset pages of both
+        // handednesses — page 3 (rot 90) and page 4 (rot 270). The per-point
+        // expectation is computed through the shared law (0-size rects are
+        // corner-exact for 90-degree multiples).
+        const struct { int page; int rotation; } cases[] = { { 3, 90 }, { 4, 270 } };
+        for (const auto& c : cases) {
+            PoDoFoBackend engine;
+            QVERIFY(engine.loadDocument(fixturePath()));
 
-        AnnotationItem item;
-        item.pageIndex = 3; // rotated + offset
-        item.mode = ToolMode::DrawFreehand;
-        item.points = QList<QPointF>{ QPointF(100, 150), QPointF(180, 150),
-                                      QPointF(180, 190), QPointF(100, 190) };
-        item.rect = QRectF(100, 150, 80, 40);
-        const QString out = outPath("embed-ink.pdf");
-        QVERIFY(engine.embedAnnotations(fixturePath(), out, { item }));
+            AnnotationItem item;
+            item.pageIndex = c.page; // rotated + offset
+            item.mode = ToolMode::DrawFreehand;
+            item.points = QList<QPointF>{ QPointF(100, 150), QPointF(180, 150),
+                                          QPointF(180, 190), QPointF(100, 190) };
+            item.rect = QRectF(100, 150, 80, 40);
+            const QString out = outPath(c.page == 3 ? "embed-ink.pdf" : "embed-ink-270.pdf");
+            QVERIFY(engine.embedAnnotations(fixturePath(), out, { item }));
 
-        // Expected per-point user coords via the shared law (0-size rects are
-        // corner-exact for 90-degree multiples, so point = rect topLeft).
-        const gp::PageSpace::PageGeometry geo = gp::PageSpace::pageGeometryFromMediaBox(
-            0, 200, 612, 842, 90);
-        QList<QPointF> expectedPts;
-        for (const QPointF& pt : item.points) {
-            expectedPts.append(gp::PageSpace::viewerToUser(QRectF(pt, pt), geo).topLeft());
-        }
-
-        // Raw /InkList walk.
-        try {
-            PoDoFo::PdfMemDocument doc;
-            doc.Load(out.toUtf8().constData());
-            auto& annos = doc.GetPages().GetPageAt(3).GetAnnotations();
-            QVERIFY(annos.GetCount() >= 1);
-            auto* ink = annos.GetAnnotAt(0).GetDictionary().FindKey("InkList");
-            QVERIFY(ink && ink->IsArray() && !ink->GetArray().IsEmpty());
-            const auto& stroke = ink->GetArray()[0].GetArray();
-            QCOMPARE(stroke.size(), static_cast<size_t>(item.points.size() * 2));
-            for (size_t k = 0; k + 1 < stroke.size(); k += 2) {
-                const QPointF got(stroke[k].GetReal(), stroke[k + 1].GetReal());
-                const QPointF want = expectedPts[k / 2];
-                QVERIFY2(std::fabs(got.x() - want.x()) < 0.01
-                             && std::fabs(got.y() - want.y()) < 0.01,
-                         qPrintable(QString("ink point %1: got (%2,%3) want (%4,%5)")
-                                        .arg(static_cast<int>(k / 2)).arg(got.x()).arg(got.y())
-                                        .arg(want.x()).arg(want.y())));
+            const gp::PageSpace::PageGeometry geo = gp::PageSpace::pageGeometryFromMediaBox(
+                0, 200, 612, 842, c.rotation);
+            QList<QPointF> expectedPts;
+            for (const QPointF& pt : item.points) {
+                expectedPts.append(gp::PageSpace::viewerToUser(QRectF(pt, pt), geo).topLeft());
             }
-        } catch (const std::exception& e) {
-            QFAIL(qPrintable(QString("PoDoFo walk failed: %1").arg(e.what())));
+
+            // Raw /InkList walk.
+            try {
+                PoDoFo::PdfMemDocument doc;
+                doc.Load(out.toUtf8().constData());
+                auto& annos = doc.GetPages().GetPageAt(c.page).GetAnnotations();
+                QVERIFY(annos.GetCount() >= 1);
+                auto* ink = annos.GetAnnotAt(0).GetDictionary().FindKey("InkList");
+                QVERIFY(ink && ink->IsArray() && !ink->GetArray().IsEmpty());
+                const auto& stroke = ink->GetArray()[0].GetArray();
+                QCOMPARE(stroke.size(), static_cast<size_t>(item.points.size() * 2));
+                for (size_t k = 0; k + 1 < stroke.size(); k += 2) {
+                    const QPointF got(stroke[k].GetReal(), stroke[k + 1].GetReal());
+                    const QPointF want = expectedPts[k / 2];
+                    QVERIFY2(std::fabs(got.x() - want.x()) < 0.01
+                                 && std::fabs(got.y() - want.y()) < 0.01,
+                             qPrintable(QString("rot %1 ink point %2: got (%3,%4) want (%5,%6)")
+                                            .arg(c.rotation)
+                                            .arg(static_cast<int>(k / 2))
+                                            .arg(got.x()).arg(got.y())
+                                            .arg(want.x()).arg(want.y())));
+                }
+            } catch (const std::exception& e) {
+                QFAIL(qPrintable(QString("PoDoFo walk failed: %1").arg(e.what())));
+            }
         }
     }
 
@@ -337,13 +364,17 @@ private slots:
         QVERIFY(addForeignSquare(path, 3, PoDoFo::Rect(150, 300, 40, 80)));
         // Control on the plain page: user rect for display (100,150,80,40).
         QVERIFY(addForeignSquare(path, 0, PoDoFo::Rect(100, 602, 80, 40)));
+        // W2B-1: the same foreign spec-correct rect on the /Rotate 270+offset
+        // page — user [422 862 462 942] (40x80, swapped) must surface at the
+        // drawn display spot (100,150,80x40), not transposed.
+        QVERIFY(addForeignSquare(path, 4, PoDoFo::Rect(422, 862, 40, 80)));
 
         PoDoFoBackend engine;
         const QList<AnnotationItem> items = engine.extractAnnotations(path);
-        QCOMPARE(items.size(), 2);
+        QCOMPARE(items.size(), 3);
 
         for (const AnnotationItem& item : items) {
-            const QRectF want(100, 150, 80, 40); // display space, both pages
+            const QRectF want(100, 150, 80, 40); // display space, all three pages
             QVERIFY2(rectClose(item.rect, want),
                      qPrintable(QString("page %1 display %2 != (100,150,80x40)")
                                     .arg(item.pageIndex).arg(rectStr(item.rect))));
@@ -401,6 +432,24 @@ private slots:
         QVERIFY2(rectClose(viaPdfium, expect3),
                  qPrintable(QString("page3 field PDFium %1 != law").arg(rectStr(viaPdfium))));
 
+        // W2B-1: /Rotate 270 + offset (page 4): drawn (100,150,200x50) →
+        // vx 100..300, vy 150..200 → ux = 612-200..612-150 = 412..462;
+        // uy = 200+842-300..200+842-100 = 742..942 (50x200 — swapped).
+        const QString out4 = outPath("field-page4.pdf");
+        QVERIFY(forms.addTextField(fixturePath(), 4, QRectF(100, 150, 200, 50),
+                                   QStringLiteral("OriginField4"), out4));
+        const QList<QRectF> rects4 = rawAnnotRects(out4, 4);
+        QVERIFY(rects4.size() == 1);
+        const QRectF expect4(QPointF(412, 742), QPointF(462, 942));
+        QVERIFY2(rectClose(rects4.first(), expect4),
+                 qPrintable(QString("W2B-1: page4 (rot 270+offset) field /Rect %1 != [412 742 462 942]")
+                                .arg(rectStr(rects4.first()))));
+
+        const QRectF viaPdfium4 = firstRect(pdfiumAnnotRects(out4, 4));
+        QVERIFY(!viaPdfium4.isNull());
+        QVERIFY2(rectClose(viaPdfium4, expect4),
+                 qPrintable(QString("page4 field PDFium %1 != law").arg(rectStr(viaPdfium4))));
+
         // Offset, unrotated control (page 1): drawn (100,150,200x50) must
         // store /Rect [100 842 300 892] — the dropped y0=200 offset alone.
         const QString out1 = outPath("field-page1.pdf");
@@ -430,6 +479,22 @@ private slots:
         QVERIFY2(rectClose(rects.first(), expect),
                  qPrintable(QString("updated /Rect %1 != [120 260 156 400]")
                                 .arg(rectStr(rects.first()))));
+
+        // W2B-1: the same update on the /Rotate 270+offset page (page 4):
+        // (60,120,140x36) → vx 60..200, vy 120..156 →
+        // ux = 612-156..612-120 = 456..492; uy = 200+842-200..200+842-60 =
+        // 842..982 (36x140 — swapped).
+        const QString out4 = outPath("field-update-270.pdf");
+        QVERIFY(forms.addTextField(fixturePath(), 4, QRectF(100, 150, 200, 50),
+                                   QStringLiteral("UpdField270"), out4));
+        QVERIFY(forms.updateFieldRect(out4, QStringLiteral("UpdField270"), 4,
+                                      QRectF(60, 120, 140, 36), out4));
+        const QList<QRectF> rects4 = rawAnnotRects(out4, 4);
+        QVERIFY(rects4.size() == 1);
+        const QRectF expect4(QPointF(456, 842), QPointF(492, 982));
+        QVERIFY2(rectClose(rects4.first(), expect4),
+                 qPrintable(QString("W2B-1: updated /Rect %1 on rot 270+offset != [456 842 492 982]")
+                                .arg(rectStr(rects4.first()))));
     }
 };
 

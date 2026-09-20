@@ -118,6 +118,44 @@ QString makeSourcePdf(const QString& path, const char* extraLine1 = nullptr,
     return path;
 }
 
+// W2B-1 (sweep-w2b-verify 2026-09-20): a rotation-blind companion to
+// makeSourcePdf — Letter pages, page 1 plain, page 2 /Rotate 270 — with the
+// same secret/public line pair at USER y=700/650 on both (/Rotate never
+// enters the content stream, so both pages carry identical user-space text;
+// only the view transform differs).
+QString makeRotatedSecretPdf(const QString& path)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        auto& font = doc.GetFonts().GetStandard14Font(
+            PoDoFo::PdfStandard14FontType::Helvetica);
+
+        auto drawLine = [&font](PoDoFo::PdfPage& page,
+                                const char* text, double y) {
+            PoDoFo::PdfPainter painter;
+            painter.SetCanvas(page);
+            painter.TextState.SetFont(font, 12.0);
+            (painter.DrawText)(text, 100.0, y);
+            painter.FinishDrawing();
+        };
+        auto& page1 = doc.GetPages().CreatePage(PoDoFo::Rect(0, 0, 612, 792));
+        page1.SetRotation(0);
+        drawLine(page1, "RotateZeroSecret bare secrets", 700.0);
+        drawLine(page1, "KeepThisVisible public info", 650.0);
+
+        auto& page2 = doc.GetPages().CreatePage(PoDoFo::Rect(0, 0, 612, 792));
+        page2.SetRotation(270);
+        drawLine(page2, "RotateTwoSeventySecret hidden note", 700.0);
+        drawLine(page2, "KeepPageTwo public record", 650.0);
+
+        doc.Save(path.toUtf8().constData());
+    } catch (const std::exception& e) {
+        qWarning() << "makeRotatedSecretPdf failed:" << e.what();
+        return QString();
+    }
+    return path;
+}
+
 // Plants an embedded file (file specification + name tree) carrying `payload`
 // into the document — the exact surface the sweep must cover per contract.
 bool attachFileWithPayload(PoDoFo::PdfMemDocument& doc,
@@ -393,6 +431,55 @@ private slots:
         const QString page1 = backend.extractText(0);
         QVERIFY(!page1.contains(QStringLiteral("TopSecretAlpha")));
         QVERIFY(page1.contains(QStringLiteral("KeepThisVisible")));
+        QVERIFY(backend.extractText(1).contains(QStringLiteral("KeepPageTwo")));
+    }
+
+    // ── W2B-1: the /Rotate 270 page-shape (the fixture blind spot) ──────────
+    //
+    // The excision rect for a mark on a /Rotate 270 page must land on the
+    // secret in RAW USER space. The pre-fix base fed the law a
+    // rotation-normalized (W/H-swapped) MediaBox, so the mark mapped to a
+    // TRANSPOSED region that missed the glyphs entirely — and because the
+    // proof's own mark→region attribution transposed identically, the proof
+    // stayed GREEN while the secret survived (the SEP13 false-success class).
+    // The independent PDFium extractor below is what makes the defect visible.
+    void rotatedPageSecretIsExcisedAndProofPasses()
+    {
+        const QString src = makeRotatedSecretPdf(m_tmpDir.filePath("rot_src.pdf"));
+        QVERIFY(!src.isEmpty());
+        const QString dest = m_tmpDir.filePath("rot_redacted.pdf");
+
+        QMap<int, QList<QRectF>> rects;
+        // Page 1 (rot 0) control: the user region (90..370, 694..718) in
+        // viewer coords: y = 792-718..792-694 = 74..98.
+        rects[0].append(QRectF(90.0, 74.0, 280.0, 24.0));
+        // Page 2 (rot 270): the SAME user region, hand-computed through the
+        // published law table (PageSpaceTransform.h), Letter 612x792:
+        //   vx = H-uy1..H-uy0 = 792-718..792-694 = 74..98
+        //   vy = W-ux1..W-ux0 = 612-370..612-90 = 242..522
+        // — a 24x280 VERTICAL strip (the text line displays rotated).
+        rects[1].append(QRectF(74.0, 242.0, 24.0, 280.0));
+
+        RedactRequest req;
+        req.sourcePath = src;
+        req.destinationPath = dest;
+        req.redactionsByPage = rects;
+        req.produceProof = true;
+        RedactOperation op(req);
+        const RedactResult r = runOp(&op);
+        QCOMPARE(r.outcome, RedactOutcome::Completed);
+        QVERIFY(r.proofRan);
+        QVERIFY2(r.proofPassed, qPrintable(QStringLiteral("rotated-page proof: %1")
+                                               .arg(joinedProofFailures(r))));
+
+        // Independent extractor double-check: the rot-270 page's secret must
+        // be GONE from the committed bytes (pre-fix base: survived here while
+        // the proof above still claimed PASS), the public lines must survive.
+        PdfiumBackend backend;
+        QVERIFY(backend.loadDocument(dest));
+        QVERIFY(!backend.extractText(0).contains(QStringLiteral("RotateZeroSecret")));
+        QVERIFY(backend.extractText(0).contains(QStringLiteral("KeepThisVisible")));
+        QVERIFY(!backend.extractText(1).contains(QStringLiteral("RotateTwoSeventySecret")));
         QVERIFY(backend.extractText(1).contains(QStringLiteral("KeepPageTwo")));
     }
 
