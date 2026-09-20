@@ -1096,3 +1096,31 @@ rotation + a 270 pin); F5 inherits the W2B-1 caveat on rotated pages; F2 embed
 branch scoped to committed probe + source (no live https TSA harness); W1-05
 enforcement-unverified posture is disclosed by design.
 
+
+## 2026-09-20 — W2B-1 fix lane: /Rotate 270 transposed-rect repair (feat/rotate270-fix, from feat/sweep-w2-verify-b @ 84a19f9)
+
+Resolution of FINDING W2B-1 (SWEEP-W2B 2026-09-20, SL1 **PARTIAL**, cross-ref
+above): the page-space geometry now derives from the RAW /MediaBox, the
+consumer audit is re-pinned on all four rotations + offset origins, and the
+blind-spot fixtures are committed. Status: **implemented-awaiting-review**
+(the SL1 partial re-submits to verification review with this row).
+Deliverable: docs/audit/SWEEP-W2B-VERIFY-2026-09-20.md §ADDENDUM W2B-1
+RESOLUTION; evidence .context/w2b1-evidence/; handoff .context/w2b1-wip.md.
+
+| Fix | Verdict | Committed suite (branch tip) | Independent evidence | NC (scoped revert of 879c171's root fix → observed) |
+|---|---|---|---|---|
+| W2B-1 page-space geometry from the raw /MediaBox (core/PageSpaceTransform.h pageGeometry → GetMediaBoxRaw().GetNormalized(); the law applies /Rotate itself) | **implemented-awaiting-review** (SL1 PARTIAL grounds resolved on this branch: verifier probe 8/8 incl. the three /Rotate 270 slots) | NEW tests/TestRotate270PageSpace.cpp 7/7 over 6 shapes (rot 0/90/180/270 Letter + 90/270 offset), hand-computed literals + PDFium cross-reads + GetMediaBox-vs-file-bytes root-cause pin; TestLegacyOriginSpace 9/9 with the new rot-270+offset page (embed/foreign-read-back/field-create/field-update/ink-list literals); TestRedactionProof rotated slot (rot-270 secret excised, PDFium-extractor-verified — the proof alone cannot see the defect: excision + attribution transposed consistently = false success) | embed display (60,80,100x50) stores [482 632 532 732] on rot 270 (finding's law value) and [482 882 532 982] on 270+offset; form field [522 632 562 752]; extract read-back (60,80,100x50) everywhere; PDFium page sizes = displayed sizes again | `git checkout 84a19f9 -- src/core/PageSpaceTransform.h` (consumer cleanups kept) → probe 5P/3F with the finding's exact [662 452 712 552]; TestRotate270PageSpace 2P/5F (bytes pin + transposed 270 embed/field/sig + rot-90 suggestion); TestLegacyOriginSpace 4P/5F (every new 270 anchor); restored + rebuilt + re-verified 8/8, 7/7, 9/9 |
+| W2B-1 blast radius: F5 containment space + signature field verbatim /Rect (engines/SignatureFieldCreator.cpp) | **implemented-awaiting-review** | TestSweepW1SecProbe 6/6, TestSendForSigning 11P/1 skip (unrotated behavior byte-identical), TestSignatureRealCrypto/TestSignatureBadges/TestSweepW1SigningAdversary green, W2BProbeSigning 15/15; TestRotate270PageSpace sig slot: on-page anchor accepted at the law literal on ALL 6 shapes, off-page (200000,200000) refused on ALL 6 shapes | NEW defect found by the 4-rotation pin: PoDoFo's CreateField rect parameter is /Rotate-View-space and transforms AGAIN on write — the signature /Rect was corrupted on every rotated page (rot-90 anchor stored with the 180 shape); now stored verbatim (FormManager setRawFieldRect discipline); F5 containment now judges against the SAME raw box viewerToUser maps into (the normalized box would false-refuse correct 270 anchors post-root-fix) | covered by the same NC run: sig slot fails at page 3 with transposed [442 262 492 412] vs law [262 442 312 592] |
+| W2B-1 blast radius: SL3 suggestion clamp (FormManager::autoDetectFields) | **implemented-awaiting-review** | TestAutoDetectHeuristic 5/5; TestRotate270PageSpace suggestion slot: suggestions stay inside the DISPLAYED page on all four rotations | clamp bounds now from the shared geometry (the second normalized GetMediaBox read clamped against the wrong edge on rotated pages) | covered by the same NC run (rot-90 suggestion slot fails) |
+
+Contract corrections carried by this lane: W2BProbeLegacySpace form-field 270
+literal 552 → 562 (arithmetic slip in the probe: 612-50=562; user extents of
+a display 120x40 rect on rot 270 are 40 wide x 120 tall — the SWEEP-W2B
+document and the SL1/FINDING rows above repeated the slip); W2BProbeSummaryPolicy
+raw-NUL fixture byte → C escape `\0` (a raw NUL made moc treat the source as
+binary — the probe could not compile from a clean configure). Re-audit notes:
+direct-GetMediaBox paths off the law (stamps, whiteout cover, crop-box
+reporting, resizePage, replace-text, extractLinks, watermarks, djot bbox) are
+behaviorally unchanged; SignatureManager::signatureFieldAnchors (owner-owned)
+pins its PRE-EXISTING rotation-imperfect read on 90/270 (unchanged by this
+fix) — residual re-audit request to the signature owner stands.

@@ -162,3 +162,123 @@ clean.
 - Ledger: `sweep-legacy` rows SL1/SL2/SL3 flipped; new `sweep-w2b-verify`
   section appended with the per-row verdicts above.
 - Handoff: `.context/sweep-w2b-wip.md` (final state, W2B-1 hand-off note).
+
+---
+
+## ADDENDUM — W2B-1 RESOLUTION (fix lane, 2026-09-20, feat/rotate270-fix)
+
+The W2B-1 fix lane (branch `feat/rotate270-fix`, cut from this branch's tip
+84a19f9; fix commit **879c171**, test commit **28b5c48**) implemented the
+suggested direction and re-audited the blast radius. Status: **implemented,
+awaiting review** — this section records the lane's own evidence.
+
+### The fix (root cause, one place, plus two consumer cleanups)
+
+1. `src/core/PageSpaceTransform.h` — `pageGeometry()` now derives the geometry
+   from `PdfPage::GetMediaBoxRaw()` (verified against upstream 1.1.0 source:
+   same inheritable `/Parent`-chain lookup as `GetMediaBox()`, but WITHOUT
+   `adjustRectToCurrentRotation`). The law's formulas were already the ISO
+   page-space table for RAW W/H — the 90 formula reads no W/H (why 90 passed
+   by shape), the 270 formula reads both (why 270 transposed). The header's
+   "rotation-independent" contract is now true at the adapter.
+2. `src/engines/SignatureFieldCreator.cpp` — (a) the SWEEP-W1 F5 containment
+   now judges the converted user rect against the SAME raw box `viewerToUser`
+   maps into; the previous normalized-box comparison would have FALSE-REFUSED
+   correctly placed /Rotate 270 anchors after the root fix (the transposed
+   rect happened to fit the swapped box — containment passed while the field
+   was misplaced); (b) NEW defect found by the lane's 4-rotation pin: the
+   law-mapped rect passed to `CreateField` is /Rotate-View-space to PoDoFo and
+   gets transformed AGAIN on write, so the field's stored /Rect was corrupted
+   on every rotated page (rot 90 anchor stored with the 180 shape). The raw
+   user rect is now stored VERBATIM on the field + widget dicts after
+   creation — the exact discipline FormManager::setRawFieldRect documents.
+   On /Rotate 0 the store is byte-identical to the pre-fix numbers.
+3. `src/engines/FormManager.cpp` — `autoDetectFields` clamp bounds come from
+   the shared geometry; the second normalized `GetMediaBox` read clamped
+   against the wrong edge on rotated pages.
+
+### Consumer re-audit (every gp::PageSpace consumer)
+
+| Consumer | Path | Verdict after fix |
+|---|---|---|
+| PoDoFoBackend::applyRedactions (SEP13 L8) | viewerToUser -> raw excision+cover; intersect vs GetRectRaw | clean single-law consumer, no compensation |
+| PoDoFoBackend::embedAnnotations / extractAnnotations (SL1) | viewerToUser -> SetRectRaw verbatim; raw /Rect -> userToViewer | clean |
+| RedactOperation burn-in (SEP13 L8) | viewerToUser -> metrics + paint | clean |
+| RedactionProof attribution (SEP13 L5) | viewerToUser vs raw runs | clean |
+| FormManager::fieldRectFromDisplay + updateFieldRect (SL1) | viewerToUser -> raw AddKey("Rect") | clean |
+| FormManager::autoDetectFields (SL3) | userToViewer + clamp | clamp bound fixed (item 3) |
+| SignatureFieldCreator (F5 + placement) | viewerToUser + containment | containment space fixed + verbatim store added (item 2b) |
+| ItemSpaceTransform.h | pure inverse, delegates | clean |
+
+Direct-`GetMediaBox()` paths NOT on the law were audited and are behaviorally
+unchanged (out of the page-space blast radius): PoDoFoBackend stamp text
+position, whiteout cover (own legacy flip), crop-box reporting, resizePage
+(raw write), replace-text, extractLinks, watermark placement;
+PdfStructureMapper djot bbox. `SignatureManager::signatureFieldAnchors`
+(anchoring consumer, owner-owned) pins its PRE-EXISTING behavior: its
+`GetRect()` + normalized-height flip is rotation-imperfect on 90/270 both
+before and after this fix (unchanged by it) — residual for the signature
+owner, re-audit requested.
+
+### Contract correction (erratum to this document)
+
+The probe's form-field law literal "612-90..612-50 = 522..**552**" (and the
+matching [522 632 552 752] in the SL1/FINDING rows above) contains an
+arithmetic slip: 612-50 = **562**. The law value is [522 632 562 752] — the
+user rect of a display 120x40 rect on /Rotate 270 is 40 WIDE x 120 TALL, and
+only 562 gives 40. Corrected in tests/W2BProbeLegacySpace.cpp with an
+in-file justification; the slot still fails hard on the pre-law base
+([702 452 742 572]).
+
+Build-integrity note: tests/W2BProbeSummaryPolicy.cpp carried a RAW NUL byte
+inside its W1-04 fixture string; moc treats such sources as binary and never
+generates the .moc, so the probe could not compile from a clean configure
+(its recorded results came from the verifier's warm build dir). The byte is
+now the C escape `\0` — identical runtime value.
+
+### Four-rotation pin evidence (hand literals; PDFium cross-reads; display (60,80,100x50) embed)
+
+| Shape | RAW /Rect stored | Read-back (display) |
+|---|---|---|
+| rot 0 Letter | [60 662 160 712] | (60,80,100x50) |
+| rot 90 Letter | [80 60 130 160] | (60,80,100x50) |
+| rot 180 Letter | [452 80 552 130] | (60,80,100x50) |
+| rot 270 Letter | [482 632 532 732] | (60,80,100x50) |
+| rot 90 + offset [0 200 612 842] | [80 260 130 360] | (60,80,100x50) |
+| rot 270 + offset [0 200 612 842] | [482 882 532 982] | (60,80,100x50) |
+
+Form field display (40,50,120x40) -> [40 702 160 742] / [50 40 90 160] /
+[452 50 572 90] / [522 632 562 752] / [50 240 90 360] / [522 882 562 1002].
+Signature anchor display (200,300,150x50) -> [200 442 350 492] /
+[300 200 350 350] / [262 300 412 350] / [262 442 312 592] / [300 400 350 550]
+/ [262 692 312 842]; the (200000,200000) anchor is refused on every rotation.
+
+### Negative control (scoped revert of the root fix alone)
+
+`git checkout 84a19f9 -- src/core/PageSpaceTransform.h` (consumer cleanups
+kept), rebuild: W2BProbeLegacySpace **5P/3F** reproducing the finding's exact
+[662 452 712 552]; TestRotate270PageSpace **2P/5F** (bytes pin, 270 embed/
+field/sig transposed, rot-90 suggestion); TestLegacyOriginSpace **4P/5F**
+(every new 270+offset anchor). Evidence: `.context/w2b1-evidence/nc-w2b1-*.txt`.
+Restored (`git checkout HEAD --`), rebuilt, re-verified: 8/8, 7/7, 9/9.
+
+### Suites (tip of feat/rotate270-fix — HEAD-state binaries, offscreen, serial)
+
+TestSep13LeadRedactionProof 11/0 · TestRedactionProof 21/0 · TestRedactTransaction
+38/0 · TestFormSafety 12/0 · TestFormJsCalc 49/0 · TestSendForSigning 11P/1
+documented skip · TestSignatureRealCrypto 24P/1 documented skip ·
+TestSignatureBadges 25/0 · TestSweepW1SigningAdversary 5P/1 documented skip ·
+TestLegacyOriginSpace 9/0 · TestRotate270PageSpace 7/0 · TestAutoDetectHeuristic
+5/0 · TestSweepW1PresetAdversary 6/0 · TestSweepW1SummaryPolicyAdversary 8P/1
+documented skip · W2BProbeLegacySpace 8/8 (verifier contract) ·
+W2BProbeSigning 15/15.
+
+FLAKE DISCOVERED (pre-existing, not introduced by this branch):
+`TestRedactionProof::proofFailsOnXmpSurvivor` fails intermittently (observed
+~1 in 3–4 runs, load-sensitive). Reproduced on the UNTOUCHED verifier-base
+test file against the same libraries (1 of 4 runs) — attribution run kept at
+`.context/w2b1-evidence/` (trpbase-3.txt). The slot passes standalone and in
+the majority of suite runs; owner lane should triage when convenient.
+
+SL1 is re-submitted for verification review: with the rot-270 slots green and
+the NC captured, the PARTIAL grounds are resolved.
