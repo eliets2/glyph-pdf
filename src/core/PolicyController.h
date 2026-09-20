@@ -16,6 +16,17 @@ namespace gp {
 // a disabled widget, plus a status line naming the policy file — the
 // visible-in-UI requirement IS the feature.
 //
+// SWEEP-W1 F1 (trust-model honesty, replacing the earlier "admin-controlled"
+// claim the security audit refuted): the file's authority rests on the
+// machine's own account hygiene, NOT on any verification this code performs.
+// load() checks no ownership, ACL, signature or hash — and on default Windows
+// ACLs any standard user can pre-create the %PROGRAMDATA% location before an
+// admin ever deploys one. The policy is therefore machine-TRUSTED, and the
+// trust model is disclosed wherever overrides render (statusLine() appends
+// trustModelNote()) and in the support bundle's policy section. The
+// structural close (ACL/ownership verification or a signed policy) is a
+// design item owned outside the app-scope honesty fix.
+//
 // File location (production): %PROGRAMDATA%\GlyphPDF\policy.json — resolved as
 // QStandardPaths::GenericDataLocation + "/GlyphPDF/policy.json". The
 // GLYPHPDF_POLICY_PATH environment variable overrides the location (test seam;
@@ -87,6 +98,13 @@ public:
     static QStringList knownKeys();
     // True for keys enforced app-wide in THIS build (see class comment —
     // this is the whole allowlist since the R24 wiring closure).
+    // W1-05/F1 trust-model honesty: the policy file is machine-TRUSTED — no
+    // origin, ownership or integrity verification exists, so whoever can
+    // write its location can set these overrides. One canonical sentence
+    // shared by every policy surface (statusLine, Preferences, support
+    // bundle).
+    static QString trustModelNote();
+    // True for keys enforced app-wide in THIS build (see class comment).
     static bool isEnforcedKey(const QString& settingsKey);
     // Per-key enforcement wording: names the exact wiring point (never empty
     // for known keys; contains "Enforced app-wide" for every allowlist key).

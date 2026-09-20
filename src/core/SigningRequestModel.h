@@ -17,7 +17,11 @@
 // Honesty contract baked into the data (moat M8):
 //   - `preparedSha256` binds the request to the PREPARED document bytes; the
 //     fill flow refuses steps while the on-disk bytes differ, unless the user
-//     explicitly re-confirmed the change (`reconfirmedSha256`).
+//     explicitly re-confirmed the change in the controller's dialog. SWEEP-W1
+//     F3: that authorization travels out of band
+//     (FillStepInput::userReconfirmedSha256) — the sidecar's
+//     `reconfirmedSha256` is a display/record value and NEVER gates, because
+//     the sidecar is unsigned JSON anyone can write.
 //   - a signer entry records what the ENGINE ACTUALLY DID (signedFieldName =
 //     the field that really received the signature, attainedLevel = the
 //     engine's own attained PAdES level label, signatureSummary = the

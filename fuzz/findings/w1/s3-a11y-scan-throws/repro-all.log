@@ -1,0 +1,12 @@
+VERDICT FINDING S3_SCAN_THREW_PODOFO: PdfErrorCode::InvalidObject, A object was expected but not found.
+Callstack:t#0 Error Source: private/PdfParserObject.cpp(194), Information: enšobj
+VERDICT FINDING S3_SCAN_THREW_PODOFO: PdfErrorCode::BrokenFile, The file content is broken.
+Callstack:t#0 Error Source: main/PdfPageCollection.cpp(371), Information: The page structure tree has invalid nodes
+VERDICT FINDING S3_SCAN_THREW_PODOFO: PdfErrorCode::InvalidDataType
+Callstack:t#0 Error Source: main/PdfVariant.cpp(739)
+VERDICT FINDING S3_SCAN_THREW_PODOFO: PdfErrorCode::BrokenFile, The file content is broken.
+Callstack:t#0 Error Source: main/PdfPageCollection.cpp(371), Information: The page structure tree has invalid nodes
+VERDICT FINDING S3_SCAN_THREW_PODOFO: PdfErrorCode::InvalidDataType
+Callstack:t#0 Error Source: main/PdfTokenizer.cpp(242), Information: Could not read a variant
+VERDICT FINDING S3_SCAN_THREW_PODOFO: PdfErrorCode::BrokenFile, The file content is broken.
+Callstack:t#0 Error Source: main/PdfPageCollection.cpp(371), Information: The page structure tree has invalid nodes

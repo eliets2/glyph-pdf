@@ -1,0 +1,1 @@
+{"schemaVersion": 1, "settings": {"signing/tsaUrl": "https://t", "signing/padesLevel": "B-LT", "update/checkOnStartup": true, "update/channel": "stable", "ai/ollamaEndpoint": "http://127.0.0.1:11434", "ocr/allowNetworkDownload": false}}

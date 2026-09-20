@@ -127,6 +127,38 @@ bool SignatureFieldCreator::createSignatureFields(const QString &srcPath,
             // re-derive this flip locally.
             const QRectF userRect = PageSpace::viewerToUser(
                 s.viewerRect, PageSpace::pageGeometry(page));
+            // SWEEP-W1 F5: an anchor that cannot be VISIBLE on its page is
+            // refused — an invisible signature field can be planted through a
+            // crafted sidecar (the fill flow's lazy placement trusts
+            // anchorPage/anchorRect), and the signer would commit a signature
+            // to a field no viewer ever renders. Containment is checked in the
+            // converted USER space against the page's own MediaBox (0.5 pt
+            // tolerance for rounding through the viewer/user flip).
+            const PoDoFo::Rect mediaBox = page.GetMediaBox();
+            constexpr double kBoundsTolerance = 0.5;
+            const bool anchorOnPage =
+                userRect.x() >= mediaBox.X - kBoundsTolerance
+                && userRect.y() >= mediaBox.Y - kBoundsTolerance
+                && userRect.x() + userRect.width()
+                       <= mediaBox.X + mediaBox.Width + kBoundsTolerance
+                && userRect.y() + userRect.height()
+                       <= mediaBox.Y + mediaBox.Height + kBoundsTolerance;
+            if (!anchorOnPage) {
+                if (err)
+                    *err = QStringLiteral(
+                               "signature field %1: the anchor rect (%2, %3, "
+                               "%4 x %5 pt) lies outside page %6's media box "
+                               "(%7 x %8 pt) — an off-page field would be "
+                               "invisible to the signer, so nothing was "
+                               "placed")
+                               .arg(s.fieldName)
+                               .arg(userRect.x()).arg(userRect.y())
+                               .arg(userRect.width()).arg(userRect.height())
+                               .arg(s.pageIndex + 1)
+                               .arg(mediaBox.Width).arg(mediaBox.Height);
+                dropCandidate();
+                return false;
+            }
             auto &field = page.CreateField<PoDoFo::PdfSignature>(
                 s.fieldName.toStdString(),
                 PoDoFo::Rect(userRect.x(), userRect.y(),

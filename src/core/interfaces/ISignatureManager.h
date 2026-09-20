@@ -57,6 +57,7 @@ struct SignatureOutcomeDetail {
     bool dssMissing = false;          ///< B-LT: the DSS dictionary could not be built/embedded
     bool docTimestampMissing = false; ///< B-LTA: the /DocTimeStamp could not be added
     bool timestampMissing = false;    ///< SEP13 lead 1: B-T — the RFC 3161 signature timestamp was requested (TSA URL configured) but could not be fetched/embedded; the signature attained B-B
+    bool timestampTokenValid = false; ///< SWEEP-W1 F2: the fetched TSA response parsed as an RFC 3161 TS_RESP (d2i_TS_RESP) before embedding. ANY HTTP-200 body is NOT attainment — attainedLevelLabel refuses every level above B-B unless this is set, so a garbage/error-page response from a misconfigured or hostile TSA keeps the honest B-B degradation.
 };
 
 class ISignatureManager {

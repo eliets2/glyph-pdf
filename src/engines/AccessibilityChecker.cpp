@@ -134,13 +134,25 @@ void collectImageGaps(PoDoFo::PdfMemDocument& doc, const PdfObject* resources,
 // without /FT are pure hierarchy containers → recurse into /Kids. /TU is
 // expected on the FIELD dict (for radio groups: the parent), so a /FT dict
 // with kids is still checked at its own level.
+//
+// SWEEP-W1 fuzz S3a: this walk gets the SAME discipline as collectImageGaps —
+// a visited-reference set breaks self/mutual /Kids cycles (a cycle is only
+// expressible through indirect references, so deduping on the array element's
+// reference is exact) and the depth cap (8, the Form-XObject cap) bounds
+// pathological non-cyclic nesting. Without these, a crafted /Fields hierarchy
+// recursed unboundedly and died on std::bad_alloc / stack exhaustion —
+// opening the accessibility panel of such a PDF killed the process.
 void collectFieldGaps(PoDoFo::PdfMemDocument& doc, const PdfObject* fieldsArray,
-                      const QString& parentName, A11yReport& report) {
-    if (fieldsArray == nullptr) return;
+                      const QString& parentName, A11yReport& report,
+                      int depth, std::set<PdfReference>& visitedFields) {
+    if (fieldsArray == nullptr || depth > 8) return;
     fieldsArray = resolve(fieldsArray, doc);
     if (fieldsArray == nullptr || !fieldsArray->IsArray()) return;
 
     for (const PdfObject& kidObj : fieldsArray->GetArray()) {
+        if (kidObj.IsReference()
+            && !visitedFields.insert(kidObj.GetReference()).second)
+            continue;   // already-walked node (cycle) — never re-enter
         const PdfObject* kid = resolve(&kidObj, doc);
         if (kid == nullptr || !kid->IsDictionary()) continue;
         const PdfDictionary& dict = kid->GetDictionary();
@@ -172,7 +184,8 @@ void collectFieldGaps(PoDoFo::PdfMemDocument& doc, const PdfObject* fieldsArray,
                 report.fieldsReported++;
             }
         } else {
-            collectFieldGaps(doc, dict.FindKey(PdfName("Kids")), fullName, report);
+            collectFieldGaps(doc, dict.FindKey(PdfName("Kids")), fullName, report,
+                             depth + 1, visitedFields);
         }
     }
 }
@@ -200,6 +213,16 @@ A11yReport scanAccessibility(const QString& path) {
     }
 
     r.loadOk = true;
+
+    // SWEEP-W1 fuzz S3b: the "never throws" contract (AccessibilityChecker.h)
+    // covers the WHOLE scan, not just the load. Post-load lazy parses
+    // (GetCatalog / GetTrailer / traversal) throw PdfError::BrokenFile /
+    // InvalidObject / InvalidDataType out of this function and terminate
+    // callers that rely on the contract. Contained at the seam, mirroring
+    // applyAccessibilityFix's discipline: whatever was collected so far comes
+    // back as a PARTIAL report with an explicit truncation finding — the gap
+    // is disclosed, never papered over and never fatal.
+    try {
     auto& catalog = doc.GetCatalog().GetDictionary();
 
     // 1) Structure tree — the tagged-document gate. Detection only: P1 does
@@ -314,9 +337,35 @@ A11yReport scanAccessibility(const QString& path) {
 
     // 5) Field /TU — bounded sample over the AcroForm hierarchy.
     const PdfObject* acro = resolve(catalog.FindKey(PdfName("AcroForm")), doc);
-    if (acro != nullptr && acro->IsDictionary())
+    if (acro != nullptr && acro->IsDictionary()) {
+        std::set<PdfReference> visitedFields;
         collectFieldGaps(doc, acro->GetDictionary().FindKey(PdfName("Fields")),
-                         QString(), r);
+                         QString(), r, 0, visitedFields);
+    }
+    } catch (const PoDoFo::PdfError& e) {
+        A11yFinding f;
+        f.checkId = QStringLiteral("scan-incomplete");
+        f.severity = A11ySeverity::Low;
+        f.page = -1;
+        f.where = QStringLiteral("document");
+        f.whyNot = QObject::tr(
+            "the accessibility scan stopped early on a broken PDF object "
+            "(%1) — the findings above may be incomplete, and the document "
+            "itself is damaged").arg(QString::fromUtf8(e.what()));
+        r.findings.append(f);
+        return r;
+    } catch (const std::exception& e) {
+        A11yFinding f;
+        f.checkId = QStringLiteral("scan-incomplete");
+        f.severity = A11ySeverity::Low;
+        f.page = -1;
+        f.where = QStringLiteral("document");
+        f.whyNot = QObject::tr(
+            "the accessibility scan stopped early (%1) — the findings above "
+            "may be incomplete").arg(QString::fromUtf8(e.what()));
+        r.findings.append(f);
+        return r;
+    }
 
     return r;
 }

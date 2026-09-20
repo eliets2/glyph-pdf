@@ -136,6 +136,23 @@ SigningRequestModel::LoadResult SigningRequestModel::fromJson(const QString &jso
         result.error = LoadError::MissingMagic;
         return result;
     }
+    // SWEEP-W1 fuzz S1/FZ-3: the handshake is the PAIR
+    // "glyphpdf-signrequest": 1 — the key's VALUE is verified exactly as
+    // strictly as schemaVersion. Key presence alone accepted 999 / 1.5 /
+    // true / null / "one" as valid requests, and Qt keeps the LAST duplicate
+    // key, so a duplicated magic with a doctored trailing value sailed
+    // through: the documented forward-compat gatekeep ("a different magic
+    // value means a different dialect") did not exist. A wrong magic value is
+    // not a GlyphPDF request — refused.
+    if (!magic.isDouble() || magic.toInt(-1) != kSchemaVersion) {
+        result.error = LoadError::MissingMagic;
+        result.detail = QStringLiteral(
+            "the magic key must carry the value %1 (found: %2) — this is not "
+            "a GlyphPDF signing request this build can read")
+            .arg(kSchemaVersion)
+            .arg(magic.toVariant().toString());
+        return result;
+    }
     const int version = root.value(QStringLiteral("schemaVersion")).toInt(-1);
     if (version != kSchemaVersion) {
         result.error = LoadError::UnknownVersion;
@@ -193,6 +210,38 @@ SigningRequestModel::LoadResult SigningRequestModel::fromJson(const QString &jso
         s.attainedLevel = o.value(QStringLiteral("attainedLevel")).toString();
         s.signatureSummary = o.value(QStringLiteral("signatureSummary")).toString();
         m.signers.append(s);
+    }
+
+    // W1-02 — the 1-field==1-signer lint at the ONLY untrusted boundary. One
+    // signature field carries exactly one signature, so no two entries may
+    // bind the same field (compared trimmed — whitespace must not launder an
+    // alias). The prepare path already enforces this
+    // (SigningRequestDialog::saveRequest: "Signature field %1 is bound more
+    // than once.", SignatureFieldCreator refuses duplicates); fromJson is
+    // where attacker-crafted bytes enter, so it enforces it too. Scope: a
+    // duplicate binding among entries still AWAITING signature is a work
+    // order the workflow can never fulfill — a structured SchemaInvalid
+    // refusal. A record where every aliased entry claims a COMPLETED
+    // signature parses as history; its truth is exactly what
+    // SigningRequestRunner::verifyAgainstDocument audits, which flags aliased
+    // bindings as out-of-sync (defense in depth, never silent).
+    for (int i = 0; i < m.signers.size(); ++i) {
+        const QString fieldI = m.signers[i].fieldName.trimmed();
+        for (int j = i + 1; j < m.signers.size(); ++j) {
+            if (m.signers[j].fieldName.trimmed() != fieldI)
+                continue;
+            if (!m.signers[i].isSigned || !m.signers[j].isSigned) {
+                result.error = LoadError::SchemaInvalid;
+                result.detail = QStringLiteral(
+                    "Signature field %1 is bound more than once (signers %2 "
+                    "and %3) — one signature field carries exactly one "
+                    "signer's signature, so the request cannot be fulfilled "
+                    "as bound.")
+                    .arg(m.signers[i].fieldName.trimmed())
+                    .arg(i + 1).arg(j + 1);
+                return result;
+            }
+        }
     }
 
     result.model = m;

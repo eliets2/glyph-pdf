@@ -204,6 +204,11 @@ QJsonObject SupportBundle::buildFromSettings(QSettings& user,
             break;
     }
     policySection.insert(QStringLiteral("disclosure"), policy.statusLine());
+    // W1-05/F1: the bundle carries the trust model as its own field too (the
+    // disclosure line embeds it as well) — the machine-policy overrides are
+    // only as trustworthy as the machine's user accounts.
+    policySection.insert(QStringLiteral("trustModel"),
+                         PolicyController::trustModelNote());
     QJsonArray managed;
     for (const QString& k : policy.managedKeys()) {
         managed.append(QJsonObject{
@@ -253,7 +258,10 @@ QJsonObject SupportBundle::buildFromSettings(QSettings& user,
 
     bundle.insert(QStringLiteral("privacyNote"),
                   bundleTr("This bundle contains no PDF content, no document "
-                     "metadata, no file paths and no network history."));
+                     "metadata and no network history. File paths appear "
+                     "only for the machine-policy location (SWEEP-W1 F6: "
+                     "the policy disclosure names where the enforced policy "
+                     "was loaded from; user names in it are scrubbed)."));
 
     // Defense in depth: scrub every string in the finished object.
     return scrubObject(bundle);

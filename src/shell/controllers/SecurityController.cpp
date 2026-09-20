@@ -159,9 +159,15 @@ QString SecurityController::attainedLevelLabel(PAdESLevel requested, const Signa
     // B-T timestamp token (SEP13 lead 1: a CONFIGURED-but-unreachable TSA
     // degrades the signature to B-B — signingPreflightRefusal only covers the
     // no-TSA-configured case; the in-flight fetch failure surfaces here as
-    // detail.timestampMissing). B-LT additionally requires the DSS
-    // dictionary, B-LTA the archive timestamp on top of that.
-    if (requested > PAdESLevel::B_B && detail.timestampMissing)
+    // detail.timestampMissing). SWEEP-W1 F2: presence of a response body is
+    // NOT attainment — the token must have PARSED as an RFC 3161 TS_RESP
+    // (detail.timestampTokenValid, set by the engine at embed time) before
+    // any level above B-B is claimed, so a garbage/error-page response from a
+    // misconfigured or hostile TSA keeps the honest B-B label. B-LT
+    // additionally requires the DSS dictionary, B-LTA the archive timestamp
+    // on top of that.
+    if (requested > PAdESLevel::B_B
+        && (detail.timestampMissing || !detail.timestampTokenValid))
         return QStringLiteral("B-B");
     switch (requested) {
         case PAdESLevel::B_B:  return QStringLiteral("B-B");

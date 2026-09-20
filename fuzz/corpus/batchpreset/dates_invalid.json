@@ -1,0 +1,1 @@
+{"glyphpreset": {"schemaVersion": 1, "kind": "batch-preset"}, "id": "my-preset", "name": "My Preset", "created": "yesterday", "modified": "", "steps": [{"op": "compress", "params": {"quality": 80}}]}

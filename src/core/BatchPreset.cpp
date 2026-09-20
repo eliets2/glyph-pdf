@@ -119,6 +119,74 @@ bool resolveNaming(const QString& naming, const QString& basename,
             ++i;
         }
     }
+
+    // W1-01 containment gate: the CONTRACT is a bare FILE NAME — resolveNaming
+    // produces the operand QDir(outDir).filePath() joins with the user-chosen
+    // output directory, so the resolved RESULT (not the token values — plan
+    // §3.6 only ever guarded those) must be a single path component. Any '/',
+    // '\' or ':' in the result escapes that contract ('/'/'\' = directory
+    // traversal incl. UNC; ':' = drive-absolute or NTFS alternate data
+    // stream), and '.'/'..' as the whole name are reserved device names.
+    // sanitizeNameComponent already strips these from token VALUES; this guard
+    // covers the template LITERAL and is the one shared choke point:
+    // parse()-time validation, the GUI overwrite pre-check and the worker's
+    // captured output all resolve through here, so a hostile preset is refused
+    // at import and can never reach the commit seam.
+    const QString containmentErr = QStringLiteral(
+        "output.naming: %1 — the resolved name %2 is not a plain file name "
+        "(path separators, drive letters and '..' are not allowed: every "
+        "output lands inside the output directory chosen at run time)")
+        .arg(tmpl, result);
+    for (const QChar& ch : result) {
+        if (ch == QLatin1Char('/') || ch == QLatin1Char('\\') || ch == QLatin1Char(':')) {
+            if (err) *err = containmentErr;
+            return false;
+        }
+    }
+    if (result == QLatin1String("..") || result == QLatin1String(".")) {
+        if (err) *err = containmentErr;
+        return false;
+    }
+
+    // SWEEP-W1 fuzz S2/FZ-4: two further Windows realities of the rendered
+    // RESULT. (a) Reserved DOS device names: a stem of CON/PRN/AUX/NUL/
+    // COM1-9/LPT1-9 (any extension, case-insensitive; Win32 ignores trailing
+    // dots/spaces before comparing) makes the batch write to a DEVICE while
+    // reporting success — data loss with a green ledger. (b) Bounded length:
+    // Win32 filename components fail above 255 chars; the render is refused
+    // past 240 (the fuzz harness's Win32 path-sanity bound). Both are
+    // template-agnostic: the check runs on the final rendered name, so
+    // hostile values arriving through ANY token are covered too.
+    static const QStringList kReservedDeviceNames = {
+        QStringLiteral("CON"), QStringLiteral("PRN"), QStringLiteral("AUX"),
+        QStringLiteral("NUL"),
+        QStringLiteral("COM1"), QStringLiteral("COM2"), QStringLiteral("COM3"),
+        QStringLiteral("COM4"), QStringLiteral("COM5"), QStringLiteral("COM6"),
+        QStringLiteral("COM7"), QStringLiteral("COM8"), QStringLiteral("COM9"),
+        QStringLiteral("LPT1"), QStringLiteral("LPT2"), QStringLiteral("LPT3"),
+        QStringLiteral("LPT4"), QStringLiteral("LPT5"), QStringLiteral("LPT6"),
+        QStringLiteral("LPT7"), QStringLiteral("LPT8"), QStringLiteral("LPT9"),
+    };
+    QString stem = result.section(QLatin1Char('.'), 0, 0);
+    while (stem.endsWith(QLatin1Char(' ')) || stem.endsWith(QLatin1Char('.')))
+        stem.chop(1);
+    if (kReservedDeviceNames.contains(stem.toUpper())) {
+        if (err)
+            *err = QStringLiteral("output.naming: %1 — the resolved name %2 uses a "
+                                  "reserved Windows device name (CON, NUL, AUX, PRN, "
+                                  "COM1-9, LPT1-9): writing it would target the device, "
+                                  "not a file. Choose a different name.")
+                               .arg(tmpl, result);
+        return false;
+    }
+    if (result.size() > 240) {
+        if (err)
+            *err = QStringLiteral("output.naming: %1 — the resolved name is %2 characters "
+                                  "long; a rendered name must stay within 240 characters "
+                                  "(Windows filename limit is 255). Shorten the template.")
+                               .arg(tmpl).arg(result.size());
+        return false;
+    }
     if (outName) *outName = result;
     return true;
 }

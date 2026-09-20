@@ -149,6 +149,10 @@ QString PolicyController::statusLine() const
             if (!m_unrecognized.isEmpty())
                 line += tr(" Ignored (outside the audited allowlist): %1.")
                             .arg(m_unrecognized.join(QStringLiteral(", ")));
+            // W1-05/F1: disclose the trust model right where the overrides
+            // render — the file is enforced without origin/ownership checks,
+            // so the disclosure travels with every claim of enforcement.
+            line += QLatin1Char(' ') + trustModelNote();
             return line;
         }
     }
@@ -158,6 +162,22 @@ QString PolicyController::statusLine() const
 QString PolicyController::policyPath() const { return m_path; }
 
 QStringList PolicyController::knownKeys() { return knownKeysImpl(); }
+
+QString PolicyController::trustModelNote()
+{
+    // W1-05/F1: the one honest sentence about the machine-policy trust
+    // model. The file is loaded and ENFORCED with no ownership, ACL or
+    // integrity check by design (P1 posture); on a default Windows install
+    // the policy directory under %PROGRAMDATA% is creatable by any standard
+    // user, so the overrides are only as trustworthy as the machine's user
+    // accounts. Disclosed wherever policy overrides render and in the
+    // support bundle — honesty, not ACLs.
+    return tr("The policy file is machine-trusted: GlyphPDF does not verify "
+              "who wrote it, and anyone who can write its location "
+              "(on Windows: %PROGRAMDATA%, writable by any standard user on "
+              "a default install) can set or change these overrides. Keep "
+              "this machine's user accounts trustworthy.");
+}
 
 bool PolicyController::isEnforcedKey(const QString& settingsKey)
 {

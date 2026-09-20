@@ -194,6 +194,11 @@ void SendForSigningController::runSignStep(int signerIndex)
                 return;
             }
             input.model = confirmed;
+            // SWEEP-W1 F3: the gate's re-confirm authorization is OUT OF BAND —
+            // set only here, after the user's Yes. The sidecar copy is a
+            // display/record value; a reconfirmedSha256 read back from the
+            // (unsigned) file never skips this dialog.
+            input.userReconfirmedSha256 = pre.documentSha256;
         } else if (pre.code != SigningRequestRunner::StepRefusal::None) {
             QMessageBox::warning(_mainWindow, tr("Signing Step Refused"), pre.message);
             return;

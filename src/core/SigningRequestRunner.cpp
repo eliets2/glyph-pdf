@@ -10,6 +10,7 @@
 #include <QDateTime>
 #include <QFile>
 #include <QFileInfo>
+#include <QMap>
 #include <QSet>
 
 namespace SafeSave = gp::SafeSave;        // gp::SafeSave is a NAMESPACE of primitives
@@ -75,8 +76,15 @@ SigningRequestRunner::Refusal SigningRequestRunner::precheck(SignatureManager &s
     // Fail-closed: a request that does NOT record the prepared-bytes hash can
     // never prove the document unmutated, so it refuses too (only a hand-edited
     // sidecar can be in that state — prepare always writes the hash).
+    // SWEEP-W1 F3: the sidecar's reconfirmedSha256 is NOT gate input anymore.
+    // The sidecar is unsigned JSON — anyone with write access to it can mutate
+    // the document AND pre-seed that field, silently skipping the user dialog
+    // (SendForSigningController is the only place the USER is consulted, and
+    // only when THIS gate returns DocumentChanged). The re-confirm decision
+    // therefore travels out of band in FillStepInput::userReconfirmedSha256,
+    // which the controller sets solely after its Yes/No dialog; the sidecar
+    // copy is a display/record value only.
     const QString prepared = in.model.preparedSha256;
-    const QString reconfirmed = in.model.reconfirmedSha256;
     const QString current = sha256OfFile(in.docPath);
     if (current.isEmpty()) {
         r.code = StepRefusal::NoDocument;
@@ -86,7 +94,8 @@ SigningRequestRunner::Refusal SigningRequestRunner::precheck(SignatureManager &s
     r.documentSha256 = current;
     const bool preparedUnrecorded = prepared.isEmpty();
     const bool preparedMatches = (!prepared.isEmpty() && current == prepared)
-                                 || (!reconfirmed.isEmpty() && current == reconfirmed);
+                                 || (!in.userReconfirmedSha256.isEmpty()
+                                     && current == in.userReconfirmedSha256);
     if (preparedUnrecorded || !preparedMatches) {
         r.code = StepRefusal::DocumentChanged;
         r.message = preparedUnrecorded
@@ -126,6 +135,49 @@ SigningRequestRunner::Refusal SigningRequestRunner::precheck(SignatureManager &s
             r.message = QStringLiteral("Signature field %1 already carries a signature — "
                                        "it cannot be signed again for signer %2.")
                             .arg(bound).arg(in.signerIndex + 1);
+            return r;
+        }
+    }
+    // W1-03 — the engine's GLOBAL one-unsigned-field precondition, consulted
+    // HERE, before any mutation. SignatureManager's D6 post-condition fails
+    // every sign whose document still contains ANY unsigned signature field
+    // (an unsigned field validates with integrityIntact=false), and the step
+    // can consume exactly one field — its own bound one (existing unsigned, or
+    // lazily created at the anchor). The binding gate above validates only the
+    // ENTRY; an unsigned field that NO entry binds makes every remaining step
+    // of this request unfulfillable, and running the step anyway used to
+    // mutate the document first (lazy placement wrote the anchored field onto
+    // docPath) and then fail forever — a polluted document plus a permanent
+    // deadlock behind a lying "the document is unchanged" error.
+    // Scope: a field bound by ANOTHER entry of this request is the request's
+    // own business (advisory order — precheck accepts, and the engine remains
+    // the honest backstop that fails without claiming anything); only an
+    // UNMANAGED unsigned field refuses here. Pure read — on refusal the
+    // document is byte-identical and the request surfaces an actionable,
+    // non-deadlocked state instead of an engine error loop.
+    {
+        QSet<QString> unsignedFields;
+        for (const auto &a : anchors)
+            unsignedFields.insert(a.fieldName.trimmed());
+        for (const SignatureInfo &info : infos)
+            if (isSignedEntry(info))
+                unsignedFields.remove(info.fieldName.trimmed());
+        QStringList managed;
+        for (const SigningRequestModel::Signer &s : in.model.signers)
+            managed << s.fieldName.trimmed();
+        QString offender;
+        for (const QString &f : unsignedFields) {
+            if (!managed.contains(f)) { offender = f; break; }
+        }
+        if (!offender.isEmpty()) {
+            r.code = StepRefusal::ForeignUnsignedField;
+            r.message = QStringLiteral(
+                "The document contains an unsigned signature field (%1) that "
+                "no signer of this request is bound to. The signing engine "
+                "refuses to sign while any unsigned field remains, so this "
+                "step can never succeed and nothing has been changed — the "
+                "request stays blocked until that field is removed or signed "
+                "outside this request.").arg(offender);
             return r;
         }
     }
@@ -334,6 +386,33 @@ SigningRequestRunner::VerificationReport SigningRequestRunner::verifyAgainstDocu
         if (v.entrySigned) ++report.signedEntryCount;
         report.perSigner.append(v);
     }
+
+    // W1-02 defense-in-depth: one field carries one signature, so two entries
+    // bound to the same field can never both be honestly fulfilled. Parse
+    // refuses that shape while any aliased entry is still unsigned
+    // (SigningRequestModel::fromJson); a record whose aliased entries ALL
+    // claim completed signatures parses as history and is audited HERE —
+    // per-field coverage alone cannot see the alias (both entries match the
+    // same field's signature) and the count check passes whenever the
+    // document carries as many real signatures as entries. An aliased
+    // binding is an out-of-sync request: disclosed, never "consistent".
+    {
+        QMap<QString, QList<int>> bindings;   // trimmed field name -> entry indexes
+        for (int i = 0; i < model.signers.size(); ++i)
+            bindings[model.signers[i].fieldName.trimmed()].append(i);
+        for (auto it = bindings.constBegin(); it != bindings.constEnd(); ++it) {
+            if (it.value().size() < 2) continue;
+            QStringList who;
+            for (int idx : it.value())
+                who << QString::number(idx + 1);
+            report.warnings << QStringLiteral(
+                "Signers %1 are all bound to the same field %2 — a signature "
+                "field carries exactly one signature, so this request cannot "
+                "be fulfilled as bound.")
+                .arg(who.join(QStringLiteral(", ")), it.key());
+        }
+    }
+
     if (report.documentSignatureCount < report.signedEntryCount)
         report.warnings << QStringLiteral(
             "The document carries %1 signature(s), fewer than the %2 recorded by the "

@@ -17,7 +17,11 @@ class SignatureManager;
 // signing request, and enforces the workflow's honesty gates around it:
 //
 //   1. MUTATION GATE — the step refuses to run while the document bytes differ
-//      from both preparedSha256 and reconfirmedSha256 (the DocumentSession
+//      from preparedSha256, unless the USER re-confirmed the changed bytes via
+//      the controller's dialog — an authorization that travels OUT OF BAND in
+//      FillStepInput::userReconfirmedSha256, never from the unsigned sidecar
+//      (SWEEP-W1 F3: a sidecar-written reconfirm must not skip the user)
+//      (the DocumentSession
 //      mutationRevision lineage is session-local; the sidecar must gate across
 //      sessions, so the SHA-256 of the prepared bytes is the identity).
 //   2. BINDING GATE — the bound field must exist as an UNSIGNED signature
@@ -51,6 +55,13 @@ public:
         QImage appearance;          // optional visible-signature image
         PAdESLevel requestedLevel = PAdESLevel::B_B; // signing config at step time
         QString tsaUrl;             // signing config at step time
+        // SWEEP-W1 F3: the user's re-confirm authorization, OUT OF BAND. The
+        // sidecar is unsigned JSON — a `reconfirmedSha256` written by anyone
+        // with file access must never stand in for the user's decision, so
+        // the mutation gate honors the re-confirm ONLY from this field, which
+        // the controller sets solely after its Yes/No dialog (the sidecar
+        // copy remains as a display/record value and never gates).
+        QString userReconfirmedSha256;
     };
 
     /// WHY a step refuses before any engine call (checked in this order).
@@ -63,7 +74,11 @@ public:
         DocumentChanged,   // bytes differ from prepared AND reconfirmed hashes
         MissingField,      // bound field does not exist and no anchor to create it
         FieldAlreadySigned, // the bound field already carries a signature
-        FieldCreateFailed  // the step's own anchored field could not be created
+        FieldCreateFailed, // the step's own anchored field could not be created
+        ForeignUnsignedField // W1-03: an unsigned field NO entry binds survives
+                             // on the document — the engine's one-unsigned-field
+                             // precondition can never be met for this request;
+                             // refused in precheck, before any mutation
     };
     struct Refusal {
         StepRefusal code = StepRefusal::None;
@@ -76,7 +91,10 @@ public:
     static Refusal precheck(SignatureManager &signing, const FillStepInput &in);
 
     /// SHA-256 of the current on-disk bytes (empty when unreadable). The
-    /// controller's re-confirm flow stores this into reconfirmedSha256.
+    /// controller's re-confirm flow stores this into
+    /// FillStepInput::userReconfirmedSha256 (the gate's ONLY re-confirm
+    /// input) after the user accepts, and records it in the sidecar's
+    /// reconfirmedSha256 for display.
     static QString documentSha256(const QString &path);
 
     struct FillStepResult {
