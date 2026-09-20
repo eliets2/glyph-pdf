@@ -29,6 +29,10 @@
 
 #include <podofo/podofo.h>
 #include <podofo/auxiliary/StreamDevice.h>
+// emergence E-3: the pinned user→viewer inverse of the page-space law
+// (after the Windows header block — this header pulls podofo/Qt in, and the
+// wincrypt macro-undef dance above must run first).
+#include "core/ItemSpaceTransform.h"
 #include <openssl/pkcs12.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
@@ -2115,13 +2119,25 @@ QList<ISignatureManager::SignatureFieldAnchor> SignatureManager::signatureFieldA
             if (!widget) continue;
             const PoDoFo::PdfPage *page = widget->GetPage(); // const overload returns the page pointer directly
             if (!page) continue;
-            const Rect r = widget->GetRect();
-            const double pageHeight = page->GetMediaBox().Height;
+            // emergence E-3 (SWEEP-W3-EMERGENCE §2d, the W2B-1 re-audit close):
+            // the read-back must run through the ONE page-space law, not the
+            // legacy flip with the rotation-NORMALIZED GetMediaBox().Height
+            // (W/H swapped on /Rotate 90/270 — the wrong flip dimension on
+            // every rotated, non-square page, and the MediaBox lower-left
+            // origin dropped). GetRectRaw is the raw /Rect (no hidden
+            // rotation adjustment); ItemSpace::userToViewer is the pinned
+            // inverse of PageSpace::viewerToUser (round-trip identity in
+            // TestLegacyOriginSpace) — the same transform
+            // PoDoFoBackend::extractAnnotations reads foreign marks with.
+            const gp::PageSpace::PageGeometry geo =
+                gp::PageSpace::pageGeometry(const_cast<PoDoFo::PdfPage&>(*page));
+            const PoDoFo::Rect r = widget->GetRectRaw().GetNormalized();
             SignatureFieldAnchor a;
             a.fieldName = QString::fromStdString(field->GetFullName());
             a.pageIndex = static_cast<int>(page->GetIndex());
-            // Viewer top-left convention (same flip as applyRedactions).
-            a.rect = QRectF(r.X, pageHeight - r.Y - r.Height, r.Width, r.Height);
+            // Viewer top-left convention — the exact inverse of viewerToUser.
+            a.rect = gp::ItemSpace::userToViewer(
+                QRectF(r.X, r.Y, r.Width, r.Height), geo);
             out.append(a);
         }
     } catch (const PoDoFo::PdfError &e) {
