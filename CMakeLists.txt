@@ -1210,6 +1210,24 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSanitization.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSanitizeTrailerUaf.cpp")
+    add_executable(TestSanitizeTrailerUaf
+        tests/TestSanitizeTrailerUaf.cpp
+        src/engines/DocumentSession.cpp
+    )
+    target_include_directories(TestSanitizeTrailerUaf PRIVATE src tests)
+    target_link_libraries(TestSanitizeTrailerUaf PRIVATE
+        pdfws_engines pdfws_core pdfws_commands podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_test(NAME TestSanitizeTrailerUaf COMMAND TestSanitizeTrailerUaf)
+    set_tests_properties(TestSanitizeTrailerUaf PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;security;sanitization;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAutosave.cpp")
     add_executable(TestAutosave
         tests/TestAutosave.cpp

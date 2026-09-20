@@ -3256,8 +3256,26 @@ static void sanitizeDocumentContents(PoDoFo::PdfMemDocument& doc)
     using namespace PoDoFo;
 
     auto& trailer = doc.GetTrailer();
-    if (trailer.GetDictionary().HasKey("Info")) {
-        trailer.GetDictionary().RemoveKey("Info");
+    // E-2 (soak 2026-09-20, AssertMutable AV): the document caches a PdfInfo
+    // wrapper over the Info object for the whole lifetime of the load
+    // (PdfDocument::SetTrailer -> m_Info). Removing the /Info key orphans the
+    // object, and Save() below runs CollectGarbage(), which deletes it out
+    // from under the cached wrapper. The NEXT Save()/metadata access on this
+    // same loaded document then writes through the dangling PdfInfo — the
+    // intermittent PoDoFo PdfDataContainer::AssertMutable 0xc0000005 the 48h
+    // soak caught in TestSanitization::testSanitizeGeneratesUniqueTrailerID
+    // (that slot sanitizes one loaded document twice; the second save stamps
+    // /Info/ModDate through the freed object). Fix at the shared boundary:
+    // never destroy the object the wrapper points at — scrub the dictionary
+    // in place. The output still carries zero user metadata (Save re-stamps
+    // only /ModDate into the emptied dict; same legal-empty contract as the
+    // /Names container below).
+    if (auto* infoObj = trailer.GetDictionary().FindKey("Info");
+        infoObj != nullptr && infoObj->IsDictionary()
+        // aliasing guard: a crafted file may point /Info at the /Root (or
+        // another structural) object — never scrub the catalog itself
+        && infoObj != &doc.GetCatalog().GetObject()) {
+        infoObj->GetDictionary().Clear();
     }
 
     auto& catalog = doc.GetCatalog();
@@ -3338,8 +3356,16 @@ static void sanitizeDocumentContents(PoDoFo::PdfMemDocument& doc)
     }
 
     // 18. Remove Outlines (bookmarks)
-    if (catalog.GetDictionary().HasKey(PdfName("Outlines"))) {
-        catalog.GetDictionary().RemoveKey(PdfName("Outlines"));
+    // E-2: same shared-object discipline as /Info above — PdfDocument caches
+    // m_Outlines over the outlines root once GetOutlines() ran on this
+    // document (e.g. a replaceOutline pass), so removing the /Outlines key
+    // would let Save()'s CollectGarbage() free the cached root out from under
+    // the wrapper (same AssertMutable AV class). Clear the tree in place:
+    // First/Last/Count go away, so no bookmark data survives; the file keeps
+    // an empty /Outlines dict.
+    if (auto* outlinesObj = catalog.GetDictionary().FindKey("Outlines");
+        outlinesObj != nullptr && outlinesObj->IsDictionary()) {
+        outlinesObj->GetDictionary().Clear();
     }
 
     // 20. Remove Collection portfolio
