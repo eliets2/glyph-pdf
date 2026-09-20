@@ -1,0 +1,15 @@
+********* Start testing of TestSweepW3UxFlows *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSweepW3UxFlows::initTestCase()
+QWARN  : TestSweepW3UxFlows::flow2a_welcomeMerge_route() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow2a_welcomeMerge_route() UXAUDIT: F2a start: welcome merge card ? Select PDFs to Merge ? Save Merged PDF
+QWARN  : TestSweepW3UxFlows::flow2a_welcomeMerge_route() This plugin does not support propagateSizeHints()
+QWARN  : TestSweepW3UxFlows::flow2a_welcomeMerge_route() This plugin does not support propagateSizeHints()
+QWARN  : TestSweepW3UxFlows::flow2a_welcomeMerge_route() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow2a_welcomeMerge_route() UXAUDIT: modal seen: title='Open Merged PDF' text='Merge complete. Would you like to open the output file? '
+QINFO  : TestSweepW3UxFlows::flow2a_welcomeMerge_route() UXAUDIT: F2a verified: artifact has 1 page(s) and carries the input content; completion modal title='Open Merged PDF' text='Merge complete. Would you like to open the output file?
+'
+PASS   : TestSweepW3UxFlows::flow2a_welcomeMerge_route()
+PASS   : TestSweepW3UxFlows::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 3603ms
+********* Finished testing of TestSweepW3UxFlows *********

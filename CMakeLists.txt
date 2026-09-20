@@ -2168,6 +2168,38 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestWelcomeRoutes.cpp")
     )
 endif()
 
+# ── TestSweepW3UxFlows (SWEEP-W3 UX audit 2026-09-20: real-flow completion + honesty) ──
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSweepW3UxFlows.cpp")
+    add_executable(TestSweepW3UxFlows
+        tests/TestSweepW3UxFlows.cpp
+        src/app/Bootstrapper.h  src/app/Bootstrapper.cpp
+    )
+    target_include_directories(TestSweepW3UxFlows PRIVATE src tests)
+    target_compile_definitions(TestSweepW3UxFlows PRIVATE
+        DJOT_LIB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/third_party/djot"
+        SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    target_link_libraries(TestSweepW3UxFlows PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestSweepW3UxFlows POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestSweepW3UxFlows>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestSweepW3UxFlows>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestSweepW3UxFlows"
+    )
+    add_test(NAME TestSweepW3UxFlows COMMAND TestSweepW3UxFlows)
+    set_tests_properties(TestSweepW3UxFlows PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 900
+        LABELS "unit;ui;ux-audit;sweep-w3;qt;headless"
+    )
+endif()
+
 # ── TestUiAccessibility (R17 2026-09-13: keyboard/RTL/CJK/DPI pass) ─────────
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestUiAccessibility.cpp")
     add_executable(TestUiAccessibility
