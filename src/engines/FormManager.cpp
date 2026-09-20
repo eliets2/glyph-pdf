@@ -1114,6 +1114,9 @@ QList<FieldSuggestion> FormManager::autoDetectFields(const QString &pdfFilePath,
             return suggestions;
 
         PoDoFo::PdfPage& page = doc.GetPages().GetPageAt(pageIndex);
+        // sweep-legacy (origin class): the shared page-space geometry for the
+        // suggestion mapping below (MediaBox origin + /Rotate aware).
+        const gp::PageSpace::PageGeometry pageGeo = gp::PageSpace::pageGeometry(page);
         PoDoFo::PdfContentStreamReader reader(page);
 
         double currentX = 0, currentY = 0;
@@ -1161,20 +1164,31 @@ QList<FieldSuggestion> FormManager::autoDetectFields(const QString &pdfFilePath,
                 s.suggestedName = QStringLiteral("AutoField%1").arg(++autoIndex);
                 const double fieldW = qMin(180.0, qMax(80.0, pageWidth - currentX - currentFontSize * 2));
                 if (fieldW < 40.0) continue; // no room on this line
+                // sweep-legacy (origin class): the content walk runs in RAW
+                // USER space (baseline Y up from the MediaBox origin) while
+                // FieldSuggestion::rect is DISPLAY space — add*Field map it
+                // back through the page-space law. Building the suggestion
+                // directly in user coordinates emitted content Y as DISPLAY Y:
+                // a double flip that mirrored every auto-suggested field to
+                // the opposite side of the page from its label. Compute the
+                // user-space field rect, keep the in-page clamp, then map to
+                // display space through the inverse of the shared law.
+                QRectF userRect;
                 if (hasBlank) {
                     // The underscores ARE the blank: replace that run in place.
-                    s.rect = QRectF(currentX, currentY,
-                                    qMax(fieldW, text.length() * currentFontSize * 0.55),
-                                    currentFontSize * 1.4);
+                    userRect = QRectF(currentX, currentY,
+                                      qMax(fieldW, text.length() * currentFontSize * 0.55),
+                                      currentFontSize * 1.4);
                 } else {
                     // Label ends with ':': place the entry box after it.
-                    s.rect = QRectF(currentX + text.length() * currentFontSize * 0.5,
-                                    currentY, fieldW, currentFontSize * 1.4);
+                    userRect = QRectF(currentX + text.length() * currentFontSize * 0.5,
+                                      currentY, fieldW, currentFontSize * 1.4);
                 }
-                // Clamp inside the page.
-                s.rect.setWidth(qMin(s.rect.width(), pageWidth - s.rect.x() - 4));
-                s.rect.setHeight(qMin(s.rect.height(), pageHeight - s.rect.y() - 4));
-                if (s.rect.width() < 20 || s.rect.height() < 8) continue;
+                // Clamp inside the page box (user-space coordinates).
+                userRect.setWidth(qMin(userRect.width(), pageWidth - userRect.x() - 4));
+                userRect.setHeight(qMin(userRect.height(), pageHeight - userRect.y() - 4));
+                if (userRect.width() < 20 || userRect.height() < 8) continue;
+                s.rect = gp::ItemSpace::userToViewer(userRect, pageGeo);
                 suggestions.append(s);
             }
         }
