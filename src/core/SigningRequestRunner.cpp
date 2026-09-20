@@ -76,8 +76,15 @@ SigningRequestRunner::Refusal SigningRequestRunner::precheck(SignatureManager &s
     // Fail-closed: a request that does NOT record the prepared-bytes hash can
     // never prove the document unmutated, so it refuses too (only a hand-edited
     // sidecar can be in that state — prepare always writes the hash).
+    // SWEEP-W1 F3: the sidecar's reconfirmedSha256 is NOT gate input anymore.
+    // The sidecar is unsigned JSON — anyone with write access to it can mutate
+    // the document AND pre-seed that field, silently skipping the user dialog
+    // (SendForSigningController is the only place the USER is consulted, and
+    // only when THIS gate returns DocumentChanged). The re-confirm decision
+    // therefore travels out of band in FillStepInput::userReconfirmedSha256,
+    // which the controller sets solely after its Yes/No dialog; the sidecar
+    // copy is a display/record value only.
     const QString prepared = in.model.preparedSha256;
-    const QString reconfirmed = in.model.reconfirmedSha256;
     const QString current = sha256OfFile(in.docPath);
     if (current.isEmpty()) {
         r.code = StepRefusal::NoDocument;
@@ -87,7 +94,8 @@ SigningRequestRunner::Refusal SigningRequestRunner::precheck(SignatureManager &s
     r.documentSha256 = current;
     const bool preparedUnrecorded = prepared.isEmpty();
     const bool preparedMatches = (!prepared.isEmpty() && current == prepared)
-                                 || (!reconfirmed.isEmpty() && current == reconfirmed);
+                                 || (!in.userReconfirmedSha256.isEmpty()
+                                     && current == in.userReconfirmedSha256);
     if (preparedUnrecorded || !preparedMatches) {
         r.code = StepRefusal::DocumentChanged;
         r.message = preparedUnrecorded
