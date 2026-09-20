@@ -5413,3 +5413,27 @@ foreach(_w2b_probe
         endif()
     endif()
 endforeach()
+
+# ── W2B-1 (sweep-w2b-verify 2026-09-20): the /Rotate page-space law re-pinned ──
+# All four rotations + offset origins through every consumer of
+# gp::PageSpace::pageGeometry (annotation embed/extract, form fields, the F5
+# signature containment, SL3 suggestion bounds) + the GetMediaBox-vs-file-bytes
+# root-cause pin. The committed fixtures were rotation-blind (rot {0,90}); the
+# /Rotate 270 shape stored transposed rects (see docs/audit/SWEEP-W2B-VERIFY-2026-09-20.md).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRotate270PageSpace.cpp")
+    add_executable(TestRotate270PageSpace tests/TestRotate270PageSpace.cpp)
+    target_include_directories(TestRotate270PageSpace PRIVATE src tests)
+    target_link_libraries(TestRotate270PageSpace PRIVATE
+        pdfws_engines pdfws_core podofo::podofo Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    if(WIN32)
+        add_custom_command(TARGET TestRotate270PageSpace POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestRotate270PageSpace>/libpodofo.dll"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestRotate270PageSpace"
+        )
+    endif()
+    add_test(NAME TestRotate270PageSpace COMMAND TestRotate270PageSpace)
+    set_tests_properties(TestRotate270PageSpace PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120 LABELS "unit;annotations;forms;persistence;qt;headless")
+endif()

@@ -288,14 +288,21 @@ private slots:
     {
         FormManager forms;
         // Page 3 (Letter, /Rotate 270): display (40, 50, 120x40) -> law user
-        // rect: ux = W - vy1..W - vy0 = 612-90..612-50 = 522..552;
+        // rect: ux = W - vy1..W - vy0 = 612-90..612-50 = 522..562;
         // uy = H - vx1..H - vx0 = 792-160..792-40 = 632..752.
+        // (W2B-1 fix lane, 2026-09-20: the original literal here read 552 for
+        // W - vy0 — an arithmetic slip in THIS probe (612-50=562), repeated in
+        // the SWEEP-W2B verify doc. The law value is 562: the user rect of a
+        // display 120x40 rect on /Rotate 270 is 40 WIDE x 120 TALL, and only
+        // [522..562] is 40 wide. Cross-checked against the stored
+        // [702 452 742 572] of the buggy base, whose transposed 40x120
+        // extents pin the same shape.)
         const QString out = outPath("field-270.pdf");
         QVERIFY(forms.addTextField(fixturePath(), 3, QRectF(40, 50, 120, 40),
                                    QStringLiteral("Field270"), out));
         const QList<QRectF> raw = rawAnnotRects(out, 3);
         QVERIFY(raw.size() == 1);
-        const QRectF expect(QPointF(522, 632), QPointF(552, 752));
+        const QRectF expect(QPointF(522, 632), QPointF(562, 752));
         QVERIFY2(rectClose(raw.first(), expect),
                  qPrintable(QString("SL1-270 REGRESSION: field /Rect %1 != law %2 "
                                     "on a /Rotate 270 page")
