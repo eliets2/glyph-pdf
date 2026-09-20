@@ -147,6 +147,46 @@ bool resolveNaming(const QString& naming, const QString& basename,
         if (err) *err = containmentErr;
         return false;
     }
+
+    // SWEEP-W1 fuzz S2/FZ-4: two further Windows realities of the rendered
+    // RESULT. (a) Reserved DOS device names: a stem of CON/PRN/AUX/NUL/
+    // COM1-9/LPT1-9 (any extension, case-insensitive; Win32 ignores trailing
+    // dots/spaces before comparing) makes the batch write to a DEVICE while
+    // reporting success — data loss with a green ledger. (b) Bounded length:
+    // Win32 filename components fail above 255 chars; the render is refused
+    // past 240 (the fuzz harness's Win32 path-sanity bound). Both are
+    // template-agnostic: the check runs on the final rendered name, so
+    // hostile values arriving through ANY token are covered too.
+    static const QStringList kReservedDeviceNames = {
+        QStringLiteral("CON"), QStringLiteral("PRN"), QStringLiteral("AUX"),
+        QStringLiteral("NUL"),
+        QStringLiteral("COM1"), QStringLiteral("COM2"), QStringLiteral("COM3"),
+        QStringLiteral("COM4"), QStringLiteral("COM5"), QStringLiteral("COM6"),
+        QStringLiteral("COM7"), QStringLiteral("COM8"), QStringLiteral("COM9"),
+        QStringLiteral("LPT1"), QStringLiteral("LPT2"), QStringLiteral("LPT3"),
+        QStringLiteral("LPT4"), QStringLiteral("LPT5"), QStringLiteral("LPT6"),
+        QStringLiteral("LPT7"), QStringLiteral("LPT8"), QStringLiteral("LPT9"),
+    };
+    QString stem = result.section(QLatin1Char('.'), 0, 0);
+    while (stem.endsWith(QLatin1Char(' ')) || stem.endsWith(QLatin1Char('.')))
+        stem.chop(1);
+    if (kReservedDeviceNames.contains(stem.toUpper())) {
+        if (err)
+            *err = QStringLiteral("output.naming: %1 — the resolved name %2 uses a "
+                                  "reserved Windows device name (CON, NUL, AUX, PRN, "
+                                  "COM1-9, LPT1-9): writing it would target the device, "
+                                  "not a file. Choose a different name.")
+                               .arg(tmpl, result);
+        return false;
+    }
+    if (result.size() > 240) {
+        if (err)
+            *err = QStringLiteral("output.naming: %1 — the resolved name is %2 characters "
+                                  "long; a rendered name must stay within 240 characters "
+                                  "(Windows filename limit is 255). Shorten the template.")
+                               .arg(tmpl).arg(result.size());
+        return false;
+    }
     if (outName) *outName = result;
     return true;
 }
