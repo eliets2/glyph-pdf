@@ -70,10 +70,21 @@ inline PageGeometry pageGeometryFromMediaBox(double x0, double y0,
     return g;
 }
 
-// The one PoDoFo adapter: rotation-independent MediaBox + /Rotate degrees.
+// The one PoDoFo adapter: RAW MediaBox + /Rotate degrees.
+//
+// W2B-1 (sweep-w2b-verify, 2026-09-20): PoDoFo's PdfPage::GetMediaBox() is
+// rotation-NORMALIZED — on /Rotate 90/270 pages it applies
+// adjustRectToCurrentRotation and returns the W/H-SWAPPED box, even though the
+// file bytes are correct. The transform below applies /Rotate ITSELF, so
+// feeding it the normalized box applies the rotation twice: transposed
+// annotation and form-field rects on /Rotate 270 pages (and wrong display
+// sizes everywhere the normalized numbers leaked). GetMediaBoxRaw() is the
+// raw inheritable-/MediaBox dictionary accessor (same /Parent-chain lookup,
+// no rotation adjustment) — exactly the "MediaBox width/height
+// (rotation-independent)" this struct documents.
 inline PageGeometry pageGeometry(PoDoFo::PdfPage& page)
 {
-    const PoDoFo::Rect media = page.GetMediaBox();
+    const PoDoFo::Rect media = page.GetMediaBoxRaw().GetNormalized();
     return pageGeometryFromMediaBox(media.X, media.Y, media.Width, media.Height,
                                     static_cast<int>(page.GetRotation()));
 }

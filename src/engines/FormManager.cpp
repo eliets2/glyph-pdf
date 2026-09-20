@@ -1121,8 +1121,14 @@ QList<FieldSuggestion> FormManager::autoDetectFields(const QString &pdfFilePath,
 
         double currentX = 0, currentY = 0;
         double currentFontSize = 10.0;
-        const double pageWidth = page.GetMediaBox().Width;
-        const double pageHeight = page.GetMediaBox().Height;
+        // W2B-1: the clamp bounds below are RAW USER space (the content walk
+        // runs there), so they must come from the SAME geometry the mapping
+        // uses — the shared law's rotation-independent MediaBox. The previous
+        // second read through PdfPage::GetMediaBox() returned the
+        // rotation-normalized (W/H-swapped) box on /Rotate 90/270 pages and
+        // clamped against the wrong edge.
+        const double pageWidth = pageGeo.width;
+        const double pageHeight = pageGeo.height;
         int autoIndex = 0;
 
         PoDoFo::PdfContent content;
