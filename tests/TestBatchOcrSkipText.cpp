@@ -35,11 +35,16 @@
 #include <cmath>
 
 #include "core/AppContext.h"
+#include "core/PolicyController.h"
 #include "core/interfaces/IOcrEngine.h"
 #include "modes/BatchMode.h"
 #include "engines/PdfEditorEngine.h"
 #include "engines/pdfium/PdfiumBackend.h"
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <podofo/podofo.h> // Q4: artifact checks on the SAVED file
+
+using gp::PolicyController;
 
 // ── OCR stub: returns one confident word per image (no external engine) ──────
 
@@ -630,6 +635,192 @@ private slots:
         QCOMPARE(h->bm.successCount(), 1);
         QCOMPARE(h->bm.failCount(), 0);
         QVERIFY(QFileInfo::exists(h->tmp.filePath("texty_ocr.pdf")));
+    }
+
+    // ── 8. emergence E-2 (SWEEP-W3-EMERGENCE §1b): a refused OCR download ────
+    // fails the file HONESTLY. Pre-fix the worker discarded initialize()'s
+    // return: the pipeline ran on the uninitialized engine (the real engine's
+    // processImage then re-initialized with the DEFAULT "eng" — a wrong-
+    // language text layer — or produced zero-word output), the file was
+    // accounted SUCCESSFUL and an image-only "_ocr.pdf" was written, while
+    // the policy whyNot stayed console-only. Post-fix: the file FAILS with a
+    // whyNot naming the deciding half of ocr/allowNetworkDownload, the engine
+    // is never fed an image, and no output file exists.
+    //
+    // The stub reproduces the engine gate's contract: initialize(lang) fails
+    // console-only when the language data is missing and the effective policy
+    // refuses the download; processImage is the wrong-language trap the fix
+    // must make unreachable.
+private:
+    struct RefusedOcr final : public IOcrEngine {
+        QAtomicInt calls{0};
+        QString requestedLang;
+        bool initialize(const QString& lang, const QString&) override {
+            requestedLang = lang;
+            return false;   // the policy refused the language-data download
+        }
+        QList<OcrResult> processImage(const QImage&) override {
+            calls.fetchAndAddRelaxed(1);
+            OcrResult r;
+            r.text        = QStringLiteral("ocrlayer");
+            r.boundingBox = QRectF(10, 10, 80, 20);
+            r.confidence  = 95;
+            return { r };
+        }
+        QString getRawText(const QImage&) override { return QStringLiteral("ocrlayer"); }
+        bool isMockImplementation() const override { return true; }
+    };
+
+    struct RefusedHarness {
+        QTemporaryDir tmp;
+        AppContext    ctx;
+        gp::BatchMode bm;
+        std::shared_ptr<RefusedOcr> ocr;
+    };
+
+    static std::unique_ptr<RefusedHarness> makeRefusedHarness() {
+        auto h = std::make_unique<RefusedHarness>();
+        if (!h->tmp.isValid()) return h;
+        h->ctx.pdfEditor = std::make_shared<PdfEditorEngine>();
+        h->ocr           = std::make_shared<RefusedOcr>();
+        h->ctx.ocr       = h->ocr;
+        h->bm.setAppContext(&h->ctx);
+        return h;
+    }
+
+    // The failure entry's whyNot in the batch error log (both honest refusal
+    // wordings carry this closing clause; skip reasons and other failures do
+    // not).
+    static QString refusedDetail(const gp::BatchMode& bm) {
+        for (int i = 0; i < bm.errorLogCount(); ++i) {
+            const QString d = bm.errorDetailForTest(i);
+            if (d.contains(QStringLiteral("no output was written"))) return d;
+        }
+        return {};
+    }
+
+private slots:
+    void policyBlockedDownloadFailsFileHonestlyAndWritesNothing() {
+        // The USER opted IN; the machine policy refuses — the whyNot must
+        // name the POLICY (the E-5-style disclosure), not the dead-end
+        // setting the user already enabled. The language is German: the
+        // wrong-language trap (silent "eng" fallback) is exactly what the
+        // honest refusal must prevent.
+        QSettings().setValue(QStringLiteral("ocr/language"), QStringLiteral("DE"));
+        QSettings().setValue(QStringLiteral("ocr/allowNetworkDownload"), true);
+        PolicyController::instance().resetForTesting();
+
+        auto h = makeRefusedHarness();
+        QVERIFY(h->tmp.isValid());
+        const QString policyPath = h->tmp.filePath(QStringLiteral("emfix-e2-policy.json"));
+        QJsonObject settings;
+        settings.insert(QStringLiteral("ocr/allowNetworkDownload"), false);
+        {
+            QFile pf(policyPath);
+            QVERIFY(pf.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            pf.write(QJsonDocument(
+                QJsonObject{ { QStringLiteral("schemaVersion"), 1 },
+                             { QStringLiteral("settings"), settings } }).toJson());
+        }
+        QVERIFY2(PolicyController::instance().load(policyPath),
+                 "the managed-policy fixture must load");
+
+        const QString scanned = imageOnlyPdf(h->tmp.path(), "scanned.pdf");
+        QVERIFY(!scanned.isEmpty());
+        h->bm.addFilesForTest({ scanned });
+        h->bm.setOperationForTest(5);
+        h->bm.onRunBatch();
+        pumpUntilDone(h->bm, 1);
+
+        // Honest accounting: FAILED, never silently successful.
+        QCOMPARE(h->bm.failCount(), 1);
+        QCOMPARE(h->bm.successCount(), 0);
+        QCOMPARE(h->bm.skipCount(), 0);
+        // The engine gate refused BEFORE any OCR work — no wrong-language
+        // fallback ever ran.
+        QCOMPARE(h->ocr->calls.loadRelaxed(), 0);
+        QCOMPARE(h->ocr->requestedLang, QStringLiteral("deu"));
+        // No "_ocr.pdf" garbage output exists.
+        QVERIFY2(!QFileInfo::exists(h->tmp.filePath("scanned_ocr.pdf")),
+                 "a policy-refused download must not produce an _ocr.pdf output");
+        // The whyNot names the policy and the language, and states plainly
+        // that nothing was written.
+        const QString detail = refusedDetail(h->bm);
+        QVERIFY2(!detail.isEmpty(),
+                 "the failure whyNot must be recorded in the batch error log");
+        QVERIFY2(detail.contains(QStringLiteral("machine policy")),
+                 qPrintable(QStringLiteral("the whyNot must name the machine "
+                                          "policy, got: %1").arg(detail)));
+        QVERIFY2(detail.contains(QStringLiteral("deu")),
+                 qPrintable(detail));
+        QVERIFY2(detail.contains(QStringLiteral("no output was written")),
+                 qPrintable(detail));
+
+        PolicyController::instance().resetForTesting();
+        QSettings().remove(QStringLiteral("ocr/allowNetworkDownload"));
+        QSettings().remove(QStringLiteral("ocr/language"));
+    }
+
+    void unmanagedDisabledDownloadNamesTheUserSetting() {
+        // No policy loaded; the USER's own setting refuses → the whyNot names
+        // the setting (which Preferences can change), never the policy.
+        PolicyController::instance().resetForTesting();
+        QSettings().setValue(QStringLiteral("ocr/allowNetworkDownload"), false);
+
+        auto h = makeRefusedHarness();
+        QVERIFY(h->tmp.isValid());
+        const QString scanned = imageOnlyPdf(h->tmp.path(), "scanned.pdf");
+        QVERIFY(!scanned.isEmpty());
+        h->bm.addFilesForTest({ scanned });
+        h->bm.setOperationForTest(5);
+        h->bm.onRunBatch();
+        pumpUntilDone(h->bm, 1);
+
+        QCOMPARE(h->bm.failCount(), 1);
+        QCOMPARE(h->bm.successCount(), 0);
+        QCOMPARE(h->ocr->calls.loadRelaxed(), 0);
+        QVERIFY2(!QFileInfo::exists(h->tmp.filePath("scanned_ocr.pdf")),
+                 "no output for a refused download");
+        const QString detail = refusedDetail(h->bm);
+        QVERIFY2(!detail.isEmpty(), "the whyNot must be recorded");
+        QVERIFY2(detail.contains(QStringLiteral("OCR download setting")),
+                 qPrintable(QStringLiteral("unmanaged refusal must name the user "
+                                          "setting, got: %1").arg(detail)));
+        QVERIFY2(!detail.contains(QStringLiteral("machine policy")),
+                 qPrintable(detail));
+
+        PolicyController::instance().resetForTesting();
+        QSettings().remove(QStringLiteral("ocr/allowNetworkDownload"));
+    }
+
+    void initializationFailureWithoutPolicyStillFailsTheFile() {
+        // Download ALLOWED (user pref on, no policy) but the engine still
+        // fails to initialize (e.g. no Tesseract at all): the file must FAIL
+        // honestly — the generic honest wording, still never silent success.
+        PolicyController::instance().resetForTesting();
+        QSettings().setValue(QStringLiteral("ocr/allowNetworkDownload"), true);
+
+        auto h = makeRefusedHarness();
+        QVERIFY(h->tmp.isValid());
+        const QString scanned = imageOnlyPdf(h->tmp.path(), "scanned.pdf");
+        QVERIFY(!scanned.isEmpty());
+        h->bm.addFilesForTest({ scanned });
+        h->bm.setOperationForTest(5);
+        h->bm.onRunBatch();
+        pumpUntilDone(h->bm, 1);
+
+        QCOMPARE(h->bm.failCount(), 1);
+        QCOMPARE(h->bm.successCount(), 0);
+        QCOMPARE(h->ocr->calls.loadRelaxed(), 0);
+        QVERIFY2(!QFileInfo::exists(h->tmp.filePath("scanned_ocr.pdf")),
+                 "no output for a failed initialization");
+        const QString detail = refusedDetail(h->bm);
+        QVERIFY2(detail.contains(QStringLiteral("initialization failed")),
+                 qPrintable(QStringLiteral("generic honest wording expected, "
+                                          "got: %1").arg(detail)));
+
+        PolicyController::instance().resetForTesting();
+        QSettings().remove(QStringLiteral("ocr/allowNetworkDownload"));
     }
 };
 
