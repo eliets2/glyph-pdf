@@ -258,7 +258,10 @@ QJsonObject SupportBundle::buildFromSettings(QSettings& user,
 
     bundle.insert(QStringLiteral("privacyNote"),
                   bundleTr("This bundle contains no PDF content, no document "
-                     "metadata, no file paths and no network history."));
+                     "metadata and no network history. File paths appear "
+                     "only for the machine-policy location (SWEEP-W1 F6: "
+                     "the policy disclosure names where the enforced policy "
+                     "was loaded from; user names in it are scrubbed)."));
 
     // Defense in depth: scrub every string in the finished object.
     return scrubObject(bundle);
