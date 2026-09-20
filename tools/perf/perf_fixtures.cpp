@@ -88,7 +88,8 @@ qint64 writeFileWithPageImageBytes(const QString &path, int pages,
 // image — if the largest dimension is not enough, more pages get payloads.
 qint64 generateCalibrated(const QString &path, int pages, qint64 targetBytes)
 {
-    static const int kDims[] = { 64, 128, 256, 384, 512, 768, 1024, 1536, 2048, 3072 };
+    static const int kDims[] = { 64, 128, 256, 384, 512, 768, 1024, 1152, 1280,
+                                 1408, 1536, 1792, 2048, 2560, 3072 };
     qint64 size = -1;
     for (const int d : kDims) {
         const int imgPages = qMin(pages, 8);

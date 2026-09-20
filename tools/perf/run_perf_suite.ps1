@@ -38,6 +38,13 @@ $env:TMP = $RunTmp
 $env:TEMP = $RunTmp
 $env:GLYPHPDF_PERF_OUTDIR = Join-Path $OutDir "op-outputs"
 New-Item -ItemType Directory -Force -Path $env:GLYPHPDF_PERF_OUTDIR | Out-Null
+# The offscreen platform plugin qWarnings on every window ("This plugin does
+# not support propagateSizeHints()"); PS 5.1 turns native stderr into
+# ErrorRecords. Children stay quiet AND the script keeps native-stderr records
+# out of the pipeline: EAP=Continue (every failure path below still uses an
+# explicit `throw` on $LASTEXITCODE, which EAP does not affect).
+$env:QT_LOGGING_RULES = "qt.qpa.*=false"
+$ErrorActionPreference = "Continue"
 
 # ── load-context sampling ────────────────────────────────────────────────────
 function Get-LoadContext {
@@ -77,12 +84,16 @@ function Get-Stats([double[]]$v) {
     }
 }
 
-function Add-Metric([string]$name, [double[]]$samples, [object]$extra,
+function Add-Metric([string]$name, $samples, [object]$extra,
                     [object]$loadBefore, [object]$loadAfter, [string]$jsonFile) {
-    $st = Get-Stats $samples
+    # Cast INSIDE the function: PS 5.1 parses a bare `[double[]]@(...)` in
+    # command-argument position as the STRING "[double[]]" followed by splatted
+    # elements — so the cast must not live at the call sites.
+    $v = [double[]]@($samples)
+    $st = Get-Stats $v
     $script:metrics[$name] = @{
         stats      = $st
-        samples_ms = $samples
+        samples_ms = $v
         extra      = $extra
         loadBefore = $loadBefore
         loadAfter  = $loadAfter
@@ -179,8 +190,8 @@ function Add-OpenEngineMetrics([string]$pdf, [int]$n, [string]$sizeTag) {
     $r = Invoke-DriverMulti "perf_docops.exe" @("open-engine", $pdf, "$n") "open-engine-$sizeTag"
     $first = $r.parsed | Where-Object { $_.scenario -eq "open-engine-first" } | Select-Object -First 1
     $full = $r.parsed | Where-Object { $_.scenario -eq "open-engine-full-pagination" } | Select-Object -First 1
-    Add-Metric "open-$sizeTag-first-page" [double[]]@($first.samples_ms) $first.extra $r.before $r.after "open-engine-$sizeTag-0.json"
-    Add-Metric "paginate-$sizeTag-full" [double[]]@($full.samples_ms) $full.extra $r.before $r.after "open-engine-$sizeTag-1.json"
+    Add-Metric "open-$sizeTag-first-page" ([double[]]@($first.samples_ms)) $first.extra $r.before $r.after "open-engine-$sizeTag-0.json"
+    Add-Metric "paginate-$sizeTag-full" ([double[]]@($full.samples_ms)) $full.extra $r.before $r.after "open-engine-$sizeTag-1.json"
 }
 
 # ── startup: fresh process per run (external wall + internal samples) ────────
@@ -210,10 +221,10 @@ Write-Host "== startup ($($it.startup) spawns)"
         $last | ConvertTo-Json -Depth 5 -Compress | Set-Content -Encoding utf8 `
             (Join-Path $Raw ("startup-run-{0}.json" -f $i))
     }
-    Add-Metric "startup-external-wall" [double[]]$wall @{ note = "whole child process incl. loader" } $null $null "startup-runs.json"
-    Add-Metric "startup-main-to-window-shown" [double[]]$shown @{ note = "internal, offscreen expose" } $null $null "startup-runs.json"
-    Add-Metric "startup-createContext" [double[]]$context $null $null $null "startup-runs.json"
-    Add-Metric "startup-mainWindow-ctor" [double[]]$ctor $null $null $null "startup-runs.json"
+    Add-Metric "startup-external-wall" ([double[]]$wall) @{ note = "whole child process incl. loader" } $null $null "startup-runs.json"
+    Add-Metric "startup-main-to-window-shown" ([double[]]$shown) @{ note = "internal, offscreen expose" } $null $null "startup-runs.json"
+    Add-Metric "startup-createContext" ([double[]]$context) $null $null $null "startup-runs.json"
+    Add-Metric "startup-mainWindow-ctor" ([double[]]$ctor) $null $null $null "startup-runs.json"
 }.Invoke()
 
 Write-Host "== doc opens (engine floor + full pagination)"
@@ -224,38 +235,42 @@ Add-OpenEngineMetrics $Large $it.openEngineLarge "large"
 Write-Host "== app-level open (real MainWindow::openDocument)"
 {
     $r = Invoke-Driver "perf_docops.exe" @("open-app", $OpenA, $OpenB, "$($it.openApp)") "open-app"
-    Add-Metric "open-app-real-mainwindow" [double[]]@($r.json.samples_ms) $r.json.extra $r.before $r.after $r.file
+    Add-Metric "open-app-real-mainwindow" ([double[]]@($r.json.samples_ms)) $r.json.extra $r.before $r.after $r.file
 }.Invoke()
 
 Write-Host "== core ops"
 {
     $r = Invoke-Driver "perf_docops.exe" @("redact", $Small, "$($it.redact)") "redact"
-    Add-Metric "redact-apply" [double[]]@($r.json.samples_ms) $r.json.extra $r.before $r.after $r.file
+    Add-Metric "redact-apply" ([double[]]@($r.json.samples_ms)) $r.json.extra $r.before $r.after $r.file
 
     $r = Invoke-Driver "perf_docops.exe" @("ocrskip", $Small, "$($it.ocrskip)") "ocrskip"
-    Add-Metric "ocr-skip-decision" [double[]]@($r.json.samples_ms) $r.json.extra $r.before $r.after $r.file
+    Add-Metric "ocr-skip-decision" ([double[]]@($r.json.samples_ms)) $r.json.extra $r.before $r.after $r.file
 
     $r = Invoke-Driver "perf_docops.exe" @("compare", $CmpA, $CmpB, "$($it.compare)") "compare"
-    Add-Metric "compare-50p" [double[]]@($r.json.samples_ms) $r.json.extra $r.before $r.after $r.file
+    Add-Metric "compare-50p" ([double[]]@($r.json.samples_ms)) $r.json.extra $r.before $r.after $r.file
 
     $r = Invoke-Driver "perf_docops.exe" @("convert", $Small, "word", "$($it.convert)") "convert-word"
-    Add-Metric "convert-export-docx" [double[]]@($r.json.samples_ms) $r.json.extra $r.before $r.after $r.file
+    Add-Metric "convert-export-docx" ([double[]]@($r.json.samples_ms)) $r.json.extra $r.before $r.after $r.file
 
     $r = Invoke-Driver "perf_docops.exe" @("convert", $Small, "excel", "$($it.convert)") "convert-excel"
-    Add-Metric "convert-export-xlsx" [double[]]@($r.json.samples_ms) $r.json.extra $r.before $r.after $r.file
+    Add-Metric "convert-export-xlsx" ([double[]]@($r.json.samples_ms)) $r.json.extra $r.before $r.after $r.file
 
     $r = Invoke-Driver "perf_docops.exe" @("sign", $Small, $p12, "$($it.sign)") "sign"
-    Add-Metric "sign-local-p12" [double[]]@($r.json.samples_ms) $r.json.extra $r.before $r.after $r.file
+    Add-Metric "sign-local-p12" ([double[]]@($r.json.samples_ms)) $r.json.extra $r.before $r.after $r.file
 
     $r = Invoke-Driver "perf_docops.exe" @("save", $Small, "$($it.save)") "save"
-    Add-Metric "save-roundtrip" [double[]]@($r.json.samples_ms) $r.json.extra $r.before $r.after $r.file
+    Add-Metric "save-roundtrip" ([double[]]@($r.json.samples_ms)) $r.json.extra $r.before $r.after $r.file
 }.Invoke()
 
 Write-Host "== batch (files through the real preset pipeline)"
 {
-    $outRoot = Join-Path $OutDir "batch-out"
+    # FRESH output dir per invocation: re-running into a dir that already
+    # holds the previous run's 50 outputs blocks inside onRunBatch on an
+    # overwrite prompt (modal — the driver's event-loop timeout never gets
+    # re-checked). A unique dir removes the hazard at the source.
     $samples = @(); $extra = $null; $lb = $null; $la = $null; $f = "batch-total.json"
     for ($i = 0; $i -lt $it.batch; $i++) {
+        $outRoot = Join-Path $OutDir ("batch-out-run-" + $i)
         $r = Invoke-Driver "perf_docops.exe" @("batch", (Join-Path $FixtureDir "batch-corpus"), $outRoot) "batch-run-$i"
         $samples += [double]($r.json.samples_ms[0])
         $extra = $r.json.extra; $lb = $r.before; $la = $r.after; $f = $r.file
