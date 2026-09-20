@@ -21,6 +21,11 @@ namespace gp {
 //     Ollama chat, OCSP during validation) that is `true` by construction
 //     and the disclosure text says exactly when it fires. It is never a
 //     claim that the network is being used right now, nor a usage history.
+//     SWEEP-W1 F4: "current settings" includes the machine-policy snapshot —
+//     for keys ENFORCED through PolicyController (signing/tsaUrl) the state
+//     is derived from the policy-EFFECTIVE value, matching what the next
+//     dispatch will actually do; recognized-but-pending keys stay raw
+//     QSettings reads, matching their "pending" enforcement notes.
 //   * A touchpoint with NO consent switch (OCSP) carries an empty
 //     `consentKey` and says so in `disclosure` — the gap is disclosed, not
 //     papered over.

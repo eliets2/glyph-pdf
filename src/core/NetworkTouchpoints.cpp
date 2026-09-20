@@ -5,6 +5,7 @@
 // settings; no network is touched. See NetworkTouchpoints.h for the honesty
 // contract.
 #include "core/NetworkTouchpoints.h"
+#include "core/PolicyController.h"
 
 #include <QJsonArray>
 #include <QJsonObject>
@@ -37,8 +38,19 @@ QList<NetworkTouchpoint> NetworkTouchpoints::enumerate(QSettings& s)
     //    signing/tsaUrl (empty = disabled; the controller refuses levels
     //    above B-B before any network attempt). HTTPS enforced — HTTP URLs
     //    are refused.
-    const QString tsaUrl =
-        s.value(QStringLiteral("signing/tsaUrl")).toString().trimmed();
+    //    SWEEP-W1 F4: `enabled` must mean "will fire under the CURRENT
+    //    settings" — and enforcement resolves signing/tsaUrl through the
+    //    machine policy (SecurityController::readSigningConfig ->
+    //    PolicyController::effectiveValue). The row therefore reads the
+    //    EFFECTIVE value, never the raw user setting alone, so the page and
+    //    the support bundle cannot show "Disabled" while the next sign will
+    //    fetch the policy TSA.
+    PolicyController::instance().ensureLoaded();
+    const QString tsaUrl = PolicyController::instance()
+        .effectiveValue(QStringLiteral("signing/tsaUrl"),
+                        s.value(QStringLiteral("signing/tsaUrl")).toString())
+        .toString()
+        .trimmed();
     out.append(NetworkTouchpoint{
         QStringLiteral("tsa"),
         QObject::tr("RFC 3161 timestamping (TSA)"),
@@ -52,7 +64,10 @@ QList<NetworkTouchpoint> NetworkTouchpoints::enumerate(QSettings& s)
             : QObject::tr("Enabled: a timestamp token is fetched from the "
                           "configured TSA whenever signing requests a level "
                           "above B-B or a document timestamp. HTTPS is "
-                          "enforced (HTTP URLs are refused)."),
+                          "enforced (HTTP URLs are refused). A machine "
+                          "policy that manages signing/tsaUrl overrides the "
+                          "user setting here (see the policy trust-model "
+                          "disclosure in Preferences)."),
     });
 
     // 3. SignatureManager fetchOcspResponse — during signature validation
