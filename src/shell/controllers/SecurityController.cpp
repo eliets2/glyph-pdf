@@ -167,7 +167,7 @@ QString SecurityController::attainedLevelLabel(PAdESLevel requested, const Signa
     // additionally requires the DSS dictionary, B-LTA the archive timestamp
     // on top of that.
     if (requested > PAdESLevel::B_B
-        && (detail.timestampMissing || !detail.timestampTokenValid))
+        && (detail.timestampMissing || (detail.timestampAttempted && !detail.timestampTokenValid)))
         return QStringLiteral("B-B");
     switch (requested) {
         case PAdESLevel::B_B:  return QStringLiteral("B-B");

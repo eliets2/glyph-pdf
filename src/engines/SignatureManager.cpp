@@ -147,6 +147,7 @@ public:
     // SWEEP-W1 F2: set only when the TSA response parsed as an RFC 3161
     // TS_RESP (d2i_TS_RESP) AND was embedded. A non-token HTTP-200 body is
     // never embedded and never clears timestampMissing.
+    bool timestampAttempted = false;   // SWEEP-W1 F2 follow-up: a TSA fetch is part of this attempt
     bool timestampTokenValid = false;
 
     // -----------------------------------------------------------------------
@@ -1290,6 +1291,7 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
     d->dssMissing = false;
     d->docTimestampMissing = false;
     d->timestampMissing = false;   // SEP13 lead 1: B-T piece of the same slate
+    d->timestampAttempted = true;    // SWEEP-W1 F2 follow-up: a TSA fetch is now part of this attempt (label floors only when attempted && !valid)
     d->timestampTokenValid = false;   // SWEEP-W1 F2: clean slate per attempt
     // N06 (QUALITY-GATE-2026-09-09): checked replacement at the signing
     // boundary. When the result goes to a DIFFERENT file than the source
@@ -1906,6 +1908,7 @@ SignatureOutcomeDetail SignatureManager::lastSignOutcomeDetail()
     detail.dssMissing = d->dssMissing;
     detail.docTimestampMissing = d->docTimestampMissing;
     detail.timestampMissing = d->timestampMissing;   // SEP13 lead 1
+    detail.timestampAttempted = d->timestampAttempted;   // SWEEP-W1 F2 follow-up
     detail.timestampTokenValid = d->timestampTokenValid;   // SWEEP-W1 F2
     return detail;
 }

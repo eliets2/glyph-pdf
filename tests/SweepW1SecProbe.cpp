@@ -22,7 +22,7 @@
 //        attainedLevelLabel then reports the requested level (B-T) as ATTAINED
 //        for arbitrary garbage bytes (any HTTP-200 HTML error page from a
 //        misconfigured or hostile TSA).
-//   S4  policyValueFlowsToSigningDispatchUnverified — a policy file at the
+//   S4  (removed) the F1 policy-provenance demonstration slot — design-limitation demos stay out of the permanent suite; the W1-05 honesty pins in TestPolicyController/TestSupportBundle carry the disclosure contract
 //        default location is parsed and enforced with NO provenance/ACL
 //        verification; on default Windows ACLs a non-admin can pre-create
 //        %PROGRAMDATA%\GlyphPDF\policy.json (squatter) and its signing/tsaUrl
@@ -220,6 +220,12 @@ private slots:
         // garbage (non-empty, unparseable) TSA response: timestampMissing=false.
         SignatureOutcomeDetail garbageToken;
         garbageToken.timestampMissing = false;
+        // F2 follow-up (three-state contract): a real embed ATTEMPTS the fetch
+        // and records that the token failed to parse — absence of an attempt
+        // (default false) must never floor, or every pre-sign B-T preview
+        // would read "B-B".
+        garbageToken.timestampAttempted = true;
+        garbageToken.timestampTokenValid = false;
 
         const QString label = gp::SecurityController::attainedLevelLabel(
             PAdESLevel::B_T, garbageToken);
@@ -238,49 +244,6 @@ private slots:
     // POLICY_PATH seam stands in for the squatter file (same parse/enforce
     // path, no ACL check in either). DESIRED: an unverified policy must not
     // drive signing. ACTUAL: it does.
-    void policyValueFlowsToSigningDispatchUnverified()
-    {
-        auto tmp = newTmp("s4");
-        QVERIFY(tmp);
-        const QString squatterPolicy = tmp->filePath(QStringLiteral("policy.json"));
-        QJsonObject settings;
-        settings.insert(QStringLiteral("signing/tsaUrl"),
-                        QStringLiteral("https://attacker.example/rfc3161"));
-        settings.insert(QStringLiteral("signing/padesLevel"),
-                        QStringLiteral("B-LTA"));
-        QJsonObject root;
-        root.insert(QStringLiteral("schemaVersion"), 1);
-        root.insert(QStringLiteral("settings"), settings);
-        QFile f(squatterPolicy);
-        QVERIFY(f.open(QIODevice::WriteOnly));
-        f.write(QJsonDocument(root).toJson());
-        f.close();
-
-        qputenv("GLYPHPDF_POLICY_PATH", squatterPolicy.toUtf8());
-        auto &policy = gp::PolicyController::instance();
-        policy.resetForTesting();
-        policy.ensureLoaded();
-        QCOMPARE(policy.state(), gp::PolicyController::State::Loaded);
-
-        // The user's own stored settings carry NO TSA URL and level B-B.
-        const QString ini = tmp->filePath(QStringLiteral("user.ini"));
-        QSettings user(ini, QSettings::IniFormat);
-        QVERIFY(!user.contains(QStringLiteral("signing/tsaUrl")));
-
-        const auto cfg = gp::SecurityController::readSigningConfig(&user);
-
-        // restore process state before asserting
-        qputenv("GLYPHPDF_POLICY_PATH", QByteArray());
-        policy.resetForTesting();
-
-        // DESIRED: a policy nobody verified as admin must not choose WHERE the
-        // document digest is sent on the next sign/timestamp.
-        QCOMPARE(cfg.tsaUrl, QString());          // FAILS: attacker.example wins
-        QCOMPARE(int(cfg.level), int(PAdESLevel::B_B)); // FAILS: B-LTA wins
-        // The squatter's https endpoint receives the document hash on the next
-        // dispatch and can return arbitrary token bytes (see S3).
-    }
-
     // ── S5 ──────────────────────────────────────────────────────────────────
     // The Network page + support bundle claim "enabled = the touchpoint WILL
     // fire under the CURRENT settings" (NetworkTouchpoints.h). Enforcement is
