@@ -5502,3 +5502,35 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRotate270PageSpace.cpp")
     add_test(NAME TestRotate270PageSpace COMMAND TestRotate270PageSpace)
     set_tests_properties(TestRotate270PageSpace PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120 LABELS "unit;annotations;forms;persistence;qt;headless")
 endif()
+
+# ── SWEEP-W2C (guarantee-verification-engine, 2026-09-20): independent probe
+# for the W2B-1 re-submission — move/resize through the production edit path,
+# form-field in-place move, F5 containment honesty on the offset 270 shape,
+# SEP13 L5/L8 on an offset-270 fixture (incl. the wrong-region honesty leg),
+# and the signature-field verbatim /Rect store. Registered at the tail like
+# the W2B probes; run manually, not a ctest member.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/W2CProbeRotate270.cpp")
+    add_executable(W2CProbeRotate270 tests/W2CProbeRotate270.cpp)
+    target_include_directories(W2CProbeRotate270 PRIVATE src tests)
+    target_link_libraries(W2CProbeRotate270 PRIVATE
+        pdfws_engines pdfws_core podofo::podofo Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    if(WIN32)
+        add_custom_command(TARGET W2CProbeRotate270 POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:W2CProbeRotate270>/libpodofo.dll"
+            COMMENT "Deploying podofo 1.1.0 DLL for W2CProbeRotate270"
+        )
+        if(QT6_PLUGINS_DIR AND GLYPH_QPA_PLUGIN)
+            add_custom_command(TARGET W2CProbeRotate270 POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory
+                    "$<TARGET_FILE_DIR:W2CProbeRotate270>/platforms"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+                    "$<TARGET_FILE_DIR:W2CProbeRotate270>/platforms/${GLYPH_QPA_PLUGIN}"
+                COMMENT "Deploying qoffscreen platform plugin for W2CProbeRotate270"
+            )
+        endif()
+    endif()
+endif()
