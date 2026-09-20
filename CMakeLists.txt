@@ -5317,3 +5317,96 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/SweepW1SecProbe.cpp")
         LABELS "integration;security;signatures;workflow;security-sweep-w1;qt;headless"
     )
 endif()
+
+# ── SWEEP-W2B verification probes (guarantee-verification-engine, W2 wave -b).
+# Independent read-path probes over the sweep-fix rows; not part of the
+# default ctest gates, run manually per docs/audit/SWEEP-W2B-VERIFY-2026-09-20.md.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/W2BProbeNaming.cpp")
+    add_executable(W2BProbeNaming tests/W2BProbeNaming.cpp)
+    target_include_directories(W2BProbeNaming PRIVATE src tests)
+    target_link_libraries(W2BProbeNaming PRIVATE
+        pdfws_engines pdfws_core Qt6::Test Qt6::Core
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/W2BProbeSigning.cpp")
+    add_executable(W2BProbeSigning tests/W2BProbeSigning.cpp)
+    target_include_directories(W2BProbeSigning PRIVATE src tests)
+    target_compile_definitions(W2BProbeSigning PRIVATE
+        SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    )
+    target_link_libraries(W2BProbeSigning PRIVATE
+        pdfws_engines pdfws_ui pdfws_engines pdfws_core
+        OpenSSL::SSL OpenSSL::Crypto
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets podofo::podofo
+    )
+    if(WIN32)
+        target_link_libraries(W2BProbeSigning PRIVATE Crypt32)
+    endif()
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/W2BProbeSummaryPolicy.cpp")
+    add_executable(W2BProbeSummaryPolicy tests/W2BProbeSummaryPolicy.cpp)
+    target_include_directories(W2BProbeSummaryPolicy PRIVATE src tests)
+    target_compile_definitions(W2BProbeSummaryPolicy PRIVATE
+        SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    )
+    target_link_libraries(W2BProbeSummaryPolicy PRIVATE
+        pdfws_engines pdfws_ui pdfws_engines pdfws_core
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets podofo::podofo
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/W2BProbeA11y.cpp")
+    add_executable(W2BProbeA11y tests/W2BProbeA11y.cpp)
+    target_include_directories(W2BProbeA11y PRIVATE src tests)
+    target_link_libraries(W2BProbeA11y PRIVATE
+        pdfws_engines pdfws_core Qt6::Test Qt6::Core podofo::podofo
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/W2BProbeLegacySpace.cpp")
+    add_executable(W2BProbeLegacySpace tests/W2BProbeLegacySpace.cpp)
+    target_include_directories(W2BProbeLegacySpace PRIVATE src tests)
+    target_link_libraries(W2BProbeLegacySpace PRIVATE
+        pdfws_engines pdfws_core podofo::podofo Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/W2BProbeOfficeSave.cpp")
+    add_executable(W2BProbeOfficeSave tests/W2BProbeOfficeSave.cpp)
+    target_include_directories(W2BProbeOfficeSave PRIVATE src tests)
+    target_compile_definitions(W2BProbeOfficeSave PRIVATE
+        $<TARGET_PROPERTY:pdfws_engines,INTERFACE_COMPILE_DEFINITIONS>)
+    target_link_libraries(W2BProbeOfficeSave PRIVATE
+        pdfws_engines pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+    )
+endif()
+
+# Runtime deployment: podofo DLL + the offscreen platform plugin for every
+# W2B probe target that links a GUI-capable Qt.
+foreach(_w2b_probe
+        W2BProbeNaming W2BProbeSigning W2BProbeSummaryPolicy
+        W2BProbeA11y W2BProbeLegacySpace W2BProbeOfficeSave)
+    if(TARGET ${_w2b_probe})
+        if(WIN32 AND EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET ${_w2b_probe} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:${_w2b_probe}>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for ${_w2b_probe}"
+            )
+        endif()
+        if(WIN32 AND QT6_PLUGINS_DIR AND GLYPH_QPA_PLUGIN AND NOT _w2b_probe STREQUAL "W2BProbeNaming")
+            add_custom_command(TARGET ${_w2b_probe} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory
+                    "$<TARGET_FILE_DIR:${_w2b_probe}>/platforms"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+                    "$<TARGET_FILE_DIR:${_w2b_probe}>/platforms/${GLYPH_QPA_PLUGIN}"
+                COMMENT "Deploying qoffscreen platform plugin for ${_w2b_probe}"
+            )
+        endif()
+    endif()
+endforeach()
