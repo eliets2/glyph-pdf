@@ -34,7 +34,9 @@ Evidence base (machine-checked at this tip):
 |---|---|---|
 | PROVEN-SAFE | **0** | nothing met the triple bar (see §6 for the nearest misses and the clause each failed) |
 | NEEDS-REVIEW | **2** | `tests/R14ProbeBatchSkip.cpp` (register-or-delete; this lane recommends register), `tests/TestSignatureValidation.cpp` (merge-or-retire, carried from W2 with current-tip confirmation) |
-| KEEP-ANYWAY | **8** | `src/ui/AnnotationToolBar.{cpp,h}` (documented revival marker), `src/core/LibSecretStore.{cpp,h}` (platform-gated live), `docs/audit/HARDENING-2026-06-22-STATE.md`, `docs/audit/GLM-RESUME-STATE-2026-09-14.md` (watch-list docs rows), plus packaging/scripts verified clean (no rows) |
+| KEEP-ANYWAY | **6** | `src/ui/AnnotationToolBar.cpp` + `.h` (documented revival marker), `src/core/LibSecretStore.cpp` + `.h` (platform-gated live), `docs/audit/HARDENING-2026-06-22-STATE.md`, `docs/audit/GLM-RESUME-STATE-2026-09-14.md` (watch-list docs rows) |
+
+Total candidate rows: 8. Packaging/scripts/docs-remainder verified clean — no rows (§4-§5).
 
 ## 2. Unreferenced source files (src/) — the complete honest answer
 
