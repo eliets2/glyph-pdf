@@ -1025,3 +1025,35 @@ with depth cap 8 — deeply nested resource chains beyond that are not
 enumerated; (3) no jump-to-page affordance on findings (PDF/A panel
 precedent exists, deferred); (4) fix undo is out of scope — the transaction
 guarantees the ORIGINAL is preserved on failure, not a user-visible undo.
+
+## 2026-09-19/20 — sweep-legacy lane: July-era surfaces evaluate-and-FIX (feat/sweep-legacy-fix, from feat/parity-glm @ 8f62a17)
+
+END-PHASE sweep, legacy-surface lane. Scope: conversion (ConversionManager export
+paths — MINE per orchestrator), compare engine + UI flows, OCR scan/review canvas,
+forms editing (FormManager core), annotations editing (move/resize/appearance), page
+operations, measurement, stamps, outlines/bookmarks. Method: failing pin at tip
+(real saved artifacts, independent read paths podofo/PDFium) → minimal root-cause fix
+at the shared boundary → green → negative control (scoped checkout of the pre-fix
+paths, pin fails again, restore, capture) → one commit per defect. Deliverable:
+docs/audit/SWEEP-LEGACY-2026-09-20.md; evidence .context/evidence-sweep-legacy/;
+handoff .context/sweep-legacy-wip.md.
+
+| ID | Surface | Finding | Status | Fix | Fail-before/pass-after + negative control | Commit |
+|----|---------|---------|--------|-----|-------------------------------------------|--------|
+| SL1 | PoDoFoBackend applyAnnotationsToDoc + extractAnnotations (annotation move/resize/appearance commit + read-back) and FormManager (9 CreateField sites + updateFieldRect write/verify) | the /Rotate + offset-MediaBox origin class: viewer Y was flipped with the MediaBox HEIGHT alone — the MediaBox lower-left origin was dropped and /Rotate ignored. On any rotated or offset-origin page the saved /Rect (and /InkList, /L, /Vertices geometry) landed where the user did not draw, while GlyphPDF's own overlay (fed by the inverse-wrong read-back) kept showing the mark in the right place — the same silent-misplacement class SEP13 L5/L8 fixed for redaction and F1 for the redaction consumers of annotation rects. Measured: display (100,150,80x40) on MediaBox [0 200 612 842]+/Rotate 90 stored /Rect [100 652 180 692]; the law requires [150 300 190 380] | implemented-awaiting-review | NEW core/ItemSpaceTransform.h = the EXACT inverse of the ledger-verified gp::PageSpace::viewerToUser (PageSpaceTransform.h included, NOT modified — W1-owned; round-trip identity pinned against drift). Writer maps display-space bounds/geometry through the law and stores raw user rects VERBATIM via SetRectRaw / raw AddKey("Rect") — probe against PoDoFo 1.1.0 (evidence podofo_rect_probe.cpp) proved CreateAnnot/CreateField rect parameters are /Rotate-View-space and would transform AGAIN; on /Rotate 0 pages the new code stores exactly the legacy numbers (pre-existing fixtures byte-stable). Reader maps raw /Rect + geometry into display space. updateFieldRect's reopen-verify now expects the law form (the old verify mirrored the wrong write) | NEW tests/TestLegacyOriginSpace.cpp (9 slots) over a 4-page fixture {plain, offset, rotated, rotated+offset}; expected /Rects verified through RAW dictionary arrays AND PDFium FPDFAnnot_GetRect (second engine) with hardcoded literals for the decisive shapes. FAIL-FIRST 6F/3P (origin-PREFIX-failfirst.txt) → 9/9 (origin-POSTFIX.txt) → scoped revert re-fails the same 6 anchors (origin-NEGCTRL-PREFIX.txt). Adjacent sweep 23/23 | db18f5e |
+| SL2 | ConversionManager::convertOfficeToPdf (destination-commit tail) | the tail QFile::remove(outputPath) BEFORE QFile::rename(expectedOut, outputPath): a failed rename after the remove (converter exits 0 but writes nothing — phantom success, an open handle on the source, a cross-volume move) DESTROYED the previous output while reporting false — the same destructive class WP-R04 (A03) fixed for the encrypted-package flow, still present in the July-era office-import path | implemented-awaiting-review | validate the converter's product FIRST (readable + %PDF header — also upgrades exit-0-garbage phantom success into an honest failure), then commit through SafeSave::commitFileToDestination (atomic replace; destination never touched before commit), candidate removed on every outcome; in-place case keeps exists/non-empty validation | TestOfficeImport +3 slots (R04's re-exec'd fake-writer pattern: the test binary copied to soffice.exe, planted on PATH; child mode from a mode file beside argv[0] — env inheritance proved unreliable). officeConvertNoOutputKeepsPreviousDestination = runtime data-loss repro (pre-fix sentinel DESTROYED: office-PREFIX-failfirst.txt); officeConvertCommitFaultKeepsDestinationByteIdentical (pre-fix "succeeded" over the sentinel with FailBeforeCommit armed — boundary not engaged); officeConvertSuccessReplacesDestinationAndCleansCandidate control (PoDoFo-verified output). NEGCTRL scoped revert: both anchors fail again (office-NEGCTRL-PREFIX.txt); post 10/10 (office-POSTFIX.txt) | 23bc970 |
+| SL3 | FormManager::autoDetectFields (suggestion geometry) | double flip: the content walk runs in RAW USER space (baseline Y up) but the suggestion rect was emitted directly in that space while the rect contract (and the add*Field consumers post-SL1) is DISPLAY space — every auto-suggested field mirrored to the OPPOSITE side of the page from its label ("Name:" at baseline y=700/top of Letter → field stored at user y≈72/bottom), on ANY page | implemented-awaiting-review | suggestion rect built in USER space (existing in-page clamp arithmetic kept in user coordinates), then mapped to display space through gp::ItemSpace::userToViewer — the same single mapping as SL1 | TestAutoDetectHeuristic::suggestionSitsUnderTheLabelNotMirrored: suggestion at display (108, 75.2) for the "72 700 Td (Name: ) Tj" fixture AND placing it stores the widget /Rect at user y≈700..716.8 (RAW read). FAIL-FIRST "suggestion y 700 != 75.2" (autodetect-PREFIX-failfirst.txt) → 5/5 (autodetect-POSTFIX.txt) → scoped revert re-fails (autodetect-NEGCTRL-PREFIX.txt); TestFormSafety 12/12 control | 82e661c |
+
+Reviewed-clean at tip (no failing pin → no fix, per method): compare engine + UI
+flows (R06/PERF-02/PERF-03/R13/U04 hold), OCR scan/review canvas guards + honest
+empty states, outlines/bookmarks (validate-before-mutate + UTF-8 titles + committed
+write), page-op bounds honesty (PoDoFo throws → false) and WP-R02/R03 transactional
+resident ops, stamps placement (rides SL1) + T2-6, measurement (rides SL1) + T1.
+Residuals recorded in SWEEP-LEGACY-2026-09-20.md: AP-stream BBox aspect on /Rotate
+pages (position correct; /Matrix rotation deferred); extractLinks link-rect reader
+and the T2-2 Find&Replace replacement writer still use the height-only flip (same
+class — owner lanes to pick up, recipe = SL1's mapping); file-level PdfPageOps
+direct-write (no SafeSave candidate — mitigated by explicit Save-As dialogs);
+exportToImage out-of-range "page" option renders all pages (API/batch only); CSV is
+valid UTF-8 without BOM (Excel mojibake = consumer note); negative /Rotate modulo
+(spec-legal, normalized by PDFium/Acrobat).

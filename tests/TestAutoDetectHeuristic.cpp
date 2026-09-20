@@ -14,6 +14,7 @@ class TestAutoDetectHeuristic : public QObject {
     Q_OBJECT
 private slots:
     void labelPatternYieldsSuggestions();
+    void suggestionSitsUnderTheLabelNotMirrored();
     void plainPageYieldsNoFakeFields();
 private:
     static QString createPdfWithText(const QString& dir, const QString& name,
@@ -136,6 +137,58 @@ void TestAutoDetectHeuristic::plainPageYieldsNoFakeFields() {
     const auto suggestions = fm.autoDetectFields(pdf, 0);
     QVERIFY2(suggestions.isEmpty(),
              "a page with no form-like content must not yield fake fields");
+}
+
+// ── sweep-legacy (origin class): the suggestion must sit UNDER the label ─────
+// The content walk reads RAW USER space (baseline y=700 = near the TOP of a
+// Letter page, y-up) while FieldSuggestion::rect is DISPLAY space (top-left,
+// y-down — exactly what add*Field map back through the page-space law). The
+// legacy code emitted content Y directly as display Y: a double flip that
+// mirrored every auto-suggested field to the opposite side of the page (a
+// "Name:" label at the top yielded a field stored at the bottom).
+void TestAutoDetectHeuristic::suggestionSitsUnderTheLabelNotMirrored() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    // Fixture: "BT /F1 12 Tf 72 700 Td (Name: ) Tj ET" on Letter [0 0 612 792].
+    const QString pdf = createPdfWithText(tmp.path(), "formlike.pdf",
+                                          QByteArray("Name: "));
+    QVERIFY(!pdf.isEmpty());
+    FormManager fm;
+    const auto suggestions = fm.autoDetectFields(pdf, 0);
+    QVERIFY2(!suggestions.isEmpty(),
+             "a 'Name:' label must produce at least one suggestion");
+    const auto& s = suggestions.first();
+
+    // Display-space expectation: field height = 1.4 * 12pt = 16.8; the field's
+    // TOP edge sits 16.8pt below the baseline's display y (792-700 = 92):
+    // y = 92 - 16.8 = 75.2 (x = 72 + len("Name: ")*12*0.5 = 108).
+    QVERIFY2(qAbs(s.rect.x() - 108.0) < 0.5,
+             qPrintable(QString("suggestion x %1 != 108").arg(s.rect.x())));
+    QVERIFY2(qAbs(s.rect.y() - 75.2) < 0.5,
+             qPrintable(QString("suggestion y %1 != 75.2 — the field is mirrored "
+                                "to the opposite side of the page").arg(s.rect.y())));
+
+    // End-to-end: placing the suggestion must store the widget's /Rect right
+    // under the label in user space (y range ≈ 700..716.8), read back RAW.
+    const QString out = tmp.filePath("placed.pdf");
+    QVERIFY(fm.addTextField(pdf, 0, s.rect, s.suggestedName, out));
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(out.toUtf8().constData());
+        auto& annos = doc.GetPages().GetPageAt(0).GetAnnotations();
+        QVERIFY(annos.GetCount() >= 1);
+        auto* rectObj = annos.GetAnnotAt(0).GetDictionary().FindKey("Rect");
+        QVERIFY(rectObj && rectObj->IsArray());
+        const auto& arr = rectObj->GetArray();
+        QCOMPARE(arr.size(), static_cast<size_t>(4));
+        const double y0 = arr[1].GetReal();
+        QVERIFY2(qAbs(y0 - 700.0) < 0.5 && qAbs(arr[3].GetReal() - 716.8) < 0.5,
+                 qPrintable(QString("stored widget /Rect y range %1..%2 != ~700..716.8 "
+                                    "(the field was mirrored)")
+                                .arg(y0).arg(arr[3].GetReal())));
+    } catch (const std::exception& e) {
+        QFAIL(qPrintable(QString("PoDoFo walk failed: %1").arg(e.what())));
+    }
 }
 QTEST_MAIN(TestAutoDetectHeuristic)
 #include "TestAutoDetectHeuristic.moc"

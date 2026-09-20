@@ -3,6 +3,8 @@
 #include "engines/SafeSave.h"
 #include "engines/formjs/FormJsRunner.h"
 #include "engines/podofo/PdfStringEscape.h"
+#include "core/ItemSpaceTransform.h"
+#include "core/PageSpaceTransform.h"
 #include <memory>
 #include <functional>
 #include <map>
@@ -50,6 +52,35 @@ namespace {
 
 // Deterministic test seam (see FormManager::setSaveFaultForTesting).
 FormManager::SaveFault g_saveFaultForTesting = FormManager::SaveFault::None;
+
+// -- sweep-legacy (origin class): field-rect space mapping --------------------
+// Field rects arrive in DISPLAY space (what the user sees/clicks -- top-left
+// origin, Y down, /Rotate applied). The AcroForm /Rect is RAW USER space
+// (ISO 32000-1 12.5.2/12.7.3): map through the ONE page-space law (MediaBox
+// origin + /Rotate) instead of the legacy flip with the MediaBox height alone,
+// which dropped the MediaBox lower-left origin and ignored /Rotate --
+// displacing every field placed on a rotated or offset-origin page.
+PoDoFo::Rect fieldRectFromDisplay(const QRectF& rect, PoDoFo::PdfPage& page)
+{
+    const gp::PageSpace::PageGeometry geo = gp::PageSpace::pageGeometry(page);
+    const QRectF user = gp::PageSpace::viewerToUser(rect, geo);
+    return PoDoFo::Rect(user.x(), user.y(), user.width(), user.height());
+}
+
+// PoDoFo's CreateField rect parameter is /Rotate-View-space and would be
+// transformed AGAIN (verified by probe against PoDoFo 1.1.0), so the raw user
+// rect is stored verbatim on the field's widget dictionary after creation --
+// the same raw AddKey("Rect") write updateFieldRect performs. On /Rotate 0
+// pages this stores exactly the legacy numbers.
+void setRawFieldRect(PoDoFo::PdfField& field, const PoDoFo::Rect& userRect)
+{
+    PoDoFo::PdfArray rectArr;
+    rectArr.Add(PoDoFo::PdfVariant(userRect.X));
+    rectArr.Add(PoDoFo::PdfVariant(userRect.Y));
+    rectArr.Add(PoDoFo::PdfVariant(userRect.X + userRect.Width));
+    rectArr.Add(PoDoFo::PdfVariant(userRect.Y + userRect.Height));
+    field.GetDictionary().AddKey(PoDoFo::PdfName("Rect"), rectArr);
+}
 
 // ── Phase-1 form-JS: the in-transaction calculate cascade ────────────────────
 // Runs the AcroForm /CO /AA /C cascade on the mutated in-memory document,
@@ -728,8 +759,9 @@ bool FormManager::addTextField(const QString &pdfFilePath, int pageIndex, const 
             if (pageIndex < 0 || static_cast<unsigned>(pageIndex) >= doc.GetPages().GetCount())
                 throw SaveAbort{QStringLiteral("invalid page index")};
             PoDoFo::PdfPage& page = doc.GetPages().GetPageAt(pageIndex);
-            PoDoFo::Rect pdfRect(rect.x(), page.GetMediaBox().Height - rect.y() - rect.height(), rect.width(), rect.height());
+            const PoDoFo::Rect pdfRect = fieldRectFromDisplay(rect, page);
             auto& field = page.CreateField<PoDoFo::PdfTextBox>(fieldName.toStdString(), pdfRect);
+            setRawFieldRect(field, pdfRect);
             field.SetText(PoDoFo::PdfString(""));
         },
         [&](PoDoFo::PdfMemDocument& reopened) {
@@ -750,9 +782,10 @@ bool FormManager::addDateField(const QString &pdfFilePath, int pageIndex, const 
             if (pageIndex < 0 || static_cast<unsigned>(pageIndex) >= doc.GetPages().GetCount())
                 throw SaveAbort{QStringLiteral("invalid page index")};
             PoDoFo::PdfPage& page = doc.GetPages().GetPageAt(pageIndex);
-            PoDoFo::Rect pdfRect(rect.x(), page.GetMediaBox().Height - rect.y() - rect.height(), rect.width(), rect.height());
+            const PoDoFo::Rect pdfRect = fieldRectFromDisplay(rect, page);
 
             auto& field = page.CreateField<PoDoFo::PdfTextBox>(fieldName.toStdString(), pdfRect);
+            setRawFieldRect(field, pdfRect);
             field.SetText(PoDoFo::PdfString(""));
 
             // Setup AA dictionary for formatting and keystroke
@@ -788,9 +821,10 @@ bool FormManager::addNumericField(const QString &pdfFilePath, int pageIndex, con
             if (pageIndex < 0 || static_cast<unsigned>(pageIndex) >= doc.GetPages().GetCount())
                 throw SaveAbort{QStringLiteral("invalid page index")};
             PoDoFo::PdfPage& page = doc.GetPages().GetPageAt(pageIndex);
-            PoDoFo::Rect pdfRect(rect.x(), page.GetMediaBox().Height - rect.y() - rect.height(), rect.width(), rect.height());
+            const PoDoFo::Rect pdfRect = fieldRectFromDisplay(rect, page);
 
             auto& field = page.CreateField<PoDoFo::PdfTextBox>(fieldName.toStdString(), pdfRect);
+            setRawFieldRect(field, pdfRect);
             field.SetText(PoDoFo::PdfString(""));
 
             // Setup AA dictionary for formatting and keystroke
@@ -826,8 +860,9 @@ bool FormManager::addCheckBox(const QString &pdfFilePath, int pageIndex, const Q
             if (pageIndex < 0 || static_cast<unsigned>(pageIndex) >= doc.GetPages().GetCount())
                 throw SaveAbort{QStringLiteral("invalid page index")};
             PoDoFo::PdfPage& page = doc.GetPages().GetPageAt(pageIndex);
-            PoDoFo::Rect pdfRect(rect.x(), page.GetMediaBox().Height - rect.y() - rect.height(), rect.width(), rect.height());
+            const PoDoFo::Rect pdfRect = fieldRectFromDisplay(rect, page);
             auto& field = page.CreateField<PoDoFo::PdfCheckBox>(fieldName.toStdString(), pdfRect);
+            setRawFieldRect(field, pdfRect);
             field.SetChecked(false);
         },
         [&](PoDoFo::PdfMemDocument& reopened) {
@@ -848,12 +883,13 @@ bool FormManager::addRadioButton(const QString &pdfFilePath, int pageIndex, cons
             if (pageIndex < 0 || static_cast<unsigned>(pageIndex) >= doc.GetPages().GetCount())
                 throw SaveAbort{QStringLiteral("invalid page index")};
             PoDoFo::PdfPage& page = doc.GetPages().GetPageAt(pageIndex);
-            PoDoFo::Rect pdfRect(rect.x(), page.GetMediaBox().Height - rect.y() - rect.height(), rect.width(), rect.height());
+            const PoDoFo::Rect pdfRect = fieldRectFromDisplay(rect, page);
 
             // PoDoFo 0.10: Radio buttons should use RadiosInUnison
             // We'll create a generic checkbox-like radio but set flags if supported or just cast
             // For simplicity we create a radio button if CreateField supports it.
             auto& field = page.CreateField<PoDoFo::PdfRadioButton>(fieldName.toStdString(), pdfRect);
+            setRawFieldRect(field, pdfRect);
 
             // Add flags if needed
             // PoDoFo doesn't expose RadiosInUnison in high-level sometimes, so we set via dictionary:
@@ -885,9 +921,10 @@ bool FormManager::addDropdown(const QString &pdfFilePath, int pageIndex, const Q
             if (pageIndex < 0 || static_cast<unsigned>(pageIndex) >= doc.GetPages().GetCount())
                 throw SaveAbort{QStringLiteral("invalid page index")};
             PoDoFo::PdfPage& page = doc.GetPages().GetPageAt(pageIndex);
-            PoDoFo::Rect pdfRect(rect.x(), page.GetMediaBox().Height - rect.y() - rect.height(), rect.width(), rect.height());
+            const PoDoFo::Rect pdfRect = fieldRectFromDisplay(rect, page);
 
             auto& field = page.CreateField<PoDoFo::PdfComboBox>(fieldName.toStdString(), pdfRect);
+            setRawFieldRect(field, pdfRect);
             for (const QString &opt : options) {
                 field.InsertItem(PoDoFo::PdfString(opt.toStdString()));
             }
@@ -922,9 +959,10 @@ bool FormManager::addListBox(const QString &pdfFilePath, int pageIndex, const QR
             if (pageIndex < 0 || static_cast<unsigned>(pageIndex) >= doc.GetPages().GetCount())
                 throw SaveAbort{QStringLiteral("invalid page index")};
             PoDoFo::PdfPage& page = doc.GetPages().GetPageAt(pageIndex);
-            PoDoFo::Rect pdfRect(rect.x(), page.GetMediaBox().Height - rect.y() - rect.height(), rect.width(), rect.height());
+            const PoDoFo::Rect pdfRect = fieldRectFromDisplay(rect, page);
 
             auto& field = page.CreateField<PoDoFo::PdfListBox>(fieldName.toStdString(), pdfRect);
+            setRawFieldRect(field, pdfRect);
             for (const QString &opt : options) {
                 field.InsertItem(PoDoFo::PdfString(opt.toStdString()));
             }
@@ -958,9 +996,10 @@ bool FormManager::createButton(const QString &pdfFilePath, int pageIndex, const 
             if (pageIndex < 0 || static_cast<unsigned>(pageIndex) >= doc.GetPages().GetCount())
                 throw SaveAbort{QStringLiteral("invalid page index")};
             PoDoFo::PdfPage& page = doc.GetPages().GetPageAt(pageIndex);
-            PoDoFo::Rect pdfRect(rect.x(), page.GetMediaBox().Height - rect.y() - rect.height(), rect.width(), rect.height());
+            const PoDoFo::Rect pdfRect = fieldRectFromDisplay(rect, page);
 
             auto& field = page.CreateField<PoDoFo::PdfPushButton>(caption.toStdString(), pdfRect);
+            setRawFieldRect(field, pdfRect);
 
             PoDoFo::PdfDictionary mkDict;
             mkDict.AddKey(PoDoFo::PdfName("CA"), PoDoFo::PdfString(caption.toStdString()));
@@ -1001,9 +1040,10 @@ bool FormManager::addCalculatedField(const QString &pdfFilePath, int pageIndex, 
             if (pageIndex < 0 || static_cast<unsigned>(pageIndex) >= doc.GetPages().GetCount())
                 throw SaveAbort{QStringLiteral("invalid page index")};
             PoDoFo::PdfPage& page = doc.GetPages().GetPageAt(pageIndex);
-            PoDoFo::Rect pdfRect(rect.x(), page.GetMediaBox().Height - rect.y() - rect.height(), rect.width(), rect.height());
+            const PoDoFo::Rect pdfRect = fieldRectFromDisplay(rect, page);
 
             auto& field = page.CreateField<PoDoFo::PdfTextBox>(fieldName.toStdString(), pdfRect);
+            setRawFieldRect(field, pdfRect);
             field.SetText(PoDoFo::PdfString(""));
 
             // /AA dictionary: /C (Calculate) JavaScript action plus a /F (Format)
@@ -1074,6 +1114,9 @@ QList<FieldSuggestion> FormManager::autoDetectFields(const QString &pdfFilePath,
             return suggestions;
 
         PoDoFo::PdfPage& page = doc.GetPages().GetPageAt(pageIndex);
+        // sweep-legacy (origin class): the shared page-space geometry for the
+        // suggestion mapping below (MediaBox origin + /Rotate aware).
+        const gp::PageSpace::PageGeometry pageGeo = gp::PageSpace::pageGeometry(page);
         PoDoFo::PdfContentStreamReader reader(page);
 
         double currentX = 0, currentY = 0;
@@ -1121,20 +1164,31 @@ QList<FieldSuggestion> FormManager::autoDetectFields(const QString &pdfFilePath,
                 s.suggestedName = QStringLiteral("AutoField%1").arg(++autoIndex);
                 const double fieldW = qMin(180.0, qMax(80.0, pageWidth - currentX - currentFontSize * 2));
                 if (fieldW < 40.0) continue; // no room on this line
+                // sweep-legacy (origin class): the content walk runs in RAW
+                // USER space (baseline Y up from the MediaBox origin) while
+                // FieldSuggestion::rect is DISPLAY space — add*Field map it
+                // back through the page-space law. Building the suggestion
+                // directly in user coordinates emitted content Y as DISPLAY Y:
+                // a double flip that mirrored every auto-suggested field to
+                // the opposite side of the page from its label. Compute the
+                // user-space field rect, keep the in-page clamp, then map to
+                // display space through the inverse of the shared law.
+                QRectF userRect;
                 if (hasBlank) {
                     // The underscores ARE the blank: replace that run in place.
-                    s.rect = QRectF(currentX, currentY,
-                                    qMax(fieldW, text.length() * currentFontSize * 0.55),
-                                    currentFontSize * 1.4);
+                    userRect = QRectF(currentX, currentY,
+                                      qMax(fieldW, text.length() * currentFontSize * 0.55),
+                                      currentFontSize * 1.4);
                 } else {
                     // Label ends with ':': place the entry box after it.
-                    s.rect = QRectF(currentX + text.length() * currentFontSize * 0.5,
-                                    currentY, fieldW, currentFontSize * 1.4);
+                    userRect = QRectF(currentX + text.length() * currentFontSize * 0.5,
+                                      currentY, fieldW, currentFontSize * 1.4);
                 }
-                // Clamp inside the page.
-                s.rect.setWidth(qMin(s.rect.width(), pageWidth - s.rect.x() - 4));
-                s.rect.setHeight(qMin(s.rect.height(), pageHeight - s.rect.y() - 4));
-                if (s.rect.width() < 20 || s.rect.height() < 8) continue;
+                // Clamp inside the page box (user-space coordinates).
+                userRect.setWidth(qMin(userRect.width(), pageWidth - userRect.x() - 4));
+                userRect.setHeight(qMin(userRect.height(), pageHeight - userRect.y() - 4));
+                if (userRect.width() < 20 || userRect.height() < 8) continue;
+                s.rect = gp::ItemSpace::userToViewer(userRect, pageGeo);
                 suggestions.append(s);
             }
         }
@@ -1536,9 +1590,10 @@ bool FormManager::removeFieldByName(const QString &pdfFilePath,
 
 // ── updateFieldRect ───────────────────────────────────────────────────────────
 // Updates the /Rect of the named field's widget annotation to newRect.
-// newRect is in Qt widget coordinates (origin top-left of the page); this
-// function converts to PDF coordinates (origin bottom-left) using pageIndex to
-// determine the page height.
+// newRect is in DISPLAY coordinates (origin top-left of the displayed page,
+// /Rotate applied); the /Rect is RAW USER space -- the mapping runs through the
+// ONE page-space law (MediaBox origin + /Rotate), not the legacy flip with the
+// MediaBox height alone (the sweep-legacy origin class).
 bool FormManager::updateFieldRect(const QString &pdfFilePath,
                                   const QString &fieldName,
                                   int pageIndex,
@@ -1556,15 +1611,8 @@ bool FormManager::updateFieldRect(const QString &pdfFilePath,
             if (!acroForm)
                 throw SaveAbort{QStringLiteral("no AcroForm in %1").arg(pdfFilePath)};
 
-            double pageH = doc.GetPages().GetPageAt(pageIndex).GetMediaBox().Height;
-
-            // Convert Qt (top-left origin) to PDF (bottom-left origin)
-            PoDoFo::Rect pdfRect(
-                newRect.x(),
-                pageH - newRect.y() - newRect.height(),
-                newRect.width(),
-                newRect.height()
-            );
+            const PoDoFo::Rect pdfRect = fieldRectFromDisplay(newRect,
+                doc.GetPages().GetPageAt(pageIndex));
 
             PoDoFo::PdfArray rectArr;
             rectArr.Add(PoDoFo::PdfVariant(pdfRect.X));
@@ -1596,13 +1644,14 @@ bool FormManager::updateFieldRect(const QString &pdfFilePath,
                 const double num = o.IsNumber() ? o.GetNumber() : -1e30;
                 return qAbs(num - v) < 0.01;
             };
-            // Expect the PDF-coordinate (bottom-left origin) form of newRect.
-            const double pageH = reopened.GetPages().GetPageAt(pageIndex).GetMediaBox().Height;
-            const double pdfY = pageH - newRect.y() - newRect.height();
+            // Expect the raw-user-space (bottom-left origin) form of newRect.
+            const PoDoFo::Rect expect = fieldRectFromDisplay(newRect,
+                reopened.GetPages().GetPageAt(pageIndex));
             const PoDoFo::PdfArray& a = rectObj->GetArray();
-            return approx(a[0], newRect.x())
-                && approx(a[1], pdfY)
-                && approx(a[3], pdfY + newRect.height());
+            return approx(a[0], expect.X)
+                && approx(a[1], expect.Y)
+                && approx(a[2], expect.X + expect.Width)
+                && approx(a[3], expect.Y + expect.Height);
         },
         &err);
     if (!ok) qWarning() << "updateFieldRect error:" << err;

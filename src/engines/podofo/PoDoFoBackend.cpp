@@ -3,6 +3,7 @@
 #include "engines/SafeSave.h"
 #include "core/MeasureCore.h"
 #include "core/PageSpaceTransform.h"
+#include "core/ItemSpaceTransform.h"
 #include <memory>
 #include "PdfStringEscape.h"
 #include "GlyphAdvanceCalculator.h"
@@ -4100,7 +4101,14 @@ static void applyAnnotationsToDoc(PoDoFo::PdfMemDocument& doc,
         if (pageIdx < 0 || static_cast<unsigned>(pageIdx) >= doc.GetPages().GetCount()) continue;
 
         auto& page = doc.GetPages().GetPageAt(pageIdx);
-        double pageHeight = page.GetMediaBox().Height;
+        // sweep-legacy (origin class): item rects are DISPLAY-space values --
+        // map them through the ONE page-space law (MediaBox origin + /Rotate),
+        // exactly like the redaction path (SEP13 L5/L8). The legacy flip with
+        // the MediaBox height alone dropped the MediaBox lower-left origin and
+        // ignored /Rotate, displacing every saved annotation on rotated or
+        // offset-origin pages while our own overlay kept showing the mark in
+        // the right place (the inverse-wrong read-back).
+        const gp::PageSpace::PageGeometry pageGeo = gp::PageSpace::pageGeometry(page);
 
         for (const auto& anno : it.value()) {
             QRectF bounds = anno.rect;
@@ -4128,7 +4136,6 @@ static void applyAnnotationsToDoc(PoDoFo::PdfMemDocument& doc,
                                     (maxY - minY) + 2.0 * pad);
                 }
             }
-            PoDoFo::Rect pdfRect(bounds.x(), pageHeight - bounds.y() - bounds.height(), bounds.width(), bounds.height());
 
             PoDoFo::PdfAnnotationType annotType = PoDoFo::PdfAnnotationType::Text;
             if (anno.mode == ToolMode::Strikeout)  annotType = PoDoFo::PdfAnnotationType::StrikeOut;
@@ -4161,7 +4168,20 @@ static void applyAnnotationsToDoc(PoDoFo::PdfMemDocument& doc,
             else if (anno.mode == ToolMode::AddSignatureTyped || anno.mode == ToolMode::AddSignatureUpload)
                 annotType = PoDoFo::PdfAnnotationType::Stamp;
 
-            auto& annot = page.GetAnnotations().CreateAnnot(annotType, pdfRect);
+            // The /Rect is RAW USER space (ISO 32000-1 12.5.2): map the
+            // display-space bounds through the law, then store verbatim via
+            // SetRectRaw -- PoDoFo's CreateAnnot rect parameter expects a
+            // /Rotate-View-space rect and would transform it AGAIN (verified
+            // by probe: CreateAnnot with a placeholder followed by SetRectRaw
+            // is the way to store an explicit raw rect on a /Rotate page; on
+            // /Rotate 0 pages SetRectRaw stores exactly the legacy numbers).
+            const QRectF userBounds = gp::PageSpace::viewerToUser(bounds, pageGeo);
+            auto& annot = page.GetAnnotations().CreateAnnot(
+                annotType, PoDoFo::Rect(userBounds.x(), userBounds.y(),
+                                        userBounds.width(), userBounds.height()));
+            annot.SetRectRaw(PoDoFo::Corners(userBounds.x(), userBounds.y(),
+                                             userBounds.x() + userBounds.width(),
+                                             userBounds.y() + userBounds.height()));
             PoDoFo::PdfDictionary& dict = annot.GetDictionary();
 
             // /Contents + /RC + /PieceInfo (Djot dual-write, M6-P4 D3)
@@ -4197,8 +4217,9 @@ static void applyAnnotationsToDoc(PoDoFo::PdfMemDocument& doc,
                 PoDoFo::PdfArray inkList;
                 PoDoFo::PdfArray stroke;
                 for (const auto& p : anno.points) {
-                    stroke.Add(p.x());
-                    stroke.Add(pageHeight - p.y());
+                    const QPointF u = gp::ItemSpace::viewerPointToUser(p, pageGeo);
+                    stroke.Add(u.x());
+                    stroke.Add(u.y());
                 }
                 inkList.Add(PoDoFo::PdfObject(stroke));
                 dict.AddKey("InkList", inkList);
@@ -4210,11 +4231,13 @@ static void applyAnnotationsToDoc(PoDoFo::PdfMemDocument& doc,
                     p1 = anno.points.first();
                     p2  = anno.points.last();
                 }
+                const QPointF u1 = gp::ItemSpace::viewerPointToUser(p1, pageGeo);
+                const QPointF u2 = gp::ItemSpace::viewerPointToUser(p2, pageGeo);
                 PoDoFo::PdfArray lineArr;
-                lineArr.Add(p1.x());
-                lineArr.Add(pageHeight - p1.y());
-                lineArr.Add(p2.x());
-                lineArr.Add(pageHeight - p2.y());
+                lineArr.Add(u1.x());
+                lineArr.Add(u1.y());
+                lineArr.Add(u2.x());
+                lineArr.Add(u2.y());
                 dict.AddKey("L", lineArr);
             } else if (annotType == PoDoFo::PdfAnnotationType::PolyLine
                        || annotType == PoDoFo::PdfAnnotationType::Polygon) {
@@ -4231,12 +4254,14 @@ static void applyAnnotationsToDoc(PoDoFo::PdfMemDocument& doc,
                 // the duplicate to recover the logical vertices.
                 PoDoFo::PdfArray verts;
                 for (const auto& p : anno.points) {
-                    verts.Add(p.x());
-                    verts.Add(pageHeight - p.y());
+                    const QPointF u = gp::ItemSpace::viewerPointToUser(p, pageGeo);
+                    verts.Add(u.x());
+                    verts.Add(u.y());
                 }
                 if (anno.mode == ToolMode::MeasurePerimeter && !anno.points.isEmpty()) {
-                    verts.Add(anno.points.first().x());
-                    verts.Add(pageHeight - anno.points.first().y());
+                    const QPointF uFirst = gp::ItemSpace::viewerPointToUser(anno.points.first(), pageGeo);
+                    verts.Add(uFirst.x());
+                    verts.Add(uFirst.y());
                 }
                 dict.AddKey("Vertices", verts);
             }
@@ -4611,7 +4636,12 @@ QList<AnnotationItem> PoDoFoBackend::extractAnnotations(const QString &inputPath
         const unsigned pageCount = doc.GetPages().GetCount();
         for (unsigned p = 0; p < pageCount; ++p) {
             auto& page = doc.GetPages().GetPageAt(p);
-            const double pageHeight = page.GetMediaBox().Height;
+            // sweep-legacy (origin class): /Rect and geometry live in RAW USER
+            // space -- map them into the overlay's display space through the
+            // inverse of the shared page-space law (MediaBox origin + /Rotate).
+            // The legacy flip with the MediaBox height alone displaced foreign
+            // annotations on rotated or offset-origin pages.
+            const gp::PageSpace::PageGeometry pageGeo = gp::PageSpace::pageGeometry(page);
             auto& annos = page.GetAnnotations();
             const unsigned annoCount = annos.GetCount();
 
@@ -4674,7 +4704,7 @@ QList<AnnotationItem> PoDoFoBackend::extractAnnotations(const QString &inputPath
                     }
                 }
 
-                // ── Rect (PDF bottom-left origin → top-left QRectF) ───────────
+                // -- Rect: RAW USER space -> display space via the page-space law
                 if (const auto* rectObj = dict.FindKey("Rect")) {
                     if (rectObj->IsArray()) {
                         const auto& arr = rectObj->GetArray();
@@ -4682,13 +4712,13 @@ QList<AnnotationItem> PoDoFoBackend::extractAnnotations(const QString &inputPath
                             if (!arr[0].IsNumberOrReal() || !arr[1].IsNumberOrReal() ||
                                 !arr[2].IsNumberOrReal() || !arr[3].IsNumberOrReal())
                                 continue;
-                            const double x0 = arr[0].GetReal();
-                            const double y0 = arr[1].GetReal();
-                            const double x1 = arr[2].GetReal();
-                            const double y1 = arr[3].GetReal();
-                            const double w = x1 - x0;
-                            const double h = y1 - y0;
-                            item.rect = QRectF(x0, pageHeight - y1, w, h);
+                            const double ux0 = arr[0].GetReal();
+                            const double uy0 = arr[1].GetReal();
+                            const double ux1 = arr[2].GetReal();
+                            const double uy1 = arr[3].GetReal();
+                            const QRectF user(QPointF(qMin(ux0, ux1), qMin(uy0, uy1)),
+                                              QPointF(qMax(ux0, ux1), qMax(uy0, uy1)));
+                            item.rect = gp::ItemSpace::userToViewer(user, pageGeo);
                         }
                     }
                 }
@@ -4702,8 +4732,8 @@ QList<AnnotationItem> PoDoFoBackend::extractAnnotations(const QString &inputPath
                                 const auto& pts = strokeObj.GetArray();
                                 for (size_t k = 0; k + 1 < pts.size(); k += 2) {
                                     if (pts[k].IsNumberOrReal() && pts[k+1].IsNumberOrReal())
-                                        item.points.append(QPointF(pts[k].GetReal(),
-                                                                   pageHeight - pts[k+1].GetReal()));
+                                        item.points.append(gp::ItemSpace::userPointToViewer(
+                                            QPointF(pts[k].GetReal(), pts[k+1].GetReal()), pageGeo));
                                 }
                             }
                         }
@@ -4714,8 +4744,10 @@ QList<AnnotationItem> PoDoFoBackend::extractAnnotations(const QString &inputPath
                             const auto& ln = l->GetArray();
                             if (ln[0].IsNumberOrReal() && ln[1].IsNumberOrReal() &&
                                 ln[2].IsNumberOrReal() && ln[3].IsNumberOrReal()) {
-                                item.points.append(QPointF(ln[0].GetReal(), pageHeight - ln[1].GetReal()));
-                                item.points.append(QPointF(ln[2].GetReal(), pageHeight - ln[3].GetReal()));
+                                item.points.append(gp::ItemSpace::userPointToViewer(
+                                    QPointF(ln[0].GetReal(), ln[1].GetReal()), pageGeo));
+                                item.points.append(gp::ItemSpace::userPointToViewer(
+                                    QPointF(ln[2].GetReal(), ln[3].GetReal()), pageGeo));
                             }
                         }
                     }
@@ -4727,8 +4759,8 @@ QList<AnnotationItem> PoDoFoBackend::extractAnnotations(const QString &inputPath
                             const auto& pts = v->GetArray();
                             for (size_t k = 0; k + 1 < pts.size(); k += 2) {
                                 if (pts[k].IsNumberOrReal() && pts[k+1].IsNumberOrReal())
-                                    item.points.append(QPointF(pts[k].GetReal(),
-                                                               pageHeight - pts[k+1].GetReal()));
+                                    item.points.append(gp::ItemSpace::userPointToViewer(
+                                        QPointF(pts[k].GetReal(), pts[k+1].GetReal()), pageGeo));
                             }
                             // G22: our writer serializes the perimeter's closing
                             // segment as a repeated first vertex so open-path
