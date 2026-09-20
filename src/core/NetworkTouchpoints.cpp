@@ -14,6 +14,8 @@
 #include "core/PolicyController.h"  // R24 wiring: effective-value disclosure
 // R24 wiring closure: the OCSP consent key's single definition lives with
 // the consent surface (both files are pdfws_ui; the literal must not drift).
+// SWEEP-W3 move-2 compile check: this include is LOAD-BEARING — it defines
+// OcspNetworkPolicyKey (ui/OcspConsentDialog.h:34, used at :89/:91/:103).
 #include "ui/OcspConsentDialog.h"
 
 namespace gp {

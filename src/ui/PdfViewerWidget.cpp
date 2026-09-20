@@ -2,6 +2,10 @@
 #include "ui/PdfViewerWidget.h"
 #include "ui/PrintJob.h"                 // WP-R08: owned print job
 #include "GpMainWindow.h"
+// SWEEP-W3 move-2 compile check: LOAD-BEARING — MainWindow::statusBar()
+// (GpMainWindow.h:59) returns the concrete gp::StatusBar* (only
+// forward-declared in GpMainWindow.h), and the .showMessage calls at
+// :1372/:1626 need the complete type.
 #include "shell/StatusBar.h"
 #include "core/AnnotationSerializer.h"
 #include <QDebug>
