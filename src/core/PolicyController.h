@@ -16,6 +16,17 @@ namespace gp {
 // a disabled widget, plus a status line naming the policy file — the
 // visible-in-UI requirement IS the feature.
 //
+// SWEEP-W1 F1 (trust-model honesty, replacing the earlier "admin-controlled"
+// claim the security audit refuted): the file's authority rests on the
+// machine's own account hygiene, NOT on any verification this code performs.
+// load() checks no ownership, ACL, signature or hash — and on default Windows
+// ACLs any standard user can pre-create the %PROGRAMDATA% location before an
+// admin ever deploys one. The policy is therefore machine-TRUSTED, and the
+// trust model is disclosed wherever overrides render (statusLine() appends
+// trustModelNote()) and in the support bundle's policy section. The
+// structural close (ACL/ownership verification or a signed policy) is a
+// design item owned outside the app-scope honesty fix.
+//
 // File location (production): %PROGRAMDATA%\GlyphPDF\policy.json — resolved as
 // QStandardPaths::GenericDataLocation + "/GlyphPDF/policy.json". The
 // GLYPHPDF_POLICY_PATH environment variable overrides the location (test seam;
