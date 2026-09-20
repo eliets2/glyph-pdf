@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "engines/ConversionManager.h"
+#include "engines/SafeSave.h"
 #include <memory>
 #include <podofo/podofo.h>
 #include <cstring>
@@ -612,19 +613,47 @@ bool ConversionManager::convertOfficeToPdf(const QString &officePath, const QStr
         return false;
     }
 
-    // LibreOffice writes <basename>.pdf into outDir; rename to caller's outputPath if different.
+    // LibreOffice writes <basename>.pdf into outDir. sweep-legacy: validate the
+    // converter's product BEFORE touching the caller's destination, then commit
+    // it through the SafeSave atomic replace. The previous tail removed the
+    // destination FIRST and renamed second — a failed rename after the remove
+    // (converter exit-0-but-no-output, an open handle on the source, a
+    // cross-volume move) DESTROYED the previous output while reporting failure:
+    // the exact destructive class WP-R04 (A03) fixed for the encrypted-package
+    // flow. commitFileToDestination never removes or truncates the destination
+    // before the atomic commit; a failed run leaves it byte-identical.
     const QString expectedOut = QDir(outDir).filePath(inInfo.completeBaseName() + ".pdf");
-    if (QFileInfo(expectedOut).canonicalFilePath() != QFileInfo(outputPath).canonicalFilePath()) {
-        QFile::remove(outputPath);
-        if (!QFile::rename(expectedOut, outputPath)) {
-            qWarning() << "convertOfficeToPdf: could not rename" << expectedOut << "to" << outputPath;
+    const bool samePath = QFileInfo(expectedOut).canonicalFilePath()
+                          == QFileInfo(outputPath).canonicalFilePath();
+    if (!samePath) {
+        QFile candidate(expectedOut);
+        if (!candidate.open(QIODevice::ReadOnly)) {
+            qWarning() << "convertOfficeToPdf: converter produced no readable output:"
+                       << expectedOut;
             return false;
         }
-    }
+        const QByteArray head = candidate.read(5);
+        candidate.close();
+        if (head != "%PDF-") {
+            qWarning() << "convertOfficeToPdf: converter output is not a PDF:" << expectedOut;
+            QFile::remove(expectedOut);   // our candidate: cleaned up
+            return false;
+        }
 
-    if (!QFileInfo(outputPath).exists() || QFileInfo(outputPath).size() == 0) {
-        qWarning() << "convertOfficeToPdf: output PDF is empty or missing:" << outputPath;
-        return false;
+        QString commitErr;
+        if (!gp::SafeSave::commitFileToDestination(expectedOut, outputPath, &commitErr)) {
+            qWarning() << "convertOfficeToPdf: committing converted PDF failed:"
+                       << commitErr;
+            QFile::remove(expectedOut);   // the candidate is ours: removed on EVERY outcome
+            return false;
+        }
+        QFile::remove(expectedOut);       // consumed by the commit — no stray copy
+    } else {
+        // In-place: soffice already wrote the caller's exact path; validate it.
+        if (!QFileInfo(outputPath).exists() || QFileInfo(outputPath).size() == 0) {
+            qWarning() << "convertOfficeToPdf: output PDF is empty or missing:" << outputPath;
+            return false;
+        }
     }
     return true;
 }
