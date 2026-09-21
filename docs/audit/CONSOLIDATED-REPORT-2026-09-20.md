@@ -222,5 +222,165 @@ allowlist, §5). Probe evidence: 9/9 suites passed at the emergence tip
 | 14 | **Perf residuals R1–R8** — warm/cold start split, office-PDF corpus, interactive + cancel latency, frame pacing, GPU paths, multi-monitor; perf F5 observation (16x render succeeded where a 64 Mpx guard was expected — view-path scoping question); quiet-run redact-apply median variance (32→77 ms, min matches floor) flagged for re-probe before quoting either number | future perf lane | recorded (PERF-BASELINE §5–§6, §7.1 notes 2/5) |
 | 15 | **Soak/consolidation residuals** — first-soak candidate `2f755244` has ~4 h endurance evidence only; re-soak (candidate `b17106a`, exe SHA-256 `509da2c8…`) verdict pending; consolidation: `origin/feat/parity-glm` 7 commits behind local tip (push step), main-merge resolution classes R2/R3/R4 need release-owner sign-off, local-only branch set out of scope | soak reading session / consolidation execution lane | ADDENDUM SLOT A3; CONSOLIDATION-PLAN §5, §9 |
 
+## 3. Verification summary
+
+### 3.1 What W2 / W2b / W2c verified
+
+**Method (binding protocol, identical in all three passes)** — implementer claim →
+falsifiable contract → committed suite green on the tip under test → the verifier's OWN
+probe through an independent seam/read path (PoDoFo raw dictionaries, PDFium
+FPDFAnnot/FPDFText, OpenSSL d2i_TS_RESP, raw file bytes, own hostile fixtures with
+hand-computed literals — never just the committed suite's assertions) → negative control
+(scoped revert of the fix to its NAMED base inside the worktree; the probe must FAIL;
+restore; re-verify; capture) → verdict (SWEEP-W2B header; SWEEP-W2C header).
+
+- **SWEEP-W2B** (tip `2d29a16`, probes committed at 9afc839): verified the **15 W1 fixes**
+  (W1-01..05, F1–F6, FZ-1..4) + legacy SL2/SL3 = 17 rows **verified**, SL1 **partial**
+  (FINDING W2B-1). Evidence: committed sweep suites 59 passed / 0 failed / 3 documented
+  skips; owner suites 99 passed / 0 failed / 1 skip; tip-state probes Naming 9/9, Signing
+  15/15, SummaryPolicy 10/10, A11y 7/7, OfficeSave 6/6, LegacySpace 5/8 (the three
+  rot-270 failures ARE the finding); **negative controls: 16 runs + 2 textual pins — every
+  reverted base FAILS its probe** (SWEEP-W2B §Suites + §Negative-control inventory).
+- **SWEEP-W2C** (tip `ec9f16f`, probe W2CProbeRotate270): re-verified the W2B-1
+  re-submission — independent re-derivation of the law by hand before touching code;
+  5 functional slots through the PRODUCTION edit paths (move/resize via
+  `embedAnnotations`, `FormManager::updateFieldRect`, F5 containment, SEP13 excision +
+  proof honesty on rot270+offset, verbatim signature /Rect on field dict + widget dict +
+  PDFium + raw bytes) on all six page shapes; committed gate **240 passed / 0 failed /
+  3 documented skips**; NC (scoped revert of 879c171's PageSpaceTransform.h only) → probe
+  2P/5F with the finding's transposed shapes and the offset-270 secret surviving excision
+  (the false-success class made visible); restore → byte-identical verdicts 7/7, 7/7, 9/9,
+  8/8. Verdicts: W2B-1 root fix + both consumer fixes **verified**; **SL1 flipped to
+  verified**; F5's rotated-page caveat **lifted**; SEP13 L5/L8 on /Rotate 270+offset
+  **verified** (SWEEP-W2C §Committed-suite gate, §Negative control, §Verdicts).
+- **R14 independent review** (2026-09-14, candidate `39aaca3`): the same protocol for the
+  SEP13/quick-lane/R18f/R19 packages — **21 rows flipped verified, 1 partial** (L7/F1);
+  full gate 152/154 with both exceptions explained (INDEPENDENT-REVIEW §Verdict table).
+
+### 3.2 What remains implemented-awaiting-review
+
+- EM-1..EM-6 (emergence fixes, `feat/emergence-fixes` — ledger rows EM-1..EM-6).
+- The sanitize UAF fix (ledger §sanitize-crash lane) and the ri-fix
+  (`feat/runintersects-precision`).
+- SEP13 L4 (static X509 RAII — R14 explicitly did not re-verify), L12 (perf fix), RES-1/RES-2
+  (sep13-residual lane, post-R14), and the unmerged modularity-moves rows AM1/AM2 (B1 seam +
+  dead-include sweep, `feat/modularity-moves`).
+- Verification of these rows is the coordinator's ADDENDUM SLOT A4 (§7).
+
+### 3.3 Discipline statement (as evidenced by the wave documents)
+
+- **No test was weakened.** The one contract change in the sweep — sanitize pins moved from
+  key-absence to data-absence — strengthens the assertion (the keys may legitimately remain
+  as empty containers; the user data must be gone) and is documented as such with the G-04
+  vector and Compress-strip pins named (ledger §sanitize-crash lane, "Contract pins updated
+  WITHOUT weakening"). Where a harness artifact blocked an honest pin (L13's CR-affected
+  line compare), the correction is documented as EOL-agnostic with the assertion strength
+  preserved (ledger §sep13-fixes L13 row).
+- **Probes were independent.** Every verification pass built its own fixtures and read
+  through different seams than the committed suites (raw dictionary walks vs PoDoFo APIs,
+  PDFium as a second engine, raw file bytes, hand-computed literals distinct from every
+  committed suite's values) (SWEEP-W2B header; SWEEP-W2C §My independent probe).
+- **Negative controls were captured.** W2B: 16 NC runs + 2 textual pins, every reverted
+  base fails its probe, all reverts restored with restore-check rebuilds reproduced exactly
+  (SWEEP-W2B §Negative-control inventory; `git status` on src/ clean). W2C: the NC
+  re-transposed every consumer path and broke the offset-270 excision loudly; restore
+  re-verified byte-identical (SWEEP-W2C §Negative control). Lane-level NCs for every fix
+  are recorded per-row in the ledger.
+- **Honest scoping is disclosed, not hidden** — F2's embed-branch scoping, W1-05's
+  disclosure-only posture, W1-03's QSKIP-by-design committed slot (probe carries the strong
+  assertion), TestOfficeImport's real-soffice skip, and the NOT-VERIFIED registers
+  (SWEEP-W2B §Residuals; SWEEP-W3-DEVOPS §3.5, §7.2).
+
+## 4. Quality architecture (sources: SWEEP-W3-ARCHITECT-2026-09-20.md, SWEEP-W3-ARCHAEOLOGIST-2026-09-20.md, SWEEP-W2-TESTING-2026-09-20.md, `feat/modularity-moves`)
+
+### 4.1 Structure: zero cycles, the layer law, the 13 upward edges
+
+- **Zero include cycles.** Tarjan SCC over the full file-level include graph (359 files
+  scanned, 204 headers reachable, derived from `compile_commands.json` — machine-checked,
+  not grep-guessed): no SCC larger than 1 file. The tree is a DAG (SWEEP-W3-ARCHITECT §0).
+- **The layer law** holds in the healthy bulk: app → src-root(GpMainWindow) →
+  shell/controllers → shell → modes → ui → commands → core → engines, with the sanctioned
+  core→engines convention (9 edges, all healthy). Healthy-bulk edge counts recorded
+  (ui→core 30, controllers→ui 32, engines→core/interfaces 17, ...) (ARCHITECT §1).
+- **13 upward edges = 10 live (V1–V10) + 3 suspected-dead**, all named with evidence and
+  severity (ARCHITECT §2):
+  - V1 core→shell/controllers (`SigningRequestRunner.cpp:7` → SecurityController.h for the
+    pure static `attainedLevelLabel`) — "the B1 finding, confirmed at this tip";
+  - V2 core→ui (dead include), V3 commands→ui (undo command holding a widget pointer),
+    V4–V8 five ui/shell/modes→src-root reach-ups (`qobject_cast<gp::MainWindow*>` — 8 cast
+    sites in 6 files across V4–V8 for exactly four capabilities), V9 ui→modes
+    (OcrScanCanvas on the review-session types), V10 modes→shell (EditPolicy placement);
+  - the 3 "dead includes" of §2.2 were re-verified by the modularity-moves lane: **only
+    `Sidebar.cpp:3 → GpMainWindow.h` was actually dead; the other two marks were CORRECTED
+    as live** (commit 791115bb — the audit's honest erratum, recorded in its ledger row AM2).
+- **Seam inventory:** 7 of 10 `I*` interfaces cleanly consumed; the weak spots are
+  ISignatureManager (6 non-wiring concrete consumers; 7 cross-layer `dynamic_cast`s
+  tree-wide including ConversionManager), IConversionEngine (`locateSoffice` through the
+  concrete), IPdfEditorEngine (3 concrete consumers), and the missing MainWindow service
+  seam — "the god-file generator" (ARCHITECT §2.3, §3, §6).
+
+### 4.2 The extraction roadmap and its execution state
+
+Sequenced steps 1–9, each with validated line windows, target module, exposed interface,
+risk class and guarding pin (ARCHITECT §4). Execution state at report time:
+
+- **Step 1 (B1 seam) — DONE on `feat/modularity-moves`, not yet merged to mainline:**
+  `attainedLevelLabel` moved verbatim to `core/SigningLabels`, SecurityController delegates
+  (commit 5c02b01d, ledger row AM1, implemented-awaiting-review) — kills the only live
+  core→shell upward edge. **ADDENDUM SLOT A2** records merge status and any further moves.
+- **Step 2 (dead-include sweep) — DONE on the same branch** (791115bb), with the audit
+  correction above (only the Sidebar edge was real).
+- Steps 3–9 (BatchPresetPanel, HotFolderController — **needs a TestHotFolder
+  characterization pin FIRST**, OpenRouteCoordinator as the S4 seam pilot,
+  UpdatePromptController, DocumentRecovery, ctor split, WelcomeTaskRouter) — sequenced, not
+  executed. "BatchPresetRun do first" was VALIDATED by dependency evidence with one
+  placement correction: `engines/BatchPresetRunner`, not `modes/` (ARCHITECT §4).
+- Top-5 moves by prevention-per-effort: B1 seam (S), dead-include sweep (S),
+  BatchPresetRunner extraction (S–M), MainWindow service seam S4 (M pilot + L migration),
+  complete the signing seam (M) (ARCHITECT §6).
+
+### 4.3 Suite health (source: SWEEP-W2-TESTING unless noted)
+
+- Inventory machine-checked at the W2 tip: 170 `add_test` = 170 `ctest -N` (1:1); 172
+  executables / 171 test sources; the built-but-unregistered trio is intentional (app,
+  R14ProbeRedactSpace, perf tool); TestUiAccessibility200 is an intentional env-variant
+  alias (§1).
+- **FU-2 fixed:** the shared `%TEMP%/glyphpdf-candidates` interference class was
+  live-captured unpatched (two full `-j 2` runs failing in TestSignatureRealCrypto /
+  TestEncryptedPackageSafeWrite), fixed by `RESOURCE_LOCK GlyphpdfCandidates` on 15 suites
+  (ae636a5a), and the patched full run is **171/171, 0 failures** (§2.2, §3.1).
+- **Flake classification (all 10 recorded flakes, 30 standalone + 10 instrumented + 3
+  full in-suite runs):** TestLaneScheduler = **genuinely-flaky timing guard** (test bug:
+  3 pass / 5 fail idle, failures at 1000–1025 ms vs the `<1000 ms` bound — serial-time
+  straddle; fix proposal recorded, deliberately not patched in-sweep); TestOllamaProvider,
+  TestBatchMode, TestReadOnlyGate, TestBatchOpsCoverage, TestCommandBinding (one
+  unreproducible first-run rc=2), TestWelcomeRoutes, TestEngineSave x TestRedactTransaction
+  (FU-2 class, fixed), TestSep13LeadComparePerf (load-robust by design) — all clean under
+  protocol (§2.1–§2.3). The re-soak's pre-soak gate independently reproduced the picture:
+  three 170/171 full runs, a different one-off flake each, no deterministic red, with
+  TestLaneScheduler pre-declared as machine-load sensitivity (RESOAK §2).
+- **Coverage gaps closed in-sweep:** 13 feature-matrix rows had no test reference (shell
+  navigation); the lane added `TestModeStripPins` (11/11: pill switching, toggle-ai,
+  task-chooser composition, exclusivity) (§6).
+- **Gate counts across the sweep,** as recorded per document: W2 patched gate 171/171;
+  re-soak baseline 171 tests with three 170/171 one-off runs; SWEEP-W2C committed gate
+  240 passed / 0 failed / 3 documented skips; emergence-fix owning battery 13 suites
+  219P/0F/6 env skips; archaeologist counts 173 add_executable / 171 add_test at its tip.
+  Counts are stated per-source and not averaged — registration is volatile and the ledger
+  forbids hardcoding counts in prose.
+- Hygiene findings H1–H4 recorded (H2: TestEngineSave sweeps a key on the REAL user
+  QSettings store — flagged, cleanup-phase proposal; H4: the tautological QVERIFY2 in
+  TestSignatureValidation) (§7).
+
+### 4.4 Dead weight (source: SWEEP-W3-ARCHAEOLOGIST)
+
+0 PROVEN-SAFE candidates (the triple bar — unreachable AND string-table clean AND
+superseded/never-loaded — was met by nothing); 2 NEEDS-REVIEW (R14ProbeBatchSkip —
+register recommended; TestSignatureValidation — merge-or-retire after porting 3 pins);
+6 KEEP-ANYWAY (AnnotationToolBar pair with its documented revival marker; LibSecretStore
+pair, platform-gated load-bearing; two history docs). A 10-item load-bearing watch list
+prevents false positives (§1–§8). Nothing was deleted in-sweep.
+
 <!-- APPEND -->
+
 
