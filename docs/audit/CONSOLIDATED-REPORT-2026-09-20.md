@@ -381,6 +381,153 @@ register recommended; TestSignatureValidation — merge-or-retire after porting 
 pair, platform-gated load-bearing; two history docs). A 10-item load-bearing watch list
 prevents false positives (§1–§8). Nothing was deleted in-sweep.
 
+## 5. Performance + operations (sources: PERF-BASELINE-2026-09-20.md, SWEEP-W3-DEVOPS-2026-09-20.md)
+
+### 5.1 The measured baseline (quiet-gated; reference machine i5-12400F, Win 11, Release+LTO build at `2d29a16`)
+
+The final baseline is the QUIET run — gate: zero build processes sustained 10 consecutive
+minutes before the suite; per-block load context sampled and disclosed (PERF-BASELINE §7,
+§7.2). All values median / p95 unless noted:
+
+| Metric | Quiet run | Loaded-run median | Proposed target | Verdict |
+|---|---|---|---|---|
+| Cold start, whole-process external wall | **150 / 174 ms** (one 407 ms outlier disclosed) | 169 | P95 < 2 s | **~11x headroom** |
+| Startup: main() → window shown | 11 / 13 ms | 13 | — | ctor-dominated (F1: createContext ~0 ms) |
+| Open 20-page fixture, engine first page | 6 / 8 ms (real MainWindow path 12 / 21 ms) | 6 | P95 < 1 s to first useful page | **~50x headroom** (synthetic text fixture; complex office docs NOT in corpus, R2) |
+| Paginate 40-page medium @2x | 279 / 292 ms | 302 | — | — |
+| Paginate 150-page large @2x | 1298 ms (linear ~9 ms/page; no superlinear blow-up, F3) | 1395 | — | bulk op, not an interaction |
+| 50-page compare @150 DPI (heaviest everyday op) | **807 / 831 ms** | 926 | — | ~461 MiB peak WS (~9 MiB/page) — the per-job memory budget still needs defining (F2) |
+| Redact-apply (3 marks + save) | 77 / 131 ms — **unexplained within-block variance: median tripled vs loaded (32→77) while min (28) matches the loaded floor (29); re-probe before quoting either number** | 32 | ≤100 ms interactive-response target NOT directly measured offscreen (R3) | PARTIAL / flagged |
+| Sign local P12 (no TSA) | 33 / 40 ms (first-call jitter = crypto provider init, F4) | 74 | — | — |
+| Save roundtrip / batch-50 preset compress | 27 / 30 ms · 275 ms | 69 · 524 | — | — |
+| Peak working set: 114.7 MB doc open · 50-page compare | **178.9 MiB · 461.4 MiB** | 179 · 461 | no numeric target existed | first calibrated datapoints for the budget definition (F2) |
+| Per-scale page render (20p fixture) | 0.5x=2 … 16x=84 ms — identical loaded vs quiet | — | — | raster work, load-insensitive at these sizes |
+
+Findings F1–F6 and residuals R1–R8 recorded in PERF-BASELINE §5–§6 (startup is
+ctor-dominated; compare is the heaviest op with a visible per-page footprint; 16x render at
+~128 Mpx succeeded where a 64 Mpx guard was expected — view-path scoping question; the D:
+100%-full incident moved measurement outputs to `C:\perftmp`). NOT measured (disclosed):
+interactive click/typing latency, cancel ack/stop, frame pacing, GPU paths, warm/cold
+split, office corpus.
+
+### 5.2 Deploy validation and dependency closure (devops, tip `b17106a`)
+
+- **Release configure + INF02 validator + deploy: all PASS.** Release+LTO configure exit 0
+  with all four shipped features TRUE (vendored podofo 1.1.0 gate + AR-11 D5 ROVER gate
+  held); `validate-release-build.ps1` exit 0; `deploy.ps1` exit 0 — windeployqt, engine
+  binaries, MinGW closure (4 rounds), VCRT staging (System32 fallback, warning disclosed),
+  ONNX models, tessdata, licenses/veraPDF-offer compliance gates; deploy tree 407.0 MB,
+  24-entry critical-file validation clean. Honest disclosure: the build task was killed at
+  step [844/945] — the main exe was complete (15,702,031 bytes, stripped); the ~100
+  remaining steps were test executables only, and a fresh full `ctest` from `build-devops`
+  was NOT run (the 171/171 evidence is W2's at the same code commit) (DEVOPS §1.1–§1.4,
+  §7.2).
+- **Dependency closure: PASS (independent objdump walk, not trusting deploy's own
+  closure).** `GlyphPDF.exe`: 39 imports → 24 resolve inside deploy/, 15 Windows system
+  DLLs, zero unresolved third-party; all 90 staged DLLs' 150 unique imports resolve inside
+  deploy/ or are Windows inbox. Verdict: the deploy tree is self-contained on Windows 10
+  19041+ given the staged VCRT DLLs (DEVOPS §3.4).
+- **Runtime hashes (SBOM-lite):** `deploy/GlyphPDF.exe` SHA-256
+  `66d0f790f167cf90cf10f5e07601e82e6548025a88ede55e1ccf1d0c845d5000`; `pdfium.dll` = the
+  G18 pin (`a487e1d2…e6905`); staged `libpodofo.dll` byte-identical to the vendored 1.1.0
+  tree (the MSYS2 0.10.4 never overwrote it); onnxruntime 1.17.3, tesseract 5.5, qpdf,
+  quickjs-ng, OpenSSL 3 hashes recorded (DEVOPS §2.1, §6).
+- **The models-bootstrap gap (D1 — the top devops finding):**
+  `scripts/bootstrap-vendor-deps.sh` covers podofo/pdfium/ort/quickjs but NOT `models/`
+  (gitignored, PROVENANCE.md carries per-file URLs + SHA-256 pins); a fresh clone builds
+  green but `deploy.ps1` HARD-FAILS at step [6/8]. Related D2: models were missing in 5 of
+  9 worktrees (disk-full collateral); restored in pdf-r18 with all five SHA-256s matching
+  their pins; **pdf-clean (integration) still lacks them** and cannot run deploy until
+  restored. Fix candidate (extend the bootstrap script) deliberately not coded in-sweep
+  (DEVOPS §2.2, §7.1, §7.3).
+- **Other devops findings:** C1 — `glyphpdf-fuzz.yml` redaction-oracles likely cannot pass
+  (`windows-latest` vs the documented windows-2022 pin; cmake+ninja missing from the
+  setup-msys2 install list while step 1 runs cmake); C2/C3 stale CI comments; D3/D4 dead
+  packaging scripts (`check-deps.bat` points at a deleted script; `deploy-msys2.bat`
+  unreferenced); D5 deploy.ps1 claims a WiX VC++ MergeModule that does not exist (VCRT
+  ships only as staged loose DLLs — do not act on that comment); D6 cosmetic version
+  header; B1 — no VC++ Redist payload on this host, so deploys are dev-grade (System32
+  fallback), release-grade wants the Redistributable installed; LTO exe link runs 76 LTRANS
+  jobs serially (~30 min) at `-j 2` (DEVOPS §3.2–§3.3, §4, §7.1).
+- **CI truthfulness (static):** ci.yml / release.yml / license-guard.yml coherent and
+  honest (models QSKIP disclosed; INF05 define gate; poppler-negative job correct);
+  no workflow references a deleted script; runner pinning documented (DEVOPS §4).
+- **Disk runbook highlights** (everything lives on D: — a full D: stops every lane at
+  once): one `build-<lane>` tree per lane, budget ~2 GB dev / ~4 GB Release+LTO, ≥15 GB
+  free before configuring; the reclaim rule (build trees only, in documented order; never
+  vendor trees, never models, never another lane's build without pinging); junction hygiene
+  (`rmdir` the junction, not `rmdir /s` through it); `models/` is the least-redundant,
+  most-expensive asset — do NOT reclaim until D1 is fixed; the 17.0 GB `build-r18-noeng`
+  is the standing reclaim candidate #1, owner sign-off required (DEVOPS §5.1–§5.3).
+
+## 6. Soak + release evidence (sources: SOAK-VERDICT-2026-09-20.md, RESOAK-2026-09-20.md, DEVOPS §6)
+
+### 6.1 First soak (48 h attempt, candidate `2f755244`)
+
+- **Verdict: FAIL — the soak did not complete.** The detached loop was killed by the host
+  at 2026-09-15 05:45:03+03 after **4 h 00 m 21 s** (8.4 % of the window) when Windows
+  Update initiated a planned OS restart (event-log + STATUS_CONTROL_C_EXIT evidence, §8);
+  58 passes ran; the completion line is absent — by the committed protocol this alone is a
+  failure (SOAK-VERDICT §1).
+- **Candidate-side picture inside the window (NOT a 48 h exoneration):** no
+  candidate-attributable failure recurrence — 35 passes exit 0 / 22 passes exit 8 / 1
+  killed; the 29 failing-test events map to the documented interference/timing-flake
+  families (TestReadOnlyGate 9x = 15.5 %, TestBatchMode 7x, TestEngineSave 4x,
+  TestCommandBinding 3x, TestEncryptedPackageSafeWrite 2x — shared-candidates-dir and
+  temp-roundtrip families); **zero app-crash suspects: 57/57 app cycles ended
+  `KILLED-AFTER-60S;taskkill-exitcode=1`, no EXITED-EARLY** — the real Release exe never
+  hung or crashed across 58 launches (SOAK-VERDICT §1–§4, §6).
+- **The catch: `TestSanitization` SegFault 2x (passes 4 and 31)** — 0xc0000005 in
+  `PoDoFo::PdfDataContainer::AssertMutable` during `testSanitizeGeneratesUniqueTrailerID`;
+  classified crash-class "flake-source-with-a-real-bug-suspicion", top follow-up
+  (§4.5). **Run down and fixed** by the sanitize-crash lane (ed04426e; row San-UAF in §2.4
+  above) — the soak's exact frames (Save→SetModifyDate→SetModDate→AddKey→AssertMutable)
+  reproduced deterministically by the new pin. SOAK-VERDICT §10 follow-ups 1 (re-soak) and
+  3 (candidates-dir hardening beyond RESOURCE_LOCK) remain open.
+
+### 6.2 Re-soak (live at report time — ADDENDUM SLOT A3)
+
+- **Design (reboot-resilient, the §8 kill class can no longer end it):** per-pass
+  heartbeat + `GlyphPDFResoak` logon Scheduled Task + relaunch guard (heartbeat stale
+  >30 min) + `RESTART DETECTED resuming at pass N` markers + continuing pass numbers +
+  48 h window pinned to first start; the resume path was proven live on day one via a
+  controlled kill drill (SOAK-VERDICT §12; RESOAK §1).
+- **Candidate advanced:** re-soak runs `b17106a` (six major waves after `2f755244`),
+  branch `feat/soak-48h-resume` (worktree pdf-keyC, off-limits to other lanes), Release
+  rebuild exit 0, **exe SHA-256 `509da2c8fc602411c6c1cfe45f7603ca1ede42f4d77af97058330b985f867853`**
+  (16,666,639 bytes); the first verdict's binary analysis (`791749b5…`) remains valid for
+  `2f755244` only (SOAK-VERDICT §12).
+- **Pre-soak gate recorded honestly (not clean-green):** three full serial runs at the new
+  tip = 170/171 each, a different one-off flake each (`readExpiryDate` roundtrip family
+  x2, TestLaneScheduler timing x1); no deterministic red → proceed; TestLaneScheduler's
+  ~1 % margin pre-declared as machine-load sensitivity, not a soak finding;
+  `TestSanitization` x3 clean pre-check at the new tip (RESOAK §2).
+- **Start verification:** first start verified; PASS 1 green end-to-end; resume drill;
+  PASS 3 under the loop PID (RESOAK §3).
+- **Verdict protocol (for the reading session at/after 2026-09-22T20:49:07+03):** read
+  `D:\resoak-48h.log`; completion = final `=== SOAK END after N passes … ===` + the
+  `.done` file; every `RESTART DETECTED` marker is a SURVIVED restart, not a termination;
+  `EXITED-EARLY` app cycles remain crash suspects; failing tests classify per
+  SOAK-VERDICT §4 plus RESOAK §2 pre-declarations; `tools/soak_verdict_summary.py` is
+  marker-compatible with the new log (RESOAK §4).
+- **Honest scope carried over:** offscreen-only, no installer, no fuzz campaign, hard-kill
+  app cycles, single machine; the OS-restart logon path was proven by controlled kill +
+  manual guard run, not a real reboot; the endurance conclusion does not transfer from
+  `2f755244` — this soak re-establishes it for `b17106a` (RESOAK §5).
+
+### 6.3 Release-evidence hashes (consolidated)
+
+| Artifact | SHA-256 (prefix) | Source |
+|---|---|---|
+| First-soak exe (candidate `2f755244`) | `791749b5…1244c` (re-verified 2026-09-20) | SOAK-VERDICT §11 |
+| Re-soak exe (candidate `b17106a`) | `509da2c8…853` | SOAK-VERDICT §12 |
+| Devops deploy exe (b17106a Release+LTO, stripped) | `66d0f790…5000` | DEVOPS §6 |
+| Perf harness exe (2d29a16 Release+LTO) | `2d3002bd…b38f` | PERF-BASELINE §1 |
+| pdfium.dll | `a487e1d2…e6905` (= G18 pin) | DEVOPS §2.1/§6 |
+| libpodofo.dll (vendored 1.1.0) | `b25f21f9…5087` | DEVOPS §6 |
+| onnxruntime.dll (1.17.3) | `55ea8474…267` | DEVOPS §6 |
+
 <!-- APPEND -->
+
 
 
