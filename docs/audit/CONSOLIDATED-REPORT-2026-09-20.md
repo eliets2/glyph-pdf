@@ -527,7 +527,82 @@ split, office corpus.
 | libpodofo.dll (vendored 1.1.0) | `b25f21f9…5087` | DEVOPS §6 |
 | onnxruntime.dll (1.17.3) | `55ea8474…267` | DEVOPS §6 |
 
-<!-- APPEND -->
+## 7. Open items + ADDENDUM SLOTS (for the coordinator)
+
+### 7.1 Open items (owner + disposition; detail in §2.6 where cross-referenced)
+
+| # | Item | Owner | Disposition |
+|---|---|---|---|
+| 1 | Verification review of the newest fix rows: EM-1..EM-6, San-UAF, ri-fix, (and on merge: AM1/AM2) | coordinator / verification lane | schedule a W2-protocol verification pass; slots below record outcomes |
+| 2 | UX flows 4–7 (sign/certify+request, OCR reject/reOcr, cert-encrypt 2-recipient, a11y scan→fix→rescan) — harness slots committed, unrun at the W3 UX lane's disk guard | `feat/sweep-w3-ux-resume` lane | ADDENDUM SLOT A1 |
+| 3 | Modularity-moves results (B1 seam 5c02b01d done; dead-include sweep 791115bb done with the audit erratum; possible further steps) — not yet merged to mainline | `feat/modularity-moves` lane | ADDENDUM SLOT A2 |
+| 4 | 48 h re-soak verdict (window ends 2026-09-22T20:49:07+03; protocol RESOAK §4) | soak reading session | ADDENDUM SLOT A3 |
+| 5 | L7 / R14 FINDING F1 (rotated-page annotation attribution) | redaction-proof owner | recorded partial; repair direction on record; triage of the ri-fix lane's disclosed base failure requested |
+| 6 | W1-05/F1 machine-policy enforcement (structural ACL/signed-policy close) | policy owner | design item, disclosure-only shipped |
+| 7 | SignatureManager::signatureFieldAnchors rotation-imperfect read | signature owner | re-audit request stands (consumer side fixed by E-3) |
+| 8 | models bootstrap gap D1 (+ restore models in pdf-clean before any integration packaging) | release-hardening lane | recommended early in W4; recovery data + pins exist in PROVENANCE.md |
+| 9 | C1 fuzz-workflow provisioning (3-line CI edit: pin windows-2022, add cmake+ninja) + C2/C3 comment cleanup | fuzz lane owner / cleanup pass | static finding only — not executed in-sweep |
+| 10 | Cleanup batch: TestLaneScheduler bound redesign; TestSignatureValidation merge-or-retire (port 3 unique pins); R14ProbeBatchSkip register (recommended) or delete+annotate; TestEngineSave real-store QSettings (H2); dead scripts D3/D4; stale comments C2/C3/D5/D6; AnnotationToolBar revival question | cleanup pass | batched, one-commit candidates, no behavior change |
+| 11 | Sweep-legacy residuals (extractLinks reader + T2-2 replacement writer height-only flip — recipe = SL1's mapping; AP-stream BBox aspect; PdfPageOps candidate; exportToImage page option; CSV BOM note; negative /Rotate modulo) | owner lanes | recorded, recipe documented |
+| 12 | Research corpus open roadmap (form-JS P3, s4s P2–P4, presets P2/P3, T2-4 tagging/PDF-UA, T2-5, N5, N4 wording, N38 tail, Tier-3) + matrix CSV mechanical defects | program backlog / matrix owner | reconciled to ground truth by the research lane; not silently upgraded |
+| 13 | Perf follow-ups (warm/cold split, office corpus, interactive/cancel latency, frame pacing, redact-apply re-probe, 16x-render guard scoping) | future perf lane | residuals R1–R8 recorded |
+| 14 | Adversary hypotheses W1-H1/H2/H3 (exact missing pieces named) | future lanes | recorded (§2.6 item 8) |
+| 15 | Consolidation execution per CONSOLIDATION-PLAN §5 (push step, archive-of-record bundle, phase-1/2 merges rehearsed, refs fold with proofs; main-merge classes R2/R3/R4 need release-owner sign-off) | consolidation execution lane | plan + rehearsal evidence complete; nothing executed by that lane |
+| 16 | ui-specialist visual lens lane (`feat/sweep-w3-ui`, pdf-sec worktree) | ui lane | in flight at sweep start; fold per consolidation plan §4.4 |
+
+### 7.2 ADDENDUM SLOTS — coordinator fills these; the body of this report does not pre-empt them
+
+**ADDENDUM SLOT A1 — UX batch B (flows 4–7) + friction dispositions.**
+Source: `feat/sweep-w3-ux-resume` (SWEEP-W3-UX addendum). To record: verdicts for
+`flow4_signCertifyVerify_andPrepRequest`, `flow5_ocr_imagePage_reject_reOcr_andTextPage`,
+`flow6_certEncrypt_twoRecipients`, `flow7_accessibility_scan_fix_rescan`; the F2b-D1
+(preset-store `mkpath`) and F2a-F1 (merge-output naming) fix dispositions; batch-A's
+reserved fix-rank slots 3–5.
+
+**ADDENDUM SLOT A2 — modularity-moves results.**
+Source: `feat/modularity-moves` (ledger rows AM1/AM2 at 3c411cc8). To record: merge status
+of the B1 SigningLabels seam (5c02b01d) and the dead-include sweep (791115bb, including
+its two audit-row corrections); any further roadmap steps executed; verification status
+after review.
+
+**ADDENDUM SLOT A3 — re-soak verdict.**
+Source: `feat/soak-48h-resume` reading session (RESOAK §4 protocol; window ends
+2026-09-22T20:49:07+03). To record: SOAK END line + pass accounting + `RESTART DETECTED`
+survivals + app-cycle outcomes + failing-test classification (per SOAK-VERDICT §4 and
+RESOAK §2 pre-declarations) + the 48 h endurance conclusion for candidate `b17106a`
+(exe `509da2c8…`).
+
+**ADDENDUM SLOT A4 — verification-review outcomes for the implemented-awaiting-review rows.**
+Rows in scope: EM-1..EM-6 (ledger §emergence-fix lane), San-UAF (ledger §sanitize-crash
+lane), ri-fix (ledger ri-fix row), and post-merge AM1/AM2. To record: verified /
+partial / contradicted per the W2 protocol, with ledger flips.
+
+**ADDENDUM SLOT A5 (optional) — consolidation execution results** (branch endgame per
+CONSOLIDATION-PLAN: final tip `T`, folded-ref proofs, archive bundle hash).
+
+---
+
+### 7.3 Lane residuals of THIS report (consolidated-report lane)
+
+- The handoff file this lane was instructed to read first (`.context/report-wip.md`) did
+  not exist at lane start — not on disk in any worktree, not in git history. The lane
+  proceeded from the coordinator task spec alone and authored this file's handoff itself
+  (`.context/report-wip.md`, tree-local).
+- Source-doc locations: ten of the listed sources were NOT at the `feat/parity-glm` tip —
+  they live on their lane branches (`feat/sweep-w2c`, `feat/sweep-w3-{archaeo,arch,devops,
+  emergence,research,ux,perf}`, `feat/soak-48h-resume`, `feat/consolidation-plan`); they
+  were read via `git show` from those branches. INDEPENDENT-REVIEW-2026-09-14.md and
+  SEP13-LEADS-CONFIRMATION-2026-09-14.md are at the tip and needed no `git show`.
+- Branch-tip drift during drafting: `feat/runintersects-precision`'s ledger gained its
+  ri-fix row referencing commit 87c4acbc while that commit is not yet on the branch tip
+  (e620757b) — the lane is active in `pdf-r15`; cited as recorded. `feat/sweep-w3-ux` and
+  `feat/sweep-w3-ux-resume` point at the same commit (5b36715d) at report time.
+- Docs-only discipline held: `git diff ec9f16f6..HEAD` touches only
+  `docs/audit/CONSOLIDATED-REPORT-2026-09-20.md`. No push; no reset/clean/force/gc/prune;
+  no other worktree touched.
+
+*End of CONSOLIDATED-REPORT-2026-09-20.md.*
+
 
 
 
