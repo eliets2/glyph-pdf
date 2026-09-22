@@ -18,6 +18,7 @@
 // rejection, save cancellation, and verify the saved text layer by
 // extracting it through PDFium (PdfiumBackend::extractText).
 #include <QtTest>
+#include <QLabel>
 #include <QLineEdit>
 #include <QTemporaryDir>
 #include <QToolButton>
@@ -154,6 +155,48 @@ private slots:
         QVERIFY(!runButton(panel)->isEnabled());
         QVERIFY(!acceptButton(panel)->isEnabled());
         QVERIFY(!rejectButton(panel)->isEnabled());
+    }
+
+    // ── F5-F1 (SWEEP-W3 UX): the lifecycle message is VISIBLE, not dead ──────
+    // m_lastLifecycleMessage used to be recorded-only: cold engine init left
+    // the user staring at a bare Run button with just a status-bar transient,
+    // and failures/completions never surfaced on the screen itself.
+    void lifecycleMessageDisplayedLive()
+    {
+        OCRMode panel;
+        panel.show();  // offscreen platform: makes isVisible() meaningful
+        QLabel *lbl = panel.findChild<QLabel *>(QStringLiteral("ocrLifecycleLabel"));
+        QVERIFY2(lbl,
+                 "F5-F1: the OCR screen must carry a visible lifecycle message "
+                 "surface (ocrLifecycleLabel)");
+        QVERIFY(!lbl->isVisible());   // Idle: nothing to disclose yet
+
+        // The cold-init moment: a run starts, the screen itself says what is
+        // happening (this used to be the minutes-long silent wait).
+        panel.onRunOcr();
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::Running);
+        QVERIFY2(lbl->isVisible(),
+                 "F5-F1: a run start must surface the lifecycle state on-screen");
+        QVERIFY2(lbl->text().contains(QStringLiteral("initializing"), Qt::CaseInsensitive),
+                 qPrintable(QStringLiteral("F5-F1: the run-start disclosure must "
+                              "name the engine initialization (got: '%1')")
+                                .arg(lbl->text())));
+
+        // A failure completion replaces the run message on the same surface.
+        panel.notifyOcrFailed(
+            QStringLiteral("OCR failed: Tesseract language data for 'DEU' is unavailable."));
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::RecoverableError);
+        QVERIFY(lbl->isVisible());
+        QVERIFY2(lbl->text().contains(QStringLiteral("DEU")),
+                 "F5-F1: failure disclosures must be visible on the OCR screen, "
+                 "not only a transient status-bar message");
+
+        // Success clears the surface (nothing to disclose in ReviewReady).
+        panel.setOcrResults(makeWords());
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::ReviewReady);
+        QVERIFY2(!lbl->isVisible(),
+                 "F5-F1: the lifecycle surface must clear once results are "
+                 "under review");
     }
 
     // ── Missing language/model data fails the run, retry succeeds (same panel)

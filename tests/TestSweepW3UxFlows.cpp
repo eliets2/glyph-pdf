@@ -1449,6 +1449,19 @@ private slots:
 
         // Run on the IMAGE page.
         runPushButton->click();
+        // F5-F1 pin: while the run is in flight — cold engine init on first
+        // use takes minutes — the OCR screen ITSELF must carry the lifecycle
+        // message, not just a status-bar transient.
+        QLabel *lifecycleLbl = ocr->findChild<QLabel *>(QStringLiteral("ocrLifecycleLabel"));
+        QVERIFY2(lifecycleLbl, "F5-F1: ocrLifecycleLabel missing from the OCR screen");
+        QVERIFY2(lifecycleLbl->isVisible() && !lifecycleLbl->text().isEmpty(),
+                 qPrintable(QStringLiteral("F5-F1: the OCR screen must surface the "
+                              "lifecycle message while a run is in flight "
+                              "(visible=%1 text='%2')")
+                                .arg(lifecycleLbl->isVisible())
+                                .arg(lifecycleLbl->text().left(120))));
+        step(QStringLiteral("F5-F1 live lifecycle surface during run1: '%1'")
+                 .arg(lifecycleLbl->text().left(160)));
         QVERIFY2(narratedOcrWait(250000, QStringLiteral("run1(image page)")),
                  "F5: OCR produced no recognized text within the narrated 250s "
                  "budget (Run re-enabled with text pane empty = the panel showed "
