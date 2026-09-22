@@ -967,6 +967,8 @@ add_library(pdfws_ui STATIC
     src/shell/RibbonModel.h                 src/shell/RibbonModel.cpp
     src/shell/ModeStrip.h                   src/shell/ModeStrip.cpp
     src/shell/ScreenNav.h                   src/shell/ScreenNav.cpp
+    # F1 (SWEEP-W3-UI): wrapping toolbar layout for the mode strips.
+    src/shell/FlowToolbarLayout.h           src/shell/FlowToolbarLayout.cpp
     src/shell/StatusBar.h                   src/shell/StatusBar.cpp
     src/shell/TaskNav.h                     src/shell/TaskNav.cpp
     src/shell/TaskStateSync.h               src/shell/TaskStateSync.cpp

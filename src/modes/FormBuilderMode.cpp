@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "FormBuilderMode.h"
 #include "FormFieldPropertiesPanel.h"
+#include "shell/FlowToolbarLayout.h"
 #include "ui/PdfViewerWidget.h"
 #include "core/AppContext.h"
 #include "core/PdfEnums.h"
@@ -58,8 +59,11 @@ void FormBuilderMode::buildToolbar(QVBoxLayout* col)
 {
     auto* tb = new QFrame;
     tb->setProperty("role", "modeToolbar");
-    tb->setFixedHeight(Theme::ToolbarH);
-    auto* trow = new QHBoxLayout(tb);
+    // F1 (SWEEP-W3-UI): wrapping flow toolbar — identical single-line at
+    // 1920; wraps below the single-line requirement instead of forcing the
+    // window minimum past the 1366 viewport.
+    auto* trow = new FlowToolbarLayout(tb);
+    trow->setLineHeightFloor(Theme::ToolbarH);
     trow->setContentsMargins(10, 0, 10, 0);
     trow->setSpacing(4);
 

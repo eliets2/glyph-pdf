@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "RedactMode.h"
 #include "RedactApplyDialog.h"
+#include "shell/FlowToolbarLayout.h"
 #include "util/GpTheme.h"
 #include "ui/PdfViewerWidget.h"
 #include "core/AppContext.h"
@@ -37,10 +38,13 @@ RedactMode::RedactMode(QWidget* parent) : QWidget(parent) {
     col->setSpacing(0);
 
     // ── Toolbar ────────────────────────────────────────────────────────────
+    // F1 (SWEEP-W3-UI): wrapping flow toolbar — identical single-line at
+    // 1920; wraps below the single-line requirement instead of forcing the
+    // window minimum past the 1366 viewport.
     auto* tb = new QFrame;
     tb->setProperty("role", "modeToolbar");
-    tb->setFixedHeight(Theme::ToolbarH);
-    auto* row = new QHBoxLayout(tb);
+    auto* row = new FlowToolbarLayout(tb);
+    row->setLineHeightFloor(Theme::ToolbarH);
     row->setContentsMargins(10, 0, 10, 0);
     row->setSpacing(6);
 
