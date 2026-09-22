@@ -1366,14 +1366,16 @@ private slots:
             pw.end();
         }
         QVERIFY(QFileInfo::exists(imgPdf));
-        // The preprocessing checkboxes on this very screen are persisted prefs;
-        // run the audit with the raw page (a clean white page exercises the
-        // binarize/deskew chain for no informational gain).
-        QSettings().setValue(QStringLiteral("ocr/preprocessDeskew"), false);
-        QSettings().setValue(QStringLiteral("ocr/preprocessBinarize"), false);
-        QSettings().setValue(QStringLiteral("ocr/preprocessDenoise"), false);
-        QSettings().setValue(QStringLiteral("ocr/preprocessOrientDetect"), false);
-        step("F5 start: image-only fixture OCRME 42 (preprocess prefs off)");
+        // F5-F2 pin (the audit's 3-blocks-clean-scan probe): run with the
+        // SHIPPED DEFAULTS — clear the persisted preprocessing prefs so this
+        // run sees exactly what a FIRST-TIME user sees. The defaults must be
+        // honest: recognition on a clean scan must work out of the box (the
+        // shipped deskew+binarize+denoise chain used to ZERO it).
+        QSettings().remove(QStringLiteral("ocr/preprocessDeskew"));
+        QSettings().remove(QStringLiteral("ocr/preprocessBinarize"));
+        QSettings().remove(QStringLiteral("ocr/preprocessDenoise"));
+        QSettings().remove(QStringLiteral("ocr/orientDetect"));
+        step("F5 start: image-only fixture OCRME 42 (FIRST-RUN default prefs — F5-F2 pin)");
 
         auto *caps = m_win->appContext()->capabilities.get();
         const bool ocrPossible = caps
@@ -1398,6 +1400,21 @@ private slots:
         QAbstractButton *runPushButton = runBtn;
         QAbstractButton *acceptPushButton = acceptBtn;
         QAbstractButton *rejectPushButton = rejectBtn;
+
+        // F5-F2: the recognition probe below only pins the DEFAULTS if the
+        // screen's own checkboxes MATCH the pipeline. Record what the shipped
+        // defaults show; asserted permanently after the probe passes (so a
+        // pre-fix failure demonstrates the recognition defect itself).
+        auto defaultChkOn = [ocr](const char *name) {
+            QAbstractButton *b = ocr->findChild<QAbstractButton *>(QString::fromLatin1(name));
+            return b && b->isChecked();
+        };
+        const bool deskewShownOn   = defaultChkOn("ocrChkDeskew");
+        const bool binarizeShownOn = defaultChkOn("ocrChkBinarize");
+        const bool denoiseShownOn  = defaultChkOn("ocrChkDenoise");
+        step(QStringLiteral("F5-F2 shipped defaults as shown on screen: "
+                            "deskew=%1 binarize=%2 denoise=%3")
+                 .arg(deskewShownOn).arg(binarizeShownOn).arg(denoiseShownOn));
 
         // Narrated OCR wait: engine init (Tesseract language seed + up to 3
         // ONNX sessions) is one-time and disk/CPU-bound and can take minutes
@@ -1441,6 +1458,18 @@ private slots:
                  .arg(recognized.left(120)));
         QVERIFY2(recognized.contains(QStringLiteral("42")) || recognized.contains(QStringLiteral("OCR")),
                  "F5: the recognized text should carry the fixture's content");
+        // F5-F2 pin (permanent): with the SHIPPED defaults the clean scan must
+        // be RECOGNIZED — the audit observed "OCR Complete. 0 text blocks
+        // detected." on exactly this fixture when the default destructive
+        // chain ran. Honesty guard: the checkboxes must show what the pipeline
+        // will do — deskew/binarize/denoise OFF out of the box.
+        QVERIFY2(!deskewShownOn && !binarizeShownOn && !denoiseShownOn,
+                 qPrintable(QStringLiteral("F5-F2: the shipped preprocessing defaults "
+                              "must be honest — destructive deskew/binarize/denoise "
+                              "OFF out of the box (screen showed deskew=%1 binarize=%2 "
+                              "denoise=%3)")
+                                .arg(deskewShownOn).arg(binarizeShownOn)
+                                .arg(denoiseShownOn)));
 
         // Reject → the user must be told; state must be retryable.
         // Accept first (so reject has review state afterwards): Accept exports

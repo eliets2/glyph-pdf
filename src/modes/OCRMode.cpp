@@ -165,13 +165,15 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     sep1->setFixedWidth(1); sep1->setStyleSheet("color:#ffffff20;");
     row->addWidget(sep1);
 
-    // Defaults match OcrPreprocessOptions' long-standing pipeline behavior
-    // (deskew/binarize/denoise all on) so wiring the prefs is behavior-neutral
-    // until the user changes something — previously the Denoise checkbox
-    // showed "off" while the pipeline denoised anyway.
+    // F5-F2: the shipped defaults are HONEST — the destructive chain
+    // (deskew/binarize/denoise) is OFF out of the box, so what the checkboxes
+    // show is exactly what the pipeline will do. The audit found the old
+    // on-by-default chain ZEROED recognition on a clean scan while the user
+    // had not asked for any of it (SWEEP-W3-UX F5-F2); users opt in per scan
+    // via these persisted toggles (Auto-Rotate below set the precedent).
     m_chkDeskew = new QCheckBox(tr("Deskew"));
     m_chkDeskew->setObjectName("ocrChkDeskew");
-    m_chkDeskew->setChecked(QSettings().value(kOcrPreprocessDeskewKey, true).toBool());
+    m_chkDeskew->setChecked(QSettings().value(kOcrPreprocessDeskewKey, false).toBool());
     m_chkDeskew->setStyleSheet("color:#c0c0c0; spacing:4px;");
     connect(m_chkDeskew, &QCheckBox::toggled, this, [](bool checked) {
         QSettings settings;
@@ -181,7 +183,7 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
 
     m_chkBinarize = new QCheckBox(tr("Binarize"));
     m_chkBinarize->setObjectName("ocrChkBinarize");
-    m_chkBinarize->setChecked(QSettings().value(kOcrPreprocessBinarizeKey, true).toBool());
+    m_chkBinarize->setChecked(QSettings().value(kOcrPreprocessBinarizeKey, false).toBool());
     m_chkBinarize->setStyleSheet("color:#c0c0c0; spacing:4px;");
     connect(m_chkBinarize, &QCheckBox::toggled, this, [](bool checked) {
         QSettings settings;
@@ -191,7 +193,7 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
 
     m_chkDenoise = new QCheckBox(tr("Denoise"));
     m_chkDenoise->setObjectName("ocrChkDenoise");
-    m_chkDenoise->setChecked(QSettings().value(kOcrPreprocessDenoiseKey, true).toBool());
+    m_chkDenoise->setChecked(QSettings().value(kOcrPreprocessDenoiseKey, false).toBool());
     m_chkDenoise->setStyleSheet("color:#c0c0c0; spacing:4px;");
     connect(m_chkDenoise, &QCheckBox::toggled, this, [](bool checked) {
         QSettings settings;

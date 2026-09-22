@@ -1353,12 +1353,15 @@ void BatchMode::onRunClicked() {
     // Previously batch honored Auto-Rotate only, silently diverging from the
     // interactive panel's persisted preprocessing choices.
     OcrPreprocessOptions capturedOcrPreprocess;
+    // F5-F2: same shipped defaults as the interactive path — the destructive
+    // chain (deskew/binarize/denoise) is OFF out of the box so batch OCR on a
+    // clean scan recognizes out of the box too (SWEEP-W3-UX F5-F2).
     capturedOcrPreprocess.deskew   = QSettings().value(
-        QStringLiteral("ocr/preprocessDeskew"), true).toBool();
+        QStringLiteral("ocr/preprocessDeskew"), false).toBool();
     capturedOcrPreprocess.binarize = QSettings().value(
-        QStringLiteral("ocr/preprocessBinarize"), true).toBool();
+        QStringLiteral("ocr/preprocessBinarize"), false).toBool();
     capturedOcrPreprocess.denoise  = QSettings().value(
-        QStringLiteral("ocr/preprocessDenoise"), true).toBool();
+        QStringLiteral("ocr/preprocessDenoise"), false).toBool();
     capturedOcrPreprocess.orientDetect = QSettings().value(
         QStringLiteral("ocr/orientDetect"), false).toBool();
     // U08: report intentionally unsupported batch options (engine selection)
