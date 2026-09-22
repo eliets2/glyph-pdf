@@ -52,3 +52,24 @@ The plan estimated ~110 MB from `size-pack` (111,938 KB at rehearsal; 111.21 MiB
 ### 1.5 Refresh obligation (binding for later stages)
 
 Five remediation lanes land AFTER this bundle was cut. Before the deletion pass (stage 2/3), re-create the bundle from the then-current refs (recommended name `pdf-archive-final-<date>.bundle`), `git bundle verify` it, record its SHA-256 in the final consolidation report, and require `git bundle verify` of that final bundle as a precondition for every deletion. The stage-1 bundle remains a valid zero-loss snapshot of the 2026-09-23 ref space forever.
+
+---
+
+## 2. Task 2 — Archive tags (LOCAL ONLY — not pushed)
+
+Created per the plan §6, names per the stage-1 execution order. All four are annotated tags in the local repo; **no `git push --tags` was run** (push is a later stage's decision).
+
+| Tag (refs/tags/) | Tag object | Points at (commit) | Branch / note |
+|---|---|---|---|
+| `archive/editing-parity` | `357c676fb326953ed6343696f194eb43aec84a73` | `97172fbe893eab534a8299ab9eb36bf505dfe0d5` | `feature/editing-parity` tip (local = origin, checked out in `pdf-worktrees/editing`) |
+| `archive/redaction-parity` | `4617f9ff3205a48a3402ea0c5da8f87e70ffec94` | `45bf4302b9d43b8f7d866eb2ca9adf36c8004ba0` | `feature/redaction-parity` LOCAL tip (pdf-redaction worktree) — **superset of origin**: `origin/feature/redaction-parity` = `1263df9a` (2026-09-07), `45bf4302` (2026-09-13, "preserve local region and overlay changes") is its child |
+| `archive/viewing-parity` | `89603df262c916f9dec5b096d22c89e0cbdaf43c` | `de1fa268bdb5a2d4f4d5148336909dab29ab20f9` | `feature/viewing-parity` tip (local = origin, checked out in `pdf-worktrees/viewing`) |
+| `archive/annotation-eraser` | `eda11849a82fa53150f808eb9d1bd211f3316c3c` | `ebd022ccb7d68136e467ee5d2f0b59b7abf60077` | `origin/feat/annotation-eraser` tip per plan §3 class D (local twin `feat/annotation-eraser` = `916a4b7d`, one commit off main, differs — both tips are in the bundle) |
+
+Each tag message records: what the branch holds (per plan §3/§4.3 evidence, with the Wave-1A base `c61edbed..055592df` and per-branch tail commits), where the features live in the mainline (line re-implemented Wave-1A/1B during the parity program; eraser via `deleteObjectAt` in EditController/AnnotationLayer/engines; Night Mode + hyperlink nav grep-verified in `PdfViewerWidget.{cpp,h}` with the plan §9.4 grep-only residual), why merge was rejected, the bundle reference (`C:\Users\User\pdf-archive-stage1.bundle` + SHA-256), the restore recipe (`git clone <bundle>` → `git merge <tag>`), and the refresh-at-completion note.
+
+**Topology findings recorded while tagging (drift vs plan §3):**
+1. `feature/redaction-parity`: origin is at `1263df9a`, one commit BEHIND the local branch tip `45bf4302` (never pushed; branch checked out in the `pdf-redaction` worktree). The plan's §3 listed `45bf4302` — that is the local tip; the tag pins the superset, so both snapshots are preserved (both are in the bundle either way).
+2. `feat/annotation-eraser`: local (`916a4b7d`) and origin (`ebd022cc`) tips differ; the tag pins the ORIGIN tip per the plan. The local twin is a separate one-commit-off-main branch handled by the local consolidation lane (plan §7).
+3. The three `feature/*` archive branches are currently checked out in live worktrees (`pdf-worktrees/editing`, `pdf-redaction`, `pdf-worktrees/viewing`). Tags were added without touching those worktrees; no branch ref was moved.
+
