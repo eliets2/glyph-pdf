@@ -163,5 +163,47 @@ git cherry feat/parity-glm main
 2. The main-merge conflict forecast (~130 paths) was measured at `ec9f16f6`; from `26c9a415` the line side carries additional ledger/docs rows, so the conflict list must be re-measured at merge time (the §5.2 policy classes R1–R4 are unchanged).
 3. Five remediation lanes will move the line further before stage 2 runs — the stage-2 draft re-runs the fold-proof sweep and the cherry count at execution time as gating preconditions, and requires a fresh final bundle (§1.5).
 
+---
+
+## 5. Task 5 — Stage-2 execution script (DRAFT ONLY — NOT EXECUTED)
+
+| File | Status | Contents |
+|---|---|---|
+| `docs/audit/CONSOLIDATION-STAGE2-SCRIPT-2026-09-23.md` | **DRAFT-NOT-EXECUTED** | Runbook: phase table (0 preconditions / 1 real merges / 2 main merge / 3 gate + FF / 4 proof-gated deletion / 5 end-state), drift updates vs plan §5, open decisions (survivor naming, R3 sign-off, re-soak ordering) |
+| `docs/audit/consolidation-stage2-draft.sh` | **DRAFT-NOT-EXECUTED** (parse-checked with `bash -n` only; no runbook line has ever executed) | Executable draft, default DRYRUN, `CONSENT=I-UNDERSTAND-THIS-DELETES-BRANCHES` required for EXECUTE; fail-closed `delete_proven()` (pin tip SHA → `rev-list <tip> ^T` = 0 → bundle verify + hash check → `push origin --delete`); never force/gc/prune; refuses to delete `main`/survivor |
+
+Key stage-2 changes absorbed from this stage's findings: phase-1 list = 7 outstanding C-class + the reclassified `claude/…` docs tip (modularity-moves/sweep-w3-arch already contained); mandatory final bundle refresh before any deletion; execution-time re-run of all stage-1 proofs as preconditions.
+
+## 6. Consolidated drift & findings ledger (vs plan rehearsal @ `a82036df` / line `ec9f16f6`)
+
+1. **Line moved, fast-forward only**: `origin/feat/parity-glm` `b17106a3` → `26c9a415`; includes the `feat/modularity-moves` merge, so `modularity-moves` + `sweep-w3-arch` are now contained (C-class shrinks by that ref). No rewrites anywhere (all A-class tips byte-identical to plan except the line itself).
+2. **Main-divergence numbers reproduce exactly** (401 `-` / 14 `+`, identical SHA list); the plan's "of 430" total was an internal arithmetic slip — actual total 415 = 401 + 14. `main` = `2b715f47` = `origin/main` + 2, unmoved.
+3. **LOUD — `claude/modest-mccarthy-riuo2o` reclassified REAL-MERGE**: its tip `a8f50a44` (docs-only AR-PROMPT-1..12, 2 files) is NOT in `main`; the plan's "covered automatically by merging main" and its §8 proof `rev-list a8f50a44 ^T → 0` would fail without a real merge of that tip. Stage-2 draft merges it explicitly.
+4. **`feature/redaction-parity` ref topology**: origin at `1263df9a`, local worktree tip `45bf4302` (1 commit ahead, unpushed). Archive tag pins the superset `45bf4302`; both snapshots are in the bundle.
+5. **Bundle size reality**: 38.2 MiB actual vs ~110 MB plan estimate (estimate mirrored `size-pack`, which includes unreachable rehearsal/recovery objects a `--all` bundle omits). Verify confirms completeness; no action.
+6. **Local-only residual (out of origin scope, plan §7)**: local `audit-remediation` (`84445698`, June v1.3.2.3 hardening tail) has diverged from `origin/audit-remediation` (`fd74f5dc`) and equals local `feature/accessibility-parity`; both tips are preserved in the bundle. Local consolidation lane to disposition.
+7. **Worktree map observed (none touched)**: the three `feature/*` archive branches are checked out in `pdf-worktrees/editing` / `pdf-redaction` / `pdf-worktrees/viewing`; lane worktrees active on `feat/redaction-gaps`, `feat/dispatch-gates`, `feat/soak-followups`, `feat/sweep-w2-gsd`, `feat/sep13-fixes`, `feat/unreviewed-map`, `feat/ui-narrow-viewport`, `feat/ux-defects-fixes`; main worktree `D:/pdf/pdf` on `main` @ `2b715f47`.
+8. Known harmless noise reproduced per plan §9: `D:/pdf/pdf/.git/worktrees/pdf-clean/refs` garbage warning; graphify post-commit hook fired on the docs commits below (background, cosmetic).
+
+## 7. Residuals & handoff
+
+- **Nothing was pushed, deleted, moved, or force-updated anywhere.** Stage 1 is purely additive: 1 bundle (outside the repo), 4 local tags, 1 new local branch (`feat/consolidation-stage1`) with docs-only commits, 1 scratch worktree (removed after final commit).
+- **Binding handoffs:** (a) final bundle refresh at consolidation completion — after the five remediation lanes land, before any deletion (§1.5, encoded as stage-2 phase-0 precondition); (b) push decision for the four `archive/*` tags + this branch = later stage; (c) `SURVIVOR` naming choice + R3 sign-off = release owner, before stage 2 may run; (d) plan §9.4 grep-checklist residual (Night Mode / hyperlink nav) unchanged.
+- Handoff file: `.context/consexec-wip.md` (gitignored) updated to final state.
+
+### Stage-1 commit log (this branch, docs-only)
+
+```
+03216e0d docs(audit): stage-1 report — zero-loss archive bundle created + verified (Task 1)
+4a4f2cba docs(audit): stage-1 report — four local archive/* tags with provenance (Task 2)
+d55e0506 docs(audit): stage-1 fold proofs — 38/38 A-class PASS at 26c9a415 (Task 3)
+2f2e4bde docs(audit): stage-1 main-divergence re-verification — 401/14 reproduces exactly (Task 4)
+22778408 docs(audit): stage-2 script DRAFT (NOT EXECUTED) — md runbook + syntax-checked .sh (Task 5)
+<final>  docs(audit): stage-1 report finalized — drift ledger, residuals, handoff (stage close)
+```
+
+Branched from `feat/parity-glm` @ `26c9a4154cd7e2e9acca7fa714faaaa835bd97de`.
+
+
 
 
