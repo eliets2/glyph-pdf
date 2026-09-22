@@ -535,7 +535,7 @@ split, office corpus.
 |---|---|---|---|
 | 1 | Verification review of the newest fix rows: EM-1..EM-6, San-UAF, ri-fix, (and on merge: AM1/AM2) | coordinator / verification lane | schedule a W2-protocol verification pass; slots below record outcomes |
 | 2 | UX flows 4–7 (sign/certify+request, OCR reject/reOcr, cert-encrypt 2-recipient, a11y scan→fix→rescan) — harness slots committed, unrun at the W3 UX lane's disk guard | `feat/sweep-w3-ux-resume` lane | ADDENDUM SLOT A1 |
-| 3 | Modularity-moves results (B1 seam 5c02b01d done; dead-include sweep 791115bb done with the audit erratum; possible further steps) — not yet merged to mainline | `feat/modularity-moves` lane | ADDENDUM SLOT A2 |
+| 3 | Modularity-moves results (B1 seam 5c02b01d; dead-include sweep 791115bb with the audit erratum; no further steps) — **merged to mainline at `26c9a415`** | `feat/modularity-moves` lane | ADDENDUM SLOT A2 (filled) |
 | 4 | 48 h re-soak verdict (window ends 2026-09-22T20:49:07+03; protocol RESOAK §4) | soak reading session | ADDENDUM SLOT A3 |
 | 5 | L7 / R14 FINDING F1 (rotated-page annotation attribution) | redaction-proof owner | recorded partial; repair direction on record; triage of the ri-fix lane's disclosed base failure requested |
 | 6 | W1-05/F1 machine-policy enforcement (structural ACL/signed-policy close) | policy owner | design item, disclosure-only shipped |
@@ -559,11 +559,51 @@ Source: `feat/sweep-w3-ux-resume` (SWEEP-W3-UX addendum). To record: verdicts fo
 (preset-store `mkpath`) and F2a-F1 (merge-output naming) fix dispositions; batch-A's
 reserved fix-rank slots 3–5.
 
-**ADDENDUM SLOT A2 — modularity-moves results.**
-Source: `feat/modularity-moves` (ledger rows AM1/AM2 at 3c411cc8). To record: merge status
-of the B1 SigningLabels seam (5c02b01d) and the dead-include sweep (791115bb, including
-its two audit-row corrections); any further roadmap steps executed; verification status
-after review.
+**ADDENDUM SLOT A2 — modularity-moves results (FILLED 2026-09-23 by the report-addendum
+lane).**
+Sources: ledger rows AM1/AM2 (`feat/modularity-moves` @ `3c411cc8`),
+SWEEP-W3-ARCHITECT-2026-09-20 §2.2/§5/§6; merge record of mainline `feat/parity-glm`.
+
+- **Merge status: BOTH moves are on mainline.** `feat/modularity-moves` — exactly three
+  commits: `5c02b01d` (AM1), `791115bb` (AM2), `3c411cc8` (ledger rows); **no further
+  roadmap steps were executed** — steps 3–9 of §4.2 remain sequenced-not-executed —
+  merged into `feat/parity-glm` at merge commit `26c9a415`; post-merge gate **173/173**
+  (merge record). The merge does NOT change verification status: AM1/AM2 remain
+  **implemented-awaiting-review**; the review itself is ADDENDUM SLOT A4 (§7.1 item 1).
+- **AM1 — B1 SigningLabels seam (`5c02b01d`): byte-identical move, delegation proven,
+  the sole live core→shell/controllers include eliminated.** New
+  `core/SigningLabels.{h,cpp}`: `gp::SigningLabels::attainedLevelLabel(PAdESLevel, const
+  SignatureOutcomeDetail&)` with the body moved BYTE-IDENTICAL from
+  `SecurityController.cpp:155-183` (diff-verified, 28 lines); SecurityController's static
+  is now a one-line delegate — in-shell call sites (`:142/:310/:671/:679` and the
+  SendForSigning-side users) and the TestSignatureBadges / SweepW1SecProbe pins stay
+  source-compatible, untouched; `SigningRequestRunner.cpp` include swapped off
+  `shell/controllers/SecurityController.h`, the `using gp::SecurityController` dropped
+  (its sole use was the `:266` call), call → `gp::SigningLabels::attainedLevelLabel`;
+  `SigningLabels` compiled into `pdfws_engines` beside its consumer. Evidence: pins
+  IDENTICAL before/after on a full fresh build — TestSignatureBadges 25 passed / 0
+  failed, TestSweepW1SecProbe 6/0, TestSendForSigning 11P/0F/1S; NEGATIVE CONTROL
+  (delegating static reverted to the moved body — duplicate definitions, runner still on
+  `gp::SigningLabels`): all three totals stay green → delegation is complete and every
+  consumer path is independently satisfied; restored, pins re-verified (AM1 ledger row).
+- **AM2 — dead-include sweep (`791115bb`): 1 deletion kept; 2 of the architect's 3
+  §2.2 marks CORRECTED as live, on compile-check evidence.** Only
+  `Sidebar.cpp:3 → GpMainWindow.h` was actually dead — include DELETED (compiles clean;
+  shell→src-root shrinks to MenuBar.cpp + StatusBar.cpp as audited). The other two marks
+  were misclassified by the audit's zero-symbol grep and were RESTORED with in-file
+  load-bearing notes: `NetworkTouchpoints.cpp:17 → ui/OcspConsentDialog.h` is LIVE (the
+  inline constexpr `OcspNetworkPolicyKey` is DEFINED in that header at `:34` and used at
+  `:89/:91/:103` — the audit's `OcspConsent*` pattern missed the `Ocsp*` constant;
+  per-TU ninja object check FAILS without it: `'OcspNetworkPolicyKey' not declared`),
+  and `PdfViewerWidget.cpp:5 → shell/StatusBar.h` is LIVE (its `statusBar()` calls at
+  `:1372/:1626` resolve to `gp::MainWindow::statusBar()` returning the CONCRETE
+  `gp::StatusBar*`, only forward-declared in `GpMainWindow.h` — object check FAILS:
+  `invalid use of incomplete type gp::StatusBar`). **Consequence, correcting the
+  architect's §6 move-2 claim that the sweep "kills the edge classes entirely": the
+  core→ui and ui→shell edge classes each retain exactly 1 live edge**; the durable
+  closes remain the B2-family split of the pure `OcspConsent`/`OcspNetworkPolicyKey`
+  half into core and the S4/S1 seam work (ARCHITECT §2.2/§6). Full build green; pins
+  unchanged post-sweep (25/0, 6/0, 11P/0F/1S) (AM2 ledger row).
 
 **ADDENDUM SLOT A3 — re-soak verdict.**
 Source: `feat/soak-48h-resume` reading session (RESOAK §4 protocol; window ends
