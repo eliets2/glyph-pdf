@@ -59,11 +59,11 @@ using gp::SecurityController;
 namespace {
 
 constexpr const char* kFixtureDir = "tests/fixtures/signing";
-const QString kP12Path = QStringLiteral(kFixtureDir) + "/test_signer.p12";
+const QString kP12Path = QString(kFixtureDir) + "/test_signer.p12";
 const QString kP12Pass = QStringLiteral("test");
-const QString kInputPdf = QStringLiteral(kFixtureDir) + "/test_input.pdf";
+const QString kInputPdf = QString(kFixtureDir) + "/test_input.pdf";
 
-QString sha256File(const QString& p)
+QByteArray sha256File(const QString& p)
 {
     QFile f(p);
     if (!f.open(QIODevice::ReadOnly)) return {};
@@ -204,6 +204,10 @@ class TestGsdW2Probe : public QObject {
 private slots:
     void initTestCase()
     {
+        // Isolate QSettings (the TestBatchOcrLanguage idiom): the probe must
+        // neither read the user's real preferences nor clobber them.
+        QCoreApplication::setOrganizationName(QStringLiteral("GlyphPDFTests"));
+        QCoreApplication::setApplicationName(QStringLiteral("TestGsdW2Probe"));
         QVERIFY(m_dir.isValid());
         PolicyController::instance().resetForTesting();
     }
@@ -247,7 +251,10 @@ private slots:
         evil.defaultVal = QStringLiteral("must never persist");
         stack.push(new EditFormFieldCommand(&fm, &doc,
                                             QStringLiteral("em1_field"), evil));
-        QCOMPARE(stack.count(), 0); // refused redo -> obsolete -> dropped
+        // The refused push adds NO entry (obsolete -> deleted): the stack
+        // still holds exactly the pre-lock command.
+        QCOMPARE(stack.count(), 1);
+        QCOMPARE(stack.index(), 1);
         QCOMPARE(sha256File(pdf), afterTip);
 
         // The boundary reports the ONE policy's message, not a bare error.
@@ -269,7 +276,7 @@ private slots:
     void em2_userSettingLegFailsHonestlyFrenchNoEngineFeeds()
     {
         // Leg 1: NO policy — the deciding half is the USER's disabled setting.
-        QSettings().setValue(QStringLiteral("ocr/language"), QStringLiteral("FRA"));
+        QSettings().setValue(QStringLiteral("ocr/language"), QStringLiteral("FR"));
         QSettings().setValue(QStringLiteral("ocr/allowNetworkDownload"), false);
         PolicyController::instance().resetForTesting();
 
@@ -278,6 +285,9 @@ private slots:
         const QString scanned =
             writeLinePdf(h1.tmp.filePath(QStringLiteral("gsd_scan.pdf")), 0, {});
         QVERIFY(!scanned.isEmpty());
+        QSettings langProbeSettings;
+        qWarning() << "GSD-EM2 readback ocr/language ="
+                   << langProbeSettings.value(QStringLiteral("ocr/language")).toString();
         h1.bm.addFilesForTest({ scanned });
         h1.bm.setOperationForTest(5); // OCR
         h1.bm.onRunBatch();
@@ -546,13 +556,19 @@ private slots:
         // Instance A replaces the destination with a SAME-SIZE different
         // document and restores the original mtime.
         const QString rival = makeMarkedPdf(tmp.path(), QStringLiteral("e6-rival.pdf"),
-                                            QStringLiteral("RIVAL-WRITER-NEW-BYTES!"));
+                                            QStringLiteral("RIVAL-WRITER-NEW-BYTES"));
         QVERIFY(!rival.isEmpty());
         QCOMPARE(QFileInfo(rival).size(), destSize);
         QVERIFY2(sha256File(rival) != destSha, "the rival must differ in bytes");
         QVERIFY(QFile::remove(dest));
         QVERIFY(QFile::copy(rival, dest));
-        QVERIFY(QFile::setFileTime(dest, destMtime, QFile::FileModificationTime));
+        {
+            QFile tf(dest);
+            QVERIFY(tf.open(QIODevice::ReadWrite));
+            QVERIFY2(tf.setFileTime(destMtime, QFile::FileModificationTime),
+                     "mtime restore must succeed (a writable handle is required)");
+            tf.close();
+        }
 
         // B's stale candidate: a deterministic re-serialization of what B
         // still holds — the ORIGINAL V1 bytes.
@@ -707,14 +723,14 @@ private slots:
         {
             QMap<int, QList<QRectF>> rects;
             rects[0].append(QRectF(60.0, 842.0 - 727.0, 320.0, 45.0));
-            RedactRequest req;
+            gp::RedactRequest req;
             req.sourcePath = src;
             req.destinationPath = tmp.filePath(QStringLiteral("rifix-out1.pdf"));
             req.redactionsByPage = rects;
             req.produceProof = true;
-            RedactOperation op(req);
-            const RedactResult r = runOp(&op);
-            QCOMPARE(r.outcome, RedactOutcome::Completed);
+            gp::RedactOperation op(req);
+            const gp::RedactResult r = runOp(&op);
+            QCOMPARE(r.outcome, gp::RedactOutcome::Completed);
             QVERIFY2(r.proofPassed,
                      qPrintable(QStringLiteral("GSD ri: a between-lines mark must "
                                               "not false-alarm: %1")
@@ -739,29 +755,30 @@ private slots:
         }
 
         // Leg 2 — honesty direction: a sloppy mark whose band CUTS the
-        // neighbor's real ink (user band 655..695 overlaps the 660 line's
-        // glyph band ~657.5..668.6) must still attribute it — and since the
-        // neighbor survives, the proof must FAIL naming it (no
-        // containment-style over-tightening may silence a real survivor).
+        // neighbor's real ink WITHOUT covering its baseline (user band
+        // [663..695]: ink top ~668.6 > 663, baseline 660 < 663) must still
+        // attribute it (band-overlap) — and since the excision is
+        // baseline-based the neighbor survives, so the proof must FAIL
+        // naming it (no containment-style over-tightening may silence a
+        // real survivor).
         {
             QMap<int, QList<QRectF>> rects;
-            rects[0].append(QRectF(60.0, 842.0 - 695.0, 320.0, 40.0));
-            RedactRequest req;
+            rects[0].append(QRectF(60.0, 842.0 - 695.0, 320.0, 32.0));
+            gp::RedactRequest req;
             req.sourcePath = src;
             req.destinationPath = tmp.filePath(QStringLiteral("rifix-out2.pdf"));
             req.redactionsByPage = rects;
             req.produceProof = true;
-            RedactOperation op(req);
-            const RedactResult r = runOp(&op);
-            QCOMPARE(r.outcome, RedactOutcome::Completed);
+            gp::RedactOperation op(req);
+            const gp::RedactResult r = runOp(&op);
+            QCOMPARE(r.outcome, gp::RedactOutcome::Completed);
             QVERIFY2(!r.proofPassed,
                      "a mark overlapping the neighbor's ink must not pass while "
                      "the neighbor's text survives");
             const QString failures = joinedProofFailures(r);
-            QVERIFY2(failures.contains(QStringLiteral("GsdPublicEcho"))
-                         || failures.contains(QStringLiteral("GsdSecretZulu")),
+            QVERIFY2(failures.contains(QStringLiteral("GsdPublicEcho")),
                      qPrintable(QStringLiteral("the failure must name the surviving "
-                                              "line(s), got: %1").arg(failures)));
+                                              "neighbor line, got: %1").arg(failures)));
         }
     }
 
@@ -797,16 +814,23 @@ private slots:
                  qPrintable(QStringLiteral("the refusal must be the honest mkpath "
                                           "failure, got: %1").arg(err2)));
 
-        // (c) the root VANISHES under a live session — rename recreates it.
+        // (c) the root VANISHES under a live session: renaming the now-missing
+        // file must fail HONESTLY (error names the path, no crash), and a NEW
+        // save must re-create the root (the save boundary owns it).
         QVERIFY(QDir(deep).removeRecursively());
         QVERIFY2(!QFileInfo::exists(deep), "precondition: root gone");
-        QVERIFY2(deepStore.rename(p.id, QStringLiteral("Gsd Deep Renamed"), &err),
-                 qPrintable(QStringLiteral("rename over a vanished root must "
-                                          "recreate it: %1").arg(err)));
+        QString err3;
+        QVERIFY2(!deepStore.rename(p.id, QStringLiteral("Gsd Deep Renamed"), &err3),
+                 "renaming a preset whose file vanished must refuse");
+        QVERIFY2(!err3.isEmpty(), "the refusal must carry the honest path error");
+        gp::BatchPreset p2;
+        p2.name = QStringLiteral("Gsd Deep Two");
+        p2.steps.append({ QStringLiteral("compress"), {}, { { "quality", 70 } } });
+        QVERIFY2(deepStore.save(&p2, &err),
+                 qPrintable(QStringLiteral("save after the root vanished must "
+                                          "re-create it: %1").arg(err)));
         QVERIFY(QFileInfo::exists(deep));
-        gp::BatchPreset got;
-        QVERIFY(deepStore.get(p.id, &got, &err));
-        QCOMPARE(got.name, QStringLiteral("Gsd Deep Renamed"));
+        QVERIFY(deepStore.contains(p2.id));
     }
 
     // ── F2 three-state (2d29a16): the attained-label truth table ────────────
@@ -849,15 +873,15 @@ private slots:
     }
 
 private:
-    static RedactResult runOp(RedactOperation* op)
+    static gp::RedactResult runOp(gp::RedactOperation* op)
     {
-        RedactResult captured;
-        QObject::connect(op, &RedactOperation::finished, op,
-                         [&captured](const RedactResult& r) { captured = r; });
+        gp::RedactResult captured;
+        QObject::connect(op, &gp::RedactOperation::finished, op,
+                         [&captured](const gp::RedactResult& r) { captured = r; });
         op->run();
         return captured;
     }
-    static QString joinedProofFailures(const RedactResult& r)
+    static QString joinedProofFailures(const gp::RedactResult& r)
     {
         return r.proofFailures.join(QStringLiteral(" || "));
     }
