@@ -139,4 +139,29 @@ These are NOT ancestors of the line, so `rev-list <b> ^feat/parity-glm` is non-e
 
 **Disposition (per the stage order's rule "any branch that FAILS the proof is reclassified REAL-MERGE — flag loudly, do not fold"):** `origin/claude/modest-mccarthy-riuo2o` is reclassified **REAL-MERGE (docs-only, 1 commit)** and added to the stage-2 merge list (order: after the C-class merges, before/with `main`). It must NOT be folded until `git rev-list a8f50a44 ^T` = 0. The stage-2 draft (§5) implements this.
 
+---
+
+## 4. Task 4 — `main` divergence re-verification at the current tip
+
+Re-run at `feat/parity-glm` = `26c9a415` (the line has moved 7+ commits past the plan's rehearsal base `ec9f16f6`; `main` = `2b715f47` and `origin/main` = `d03d6e94` are UNMOVED since the plan, `origin/main..main` = 2 as rehearsed):
+
+```
+git cherry feat/parity-glm main
+```
+
+| Metric | Plan rehearsal (@ `a82036df`, line `ec9f16f6`) | This stage (@ line `26c9a415`) | Drift |
+|---|---|---|---|
+| main-only commits listed | 401 `-` / 14 `+` "of 430" | **415 total = 401 `-` / 14 `+`** | **The plan's "of 430" was internally inconsistent: 401+14 = 415, and 415 is what the command actually returns today.** Core claim unaffected |
+| patch-id-equivalent (`-`) | 401 | **401** | none — exact match |
+| real unique (`+`) | 14 | **14** | none — exact match |
+| The 14 `+` SHAs | listed in plan §4.1 | `06cb0bd0` `4488f7f6` `2026e1ab` `1b055370` `bd522c75` `8a6d25a4` `022dadc1` `a4466674` `cafe4e65` `793beb71` `5ca7e36e` `1abf3008` `2e51b2c4` `2b715f47` | **identical list, SHA for SHA** |
+
+**Verdict: the plan's 401-equivalent / 14-real claim REPRODUCES EXACTLY at the current tip** — the line's advance since the rehearsal (`ec9f16f6` → `26c9a415`) absorbed none of main's 14 unique patches and no new patch-equivalences appeared. The content verdict in plan §4.1 (take the docs/governance/release-eng uniques via the merge; code superseded; all 401 equivalents remain reachable via main's parent history forever) stands as written.
+
+**Rehearsal drift that stage 2 must absorb (measured this stage):**
+1. `feat/modularity-moves` (`3c411cc8`) and its parent `feat/sweep-w3-arch` (`46cae7ba`) are **already merged into the line** (uniq 0 each; line tip `26c9a415` is that merge). Phase-1 of the plan's sequence shrinks from 8 refs to **7** (`soak-48h` 1, `soak-verdict` 1, `sweep-w3-archaeo` 2, `sweep-w3-devops` 1, `sweep-w3-perf` 4, `sweep-w3-research` 5, `sweep-quality-new` 3 unique commits still outstanding), plus the reclassified `claude/…` docs tip.
+2. The main-merge conflict forecast (~130 paths) was measured at `ec9f16f6`; from `26c9a415` the line side carries additional ledger/docs rows, so the conflict list must be re-measured at merge time (the §5.2 policy classes R1–R4 are unchanged).
+3. Five remediation lanes will move the line further before stage 2 runs — the stage-2 draft re-runs the fold-proof sweep and the cherry count at execution time as gating preconditions, and requires a fresh final bundle (§1.5).
+
+
 
