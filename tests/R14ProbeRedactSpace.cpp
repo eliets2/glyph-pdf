@@ -16,6 +16,8 @@
 #include <QFile>
 #include <QTemporaryDir>
 
+#include <algorithm>
+
 #include <podofo/podofo.h>
 
 #include "core/RedactionProof.h"
@@ -170,9 +172,6 @@ private slots:
         req.redactionsByPage[0] = { secretViewerMark(), annotViewerMark() };
         const Result proof = verify(req);
         QVERIFY(proof.proofRan);
-        qInfo() << "honest-failure: passed =" << proof.proofPassed
-                << "removed =" << proof.entries.first().removedStrings
-                << "failures =" << proof.failureReasons;
         for (const auto& s : proof.surfaces)
             qInfo() << "surface" << int(s.surface) << "problems =" << s.problems;
         {   // dump what PoDoFo itself reports for the annotation rect
@@ -193,8 +192,38 @@ private slots:
             }
         }
 
+        // PROBE-SCOPING FIX (audit REDACTION-RESEARCH-2026-09-21 §1.6 Plan
+        // 1-A): attribution is PER MARK — each entry's removedStrings carries
+        // only the strings its own region covered (no cross-mark state in
+        // verify()). The old assert read entries.first() only, i.e. the
+        // CONTENT mark's entry; the annot string lives in the SECOND entry,
+        // so this slot flagged a production defect that does not exist
+        // (production attribution verified correct at base ec9f16f6 — §1.3).
+        // Assert over ALL entries, then pin PER-ENTRY SCOPING: the content
+        // entry must carry the content strings and NOT the annot string, and
+        // the annot entry must carry exactly the annot string — a regression
+        // that attributed everything to every mark would pass the aggregate
+        // form but must fail here.
+        QStringList allRemoved;
+        const ExcisionEntry* contentEntry = nullptr;
+        const ExcisionEntry* annotEntry = nullptr;
+        for (const auto& e : proof.entries) {
+            allRemoved += e.removedStrings;
+            if (e.region == secretViewerMark())
+                contentEntry = &e;
+            if (e.region == annotViewerMark())
+                annotEntry = &e;
+        }
+        qInfo() << "honest-failure: passed =" << proof.proofPassed
+                << "entries =" << proof.entries.size()
+                << "allRemoved =" << allRemoved
+                << "failures =" << proof.failureReasons;
+        QVERIFY2(contentEntry != nullptr,
+                 "the content mark must produce an entry");
+        QVERIFY2(annotEntry != nullptr,
+                 "the annot mark must produce an entry");
         bool contentAttributed = false, annotAttributed = false;
-        for (const auto& s : proof.entries.first().removedStrings) {
+        for (const auto& s : allRemoved) {
             contentAttributed |= s.contains(QLatin1String("CombinedSecretAlpha"));
             annotAttributed |= s.contains(QLatin1String("AnnotSecretZebra"));
         }
@@ -204,6 +233,20 @@ private slots:
         QVERIFY2(annotAttributed,
                  "annotation-only secret must be attributed from a viewer mark "
                  "on an offset+rotated page (L7 composed with L5)");
+        for (const auto& s : contentEntry->removedStrings)
+            QVERIFY2(!s.contains(QLatin1String("AnnotSecretZebra")),
+                     "mark-scoped attribution: the content entry must NOT "
+                     "carry the annot mark's string");
+        QVERIFY2(std::any_of(contentEntry->removedStrings.cbegin(),
+                             contentEntry->removedStrings.cend(),
+                             [](const QString& s) {
+                                 return s.contains(
+                                     QLatin1String("CombinedSecretAlpha"));
+                             }),
+                 "mark-scoped attribution: the content entry must carry the "
+                 "content secret");
+        QCOMPARE(annotEntry->removedStrings,
+                 QStringList{QStringLiteral("AnnotSecretZebra")});
         QVERIFY2(!proof.proofPassed,
                  "the proof must FAIL when the secrets still survive in the "
                  "output — silent PASS is the data-loss defect");
