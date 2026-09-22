@@ -878,6 +878,14 @@ bool BatchPresetStore::save(BatchPreset* preset, QString* err) {
     if (!BatchPresetCodec::validate(*preset, &validationErr))
         return fail(err, validationErr);
 
+    // F2b-D1 (SWEEP-W3 UX): first-ever save on a clean profile — the store
+    // root does not exist yet and QSaveFile cannot create missing parent
+    // directories, so the write failed with an opaque "cannot find the path
+    // specified". The store owns its root; the save boundary creates it.
+    if (!QDir().mkpath(m_rootDir))
+        return fail(err, QStringLiteral("%1: cannot create store directory")
+                                   .arg(m_rootDir));
+
     const QString path =
         QDir(m_rootDir).filePath(preset->id + QStringLiteral(".glyphpreset.json"));
     QSaveFile f(path);
@@ -901,6 +909,11 @@ bool BatchPresetStore::rename(const QString& id, const QString& newName, QString
     QString validationErr;
     if (!BatchPresetCodec::validate(p, &validationErr))
         return fail(err, validationErr);
+    // Same root boundary as save() (F2b-D1): keep the store writable even if
+    // the root vanished underneath a live session.
+    if (!QDir().mkpath(m_rootDir))
+        return fail(err, QStringLiteral("%1: cannot create store directory")
+                                   .arg(m_rootDir));
     const QString path =
         QDir(m_rootDir).filePath(id + QStringLiteral(".glyphpreset.json"));
     QSaveFile f(path);

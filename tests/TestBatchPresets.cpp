@@ -178,6 +178,7 @@ private slots:
     void minAppVersionBlocksOlderApp();
     void deleteAndRenameHonestyThroughUiSeams();
     void transactionalFailureLeavesOriginalUntouched();
+    void firstSaveOnCleanProfileCreatesStoreRoot();
 
 private:
     std::unique_ptr<QTemporaryDir> m_storeDir;
@@ -524,6 +525,39 @@ void TestBatchPresets::storeCrudRenameDeleteAndBrokenDisclosure() {
     QCOMPARE(store.list().size(), 2);          // corrupt file invisible to list()...
     QCOMPARE(store.brokenFiles().size(), 1);   // ...but disclosed here
     QVERIFY(!store.brokenFiles().first().error.isEmpty());
+}
+
+// F2b-D1 (SWEEP-W3 UX audit, 2026-09-20): the FIRST-EVER preset save on a
+// clean profile used to fail with an opaque QSaveFile "cannot open for
+// writing — The system cannot find the path specified" because the store root
+// directory did not exist yet and nothing created it. The store owns its root
+// (rootDir()), so the save/rename boundary must create it (mkpath) before the
+// QSaveFile write. Pins the clean-profile save-to-fresh-root contract.
+void TestBatchPresets::firstSaveOnCleanProfileCreatesStoreRoot() {
+    const QString freshRoot =
+        m_storeDir->path() + QStringLiteral("/clean-profile/presets");
+    BatchPresetStore store(freshRoot);
+    QCOMPARE(store.rootDir(), freshRoot);
+    QVERIFY2(!QFileInfo::exists(freshRoot),
+             "precondition: the store root must not exist yet (clean profile)");
+
+    BatchPreset p;
+    p.name = QStringLiteral("First Save");
+    p.steps.append({ QStringLiteral("compress"), {}, { { "quality", 60 } } });
+    QString err;
+    QVERIFY2(store.save(&p, &err),
+             qPrintable(QStringLiteral(
+                 "first-ever save on a clean profile must succeed: %1").arg(err)));
+    QVERIFY(QFileInfo::exists(store.rootDir()
+                              + QStringLiteral("/first-save.glyphpreset.json")));
+    QVERIFY(store.contains(p.id));
+
+    // The rename entry shares the same root boundary (symmetric contract).
+    QVERIFY2(store.rename(p.id, QStringLiteral("First Save Renamed"), &err),
+             qPrintable(err));
+    BatchPreset renamed;
+    QVERIFY(store.get(p.id, &renamed, &err));
+    QCOMPARE(renamed.name, QStringLiteral("First Save Renamed"));
 }
 
 void TestBatchPresets::saveAsPresetFromConfiguredRunAndRefusals() {

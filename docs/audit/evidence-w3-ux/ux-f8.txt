@@ -1,0 +1,24 @@
+********* Start testing of TestSweepW3UxFlows *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSweepW3UxFlows::initTestCase()
+QWARN  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() UXAUDIT: F8 start: 3-page fixture; regex [Aa]lpha[a-z]* ? Alpha + alphabet + alpha = 3
+QINFO  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() UXAUDIT: F-route: clicking welcome card 'open'
+QWARN  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() This plugin does not support propagateSizeHints()
+QWARN  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() This plugin does not support propagateSizeHints()
+QWARN  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() This plugin does not support raise()
+QINFO  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() UXAUDIT: F8 step1: dialog open via production entry
+QWARN  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() UXAUDIT: F8 step2: COUNT reported: '4 match(es) on 3 page(s) — count shown before replace.'
+QDEBUG : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/TestSweepW3UxFlows-GBJqQz/three-pages.pdf"
+QINFO  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() UXAUDIT: F8 step3: REPLACE ALL reported: 'Replaced 4 of 4 occurrence(s). 4 replacement(s) changed the text width (first on page 1) — check those pages for overlapping text.
+Geometry: 4 of 4 replacement(s) changed the text width.
+Length differs in 4 case(s) (first: 1, 'Alpha' ? 'Zeta').'
+QDEBUG : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/TestSweepW3UxFlows-GBJqQz/three-pages.pdf"
+QINFO  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() UXAUDIT: F8 step4: surviving 'lpha' glyph runs after save: 0 (outcome disclosed: 'Replaced 4 of 4 occurrence(s). 4 replacement(s) changed the text width (first on page 1) — check those pages for overlap')
+QINFO  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() UXAUDIT: F8 verified: count-before-replace + replace accounting are honest (WP-R07)
+QWARN  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() QTemporaryDir: Unable to remove "C:\\Users\\User\\AppData\\Local\\Temp\\TestSweepW3UxFlows-GBJqQz" most likely due to the presence of read-only files.
+PASS   : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty()
+PASS   : TestSweepW3UxFlows::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 3804ms
+********* Finished testing of TestSweepW3UxFlows *********
