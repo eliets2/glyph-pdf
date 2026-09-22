@@ -199,7 +199,7 @@ Key stage-2 changes absorbed from this stage's findings: phase-1 list = 7 outsta
 d55e0506 docs(audit): stage-1 fold proofs — 38/38 A-class PASS at 26c9a415 (Task 3)
 2f2e4bde docs(audit): stage-1 main-divergence re-verification — 401/14 reproduces exactly (Task 4)
 22778408 docs(audit): stage-2 script DRAFT (NOT EXECUTED) — md runbook + syntax-checked .sh (Task 5)
-<final>  docs(audit): stage-1 report finalized — drift ledger, residuals, handoff (stage close)
+053f02fc docs(audit): stage-1 report finalized — drift ledger, residuals, handoff (stage close)
 ```
 
 Branched from `feat/parity-glm` @ `26c9a4154cd7e2e9acca7fa714faaaa835bd97de`.
