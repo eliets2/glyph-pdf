@@ -100,6 +100,32 @@ namespace gp {
 // destroy windows in sequence).
 namespace {
 QPointer<MainWindow> g_fileHandleCoordinatorOwner;
+
+// F6-F1 (SWEEP-W3 UX): the open-failure path detects a certificate
+// (public-key) /Encrypt dictionary before falling back to the generic
+// "Could not open" error. A PubSec-encrypted document is VALID — this
+// viewer just cannot decrypt it — so the message must name the real state
+// instead of misrepresenting the file as broken. Cheap raw-tail probe: the
+// /Encrypt dictionary is never compressed (a conformant reader must parse
+// it before decryption) and writers emit it at the file tail, so a bounded
+// scan of the last 64 KiB for the live /Encrypt marker plus a
+// /Filter /…PubSec value (our own PdfEncryptPubSec output and Adobe's
+// /Filter /Adobe.PubSec shape) is reliable. A miss — or any read failure —
+// just keeps the generic error.
+bool documentLooksPubSecEncrypted(const QString &path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return false;
+    const qint64 window = 64 * 1024;
+    const qint64 size = f.size();
+    const qint64 start = qMax<qint64>(0, size - window);
+    if (!f.seek(start)) return false;
+    const QByteArray tail = f.read(size - start);
+    if (!tail.contains("/Encrypt")) return false;
+    static const QRegularExpression pubSecFilter(
+        QStringLiteral("/Filter\\s*/\\S*PubSec"));
+    return pubSecFilter.match(QString::fromLatin1(tail)).hasMatch();
+}
 }
 
 MainWindow::MainWindow(AppContext ctx, QWidget* parent)
@@ -886,10 +912,22 @@ void MainWindow::openDocument(const QString& filePath) {
             _ctx->pdfEditor->clearError();
         }
         if (err.isOk()) {
-            err = ErrorInfo::error(
-                tr("Could not open the PDF document."),
-                tr("Path: %1").arg(filePath),
-                ErrorInfo::Retry);
+            // F6-F1: a PubSec-encrypted file is not a broken file — name the
+            // certificate state instead of the generic open failure (Retry
+            // cannot succeed in-app, so it is not offered).
+            if (documentLooksPubSecEncrypted(filePath)) {
+                err = ErrorInfo::error(
+                    tr("This document is certificate-encrypted (PubSec). GlyphPDF "
+                       "cannot decrypt it — open it in a viewer that has the "
+                       "matching recipient certificate installed."),
+                    tr("The PDF carries a public-key /Encrypt dictionary with "
+                       "recipient envelopes. Path: %1").arg(filePath));
+            } else {
+                err = ErrorInfo::error(
+                    tr("Could not open the PDF document."),
+                    tr("Path: %1").arg(filePath),
+                    ErrorInfo::Retry);
+            }
         }
         err.sourceFile = filePath;
 
@@ -1020,10 +1058,22 @@ void MainWindow::openDocument(const QString& filePath) {
             _ctx->pdfEditor->clearError();
         }
         if (err.isOk()) {
-            err = ErrorInfo::error(
-                tr("Could not open the PDF document."),
-                tr("Path: %1").arg(filePath),
-                ErrorInfo::Retry);
+            // F6-F1: same certificate-encryption disclosure as the engine
+            // load-failure path above — the viewer's QPdfDocument cannot
+            // decrypt PubSec documents either.
+            if (documentLooksPubSecEncrypted(filePath)) {
+                err = ErrorInfo::error(
+                    tr("This document is certificate-encrypted (PubSec). GlyphPDF "
+                       "cannot decrypt it — open it in a viewer that has the "
+                       "matching recipient certificate installed."),
+                    tr("The PDF carries a public-key /Encrypt dictionary with "
+                       "recipient envelopes. Path: %1").arg(filePath));
+            } else {
+                err = ErrorInfo::error(
+                    tr("Could not open the PDF document."),
+                    tr("Path: %1").arg(filePath),
+                    ErrorInfo::Retry);
+            }
         }
         err.sourceFile = filePath;
 

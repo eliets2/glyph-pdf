@@ -1597,6 +1597,21 @@ private slots:
                            "viewer page count now %3")
                  .arg(openTitle, openMsg.left(250))
                  .arg(m_win->pdfViewer()->pageCount()));
+        // F6-F1 (FIXED, permanent pin): the artifact is VALID — this viewer
+        // just cannot decrypt it — so the open-failure disclosure must name
+        // the certificate-encrypted state. The regression this guards against
+        // is the generic "Could not open the PDF document" — the same wording
+        // a corrupt file gets, which dead-ends a user who JUST encrypted the
+        // file with zero mention of certificates.
+        QVERIFY2(openMsg.contains(QStringLiteral("certificate-encrypted"),
+                                  Qt::CaseInsensitive),
+                 qPrintable(QStringLiteral("F6-F1: the open-failure disclosure for "
+                              "the app's own PubSec-encrypted output must name the "
+                              "certificate-encrypted state (modal said: '%1')")
+                                .arg(openMsg.left(200))));
+        QVERIFY2(m_win->pdfViewer()->pageCount() == 0,
+                 "F6-F1: the PubSec-encrypted document must not render in the "
+                 "viewer (it cannot be decrypted here)");
     }
 
     // ── F7: accessibility scan → fix /Lang + /Alt → rescan; honesty box ──────
