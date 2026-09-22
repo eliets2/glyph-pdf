@@ -1318,28 +1318,14 @@ private slots:
         step(QStringLiteral("F4d completion surface: '%1'; engine signatures on doc: %2; "
                            "steps signed: %3")
                  .arg(titleText.left(250)).arg(engineSigs).arg(f4dStepsSigned));
-        // F4d-D1 (recorded, SWEEP-W3 UX resume 2026-09-21): the first fill step
-        // fails with "The signature field sig1 could not be placed: commit to
-        // destination failed: Access is denied." The lazy field placement
-        // commits IN PLACE from the signing worker thread, where the GUI
-        // handle coordinator deliberately no-ops (SafeSave coordinator refuses
-        // off-GUI-thread release), so the viewer's open QPdfDocument keeps the
-        // file locked and the replacement is denied. The workflow is reachable
-        // only with the document open — so the 2-signer flow cannot complete.
-        // The failure disclosure itself is honest (names the field + reason,
-        // document unchanged). Gated as an expected fail: when a fix lane
-        // restores background-safe in-place commits, this becomes an XPASS and
-        // the marker must be removed together with the finding.
-        if (engineSigs < 2) {
-            QEXPECT_FAIL("", "F4d-D1: fill-step in-place commit denied while the "
-                            "viewer holds the document (off-GUI-thread commit skips "
-                            "the SafeSave handle coordinator) — "
-                            "docs/audit/SWEEP-W3-UX-2026-09-20.md",
-                         Continue);
-        }
-        // The prepare dialog pre-seeds one signer row, so Add×2 yields THREE
-        // signer steps; this audit drives the first two. Completable = at
-        // least the driven steps carry engine-attested signatures.
+        // F4d-D1 was FIXED in the ux-defects fix lane: the background fill-step
+        // commits are background-safe again. Two pins had to go for the in-place
+        // replacement to succeed — the viewer's QPdfDocument (the shell's SafeSave
+        // handle coordinator now marshals park/restore to the GUI thread for
+        // worker commits) and the editing engine's file-backed resident
+        // (SendForSigningController releases it per step, the runA11yFix/
+        // FormsController precedent). This slot is gated as a PERMANENT PASS:
+        // the driven signer steps must produce engine-attested signatures.
         QVERIFY2(engineSigs >= 2,
                  "F4d completability: the driven signer steps must produce "
                  "engine-attested signatures");
