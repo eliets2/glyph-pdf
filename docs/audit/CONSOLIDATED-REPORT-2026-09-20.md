@@ -179,7 +179,7 @@ measurement (rides SL1) (ledger §sweep-legacy, "Reviewed-clean" paragraph).
 | W2B-1 | SWEEP-W2B (guarantee-verification pass) | silent-misplacement (blocks SL1 full verified) | On /Rotate 270 the SL1 law stored/READ transposed rects (embed [662 452 712 552] vs law [482 632 532 732]); root cause: vendored PoDoFo 1.1.0 `GetMediaBox()` is rotation-normalized on 90/270 and the law consumed it as rotation-independent (90 passed only because its formula never reads W/H) | 879c171 (root: `pageGeometry` from `GetMediaBoxRaw().GetNormalized()`) + SignatureFieldCreator containment-vs-raw-box + verbatim signature /Rect (CreateField double-transform corruption found and fixed) + SL3 clamp from shared geometry; tests 28b5c48 (TestRotate270PageSpace 7/7; TestLegacyOriginSpace 9/9 w/ new rot-270+offset page; TestRedactionProof rotated slot); merged at ec9f16f6; docs 9e1cde9 | **verified** (SWEEP-W2C: independent probe W2CProbeRotate270 7/7 through the production move/resize path on all 6 page shapes with own literals + raw-dict/PDFium/raw-bytes readers; scoped NC of 879c171 → 2P/5F with transposed shapes and the offset-270 secret SURVIVING excision; committed gate 240 passed / 0 failed / 3 documented skips; SL1 flipped verified; F5 caveat lifted) |
 | FU-2 (suite) | SWEEP-W2-TESTING | flake class (test infra) | `%TEMP%/glyphpdf-candidates` is process-shared — candidate scanners observe debris from concurrent suites (demonstrated live: TestSignatureRealCrypto delta-fail, TestEncryptedPackageSafeWrite 6!=5, 2 unpatched full runs) | ae636a5a: `RESOURCE_LOCK GlyphpdfCandidates` on 15 writer/scanner suites (+TestMeasureCore env); incident note: first patch-script application corrupted 4 property blocks, repaired and documented | verified by run: patched full `ctest -j 2` **171/171, 0 failures** (SWEEP-W2-TESTING §3.1) |
 | TestLaneScheduler (suite) | SWEEP-W2-TESTING | genuinely-flaky test | `elapsed < 1000 ms` bound straddles actual serial-time behavior on this host (3 pass / 5 fail IDLE; failures 1000–1025 ms); NOT fixed in-sweep | proposal recorded (structural overlap assertion or higher bound) — cleanup-lane residual | open (classification + proposal, SWEEP-W2-TESTING §2.1/§2.3) |
-| San-UAF ("E-2" in the sanitize-crash lane's own table) | SOAK-VERDICT §4.5 (48 h soak, passes 4 and 31) | CRASH-class (silent UAF) | `sanitizeDocumentContents` RemoveKey("Info"/"Outlines") orphaned objects that PdfDocument caches; the next Save's CollectGarbage freed them under live wrappers → 0xc0000005 in `AssertMutable` on the following metadata stamp; heap-state dependent (the soak's 2/~10 intermittency) | ed04426e (`feat/sanitize-assert-mutable`): scrub IN PLACE (keys stay, dictionaries cleared, catalog-alias guard); NEW `TestSanitizeTrailerUaf` pin — fail-before 10/10 (8x soak-signature SegFault + 2x deterministic assertion), pass-after 13/13, scoped-revert NC 5/5 fail; contract pins moved key-absence → data-absence (documented as NOT a weakening); family green (TestSanitization x5, TrailerUaf, CompressStrip, RedactSanitizeBundle, RedactTransaction 38/38, ExcisionCorruption, EngineSave) | implemented-awaiting-review (ledger §sanitize-crash lane); TestSanitization x3 clean pre-soak at the re-soak tip (RESOAK §2) |
+| San-UAF ("E-2" in the sanitize-crash lane's own table) | SOAK-VERDICT §4.5 (48 h soak, passes 4 and 31) | CRASH-class (silent UAF) | `sanitizeDocumentContents` RemoveKey("Info"/"Outlines") orphaned objects that PdfDocument caches; the next Save's CollectGarbage freed them under live wrappers → 0xc0000005 in `AssertMutable` on the following metadata stamp; heap-state dependent (the soak's 2/~10 intermittency) | ed04426e (`feat/sanitize-assert-mutable`): scrub IN PLACE (keys stay, dictionaries cleared, catalog-alias guard); NEW `TestSanitizeTrailerUaf` pin — fail-before 10/10 (8x soak-signature SegFault + 2x deterministic assertion), pass-after 13/13, scoped-revert NC 5/5 fail; contract pins moved key-absence → data-absence (documented as NOT a weakening); family green (TestSanitization x5, TrailerUaf, CompressStrip, RedactSanitizeBundle, RedactTransaction 38/38, ExcisionCorruption, EngineSave) | implemented-awaiting-review (ledger §sanitize-crash lane; review = ADDENDUM SLOT A4); TestSanitization x3 clean pre-soak at the re-soak tip (RESOAK §2); the re-soak's 8 in-window SegFaults (7x `AssertMutable` + 1x `GetRawData`, pass 14) EXPLAINED — the soak binary pre-dated `ed04426`, and `GetRawData` is the SAME E-2 UAF at a PoDoFo-internal frame (zero GlyphPDF-side sanitize-path call sites); post-fix TestSanitization x10 + TestSanitizeTrailerUaf x10 clean (SOAK-FOLLOWUP ITEM 1 — explained-closed) |
 | ri-fix (W2c residual) | SWEEP-W2C §Observation | precision-only (false ALARM) | `runIntersects`' 3xfs ascender headroom over-attributed a neighbor line inside the margin — the proof FALSE-ALARMed a geometrically correct redaction (probe-w2c-loose.txt); rotation-independent; honest-failure direction unaffected | 87c4acbc / e620757b (`feat/runintersects-precision`): attribution band = the run's REAL glyph extent (font ascender..descender from PDFium char boxes; degenerate fallback ±1em); TestRedactionProof 23/23 with 2 new pins; fail-before + NC captured; 128 passed / 0 new failures across the family | implemented-awaiting-review (ledger ri-fix row; lane active). The lane also DISCLOSED a pre-existing failure — R14ProbeRedactSpace annotation-only attribution on offset+rotate — failing identically on the untouched base; owner triage requested (the L7/F1 family) |
 
 ### 2.5 W3 emergence findings (E-1..E-6) — source: SWEEP-W3-EMERGENCE-2026-09-20.md; fixes + ledger: `feat/emergence-fixes` (rows EM-1..EM-6)
@@ -212,7 +212,7 @@ allowlist, §5). Probe evidence: 9/9 suites passed at the emergence tip
 | 4 | **SignatureManager::signatureFieldAnchors** — pre-existing rotation-imperfect anchor read on /Rotate 90/270 (owner-owned, untouched by the W2B-1 fix); consumer side (badges) fixed by E-3 | signature owner | re-audit request stands (SWEEP-W2C §Residuals 1; ledger W2B-1 rows) |
 | 5 | **Sweep-legacy residuals** — AP-stream BBox aspect on /Rotate pages (position correct; /Matrix rotation deferred); extractLinks link-rect reader and T2-2 Find&Replace replacement writer still height-only-flip (recipe = SL1's mapping); file-level PdfPageOps direct-write has no SafeSave candidate (mitigated by explicit Save-As dialogs); exportToImage out-of-range "page" option renders all pages (API/batch only); CSV valid UTF-8 without BOM (Excel mojibake = consumer note); negative /Rotate modulo (spec-legal) | owner lanes (links/redaction/writer owners) | recorded in ledger §sweep-legacy + SWEEP-LEGACY-2026-09-20.md |
 | 6 | **Emergence fixes EM-1..EM-6 + San-UAF + ri-fix pending verification review** | coordinator / verification lane | ADDENDUM SLOT A4 (§7) |
-| 7 | **W2C new residuals** — chained annotation re-embed appends without /NM dedup (hygiene question: can the save flow re-embed the same id twice on one lineage?); TestRedactionProof `proofFailsOnXmpSurvivor` pre-existing flake (load-sensitive; passed in W2C's runs) | annotation owner / proof owner | recorded (SWEEP-W2C §Residuals 2–3, 5); runIntersects precision itself RESOLVED by ri-fix |
+| 7 | **W2C new residuals** — chained annotation re-embed appends without /NM dedup (hygiene question: can the save flow re-embed the same id twice on one lineage?); TestRedactionProof `proofFailsOnXmpSurvivor` pre-existing flake (load-sensitive; passed in W2C's runs) — since ROOT-CAUSED + FIXED (SF-2, `feat/soak-followups`): PoDoFo 1.1.0 default-Save ModDate stamp re-syncs /Catalog/Metadata from its metadata store on a second-granularity boundary crossing, discarding the tamper helper's planted XMP — the proof's PASS was correct for the actual bytes (fixture flake, NOT a false certification); fixed via `PdfSaveOptions::NoMetadataUpdate` + post-save reload pin; fail-before 8/40 under load → pass-after 30/30 under load, scoped-revert NC 1/25 with the exact soak signature | annotation owner / proof owner | recorded (SWEEP-W2C §Residuals 2–3, 5); runIntersects precision itself RESOLVED by ri-fix; XMP survivor RESOLVED as SF-2 (SOAK-FOLLOWUP ITEM 2) — implemented-awaiting-review |
 | 8 | **Adversary open hypotheses** — W1-H1 two-instance signing race (needs a two-process harness; P2 multi-session concern — note E-6 now closes the commit half at the SafeSave boundary, implemented-awaiting-review); W1-H2 consent-before-reload gap (needs GUI-flow harness; the gate DOES detect and require consent); W1-H3 preset-chain throw-leak (mechanism confirmed by reading; consequence = temp pollution only) | future lanes | recorded with exact missing pieces (SWEEP-W1-ADVERSARY §HYPOTHESES) |
 | 9 | **UX batch-B flows 4–7 unrun** (disk guard) + **F2b-D1** first-run preset-save breaker (one-line `mkpath` fix proposed, not yet landed) + F2a-F1 merge-output naming + offscreen drag native-confirmation residual | ux-resume lane (flows), presets lane (F2b-D1) | ADDENDUM SLOT A1 (§7); SWEEP-W3-UX §Friction inventory |
 | 10 | **Devops D1** models bootstrap gap (top gap); D2 models missing in 5/9 worktrees (restored in pdf-r18 only; pdf-clean still lacks them); C1 fuzz-workflow provisioning likely cannot pass; C2/C3/D3/D4/D5/D6 stale comments + dead scripts batched for cleanup; B1 release-box VCRT; §3.5 NOT-VERIFIED register (second-machine install, VCRT adequacy on a clean box, veraPDF-bundled variant, first-run no-network) | release-hardening / cleanup pass / fuzz lane owner | dispositions per SWEEP-W3-DEVOPS §7.1; D1 recommended "early in W4 or the release-hardening pass" |
@@ -220,7 +220,7 @@ allowlist, §5). Probe evidence: 9/9 suites passed at the emergence tip
 | 12 | **Archaeologist dispositions** — 0 PROVEN-SAFE deletions (triple bar unmet); AnnotationToolBar.{cpp,h} KEEP-ANYWAY (revival marker e5a5f01 — parity lane to close the question explicitly); LibSecretStore platform-gated load-bearing (never propose on Windows-build evidence); TestImageDedup 09-09 ledger row superseded (alive, registered) | parity lane (revival question); cleanup pass (2 NEEDS-REVIEW rows) | recorded (SWEEP-W3-ARCHAEOLOGIST §1–§3, §6–§8) |
 | 13 | **Research open roadmap items** (corpus reconciled, not silently upgraded) — form-JS P3 (OpenAction/doc-level + consent), send-for-signing P2–P4, presets P2/P3, T2-4 tag-tree/auto-tag/PDF-UA, T2-5 batch split/password-strip, N5 reverse wire-up, N4 offline-degraded-validation wording, N38 GPO/ADMX/MSI/license tail, Tier-3 pool; matrix CSV mechanical defects (line 302 parse, duplicate `certify` id, stale measure rows 52–54) | program backlog / matrix owner | recorded (SWEEP-W3-RESEARCH §2, §4.2, §6) |
 | 14 | **Perf residuals R1–R8** — warm/cold start split, office-PDF corpus, interactive + cancel latency, frame pacing, GPU paths, multi-monitor; perf F5 observation (16x render succeeded where a 64 Mpx guard was expected — view-path scoping question); quiet-run redact-apply median variance (32→77 ms, min matches floor) flagged for re-probe before quoting either number | future perf lane | recorded (PERF-BASELINE §5–§6, §7.1 notes 2/5) |
-| 15 | **Soak/consolidation residuals** — first-soak candidate `2f755244` has ~4 h endurance evidence only; re-soak (candidate `b17106a`, exe SHA-256 `509da2c8…`) verdict pending; consolidation: `origin/feat/parity-glm` 7 commits behind local tip (push step), main-merge resolution classes R2/R3/R4 need release-owner sign-off, local-only branch set out of scope | soak reading session / consolidation execution lane | ADDENDUM SLOT A3; CONSOLIDATION-PLAN §5, §9 |
+| 15 | **Soak/consolidation residuals** — first-soak candidate `2f755244` has ~4 h endurance evidence only; re-soak (candidate `b17106a`, exe SHA-256 `509da2c8…`) **verdict PASS** — endurance established for `b17106a` over the full 48.12 h window (ADDENDUM SLOT A3), superseding the `2f755244` evidence; the re-soak's crash-class recurrence + new XMP-survivor family both dispositioned by `feat/soak-followups` (SF-1 explained-closed, SF-2 fixed; §2.4 San-UAF row / §2.6 item 7); consolidation: `origin/feat/parity-glm` 7 commits behind local tip (push step), main-merge resolution classes R2/R3/R4 need release-owner sign-off, local-only branch set out of scope | soak reading session / consolidation execution lane | ADDENDUM SLOT A3 (filled: PASS); CONSOLIDATION-PLAN §5, §9 |
 
 ## 3. Verification summary
 
@@ -482,10 +482,12 @@ split, office corpus.
   classified crash-class "flake-source-with-a-real-bug-suspicion", top follow-up
   (§4.5). **Run down and fixed** by the sanitize-crash lane (ed04426e; row San-UAF in §2.4
   above) — the soak's exact frames (Save→SetModifyDate→SetModDate→AddKey→AssertMutable)
-  reproduced deterministically by the new pin. SOAK-VERDICT §10 follow-ups 1 (re-soak) and
-  3 (candidates-dir hardening beyond RESOURCE_LOCK) remain open.
+  reproduced deterministically by the new pin. SOAK-VERDICT §10 follow-up 1 (re-soak) is
+  CLOSED — the re-soak ran the full window and PASSED (ADDENDUM SLOT A3); follow-up 3
+  (candidates-dir hardening beyond RESOURCE_LOCK) remains open at lower priority
+  (RESOAK §4.4/§9.5).
 
-### 6.2 Re-soak (live at report time — ADDENDUM SLOT A3)
+### 6.2 Re-soak (design and status at report time; **verdict since recorded: PASS — ADDENDUM SLOT A3**)
 
 - **Design (reboot-resilient, the §8 kill class can no longer end it):** per-pass
   heartbeat + `GlyphPDFResoak` logon Scheduled Task + relaunch guard (heartbeat stale
@@ -514,6 +516,16 @@ split, office corpus.
   app cycles, single machine; the OS-restart logon path was proven by controlled kill +
   manual guard run, not a real reboot; the endurance conclusion does not transfer from
   `2f755244` — this soak re-establishes it for `b17106a` (RESOAK §5).
+- **Outcome (read 2026-09-22; full record in ADDENDUM SLOT A3): PASS.** SOAK END after
+  720 passes at 2026-09-22T20:56:23+03 — **48.12 h of continuous execution** (one drill
+  resumption, no real reboot); 477/719 result passes green, every FAIL a clean ctest
+  exit=8; **zero candidate-attributable failures** (100 % of the 274 failing-test events
+  classified; max family rate 21.8 % = the pre-declared TestLaneScheduler timing guard);
+  **719/719 app cycles `KILLED-AFTER-60S`, zero crash suspects**. The 48 h endurance
+  claim is established for `b17106a`. Two honest conditions: no real OS reboot
+  in-window (drill+design-proven only), and the TestSanitization SegFault recurred 8× —
+  since EXPLAINED as the pre-fix soak binary (SF-1, ADDENDUM SLOT A3 / §2.4 San-UAF
+  row); the new `proofFailsOnXmpSurvivor` family was root-caused and fixed as SF-2.
 
 ### 6.3 Release-evidence hashes (consolidated)
 
@@ -536,7 +548,7 @@ split, office corpus.
 | 1 | Verification review of the newest fix rows: EM-1..EM-6, San-UAF, ri-fix, (and on merge: AM1/AM2) | coordinator / verification lane | schedule a W2-protocol verification pass; slots below record outcomes |
 | 2 | UX flows 4–7 (sign/certify+request, OCR reject/reOcr, cert-encrypt 2-recipient, a11y scan→fix→rescan) — harness slots committed, unrun at the W3 UX lane's disk guard | `feat/sweep-w3-ux-resume` lane | ADDENDUM SLOT A1 |
 | 3 | Modularity-moves results (B1 seam 5c02b01d; dead-include sweep 791115bb with the audit erratum; no further steps) — **merged to mainline at `26c9a415`** | `feat/modularity-moves` lane | ADDENDUM SLOT A2 (filled) |
-| 4 | 48 h re-soak verdict (window ends 2026-09-22T20:49:07+03; protocol RESOAK §4) | soak reading session | ADDENDUM SLOT A3 |
+| 4 | 48 h re-soak verdict (window ended 2026-09-22T20:49:07+03; protocol RESOAK §4) — **verdict PASS, read 2026-09-22** | soak reading session | ADDENDUM SLOT A3 (filled) |
 | 5 | L7 / R14 FINDING F1 (rotated-page annotation attribution) | redaction-proof owner | recorded partial; repair direction on record; triage of the ri-fix lane's disclosed base failure requested |
 | 6 | W1-05/F1 machine-policy enforcement (structural ACL/signed-policy close) | policy owner | design item, disclosure-only shipped |
 | 7 | SignatureManager::signatureFieldAnchors rotation-imperfect read | signature owner | re-audit request stands (consumer side fixed by E-3) |
@@ -605,12 +617,86 @@ SWEEP-W3-ARCHITECT-2026-09-20 §2.2/§5/§6; merge record of mainline `feat/pari
   half into core and the S4/S1 seam work (ARCHITECT §2.2/§6). Full build green; pins
   unchanged post-sweep (25/0, 6/0, 11P/0F/1S) (AM2 ledger row).
 
-**ADDENDUM SLOT A3 — re-soak verdict.**
-Source: `feat/soak-48h-resume` reading session (RESOAK §4 protocol; window ends
-2026-09-22T20:49:07+03). To record: SOAK END line + pass accounting + `RESTART DETECTED`
-survivals + app-cycle outcomes + failing-test classification (per SOAK-VERDICT §4 and
-RESOAK §2 pre-declarations) + the 48 h endurance conclusion for candidate `b17106a`
-(exe `509da2c8…`).
+**ADDENDUM SLOT A3 — re-soak verdict (FILLED 2026-09-23 by the report-addendum lane).**
+Sources: RESOAK-VERDICT-2026-09-22.md (`feat/resoak-verdict` @ `d249bf91`; window ended
+2026-09-22T20:49:07+03; protocol RESOAK §4) + SOAK-FOLLOWUP-2026-09-23.md
+(`feat/soak-followups`, the RESOAK §9 items 1–2 closers). Numbers below are the verdict
+doc's, reproduced without rounding; `tools/soak_verdict_summary.py --resoak` reproduces
+every one of them.
+
+- **VERDICT: PASS — the 48 h endurance claim is established for candidate `b17106a`
+  (exe SHA-256 `509da2c8…853`, re-hashed after SOAK END: the binary on disk is the
+  binary that soaked).** First start 2026-09-20T20:49:07+03 → `=== SOAK END after 720
+  passes total, failed passes this run: 242 ===` at 2026-09-22T20:56:23+03 = **48.12 h**
+  (~7 min past the pinned end-by because the 720th pass, started 20:48:03, was allowed
+  to finish — the loop records, it does not stop); `D:\resoak-48h.done` written once;
+  the log never reached rotation (no `.log.1`).
+- **Pass accounting (all 720):** 720 START markers, contiguous 1–720, no duplicates;
+  **719 results = 477 PASS (66.3 %) / 242 FAIL (33.7 %)**, every FAIL a clean ctest
+  `exit=8` — no killed passes, no exotic exit codes, **zero test timeouts in 720
+  passes**. The single RESULT-less pass (2) is the day-one drill abort. ctest duration
+  per pass: min 155 s / median 159 s / p90 165 s / max 980 s.
+- **`RESTART DETECTED` survivals: 1** — 2026-09-20T21:04:24, the day-one controlled
+  kill drill (resumed at pass 2; numbering continued cleanly at 3). A gap scan over all
+  2,402 timestamped log lines found **zero gaps > 20 min** — no hidden downtime, no
+  unmarked restart.
+- **App cycles: 719/719 `KILLED-AFTER-60S;taskkill-exitcode=1` (normal), 0
+  `EXITED-EARLY`** — the real Release executable never hung or crashed across 719
+  launches (first soak: 57/57).
+- **Failing-test classification: 274 events across the 242 FAIL passes (212×1, 28×2,
+  2×3) — 100 % classified, zero unexplained events; no test reached the 30 %-of-passes
+  finding threshold, so nothing is candidate-attributable.** Max:
+  TestLaneScheduler 157× = **21.8 %** — the RESOAK §2 PRE-DECLARED load-sensitive
+  marginal timing guard (`testCrossPagePipelining`, 1000 ms budget, observed
+  1000–1090 ms; signature unchanged; 27.5 % loaded first half / 16.6 % quieter second
+  half, below its ~1/3 standalone rate — both pre-declared escalation triggers
+  unfired); it alone explains ~2/3 of failed passes. Known families improved or held:
+  TestReadOnlyGate 49× (6.8 %, was 15.5 %), TestCommandBinding 25× (3.5 %), TestBatchMode
+  17× (2.4 %, was 12.1 %), TestEncryptedPackageSafeWrite 1×, TestSignatureRealCrypto 5×
+  (0.7 %, the known OCSP trust-status transient), TestOllamaProvider 1×. The first
+  soak's TestEngineSave `leftoverCandidates(): 1` family did NOT recur (0×/719);
+  TestWelcomeRoutes / TestResourceLimits were 0×. The 33.7 % FAIL-pass rate is a
+  suite-stability/load-sensitivity picture, not a candidate regression.
+- **Honest condition 1 — no real OS reboot occurred in-window.** The 48 h window was
+  completed by CONTINUOUS execution (Windows Update, the first soak's killer, never
+  fired); reboot survival remains proven by the day-one drill plus design (logon task +
+  relaunch guard + resume semantics), not demonstrated end-to-end (RESOAK §5 residual
+  unchanged; completing the chain at the next natural restart = RESOAK §9.3).
+- **Honest condition 2 — the first soak's crash-class catch RECURRED: TestSanitization
+  SegFaulted 8× (all `testSanitizeGeneratesUniqueTrailerID`, 0xc0000005; 7×
+  `PdfDataContainer::AssertMutable` + 1× NEW `PdfName::GetRawData`, pass 14), 1.1 % vs
+  3.4 % at the first soak — crash-class beats the low rate: top follow-up, NOT a PASS
+  blocker (unit-test process only; the application itself never crashed).**
+  **EXPLAINED since (SOAK-FOLLOWUP ITEM 1 — explained-closed): the soak binary
+  pre-dates the fix** — it was built from `b17106a` BEFORE the E-2 fix `ed04426` merged
+  (~2026-09-21T00:45; the soak started 2026-09-20T20:49), so the whole window exercised
+  the pre-fix sanitize path. The 8 SegFaults are the documented E-2
+  dangling-`PdfInfo` use-after-free reaching different downstream frames by heap state:
+  `GetRawData` is a PoDoFo-internal frame of the SAME defect (audit: zero GlyphPDF-side
+  `GetRawData` call sites in the sanitize path) — not a second bug. Post-fix tip:
+  TestSanitization ×10 (19/19 each) + TestSanitizeTrailerUaf ×10 (3/3 each) clean.
+- **The one NEW family — TestRedactionProof::proofFailsOnXmpSurvivor 10× (1.4 %, far
+  under the threshold; RESOAK §4.6 demanded a dedicated repro lane) — is likewise
+  RESOLVED (SOAK-FOLLOWUP ITEM 2): FLAKE, a test-fixture defect; the proof machinery
+  was never wrong.** Root cause (mechanized, captured under load): PoDoFo 1.1.0's
+  default `Save` stamps /Info/ModDate and re-synchronizes /Catalog/Metadata from its
+  metadata store when the stamp differs — a second-granularity boundary crossing
+  between the redaction save and the tamper save discards the helper's planted XMP, so
+  the tampered file genuinely contained NO secret and the proof's PASS was correct for
+  the actual bytes (load-sensitive ~1-in-4; silent standalone — which is why it hid
+  from repro lanes). Fixed test-only (`PdfSaveOptions::NoMetadataUpdate` — PoDoFo's
+  documented manual-XMP option — plus a post-save reload pinning plant-survival):
+  fail-before 8/40 under identical load → pass-after **30/30** under load (10/10
+  standalone); scoped-revert NEGATIVE CONTROL 1/25 with the exact soak signature;
+  family green (TestRedactionProof 21/21, TestSep13LeadRedactionProof 11/11,
+  TestRedactTransaction 38/38, TestExcisionCorruption 4/4, TestRotate270PageSpace 7/7,
+  TestRedactSanitizeBundle 3/3). Implemented-awaiting-review.
+- **Scope carried over (RESOAK §8):** offscreen-only, no installer, no fuzz campaign,
+  hard-kill app cycles, single machine; first-soak conclusions transfer only where
+  re-established — per family: 4 improved/vanished, the crash-class persisted (now
+  explained), 1 new family appeared (now fixed). Remaining soak follow-ups (RESOAK §9):
+  TestLaneScheduler budget widening / load-awareness; a real restart to complete the
+  reboot chain; FU-2 shared-tempdir hardening at lower priority.
 
 **ADDENDUM SLOT A4 — verification-review outcomes for the implemented-awaiting-review rows.**
 Rows in scope: EM-1..EM-6 (ledger §emergence-fix lane), San-UAF (ledger §sanitize-crash
