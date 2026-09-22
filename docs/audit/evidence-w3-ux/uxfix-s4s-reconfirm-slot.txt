@@ -1,0 +1,17 @@
+********* Start testing of TestSendForSigning *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSendForSigning::initTestCase()
+QDEBUG : TestSendForSigning::mutationRefusalAndReconfirmPin() Removed field "sig_Late" and saved to "D:/pdf/msys64/tmp/glyphpdf-s4s-DOFkSo/mutate.pdf"
+QDEBUG : TestSendForSigning::mutationRefusalAndReconfirmPin() validateSignatures: ByteRange missing or not an array
+QDEBUG : TestSendForSigning::mutationRefusalAndReconfirmPin() validateSignatures: field "sig_A" ByteRange: 0 483 66021 1842
+QDEBUG : TestSendForSigning::mutationRefusalAndReconfirmPin() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSendForSigning::mutationRefusalAndReconfirmPin() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSendForSigning::mutationRefusalAndReconfirmPin() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSendForSigning::mutationRefusalAndReconfirmPin() validateSignatures: field "sig_A" ByteRange: 0 483 66021 1842
+QDEBUG : TestSendForSigning::mutationRefusalAndReconfirmPin() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSendForSigning::mutationRefusalAndReconfirmPin() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSendForSigning::mutationRefusalAndReconfirmPin() extractOcspFromDss: DSS not found or not dictionary
+PASS   : TestSendForSigning::mutationRefusalAndReconfirmPin()
+PASS   : TestSendForSigning::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 35212ms
+********* Finished testing of TestSendForSigning *********
