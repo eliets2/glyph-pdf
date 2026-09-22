@@ -1255,3 +1255,13 @@ offscreen, fresh TMPDIR): TestPagesMode 32/0, TestReadOnlyGate 7/0,
 TestFormSafety 13/0, TestFormJsCalc 49/0, TestTaskNavRegistry 17/0,
 TestUpdateChecker 8/0, TestCommandBinding 11/0, TestControllers 13/0,
 TestWatermarkFont 7/0 — 157 passed, 0 failed.
+
+## 2026-09-23 — soak follow-up lane: crash reconciliation + XMP-proof flake repair (feat/soak-followups, from feat/parity-glm @ 26c9a415)
+
+Closes RESOAK-VERDICT-2026-09-22 §9 items 1–2. Item 1 (TestSanitization
+SegFault recurrences) is a RECONCILIATION — no code change; item 2
+(TestRedactionProof::proofFailsOnXmpSurvivor) is a test-fixture repair.
+Evidence: docs/audit/SOAK-FOLLOWUP-2026-09-23.md (runs, captures, mechanism).
+| ID | Surface | Finding | Status | Fix | Fail-before/pass-after + negative control | Commit |
+|----|---------|---------|--------|-----|-------------------------------------------|--------|
+| SF-1 | TestSanitization::testSanitizeGeneratesUniqueTrailerID crash class (re-soak: 8x AssertMutable + 1x NEW PdfName::GetRawData, 0xc0000005) | The re-soak binary was built from b17106a BEFORE fix ed04426 merged (~09-21T00:45; soak started 09-20T20:49) — the whole window exercised the pre-fix sanitize path. Both crash symbols are downstream frames of the SAME E-2 UAF (second Save stamps /Info/ModDate through the freed PdfInfo wrapper; dies in AssertMutable on freed m_Owner, or in PoDoFo-internal PdfName::GetRawData over freed name storage during the dictionary update — heap-state decides which). GetRawData audit: only 2 GlyphPDF-side call sites (PoDoFoBackend.cpp:1449 E-1 deep-copy width helper; GlyphAdvanceCalculator.cpp:42 read-only in-scope CID fallback), both outside the sanitize path; sanitizeDocumentContents itself has none (/ID block is in-place FromRaw replacement) | explained-closed (reconciliation; no code change) | none needed — post-fix tip: TestSanitization standalone x10 = 10/10 (19/19 each), TestSanitizeTrailerUaf x10 = 10/10 (3/3 each), zero crashes | n/a (verification run, both suites green 20/20) | (docs commit) |
