@@ -295,6 +295,26 @@ resolved, advance computation falls back to Helvetica
 the Edact-Ray property (total advance preserved, per-glyph widths lost) holds
 in the aggregate.
 
+**Refinement (second reviewer, same lane — sub-case of this row, not counted
+separately in §5.1): the fallback-advance drift is a real under-excision
+vector, INCONCLUSIVE pending a probe.** For Type3 the Helvetica fallback is
+guaranteed (`SearchFont` is a system-font metrics search — a Type3 BaseFont is
+never a system match), so `penX` accumulates metric error along the line and a
+run whose TRUE position lies inside the mark can present a DRIFTED span fully
+outside it: the `Tj` survives the surgery under the black cover (NSA class,
+one level indented — recoverable by deleting the cover). The same drift
+applies to any embedded font with no system metrics match, not just Type3.
+The honest-failure net usually holds — PDFium attributes Type3 text that has
+/ToUnicode and the ExtractedText surface FAILs the proof — so the silent
+exposure is the narrow no-ToUnicode case. Probe to pin (owner lane): Type3
+fixture with deliberately-mismatched /Widths on a long line whose later runs
+sit at the mark's far edge, with and without /ToUnicode; assert operators
+gone (or proof FAILs). If the probe shows survivors, promote this row to
+GAP(M) with this fix: OR the span test with a PDFium run-rect overlap test —
+`inventoryRuns` already yields PDFium per-run rects in user space, and
+PDFium's Type3/CID metrics are correct where the system-font-search advances
+are not.
+
 ### 2.4 Text via patterns / shading
 
 - **G2 (M-H, silent w/o proof) — tiling-pattern streams are not walked.**
