@@ -340,44 +340,55 @@ private slots:
     void em3_badgeAnchorReadsBackTheDisplayedFieldEveryRotation()
     {
         // Off-center, asymmetric — no flip can cancel into it by accident.
+        // Two law shapes per rotation: the origin-0 box AND an offset-origin
+        // box (lower-left 100,50) — the legacy read-back dropped the MediaBox
+        // lower-left origin, so the offset shape is what discriminates.
         const QRectF anchor(73.0, 411.0, 219.0, 33.0);
+        const QList<QPair<QByteArray, const char*>> boxes = {
+            { QByteArrayLiteral("[0 0 612 792]"), "o0" },
+            { QByteArrayLiteral("[100 50 712 842]"), "o100x50" },
+        };
         const auto close = [](const QRectF& a, const QRectF& b) {
             return std::fabs(a.x() - b.x()) < 0.01
                 && std::fabs(a.y() - b.y()) < 0.01
                 && std::fabs(a.width() - b.width()) < 0.01
                 && std::fabs(a.height() - b.height()) < 0.01;
         };
-        for (const int rotation : { 0, 90, 180, 270 }) {
-            const QString src = writeLinePdf(
-                path(QStringLiteral("em3-r%1.pdf").arg(rotation)), rotation,
-                { { QStringLiteral("EM3 anchor probe"), 640.0 } });
-            QVERIFY(!src.isEmpty());
-            const QString out = path(QStringLiteral("em3-out-r%1.pdf").arg(rotation));
-            QVector<gp::SignatureFieldCreator::Spec> specs;
-            gp::SignatureFieldCreator::Spec spec;
-            spec.fieldName = QStringLiteral("GsdSigR%1").arg(rotation);
-            spec.pageIndex = 0;
-            spec.viewerRect = anchor;
-            specs.append(spec);
-            QString err;
-            QVERIFY2(gp::SignatureFieldCreator::createSignatureFields(src, specs, out, &err),
-                     qPrintable(QStringLiteral("rot %1 placement refused: %2").arg(rotation).arg(err)));
+        for (const auto& box : boxes) {
+            for (const int rotation : { 0, 90, 180, 270 }) {
+                const QString tag = QStringLiteral("%1-r%2").arg(box.second).arg(rotation);
+                const QString src = writeLinePdf(path(QStringLiteral("em3-%1.pdf").arg(tag)),
+                                                 rotation,
+                                                 { { QStringLiteral("EM3 anchor probe"), 640.0 } },
+                                                 box.first);
+                QVERIFY(!src.isEmpty());
+                const QString out = path(QStringLiteral("em3-out-%1.pdf").arg(tag));
+                QVector<gp::SignatureFieldCreator::Spec> specs;
+                gp::SignatureFieldCreator::Spec spec;
+                spec.fieldName = QStringLiteral("GsdSig%1").arg(tag);
+                spec.pageIndex = 0;
+                spec.viewerRect = anchor;
+                specs.append(spec);
+                QString err;
+                QVERIFY2(gp::SignatureFieldCreator::createSignatureFields(src, specs, out, &err),
+                         qPrintable(QStringLiteral("%1 placement refused: %2").arg(tag, err)));
 
-            SignatureManager mgr;
-            const auto anchors = mgr.signatureFieldAnchors(out);
-            const ISignatureManager::SignatureFieldAnchor* a = nullptr;
-            for (const auto& cand : anchors)
-                if (cand.fieldName == spec.fieldName) { a = &cand; break; }
-            QVERIFY2(a, qPrintable(QStringLiteral("rot %1: anchor missing").arg(rotation)));
-            QCOMPARE(a->pageIndex, 0);
-            QVERIFY2(close(a->rect, anchor),
-                     qPrintable(QStringLiteral("EM-3 rot %1: badge anchor %2,%3 %4x%5 "
-                                              "!= displayed field %6,%7 %8x%9")
-                                    .arg(rotation)
-                                    .arg(a->rect.x()).arg(a->rect.y())
-                                    .arg(a->rect.width()).arg(a->rect.height())
-                                    .arg(anchor.x()).arg(anchor.y())
-                                    .arg(anchor.width()).arg(anchor.height())));
+                SignatureManager mgr;
+                const auto anchors = mgr.signatureFieldAnchors(out);
+                const ISignatureManager::SignatureFieldAnchor* a = nullptr;
+                for (const auto& cand : anchors)
+                    if (cand.fieldName == spec.fieldName) { a = &cand; break; }
+                QVERIFY2(a, qPrintable(QStringLiteral("%1: anchor missing").arg(tag)));
+                QCOMPARE(a->pageIndex, 0);
+                QVERIFY2(close(a->rect, anchor),
+                         qPrintable(QStringLiteral("EM-3 %1: badge anchor %2,%3 %4x%5 "
+                                                  "!= displayed field %6,%7 %8x%9")
+                                        .arg(tag)
+                                        .arg(a->rect.x()).arg(a->rect.y())
+                                        .arg(a->rect.width()).arg(a->rect.height())
+                                        .arg(anchor.x()).arg(anchor.y())
+                                        .arg(anchor.width()).arg(anchor.height())));
+            }
         }
     }
 
