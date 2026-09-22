@@ -1131,11 +1131,16 @@ void MainWindow::onScreenSelected(const QString& id) {
     if (id == "signature") {
         if (!_sigPanel) {
             _sigPanel = new SignaturesPanel(this);
-            // Route "Place Signature" through the same ribbon Sign flow
-            // (activate() is the public IToolController entry point; it also
-            // guards on an open document before invoking signDocument()).
+            // S2-3 (SWEEP-BACKEND-2026-09-21): route "Place Signature" through
+            // the ToolRegistry — the ONE mutation-dispatch boundary. The old
+            // wiring called _security->activate(ToolId::Sign) directly, whose
+            // only guard is document EXISTENCE (SecurityController.cpp:371),
+            // so a read-only session reached the modal sign flow without
+            // crossing the ARC07 gate and without toolRefused telemetry.
+            // Dispatching through the registry keeps the sign flow's own
+            // dialog-driven details; the gate decides before any of it runs.
             connect(_sigPanel, &SignaturesPanel::placeSignatureRequested,
-                    this, [this]() { if (_security) _security->activate(ToolId::Sign); });
+                    this, [this]() { if (_toolRegistry) _toolRegistry->activate(ToolId::Sign); });
         }
         // Populate the DIGITAL ID card with the real signatures in the open file.
         ISignatureManager* signing = _ctx ? _ctx->signing.get() : nullptr;
