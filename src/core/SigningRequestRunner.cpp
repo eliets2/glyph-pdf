@@ -4,7 +4,7 @@
 #include "engines/SignatureFieldCreator.h"
 #include "engines/SignatureManager.h"
 #include "engines/SafeSave.h"
-#include "shell/controllers/SecurityController.h" // R19c attainedLevelLabel (pure static)
+#include "core/SigningLabels.h" // R19c attainedLevelLabel (pure, core seam — SWEEP-W3 B1)
 
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -14,7 +14,6 @@
 #include <QSet>
 
 namespace SafeSave = gp::SafeSave;        // gp::SafeSave is a NAMESPACE of primitives
-using gp::SecurityController;
 using gp::SignatureFieldCreator;
 
 namespace {
@@ -263,8 +262,8 @@ SigningRequestRunner::FillStepResult SigningRequestRunner::runFillStep(Signature
     result.outcome = outcome;
     result.detail = signing.lastSignOutcomeDetail();
     // Honesty rule 3: the ATTAINED level (R19c), never the requested one.
-    result.attainedLevel = SecurityController::attainedLevelLabel(in.requestedLevel,
-                                                                  result.detail);
+    result.attainedLevel = gp::SigningLabels::attainedLevelLabel(in.requestedLevel,
+                                                                 result.detail);
 
     if (outcome == SignOutcome::Failed) {
         result.error = QStringLiteral("The signing engine could not write a signature "
