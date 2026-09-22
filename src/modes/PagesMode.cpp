@@ -669,6 +669,9 @@ void PagesMode::buildReorderPanel(QWidget* host)
     applyBtn->setToolTip(PagesMode::tr(
         "Apply the displayed order to the document.\n"
         "This operation can be undone via Edit > Undo."));
+    // S2-1 (SWEEP-BACKEND-2026-09-21): the Apply affordance mirrors the
+    // session's read-only state (honest enablement); see setAppContext.
+    m_reorderApplyBtn = applyBtn;
     connect(applyBtn, &QPushButton::clicked, this, &PagesMode::onApplyReorder);
     btnRow->addWidget(applyBtn);
 
@@ -715,6 +718,19 @@ void PagesMode::setAppContext(const AppContext* ctx)
     if (m_ctx && m_ctx->undoStack)
         connect(m_ctx->undoStack.get(), &QUndoStack::indexChanged,
                 this, &PagesMode::onUndoStackIndexChanged, Qt::UniqueConnection);
+    // ARC07/S2-1 (SWEEP-BACKEND-2026-09-21): the session is the ONE read-only
+    // authority. The reorder-list Apply affordance mirrors it (honest
+    // enablement, same wiring shape as the registry's action enablement in
+    // GpMainWindow); enforcement stays at the onApplyReorder route entry.
+    if (m_ctx && m_ctx->document) {
+        connect(m_ctx->document.get(), &DocumentSession::readOnlyChanged, this,
+                [this](bool readOnly) {
+                    if (m_reorderApplyBtn)
+                        m_reorderApplyBtn->setEnabled(!readOnly);
+                });
+        if (m_reorderApplyBtn)
+            m_reorderApplyBtn->setEnabled(!m_ctx->document->isReadOnly());
+    }
     refreshPageList();
 }
 
@@ -1290,6 +1306,17 @@ void PagesMode::onApplyReorder()
     if (!m_ctx || !m_ctx->document || !m_ctx->pdfEditor) {
         QMessageBox::warning(this, PagesMode::tr("Reorder"),
             PagesMode::tr("No document is open."));
+        return;
+    }
+
+    // ARC07/S2-1 (SWEEP-BACKEND-2026-09-21): this panel's Apply is a direct
+    // in-place mutation entry (ReorderPermutationCommand → reorderAllPages)
+    // that bypasses ToolRegistry — apply the shared read-only gate, exactly
+    // like the grid-move and page-label routes. The disabled Apply button is
+    // the affordance; this gate is the enforcement.
+    if (EditPolicy::mutationBlocked(m_ctx->document.get())) {
+        QMessageBox::warning(this, PagesMode::tr("Read-only"),
+            EditPolicy::readOnlyMessage());
         return;
     }
 

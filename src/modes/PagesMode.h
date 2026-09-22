@@ -18,6 +18,7 @@ class QComboBox;
 class IPdfRenderer;
 class IPdfEditorEngine;
 class QMenu;
+class QPushButton;
 class QUndoCommand;
 
 namespace gp {
@@ -155,6 +156,7 @@ private:
 
     // Reorder panel (D3)
     QListWidget*  m_reorderList     = nullptr;
+    QPushButton*  m_reorderApplyBtn = nullptr; // S2-1: affordance mirrors read-only
     QList<int>    m_originalOrder;  // 0-based original page indices
 
     // §9.9 P0: grid drag-and-drop reorder state.
