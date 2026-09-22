@@ -2,6 +2,7 @@
 #include "EditController.h"
 #include "shell/EditPolicy.h"
 #include "core/AppContext.h"
+#include "core/PolicyController.h" // emergence E-2: policy-aware OCR refusal wording
 #include "GpMainWindow.h"
 #include "ui/PdfViewerWidget.h"
 #include "engines/OcrEngine.h"
@@ -1085,7 +1086,22 @@ void EditController::runOcr() {
                     }
                     if (!self->_ocrTesseract->initialize(lang)) {
                         self->_ocrTesseractLang.clear();
-                        error = QStringLiteral("OCR failed: Tesseract language data for '%1' is unavailable.").arg(lang);
+                        // emergence E-2 (SWEEP-W3-EMERGENCE §1b): the refusal
+                        // names the machine policy when it manages the OCR
+                        // download — the bare "unavailable" wording sent the
+                        // user hunting for a setting policy overrides.
+                        auto& policy = gp::PolicyController::instance();
+                        policy.ensureLoaded();
+                        const QString downloadKey =
+                            QStringLiteral("ocr/allowNetworkDownload");
+                        error = policy.isManaged(downloadKey)
+                            ? QStringLiteral("OCR failed: Tesseract language data for '%1' "
+                                             "is unavailable, and the download that would "
+                                             "provide it is managed by machine policy "
+                                             "(ocr/allowNetworkDownload — see the Network "
+                                             "Touchpoints page for the effective value).").arg(lang)
+                            : QStringLiteral("OCR failed: Tesseract language data for '%1' "
+                                             "is unavailable.").arg(lang);
                     } else {
                         self->_ocrTesseractLang = lang;
                         primary = self->_ocrTesseract;

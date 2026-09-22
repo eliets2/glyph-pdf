@@ -28,6 +28,7 @@
 #include "engines/podofo/PoDoFoBackend.h"
 #include "engines/FormManager.h"
 #include "engines/SignatureFieldCreator.h"
+#include "engines/SignatureManager.h"
 #include "core/AnnotationTypes.h"
 #include "core/PageSpaceTransform.h"
 #include <podofo/podofo.h>
@@ -396,6 +397,56 @@ private slots:
                 QVERIFY2(!QFile::exists(out),
                          "a refused placement must not write the destination");
             }
+        }
+    }
+
+    // ── emergence E-3 (SWEEP-W3-EMERGENCE §2d): the badge-anchor read-back ──
+    //
+    // SignatureManager::signatureFieldAnchors feeds SignaturesPanel's badge
+    // painting. A field placed at the display rect (200,300,150x50) — stored
+    // RAW at the hand-computed law literal sigUser — must read back as EXACTLY
+    // that display rect on every shape. Pre-fix the flip used the rotation-
+    // NORMALIZED GetMediaBox().Height (W/H swapped on /Rotate 90/270): on the
+    // 612x792 shapes the badge Y was computed from 612 instead of 792 and the
+    // MediaBox lower-left origin was dropped, so on every rotated, non-square
+    // page the badge painted away from the displayed field.
+    void signatureAnchorReadBackMatchesTheDisplayedFieldOnEveryRotation()
+    {
+        const QList<Shape> all = shapes();
+        for (int p = 0; p < all.size(); ++p) {
+            const Shape& s = all[p];
+            const QRectF anchor(200, 300, 150, 50); // on-page on every shape
+
+            const QString out = outPath(QString("sig-anchor-p%1.pdf").arg(p).toUtf8().constData());
+            QVector<gp::SignatureFieldCreator::Spec> specs;
+            gp::SignatureFieldCreator::Spec spec;
+            spec.fieldName = QStringLiteral("SigAnchor%1").arg(p);
+            spec.pageIndex = p;
+            spec.viewerRect = anchor;
+            specs.append(spec);
+            QString err;
+            QVERIFY2(gp::SignatureFieldCreator::createSignatureFields(
+                         fixturePath(), specs, out, &err),
+                     qPrintable(QString("page %1 (rot %2): placement refused: %3")
+                                    .arg(p).arg(s.rotation).arg(err)));
+
+            SignatureManager mgr;
+            const auto anchors = mgr.signatureFieldAnchors(out);
+            const ISignatureManager::SignatureFieldAnchor* a = nullptr;
+            for (const auto& cand : anchors) {
+                if (cand.pageIndex == p
+                        && cand.fieldName == QStringLiteral("SigAnchor%1").arg(p)) {
+                    a = &cand;
+                    break;
+                }
+            }
+            QVERIFY2(a, qPrintable(QString("page %1 (rot %2): anchor missing")
+                                       .arg(p).arg(s.rotation)));
+            QVERIFY2(rectClose(a->rect, anchor),
+                     qPrintable(QString("W2B-1/E-3: page %1 (rot %2) badge anchor %3 "
+                                        "!= displayed field %4")
+                                    .arg(p).arg(s.rotation)
+                                    .arg(rectStr(a->rect), rectStr(anchor))));
         }
     }
 

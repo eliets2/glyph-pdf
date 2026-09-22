@@ -26,8 +26,9 @@ namespace EditPolicy {
 //     created QActions and the registry agree;
 //   - direct mutation entries that bypass the registry (viewer-signal slots
 //     in PagesController, FindBar replace/redact-all in EditController,
-//     PagesMode reorder/labels, HomeController::saveNow) call
-//     mutationBlocked() at their top.
+//     PagesMode reorder/labels, HomeController::saveNow, Form Builder's field
+//     properties panel — Apply entry and keystroke entry,
+//     emergence E-1) call mutationBlocked() at their top.
 
 // The mutation tool set, in one place. Viewing/selection (Hand, Select,
 // SelectObject/EditObject arming, Search), navigation, and copy/export-shaped

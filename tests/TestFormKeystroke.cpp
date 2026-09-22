@@ -25,12 +25,15 @@
 //     wiring pin (typing is no longer gated at the line-edit layer).
 #include <QtTest/QtTest>
 #include <QApplication>
+#include <QFile>
 #include <QLineEdit>
 #include <QLabel>
+#include <QToolButton>
 #include <QUndoStack>
 #include <QTemporaryDir>
 #include <QPdfWriter>
 #include <QPainter>
+#include <QCryptographicHash>
 
 #include "core/AppContext.h"
 #include "core/FormStaleFieldTracker.h"
@@ -102,6 +105,16 @@ QString makeFormPdf(const QString& dir, const QString& name,
     }
     return path;
 }
+
+    // emergence E-1: byte-identity check for the zero-mutation assertion.
+    static QByteArray sha256(const QString& path)
+    {
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly)) return {};
+        QCryptographicHash hash(QCryptographicHash::Sha256);
+        hash.addData(&f);
+        return hash.result();
+    }
 
 } // namespace
 
@@ -307,6 +320,56 @@ private slots:
         panel->setFieldName(QStringLiteral("b")); // ungated field, empty value
         QTest::keyClicks(edit, QStringLiteral("xyz"));
         QCOMPARE(edit->text(), QStringLiteral("xyz"));
+    }
+
+    // ── emergence E-1 (SWEEP-W3-EMERGENCE §6) ───────────────────────────────
+    // An expired (read-only) document must not execute the field's /AA /K
+    // script from the panel, and Apply must refuse with the honest read-only
+    // disclosure — zero mutation, no undo entry (the audit's probe inverted:
+    // pre-fix this very panel persisted edits through runFormSaveTransaction).
+    void readOnlyDocumentRefusesKeystrokeAndApply()
+    {
+        const QString path = makeFormPdf(m_dir.path(), QStringLiteral("ro.pdf"),
+                                         { { QStringLiteral("f"),
+                                             QStringLiteral("event.value = 'X';") } });
+        QVERIFY(!path.isEmpty());
+
+        AppContext ctx;
+        auto panel = makePanel(path, ctx);
+        assertSeams(*panel);
+        ctx.document->setReadOnly(true); // the expiry feature's session state
+
+        // The Apply affordance is removed for the read-only session.
+        QToolButton* apply = panel->findChild<QToolButton*>(
+            QStringLiteral("applyFieldPropsButton"));
+        QVERIFY2(apply, "the Apply button must expose the applyFieldPropsButton seam");
+        QVERIFY2(!apply->isEnabled(),
+                 "Apply must be disabled while the document is read-only");
+
+        // Typing runs NO keystroke script: the transform never happens and
+        // the refusal is disclosed.
+        QLineEdit* edit = valueEdit(*panel);
+        QLabel* status = statusLabel(*panel);
+        QTest::keyClicks(edit, QStringLiteral("hi"));
+        QVERIFY2(edit->text() == QStringLiteral("hi"),
+                 qPrintable(QStringLiteral("the /K script must not run on a read-only "
+                                          "document, got '%1'").arg(edit->text())));
+        QVERIFY2(status->isVisible()
+                     && status->text().contains(QLatin1String("read-only")),
+                 qPrintable(QStringLiteral("the keystroke refusal must be disclosed, got: %1")
+                                .arg(status->text())));
+
+        // The GATE, not just the disabled affordance: invoke the slot directly
+        // and require refusal — document byte-identical, no undo entry.
+        const QByteArray shaBefore = sha256(path);
+        QMetaObject::invokeMethod(panel.get(), "onApplyClicked");
+        QVERIFY2(sha256(path) == shaBefore,
+                 "Apply on a read-only document must not mutate the file");
+        QCOMPARE(ctx.undoStack->count(), 0);
+        QVERIFY2(status->isVisible()
+                     && status->text().contains(QLatin1String("read-only")),
+                 qPrintable(QStringLiteral("the Apply refusal must be disclosed, got: %1")
+                                .arg(status->text())));
     }
 };
 

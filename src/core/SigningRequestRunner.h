@@ -75,10 +75,17 @@ public:
         MissingField,      // bound field does not exist and no anchor to create it
         FieldAlreadySigned, // the bound field already carries a signature
         FieldCreateFailed, // the step's own anchored field could not be created
-        ForeignUnsignedField // W1-03: an unsigned field NO entry binds survives
+        ForeignUnsignedField, // W1-03: an unsigned field NO entry binds survives
                              // on the document — the engine's one-unsigned-field
                              // precondition can never be met for this request;
                              // refused in precheck, before any mutation
+        AnchorMismatch    // emergence E-4: the bound field EXISTS but its stored
+                          // /Rect does not match the entry's anchored display
+                          // rect — the cross-version replay trap (a field
+                          // placed by a pre-W2B-1 build's double-transforming
+                          // CreateField, hash-clean for the mutation gate).
+                          // Signing it would put the visible signature in the
+                          // wrong place; refused in precheck, zero mutation
     };
     struct Refusal {
         StepRefusal code = StepRefusal::None;
