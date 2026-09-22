@@ -26,13 +26,15 @@ namespace EditPolicy {
 //     created QActions and the registry agree;
 //   - direct mutation entries that bypass the registry (viewer-signal slots
 //     in PagesController, FindBar replace/redact-all in EditController,
-//     HomeController::saveNow, and ALL THREE PagesMode reorder routes —
+//     HomeController::saveNow, ALL THREE PagesMode reorder routes —
 //     grid drag/keyboard moves, the reorder-panel list Apply button, and
-//     page labels) call mutationBlocked() at their top.
+//     page labels — and FormBuilderMode's tab-order Apply button) call
+//     mutationBlocked() at their top.
 //     (S2-1, SWEEP-BACKEND-2026-09-21: this comment previously claimed
 //     "PagesMode reorder/labels" without exception, but the reorder-panel
-//     list Apply route was ungated until the audit caught it — the comment
-//     now names all three routes because the code actually gates them.)
+//     list Apply route was ungated until the audit caught it; S2-2 caught
+//     the same class in FormBuilderMode::onTabOrderApplyClicked — the
+//     comment now names every direct route because the code gates them.)
 
 // The mutation tool set, in one place. Viewing/selection (Hand, Select,
 // SelectObject/EditObject arming, Search), navigation, and copy/export-shaped

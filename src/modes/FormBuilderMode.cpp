@@ -4,6 +4,8 @@
 #include "ui/PdfViewerWidget.h"
 #include "core/AppContext.h"
 #include "core/PdfEnums.h"
+#include "engines/DocumentSession.h"
+#include "shell/EditPolicy.h"
 #include "commands/AddFormFieldCommand.h"
 #include "commands/DeleteFormFieldCommand.h"
 #include "commands/MoveFormFieldCommand.h"
@@ -46,6 +48,21 @@ FormBuilderMode::FormBuilderMode(const AppContext* ctx,
     buildToolbar(col);
     buildContent(col);
     updateNoDocumentState();
+
+    // ARC07/S2-2 (SWEEP-BACKEND-2026-09-21): the session is the ONE read-only
+    // authority. The tab-order Apply affordance mirrors it (honest
+    // enablement, same wiring shape as GpMainWindow's registry re-sync);
+    // enforcement lives in onTabOrderApplyClicked — the ribbon route for the
+    // same operation (ToolId::Tabs) is gated by the registry, so the panel
+    // button must not be a privilege escalation relative to it.
+    if (m_ctx && m_ctx->document && m_tabOrderApply) {
+        connect(m_ctx->document.get(), &DocumentSession::readOnlyChanged, this,
+                [this](bool readOnly) {
+                    if (m_tabOrderApply)
+                        m_tabOrderApply->setEnabled(!readOnly);
+                });
+        m_tabOrderApply->setEnabled(!m_ctx->document->isReadOnly());
+    }
 
     // ESC cancels active field placement
     auto* esc = new QShortcut(Qt::Key_Escape, this);
@@ -470,6 +487,16 @@ void FormBuilderMode::onTabOrderApplyClicked()
 {
     if (!m_ctx || !m_ctx->forms || !m_ctx->document || m_ctx->document->path().isEmpty()) {
         QMessageBox::warning(this, tr("Tab Order"), tr("No document open."));
+        return;
+    }
+
+    // ARC07/S2-2 (SWEEP-BACKEND-2026-09-21): setTabOrder(path, …, path) is an
+    // in-place write that bypasses ToolRegistry — apply the shared read-only
+    // gate at the route entry. The disabled Apply Order button is the
+    // affordance; this gate is the enforcement.
+    if (EditPolicy::mutationBlocked(m_ctx->document.get())) {
+        QMessageBox::warning(this, tr("Read-only"),
+            EditPolicy::readOnlyMessage());
         return;
     }
 
