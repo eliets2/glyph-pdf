@@ -15,6 +15,7 @@
 #include <QJsonObject>
 #include <QProcess>
 #include <QStandardPaths>
+#include <QSysInfo>
 
 #include <openssl/evp.h>
 #include <openssl/rand.h>
@@ -112,6 +113,80 @@ QByteArray craftLegacyV1Blob(const QByteArray& rawKey, const QByteArray& plainte
     blob.append(reinterpret_cast<const char*>(tag), 16);
     blob.append(cipher);
     return blob;
+}
+
+// Craft a 0x03 blob (SEP13:5 AES-256-GCM WITH the service name as GCM AAD)
+// under the given raw key.
+QByteArray craftAadBlob(const QByteArray& rawKey, const QByteArray& identity,
+                        const QByteArray& plaintext)
+{
+    const QByteArray key = QCryptographicHash::hash(rawKey, QCryptographicHash::Sha256);
+    unsigned char nonce[12] = {9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 1, 2};
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) return {};
+    QByteArray cipher(plaintext.size(), Qt::Uninitialized);
+    int cipherLen = 0;
+    if (EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, nullptr, nullptr) != 1) return {};
+    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, 12, nullptr) != 1) return {};
+    if (EVP_EncryptInit_ex(ctx, nullptr, nullptr,
+                           reinterpret_cast<const unsigned char*>(key.constData()),
+                           nonce) != 1) return {};
+    int aadLen = 0;
+    if (EVP_EncryptUpdate(ctx, nullptr, &aadLen,
+                          reinterpret_cast<const unsigned char*>(identity.constData()),
+                          identity.size()) != 1) return {};
+    if (EVP_EncryptUpdate(ctx,
+                          reinterpret_cast<unsigned char*>(cipher.data()), &cipherLen,
+                          reinterpret_cast<const unsigned char*>(plaintext.constData()),
+                          plaintext.size()) != 1) return {};
+    int finalLen = 0;
+    if (EVP_EncryptFinal_ex(ctx,
+                            reinterpret_cast<unsigned char*>(cipher.data()) + cipherLen,
+                            &finalLen) != 1) return {};
+    cipher.resize(cipherLen + finalLen);
+    unsigned char tag[16];
+    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, tag) != 1) return {};
+    EVP_CIPHER_CTX_free(ctx);
+    QByteArray blob;
+    blob.append(static_cast<char>(0x03));
+    blob.append(reinterpret_cast<const char*>(nonce), 12);
+    blob.append(reinterpret_cast<const char*>(tag), 16);
+    blob.append(cipher);
+    return blob;
+}
+
+#ifdef Q_OS_WIN
+// Craft a legacy 0x02 blob (EC04 — DPAPI with a constant description and NO
+// optional entropy) — the migration fixture for the Windows default path.
+QByteArray craftLegacyV2Blob(const QByteArray& plaintext)
+{
+    DATA_BLOB in{};
+    in.pbData = reinterpret_cast<BYTE*>(const_cast<char*>(plaintext.constData()));
+    in.cbData = static_cast<DWORD>(plaintext.size());
+    DATA_BLOB out{};
+    if (!CryptProtectData(&in, L"GlyphPDF.SecretStore.Secret.v2", nullptr,
+                          nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &out))
+        return {};
+    QByteArray blob;
+    blob.append(static_cast<char>(0x02));
+    blob.append(reinterpret_cast<const char*>(out.pbData),
+                static_cast<int>(out.cbData));
+    LocalFree(out.pbData);
+    return blob;
+}
+#endif
+
+// PGR-20: replicate the store's no-override seed derivation (resolveKey())
+// exactly. Its inputs — home path, machine id, a constant — are identifiers,
+// not secrets: this is precisely the material a local attacker would use to
+// forge AES blobs on the Windows default path.
+QByteArray windowsDefaultSeed()
+{
+    QByteArray seed;
+    seed += QStandardPaths::writableLocation(QStandardPaths::HomeLocation).toUtf8();
+    seed += QSysInfo::machineUniqueId();
+    seed += QByteArrayLiteral("glyphpdf-secret-store-v1");
+    return seed;
 }
 
 } // namespace
@@ -471,23 +546,93 @@ private slots:
         // Craft a v2 blob exactly the way the EC04 store wrote it: constant
         // description, NO optional entropy.
         const QString secret = QStringLiteral("sk-ant-legacy-v2-0001");
-        const QByteArray plain = secret.toUtf8();
-        DATA_BLOB in{};
-        in.pbData = reinterpret_cast<BYTE*>(const_cast<char*>(plain.constData()));
-        in.cbData = static_cast<DWORD>(plain.size());
-        DATA_BLOB out{};
-        QVERIFY2(CryptProtectData(&in, L"GlyphPDF.SecretStore.Secret.v2", nullptr,
-                                  nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &out),
-                 "fixture crafting: CryptProtectData must succeed");
-        QByteArray blob;
-        blob.append(static_cast<char>(0x02));
-        blob.append(reinterpret_cast<const char*>(out.pbData),
-                    static_cast<int>(out.cbData));
-        LocalFree(out.pbData);
+        const QByteArray blob = craftLegacyV2Blob(secret.toUtf8());
+        QVERIFY2(!blob.isEmpty(), "fixture crafting: CryptProtectData must succeed");
         QVERIFY(writeServiceBlob(path, "LegacyV2Svc", blob));
 
         EncryptedFileSecretStore reader(path);
         QCOMPARE(reader.readSecret("LegacyV2Svc"), secret);
+    }
+
+    // ── PGR-20 — Windows default path: AES blobs there are forgeries ────────
+    // No legitimate blob on the Windows default path (no key override) ever
+    // used the identifier-derived AES key: pre-EC04 0x01 writes could never be
+    // reread (EC04), and SEP13:5+ writes 0x04 only. The derivation's inputs —
+    // home path, machine id, a constant — are public identifiers, so accepting
+    // 0x01/0x03 there lets anyone who can write secrets.enc.json INJECT a
+    // secret the store will happily serve. Both versions must be rejected.
+
+    void forgedAesBlobsRejectedOnWindowsDefaultPath() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.path() + "/forged.json";
+        const QByteArray seed = windowsDefaultSeed();
+
+        QVERIFY(writeServiceBlob(path, "ForgedV1Svc",
+                                 craftLegacyV1Blob(seed,
+                                         "sk-ant-forged-v1-0001")));
+        QVERIFY(writeServiceBlob(path, "ForgedV3Svc",
+                                 craftAadBlob(seed, "ForgedV3Svc",
+                                              "sk-ant-forged-v3-0002")));
+
+        EncryptedFileSecretStore reader(path);  // NO override — the forged path
+        QVERIFY2(reader.readSecret("ForgedV1Svc").isEmpty(),
+                 "a 0x01 blob keyed by the public identifier seed must be "
+                 "rejected on the Windows default path (forgery guard)");
+        QVERIFY2(reader.readSecret("ForgedV3Svc").isEmpty(),
+                 "a 0x03 blob keyed by the public identifier seed must be "
+                 "rejected on the Windows default path (forgery guard)");
+        QVERIFY(!reader.hasSecret("ForgedV1Svc"));
+        QVERIFY(!reader.hasSecret("ForgedV3Svc"));
+
+        // The override-key path is untouched: the same crafted blobs read
+        // under an explicit key remain valid (non-Windows stores too).
+        EncryptedFileSecretStore overrideReader(path, seed);
+        QCOMPARE(overrideReader.readSecret("ForgedV1Svc"),
+                 QString("sk-ant-forged-v1-0001"));
+        QCOMPARE(overrideReader.readSecret("ForgedV3Svc"),
+                 QString("sk-ant-forged-v3-0002"));
+    }
+
+    // PGR-20 migration: 0x02 (DPAPI WITHOUT entry entropy) is the last
+    // unbound legacy format, so a legacy blob can still be swapped between
+    // entries during migration. The read path therefore re-wraps every 0x02
+    // blob as a v3 blob (0x04 default / 0x03 override — entry-bound) on first
+    // successful read: the unbound window closes after one read. (Rejecting
+    // 0x02 outright would orphan pre-SEP13:5 stores; the format is fully
+    // retired once every store has been read once — documented follow-up.)
+    void dpapiV2LegacyBlobMigratesToV3OnFirstRead() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.path() + "/dpapi-v2-migrate.json";
+        const QString secretA = QStringLiteral("sk-ant-migrate-a-0001");
+        const QString secretB = QStringLiteral("sk-ant-migrate-b-0002");
+
+        QVERIFY(writeServiceBlob(path, "MigSvcA", craftLegacyV2Blob(secretA.toUtf8())));
+        QVERIFY(writeServiceBlob(path, "MigSvcB", craftLegacyV2Blob(secretB.toUtf8())));
+
+        EncryptedFileSecretStore store(path);
+        // First read returns the secret AND re-wraps the blob in place.
+        QCOMPARE(store.readSecret("MigSvcA"), secretA);
+        QCOMPARE(store.readSecret("MigSvcB"), secretB);
+        QCOMPARE(int(static_cast<quint8>(readServiceBlob(path, "MigSvcA").at(0))),
+                 0x04);
+        QCOMPARE(int(static_cast<quint8>(readServiceBlob(path, "MigSvcB").at(0))),
+                 0x04);
+
+        // Second read still works — now through the entry-bound v3 format.
+        QCOMPARE(store.readSecret("MigSvcA"), secretA);
+        QCOMPARE(store.readSecret("MigSvcB"), secretB);
+
+        // Post-migration the entries are bound: swapping them fails loudly.
+        QVERIFY(swapServiceBlobs(path, "MigSvcA", "MigSvcB"));
+        QVERIFY2(store.readSecret("MigSvcA").isEmpty(),
+                 "a migrated blob moved to another entry must fail loudly");
+        QVERIFY2(store.readSecret("MigSvcB").isEmpty(),
+                 "the other migrated blob must fail loudly too");
+        QVERIFY(swapServiceBlobs(path, "MigSvcA", "MigSvcB"));
+        QCOMPARE(store.readSecret("MigSvcA"), secretA);
+        QCOMPARE(store.readSecret("MigSvcB"), secretB);
     }
 #endif // Q_OS_WIN
 
