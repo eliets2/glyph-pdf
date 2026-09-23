@@ -25,11 +25,11 @@ PASS   : TestSep13LeadRedactionProof::rotatedPageAnnotOnlySecretMustNotFalsePass
 QINFO  : TestSep13LeadRedactionProof::offsetOnlyPageAnnotAttributionControl() offset-only-annot control: removed = QList("AnnotSecretZebra") passed = false
 PASS   : TestSep13LeadRedactionProof::offsetOnlyPageAnnotAttributionControl()
 Fontconfig error: Cannot load default config file: File not found
-QDEBUG : TestSep13LeadRedactionProof::realRedactionRemovesRotatedAnnotSecret() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-YpoJku.pdf"
+QDEBUG : TestSep13LeadRedactionProof::realRedactionRemovesRotatedAnnotSecret() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-GEbeQb.pdf"
 QINFO  : TestSep13LeadRedactionProof::realRedactionRemovesRotatedAnnotSecret() redact outcome = 0 ""
 QINFO  : TestSep13LeadRedactionProof::realRedactionRemovesRotatedAnnotSecret() saved-artifact annot count = 0
 PASS   : TestSep13LeadRedactionProof::realRedactionRemovesRotatedAnnotSecret()
-QDEBUG : TestSep13LeadRedactionProof::overlayLabelMustLandInsideMarkOnOffsetPage() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-fjfmud.pdf"
+QDEBUG : TestSep13LeadRedactionProof::overlayLabelMustLandInsideMarkOnOffsetPage() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-npkwja.pdf"
 QINFO  : TestSep13LeadRedactionProof::overlayLabelMustLandInsideMarkOnOffsetPage() redact outcome: 0 ""
 QINFO  : TestSep13LeadRedactionProof::overlayLabelMustLandInsideMarkOnOffsetPage() "redacted-dest" page 0 runs: 2
 QINFO  : TestSep13LeadRedactionProof::overlayLabelMustLandInsideMarkOnOffsetPage()   run ""KeepThisVisible public info"" rect=(100,860,142.884x12)
@@ -37,5 +37,5 @@ QINFO  : TestSep13LeadRedactionProof::overlayLabelMustLandInsideMarkOnOffsetPage
 QINFO  : TestSep13LeadRedactionProof::overlayLabelMustLandInsideMarkOnOffsetPage() overlay label: "LABEL" baseline (PDF user space) = 895.187
 PASS   : TestSep13LeadRedactionProof::overlayLabelMustLandInsideMarkOnOffsetPage()
 PASS   : TestSep13LeadRedactionProof::cleanupTestCase()
-Totals: 11 passed, 0 failed, 0 skipped, 0 blacklisted, 987ms
+Totals: 11 passed, 0 failed, 0 skipped, 0 blacklisted, 239ms
 ********* Finished testing of TestSep13LeadRedactionProof *********
