@@ -143,6 +143,11 @@ int countTextOperatorsImpl(const QByteArray& s)
 
 struct PageMechanics {
     bool ok = false;
+    // G6 (audit §1.6 Plan 1-C): an ABSENT /Contents is "no content to decode",
+    // not "undecodable" — recording it as a decode failure trained users to
+    // ignore the UNSWEPT rows that mark genuinely dangerous decode failures
+    // (every scanned or annotation-only page emitted UNSWEPT noise).
+    bool hasContents = false;
     QString sha256;
     int textOps = 0;
 };
@@ -154,13 +159,19 @@ PageMechanics pageMechanics(PoDoFo::PdfPage& page)
     PageMechanics m;
     try {
         PoDoFo::PdfContents* contents = page.GetContents();
-        if (!contents) return m;
+        if (!contents) {
+            // G6: absent /Contents — a real page shape (annotation-only,
+            // scanned). Zero digest, zero operators, ok: nothing to decode.
+            m.ok = true;
+            return m;
+        }
         PoDoFo::charbuff buf;
         contents->CopyTo(buf);
         const QByteArray decoded(buf.data(), int(buf.size()));
         m.sha256 = QString::fromLatin1(
             QCryptographicHash::hash(decoded, QCryptographicHash::Sha256).toHex());
         m.textOps = countTextOperatorsImpl(decoded);
+        m.hasContents = true;
         m.ok = true;
     } catch (const std::exception&) {
         m.ok = false;

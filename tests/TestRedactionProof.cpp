@@ -52,6 +52,9 @@
 #ifdef DrawText
 #undef DrawText
 #endif
+#ifdef GetObject
+#undef GetObject
+#endif
 
 using namespace gp;
 using namespace gp::RedactionProof;
@@ -467,6 +470,136 @@ private slots:
         const QString text = QString::fromUtf8(fileBytes(r.proofTextPath));
         QVERIFY2(text.contains(QStringLiteral("XFA")),
                  "G-01: the TXT pack must name the XFA policy too");
+    }
+
+    // ── G6 (audit §1.6 Plan 1-C): an ABSENT /Contents is "no content", not
+    // "undecodable" — annotation-only and scanned pages must not emit UNSWEPT
+    // [PageStreams] noise (it trains users to ignore the rows that mark real
+    // decode failures). Zero UNSWEPT rows, honest failure over the survivor.
+    void annotationOnlyPageCarriesZeroUnsweptRows()
+    {
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        // Fixture: a page with NO /Contents at all + an annotation-only secret.
+        const QString src = tmp.filePath("annot_only.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            auto& page = doc.GetPages().CreatePage(
+                PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            auto& annot = page.GetAnnotations().CreateAnnot(
+                PoDoFo::PdfAnnotationType::FreeText,
+                PoDoFo::Rect(100.0, 650.0, 200.0, 30.0));
+            annot.SetContents(PoDoFo::PdfString("AnnotSecretZebra"));
+            doc.Save(src.toUtf8().constData());
+        }
+        {   // fixture sanity: the page truly has no /Contents
+            PoDoFo::PdfMemDocument d;
+            d.Load(src.toUtf8().constData());
+            QVERIFY(d.GetPages().GetPageAt(0).GetContents() == nullptr);
+        }
+        const QString out = tmp.filePath("annot_only_out.pdf");
+        QVERIFY(QFile::copy(src, out));
+
+        // Mark over the annot (unrotated A4: viewer y = 842-680..842-650).
+        gp::RedactionProof::Request req;
+        req.sourcePath = src;
+        req.outputPath = out;
+        req.redactionsByPage[0].append(QRectF(100.0, 162.0, 200.0, 30.0));
+        const gp::RedactionProof::Result proof = gp::RedactionProof::verify(req);
+        QVERIFY(proof.proofRan);
+        for (const QString& f : proof.failureReasons) {
+            QVERIFY2(!f.contains(QStringLiteral("UNSWEPT [PageStreams]")),
+                     qPrintable(QStringLiteral("G-06: absent /Contents must not "
+                                              "emit UNSWEPT noise: %1").arg(f)));
+        }
+        bool attributed = false;
+        for (const auto& e : proof.entries)
+            for (const auto& s : e.removedStrings)
+                attributed |= s.contains(QLatin1String("AnnotSecretZebra"));
+        QVERIFY2(attributed, "G-06: the annot secret must still be attributed");
+        QVERIFY2(!proof.proofPassed,
+                 "G-06: the proof must still FAIL honestly over the survivor");
+    }
+
+    // G6 companion: corruption cannot slip a secret past the failure net.
+    // PoDoFo 1.1's stream decode is LENIENT — a corrupted flate payload comes
+    // back from CopyTo as raw bytes rather than throwing — so the ok=false
+    // "real decode exception" branch of pageMechanics is effectively
+    // unreachable through file corruption, and no UNSWED [PageStreams] row is
+    // produced for this fixture (asserted here as the documented reality).
+    // What the companion pins is the property that matters: the proof still
+    // FAILS honestly over the surviving secret on the corrupted file.
+    void corruptStreamStillFailsHonestly()
+    {
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        const QString src = tmp.filePath("corrupt_stream.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            auto& page = doc.GetPages().CreatePage(
+                PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            {   // a real content stream — the corruption target
+                PoDoFo::PdfPainter painter;
+                painter.SetCanvas(page);
+                auto& font = doc.GetFonts().GetStandard14Font(
+                    PoDoFo::PdfStandard14FontType::Helvetica);
+                painter.TextState.SetFont(font, 12.0);
+                (painter.DrawText)("PUBLIC_KEEP_TEXT", 50, 650);
+                painter.FinishDrawing();
+            }
+            auto& annot = page.GetAnnotations().CreateAnnot(
+                PoDoFo::PdfAnnotationType::FreeText,
+                PoDoFo::Rect(100.0, 650.0, 200.0, 30.0));
+            annot.SetContents(PoDoFo::PdfString("AnnotSecretZebra"));
+            doc.Save(src.toUtf8().constData());
+        }
+        {   // Corrupt the saved bytes IN PLACE: flip every stream payload
+            // (length-preserving, /Length untouched). PoDoFo's Save
+            // re-encodes streams itself, so the corruption must happen after
+            // the file is written.
+            QFile f(src);
+            QVERIFY(f.open(QIODevice::ReadOnly));
+            const QByteArray all = f.readAll();
+            f.close();
+            QByteArray corrupted = all;
+            int flipped = 0;
+            int pos = 0;
+            while (true) {
+                const int s = corrupted.indexOf("stream", pos);
+                if (s < 0) break;
+                pos = s + 6;
+                if (s >= 3 && corrupted.mid(s - 3, 3) == "end")
+                    continue; // matched inside "endstream"
+                int data = pos;
+                while (data < corrupted.size()
+                       && (corrupted[data] == '\n' || corrupted[data] == '\r'))
+                    ++data;
+                const int e = corrupted.indexOf("endstream", data);
+                if (e < 0) break;
+                for (int i = data; i < e; ++i)
+                    corrupted[i] = static_cast<char>(corrupted[i] ^ 0xFF);
+                ++flipped;
+            }
+            QVERIFY2(flipped >= 1, "fixture: expected stream payloads to corrupt");
+            QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            QCOMPARE(f.write(corrupted), qint64(corrupted.size()));
+            f.close();
+        }
+
+        gp::RedactionProof::Request req;
+        req.sourcePath = src;
+        req.outputPath = src; // same corrupted file on both sides
+        req.redactionsByPage[0].append(QRectF(100.0, 162.0, 200.0, 30.0));
+        const gp::RedactionProof::Result proof = gp::RedactionProof::verify(req);
+        QVERIFY(proof.proofRan);
+        QVERIFY2(!proof.proofPassed,
+                 "G-06: a corrupted stream must not slip the secret past the "
+                 "failure net — the proof still fails over the survivor");
+        bool survivorNamed = false;
+        for (const QString& f : proof.failureReasons)
+            survivorNamed |= f.contains(QStringLiteral("AnnotSecretZebra"));
+        QVERIFY2(survivorNamed,
+                 "G-06: the surviving secret must be named in the failures");
     }
 
     // ── W2B-1: the /Rotate 270 page-shape (the fixture blind spot) ──────────
