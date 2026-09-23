@@ -53,7 +53,10 @@ OLD_OBJ="CMakeFiles/TestCommandBinding.dir/tests/TestCommandBinding.cpp.obj"
 OLD_SRC="$(printf '%s' "$SRC_LINE" | grep -oE '[A-Za-z]:/[^" ]*tests/TestCommandBinding\.cpp' | head -1)"
 if [ -z "$OLD_SRC" ]; then echo "FATAL: TestCommandBinding.cpp path not found in compile line"; exit 1; fi
 echo "OLD_SRC=$OLD_SRC"
-NEW_SRC="C:/Users/User/Projects/pdf-sec/tools/uisweep/ui_sweep_probe.cpp"
+# ui-fix lane (2026-09-20): derive the probe source from THIS script's repo
+# instead of a hardcoded worktree path, so any lane can rebuild the harness
+# from its own checkout (the probe source itself is unchanged).
+NEW_SRC=$(cygpath -m "$REPO/tools/uisweep/ui_sweep_probe.cpp")
 NEW_OBJ="uisweep_probe.obj"
 
 echo "== compiling the probe"
