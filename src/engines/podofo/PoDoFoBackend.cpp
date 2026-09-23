@@ -2671,6 +2671,74 @@ static bool exciseContentRegions(PoDoFo::PdfMemDocument* document,
     return true;
 }
 
+// G5 (audit REDACTION-RESEARCH-2026-09-21 §2.1): the annotation's EFFECTIVE
+// coverage — the union of the raw /Rect and the appearance bbox (/AP /N
+// /BBox mapped through /Matrix, offset by the /Rect lower-left as the
+// annotation-space origin). Appearances can DRAW OUTSIDE /Rect (missing or
+// degenerate /Rect is legal; FreeText text overflow; Ink strokes outside the
+// declared box), so a mark over what the user SEES must remove the annot
+// even when the bare /Rect does not intersect — over-approximation is the
+// safe direction. Kept in sync with the copy in RedactionProof.cpp
+// (collectAnnotStrings attribution test).
+static QRectF effectiveAnnotRectUser(PoDoFo::PdfAnnotation& annot)
+{
+    // May throw when /Rect is absent — the caller's existing GetRectRaw
+    // exception handling applies unchanged.
+    const PoDoFo::Rect r = annot.GetRectRaw().GetNormalized();
+    QRectF rect(qMin(r.GetLeft(), r.GetRight()),
+                qMin(r.GetBottom(), r.GetTop()),
+                qAbs(r.GetRight() - r.GetLeft()),
+                qAbs(r.GetTop() - r.GetBottom()));
+    const double originX = rect.left();
+    const double originY = rect.bottom();
+
+    auto& annoObj = annot.GetObject();
+    if (!annoObj.IsDictionary()) return rect;
+    const PoDoFo::PdfObject* ap = annoObj.GetDictionary().FindKey("AP");
+    if (!ap || !ap->IsDictionary()) return rect;
+    const PoDoFo::PdfObject* n = ap->GetDictionary().FindKey("N");
+    if (!n || !n->IsDictionary()) return rect;
+
+    QList<const PoDoFo::PdfObject*> forms;
+    if (n->HasStream()) {
+        forms.append(n);
+    } else {
+        for (const auto& kv : n->GetDictionary())
+            if (kv.second.HasStream()) forms.append(&kv.second);
+    }
+
+    for (const PoDoFo::PdfObject* form : forms) {
+        const auto& fd = form->GetDictionary();
+        const auto* bboxObj = fd.FindKey("BBox");
+        if (!bboxObj || !bboxObj->IsArray() || bboxObj->GetArray().GetSize() < 4)
+            continue;
+        double m[6] = {1.0, 0.0, 0.0, 1.0, 0.0, 0.0};
+        if (const auto* mObj = fd.FindKey("Matrix");
+            mObj && mObj->IsArray() && mObj->GetArray().GetSize() >= 6) {
+            for (int i = 0; i < 6; ++i)
+                m[i] = mObj->GetArray()[i].GetReal();
+        }
+        const double bx0 = bboxObj->GetArray()[0].GetReal();
+        const double by0 = bboxObj->GetArray()[1].GetReal();
+        const double bx1 = bboxObj->GetArray()[2].GetReal();
+        const double by1 = bboxObj->GetArray()[3].GetReal();
+        const double corners[4][2] = {{bx0, by0}, {bx1, by0}, {bx1, by1}, {bx0, by1}};
+        double minX = 0, minY = 0, maxX = 0, maxY = 0;
+        for (int i = 0; i < 4; ++i) {
+            const double ax = m[0] * corners[i][0] + m[2] * corners[i][1] + m[4];
+            const double ay = m[1] * corners[i][0] + m[3] * corners[i][1] + m[5];
+            if (i == 0) { minX = maxX = ax; minY = maxY = ay; }
+            else {
+                minX = qMin(minX, ax); maxX = qMax(maxX, ax);
+                minY = qMin(minY, ay); maxY = qMax(maxY, ay);
+            }
+        }
+        rect = rect.united(QRectF(originX + minX, originY + minY,
+                                  maxX - minX, maxY - minY));
+    }
+    return rect;
+}
+
 bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
     QMutexLocker locker(&d->mutex);
     if (!d->document || pageIndex < 0 || (unsigned)pageIndex >= d->document->GetPages().GetCount()) return false;
@@ -2750,11 +2818,18 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
             // survive the excision entirely (annotation-borne data loss).
             // ISO 32000-1 §12.5.2: /Rect lives in default user space, the
             // same space the excision rects were mapped into.
-            const PoDoFo::Rect r = anno.GetRectRaw().GetNormalized();
+            // G5: the removal test uses the EFFECTIVE coverage (raw /Rect ∪
+            // the /AP /N appearance bbox mapped through /Matrix) — appearances
+            // can draw OUTSIDE /Rect, so a mark over what the user sees must
+            // remove the annot even when the bare /Rect misses. Strict-overlap
+            // semantics preserved; the union can only ADD hits.
+            const QRectF effRect = effectiveAnnotRectUser(anno);
             bool intersects = false;
             for (const auto& redRect : pdfRects) {
-                if (r.X < (redRect.X + redRect.Width) && (r.X + r.Width) > redRect.X &&
-                    r.Y < (redRect.Y + redRect.Height) && (r.Y + r.Height) > redRect.Y) {
+                if (effRect.right() > redRect.X &&
+                    effRect.left() < (redRect.X + redRect.Width) &&
+                    effRect.bottom() > redRect.Y &&
+                    effRect.top() < (redRect.Y + redRect.Height)) {
                     intersects = true;
                     break;
                 }
