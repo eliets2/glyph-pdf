@@ -1,0 +1,57 @@
+********* Start testing of TestRedactionProof *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestRedactionProof::initTestCase()
+PASS   : TestRedactionProof::survivorEncodingsCoverPdfStringForms()
+PASS   : TestRedactionProof::operatorCounterSkipsStringsAndDicts()
+Fontconfig error: Cannot load default config file: File not found
+QDEBUG : TestRedactionProof::proofPassesAfterRealRedactionWithManifest() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-sTVTnm.pdf"
+PASS   : TestRedactionProof::proofPassesAfterRealRedactionWithManifest()
+QDEBUG : TestRedactionProof::packDisclaimerNamesXfaRefusalPolicy() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-fryOFd.pdf"
+PASS   : TestRedactionProof::packDisclaimerNamesXfaRefusalPolicy()
+PASS   : TestRedactionProof::annotationOnlyPageCarriesZeroUnsweptRows()
+ERROR: Flate Decoding Error from ZLib: -3
+ERROR: Flate Decoding Error from ZLib: -3
+ERROR: Flate Decoding Error from ZLib: -3
+ERROR: Flate Decoding Error from ZLib: -3
+ERROR: Flate Decoding Error from ZLib: -3
+ERROR: Flate Decoding Error from ZLib: -3
+PASS   : TestRedactionProof::corruptStreamStillFailsHonestly()
+QDEBUG : TestRedactionProof::rotatedPageSecretIsExcisedAndProofPasses() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-FTOXfp.pdf"
+PASS   : TestRedactionProof::rotatedPageSecretIsExcisedAndProofPasses()
+QDEBUG : TestRedactionProof::proofPassesWhenNeighborLineSitsInOldHeadroomZone() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-uCgSKP.pdf"
+PASS   : TestRedactionProof::proofPassesWhenNeighborLineSitsInOldHeadroomZone()
+QDEBUG : TestRedactionProof::metricBandStillCatchesSecretStraddlingTheMarkEdge() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-rtkfKT.pdf"
+PASS   : TestRedactionProof::metricBandStillCatchesSecretStraddlingTheMarkEdge()
+QDEBUG : TestRedactionProof::manifestRecordsRegionMethodAndCounts() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-pQtOUf.pdf"
+PASS   : TestRedactionProof::manifestRecordsRegionMethodAndCounts()
+QDEBUG : TestRedactionProof::legacyRunWithoutProofStaysProofFree() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-EPspXs.pdf"
+PASS   : TestRedactionProof::legacyRunWithoutProofStaysProofFree()
+QDEBUG : TestRedactionProof::proofFailsOnMissedSpotOnSamePage() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-iFZNnx.pdf"
+PASS   : TestRedactionProof::proofFailsOnMissedSpotOnSamePage()
+QDEBUG : TestRedactionProof::proofFailsOnInfoDictionarySurvivor() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-juwBgV.pdf"
+PASS   : TestRedactionProof::proofFailsOnInfoDictionarySurvivor()
+QDEBUG : TestRedactionProof::proofFailsOnXmpSurvivor() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-aNUXzW.pdf"
+PASS   : TestRedactionProof::proofFailsOnXmpSurvivor()
+QDEBUG : TestRedactionProof::proofFailsOnAnnotationStringSurvivor() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-hWQmOz.pdf"
+PASS   : TestRedactionProof::proofFailsOnAnnotationStringSurvivor()
+QDEBUG : TestRedactionProof::proofFailsOnAttachmentSurvivor() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-bgnraI.pdf"
+PASS   : TestRedactionProof::proofFailsOnAttachmentSurvivor()
+QDEBUG : TestRedactionProof::proofFailsOnIncrementalUpdateRemnant() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-VoxIof.pdf"
+PASS   : TestRedactionProof::proofFailsOnIncrementalUpdateRemnant()
+PASS   : TestRedactionProof::proofFailsLoudlyOnUnsweepableOutput()
+PASS   : TestRedactionProof::verifyRejectsIncompleteRequest()
+QDEBUG : TestRedactionProof::emptyRegionMarkIsRecordedHonestly() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-bVOTFi.pdf"
+PASS   : TestRedactionProof::emptyRegionMarkIsRecordedHonestly()
+PASS   : TestRedactionProof::excisedButUnattributedGlyphsMakeTheEntryUnverifiable()
+QDEBUG : TestRedactionProof::blankMarkOnPageWithAttributedRemovalStaysVerifiedNoText() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-SGjnxW.pdf"
+PASS   : TestRedactionProof::blankMarkOnPageWithAttributedRemovalStaysVerifiedNoText()
+QDEBUG : TestRedactionProof::extraSurvivorStringsAreSwept() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-qXqYlP.pdf"
+PASS   : TestRedactionProof::extraSurvivorStringsAreSwept()
+QDEBUG : TestRedactionProof::proofWithSanitizeCoversSanitizedCopy() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-KRxUgP.pdf"
+QDEBUG : TestRedactionProof::proofWithSanitizeCoversSanitizedCopy() Successfully sanitized document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-HIAkFz.pdf"
+PASS   : TestRedactionProof::proofWithSanitizeCoversSanitizedCopy()
+PASS   : TestRedactionProof::dialogDefaultsProofOnAndTransportsThroughPlan()
+PASS   : TestRedactionProof::presenterWordingIsHonestInBothDirections()
+PASS   : TestRedactionProof::cleanupTestCase()
+Totals: 28 passed, 0 failed, 0 skipped, 0 blacklisted, 2572ms
+********* Finished testing of TestRedactionProof *********

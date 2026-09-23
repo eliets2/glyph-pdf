@@ -159,6 +159,62 @@ QString makeRotatedSecretPdf(const QString& path)
     return path;
 }
 
+// PGR-10 fixture builder — a one-page PDF whose single content-stream line is
+// `textOp` verbatim (printable ASCII, so the excision engine's binary guard
+// never fires). The page carries a real Type0 subset font in /Resources;
+// PDFium resolves it and emits its replacement-char runs for ASCII-CID text,
+// so the SOURCE side always has an attributable run near y=100. Byte-exact
+// hand build (xref offsets computed), the same pattern as
+// TestPdfACidSetSafety's Type0 fixture.
+//
+// Plain 612x792 page: no /Rotate, MediaBox origin 0,0 — but the test places
+// the mark ~600pt away from the drawn text, so geometry attribution must
+// come back empty.
+QString makeMechanicsPdf(const QString& path, const char* textOp)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly)) return {};
+    const QByteArray content(textOp);
+    const QByteArray objs[] = {
+        // 1: catalog
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        // 2: pages
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        // 3: page
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        "/Resources << /Font << /F1 4 0 R >> >> /Contents 7 0 R >>",
+        // 4: Type0 font — subset-prefix name, /Identity-H
+        "<< /Type /Font /Subtype /Type0 /BaseFont /ABCDE+SecretFont "
+        "/Encoding /Identity-H /DescendantFonts [5 0 R] >>",
+        // 5: descendant CIDFontType2, Identity ordering
+        "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /ABCDE+SecretFont "
+        "/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) "
+        "/Supplement 0 >> /FontDescriptor 6 0 R /DW 500 >>",
+        // 6: FontDescriptor
+        "<< /Type /FontDescriptor /FontName /ABCDE+SecretFont /Flags 4 "
+        "/FontBBox [0 0 1000 1000] /ItalicAngle 0 /Ascent 800 "
+        "/Descent -200 /CapHeight 700 /StemV 80 >>",
+        // 7: page content
+        "<< /Length " + QByteArray::number(content.size()) + " >>\nstream\n" +
+            content + "endstream",
+    };
+    QByteArray out = "%PDF-1.7\n";
+    QList<int> offsets;
+    for (int i = 0; i < 7; ++i) {
+        offsets.append(out.size());
+        out += QByteArray::number(i + 1) + " 0 obj\n" + objs[i] + "\nendobj\n";
+    }
+    const int xrefPos = out.size();
+    out += "xref\n0 8\n0000000000 65535 f \n";
+    for (int off : offsets)
+        out += QString("%1 00000 n \n").arg(off, 10, 10, QChar('0')).toLatin1();
+    out += "trailer\n<< /Size 8 /Root 1 0 R >>\nstartxref\n" +
+           QByteArray::number(xrefPos) + "\n%%EOF\n";
+    const bool ok = f.write(out) == out.size();
+    f.close();
+    return ok ? path : QString();
+}
+
 // Plants an embedded file (file specification + name tree) carrying `payload`
 // into the document — the exact surface the sweep must cover per contract.
 bool attachFileWithPayload(PoDoFo::PdfMemDocument& doc,
@@ -1034,6 +1090,103 @@ private slots:
                                                           "survivor: %1").arg(joinedProofFailures(r))));
         const QJsonObject e0 = jsonRoot(r.proofJsonPath)["excisions"].toArray().at(0).toObject();
         QCOMPARE(e0["status"].toString(), QStringLiteral("verified-no-text-in-region"));
+    }
+
+    void excisedButUnattributedGlyphsMakeTheEntryUnverifiable()
+    {
+        // PGR-10 (re-confirmed residual): the excision engine walks the page's
+        // content stream with its own pen geometry; proof attribution reads
+        // PDFium run rects — two different approximations of "what the mark
+        // covered". When glyphs WERE excised on the page (glyph-carrying
+        // operators dropped) yet attribution named none of them, an
+        // empty-attribution mark must NOT be certified as
+        // verified-no-text-in-region: glyphs vanished that no entry claims.
+        // Deterministic construction at the proof seam: source draws one text
+        // op at user y=100; the committed output shows it excised (the
+        // engine's numeric TJ gap substitute — glyph ops 1 -> 0); the mark
+        // sits at viewer y=100, ~600pt away from the run, so geometry
+        // attribution is empty. The old adjudication certified this mark
+        // verified-no-text-in-region and passed the pack — a false PASS over
+        // an excision it never checked.
+        const QString src = makeMechanicsPdf(
+            m_tmpDir.filePath("pgr10_src.pdf"),
+            "BT /F1 24 Tf 72 100 Td (SESAMESECRET) Tj ET\n");
+        const QString out = makeMechanicsPdf(
+            m_tmpDir.filePath("pgr10_out.pdf"),
+            "BT /F1 24 Tf 72 100 Td [ 42 ] TJ ET\n");
+        QVERIFY2(!src.isEmpty(), "PGR-10 source fixture must build");
+        QVERIFY2(!out.isEmpty(), "PGR-10 output fixture must build");
+
+        Request req;
+        req.sourcePath = src;
+        req.outputPath = out;
+        req.redactionsByPage[0].append(QRectF(60.0, 100.0, 240.0, 40.0));
+        const Result proof = verify(req);
+        QVERIFY(proof.proofRan);
+        QVERIFY2(!proof.proofPassed,
+                 qPrintable(QStringLiteral("a pack whose page lost glyph ops "
+                                          "attribution cannot name must not "
+                                          "PASS: %1")
+                                .arg(joinedFailures(proof))));
+        QVERIFY2(proof.entries.size() == 1, "one mark, one entry");
+        const ExcisionEntry& e = proof.entries.first();
+        // String-level compare (via entryStatusName): the NC scoped-reverts
+        // the whole fix — old enum, old adjudication — and the pin must then
+        // FAIL at runtime (actual: "verified-no-text-in-region"), not break
+        // the build.
+        QVERIFY2(entryStatusName(e.status) == QStringLiteral("unverifiable"),
+                 qPrintable(QStringLiteral("the entry must be unverifiable, "
+                                          "not '%1' (detail: %2)")
+                                .arg(entryStatusName(e.status), e.detail)));
+        QVERIFY2(e.detail.contains(QStringLiteral("cannot be checked")),
+                 "the entry detail must say no claim is made either way");
+        QVERIFY2(joinedFailures(proof).contains(QStringLiteral("UNVERIFIED")),
+                 "the verdict must name the unverifiable entry");
+        // The TXT pack carries the same honest wording in its disclaimer.
+        QVERIFY(proof.exportPack(m_tmpDir.filePath("pgr10_pack.json"),
+                                 m_tmpDir.filePath("pgr10_pack.txt"), nullptr));
+        QVERIFY2(QString::fromUtf8(fileBytes(m_tmpDir.filePath("pgr10_pack.txt")))
+                     .contains(QStringLiteral("UNVERIFIABLE")),
+                 "the TXT disclaimer must name the unverifiable flagging");
+    }
+
+    void blankMarkOnPageWithAttributedRemovalStaysVerifiedNoText()
+    {
+        // PGR-10 guard — the downgrade must stay narrow: on a page where
+        // another mark DID attribute strings (explaining the excised glyph
+        // operators), a genuinely empty region keeps its honest
+        // verified-no-text-in-region and the pack still passes.
+        const QString src = makeSourcePdf(m_tmpDir.filePath("pgr10_narrow_src.pdf"));
+        QVERIFY(!src.isEmpty());
+        const QString dest = m_tmpDir.filePath("pgr10_narrow_redacted.pdf");
+        QMap<int, QList<QRectF>> rects;
+        rects[0].append(secretMark());                        // attributed removal
+        rects[0].append(QRectF(300.0, 400.0, 100.0, 50.0));   // blank corner
+        RedactRequest req;
+        req.sourcePath = src;
+        req.destinationPath = dest;
+        req.redactionsByPage = rects;
+        req.produceProof = true;
+        RedactOperation op(req);
+        const RedactResult r = runOp(&op);
+        QCOMPARE(r.outcome, RedactOutcome::Completed);
+        QVERIFY2(r.proofPassed,
+                 qPrintable(QStringLiteral("an attributed removal plus a blank mark "
+                                          "must still pass: %1")
+                                .arg(joinedProofFailures(r))));
+        const QJsonArray entries = jsonRoot(r.proofJsonPath)["excisions"].toArray();
+        QCOMPARE(entries.size(), 2);
+        bool sawVerified = false;
+        bool sawEmptyVerified = false;
+        for (const auto& v : entries) {
+            const QString st = v.toObject()["status"].toString();
+            if (st == QStringLiteral("verified")) sawVerified = true;
+            if (st == QStringLiteral("verified-no-text-in-region")) sawEmptyVerified = true;
+        }
+        QVERIFY2(sawVerified, "the attributed mark must stay verified");
+        QVERIFY2(sawEmptyVerified,
+                 "the blank mark must keep verified-no-text-in-region — "
+                 "the PGR-10 downgrade must not swallow honest empty regions");
     }
 
     void extraSurvivorStringsAreSwept()

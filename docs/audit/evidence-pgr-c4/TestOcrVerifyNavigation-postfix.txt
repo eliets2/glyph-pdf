@@ -1,0 +1,20 @@
+********* Start testing of TestOcrVerifyNavigation *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestOcrVerifyNavigation::initTestCase()
+PASS   : TestOcrVerifyNavigation::confidenceBoundaryMatrix()
+PASS   : TestOcrVerifyNavigation::classifierColorsAndRangeText()
+PASS   : TestOcrVerifyNavigation::legendMatchesClassifierThresholds()
+PASS   : TestOcrVerifyNavigation::uncertainWalkOrderWrapAroundSkipsDeleted()
+PASS   : TestOcrVerifyNavigation::allHighListHasNoUncertainWord()
+PASS   : TestOcrVerifyNavigation::selectWordFunnelSyncsInspectorCanvasMagnifier()
+PASS   : TestOcrVerifyNavigation::canvasClickSelectsRightWordRecord()
+PASS   : TestOcrVerifyNavigation::paintedBoxesTrackHorizontalAndVerticalLetterboxing()
+PASS   : TestOcrVerifyNavigation::resizedCanvasPaintsBoxUnderTheClickTarget()
+PASS   : TestOcrVerifyNavigation::magnifierSourceRectPadsAndClamps()
+PASS   : TestOcrVerifyNavigation::magnifierPixelIdentityAtOneToOne()
+PASS   : TestOcrVerifyNavigation::magnifierClearsSelection()
+PASS   : TestOcrVerifyNavigation::sessionDeliveredToOcrModeWithoutRerender()
+PASS   : TestOcrVerifyNavigation::uncertainButtonsJumpTheWalk()
+PASS   : TestOcrVerifyNavigation::cleanupTestCase()
+Totals: 16 passed, 0 failed, 0 skipped, 0 blacklisted, 167ms
+********* Finished testing of TestOcrVerifyNavigation *********
