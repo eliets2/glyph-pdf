@@ -4054,7 +4054,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormJsAdversarial.cpp")
     )
     target_include_directories(TestFormJsAdversarial PRIVATE src tests)
     target_link_libraries(TestFormJsAdversarial PRIVATE
-        pdfws_engines pdfws_core pdfws_commands podofo::podofo
+        pdfws_engines pdfws_core pdfws_commands pdfws_ui podofo::podofo
         Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
     )
     add_custom_command(TARGET TestFormJsAdversarial POST_BUILD

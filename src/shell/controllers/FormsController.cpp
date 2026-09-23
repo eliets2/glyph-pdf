@@ -198,10 +198,15 @@ void FormsController::onImportDataRequested() {
         // §9.6 P0: a bulk import that silently dropped values (radio/pushbutton
         // targets, unknown names) must not read as success.
         if (!unsupported.isEmpty()) {
-            QMessageBox::warning(_mainWindow, tr("Import Incomplete"),
+            // PGR-35: the skipped list is the DOCUMENT's field names — plain
+            // text, never rich-text interpretation.
+            QMessageBox unsupportedBox(QMessageBox::Warning, tr("Import Incomplete"),
                 tr("Form data was imported, but %1 field(s) could not be set and were skipped:\n\n%2\n\n"
                    "Radio groups and push buttons cannot be filled by import; check that field names match the document.")
-                    .arg(unsupported.size()).arg(unsupported.join(", ")));
+                    .arg(unsupported.size()).arg(unsupported.join(", ")),
+                QMessageBox::Ok, _mainWindow);
+            unsupportedBox.setTextFormat(Qt::PlainText);
+            unsupportedBox.exec();
         }
         // Phase-1 form-JS honesty contract: calculated fields whose scripts
         // failed kept their committed value — name them, never a silent value.
@@ -209,9 +214,14 @@ void FormsController::onImportDataRequested() {
             QStringList lines;
             for (const FormJsFailure& f : jsFailures)
                 lines << tr("• %1 — %2 (%3)").arg(f.fieldName, f.reason, f.kind);
-            QMessageBox::warning(_mainWindow, tr("Import complete, calculation failed"),
+            // PGR-35: the lines carry document-derived text (field names + the
+            // scripts' own failure messages) — plain text, never rich-text.
+            QMessageBox jsBox(QMessageBox::Warning, tr("Import complete, calculation failed"),
                 tr("The data was imported, but %n calculated field(s) failed and kept "
-                   "their previous value:\n\n%1", "", jsFailures.size()).arg(lines.join('\n')));
+                   "their previous value:\n\n%1", "", jsFailures.size()).arg(lines.join('\n')),
+                QMessageBox::Ok, _mainWindow);
+            jsBox.setTextFormat(Qt::PlainText);
+            jsBox.exec();
         }
     } else {
         QFile::remove(outputPath);   // never leave a half-written temp behind

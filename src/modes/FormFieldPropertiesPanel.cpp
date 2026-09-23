@@ -44,6 +44,10 @@ FormFieldPropertiesPanel::FormFieldPropertiesPanel(const AppContext* ctx, QWidge
 
     m_nameStatus = new QLabel;
     m_nameStatus->setStyleSheet("QLabel { color: #c00; font-size: 10px; }");
+    // PGR-35: status labels surface DOCUMENT-derived text (field names, form-JS
+    // failure reasons, format-script output). Plain-text format means a hostile
+    // payload can never be auto-detected and rendered as rich-text markup.
+    m_nameStatus->setTextFormat(Qt::PlainText);
     m_nameStatus->setVisible(false);
     form->addRow(QString(), m_nameStatus);
 
@@ -72,6 +76,7 @@ FormFieldPropertiesPanel::FormFieldPropertiesPanel(const AppContext* ctx, QWidge
     m_keystrokeStatus->setObjectName(QStringLiteral("keystrokeStatus"));
     m_keystrokeStatus->setStyleSheet("QLabel { color: #b00; font-size: 10px; }");
     m_keystrokeStatus->setWordWrap(true);
+    m_keystrokeStatus->setTextFormat(Qt::PlainText); // PGR-35 (see above)
     m_keystrokeStatus->setVisible(false);
     form->addRow(QString(), m_keystrokeStatus);
 
@@ -81,12 +86,17 @@ FormFieldPropertiesPanel::FormFieldPropertiesPanel(const AppContext* ctx, QWidge
     m_scriptBadge = new QLabel;
     m_scriptBadge->setStyleSheet("QLabel { color: #06c; font-size: 10px; }");
     m_scriptBadge->setWordWrap(true);
+    m_scriptBadge->setTextFormat(Qt::PlainText); // PGR-35 (see above)
     m_scriptBadge->setVisible(false);
     form->addRow(QString(), m_scriptBadge);
 
     m_displayPreview = new QLabel;
+    m_displayPreview->setObjectName(QStringLiteral("displayPreview"));
     m_displayPreview->setStyleSheet("QLabel { color: #666; font-size: 10px; }");
     m_displayPreview->setWordWrap(true);
+    // PGR-35 (the sharpest site): this label shows a FORMAT SCRIPT'S OUTPUT —
+    // fully document-controlled text. Plain-text format is mandatory.
+    m_displayPreview->setTextFormat(Qt::PlainText);
     m_displayPreview->setVisible(false);
     form->addRow(QString(), m_displayPreview);
 
@@ -97,6 +107,7 @@ FormFieldPropertiesPanel::FormFieldPropertiesPanel(const AppContext* ctx, QWidge
     m_staleBanner = new QLabel;
     m_staleBanner->setStyleSheet("QLabel { color: #b00; font-size: 10px; }");
     m_staleBanner->setWordWrap(true);
+    m_staleBanner->setTextFormat(Qt::PlainText); // PGR-35 (see above)
     m_staleBanner->setVisible(false);
     form->addRow(QString(), m_staleBanner);
     auto* staleRow = new QHBoxLayout;
@@ -126,6 +137,7 @@ FormFieldPropertiesPanel::FormFieldPropertiesPanel(const AppContext* ctx, QWidge
 
     m_regexStatus = new QLabel;
     m_regexStatus->setStyleSheet("QLabel { color: #c00; font-size: 10px; }");
+    m_regexStatus->setTextFormat(Qt::PlainText); // PGR-35 (see above)
     m_regexStatus->setVisible(false);
     form->addRow(QString(), m_regexStatus);
 
@@ -418,9 +430,14 @@ void FormFieldPropertiesPanel::onApplyClicked()
         QStringList lines;
         for (const FormJsFailure& f : jsFailures)
             lines << tr("• %1 — %2 (%3)").arg(f.fieldName, f.reason, f.kind);
-        QMessageBox::warning(this, tr("Field saved, calculation failed"),
+        // PGR-35: the lines carry document-derived text (field names + the
+        // scripts' own failure messages) — plain text, never rich-text.
+        QMessageBox box(QMessageBox::Warning, tr("Field saved, calculation failed"),
             tr("The field was saved, but %n calculated field(s) failed and kept "
-               "their previous value:\n\n%1", "", jsFailures.size()).arg(lines.join('\n')));
+               "their previous value:\n\n%1", "", jsFailures.size()).arg(lines.join('\n')),
+            QMessageBox::Ok, this);
+        box.setTextFormat(Qt::PlainText);
+        box.exec();
     }
     refreshScriptState();
 }
