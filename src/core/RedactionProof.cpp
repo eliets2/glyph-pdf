@@ -1185,7 +1185,11 @@ const char* kDisclaimer =
     "documents outright, and Sanitize removes the XFA form data before a "
     "redacted copy is made. Where a redaction mark covers a form widget, "
     "GlyphPDF also clears that widget's field value (/V and /DV up the /Parent "
-    "chain) so the value cannot survive the removed widget inside /AcroForm.";
+    "chain) so the value cannot survive the removed widget inside /AcroForm. "
+    "Optional-content (OCG) layers are never revealed by sanitization: the "
+    "sanitized copy keeps hidden layers hidden (all layers OFF), and their "
+    "content remains present in the file — redaction removes marked regions "
+    "only.";
 
 QJsonObject surfaceJson(const SurfaceReport& r)
 {

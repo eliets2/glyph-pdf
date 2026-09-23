@@ -209,9 +209,22 @@ private slots:
             namesDict.GetDictionary().AddKey(PoDoFo::PdfName("JavaScript"), jsNames);
             catalog.GetDictionary().AddKey(PoDoFo::PdfName("Names"), namesDict.GetIndirectReference());
 
-            // -- OCProperties (Optional Content) --
+            // -- OCProperties (Optional Content): one real layer, currently
+            // listed ON in the default config /D — the shape whose sanitize
+            // treatment G4 governs (hide, never reveal) --
+            auto& ocgObj = doc.GetObjects().CreateDictionaryObject();
+            ocgObj.GetDictionary().AddKey(PoDoFo::PdfName("Type"), PoDoFo::PdfName("OCG"));
+            ocgObj.GetDictionary().AddKey(PoDoFo::PdfName("Name"),
+                                          PoDoFo::PdfString("HiddenReviewers"));
+            PoDoFo::PdfArray ocgsArr;
+            ocgsArr.Add(ocgObj.GetIndirectReference());
+            PoDoFo::PdfArray onArr;
+            onArr.Add(ocgObj.GetIndirectReference());
+            auto& dDictObj = doc.GetObjects().CreateDictionaryObject();
+            dDictObj.GetDictionary().AddKey(PoDoFo::PdfName("ON"), onArr);
             auto& ocpObj = doc.GetObjects().CreateDictionaryObject();
-            ocpObj.GetDictionary().AddKey(PoDoFo::PdfName("OCGs"), PoDoFo::PdfArray());
+            ocpObj.GetDictionary().AddKey(PoDoFo::PdfName("OCGs"), ocgsArr);
+            ocpObj.GetDictionary().AddKey(PoDoFo::PdfName("D"), dDictObj.GetIndirectReference());
             catalog.GetDictionary().AddKey(PoDoFo::PdfName("OCProperties"), ocpObj.GetIndirectReference());
 
             // -- Page-level AA (Additional Actions) --
@@ -268,9 +281,33 @@ private slots:
             }
         }
 
-        // Vector 4: /OCProperties removed.
-        QVERIFY2(!outCatalog.GetDictionary().HasKey("OCProperties"),
-                 "G-04: /OCProperties must be removed by sanitize");
+        // Vector 4: optional content — G4 (audit REDACTION-RESEARCH-2026-09-21
+        // §2.2): the former /OCProperties REMOVAL revealed hidden layers (with
+        // the default config gone, every layer-gated element renders VISIBLE
+        // in every viewer — the sanitized copy shows content the user never
+        // saw, never marked). The redaction-safe policy is the opposite: keep
+        // /OCProperties with an explicit OFF config — /D /ON empty, every OCG
+        // in /D /OFF. Pin moved from key-absence to hidden-state (ed04426
+        // precedent: data-state pins, not weakened ones).
+        {
+            auto* outOcp = outCatalog.GetDictionary().FindKey("OCProperties");
+            QVERIFY2(outOcp != nullptr,
+                     "G-04: /OCProperties must be kept (OFF policy, not removal)");
+            if (outOcp->IsReference())
+                outOcp = &outDoc.GetObjects().MustGetObject(outOcp->GetReference());
+            QVERIFY(outOcp && outOcp->IsDictionary());
+            auto* dObj = outOcp->GetDictionary().FindKey("D");
+            QVERIFY2(dObj != nullptr, "G-04: /D default config must exist");
+            if (dObj->IsReference())
+                dObj = &outDoc.GetObjects().MustGetObject(dObj->GetReference());
+            QVERIFY(dObj && dObj->IsDictionary());
+            const auto* onArr = dObj->GetDictionary().FindKey("ON");
+            QVERIFY2(!onArr || !onArr->IsArray() || onArr->GetArray().GetSize() == 0,
+                     "G-04: no layer may remain ON after sanitize");
+            const auto* offArr = dObj->GetDictionary().FindKey("OFF");
+            QVERIFY2(offArr && offArr->IsArray() && offArr->GetArray().GetSize() == 1,
+                     "G-04: every layer must be listed OFF in /D (hidden stays hidden)");
+        }
 
         // Vector 5: page-level /AA removed.
         auto& outPage = outDoc.GetPages().GetPageAt(0);
