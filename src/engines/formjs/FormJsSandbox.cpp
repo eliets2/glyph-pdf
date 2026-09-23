@@ -110,6 +110,32 @@ void describeException(JSContext* ctx, JSValue exc, QString* name, QString* mess
     if (message) *message = text;
 }
 
+// Escapes `s` as a double-quoted ECMAScript string literal. The JSON text
+// only ever needs \" and \\ here (control characters are already \u-escaped
+// by QJsonDocument; U+2028/2029 are legal in ES2019+ string literals), but
+// the loop escapes every control defensively.
+QString jsStringLiteral(const QString& s)
+{
+    QString out;
+    out.reserve(s.size() + 16);
+    out += QLatin1Char('"');
+    for (const QChar c : s) {
+        switch (c.unicode()) {
+            case u'"': out += QStringLiteral("\\\""); break;
+            case u'\\': out += QStringLiteral("\\\\"); break;
+            case u'\n': out += QStringLiteral("\\n"); break;
+            case u'\r': out += QStringLiteral("\\r"); break;
+            default:
+                if (c.unicode() < 0x20)
+                    out += QStringLiteral("\\u%1").arg(uint(c.unicode()), 4, 16, QLatin1Char('0'));
+                else
+                    out += c;
+        }
+    }
+    out += QLatin1Char('"');
+    return out;
+}
+
 } // namespace
 
 struct FormJsSandbox::Impl {
@@ -235,12 +261,17 @@ bool FormJsSandbox::installFieldSnapshot(QString* error)
                          .arg(json.size()).arg(m_limits.maxTransferBytes);
         return false;
     }
-    // JSON is a syntactic subset of JS, so the document embeds directly. The
-    // ASSIGNMENT is an engine entry: a hostile script can have replaced
+    // PGR-38: JSON is a SYNTACTIC subset of JS, but the object-literal embed
+    // was not a semantic one: the key "__proto__" in a literal invokes the
+    // inherited setter (a string value is silently dropped — a field named
+    // __proto__ vanished from every script's view), while JSON.parse defines
+    // an own property. So the snapshot is embedded as a string literal and
+    // parsed by the engine's own JSON.parse. The ASSIGNMENT is still an
+    // engine entry: a hostile script can have replaced
     // `globalThis.__gpFieldValues` with a looping setter (reproduced bypass) —
     // it runs under the whole-operation deadline like everything else.
-    const QString code = QStringLiteral("globalThis.__gpFieldValues = %1;")
-                             .arg(QString::fromUtf8(json));
+    const QString code = QStringLiteral("globalThis.__gpFieldValues = JSON.parse(%1);")
+                             .arg(jsStringLiteral(QString::fromUtf8(json)));
     const QByteArray utf8 = code.toUtf8();
     m_impl->beginOperation(m_limits.eventDeadlineMs, "the field snapshot refresh");
     JSValue v = JS_Eval(m_impl->ctx, utf8.constData(), size_t(utf8.size()),

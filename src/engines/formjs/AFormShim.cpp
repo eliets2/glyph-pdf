@@ -15,14 +15,20 @@ const char* aformShimVersion()
 
 const char* aformShimSource()
 {
-    return R"gpjs(
+    // PGR-39: the entire shim body lives inside ONE IIFE. Every public name
+    // is installed by an explicit globalThis.X assignment (grep-able below);
+    // the internal helpers (__printf, __scand, __parseDate, …) are closure
+    // bindings and MUST stay invisible to authored scripts — a top-level
+    // `function` declaration in a global eval becomes a writable globalThis
+    // property, which let scripts rewire the shim's own machinery (date
+    // parsing, printf) for every later event in the same cascade.
+    return R"gpjs((function () {
 // ── Ported from Mozilla pdf.js (Apache-2.0) ─────────────────────────────────
 // src/shared/scripting_utils.js DateFormats/TimeFormats, src/scripting_api/
 // util.js (printf/printd/scand), src/scripting_api/aform.js (AF subset).
 // Copyright 2020 Mozilla Foundation — ported with attribution.
 
 "use strict";
-
 if (typeof Math.sumPrecise !== "function") {
   // quickjs-ng 0.15.0 ships Math.sumPrecise; the guarded fallback keeps the
   // shim portable to engines without it (reduce-based, not exactly-rounded —
@@ -850,6 +856,7 @@ globalThis.__gpEndEvent = function () {
     blocked: globalThis.__gpBlocked,
   });
 };
+})(); // PGR-39: closes the shim IIFE — public surface = globalThis assignments only.
 )gpjs";
 }
 
