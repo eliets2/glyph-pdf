@@ -2800,6 +2800,28 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
                 }
             }
             if (intersects) {
+                // G3 (audit REDACTION-RESEARCH-2026-09-21 §2.1): a WIDGET is
+                // only the geometry — its value lives on the FIELD dict (/V,
+                // inherited /DV) reachable from /AcroForm /Fields, a different
+                // object the excision never touches. For a MERGED field+widget
+                // the default-GC save drops the value with the orphaned widget
+                // object, but in a SPLIT tree the field survives with its
+                // value intact ("I drew the box over the form field, saved,
+                // ran my own string search — the value is still in there").
+                // Walk the /Parent chain (same shape as the proof's
+                // collectAnnotStrings) and clear /V + /DV at every level, the
+                // widget dict included. Keep the field object itself.
+                if (anno.GetType() == PoDoFo::PdfAnnotationType::Widget) {
+                    PoDoFo::PdfObject* fieldObj = &anno.GetObject();
+                    for (int depth = 0; fieldObj != nullptr && depth < 16; ++depth) {
+                        auto& fieldDict = fieldObj->GetDictionary();
+                        if (fieldDict.HasKey("V")) fieldDict.RemoveKey("V");
+                        if (fieldDict.HasKey("DV")) fieldDict.RemoveKey("DV");
+                        fieldObj = fieldDict.FindKey("Parent");
+                    }
+                    qWarning() << "applyRedactions: marked widget — cleared /V//DV "
+                                  "on its field (redaction under the mark)";
+                }
                 // Walk /AP -> /N (normal appearance) Form XObject for image excision.
                 auto& annoObj = anno.GetObject();
                 if (annoObj.IsDictionary()) {

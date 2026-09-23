@@ -1209,7 +1209,9 @@ const char* kDisclaimer =
     "likewise outside every swept surface: it re-encodes form values in streams "
     "no sweep can attribute, so GlyphPDF refuses to redact XFA-bearing "
     "documents outright, and Sanitize removes the XFA form data before a "
-    "redacted copy is made.";
+    "redacted copy is made. Where a redaction mark covers a form widget, "
+    "GlyphPDF also clears that widget's field value (/V and /DV up the /Parent "
+    "chain) so the value cannot survive the removed widget inside /AcroForm.";
 
 QJsonObject surfaceJson(const SurfaceReport& r)
 {
