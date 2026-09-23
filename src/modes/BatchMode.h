@@ -335,6 +335,11 @@ private:
     QSet<int>           m_accountedIndices;
     QElapsedTimer       m_batchTimer;
     QMutex              m_engineMutex;       // serializes pdfEditor calls across threads
+    // F2a-F1 (SWEEP-W3-UX): the merge completion feedback must NAME the output
+    // file. Set on the GUI thread when a merge run is dispatched; showSummary
+    // surfaces it only when the merge actually committed (successCount > 0 —
+    // a cancelled or failed merge writes no output and must not name one).
+    QString             m_mergeOutputPath;
 
     const AppContext*   m_ctx             = nullptr;
 
