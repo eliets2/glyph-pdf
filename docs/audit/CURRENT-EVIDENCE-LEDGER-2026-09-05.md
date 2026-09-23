@@ -1271,3 +1271,25 @@ shapes in 8233392f; it now fails under the revert exactly where the defect predi
 carried residual "signatureFieldAnchors rotation-imperfect read on 90/270" (tail of the W2C
 section) is RESOLVED by EM-3, verified this pass on all four rotations + offset origins.
 (3) No sanitizer in this toolchain — same disclosure convention as prior rows.
+
+## 2026-09-23 — UX-INTEGRATION FIX LANE 2 (feat/ux-integration-fixes2, from ef371ad0) — implemented-awaiting-review
+
+The merged tip failed 3 of 11 TestSweepW3UxFlows slots (baseline /d/uxflows.txt, 8P/3F/442s).
+Diagnosis OVERTURNED the brief's hypotheses: all three full-run failures shared ONE harness
+defect — modal drivers (60-300s singleShot(0) chains) outlived their slot and consumed the
+NEXT slot's modals (flow1's stale 'No'-clicker answered flow2a's completion modal; flow2a's
+stale capturer closed flow2b's preset-name dialog; flow2b's 300s defensive capturer closed
+flow3's apply dialog, so the apply never ran). The G1/G2 honest-refusal hypothesis for flow3
+was disproven: flow3 PASSES standalone at the tip (plain-Helvetica fixture). Evidence:
+/d/uxint2-*.txt; handoff .context/uxint2-wip.md.
+
+| Row | Change (SHA) | Contract | Slot evidence | NC |
+|---|---|---|---|---|
+| Slot-scoped modal drivers (g_driverEpoch bumped per test function in init(); stale chains exit at next tick) | 69600dcc (harness-only) | a slot's modal drivers never act after the slot returns; within-slot driving unchanged | flow2a/flow3 standalone PASS at tip; full harness 12/12 after | baseline transcript IS the fail evidence (stale-driver clicks/captures visible in /d/uxflows.txt); full run flipped 8P/3F -> 12P/0F |
+| flow2b waits on batchFinished (QSignalSpy 1/2/3), not !isBatchRunning() | 0e1f6535 (harness-only) | counters are read only after the G12 drain (batchFinished emits post-drain); isRunning() flips false before the queued resultReadyAt accounting lands | flow2b standalone x3 green (700/633/637ms; previously 71.6s incl. the race, 1-of-2 failing at successCount 0!=1 with the engine log showing the file processed) | fail-before /d/uxint2-flow2b-baseline.txt (success=0 fail=0 at the re-run assert); product G12 contract unchanged |
+| F2a-F1 batch merge completion names the output (showSummary: 'Merged output: <abs path>' log line + name in the persistent status summary, gated on successCount>0 — a cancelled/failed merge writes no output and never names one) | 4f345147 (src/modes/BatchMode.{cpp,h} + flow2b pin) | the batch surface's completion feedback must NAME the merged output, honestly in both directions | flow2b pin: status 'BATCH COMPLETE — 2 of 2 succeeded — merged into mpart1_merged.pdf' + 'Merged output:' log line (/d/uxint2-c3-flow2b.txt) | scoped revert -> pin FAILS 'status was BATCH COMPLETE — 2 of 2 succeeded' (/d/uxint2-nc-flow2b.txt) -> restore -> green (/d/uxint2-c3b-flow2b.txt) |
+| NEW flow3b: G2 pattern-text honest refusal pinned through the REAL UI route (open -> redact -> mark public text -> apply) | 9b408951 (harness-only) | refusal disclosure titled 'Redaction Failed' naming the pattern reason, 'refused'/'black box', 'not modified'; NO output written; pattern secret + public text survive in the source | flow3b standalone x2 green (1584/1572ms; disclosure transcript /d/uxint2-c4c-flow3b.txt); engine half already pinned by TestRedactTransaction::patternDrawnSecretFailsRunWithNamedError | n/a (new-contract pin; the underlying G2 refusal is correct landed behavior) |
+
+Final standalone full harness at 9b408951: **12 passed, 0 failed, 0 skipped (138s)** —
+/d/uxint2-fullharness.txt (offscreen, serial, QTEST_FUNCTION_TIMEOUT=900000). flow3 itself is
+UNCHANGED (its fixture was never refused; the brief's clean-fixture update was moot).
