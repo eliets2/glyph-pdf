@@ -23,6 +23,8 @@
 #include <QTemporaryDir>
 #include <QToolButton>
 
+#include "docmodel/SemanticDocument.h"
+#include "engines/ocr/OcrDjotMapper.h"
 #include "modes/OCRMode.h"
 #include "modes/OcrReviewSession.h"
 #include "shell/controllers/EditController.h"
@@ -487,6 +489,70 @@ private slots:
         QCOMPARE(panel.reviewState(), OCRMode::ReviewState::ReviewReady);
         QVERIFY(acceptButton(panel)->isEnabled());
         QVERIFY(runButton(panel)->isEnabled());
+    }
+
+    // ── PGR-10 triage (review-state re-entrancy): the word inspector rides the
+    // same lifecycle as Accept/Reject — a correction left editable during
+    // Saving/Running would mutate words an in-flight save is exporting. ──────
+    void wordInspectorAndCorrectionsAreLifecycleGated()
+    {
+        OCRMode panel;
+        panel.setOcrResults(makeWords());
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::ReviewReady);
+        auto* edit = panel.findChild<QLineEdit*>(QStringLiteral("ocrWordEdit"));
+        auto* del = panel.findChild<QToolButton*>(QStringLiteral("ocrBtnDeleteWord"));
+        QVERIFY(edit);
+        QVERIFY(del);
+
+        // ReviewReady with a selection: editable — the U03 review loop.
+        panel.selectWord(0);
+        QVERIFY(edit->isEnabled());
+        QVERIFY(del->isEnabled());
+
+        // Accept → Saving: the correction editor and delete button must
+        // disable immediately, and the programmatic paths must refuse.
+        panel.onAcceptResults();
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::Saving);
+        QVERIFY2(!edit->isEnabled(),
+                 "the correction editor must disable while a save commits");
+        QVERIFY2(!del->isEnabled(),
+                 "the word delete button must disable while a save commits");
+        QVERIFY2(!panel.applyWordCorrection(0, QStringLiteral("mid-save")),
+                 "a correction applied during Saving must be refused");
+        QVERIFY2(!panel.markWordDeleted(0),
+                 "a word delete during Saving must be refused");
+
+        // Save cancelled: back to ReviewReady — editable again, words intact.
+        panel.notifySaveFinished(false, true, QString());
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::ReviewReady);
+        QVERIFY(edit->isEnabled());
+        QVERIFY(del->isEnabled());
+        QCOMPARE(panel.reviewedWords().at(0).reviewedText, QStringLiteral("invoice"));
+    }
+
+    // ── PGR-10 triage: the semantic-document delivery restores the Run button ─
+    // The path bypasses transitionTo() by design (Accept/Reject must stay
+    // enabled with no reviewed records), but it left Run disabled with its
+    // "Running…" label forever when a delivery followed a run start.
+    void semanticDocumentDeliveryRestoresRunButton()
+    {
+        OCRMode panel;
+        // The exact state onRunOcr() leaves behind: Run disabled.
+        panel.onRunOcr();
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::Running);
+        QVERIFY(!runButton(panel)->isEnabled());
+
+        OcrDjotMapper mapper;
+        docmodel::SemanticDocument doc = mapper.fromOcrResults({}, QStringLiteral("doc.pdf"));
+        panel.setSemanticDocument(doc);
+
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::ReviewReady);
+        QVERIFY2(runButton(panel)->isEnabled(),
+                 "a semantic delivery must restore the Run button — the old "
+                 "path left it disabled with 'Running…' forever");
+        QCOMPARE(runButton(panel)->text(), QStringLiteral("Run OCR"));
+        QVERIFY(acceptButton(panel)->isEnabled());
+        QVERIFY(rejectButton(panel)->isEnabled());
     }
 
     // ── Reject clears review and returns to idle ──────────────────────────────

@@ -617,6 +617,12 @@ void OCRMode::transitionTo(ReviewState state, const QString& message)
     // only when some word is still uncertain.
     updateNavigationButtons();
 
+    // PGR-10 triage (review-state re-entrancy): the word inspector rides the
+    // same funnel — a state change that leaves ReviewReady must disable the
+    // correction editor and delete button immediately, not at the next
+    // unrelated selection.
+    updateWordInspector();
+
     emit reviewStateChanged(state);
 }
 
@@ -971,6 +977,11 @@ void OCRMode::updateNavigationButtons()
 bool OCRMode::applyWordCorrection(int stableId, const QString& text)
 {
     if (stableId < 0 || stableId >= m_reviewWords.size()) return false;
+    // PGR-10 triage (review-state re-entrancy): a correction is a REVIEW
+    // action like accept/reject — applying one while a run is in flight or a
+    // save is committing would mutate words the pending delivery/save is
+    // about to replace.
+    if (m_reviewState != ReviewState::ReviewReady) return false;
     OcrReviewedWord& rec = m_reviewWords[stableId];
     if (text.trimmed().isEmpty()) {
         // Clearing the text removes the word from the saved text layer.
@@ -996,6 +1007,9 @@ bool OCRMode::applyWordCorrection(int stableId, const QString& text)
 bool OCRMode::markWordDeleted(int stableId)
 {
     if (stableId < 0 || stableId >= m_reviewWords.size()) return false;
+    // PGR-10 triage (review-state re-entrancy): same lifecycle discipline as
+    // applyWordCorrection — a delete is a review action, not an any-time one.
+    if (m_reviewState != ReviewState::ReviewReady) return false;
     OcrReviewedWord& rec = m_reviewWords[stableId];
     rec.deleted = true;
     rec.reviewedText.clear();
@@ -1028,12 +1042,18 @@ void OCRMode::onWordLinkActivated(const QString& link)
 void OCRMode::updateWordInspector()
 {
     const bool valid = m_selectedWordId >= 0 && m_selectedWordId < m_reviewWords.size();
+    // PGR-10 triage (review-state re-entrancy): the correction editor and the
+    // delete button follow the SAME lifecycle discipline as Accept/Reject and
+    // the uncertain-word navigation — never enabled outside ReviewReady, so a
+    // selection left over from the previous results cannot be edited while a
+    // run is in flight or a save is committing.
+    const bool reviewable = m_reviewState == ReviewState::ReviewReady;
     if (m_wordEdit) {
-        m_wordEdit->setEnabled(valid);
+        m_wordEdit->setEnabled(valid && reviewable);
         m_wordEdit->setText(valid ? m_reviewWords[m_selectedWordId].reviewedText
                                   : QString());
     }
-    if (m_btnDeleteWord) m_btnDeleteWord->setEnabled(valid);
+    if (m_btnDeleteWord) m_btnDeleteWord->setEnabled(valid && reviewable);
     // U03: the magnifier shows the selected word's source crop; no selection
     // → cleared placeholder (the zoom header drops back to "ZOOM").
     if (m_magnifier && !valid) m_magnifier->clearSelection();
@@ -1372,6 +1392,15 @@ void OCRMode::setSemanticDocument(const docmodel::SemanticDocument &doc,
     if (m_btnAccept) m_btnAccept->setEnabled(true);
     if (m_btnReject) m_btnReject->setEnabled(true);
     m_reviewState = ReviewState::ReviewReady;
+    // PGR-10 triage (OCRMode review-state): this path bypasses transitionTo()
+    // deliberately (Accept/Reject must stay enabled with no reviewed
+    // records), but the Run button must follow the ReviewReady discipline
+    // like every other delivery — a semantic document landing while a run
+    // was in flight left Run disabled with its "Running…" label forever.
+    if (m_btnRun) {
+        m_btnRun->setEnabled(true);
+        m_btnRun->setText(tr("Run OCR"));
+    }
     // U03: this path bypasses transitionTo() — clear the lifecycle message
     // through the same helper so the on-screen surface cannot go stale.
     setLifecycleMessageLive(QString());
