@@ -15,6 +15,7 @@
 #include <QStringList>
 #include <QElapsedTimer>
 #include <QMutex>
+#include <QMap>
 #include <QStandardItemModel>
 #include <QFileSystemWatcher>
 #include <QSet>
@@ -131,6 +132,17 @@ public:
     // kMaxTargetDpi]. The worker applies this before OptimizeOptions so an
     // out-of-range spin value can never reach the engine.
     static int resolveCompressTargetDpi(int requestedDpi);
+
+    // PGR-35 (D2 delta review 2026-09-23): pure seam — the cross-file
+    // output-collision rule. input[i]'s output is outputs[i]; the first input
+    // (list order) claiming an output path keeps it, every later input
+    // resolving to the same path gets a staged pre-flight blocker. Path
+    // identity is case-insensitive on Windows, case-sensitive elsewhere.
+    // onRunClicked stages these blockers like the U08 pre-flight refusals —
+    // a colliding file fails honestly instead of silently overwriting an
+    // earlier output the ledger already counted as a success.
+    static QMap<QString, QString> outputCollisionBlockers(const QStringList& inputs,
+                                                          const QStringList& outputs);
 
     // ── §9.12 P1: named PII redaction presets ────────────────────────────────
     // Pure seam: the effective redaction pattern list — the regex bodies of

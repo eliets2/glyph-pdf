@@ -5892,3 +5892,27 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPgr37PageSpaceLaw.cpp")
         LABELS "unit;security;redaction;pagespace;pgr37;qt;headless"
     )
 endif()
+
+# ── PGR-35 (D2 delta review 2026-09-23): cross-file output-collision staging ─
+# A batch run whose inputs resolve to the same output path used to report N
+# successes while later commits silently destroyed earlier outputs. The seed
+# is the schema-valid hostile preset whose naming template omits {basename}.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPgr35BatchCollision.cpp")
+    add_executable(TestPgr35BatchCollision
+        tests/TestPgr35BatchCollision.cpp
+    )
+    target_include_directories(TestPgr35BatchCollision PRIVATE src tests)
+    # The pure-seam slot compiles only against the FIXED BatchMode.
+    target_compile_definitions(TestPgr35BatchCollision PRIVATE PGR35_SEAM_APPLIED)
+    target_link_libraries(TestPgr35BatchCollision PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_test(NAME TestPgr35BatchCollision COMMAND TestPgr35BatchCollision)
+    set_tests_properties(TestPgr35BatchCollision PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;batch;pgr35;qt;headless"
+    )
+endif()
