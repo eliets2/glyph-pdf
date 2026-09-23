@@ -224,6 +224,17 @@ public:
 class IPageEditor {
 public:
     virtual ~IPageEditor() = default;
+
+    // S1-1 (SWEEP-BACKEND-2026-09-21) — the page-index contract: every index
+    // argument is validated by the implementation against the document's real
+    // page count BEFORE any library call; out-of-range returns false (fail
+    // closed) and the document is left untouched — never undefined behavior
+    // via an unchecked index into a third-party API. Two shapes:
+    //   - positional access/replace/delete (rotatePage, extractPageAsBytes,
+    //     deletePage, restorePageFromBytes, reorderPages, editTextInline,
+    //     …): index must be in [0, count);
+    //   - insert-at (insertPageFromBytes, insertBlankPage): atIndex may be
+    //     count, i.e. [0, count] inclusive (append at the end).
     virtual bool editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
                                 const QString &fontFamily = "", int fontSize = 0,
                                 const QColor &color = Qt::black, bool bold = false,

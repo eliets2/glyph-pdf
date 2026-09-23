@@ -41,6 +41,7 @@
 #include "engines/DocumentSession.h"
 #include "engines/PdfEditorEngine.h"
 #include "engines/pdfium/PdfiumBackend.h"
+#include "modes/SignaturesPanel.h"
 #include "ui/PdfViewerWidget.h"
 
 using gp::MainWindow;
@@ -94,6 +95,21 @@ void scheduleModalDismiss()
 }
 
 struct PageGeometry { int count = 0; bool landscape0 = false; };
+
+// Soft variant of makeExpiredCopy for tests that retry the fixture: returns
+// an empty string instead of QFAILing when the engine-lane XMP writer flake
+// hits an attempt (the S2-3 pin must fail only on its own assertion).
+QString makeExpiredCopySoft(const QString &src, const QString &dest)
+{
+    PdfEditorEngine writer;
+    const QString normalized = dest + QStringLiteral(".norm.pdf");
+    if (!writer.loadDocumentForEditing(src)) return QString();
+    if (!writer.saveDocument(normalized)) return QString();
+    if (!writer.setExpiryDate(normalized, QDate::currentDate().addDays(-1), dest))
+        return QString();
+    if (!PdfEditorEngine::readExpiryDate(dest).isValid()) return QString();
+    return dest;
+}
 
 // Re-open the SAVED artifact in a fresh probe viewer — on-disk truth, not the
 // live widget's belief.
@@ -338,6 +354,51 @@ private slots:
         QVERIFY(reader.loadDocument(expired));
         QVERIFY2(reader.extractText(0).contains(QStringLiteral("P1")),
                  "WP-R07: read-only Replace All must leave the original text extractable");
+    }
+
+    // ── S2-3 (SWEEP-BACKEND-2026-09-21): the SignaturesPanel "Place
+    // Signature" route must cross the registry gate. Pre-fix the panel's
+    // signal called _security->activate(ToolId::Sign) directly — a dispatch
+    // whose only guard is document EXISTENCE — so a read-only session reached
+    // the modal sign flow with no ARC07 refusal and no toolRefused telemetry.
+    // Post-fix the same signal dispatches through ToolRegistry::activate, so
+    // the shared gate refuses it with the shared disclosure.
+    void readOnlyRefusesSignaturesPanelPlaceSignatureRoute()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString a = dir.filePath("a.pdf");
+        makeMultiPagePdf(a, { "P1", "P2" });
+
+        QString expired;
+        for (int attempt = 0; attempt < 3 && expired.isEmpty(); ++attempt) {
+            const QString candidate = dir.filePath(QStringLiteral("expired%1.pdf").arg(attempt));
+            expired = makeExpiredCopySoft(a, candidate);
+        }
+        QVERIFY2(!expired.isEmpty(),
+                 "an expired fixture copy must be producible (engine-lane XMP writer flake)");
+        scheduleModalDismiss();
+        m_win->openDocument(expired);
+        QVERIFY(m_win->pdfViewer()->isReadOnly());
+
+        // Enter the signatures screen — the panel is created and wired by the
+        // production screen switch, never by the test.
+        m_win->onScreenSelected(QStringLiteral("signature"));
+        QTRY_VERIFY_WITH_TIMEOUT(m_win->findChild<gp::SignaturesPanel*>() != nullptr, 5000);
+        auto *panel = m_win->findChild<gp::SignaturesPanel*>();
+        QVERIFY2(panel, "the signatures panel must exist after entering the screen");
+
+        // Drive the REAL wired route. Post-fix: the registry refuses before
+        // any controller runs — the status bar carries the shared disclosure.
+        // Pre-fix: the modal SignatureDialog opened instead (dismissed by the
+        // timer) and NO read-only disclosure ever appeared.
+        scheduleModalDismiss();
+        scheduleModalDismiss(); // re-arm: the pre-fix baseline opens a modal here
+        emit panel->placeSignatureRequested();
+        QVERIFY2(m_win->statusBar()->currentMessage().contains(QStringLiteral("read-only")),
+                 qPrintable(QStringLiteral("S2-3: the Place Signature route must be refused "
+                                           "with the read-only disclosure; status bar: ")
+                            + m_win->statusBar()->currentMessage()));
     }
 };
 

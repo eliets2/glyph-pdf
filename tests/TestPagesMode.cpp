@@ -44,6 +44,7 @@
 #include <QLabel>
 #include <QApplication>
 #include <QLineEdit>
+#include <QPushButton>
 #include <QRadioButton>
 #include <QTemporaryDir>
 #include <QFile>
@@ -1332,6 +1333,76 @@ private slots:
                  qPrintable(QStringLiteral("the failed part must be named: %1").arg(capturedModalText)));
         QVERIFY2(capturedModalText.contains(QStringLiteral("partial_part2.pdf")),
                  qPrintable(QStringLiteral("the failed part's path must be named: %1").arg(capturedModalText)));
+    }
+
+    // ── S2-1 (SWEEP-BACKEND-2026-09-21, HIGH): read-only reorder-list Apply ──
+    // The reorder panel's Apply is a direct mutation entry: it pushes
+    // ReorderPermutationCommand (in-place reorderAllPages) without crossing
+    // ToolRegistry. Pre-fix it was the ONE ungated reorder route (the grid
+    // commit and the labels route were already gated) — the audit's probe
+    // inverted: on a read-only session Apply must refuse with the shared
+    // disclosure, push NOTHING on the undo stack, call the engine ZERO times
+    // and leave the file bytes identical.
+    void readOnlyReorderListApplyRefusesWithZeroMutation() {
+        QTemporaryDir tmpDir;
+        QVERIFY(tmpDir.isValid());
+        std::shared_ptr<PagesMock> mock;
+        std::shared_ptr<DocumentSession> session;
+        std::shared_ptr<QUndoStack> undoStack;
+        AppContext ctx;
+        gp::PagesMode mode;
+        QVERIFY(setupPagesHarness(4, "ro-reorder.pdf", tmpDir, mock, session,
+                                  undoStack, ctx, mode));
+
+        // The reorder list is the ListMode QListWidget with InternalMove
+        // (the filename-preview list has no drag-drop; the grid is IconMode).
+        QListWidget* reorderList = nullptr;
+        for (QListWidget* lw : mode.findChildren<QListWidget*>()) {
+            if (lw->viewMode() == QListView::ListMode
+                && lw->dragDropMode() == QAbstractItemView::InternalMove) {
+                reorderList = lw; break;
+            }
+        }
+        QVERIFY2(reorderList, "the reorder panel list must exist");
+        QTRY_VERIFY_WITH_TIMEOUT(reorderList->count() == 4, 5000);
+
+        // Arm read-only through the session (the ONE read-only authority).
+        session->setReadOnly(true);
+
+        // The affordance mirrors the state (honest enablement).
+        QPushButton* applyBtn = nullptr;
+        for (QPushButton* b : mode.findChildren<QPushButton*>()) {
+            if (b->text() == QStringLiteral("Apply")) { applyBtn = b; break; }
+        }
+        QVERIFY2(applyBtn, "the reorder panel Apply button must exist");
+        QTRY_VERIFY_WITH_TIMEOUT(!applyBtn->isEnabled(), 5000);
+
+        // Model the user's pending reorder (drag page 4 to the top) BEFORE
+        // the refused apply, and snapshot the on-disk truth.
+        QListWidgetItem* dragged = reorderList->takeItem(3);
+        reorderList->insertItem(0, dragged);
+        const QString srcPath = tmpDir.path() + "/ro-reorder.pdf";
+        const QByteArray before = readFileBytes(srcPath);
+
+        // Enablement is NOT the gate: re-enable programmatically and drive
+        // the REAL wired route (applyBtn → onApplyReorder, PagesMode.cpp:672).
+        applyBtn->setEnabled(true);
+        capturedModalText.clear();
+        scheduleModalCapture(200);
+        applyBtn->click();
+
+        // Disclosure: the shared read-only wording — never a success report.
+        QVERIFY2(capturedModalText.contains(QStringLiteral("read-only")),
+                 qPrintable(QStringLiteral("S2-1: the refusal must disclose read-only; got: [%1]")
+                                .arg(capturedModalText)));
+        QVERIFY2(!capturedModalText.contains(QStringLiteral("success")),
+                 "S2-1: a refused reorder must never report success");
+
+        // Zero mutation: no engine call, no undo command, no disk write.
+        QVERIFY2(mock->m_reorderAllCalls.isEmpty(),
+                 "S2-1: read-only Apply must never reach reorderAllPages");
+        QCOMPARE(undoStack->count(), 0);
+        QCOMPARE(readFileBytes(srcPath), before);
     }
 };
 
