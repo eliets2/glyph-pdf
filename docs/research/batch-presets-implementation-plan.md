@@ -9,6 +9,19 @@ design-only: it adds no production code, no build files, no dependencies. PRD an
 multi-step batch pipelines" (PRD.md:407); ledger row §9.12 gap "named preset workflows"
 (PRD.md:386).
 
+> **2026-09-20 STATUS (sweep W3 reconciliation).** **P1 of this plan is LANDED** at tip
+> `ec9f16f` — R26 lane, implemented-awaiting-review: versioned fail-closed BatchPreset
+> schema + AppData file-per-preset store (`f17f47f`, TestBatchPresets 14/0 with negative
+> controls) and the "Preset Pipeline" surface with per-file SafeSave candidate chain
+> (`eb42ab1`). Recorded deviations (handoff `.context/presets-wip.md`): preset entry appended
+> at OpIndex 7 (§4.1's first-position entry rejected — OpIndex renumbering), `bates` excluded
+> from the step set (run-ordered continuity needs cross-file serialization the parallel worker
+> cannot provide honestly), `pdfa-check` pass-path pinned structurally only (veraPDF CLI absent
+> in test envs), onConflict "rename"/onFileFailure "stop" schema-legal but refused with
+> explicit not-implemented diagnostics. Naming-containment hardening landed W1-01
+> (**verified**, SWEEP-W2B). **Open:** plan P2/P3 — Bates step, import/export dialogs, report
+> export, hot-folder ingest, per-step measured-bytes report UI.
+
 **Sources for status claims (all read at pinned revision `f443f59` unless noted):**
 `src/modes/BatchMode.{h,cpp}`, `src/modes/CompressDialog.h`, `src/core/Capability.h`,
 `src/engines/SafeSave.{h,cpp}`, `src/engines/DocumentSession.h`,

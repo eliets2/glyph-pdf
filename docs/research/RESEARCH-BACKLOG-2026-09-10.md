@@ -1,5 +1,19 @@
 # Consolidated Research Backlog — 2026-09-10
 
+> **2026-09-20 STATUS RECONCILIATION (sweep W3-research).** Every Status below was
+> re-verified at branch tip `ec9f16f` against the evidence ledger
+> (`docs/audit/CURRENT-EVIDENCE-LEDGER-2026-09-05.md`, newest sections first), the
+> feature-command matrix (`docs/audit/FEATURE-COMMAND-MATRIX-2026-09-09.csv` as updated by
+> the landing lanes), and the code itself (grep-level spot checks). Per-row evidence lives in
+> the Status cells and §0 dated notes; the full row-by-row log is
+> `docs/audit/SWEEP-W3-RESEARCH-2026-09-20.md`. Vocabulary unchanged: `SHIPPED-<ref>` means
+> landed-with-evidence in the ledger's own states (**implemented-awaiting-review unless a
+> named independent review flipped it to verified** — nothing here upgrades evidence status).
+> Landed since 09-10: N1, N2, N3, N17, N18, form-JS P1+P2, batch-presets P1,
+> send-for-signing P1, T2-2, T2-3 (+printable surface), T2-4 P1, T2-6, T2-9, R19 PAdES/TSA
+> settings wiring, R24 machine policy (+wiring closure). Still open as written: form-JS P3
+> (OpenAction/consent), Tier-3 pool, and every NEW row not named above.
+
 One deduplicated, ranked implementation backlog mined from the entire competitor-research corpus
 (19 sources in `docs/research/`), cross-checked against the feature-command matrix
 (`docs/audit/FEATURE-COMMAND-MATRIX-2026-09-09.csv` + notes) and the evidence ledger
@@ -31,25 +45,51 @@ Sizes: **S** = 1–3 h (tonight-feasible), **M** = 1–3 days, **L** = multi-day
    `IEncryptor::encryptWithCertificate` + ER-3 CMS-recipient counter already exist
    (`src/core/interfaces/IPdfEditorEngine.h:264–275`). Remaining work is a recipient-picker UI
    over a tested seam → reclassified NEW-M (row N17), not a crypto project.
+   *(2026-09-20: CLOSED — the reclassification was validated and then finished. UI landed as
+   N17-1: RecipientPickerDialog + CertEncryptController, commit `d423ba3`, TestCertEncryptPicker
+   12/12 with a negative control; the documented SecurityController handoff seam landed as
+   follow-ups FU-1 `15c0d11`. Still implemented-awaiting-review.)*
 2. **T2-7 DocMDP certify-vs-approve is engine-DONE, UI-only.** `certifyDocument` →
    `signDocumentImpl(certLevel)` writes /DocMDP levels 1–3 fail-loud (send-for-signing plan
    §1.1; `ISignatureManager.h:75`). `SignatureDialog` has no certify/level selector →
    reclassified NEW-M (row N18).
+   *(2026-09-20: CLOSED — N18-1 landed the certify-vs-approve selector with plain-language
+   1:1 /DocMDP P wording, commit `e6e2276`, TestCertifySelector; FU-1 `15c0d11` wired the
+   production consumption seam (real dialog → /DocMDP /P==2 on the saved artifact, independent
+   PoDoFo read). Implemented-awaiting-review.)*
 3. **The shipped product signs effectively B-B only, and "Timestamp document" is a dead
    command.** `setTsaUrl`/`setSignatureLevel` have zero production call sites (grep-verified in
    the send-for-signing plan §1.2); the B-T branch skips on empty TSA URL. Consequence: do not
    market B-LT/B-LTA as a *running* capability until QUEUED-PACK-C P2/P3 light it (honesty moat
    M8 applies to us).
+   *(2026-09-20: SUPERSEDED — resolved by R19, commit `abc87de2` "settings-driven PAdES/TSA
+   configuration". At tip the production call sites exist: `SecurityController.cpp:1114`
+   feeds `setTsaUrl(cfg.tsaUrl)`/`setSignatureLevel(cfg.level)` from `readSigningConfig`
+   (Preferences → QSettings, end-to-end pinned by R19-pin `8a3eee6`, verified by the R14
+   independent review), `:255` feeds them from the sign request, and
+   `SecurityController::timestampDocument()` (`:1097`, dispatched `:428`) is a live command.
+   Downgrade honesty followed: a failed B-T timestamp is PartialLtvMissing, never plain
+   Success (L1 `d58896f`, verified), the UI renders the degradation (RES-1 `2a334ca`), and the
+   TSA touchpoint is policy-effective (R24-W1 `03f4606`; SWEEP-W2B F4 independently verified).
+   The B-T/B-LT/B-LTA capability is now settings-reachable — still implemented-awaiting-review,
+   so the marketing caution stands only as "not yet review-verified", not "dead".)*
 4. **QUEUED-PACK-A's P0 prerequisite is already satisfied.** The batch-presets plan gates P1 on
    the BatchMode queued-accounting drain race; G12 (commit `52f05f7`) fixed exactly that race
    (ledger Gate B lane). The pack can start at P1.
 5. **The T1 measurement lane explicitly deferred CSV export** (T1/UI disclosure: "CSV export
    deferred") — yet synthesis T1-1's own build note says PDF-XChange's measurement-CSV export
    is one of the two features that make the toolset professional-grade. It is tonight item #1.
+   *(2026-09-20: RESOLVED — N1 landed as `d4b45b24` (quick lane): Measure panel "Export CSV",
+   RFC-4180, empty export = headers only, pinned by TestMeasureCsvExport; matrix row
+   `measure-export-csv` implemented-awaiting-review.)*
 6. **Menu-bar Stamps submenu contains three unconnected QActions** (Approved/Draft/Confidential
    — silent no-ops bypassing `actionSpecs()` and `TestMenuBarIntegrity`, matrix notes §E). Rides
    N15 (stamp library); must not ship as-is to a community that DevTools-audits dead UI
    (r-pdf-mining 4.2).
+   *(2026-09-20: RESOLVED — T2-6 (`7e32093`) shipped the stamp library and wired the submenu
+   through the command registry incl. the legacy no-op fix (`MenuBar.cpp:104–111`, six stamp
+   actions + `stamp-library`; `custom-stamp` aliases it). N15's import/export + picker depth
+   beyond the shipped library remains open.)*
 
 ---
 
@@ -59,24 +99,24 @@ Sizes: **S** = 1–3 h (tonight-feasible), **M** = 1–3 days, **L** = multi-day
 |---|------|------------------|----------------------|------|------------|--------|
 | 1 | Redaction Proof Mode (verify + what-was-removed report + audit log) | synthesis T1-2; r-pdf-mining 2.1/5.3 | 17 r/pdf threads — largest theme in corpus | L | — | **SHIPPED** — T2 lane `15f3f1c` (RedactionProof + 20 tests, ledger waveT2) |
 | 2 | Measurement toolset (distance/perimeter/area + calibration) | acrobat rec#4; pdfexpert §1.11; masterpdf §5; synthesis T1-1 | 8/16 tools; AEC buyer checklist | L | — | **SHIPPED** — T1 lane `e73a446` + G21–G23 (ledger waveT1) |
-| 3 | **Measurement CSV export + manage-measurements dialog** | pdfxchange §5 (10.5/10.8); synthesis T1-1 build note | rides 8/16 measurement demand; "ship those two first" | S | landed measurement list | **NEW (N1)** |
-| 4 | Form-JS execution (run-side Calculate/Validate/Format/Keystroke) | acrobat §4 rec#7; masterpdf §5 #1; synthesis T1-3 | 8/16 tools; enterprise-forms dependency | L | decision: quickjs-ng dep | **QUEUED-PACK-B** (form-js-implementation-plan.md; decision request pending) |
-| 5 | Local send-for-signing package (fields/recipients/order/package/audit PDF) | nitro rec#2 (A2); smallpdf §8; ilovepdf §1.8; synthesis T1-4 | 8+/16 ship it, all cloud-gated; r/pdf 1jj0zyw; PRD §9.7 "not started" | L | — | **QUEUED-PACK-C** (send-for-signing-implementation-plan.md P1–P4) |
-| 6 | Named batch presets (Action-Wizard analog) | foxit rec#1; acrobat rec#3; nitro rec#5; sejda G1; synthesis T2-1 | 6/16 tools; institutional rail (acrobat L5 state-DOT) | L | P0 drain fix | **QUEUED-PACK-A** (batch-presets-implementation-plan.md; **P0 already fixed by G12 `52f05f7`**) |
-| 7 | Find & Replace + regex/search-depth pack | foxit rec#3; pdfxchange §1; updf §1; synthesis T2-2 | 5/16 tools; r/pdf editing cluster 7 threads | M | — | **QUEUED-T2-2** (PRD §9.15, v1.4 roadmap) |
-| 8 | Comment statuses + printable summary document | acrobat L4; foxit §1.5; pdfxchange §5; synthesis T2-3 | 7/16 tools | M | U07 (shipped) | **QUEUED-T2-3** (v1.4 roadmap) |
-| 9 | Accessibility authoring pack (tag tree, checker, auto-tag, PDF/UA) | acrobat rec#2; foxit rec#4; pdfxchange §12; synthesis T2-4 | 6/16 tools; EAA/508 driver (smallpdf §12 markets the fear) | L | PP-DocLayout (in stack) | **QUEUED-T2-4** |
+| 3 | **Measurement CSV export + manage-measurements dialog** | pdfxchange §5 (10.5/10.8); synthesis T1-1 build note | rides 8/16 measurement demand; "ship those two first" | S | landed measurement list | **SHIPPED (2026-09-20 rec)** — quick lane `d4b45b24`: Measure-panel Export CSV (RFC-4180, headers-only empty case, honest no-viewer refusal), TestMeasureCsvExport; matrix row `measure-export-csv`, implemented-awaiting-review. Manage-measurements import/filter dialog NOT in the landed scope — still open |
+| 4 | Form-JS execution (run-side Calculate/Validate/Format/Keystroke) | acrobat §4 rec#7; masterpdf §5 #1; synthesis T1-3 | 8/16 tools; enterprise-forms dependency | L | decision: quickjs-ng dep | **SHIPPED-P1+P2 (2026-09-20 rec)** — quickjs-ng Option A authorized; P1 Calculate+Format `baf031e`/`86f8637`/`ac3698f` + R05 whole-operation deadline hardening `77bc50b`/`8afccc5` (TestFormJsCalc 29 slots); P2 Keystroke `bcd34eb` **verified (R14)** (TestFormKeystroke 8/8) and the /AA /V Validate tier wired inside fillForm's transaction (validate→commit, Acrobat order; `FormManager.cpp:598`, same R18(f) family). **Open:** P3 — OpenAction + document-level named scripts + consent UX (hooks only, `FormJsRunner.h:153`); worker-process sandbox recommendation (R05 residual) |
+| 5 | Local send-for-signing package (fields/recipients/order/package/audit PDF) | nitro rec#2 (A2); smallpdf §8; ilovepdf §1.8; synthesis T1-4 | 8+/16 ship it, all cloud-gated; r/pdf 1jj0zyw; PRD §9.7 "not started" | L | — | **SHIPPED-P1 (2026-09-20 rec)** — single-document signing-request workflow: versioned sidecar model + fail-closed handshake, fill runner over the public sign seam (two REAL P12 signs pinned), additive SignatureFieldCreator (PageSpace law, SafeSave), prepare dialog + progress panel + controller (`57cca6d`/`0591693`/`97c59a1`/`bc0ade4`; TestSendForSigning 12/0). **Open (P2–P4):** export/import package routing, reminders, audit-trail PDF, DocMDP prepare-time certification, signing-order enforcement (advisory-only, disclosed). Multi-signer sidecar: YES; network: none |
+| 6 | Named batch presets (Action-Wizard analog) | foxit rec#1; acrobat rec#3; nitro rec#5; sejda G1; synthesis T2-1 | 6/16 tools; institutional rail (acrobat L5 state-DOT) | L | P0 drain fix | **SHIPPED-P1 (2026-09-20 rec)** — R26 lane: versioned fail-closed BatchPreset schema + AppData store (`f17f47f`), "Preset Pipeline" surface with save/rename/delete/picker, per-file SafeSave candidate chain, capability-honest run refusals (`eb42ab1`; TestBatchPresets 14/0 with negative controls); preset-naming containment hardened W1-01 (**verified**, SWEEP-W2B). P0 was `52f05f7` as recorded. **Open:** Bates step + run-ordered continuity, onConflict "rename"/onFileFailure "stop", import/export dialogs + report export (plan P3), hot-folder ingest |
+| 7 | Find & Replace + regex/search-depth pack | foxit rec#3; pdfxchange §1; updf §1; synthesis T2-2 | 5/16 tools; r/pdf editing cluster 7 threads | M | — | **SHIPPED (2026-09-20 rec)** — Pack A T2-2/WP-R07 `7e32093`: real content replacement (excise→redraw→checked-save→reload; overlay path deleted; unusable ranges refused), TestFindReplace 20/20; R14 reviewer negative controls carried the revert-verify. Residual (sweep-legacy): the replacement writer still uses the height-only flip on /Rotate pages (SL1-class, owner lane) |
+| 8 | Comment statuses + printable summary document | acrobat L4; foxit §1.5; pdfxchange §5; synthesis T2-3 | 7/16 tools | M | U07 (shipped) | **SHIPPED (2026-09-20 rec)** — statuses + review-summary PDF (Pack A `7e32093`, TestReviewSummary 9/9) and the print-ready surface: `writePrintable` with entry table + per-sheet footers + redaction-proof pack line, both seams behind SafeSave (`2eb4ff6`/`8184a95`; TestPrintableSummary 11/11, honest empty state). Entry = comments-panel action (no global ToolId, recorded deviation) |
+| 9 | Accessibility authoring pack (tag tree, checker, auto-tag, PDF/UA) | acrobat rec#2; foxit rec#4; pdfxchange §12; synthesis T2-4 | 6/16 tools; EAA/508 driver (smallpdf §12 markets the fear) | L | PP-DocLayout (in stack) | **SHIPPED-P1 (2026-09-20 rec)** — accessibility checker (6 checks, severity + whyNot + bounded-sample disclosure) + panel + four cheap fixes (/Lang, /DisplayDocTitle, /Alt, /TU via the setFieldMetadata seam): `41300f0` + `c6a56b2` (TestAccessibilityChecker 10/0, TestAccessibilityFixes 9/0, TestAccessibilityPanel 7/0+2, all with negative controls). Detection+disclosure only — **open:** tag-tree authoring/repair, auto-tag, PDF/UA conformance (permanently disclosed as not built) |
 | 10 | Legal batch remainder: batch split-to-single-pages + batch password/permissions strip | r-pdf-mining 1.3/5.1 (7 password + 1 split threads); synthesis T2-5 | 7 + 1 threads; merge→Bates→split workflow | M | batch engine (shipped) | **QUEUED-T2-5** — cross-doc Bates part already **SHIPPED** (§9.9-c `69cb6e4` + G03 preflight) |
-| 11 | Dynamic stamps + sequential numbering + stamp library mgmt | acrobat rec#8; foxit §1.5 (2025.3); synthesis T2-6 | 6/16 tools; "cheap, loved" | M | stamp annots (shipped) | **QUEUED-T2-6** |
+| 11 | Dynamic stamps + sequential numbering + stamp library mgmt | acrobat rec#8; foxit §1.5 (2025.3); synthesis T2-6 | 6/16 tools; "cheap, loved" | M | stamp annots (shipped) | **SHIPPED (2026-09-20 rec)** — Pack A T2-6 `7e32093`: dynamic stamps + StampLibrary + StampLibraryDialog + MenuBar wiring incl. the legacy no-op fix (TestDynamicStamps 10/10); dead Stamps-menu defect closed (`MenuBar.cpp:104–111`). Placement rides the SL1 page-space law (sweep-legacy reviewed-clean at tip) |
 | 12 | OCG layers panel (toggle/reorder/properties/create) | acrobat rec#5; foxit delta; masterpdf §2; synthesis T2-8 | 5–6/16 tools; map/CAD-adjacent | M | engine set-layer-visibility op (missing; matrix A4 caveat) | **QUEUED-T2-8** |
-| 13 | Auto-bookmarks from text styles/TOC | foxit rec#5; pdfxchange 10.8; synthesis T2-9 | 4–5/16 tools; "cheap build, visible value" | M | text-extraction pipeline (shipped) | **QUEUED-T2-9** |
+| 13 | Auto-bookmarks from text styles/TOC | foxit rec#5; pdfxchange 10.8; synthesis T2-9 | 4–5/16 tools; "cheap build, visible value" | M | text-extraction pipeline (shipped) | **SHIPPED (2026-09-20 rec)** — Pack A T2-9 `7e32093`: HeadingOutlineDetector + IOutlineEditor + SetOutlineCommand (preview, undoable, disclosed heuristics; TestAutoBookmarks 9/9); outlines write path reviewed-clean in sweep-legacy (validate-before-mutate + UTF-8 titles) |
 | 14 | Print presets + N-up/booklet + saved print configs | masterpdf §11; pdfxchange §11; nitro C8; synthesis T2-10 | 5/16 tools | M | — | **QUEUED-T2-10** |
 | 15 | TTS read-aloud + page-color transforms | okular §1.1/1.3 (8 transforms); r-pdf-mining 2.4 (1 thread, inversion); synthesis T2-11 | 6/16 TTS; okular stack = free-tier gold standard | M | Qt6 Speech | **QUEUED-T2-11** |
 | 16 | Split-by-text/bookmarks + filename templating grammar | sejda G2/G3; synthesis T2-12 | 5–6/16 tools; mailroom/invoice flows | M | OCR text layer + outlines (shipped) | **QUEUED-T2-12** (templating grammar designed inside QUEUED-PACK-A §3.6) |
 | 17 | PDF/A accessible levels (-1a/2a/3a) | pdfxchange §7; ilovepdf §1.12; abbyy §9; synthesis T2-13 | 4/16 tools; EAA/buyer checklists | M | tag writer (= T2-4) | **QUEUED-T2-13** |
-| 18 | **XFA unsupported-form honesty banner** (CapabilityRegistry disclosure) | okular §1.4 (`HasUnsupportedXfaForm`); synthesis T3-3 "copy the banner meanwhile" | XFA rescue = masterpdf loved-workflow #2 (community moat) | S | `IFormManager::hasXfaForms` (exists, `IFormManager.h:51`) | **NEW (N2)** |
-| 19 | **Skip-already-text idempotent batch OCR** (`-skipFilesWithText`/`-skipPagesWithText`) | pdf24 §1.3 CLI verbatim; synthesis T3-9 "trivial absorb" | r/pdf OCR cluster 7–8 threads wants repeatable local OCR | S | batch OCR lane + per-page text detection (shipped) | **NEW (N3)** |
-| 20 | **OCSP-offline toggle + honest offline-validation wording** | okular §1.8 (21.12 opt-out; okular Finding 4 rec) | r/pdf upload-fear cluster 10+ threads; air-gap promise | S | SignatureManager OCSP path (shipped) | **NEW (N4)** |
+| 18 | **XFA unsupported-form honesty banner** (CapabilityRegistry disclosure) | okular §1.4 (`HasUnsupportedXfaForm`); synthesis T3-3 "copy the banner meanwhile" | XFA rescue = masterpdf loved-workflow #2 (community moat) | S | `IFormManager::hasXfaForms` (exists, `IFormManager.h:51`) | **SHIPPED (2026-09-20 rec)** — quick lane N2 `3cb1b424`: CapId::XfaForms probe on open, whyNot + "fill/print in the source application" alternative, non-XFA negative, TestXfaHonestyBanner; matrix row `xfa-disclosure`, implemented-awaiting-review |
+| 19 | **Skip-already-text idempotent batch OCR** (`-skipFilesWithText`/`-skipPagesWithText`) | pdf24 §1.3 CLI verbatim; synthesis T3-9 "trivial absorb" | r/pdf OCR cluster 7–8 threads wants repeatable local OCR | S | batch OCR lane + per-page text detection (shipped) | **SHIPPED (2026-09-20 rec)** — quick lane N3 (`2a82738` + Q1–Q4 `7cc85e9`/`0411826`/`d88471d`/`ff3cc68`; TestBatchOcrSkipText; Q1 skip-decision + Q3 persistence **verified by R14**). Contract correction (Q4): skip-pages guarantees extracted-text equality + object-level page preservation, NOT byte preservation — the matrix's byte-preservation overclaim was corrected. Open engine finding (XFAIL-pinned): catalog /AcroForm does not survive page-copy extraction |
+| 20 | **OCSP-offline toggle + honest offline-validation wording** | okular §1.8 (21.12 opt-out; okular Finding 4 rec) | r/pdf upload-fear cluster 10+ threads; air-gap promise | S | SignatureManager OCSP path (shipped) | **SHIPPED (2026-09-20 rec) — in a different shape than spec'd** — R24-W2 `d574530`: per-document OCSP consent dialog (allow once / allow document / deny; deny never remembered) + global `signing/ocspNetworkPolicy` "never" switch (fail-closed, refuses the B-LT+ dispatch up front with an honest whyNot; Preferences combo; NetworkTouchpoints row flipped gap→switch, TestOcspConsent 9/9 + TestNetworkDisclosure 7/7). **Delta vs N4's acceptance:** "never" refuses rather than validating offline with a "revocation not checked (offline)" panel state — the offline-degraded-validation wording remains open |
 | 21 | **Reverse page order (wire-up)** | pdfxchange 10.8; sejda G7; updf §2 reverse/swap-odd-even | scan/booklet workflows; matrix: "one `reorderAllPages` permutation away" (notes §B) | S | `reorderAllPages` (exists, `IPdfEditorEngine.h:256`) | **NEW (N5)** |
 | 22 | **Apply-time redaction scope selector + repeat-text overlay fill** | bluebeam §6 (apply scope 1-3,5,9; Repeat Text); masterpdf §6 repeat-overlay | redaction trust demand (17 threads) polish | S | mark-all page list (shipped `fa3b957`); overlay labels (shipped §9.8-b) | **NEW (N6)** |
 | 23 | **Invisible signature + saved signature-appearance presets** | masterpdf §8 (invisible sig; saved appearance settings); pdfxchange §8 (certify w/o visible) | signing parity polish; PAdES buyers | S/M | `signDocument` (shipped); appearance engine `61fac01` | **NEW (N7)** |
@@ -89,8 +129,8 @@ Sizes: **S** = 1–3 h (tonight-feasible), **M** = 1–3 days, **L** = multi-day
 | 30 | **Redaction reason codes (FOIA/DOD/Privacy-Act code sets + import/export)** | bluebeam §6 (DOD/FOIA presets); pdfxchange 10.8 (code sets import/export); synthesis T3-5 | r/foia 1q4m4xm; government persona (r-pdf-mining 5.3) | M | overlay-label infra (shipped §9.8-b) | **NEW (N14)** |
 | 31 | **Stamp library management + wire the dead Stamps menu** | foxit §1.5 (Favorite Toolbox import/export 2025.3; GPO-shared sets 2026.2 — "offline-compatible — buildable" per foxit delta); matrix §E | stamps ship in 14+/16 tools; dead-menu defect must not ship | M | AnnotationLayer stamp mode; 3 unconnected menu QActions (matrix §E) | **NEW (N15)** |
 | 32 | **Watermark/background template manager + edit-existing-watermark** | masterpdf §7 (saved templates; edit 5.9.94); updf §2 (named presets + batch reuse 2.5.5) | watermark = standard office demand; UPDF differentiates on it | M | addText/ImageWatermark (exist) | **NEW (N16)** |
-| 33 | **Certificate (recipient-list) encryption UI** | acrobat §7; foxit §1.7; masterpdf §7; synthesis T3-1 | legal/privacy persona; 3/16 tools | M | **engine seam exists** — `encryptWithCertificate` (`IPdfEditorEngine.h:264–275`, ER-3 counter) | **NEW (N17)** — reclassified from MISSING (Finding 0.1) |
-| 34 | **DocMDP certify-vs-approve UI (level choice in SignatureDialog)** | acrobat §8; foxit §1.8; pdfxchange §8; bluebeam §8; synthesis T2-7 | legal persona requires certify semantics; 4/16 tools | M | **engine seam exists** — `certifyDocument` levels 1–3 fail-loud (`ISignatureManager.h:75`) | **NEW (N18)** — reclassified from MISSING (Finding 0.2); do not duplicate inside QUEUED-PACK-C |
+| 33 | **Certificate (recipient-list) encryption UI** | acrobat §7; foxit §1.7; masterpdf §7; synthesis T3-1 | legal/privacy persona; 3/16 tools | M | **engine seam exists** — `encryptWithCertificate` (`IPdfEditorEngine.h:264–275`, ER-3 counter) | **SHIPPED (2026-09-20 rec)** — N17-1 `d423ba3`: RecipientPickerDialog (multi-select, CN + SHA-256 fingerprint rows, refused file named in a visible error) + CertEncryptController + ToolId::CertEncrypt ribbon Protect entry; ER-3 multi-recipient round-trip proven per-recipient (both decrypt to the same session key, independent fresh-PoDoFo /Encrypt read), TestCertEncryptPicker 12/12 with negative control; FU-1 `15c0d11` closed the controller seam. Per-recipient permission sets NOT in scope of what landed |
+| 34 | **DocMDP certify-vs-approve UI (level choice in SignatureDialog)** | acrobat §8; foxit §1.8; pdfxchange §8; bluebeam §8; synthesis T2-7 | legal persona requires certify semantics; 4/16 tools | M | **engine seam exists** — `certifyDocument` levels 1–3 fail-loud (`ISignatureManager.h:75`) | **SHIPPED (2026-09-20 rec)** — N18-1 `e6e2276`: SignatureDialog purpose combo (Approve default) + DocMDP level combo, plain-language 1:1 P=1..3 wording (levels 0/4/-1 fail loud, no invented levels), existing-signature refusal visible with count, honest attained-level wording; TestCertifySelector 11/11 with negative control; FU-1 `15c0d11` wired the production consumption seam (real dialog → /DocMDP /P==2 on the saved artifact). The "do not duplicate inside QUEUED-PACK-C" note held — s4s P1 left prepare-time certification out by scope |
 | 35 | **Quick-annotation keyboard loop** (keys 1–9/Alt-strip, continuous-mode pin, editable tool palette) | okular §1.5 + Finding 3 ("copy almost verbatim") | "fastest annotation loop in the free tier"; Persona 1/2 throughput | M | annotation toolbar + tool modes (exist); QShortcut registry (28 bindings, matrix) | **NEW (N19)** |
 | 36 | **Area/region OCR + OCR-suspects batch pass** | pdfxchange §3 (selected-region OCR); foxit §1.3 (Find-All-Suspect); pdfgear §3 (loved Extract-Text); synthesis T3-4 | r/pdf OCR cluster; PDFgear's area-OCR is a "first-minute value story" | M | U03 verify screen + selection funnel (shipped) | **NEW (N20)** |
 | 37 | **Auto-OCR on navigation of image-only pages** (background/ephemeral layer) | masterpdf §3 (5.9.89, "lovely convenience"); abbyy §1 background recognition | scan-reading UX; makes §9.4 visible to casual users | M | OcrPipeline + background thread + viewer page-change signal | **NEW (N21)** |
@@ -110,7 +150,7 @@ Sizes: **S** = 1–3 h (tonight-feasible), **M** = 1–3 days, **L** = multi-day
 | 51 | **Print-appearance warning** (optional content/annot flags print differently) | pdfxchange 10.8 ("nice honesty feature") | M8 disclosure on the print path | S | print path + annotation/OCG flags | **NEW (N35)** |
 | 52 | **Markup Selection Cycle** (cycle stacked markups) | bluebeam §1 (21.4) | dense-sheet selection friction | S | viewer hit-test loop | **NEW (N36)** |
 | 53 | **Back/forward view history (Alt+arrows)** | okular §1.1 ("genuinely good for reference-heavy reading"); masterpdf Previous/Next View | academic/legal reading UX | S | viewer navigation stack | **NEW (N37)** |
-| 54 | **Deployment trust pack: GPO/ADMX templates + documented silent MSI + offline-license statement** | foxit rec#10; nitro rec#8 (A7/B1–B3); masterpdf §10 GP; abbyy §13 playbook | "the IT wedge is silent MSI + GPO/ADMX + offline license files" (synthesis §3.11) | M | MSI pipeline (shipped INF02/INF03) | **NEW (N38)** |
+| 54 | **Deployment trust pack: GPO/ADMX templates + documented silent MSI + offline-license statement** | foxit rec#10; nitro rec#8 (A7/B1–B3); masterpdf §10 GP; abbyy §13 playbook | "the IT wedge is silent MSI + GPO/ADMX + offline license files" (synthesis §3.11) | M | MSI pipeline (shipped INF02/INF03) | **SHIPPED-CORE (2026-09-20 rec) — the policy mechanism, not the deployment tooling** — R24 machine policy: %PROGRAMDATA%/GlyphPDF/policy.json, 6-key audited allowlist, policy-wins-with-visible-override, redacted support bundle, explicit network-touchpoints enumeration (`8ea3876`/`c766623`/`60212ca`); wiring closure enforces ALL SIX keys at their real decision points (`03f4606`/`d574530`/`cbd599b`; SWEEP-W2B W1-05/F1/F4 verified the disclosure + policy-effective TSA). **Open:** GPO/ADMX template files, documented silent-MSI flag set, the offline-license statement surface (policy deployment tooling explicitly deferred in the R24 lane residuals) |
 | 55 | **Shell extensions: right-click convert/combine in GlyphPDF** | nitro A3 (the one local piece — "cheap, loved"); ilovepdf §1.1 ("fastest way to convert") | loved convenience; iLovePDF leads with it in marketing | M | existing conversion entry points | **NEW (N39)** |
 | 56 | **Accessibility of signing: strong-verification strict mode + signed-version byte-range viewing** | masterpdf §8 (Strong verification; "Click to view this version") | anti-substitution trust; unique differentiator | M | `isLegitimateIncrementalAppend` + SignatureInfo byte ranges (exist) | **NEW (N40)** |
 | 57 | Cross-format compare (Word vs its scan via in-house OOXML import → DiffEngine) | abbyy §3 ("the killer"); abbyy Top-5 #2 | legal/quality audience; ABBYY gates it Corporate-only | L | OOXML import (shipped) + DiffEngine | **NEW (N41)** |
@@ -127,7 +167,7 @@ Sizes: **S** = 1–3 h (tonight-feasible), **M** = 1–3 days, **L** = multi-day
 | 68 | Vector path-editing toolset / Repair ToUnicode CMap / Select Page Region / Normalize Pages | pdfxchange §2 (10.1/10.3) | pro-editing depth; MPE-adjacent "object surgery" devotion | L | content-stream ops | **NEW (N52, low rank)** — single row for the object-surgery cluster |
 | 69 | External image-editor hand-off (round-trip) | acrobat rec#10 ("PARTLY_TRUE gating, TRUE feasibility") | pro edit convenience | M | image replace seam (exists) | **NEW (N53)** |
 | 70 | AEC subset: Sets revision navigation + Batch Slip Sheet + VisualSearch | bluebeam §9–11; synthesis T3-12 | AEC-only; **PRD §7.2 excludes CAD** | L | — | **REJECTED (persona-excluded)** — revisit only if an AEC persona is formally added |
-| 71 | Measurement follow-ups: per-viewport scales, AP-stream value captions, data-driven captions | T1/UI disclosures ("per-viewport scales deferred; AP-stream caption deferred"); bluebeam §11 captions-from-columns | completes T1-1 to Bluebeam depth | M | landed measurement lane | **NEW (N54)** |
+| 71 | Measurement follow-ups: per-viewport scales, AP-stream value captions, data-driven captions | T1/UI disclosures ("per-viewport scales deferred; AP-stream caption deferred"); bluebeam §11 captions-from-columns | completes T1-1 to Bluebeam depth | M | landed measurement lane | **PARTIAL (2026-09-20 rec)** — the CSV-export half of the T1 deferrals is closed by N1 (`d4b45b24`); per-viewport scales, AP-stream value captions, and data-driven captions remain deferred as originally disclosed |
 | 72 | PDF24 reader niceties: XFA fill toggle, in-reader object move/delete, Reader→Tool handoff | pdf24 §1.1 | deployment reach, not depth | M | — | **REJECTED-scope** (viewer creep; no demand signal) |
 | 73 | Secure time-boxed "week pass" licensing instrument | sejda G9/L3 ($5–7.95 one-time week passes loved) | one-off local users without subscriptions | S | pricing decision, zero engineering | **NEW (N55, non-code; recorded)** |
 | 74 | "No remote deactivation / no activation counts / no telemetry" licensing promise surface | nitro B1–B3 (BBB F); pdfxchange §14 activation friction; sejda F4 | r/pdf 1.2 "one-time purchase" 6+ threads; PDF-XChange-shaped honesty (1rs4ey4) | S | — | **NEW (N56, copy/UX + zero-engineering licensing posture)** |
@@ -140,10 +180,15 @@ Sizes: **S** = 1–3 h (tonight-feasible), **M** = 1–3 days, **L** = multi-day
 | 81 | 3D PDF authoring, geospatial projection math | synthesis §3.7; acrobat anti | niche CAD; enormous cost | — | — | **REJECTED** |
 | 82 | Cloud processing/upload companion; cloud AI; cloud e-sign SaaS; DRM/remote deactivation; ECM/DMS connectors; admin cloud portals; Liquid-Mode cloud reflow; PostScript/Distiller; droplets; mobile/web-first; full print-production engine; virtual printer driver | synthesis §3 (all 13); masterpdf §11 ("big lift not worth it"); abbyy §failure-2 (removed its printer 2023); nitro anti | upload fear 10+ threads; subscription anger 6+; DevTools audits (r-pdf-mining 4.2) | — | — | **REJECTED-cloud-gated** (see §4) |
 
-Counts: 82 deduplicated rows. SHIPPED 4 (rows 1,2 + sub-references), QUEUED-PACK 3,
-QUEUED-T2 11, REJECTED 8 rows (covering ~20 distinct anti-ideas), NEW 56 numbered N1–N60
-(two clusters merged). Total distinct actionable ideas mined across the corpus before
-deduplication: ~130; after dedup: 82.
+Counts: 82 deduplicated rows. **Status at the 2026-09-20 reconciliation:** SHIPPED 12
+(rows 1, 2 + new flips 3/N1, 7/T2-2, 8/T2-3, 11/T2-6, 13/T2-9, 18/N2, 19/N3, 20/N4
+[in consent-switch form], 33/N17, 34/N18), partial ships 6 (4/form-JS P1+P2, 5/s4s P1,
+6/presets P1, 9/T2-4 P1, 54/policy core, 71/CSV half) — all implemented-awaiting-review
+except where a named R14 review flipped a specific tier to verified; still-open rows
+unchanged (form-JS P3 OpenAction, Tier-3 pool, and every NEW row not named above);
+REJECTED 8 rows (covering ~20 distinct anti-ideas) unchanged. Original 09-10 counts for
+the record: SHIPPED 4, QUEUED-PACK 3, QUEUED-T2 11, NEW 56 numbered N1–N60 (two clusters
+merged); ~130 distinct ideas before dedup, 82 after.
 
 ---
 
@@ -397,9 +442,12 @@ Ranked by demand × leverage ÷ size; each is genuinely landable in 1–3 h by o
 current tree (build gates: reuse the house pattern — real fixtures, saved-artifact oracles,
 revert-verified anchors, offscreen GUI tests).
 
-1. **N1 Measurement CSV export** — finishes synthesis T1-1's own "ship those two first"; the T1 lane deferred it explicitly. Seams all landed.
-2. **N2 XFA honesty banner** — `hasXfaForms` exists; pure CapabilityRegistry disclosure; highest trust-per-line-of-code.
-3. **N3 Skip-already-text batch OCR** — two flags over a landed pipeline; direct r/pdf OCR-cluster value.
+*(2026-09-20: the top three landed the same week — N1 `d4b45b24`, N2 `3cb1b424`, N3
+`2a82738`+Q-lane; items 4–10 remain the live shortlist.)*
+
+1. ~~**N1 Measurement CSV export**~~ — **SHIPPED** (`d4b45b24`, TestMeasureCsvExport).
+2. ~~**N2 XFA honesty banner**~~ — **SHIPPED** (`3cb1b424`, TestXfaHonestyBanner).
+3. ~~**N3 Skip-already-text batch OCR**~~ — **SHIPPED** (`2a82738` + Q1–Q4; TestBatchOcrSkipText).
 4. **N5 Reverse page order wire-up** — matrix-annotated one-permutation seam; kills a hidden planned row.
 5. **N4 OCSP-offline toggle** — small settings + guard change; strengthens the air-gap promise and the signature-honesty story.
 6. **N6 Apply-time redaction scope + repeat-text overlay** — both ride fully landed redaction infra; closes the last bluebeam §6 UX edges.
@@ -423,3 +471,9 @@ doc; every engine-seam claim cites `src/core/interfaces/` or the matrix). Medium
 foxit booklet/N-up (foxit §1.11 UNVERIFIABLE), pdfgear redaction depth (pdfgear §6), abbyy
 GlyphRecovery +36% and 99.8% claims (abbyy §1, vendor-internal), iLovePDF server-side quality
 (ilovepdf §6). No claim from a source report is upgraded by this document.
+
+*(2026-09-20 reconciliation note: the SHIPPED flips above cite landing commits verified as
+ancestors of tip `ec9f16f` and ledger/matrix rows; per the ledger's discipline they remain
+implemented-awaiting-review unless a named independent review (R14, SWEEP-W2B) flipped the
+specific row — those cases are marked inline. Sizes and remaining-source UNVERIFIED marks are
+untouched by the reconciliation.)*

@@ -6,6 +6,19 @@
 authorize new network services, a scripting runtime, pricing changes or a broad print engine."*
 Section 2 and Section 6 are therefore written as a **decision request for the user**.
 
+> **2026-09-20 STATUS (sweep W3 reconciliation).** The Option A decision was authorized and
+> **Phases 1–2 are LANDED** at tip `ec9f16f`, all implemented-awaiting-review: Phase 1
+> Calculate+Format `baf031e`/`86f8637`/`ac3698f` (quickjs-ng 0.15.0-1 via MSYS2 pacman, as
+> designed), hardened by R05 `77bc50b`/`8afccc5` (whole-operation deadline — nine bypasses
+> closed, 29-slot suite); Phase 2 Keystroke tier `bcd34eb` **verified by the R14 independent
+> review** (TestFormKeystroke real key events) with the /AA /V Validate tier wired inside
+> fillForm's transaction in Acrobat order (`FormManager.cpp:598`, same R18(f) family — the
+> ledger's R18(f) row words the deliverable as the Keystroke tier; the code carries both).
+> **Open: Phase 3** — OpenAction + document-level named scripts + consent UX (hooks only,
+> `FormJsRunner.h:153`); plus the R05 residual recommendation to move execution into a
+> restricted worker process with a parent watchdog, and the per-document-session runtime
+> (Phase-3 item) noted in the FORMJS-P1 ledger row.
+
 **Sources for status claims in this doc (all read at pinned revision 955d61d):**
 `src/engines/FormManager.{h,cpp}`, `src/core/interfaces/IFormManager.h`,
 `src/shell/controllers/FormsController.cpp`, `src/modes/FormBuilderMode.cpp`,
