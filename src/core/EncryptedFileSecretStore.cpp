@@ -12,6 +12,7 @@
 #include <QSysInfo>
 #include <QDebug>
 
+#include <openssl/crypto.h>  // OPENSSL_cleanse — secret scrubbing
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 
@@ -25,6 +26,33 @@ namespace {
 constexpr int    kKeyLen   = 32;   // AES-256
 constexpr int    kNonceLen = 12;   // GCM standard nonce
 constexpr int    kTagLen   = 16;   // GCM tag
+
+// PGR-10 triage (key/plaintext zeroization): scrub a secret buffer before its
+// storage is released. OPENSSL_cleanse is guaranteed not to be optimized away
+// (a plain memset over a soon-dead buffer would be elided), so the derived
+// AES key, the decrypted plaintext, and DPAPI's output blobs do not linger in
+// freed heap memory after the store is done with them.
+void scrubBuffer(void* p, size_t n)
+{
+    if (p && n) OPENSSL_cleanse(p, n);
+}
+
+void scrubBuffer(QByteArray& buffer)
+{
+    if (!buffer.isEmpty()) scrubBuffer(buffer.data(), size_t(buffer.size()));
+}
+
+// RAII: scrub on every scope exit — decrypt()/encrypt() have several early
+// returns (allocation failure, GCM init failure, authentication failure) and
+// the derived key must be scrubbed on all of them.
+struct ScrubOnScopeExit {
+    QByteArray* buffer;
+    explicit ScrubOnScopeExit(QByteArray* b) : buffer(b) {}
+    ~ScrubOnScopeExit() { if (buffer) scrubBuffer(*buffer); }
+    ScrubOnScopeExit(const ScrubOnScopeExit&) = delete;
+    ScrubOnScopeExit& operator=(const ScrubOnScopeExit&) = delete;
+};
+
 
 // On-disk blob version bytes (first byte of every stored blob).
 //
@@ -136,12 +164,18 @@ QByteArray EncryptedFileSecretStore::encrypt(const QString& service,
         blob.append(static_cast<char>(kVersionDpapiV3));
         blob.append(reinterpret_cast<const char*>(out.pbData),
                     static_cast<int>(out.cbData));
+        // PGR-10 triage (key/plaintext zeroization): LocalFree releases the
+        // DPAPI output blob without clearing it — scrub first.
+        scrubBuffer(out.pbData, size_t(out.cbData));
         LocalFree(out.pbData);
         return blob;
     }
 #endif
 
-    const QByteArray key = resolveKey();
+    QByteArray key = resolveKey();
+    // PGR-10 triage (key/plaintext zeroization): scrub the derived AES key on
+    // EVERY scope exit — both functions early-return on failure paths.
+    ScrubOnScopeExit scrubKey(&key);
     if (key.size() != kKeyLen) return {};
 
     unsigned char nonce[kNonceLen];
@@ -222,6 +256,10 @@ QByteArray EncryptedFileSecretStore::decrypt(const QString& service,
         }
         QByteArray plain(reinterpret_cast<const char*>(out.pbData),
                          static_cast<int>(out.cbData));
+        // PGR-10 triage (key/plaintext zeroization): the decrypted plaintext
+        // was copied out — clear DPAPI's heap copy before releasing it
+        // (LocalFree does not zero; DPAPI guidance says to clear first).
+        scrubBuffer(out.pbData, size_t(out.cbData));
         LocalFree(out.pbData);
         return plain;
     }
@@ -243,6 +281,10 @@ QByteArray EncryptedFileSecretStore::decrypt(const QString& service,
         }
         QByteArray plain(reinterpret_cast<const char*>(out.pbData),
                          static_cast<int>(out.cbData));
+        // PGR-10 triage (key/plaintext zeroization): the decrypted plaintext
+        // was copied out — clear DPAPI's heap copy before releasing it
+        // (LocalFree does not zero; DPAPI guidance says to clear first).
+        scrubBuffer(out.pbData, size_t(out.cbData));
         LocalFree(out.pbData);
         return plain;
     }
@@ -258,7 +300,10 @@ QByteArray EncryptedFileSecretStore::decrypt(const QString& service,
 
     if (version != kVersionAesAad && version != kVersionAes) return {};
 
-    const QByteArray key = resolveKey();
+    QByteArray key = resolveKey();
+    // PGR-10 triage (key/plaintext zeroization): scrub the derived AES key on
+    // EVERY scope exit — both functions early-return on failure paths.
+    ScrubOnScopeExit scrubKey(&key);
     if (key.size() != kKeyLen) return {};
 
     const unsigned char* nonce = p + 1;
@@ -369,9 +414,14 @@ QString EncryptedFileSecretStore::readSecret(const QString& service) const
     const QString b64 = entries.value(service).toString();
     if (b64.isEmpty()) return {};
     const QByteArray blob = QByteArray::fromBase64(b64.toLatin1());
-    const QByteArray plain = decrypt(service, blob);
+    QByteArray plain = decrypt(service, blob);
     if (plain.isEmpty()) return {};
-    return QString::fromUtf8(plain);
+    const QString secret = QString::fromUtf8(plain);
+    // PGR-10 triage (key/plaintext zeroization): the intermediate plaintext
+    // buffer is scrubbed before it goes out of scope; the returned QString is
+    // the store's documented output and is owned by the caller.
+    scrubBuffer(plain);
+    return secret;
 }
 
 bool EncryptedFileSecretStore::deleteSecret(const QString& service)
