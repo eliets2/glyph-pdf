@@ -406,20 +406,35 @@ public:
     // If even the reload fails, DROP the resident document entirely — a
     // rejected mutation must never stay resident. This is the COMMON rule at
     // the shared save boundary, not a crop-specific workaround.
+    //
+    // PGR-06 (HIGH): the reload needs the RETAINED encryption password. The
+    // old code cleared d->encryptionPassword BEFORE the load, so a rollback
+    // of a document encrypted this session reloaded the now-ENCRYPTED disk
+    // file without credentials, PoDoFo threw, and the resident was dropped —
+    // one failed commit locked the user out of their own intact encrypted
+    // document. The password now survives the reload (the lineage is still
+    // the same encrypted document; safe-save candidate validation and re-seat
+    // still need the credentials) and is cleared only when the lineage is
+    // actually dropped.
     void restoreResidentFromSource() {
         const QString src = currentFile;
         document.reset();
         currentFile.clear();
         reseatBuffer.clear();
-        encryptionPassword.clear();
         mutationBaseline.clear();
-        if (src.isEmpty()) return;   // already no resident state to leak
+        if (src.isEmpty()) {
+            encryptionPassword.clear();   // no lineage: no credentials to keep
+            return;   // already no resident state to leak
+        }
         auto restored = std::make_unique<PoDoFo::PdfMemDocument>();
         try {
-            restored->Load(src.toUtf8().constData());
+            restored->Load(src.toUtf8().constData(), PoDoFo::PdfLoadOptions::None,
+                           encryptionPassword.toStdString());
         } catch (const PoDoFo::PdfError& e) {
             // Stay dropped: the next loadDocument/resolveDocument re-loads
             // honestly from disk. Never keep a possibly-mutated resident.
+            // The lineage is gone — forget its credentials too (PGR-06).
+            encryptionPassword.clear();
             qCritical() << "PoDoFoBackend: rejected mutation rollback could not reload"
                         << src << "- resident document dropped:" << e.what();
             return;
@@ -427,6 +442,8 @@ public:
         document = std::move(restored);
         currentFile = src;
         residentMatchesDisk = true;   // WP-R02: resident == disk again
+        // encryptionPassword deliberately RETAINED (PGR-06): the restored
+        // resident lineage is the same encrypted document.
     }
 
     PdfImageInfo* findImageByName(int pageIndex, const QString& xobjectName, PoDoFoBackend* parent) {

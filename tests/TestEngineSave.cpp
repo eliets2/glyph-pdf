@@ -211,6 +211,27 @@ private:
             QStringList() << QStringLiteral("glyphpdf-*.pdf"), QDir::Files).size();
     }
 
+    // PGR-06: true when the file cannot be opened WITHOUT a password — the
+    // on-disk encrypted signature for a non-empty user password.
+    static bool pdfRequiresPassword(const QString& path) {
+        try {
+            PoDoFo::PdfMemDocument doc;
+            doc.Load(path.toUtf8().constData());
+            return false;
+        } catch (const PoDoFo::PdfError&) {
+            return true;
+        }
+    }
+
+    // PGR-06: page-0 rotation read WITH the user password (the plain
+    // pdfRotation helper cannot open an encrypted file).
+    static int pdfRotationWithPassword(const QString& path, const QString& userPassword) {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(path.toUtf8().constData(), PoDoFo::PdfLoadOptions::None,
+                 userPassword.toStdString());
+        return static_cast<int>(doc.GetPages().GetPageAt(0).GetRotation());
+    }
+
     // RAII reset of the shared SafeSave commit-fault seam: even if a QVERIFY
     // fails mid-test, later tests never inherit the fault.
     struct SeamReset {
@@ -311,6 +332,9 @@ private slots:
     // PGR-22: a failed re-seat must not free the buffer the resident
     // document still parses from.
     void reseatFailureKeepsResidentDocumentUsable();
+    // PGR-06: a failed commit on an encrypted document must not drop the
+    // encryption password — the rollback reload needs it.
+    void failedCommitOnEncryptedDocKeepsDocumentEditable();
 };
 
 void TestEngineSave::sameFileSaveKeepsPageCountAndContent() {
@@ -1357,6 +1381,72 @@ void TestEngineSave::reseatFailureKeepsResidentDocumentUsable() {
     QVERIFY2(backend.saveDocument(pdf),
              "PGR-22: the resident document must stay saveable after a failed re-seat");
     QCOMPARE(pdfPageCount(pdf), 2u);
+    QCOMPARE(leftoverCandidates(), 0);
+}
+
+// ─────────────────────────── PGR-06 ────────────────────────────────────────
+// THE PGR-06 reproduction: restoreResidentFromSource() used to
+// encryptionPassword.clear() BEFORE reloading the on-disk file — so after a
+// failed mutation commit on a document that was encrypted and saved this
+// session, the rollback reloaded the now-ENCRYPTED disk file with NO
+// password, PoDoFo threw, and the resident document was dropped. One failed
+// commit locked the user out of their own intact, on-disk-valid encrypted
+// document for the rest of the session.
+//
+// Scenario: load → encrypt (user password captured) → same-file save
+// (commit resolves; the resident is re-seated from the encrypted candidate
+// and matches the now-encrypted disk bytes) → a rotate whose commit is
+// seam-failed → the rollback must reload the disk bytes WITH the retained
+// password. Fail-before: the password was cleared first, the reload threw,
+// the resident was dropped (pageCount 0, currentFile empty, every later
+// mutation refuses) — lock-out. Pass-after: the resident is the encrypted
+// disk state; the document stays editable and saves.
+void TestEngineSave::failedCommitOnEncryptedDocKeepsDocumentEditable() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = makeTwoPageTextPdf(tmp.path(), QStringLiteral("pgr06.pdf"));
+    QVERIFY(QFile::exists(pdf));
+
+    PoDoFoBackend backend;
+    QVERIFY(backend.loadDocument(pdf));
+
+    const QString userPwd = QStringLiteral("pgr06-user-password");
+    QVERIFY2(backend.encryptDocument(userPwd, QStringLiteral("pgr06-owner-password"),
+                                     DocumentPermissions{}),
+             "encryption setup must succeed");
+    QVERIFY2(backend.saveDocument(pdf),
+             "the encrypted document must save to its own path");
+    // A non-empty user password means a PASSWORDLESS load of the committed
+    // file must FAIL — that is the on-disk encrypted signature here (the
+    // empty-user-password variant would silently open and hide the defect).
+    QVERIFY2(pdfRequiresPassword(pdf),
+             "the committed document must be encrypted on disk");
+    QCOMPARE(backend.pageCount(), 2);
+
+    // A mutation whose commit FAILS: the transaction rolls the resident back
+    // to the disk bytes — which now need the retained password.
+    gp::SafeSave::setCommitFaultForTesting(
+        gp::SafeSave::CommitFaultForTesting::FailBeforeCommit);
+    const bool rotated = backend.rotatePage(pdf, 0, 90);
+    gp::SafeSave::setCommitFaultForTesting(gp::SafeSave::CommitFaultForTesting::None);
+    QVERIFY2(!rotated, "the rotate's commit failed and must be reported");
+
+    // Fail-before: the rollback cleared the password, the password-less
+    // reload of the encrypted file threw, and the resident was DROPPED —
+    // pageCount 0 and an empty currentFile (lock-out).
+    QCOMPARE(backend.currentFile(), pdf);
+    QCOMPARE(backend.pageCount(), 2);
+
+    // The document must still be EDITABLE and SAVEABLE: rotate + save both
+    // succeed, and the committed file is the encrypted, rotated document.
+    QVERIFY2(backend.rotatePage(pdf, 0, 90),
+             "PGR-06: the document must stay editable after a failed commit "
+             "(the rollback dropped the resident — lock-out)");
+    QVERIFY2(backend.saveDocument(pdf),
+             "PGR-06: the document must stay saveable after a failed commit");
+    QVERIFY2(pdfRequiresPassword(pdf), "the re-saved document must still be encrypted");
+    QCOMPARE(pdfRotationWithPassword(pdf, userPwd), 90);
+    QCOMPARE(backend.pageCount(), 2);
     QCOMPARE(leftoverCandidates(), 0);
 }
 
