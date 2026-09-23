@@ -44,6 +44,13 @@ public:
 
     SigningRequestModel model() const { return m_model; }
 
+    // PGR-36 (D2 delta review 2026-09-23): the document this panel is bound
+    // to. The controller consults it so a MODELESS panel left open across a
+    // document switch can never execute a signing step against a DIFFERENT
+    // document's sidecar than the request it displays (cross-document replay
+    // through a stale surface).
+    QString documentPath() const { return m_docPath; }
+
 signals:
     // The current signer's step was requested (index of the unsigned entry).
     // The controller runs the real sign flow, persists the sidecar and calls

@@ -5916,3 +5916,30 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPgr35BatchCollision.cpp")
         LABELS "unit;batch;pgr35;qt;headless"
     )
 endif()
+
+# ── PGR-36 (D2 delta review 2026-09-23): stale signing-panel replay ──────────
+# The modeless signing-progress panel is bound to its document at
+# construction; the controller used to re-raise a stale panel across a
+# document switch (request A displayed over document B's sidecar execution).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPgr36StaleSigningPanel.cpp")
+    add_executable(TestPgr36StaleSigningPanel
+        tests/TestPgr36StaleSigningPanel.cpp
+    )
+    target_include_directories(TestPgr36StaleSigningPanel PRIVATE src tests)
+    # The binding assert compiles only against the FIXED panel (accessor).
+    target_compile_definitions(TestPgr36StaleSigningPanel PRIVATE PGR36_DOCUMENT_PATH)
+    target_link_libraries(TestPgr36StaleSigningPanel PRIVATE
+        pdfws_ui pdfws_engines pdfws_core
+        OpenSSL::SSL OpenSSL::Crypto
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets podofo::podofo
+    )
+    if(WIN32)
+        target_link_libraries(TestPgr36StaleSigningPanel PRIVATE Crypt32)
+    endif()
+    add_test(NAME TestPgr36StaleSigningPanel COMMAND TestPgr36StaleSigningPanel)
+    set_tests_properties(TestPgr36StaleSigningPanel PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;signing;pgr36;qt;headless"
+    )
+endif()
