@@ -1420,6 +1420,7 @@ void TestEngineSave::failedCommitOnEncryptedDocKeepsDocumentEditable() {
     QVERIFY2(pdfRequiresPassword(pdf),
              "the committed document must be encrypted on disk");
     QCOMPARE(backend.pageCount(), 2);
+
     // A mutation whose commit FAILS: the transaction rolls the resident back
     // to the disk bytes — which now need the retained password.
     gp::SafeSave::setCommitFaultForTesting(
@@ -1427,11 +1428,13 @@ void TestEngineSave::failedCommitOnEncryptedDocKeepsDocumentEditable() {
     const bool rotated = backend.rotatePage(pdf, 0, 90);
     gp::SafeSave::setCommitFaultForTesting(gp::SafeSave::CommitFaultForTesting::None);
     QVERIFY2(!rotated, "the rotate's commit failed and must be reported");
+
     // Fail-before: the rollback cleared the password, the password-less
     // reload of the encrypted file threw, and the resident was DROPPED —
     // pageCount 0 and an empty currentFile (lock-out).
     QCOMPARE(backend.currentFile(), pdf);
     QCOMPARE(backend.pageCount(), 2);
+
     // The document must still be EDITABLE and SAVEABLE: rotate + save both
     // succeed, and the committed file is the encrypted, rotated document.
     QVERIFY2(backend.rotatePage(pdf, 0, 90),
@@ -1444,5 +1447,6 @@ void TestEngineSave::failedCommitOnEncryptedDocKeepsDocumentEditable() {
     QCOMPARE(backend.pageCount(), 2);
     QCOMPARE(leftoverCandidates(), 0);
 }
+
 QTEST_MAIN(TestEngineSave)
 #include "TestEngineSave.moc"
