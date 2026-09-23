@@ -1,0 +1,20 @@
+********* Start testing of TestSweepW3UxFlows *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSweepW3UxFlows::initTestCase()
+QWARN  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() UXAUDIT: F-route: clicking welcome card 'open'
+QWARN  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() This plugin does not support propagateSizeHints()
+QDEBUG : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() [HomeController] Pruned 1 missing recent file(s).
+QWARN  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() UXAUDIT: driving dialog matched by 'recipientList' (title='Encrypt with Recipient Certificates')
+QINFO  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() UXAUDIT: F6: recipient certs accepted=1 count=2; disclosure: 'How recipients work: every recipient receives its own CMS envelope, and all envelopes wrap the SAME session key. Re-encrypting a document that is already encryp'
+QWARN  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() UXAUDIT: F6 verified: encrypted output written; probe: /Encrypt present: Filter=PubSec PubSec=1 Recipients=1
+QWARN  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() UXAUDIT: task dialog seen: title='ERROR' text='? ERROR Could not open the PDF document. File: D:/pdf/msys64/tmp/TestSweepW3UxFlows-XJzyss/sensitive_enc.pdf'
+QINFO  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() UXAUDIT: F6 open-with-owner: modal title='ERROR' text='? ERROR Could not open the PDF document. File: D:/pdf/msys64/tmp/TestSweepW3UxFlows-XJzyss/sensitive_enc.pdf'; viewer page count now 0
+QWARN  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() QTemporaryDir: Unable to remove "D:\\pdf\\msys64\\tmp\\TestSweepW3UxFlows-XJzyss" most likely due to the presence of read-only files.
+PASS   : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients()
+PASS   : TestSweepW3UxFlows::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 4443ms
+********* Finished testing of TestSweepW3UxFlows *********

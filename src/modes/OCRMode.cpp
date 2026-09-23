@@ -174,13 +174,15 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     sep1->setFixedWidth(1); sep1->setStyleSheet("color:#ffffff20;");
     row->addWidget(sep1);
 
-    // Defaults match OcrPreprocessOptions' long-standing pipeline behavior
-    // (deskew/binarize/denoise all on) so wiring the prefs is behavior-neutral
-    // until the user changes something — previously the Denoise checkbox
-    // showed "off" while the pipeline denoised anyway.
+    // F5-F2: the shipped defaults are HONEST — the destructive chain
+    // (deskew/binarize/denoise) is OFF out of the box, so what the checkboxes
+    // show is exactly what the pipeline will do. The audit found the old
+    // on-by-default chain ZEROED recognition on a clean scan while the user
+    // had not asked for any of it (SWEEP-W3-UX F5-F2); users opt in per scan
+    // via these persisted toggles (Auto-Rotate below set the precedent).
     m_chkDeskew = new QCheckBox(tr("Deskew"));
     m_chkDeskew->setObjectName("ocrChkDeskew");
-    m_chkDeskew->setChecked(QSettings().value(kOcrPreprocessDeskewKey, true).toBool());
+    m_chkDeskew->setChecked(QSettings().value(kOcrPreprocessDeskewKey, false).toBool());
     m_chkDeskew->setStyleSheet("color:#c0c0c0; spacing:4px;");
     connect(m_chkDeskew, &QCheckBox::toggled, this, [](bool checked) {
         QSettings settings;
@@ -190,7 +192,7 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
 
     m_chkBinarize = new QCheckBox(tr("Binarize"));
     m_chkBinarize->setObjectName("ocrChkBinarize");
-    m_chkBinarize->setChecked(QSettings().value(kOcrPreprocessBinarizeKey, true).toBool());
+    m_chkBinarize->setChecked(QSettings().value(kOcrPreprocessBinarizeKey, false).toBool());
     m_chkBinarize->setStyleSheet("color:#c0c0c0; spacing:4px;");
     connect(m_chkBinarize, &QCheckBox::toggled, this, [](bool checked) {
         QSettings settings;
@@ -200,7 +202,7 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
 
     m_chkDenoise = new QCheckBox(tr("Denoise"));
     m_chkDenoise->setObjectName("ocrChkDenoise");
-    m_chkDenoise->setChecked(QSettings().value(kOcrPreprocessDenoiseKey, true).toBool());
+    m_chkDenoise->setChecked(QSettings().value(kOcrPreprocessDenoiseKey, false).toBool());
     m_chkDenoise->setStyleSheet("color:#c0c0c0; spacing:4px;");
     connect(m_chkDenoise, &QCheckBox::toggled, this, [](bool checked) {
         QSettings settings;
@@ -332,6 +334,18 @@ void OCRMode::buildInfoStrip(QVBoxLayout* col)
     row->addStretch(1);
 
     col->addWidget(info);
+
+    // F5-F1 (SWEEP-W3 UX): the lifecycle message is surfaced LIVE on this
+    // screen — the cold-init "initializing OCR models…" state, failures and
+    // save outcomes — instead of only resting in m_lastLifecycleMessage for
+    // tests while the user watches a 7s status-bar transient. Hidden while
+    // there is nothing to say.
+    m_lblLifecycle = new QLabel;
+    m_lblLifecycle->setObjectName(QStringLiteral("ocrLifecycleLabel"));
+    m_lblLifecycle->setWordWrap(true);
+    m_lblLifecycle->setStyleSheet(QStringLiteral("color:#e0a030; padding:2px 12px;"));
+    m_lblLifecycle->hide();
+    col->addWidget(m_lblLifecycle);
 }
 
 // ── 4-pane splitter ─────────────────────────────────────────────────────────
@@ -561,7 +575,8 @@ void OCRMode::buildPanes(QVBoxLayout* col)
 void OCRMode::transitionTo(ReviewState state, const QString& message)
 {
     m_reviewState = state;
-    m_lastLifecycleMessage = message;
+    // F5-F1: the message is recorded AND surfaced live on the screen.
+    setLifecycleMessageLive(message);
 
     const bool hasWords = !m_reviewWords.isEmpty();
     auto setRun = [this](bool enabled, const QString& text) {
@@ -605,13 +620,27 @@ void OCRMode::transitionTo(ReviewState state, const QString& message)
     emit reviewStateChanged(state);
 }
 
+void OCRMode::setLifecycleMessageLive(const QString& message)
+{
+    m_lastLifecycleMessage = message;
+    if (m_lblLifecycle) {
+        m_lblLifecycle->setText(message);
+        m_lblLifecycle->setVisible(!message.isEmpty());
+    }
+}
+
 void OCRMode::onRunOcr()
 {
     // R2: do NOT pre-enable Accept/Reject here. They must stay disabled until
     // setOcrResults() actually delivers recognised words — otherwise the user
     // can "accept" a result that does not exist yet. Show a processing state
     // instead and let the completion paths restore the controls.
-    transitionTo(ReviewState::Running, QString());
+    // F5-F1: cold engine init (Tesseract language data + up to 3 ONNX
+    // sessions) takes MINUTES on first use — say so on this screen, live,
+    // instead of leaving only a status-bar transient (the audit's F5-F1).
+    transitionTo(ReviewState::Running,
+                 tr("Running OCR — initializing OCR models (first use can take "
+                    "several minutes)…"));
 
     // Update engine label
     m_lblEngine->setText(tr("ENGINE: %1 · %2")
@@ -1329,7 +1358,9 @@ void OCRMode::setSemanticDocument(const docmodel::SemanticDocument &doc,
     if (m_btnAccept) m_btnAccept->setEnabled(true);
     if (m_btnReject) m_btnReject->setEnabled(true);
     m_reviewState = ReviewState::ReviewReady;
-    m_lastLifecycleMessage = QString();
+    // U03: this path bypasses transitionTo() — clear the lifecycle message
+    // through the same helper so the on-screen surface cannot go stale.
+    setLifecycleMessageLive(QString());
     // U03: this path bypasses transitionTo() — keep the navigation buttons
     // coherent by hand (no reviewed records → nothing uncertain).
     updateNavigationButtons();

@@ -1,0 +1,80 @@
+********* Start testing of TestSweepW3UxFlows *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSweepW3UxFlows::initTestCase()
+QWARN  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 start: fixture with TOPSECRETDATA at a known position
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F-route: clicking welcome card 'open'
+QWARN  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() This plugin does not support propagateSizeHints()
+QDEBUG : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() [HomeController] Pruned 1 missing recent file(s).
+QWARN  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 step1: redact screen activated
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 step2: 1 redaction mark(s) placed
+QWARN  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: driving dialog matched by 'redactApplyDialog' (title='Apply Redactions')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 step3: apply dialog configured (sanitize + proof) and accepted
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QDEBUG : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-pLVLlq.pdf"
+QDEBUG : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() Successfully sanitized document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-BiBGEZ.pdf"
+QWARN  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: modal seen: title='Redaction Complete' text='The redacted copy has been saved to:
+C:/Users/User/AppData/Local/Temp/TestSweepW3UxFlows-FpABpp/secret-doc_redacted.pdf
+
+A fully sanitized copy (metadata, attachments, JavaScript removed) has been saved to:
+C:/Users/User/AppData/Local/Temp/TestSweepW3UxFlows-FpABpp/secret-doc_sanitized.pdf
+
+Redactio'
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 step4 verified: redacted output exists; the secret is GONE from all streams
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 completion surface: modal title='Redaction Complete' text='The redacted copy has been saved to:
+C:/Users/User/AppData/Local/Temp/TestSweepW3UxFlows-FpABpp/secret-doc_redacted.pdf
+
+A fully sanitized copy (metadata, attachments, JavaScript removed) has been saved to:
+C:/Users/User/AppData/Local/Temp/TestSweepW3UxFlows-FpABpp/secret-doc_sanitized.pdf
+
+Redaction proof: PASSED — no removed string survives on any swept surface. The proof pack is next to the out'; statusbar='Redactions applied to saved output: secret-doc_redacted.pdf; sanitized copy: secret-doc_sanitized.pdf; redaction proof: PASSED'
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 step5: sanitized copy landed as requested
+QWARN  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: driving dialog matched by 'redactApplyDialog' (title='Apply Redactions')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 step6: apply configured with an IMPOSSIBLE sanitize target
+QDEBUG : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-bcNOIy.pdf"
+QDEBUG : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() Successfully sanitized document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-HFsxHW.pdf"
+QWARN  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: modal seen: title='Redaction Partially Complete — Sanitization Failed' text='Redacted copy saved to:
+C:/Users/User/AppData/Local/Temp/TestSweepW3UxFlows-FpABpp/secret2_redacted.pdf
+
+Sanitization FAILED: The redacted copy was saved, but sanitization failed: cannot open destination for safe write: The system cannot find the path specified.
+
+The saved file still contains docume'
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 partial-failure modal: title='Redaction Partially Complete — Sanitization Failed' text='Redacted copy saved to:
+C:/Users/User/AppData/Local/Temp/TestSweepW3UxFlows-FpABpp/secret2_redacted.pdf
+
+Sanitization FAILED: The redacted copy was saved, but sanitization failed: cannot open destination for safe write: The system cannot find the path specified.
+
+The saved file still contains document metadata, attachments and embedded JavaScript. Keep the redacted file, retry sanitization, or dis'
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 step6 verified: the failure is not reported as success (verdict in the transcript above)
+QWARN  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() QTemporaryDir: Unable to remove "C:\\Users\\User\\AppData\\Local\\Temp\\TestSweepW3UxFlows-FpABpp" most likely due to the presence of read-only files.
+PASS   : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure()
+PASS   : TestSweepW3UxFlows::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 8617ms
+********* Finished testing of TestSweepW3UxFlows *********

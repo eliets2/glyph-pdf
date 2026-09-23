@@ -100,6 +100,32 @@ namespace gp {
 // destroy windows in sequence).
 namespace {
 QPointer<MainWindow> g_fileHandleCoordinatorOwner;
+
+// F6-F1 (SWEEP-W3 UX): the open-failure path detects a certificate
+// (public-key) /Encrypt dictionary before falling back to the generic
+// "Could not open" error. A PubSec-encrypted document is VALID — this
+// viewer just cannot decrypt it — so the message must name the real state
+// instead of misrepresenting the file as broken. Cheap raw-tail probe: the
+// /Encrypt dictionary is never compressed (a conformant reader must parse
+// it before decryption) and writers emit it at the file tail, so a bounded
+// scan of the last 64 KiB for the live /Encrypt marker plus a
+// /Filter /…PubSec value (our own PdfEncryptPubSec output and Adobe's
+// /Filter /Adobe.PubSec shape) is reliable. A miss — or any read failure —
+// just keeps the generic error.
+bool documentLooksPubSecEncrypted(const QString &path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return false;
+    const qint64 window = 64 * 1024;
+    const qint64 size = f.size();
+    const qint64 start = qMax<qint64>(0, size - window);
+    if (!f.seek(start)) return false;
+    const QByteArray tail = f.read(size - start);
+    if (!tail.contains("/Encrypt")) return false;
+    static const QRegularExpression pubSecFilter(
+        QStringLiteral("/Filter\\s*/\\S*PubSec"));
+    return pubSecFilter.match(QString::fromLatin1(tail)).hasMatch();
+}
 }
 
 MainWindow::MainWindow(AppContext ctx, QWidget* parent)
@@ -220,17 +246,46 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
     // save-in-place, redaction commit and form import coordinates through the
     // same boundary (no per-call-site coordination).
     g_fileHandleCoordinatorOwner = this;
+    // F4d-D1 (SWEEP-W3 UX): the coordinator no longer no-ops off the GUI
+    // thread. The prepare-signing-request fill step runs its engine + commit
+    // on a signing worker thread and writes the OPEN document in place, so a
+    // skipped coordination left the viewer's QPdfDocument holding the file
+    // and every fill-step commit failed "Access is denied".
+    const auto hopToGui = [this](const QString &p, bool park) {
+        if (QThread::currentThread() == thread()) {
+            if (g_fileHandleCoordinatorOwner == this) {
+                if (auto *v = pdfViewer()) {
+                    if (park)
+                        v->parkDocumentForWrite(p);
+                    else
+                        v->restoreDocumentAfterWrite(p);
+                }
+            }
+            return;
+        }
+        // Worker thread: QPdfDocument is GUI-thread-only, so the park/restore
+        // hop to the GUI thread BLOCKS until done — a background commit runs
+        // with the handle genuinely released and restores on every outcome,
+        // the same contract save-in-place gets. Safe: every background writer
+        // parks a WindowModal progress dialog while its worker runs, so the
+        // GUI thread stays in its event loop and the blocking hop cannot
+        // deadlock it. The owner check runs on BOTH threads: a stale
+        // coordinator (owner torn down) still no-ops instead of touching a
+        // dead window.
+        QMetaObject::invokeMethod(
+            this,
+            [this, p, park]() {
+                if (g_fileHandleCoordinatorOwner != this) return;
+                if (auto *v = pdfViewer()) {
+                    if (park) v->parkDocumentForWrite(p);
+                    else v->restoreDocumentAfterWrite(p);
+                }
+            },
+            Qt::BlockingQueuedConnection);
+    };
     SafeSave::setFileHandleCoordinator(
-        [this](const QString &p) {
-            if (g_fileHandleCoordinatorOwner != this || QThread::currentThread() != thread())
-                return;   // background same-path writers keep the honest failure
-            if (auto *v = pdfViewer()) v->parkDocumentForWrite(p);
-        },
-        [this](const QString &p) {
-            if (g_fileHandleCoordinatorOwner != this || QThread::currentThread() != thread())
-                return;
-            if (auto *v = pdfViewer()) v->restoreDocumentAfterWrite(p);
-        });
+        [this, hopToGui](const QString &p) { hopToGui(p, true); },
+        [this, hopToGui](const QString &p) { hopToGui(p, false); });
 
     // === Welcome-screen actions (route to the same handlers as the ribbon/menu).
     if (_welcome && _home) {
@@ -857,10 +912,22 @@ void MainWindow::openDocument(const QString& filePath) {
             _ctx->pdfEditor->clearError();
         }
         if (err.isOk()) {
-            err = ErrorInfo::error(
-                tr("Could not open the PDF document."),
-                tr("Path: %1").arg(filePath),
-                ErrorInfo::Retry);
+            // F6-F1: a PubSec-encrypted file is not a broken file — name the
+            // certificate state instead of the generic open failure (Retry
+            // cannot succeed in-app, so it is not offered).
+            if (documentLooksPubSecEncrypted(filePath)) {
+                err = ErrorInfo::error(
+                    tr("This document is certificate-encrypted (PubSec). GlyphPDF "
+                       "cannot decrypt it — open it in a viewer that has the "
+                       "matching recipient certificate installed."),
+                    tr("The PDF carries a public-key /Encrypt dictionary with "
+                       "recipient envelopes. Path: %1").arg(filePath));
+            } else {
+                err = ErrorInfo::error(
+                    tr("Could not open the PDF document."),
+                    tr("Path: %1").arg(filePath),
+                    ErrorInfo::Retry);
+            }
         }
         err.sourceFile = filePath;
 
@@ -991,10 +1058,22 @@ void MainWindow::openDocument(const QString& filePath) {
             _ctx->pdfEditor->clearError();
         }
         if (err.isOk()) {
-            err = ErrorInfo::error(
-                tr("Could not open the PDF document."),
-                tr("Path: %1").arg(filePath),
-                ErrorInfo::Retry);
+            // F6-F1: same certificate-encryption disclosure as the engine
+            // load-failure path above — the viewer's QPdfDocument cannot
+            // decrypt PubSec documents either.
+            if (documentLooksPubSecEncrypted(filePath)) {
+                err = ErrorInfo::error(
+                    tr("This document is certificate-encrypted (PubSec). GlyphPDF "
+                       "cannot decrypt it — open it in a viewer that has the "
+                       "matching recipient certificate installed."),
+                    tr("The PDF carries a public-key /Encrypt dictionary with "
+                       "recipient envelopes. Path: %1").arg(filePath));
+            } else {
+                err = ErrorInfo::error(
+                    tr("Could not open the PDF document."),
+                    tr("Path: %1").arg(filePath),
+                    ErrorInfo::Retry);
+            }
         }
         err.sourceFile = filePath;
 

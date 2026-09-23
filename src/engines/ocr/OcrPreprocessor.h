@@ -6,12 +6,18 @@
 #include <QString>
 
 /// Configuration knobs for preprocessing before OCR.
+/// F5-F2 (SWEEP-W3-UX): the shipped defaults are honest — only non-destructive
+/// normalization is on. The destructive chain (deskew/denoise/binarize) is
+/// opt-in: the audit observed the old on-by-default chain ZERO recognition on
+/// a clean scan, and every production caller (EditController, BatchMode)
+/// populates these fields from the persisted OCR-screen prefs anyway, whose
+/// out-of-the-box state this struct now matches.
 struct OcrPreprocessOptions {
-    bool dpiNormalize  = true;   // Scale to 300 DPI if lower
+    bool dpiNormalize  = true;   // Scale to 300 DPI if lower (non-destructive)
     int  targetDpi     = 300;
-    bool deskew        = true;   // Correct skew via Leptonica pixDeskew
-    bool denoise       = true;   // Median filter to remove speckle
-    bool binarize      = true;   // Sauvola adaptive binarization
+    bool deskew        = false;  // Opt-in: correct skew via Leptonica pixDeskew
+    bool denoise       = false;  // Opt-in: median filter to remove speckle
+    bool binarize      = false;  // Opt-in: Sauvola adaptive binarization
     bool orientDetect  = false;  // Auto-rotate 0/90/180/270
 };
 

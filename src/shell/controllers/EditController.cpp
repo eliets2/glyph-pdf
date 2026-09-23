@@ -1003,12 +1003,14 @@ void EditController::runOcr() {
     const bool orientDetect = QSettings().value(
         QStringLiteral("ocr/orientDetect"), false).toBool();
     // §9.4: the OCRMode preprocessing checkboxes are persisted prefs — the
-    // pipeline honors all four (defaults match the struct's long-standing
-    // behavior: deskew/binarize/denoise on).
+    // pipeline honors all four. F5-F2: the shipped default is OFF for the
+    // destructive chain (deskew/binarize/denoise) — recognition must work out
+    // of the box on a clean scan; the audit observed the old on-by-default
+    // chain zero it (SWEEP-W3-UX F5-F2). Opt-in per scan via the OCR screen.
     OcrPreprocessOptions preprocessPrefs;
-    preprocessPrefs.deskew   = QSettings().value(QStringLiteral("ocr/preprocessDeskew"), true).toBool();
-    preprocessPrefs.binarize = QSettings().value(QStringLiteral("ocr/preprocessBinarize"), true).toBool();
-    preprocessPrefs.denoise  = QSettings().value(QStringLiteral("ocr/preprocessDenoise"), true).toBool();
+    preprocessPrefs.deskew   = QSettings().value(QStringLiteral("ocr/preprocessDeskew"), false).toBool();
+    preprocessPrefs.binarize = QSettings().value(QStringLiteral("ocr/preprocessBinarize"), false).toBool();
+    preprocessPrefs.denoise  = QSettings().value(QStringLiteral("ocr/preprocessDenoise"), false).toBool();
     preprocessPrefs.orientDetect = orientDetect;
     const QString engineLabel = wantEnsemble ? tr("Ensemble (Tesseract + RapidOCR)")
                               : wantRapid    ? tr("RapidOCR / PP-OCRv5")
