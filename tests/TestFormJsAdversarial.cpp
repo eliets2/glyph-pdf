@@ -226,11 +226,10 @@ private slots:
         for (const QString& n : after)
             if (!before.contains(n)) delta.insert(n);
 
-        // PGR-39 CHARACTERIZATION (pre-fix): the shim's top-level `function`
-        // declarations leak 9 internal helpers as writable globals beyond the
-        // documented surface (AFormShim.h). The fix wraps the shim in an
-        // IIFE; THIS commit pins the current set so the fix commit tightens
-        // the pin to exactly the documented surface.
+        // PGR-39 FIX: the shim body now lives inside an IIFE — every internal
+        // helper is a closure binding and the ONLY globalThis additions are
+        // the documented surface (AFormShim.h). Any future addition must
+        // extend that pin deliberately.
         const QStringList documented{
             QStringLiteral("AFDate_Format"), QStringLiteral("AFDate_FormatEx"),
             QStringLiteral("AFDate_Keystroke"), QStringLiteral("AFDate_KeystrokeEx"),
@@ -248,9 +247,8 @@ private slots:
             QStringLiteral("app"), QStringLiteral("color"), QStringLiteral("console"),
             QStringLiteral("doc"), QStringLiteral("getField"), QStringLiteral("util"),
         };
-        // PGR-39: these 9 internals must NOT be script-reachable globals; the
-        // characterization expects them today and the fix commit removes them
-        // (and tightens this pin).
+        // PGR-39 (fixed): these 9 internals are closure bindings — they must
+        // NOT appear on globalThis anymore.
         const QStringList leakedInternals{
             QStringLiteral("__blockedVerb"), QStringLiteral("__createDateActions"),
             QStringLiteral("__createScandData"), QStringLiteral("__mkTargetName"),
@@ -259,12 +257,10 @@ private slots:
             QStringLiteral("__tryToGuessDate"),
         };
         QSet<QString> expected(documented.cbegin(), documented.cend());
-        QSet<QString> leaked(leakedInternals.cbegin(), leakedInternals.cend());
-        if (delta == expected) {
-            // Post-PGR-39-fix engine: exactly the documented surface.
-            return;
-        }
-        QCOMPARE(delta, QSet<QString>(expected | leaked));
+        for (const QString& leaked : leakedInternals)
+            QVERIFY2(!delta.contains(leaked),
+                     qPrintable(leaked + QStringLiteral(" leaked onto globalThis")));
+        QCOMPARE(delta, expected);
     }
 
     // Attack story: "reach the host through the Function constructor, an
@@ -774,6 +770,59 @@ private slots:
         PoDoFo::PdfMemDocument doc = loadDoc(path);
         const CascadeReport rep = FormJsRunner::runCalculateCascade(doc, 250, 1000);
         QCOMPARE(docFieldValue(doc, QStringLiteral("v")), QStringLiteral("5"));
+    }
+
+    // PGR-38 (the fix): a field literally named "__proto__" vanished from
+    // every script's view — the snapshot was embedded as a JS object LITERAL,
+    // where the key "__proto__" invokes the inherited setter (a string value
+    // is silently dropped) instead of defining an own property as JSON.parse
+    // does. JSON.parse now builds the snapshot; the hostile name round-trips
+    // like any other.
+    void protoFieldNameSurvivesTheSnapshot()
+    {
+        FormJsSandbox s;
+        QVERIFY(s.installShim(nullptr));
+        QVariantMap vals;
+        vals.insert(QStringLiteral("__proto__"), QStringLiteral("poison"));
+        vals.insert(QStringLiteral("plain"), QStringLiteral("ok"));
+        QString err;
+        QVERIFY2(s.setFieldValues(vals, &err), qPrintable(err));
+        QString ownProto;
+        QVERIFY(s.evalHelper(
+            QStringLiteral("Object.prototype.hasOwnProperty.call(globalThis.__gpFieldValues, "
+                           "'__proto__') ? 'own' : 'missing'"),
+            &ownProto, &err));
+        QCOMPARE(ownProto, QStringLiteral("own"));
+        QString value;
+        QVERIFY2(s.evalHelper(QStringLiteral("getField('__proto__').value"), &value, &err),
+                 qPrintable(err));
+        QCOMPARE(value, QStringLiteral("poison"));
+        // The map stays a plain dictionary — the embed must not have changed
+        // its prototype either.
+        QString protoUnchanged;
+        QVERIFY(s.evalHelper(
+            QStringLiteral("Object.getPrototypeOf(globalThis.__gpFieldValues) === "
+                           "Object.prototype ? 'clean' : 'tampered'"),
+            &protoUnchanged, nullptr));
+        QCOMPARE(protoUnchanged, QStringLiteral("clean"));
+    }
+
+    // PGR-38 cascade integration: a hostile document with a field literally
+    // named "__proto__" computes on its real value.
+    void protoFieldComputesInTheCascade()
+    {
+        const QString path = makeFormPdf(
+            QStringLiteral("pgr38.pdf"),
+            { QStringLiteral("__proto__"), QStringLiteral("reader") },
+            { { QStringLiteral("reader"),
+                QStringLiteral("event.value = getField('__proto__') ? "
+                               "getField('__proto__').value + '!' : 'LOST';") } },
+            { QStringLiteral("reader") }, {}, {},
+            { { QStringLiteral("__proto__"), QStringLiteral("got") } });
+        QVERIFY(!path.isEmpty());
+        PoDoFo::PdfMemDocument doc = loadDoc(path);
+        const CascadeReport rep = FormJsRunner::runCalculateCascade(doc, 250, 1000);
+        QCOMPARE(docFieldValue(doc, QStringLiteral("reader")), QStringLiteral("got!"));
     }
 
     // The kill-switch is the pre-fix disclosure state: ALL FOUR engine entries
