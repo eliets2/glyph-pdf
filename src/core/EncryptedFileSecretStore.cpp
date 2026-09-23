@@ -7,6 +7,7 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLockFile>
 #include <QSaveFile>
 #include <QStandardPaths>
 #include <QSysInfo>
@@ -77,6 +78,17 @@ const wchar_t kDpapiV3Description[] = L"GlyphPDF.SecretStore.Secret.v3";
 
 // Explicit on-disk marker so the file is self-describing / labelled.
 const QString kMarker = QStringLiteral("glyphpdf-encrypted-secret-store");
+
+// PGR-25: every mutation of the store is a read-modify-write of the shared
+// JSON. All writers serialize behind a lock file beside the store, with a
+// bounded wait — a lock that waits forever would hang the UI, so a timeout is
+// a LOUD failure, never a silent lost update.
+constexpr int kStoreLockTimeoutMs = 30000;
+
+QString storeLockPath(const QString& filePath)
+{
+    return filePath + QStringLiteral(".lock");
+}
 
 QString defaultStorePath()
 {
@@ -350,45 +362,64 @@ bool EncryptedFileSecretStore::storeSecret(const QString& service, const QString
 {
     if (service.isEmpty() || secret.isEmpty()) return false;
 
-    // Load existing object (tolerate absent/empty/corrupt — we overwrite).
-    QJsonObject root;
-    QFile in(m_filePath);
-    if (in.exists() && in.open(QIODevice::ReadOnly)) {
-        const auto doc = QJsonDocument::fromJson(in.readAll());
-        in.close();
-        if (doc.isObject()) root = doc.object();
-    }
-    root.insert(QStringLiteral("_marker"), kMarker);
-
+    // Encrypt OUTSIDE the lock: key derivation is pure computation and must
+    // not extend the critical section.
     const QByteArray blob = encrypt(service, secret.toUtf8());
     if (blob.isEmpty()) {
         qWarning() << "EncryptedFileSecretStore: encryption failed; secret NOT stored for" << service;
         return false;  // never claim success
     }
 
-    QJsonObject entries = root.value(QStringLiteral("secrets")).toObject();
-    entries.insert(service, QString::fromLatin1(blob.toBase64()));
-    root.insert(QStringLiteral("secrets"), entries);
-
-    // Ensure the directory exists.
+    // Ensure the directory exists BEFORE locking — QLockFile needs somewhere
+    // to put its lock file.
     QDir().mkpath(QFileInfo(m_filePath).absolutePath());
 
-    // Atomic write — QSaveFile commits all-or-nothing; never leaves a partial.
-    QSaveFile out(m_filePath);
-    if (!out.open(QIODevice::WriteOnly)) {
-        qWarning() << "EncryptedFileSecretStore: cannot open store for write:" << m_filePath;
-        return false;
-    }
-    const QByteArray json = QJsonDocument(root).toJson(QJsonDocument::Compact);
-    if (out.write(json) != json.size()) {
-        out.cancelWriting();
-        qWarning() << "EncryptedFileSecretStore: short write; secret NOT stored for" << service;
-        return false;
-    }
-    if (!out.commit()) {
-        qWarning() << "EncryptedFileSecretStore: commit failed; secret NOT stored for" << service;
-        return false;
-    }
+    // PGR-25: this is a read-modify-write of the shared JSON. Without the
+    // lock, two instances storing different entries at the same time lose
+    // updates silently (last commit wins, the other entry vanishes). Hold the
+    // store lock across the WHOLE read-modify-write; on timeout fail loudly
+    // rather than race.
+    {
+        QLockFile lock(storeLockPath(m_filePath));
+        if (!lock.tryLock(kStoreLockTimeoutMs)) {
+            qWarning() << "EncryptedFileSecretStore: store is locked by "
+                          "another GlyphPDF instance; timed out after"
+                       << kStoreLockTimeoutMs << "ms; secret NOT stored for"
+                       << service;
+            return false;
+        }
+
+        // Load existing object (tolerate absent/empty/corrupt — we overwrite).
+        QJsonObject root;
+        QFile in(m_filePath);
+        if (in.exists() && in.open(QIODevice::ReadOnly)) {
+            const auto doc = QJsonDocument::fromJson(in.readAll());
+            in.close();
+            if (doc.isObject()) root = doc.object();
+        }
+        root.insert(QStringLiteral("_marker"), kMarker);
+
+        QJsonObject entries = root.value(QStringLiteral("secrets")).toObject();
+        entries.insert(service, QString::fromLatin1(blob.toBase64()));
+        root.insert(QStringLiteral("secrets"), entries);
+
+        // Atomic write — QSaveFile commits all-or-nothing; never leaves a partial.
+        QSaveFile out(m_filePath);
+        if (!out.open(QIODevice::WriteOnly)) {
+            qWarning() << "EncryptedFileSecretStore: cannot open store for write:" << m_filePath;
+            return false;
+        }
+        const QByteArray json = QJsonDocument(root).toJson(QJsonDocument::Compact);
+        if (out.write(json) != json.size()) {
+            out.cancelWriting();
+            qWarning() << "EncryptedFileSecretStore: short write; secret NOT stored for" << service;
+            return false;
+        }
+        if (!out.commit()) {
+            qWarning() << "EncryptedFileSecretStore: commit failed; secret NOT stored for" << service;
+            return false;
+        }
+    }  // lock released — verification below must not hold the lock
 
     // Verify the secret is actually re-readable before reporting success, so we
     // can NEVER silently lose a key while returning true.
@@ -423,22 +454,42 @@ QString EncryptedFileSecretStore::readSecret(const QString& service) const
         const QByteArray wrapped = encrypt(service, legacyPlain);
         if (!wrapped.isEmpty()
             && static_cast<quint8>(wrapped.at(0)) != kVersionDpapi) {
-            QJsonObject root = doc.object();
-            QJsonObject mutableEntries =
-                root.value(QStringLiteral("secrets")).toObject();
-            mutableEntries.insert(service, QString::fromLatin1(wrapped.toBase64()));
-            root.insert(QStringLiteral("secrets"), mutableEntries);
-            const QByteArray json = QJsonDocument(root).toJson(QJsonDocument::Compact);
-            QSaveFile out(m_filePath);
-            if (out.open(QIODevice::WriteOnly)
-                && out.write(json) == json.size() && out.commit()) {
-                qDebug() << "EncryptedFileSecretStore: migrated legacy 0x02 "
-                            "entry" << service << "to the v3 (entry-bound) format";
+            // PGR-25: the re-wrap rewrites the shared JSON — do it under the
+            // same lock as every other write, and from a FRESH root read (the
+            // root read above may predate another writer's commit).
+            QLockFile lock(storeLockPath(m_filePath));
+            if (lock.tryLock(kStoreLockTimeoutMs)) {
+                QJsonObject freshRoot;
+                QFile cur(m_filePath);
+                if (cur.open(QIODevice::ReadOnly)) {
+                    const auto freshDoc = QJsonDocument::fromJson(cur.readAll());
+                    cur.close();
+                    if (freshDoc.isObject()) freshRoot = freshDoc.object();
+                }
+                QJsonObject freshEntries =
+                    freshRoot.value(QStringLiteral("secrets")).toObject();
+                freshEntries.insert(service,
+                                    QString::fromLatin1(wrapped.toBase64()));
+                freshRoot.insert(QStringLiteral("secrets"), freshEntries);
+                const QByteArray json =
+                    QJsonDocument(freshRoot).toJson(QJsonDocument::Compact);
+                QSaveFile out(m_filePath);
+                if (out.open(QIODevice::WriteOnly)
+                    && out.write(json) == json.size() && out.commit()) {
+                    qDebug() << "EncryptedFileSecretStore: migrated legacy "
+                                "0x02 entry" << service
+                             << "to the v3 (entry-bound) format";
+                } else {
+                    qWarning() << "EncryptedFileSecretStore: could not "
+                                  "migrate legacy 0x02 entry" << service
+                               << "to the v3 format (store not rewritten); "
+                                  "will retry on the next read";
+                }
             } else {
-                qWarning() << "EncryptedFileSecretStore: could not migrate "
-                              "legacy 0x02 entry" << service
-                           << "to the v3 format (store not rewritten); will "
-                              "retry on the next read";
+                qWarning() << "EncryptedFileSecretStore: store is locked by "
+                              "another GlyphPDF instance; deferring the "
+                              "legacy 0x02 migration of" << service
+                           << "to a later read";
             }
         }
         return plain;
@@ -462,14 +513,41 @@ bool EncryptedFileSecretStore::deleteSecret(const QString& service)
     QJsonObject root = doc.object();
     QJsonObject entries = root.value(QStringLiteral("secrets")).toObject();
     if (!entries.contains(service)) return true;  // already absent
-    entries.remove(service);
-    root.insert(QStringLiteral("secrets"), entries);
 
-    QSaveFile out(m_filePath);
-    if (!out.open(QIODevice::WriteOnly)) return false;
-    const QByteArray json = QJsonDocument(root).toJson(QJsonDocument::Compact);
-    if (out.write(json) != json.size()) { out.cancelWriting(); return false; }
-    if (!out.commit()) return false;
+    // PGR-25: removal is a read-modify-write of the shared JSON — same lock,
+    // same bounded wait, same loud failure on timeout. The authoritative root
+    // is re-read under the lock so a concurrent writer's entry survives.
+    {
+        QLockFile lock(storeLockPath(m_filePath));
+        if (!lock.tryLock(kStoreLockTimeoutMs)) {
+            qWarning() << "EncryptedFileSecretStore: store is locked by "
+                          "another GlyphPDF instance; timed out after"
+                       << kStoreLockTimeoutMs << "ms; entry NOT removed:"
+                       << service;
+            return false;
+        }
+        QJsonObject freshRoot;
+        QFile cur(m_filePath);
+        if (cur.open(QIODevice::ReadOnly)) {
+            const auto freshDoc = QJsonDocument::fromJson(cur.readAll());
+            cur.close();
+            if (freshDoc.isObject()) freshRoot = freshDoc.object();
+        }
+        if (freshRoot.isEmpty()) freshRoot = root;  // vanished mid-flight: treat as absent
+        QJsonObject freshEntries =
+            freshRoot.value(QStringLiteral("secrets")).toObject();
+        if (freshEntries.contains(service)) {
+            freshEntries.remove(service);
+            freshRoot.insert(QStringLiteral("secrets"), freshEntries);
+
+            QSaveFile out(m_filePath);
+            if (!out.open(QIODevice::WriteOnly)) return false;
+            const QByteArray json =
+                QJsonDocument(freshRoot).toJson(QJsonDocument::Compact);
+            if (out.write(json) != json.size()) { out.cancelWriting(); return false; }
+            if (!out.commit()) return false;
+        }
+    }  // lock released — verification below must not hold the lock
     return readSecret(service).isEmpty();
 }
 
