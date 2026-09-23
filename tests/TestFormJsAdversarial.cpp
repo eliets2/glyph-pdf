@@ -38,12 +38,19 @@
 #include <map>
 
 #include <podofo/podofo.h>
+#include "core/AppContext.h"
+#include "core/FormStaleFieldTracker.h"
 #include "engines/FormManager.h"
+#include "engines/DocumentSession.h"
 #include "engines/formjs/FormJsSandbox.h"
 #include "engines/formjs/FormJsRunner.h"
+#include "modes/FormFieldPropertiesPanel.h"
 
+#include <QLabel>
+#include <QLineEdit>
 #include <QPdfWriter>
 #include <QPainter>
+#include <QUndoStack>
 
 #ifdef GetObject
 #undef GetObject
@@ -86,7 +93,9 @@ private:
     QString makeFormPdf(const QString& name,
                         const QStringList& fieldNames,
                         const QMap<QString, QString>& calcScripts,
-                        const QStringList& coOrder)
+                        const QStringList& coOrder,
+                        const QMap<QString, QString>& keystrokeScripts = {},
+                        const QMap<QString, QString>& formatScripts = {})
     {
         const QString base = m_dir.path() + "/" + name + "-base.pdf";
         {
@@ -108,12 +117,30 @@ private:
                 const PoDoFo::Rect rect(100, y, 200, 16);
                 auto& field = page.CreateField<PoDoFo::PdfTextBox>(n.toStdString(), rect);
                 const auto it = calcScripts.find(n);
-                if (it != calcScripts.end() && !it.value().isEmpty()) {
-                    PoDoFo::PdfDictionary action;
-                    action.AddKey(PoDoFo::PdfName("S"), PoDoFo::PdfName("JavaScript"));
-                    action.AddKey(PoDoFo::PdfName("JS"), PoDoFo::PdfString(it.value().toStdString()));
+                const auto itK = keystrokeScripts.find(n);
+                const auto itF = formatScripts.find(n);
+                if ((it != calcScripts.end() && !it.value().isEmpty())
+                    || (itK != keystrokeScripts.end() && !itK.value().isEmpty())
+                    || (itF != formatScripts.end() && !itF.value().isEmpty())) {
                     PoDoFo::PdfDictionary aa;
-                    aa.AddKey(PoDoFo::PdfName("C"), action);
+                    if (it != calcScripts.end() && !it.value().isEmpty()) {
+                        PoDoFo::PdfDictionary action;
+                        action.AddKey(PoDoFo::PdfName("S"), PoDoFo::PdfName("JavaScript"));
+                        action.AddKey(PoDoFo::PdfName("JS"), PoDoFo::PdfString(it.value().toStdString()));
+                        aa.AddKey(PoDoFo::PdfName("C"), action);
+                    }
+                    if (itK != keystrokeScripts.end() && !itK.value().isEmpty()) {
+                        PoDoFo::PdfDictionary action;
+                        action.AddKey(PoDoFo::PdfName("S"), PoDoFo::PdfName("JavaScript"));
+                        action.AddKey(PoDoFo::PdfName("JS"), PoDoFo::PdfString(itK.value().toStdString()));
+                        aa.AddKey(PoDoFo::PdfName("K"), action);
+                    }
+                    if (itF != formatScripts.end() && !itF.value().isEmpty()) {
+                        PoDoFo::PdfDictionary action;
+                        action.AddKey(PoDoFo::PdfName("S"), PoDoFo::PdfName("JavaScript"));
+                        action.AddKey(PoDoFo::PdfName("JS"), PoDoFo::PdfString(itF.value().toStdString()));
+                        aa.AddKey(PoDoFo::PdfName("F"), action);
+                    }
                     field.GetDictionary().AddKey(PoDoFo::PdfName("AA"), aa);
                 }
                 refs[n] = (field.GetObject)().GetIndirectReference();
@@ -624,6 +651,60 @@ private slots:
         QVERIFY2(!r.ok, "the hostile throw must fail the event");
         QVERIFY2(r.message.contains(QLatin1String("<img src=//x><b>pwn</b>")),
                  qPrintable("hostile markup must reach the reason verbatim: " + r.message));
+    }
+
+    // PGR-35 (the fix): the properties panel surfaces document-derived text —
+    // a keystroke script's failure reason and a format script's OUTPUT — so
+    // every disclosure label renders with Qt::PlainText. On the pre-fix panel
+    // (Qt::AutoText) Qt's mightBeRichText heuristic renders hostile markup:
+    // UI spoofing at minimum, local-file/share <img> loads at worst.
+    void pgr35PanelDisclosuresRenderAsPlainText()
+    {
+        const QString path = makeFormPdf(
+            QStringLiteral("pgr35.pdf"),
+            { QStringLiteral("gate"), QStringLiteral("fmt") },
+            {},
+            QStringList{},
+            { { QStringLiteral("gate"),
+                QStringLiteral("throw new Error('<img src=//x><b>pwn</b>');") } },
+            { { QStringLiteral("fmt"),
+                QStringLiteral("event.value = '<h1>spoof</h1><img src=//y>';") } });
+        QVERIFY(!path.isEmpty());
+
+        AppContext ctx;
+        ctx.forms = std::make_shared<FormManager>();
+        ctx.document = std::make_shared<DocumentSession>();
+        ctx.document->setPath(path);
+        ctx.undoStack = std::make_shared<QUndoStack>();
+        ctx.formStale = std::make_shared<gp::FormStaleFieldTracker>();
+        gp::FormFieldPropertiesPanel panel(&ctx);
+        panel.show(); // offscreen
+
+        // 1. Keystroke rejection path: the script's error message is the
+        //    disclosure body — it must stay plain text and keep the payload
+        //    as SOURCE (visible to the user, never rendered).
+        panel.setFieldName(QStringLiteral("gate"));
+        auto* edit = panel.findChild<QLineEdit*>(QStringLiteral("defaultValueEdit"));
+        auto* status = panel.findChild<QLabel*>(QStringLiteral("keystrokeStatus"));
+        QVERIFY(edit);
+        QVERIFY(status);
+        QTest::keyClicks(edit, QStringLiteral("x"));
+        QVERIFY2(status->isVisible(), "the keystroke rejection must be disclosed");
+        QCOMPARE(status->textFormat(), Qt::PlainText);
+        QVERIFY2(status->text().contains(QLatin1String("<img src=//x><b>pwn</b>")),
+                 qPrintable("payload must survive verbatim as plain text: "
+                            + status->text()));
+
+        // 2. Format display preview: the SCRIPT'S OUTPUT is shown verbatim —
+        //    the sharpest PGR-35 site.
+        panel.setFieldName(QStringLiteral("fmt"));
+        auto* preview = panel.findChild<QLabel*>(QStringLiteral("displayPreview"));
+        QVERIFY(preview);
+        QVERIFY2(preview->isVisible(), "the format preview must be shown");
+        QCOMPARE(preview->textFormat(), Qt::PlainText);
+        QVERIFY2(preview->text().contains(QLatin1String("<h1>spoof</h1>")),
+                 qPrintable("script output must survive verbatim as plain text: "
+                            + preview->text()));
     }
 
     // The kill-switch is the pre-fix disclosure state: ALL FOUR engine entries
