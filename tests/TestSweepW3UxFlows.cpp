@@ -88,6 +88,21 @@ namespace {
 // ── transcript ───────────────────────────────────────────────────────────────
 void step(const QString &msg) { qInfo().noquote() << "UXAUDIT:" << msg; }
 
+// ── slot-scoped modal drivers ────────────────────────────────────────────────
+// Every modal driver below is a self-rescheduling QTimer::singleShot(0) chain
+// with a deadline budget of 60-120s. A fast slot returns long before its
+// drivers' budgets expire, so the chains used to SURVIVE into the next test
+// function and consumed ITS modals — the full-harness failures of flow2a/2b/3
+// at the merged tip (uxflows.txt 2026-09-23): flow1's stale 'No'-clicker
+// answered flow2a's "Open Merged PDF" completion modal before flow2a's
+// capturer could read it; flow2a's stale capturer closed flow2b's preset-name
+// dialog before flow2b's driveModalDialog matched it ('presetDialogSeen'
+// false); flow2b's 300s defensive capturer closed flow3's apply dialog (the
+// apply never ran, 'QFileInfo::exists(redactedOut)' false). Each driver now
+// captures the driver epoch at creation, and init() bumps the epoch before
+// every test function: a chain whose slot has ended exits at its next tick.
+int g_driverEpoch = 0;   // GUI-thread only (all drivers run on the event loop)
+
 // ── fixtures ─────────────────────────────────────────────────────────────────
 void makePdf(const QString &path, const QString &marker)
 {
@@ -142,16 +157,51 @@ bool pdfTextContains(const QString &path, const QByteArray &needle)
     return false;
 }
 
+// Reads the fixture's tiling-pattern stream (page /Resources /Pattern /P1)
+// directly — the secret there is deliberately invisible to pdfTextContains
+// (which reads PAGE contents only): that unreachability is exactly what the
+// G2 guard refuses over.
+bool patternStreamContains(const QString &path, const QByteArray &needle)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(path.toUtf8().constData());
+        auto &page = doc.GetPages().GetPageAt(0);
+        const auto *patterns = page.GetResources().GetObject().GetDictionary()
+                                   .FindKey(PoDoFo::PdfName("Pattern"));
+        if (!patterns) return false;
+        if (patterns->IsReference())
+            patterns = &doc.GetObjects().MustGetObject(patterns->GetReference());
+        if (!patterns || !patterns->IsDictionary()) return false;
+        for (const auto &kv : patterns->GetDictionary()) {
+            const PoDoFo::PdfObject *pat = &kv.second;
+            if (pat->IsReference())
+                pat = &doc.GetObjects().MustGetObject(pat->GetReference());
+            if (!pat || !pat->HasStream()) continue;
+            PoDoFo::charbuff buf;
+            pat->GetStream()->CopyTo(buf);
+            if (QByteArray(buf.data(), static_cast<int>(buf.size())).contains(needle))
+                return true;
+        }
+    } catch (const std::exception &) {
+        return false;
+    }
+    return false;
+}
+
 // ── Deterministic modal drivers (TestWelcomeRoutes pattern) ──────────────────
 
-void pickFilesInSequenceStep(const QStringList &paths, QElapsedTimer deadline, int budgetMs)
+void pickFilesInSequenceStep(const QStringList &paths, QElapsedTimer deadline, int budgetMs,
+                             int epoch)
 {
+    if (epoch != g_driverEpoch) return;             // slot ended — stop driving
     if (paths.isEmpty()) return;
     if (deadline.elapsed() >= budgetMs) {
         qWarning() << "UXAUDIT: pickFilesInSequence budget exhausted for" << paths.first();
         return;
     }
-    QTimer::singleShot(0, [paths, deadline, budgetMs] {
+    QTimer::singleShot(0, [paths, deadline, budgetMs, epoch] {
+        if (epoch != g_driverEpoch) return;         // slot ended — stop driving
         if (auto *dlg = qobject_cast<QFileDialog *>(QApplication::activeModalWidget())) {
             const QString path = paths.first();
             const QStringList selected = dlg->selectedFiles();
@@ -161,15 +211,15 @@ void pickFilesInSequenceStep(const QStringList &paths, QElapsedTimer deadline, i
                            == QFileInfo(path).canonicalFilePath());
             if (!delivered) {
                 dlg->selectFile(path);
-                pickFilesInSequenceStep(paths, deadline, budgetMs);
+                pickFilesInSequenceStep(paths, deadline, budgetMs, epoch);
                 return;
             }
             QMetaObject::invokeMethod(dlg, "accept");
             if (paths.size() > 1)
-                pickFilesInSequenceStep(paths.mid(1), deadline, budgetMs);
+                pickFilesInSequenceStep(paths.mid(1), deadline, budgetMs, epoch);
             return;
         }
-        pickFilesInSequenceStep(paths, deadline, budgetMs);
+        pickFilesInSequenceStep(paths, deadline, budgetMs, epoch);
     });
 }
 
@@ -177,13 +227,15 @@ void pickFilesInSequenceStep(const QStringList &paths, QElapsedTimer deadline, i
 // quoted absolute paths into the dialog's file-name edit - the standard
 // multi-file syntax the non-native dialog parses on accept - then accepting.
 void pickMultiFilesByTitleStep(const QString &title, const QStringList &paths,
-                               QElapsedTimer deadline, int budgetMs)
+                               QElapsedTimer deadline, int budgetMs, int epoch)
 {
+    if (epoch != g_driverEpoch) return;             // slot ended — stop driving
     if (deadline.elapsed() >= budgetMs) {
         qWarning() << "UXAUDIT: pickMultiFilesByTitle budget exhausted for" << title;
         return;
     }
-    QTimer::singleShot(0, [title, paths, deadline, budgetMs] {
+    QTimer::singleShot(0, [title, paths, deadline, budgetMs, epoch] {
+        if (epoch != g_driverEpoch) return;         // slot ended — stop driving
         if (auto *dlg = qobject_cast<QFileDialog *>(QApplication::activeModalWidget())) {
             if (dlg->windowTitle() == title && dlg->acceptMode() == QFileDialog::AcceptOpen
                 && dlg->selectedFiles().size() < paths.size()) {
@@ -196,7 +248,7 @@ void pickMultiFilesByTitleStep(const QString &title, const QStringList &paths,
                 return;
             }
         }
-        pickMultiFilesByTitleStep(title, paths, deadline, budgetMs);
+        pickMultiFilesByTitleStep(title, paths, deadline, budgetMs, epoch);
     });
 }
 
@@ -204,14 +256,14 @@ void pickMultiFilesByTitle(const QString &title, const QStringList &paths, int b
 {
     QElapsedTimer deadline;
     deadline.start();
-    pickMultiFilesByTitleStep(title, paths, deadline, budgetMs);
+    pickMultiFilesByTitleStep(title, paths, deadline, budgetMs, g_driverEpoch);
 }
 
 void pickFilesInSequence(const QStringList &paths, int budgetMs = 60000)
 {
     QElapsedTimer deadline;
     deadline.start();
-    pickFilesInSequenceStep(paths, deadline, budgetMs);
+    pickFilesInSequenceStep(paths, deadline, budgetMs, g_driverEpoch);
 }
 
 // Captures the TEXT of the next non-file modal, then dismisses it. The
@@ -220,19 +272,21 @@ void pickFilesInSequence(const QStringList &paths, int budgetMs = 60000)
 // NOT closed).
 void captureModalTextStep(QString *text, QString *title, bool *seen,
                           const QString &skipObjectName,
-                          QElapsedTimer deadline, int budgetMs)
+                          QElapsedTimer deadline, int budgetMs, int epoch)
 {
+    if (epoch != g_driverEpoch) return;             // slot ended — stop driving
     if (deadline.elapsed() >= budgetMs) {
         qWarning() << "UXAUDIT: captureModalText budget exhausted";
         return;
     }
-    QTimer::singleShot(0, [text, title, seen, skipObjectName, deadline, budgetMs] {
+    QTimer::singleShot(0, [text, title, seen, skipObjectName, deadline, budgetMs, epoch] {
+        if (epoch != g_driverEpoch) return;         // slot ended — stop driving
         if (QWidget *w = QApplication::activeModalWidget()) {
             // Never touch progress dialogs: closing one CANCELS the worker.
             if (qobject_cast<QProgressDialog *>(w)) {
                 step(QStringLiteral("(transit: progress dialog '%1')")
                          .arg(w->windowTitle()));
-                captureModalTextStep(text, title, seen, skipObjectName, deadline, budgetMs);
+                captureModalTextStep(text, title, seen, skipObjectName, deadline, budgetMs, epoch);
                 return;
             }
             if (auto *box = qobject_cast<QMessageBox *>(w)) {
@@ -248,12 +302,12 @@ void captureModalTextStep(QString *text, QString *title, bool *seen,
             }
             if (!skipObjectName.isEmpty()
                 && (w->objectName() == skipObjectName || w->findChild<QWidget *>(skipObjectName))) {
-                captureModalTextStep(text, title, seen, skipObjectName, deadline, budgetMs);
+                captureModalTextStep(text, title, seen, skipObjectName, deadline, budgetMs, epoch);
                 return;
             }
             if (qobject_cast<QFileDialog *>(w)) {
                 // A file dialog a pick driver owns - never close it.
-                captureModalTextStep(text, title, seen, skipObjectName, deadline, budgetMs);
+                captureModalTextStep(text, title, seen, skipObjectName, deadline, budgetMs, epoch);
                 return;
             }
             if (auto *dlg = qobject_cast<QDialog *>(w)) {
@@ -275,7 +329,7 @@ void captureModalTextStep(QString *text, QString *title, bool *seen,
                 return;
             }
         }
-        captureModalTextStep(text, title, seen, skipObjectName, deadline, budgetMs);
+        captureModalTextStep(text, title, seen, skipObjectName, deadline, budgetMs, epoch);
     });
 }
 
@@ -284,18 +338,20 @@ void captureModalText(QString *text, QString *title = nullptr, bool *seen = null
 {
     QElapsedTimer deadline;
     deadline.start();
-    captureModalTextStep(text, title, seen, skipObjectName, deadline, budgetMs);
+    captureModalTextStep(text, title, seen, skipObjectName, deadline, budgetMs, g_driverEpoch);
 }
 
 void clickPromptButtonStep(const QString &text, bool *clicked,
-                           QElapsedTimer deadline, int budgetMs)
+                           QElapsedTimer deadline, int budgetMs, int epoch)
 {
+    if (epoch != g_driverEpoch) return;             // slot ended — stop driving
     if (deadline.elapsed() >= budgetMs) {
         // Budget out silently: no such prompt ever appeared (callers treat
         // clicked==false as "the guard never fired").
         return;
     }
-    QTimer::singleShot(0, [text, clicked, deadline, budgetMs] {
+    QTimer::singleShot(0, [text, clicked, deadline, budgetMs, epoch] {
+        if (epoch != g_driverEpoch) return;         // slot ended — stop driving
         if (auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) {
             const auto buttons = box->findChildren<QAbstractButton *>();
             for (QAbstractButton *b : buttons) {
@@ -308,7 +364,7 @@ void clickPromptButtonStep(const QString &text, bool *clicked,
                 }
             }
         }
-        clickPromptButtonStep(text, clicked, deadline, budgetMs);
+        clickPromptButtonStep(text, clicked, deadline, budgetMs, epoch);
     });
 }
 
@@ -319,7 +375,7 @@ void clickPromptButton(const QString &text, bool *clicked, int budgetMs = 120000
 {
     QElapsedTimer deadline;
     deadline.start();
-    clickPromptButtonStep(text, clicked, deadline, budgetMs);
+    clickPromptButtonStep(text, clicked, deadline, budgetMs, g_driverEpoch);
 }
 
 // Waits for a dialog to become the active modal, matched either by its own
@@ -327,14 +383,16 @@ void clickPromptButton(const QString &text, bool *clicked, int budgetMs = 120000
 // mutator INSIDE its modal loop (never closes it — the mutator decides).
 template <typename Prep>
 void driveModalDialogStep(const QString &matchName, Prep prep, bool *seen,
-                          QElapsedTimer deadline, int budgetMs)
+                          QElapsedTimer deadline, int budgetMs, int epoch)
 {
+    if (epoch != g_driverEpoch) return;             // slot ended — stop driving
     if (deadline.elapsed() >= budgetMs) {
         qWarning() << "UXAUDIT: driveModalDialog('%s') budget exhausted"
                    << qPrintable(matchName);
         return;
     }
-    QTimer::singleShot(0, [matchName, prep, seen, deadline, budgetMs] {
+    QTimer::singleShot(0, [matchName, prep, seen, deadline, budgetMs, epoch] {
+        if (epoch != g_driverEpoch) return;         // slot ended — stop driving
         QWidget *w = QApplication::activeModalWidget();
         const bool match = w
             && (w->objectName() == matchName
@@ -347,7 +405,7 @@ void driveModalDialogStep(const QString &matchName, Prep prep, bool *seen,
             if (seen) *seen = true;
             return;
         }
-        driveModalDialogStep(matchName, prep, seen, deadline, budgetMs);
+        driveModalDialogStep(matchName, prep, seen, deadline, budgetMs, epoch);
     });
 }
 
@@ -357,25 +415,27 @@ void driveModalDialog(const QString &matchName, Prep prep, bool *seen = nullptr,
 {
     QElapsedTimer deadline;
     deadline.start();
-    driveModalDialogStep(matchName, prep, seen, deadline, budgetMs);
+    driveModalDialogStep(matchName, prep, seen, deadline, budgetMs, g_driverEpoch);
 }
 
 // Rejects the next QFileDialog that becomes active (after a declined
 // overwrite the save dialog STAYS OPEN for another choice - correct UX; the
 // driver must dismiss it or the nested modal loop never exits).
-void rejectFileDialogStep(QElapsedTimer deadline, int budgetMs)
+void rejectFileDialogStep(QElapsedTimer deadline, int budgetMs, int epoch)
 {
+    if (epoch != g_driverEpoch) return;             // slot ended — stop driving
     if (deadline.elapsed() >= budgetMs) {
         qWarning() << "UXAUDIT: rejectFileDialog budget exhausted";
         return;
     }
-    QTimer::singleShot(0, [deadline, budgetMs] {
+    QTimer::singleShot(0, [deadline, budgetMs, epoch] {
+        if (epoch != g_driverEpoch) return;         // slot ended — stop driving
         if (auto *dlg = qobject_cast<QFileDialog *>(QApplication::activeModalWidget())) {
             step("decline path: the save dialog stayed open for another choice - dismissing");
             dlg->reject();
             return;
         }
-        rejectFileDialogStep(deadline, budgetMs);
+        rejectFileDialogStep(deadline, budgetMs, epoch);
     });
 }
 
@@ -383,7 +443,7 @@ void rejectFileDialogWhenVisible(int budgetMs = 120000)
 {
     QElapsedTimer deadline;
     deadline.start();
-    rejectFileDialogStep(deadline, budgetMs);
+    rejectFileDialogStep(deadline, budgetMs, g_driverEpoch);
 }
 
 // Captures the text of the next QMessageBox whose title contains
@@ -391,13 +451,15 @@ void rejectFileDialogWhenVisible(int budgetMs = 120000)
 // a custom-button box leaves exec() unresolved).
 void capturePromptAndClickStep(const QString &titleNeedle, const QString &buttonText,
                                QString *text, QString *title,
-                               QElapsedTimer deadline, int budgetMs)
+                               QElapsedTimer deadline, int budgetMs, int epoch)
 {
+    if (epoch != g_driverEpoch) return;             // slot ended — stop driving
     if (deadline.elapsed() >= budgetMs) {
         qWarning() << "UXAUDIT: capturePromptAndClick budget exhausted for" << titleNeedle;
         return;
     }
-    QTimer::singleShot(0, [titleNeedle, buttonText, text, title, deadline, budgetMs] {
+    QTimer::singleShot(0, [titleNeedle, buttonText, text, title, deadline, budgetMs, epoch] {
+        if (epoch != g_driverEpoch) return;         // slot ended — stop driving
         if (auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) {
             if (box->windowTitle().contains(titleNeedle)) {
                 if (text) *text = box->text() + box->informativeText();
@@ -416,7 +478,7 @@ void capturePromptAndClickStep(const QString &titleNeedle, const QString &button
                 return;
             }
         }
-        capturePromptAndClickStep(titleNeedle, buttonText, text, title, deadline, budgetMs);
+        capturePromptAndClickStep(titleNeedle, buttonText, text, title, deadline, budgetMs, epoch);
     });
 }
 
@@ -425,7 +487,70 @@ void capturePromptAndClick(const QString &titleNeedle, const QString &buttonText
 {
     QElapsedTimer deadline;
     deadline.start();
-    capturePromptAndClickStep(titleNeedle, buttonText, text, title, deadline, budgetMs);
+    capturePromptAndClickStep(titleNeedle, buttonText, text, title, deadline, budgetMs,
+                              g_driverEpoch);
+}
+
+// Pattern-text fixture for the F3b refusal pin: the page paints its PUBLIC
+// text as an ordinary content-stream op AND carries a tiling pattern whose
+// stream holds a second, secret text. The excision canvas walk cannot reach
+// pattern streams, so the merged redaction-gaps lane (G2, audit
+// REDACTION-RESEARCH-2026-09-21 §2.4) made the engine REFUSE the whole run
+// with a named reason instead of painting a black box over live data.
+// (Mirror of TestRedactTransaction::makePatternSecretPdf.)
+bool makePatternTextPdf(const QString &path)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        auto &page = doc.GetPages().CreatePage(
+            PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+        auto &font = doc.GetFonts().GetStandard14Font(
+            PoDoFo::PdfStandard14FontType::Helvetica);
+
+        auto &pattern = doc.GetObjects().CreateDictionaryObject();
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("Type"), PoDoFo::PdfName("Pattern"));
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("PatternType"), PoDoFo::PdfObject(int64_t(1)));
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("PaintType"), PoDoFo::PdfObject(int64_t(1)));
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("TilingType"), PoDoFo::PdfObject(int64_t(1)));
+        PoDoFo::PdfArray bbox;
+        bbox.Add(0.0); bbox.Add(0.0); bbox.Add(100.0); bbox.Add(100.0);
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("BBox"), bbox);
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("XStep"), PoDoFo::PdfObject(80.0));
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("YStep"), PoDoFo::PdfObject(80.0));
+        auto &fontMap = doc.GetObjects().CreateDictionaryObject();
+        fontMap.GetDictionary().AddKey(PoDoFo::PdfName("F1"),
+                                       font.GetObject().GetIndirectReference());
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("Resources"),
+                                       fontMap.GetIndirectReference());
+        const char *patternContent = "BT /F1 14 Tf 10 30 Td (PatternSecretOmega) Tj ET\n";
+        pattern.GetOrCreateStream().SetData(PoDoFo::bufferview(
+            patternContent, std::strlen(patternContent)));
+
+        auto &patternMap = doc.GetObjects().CreateDictionaryObject();
+        patternMap.GetDictionary().AddKey(PoDoFo::PdfName("P1"),
+                                          pattern.GetIndirectReference());
+        auto &pageRes = doc.GetObjects().CreateDictionaryObject();
+        pageRes.GetDictionary().AddKey(PoDoFo::PdfName("Font"),
+                                       fontMap.GetIndirectReference());
+        pageRes.GetDictionary().AddKey(PoDoFo::PdfName("Pattern"),
+                                       patternMap.GetIndirectReference());
+        page.GetObject().GetDictionary().AddKey(PoDoFo::PdfName("Resources"),
+                                                pageRes.GetIndirectReference());
+        auto &content = doc.GetObjects().CreateDictionaryObject();
+        const char *pageContent =
+            "BT /F1 12 Tf 50 700 Td (PUBLIC_KEEP_TEXT) Tj ET\n"
+            "/Pattern cs /P1 scn 0 0 595 842 re f\n";
+        content.GetOrCreateStream().SetData(PoDoFo::bufferview(
+            pageContent, std::strlen(pageContent)));
+        page.GetObject().GetDictionary().AddKey(PoDoFo::PdfName("Contents"),
+                                                content.GetIndirectReference());
+
+        doc.Save(path.toUtf8().constData());
+        return QFileInfo::exists(path);
+    } catch (const std::exception &e) {
+        qWarning() << "makePatternTextPdf failed:" << e.what();
+        return false;
+    }
 }
 
 QPushButton *buttonByText(QWidget *w, const QString &text)
@@ -469,6 +594,9 @@ private slots:
 
     void init()
     {
+        // Slot-scope the modal drivers: any chain still polling from the
+        // PREVIOUS test function dies here (see g_driverEpoch above).
+        ++g_driverEpoch;
         m_win = std::make_unique<MainWindow>(Bootstrapper::createContext());
         m_win->show();
         QVERIFY(m_win->pdfViewer());
@@ -713,8 +841,16 @@ private slots:
         // is how a user resets it; QMetaObject drives the same slot).
         QMetaObject::invokeMethod(bm, "onClearFiles", Qt::DirectConnection);
         bm->addFilesForTest({ src2 });
+        // batchFinished is emitted by onBatchFinished AFTER its G12 drain,
+        // i.e. with the counters FINAL. Waiting on !isBatchRunning() raced
+        // the queued resultReadyAt accounting (the worker can finish before
+        // the slot reaches the wait; isRunning() flips false while the
+        // accounting events are still pending) — the standalone failure at
+        // the re-run assert read success=0 fail=0 while the engine log showed
+        // the file WAS processed. The spy counts all three runs below.
+        QSignalSpy finishedSpy(bm, &gp::BatchMode::batchFinished);
         bm->onRunBatch();
-        QTRY_VERIFY_WITH_TIMEOUT(!bm->isBatchRunning(), 60000);
+        QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.size(), 1, 60000);
         const QString log1 = bm->findChildren<QTextEdit *>().first()->toPlainText();
         step(QStringLiteral("F2b step4: preset run finished — success=%1 fail=%2 skip=%3; log: %4")
                  .arg(bm->successCount()).arg(bm->failCount()).arg(bm->skipCount())
@@ -728,7 +864,7 @@ private slots:
         QMetaObject::invokeMethod(bm, "onClearFiles", Qt::DirectConnection);
         bm->addFilesForTest({ src3 });
         bm->onRunBatch();
-        QTRY_VERIFY_WITH_TIMEOUT(!bm->isBatchRunning(), 60000);
+        QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.size(), 2, 60000);
         const QString log2 = bm->findChildren<QTextEdit *>().first()->toPlainText();
         step(QStringLiteral("F2b step5: identical re-run - success=%1 fail=%2; log: %3")
                  .arg(bm->successCount()).arg(bm->failCount()).arg(log2.left(200)));
@@ -752,7 +888,7 @@ private slots:
         bm->addFilesForTest({ m1, m2 });
         const int successBefore = bm->successCount();   // counter is cumulative
         bm->onRunBatch();
-        QTRY_VERIFY_WITH_TIMEOUT(!bm->isBatchRunning(), 60000);
+        QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.size(), 3, 60000);
         QCOMPARE(bm->successCount(), successBefore + 1);
         QCOMPARE(bm->failCount(), 0);
         const QString mergedOut = dir.filePath("mpart1_merged.pdf");
@@ -766,9 +902,29 @@ private slots:
             && mergedReader.extractText(mergedReader.pageCount() - 1)
                    .contains(QStringLiteral("MERGEPARTTWO"));
         QVERIFY2(both, "F2b: both inputs' content must be in the merged artifact");
+        // F2a-F1 pin (SWEEP-W3-UX): the merge completion feedback must NAME
+        // the output. The batch surface has no completion modal — its summary
+        // (status label + log) is the completion feedback, so it must carry
+        // the merged file's name, not a generic "1 of 1 succeeded".
+        QString mergeStatus;
+        for (QLabel *l : bm->findChildren<QLabel *>())
+            if (l->text().contains(QStringLiteral("BATCH COMPLETE")))
+                mergeStatus = l->text();
+        QVERIFY2(mergeStatus.contains(QStringLiteral("mpart1_merged.pdf"), Qt::CaseInsensitive)
+                     || mergeStatus.contains(QStringLiteral("merged into"), Qt::CaseInsensitive),
+                 QStringLiteral("F2a-F1 pin: the merge completion summary must name the "
+                                "output file (status was '%1')").arg(mergeStatus)
+                     .toUtf8().constData());
+        // The merge run cleared and refilled the log — read it live.
+        const QString mergeLog =
+            bm->findChildren<QTextEdit *>().first()->toPlainText();
+        QVERIFY2(mergeLog.contains(QStringLiteral("Merged output"), Qt::CaseInsensitive)
+                     && mergeLog.contains(QStringLiteral("mpart1_merged.pdf"),
+                                          Qt::CaseInsensitive),
+                 "F2a-F1 pin: the batch log must name the merged output file");
         step(QStringLiteral("F2b verified: 2-file batch merge → %1 page(s), both parts present; "
-                           "output at %2")
-                 .arg(mergedReader.pageCount()).arg(mergedOut));
+                           "output at %2; completion named it: status='%3'")
+                 .arg(mergedReader.pageCount()).arg(mergedOut, mergeStatus.left(120)));
     }
 
     // ── F3: redaction mark → apply → proof report → export + partial failure ─
@@ -933,6 +1089,93 @@ private slots:
         } else {
             step("F3 step6: the impossible target unexpectedly succeeded — harness note");
         }
+    }
+
+    // ── F3b: the G2 pattern-text refusal, through the REAL UI route ─────────
+    // A page whose resource tree carries a tiling pattern whose stream holds
+    // glyph-carrying text cannot be excised (the canvas walk reaches only
+    // Do-referenced Form XObjects and images). The merged redaction-gaps lane
+    // (G2, audit REDACTION-RESEARCH-2026-09-21 §2.4) made the engine REFUSE
+    // the whole run with a named reason instead of painting a black box over
+    // live data. This slot pins the USER-VISIBLE half of that contract: the
+    // refusal must surface as a labeled "Redaction Failed" disclosure that
+    // names the pattern reason, with NO output written and the source file
+    // untouched. The refusal is page-level — the mark covers only the public
+    // text, and the engine still refuses because the page's resource tree
+    // carries the text-bearing pattern.
+    void flow3b_redaction_patternText_refusalDisclosure()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString src = dir.filePath("pattern-secret.pdf");
+        QVERIFY2(makePatternTextPdf(src), "F3b: pattern fixture creation failed");
+        QVERIFY2(patternStreamContains(src, "PatternSecretOmega"),
+                 "F3b: the fixture must carry the secret in its pattern stream");
+        step("F3b start: pattern-text fixture (public text + pattern-stream secret)");
+
+        runCardRoute("open", src);
+        QTRY_COMPARE_WITH_TIMEOUT(m_win->pdfViewer()->pageCount(), 1, 20000);
+        m_win->activateScreen(QStringLiteral("redact"));
+        QTest::qWait(300);
+        step("F3b step1: redact screen activated");
+
+        auto *redact = m_win->findChild<gp::RedactMode *>();
+        QVERIFY2(redact, "F3b: RedactMode must be reachable");
+        redact->activateCustomRegex(QStringLiteral("PUBLIC_KEEP_TEXT"));
+        QMetaObject::invokeMethod(redact, "onMarkAllOccurrences", Qt::DirectConnection);
+        QTest::qWait(400);
+        int marks = 0;
+        for (const auto &an : m_win->pdfViewer()->annotations())
+            if (an.mode == ToolMode::Redact) ++marks;
+        QVERIFY2(marks > 0,
+                 "F3b: Mark All Occurrences must place marks on the public text");
+        step(QStringLiteral("F3b step2: %1 redaction mark(s) placed over the public text")
+                 .arg(marks));
+
+        const QString redactedOut = dir.filePath("pattern-secret_redacted.pdf");
+        static QString refusalText, refusalTitle;  // static: the poller may outlive the slot
+        refusalText.clear(); refusalTitle.clear();
+        driveModalDialog(QStringLiteral("redactApplyDialog"),
+                         [redactedOut](QWidget *w) {
+                             if (auto *d = w->findChild<QLineEdit *>(
+                                     QStringLiteral("redactApplyDestinationEdit")))
+                                 d->setText(redactedOut);
+                             step("F3b step3: apply dialog configured and accepted");
+                             if (auto *ok = w->findChild<QPushButton *>(
+                                     QStringLiteral("redactApplyOkButton")))
+                                 ok->click();
+                         });
+        capturePromptAndClick(QStringLiteral("Redaction Failed"), QStringLiteral("OK"),
+                              &refusalText, &refusalTitle);
+        QMetaObject::invokeMethod(redact, "onApplyRedactions", Qt::DirectConnection);
+
+        QTRY_VERIFY_WITH_TIMEOUT(!refusalTitle.isEmpty(), 60000);
+        step(QStringLiteral("F3b refusal disclosure: title='%1' text='%2'")
+                 .arg(refusalTitle, refusalText.left(400)));
+        // The disclosure must be LABELED and NAMED — a generic failure banner
+        // would hide the one thing the user must understand: the pattern text
+        // survives, and that is why the page was refused.
+        QCOMPARE(refusalTitle, QStringLiteral("Redaction Failed"));
+        QVERIFY2(refusalText.contains(QStringLiteral("pattern"), Qt::CaseInsensitive),
+                 "F3b: the refusal must name the pattern reason");
+        QVERIFY2(refusalText.contains(QStringLiteral("refused"), Qt::CaseInsensitive)
+                     || refusalText.contains(QStringLiteral("black box"),
+                                             Qt::CaseInsensitive),
+                 "F3b: the refusal must say the page was refused (no silent black box)");
+        QVERIFY2(refusalText.contains(QStringLiteral("not modified"), Qt::CaseInsensitive),
+                 "F3b: the refusal must state the original was not modified");
+
+        // Landed states: an honest refusal writes NO output and leaves the
+        // source byte-truthful (both the secret AND the public text intact).
+        QTest::qWait(500);
+        QVERIFY2(!QFileInfo::exists(redactedOut),
+                 "F3b: an honest refusal must write NO redacted output");
+        QVERIFY2(patternStreamContains(src, "PatternSecretOmega"),
+                 "F3b: the source must be untouched — the pattern secret survives");
+        QVERIFY2(pdfTextContains(src, "PUBLIC_KEEP_TEXT"),
+                 "F3b: the source must be untouched — the public text intact");
+        step("F3b verified: labeled refusal naming the pattern reason, no output "
+             "written, source untouched");
     }
 
     // ── F8: find & replace regex + replace-all count honesty (WP-R07) ───────

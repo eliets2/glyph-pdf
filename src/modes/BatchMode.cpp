@@ -1351,6 +1351,7 @@ void BatchMode::onRunClicked() {
     m_successCount = 0;
     m_failCount    = 0;
     m_skipCount    = 0;
+    m_mergeOutputPath.clear();   // F2a-F1: named only by a merge that commits
     m_accountedIndices.clear();   // G12: per-run exactly-once accounting ledger
     m_exportLogBtn->setVisible(false);
     m_runBtn->setEnabled(false);
@@ -1932,6 +1933,7 @@ void BatchMode::onRunClicked() {
     // cancelled merge never publishes a partial output. Page order == input
     // order (each input's pages are appended in list order).
     if (opIdx == OpMerge) {
+        m_mergeOutputPath = mergeOutPath;   // F2a-F1: the summary names it on success
         startMergeWorker(runnableFiles, mergeOutPath);
         return;
     }
@@ -2740,6 +2742,20 @@ void BatchMode::showSummary() {
 
     appendLog(QString());
     appendLog(summary, m_failCount > 0 ? "#c8442b" : "#4ec96d");
+
+    // F2a-F1 (SWEEP-W3-UX): "BATCH COMPLETE — N of M succeeded" alone never
+    // says WHAT the batch produced. For a merge the ONE thing the user needs
+    // to know is the combined output's location, and the per-input lines only
+    // show input names. Name the output — but only when the merge actually
+    // committed it: the worker publishes successes solely after the save, so
+    // a cancelled or failed merge (successCount 0, no output on disk) is
+    // never dressed up as one that wrote a file.
+    if (!m_mergeOutputPath.isEmpty() && m_successCount > 0) {
+        appendLog(tr("Merged output: %1").arg(QFileInfo(m_mergeOutputPath)
+                                                  .absoluteFilePath()), "#4ec96d");
+        summary += tr(" — merged into %1")
+                       .arg(QFileInfo(m_mergeOutputPath).fileName());
+    }
 
     m_statusLabel->setText(summary);
     m_exportLogBtn->setVisible(m_errorLog.count() > 0);
