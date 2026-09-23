@@ -815,16 +815,25 @@ void CommentsWidget::restoreSelection(const QString &annoId)
 }
 
 // U07: RFC-4180 field escaping — fields containing '"', ',' or a newline are
-// double-quoted with inner quotes doubled. Public so the escaping contract is
-// directly testable.
+// double-quoted with inner quotes doubled. PGR-17: comment text/author is
+// attacker-influenceable input meeting a spreadsheet interpreter, and a field
+// whose FIRST character is '=', '+', '-' or '@' (or TAB/CR) evaluates as a
+// formula or DDE payload when the exported CSV is opened — such fields are
+// prefixed with an apostrophe to force text interpretation (OWASP
+// CSV-injection guidance) before the RFC-4180 quoting. Public so the escaping
+// contract is directly testable.
 QString CommentsWidget::csvEscapeField(const QString &raw)
 {
-    const bool needsQuoting = raw.contains(QLatin1Char('"'))
-                           || raw.contains(QLatin1Char(','))
-                           || raw.contains(QLatin1Char('\n'))
-                           || raw.contains(QLatin1Char('\r'));
-    if (!needsQuoting) return raw;
-    QString escaped = raw;
+    static const QString kFormulaLead = QStringLiteral("=+-@\t\r");
+    const QString safe = (!raw.isEmpty() && kFormulaLead.contains(raw.at(0)))
+                             ? QLatin1Char('\'') + raw
+                             : raw;
+    const bool needsQuoting = safe.contains(QLatin1Char('"'))
+                           || safe.contains(QLatin1Char(','))
+                           || safe.contains(QLatin1Char('\n'))
+                           || safe.contains(QLatin1Char('\r'));
+    if (!needsQuoting) return safe;
+    QString escaped = safe;
     escaped.replace(QLatin1Char('"'), QStringLiteral("\"\""));
     return QLatin1Char('"') + escaped + QLatin1Char('"');
 }

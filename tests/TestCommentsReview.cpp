@@ -213,6 +213,10 @@ private slots:
     // match the displayed scope exactly (filtered-out comments absent).
     void csvExportEscapesQuotesAndCommasAndMatchesScope();
 
+    // PGR-17: a comment field beginning '=', '+', '-' or '@' (or TAB/CR) must
+    // be apostrophe-prefixed so the exported CSV carries no live formulas.
+    void csvFormulaInjectionIsNeutralized();
+
     // Selection survives the list<->table toggle in both directions and
     // double-click in each view still drives commentDoubleClicked(page).
     void selectionPreservedAcrossViewToggle();
@@ -403,6 +407,56 @@ void TestCommentsReview::csvExportEscapesQuotesAndCommasAndMatchesScope()
     QVERIFY(!body.contains(QStringLiteral("n2")));
     QVERIFY(!body.contains(QStringLiteral("Bob")));
     QVERIFY(!body.contains(QStringLiteral("Accepted")));
+}
+
+// PGR-17: a comment beginning '=', '+', '-' or '@' (or TAB/CR) evaluates as a
+// live formula/DDE payload when the exported CSV is opened in a spreadsheet.
+// The field must be prefixed with an apostrophe so it stays inert text
+// (OWASP CSV-injection guidance); benign fields pass through unchanged.
+void TestCommentsReview::csvFormulaInjectionIsNeutralized()
+{
+    QCOMPARE(CommentsWidget::csvEscapeField(QStringLiteral("=1+cmd|' /C calc'!A0")),
+             QStringLiteral("'=1+cmd|' /C calc'!A0"));
+    QCOMPARE(CommentsWidget::csvEscapeField(QStringLiteral("+SUM(A1)")),
+             QStringLiteral("'+SUM(A1)"));
+    QCOMPARE(CommentsWidget::csvEscapeField(QStringLiteral("-2+3+cmd")),
+             QStringLiteral("'-2+3+cmd"));
+    QCOMPARE(CommentsWidget::csvEscapeField(QStringLiteral("@SUM(1)")),
+             QStringLiteral("'@SUM(1)"));
+    QCOMPARE(CommentsWidget::csvEscapeField(QStringLiteral("\tSUM(1)")),
+             QStringLiteral("'\tSUM(1)"));
+    // CR forces RFC-4180 quoting as well: prefix AND quotes compose.
+    QCOMPARE(CommentsWidget::csvEscapeField(QStringLiteral("\rSUM(1)")),
+             QStringLiteral("\"'\rSUM(1)\""));
+    // Benign fields untouched — including a '-' that only means a hyphen.
+    QCOMPARE(CommentsWidget::csvEscapeField(QStringLiteral("well-formed")),
+             QStringLiteral("well-formed"));
+    // The apostrophe prefix composes with RFC-4180 quoting.
+    QCOMPARE(CommentsWidget::csvEscapeField(QStringLiteral("=SUM(A1),X")),
+             QStringLiteral("\"'=SUM(A1),X\""));
+
+    // End to end: a hostile comment exported in the displayed CSV must be
+    // neutralized in the file bytes.
+    QList<AnnotationItem> items;
+    const QString hostile = QStringLiteral("=1+cmd|' /C calc'!A0");
+    items << makeComment(QStringLiteral("f1"), QStringLiteral("Alice"),
+                         ReviewState::Open, 0, hostile, todayIso());
+    m_viewer->setAnnotations(items);
+    m_comments->reloadAnnotations();
+
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString path = tmp.filePath("comments-formula.csv");
+    QVERIFY(m_comments->exportDisplayedCsv(path));
+
+    QFile f(path);
+    QVERIFY(f.open(QIODevice::ReadOnly | QIODevice::Text));
+    const QString body = QString::fromUtf8(f.readAll());
+    f.close();
+
+    QVERIFY2(body.contains(QStringLiteral("'=1+cmd|' /C calc'!A0")),
+             qPrintable(QStringLiteral("a hostile comment must be apostrophe-"
+                                      "prefixed in the export; got: %1").arg(body)));
 }
 
 void TestCommentsReview::selectionPreservedAcrossViewToggle()
