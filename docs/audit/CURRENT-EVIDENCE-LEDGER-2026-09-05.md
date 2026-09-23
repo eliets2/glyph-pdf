@@ -1370,6 +1370,7 @@ stale capturer closed flow2b's preset-name dialog; flow2b's 300s defensive captu
 flow3's apply dialog, so the apply never ran). The G1/G2 honest-refusal hypothesis for flow3
 was disproven: flow3 PASSES standalone at the tip (plain-Helvetica fixture). Evidence:
 /d/uxint2-*.txt; handoff .context/uxint2-wip.md.
+
 | Row | Change (SHA) | Contract | Slot evidence | NC |
 |---|---|---|---|---|
 | Slot-scoped modal drivers (g_driverEpoch bumped per test function in init(); stale chains exit at next tick) | 69600dcc (harness-only) | a slot's modal drivers never act after the slot returns; within-slot driving unchanged | flow2a/flow3 standalone PASS at tip; full harness 12/12 after | baseline transcript IS the fail evidence (stale-driver clicks/captures visible in /d/uxflows.txt); full run flipped 8P/3F -> 12P/0F |
