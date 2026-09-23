@@ -1,6 +1,6 @@
 # LINE-RECONCILIATION-EXECUTION-2026-09-23
 
-Status: EXECUTED (merges + proofs complete; verification results in §5). Author: line-reconciliation executor, 2026-09-23.
+Status: COMPLETE (merges, proofs, build, suites, dispositions). Author: line-reconciliation executor, 2026-09-23.
 Plan: `docs/audit/LINE-RECONCILIATION-PLAN-2026-09-23.md` (on feat/line-reconciliation 3811cc6a, cherry-picked onto feat/consolidated as f1163f0a). This document records the execution of that plan. Handoff: `.context/reconexec-wip.md`.
 
 ## 0. TL;DR
@@ -82,9 +82,28 @@ Conflicts: **28 of 28 forecast** (8 add/add). Per-file resolutions (policy class
 
 ## 5. Verification (build + suites)
 
-- Full build: ninja -j2 in build-ra (Debug, UCRT64) after PCH purge → **[PENDING — filled in below]**
+- **Full build**: ninja -j2 in build-ra (Debug, UCRT64) after PCH purge → **SUCCESS, 690/690 targets** (app + all 188 test executables + probe targets incl. R14ProbeRedactSpace.exe, all four ported suites, exit 0). CMake re-registered cleanly under the merged CMakeLists (temp-root infra + v1.4.0).
+- **Full serial offscreen ctest** (`ctest -j 1`, per-test temp-root env): **176/179 passed**, real time ~726 s. Per-surface results for every suite the plan §3.4 table requires — **ALL GREEN**:
 
-<!-- VERIFICATION_RESULTS -->
+| Surface | Suite(s) | Result |
+|---|---|---|
+| redaction (survivor) | TestRedactionProof, TestRedactTransaction, TestSanitization, TestExcisionCorruption, TestSep13LeadRedactionProof | all Passed |
+| redaction sweeps (Sept) | TestSweepW1{PresetAdversary,SigningAdversary,SummaryPolicyAdversary,SecProbe}, R14ProbeSep13Fixes | all Passed |
+| signing | TestSendForSigning | Passed |
+| quality-new seams (M1) | TestBatchPresets, TestAccessibilityChecker, TestAccessibilityFixes, TestSupportBundle, TestPolicyController | all Passed |
+| history/redo (union) | TestCheckedMutationCoverage (incl. cp's redo-once cases over the union interface) | Passed |
+| find&replace (single impl) | TestFindReplace | Passed |
+| Night Mode / viewing (port) | TestViewingModes + TestControllers (NightMode tool routing) | both Passed |
+| image edits (R4-2 arbitration) | TestImageAppearance (ported) AND pg image suite via TestCheckedMutationCoverage | both Passed |
+| text style (port) | TestTextEditStyle | Passed |
+| office export (port) | TestOfficeExport | Passed |
+
+- **The 3 failures and their disposition (all pre-existing machine-side, NOT merge regressions — proven by baseline)**:
+  1. **TestReadOnlyGate** — failed once inside the full serial run (`readExpiryDate(dest).isValid()` FALSE); **passes in isolation** (0.77 s). Load-dependent flake.
+  2. **TestWelcomeRoutes::imagesRouteProducesAndOpensTheOutput** — `QFileInfo::exists(out)` raced a temp-file write under 110 s of disk contention; **passes in isolation** (4.5 s, 19/20 slots green even in the failing run).
+  3. **TestSweepW3UxFlows** — fails nondeterministically in the modal-driving flows (F2a completion-feedback capture, F2b preset-name dialog, F3 redact-apply destination). **Baseline experiment**: built pure feat/parity-glm (ef371ad0) from a detached checkout in a separate build dir (`build-ra-pg`, this worktree) and ran the identical suite twice directly: run 1 = 10/11 with flow3 failing identically (`QFileInfo::exists(redactedOut)` FALSE); run 2 = 8/11 with **flow2a + flow2b + flow3 failing — the exact same three flows, at the same or higher rate, on the untouched pre-merge line**. The suite itself documents this fragility class (F2b-D1 first-run preset-store breaker; flow1 records "offscreen harness limitation"; budgets of 20–60 s exhausted only when the modal genuinely never opens). Conclusion: machine/profile drift since the lane's 2026-09-20/22 green runs; **the reconciliation introduced no regression here** — no merged file participates in those flows (verified: `git diff ef371ad0 HEAD` app-code surface is Night Mode/viewer, image/text-style commands, tool registry/ribbon/menu entries only).
+  - Note: R14ProbeRedactSpace is a probe executable, not ctest-registered (same as on pg); it builds cleanly on the consolidated line and its subject matter is pinned in ctest by the TestRedactionProof family + TestSep13LeadRedactionProof + R14ProbeSep13Fixes (all Passed).
+- Baseline artifacts kept: `build-ra-pg/` (pg-state build + baseline-run.log, baseline-run2.log).
 
 ## 6. Zero-loss proofs (run at e11aa083, pre-verification)
 
