@@ -535,6 +535,21 @@ QString EncryptedFileSecretStore::readSecret(const QString& service) const
                               "another GlyphPDF instance; deferring the "
                               "legacy 0x02 migration of" << service
                            << "to a later read";
+            QJsonObject root = doc.object();
+            QJsonObject mutableEntries =
+                root.value(QStringLiteral("secrets")).toObject();
+            mutableEntries.insert(service, QString::fromLatin1(wrapped.toBase64()));
+            root.insert(QStringLiteral("secrets"), mutableEntries);
+            const QByteArray json = QJsonDocument(root).toJson(QJsonDocument::Compact);
+            QSaveFile out(m_filePath);
+            if (out.open(QIODevice::WriteOnly)
+                && out.write(json) == json.size() && out.commit()) {
+                qDebug() << "EncryptedFileSecretStore: migrated legacy 0x02 "
+                            "entry" << service << "to the v3 (entry-bound) format";
+                qWarning() << "EncryptedFileSecretStore: could not migrate "
+                              "legacy 0x02 entry" << service
+                           << "to the v3 format (store not rewritten); will "
+                              "retry on the next read";
             }
         }
         return plain;
@@ -542,6 +557,7 @@ QString EncryptedFileSecretStore::readSecret(const QString& service) const
 #endif
 
     QByteArray plain = decrypt(service, blob);
+    const QByteArray plain = decrypt(service, blob);
     if (plain.isEmpty()) return {};
     const QString secret = QString::fromUtf8(plain);
     // PGR-10 triage (key/plaintext zeroization): the intermediate plaintext
