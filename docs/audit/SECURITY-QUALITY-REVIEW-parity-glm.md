@@ -8,7 +8,7 @@
 | **Status re-verified at** | PR head `1991d9c1` (2026-09-23) — every finding re-read at its current location |
 | **Not yet reviewed** | the 319 commits that landed on the line after `9ba3cea` — see [§7](#7-not-yet-reviewed--delta-after-9ba3cea) |
 | **Date** | 2026-09-17 (review) · 2026-09-23 (status re-verification + specialist pass) |
-| **Status** | 13 of 20 original findings fixed on the line · 7 open · 6 new from the specialist pass (5 open, incl. 1 CRITICAL) · 8 more found while verifying the PR (6 fixed in it — [§6b](#6b-found-while-verifying-the-consolidation-2026-09-23)) |
+| **Status** | 13 of 20 original findings fixed on the line · 7 open · 6 new from the specialist pass (5 open, incl. 1 CRITICAL) · 8 more found while verifying the PR (7 fixed in it — [§6b](#6b-found-while-verifying-the-consolidation-2026-09-23)) |
 | **Detailed findings appendix** | [`PARITY-GLM-REVIEW-2026-09-13-FINDINGS.md`](PARITY-GLM-REVIEW-2026-09-13-FINDINGS.md) |
 
 ---
@@ -37,7 +37,7 @@ The line kept moving during and after the review, and its own sessions fixed mos
   - **PGR-23 · HIGH** — the redaction proof certifies nested compressed attachments it cannot see into.
   - PGR-25 · MEDIUM and PGR-26 · LOW are also open; PGR-24 · MEDIUM is already fixed.
 
-Verifying the PR itself found eight more defects ([§6b](#6b-found-while-verifying-the-consolidation-2026-09-23)). Six of them are **fixed in this PR** with regression tests, including image move/resize/rotate never working on a real PDF and Edit ▸ Redo applying four edit types twice.
+Verifying the PR itself found eight more defects ([§6b](#6b-found-while-verifying-the-consolidation-2026-09-23)). Seven of them are **fixed in this PR**, with regression tests, including image move/resize/rotate never working on a real PDF and Edit ▸ Redo applying four edit types twice.
 
 **Bottom line:** fix **PGR-21 and PGR-22** before this lands on `main`. Fix the rest of the open list (§3) before the next release. Because of [§7](#7-not-yet-reviewed--delta-after-9ba3cea), a green status column does **not** mean the PR is reviewed: about 52K lines landed after the review snapshot, including a JavaScript runtime for PDF forms, and no review pass has covered them.
 
@@ -306,7 +306,7 @@ The PR was built from scratch (Release, MSYS2 UCRT64), run in full under `ctest 
 | PGR-31 | MED | `rotateImage` | **Rotation pivoted on the wrong point.** It turned about the midpoint of the image's first edge, not its centre, so each rotation also moved the image and rotate + undo did not return it. | **Fixed**; 30° rotate + undo now returns exactly |
 | PGR-32 | MED | `moveImage`, `resizeImage`, `rotateImage`, `replaceImage`, `deleteImage`, `deleteObjectAt`, `optimizeDocument` | **A refused commit could crash the app.** It threw `std::runtime_error`, which their `catch (PdfError&)` let escape through the undo commands (a failed save, e.g. a locked file). | **Fixed**: `catch (std::exception&)`; `commitMutation` has already rolled back |
 | PGR-33 | LOW | `editTextInline` `Tf` parsing (`PoDoFoBackend.cpp:~1310`) | **Dead code.** The name and size are read from swapped stack slots, so the original font is never picked up. Enabling it would start using possibly-subset embedded fonts for new text, which is a behaviour change with its own risk. | **Open**: needs a design decision |
-| PGR-34 | — | `TestSweepW3UxFlows` (flows 2a, 2b, 3) | The completion, preset and redaction modals are never captured, so 3 of 11 flows fail. This is **not caused by the consolidation**: a build of its source branch tip (`feat/ux-defects-fixes` `f01a4e37`) fails the same three flows identically, and still fails with the test's settings store wiped. The branch's audit doc records these flows as passing, so the harness/environment interaction needs its own look. | **Open**: pre-existing |
+| PGR-34 | — | `TestSweepW3UxFlows` (flows 2a, 2b, 3) | The completion, preset and redaction modals were never captured, so 3 of 11 flows failed. This was **not caused by the consolidation**: a build of its source branch tip failed identically, even with the test's settings store wiped. Root cause (found in the `feat/ux-integration-fixes2` lane): stale modal-driver chains consumed the *next* slot's modals, and flow 2b read a counter that raced the queued accounting. It came with one product fix: the batch-merge completion feedback now names the merged output (F2a-F1). | **Fixed** (cherry-picked into this PR); the full suite is 180/180 |
 
 Also fixed, test infrastructure only: the parallel suites shared one temp root, so the SafeSave "no candidate left behind" checks deleted and counted each other's files. TestFormSafety, TestEngineSave, TestEncryptedPackageSafeWrite and TestWelcomeRoutes failed at `-j6` and passed alone. Every test now gets its own `TMP`/`TEMP`/`TMPDIR`.
 
