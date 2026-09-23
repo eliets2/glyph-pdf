@@ -36,6 +36,7 @@ QString toolIdToString(ToolId id) {
         { ToolId::DarkMode,       QStringLiteral("darkMode") },
         { ToolId::EyeCare,        QStringLiteral("eyeCare") },
         { ToolId::RTL,            QStringLiteral("rtl") },
+        { ToolId::NightMode,      QStringLiteral("nightMode") },
         // Edit
         { ToolId::Hand,           QStringLiteral("hand") },
         { ToolId::Select,         QStringLiteral("select") },
@@ -202,6 +203,7 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         add(ToolId::DarkMode,       {"darkMode", "darkmode"});
         add(ToolId::EyeCare,        {"eyeCare", "eyecare"});
         add(ToolId::RTL,            {"rtl"});
+        add(ToolId::NightMode,      {"nightMode", "nightmode", "night-mode"});
 
         // ── Edit ──
         add(ToolId::Hand,           {"hand"});

@@ -38,6 +38,10 @@ enum class ToolId {
     DarkMode,
     EyeCare,
     RTL,          // AR-8 D6: toggle right-to-left layout direction
+    // Night Mode: content-level colour inversion of the rendered page pixels
+    // (PdfViewerWidget::toggleNightMode) — distinct from DarkMode (application
+    // chrome only) and EyeCare (a sepia tint over a still-white page).
+    NightMode,
 
     // ── Edit ──
     Hand,

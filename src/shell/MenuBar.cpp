@@ -66,6 +66,7 @@ const QList<MenuActionSpec>& MenuBar::actionSpecs() {
         { "presentation", MenuDispatch::Registry },
         { "fullscreen",   MenuDispatch::Local    },
         { "darkMode",     MenuDispatch::Local    },
+        { "nightMode",    MenuDispatch::Registry },  // → ViewController (page inversion)
         { "rulers",       MenuDispatch::Disabled },  // view guides not shipped
         { "guides",       MenuDispatch::Disabled },
         { "grid",         MenuDispatch::Disabled },
@@ -333,6 +334,10 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
     addActionToMenu(viewMenu, tr("&Full Screen"), "fullscreen", QKeySequence(Qt::Key_F11));
     viewMenu->addSeparator();
     addActionToMenu(viewMenu, tr("&Dark Mode"), "darkMode", QKeySequence(), true, true);
+    // Night Mode is per viewer (each document tab keeps its own), so a single
+    // global check mark could not stay truthful — the status bar reports the
+    // new state instead, like Eye Care on the ribbon.
+    addActionToMenu(viewMenu, tr("&Night Mode"), "nightMode");
     addActionToMenu(viewMenu, tr("&Rulers"), "rulers", QKeySequence(), true, false);
     addActionToMenu(viewMenu, tr("&Guides"), "guides", QKeySequence(), true, false);
     addActionToMenu(viewMenu, tr("G&rid"), "grid", QKeySequence(), true, false);

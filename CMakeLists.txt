@@ -4501,6 +4501,33 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestTwoPageOverlay.cpp")
     )
 endif()
 
+# Reading filters: Night Mode (page-pixel inversion, Wave 2B viewing-parity
+# port) and Eye Care (sepia) — repeated toggling, mutual exclusion, and both
+# page surfaces (single-page view and two-page spread).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestViewingModes.cpp")
+    add_executable(TestViewingModes tests/TestViewingModes.cpp)
+    target_include_directories(TestViewingModes PRIVATE src tests)
+    target_link_libraries(TestViewingModes PRIVATE
+        pdfws_ui pdfws_engines pdfws_core podofo::podofo Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets
+    )
+    if(WIN32)
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestViewingModes POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestViewingModes>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestViewingModes"
+            )
+        endif()
+    endif()
+    add_test(NAME TestViewingModes COMMAND TestViewingModes)
+    set_tests_properties(TestViewingModes PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;viewing;nightmode;eyecare;regression;qt;headless"
+    )
+endif()
+
 # §9.7 P0 regression test: the signature tool must grow Draw/Type/Upload modes
 # that feed the SAME annotation persistence as Draw (typed/uploaded signatures
 # persist as real PDF annotations and survive a save/reload round-trip).

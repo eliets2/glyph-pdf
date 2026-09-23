@@ -28,7 +28,8 @@ QList<ToolId> ViewController::handledTools() const {
         ToolId::SinglePage, ToolId::Continuous, ToolId::TwoPage,
         ToolId::Presentation, ToolId::Fullscreen,
         ToolId::DarkMode, ToolId::EyeCare,
-        ToolId::RTL  // AR-8 D6: shipped — toggles QApplication layout direction
+        ToolId::RTL,  // AR-8 D6: shipped — toggles QApplication layout direction
+        ToolId::NightMode
     };
 }
 
@@ -82,6 +83,13 @@ void ViewController::activate(ToolId id) {
     case ToolId::EyeCare:
         if (viewer) viewer->toggleEyeCareMode();
         _mainWindow->statusBar()->showMessage(tr("Eye Care mode toggled."), 3000);
+        break;
+    case ToolId::NightMode:
+        // Page-content inversion needs a viewer; unlike Eye Care it is not in
+        // the no-document allow-list above, so `viewer` is non-null here.
+        viewer->toggleNightMode();
+        _mainWindow->statusBar()->showMessage(
+            viewer->isNightMode() ? tr("Night Mode on.") : tr("Night Mode off."), 3000);
         break;
     case ToolId::RTL: {
         // AR-8 D6: toggle the application-wide layout direction.

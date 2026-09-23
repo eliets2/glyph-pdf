@@ -56,6 +56,7 @@ private slots:
         QVERIFY(tools.contains(ToolId::Fullscreen));
         QVERIFY(tools.contains(ToolId::DarkMode));
         QVERIFY(tools.contains(ToolId::EyeCare));
+        QVERIFY(tools.contains(ToolId::NightMode));
         QVERIFY(!tools.contains(ToolId::Open));
         QVERIFY(!tools.contains(ToolId::Encrypt));
     }
