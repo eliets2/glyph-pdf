@@ -88,6 +88,21 @@ namespace {
 // ── transcript ───────────────────────────────────────────────────────────────
 void step(const QString &msg) { qInfo().noquote() << "UXAUDIT:" << msg; }
 
+// ── slot-scoped modal drivers ────────────────────────────────────────────────
+// Every modal driver below is a self-rescheduling QTimer::singleShot(0) chain
+// with a deadline budget of 60-120s. A fast slot returns long before its
+// drivers' budgets expire, so the chains used to SURVIVE into the next test
+// function and consumed ITS modals — the full-harness failures of flow2a/2b/3
+// at the merged tip (uxflows.txt 2026-09-23): flow1's stale 'No'-clicker
+// answered flow2a's "Open Merged PDF" completion modal before flow2a's
+// capturer could read it; flow2a's stale capturer closed flow2b's preset-name
+// dialog before flow2b's driveModalDialog matched it ('presetDialogSeen'
+// false); flow2b's 300s defensive capturer closed flow3's apply dialog (the
+// apply never ran, 'QFileInfo::exists(redactedOut)' false). Each driver now
+// captures the driver epoch at creation, and init() bumps the epoch before
+// every test function: a chain whose slot has ended exits at its next tick.
+int g_driverEpoch = 0;   // GUI-thread only (all drivers run on the event loop)
+
 // ── fixtures ─────────────────────────────────────────────────────────────────
 void makePdf(const QString &path, const QString &marker)
 {
@@ -144,14 +159,17 @@ bool pdfTextContains(const QString &path, const QByteArray &needle)
 
 // ── Deterministic modal drivers (TestWelcomeRoutes pattern) ──────────────────
 
-void pickFilesInSequenceStep(const QStringList &paths, QElapsedTimer deadline, int budgetMs)
+void pickFilesInSequenceStep(const QStringList &paths, QElapsedTimer deadline, int budgetMs,
+                             int epoch)
 {
+    if (epoch != g_driverEpoch) return;             // slot ended — stop driving
     if (paths.isEmpty()) return;
     if (deadline.elapsed() >= budgetMs) {
         qWarning() << "UXAUDIT: pickFilesInSequence budget exhausted for" << paths.first();
         return;
     }
-    QTimer::singleShot(0, [paths, deadline, budgetMs] {
+    QTimer::singleShot(0, [paths, deadline, budgetMs, epoch] {
+        if (epoch != g_driverEpoch) return;         // slot ended — stop driving
         if (auto *dlg = qobject_cast<QFileDialog *>(QApplication::activeModalWidget())) {
             const QString path = paths.first();
             const QStringList selected = dlg->selectedFiles();
@@ -161,15 +179,15 @@ void pickFilesInSequenceStep(const QStringList &paths, QElapsedTimer deadline, i
                            == QFileInfo(path).canonicalFilePath());
             if (!delivered) {
                 dlg->selectFile(path);
-                pickFilesInSequenceStep(paths, deadline, budgetMs);
+                pickFilesInSequenceStep(paths, deadline, budgetMs, epoch);
                 return;
             }
             QMetaObject::invokeMethod(dlg, "accept");
             if (paths.size() > 1)
-                pickFilesInSequenceStep(paths.mid(1), deadline, budgetMs);
+                pickFilesInSequenceStep(paths.mid(1), deadline, budgetMs, epoch);
             return;
         }
-        pickFilesInSequenceStep(paths, deadline, budgetMs);
+        pickFilesInSequenceStep(paths, deadline, budgetMs, epoch);
     });
 }
 
@@ -177,13 +195,15 @@ void pickFilesInSequenceStep(const QStringList &paths, QElapsedTimer deadline, i
 // quoted absolute paths into the dialog's file-name edit - the standard
 // multi-file syntax the non-native dialog parses on accept - then accepting.
 void pickMultiFilesByTitleStep(const QString &title, const QStringList &paths,
-                               QElapsedTimer deadline, int budgetMs)
+                               QElapsedTimer deadline, int budgetMs, int epoch)
 {
+    if (epoch != g_driverEpoch) return;             // slot ended — stop driving
     if (deadline.elapsed() >= budgetMs) {
         qWarning() << "UXAUDIT: pickMultiFilesByTitle budget exhausted for" << title;
         return;
     }
-    QTimer::singleShot(0, [title, paths, deadline, budgetMs] {
+    QTimer::singleShot(0, [title, paths, deadline, budgetMs, epoch] {
+        if (epoch != g_driverEpoch) return;         // slot ended — stop driving
         if (auto *dlg = qobject_cast<QFileDialog *>(QApplication::activeModalWidget())) {
             if (dlg->windowTitle() == title && dlg->acceptMode() == QFileDialog::AcceptOpen
                 && dlg->selectedFiles().size() < paths.size()) {
@@ -196,7 +216,7 @@ void pickMultiFilesByTitleStep(const QString &title, const QStringList &paths,
                 return;
             }
         }
-        pickMultiFilesByTitleStep(title, paths, deadline, budgetMs);
+        pickMultiFilesByTitleStep(title, paths, deadline, budgetMs, epoch);
     });
 }
 
@@ -204,14 +224,14 @@ void pickMultiFilesByTitle(const QString &title, const QStringList &paths, int b
 {
     QElapsedTimer deadline;
     deadline.start();
-    pickMultiFilesByTitleStep(title, paths, deadline, budgetMs);
+    pickMultiFilesByTitleStep(title, paths, deadline, budgetMs, g_driverEpoch);
 }
 
 void pickFilesInSequence(const QStringList &paths, int budgetMs = 60000)
 {
     QElapsedTimer deadline;
     deadline.start();
-    pickFilesInSequenceStep(paths, deadline, budgetMs);
+    pickFilesInSequenceStep(paths, deadline, budgetMs, g_driverEpoch);
 }
 
 // Captures the TEXT of the next non-file modal, then dismisses it. The
@@ -220,19 +240,21 @@ void pickFilesInSequence(const QStringList &paths, int budgetMs = 60000)
 // NOT closed).
 void captureModalTextStep(QString *text, QString *title, bool *seen,
                           const QString &skipObjectName,
-                          QElapsedTimer deadline, int budgetMs)
+                          QElapsedTimer deadline, int budgetMs, int epoch)
 {
+    if (epoch != g_driverEpoch) return;             // slot ended — stop driving
     if (deadline.elapsed() >= budgetMs) {
         qWarning() << "UXAUDIT: captureModalText budget exhausted";
         return;
     }
-    QTimer::singleShot(0, [text, title, seen, skipObjectName, deadline, budgetMs] {
+    QTimer::singleShot(0, [text, title, seen, skipObjectName, deadline, budgetMs, epoch] {
+        if (epoch != g_driverEpoch) return;         // slot ended — stop driving
         if (QWidget *w = QApplication::activeModalWidget()) {
             // Never touch progress dialogs: closing one CANCELS the worker.
             if (qobject_cast<QProgressDialog *>(w)) {
                 step(QStringLiteral("(transit: progress dialog '%1')")
                          .arg(w->windowTitle()));
-                captureModalTextStep(text, title, seen, skipObjectName, deadline, budgetMs);
+                captureModalTextStep(text, title, seen, skipObjectName, deadline, budgetMs, epoch);
                 return;
             }
             if (auto *box = qobject_cast<QMessageBox *>(w)) {
@@ -248,12 +270,12 @@ void captureModalTextStep(QString *text, QString *title, bool *seen,
             }
             if (!skipObjectName.isEmpty()
                 && (w->objectName() == skipObjectName || w->findChild<QWidget *>(skipObjectName))) {
-                captureModalTextStep(text, title, seen, skipObjectName, deadline, budgetMs);
+                captureModalTextStep(text, title, seen, skipObjectName, deadline, budgetMs, epoch);
                 return;
             }
             if (qobject_cast<QFileDialog *>(w)) {
                 // A file dialog a pick driver owns - never close it.
-                captureModalTextStep(text, title, seen, skipObjectName, deadline, budgetMs);
+                captureModalTextStep(text, title, seen, skipObjectName, deadline, budgetMs, epoch);
                 return;
             }
             if (auto *dlg = qobject_cast<QDialog *>(w)) {
@@ -275,7 +297,7 @@ void captureModalTextStep(QString *text, QString *title, bool *seen,
                 return;
             }
         }
-        captureModalTextStep(text, title, seen, skipObjectName, deadline, budgetMs);
+        captureModalTextStep(text, title, seen, skipObjectName, deadline, budgetMs, epoch);
     });
 }
 
@@ -284,18 +306,20 @@ void captureModalText(QString *text, QString *title = nullptr, bool *seen = null
 {
     QElapsedTimer deadline;
     deadline.start();
-    captureModalTextStep(text, title, seen, skipObjectName, deadline, budgetMs);
+    captureModalTextStep(text, title, seen, skipObjectName, deadline, budgetMs, g_driverEpoch);
 }
 
 void clickPromptButtonStep(const QString &text, bool *clicked,
-                           QElapsedTimer deadline, int budgetMs)
+                           QElapsedTimer deadline, int budgetMs, int epoch)
 {
+    if (epoch != g_driverEpoch) return;             // slot ended — stop driving
     if (deadline.elapsed() >= budgetMs) {
         // Budget out silently: no such prompt ever appeared (callers treat
         // clicked==false as "the guard never fired").
         return;
     }
-    QTimer::singleShot(0, [text, clicked, deadline, budgetMs] {
+    QTimer::singleShot(0, [text, clicked, deadline, budgetMs, epoch] {
+        if (epoch != g_driverEpoch) return;         // slot ended — stop driving
         if (auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) {
             const auto buttons = box->findChildren<QAbstractButton *>();
             for (QAbstractButton *b : buttons) {
@@ -308,7 +332,7 @@ void clickPromptButtonStep(const QString &text, bool *clicked,
                 }
             }
         }
-        clickPromptButtonStep(text, clicked, deadline, budgetMs);
+        clickPromptButtonStep(text, clicked, deadline, budgetMs, epoch);
     });
 }
 
@@ -319,7 +343,7 @@ void clickPromptButton(const QString &text, bool *clicked, int budgetMs = 120000
 {
     QElapsedTimer deadline;
     deadline.start();
-    clickPromptButtonStep(text, clicked, deadline, budgetMs);
+    clickPromptButtonStep(text, clicked, deadline, budgetMs, g_driverEpoch);
 }
 
 // Waits for a dialog to become the active modal, matched either by its own
@@ -327,14 +351,16 @@ void clickPromptButton(const QString &text, bool *clicked, int budgetMs = 120000
 // mutator INSIDE its modal loop (never closes it — the mutator decides).
 template <typename Prep>
 void driveModalDialogStep(const QString &matchName, Prep prep, bool *seen,
-                          QElapsedTimer deadline, int budgetMs)
+                          QElapsedTimer deadline, int budgetMs, int epoch)
 {
+    if (epoch != g_driverEpoch) return;             // slot ended — stop driving
     if (deadline.elapsed() >= budgetMs) {
         qWarning() << "UXAUDIT: driveModalDialog('%s') budget exhausted"
                    << qPrintable(matchName);
         return;
     }
-    QTimer::singleShot(0, [matchName, prep, seen, deadline, budgetMs] {
+    QTimer::singleShot(0, [matchName, prep, seen, deadline, budgetMs, epoch] {
+        if (epoch != g_driverEpoch) return;         // slot ended — stop driving
         QWidget *w = QApplication::activeModalWidget();
         const bool match = w
             && (w->objectName() == matchName
@@ -347,7 +373,7 @@ void driveModalDialogStep(const QString &matchName, Prep prep, bool *seen,
             if (seen) *seen = true;
             return;
         }
-        driveModalDialogStep(matchName, prep, seen, deadline, budgetMs);
+        driveModalDialogStep(matchName, prep, seen, deadline, budgetMs, epoch);
     });
 }
 
@@ -357,25 +383,27 @@ void driveModalDialog(const QString &matchName, Prep prep, bool *seen = nullptr,
 {
     QElapsedTimer deadline;
     deadline.start();
-    driveModalDialogStep(matchName, prep, seen, deadline, budgetMs);
+    driveModalDialogStep(matchName, prep, seen, deadline, budgetMs, g_driverEpoch);
 }
 
 // Rejects the next QFileDialog that becomes active (after a declined
 // overwrite the save dialog STAYS OPEN for another choice - correct UX; the
 // driver must dismiss it or the nested modal loop never exits).
-void rejectFileDialogStep(QElapsedTimer deadline, int budgetMs)
+void rejectFileDialogStep(QElapsedTimer deadline, int budgetMs, int epoch)
 {
+    if (epoch != g_driverEpoch) return;             // slot ended — stop driving
     if (deadline.elapsed() >= budgetMs) {
         qWarning() << "UXAUDIT: rejectFileDialog budget exhausted";
         return;
     }
-    QTimer::singleShot(0, [deadline, budgetMs] {
+    QTimer::singleShot(0, [deadline, budgetMs, epoch] {
+        if (epoch != g_driverEpoch) return;         // slot ended — stop driving
         if (auto *dlg = qobject_cast<QFileDialog *>(QApplication::activeModalWidget())) {
             step("decline path: the save dialog stayed open for another choice - dismissing");
             dlg->reject();
             return;
         }
-        rejectFileDialogStep(deadline, budgetMs);
+        rejectFileDialogStep(deadline, budgetMs, epoch);
     });
 }
 
@@ -383,7 +411,7 @@ void rejectFileDialogWhenVisible(int budgetMs = 120000)
 {
     QElapsedTimer deadline;
     deadline.start();
-    rejectFileDialogStep(deadline, budgetMs);
+    rejectFileDialogStep(deadline, budgetMs, g_driverEpoch);
 }
 
 // Captures the text of the next QMessageBox whose title contains
@@ -391,13 +419,15 @@ void rejectFileDialogWhenVisible(int budgetMs = 120000)
 // a custom-button box leaves exec() unresolved).
 void capturePromptAndClickStep(const QString &titleNeedle, const QString &buttonText,
                                QString *text, QString *title,
-                               QElapsedTimer deadline, int budgetMs)
+                               QElapsedTimer deadline, int budgetMs, int epoch)
 {
+    if (epoch != g_driverEpoch) return;             // slot ended — stop driving
     if (deadline.elapsed() >= budgetMs) {
         qWarning() << "UXAUDIT: capturePromptAndClick budget exhausted for" << titleNeedle;
         return;
     }
-    QTimer::singleShot(0, [titleNeedle, buttonText, text, title, deadline, budgetMs] {
+    QTimer::singleShot(0, [titleNeedle, buttonText, text, title, deadline, budgetMs, epoch] {
+        if (epoch != g_driverEpoch) return;         // slot ended — stop driving
         if (auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) {
             if (box->windowTitle().contains(titleNeedle)) {
                 if (text) *text = box->text() + box->informativeText();
@@ -416,7 +446,7 @@ void capturePromptAndClickStep(const QString &titleNeedle, const QString &button
                 return;
             }
         }
-        capturePromptAndClickStep(titleNeedle, buttonText, text, title, deadline, budgetMs);
+        capturePromptAndClickStep(titleNeedle, buttonText, text, title, deadline, budgetMs, epoch);
     });
 }
 
@@ -425,7 +455,8 @@ void capturePromptAndClick(const QString &titleNeedle, const QString &buttonText
 {
     QElapsedTimer deadline;
     deadline.start();
-    capturePromptAndClickStep(titleNeedle, buttonText, text, title, deadline, budgetMs);
+    capturePromptAndClickStep(titleNeedle, buttonText, text, title, deadline, budgetMs,
+                              g_driverEpoch);
 }
 
 QPushButton *buttonByText(QWidget *w, const QString &text)
@@ -469,6 +500,9 @@ private slots:
 
     void init()
     {
+        // Slot-scope the modal drivers: any chain still polling from the
+        // PREVIOUS test function dies here (see g_driverEpoch above).
+        ++g_driverEpoch;
         m_win = std::make_unique<MainWindow>(Bootstrapper::createContext());
         m_win->show();
         QVERIFY(m_win->pdfViewer());
