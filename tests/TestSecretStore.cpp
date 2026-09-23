@@ -704,6 +704,7 @@ private slots:
         QCOMPARE(store.readSecret("MigSvcA"), secretA);
         QCOMPARE(store.readSecret("MigSvcB"), secretB);
     }
+
     // ── PGR-26 — API-key credentials must not roam beyond this machine ──────
     // CRED_PERSIST_ENTERPRISE roams the credential with roaming profiles to
     // every machine the user logs into — wider exposure than a desktop app's
@@ -717,6 +718,7 @@ private slots:
         const QString secret  = QStringLiteral("sk-ant-persist-probe-fake-0001");
         if (!mgr.storeKey(service, secret))
             QSKIP("Credential Manager write unavailable on this machine");
+
         const std::wstring target =
             QStringLiteral("GlyphPDF.AI.PersistProbeSvc").toStdWString();
         PCREDENTIALW pcred = nullptr;
