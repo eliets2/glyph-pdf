@@ -47,6 +47,9 @@ private slots:
     void multilineOrderIsTopToBottomAndDeterministic();
     void imageOnlyPdfYieldsHonestEmptyResult();
     void csvQuotesAndCommasAreEscaped();
+    // PGR-16: hostile leading characters (= + - @ TAB CR) must be neutralized
+    // so an exported CSV cannot carry live formula/DDE payloads.
+    void csvFormulaInjectionIsNeutralized();
     void htmlAccentsDecodeAndMarkupEscapes();
     // V03: table geometry survives to the spreadsheet/CSV cell grid.
     void tableColumnsBecomeRealCells();
@@ -527,6 +530,56 @@ void TestConversionExtraction::csvQuotesAndCommasAreEscaped() {
     // The comma line must be a single quoted cell, not split into two.
     QVERIFY2(csv.contains("\"He said \"\"hi\"\", ok\""),
              "comma-bearing text must stay one quoted cell");
+}
+
+// PGR-16: a PDF-controlled cell beginning '=', '+', '-' or '@' (or TAB/CR)
+// evaluates as a live formula/DDE payload when the exported CSV is opened in
+// a spreadsheet. The exporter must prefix an apostrophe so the cell stays
+// inert text (OWASP CSV-injection guidance); benign content passes through.
+void TestConversionExtraction::csvFormulaInjectionIsNeutralized() {
+    // Unit level: the escaping contract is directly testable.
+    QCOMPARE(ConversionManager::csvFormulaSafeCell(
+                 QStringLiteral("=1+cmd|' /C calc'!A0")),
+             QStringLiteral("'=1+cmd|' /C calc'!A0"));
+    QCOMPARE(ConversionManager::csvFormulaSafeCell(QStringLiteral("+SUM(A1)")),
+             QStringLiteral("'+SUM(A1)"));
+    QCOMPARE(ConversionManager::csvFormulaSafeCell(QStringLiteral("-2+3+cmd")),
+             QStringLiteral("'-2+3+cmd"));
+    QCOMPARE(ConversionManager::csvFormulaSafeCell(QStringLiteral("@SUM(1)")),
+             QStringLiteral("'@SUM(1)"));
+    QCOMPARE(ConversionManager::csvFormulaSafeCell(QStringLiteral("\tSUM(1)")),
+             QStringLiteral("'\tSUM(1)"));
+    QCOMPARE(ConversionManager::csvFormulaSafeCell(QStringLiteral("\rSUM(1)")),
+             QStringLiteral("'\rSUM(1)"));
+    // Benign content is untouched — including a '-' that only means a hyphen.
+    QCOMPARE(ConversionManager::csvFormulaSafeCell(QStringLiteral("plain text")),
+             QStringLiteral("plain text"));
+    QCOMPARE(ConversionManager::csvFormulaSafeCell(QString()), QString());
+
+    // End to end: hostile cells exported through a real PDF must carry the
+    // apostrophe in the CSV bytes.
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QStringList lines = {
+        QStringLiteral("=2+5+cmd"),
+        QStringLiteral("@SUM(1)"),
+    };
+    const QString pdf = createTextPdf(tmp.path(), "formula.pdf", lines);
+    QVERIFY(!pdf.isEmpty());
+
+    ConversionManager mgr;
+    const QString out = tmp.filePath("formula.csv");
+    QVERIFY(mgr.convertTo(pdf, out, IConversionEngine::TargetFormat::Csv));
+
+    const QByteArray csv = readFile(out);
+    QVERIFY2(csv.contains("\"'=2+5+cmd\""),
+             qPrintable(QStringLiteral("a cell starting with '=' must be prefixed "
+                                      "with an apostrophe; got %1")
+                                .arg(QString::fromUtf8(csv))));
+    QVERIFY2(csv.contains("\"'@SUM(1)\""),
+             qPrintable(QStringLiteral("a cell starting with '@' must be prefixed "
+                                      "with an apostrophe; got %1")
+                                .arg(QString::fromUtf8(csv))));
 }
 
 // HTML export: decoded accents as UTF-8, XML-escaped markup from the text.

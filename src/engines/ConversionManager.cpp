@@ -465,6 +465,18 @@ bool ConversionManager::exportToImage(const QString &pdfPath, const QString &out
     }
 }
 
+// PGR-16: a cell whose first character is '=', '+', '-' or '@' (or TAB/CR)
+// evaluates as a formula or DDE payload when the CSV is opened in a
+// spreadsheet — PDF text is attacker-controlled, so every exported cell is
+// treated as hostile input. Prefixing an apostrophe forces text
+// interpretation (OWASP CSV-injection guidance). Applied at the emission
+// boundary so every cell leaving exportToCsv is covered.
+QString ConversionManager::csvFormulaSafeCell(const QString &cell) {
+    static const QString kFormulaLead = QStringLiteral("=+-@\t\r");
+    if (cell.isEmpty() || !kFormulaLead.contains(cell.at(0))) return cell;
+    return QLatin1Char('\'') + cell;
+}
+
 bool ConversionManager::exportToCsv(const QString &outputPath, const QList<QList<TextElement>> &rows) {
     QFile file(outputPath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return false;
@@ -489,7 +501,7 @@ bool ConversionManager::exportToCsv(const QString &outputPath, const QList<QList
         }
         QStringList line;
         for (int col = 0; col <= maxCol; ++col)
-            line << "\"" + cells.value(col) + "\"";
+            line << "\"" + csvFormulaSafeCell(cells.value(col)) + "\"";
         if (!line.isEmpty())
             out << line.join(",") << "\n";
     }
