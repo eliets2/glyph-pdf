@@ -99,6 +99,15 @@ void SendForSigningController::onDocumentOpened(const QString &docPath)
 void SendForSigningController::showProgressPanel()
 {
     const QString docPath = _ctx->document->path();
+    // PGR-36 (D2 delta review 2026-09-23): the panel is MODELESS and bound to
+    // the document it was created for. Re-raising a panel bound to a PREVIOUS
+    // document showed request A's signers over document B — and every click
+    // then executed signer N of B's sidecar (cross-document replay through a
+    // stale surface). A panel whose document changed is closed and replaced.
+    if (_panel && _panel->documentPath() != docPath) {
+        _panel->close();   // WA_DeleteOnClose
+        _panel = nullptr;
+    }
     if (_panel) {
         _panel->refresh();
         _panel->show();
@@ -120,6 +129,27 @@ void SendForSigningController::runSignStep(int signerIndex)
     if (!_ctx || !_ctx->signing || !_ctx->document) return;
     const QString docPath = _ctx->document->path();
     if (docPath.isEmpty()) return;
+
+    // PGR-36 (D2 delta review 2026-09-23): defense in depth behind
+    // showProgressPanel's replace-on-document-change. A stale panel can
+    // still be on screen when the new document carries NO sidecar
+    // (onDocumentOpened returned early and never reached showProgressPanel).
+    // Clicking Sign on it must never execute this document's sidecar behind
+    // a request rendered for a different document — refuse and let the
+    // panel be replaced by the next open/prepare.
+    if (_panel && _panel->documentPath() != docPath) {
+        QMessageBox::warning(_mainWindow, tr("Signing Panel Is For Another Document"),
+                             tr("This signing progress belongs to %1, but the open "
+                                "document is %2 — the step was NOT run. Close the panel "
+                                "and reopen it from the document you want to sign.")
+                                 .arg(_panel->documentPath(),
+                                      QFileInfo(docPath).fileName()));
+        if (_panel) {
+            _panel->close();
+            _panel = nullptr;
+        }
+        return;
+    }
 
     // The model snapshot comes from DISK every step (the sidecar is the
     // workflow's state, not the panel's memory).
