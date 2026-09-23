@@ -260,6 +260,12 @@ private slots:
     // ── ER-2 signed-file refusal at Preflight ──────────────────────────────
     void signedDocumentIsRefusedInPreflight();
 
+    // ── G1 XFA refusal at Preflight (audit REDACTION-RESEARCH-2026-09-21
+    // §2.5): legacy XFA form data re-encodes every field value in streams the
+    // excision never touches — redaction must refuse honestly, before any
+    // write, exactly like the signed-file refusal.
+    void xfaDocumentIsRefusedInPreflight();
+
     // ── Destination semantics ──────────────────────────────────────────────
     void existingDestinationIsReplacedOnSuccess();
 
@@ -1048,6 +1054,72 @@ void TestRedactTransaction::signedDocumentIsRefusedInPreflight() {
              qPrintable(r.error));
     QVERIFY(!QFileInfo::exists(dest));
     QCOMPARE(sha256(signedPdf), srcSha);
+}
+
+// G1 (audit REDACTION-RESEARCH-2026-09-21 §2.5): XFA-bearing fixture — a
+// normal AcroForm text field PLUS legacy XFA form data (/AcroForm /XFA and a
+// catalog /XFA for the dynamic form), the XFA stream carrying a payload that
+// re-encodes the "deleted" value.
+static bool makeXfaPdf(const QString& path) {
+    try {
+        PoDoFo::PdfMemDocument doc;
+        auto& page = doc.GetPages().CreatePage(
+            PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+        PoDoFo::PdfPainter painter;
+        painter.SetCanvas(page);
+        auto& font = doc.GetFonts().GetStandard14Font(
+            PoDoFo::PdfStandard14FontType::Helvetica);
+        painter.TextState.SetFont(font, 12.0);
+        (painter.DrawText)("TOPSECRET_XFA_DATA", 50, 700);
+        (painter.DrawText)("PUBLIC_KEEP_TEXT", 50, 650);
+        painter.FinishDrawing();
+
+        auto& field = page.CreateField<PoDoFo::PdfTextBox>(
+            "XfaField", PoDoFo::Rect(100, 500, 150, 20));
+        field.SetText(PoDoFo::PdfString("XfaFieldSecretValue"));
+
+        auto& xfaObj = doc.GetObjects().CreateDictionaryObject();
+        xfaObj.GetOrCreateStream().SetData(PoDoFo::bufferview(
+            "<xdp><field name='XfaField'>XfaDynamicDataSecret</field></xdp>"));
+        auto& catalog = doc.GetCatalog();
+        auto* acro = catalog.GetDictionary().FindKey(PoDoFo::PdfName("AcroForm"));
+        if (acro == nullptr || !acro->IsDictionary()) return false;
+        acro->GetDictionary().AddKey(PoDoFo::PdfName("XFA"),
+                                     xfaObj.GetIndirectReference());
+        catalog.GetDictionary().AddKey(PoDoFo::PdfName("XFA"),
+                                       xfaObj.GetIndirectReference());
+        doc.Save(path.toUtf8().constData());
+        return true;
+    } catch (const std::exception& e) {
+        qWarning() << "makeXfaPdf failed:" << e.what();
+        return false;
+    }
+}
+
+void TestRedactTransaction::xfaDocumentIsRefusedInPreflight() {
+    const QString src = m_tmpDir.filePath("xfa_for_redact.pdf");
+    QVERIFY2(makeXfaPdf(src), "XFA fixture creation failed");
+    {   // fixture sanity: the /XFA key IS there (detection has something to see)
+        PoDoFo::PdfMemDocument d;
+        d.Load(src.toUtf8().constData());
+        auto* acro = d.GetCatalog().GetDictionary().FindKey(PoDoFo::PdfName("AcroForm"));
+        QVERIFY(acro != nullptr && acro->IsDictionary()
+                && acro->GetDictionary().HasKey(PoDoFo::PdfName("XFA")));
+        QVERIFY(d.GetCatalog().GetDictionary().HasKey(PoDoFo::PdfName("XFA")));
+    }
+    const QByteArray srcSha = sha256(src);
+
+    const QString dest = m_tmpDir.filePath("xfa_redacted.pdf");
+    RedactOperation op(makeRequest(src, dest, {0}, false));
+    const RedactResult r = runOp(&op);
+
+    // G1(a): refuse at Preflight, before any write, naming the reason.
+    QCOMPARE(r.outcome, RedactOutcome::Failed);
+    QCOMPARE(r.failedStage, QStringLiteral("Preflight"));
+    QVERIFY2(r.error.contains(QLatin1String("XFA")),
+             qPrintable(r.error));
+    QVERIFY(!QFileInfo::exists(dest));
+    QCOMPARE(sha256(src), srcSha);
 }
 
 void TestRedactTransaction::existingDestinationIsReplacedOnSuccess() {
