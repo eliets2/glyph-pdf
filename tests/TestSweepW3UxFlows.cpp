@@ -157,6 +157,38 @@ bool pdfTextContains(const QString &path, const QByteArray &needle)
     return false;
 }
 
+// Reads the fixture's tiling-pattern stream (page /Resources /Pattern /P1)
+// directly — the secret there is deliberately invisible to pdfTextContains
+// (which reads PAGE contents only): that unreachability is exactly what the
+// G2 guard refuses over.
+bool patternStreamContains(const QString &path, const QByteArray &needle)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(path.toUtf8().constData());
+        auto &page = doc.GetPages().GetPageAt(0);
+        const auto *patterns = page.GetResources().GetObject().GetDictionary()
+                                   .FindKey(PoDoFo::PdfName("Pattern"));
+        if (!patterns) return false;
+        if (patterns->IsReference())
+            patterns = &doc.GetObjects().MustGetObject(patterns->GetReference());
+        if (!patterns || !patterns->IsDictionary()) return false;
+        for (const auto &kv : patterns->GetDictionary()) {
+            const PoDoFo::PdfObject *pat = &kv.second;
+            if (pat->IsReference())
+                pat = &doc.GetObjects().MustGetObject(pat->GetReference());
+            if (!pat || !pat->HasStream()) continue;
+            PoDoFo::charbuff buf;
+            pat->GetStream()->CopyTo(buf);
+            if (QByteArray(buf.data(), static_cast<int>(buf.size())).contains(needle))
+                return true;
+        }
+    } catch (const std::exception &) {
+        return false;
+    }
+    return false;
+}
+
 // ── Deterministic modal drivers (TestWelcomeRoutes pattern) ──────────────────
 
 void pickFilesInSequenceStep(const QStringList &paths, QElapsedTimer deadline, int budgetMs,
@@ -1077,7 +1109,7 @@ private slots:
         QVERIFY(dir.isValid());
         const QString src = dir.filePath("pattern-secret.pdf");
         QVERIFY2(makePatternTextPdf(src), "F3b: pattern fixture creation failed");
-        QVERIFY2(pdfTextContains(src, "PatternSecretOmega"),
+        QVERIFY2(patternStreamContains(src, "PatternSecretOmega"),
                  "F3b: the fixture must carry the secret in its pattern stream");
         step("F3b start: pattern-text fixture (public text + pattern-stream secret)");
 
@@ -1138,7 +1170,7 @@ private slots:
         QTest::qWait(500);
         QVERIFY2(!QFileInfo::exists(redactedOut),
                  "F3b: an honest refusal must write NO redacted output");
-        QVERIFY2(pdfTextContains(src, "PatternSecretOmega"),
+        QVERIFY2(patternStreamContains(src, "PatternSecretOmega"),
                  "F3b: the source must be untouched — the pattern secret survives");
         QVERIFY2(pdfTextContains(src, "PUBLIC_KEEP_TEXT"),
                  "F3b: the source must be untouched — the public text intact");
