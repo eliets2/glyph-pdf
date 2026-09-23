@@ -4068,6 +4068,47 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormJsCalc.cpp")
     set_tests_properties(TestFormJsCalc PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 240 LABELS "unit;forms;form-js;javascript;persistence;qt;headless")
 endif()
 
+# Phase-D review lane (feat/formjs-review): the adversarial suite for the
+# form-JS sandbox — isolation, limits, re-entrancy, crash safety, host-API
+# surface and kill-switch policy. See tests/TestFormJsAdversarial.cpp and
+# docs/audit/FORMJS-THREAT-MODEL-2026-09-24.md.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormJsAdversarial.cpp")
+    add_executable(TestFormJsAdversarial
+        tests/TestFormJsAdversarial.cpp
+    )
+    target_include_directories(TestFormJsAdversarial PRIVATE src tests)
+    target_link_libraries(TestFormJsAdversarial PRIVATE
+        pdfws_engines pdfws_core pdfws_commands podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET TestFormJsAdversarial POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestFormJsAdversarial>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestFormJsAdversarial>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFormJsAdversarial"
+    )
+    if(WIN32)
+        add_custom_command(TARGET TestFormJsAdversarial POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestFormJsAdversarial>/libpodofo.dll"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestFormJsAdversarial"
+        )
+    endif()
+    if(QUICKJS_RUNTIME_DLL AND EXISTS "${QUICKJS_RUNTIME_DLL}")
+        add_custom_command(TARGET TestFormJsAdversarial POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${QUICKJS_RUNTIME_DLL}"
+                "$<TARGET_FILE_DIR:TestFormJsAdversarial>"
+            COMMENT "Deploying quickjs-ng runtime DLL for TestFormJsAdversarial"
+        )
+    endif()
+    add_test(NAME TestFormJsAdversarial COMMAND TestFormJsAdversarial)
+    set_tests_properties(TestFormJsAdversarial PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 240 LABELS "unit;forms;form-js;javascript;adversarial;qt;headless")
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormStaleDisclosure.cpp")
     add_executable(TestFormStaleDisclosure
         tests/TestFormStaleDisclosure.cpp
