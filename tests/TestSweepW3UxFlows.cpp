@@ -747,8 +747,16 @@ private slots:
         // is how a user resets it; QMetaObject drives the same slot).
         QMetaObject::invokeMethod(bm, "onClearFiles", Qt::DirectConnection);
         bm->addFilesForTest({ src2 });
+        // batchFinished is emitted by onBatchFinished AFTER its G12 drain,
+        // i.e. with the counters FINAL. Waiting on !isBatchRunning() raced
+        // the queued resultReadyAt accounting (the worker can finish before
+        // the slot reaches the wait; isRunning() flips false while the
+        // accounting events are still pending) — the standalone failure at
+        // the re-run assert read success=0 fail=0 while the engine log showed
+        // the file WAS processed. The spy counts all three runs below.
+        QSignalSpy finishedSpy(bm, &gp::BatchMode::batchFinished);
         bm->onRunBatch();
-        QTRY_VERIFY_WITH_TIMEOUT(!bm->isBatchRunning(), 60000);
+        QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.size(), 1, 60000);
         const QString log1 = bm->findChildren<QTextEdit *>().first()->toPlainText();
         step(QStringLiteral("F2b step4: preset run finished — success=%1 fail=%2 skip=%3; log: %4")
                  .arg(bm->successCount()).arg(bm->failCount()).arg(bm->skipCount())
@@ -762,7 +770,7 @@ private slots:
         QMetaObject::invokeMethod(bm, "onClearFiles", Qt::DirectConnection);
         bm->addFilesForTest({ src3 });
         bm->onRunBatch();
-        QTRY_VERIFY_WITH_TIMEOUT(!bm->isBatchRunning(), 60000);
+        QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.size(), 2, 60000);
         const QString log2 = bm->findChildren<QTextEdit *>().first()->toPlainText();
         step(QStringLiteral("F2b step5: identical re-run - success=%1 fail=%2; log: %3")
                  .arg(bm->successCount()).arg(bm->failCount()).arg(log2.left(200)));
@@ -786,7 +794,7 @@ private slots:
         bm->addFilesForTest({ m1, m2 });
         const int successBefore = bm->successCount();   // counter is cumulative
         bm->onRunBatch();
-        QTRY_VERIFY_WITH_TIMEOUT(!bm->isBatchRunning(), 60000);
+        QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.size(), 3, 60000);
         QCOMPARE(bm->successCount(), successBefore + 1);
         QCOMPARE(bm->failCount(), 0);
         const QString mergedOut = dir.filePath("mpart1_merged.pdf");
