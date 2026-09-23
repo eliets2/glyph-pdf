@@ -8,6 +8,7 @@
 #include <QRectF>
 #include <QPointF>
 #include <memory>
+#include <vector>
 
 class PoDoFoBackend final : public IPdfDocument, public IPdfWriter {
 public:
@@ -76,6 +77,16 @@ public:
                         double lineSpacing = 1.0);
     bool deleteObjectAt(int pageIndex, const QPointF &pos);
     bool applyRedactions(int pageIndex, const QList<QRectF> &rects);
+    // PGR-37 (D2 delta review 2026-09-23): the SAME excision surgery in RAW
+    // USER space — rects taken verbatim as content-stream coordinates (the
+    // space the surgery itself operates in), with NO viewer transform.
+    // Consumer: the PatternRedactor-fed paths (applyPatternRedactions[Multi]),
+    // whose producer emits raw user-space char boxes (FPDFText_GetCharBox).
+    // applyRedactions (viewer space, the L8 viewerToUser law) remains the
+    // contract for VIEWER-produced marks; feeding PDFium-derived rects
+    // through that transform transposes the excision on /Rotate 90/270 pages
+    // and shifts it by the MediaBox origin — a silent redaction false success.
+    bool applyRedactionsUserSpace(int pageIndex, const QList<QRectF> &userRects);
 
     // T2-2 (ITextReplacer): Find & Replace — excise every matched region,
     // cover it white, draw the replacement at the match origin in the match's
@@ -173,4 +184,11 @@ private:
     // Shared body of writeUpdate()/commitMutation(): `mutationTransaction`
     // selects the rollback-on-failure semantics.
     bool commitMutationImpl(const QString &path, bool mutationTransaction);
+
+    // PGR-37: the redaction surgery body shared by applyRedactions (viewer
+    // marks mapped via PageSpace::viewerToUser) and applyRedactionsUserSpace
+    // (PDFium-derived rects taken verbatim). d->mutex held; pageIndex
+    // validated; abort reason cleared. `userRects` are RAW USER space; the
+    // PoDoFo Rect conversion happens inside (this header stays PoDoFo-free).
+    bool applyRedactionsMappedLocked(int pageIndex, const QList<QRectF> &userRects);
 };

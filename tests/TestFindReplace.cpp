@@ -380,10 +380,13 @@ private slots:
                                            "(single-line height), got height %1 — "
                                            "supplementary chars shifted the geometry")
                                .arg(rect.height())));
-        // And it must be the alpha line (y=700), not the emoji (760) or the
-        // omega line (640): in Qt top-left coords the alpha band is around
-        // pageHeight(842)-712 .. 842-700.
-        QVERIFY2(rect.top() > 842.0 - 760.0 && rect.bottom() < 842.0 - 640.0,
+        // And it must be the alpha line (drawn at user y≈700), not the emoji
+        // (≈760) or the omega line (≈640). PGR-37: TextMatch::rect is now RAW
+        // PDF USER space stored y-up (y() = the LOWER edge), so the band is
+        // expressed in user coordinates directly: the box's lower edge must
+        // sit above the omega line and its upper edge below the emoji line —
+        // the same strict band the old top-left convention pinned.
+        QVERIFY2(rect.top() > 640.0 && rect.bottom() < 760.0,
                  qPrintable(QStringLiteral("match box must sit in the alpha line band, "
                                            "got %1x%2+%3+%4")
                                .arg(rect.width()).arg(rect.height())

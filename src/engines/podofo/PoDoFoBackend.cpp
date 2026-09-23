@@ -2785,6 +2785,73 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
     d->redactionAbortReason.clear();
 
     try {
+        PoDoFo::PdfPage& page = d->document->GetPages().GetPageAt(pageIndex);
+        // SEP13 L8: the excision rects MUST land in raw user space via the
+        // shared viewer→user transform — the old Height-only flip dropped the
+        // MediaBox lower-left origin (the excision MISSED the secret on
+        // offset-origin pages while still reporting Completed) and ignored
+        // /Rotate entirely. This entry is the VIEWER-mark contract: `rects`
+        // are viewer-space marks (the documented PageSpace convention).
+        const gp::PageSpace::PageGeometry pageGeo = gp::PageSpace::pageGeometry(page);
+
+        QList<QRectF> userRects;
+        userRects.reserve(rects.size());
+        for (const auto& r : rects) {
+            const QRectF user = gp::PageSpace::viewerToUser(r, pageGeo); // y-up: y() = lower edge
+            userRects.append(user);
+        }
+        return applyRedactionsMappedLocked(pageIndex, userRects);
+    } catch (const PoDoFo::PdfError& e) {
+        qCritical() << "SECURITY: Redaction failed on page" << pageIndex << "-" << e.what()
+                    << "— document state may be inconsistent, do NOT save.";
+        return false;
+    } catch (const std::exception& e) {
+        qCritical() << "SECURITY: General exception during redaction on page" << pageIndex << "-" << e.what();
+        return false;
+    } catch (...) {
+        qCritical() << "SECURITY: Unknown exception during redaction on page" << pageIndex;
+        return false;
+    }
+}
+
+// PGR-37 (D2 delta review 2026-09-23): the RAW-USER-SPACE entry — `userRects`
+// are taken verbatim as content-stream coordinates. The PDFium-derived
+// producers (PatternRedactor / TextMatchFinder char boxes) emit exactly this
+// space; routing their rects through applyRedactions' viewer transform
+// transposed the excision on /Rotate 90/270 pages and shifted it by the
+// MediaBox origin on offset-origin pages — a silent redaction false success
+// (matched content survived while the operation reported success).
+bool PoDoFoBackend::applyRedactionsUserSpace(int pageIndex, const QList<QRectF> &userRects) {
+    QMutexLocker locker(&d->mutex);
+    if (!d->document || pageIndex < 0 || (unsigned)pageIndex >= d->document->GetPages().GetCount()) return false;
+    d->redactionAbortReason.clear();
+
+    try {
+        return applyRedactionsMappedLocked(pageIndex, userRects);
+    } catch (const PoDoFo::PdfError& e) {
+        qCritical() << "SECURITY: Redaction failed on page" << pageIndex << "-" << e.what()
+                    << "— document state may be inconsistent, do NOT save.";
+        return false;
+    } catch (const std::exception& e) {
+        qCritical() << "SECURITY: General exception during redaction on page" << pageIndex << "-" << e.what();
+        return false;
+    } catch (...) {
+        qCritical() << "SECURITY: Unknown exception during redaction on page" << pageIndex;
+        return false;
+    }
+}
+
+// Shared surgery body (d->mutex held; index validated; abort reason cleared):
+// the audit-log gate, the excision, the black cover, annotation/field-value
+// removal and structure-tree cleanup — everything after the caller's
+// rect-space mapping.
+bool PoDoFoBackend::applyRedactionsMappedLocked(int pageIndex,
+                                                const QList<QRectF> &userRects) {
+    try {
+        std::vector<PoDoFo::Rect> pdfRects;
+        pdfRects.reserve(size_t(userRects.size()));
+        for (const auto& r : userRects)
+            pdfRects.push_back(PoDoFo::Rect(r.x(), r.y(), r.width(), r.height()));
         // F-05: the audit log is OPT-IN and OFF by default. When co-located with
         // the output it leaked the redacted-region coordinates and a SHA-256 of
         // the UN-redacted source (a fingerprint that can confirm the original
@@ -2799,18 +2866,6 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
         }();
 
         PoDoFo::PdfPage& page = d->document->GetPages().GetPageAt(pageIndex);
-        // SEP13 L8: the excision rects MUST land in raw user space via the
-        // shared viewer→user transform — the old Height-only flip dropped the
-        // MediaBox lower-left origin (the excision MISSED the secret on
-        // offset-origin pages while still reporting Completed) and ignored
-        // /Rotate entirely.
-        const gp::PageSpace::PageGeometry pageGeo = gp::PageSpace::pageGeometry(page);
-
-        std::vector<PoDoFo::Rect> pdfRects;
-        for (const auto& r : rects) {
-            const QRectF user = gp::PageSpace::viewerToUser(r, pageGeo); // y-up: y() = lower edge
-            pdfRects.push_back(PoDoFo::Rect(user.x(), user.y(), user.width(), user.height()));
-        }
 
         std::set<int64_t> redactedMcids;
         // Original semantics preserved: a page with NO /Contents object never
@@ -2968,7 +3023,7 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
                 // Identify the document by name only; do NOT store a hash of the
                 // un-redacted source.
                 entry["file"] = QFileInfo(d->currentFile).fileName();
-                entry["region_count"] = static_cast<int>(rects.size());
+                entry["region_count"] = static_cast<int>(userRects.size());
 
                 QJsonArray ops;
                 ops.append("excised_text_operators");
@@ -3039,14 +3094,20 @@ bool PoDoFoBackend::replaceTextRegions(const QList<TextReplacementSpec>& specs,
 
         for (auto it = perPage.constBegin(); it != perPage.constEnd(); ++it) {
             PoDoFo::PdfPage& page = d->document->GetPages().GetPageAt(it.key());
-            const double pageHeight = page.GetMediaBox().Height;
 
+            // PGR-37 (D2 delta review 2026-09-23): spec->rect is RAW USER space
+            // (TextMatchFinder emits FPDFText_GetCharBox boxes y-up, no viewer
+            // transform) — taken verbatim. The old local `pageHeight - y`
+            // flip was the exact re-derivation PageSpaceTransform.h forbids:
+            // it only cancelled when PoDoFo's (rotation-normalized) MediaBox
+            // height equals PDFium's display height, which breaks on
+            // CropBox≠MediaBox documents — the excision missed the matched
+            // text while the replace reported success.
             std::vector<PoDoFo::Rect> pdfRects;
             pdfRects.reserve(it.value().size());
             for (const auto* spec : it.value()) {
                 const QRectF& r = spec->rect;
-                pdfRects.push_back(PoDoFo::Rect(r.x(), pageHeight - r.y() - r.height(),
-                                                r.width(), r.height()));
+                pdfRects.push_back(PoDoFo::Rect(r.x(), r.y(), r.width(), r.height()));
             }
 
             std::set<int64_t> mcids;
@@ -3068,10 +3129,12 @@ bool PoDoFoBackend::replaceTextRegions(const QList<TextReplacementSpec>& specs,
             for (const auto* spec : it.value()) {
                 const double fontSize = spec->fontSize > 0.0 ? spec->fontSize : 12.0;
                 const QRectF& r = spec->rect;
-                // Baseline: the match rect's top edge minus an ascent
-                // approximation, so the drawn line sits where the excised
-                // glyphs sat (PDFium boxes span ascender..descender ink).
-                const double pdfTop = pageHeight - r.y();
+                // Baseline: the match rect's TOP edge in raw user space (the
+                // QRectF is stored y-up: y() is the LOWER edge) minus an
+                // ascent approximation, so the drawn line sits where the
+                // excised glyphs sat (PDFium boxes span ascender..descender
+                // ink).
+                const double pdfTop = r.y() + r.height();
                 double baseline = pdfTop - fontSize * 0.8;
                 painter.GraphicsState.SetNonStrokingColor(PoDoFo::PdfColor(0.0, 0.0, 0.0));
                 painter.TextState.SetFont(font, fontSize);

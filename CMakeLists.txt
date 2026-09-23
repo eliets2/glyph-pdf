@@ -5778,3 +5778,36 @@ foreach(_gp_test IN LISTS _gp_all_tests)
     set_property(TEST ${_gp_test} APPEND PROPERTY ENVIRONMENT
         "TMP=${_gp_test_tmp}" "TEMP=${_gp_test_tmp}" "TMPDIR=${_gp_test_tmp}")
 endforeach()
+
+# ── PGR-37 (D2 delta review 2026-09-23): the page-space law end-to-end ───────
+# Pattern/replace excision through the RAW USER space contract: producers
+# (PatternRedactor / TextMatchFinder) emit FPDFText_GetCharBox rects verbatim;
+# the excision consumes them through applyRedactionsUserSpace /
+# replaceTextRegions. Fail-before seeds for the SEP13 L8 producer regression
+# (rotated + offset-origin + CropBox≠MediaBox fixtures; property oracle: the
+# matched text must NOT survive in the saved artifact).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPgr37PageSpaceLaw.cpp")
+    add_executable(TestPgr37PageSpaceLaw
+        tests/TestPgr37PageSpaceLaw.cpp
+    )
+    target_include_directories(TestPgr37PageSpaceLaw PRIVATE src tests)
+    target_link_libraries(TestPgr37PageSpaceLaw PRIVATE
+        pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestPgr37PageSpaceLaw POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestPgr37PageSpaceLaw>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestPgr37PageSpaceLaw>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestPgr37PageSpaceLaw"
+    )
+    add_test(NAME TestPgr37PageSpaceLaw COMMAND TestPgr37PageSpaceLaw)
+    set_tests_properties(TestPgr37PageSpaceLaw PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;security;redaction;pagespace;pgr37;qt;headless"
+    )
+endif()
