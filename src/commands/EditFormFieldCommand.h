@@ -1,86 +1,264 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
+#include <QDebug>
 #include <QUndoCommand>
-#include <QString>
 #include "core/interfaces/IFormManager.h"
+#include "core/FormStaleFieldTracker.h"
 #include "engines/DocumentSession.h"
+#include "commands/CheckedHistory.h"
+#include "shell/EditPolicy.h"
 
 /// Properties bundle passed to EditFormFieldCommand.
+///
+/// R02 (F09) documented persistence contract:
+///   - `tooltip`    → /TU   (persisted; empty clears the key)
+///   - `required`   → /Ff bit 2 (persisted)
+///   - `defaultVal` → the field's CURRENT value, PDF /V (this is what the
+///     properties panel's "Default" row has always edited, applied via
+///     fillForm's SetText). An explicitly empty string CLEARS the value.
+///   - `name`       → NOT persisted. Renaming an AcroForm field has no
+///     complete persistence contract yet (full name lives in the field tree
+///     and every widget's /T); the panel's Name row is display-only here.
+///   - `placeholder`, `validRegex` → NOT persisted. Neither PDF AcroForm nor
+///     this engine has a persistence contract for them; they stay client-side
+///     panel state and are deliberately ignored by this command.
 struct EditFormFieldProperties {
-    QString name;           ///< New field name (may be the same as old name)
-    QString tooltip;        ///< Tooltip / user-visible description
+    QString name;           ///< New field name (NOT applied — rename is out of scope)
+    QString tooltip;        ///< Tooltip / user-visible description → /TU
     bool    required = false;
-    QString defaultVal;     ///< Default value (text fields)
-    QString placeholder;    ///< Placeholder text shown when field is empty
-    QString validRegex;     ///< Optional validation regex (empty = no validation)
+    QString defaultVal;     ///< Field CURRENT value (/V); empty clears it
+    QString placeholder;    ///< Placeholder text (NOT persisted — no contract)
+    QString validRegex;     ///< Optional validation regex (NOT persisted — no contract)
 };
 
-/// Undo/redo command for editing form field metadata.
-/// Uses IFormManager::fillForm to update the field value stored in the PDF.
-/// Full round-trip (name rename, tooltip, JS actions) requires PoDoFo direct
-/// access which is intentionally hidden behind IFormManager; those properties
-/// are stored client-side for display in FormFieldPropertiesPanel and applied
-/// to the document via fillForm for the value/default fields.
-class EditFormFieldCommand : public QUndoCommand {
+/// Undo/redo command for editing form field properties.
+///
+/// R02 (F09) fix: the COMPLETE supported state is captured as a
+/// FormFieldSnapshot BEFORE the first mutation (constructor reads the document
+/// from disk). Redo applies the new snapshot, undo applies the old one — both
+/// through IFormManager::applyFieldSnapshot, which persists value + tooltip +
+/// required as ONE transactional mutation with ONE R01 safe-save commit, so a
+/// failed edit cannot partially persist metadata. Snapshots are captured
+/// exactly once: redo after undo re-applies the stored new snapshot and never
+/// recaptures the edited state as the original. Missing fields resolve
+/// explicitly (found == false → the command fails without writing); duplicate
+/// full names address the first occurrence.
+///
+/// Failure handling respects QUndoStack ownership: push() (Qt 5.15 through
+/// 6.x, not a 6.11 novelty) DELETES a command that is obsolete after its
+/// initial redo() (no undo entry at all);
+/// during traversal, obsolete commands are skipped. Callers must not
+/// dereference a pushed command after a possibly-failed push — inspect
+/// succeeded()/lastError() via a direct redo() instead.
+class EditFormFieldCommand : public CheckedUndoCommand {
 public:
+    // Phase-1 form-JS: when non-null, `jsFailures` receives the per-field
+    // calculate-cascade failures from the redo (apply) — the edit itself
+    // persists; failed calculated fields keep their committed value and the
+    // caller surfaces them. Survives push() deleting an obsolete command:
+    // the list is written during push's initial redo and outlives the command.
+    //
+    // r18-review F1/F2 (2026-09-13): two more caller-owned sinks.
+    //   * `staleTracker` — when non-null, EVERY successful performApply AND
+    //     performRestore (panel push, redo traversal, checked apply, undo /
+    //     checked restore) feeds the tracker with THAT cascade's outcome at
+    //     this one shared committed-transaction boundary. History traversal
+    //     recomputes fields exactly like an apply does, so the stale state
+    //     must follow it (an undo/redo that recomputes successfully CLEARS
+    //     the stale set; one whose cascade failed re-records the fields it
+    //     could not recompute). The tracker is AppContext-lifetime and
+    //     outlives every command in the stack — a raw pointer is safe here.
+    //   * `applySuccess` — the explicit apply result of the most recent
+    //     performApply, written during push's initial redo and outliving a
+    //     push that deletes an obsolete command. Replaces the old caller-side
+    //     stack-count arithmetic, which misread an undo-limit discard
+    //     (count() stays EQUAL: the oldest command is deleted) and a
+    //     redo-stack flush (count() DROPS) as "not applied" — omitting the
+    //     tracker feed exactly when a real recompute happened.
     EditFormFieldCommand(IFormManager* engine,
                          DocumentSession* doc,
                          const QString& originalName,
-                         const EditFormFieldProperties& newProps)
+                         const EditFormFieldProperties& newProps,
+                         QList<FormJsFailure>* jsFailures = nullptr,
+                         gp::FormStaleFieldTracker* staleTracker = nullptr,
+                         bool* applySuccess = nullptr)
         : m_engine(engine)
         , m_doc(doc)
-        , m_originalName(originalName)
         , m_newProps(newProps)
+        , m_jsFailures(jsFailures)
+        , m_staleTracker(staleTracker)
+        , m_applySuccess(applySuccess)
     {
+        if (m_jsFailures) m_jsFailures->clear();
+        if (m_applySuccess) *m_applySuccess = false;
         setText(QObject::tr("Edit form field"));
-
-        // Store old props (name only — other props are not readable back from
-        // IFormManager in v1.0.0; they are stored as undo state)
         m_oldProps.name = originalName;
+
+        // Capture BEFORE the first mutation. If engine/document are unusable
+        // the snapshot stays found == false and every redo() fails explicitly.
+        if (engine && doc && !doc->path().isEmpty())
+            m_old = engine->captureFieldSnapshot(doc->path(), originalName);
+
+        // The new state starts from the captured state and overrides ONLY the
+        // properties the panel edits — unrelated metadata (/DV, other /Ff
+        // bits, other fields) is preserved exactly through redo and undo.
+        m_new = m_old;
+        m_new.tooltip = newProps.tooltip;
+        m_new.tooltipPresent = !newProps.tooltip.isEmpty(); // empty clears /TU
+        m_new.required = newProps.required;
+        m_new.value = newProps.defaultVal;  // documented meaning: current value /V
+        m_new.valuePresent = true;          // the panel always writes /V, even explicitly empty
     }
 
     void redo() override {
-        if (!m_engine || !m_doc || m_doc->path().isEmpty()) return;
-        // Apply new default value via fillForm if the default value changed
-        if (!m_newProps.defaultVal.isEmpty()) {
-            QVariantMap data;
-            data[m_originalName] = m_newProps.defaultVal;
-            m_engine->fillForm(m_doc->path(), data, m_doc->path(), /*lockFields=*/false);
+        m_succeeded = false;
+        m_error.clear();
+        if (!performApply(&m_error)) {
+            setObsolete(true);
+            return;
         }
-        // §9.6 P0: persist Required + Tooltip as real PDF /Ff and /TU keys.
-        m_engine->setFieldMetadata(m_doc->path(), m_originalName,
-                                   m_newProps.tooltip, m_newProps.required,
-                                   m_doc->path());
-        m_doc->markReload();
+        m_succeeded = true;
         setObsolete(false);
     }
 
-    void undo() override {
-        if (!m_engine || !m_doc || m_doc->path().isEmpty()) return;
-        // Restore old default value
-        if (!m_oldProps.defaultVal.isEmpty()) {
-            QVariantMap data;
-            data[m_originalName] = m_oldProps.defaultVal;
-            m_engine->fillForm(m_doc->path(), data, m_doc->path(), /*lockFields=*/false);
+    // WP-R03 (WHOLE-ARCHITECTURE-REVIEW A02): the checked APPLY side — the
+    // same snapshot application redo() performs, but without moving the
+    // history index. A failed application leaves the index, the clean state
+    // and the retryability untouched.
+    bool applyChecked() override {
+        QString err;
+        if (!performApply(&err)) {
+            if (!m_doc) return false;
+            qWarning() << "EditFormFieldCommand::redo (checked) failed for" << m_oldProps.name;
+            emit m_doc->mutationFailed(err);
+            return false;
         }
-        // §9.6 P0: restore old metadata (old values are not readable back from
-        // IFormManager in v1.0.0 — same undo-state limitation as defaultVal).
-        m_engine->setFieldMetadata(m_doc->path(), m_originalName,
-                                   m_oldProps.tooltip, m_oldProps.required,
-                                   m_doc->path());
-        m_doc->markReload();
+        armCheckedApply();
+        return true;
+    }
+
+    // G08 (QUALITY-GATE-2026-09-09): the restoration is a CHECKED traversal —
+    // restoreChecked() applies the original snapshot while the history index
+    // is still untouched; only a successful restoration arms the follow-up
+    // QUndoStack::undo() that moves the position (undo() then only consumes
+    // the arm). A FAILED restoration leaves this command current, the index
+    // and the clean state unchanged, and the traversal RETRYABLE.
+    bool restoreChecked() override {
+        if (!performRestore()) {
+            if (!m_doc)
+                return false;
+            qWarning() << "EditFormFieldCommand::undo failed for" << m_oldProps.name;
+            // The failure is reported to the history owner — the state stays
+            // truthful: no markReload, disk (and viewer) still carry the
+            // edited values, the command stays current and retryable.
+            emit m_doc->mutationFailed(m_restoreFailureReason());
+            return false;
+        }
+        armCheckedRestore();
+        return true;
+    }
+
+    void undo() override {
+        if (consumeArmedRestore())
+            return;   // the checked traversal already restored; index-move only
+        if (!m_engine || !m_doc || m_doc->path().isEmpty())
+            return;   // nothing to restore against (pre-fix semantics)
+        if (performRestore())
+            return;
+        // V02 residual (step-3 history truthfulness): the failed restore used
+        // to be a silent qWarning while Qt moved the history index. The raw
+        // stack->undo() path still reports, and the checked traversal
+        // (CheckedHistory::undo — the production seam) never reaches this
+        // point at all: the index does not move for a failed restoration.
+        emit m_doc->mutationFailed(m_restoreFailureReason());
     }
 
     int id() const override { return 0x105; }
 
-    const QString& originalName() const { return m_originalName; }
+    const QString& originalName() const { return m_oldProps.name; }
     const EditFormFieldProperties& newProps() const { return m_newProps; }
     const EditFormFieldProperties& oldProps() const { return m_oldProps; }
+    const FormFieldSnapshot& oldSnapshot() const { return m_old; }
+    const FormFieldSnapshot& newSnapshot() const { return m_new; }
+
+    /// R02: true when the most recent redo() persisted successfully.
+    bool succeeded() const { return m_succeeded; }
+    const QString& lastError() const { return m_error; }
 
 private:
     IFormManager*            m_engine;
     DocumentSession*         m_doc;
-    QString                  m_originalName;
     EditFormFieldProperties  m_newProps;
-    EditFormFieldProperties  m_oldProps;  // captured at command creation
+    EditFormFieldProperties  m_oldProps;  // carries the original name for introspection
+    FormFieldSnapshot        m_old;       // captured ONCE at construction, before any mutation
+    FormFieldSnapshot        m_new;       // derived from m_old: only panel-edited fields differ
+    QList<FormJsFailure>*    m_jsFailures = nullptr; // optional Phase-1 cascade report
+    bool                     m_succeeded = false;
+    QString                  m_error;
+
+    // WP-R03: the shared mutation body — apply the NEW snapshot as one
+    // transactional mutation. Returns false with a reason; no obsoletion.
+    // r18-review F1/F2: the cascade failures are ALWAYS captured (both apply
+    // and restore) so the explicit result sink, the caller's report list and
+    // the stale-field tracker all see the same committed outcome.
+    bool performApply(QString* err) {
+        if (m_applySuccess) *m_applySuccess = false;
+        m_lastCascadeFailures.clear();
+        if (!m_engine || !m_doc || m_doc->path().isEmpty()) {
+            if (err) *err = QObject::tr("no engine/document for edit form field");
+            return false;
+        }
+        // emergence E-1 (SWEEP-W3-EMERGENCE §6, defense in depth): the ONE
+        // read-only policy is consulted at the persistence boundary too — no
+        // caller state can push a form-field edit onto an expired document
+        // behind the panel's gate. applyFieldSnapshot ends in an atomic
+        // commit to the document path, exactly the write ARC07 refuses here.
+        if (m_doc->isReadOnly()) {
+            if (err) *err = gp::EditPolicy::readOnlyMessage();
+            return false;
+        }
+        if (!m_old.found) {
+            if (err) *err = QObject::tr("field %1 not found; nothing was changed").arg(m_oldProps.name);
+            return false;
+        }
+        if (!m_engine->applyFieldSnapshot(m_doc->path(), m_new, m_doc->path(), &m_lastCascadeFailures)) {
+            if (err) *err = QObject::tr("editing form field %1 failed; document left unchanged").arg(m_oldProps.name);
+            return false;
+        }
+        m_doc->markReload();
+        if (m_jsFailures) *m_jsFailures = m_lastCascadeFailures;
+        // r18-review F2: this committed apply IS a recompute — the tracker's
+        // replace rule consumes the outcome here, at the one boundary every
+        // apply path (panel push, redo traversal, checked apply) shares.
+        if (m_staleTracker)
+            m_staleTracker->applyCascadeOutcome(m_doc->path(), m_lastCascadeFailures);
+        if (m_applySuccess) *m_applySuccess = true;
+        return true;
+    }
+
+    // G08: the shared restoration body — apply the ORIGINAL snapshot as one
+    // transactional mutation. Reports nothing; callers own the reporting.
+    bool performRestore() {
+        if (!m_engine || !m_doc || m_doc->path().isEmpty()) return false;
+        if (!m_old.found) return true; // nothing was ever applied — restored by definition
+        m_lastCascadeFailures.clear();
+        if (!m_engine->applyFieldSnapshot(m_doc->path(), m_old, m_doc->path(), &m_lastCascadeFailures))
+            return false;
+        m_doc->markReload();
+        // r18-review F2: an undo/redo traversal recomputes fields exactly like
+        // an apply does — its outcome replaces the stale set the same way, so
+        // the warning never describes a value the document no longer has.
+        if (m_staleTracker)
+            m_staleTracker->applyCascadeOutcome(m_doc->path(), m_lastCascadeFailures);
+        return true;
+    }
+    QString m_restoreFailureReason() const {
+        return QObject::tr(
+            "Undo of the form-field edit failed for '%1'; the edited values are still in effect.")
+                .arg(m_oldProps.name);
+    }
+
+    QList<FormJsFailure> m_lastCascadeFailures; // cascade report of the latest apply/restore
+    gp::FormStaleFieldTracker* m_staleTracker = nullptr; // AppContext-lifetime; nullable
+    bool* m_applySuccess = nullptr; // caller-owned explicit result sink (r18-review F1)
 };

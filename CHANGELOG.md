@@ -2,6 +2,84 @@
 
 All notable changes to GlyphPDF are documented in this file.
 
+## [Unreleased]
+
+The September 2026 parity wave: twelve engine-repair packages (F01–F12), the
+U01–U08 UI packages, and follow-up code-review passes over the branch. The
+September plan is complete — all 21 packages have landed — and every item below
+is implemented with regression tests but **awaiting independent review**.
+Per-item commits, evidence, and residual limitations are tracked in
+`docs/audit/CURRENT-EVIDENCE-LEDGER-2026-09-05.md`; nothing here is claimed as
+verified.
+
+### Security & correctness fixes
+
+- **Redaction**: "Mark All" honors an explicit page list (an invalid range marks
+  nothing instead of falling back to all pages); the saved copy offers
+  sanitization default-ON and both entry paths share that default; the operation
+  runs as one transaction with explicit output/failure states and a SHA-256
+  check that the source file is unchanged; excision no longer corrupts a
+  byte-adjacent text operator in the same content stream; Cancel/Back keeps the
+  marks and disarms the tool.
+- **Forms**: a failed form write leaves the source PDF byte-identical (a runtime
+  repro previously truncated it to 0 bytes) and same-file edits survive reopen;
+  field edits undo back to the original value/tooltip/required state;
+  auto-detected fields join one compound undo command, and status messages no
+  longer claim "document unchanged" when the document changed.
+- **AI (Ollama)**: timeouts and panel teardown can no longer produce a late
+  callback into a destroyed owner — exactly one result per request, retry-safe
+  on the same instance; the loopback guard parses hostnames instead of
+  string-matching, so lookalikes such as `127.audit.invalid` are rejected.
+- **OCR**: 1-bit binarization keeps paper light and strokes dark; deskew
+  estimates on the binarized image and maps word boxes back through the inverse
+  transform; every terminal OCR outcome leaves the review panel recoverable;
+  reviewed text survives save and text extraction, on the correct page; stale
+  reviews of a re-mutated document are rejected via a mutation revision; word
+  overlays now paint exactly on the displayed scan.
+- **PDF/A**: PDF/A-2U/3U export no longer silently downgrades to 1B, and
+  PDF/A-3 writes a PDF 1.7 header instead of PDF 2.0; the version switch is
+  asserted per level.
+- **Compare**: added/removed pages appear in the change tree, navigation, and
+  reports; middle-page insertions align via deterministic page fingerprints;
+  ordinary text edits no longer surface as structural page removal + addition;
+  change-type filters gate the tree and results drive both panes.
+- **Split**: real execution writes the output parts (the production path
+  previously produced none), one output per range segment as
+  `<stem>_part{n}.pdf`.
+- **Signatures**: Draw/Type/Upload picker modes persist as real PDF annotations;
+  signatures render a visible appearance (ETSI layout, auto-fit, certificate
+  CN/date/reason/location); per-signature validity badges are anchored to the
+  actual field rectangles; the Initials/Upload tabs dispatch the right kind; the
+  session signature cache follows document switches and reuse re-enables
+  signing; a retry keeps the appearance image.
+- **Navigation**: one entry per task with a single status-bar writer — the OCR
+  entry opens the verify screen from every surface (three-layer drift resolved).
+- **Viewing**: annotations and search highlights are visible in two-page mode.
+
+### Added
+
+- **Capability registry**: pre-execution capability/scope disclosure consumed by
+  Compress, Convert, Batch, and the signature picker; the RapidOCR probe no
+  longer reports available on empty model stubs.
+- **Table-column extraction**: text runs split on gaps and font changes, and
+  CSV/XLSX export addresses true columns instead of one cell per line.
+- **Batch**: named redaction presets (Email/Phone-US/SSN) and configurable
+  Optimize DPI presets; per-item capability pre-flight before processing.
+- **Redaction**: word-list import for pattern redaction (review before mark);
+  optional overlay text on burn-in boxes, carried through both entry paths.
+- **Compression**: measured before/after size readout; JPEG quality/DPI
+  re-encoding; `optimizeDocument` refuses signed documents.
+- **Comments**: filter summary with count and clear, a table view of the same
+  records, and CSV export.
+- **Export/import**: in-house .docx/.xlsx writers (no HTML/CSV mislabeling); a
+  local-processing notice on export paths and import cards; unavailable formats
+  fail before any file is written; subset-font/Unicode text extracts correctly.
+- **Pages/Welcome**: fixed drag-reorder (silently dead in the live path),
+  selection visibility, insertion indicator, keyboard moves; responsive Welcome
+  card grid.
+- **Page Labels groundwork**: pure seams + tests; writer/UI deferred with a
+  scoping note.
+
 ## [1.3.2.3] — 2026-06-22
 
 Security & hardening release from a full multi-agent audit (security, dead-code,
@@ -146,7 +224,11 @@ Feature release closing nine PRD gaps.
 
 ### Added
 - Restored the **OCR Verify** review screen to navigation.
-- Annotation **Stamp, Callout, Erase** tools and comment **file attachments**.
+- Annotation **Stamp, Callout** tools and an **Erase** placeholder (Erase is not
+  yet functional; see Known Issues). Comment **file attachments are NOT
+  implemented** — the `attachmentPath` model field exists but no UI sets or
+  reads it yet. [Corrected 2026-07-01; the dead field was itself removed from
+  the model in cb635a8, 2026-09.]
 - **Calculated** AcroForm field — the 10th form-field type.
 - Batch **OCR, Merge, Redact** operations and **hot-folder watching**.
 - Compare **report export** (HTML/text) and **page-reorder detection**.

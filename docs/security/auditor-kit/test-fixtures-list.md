@@ -72,8 +72,7 @@ oracles; extend them for fuzzing.
 
 | Fixture | Used by |
 | :-- | :-- |
-| `tests/test_autosave_input.pdf` | `TestAutosave` |
-| `tests/mocks/MockFormManager.h`, `MockPdfEditorEngine.h`, `MockSignatureManager.h` | Mock-based tests |
+| `tests/mocks/MockPdfEditorEngine.h`, `MockSignatureManager.h` | Mock-based tests |
 
 ---
 

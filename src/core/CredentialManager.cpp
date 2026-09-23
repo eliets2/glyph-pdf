@@ -9,14 +9,23 @@
 #include <wincred.h>
 #endif
 
+#if defined(HAS_LIBSECRET)
+#include "core/LibSecretStore.h"
+#endif
+
 // AR-10 D4 — secret storage is now real on every platform and never silent-fails.
 //
 // Primary backend (Windows): the OS Credential Manager (DPAPI-backed vault).
-// Fallback (non-Windows, or a Windows write failure): an explicitly-labelled
-// AES-256-GCM EncryptedFileSecretStore that actually persists the key. The old
-// behaviour — `return false` off-Windows, silently dropping the user's API key
-// — is gone: a key the user enters is either durably stored or the failure is
-// reported, never both-silent-and-lost.
+// Primary backend (Linux, HAS_LIBSECRET builds — L07): the Secret Service via
+// libsecret (LibSecretStore). NATIVE-LINUX-READINESS-2026-09-10 L07: a locked
+// or unavailable keyring is a LOUD failure — when libsecret support is
+// compiled in, NO new secret is ever written through the identifier-derived
+// encrypted-file store (that derivation is obfuscation, not security).
+// Fallback (only when libsecret is NOT compiled in, or for reading
+// pre-existing entries on upgrade): the explicitly-labelled AES-256-GCM
+// EncryptedFileSecretStore. The old behaviour — `return false` off-Windows,
+// silently dropping the user's API key — is gone: a key the user enters is
+// either durably stored or the failure is reported, never both-silent-and-lost.
 
 namespace {
 QString targetFor(const QString& service) {
@@ -61,6 +70,14 @@ bool credDelete(const QString& service) {
 }
 #endif // _WIN32
 
+#if defined(HAS_LIBSECRET)
+// L07: the Linux primary store (Secret Service). Process-wide, lazily used.
+LibSecretStore& secretServiceStore() {
+    static LibSecretStore store;
+    return store;
+}
+#endif
+
 // Process-wide fallback store (encrypted file). Lazily constructed.
 EncryptedFileSecretStore& fallbackStore() {
     static EncryptedFileSecretStore store;
@@ -77,11 +94,22 @@ bool CredentialManager::storeKey(const QString& service, const QString& secret) 
         return true;
     // Credential Manager rejected the write — fall back rather than drop the key.
 #endif
+#if defined(HAS_LIBSECRET)
+    // L07: with Secret Service support compiled in, this is the ONLY
+    // non-Windows write path. A locked/unavailable keyring fails LOUDLY —
+    // never a silent downgrade to identifier-derived file encryption.
+    const bool ok = secretServiceStore().storeSecret(service, secret);
+    if (!ok)
+        qWarning() << "CredentialManager: Secret Service rejected the write for"
+                   << service << "(keyring locked or unavailable) — secret NOT stored";
+    return ok;
+#else
     const bool ok = fallbackStore().storeSecret(service, secret);
     if (!ok)
         qWarning() << "CredentialManager: could not store key for" << service
                    << "in any backend";
     return ok;
+#endif
 }
 
 QString CredentialManager::readKey(const QString& service) const {
@@ -91,7 +119,17 @@ QString CredentialManager::readKey(const QString& service) const {
     if (!fromVault.isEmpty())
         return fromVault;
 #endif
+#if defined(HAS_LIBSECRET)
+    const QString fromSecretService = secretServiceStore().readSecret(service);
+    if (!fromSecretService.isEmpty())
+        return fromSecretService;
+    // Migration: secrets written before the libsecret integration live in the
+    // labelled encrypted file — keep reading them so an upgrade never loses a
+    // key. NEW writes never land there (see storeKey).
     return fallbackStore().readSecret(service);
+#else
+    return fallbackStore().readSecret(service);
+#endif
 }
 
 bool CredentialManager::deleteKey(const QString& service) {
@@ -99,6 +137,9 @@ bool CredentialManager::deleteKey(const QString& service) {
     bool any = false;
 #ifdef _WIN32
     if (credDelete(service)) any = true;
+#endif
+#if defined(HAS_LIBSECRET)
+    if (secretServiceStore().deleteSecret(service)) any = true;
 #endif
     // Always also clear the fallback so a key cannot linger in one backend.
     if (fallbackStore().deleteSecret(service)) any = true;

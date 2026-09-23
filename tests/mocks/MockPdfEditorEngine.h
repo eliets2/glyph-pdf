@@ -3,25 +3,70 @@
 #include <QMap>
 #include <QImage>
 #include <QFile>
-
-// Forward declaration — IPdfEditorEngine.h already forward-declares PageOcrResult
-// using `struct PageOcrResult;` so we don't need the full OcrPipeline.h here.
+#include <QSemaphore>
 
 class MockPdfEditorEngine : public IPdfEditorEngine {
 public:
+    // EC02 test barrier: when armed, the save decision parks the caller so a
+    // test can switch documents mid-flight deterministically (no sleeps).
+    // One-shot per save call: saveDocumentIfCurrent passes the gate, then its
+    // saveDocument delegation sees null pointers and does not re-gate.
+    void saveGatePass() {
+        if (m_saveEntered) { QSemaphore* s = m_saveEntered; m_saveEntered = nullptr; s->release(); }
+        if (m_saveHold)    { QSemaphore* s = m_saveHold;    m_saveHold = nullptr;    s->acquire();  }
+    }
+
     bool loadDocumentForEditing(const QString &) override { m_loaded = true; return true; }
     bool saveDocument(const QString &path) override {
         ++m_saveCalls;
         m_lastSavedPath = path;
+        saveGatePass();
         if (m_loaded) {
             QFile f(path);
             if (f.open(QIODevice::WriteOnly)) {
-                f.write("mock");
+                f.write(m_saveWritesIdentity
+                            ? QByteArray("resident=") + m_file.toUtf8()
+                            : QByteArray("mock"));
                 f.close();
             }
             return true;
         }
         return false;
+    }
+    // EC02 (TEAM-ENGINE-CODE-REVIEW-2026-09-07): identity-guarded save — the
+    // resident document must still be `expectedCurrentFile` when the save
+    // decision is made, so a queued async writer can never serialize document
+    // B's bytes into a recovery path captured for document A.
+    // NOTE: deliberately no `override` keyword — pre-fix baselines (revert
+    // verification) have no such virtual yet; post-fix it implements
+    // IPdfDocumentIO::saveDocumentIfCurrent. Signature is pinned by the
+    // AutosaveManager call and the interface declaration.
+    bool saveDocumentIfCurrent(const QString &expectedCurrentFile, const QString &outputPath) {
+        ++m_saveIfCurrentCalls;
+        m_lastIfCurrentExpected = expectedCurrentFile;
+        saveGatePass();
+        if (m_file != expectedCurrentFile) {
+            m_lastIfCurrentRefusal = expectedCurrentFile;
+            return false;
+        }
+        return saveDocument(outputPath);
+    }
+    // G04 (QUALITY-GATE-2026-09-09): engine-owned resident-load identity and
+    // the identity+path-guarded overload. Again NO `override` — the members
+    // compile as plain members against pre-fix baselines and implement the
+    // interface post-fix. Tests simulate a reload by bumping m_loadId.
+    qint64 documentLoadId() const { return m_loadId; }
+    qint64 m_loadId = 1;
+    bool saveDocumentIfCurrent(const QString &expectedCurrentFile, qint64 expectedLoadId,
+                               const QString &outputPath) {
+        ++m_saveIfCurrentCalls;
+        m_lastIfCurrentExpected = expectedCurrentFile;
+        saveGatePass();
+        if (m_file != expectedCurrentFile || m_loadId != expectedLoadId) {
+            m_lastIfCurrentRefusal = expectedCurrentFile;
+            return false;
+        }
+        return saveDocument(outputPath);
     }
     bool editTextInline(int, const QRectF &, const QString &,
                         const QString & = {}, int = 0, const QColor & = Qt::black,
@@ -57,8 +102,28 @@ public:
         ++m_rotateCalls; return true;
     }
     bool replaceImage(int, const QString &, const QString &) override { return true; }
-    bool deleteImage(int, const QString &) override { return true; }
+    // TestHistoryIntegrity (EC03): the fault engines below subclass this mock;
+    // deleteImage is counted so a refusal ("no destructive edit without a
+    // restorable backup") is observable.
+    bool deleteImage(int, const QString &) override { ++m_deleteImageCalls; return true; }
+    int m_deleteImageCalls = 0;
     bool applyRedactions(int, const QList<QRectF> &) override { return m_loaded; }
+    // T2-2 (ITextReplacer): Find & Replace seam. Deliberately NO `override` —
+    // pre-fix baselines (revert verification) have no such virtual; post-fix
+    // this implements ITextReplacer::replaceTextRegions (signature pinned by
+    // the interface). Records the specs so tests can assert what a caller
+    // planned to replace, and reports each match rect's width as the "drawn"
+    // width so callers can exercise the metric-warning plumbing.
+    bool replaceTextRegions(const QList<TextReplacementSpec> &specs, QList<double> *drawnWidthsOut = nullptr) {
+        m_lastReplaceSpecs = specs;
+        if (drawnWidthsOut) {
+            drawnWidthsOut->clear();
+            for (const auto& s : specs) drawnWidthsOut->append(s.rect.width());
+        }
+        return m_loaded && !m_replaceFails;
+    }
+    QList<TextReplacementSpec> m_lastReplaceSpecs;
+    bool m_replaceFails = false;
     bool applyMarkRedactions(const QList<AnnotationItem>& marks) override {
         m_lastMarkRedactions = marks;
         return m_loaded;
@@ -67,13 +132,77 @@ public:
     bool applyPatternRedactionsMulti(const QStringList&, const QList<int>&, const QString&) override { return m_loaded; }
     bool embedAnnotations(const QString &, const QString &, const QList<AnnotationItem> &) override { return m_loaded; }
 
+    // T2-9 (IOutlineEditor): outline seam. Deliberately NO `override` —
+    // compiles as plain members against pre-fix baselines; post-fix these
+    // implement IOutlineEditor (signatures pinned by the interface).
+    QList<OutlineEntry> getOutline(const QString &) { return m_outline; }
+    bool replaceOutline(const QString &, const QList<OutlineEntry> &entries) {
+        m_lastOutline = entries;
+        ++m_outlineWrites;
+        return m_loaded && !m_outlineFails;
+    }
+    QList<OutlineEntry> m_outline;      // what getOutline reports
+    QList<OutlineEntry> m_lastOutline;  // what the last replaceOutline wrote
+    int m_outlineWrites = 0;
+    bool m_outlineFails = false;
+
     // Page geometry & content injection
     bool cropPage(const QString &, int, const QRectF &) override { return m_loaded; }
+    // EC05 (2026-09-08 persistence lane): new interface member — deliberately
+    // NO `override` keyword. Pre-fix baselines (revert verification) have no
+    // such virtual, and this header must compile against them; post-fix this
+    // implements IPageEditor::pageCropBox (signature pinned by the interface).
+    QRectF pageCropBox(const QString &, int, bool *ok) {
+        if (ok) *ok = m_loaded;
+        return QRectF(0, 0, 595, 842);
+    }
+    // G07 (QUALITY-GATE-2026-09-09): origin-aware snapshot + semantics
+    // restoration seam. Again NO `override` — compiles as a plain member
+    // against pre-fix baselines, implements the interface virtuals post-fix.
+    // The restore-fault flags let history tests inject a failing restoration
+    // deterministically.
+    bool pageCropBoxInfo(const QString &, int, QRectF *outBox, int *outOrigin) {
+        if (outBox) *outBox = QRectF(0, 0, 595, 842);
+        // literal 1 == IPdfEditorEngine::kCropBoxExplicit (G07 origin codes;
+        // written as a literal so this header still compiles against pre-fix
+        // baselines during revert verification, where the constant is absent)
+        if (outOrigin) *outOrigin = 1;
+        return m_loaded && !m_cropSnapshotFails;
+    }
+    bool removePageCropBox(const QString &, int) {
+        ++m_removeCropBoxCalls;
+        return m_cropRestoreOk && m_loaded;
+    }
+    int m_removeCropBoxCalls = 0;
+    bool m_cropSnapshotFails = false;
+    bool m_cropRestoreOk = true;
+    // G08 (QUALITY-GATE-2026-09-09): the single-transaction page-restore seam
+    // with fault injection; the base class keeps the two-step
+    // insertPageFromBytes/deletePage calls so tests can prove the commands no
+    // longer take the intermediate-state path.
+    bool restorePageFromBytes(const QString &, int, const QByteArray &) {
+        ++m_restorePageCalls;
+        return m_pageRestoreOk && m_loaded;
+    }
+    int m_restorePageCalls = 0;
+    bool m_pageRestoreOk = true;
+    // GUI-held-handle residual (2026-09-08 persistence lane): shell-side
+    // same-path writers release the resident file before replacing it. Again
+    // NO `override` — the interface member is new in this repair; pre-fix
+    // baselines compile this as a plain member, post-fix it implements
+    // IPageEditor::releaseResidentFile.
+    void releaseResidentFile(const QString &) {}
     bool resizePage(const QString &, int, const QSizeF &) override { return m_loaded; }
     bool reorderPages(const QString &, int, int) override { return m_loaded; }
     bool reorderAllPages(const QString &, const QList<int> &) override { return m_loaded; }
     bool addHeaderFooter(const QString &, const HeaderFooterOptions &) override { return m_loaded; }
     bool applyBatesNumbering(const QString &, const BatesNumberingOptions &) override { return m_loaded; }
+    // §9.9 P1: continuity overload — the mock performs no real stamping, so it
+    // only honours the success contract (report goes untouched when null).
+    bool applyBatesNumbering(const QString &, const BatesNumberingOptions &, int *lastNumberOut) override {
+        if (m_loaded && lastNumberOut) *lastNumberOut = m_mockBatesLastNumber;
+        return m_loaded;
+    }
 
     // Watermarking & optimization (Session 13)
     bool addTextWatermark(const TextWatermarkOptions &) override { return m_loaded; }
@@ -114,6 +243,13 @@ public:
     bool m_loaded = false;
     bool m_sanitizeResult = true;
     bool m_hasPdfSignatures = false;
+    // EC02 barrier + identity-bytes hooks
+    QSemaphore* m_saveEntered = nullptr;
+    QSemaphore* m_saveHold = nullptr;
+    bool m_saveWritesIdentity = false;
+    int m_saveIfCurrentCalls = 0;
+    QString m_lastIfCurrentExpected;
+    QString m_lastIfCurrentRefusal;
     int m_sanitizeCalls = 0;
     int m_saveCalls = 0;
     int m_writeUpdateCalls = 0;
@@ -129,6 +265,9 @@ public:
     double m_lastRotateDegrees = 0.0;
     // §9.8 P0: mark-based redaction tracking
     QList<AnnotationItem> m_lastMarkRedactions;
+    // §9.9 P1: Bates continuity overload — last number the fake stamping
+    // "consumed" (reported through the out-param when the call succeeds).
+    int m_mockBatesLastNumber = 0;
     // §9.11: expiry tracking
     int m_expiryCalls = 0;
     QString m_lastExpiryPath;

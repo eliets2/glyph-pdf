@@ -128,4 +128,34 @@ bool mergeDocuments(const QStringList& inputs, const QString& outputPath)
     }
 }
 
+// ─── writeDocumentFromPages ──────────────────────────────────────────────────
+
+bool writeDocumentFromPages(const QList<QByteArray>& onePageDocuments,
+                            const QString& outputPath)
+{
+    if (onePageDocuments.isEmpty()) return false;
+    try {
+        PoDoFo::PdfMemDocument dstDoc;
+        // mergeDocuments idiom: every source document lives for the duration
+        // of its AppendDocumentPages call (the page copy is eager), and the
+        // destination is saved exactly once at the end.
+        for (const QByteArray& pageBytes : onePageDocuments) {
+            PoDoFo::PdfMemDocument srcDoc;
+            srcDoc.LoadFromBuffer(
+                PoDoFo::bufferview(pageBytes.constData(), pageBytes.size()));
+            const int count = static_cast<int>(srcDoc.GetPages().GetCount());
+            if (count < 1) {
+                qWarning() << "PdfPageOps::writeDocumentFromPages: page document has no pages";
+                return false;
+            }
+            dstDoc.GetPages().AppendDocumentPages(srcDoc, 0, 1);
+        }
+        dstDoc.Save(outputPath.toUtf8().constData());
+        return true;
+    } catch (const std::exception& e) {
+        qWarning() << "PdfPageOps::writeDocumentFromPages error:" << e.what();
+        return false;
+    }
+}
+
 } // namespace gp

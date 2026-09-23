@@ -93,7 +93,7 @@ pdfws_core (interfaces, ToolId, AppContext, commands base)
 - `SignatureManager` — PAdES signing, validation, TSA
 - `UpdateChecker` — Async manifest-based auto-update with SHA-256 verification
 
-**Dependencies:** PoDoFo, PDFium, qpdf, OpenSSL, Tesseract, Leptonica, LibXml2, Freetype, Zlib — all via MSYS2 ucrt64 pacman (except PDFium prebuilt + ONNX Runtime bundled)
+**Dependencies:** PoDoFo, PDFium, qpdf, quickjs-ng, OpenSSL, Tesseract, Leptonica, LibXml2, Freetype, Zlib — all via MSYS2 ucrt64 pacman (except PDFium prebuilt + ONNX Runtime bundled). quickjs-ng (`mingw-w64-ucrt-x86_64-quickjs-ng`, MIT) powers run-side AcroForm Calculate/Format script execution; when absent the build stays green and the capability is disclosed honestly via CapabilityRegistry. The runtime links `libqjs-0.dll` — shipped beside the executable like the other MSYS2 runtime DLLs.
 
 ## Building from Source (Developers only)
 
@@ -120,6 +120,7 @@ pdfws_core (interfaces, ToolId, AppContext, commands base)
       mingw-w64-ucrt-x86_64-qt6-pdf \
       mingw-w64-ucrt-x86_64-podofo \
       mingw-w64-ucrt-x86_64-qpdf \
+      mingw-w64-ucrt-x86_64-quickjs-ng \
       mingw-w64-ucrt-x86_64-openssl \
       mingw-w64-ucrt-x86_64-tesseract-ocr \
       mingw-w64-ucrt-x86_64-tesseract-data-eng \
@@ -134,6 +135,32 @@ pdfws_core (interfaces, ToolId, AppContext, commands base)
   ```
 
 > **Note:** We use the **ucrt64** environment (not mingw64) because `qt6-pdf` (required for the PDF viewer) is only packaged for ucrt64. UCRT is the modern Universal C Runtime, system-native on all Windows 10+ installs.
+
+### Vendored binary dependencies (required)
+
+Three **untracked binary trees** must exist before configuring; a fresh clone
+or worktree does not have them:
+
+| Tree | What | How staged |
+|---|---|---|
+| `third_party/podofo/install/` | PoDoFo **1.1.0** (DLL + CMake config) built from source with the ucrt64 toolchain | bootstrap script or CI builds it from the 1.1.0 tag |
+| `third_party/pdfium/bin/pdfium.dll` | PDFium runtime, chromium/7834 (checksum-pinned; matches the vendored import lib - see `third_party/pdfium/PROVENANCE.md`) | downloaded |
+| `onnxruntime-win-x64-1.17.3/` | ONNX Runtime 1.17.3 (secondary OCR, `HAS_RAPIDOCR`) | downloaded |
+
+One command provisions (or checks) all three:
+
+```bash
+scripts/bootstrap-vendor-deps.sh check     # verify
+scripts/bootstrap-vendor-deps.sh           # install what is missing
+```
+
+> **Warning:** without `third_party/podofo/install`, CMake **silently** falls
+> back to MSYS2's podofo 0.10.4, which is API-incompatible with this source,
+> and the test binaries then fail with `0xc0000135` (missing DLLs). The
+> configure log now warns loudly about the substitution and release
+> configurations (`-DGLYPHPDF_RELEASE_BUILD=ON`) hard-fail instead. The CI
+> workflows (`.github/workflows/ci.yml`, `release.yml`) run the same pinned
+> steps on a cache miss.
 
 ### Build (Windows + MSYS2)
 Open the **MSYS2 UCRT64** shell (`C:\msys64\ucrt64.exe`) or any shell with `C:\msys64\ucrt64\bin` on PATH:

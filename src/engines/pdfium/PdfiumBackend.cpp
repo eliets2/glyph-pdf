@@ -2,6 +2,7 @@
 #include "engines/pdfium/PdfiumBackend.h"
 #include <QMutexLocker>
 #include <QDebug>
+#include <cmath>
 #include <cstdint>
 
 // AR-6 D1 — SERIAL-RENDER CONTRACT (justification).
@@ -263,11 +264,202 @@ QString PdfiumBackend::extractText(int pageIndex) {
     QList<unsigned short> buffer(charCount + 1);
     int written = FPDFText_GetText(textPage, 0, charCount, buffer.data());
 
-    QString text = QString::fromUtf16(reinterpret_cast<const char16_t*>(buffer.data()), written);
+    // R13 (PERF-05): FPDFText_GetText's return count INCLUDES the trailing NUL
+    // terminator it writes (fpdf_text.h: "Number of characters written into
+    // the result buffer, including the trailing terminator"). Handing that
+    // count straight to QString::fromUtf16 appended U+0000 to every page's
+    // text, so the LAST word token of every page leaked a NUL into the diff
+    // tokens and every other extraction consumer. Strip EXACTLY that one
+    // terminator: validate the count against the buffer first and drop the
+    // final character only when it actually is NUL. Interior U+0000 characters
+    // (a ToUnicode CMap may legitimately map a glyph to 0x0000) are document
+    // content and are preserved — only the API's own terminator is removed.
+    int textLen = written;
+    if (written > 0 && written <= buffer.size() && buffer[written - 1] == 0)
+        --textLen;  // the single API terminator, nothing else
+
+    QString text = QString::fromUtf16(reinterpret_cast<const char16_t*>(buffer.data()),
+                                      textLen > 0 ? textLen : 0);
 
     FPDFText_ClosePage(textPage);
     FPDF_ClosePage(page);
     return text;
+}
+
+// R09 (F07) — page text WITH geometry, through PDFium's decoded text path.
+//
+// Ownership: a private FPDF_PAGE + FPDF_TEXTPAGE are loaded per call from this
+// backend's own document and closed again here — the caller never sees a raw
+// handle. ConversionManager builds a per-operation PdfiumBackend instance for
+// that reason (never the live viewer's handles across threads).
+//
+// Geometry is normalized exactly once, here: each char contributes its box
+// (FPDFText_GetCharBox) and its baseline origin (FPDFText_GetCharOrigin); a
+// run is anchored at its first char's baseline origin, with width = real
+// glyph extent, and carries the union of its chars' box tops/bottoms as the
+// vertical ink extent (W2c: the ascender..descender band the redaction proof
+// intersects against the mark). Consumers (conversion rows, HTML/PPTX
+// overlays) receive one consistent user-space rect per run instead of
+// re-deriving positions.
+//
+// Order: chars are consumed strictly in PDFium char-index order — the same
+// order FPDFText_GetText presents. Runs are only ever SPLIT (line change or
+// newline), never reordered, so the logical order PDFium computed for
+// RTL/bidi/mixed-direction content is preserved.
+QList<PdfiumBackend::TextRun> PdfiumBackend::extractPageTextRuns(int pageIndex) {
+    QMutexLocker locker(&m_mutex);
+    QList<TextRun> runs;
+    if (!m_document) return runs;
+
+    FPDF_PAGE page = FPDF_LoadPage(m_document, pageIndex);
+    if (!page) return runs;
+
+    FPDF_TEXTPAGE textPage = FPDFText_LoadPage(page);
+    if (!textPage) {
+        FPDF_ClosePage(page);
+        return runs;
+    }
+
+    const int charCount = FPDFText_CountChars(textPage);
+
+    // V03 (PARITY-BRANCH-REVIEW-2026-09-05): line grouping alone collapsed
+    // table columns — "Name" @x=72 and "Amount" @x=300 on one baseline became
+    // ONE run and then one Excel/CSV cell. Line grouping (baseline distance)
+    // must stay separate from CELL boundaries: runs also split at wide
+    // horizontal gaps, wide space-separator glyphs, and font-run changes.
+    // Documented tolerances:
+    //   * column gap  — a char starting beyond the open run's right edge by
+    //     more than 1 em of its font size (1pt floor) starts a new cell.
+    //     Ordinary inter-word advances in text fonts are ~0.25-0.35 em, so
+    //     prose is never split at every ordinary space; real table gaps are
+    //     many em wide.
+    //   * space separator — a SPACE char whose own box is wider than 0.8 em
+    //     is layout, not content (PDFium generates gap-marker spaces whose
+    //     box spans the whole jump; justified/stretched spaces behave the
+    //     same). It is dropped instead of being appended to a cell.
+    //   * font runs — a change of the real base-font name splits the run so
+    //     downstream font consumers see the same run boundaries the PDF does.
+    constexpr double kColumnGapEm = 1.0;
+    constexpr double kSpaceSeparatorEm = 0.8;
+
+    TextRun run;
+    bool runOpen = false;
+    double runRight = 0.0;
+
+    auto flushRun = [&]() {
+        if (runOpen && !run.text.isEmpty()) {
+            run.rect = QRectF(run.rect.x(), run.rect.y(),
+                              qMax(0.0, runRight - run.rect.x()), run.fontSize);
+            runs.append(run);
+        }
+        run = TextRun();
+        runOpen = false;
+    };
+
+    for (int i = 0; i < charCount; ++i) {
+        const unsigned int u = FPDFText_GetUnicode(textPage, i);
+        if (u == 0) continue;
+        // PDFium emits generated \r\n markers at paragraph/line ends; a hard
+        // newline ends the current line run. The terminator itself is not
+        // content — drop it and close the run.
+        if (u == '\r' || u == '\n') {
+            flushRun();
+            continue;
+        }
+
+        double originX = 0.0, originY = 0.0;
+        bool hasOrigin = FPDFText_GetCharOrigin(textPage, i, &originX, &originY) != 0;
+        double left = 0.0, right = 0.0, bottom = 0.0, top = 0.0;
+        const bool hasBox = FPDFText_GetCharBox(textPage, i, &left, &right, &bottom, &top) != 0;
+        const double size = FPDFText_GetFontSize(textPage, i);
+        // Real base-font name (UTF-8), read for EVERY char so a font-run
+        // change can split the run (V03); the run-start branch below just
+        // adopts the current char's name.
+        char nameBuf[128];
+        int flags = 0;
+        QString fontName;
+        const unsigned long nameLen = FPDFText_GetFontInfo(
+            textPage, i, nameBuf, sizeof(nameBuf), &flags);
+        if (nameLen > 0 && nameLen <= sizeof(nameBuf))
+            fontName = QString::fromUtf8(nameBuf,
+                                         static_cast<qsizetype>(nameLen - 1));
+
+        // V03: a wide space glyph is a cell separator — drop it and close the
+        // run. (Checked while a run is open; a separator before any content
+        // is likewise not content and is skipped.)
+        if (u == ' ' && hasBox
+                && (right - left) > kSpaceSeparatorEm * qMax(size, 1.0)) {
+            flushRun();
+            continue;
+        }
+
+        // Line clustering tolerance (documented): two chars share a line when
+        // their baseline origins differ by at most half the larger font size
+        // (1pt floor for degenerate 0-size runs). Superscripts/subscripts
+        // stay on the line; genuinely different baselines do not.
+        if (runOpen) {
+            const double tol = qMax(1.0, 0.5 * qMax(size, run.fontSize));
+            if (hasOrigin && std::fabs(originY - run.rect.y()) > tol) {
+                flushRun();
+            }
+        }
+
+        // V03: a char starting a full em beyond the open run's right edge is
+        // a new cell/column, not a continuation of the same run. Spaces
+        // appended immediately before the gap (PDFium's generated gap markers
+        // carry a degenerate box, so the wide-space rule above cannot see
+        // them) are layout, not content — they are dropped with the boundary,
+        // which keeps cell text exact ("Name", never "Name ").
+        if (runOpen && hasBox
+                && left - runRight > kColumnGapEm * qMax(size, 1.0)) {
+            while (run.text.endsWith(QChar(u' '))) run.text.chop(1);
+            flushRun();
+        }
+
+        // V03: a font-run change splits the run (same baseline stays one LINE
+        // for grouping, but the font consumers get separate runs).
+        if (runOpen && !run.fontName.isEmpty() && !fontName.isEmpty()
+                && fontName != run.fontName) {
+            flushRun();
+        }
+
+        if (!runOpen) {
+            runOpen = true;
+            run.rect = QRectF(hasOrigin ? originX : (hasBox ? left : 0.0),
+                              hasOrigin ? originY : (hasBox ? bottom : 0.0),
+                              0.0, qMax(0.0, size));
+            run.fontSize = qMax(0.0, size);
+            runRight = hasBox ? right : run.rect.x();
+            run.fontName = fontName;
+            // W2c: carry the run's real vertical ink extent (the PDFium char
+            // boxes span the font's ascender..descender) so downstream
+            // geometry consumers can intersect the glyph band instead of
+            // guessing a size multiplier.
+            run.hasInkBox = hasBox;
+            if (hasBox) { run.inkTop = top; run.inkBottom = bottom; }
+        } else {
+            run.fontSize = qMax(run.fontSize, qMax(0.0, size));
+            if (hasBox && right > runRight) runRight = right;
+            if (hasBox) {
+                if (!run.hasInkBox) { run.hasInkBox = true; run.inkTop = top; run.inkBottom = bottom; }
+                else { run.inkTop = qMax(run.inkTop, top); run.inkBottom = qMin(run.inkBottom, bottom); }
+            }
+        }
+
+        if (u > 0xFFFF && u <= 0x10FFFF) {
+            // Supplementary-plane code point -> UTF-16 surrogate pair.
+            const char32_t cp = u - 0x10000;
+            run.text.append(QChar(static_cast<char16_t>(0xD800 + (cp >> 10))));
+            run.text.append(QChar(static_cast<char16_t>(0xDC00 + (cp & 0x3FF))));
+        } else {
+            run.text.append(QChar(static_cast<char16_t>(u)));
+        }
+    }
+    flushRun();
+
+    FPDFText_ClosePage(textPage);
+    FPDF_ClosePage(page);
+    return runs;
 }
 
 #else // HAS_PDFIUM fallback
@@ -300,6 +492,11 @@ QList<QRectF> PdfiumBackend::searchText(int pageIndex, const QString &query) {
 QString PdfiumBackend::extractText(int pageIndex) {
     Q_UNUSED(pageIndex);
     return QString();
+}
+
+QList<PdfiumBackend::TextRun> PdfiumBackend::extractPageTextRuns(int pageIndex) {
+    Q_UNUSED(pageIndex);
+    return QList<PdfiumBackend::TextRun>();
 }
 
 #endif

@@ -30,7 +30,9 @@ void ModeController::setScreen(const QString& id) {
     _currentScreen = id;
     // Screens that are panel-only (no center swap): signature, ai, pdfa, compress, watermark
     if (id == "signature" || id == "ai" || id == "pdfa" ||
-        id == "compress"  || id == "watermark") {
+        id == "compress"  || id == "watermark" || id == "measure" ||
+        // T2-4 accessibility P1: right-panel-only checker screen.
+        id == "accessibility") {
         setCurrentWidget(_viewer);
         emit screenChanged(id);
         return;
@@ -58,6 +60,9 @@ void ModeController::setScreen(const QString& id) {
             // §9.8 P0: relay user-facing status to the host status bar.
             connect(rm, &RedactMode::statusMessageRequested,
                     this, &ModeController::redactStatusMessage);
+            // §9.8 P1: relay the panel's Cancel/Exit control to the host.
+            connect(rm, &RedactMode::exitRequested,
+                    this, &ModeController::redactExitRequested);
             target = rm;
         }
         else if (id == "compare") target = new CompareMode(this);
@@ -88,6 +93,15 @@ void ModeController::setScreen(const QString& id) {
 void ModeController::deliverOcrResults(const QList<MergedOcrWord>& words) {
     if (auto* om = qobject_cast<OCRMode*>(_byId.value("ocr", nullptr)))
         om->setOcrResults(words);
+}
+
+// U03: the full review session — source page image + word boxes + metadata —
+// reaches the OCR Verify screen, so the scan pane shows the real source image
+// the words were recognized on. Mirrors deliverOcrResults; the session image
+// travels by QImage implicit sharing (no re-render, no per-widget copy).
+void ModeController::deliverOcrReview(const gp::OcrReviewSession& session) {
+    if (auto* om = qobject_cast<OCRMode*>(_byId.value("ocr", nullptr)))
+        om->setReviewSession(session);
 }
 
 } // namespace gp

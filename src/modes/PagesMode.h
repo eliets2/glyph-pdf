@@ -4,6 +4,7 @@
 #include <QList>
 #include <QFutureWatcher>
 #include <QImage>
+#include <functional>
 #include <memory>
 
 struct AppContext;
@@ -15,6 +16,10 @@ class QListWidgetItem;
 class QRadioButton;
 class QComboBox;
 class IPdfRenderer;
+class IPdfEditorEngine;
+class QMenu;
+class QPushButton;
+class QUndoCommand;
 
 namespace gp {
 
@@ -36,16 +41,52 @@ public:
     // Parse "1-3,5,7-9" into 0-based indices [0,1,2,4,6,7,8].
     static QList<int> parsePageRange(const QString& expr, int pageCount);
 
+    // §9.9 P1: parse "1-3,4-6,7" into ONE 0-based index group per
+    // comma-separated segment — one output file per group, single-page
+    // segments included. Segments with no valid pages are skipped; segment
+    // order is preserved; overlapping segments are allowed; a single-segment
+    // expression reproduces the old single-output split ("1-5" → one group).
+    static QList<QList<int>> parsePageRangeSegments(const QString& expr, int pageCount);
+
     // §9.8+§9.9 P0: the local-first differentiator, shared by the Pages and
     // Redaction panels and the About dialog — one source of truth for the
     // claim (factual: all of these features run in-process on this machine).
     static QString localFirstClaim();
+
+    // N09 test/production seam: compute the split groups from the current
+    // form state (pure read). Public so the real execution path can be driven
+    // end-to-end (computeSplitGroups → executeSplit) without poking widgets.
+    QList<QList<int>> computeSplitGroups() const;
 
     // Execute split without UI: returns paths of produced files.
     QStringList executeSplit(const QString& sourcePath,
                              const QList<QList<int>>& groups,
                              const QString& outputDir,
                              const QString& stemPattern);
+
+    // NCR-01 (TEAM-NEW-COMMITS-REVIEW-2026-09-07): per-part split result so
+    // the completion dialog can distinguish COMPLETE, PARTIAL (naming each
+    // failed part and its reason) and CANCELED outcomes — "some files were
+    // written" is not a complete split.
+    struct SplitOutcome {
+        QStringList produced;   // committed output paths, in part order
+        QStringList failures;   // "part N (path): reason" per failed part
+        bool canceled = false;  // user canceled mid-run
+    };
+    SplitOutcome executeSplitDetailed(const QString& sourcePath,
+                                      const QList<QList<int>>& groups,
+                                      const QString& outputDir,
+                                      const QString& stemPattern);
+
+    // N09: split parts are WRITTEN through operation-owned destination
+    // engines — never the user's resident source editor (the backend's
+    // anti-divergence guard, PoDoFoBackend::resolveDocument, refuses
+    // cross-path mutations while a document is loaded, and switching the
+    // user's editor to each output path would drop its unsaved state).
+    // RedactOperation precedent: the default factory creates a fresh
+    // PdfEditorEngine per part; tests may inject a different factory.
+    using SplitEngineFactory = std::function<std::shared_ptr<IPdfEditorEngine>()>;
+    void setSplitEngineFactory(SplitEngineFactory factory);
 
     // Write a minimal valid one-page PDF stub (used by executeSplit + tests).
     static bool writeMinimalPdf(const QString& path);
@@ -65,6 +106,23 @@ private slots:
     // AR-7 D2: called on the GUI thread when the off-thread page-count query finishes.
     void onPageCountReady();
 
+    // U06: keyboard/context moves of the selected page(s) by delta (-1 up,
+    // +1 down) through the SAME atomic command path as drag.
+    void moveSelectedPagesBy(int delta);
+    // §9.9 P1: "Apply Page Labels…" — small start-value + style prompt, then
+    // gp::PageLabels::writeNumberTree onto a SafeSave candidate of the saved
+    // document, committed atomically. Refuses a dirty document (labels are
+    // written to the saved file; engine-resident mutation is deferred).
+    void onApplyPageLabels();
+    // U06: fill the thumbnail context menu (Move Up/Down, Select All,
+    // Clear Selection — no destructive entries) from the grid's own commands.
+    void fillGridContextMenu(QMenu* menu);
+    // U06: keep the selection label and the selection snapshot in step.
+    void onGridSelectionChanged();
+    // U06: undo/redo anywhere can change the page order this grid displays —
+    // reload coalesced and restore selection + current page across it.
+    void onUndoStackIndexChanged(int index);
+
 private:
     // Build sub-widgets
     void buildPageListPanel(QWidget* host);
@@ -72,9 +130,15 @@ private:
     void buildReorderPanel(QWidget* host);
 
     // Compute split groups from current form state.
-    QList<QList<int>> computeSplitGroups() const;
-    // Build output filename for part n (1-based) from pattern and stem.
+    // (N09: public test seam — see the comment in the public section above.)
     QString makeOutputName(const QString& pattern, const QString& stem, int part) const;
+    // N09: single source of truth for the final output paths, shared by the
+    // preview and the execution — a pattern without a {n} token (or a name
+    // that would land on the open source itself) is disambiguated BEFORE any
+    // bytes are written and the preview shows the same final names.
+    QStringList makeOutputPaths(const QString& pattern, const QString& stem,
+                                const QString& outputDir, int groupCount,
+                                const QString& sourcePath) const;
     // Page list (D1)
     QListWidget*  m_pageList    = nullptr;
     QLabel*       m_pageCountLabel = nullptr;
@@ -92,6 +156,7 @@ private:
 
     // Reorder panel (D3)
     QListWidget*  m_reorderList     = nullptr;
+    QPushButton*  m_reorderApplyBtn = nullptr; // S2-1: affordance mirrors read-only
     QList<int>    m_originalOrder;  // 0-based original page indices
 
     // §9.9 P0: grid drag-and-drop reorder state.
@@ -99,7 +164,38 @@ private:
     void finishGridReorder();
     void rebuildFromOrder(const QList<int>& order);
 
+    // ── U06: selection visibility, readable labels, keyboard moves, ───────
+    // insertion indicator, and selection/current-page restore after undo.
+    QLabel*    m_selectionLabel   = nullptr;  // "N pages selected · pages X-Y"
+    QList<int> m_selectedPages;             // selected items' UserRole data values
+    int        m_currentPageData    = -1;     // current item's UserRole data value
+    QList<int> m_pendingSelection;            // rows to reselect after next repopulation
+    int        m_pendingCurrentPage = -1;     // row to make current after next repopulation
+    bool       m_gridRebuildGuard   = false;  // suppress drag-signal machinery during programmatic rebuilds
+    bool       m_ownPush            = false;  // suppress undo-index reaction during our own command push
+    bool       m_undoRefreshScheduled = false;
+    QUndoCommand* m_lastGridCmd     = nullptr; // our last pushed grid command (identity only, never dereferenced)
+    QList<int> m_lastGridSnapshot;            // pre-push visual order
+    QList<int> m_lastGridNewOrder;            // post-push visual order
+
+    // Shared tail for drag (finishGridReorder) and keyboard/context moves:
+    // gridMovePermutation → ReorderPermutationCommand → reload. The selected
+    // rows are reselected (pendingSelection/pendingCurrent) after the reload.
+    void commitGridOrder(const QList<int>& snapshot, const QList<int>& newOrder,
+                         const QList<int>& pendingSelection, int pendingCurrent);
+    // One thumbnail-grid item: placeholder icon, "Page N" label, identity in
+    // Qt::UserRole, and a theme-token foreground so the label stays readable.
+    static QListWidgetItem* makePageItem(int pageData);
+    void updateSelectionLabel();
+    void restorePendingSelection();   // position-based (after a fresh load generation)
+    void restoreSelectionByData();    // identity-based (after a visual revert)
+    void scheduleUndoRefresh();
+
     const AppContext* m_ctx = nullptr;
+
+    // N09: operation-owned destination engines for split parts (default:
+    // a fresh PdfEditorEngine per part; tests may inject a factory).
+    SplitEngineFactory m_splitEngineFactory;
 
     // AR-7 D2: worker for the page-count binary-search (avoids blocking the GUI thread).
     QFutureWatcher<int>* m_pageCountWatcher{nullptr};

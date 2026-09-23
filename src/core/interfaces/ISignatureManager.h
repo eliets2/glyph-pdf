@@ -3,6 +3,7 @@
 #include <QString>
 #include <QList>
 #include <QDateTime>
+#include <QRectF>
 
 struct SignatureInfo {
     QString fieldName;
@@ -48,6 +49,18 @@ enum class SignOutcome {
     PartialLtvMissing   ///< Core signature written, but B-LT/B-LTA data is missing.
 };
 
+/// §9.7 P1: WHY the most recent outcome was PartialLtvMissing — exactly which
+/// requested enhancement could not be embedded. A partial result with NO
+/// flagged piece is impossible; at least one flag is set whenever the outcome
+/// is PartialLtvMissing.
+struct SignatureOutcomeDetail {
+    bool dssMissing = false;          ///< B-LT: the DSS dictionary could not be built/embedded
+    bool docTimestampMissing = false; ///< B-LTA: the /DocTimeStamp could not be added
+    bool timestampMissing = false;    ///< SEP13 lead 1: B-T — the RFC 3161 signature timestamp was requested (TSA URL configured) but could not be fetched/embedded; the signature attained B-B
+    bool timestampAttempted = false;  ///< SWEEP-W1 F2 follow-up: a TSA fetch was ATTEMPTED this sign — pairs with timestampTokenValid so the label floors only on a KNOWN-failed attempt, never on absence of an attempt.
+    bool timestampTokenValid = false; ///< SWEEP-W1 F2: the fetched TSA response parsed as an RFC 3161 TS_RESP (d2i_TS_RESP) before embedding. ANY HTTP-200 body is NOT attainment — when a timestamp was ATTEMPTED and did not parse, attainedLevelLabel refuses every level above B-B, so a garbage/error-page response from a misconfigured or hostile TSA keeps the honest B-B degradation.
+};
+
 class ISignatureManager {
 public:
     virtual ~ISignatureManager() = default;
@@ -70,6 +83,26 @@ public:
     virtual bool addDocTimeStamp(const QString &inputPath, const QString &outputPath) = 0;
 
     virtual QList<SignatureInfo> validateSignatures(const QString &filePath) = 0;
+
+    /// §9.7 P1: detail of the most recent signDocument/certifyDocument outcome.
+    /// Deliberately NON-pure with this default body: implementations that do
+    /// not track degradation detail (including test mocks) compile unchanged
+    /// and simply report "no detail" instead of being forced to stub it.
+    virtual SignatureOutcomeDetail lastSignOutcomeDetail()
+    {
+        return {};   // no degradation detail known by this implementation
+    }
+
+    // §9.7 P0 (badge anchoring): on-page anchor for every signature field —
+    // fieldName matches SignatureInfo::fieldName; rect is the widget /Rect in
+    // viewer top-left convention (PDF y flipped). Empty list when the document
+    // has no signature fields or cannot be read.
+    struct SignatureFieldAnchor {
+        QString fieldName;
+        int pageIndex = -1;
+        QRectF rect;
+    };
+    virtual QList<SignatureFieldAnchor> signatureFieldAnchors(const QString &filePath) = 0;
 
 protected:
     ISignatureManager() = default;

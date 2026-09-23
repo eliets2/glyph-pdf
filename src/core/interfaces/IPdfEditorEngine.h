@@ -118,6 +118,27 @@ struct DocumentPermissions {
     bool assemble = false;
 };
 
+// ── T2-2: Find & Replace — one planned text replacement ────────────────────
+// `rect` is the match geometry in Qt top-left user space (the coordinate
+// contract shared with PatternRedactor / TextMatchFinder / applyRedactions);
+// `fontSize` is the matched text's size in points (0 → engine default 12);
+// `text` is the replacement string ("\n" starts a new drawn line).
+struct TextReplacementSpec {
+    int pageIndex = 0;
+    QRectF rect;
+    QString text;
+    double fontSize = 0;
+};
+
+// ── T2-9: one outline (bookmark) entry for the outline write seam ──────────
+// A flat entry carrying its own child list; `targetPage` is 0-based and must
+// be < page count when the entry is committed.
+struct OutlineEntry {
+    QString title;
+    int targetPage = 0;
+    QList<OutlineEntry> children;
+};
+
 // ── Role interfaces (AR-10 D1) ──────────────────────────────────────────────
 //
 // The ~60-method IPdfEditorEngine god-interface is decomposed into cohesive
@@ -134,6 +155,43 @@ public:
     virtual ~IPdfDocumentIO() = default;
     virtual bool loadDocumentForEditing(const QString &filePath) = 0;
     virtual bool saveDocument(const QString &outputPath) = 0;
+    // EC02 (TEAM-ENGINE-CODE-REVIEW-2026-09-07): identity-guarded save for
+    // deferred/async writers (autosave, background jobs). The resident
+    // document must still be `expectedCurrentFile` at the moment the save
+    // decision is made — checked under the SAME lock that serializes the
+    // save — so a document switch that lands between capturing the identity
+    // and executing the save can never serialize B's bytes into a path
+    // captured for A. Returns false (without writing) when the identity no
+    // longer matches or no document is loaded.
+    virtual bool saveDocumentIfCurrent(const QString &expectedCurrentFile,
+                                       const QString &outputPath) = 0;
+    // G04 (P1, QUALITY-GATE-2026-09-09): the EC02 path check alone accepts a
+    // REPLACED document — A→B→A with A re-opened from new bytes matches the
+    // captured path string, so the old recovery file was overwritten with the
+    // new incarnation's bytes. `documentLoadId()` is the engine-owned
+    // identity of the RESIDENT LOAD: it advances on every successful
+    // loadDocumentForEditing (a same-path reopen is a new incarnation). The
+    // deferred writer captures it at queue time and this overload checks BOTH
+    // the path and the load identity under the SAME lock that serializes the
+    // save, rejecting stale A→B→A and same-path reloads BEFORE any recovery
+    // output is touched.
+    virtual qint64 documentLoadId() const = 0;
+    virtual bool saveDocumentIfCurrent(const QString &expectedCurrentFile,
+                                       qint64 expectedLoadId,
+                                       const QString &outputPath) = 0;
+    // WP-R09b (WHOLE-ARCHITECTURE-REVIEW A05): true when the last FAILED
+    // in-place save was refused because the file on disk changed since it
+    // was loaded (external modification). The shell offers conflict
+    // resolution (review / reload / Save-As) instead of a generic write
+    // error. Sticky until the next successful load or in-place commit.
+    // Non-pure with a default: engines without an external-version baseline
+    // never report a conflict (deliberately no `override`-style constraint
+    // on implementers added before this member).
+    virtual bool lastSaveRefusedForExternalConflict() const { return false; }
+    // WP-R09b: capture/refresh the external source-version baseline of
+    // `path` WITHOUT loading it — the recovery bind primes the DESTINATION
+    // (the original) so the first recovery Save is conflict-guarded too.
+    virtual void primeSourceBaseline(const QString &path) { Q_UNUSED(path); }
     virtual bool linearizeDocument(const QString &outputPath) = 0;
     virtual bool sanitizeDocument(const QString &outputPath) = 0;
     virtual bool getMetadata(PdfMetadata &outMetadata) = 0;
@@ -166,6 +224,17 @@ public:
 class IPageEditor {
 public:
     virtual ~IPageEditor() = default;
+
+    // S1-1 (SWEEP-BACKEND-2026-09-21) — the page-index contract: every index
+    // argument is validated by the implementation against the document's real
+    // page count BEFORE any library call; out-of-range returns false (fail
+    // closed) and the document is left untouched — never undefined behavior
+    // via an unchecked index into a third-party API. Two shapes:
+    //   - positional access/replace/delete (rotatePage, extractPageAsBytes,
+    //     deletePage, restorePageFromBytes, reorderPages, editTextInline,
+    //     …): index must be in [0, count);
+    //   - insert-at (insertPageFromBytes, insertBlankPage): atIndex may be
+    //     count, i.e. [0, count] inclusive (append at the end).
     virtual bool editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
                                 const QString &fontFamily = "", int fontSize = 0,
                                 const QColor &color = Qt::black, bool bold = false,
@@ -175,8 +244,54 @@ public:
     virtual QByteArray extractPageAsBytes(const QString &path, int pageIndex) = 0;
     virtual bool insertPageFromBytes(const QString &path, int atIndex, const QByteArray &pageData) = 0;
     virtual bool deletePage(const QString &path, int pageIndex) = 0;
+    // G08 (QUALITY-GATE-2026-09-09): ONE committed step — insert `pageData`
+    // as the page at `pageIndex` and remove the displaced page (previously at
+    // `pageIndex`, now at `pageIndex+1`) inside a single engine transaction,
+    // with ONE commit. The image delete/replace undo previously ran
+    // insertPageFromBytes + deletePage as two separately committed steps, so
+    // a failure between them stranded an intermediate committed state (the
+    // restored page next to the edited page, or nothing restored).
+    virtual bool restorePageFromBytes(const QString &path, int pageIndex, const QByteArray &pageData) = 0;
     virtual bool insertBlankPage(const QString &path, int atIndex) = 0;
     virtual bool cropPage(const QString &path, int pageIndex, const QRectF &cropRect) = 0;
+    // EC05 (TEAM-ENGINE-CODE-REVIEW-2026-09-07): the EFFECTIVE /CropBox of
+    // `pageIndex` — the page dictionary's CropBox when present, else the box
+    // inherited from an ancestor /Pages node, else the MediaBox. G07
+    // (QUALITY-GATE-2026-09-09): the PDF rectangle is CORNERS [x0 y0 x1 y1];
+    // the returned QRectF is the converted position/size form (x, y,
+    // x1-x0, y1-y0) in PDF user-space units. `ok` (when non-null) reports
+    // whether the document/page was readable; a false `ok` means the caller
+    // has no usable geometry. See pageCropBoxInfo() for the origin-aware form.
+    virtual QRectF pageCropBox(const QString &path, int pageIndex, bool *ok) = 0;
+    // G07 (QUALITY-GATE-2026-09-09): origin-aware CropBox snapshot. On true,
+    // `outBox` receives the effective box exactly as pageCropBox() and
+    // `outOrigin` (when non-null) classifies how it was determined so an undo
+    // can restore the ORIGINAL semantics, not merely an equal rectangle:
+    //   0 — absent: no /CropBox on the page or anywhere in its /Parent chain
+    //       (the effective box is the MediaBox; restoring means removing the
+    //       page's explicit key again),
+    //   1 — explicit: the page dictionary carries its own /CropBox,
+    //   2 — inherited: an ancestor /Pages node carries /CropBox (the effective
+    //       box is that inherited box, NOT the MediaBox).
+    static constexpr int kCropBoxAbsent    = 0;
+    static constexpr int kCropBoxExplicit  = 1;
+    static constexpr int kCropBoxInherited = 2;
+    virtual bool pageCropBoxInfo(const QString &path, int pageIndex,
+                                 QRectF *outBox, int *outOrigin) = 0;
+    // G07: restore the ABSENT CropBox semantics after a crop — removes the
+    // page's explicit /CropBox so the inherited box (or true absence) shows
+    // through again, and commits. True when the document no longer carries an
+    // explicit box on `pageIndex` (idempotent when none was present).
+    virtual bool removePageCropBox(const QString &path, int pageIndex) = 0;
+    // GUI-held-handle residual (2026-09-08 persistence lane): the engine's
+    // resident parser (PoDoFo) holds an OS device on its source file for lazy
+    // object resolution — the same device the saveDocument transaction re-seats
+    // away before its own same-path commit. A shell-side writer that replaces
+    // such a file through SafeSave (form-data import) cannot re-seat from
+    // inside the engine, so it releases explicitly first. No-op when `path` is
+    // not the resident file; the next access re-resolves from disk — the
+    // committed result, or the preserved original on a failed replacement.
+    virtual void releaseResidentFile(const QString &path) = 0;
     virtual bool resizePage(const QString &path, int pageIndex, const QSizeF &size) = 0;
     virtual bool reorderPages(const QString &path, int fromIndex, int toIndex) = 0;
     // AR-8 D5: apply a full page permutation in a single write, avoiding N partial
@@ -186,6 +301,13 @@ public:
     virtual bool reorderAllPages(const QString &path, const QList<int> &permutation) = 0;
     virtual bool addHeaderFooter(const QString &path, const HeaderFooterOptions &options) = 0;
     virtual bool applyBatesNumbering(const QString &path, const BatesNumberingOptions &options) = 0;
+    // §9.9 P1: cross-document Bates continuity. Stamps exactly like the
+    // two-argument overload; on success `*lastNumberOut` (when non-null)
+    // receives the LAST Bates number used on the final stamped page, so a
+    // batch caller can stamp document N+1 starting at *lastNumberOut + 1.
+    // If nothing was stamped (empty/out-of-range page range) it reports
+    // options.startNumber - 1, keeping `next = last + 1` always safe.
+    virtual bool applyBatesNumbering(const QString &path, const BatesNumberingOptions &options, int *lastNumberOut) = 0;
 };
 
 /// Embedded-image manipulation and watermarking.
@@ -200,6 +322,28 @@ public:
     virtual bool deleteImage(int pageIndex, const QString &xobjectName) = 0;
     virtual bool addTextWatermark(const TextWatermarkOptions &options) = 0;
     virtual bool addImageWatermark(const ImageWatermarkOptions &options) = 0;
+};
+
+/// T2-2: Find & Replace — in-place text replacement over the content stream.
+/// The honest replace pipeline: matched glyph operators are EXCISED (the same
+/// content-stream surgery the redaction path uses), the region is covered
+/// white, and the replacement text is drawn at the match origin in the
+/// match's font size with a standard-14 substitute font. Surrounding layout
+/// never reflows; callers surface the per-match drawn-width deltas as the
+/// reflow/geometry warnings the research pack requires (moat M8).
+class ITextReplacer {
+public:
+    virtual ~ITextReplacer() = default;
+    /// Apply every replacement in one resident-document pass, grouped by
+    /// page internally. Rects in Qt top-left user space. On success
+    /// `drawnWidthsOut` (when non-null) receives one measured drawn width
+    /// (points, standard-14 Helvetica at the spec's font size) per spec, in
+    /// spec order — the metric the UI compares against the match width to
+    /// report "this replacement changed the text width". Returns false and
+    /// leaves nothing committed to disk when any page is invalid or its
+    /// content stream is unparseable (the caller must then not save).
+    virtual bool replaceTextRegions(const QList<TextReplacementSpec>& specs,
+                                    QList<double>* drawnWidthsOut = nullptr) = 0;
 };
 
 /// Redaction (region- and pattern-based).
@@ -225,6 +369,26 @@ public:
     virtual bool applyPatternRedactionsMulti(const QStringList& patterns,
                                              const QList<int>& pages = QList<int>(),
                                              const QString& outputPath = QString()) = 0;
+};
+
+/// T2-9: outline (bookmark) write/read seam for auto-bookmarks and any
+/// outline management. `getOutline` reads the on-disk file (never touches the
+/// resident document); `replaceOutline` follows the standard path-based
+/// mutator contract (resolve resident → mutate → single committed write, G06
+/// rollback on commit failure) and REPLACES the whole tree — reading back an
+/// outline written by this engine round-trips exactly; foreign outlines with
+/// exotic destinations are approximated (named destinations resolve to a
+/// bare page target or drop their target, which the preview discloses).
+class IOutlineEditor {
+public:
+    virtual ~IOutlineEditor() = default;
+    /// Read the outline of `path` from disk. Empty list = no outline.
+    virtual QList<OutlineEntry> getOutline(const QString& path) = 0;
+    /// Replace the whole outline of the document at `path` in ONE committed
+    /// write (see IOutlineEditor). Returns false without committing when the
+    /// document cannot be loaded, an entry is out of range, or the save fails.
+    virtual bool replaceOutline(const QString& path,
+                                const QList<OutlineEntry>& entries) = 0;
 };
 
 /// Encryption / decryption (password + certificate).
@@ -274,7 +438,9 @@ public:
 class IPdfEditorEngine : public IPdfDocumentIO,
                          public IPageEditor,
                          public IImageEditor,
+                         public ITextReplacer,
                          public IRedactor,
+                         public IOutlineEditor,
                          public IEncryptor,
                          public IExporter,
                          public ISignatureAware {

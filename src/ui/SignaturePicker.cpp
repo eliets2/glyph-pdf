@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "ui/SignaturePicker.h"
+#include "core/Capability.h"   // U08: signature-kind disclosure wording
+#include "engines/DocumentSession.h" // N05: lifecycle wiring (parented cache)
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QFileDialog>
@@ -11,6 +14,7 @@
 #include <QLineEdit>
 #include <QPainter>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QSpinBox>
 #include <QTabWidget>
 #include <QVBoxLayout>
@@ -45,6 +49,34 @@ QImage renderTyped(const QString &text, const QString &fontFamily,
     p.drawText(img.rect().adjusted(pad, pad, -pad, -pad), Qt::AlignCenter, trimmed);
     p.end();
     return img;
+}
+
+QString initialsForName(const QString &name)
+{
+    // First letter of every whitespace-separated token, uppercased. Letters
+    // after a leading punctuation ("'van Gogh") still count; tokens without
+    // any letter contribute nothing. Empty result for a blank name.
+    QString initials;
+    const QStringList tokens =
+        name.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+    for (const QString &token : tokens) {
+        for (const QChar &ch : token) {
+            if (ch.isLetter()) {
+                initials.append(ch.toUpper());
+                break;
+            }
+        }
+    }
+    return initials;
+}
+
+QImage initialsFromName(const QString &name, const QString &fontFamily,
+                        const QColor &color)
+{
+    // 24pt monogram vs the Type tab's 36pt full name — the paraph is meant to
+    // be placed smaller than a written-out signature.
+    return renderTyped(initialsForName(name), fontFamily,
+                       kInitialsPointSizeDefault, color);
 }
 
 QImage loadUploaded(const QString &path, QString *error)
@@ -83,6 +115,10 @@ AnnotationItem makeAnnotation(Kind kind, int pageIndex, const QRectF &rect,
     anno.thickness = 2;
     switch (kind) {
     case Kind::Typed:
+    case Kind::Initials:
+        // §9.7 P1: the initials variant shares the TYPED persistence —
+        // PdfEnums.h ordinals are frozen, so no new ToolMode is minted; the
+        // monogram image + the /Contents name carry the difference.
         anno.mode = ToolMode::AddSignatureTyped;
         break;
     case Kind::Upload:
@@ -100,6 +136,46 @@ AnnotationItem makeAnnotation(Kind kind, int pageIndex, const QRectF &rect,
 
 } // namespace SignatureContent
 
+// ── SignatureSessionCache (§9.7 P1) ─────────────────────────────────────────
+
+SignatureSessionCache::SignatureSessionCache(QObject *parent)
+    : QObject(parent)
+{
+    // N05: when parented to a DocumentSession (the production shape — ONE
+    // cache per session, see EditController::signatureSessionCacheFor), watch
+    // the session's lifecycle so the stored signature keys on the REAL
+    // document identity. DocumentSession::setPath emits dirtyChanged exactly
+    // when the path actually changes (after m_path is updated), so an
+    // A→B→A round trip that never opens B's picker still invalidates here;
+    // same-document dirty/reload/reopen transitions re-note the SAME path and
+    // keep the signature (noteDocument ignores an unchanged path).
+    if (auto *doc = qobject_cast<DocumentSession *>(parent)) {
+        connect(doc, &DocumentSession::dirtyChanged, this,
+                [this, doc] { noteDocument(doc->path()); });
+    }
+}
+
+void SignatureSessionCache::noteDocument(const QString &path)
+{
+    if (!m_docPath.isEmpty() && m_docPath != path) {
+        // Document switch — the cached signature was adopted for the previous
+        // document's session and must not silently bleed into the next one.
+        m_image = QImage();
+        m_typedText.clear();
+    }
+    m_docPath = path;
+}
+
+void SignatureSessionCache::store(SignatureContent::Kind kind, const QImage &image,
+                                  const QString &typedText)
+{
+    if (image.isNull())
+        return;                     // Draw has no image form — nothing reusable
+    m_kind = kind;
+    m_image = image;
+    m_typedText = typedText;
+}
+
 SignaturePickerDialog::SignaturePickerDialog(QWidget *parent)
     : QDialog(parent)
 {
@@ -107,13 +183,14 @@ SignaturePickerDialog::SignaturePickerDialog(QWidget *parent)
     setWindowTitle(tr("Adopt a signature"));
     setAccessibleName(tr("Signature picker"));
     setAccessibleDescription(tr("Choose how to create your signature: draw it, "
-                                "type it, or upload an image"));
+                                "type it, upload an image, or use your initials"));
 
     m_tabs = new QTabWidget(this);
     m_tabs->setAccessibleName(tr("Signature source"));
 
     // ── Draw tab: the existing freehand flow, unchanged ─────────────────────
     auto *drawTab = new QWidget(this);
+    drawTab->setObjectName(QStringLiteral("signatureDrawTab"));
     auto *drawLayout = new QVBoxLayout(drawTab);
     QLabel *drawLabel = new QLabel(
         tr("1. Press OK.\n"
@@ -122,10 +199,12 @@ SignaturePickerDialog::SignaturePickerDialog(QWidget *parent)
     drawLabel->setWordWrap(true);
     drawLayout->addWidget(drawLabel);
     drawLayout->addStretch(1);
+    m_drawTab = drawTab;
     m_tabs->addTab(drawTab, tr("Draw"));
 
     // ── Type tab ────────────────────────────────────────────────────────────
     auto *typeTab = new QWidget(this);
+    typeTab->setObjectName(QStringLiteral("signatureTypeTab"));
     auto *typeLayout = new QVBoxLayout(typeTab);
     m_typeEdit = new QLineEdit(typeTab);
     m_typeEdit->setObjectName(QStringLiteral("signatureTypeEdit"));
@@ -143,7 +222,7 @@ SignaturePickerDialog::SignaturePickerDialog(QWidget *parent)
     m_sizeSpin = new QSpinBox(typeTab);
     m_sizeSpin->setAccessibleName(tr("Signature text size"));
     m_sizeSpin->setRange(8, 96);
-    m_sizeSpin->setValue(36);
+    m_sizeSpin->setValue(SignatureContent::kTypedPointSizeDefault);
     m_typePreview = new QLabel(typeTab);
     m_typePreview->setObjectName(QStringLiteral("typePreview"));
     m_typePreview->setAccessibleName(tr("Signature preview"));
@@ -157,10 +236,34 @@ SignaturePickerDialog::SignaturePickerDialog(QWidget *parent)
     fontRow->addWidget(m_sizeSpin);
     typeLayout->addLayout(fontRow);
     typeLayout->addWidget(m_typePreview, 1);
+    m_typeTab = typeTab;
     m_tabs->addTab(typeTab, tr("Type"));
+
+    // ── Initials tab (§9.7 P1) ──────────────────────────────────────────────
+    // Derives a compact 24pt monogram from the full name — a faster variant of
+    // the Type tab for people who sign with initials.
+    auto *initialsTab = new QWidget(this);
+    initialsTab->setObjectName(QStringLiteral("signatureInitialsTab"));
+    auto *initialsLayout = new QVBoxLayout(initialsTab);
+    m_initialsEdit = new QLineEdit(initialsTab);
+    m_initialsEdit->setObjectName(QStringLiteral("signatureInitialsEdit"));
+    m_initialsEdit->setAccessibleName(tr("Full name for initials"));
+    m_initialsEdit->setPlaceholderText(tr("Type your full name…"));
+    m_initialsPreview = new QLabel(initialsTab);
+    m_initialsPreview->setObjectName(QStringLiteral("initialsPreview"));
+    m_initialsPreview->setAccessibleName(tr("Initials preview"));
+    m_initialsPreview->setMinimumHeight(84);
+    m_initialsPreview->setAlignment(Qt::AlignCenter);
+    m_initialsPreview->setFrameStyle(QFrame::StyledPanel);
+    initialsLayout->addWidget(new QLabel(tr("Your full name:"), initialsTab));
+    initialsLayout->addWidget(m_initialsEdit);
+    initialsLayout->addWidget(m_initialsPreview, 1);
+    m_initialsTab = initialsTab;
+    m_tabs->addTab(initialsTab, tr("Initials"));
 
     // ── Upload tab ──────────────────────────────────────────────────────────
     auto *uploadTab = new QWidget(this);
+    uploadTab->setObjectName(QStringLiteral("signatureUploadTab"));
     auto *uploadLayout = new QVBoxLayout(uploadTab);
     m_browseButton = new QPushButton(tr("Choose image…"), uploadTab);
     m_browseButton->setAccessibleName(tr("Choose signature image file"));
@@ -177,47 +280,101 @@ SignaturePickerDialog::SignaturePickerDialog(QWidget *parent)
     uploadLayout->addWidget(m_browseButton);
     uploadLayout->addWidget(m_uploadPreview, 1);
     uploadLayout->addWidget(m_uploadError);
+    m_uploadTab = uploadTab;
     m_tabs->addTab(uploadTab, tr("Upload"));
 
     m_buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     m_buttons->setAccessibleName(tr("Signature picker actions"));
 
+    // §9.7 P1: "Reuse last signature". Hidden until a session cache that
+    // actually holds a signature is attached (setSessionCache), then offered
+    // default-checked so returning users get one-click reuse.
+    m_reuseCheck = new QCheckBox(tr("Reuse last signature"), this);
+    m_reuseCheck->setObjectName(QStringLiteral("signatureReuseCheck"));
+    m_reuseCheck->setAccessibleName(tr("Reuse last signature"));
+    m_reuseCheck->hide();
+
+    // U08: label the flow by KIND before the user commits — Draw/Type/Upload
+    // produce a graphic stamp; a certificate-backed (P12) digital signature
+    // with its validation outcome is a different flow. Wording is owned by
+    // the CapabilityRegistry (visibleSignatureKindDisclosure).
+    auto *kindLabel = new QLabel(gp::visibleSignatureKindDisclosure(), this);
+    kindLabel->setObjectName(QStringLiteral("signatureKindDisclosure"));
+    kindLabel->setWordWrap(true);
+
     auto *layout = new QVBoxLayout(this);
     layout->addWidget(m_tabs);
+    layout->addWidget(m_reuseCheck);
+    layout->addWidget(kindLabel);
     layout->addWidget(m_buttons);
 
     connect(m_typeEdit, &QLineEdit::textChanged, this, &SignaturePickerDialog::updateAccept);
     connect(m_typeEdit, &QLineEdit::textChanged, this, &SignaturePickerDialog::updateTypePreview);
     connect(m_fontCombo, &QComboBox::currentTextChanged, this, &SignaturePickerDialog::updateTypePreview);
+    connect(m_fontCombo, &QComboBox::currentTextChanged, this, &SignaturePickerDialog::updateInitialsPreview);
     connect(m_sizeSpin, &QSpinBox::valueChanged, this, &SignaturePickerDialog::updateTypePreview);
+    connect(m_initialsEdit, &QLineEdit::textChanged, this, &SignaturePickerDialog::updateAccept);
+    connect(m_initialsEdit, &QLineEdit::textChanged, this, &SignaturePickerDialog::updateInitialsPreview);
     connect(m_browseButton, &QPushButton::clicked, this, [this] {
         const QString file = QFileDialog::getOpenFileName(
             this, tr("Choose signature image"), {},
             tr("Images (*.png *.jpg *.jpeg *.bmp *.gif);;All files (*)"));
         if (file.isEmpty())
             return;                              // file-dialog cancel → nothing changes
-        QString error;
-        m_uploadImage = SignatureContent::loadUploaded(file, &error);
-        m_uploadError->setText(error);
-        m_uploadError->setVisible(!error.isEmpty());
-        updateUploadPreview();
-        updateAccept();
+        loadUploadedImage(file);
     });
     connect(m_tabs, &QTabWidget::currentChanged, this, &SignaturePickerDialog::updateAccept);
+    // N05: toggling "Reuse last signature" changes what OK would deliver, so
+    // the gate must refresh with it.
+    connect(m_reuseCheck, &QCheckBox::toggled, this, &SignaturePickerDialog::updateAccept);
     connect(m_buttons, &QDialogButtonBox::accepted, this, &SignaturePickerDialog::onAccepted);
     connect(m_buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
     updateTypePreview();
+    updateInitialsPreview();
     updateAccept();
+}
+
+// ── N01: the ONE kind↔page mapping ──────────────────────────────────────────
+// The pages were added in the visible order Draw, Type, Initials, Upload — but
+// every dispatch resolves through the actual page widget recorded at
+// construction, so validation and acceptance always follow the page the user
+// really sees, even if the visible order ever changes again.
+
+int SignaturePickerDialog::tabIndexForKind(SignatureContent::Kind kind) const
+{
+    switch (kind) {
+    case SignatureContent::Kind::Draw:     return m_tabs->indexOf(m_drawTab);
+    case SignatureContent::Kind::Typed:    return m_tabs->indexOf(m_typeTab);
+    case SignatureContent::Kind::Initials: return m_tabs->indexOf(m_initialsTab);
+    case SignatureContent::Kind::Upload:   return m_tabs->indexOf(m_uploadTab);
+    }
+    return 0;
+}
+
+SignatureContent::Kind SignaturePickerDialog::kindForTabIndex(int index) const
+{
+    QWidget *page = m_tabs->widget(index);
+    if (page == m_typeTab)    return SignatureContent::Kind::Typed;
+    if (page == m_initialsTab) return SignatureContent::Kind::Initials;
+    if (page == m_uploadTab)  return SignatureContent::Kind::Upload;
+    return SignatureContent::Kind::Draw;
 }
 
 void SignaturePickerDialog::showTab(SignatureContent::Kind kind)
 {
-    switch (kind) {
-    case SignatureContent::Kind::Draw:   m_tabs->setCurrentIndex(0); break;
-    case SignatureContent::Kind::Typed:  m_tabs->setCurrentIndex(1); break;
-    case SignatureContent::Kind::Upload: m_tabs->setCurrentIndex(2); break;
-    }
+    m_tabs->setCurrentIndex(tabIndexForKind(kind));
+}
+
+bool SignaturePickerDialog::loadUploadedImage(const QString &path)
+{
+    QString error;
+    m_uploadImage = SignatureContent::loadUploaded(path, &error);
+    m_uploadError->setText(error);
+    m_uploadError->setVisible(!error.isEmpty());
+    updateUploadPreview();
+    updateAccept();
+    return !m_uploadImage.isNull();
 }
 
 bool SignaturePickerDialog::isAcceptEnabled() const
@@ -225,12 +382,43 @@ bool SignaturePickerDialog::isAcceptEnabled() const
     return m_buttons->button(QDialogButtonBox::Ok)->isEnabled();
 }
 
+void SignaturePickerDialog::setSessionCache(SignatureSessionCache *cache)
+{
+    m_cache = cache;
+    const bool offer = m_cache && m_cache->hasSignature();
+    m_reuseCheck->setVisible(offer);
+    m_reuseCheck->setChecked(offer);
+    if (offer) {
+        // N05: say WHICH graphic reuse will place, not just that one exists.
+        QString what;
+        switch (m_cache->kind()) {
+        case SignatureContent::Kind::Typed:
+            what = tr("your typed signature “%1”").arg(m_cache->typedText());
+            break;
+        case SignatureContent::Kind::Initials:
+            what = tr("your initials “%1”").arg(m_cache->typedText());
+            break;
+        case SignatureContent::Kind::Upload:
+            what = tr("your uploaded image");
+            break;
+        case SignatureContent::Kind::Draw:
+            what = tr("your last signature");
+            break;
+        }
+        m_reuseCheck->setText(tr("Reuse last signature — %1").arg(what));
+    } else {
+        m_reuseCheck->setText(tr("Reuse last signature"));
+    }
+    // N05: the gate must reflect the (new) cache state immediately.
+    updateAccept();
+}
+
 void SignaturePickerDialog::updateTypePreview()
 {
     const QImage ink = SignatureContent::renderTyped(
         m_typeEdit ? m_typeEdit->text() : QString(),
         m_fontCombo ? m_fontCombo->currentText() : QString(),
-        m_sizeSpin ? m_sizeSpin->value() : 36, Qt::darkBlue);
+        m_sizeSpin ? m_sizeSpin->value() : SignatureContent::kTypedPointSizeDefault, Qt::darkBlue);
     if (ink.isNull()) {
         m_typePreview->setPixmap(QPixmap());
         m_typePreview->setText(tr("Type your signature to see a preview"));
@@ -239,6 +427,22 @@ void SignaturePickerDialog::updateTypePreview()
         m_typePreview->setPixmap(QPixmap::fromImage(ink)
                                      .scaled(m_typePreview->size(), Qt::KeepAspectRatio,
                                              Qt::SmoothTransformation));
+    }
+}
+
+void SignaturePickerDialog::updateInitialsPreview()
+{
+    const QImage ink = SignatureContent::initialsFromName(
+        m_initialsEdit ? m_initialsEdit->text() : QString(),
+        m_fontCombo ? m_fontCombo->currentText() : QString(), Qt::darkBlue);
+    if (ink.isNull()) {
+        m_initialsPreview->setPixmap(QPixmap());
+        m_initialsPreview->setText(tr("Type your full name to see your initials"));
+    } else {
+        m_initialsPreview->setText({});
+        m_initialsPreview->setPixmap(QPixmap::fromImage(ink)
+                                         .scaled(m_initialsPreview->size(), Qt::KeepAspectRatio,
+                                                 Qt::SmoothTransformation));
     }
 }
 
@@ -257,15 +461,35 @@ void SignaturePickerDialog::updateUploadPreview()
 
 void SignaturePickerDialog::updateAccept()
 {
+    // N05: with "Reuse last signature" checked and a signature actually
+    // cached, OK delivers that cached graphic (onAccepted gives reuse
+    // precedence) — so the gate must be open even when the active tab's
+    // controls are empty. Unchecking falls back to the active tab's own gate.
+    const bool reuseArmed = !m_reuseCheck->isHidden() && m_reuseCheck->isChecked()
+                            && m_cache && m_cache->hasSignature();
+    if (reuseArmed) {
+        m_buttons->button(QDialogButtonBox::Ok)->setEnabled(true);
+        return;
+    }
+
     bool ok = true;
-    switch (m_tabs->currentIndex()) {
-    case 1:  // Type — blank text must not be acceptable
+    // N01: gate on the kind of the page the user ACTUALLY sees.
+    switch (kindForTabIndex(m_tabs->currentIndex())) {
+    case SignatureContent::Kind::Typed:
+        // Blank text must not be acceptable.
         ok = !m_typeEdit->text().trimmed().isEmpty();
         break;
-    case 2:  // Upload — an unreadable image must not be acceptable
+    case SignatureContent::Kind::Initials:
+        // A blank OR letter-less name yields no monogram to place — gate on a
+        // usable resulting image, not merely on nonempty input.
+        ok = !SignatureContent::initialsForName(m_initialsEdit->text()).isEmpty();
+        break;
+    case SignatureContent::Kind::Upload:
+        // An unreadable/missing image must not be acceptable.
         ok = !m_uploadImage.isNull();
         break;
-    default: // Draw — the existing flow needs no input here
+    case SignatureContent::Kind::Draw:
+        // The existing flow needs no input here.
         ok = true;
         break;
     }
@@ -274,23 +498,48 @@ void SignaturePickerDialog::updateAccept()
 
 void SignaturePickerDialog::onAccepted()
 {
-    switch (m_tabs->currentIndex()) {
-    case 1:
+    // §9.7 P1: reuse takes precedence over the active tab — the user asked for
+    // exactly the cached signature. (isHidden() rather than isVisible(): the
+    // dialog is not necessarily shown when this runs.)
+    if (!m_reuseCheck->isHidden() && m_reuseCheck->isChecked()
+        && m_cache && m_cache->hasSignature()) {
+        m_kind = m_cache->kind();
+        m_image = m_cache->image();
+        m_typedText = m_cache->typedText();
+        accept();
+        return;
+    }
+
+    // N01: dispatch on the kind of the page the user ACTUALLY sees.
+    switch (kindForTabIndex(m_tabs->currentIndex())) {
+    case SignatureContent::Kind::Typed:
         m_kind = SignatureContent::Kind::Typed;
         m_typedText = m_typeEdit->text().trimmed();
         m_image = SignatureContent::renderTyped(m_typedText, m_fontCombo->currentText(),
                                                 m_sizeSpin->value(), Qt::darkBlue);
         break;
-    case 2:
+    case SignatureContent::Kind::Initials:
+        m_kind = SignatureContent::Kind::Initials;
+        m_typedText = m_initialsEdit->text().trimmed();
+        m_image = SignatureContent::initialsFromName(m_typedText, m_fontCombo->currentText(),
+                                                     Qt::darkBlue);
+        break;
+    case SignatureContent::Kind::Upload:
         m_kind = SignatureContent::Kind::Upload;
         m_typedText.clear();
         m_image = m_uploadImage;
         break;
-    default:
+    case SignatureContent::Kind::Draw:
         m_kind = SignatureContent::Kind::Draw;
         m_typedText.clear();
         m_image = QImage();
         break;
     }
+
+    // §9.7 P1: a freshly accepted signature becomes the one the NEXT picker
+    // activation offers (Draw still stores nothing — no image form).
+    if (m_cache && !m_image.isNull())
+        m_cache->store(m_kind, m_image, m_typedText);
+
     accept();
 }

@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QString>
 #include "core/ToolId.h"
+#include "core/Capability.h"
 #include "core/interfaces/IToolController.h"
 
 struct AppContext;
@@ -38,6 +39,16 @@ private:
     void mergePdfs();
     void linearizeDocument();
     void exportAsPdfA();
+
+    // ── U08 pre-execution capability disclosure ─────────────────────────────
+    // gateExport: false → the registry reported the format unavailable; the
+    // whyNot + alternative are surfaced and NO file dialog / worker runs.
+    // A null registry (tests, early boot) keeps the previous behavior.
+    bool gateExport(gp::CapId id);
+    // Pre-dialog format disclosure: with the in-house OOXML writers the real-
+    // OOXML path is unconditional, so the notice names the writer that WILL
+    // run (the §9.16 honest badge, moved before the file dialog).
+    QString exportFormatNotice(gp::CapId id) const;
 
     const AppContext* _ctx = nullptr;
     MainWindow* _mainWindow = nullptr;

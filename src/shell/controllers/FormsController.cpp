@@ -1,25 +1,36 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "FormsController.h"
+#include "shell/EditPolicy.h"
 #include "ui/SignatureDialog.h"
 #include "core/interfaces/ISignatureManager.h"
 
 #include "core/AppContext.h"
+#include "core/FormStaleFieldTracker.h"
+#include "core/interfaces/IPdfEditorEngine.h"   // releaseResidentFile (V01 swap)
 #include "GpMainWindow.h"
 #include "ui/PdfViewerWidget.h"
 #include "core/interfaces/IFormManager.h"
 #include "commands/AddFormFieldCommand.h"
+#include "commands/AutoDetectPlacement.h"
 
 #include <QInputDialog>
 #include <QMessageBox>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QUndoStack>
+#include "engines/SafeSave.h"
 #include "shell/StatusBar.h"
 
 namespace gp {
 
 FormsController::FormsController(const AppContext* ctx, MainWindow* mainWindow, QObject* parent)
     : QObject(parent), _ctx(ctx), _mainWindow(mainWindow) {}
+
+// ARC07: dispatch and enablement share ONE predicate (shell/EditPolicy.h).
+bool FormsController::isEnabled(ToolId id) const {
+    return !EditPolicy::toolRefusedByReadOnly(
+        _ctx && _ctx->document ? _ctx->document.get() : nullptr, id);
+}
 
 QList<ToolId> FormsController::handledTools() const {
     return {
@@ -111,21 +122,15 @@ void FormsController::autoDetectFields() {
         return;
     }
 
-    int count = 0;
-    for (const auto& s : suggestions) {
-        if (s.type == "Text") {
-            AddFormFieldCommand(_ctx->forms.get(), _ctx->document.get(), AddFormFieldCommand::FieldType::Text, viewer->currentPage(), s.rect, s.suggestedName).redo();
-            count++;
-        } else if (s.type == "Date") {
-            AddFormFieldCommand(_ctx->forms.get(), _ctx->document.get(), AddFormFieldCommand::FieldType::Date, viewer->currentPage(), s.rect, s.suggestedName).redo();
-            count++;
-        } else if (s.type == "Checkbox") {
-            AddFormFieldCommand(_ctx->forms.get(), _ctx->document.get(), AddFormFieldCommand::FieldType::Checkbox, viewer->currentPage(), s.rect, s.suggestedName).redo();
-            count++;
-        }
-    }
+    // V06: the placement goes THROUGH the application undo stack as ONE
+    // compound command (AutoDetectPlacement), with honest placed/failed
+    // counts — the status message only promises what really happened.
+    const AutoDetectPlacement::Outcome outcome =
+        AutoDetectPlacement::apply(_ctx->forms.get(), _ctx->document.get(),
+                                   _ctx->undoStack.get(), suggestions,
+                                   viewer->currentPage());
     _mainWindow->statusBar()->showMessage(
-        tr("Auto-detect (experimental): placed %1 suggested field(s) for review — undo or adjust as needed.").arg(count), 8000);
+        AutoDetectPlacement::statusMessage(outcome.placed, outcome.failed), 8000);
 }
 
 void FormsController::editTabOrder() {
@@ -143,14 +148,53 @@ void FormsController::onImportDataRequested() {
     QString dataPath = QFileDialog::getOpenFileName(_mainWindow, tr("Import Form Data"), "", tr("Form Data (*.fdf *.csv)"));
     if (dataPath.isEmpty()) return;
 
-    QString outputPath = viewer->filePath() + ".tmp"; // Use temporary write or overwrite
+    // V01 (PARITY-BRANCH-REVIEW): the OLD flow loaded the temporary output
+    // into the viewer and then deleted `viewer->filePath()` — which was by
+    // then the TEMP path — and renamed the temp onto itself: the import never
+    // landed in the real document, whose bytes on disk stayed stale.
+    // The repaired flow swaps the REAL path on disk and keeps the viewer on it.
+    const QString originalPath = viewer->filePath();
+    if (originalPath.isEmpty()) return;
+    const QString outputPath = originalPath + ".tmp";
     QStringList unsupported;
-    if (_ctx->forms->importFormData(viewer->filePath(), dataPath, outputPath, &unsupported)) {
-        // Assume saving inplace or reloading the new path. In a real app we might load it back.
-        viewer->loadDocument(outputPath);
-        QFile::remove(viewer->filePath());
-        QFile::rename(outputPath, viewer->filePath());
+    QList<FormJsFailure> jsFailures;
+    if (_ctx->forms->importFormData(originalPath, dataPath, outputPath, &unsupported, &jsFailures)) {
+        // Commit the imported bytes onto the real path through the shared
+        // checked-commit boundary: the original is never destroyed unless the
+        // replacement actually succeeded, and the viewer's held handle is
+        // released/restored around the atomic rename by the SafeSave
+        // coordinator (the same boundary every in-place write uses).
+        //
+        // The viewer is not the only holder: the open document is also
+        // resident in the editing engine's PoDoFo backend, whose parser keeps
+        // an OS device on the real path for lazy resolution — the same device
+        // the engine's own same-file save re-seats away before its commit
+        // (EC01). A shell-side replacement must release it explicitly (the
+        // coordinator cannot: calling into the engine from there would
+        // re-enter engine locks held by engine-side commits). The next engine
+        // access lazily re-resolves from the real path — the imported result,
+        // or the preserved original if the commit fails; truthful either way.
+        if (_ctx->pdfEditor) _ctx->pdfEditor->releaseResidentFile(originalPath);
+        QString commitErr;
+        const bool committed = gp::SafeSave::commitFileToDestination(
+            outputPath, originalPath, &commitErr);
+        QFile::remove(outputPath);   // the candidate is consumed either way
+        if (!committed) {
+            QMessageBox::warning(_mainWindow, tr("Import Failed"),
+                tr("The form data was imported, but the document could not be "
+                   "replaced on disk (%1). The original document is unchanged.")
+                    .arg(commitErr));
+            return;
+        }
+        // The viewer still displays the pre-import bytes from its (restored)
+        // handle — reload so what is shown is what was committed.
+        viewer->loadDocument(originalPath);
         _mainWindow->statusBar()->showMessage(tr("Successfully imported form data from %1").arg(QFileInfo(dataPath).fileName()), 5000);
+        // R18(a): the import COMMITTED → its cascade outcome is the document's
+        // current truth; the persistent stale-field tracker records it (a
+        // fully-successful cascade clears all stale warnings for the file).
+        if (_ctx->formStale)
+            _ctx->formStale->applyCascadeOutcome(originalPath, jsFailures);
         // §9.6 P0: a bulk import that silently dropped values (radio/pushbutton
         // targets, unknown names) must not read as success.
         if (!unsupported.isEmpty()) {
@@ -159,7 +203,18 @@ void FormsController::onImportDataRequested() {
                    "Radio groups and push buttons cannot be filled by import; check that field names match the document.")
                     .arg(unsupported.size()).arg(unsupported.join(", ")));
         }
+        // Phase-1 form-JS honesty contract: calculated fields whose scripts
+        // failed kept their committed value — name them, never a silent value.
+        if (!jsFailures.isEmpty()) {
+            QStringList lines;
+            for (const FormJsFailure& f : jsFailures)
+                lines << tr("• %1 — %2 (%3)").arg(f.fieldName, f.reason, f.kind);
+            QMessageBox::warning(_mainWindow, tr("Import complete, calculation failed"),
+                tr("The data was imported, but %n calculated field(s) failed and kept "
+                   "their previous value:\n\n%1", "", jsFailures.size()).arg(lines.join('\n')));
+        }
     } else {
+        QFile::remove(outputPath);   // never leave a half-written temp behind
         QMessageBox::warning(_mainWindow, tr("Import Failed"), tr("Could not import form data."));
     }
 }

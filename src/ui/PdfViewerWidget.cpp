@@ -1,10 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "ui/PdfViewerWidget.h"
+#include "ui/PrintJob.h"                 // WP-R08: owned print job
 #include "GpMainWindow.h"
+// SWEEP-W3 move-2 compile check: LOAD-BEARING — MainWindow::statusBar()
+// (GpMainWindow.h:59) returns the concrete gp::StatusBar* (only
+// forward-declared in GpMainWindow.h), and the .showMessage calls at
+// :1372/:1626 need the complete type.
 #include "shell/StatusBar.h"
 #include "core/AnnotationSerializer.h"
 #include <QDebug>
+#include <QKeyEvent>
 #include <QDesktopServices>
+#include <QBuffer>
 #include <QUrl>
 #include <QMessageBox>
 #include <QPdfDocument>
@@ -25,6 +32,7 @@
 #include <QFileInfo>
 #include <QStandardPaths>
 #include <limits>
+#include <QtMath>
 #include <QThread>
 #include <QPointer>
 #include <QProgressDialog>
@@ -43,8 +51,114 @@
 #include <QDesktopServices>
 #include <QUrl>
 #include <QScrollBar>
+#include <QToolTip>
+#include <QHelpEvent>
+#include <QPainterPath>
 // §9.1: link extraction goes through the engine seam (setLinkReader) — the UI
 // must not include a concrete backend header (D-02 rule).
+
+// ── §9.7 P0: on-page signature validity badges (view-layer only) ────────────
+// The badge is a viewer-drawn overlay: ISO 32000-2 forbids validation status
+// inside the field appearance and Acrobat's ribbon is viewer-drawn too, so
+// nothing here is ever written into the PDF or the .ann sidecar.
+namespace {
+// 16px disc (design: 14–18px), centered on the field rect's top-right corner.
+constexpr qreal kBadgeRadius = 8.0;
+
+void gpDrawSignatureBadge(QPainter &p, const QPointF &center, SignatureBadgeState state, qreal radius)
+{
+    p.save();
+    p.setRenderHint(QPainter::Antialiasing, true);
+    // White halo ring keeps the disc legible on any page background.
+    QPen halo(Qt::white, qMax<qreal>(1.5, radius * 0.22));
+    halo.setJoinStyle(Qt::RoundJoin);
+    p.setPen(halo);
+    p.setBrush(PdfViewerWidget::signatureBadgeColor(state));
+    p.drawEllipse(center, radius, radius);
+
+    const qreal g = radius * 0.45;   // glyph half-extent
+    switch (state) {
+    case SignatureBadgeState::ValidTrusted: {
+        // Check mark (✓): two round-capped strokes.
+        QPen pen(Qt::white, qMax<qreal>(1.4, radius * 0.22),
+                 Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+        p.setPen(pen);
+        p.setBrush(Qt::NoBrush);
+        QPainterPath check;
+        check.moveTo(center.x() - g * 0.9, center.y() + g * 0.05);
+        check.lineTo(center.x() - g * 0.15, center.y() + g * 0.8);
+        check.lineTo(center.x() + g, center.y() - g * 0.7);
+        p.drawPath(check);
+        break;
+    }
+    case SignatureBadgeState::ModifiedAfterSigning: {
+        // X (✕): two round-capped strokes.
+        QPen pen(Qt::white, qMax<qreal>(1.4, radius * 0.22),
+                 Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+        p.setPen(pen);
+        p.setBrush(Qt::NoBrush);
+        p.drawLine(QPointF(center.x() - g, center.y() - g), QPointF(center.x() + g, center.y() + g));
+        p.drawLine(QPointF(center.x() + g, center.y() - g), QPointF(center.x() - g, center.y() + g));
+        break;
+    }
+    case SignatureBadgeState::UntrustedChain:
+    case SignatureBadgeState::Unknown: {
+        // "?" glyph (Acrobat-style unknown/untrusted marker), white on the disc.
+        QFont f = p.font();
+        f.setBold(true);
+        f.setPixelSize(qMax(9, qRound(radius * 1.4)));
+        p.setFont(f);
+        p.setPen(Qt::white);
+        p.drawText(QRectF(center.x() - radius, center.y() - radius, radius * 2.0, radius * 2.0),
+                   Qt::AlignCenter, QStringLiteral("?"));
+        break;
+    }
+    }
+    p.restore();
+}
+} // namespace
+
+// The mouse-transparent child widget that paints the badges over the PDF view
+// in single-page mode (two-page mode composites them via paintTwoPageOverlays).
+class SignatureBadgeOverlay : public QWidget {
+public:
+    explicit SignatureBadgeOverlay(PdfViewerWidget *viewer)
+        : QWidget(viewer), m_viewer(viewer)
+    {
+        setObjectName(QStringLiteral("signatureBadgeOverlay"));
+        // Clicks, hover and drags must fall through to the PDF view and the
+        // annotation layer beneath — the badge layer is paint-only.
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        setFocusPolicy(Qt::NoFocus);
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        if (!m_viewer || !m_viewer->m_pdfView || !m_viewer->m_document)
+            return;
+        // Two-page mode paints badges into the page pixmaps instead; this
+        // overlay is hidden there (grabbing a hidden overlay must stay empty).
+        if (m_viewer->m_twoPageMode)
+            return;
+        QPdfView *view = m_viewer->m_pdfView;
+        const QRect vp = view->viewport()->geometry();
+        const int page = m_viewer->m_pageNavigator ? m_viewer->m_pageNavigator->currentPage() : -1;
+        const qreal zoom = qMax<qreal>(m_viewer->m_zoomFactor, 0.01);
+
+        QPainter p(this);
+        p.translate(vp.topLeft());
+        p.setClipRect(vp);
+        for (const SignatureBadgeSpec &spec : m_viewer->m_badges) {
+            if (spec.pageIndex != page || !spec.fieldRect.isValid())
+                continue;   // not anchored to the visible page → nothing to draw
+            const QPointF center = m_viewer->badgeViewportCenter(spec, vp.size(), zoom);
+            gpDrawSignatureBadge(p, center, spec.state, kBadgeRadius);
+        }
+    }
+
+private:
+    PdfViewerWidget *m_viewer = nullptr;
+};
 
 PdfViewerWidget::PdfViewerWidget(QWidget *parent)
     : QWidget(parent)
@@ -61,6 +175,11 @@ PdfViewerWidget::PdfViewerWidget(QWidget *parent)
     , m_saveDebounceTimer(new QTimer(this))
     , m_pageChangeTimer(new QTimer(this))
 {
+    // Engine-lane residual: the parking device load() swaps in when an
+    // in-place write must replace the displayed file (see parkDocumentForWrite).
+    m_parkBuffer = new QBuffer(this);
+    m_parkBuffer->open(QIODevice::ReadWrite);
+
     m_searchModel->setDocument(m_document);
     m_bookmarkModel->setDocument(m_document);
 
@@ -81,10 +200,25 @@ PdfViewerWidget::PdfViewerWidget(QWidget *parent)
         return m_pageNavigator->currentPage();
     });
 
+    // R17: the reading canvas is a keyboard stop (F6 cycling reaches it) and
+    // owns the core navigation keys — see keyPressEvent().
+    setFocusPolicy(Qt::StrongFocus);
+
     // Use the view's built-in page navigator
     m_pageNavigator = m_pdfView->pageNavigator();
     connect(m_pageNavigator, &QPdfPageNavigator::currentPageChanged, this, &PdfViewerWidget::onPageChanged);
     connect(m_annotationLayer, &AnnotationLayer::annotationsChanged, this, &PdfViewerWidget::annotationsChanged);
+    // ARC04: a USER layer edit dirties the session — see the signal comment.
+    // (Re)loads suppress the relay (m_suppressAnnotationDirty in loadDocument).
+    // G14: a user edit also un-commits — the annotations are no longer the
+    // ones embedded in the PDF, so the sidecar envelope must record pending
+    // work from this edit on.
+    connect(m_annotationLayer, &AnnotationLayer::annotationsChanged, this, [this]() {
+        if (!m_suppressAnnotationDirty) {
+            m_annotationsEmbedded = false;
+            emit annotationEdited();
+        }
+    });
     connect(m_annotationLayer, &AnnotationLayer::textEditRequested, this, &PdfViewerWidget::textEditRequested);
 
     // Save debounce: annotationsChanged restarts a 2-second timer (Fix 7)
@@ -139,6 +273,25 @@ PdfViewerWidget::PdfViewerWidget(QWidget *parent)
     m_twoPageScrollArea->setWidgetResizable(true);
     m_twoPageScrollArea->hide();
 
+    // §9.7 P0: badge overlay — stacked above the PDF view and the annotation
+    // layer, mouse-transparent so every interaction keeps working unchanged.
+    m_badgeOverlay = new SignatureBadgeOverlay(this);
+    m_badgeOverlay->setParent(container);
+    m_annotationLayer->raise();
+    m_badgeOverlay->raise();
+    // Scroll/zoom/content-size changes move the page under the badge anchor —
+    // repaint so badges stay pinned to the field rect's corner. rangeChanged
+    // also catches zoom-mode presets (FitToWidth/FitInView), which change the
+    // zoom factor without going through zoomIn/zoomOut/setZoomLevel.
+    connect(m_pdfView->horizontalScrollBar(), &QScrollBar::valueChanged,
+            m_badgeOverlay, qOverload<>(&QWidget::update));
+    connect(m_pdfView->verticalScrollBar(), &QScrollBar::valueChanged,
+            m_badgeOverlay, qOverload<>(&QWidget::update));
+    connect(m_pdfView->horizontalScrollBar(), &QScrollBar::rangeChanged,
+            m_badgeOverlay, qOverload<>(&QWidget::update));
+    connect(m_pdfView->verticalScrollBar(), &QScrollBar::rangeChanged,
+            m_badgeOverlay, qOverload<>(&QWidget::update));
+
     // We'll manage sizes manually in resizeEvent for true overlap
     layout->addWidget(container);
 
@@ -156,21 +309,84 @@ PdfViewerWidget::~PdfViewerWidget()
     // page jump followed by destruction would invoke it on a half-destroyed
     // object ("Called object is not of the correct type").
     disconnect(m_pageNavigator, &QPdfPageNavigator::currentPageChanged, this, nullptr);
-    // Flush any pending debounced save (Fix 7)
+    // Flush any pending debounced save (Fix 7). ARC02: synchronously — a
+    // detached writer here would race process teardown at shutdown.
     if (m_saveDebounceTimer->isActive()) {
         m_saveDebounceTimer->stop();
-        saveAnnotations();
+        writeAnnotationsNow(m_filePath);
+    }
+}
+
+// ARC02: capture/flush policy for pending sidecar work. The pending save is
+// bound to the CURRENT document identity: it is written synchronously against
+// the current path BEFORE that path can change, and the debounce timer is
+// stopped so no stale timer can fire against a new mutable path afterwards.
+// (The async writer already captures (path, bytes) by value, so a writer in
+// flight can only ever touch the document it was created for.)
+void PdfViewerWidget::flushPendingAnnotationSave()
+{
+    if (!m_saveDebounceTimer->isActive()) return;
+    m_saveDebounceTimer->stop();
+    writeAnnotationsNow(m_filePath);
+}
+
+void PdfViewerWidget::writeAnnotationsNow(const QString &filePath)
+{
+    if (filePath.isEmpty()) return;
+    // G14: the sidecar is an ENVELOPE — the annotation array plus the
+    // commit state ("embeddedIntoPdf") that distinguishes sidecar
+    // persistence (intermediate durability) from annotations committed INTO
+    // the PDF by the save boundary. AnnotationSerializer::fromJson accepts
+    // both shapes, so legacy array sidecars keep loading.
+    QJsonObject envelope;
+    envelope["annotations"] = AnnotationSerializer::toJson(m_annotationLayer->annotations()).array();
+    envelope["embeddedIntoPdf"] = m_annotationsEmbedded;
+    QJsonDocument doc(envelope);
+    QFile file(filePath + ".ann");
+    if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        file.write(doc.toJson());
+        file.close();
     }
 }
 
 bool PdfViewerWidget::loadDocument(const QString &fileName)
 {
+    // ARC04: everything this function does to the annotation layer is a
+    // document (re)load, NOT a user edit — the dirty relay is suppressed so a
+    // freshly published identity never opens dirty.
+    m_suppressAnnotationDirty = true;
+    // ARC02: this is the view layer's document-identity boundary.
+    // 1) Capture/flush the OLD document's pending sidecar work against the OLD
+    //    path BEFORE the identity changes (no-op when nothing is pending). A
+    //    same-path reload also flushes, so loadAnnotations() below restores
+    //    the newest state instead of the last debounced snapshot.
+    flushPendingAnnotationSave();
+    // 2) Never carry document A's overlay state into document B. A missing
+    //    sidecar must mean an EMPTY annotation list — loadAnnotations() used
+    //    to early-return on a missing file, silently retaining A's list and
+    //    letting the pending debounce serialize it under B's path.
+    if (fileName != m_filePath && !m_annotationLayer->annotations().isEmpty()) {
+        m_annotationLayer->setAnnotations({});
+        // setAnnotations() emits annotationsChanged, which rearms the debounce
+        // timer; an identity switch is not an edit of the NEW document.
+        m_saveDebounceTimer->stop();
+    }
     m_filePath = fileName;
     clearPageCache();
     m_linksForPage = -1;   // §9.1: document changed → link cache is stale
     m_document->load(fileName);
     if (isLoaded()) loadAnnotations();
     refreshPageLinks(); // §9.1 P0: prime link cache for the opening page
+    m_suppressAnnotationDirty = false;
+    // G14 (QUALITY-GATE-2026-09-09): report the freshly loaded document's
+    // pending-embed state. A sidecar that recorded UNEMBEDDED annotation work
+    // reopens the session DIRTY (via the shell) — the work is back on screen
+    // AND truthfully represented as unsaved PDF work; a committed (or legacy/
+    // foreign) sidecar reopens clean, exactly as before.
+    const bool pendingEmbed = isLoaded()
+        && !m_annotationLayer->annotations().isEmpty()
+        && !m_annotationsEmbedded;
+    emit pendingEmbedAnnotationsRestored(pendingEmbed);
     return isLoaded();
 }
 
@@ -186,6 +402,40 @@ void PdfViewerWidget::reload()
     }
 }
 
+// ── Engine-lane residual: viewer-handle coordination for in-place writes ────
+//
+// Fact probe (.context/evidence-2026-09-08/probe-persist.txt): a loaded
+// QPdfDocument turns the SafeSave atomic replacement into "Access is denied";
+// QPdfDocument::close() does NOT release the owned file device (Qt keeps it
+// until the next load or the document's destruction) — loading an empty
+// in-memory buffer DOES release it synchronously, and the subsequent same-path
+// commit succeeds.
+
+bool PdfViewerWidget::parkDocumentForWrite(const QString &path)
+{
+    if (!m_document || path.isEmpty() || path != m_filePath)
+        return false;                    // not displayed here — nothing to release
+    if (m_parkedForWrite)
+        return true;                     // already parked (nested commits)
+    if (!isLoaded())
+        return false;                    // nothing displayed → no handle held
+    m_document->load(m_parkBuffer);      // replaces Qt's file device synchronously
+    m_parkedForWrite = !isLoaded();
+    return m_parkedForWrite;
+}
+
+void PdfViewerWidget::restoreDocumentAfterWrite(const QString &path)
+{
+    if (!m_parkedForWrite || !m_document || path != m_filePath)
+        return;
+    m_parkedForWrite = false;
+    // Full reload from the written file — the bytes are either the committed
+    // result or (on a failed commit) the preserved original; either way the
+    // displayed document becomes truthful again. reload() resets the overlay
+    // rotation exactly like the post-mutation reloadRequested path does.
+    reload();
+}
+
 bool PdfViewerWidget::isLoaded() const
 {
     return m_document->pageCount() > 0;
@@ -193,17 +443,32 @@ bool PdfViewerWidget::isLoaded() const
 
 // ---- Zoom ----
 
+// R12 (PERF-04): zoom bounds. The upper clamp keeps the two-page spread's
+// zoom*2 render inside the checked-size pixel budget for ordinary pages, and
+// every entry point rejects non-finite programmatic scales instead of passing
+// them into QPdfView or the renderers. 16.0 (1600%) also bounds what the
+// Qt-owned single-page QPdfView allocates for a Letter page (~124 Mpx) —
+// beyond that QPdfView's full-page buffer is not ours to tile.
+static constexpr qreal kMinZoom = 0.1;
+static constexpr qreal kMaxZoom = 16.0;
+
 void PdfViewerWidget::zoomIn()
 {
-    m_zoomFactor *= 1.25;
+    // R12: finite + upper clamp — the old code let m_zoomFactor grow without
+    // bound (1.25^n) toward gigapixel spread renders.
+    const qreal next = qIsFinite(m_zoomFactor) ? m_zoomFactor * 1.25 : kMaxZoom;
+    m_zoomFactor = qBound(kMinZoom, next, kMaxZoom);
     m_pdfView->setZoomFactor(m_zoomFactor);
+    if (m_badgeOverlay) m_badgeOverlay->update();   // §9.7 P0: badges follow zoom
 }
 
 void PdfViewerWidget::zoomOut()
 {
-    m_zoomFactor /= 1.25;
-    if (m_zoomFactor < 0.1) m_zoomFactor = 0.1;
+    // R12: finite + lower clamp (existing floor made explicit with the guard).
+    const qreal next = qIsFinite(m_zoomFactor) ? m_zoomFactor / 1.25 : kMinZoom;
+    m_zoomFactor = qBound(kMinZoom, next, kMaxZoom);
     m_pdfView->setZoomFactor(m_zoomFactor);
+    if (m_badgeOverlay) m_badgeOverlay->update();   // §9.7 P0: badges follow zoom
 }
 
 void PdfViewerWidget::zoomFitWidth()
@@ -218,9 +483,18 @@ void PdfViewerWidget::zoomFitPage()
 
 void PdfViewerWidget::setZoomLevel(qreal level)
 {
-    m_zoomFactor = level;
+    // R12 (PERF-04): programmatic scales are checked before use — NaN/inf are
+    // refused (current zoom kept, useful refusal) and finite levels are
+    // clamped into the operating band instead of reaching the renderers raw.
+    if (!qIsFinite(level)) {
+        qWarning() << "PdfViewerWidget::setZoomLevel: refusing non-finite "
+                      "zoom level" << level << "— keeping" << m_zoomFactor;
+        return;
+    }
+    m_zoomFactor = qBound(kMinZoom, level, kMaxZoom);
     m_pdfView->setZoomMode(QPdfView::ZoomMode::Custom);
     m_pdfView->setZoomFactor(m_zoomFactor);
+    if (m_badgeOverlay) m_badgeOverlay->update();   // §9.7 P0: badges follow zoom
 }
 
 qreal PdfViewerWidget::zoomLevel() const
@@ -338,6 +612,18 @@ bool PdfViewerWidget::eventFilter(QObject *watched, QEvent *event)
                 return true; // consumed — do not treat as canvas click
         }
     }
+    // §9.7 P0: badge tooltips. The overlay is mouse-transparent, so the ToolTip
+    // event arrives at the viewport; hit-test the badge layer here. (In
+    // annotation-editing modes the annotation layer is no longer
+    // mouse-transparent and keeps precedence — badges are a viewing feature.)
+    if (watched == m_pdfView->viewport() && event->type() == QEvent::ToolTip) {
+        auto *he = static_cast<QHelpEvent *>(event);
+        const QString tip = signatureBadgeTooltipAt(he->pos());
+        if (!tip.isEmpty()) {
+            QToolTip::showText(he->globalPos(), tip, m_pdfView->viewport());
+            return true;
+        }
+    }
     return QWidget::eventFilter(watched, event);
 }
 
@@ -417,6 +703,10 @@ bool PdfViewerWidget::isFormBuilderMode(ToolMode mode) {
 
 void PdfViewerWidget::deleteSelectedAnnotation()
 {
+    // ARC07: annotation deletion is a mutation — the viewer-level read-only
+    // gate applies here too (Cut / Delete Selection / inspector paths).
+    if (m_readOnly)
+        return;
     m_annotationLayer->deleteSelected();
 }
 
@@ -429,7 +719,11 @@ void PdfViewerWidget::saveAnnotations()
 {
     if (m_filePath.isEmpty()) return;
 
-    QJsonDocument doc = AnnotationSerializer::toJson(m_annotationLayer->annotations());
+    // G14: envelope writer — see writeAnnotationsNow (same commit state).
+    QJsonObject envelope;
+    envelope["annotations"] = AnnotationSerializer::toJson(m_annotationLayer->annotations()).array();
+    envelope["embeddedIntoPdf"] = m_annotationsEmbedded;
+    QJsonDocument doc(envelope);
     const QString filePath = m_filePath + ".ann";
 
     QThread* worker = QThread::create([filePath, doc]() {
@@ -448,11 +742,40 @@ void PdfViewerWidget::loadAnnotations()
     if (m_filePath.isEmpty()) return;
 
     QFile file(m_filePath + ".ann");
-    if (!file.open(QIODevice::ReadOnly)) return;
+    if (!file.open(QIODevice::ReadOnly)) {
+        // No sidecar: nothing pending, nothing committed — the default state.
+        m_annotationsEmbedded = true;
+        return;
+    }
 
-    QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-    m_annotationLayer->setAnnotations(AnnotationSerializer::fromJson(doc));
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
     file.close();
+    // G14: a legacy ARRAY sidecar (old builds, foreign writers) is treated as
+    // committed — it carries no commit information, and fabricating pending
+    // state from it would re-prompt already-committed documents after an
+    // upgrade. Only an envelope that explicitly recorded unembedded work
+    // reopens pending.
+    m_annotationsEmbedded = true;
+    if (doc.isObject())
+        m_annotationsEmbedded = doc.object()[QStringLiteral("embeddedIntoPdf")].toBool(true);
+    m_annotationLayer->setAnnotations(AnnotationSerializer::fromJson(doc));
+}
+
+// ── G14 (QUALITY-GATE-2026-09-09): sidecar persistence vs PDF commit ────────
+
+bool PdfViewerWidget::hasPendingEmbedAnnotations() const
+{
+    return isLoaded()
+        && !m_annotationLayer->annotations().isEmpty()
+        && !m_annotationsEmbedded;
+}
+
+void PdfViewerWidget::markAnnotationsCommittedIntoPdf()
+{
+    m_annotationsEmbedded = true;
+    // Synchronous envelope rewrite: the sidecar must describe the committed
+    // state before the save boundary reports success.
+    writeAnnotationsNow(m_filePath);
 }
 
 void PdfViewerWidget::setAnnotations(const QList<AnnotationItem> &items)
@@ -468,6 +791,15 @@ void PdfViewerWidget::setPendingSignatureImage(const QImage &img)
     // non-signature tool.
     if (m_annotationLayer)
         m_annotationLayer->setPendingSignatureImage(img);
+}
+
+void PdfViewerWidget::setPendingStampText(const QString &text)
+{
+    // T2-6: same ordering contract as the pending signature image — arm the
+    // Stamp mode FIRST, then set the resolved text (setMode clears pending
+    // stamp text for any non-Stamp tool).
+    if (m_annotationLayer)
+        m_annotationLayer->setPendingStampText(text);
 }
 
 // ---- Search ----
@@ -556,6 +888,7 @@ int PdfViewerWidget::pageCount() const
 void PdfViewerWidget::onPageChanged()
 {
     m_pageChangeTimer->start();
+    if (m_badgeOverlay) m_badgeOverlay->update();   // §9.7 P0: badges follow the visible page
     if (m_twoPageMode) {
         updateTwoPageView();
     }
@@ -571,6 +904,45 @@ void PdfViewerWidget::resizeEvent(QResizeEvent *event)
             m_twoPageScrollArea->resize(size());
         }
     }
+    // §9.7 P0: keep the badge overlay covering the PDF view.
+    syncBadgeOverlayGeometry();
+}
+
+void PdfViewerWidget::syncBadgeOverlayGeometry()
+{
+    if (m_badgeOverlay && m_pdfView)
+        m_badgeOverlay->setGeometry(m_pdfView->geometry());
+}
+
+// ── R17: keyboard-complete core navigation ───────────────────────────────────
+// PageUp/PageDown turn pages, Home/End jump to
+// the first/last page — the navigate core route is complete without a mouse.
+// Unhandled keys fall through to QWidget (the inner QPdfView keeps its own
+// scroll handling when IT holds focus).
+void PdfViewerWidget::keyPressEvent(QKeyEvent *event)
+{
+    const int pageTotal = m_document ? m_document->pageCount() : 0;
+    switch (event->key()) {
+    case Qt::Key_PageDown:
+        if (pageTotal > 0)
+            goToPage(qMin(currentPage() + 1, pageTotal - 1));
+        return;
+    case Qt::Key_PageUp:
+        if (pageTotal > 0)
+            goToPage(qMax(currentPage() - 1, 0));
+        return;
+    case Qt::Key_Home:
+        if (pageTotal > 0)
+            goToPage(0);
+        return;
+    case Qt::Key_End:
+        if (pageTotal > 0)
+            goToPage(pageTotal - 1);
+        return;
+    default:
+        break;
+    }
+    QWidget::keyPressEvent(event);
 }
 
 void PdfViewerWidget::setPageMode(QPdfView::PageMode mode)
@@ -585,12 +957,17 @@ void PdfViewerWidget::setTwoPageMode(bool enabled)
     if (enabled) {
         m_pdfView->hide();
         m_annotationLayer->hide();
+        m_badgeOverlay->hide();   // §9.7 P0: two-page mode paints badges into the pixmaps
         m_twoPageScrollArea->show();
         updateTwoPageView();
     } else {
         m_twoPageScrollArea->hide();
         m_pdfView->show();
         m_annotationLayer->show();
+        // §9.7 P0: restore the badge overlay over the (possibly resized) view.
+        syncBadgeOverlayGeometry();
+        m_badgeOverlay->show();
+        m_badgeOverlay->update();
     }
 }
 
@@ -692,6 +1069,18 @@ void PdfViewerWidget::paintTwoPageOverlays(QImage *pageImg, int pageIndex, qreal
         AnnotationLayer::paintShape(painter, anno);
     }
     painter.restore();
+
+    // §9.7 P0: signature badges — page points with the TOP-LEFT origin scale
+    // directly by renderScale (the same convention as the search rectangles
+    // above). The disc is scaled by viewToPixmap so it reads at the same
+    // on-screen size as the single-page overlay.
+    for (const SignatureBadgeSpec &spec : m_badges) {
+        if (spec.pageIndex != pageIndex || !spec.fieldRect.isValid())
+            continue;
+        const QPointF center(spec.fieldRect.right() * renderScale,
+                             spec.fieldRect.top() * renderScale);
+        gpDrawSignatureBadge(painter, center, spec.state, kBadgeRadius * viewToPixmap);
+    }
 }
 
 void PdfViewerWidget::toggleEyeCareMode()
@@ -806,6 +1195,65 @@ static qint64 pixmapSizeInBytes(const QPixmap &pixmap)
     return static_cast<qint64>(pixmap.width()) * pixmap.height() * pixmap.depth() / 8;
 }
 
+// ── R12 (PERF-04): the shared checked-size / pixel-budget guard ────────────
+// Every real rendering boundary (two-page spread, thumbnails via RenderCache,
+// snapshots) funnels through PdfViewerWidget::renderPage, and every scale
+// enters through zoomIn/zoomOut/setZoomLevel. This helper is the single
+// allocation guard applied BEFORE any pixel buffer is requested:
+//   * rejects non-finite / non-positive scales (programmatic NaN/inf zoom) —
+//     the old path converted them through QSize(int) and failed only by
+//     undefined behaviour;
+//   * rejects non-finite or degenerate page sizes;
+//   * bounds page-size × scale to a pixel budget by scaling the request down
+//     proportionally (a bounded render, never a multi-GB allocation and never
+//     int overflow), with a hard per-side cap.
+// Returns false only when nothing renderable remains (useful refusal);
+// on true, \a outPx receives the safe pixel size and \a outClamped reports
+// whether the request had to be shrunk to fit the budget.
+namespace {
+
+// 64 Mpx ≈ 256 MiB of ARGB32 — far above any display/HiDPI need (a 4K
+// viewport at device pixel ratio 2 is ~33 Mpx), far below the unbounded
+// allocations a large /MediaBox × deep zoom product used to produce
+// (measured pre-guard: a 40000×40000 pt page at scale 2 rendered 6,400 Mpx
+// in ~12.7 s with a ~11.7 GiB peak working set).
+constexpr qint64 kMaxRenderPixels = 64 * 1000 * 1000;
+constexpr int   kMaxRenderSide    = 32767;   // QImage hard per-side limit
+constexpr qreal kMinRenderScale   = 0.01;
+
+bool checkedRenderSize(qreal scaleFactor, qreal widthPt, qreal heightPt,
+                       QSize *outPx, bool *outClamped)
+{
+    if (outPx) *outPx = QSize();
+    if (outClamped) *outClamped = false;
+
+    if (!qIsFinite(scaleFactor) || scaleFactor < kMinRenderScale) return false;
+    if (!qIsFinite(widthPt) || !qIsFinite(heightPt)
+        || widthPt <= 0.0 || heightPt <= 0.0) return false;
+
+    double w = double(widthPt) * double(scaleFactor);
+    double h = double(heightPt) * double(scaleFactor);
+    if (!qIsFinite(w) || !qIsFinite(h) || w <= 0.0 || h <= 0.0) return false;
+
+    const double pixels = w * h;
+    if (pixels > double(kMaxRenderPixels)) {
+        // Bounded render: shrink proportionally so the buffer fits the budget.
+        const double fit = std::sqrt(double(kMaxRenderPixels) / pixels);
+        w = std::floor(w * fit);
+        h = std::floor(h * fit);
+        if (outClamped) *outClamped = true;
+    }
+    if (w > double(kMaxRenderSide)) { w = kMaxRenderSide; if (outClamped) *outClamped = true; }
+    if (h > double(kMaxRenderSide)) { h = kMaxRenderSide; if (outClamped) *outClamped = true; }
+    if (w < 1.0) w = 1.0;
+    if (h < 1.0) h = 1.0;
+
+    if (outPx) *outPx = QSize(int(w), int(h));
+    return true;
+}
+
+} // namespace
+
 QImage PdfViewerWidget::renderPage(int page, qreal scaleFactor) const
 {
     if (page < 0 || page >= m_document->pageCount())
@@ -820,8 +1268,27 @@ QImage PdfViewerWidget::renderPage(int page, qreal scaleFactor) const
         return m_pageCache.value(page).pixmap.toImage();
     }
 
-    QSizeF pageSize = m_document->pagePointSize(page);
-    QSize imageSize(pageSize.width() * scaleFactor, pageSize.height() * scaleFactor);
+    // R12 (PERF-04): finite/bounded dimension checks BEFORE the allocation.
+    // The old code handed pageSize × scaleFactor straight to
+    // QPdfDocument::render — an unchecked allocation for large MediaBoxes,
+    // deep zoom or a non-finite programmatic scale.
+    const QSizeF pageSize = m_document->pagePointSize(page);
+    QSize imageSize;
+    bool clamped = false;
+    if (!checkedRenderSize(scaleFactor, pageSize.width(), pageSize.height(),
+                           &imageSize, &clamped)) {
+        qWarning() << "PdfViewerWidget::renderPage: refusing non-finite or "
+                      "degenerate render request (page" << page
+                   << "scale" << scaleFactor
+                   << "pageSize" << pageSize << ")";
+        return QImage();
+    }
+    if (clamped) {
+        qWarning() << "PdfViewerWidget::renderPage: request for page" << page
+                   << "at scale" << scaleFactor
+                   << "exceeds" << (kMaxRenderPixels / 1000000) << "MP — "
+                      "rendering bounded" << imageSize << "instead";
+    }
 
     // §9.1 P0: no render-options rotation here — orientation lives in the
     // document /Rotate after an engine-side rotate + reload, and PDFium
@@ -834,15 +1301,22 @@ QImage PdfViewerWidget::renderPage(int page, qreal scaleFactor) const
     // whole cache on every insert. If this page already had an entry (e.g. cached
     // at a different scale), discount its bytes before inserting the replacement.
     m_cacheAccessCounter++;
-    if (const auto old = m_pageCache.constFind(page); old != m_pageCache.constEnd()) {
-        m_cacheTotalBytes -= old->bytes;
-    }
     CachedPage item;
     item.pixmap = QPixmap::fromImage(result);
     item.scaleFactor = scaleFactor;
     item.rotation = m_rotation;
     item.lastAccessed = m_cacheAccessCounter;
     item.bytes = pixmapSizeInBytes(item.pixmap);
+
+    // R12: a single render larger than the WHOLE cache budget would evict
+    // every other entry on insert and thrash the cache — serve it uncached.
+    if (item.bytes > MaxCacheBytes) {
+        return result;
+    }
+
+    if (const auto old = m_pageCache.constFind(page); old != m_pageCache.constEnd()) {
+        m_cacheTotalBytes -= old->bytes;
+    }
     m_cacheTotalBytes += item.bytes;
     m_pageCache.insert(page, item);
 
@@ -1099,129 +1573,67 @@ bool PdfViewerWidget::mergeDocuments(const QStringList &files, const QString &ou
     return true;
 }
 
+// WP-R08 (WHOLE-PRODUCT-AND-PLAN-REVIEW-2026-09-10 PP03): the previous
+// implementation ignored the print dialog's page-range selection (it always
+// walked pages 0..N-1) and spawned render threads over the LIVE view-owned
+// QPdfDocument — a switch/close during printing dereferenced a document this
+// widget owns, and render/painter failures were silently swallowed.
+//
+// The dialog's selection is now mapped to an explicit page sequence and the
+// whole job (immutable snapshot document, workers, painter, progress/cancel)
+// is owned by gp::PrintJob, which never touches this widget or its document.
 void PdfViewerWidget::printDocument()
 {
+    const int pageCount = isLoaded() ? m_document->pageCount() : 0;
+    if (pageCount <= 0)
+        return;
+
     QPrinter *printer = new QPrinter(QPrinter::HighResolution);
     QPrintDialog dlg(printer, this);
+    dlg.setMinMax(1, pageCount);   // the dialog can now clamp a manual range
     if (dlg.exec() != QDialog::Accepted) {
         delete printer;
         return;
     }
 
-    int totalPages = m_document->pageCount();
-    if (totalPages <= 0) {
+    // PP03: the dialog's choices actually reach the printed sequence.
+    const QVector<int> pages = gp::PrintJob::pageSequence(
+        printer->printRange(), printer->fromPage(), printer->toPage(),
+        pageCount, printer->pageOrder(),
+        m_pageNavigator ? m_pageNavigator->currentPage() + 1 : 0);
+    if (pages.isEmpty()) {
         delete printer;
+        QMessageBox::warning(this, tr("Print"),
+            tr("The selected print range does not contain any pages of this "
+               "document. Nothing was printed."));
         return;
     }
 
-    QProgressDialog *progress = new QProgressDialog(
-        tr("Rendering pages for print..."), tr("Cancel"), 0, totalPages, this);
-    progress->setWindowModality(Qt::WindowModal);
-    progress->setMinimumDuration(0);
-    progress->setValue(0);
+    // The job owns an immutable snapshot: its OWN QPdfDocument opened on the
+    // displayed file. (While a safe-save parks this widget's handle the live
+    // document is deliberately empty, so printing is unreachable in exactly
+    // the window where file bytes and displayed bytes could disagree.)
+    gp::PrintJob::Snapshot snapshot;
+    snapshot.filePath = m_filePath;
+    printer->setDocName(QFileInfo(m_filePath).fileName());
 
-    struct PrintState {
-        QPrinter *printer = nullptr;
-        QPainter *painter = nullptr;
-        std::atomic<bool> canceled{false};
-        int currentPage = 0;
-        int totalPages = 0;
-        std::function<void()> printNextPage;
-    };
-    auto state = std::make_shared<PrintState>();
-    state->printer = printer;
-    state->painter = new QPainter(printer);
-    state->totalPages = totalPages;
-
-    connect(progress, &QProgressDialog::canceled, this, [state]() {
-        state->canceled.store(true);
+    auto *job = gp::PrintJob::start(snapshot, printer, pages, this);
+    // Truthful outcomes — failures are never silent, cancel is acknowledged.
+    connect(job, &gp::PrintJob::finished, this,
+            [this](int printed, bool canceled, const QString &error) {
+        if (!error.isEmpty()) {
+            QMessageBox::warning(this, tr("Print"),
+                tr("Printing failed after %1 page(s): %2").arg(printed).arg(error));
+        }
+        // Status text for every terminal outcome (the modal box above is the
+        // loud channel for failures).
+        if (auto *win = qobject_cast<gp::MainWindow*>(window()))
+            win->statusBar()->showMessage(
+                error.isEmpty() ? (canceled ? tr("Printing canceled after %1 page(s).").arg(printed)
+                                            : tr("Printing finished: %1 page(s).").arg(printed))
+                                : tr("Printing failed: %1").arg(error),
+                5000);
     });
-
-    QPointer<PdfViewerWidget> guard(this);
-    QPdfDocument *doc = m_document;
-
-    state->printNextPage = [guard, doc, progress, state]() {
-        auto cleanup = [state, progress]() {
-            if (state->painter) {
-                state->painter->end();
-                delete state->painter;
-                state->painter = nullptr;
-            }
-            if (state->printer) {
-                delete state->printer;
-                state->printer = nullptr;
-            }
-            progress->close();
-            progress->deleteLater();
-            state->printNextPage = nullptr; // break circular reference
-        };
-
-        if (!guard || state->canceled.load()) {
-            cleanup();
-            return;
-        }
-
-        if (state->currentPage >= state->totalPages) {
-            cleanup();
-            return;
-        }
-
-        int pageIdx = state->currentPage;
-        progress->setValue(pageIdx);
-
-        // Spawn worker thread to render pageIdx
-        QThread *worker = QThread::create([guard, doc, pageIdx, state, progress]() {
-            QSizeF pageSize = doc->pagePointSize(pageIdx);
-            QSize imageSize(pageSize.width() * 3.0, pageSize.height() * 3.0);
-            QPdfDocumentRenderOptions opts;
-            QImage pageImage = doc->render(pageIdx, imageSize, opts);
-
-            // Once rendered, pass to GUI thread to paint, then print next page
-            QMetaObject::invokeMethod(guard.data(), [guard, pageImage, state]() {
-                if (!guard || state->canceled.load()) {
-                    if (state->painter) {
-                        state->painter->end();
-                        delete state->painter;
-                        state->painter = nullptr;
-                    }
-                    if (state->printer) {
-                        delete state->printer;
-                        state->printer = nullptr;
-                    }
-                    state->printNextPage = nullptr; // break circular reference
-                    return;
-                }
-
-                // Paint the image
-                if (state->currentPage > 0 && state->printer) {
-                    state->printer->newPage();
-                }
-
-                if (state->painter) {
-                    QRect target = state->painter->viewport();
-                    QSize scaledSize = pageImage.size().scaled(target.size(), Qt::KeepAspectRatio);
-                    QRect centered((target.width() - scaledSize.width()) / 2,
-                                   (target.height() - scaledSize.height()) / 2,
-                                   scaledSize.width(), scaledSize.height());
-                    state->painter->drawImage(centered, pageImage);
-                }
-
-                // Advance page index
-                state->currentPage++;
-
-                // Trigger next page!
-                if (state->printNextPage) {
-                    state->printNextPage();
-                }
-            }, Qt::QueuedConnection);
-        });
-
-        connect(worker, &QThread::finished, worker, &QObject::deleteLater);
-        worker->start();
-    };
-
-    // Start the printing sequence!
-    state->printNextPage();
 }
 
 void PdfViewerWidget::setOcrResults(const QList<OcrResult> &results) { if (m_annotationLayer) m_annotationLayer->setOcrResults(results); }
@@ -1230,5 +1642,73 @@ void PdfViewerWidget::setOcrResults(const QList<OcrResult> &results) { if (m_ann
 // real paintEvent and will draw it on top of all annotation content.
 void PdfViewerWidget::setOverlayImage(const QImage &img) {
     if (m_annotationLayer) m_annotationLayer->setOverlayImage(img);
+}
+
+// ── §9.7 P0: on-page signature validity badges (view-layer only) ────────────
+
+void PdfViewerWidget::setSignatureBadges(const QList<SignatureBadgeSpec> &badges)
+{
+    m_badges = badges;
+    if (m_badgeOverlay)
+        m_badgeOverlay->update();
+    // Two-page mode composites badges into the page pixmaps, so refresh those.
+    if (m_twoPageMode)
+        updateTwoPageView();
+}
+
+QList<SignatureBadgeSpec> PdfViewerWidget::signatureBadges() const
+{
+    return m_badges;
+}
+
+QColor PdfViewerWidget::signatureBadgeColor(SignatureBadgeState state)
+{
+    switch (state) {
+    case SignatureBadgeState::ValidTrusted:
+        return QColor(0x2e, 0x9e, 0x44);   // green — trusted signature
+    case SignatureBadgeState::UntrustedChain:
+        return QColor(0xf2, 0xa3, 0x3c);   // amber — integrity ok, untrusted chain
+    case SignatureBadgeState::ModifiedAfterSigning:
+        return QColor(0xd9, 0x30, 0x25);   // red — modified after signing
+    case SignatureBadgeState::Unknown:
+        break;
+    }
+    return QColor(0x8a, 0x8d, 0x91);       // gray — unknown / not validated
+}
+
+QPointF PdfViewerWidget::badgeViewportCenter(const SignatureBadgeSpec &spec,
+                                             const QSize &vpSize, qreal zoom) const
+{
+    // Same viewport mapping as handleLinkClick: the page is centered in the
+    // viewport and offset by the scrollbar values; fieldRect is in top-left
+    // origin page space, so the anchor is the field rect's top-right corner.
+    // Known limitation (shared with link clicks): the centering math is
+    // approximate in MultiPage flow layouts.
+    const QSizeF pageSize = m_document->pagePointSize(spec.pageIndex);
+    const qreal originX = qMax<qreal>(0, (vpSize.width() - pageSize.width() * zoom) / 2.0)
+                        - m_pdfView->horizontalScrollBar()->value();
+    const qreal originY = qMax<qreal>(0, (vpSize.height() - pageSize.height() * zoom) / 2.0)
+                        - m_pdfView->verticalScrollBar()->value();
+    return QPointF(originX + spec.fieldRect.right() * zoom,
+                   originY + spec.fieldRect.top() * zoom);
+}
+
+QString PdfViewerWidget::signatureBadgeTooltipAt(const QPoint &viewportPos) const
+{
+    if (!m_pdfView || !m_document || !isLoaded() || m_twoPageMode)
+        return QString();
+    const int page = m_pageNavigator ? m_pageNavigator->currentPage() : -1;
+    if (page < 0 || m_badges.isEmpty())
+        return QString();
+    const qreal zoom = qMax<qreal>(m_zoomFactor, 0.01);
+    const QSize vpSize = m_pdfView->viewport()->size();
+    for (const SignatureBadgeSpec &spec : m_badges) {
+        if (spec.pageIndex != page || !spec.fieldRect.isValid() || spec.tooltip.isEmpty())
+            continue;
+        const QPointF center = badgeViewportCenter(spec, vpSize, zoom);
+        if (QLineF(viewportPos, center).length() <= kBadgeRadius + 3.0)
+            return spec.tooltip;
+    }
+    return QString();
 }
 

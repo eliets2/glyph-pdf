@@ -1,20 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "SecurityController.h"
+#include "shell/EditPolicy.h"
 #include "core/AppContext.h"
 #include "GpMainWindow.h"
 #include "modes/RedactMode.h"
+#include "modes/RedactApplyDialog.h"
+#include "engines/RedactOperation.h"
 #include "ui/PdfViewerWidget.h"
 #include "ui/EncryptionDialog.h"
 #include "ui/PermissionsDialog.h"
 #include "ui/SignatureDialog.h"
 #include "ui/MetadataDialog.h"
+#include "ui/OcspConsentDialog.h"  // R24 wiring closure: OCSP network consent
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "core/interfaces/ISignatureManager.h"
+#include "engines/SignatureManager.h" // N06: explicit-appearance signing entry points
 #include "commands/EncryptDocumentHelper.h"
 #include "commands/SignDocumentHelper.h"
 #include "commands/SanitizeDocumentHelper.h"
 #include "commands/SetMetadataCommand.h"
 #include "core/AnnotationSerializer.h"
+#include "core/SigningLabels.h" // R19c single definition (SWEEP-W3 B1)
 
 #include <QDateTime>
 #include <QFile>
@@ -22,6 +28,8 @@
 #include <QJsonObject>
 #include <QFileDialog>
 #include <QMessageBox>
+#include <QAbstractButton>
+#include <QPushButton>
 #include <QProgressDialog>
 #include <QThread>
 #include <QPointer>
@@ -39,14 +47,333 @@
 #include <QVBoxLayout>
 #include <QLabel>
 #include "engines/PdfEditorEngine.h"
+#include "core/PolicyController.h"  // R24(a): machine policy over signing prefs (additive)
 #include <memory>
 #include <atomic>
 #include "shell/StatusBar.h"
 
 namespace gp {
+static_assert(kDefaultSanitizeOn,
+    "the secure-redact entry path must default sanitization ON (§9.8 contract)");
+
+// §9.7 P1: capture of ONE signing/certifying request — everything the
+// RESTARTABLE worker needs to re-run the exact same crypto operation after a
+// PartialLtvMissing "Retry", without re-prompting for certificate/password.
+// N06: the request is the IMMUTABLE input snapshot — it also carries the
+// source document identity and the captured appearance image, so a retry
+// re-runs the exact same operation instead of silently re-signing whatever
+// the mutable session points at, without the picked appearance.
+//
+// R19(b): the request ALSO carries the settings-derived signing configuration
+// (TSA URL + PAdES level), captured when the user signed — a Retry re-applies
+// the SAME configured values before re-dispatching, never a half-applied
+// configuration.
+struct SecurityController::SigningRequest {
+    bool certify = false;
+    int certLevel = 1;
+    QString outputPath;
+    QString certPath;
+    QString pwd;
+    QString reason;
+    QString location;
+    QString sourcePath;   // N06: the document the user chose to sign
+    QImage appearance;    // N06: the dialog's optional appearance image (may be null)
+    QString tsaUrl;       // R19(b): signing/tsaUrl at request time
+    PAdESLevel level = PAdESLevel::B_B; // R19(b): signing/padesLevel at request time
+};
+
+// ── R19(a–c): settings-driven signing configuration ──────────────────────────
+
+PAdESLevel SecurityController::padesLevelFromSetting(const QString& level)
+{
+    if (level == QLatin1String("B-T"))  return PAdESLevel::B_T;
+    if (level == QLatin1String("B-LT")) return PAdESLevel::B_LT;
+    if (level == QLatin1String("B-LTA")) return PAdESLevel::B_LTA;
+    return PAdESLevel::B_B; // "B-B" and every unknown value: the honest floor
+}
+
+SecurityController::SigningConfig SecurityController::readSigningConfig(QSettings* overrideSettings)
+{
+    // std::unique_ptr would drag a complete QSettings destructor into every
+    // TU; a scoped value keeps the default-constructor branch simple.
+    QSettings* owned = nullptr;
+    if (!overrideSettings)
+        owned = new QSettings();
+    QSettings& s = overrideSettings ? *overrideSettings : *owned;
+
+    // R24(a): machine policy wins over the stored user values at load time.
+    // The override is disclosed in Preferences (disabled widget carrying the
+    // policy value + "managed by policy" wording + status line) and in the
+    // support bundle — it is never silent. ADDITIVE hook (the one unavoidable
+    // seam: this is the ONE production reader of the signing settings).
+    auto& policy = gp::PolicyController::instance();
+    policy.ensureLoaded();
+
+    SigningConfig cfg;
+    cfg.tsaUrl = policy
+        .effectiveValue(QStringLiteral("signing/tsaUrl"),
+                        s.value(QStringLiteral("signing/tsaUrl")).toString())
+        .toString()
+        .trimmed();
+    cfg.level = padesLevelFromSetting(
+        policy
+            .effectiveValue(QStringLiteral("signing/padesLevel"),
+                            s.value(QStringLiteral("signing/padesLevel"),
+                                    QStringLiteral("B-B"))
+                                .toString())
+            .toString());
+    delete owned;
+    return cfg;
+}
+
+QString SecurityController::signingPreflightRefusal(PAdESLevel level, const QString& tsaUrl,
+                                                    bool forTimestamp)
+{
+    const bool needsTsa = forTimestamp || level > PAdESLevel::B_B;
+    if (!needsTsa || !tsaUrl.isEmpty())
+        return {};
+    // emergence E-5 (SWEEP-W3-EMERGENCE §5): when machine policy manages
+    // signing/tsaUrl (and empties it), the "Set it under Preferences" advice
+    // is a dead end — the Preferences widget is disabled for exactly that
+    // key. The refusal names the policy (the R24 disclosure pattern: managed
+    // + where the effective value is visible) instead of the control.
+    const bool policyManaged =
+        gp::PolicyController::instance().isManaged(QStringLiteral("signing/tsaUrl"));
+    if (policyManaged && forTimestamp)
+        return QObject::tr("Adding a document timestamp requires a timestamp authority (TSA) "
+                           "URL, which is not configured. This setting is managed by machine "
+                           "policy (signing/tsaUrl — see Preferences → Security → Signing "
+                           "for the effective value). No timestamp was attempted and no "
+                           "document was modified.");
+    if (policyManaged)
+        return QObject::tr("Signing at PAdES %1 requires a timestamp authority (TSA) URL, "
+                           "which is not configured. Without it the signature would silently "
+                           "downgrade to B-B. This setting is managed by machine policy "
+                           "(signing/tsaUrl — see Preferences → Security → Signing for the "
+                           "effective value), or choose level B-B. No signature was "
+                           "attempted.")
+            .arg(attainedLevelLabel(level, {}));
+    if (forTimestamp)
+        return QObject::tr("Adding a document timestamp requires a timestamp authority (TSA) "
+                           "URL, which is not configured. Set it under Preferences → Security "
+                           "→ Signing. No timestamp was attempted and no document was modified.");
+    return QObject::tr("Signing at PAdES %1 requires a timestamp authority (TSA) URL, which is "
+                       "not configured. Without it the signature would silently downgrade to "
+                       "B-B. Set the TSA URL under Preferences → Security → Signing, or choose "
+                       "level B-B. No signature was attempted.")
+        .arg(attainedLevelLabel(level, {}));
+}
+
+// ── N18 (follow-ups lane): the certify request's DocMDP level from the
+// dialog's consume-once pending slot. Certify (1..3) is carried through 1:1;
+// Approve (0 — no certification requested) and out-of-range garbage keep the
+// historical default level 1 — exactly what this entry point did before the
+// selector existed — instead of feeding the engine a level it must refuse.
+int SecurityController::certifyLevelFromDialog(int pendingLevel)
+{
+    return (pendingLevel >= 1 && pendingLevel <= 3) ? pendingLevel : 1;
+}
+
+QString SecurityController::attainedLevelLabel(PAdESLevel requested, const SignatureOutcomeDetail& detail)
+{
+    // SWEEP-W3 B1: the body moved verbatim to core/SigningLabels.cpp (single
+    // definition, gp::SigningLabels::attainedLevelLabel); this delegating
+    // static keeps the in-shell call sites and the test pins
+    // (TestSignatureBadges, TestSweepW1SecProbe) source-compatible.
+    return SigningLabels::attainedLevelLabel(requested, detail);
+}
+
+// §9.7 P1: shared signing/certifying execution for signDocument() and
+// certifyDocument(). On PartialLtvMissing the user gets a warning naming the
+// EXACT missing piece plus a Continue/Retry dialog; Retry re-enters
+// runSigning() with the same request.
+void SecurityController::runSigning(const SigningRequest &req)
+{
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer || !_ctx || !_ctx->signing) return;
+
+    // R19(b) honest pre-flight: a level above B-B with no TSA URL would be
+    // SILENTLY downgraded by the engine (the B-T token fetch is skipped when
+    // tsaUrl is empty) while the outcome may still report Success. Refuse
+    // BEFORE any attempt with the exact reason — never a dishonest signature.
+    const QString refusal = signingPreflightRefusal(req.level, req.tsaUrl);
+    if (!refusal.isEmpty()) {
+        QMessageBox::warning(_mainWindow,
+                             req.certify ? tr("Certification Not Attempted") : tr("Signing Not Attempted"),
+                             refusal);
+        _mainWindow->statusBar()->showMessage(
+            req.certify ? tr("Certification not attempted — no TSA URL configured.")
+                        : tr("Signing not attempted — no TSA URL configured."), 5000);
+        return;
+    }
+
+    // R24 wiring closure: OCSP network consent (the gap the network-disclosure
+    // lane found — OCSP fired with no switch at all). Levels B-LT/B-LTA build
+    // the DSS, which fetches fresh OCSP data from the certificate's AIA
+    // responder: a NETWORK request. Per the send-for-signing consent design
+    // (D1a): per-document consent with remember-for-document, and a global
+    // never-network switch (signing/ocspNetworkPolicy = "never") that refuses
+    // WITHOUT asking. A denied decision refuses BEFORE any dispatch (R19(b)
+    // honest-preflight discipline) — the engine would otherwise contact the
+    // responder without consent, and a silently degraded B-T outcome is not
+    // an honest substitution for the level the user chose. The whyNot names
+    // the way out: B-T/B-B need no OCSP egress; granting consent unblocks
+    // B-LT/B-LTA. The engine's OCSP code is untouched.
+    if (req.level >= PAdESLevel::B_LT) {
+        const auto ocspDecision =
+            gp::OcspConsent::obtain(_mainWindow, req.sourcePath);
+        if (!gp::OcspConsent::egressAllowed(ocspDecision)) {
+            QMessageBox::warning(_mainWindow,
+                                 req.certify ? tr("Certification Not Attempted")
+                                             : tr("Signing Not Attempted"),
+                                 gp::OcspConsent::refusalReason(ocspDecision));
+            _mainWindow->statusBar()->showMessage(
+                req.certify
+                    ? tr("Certification not attempted — OCSP network consent not granted.")
+                    : tr("Signing not attempted — OCSP network consent not granted."),
+                5000);
+            return;
+        }
+    }
+
+    auto* progress = new QProgressDialog(req.certify ? tr("Certifying document...")
+                                                     : tr("Signing document..."),
+                                         QString(), 0, 0, _mainWindow);
+    progress->setWindowModality(Qt::WindowModal);
+    progress->setMinimumDuration(0);
+    progress->show();
+
+    std::weak_ptr<ISignatureManager> weakSigning = _ctx->signing;
+    std::weak_ptr<DocumentSession> weakDoc = _ctx->document;
+    QPointer<SecurityController> self(this);
+    auto result = std::make_shared<std::atomic<int>>(static_cast<int>(SignOutcome::NotRun));
+
+    // R19(b): the configured values are applied to the manager BEFORE the
+    // dispatch — on every entry (initial AND Retry re-entering runSigning
+    // with the same request), so a retry re-applies the same configuration.
+    // Plain setters on the manager: safe before the worker starts.
+    if (auto signing = weakSigning.lock()) {
+        signing->setTsaUrl(req.tsaUrl);
+        signing->setSignatureLevel(req.level);
+    }
+
+    QThread* worker = QThread::create([weakSigning, weakDoc, req, result]() {
+        auto signing = weakSigning.lock();
+        auto doc = weakDoc.lock();
+        if (!signing || !doc || req.sourcePath.isEmpty()) return;
+        SignOutcome outcome;
+        // N06: every attempt (initial AND retry) goes through the
+        // explicit-appearance entry point with the request's captured copy —
+        // nothing is consumed, so the retried document embeds the same image.
+        // The request's sourcePath (not the mutable session path) is signed.
+        auto *concrete = dynamic_cast<SignatureManager *>(signing.get());
+        if (req.certify) {
+            outcome = concrete
+                ? concrete->certifyDocumentWithAppearance(
+                      req.sourcePath, req.outputPath, req.certPath, req.pwd,
+                      req.certLevel, req.appearance, req.reason, req.location)
+                : signing->certifyDocument(req.sourcePath, req.outputPath, req.certPath,
+                                           req.pwd, req.certLevel, req.reason, req.location);
+            if (outcome == SignOutcome::Success || outcome == SignOutcome::PartialLtvMissing)
+                doc->markReload();
+        } else if (concrete) {
+            outcome = concrete->signDocumentWithAppearance(
+                req.sourcePath, req.outputPath, req.certPath, req.pwd,
+                req.appearance, req.reason, req.location);
+            // SignDocumentHelper semantics: anything better than Failed
+            // re-loads the session (the signed bytes are on disk).
+            if (outcome != SignOutcome::Failed)
+                doc->markReload();
+        } else {
+            // Non-SignatureManager implementations (test mocks) keep the
+            // legacy helper path.
+            outcome = SignDocumentHelper::execute(signing.get(), doc.get(), req.outputPath,
+                                                  req.certPath, req.pwd, req.reason, req.location);
+        }
+        result->store(static_cast<int>(outcome));
+    });
+
+    connect(worker, &QThread::finished, _mainWindow, [self, progress, req, result, weakSigning]() {
+        progress->close();
+        progress->deleteLater();
+        if (!self) return;
+        const auto outcome = static_cast<SignOutcome>(result->load());
+
+        if (outcome == SignOutcome::Success) {
+            // R19c: the Success disclosure names the ATTAINED level, not a
+            // silent assumption. For a fully-successful sign the attained
+            // level equals the requested one (the detail carries no missing
+            // pieces); the label keeps the wording honest even if the detail
+            // ever says otherwise.
+            SignatureOutcomeDetail okDetail;
+            if (auto signing = weakSigning.lock())
+                okDetail = signing->lastSignOutcomeDetail();
+            const QString level = attainedLevelLabel(req.level, okDetail);
+            self->_mainWindow->statusBar()->showMessage(
+                req.certify ? tr("Document certified and saved to %1 (PAdES %2)").arg(req.outputPath, level)
+                            : tr("Document signed and saved to %1 (PAdES %2)").arg(req.outputPath, level), 5000);
+            if (QMessageBox::question(self->_mainWindow,
+                                      req.certify ? tr("Open Certified PDF") : tr("Open Signed PDF"),
+                                      req.certify ? tr("Certification complete. Would you like to open the certified file?")
+                                                  : tr("Signing complete. Would you like to open the signed file?"))
+                == QMessageBox::Yes) {
+                self->_mainWindow->openDocument(req.outputPath);
+            }
+            return;
+        }
+
+        if (outcome == SignOutcome::PartialLtvMissing) {
+            // E-02: the signature bytes ARE on disk — never tell the user the
+            // signing failed. §9.7 P1: name EXACTLY which piece degraded.
+            // R19c: the wording also carries the ATTAINED level (a requested
+            // B-LTA whose archive timestamp failed attests B-LT).
+            SignatureOutcomeDetail detail;
+            if (auto signing = weakSigning.lock())
+                detail = signing->lastSignOutcomeDetail();
+            QMessageBox box(QMessageBox::Warning,
+                            tr("Long-Term Validation Incomplete"),
+                            buildSigningOutcomeWarning(outcome, req.outputPath, detail, req.certify, req.level),
+                            QMessageBox::NoButton, self->_mainWindow);
+            QAbstractButton *retry = box.addButton(tr("Retry Signing"), QMessageBox::ActionRole);
+            box.addButton(req.certify ? tr("Keep Certified File") : tr("Keep Signed File"),
+                          QMessageBox::AcceptRole);
+            box.exec();
+            if (box.clickedButton() == retry) {
+                self->runSigning(req);    // restartable worker: re-run the SAME request
+                return;
+            }
+            self->_mainWindow->statusBar()->showMessage(
+                req.certify ? tr("Certified (long-term validation data missing).")
+                            : tr("Signed (long-term validation data missing)."), 5000);
+            if (QMessageBox::question(self->_mainWindow,
+                                      req.certify ? tr("Open Certified PDF") : tr("Open Signed PDF"),
+                                      req.certify ? tr("Would you like to open the certified file?")
+                                                  : tr("Would you like to open the signed file?"))
+                == QMessageBox::Yes) {
+                self->_mainWindow->openDocument(req.outputPath);
+            }
+            return;
+        }
+
+        QMessageBox::critical(self->_mainWindow,
+                              req.certify ? tr("Certification Error") : tr("Signing Error"),
+                              req.certify ? tr("Failed to certify document.") : tr("Failed to sign document."));
+        self->_mainWindow->statusBar()->showMessage(
+            req.certify ? tr("Certification failed.") : tr("Signing failed."), 5000);
+    });
+
+    connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+    worker->start();
+}
 
 SecurityController::SecurityController(const AppContext* ctx, MainWindow* mainWindow, QObject* parent)
     : QObject(parent), _ctx(ctx), _mainWindow(mainWindow) {}
+
+// ARC07: dispatch and enablement share ONE predicate (shell/EditPolicy.h).
+bool SecurityController::isEnabled(ToolId id) const {
+    return !EditPolicy::toolRefusedByReadOnly(
+        _ctx && _ctx->document ? _ctx->document.get() : nullptr, id);
+}
 
 QList<ToolId> SecurityController::handledTools() const {
     return {
@@ -253,62 +580,27 @@ void SecurityController::signDocument() {
         _ctx->undoStack->clear();
         _ctx->document->setPath(viewer->filePath());
 
-        auto* progress = new QProgressDialog(tr("Signing document..."), QString(), 0, 0, _mainWindow);
-        progress->setWindowModality(Qt::WindowModal);
-        progress->setMinimumDuration(0);
-        progress->show();
-
-        std::weak_ptr<ISignatureManager> weakSigning = _ctx->signing;
-        std::weak_ptr<DocumentSession> weakDoc = _ctx->document;
-        const QString certPath = dlg.certificatePath();
-        const QString pwd = dlg.password();
-        const QString reason = dlg.reason();
-        const QString location = dlg.location();
-
-        QPointer<SecurityController> self(this);
-        auto result = std::make_shared<std::atomic<int>>(static_cast<int>(SignOutcome::NotRun));
-
-        QThread* worker = QThread::create([weakSigning, weakDoc, outputPath, certPath, pwd, reason, location, result]() {
-            auto signing = weakSigning.lock();
-            auto doc = weakDoc.lock();
-            if (!signing || !doc) return;
-            SignOutcome ok = SignDocumentHelper::execute(
-                signing.get(), doc.get(), outputPath, certPath, pwd, reason, location);
-            result->store(static_cast<int>(ok));
-        });
-
-        connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result]() {
-            progress->close();
-            progress->deleteLater();
-            if (!self) return;
-            const auto sigOutcome = static_cast<SignOutcome>(result->load());
-            if (sigOutcome == SignOutcome::Success) {
-                self->_mainWindow->statusBar()->showMessage(tr("Document signed and saved to %1").arg(outputPath), 5000);
-                if (QMessageBox::question(self->_mainWindow, tr("Open Signed PDF"), tr("Signing complete. Would you like to open the signed file?")) == QMessageBox::Yes) {
-                    self->_mainWindow->openDocument(outputPath);
-                }
-            } else if (sigOutcome == SignOutcome::PartialLtvMissing) {
-                // E-02: the signature bytes ARE on disk — do NOT tell the user signing
-                // failed (which would make them discard a validly-signed file). Warn
-                // that only the long-term-validation enhancement could not be added.
-                QMessageBox::warning(self->_mainWindow, tr("Signature Applied — Long-Term Validation Incomplete"),
-                    tr("The document was signed and saved to %1, but the long-term "
-                       "validation data (DSS / archive timestamp) could not be embedded. "
-                       "The signature is valid now; please verify the TSA/OCSP "
-                       "configuration if you require B-LT/B-LTA archival assurances.")
-                        .arg(outputPath));
-                self->_mainWindow->statusBar()->showMessage(tr("Signed (long-term validation data missing)."), 5000);
-                if (QMessageBox::question(self->_mainWindow, tr("Open Signed PDF"), tr("Would you like to open the signed file?")) == QMessageBox::Yes) {
-                    self->_mainWindow->openDocument(outputPath);
-                }
-            } else {
-                QMessageBox::critical(self->_mainWindow, tr("Signing Error"), tr("Failed to sign document."));
-                self->_mainWindow->statusBar()->showMessage(tr("Signing failed."), 5000);
-            }
-        });
-
-        connect(worker, &QThread::finished, worker, &QObject::deleteLater);
-        worker->start();
+        // §9.7 P1: the request is captured so a PartialLtvMissing "Retry" can
+        // re-run the EXACT same signing without re-prompting.
+        // R19(b): the settings-derived signing configuration is captured with
+        // the request, so Retry re-applies the SAME values.
+        SigningRequest req;
+        req.certify = false;
+        const SigningConfig cfg = readSigningConfig();
+        req.tsaUrl = cfg.tsaUrl;
+        req.level = cfg.level;
+        req.outputPath = outputPath;
+        req.certPath = dlg.certificatePath();
+        req.pwd = dlg.password();
+        req.reason = dlg.reason();
+        req.location = dlg.location();
+        // N06: the request owns its inputs — the source identity the user is
+        // signing, and the appearance image, drained from the dialog's
+        // consume-once slot into the request exactly once. The retry passes
+        // the request's copy explicitly, so it survives every attempt.
+        req.sourcePath = viewer->filePath();
+        req.appearance = SignatureManager::takePendingAppearanceImage();
+        runSigning(req);
     }
 }
 
@@ -347,6 +639,46 @@ QString SecurityController::buildValidationSummary(const QList<SignatureInfo>& i
     }
     return QObject::tr("%1 of %2 signature(s) are valid:\n\n%3")
         .arg(valid).arg(infos.size()).arg(lines.join(QLatin1Char('\n')));
+}
+
+// §9.7 P1: pure degradation-wording builder — unit-testable without UI. For a
+// PartialLtvMissing outcome it names EXACTLY which long-term-validation piece
+// is missing (DSS dictionary / archive timestamp / SEP13 lead 1: the B-T
+// signature timestamp) — and, since R19c, the ATTAINED level
+// (attainedLevelLabel): a requested B-LTA whose archive timestamp failed
+// attests B-LT; a requested B-T whose timestamp server was unreachable
+// attests B-B, with the plain-language reason spelled out. Every other
+// outcome yields no warning at all.
+QString SecurityController::buildSigningOutcomeWarning(SignOutcome outcome,
+                                                       const QString &outputPath,
+                                                       const SignatureOutcomeDetail &detail,
+                                                       bool certified,
+                                                       PAdESLevel requested)
+{
+    if (outcome != SignOutcome::PartialLtvMissing)
+        return {};
+    QStringList missing;
+    if (detail.dssMissing)
+        missing << QObject::tr("the DSS dictionary (B-LT)");
+    if (detail.docTimestampMissing)
+        missing << QObject::tr("the archive timestamp (B-LTA)");
+    if (detail.timestampMissing)
+        missing << QObject::tr("the timestamp (B-T)");
+    // SEP13 lead 1 residual: the plain-language reason for the B-T piece —
+    // the TSA was configured (the pre-flight passed) but unreachable at sign
+    // time, so the requested level degraded to the attained one.
+    const QString unreachableNote = detail.timestampMissing
+        ? QObject::tr(" No timestamp server was reachable — the signature is %1, not %2.")
+              .arg(attainedLevelLabel(requested, detail), attainedLevelLabel(requested, {}))
+        : QString();
+    return QObject::tr("The document was %1 and saved to %2. The signature attained PAdES %3, "
+                       "but %4 could not be embedded.%5 "
+                       "The cryptographic signature itself is valid and the file is usable "
+                       "now — retry signing to embed the missing long-term validation data, "
+                       "or keep the file as-is.")
+        .arg(certified ? QObject::tr("certified") : QObject::tr("signed"),
+             outputPath, attainedLevelLabel(requested, detail), missing.join(QObject::tr(" and ")),
+             unreachableNote);
 }
 
 void SecurityController::sanitizeDocument() {
@@ -500,104 +832,99 @@ void SecurityController::applyRedactions() {
         return;
     }
 
-    bool sanitizeAfter = false;
-    QMessageBox::StandardButton reply =
-        QMessageBox::question(_mainWindow, tr("Confirm Redaction"),
-        tr("Apply redaction marks to the open PDF?\n\n"
-           "This operation permanently excises matched content from content streams, "
-           "removes associated metadata (annotations, structure tree text, form data), "
-           "and saves to a new file.\n\n"
-           "The original file is preserved unmodified. This action cannot be undone."),
-        QMessageBox::Yes | QMessageBox::No);
-    if (reply != QMessageBox::Yes) return;
-
-    // §9.8 P0: offer the full hidden-data scrub alongside content excision —
-    // a black box is meaningless if PII survives in metadata, attachments,
-    // embedded JS, or the name tree. Default ON.
-    sanitizeAfter = QMessageBox::question(_mainWindow, tr("Sanitize Copy Too?"),
-        tr("Also produce an additional fully sanitized copy?\n\n"
-           "This removes document metadata, XMP, attachments, JavaScript actions, "
-           "bookmarks, and form values from a separate output file."),
-        QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes;
-    QString sanitizedPath;
-    if (sanitizeAfter) {
-        const QFileInfo fi(viewer->filePath());
-        sanitizedPath = QFileDialog::getSaveFileName(_mainWindow,
-            tr("Save Sanitized Copy"),
-            fi.absolutePath() + QLatin1Char('/') + fi.completeBaseName()
-                + QStringLiteral("_redacted_sanitized.pdf"),
-            tr("PDF Files (*.pdf)"));
-        if (sanitizedPath.isEmpty()) sanitizeAfter = false;
+    // U05: pre-mutation summary dialog — replaces the plain confirm box plus
+    // the separate sanitize prompt and sanitized-path picker. The old flow
+    // saved IN PLACE over the original (saveDocument(filePath)) while its own
+    // dialog claimed the original was preserved; the transactional operation
+    // below commits to the chosen destination and never writes the source.
+    const QString filePath = viewer->filePath();
+    RedactApplyPlan plan;
+    plan.sourcePath = filePath;
+    const QFileInfo fi(filePath);
+    plan.destinationPath = fi.absolutePath() + QLatin1Char('/')
+        + fi.completeBaseName() + QStringLiteral("_redacted.pdf");
+    plan.sanitizedDestinationPath = fi.absolutePath() + QLatin1Char('/')
+        + fi.completeBaseName() + QStringLiteral("_redacted_sanitized.pdf");
+    plan.sourcePageCount = viewer->isLoaded() ? viewer->pageCount() : 0;
+    // D07 (review 2026-09-06): one shared initial sanitization policy for both
+    // entry paths — default ON per the §9.8 contract; the dialog preserves an
+    // explicit opt-out. Was: false, contradicting the default-ON ledger row.
+    plan.sanitize = kDefaultSanitizeOn;
+    for (const auto& anno : annos) {
+        if (anno.mode == ToolMode::Redact) {
+            ++plan.markCount;
+            ++plan.marksPerPage[anno.pageIndex];
+        }
     }
+
+    RedactApplyDialog dlg(plan, _mainWindow);
+    if (dlg.exec() != QDialog::Accepted) return; // nothing mutated
+    const RedactApplyPlan chosen = dlg.plan();
+
+    // N04 (review 2026-09-07): the request is built by the ONE shared
+    // plan→request conversion so every dialog field reaches the operation on
+    // this path too.
+    RedactRequest request = redactRequestFromPlan(chosen, redactionsByPage);
 
     _mainWindow->statusBar()->showMessage(tr("Applying redactions..."));
 
-    // AR-7 D3: plain user-facing label; redaction cannot be safely interrupted
-    // mid-stream (it modifies content streams atomically), so no Cancel is offered.
-    auto* progress = new QProgressDialog(tr("Applying redactions..."), QString(), 0, 0, _mainWindow);
+    // AR-7 D3, U05: cancel is honored at the operation's stage/page boundaries
+    // (never mid-page), so the progress dialog offers a real Cancel button.
+    auto* progress = new QProgressDialog(tr("Applying redactions..."), tr("Cancel"),
+                                         0, request.redactionsByPage.size(), _mainWindow);
     progress->setWindowModality(Qt::WindowModal);
     progress->setMinimumDuration(0);
     progress->show();
 
-    std::weak_ptr<IPdfEditorEngine> weakEngine = _ctx->pdfEditor;
-    const QString filePath = viewer->filePath();
+    auto* op = new RedactOperation(request, this);
+    connect(progress, &QProgressDialog::canceled, op, &RedactOperation::cancel);
+    connect(op, &RedactOperation::stageChanged, _mainWindow,
+            [progress](RedactStage stage, int pagesDone, int pagesTotal) {
+                if (stage == RedactStage::Redacting) {
+                    progress->setRange(0, pagesTotal);
+                    progress->setValue(pagesDone);
+                }
+            });
+
     QPointer<SecurityController> self(this);
-    auto result = std::make_shared<std::atomic<bool>>(false);
-
-    QThread* worker = QThread::create([weakEngine, filePath, sanitizedPath, redactionsByPage, result]() {
-        auto engine = weakEngine.lock();
-        if (!engine) return;
-        if (!engine->loadDocumentForEditing(filePath)) {
-            result->store(false);
-            return;
-        }
-        bool success = true;
-        for (auto it = redactionsByPage.begin(); it != redactionsByPage.end(); ++it) {
-            if (!engine->applyRedactions(it.key(), it.value())) {
-                success = false;
-                break;
-            }
-        }
-        if (success && !engine->saveDocument(filePath)) {
-            success = false;
-        }
-        // §9.8 P0: optional full hidden-data scrub into a separate copy.
-        if (success && !sanitizedPath.isEmpty()) {
-            if (!engine->sanitizeDocument(sanitizedPath)) {
-                qWarning() << "post-redaction sanitize failed;" << sanitizedPath;
-            }
-        }
-        result->store(success);
-    });
-
-    connect(worker, &QThread::finished, _mainWindow, [self, progress, viewer, filePath, annos, sanitizedPath, result]() {
-        progress->close();
-        progress->deleteLater();
-        if (!self) return;
-        bool ok = result->load();
-        if (ok) {
-            QString msg = tr("Redactions applied successfully.");
-            if (!sanitizedPath.isEmpty())
-                msg += tr(" Sanitized copy: %1").arg(QFileInfo(sanitizedPath).fileName());
-            self->_mainWindow->statusBar()->showMessage(msg, 8000);
-            QList<AnnotationItem> remaining;
-            for (const auto& anno : annos) {
-                if (anno.mode != ToolMode::Redact) remaining.append(anno);
-            }
-            viewer->setAnnotations(remaining);
-            self->_mainWindow->openDocument(filePath); // reload/refresh page view
-        } else {
-            self->_ctx->pdfEditor->loadDocumentForEditing(filePath);
-            QMessageBox::critical(self->_mainWindow, tr("Secure Redaction Failed"),
-                tr("Failed to securely redact the document. One or more pages contain inline images, "
-                   "unsupported text operators, or complex binary streams that prevent underlying "
-                   "data deletion. The operation was aborted to prevent a visual-only overlay."));
-            self->_mainWindow->statusBar()->showMessage(tr("Redaction failed."), 5000);
-        }
-    });
-
-    connect(worker, &QThread::finished, worker, &QObject::deleteLater);
-    worker->start();
+    QPointer<PdfViewerWidget> viewerGuard(viewer);
+    connect(op, &RedactOperation::finished, _mainWindow,
+            [self, progress, viewerGuard](const RedactResult& result) {
+                progress->close();
+                progress->deleteLater();
+                if (!self) return;
+                // D05: present() hands back the effective terminal result — a
+                // successful Retry-sanitize upgrades the partial outcome to
+                // Completed with the committed sanitized destination. Banner
+                // from the effective result so a recovered flow is never
+                // re-announced with the original "sanitization FAILED" wording.
+                RedactResult effective = result;
+                const auto decision = RedactResultPresenter::present(self->_mainWindow, result, &effective);
+                // Marks are cleared only once the redacted output is committed
+                // AND kept; Failed / Canceled / Discard keep them recoverable.
+                // (The live session was never mutated — no reload needed.)
+                const bool committedAndKept =
+                    result.outcome == RedactOutcome::Completed
+                    || (result.outcome == RedactOutcome::PartialRedactedOnly
+                        && decision == RedactResultPresenter::MarkDecision::ClearMarks);
+                if (committedAndKept && viewerGuard) {
+                    const QList<AnnotationItem> remainingAnnos = viewerGuard->annotations();
+                    QList<AnnotationItem> remaining;
+                    for (const auto& anno : remainingAnnos) {
+                        if (anno.mode != ToolMode::Redact) remaining.append(anno);
+                    }
+                    viewerGuard->setAnnotations(remaining);
+                }
+                self->_mainWindow->statusBar()->showMessage(
+                    RedactResultPresenter::bannerText(effective), 8000);
+            });
+    // SEP13 M8 (static-LOW): same lifetime contract as the RedactMode path —
+    // deleteLater on the completion signal (no accumulate-per-run leak).
+    // Connected AFTER the result handler; the handler never touches `op`, and
+    // the D02 durable execution state makes the deferred delete safe against
+    // both early free and an in-flight run.
+    connect(op, &RedactOperation::finished, op, &QObject::deleteLater);
+    op->start();
 }
 
 void SecurityController::permissionsDocument() {
@@ -715,6 +1042,15 @@ void SecurityController::certifyDocument() {
 
     SignatureDialog dlg(_mainWindow);
     dlg.setWindowTitle(tr("Certify Document"));
+    // N18 (follow-ups lane): refuse-safely BEFORE the dialog runs. A
+    // certification signature must be the FIRST signature in a document, so
+    // the dialog must start out knowing the document's current signature
+    // count — the Certify choice then stays VISIBLE but disabled with the
+    // exact reason (count + why) instead of failing loud only at the engine.
+    // Same validation source the Signatures panel uses.
+    if (!viewer->filePath().isEmpty())
+        dlg.setExistingSignatureCount(
+            _ctx->signing->validateSignatures(viewer->filePath()).size());
     if (dlg.exec() == QDialog::Accepted) {
         if (dlg.certificatePath().isEmpty() || dlg.password().isEmpty()) {
             QMessageBox::warning(_mainWindow, tr("Error"), tr("Certificate path and password are required."));
@@ -727,63 +1063,56 @@ void SecurityController::certifyDocument() {
         _ctx->undoStack->clear();
         _ctx->document->setPath(viewer->filePath());
 
-        auto* progress = new QProgressDialog(tr("Certifying document..."), QString(), 0, 0, _mainWindow);
-        progress->setWindowModality(Qt::WindowModal);
-        progress->setMinimumDuration(0);
-        progress->show();
-
-        std::weak_ptr<ISignatureManager> weakSigning = _ctx->signing;
-        std::weak_ptr<DocumentSession> weakDoc = _ctx->document;
-        const QString certPath = dlg.certificatePath();
-        const QString pwd = dlg.password();
-        const QString reason = dlg.reason();
-        const QString location = dlg.location();
-        // Just hardcode level 1 (no changes allowed) for now since UI doesn't expose it
-        int certLevel = 1;
-
-        QPointer<SecurityController> self(this);
-        auto result = std::make_shared<std::atomic<int>>(static_cast<int>(SignOutcome::NotRun));
-
-        QThread* worker = QThread::create([weakSigning, weakDoc, outputPath, certPath, pwd, certLevel, reason, location, result]() {
-            auto signing = weakSigning.lock();
-            auto doc = weakDoc.lock();
-            if (!signing || !doc) return;
-            SignOutcome outcome = signing->certifyDocument(doc->path(), outputPath, certPath, pwd, certLevel, reason, location);
-            if (outcome == SignOutcome::Success || outcome == SignOutcome::PartialLtvMissing) doc->markReload();
-            result->store(static_cast<int>(outcome));
-        });
-
-        connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result]() {
-            progress->close();
-            progress->deleteLater();
-            if (!self) return;
-            const auto certOutcome = static_cast<SignOutcome>(result->load());
-            if (certOutcome == SignOutcome::Success) {
-                self->_mainWindow->statusBar()->showMessage(tr("Document certified and saved to %1").arg(outputPath), 5000);
-                if (QMessageBox::question(self->_mainWindow, tr("Open Certified PDF"), tr("Certification complete. Would you like to open the certified file?")) == QMessageBox::Yes) {
-                    self->_mainWindow->openDocument(outputPath);
-                }
-            } else if (certOutcome == SignOutcome::PartialLtvMissing) {
-                QMessageBox::warning(self->_mainWindow, tr("Certified — Long-Term Validation Incomplete"),
-                    tr("The document was certified and saved to %1, but long-term validation data could not be embedded.").arg(outputPath));
-                self->_mainWindow->statusBar()->showMessage(tr("Certified (LTV data missing)."), 5000);
-                if (QMessageBox::question(self->_mainWindow, tr("Open Certified PDF"), tr("Would you like to open the certified file?")) == QMessageBox::Yes) {
-                    self->_mainWindow->openDocument(outputPath);
-                }
-            } else {
-                QMessageBox::critical(self->_mainWindow, tr("Certification Error"), tr("Failed to certify document."));
-                self->_mainWindow->statusBar()->showMessage(tr("Certification failed."), 5000);
-            }
-        });
-
-        connect(worker, &QThread::finished, worker, &QObject::deleteLater);
-        worker->start();
+        // §9.7 P1: same restartable worker as the sign flow — and the certify
+        // PartialLtvMissing dialog gets the EXACT degradation wording (which
+        // B-LT/B-LTA piece is missing) instead of the old one-liner.
+        SigningRequest req;
+        req.certify = true;
+        // N18 seam (the n17n18 lane's documented handoff): the accepted dialog
+        // published its purpose/level through the consume-once pending slot;
+        // consume it here EXACTLY ONCE (it equals dlg.certificationLevel() at
+        // accept). A requested certification (1..3) drives the /DocMDP level;
+        // Approve (0 — no certification requested) keeps the historical
+        // default via certifyLevelFromDialog instead of feeding the engine a
+        // level it must refuse. The request carries the level, so a
+        // PartialLtvMissing Retry re-dispatches the SAME level.
+        req.certLevel = certifyLevelFromDialog(
+            SignatureDialog::takePendingCertificationLevel());
+        // R19(b): same settings capture as the sign flow (certLevel is the
+        // /DocMDP level; req.level is the PAdES conformance level).
+        const SigningConfig cfg = readSigningConfig();
+        req.tsaUrl = cfg.tsaUrl;
+        req.level = cfg.level;
+        req.outputPath = outputPath;
+        req.certPath = dlg.certificatePath();
+        req.pwd = dlg.password();
+        req.reason = dlg.reason();
+        req.location = dlg.location();
+        // N06: same immutable-input capture as the sign flow.
+        req.sourcePath = viewer->filePath();
+        req.appearance = SignatureManager::takePendingAppearanceImage();
+        runSigning(req);
     }
 }
 
 void SecurityController::timestampDocument() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->signing) return;
+
+    // R19(b): the ONE production caller PP05 found missing — the timestamp
+    // settings are consumed HERE, before the dispatch. An empty TSA URL is
+    // refused BEFORE any attempt with the exact reason (what is missing and
+    // where to set it) instead of the engine's generic failure after the
+    // fact; a configured-but-unreachable TSA is disclosed BY NAME on failure.
+    const SigningConfig cfg = readSigningConfig();
+    const QString refusal = signingPreflightRefusal(cfg.level, cfg.tsaUrl, /*forTimestamp=*/true);
+    if (!refusal.isEmpty()) {
+        QMessageBox::warning(_mainWindow, tr("Timestamp Not Attempted"), refusal);
+        _mainWindow->statusBar()->showMessage(
+            tr("Timestamp not attempted — no TSA URL configured."), 5000);
+        return;
+    }
+    _ctx->signing->setTsaUrl(cfg.tsaUrl);
 
     QString outputPath = QFileDialog::getSaveFileName(_mainWindow, tr("Save Timestamped Document"), "", tr("PDF Files (*.pdf)"));
     if (outputPath.isEmpty()) return;
@@ -808,7 +1137,7 @@ void SecurityController::timestampDocument() {
         result->store(ok);
     });
 
-    connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result]() {
+    connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result, cfg]() {
         progress->close();
         progress->deleteLater();
         if (!self) return;
@@ -819,7 +1148,14 @@ void SecurityController::timestampDocument() {
                 self->_mainWindow->openDocument(outputPath);
             }
         } else {
-            QMessageBox::critical(self->_mainWindow, tr("Timestamp Error"), tr("Failed to add document timestamp."));
+            // R19(b): the failure names the configured TSA (deterministic when
+            // it is a refused loopback URL — no network, no sleeps).
+            // addDocTimeStamp stages a candidate and commits only on success
+            // (N06 checked replacement), so the destination is unchanged.
+            QMessageBox::critical(self->_mainWindow, tr("Timestamp Error"),
+                tr("The timestamp authority at %1 could not be reached, or it rejected the "
+                   "request. Check the URL under Preferences → Security → Signing. "
+                   "No document was modified.").arg(cfg.tsaUrl));
             self->_mainWindow->statusBar()->showMessage(tr("Timestamp failed."), 5000);
         }
     });

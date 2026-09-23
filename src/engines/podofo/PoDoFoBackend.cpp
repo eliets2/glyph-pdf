@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "engines/podofo/PoDoFoBackend.h"
+#include "engines/SafeSave.h"
+#include "core/MeasureCore.h"
+#include "core/PageSpaceTransform.h"
+#include "core/ItemSpaceTransform.h"
 #include <memory>
 #include "PdfStringEscape.h"
 #include "GlyphAdvanceCalculator.h"
@@ -16,6 +20,7 @@
 #include <cmath>
 #include <sstream>
 #include <algorithm>
+#include <functional>
 #include <utility>
 #include <QMap>
 #include <set>
@@ -41,6 +46,18 @@
 #endif
 
 namespace {
+
+// RAII removal of this operation's candidate file on every path (same idiom
+// as the FormManager R01 transaction).
+class CandidateFileGuard {
+public:
+    explicit CandidateFileGuard(const QString& path) : m_path(path) {}
+    ~CandidateFileGuard() { if (!m_path.isEmpty()) QFile::remove(m_path); }
+    CandidateFileGuard(const CandidateFileGuard&) = delete;
+    CandidateFileGuard& operator=(const CandidateFileGuard&) = delete;
+private:
+    QString m_path;
+};
 
 PoDoFo::PdfObject* ensurePageResources(PoDoFo::PdfPage& page)
 {
@@ -159,6 +176,190 @@ public:
     QString currentFile;
     mutable QRecursiveMutex mutex;
     QList<PdfImageInfo> lastListedImages;
+    // EC01 re-seat: the re-seated resident document parses lazily FROM the
+    // candidate byte buffer (PdfMemDocument::LoadFromBuffer keeps a reference,
+    // it does not copy), so the buffer must live as long as the document.
+    // Owned here — a stack-local QByteArray died at the end of the saving
+    // call and left the resident document parsing freed memory.
+    QByteArray reseatBuffer;
+    // G01: the user password this document was encrypted with by
+    // encryptDocument() (empty for a document encrypted on disk with an empty
+    // user password — the only encrypted documents that can become resident,
+    // because loadDocument() passes no password). Required to reopen the
+    // ENCRYPTED safe-save candidate for validation and to re-seat the
+    // resident document from it. Cleared whenever a different document is
+    // loaded or the encryption is removed.
+    QString encryptionPassword;
+
+    // ── WP-R02 (WHOLE-ARCHITECTURE-REVIEW A01): pre-mutation resident baseline.
+    //
+    // G06's rollback rebuilds the resident document from the DISK bytes of
+    // currentFile. That is exact for a freshly loaded resident (resident ==
+    // disk), but this API also has RESIDENT-ONLY mutators (addTextWatermark,
+    // addImageWatermark, editTextInline, setMetadata, encryptDocument) that
+    // change memory without committing, and any commit (a later user Save,
+    // or a later mutation command) can FAIL. Restoring from disk after such a
+    // failure destroyed the EARLIER accepted edits (the reviewed
+    // "watermark then failed Save" trigger). The rule is therefore:
+    //
+    //   residentMatchesDisk == true  → the disk-restore fallback is already
+    //      the exact pre-mutation state; no snapshot needed (G06 behavior and
+    //      cost unchanged for the fresh-load lineage).
+    //   residentMatchesDisk == false → every mutating entry captures the full
+    //      resident state into mutationBaseline BEFORE mutating; a failed
+    //      commit restores THAT (the complete pre-operation resident state,
+    //      including all earlier accepted work), never the disk bytes.
+    //
+    // The baseline is a serialized copy of the resident document (the same
+    // vector<char> device extractPageAsBytes uses). It is cleared after every
+    // commit attempt is resolved: success (resident re-synced) or restore
+    // (resident == baseline again, the next mutation re-captures).
+    QByteArray mutationBaseline;
+    bool residentMatchesDisk = true;
+
+    // WP-R09b (WHOLE-ARCHITECTURE-REVIEW A05): external source-version
+    // baseline of the file this resident lineage was loaded from. Captured at
+    // every successful load (and at setCurrentFile, i.e. after a repaired
+    // load re-anchors to the original path), checked IMMEDIATELY BEFORE any
+    // in-place replacement of that file, and refreshed from the committed
+    // bytes after a successful commit. Size + mtime + full SHA-256: a
+    // modification time alone is not an equality proof (same-size
+    // replacements with preserved timestamps must still be detected).
+    struct SourceBaseline {
+        bool valid = false;
+        QString path;          // canonical path the baseline describes
+        qint64 size = -1;
+        QDateTime mtime;
+        QByteArray sha256;
+    };
+    SourceBaseline sourceBaseline;
+    // Sticky until the next successful load / commit: the shell consults it
+    // after a failed in-place save to offer conflict resolution instead of a
+    // generic write-failure message. A conflict NEVER rolls the resident back
+    // — the local work must stay reviewable and Save-As-able.
+    bool externalConflictDetected = false;
+
+    static QByteArray fileSha256(const QString& path) {
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly)) return {};
+        QCryptographicHash hash(QCryptographicHash::Sha256);
+        hash.addData(&f);
+        return hash.result();
+    }
+
+    void captureSourceBaseline(const QString& path) {
+        sourceBaseline = SourceBaseline();
+        QFileInfo info(path);
+        if (!info.exists()) return;   // nothing on disk yet: nothing to guard
+        sourceBaseline.valid = true;
+        sourceBaseline.path = info.canonicalFilePath();
+        sourceBaseline.size = info.size();
+        sourceBaseline.mtime = info.lastModified();
+        sourceBaseline.sha256 = fileSha256(path);
+        externalConflictDetected = false;
+    }
+
+    // True when the file on disk still matches the captured baseline. FULL
+    // content hash on every check: size/mtime are only recorded for
+    // diagnostics — a same-size replacement or a preserved timestamp must
+    // never slip through a stat shortcut (WP-R09b acceptance explicitly
+    // covers both; mtime granularity collisions make them timing-flaky too).
+    bool sourceMatchesBaseline(const QString& path) const {
+        if (!sourceBaseline.valid) return true;   // nothing to compare against
+        const QFileInfo info(path);
+        if (!info.exists()) return false;
+        if (info.canonicalFilePath() != sourceBaseline.path) return false;
+        const QByteArray current = fileSha256(path);
+        if (current.isEmpty()) return false;      // unreadable: treat as changed
+        return current == sourceBaseline.sha256;
+    }
+
+    bool sourceBaselineCovers(const QString& path) const {
+        if (!sourceBaseline.valid) return false;
+        QFileInfo info(path);
+        if (!info.exists()) return false;
+        return info.canonicalFilePath() == sourceBaseline.path;
+    }
+
+    // ── WP-R02: the mutation-transaction boundary every resident-mutating
+    // entry opens before touching the document.
+    bool beginResidentMutation() {
+        mutationBaseline.clear();
+        if (!document || currentFile.isEmpty()) return true;  // nothing resident to protect
+        if (residentMatchesDisk) return true;  // disk fallback == pre-mutation state
+        try {
+            std::vector<char> buffer;
+            PoDoFo::VectorStreamDevice device(buffer);
+            document->Save(device);
+            mutationBaseline = QByteArray(buffer.data(), static_cast<int>(buffer.size()));
+            return true;
+        } catch (const std::exception& e) {
+            qCritical() << "PoDoFoBackend: cannot snapshot the resident document for a "
+                           "revertible mutation; mutation refused:" << e.what();
+        } catch (...) {
+            qCritical() << "PoDoFoBackend: cannot snapshot the resident document for a "
+                           "revertible mutation; mutation refused.";
+        }
+        return false;   // fail closed: never mutate without a revertible state
+    }
+
+    // A resident-only mutation succeeded: the resident now differs from the
+    // source file's bytes, so the disk-restore fallback is no longer exact.
+    void noteResidentDiverged() { residentMatchesDisk = false; }
+
+    // A commit for the resident's own file succeeded: the resident and the
+    // committed destination agree (a same-file save re-seats from the
+    // validated candidate bytes), so the disk fallback is exact again.
+    void commitResidentMutationResolved() {
+        mutationBaseline.clear();
+        residentMatchesDisk = true;
+        externalConflictDetected = false;
+    }
+
+    // WP-R02 rollback: restore the complete pre-operation resident state —
+    // the captured baseline when one exists (earlier accepted edits are
+    // PRESERVED), otherwise the disk bytes (G06 behavior for the fresh-load
+    // lineage, where the two coincide). If even the baseline cannot be
+    // reopened, fall back to the disk reload; if that fails too, drop the
+    // resident document entirely — a rejected mutation must never stay
+    // resident (G06 rule, unchanged).
+    void rollbackResidentMutation() {
+        if (!mutationBaseline.isEmpty()) {
+            auto restored = std::make_unique<PoDoFo::PdfMemDocument>();
+            bool baselineOk = true;
+            try {
+                restored->LoadFromBuffer(
+                    PoDoFo::bufferview(mutationBaseline.constData(),
+                                       static_cast<size_t>(mutationBaseline.size())),
+                    encryptionPassword.toStdString());
+                // Force the lazy parse NOW: a broken baseline must fall back
+                // to the disk restore here, not poison the next access.
+                (void)restored->GetPages().GetCount();
+            } catch (const PoDoFo::PdfError& e) {
+                baselineOk = false;
+                qCritical() << "PoDoFoBackend: rejected-mutation baseline could not be "
+                               "reopened; falling back to the disk bytes:" << e.what();
+            } catch (...) {
+                baselineOk = false;
+                qCritical() << "PoDoFoBackend: rejected-mutation baseline could not be "
+                               "reopened; falling back to the disk bytes.";
+            }
+            if (baselineOk) {
+                reseatBuffer = mutationBaseline;
+                mutationBaseline.clear();
+                document = std::move(restored);
+                // currentFile and encryptionPassword are UNCHANGED: the
+                // baseline is the same document lineage, only without the
+                // rejected mutation. The restored resident generally still
+                // differs from disk (it holds the earlier accepted edits),
+                // so further mutations keep snapshotting.
+                residentMatchesDisk = false;
+                return;
+            }
+        }
+        restoreResidentFromSource();
+        residentMatchesDisk = true;
+    }
 
     PoDoFo::PdfMemDocument& resolveDocument(const QString& path) {
         // Already the loaded document (possibly with unsaved in-memory edits) — operate on it.
@@ -181,6 +382,42 @@ public:
         document = std::move(newDoc);
         currentFile = path;
         return *document;
+    }
+
+    // G06 (P1, QUALITY-GATE-2026-09-09): common mutation-transaction rollback.
+    // Every path-based mutator (cropPage/rotatePage/resizePage/reorder*/
+    // addHeaderFooter/applyBatesNumbering/deleteObjectAt/…) mutates the
+    // RESIDENT document first and only then commits through writeUpdate →
+    // saveDocument. When that commit FAILS, the mutator's command is dropped
+    // and the disk is untouched — but the resident document used to keep the
+    // rejected mutation, so a later ordinary save silently persisted it
+    // (gate probe: EC05_LATER_SAVE). The pre-mutation resident state is, for
+    // every resident document lineage (file-backed lazy parse or EC01
+    // reseat-buffer), exactly the bytes on disk of `currentFile`: reload them.
+    // If even the reload fails, DROP the resident document entirely — a
+    // rejected mutation must never stay resident. This is the COMMON rule at
+    // the shared save boundary, not a crop-specific workaround.
+    void restoreResidentFromSource() {
+        const QString src = currentFile;
+        document.reset();
+        currentFile.clear();
+        reseatBuffer.clear();
+        encryptionPassword.clear();
+        mutationBaseline.clear();
+        if (src.isEmpty()) return;   // already no resident state to leak
+        auto restored = std::make_unique<PoDoFo::PdfMemDocument>();
+        try {
+            restored->Load(src.toUtf8().constData());
+        } catch (const PoDoFo::PdfError& e) {
+            // Stay dropped: the next loadDocument/resolveDocument re-loads
+            // honestly from disk. Never keep a possibly-mutated resident.
+            qCritical() << "PoDoFoBackend: rejected mutation rollback could not reload"
+                        << src << "- resident document dropped:" << e.what();
+            return;
+        }
+        document = std::move(restored);
+        currentFile = src;
+        residentMatchesDisk = true;   // WP-R02: resident == disk again
     }
 
     PdfImageInfo* findImageByName(int pageIndex, const QString& xobjectName, PoDoFoBackend* parent) {
@@ -209,6 +446,14 @@ bool PoDoFoBackend::loadDocument(const QString &path) {
         }
         d->document = std::move(newDoc);
         d->currentFile = path;
+        d->reseatBuffer.clear();   // file-backed document: no re-seat buffer pinned
+        d->encryptionPassword.clear();   // G01: credentials belong to the old lineage
+        // WP-R02: a fresh resident equals the disk bytes it was parsed from.
+        d->mutationBaseline.clear();
+        d->residentMatchesDisk = true;
+        // WP-R09b: this successful load defines the external source-version
+        // baseline the in-place commits are checked against.
+        d->captureSourceBaseline(path);
         return true;
     } catch (const PoDoFo::PdfError& e) {
         // E-05/E-18: log unconditionally (not only in Debug). In a Release build the
@@ -222,20 +467,206 @@ bool PoDoFoBackend::loadDocument(const QString &path) {
 bool PoDoFoBackend::saveDocument(const QString &path) {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
-    try {
-        d->document->Save(path.toUtf8().constData());
 
-#ifdef QT_DEBUG
-        qDebug() << "PoDoFo Engine structurally saved document to:" << path;
-#endif
-        return true;
-    } catch (const PoDoFo::PdfError& e) {
-        // E-05: a failed save in Release previously produced no trace, making
-        // "my file got corrupted" reports nearly impossible to diagnose. Save is
-        // security/IO-critical (autosave, sign flow) — log unconditionally.
-        qCritical() << "PoDoFoBackend::saveDocument failed:" << e.what() << "path:" << path;
+    // ── EC01 (P1) + G01 (P1): candidate → validate → checked commit at the
+    // shared save boundary (R01/U05 SafeSave pattern). G01
+    // (QUALITY-GATE-2026-09-09) closes the documented residual: the old code
+    // deliberately bypassed the transaction for ENCRYPTED documents
+    // ("IsEncrypted"), including a document the caller just encrypted in
+    // memory with encryptDocument() while it was still lazily parsed from its
+    // source file. Saving such a document to its own path truncated the file
+    // the parser was still reading: a valid 15,090-byte two-page PDF became
+    // ZERO bytes and Save returned false (probe: EC01_SAVE_MODE 2). There is
+    // no longer any direct-save bypass — every document goes through:
+    //   1. serialize the COMPLETE in-memory document (with its /Encrypt dict,
+    //      when encrypted) to a unique temp candidate (never the destination),
+    //   2. reopen the candidate and validate it: readable PDF with an
+    //      unchanged page count — an ENCRYPTED candidate is reopened with the
+    //      credentials captured at encryptDocument() time (G01: "reopen the
+    //      encrypted candidate with the appropriate credentials"),
+    //   3. for a same-file save, re-seat the resident document from the
+    //      validated candidate BYTES (in-memory buffer) BEFORE the commit,
+    //      so no handle pins the file about to be replaced,
+    //   4. commit the validated bytes through SafeSave::commitFileToDestination
+    //      — the original and any prior destination are preserved on every
+    //      failure (atomic rename; no direct-write fallback). A failed save
+    //      never rolls back the resident document here: an ordinary Save (or
+    //      autosave) keeps the in-memory work for retry. The MUTATION-command
+    //      rollback (G06: a rejected crop/rotate/… must not stay resident)
+    //      lives one level up, in writeUpdate()'s failure paths, where the
+    //      pre-mutation state is unambiguously the committed source bytes.
+    // Signed documents keep their separate writeUpdate (SaveUpdate) incremental
+    // contract — they never route through this unsigned full rewrite.
+    const bool encrypted = d->document->IsEncrypted();
+
+    const QString cur = d->currentFile;
+    bool sameFile = !cur.isEmpty() && QString::compare(cur, path, Qt::CaseInsensitive) == 0;
+    if (!sameFile && !cur.isEmpty()) {
+        // Alias-tolerant identity check (differing casing, 8.3 names,
+        // symlinks): replacing the loaded file must always re-seat first.
+        const QFileInfo curInfo(cur);
+        const QFileInfo dstInfo(path);
+        const QString curCanon = curInfo.canonicalFilePath();
+        const QString dstCanon = dstInfo.canonicalFilePath();
+        sameFile = !curCanon.isEmpty() && curCanon == dstCanon;
+    }
+
+    // ── WP-R09b (A05): the recovery-destination gate. A cross-path commit
+    // that replaces a PRIMED target (the recovery Save committing the
+    // autosave INPUT to the ORIGINAL path — primed at recovery bind) is
+    // conflict-guarded exactly like an in-place save: the destination may
+    // have changed on disk after the baseline was captured, and that change
+    // must never be silently clobbered.
+    if (!sameFile && d->sourceBaselineCovers(path) && !d->sourceMatchesBaseline(path)) {
+        d->externalConflictDetected = true;
+        qCritical() << "PoDoFoBackend::saveDocument: the commit destination changed on "
+                       "disk since its baseline was captured (external modification); "
+                       "refusing to overwrite it. path:" << path;
         return false;
     }
+
+    // ── WP-R09b (A05): the SAME-FILE external-conflict gate, run BEFORE any
+    // candidate work. A file-backed resident parses lazily from the source
+    // device; after an external replacement an attempted serialization would
+    // fail with a generic parse error instead of the truthful conflict
+    // report. Checking first keeps the failure reason honest and the
+    // shell's conflict resolution available.
+    if (sameFile && d->sourceBaselineCovers(path) && !d->sourceMatchesBaseline(path)) {
+        d->externalConflictDetected = true;
+        qCritical() << "PoDoFoBackend::saveDocument: the file changed on disk since it "
+                       "was loaded (external modification); refusing to overwrite it."
+                    << "path:" << path;
+        return false;
+    }
+
+    QString candidate;
+    QString err;
+    if (!gp::SafeSave::makeUniqueCandidate(&candidate, &err)) {
+        qCritical() << "PoDoFoBackend::saveDocument:" << err << "path:" << path;
+        return false;
+    }
+    CandidateFileGuard candidateGuard(candidate);
+
+    const unsigned sourcePageCount = d->document->GetPages().GetCount();
+    try {
+        d->document->Save(candidate.toUtf8().constData());
+    } catch (const PoDoFo::PdfError& e) {
+        // E-05: security/IO-critical boundary — log unconditionally.
+        qCritical() << "PoDoFoBackend::saveDocument: candidate serialization failed:"
+                    << e.what() << "path:" << path;
+        return false;
+    }
+
+    try {
+        PoDoFo::PdfMemDocument reopened;
+        if (encrypted) {
+            // G01: the candidate carries the in-memory /Encrypt dict. Reopen
+            // it with the credentials this document was encrypted under
+            // (empty user password for documents that were already encrypted
+            // on disk — they could only become resident with an empty user
+            // password, since loadDocument() passes no password).
+            reopened.Load(candidate.toUtf8().constData(), PoDoFo::PdfLoadOptions::None,
+                          d->encryptionPassword.toStdString());
+        } else {
+            reopened.Load(candidate.toUtf8().constData());
+        }
+        if (reopened.GetPages().GetCount() != sourcePageCount) {
+            qCritical() << "PoDoFoBackend::saveDocument: candidate page count mismatch"
+                        << sourcePageCount << "->" << reopened.GetPages().GetCount()
+                        << "path:" << path;
+            return false;
+        }
+    } catch (const PoDoFo::PdfError& e) {
+        qCritical() << "PoDoFoBackend::saveDocument: candidate is not a valid PDF:"
+                    << e.what() << "path:" << path;
+        return false;
+    }
+
+    if (sameFile) {
+        // ── WP-R09b (WHOLE-ARCHITECTURE-REVIEW A05): external source-version
+        // conflict gate. The LAST check before the in-place replacement
+        // machinery starts: if the file on disk is no longer the bytes this
+        // resident lineage was loaded from (a colleague, a sync client, a
+        // second instance), refuse the commit. The disk file is untouched,
+        // the conflict is flagged for the shell's review/reload/Save-As
+        // resolution, and the resident work is deliberately KEPT for a
+        // Save-As — never silently clobbered, never destroyed.
+        if (d->sourceBaselineCovers(path) && !d->sourceMatchesBaseline(path)) {
+            d->externalConflictDetected = true;
+            qCritical() << "PoDoFoBackend::saveDocument: the file changed on disk since it "
+                           "was loaded (external modification); refusing to overwrite it."
+                        << "path:" << path;
+            return false;
+        }
+
+        // Re-seat the resident document from the validated candidate bytes via
+        // an in-memory buffer: destroying the previous document closes its
+        // device on the file that is about to be replaced (so the atomic
+        // rename can succeed), and a buffer-backed document holds no file
+        // handle at all — every candidate file is removable on every path.
+        // The bytes are stored in d->reseatBuffer (member, not local): the
+        // re-seated document keeps parsing from that buffer for its whole
+        // lifetime, so the buffer must outlive this call. Encrypted
+        // candidates are re-seated with the same captured credentials.
+        QFile candidateFile(candidate);
+        if (!candidateFile.open(QIODevice::ReadOnly)) {
+            qCritical() << "PoDoFoBackend::saveDocument: validated candidate became unreadable:"
+                        << candidateFile.errorString() << "path:" << path;
+            return false;
+        }
+        d->reseatBuffer = candidateFile.readAll();
+        candidateFile.close();
+        auto reseeded = std::make_unique<PoDoFo::PdfMemDocument>();
+        try {
+            if (encrypted) {
+                reseeded->LoadFromBuffer(
+                    PoDoFo::bufferview(d->reseatBuffer.constData(),
+                                       static_cast<size_t>(d->reseatBuffer.size())),
+                    PoDoFo::PdfLoadOptions::None,
+                    d->encryptionPassword.toStdString());
+            } else {
+                reseeded->LoadFromBuffer(
+                    PoDoFo::bufferview(d->reseatBuffer.constData(),
+                                       static_cast<size_t>(d->reseatBuffer.size())));
+            }
+        } catch (const PoDoFo::PdfError& e) {
+            d->reseatBuffer.clear();
+            qCritical() << "PoDoFoBackend::saveDocument: cannot re-seat resident document "
+                           "from validated candidate:" << e.what() << "path:" << path;
+            return false;
+        }
+        d->document = std::move(reseeded);
+    }
+
+    if (!gp::SafeSave::commitFileToDestination(candidate, path, &err)) {
+        qCritical() << "PoDoFoBackend::saveDocument:" << err << "path:" << path;
+        return false;
+    }
+
+    // The resident document (re-seated from the validated candidate bytes for
+    // a same-file save) is byte-identical to the committed destination, and no
+    // document holds a device on the candidate — the guard can always remove
+    // it.
+
+    if (sameFile) {
+        // WP-R02: the committed revision IS the resident state now — the
+        // disk-restore fallback is exact again and any pre-mutation baseline
+        // is obsolete. WP-R09b: the baseline describing the committed bytes
+        // (candidate content, post-commit stat) defines what a LATER external
+        // change is measured against.
+        d->commitResidentMutationResolved();
+        QFileInfo committedInfo(path);
+        d->sourceBaseline.valid = true;
+        d->sourceBaseline.path = committedInfo.canonicalFilePath();
+        d->sourceBaseline.size = committedInfo.size();
+        d->sourceBaseline.mtime = committedInfo.lastModified();
+        d->sourceBaseline.sha256 = d->fileSha256(candidate);
+    }
+
+#ifdef QT_DEBUG
+    qDebug() << "PoDoFo Engine structurally saved document to:" << path;
+#endif
+    return true;
 }
 
 int PoDoFoBackend::pageCount() const {
@@ -299,6 +730,7 @@ bool PoDoFoBackend::setMetadata(const PdfMetadata &metadata) {
 #ifdef QT_DEBUG
         qDebug() << "Successfully updated document metadata.";
 #endif
+        d->noteResidentDiverged();   // WP-R02: resident-only edit — disk fallback no longer exact
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "PoDoFo error during setMetadata:" << e.what();
@@ -313,8 +745,88 @@ bool PoDoFoBackend::writeDocument(const QString &path) {
 }
 
 bool PoDoFoBackend::writeUpdate(const QString &path) {
+    // WP-R02 (WHOLE-ARCHITECTURE-REVIEW A01): this is the USER-SAVE commit
+    // (HomeController's embedAnnotations route, the signed Replace-All
+    // append). Save semantics: the resident state being committed is the
+    // user's accepted work — a refused commit KEEPS it resident (retryable),
+    // exactly like a failed plain saveDocument. It must never be replaced by
+    // the disk bytes.
+    return commitMutationImpl(path, /*mutationTransaction=*/false);
+}
+
+bool PoDoFoBackend::commitMutation(const QString &path) {
+    // WP-R02: the MUTATION-command commit (rotatePage/cropPage/… internal
+    // step). A refused commit is a transaction rollback: the rejected
+    // mutation must not stay resident (G06), while earlier accepted edits
+    // survive (see rollbackResidentMutation).
+    return commitMutationImpl(path, /*mutationTransaction=*/true);
+}
+
+bool PoDoFoBackend::commitMutationImpl(const QString &path, bool mutationTransaction) {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
+
+    // G06 (P1, QUALITY-GATE-2026-09-09): common mutation-transaction rollback.
+    // commitMutation is THE commit step of every path-based mutator (cropPage,
+    // rotatePage, resizePage, reorder*, addHeaderFooter, applyBatesNumbering,
+    // deleteObjectAt/applyRedactions, …) and the mutator has ALREADY mutated
+    // the resident document when it gets here. If the commit fails, the
+    // command is dropped and the disk is untouched — the resident document
+    // must then be restored to the PRE-MUTATION state, or dropped entirely
+    // when even the restore fails. Without this, a supposedly rejected
+    // mutation silently persisted on a later ordinary save (gate probe:
+    // EC05_LATER_SAVE). This is the COMMON rule at the shared commit
+    // boundary, not a crop-specific workaround. A failed plain saveDocument
+    // (user Save / autosave) deliberately does NOT roll back: that path keeps
+    // the in-memory work — including an uncommitted encryptDocument() setup —
+    // alive for retry.
+    //
+    // WP-R02 (WHOLE-ARCHITECTURE-REVIEW A01): the pre-mutation state is the
+    // DISK bytes only while no resident-only edit has diverged from them.
+    // rollbackResidentMutation() restores the captured pre-mutation resident
+    // baseline when one exists (earlier accepted edits — a watermark, an
+    // inline text edit — SURVIVE a failed commit and stay retryable), and the
+    // G06 disk restore exactly when the resident never diverged. The
+    // user-Save route (writeUpdate → mutationTransaction == false) never
+    // rolls back: the resident keeps every accepted edit for retry.
+    const auto rollbackResidentIfSameFile = [&]() {
+        if (!mutationTransaction) return;   // save semantics: keep the resident work
+        const QString cur = d->currentFile;
+        bool sameFile = !cur.isEmpty() && QString::compare(cur, path, Qt::CaseInsensitive) == 0;
+        if (!sameFile && !cur.isEmpty()) {
+            const QFileInfo curInfo(cur);
+            const QFileInfo dstInfo(path);
+            const QString curCanon = curInfo.canonicalFilePath();
+            const QString dstCanon = dstInfo.canonicalFilePath();
+            sameFile = !curCanon.isEmpty() && curCanon == dstCanon;
+        }
+        if (sameFile) d->rollbackResidentMutation();
+    };
+
+    // ── WP-R09b (A05): the EARLY external-conflict gate. Checked BEFORE the
+    // signature inspection and BEFORE any candidate serialization: a
+    // file-backed resident parses lazily from the source device, so once the
+    // file was replaced underneath it, an attempted serialization would fail
+    // with a generic parse error instead of the truthful conflict report —
+    // and could even read through the replaced bytes. The stat fast-path
+    // keeps the unchanged case free; any difference falls through to the
+    // full content hash.
+    {
+        const QString cur = d->currentFile;
+        bool sameTarget = !cur.isEmpty() && QString::compare(cur, path, Qt::CaseInsensitive) == 0;
+        if (!sameTarget && !cur.isEmpty()) {
+            const QString curCanon = QFileInfo(cur).canonicalFilePath();
+            const QString dstCanon = QFileInfo(path).canonicalFilePath();
+            sameTarget = !curCanon.isEmpty() && curCanon == dstCanon;
+        }
+        if (sameTarget && d->sourceBaselineCovers(path) && !d->sourceMatchesBaseline(path)) {
+            d->externalConflictDetected = true;
+            qCritical() << "PoDoFoBackend: the file changed on disk since it was loaded "
+                           "(external modification); refusing to overwrite it. path:" << path;
+            if (mutationTransaction) d->rollbackResidentMutation();
+            return false;
+        }
+    }
 
     // §6 non-negotiable: when signatures exist, a full rewrite changes the byte
     // offsets that every /ByteRange points at and silently invalidates the
@@ -332,12 +844,17 @@ bool PoDoFoBackend::writeUpdate(const QString &path) {
     } catch (const PoDoFo::PdfError& e) {
         qCritical() << "PoDoFoBackend::writeUpdate: failed to inspect signature fields:"
                     << e.what() << "— refusing to write rather than risk invalidating a signature.";
+        rollbackResidentIfSameFile();
         return false;
     }
 
     if (!hasSignatures) {
-        // No signatures to protect — a full save is safe.
-        return saveDocument(path);
+        // No signatures to protect — a full save is safe. Its same-file
+        // transaction resolves the mutation bookkeeping (WP-R02) and runs the
+        // external-conflict gate (WP-R09b) internally.
+        const bool ok = saveDocument(path);
+        if (!ok) rollbackResidentIfSameFile();
+        return ok;
     }
 
     // Incremental update path. SaveUpdate appends to the file at `path`, which must
@@ -349,22 +866,58 @@ bool PoDoFoBackend::writeUpdate(const QString &path) {
         if (!src.isEmpty() && QString::compare(src, path, Qt::CaseInsensitive) != 0) {
             if (QFile::exists(path) && !QFile::remove(path)) {
                 qCritical() << "PoDoFoBackend::writeUpdate: cannot overwrite target" << path;
+                rollbackResidentIfSameFile();
                 return false;
             }
             if (!QFile::copy(src, path)) {
                 qCritical() << "PoDoFoBackend::writeUpdate: failed to stage source bytes from"
                             << src << "to" << path << "for incremental update.";
+                rollbackResidentIfSameFile();
+                return false;
+            }
+        } else {
+            // WP-R09b (A05): same-file incremental append — the LAST gate
+            // before the in-place replacement of the loaded file's bytes.
+            // An external modification (colleague, sync client, second
+            // instance) must never be silently appended-over.
+            if (d->sourceBaselineCovers(path) && !d->sourceMatchesBaseline(path)) {
+                d->externalConflictDetected = true;
+                qCritical() << "PoDoFoBackend::writeUpdate: the file changed on disk since "
+                               "it was loaded (external modification); refusing the "
+                               "incremental update. path:" << path;
+                rollbackResidentIfSameFile();
                 return false;
             }
         }
+        // GUI-held-handle coordination: a same-path SaveUpdate appends to the
+        // very file the viewer may display. The scope releases the viewer's
+        // handle for the append and restores it on every outcome (SafeSave.h).
+        const gp::SafeSave::ScopedFileHandleCoordination coordinationScope(path);
         d->document->SaveUpdate(path.toUtf8().constData());
+        // WP-R02/WP-R09b: the append committed the resident state to `path`.
+        // Same file: resident and disk agree again. (Cross-path appends keep
+        // the resident lineage attached to currentFile — a subsequent
+        // mutation re-captures its baseline.)
+        if (QString::compare(d->currentFile, path, Qt::CaseInsensitive) == 0) {
+            d->commitResidentMutationResolved();
+            QFileInfo committedInfo(path);
+            d->sourceBaseline.valid = true;
+            d->sourceBaseline.path = committedInfo.canonicalFilePath();
+            d->sourceBaseline.size = committedInfo.size();
+            d->sourceBaseline.mtime = committedInfo.lastModified();
+            d->sourceBaseline.sha256 = d->fileSha256(path);
+        } else {
+            d->noteResidentDiverged();
+        }
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qCritical() << "PoDoFoBackend::writeUpdate: incremental SaveUpdate failed:"
                     << e.what() << "path:" << path;
+        rollbackResidentIfSameFile();
         return false;
     } catch (const std::exception& e) {
         qCritical() << "PoDoFoBackend::writeUpdate: incremental save exception:" << e.what();
+        rollbackResidentIfSameFile();
         return false;
     }
 }
@@ -406,9 +959,26 @@ QString PoDoFoBackend::currentFile() const {
     return d->currentFile;
 }
 
+bool PoDoFoBackend::lastCommitRefusedForExternalConflict() const {
+    QMutexLocker locker(&d->mutex);
+    return d->externalConflictDetected;
+}
+
+void PoDoFoBackend::primeExternalBaseline(const QString &path) {
+    QMutexLocker locker(&d->mutex);
+    d->captureSourceBaseline(path);
+}
+
 void PoDoFoBackend::setCurrentFile(const QString &path) {
     QMutexLocker locker(&d->mutex);
     d->currentFile = path;
+    // WP-R09b: after a repaired load re-anchors the resident to the original
+    // path, the external source-version baseline describes THAT file's bytes
+    // (what the session believes is on disk). WP-R02: the resident (repaired
+    // bytes) differs from the disk source — mutations keep snapshotting.
+    d->captureSourceBaseline(path);
+    d->mutationBaseline.clear();
+    d->residentMatchesDisk = false;
 }
 
 namespace {
@@ -577,6 +1147,7 @@ QStringList PoDoFoBackend::getLayers() {
 
 bool PoDoFoBackend::rotatePage(const QString &path, int pageIndex, int degrees) {
     QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& doc = d->resolveDocument(path);
         auto& pages = doc.GetPages();
@@ -585,7 +1156,7 @@ bool PoDoFoBackend::rotatePage(const QString &path, int pageIndex, int degrees) 
         auto& page = pages.GetPageAt(pageIndex);
         int current = static_cast<int>(page.GetRotation());
         page.SetRotation((current + degrees) % 360);
-        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (...) {
         return false;
@@ -614,6 +1185,7 @@ QByteArray PoDoFoBackend::extractPageAsBytes(const QString &path, int pageIndex)
 
 bool PoDoFoBackend::insertPageFromBytes(const QString &path, int atIndex, const QByteArray &pageData) {
     QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     if (pageData.size() > 10 * 1024 * 1024) {
         qCritical() << "SECURITY: Rejected page data exceeding maximum allowed buffer size (10MB).";
         return false;
@@ -630,8 +1202,14 @@ bool PoDoFoBackend::insertPageFromBytes(const QString &path, int atIndex, const 
             return false;
         }
 
+        // S1-1 (SWEEP-BACKEND-2026-09-21): explicit insert-at bounds — the
+        // index contract is enforced here, not by PoDoFo throwing. atIndex
+        // may equal the page count (append at the end).
+        const int count = static_cast<int>(doc.GetPages().GetCount());
+        if (atIndex < 0 || atIndex > count) return false;
+
         doc.GetPages().InsertDocumentPageAt(atIndex, sourceDoc, 0);
-        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (...) {
         return false;
@@ -640,13 +1218,14 @@ bool PoDoFoBackend::insertPageFromBytes(const QString &path, int atIndex, const 
 
 bool PoDoFoBackend::deletePage(const QString &path, int pageIndex) {
     QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& doc = d->resolveDocument(path);
         auto& pages = doc.GetPages();
         if (pageIndex < 0 || static_cast<size_t>(pageIndex) >= pages.GetCount()) return false;
 
         pages.RemovePageAt(pageIndex);
-        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (...) {
         return false;
@@ -655,11 +1234,55 @@ bool PoDoFoBackend::deletePage(const QString &path, int pageIndex) {
 
 bool PoDoFoBackend::insertBlankPage(const QString &path, int atIndex) {
     QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& doc = d->resolveDocument(path);
+        auto& pages = doc.GetPages();
+
+        // S1-1 (SWEEP-BACKEND-2026-09-21): explicit insert-at bounds like the
+        // other page mutators — the index contract is enforced HERE, never by
+        // relying on PoDoFo to throw inside the catch below. Insert-at allows
+        // atIndex == count (append at the end).
+        const int count = static_cast<int>(pages.GetCount());
+        if (atIndex < 0 || atIndex > count) return false;
 
         doc.GetPages().CreatePageAt(atIndex, PoDoFo::PdfPageSize::A4);
-        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+// G08 (QUALITY-GATE-2026-09-09): the image delete/replace undo used to run
+// insertPageFromBytes + deletePage as TWO separately committed steps, so a
+// failure between them (or a crash) stranded an intermediate committed state.
+// Both mutations happen in MEMORY here and are committed by ONE writeUpdate:
+// either the page at `pageIndex` is the `pageData` copy in the committed
+// artifact, or the document is exactly as it was.
+bool PoDoFoBackend::restorePageFromBytes(const QString &path, int pageIndex, const QByteArray &pageData) {
+    QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
+    if (pageData.size() > 10 * 1024 * 1024) {
+        qCritical() << "SECURITY: Rejected page data exceeding maximum allowed buffer size (10MB).";
+        return false;
+    }
+    try {
+        PoDoFo::PdfMemDocument sourceDoc;
+        sourceDoc.LoadFromBuffer(PoDoFo::bufferview(pageData.constData(), pageData.size()));
+        if (sourceDoc.GetPages().GetCount() == 0) return false;
+
+        auto& doc = d->resolveDocument(path);
+        auto& pages = doc.GetPages();
+        if (pageIndex < 0 || static_cast<size_t>(pageIndex) >= pages.GetCount()) return false;
+        if (pages.GetCount() + 1 > 10000) {
+            qCritical() << "SECURITY: Operation rejected. Page restore would exceed the 10,000 pages threshold.";
+            return false;
+        }
+
+        pages.InsertDocumentPageAt(pageIndex, sourceDoc, 0);   // restored copy at pageIndex
+        pages.RemovePageAt(pageIndex + 1);                     // displaced edited copy out
+        if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (...) {
         return false;
@@ -785,6 +1408,7 @@ bool PoDoFoBackend::editTextInline(int pageIndex, const QRectF &rect, const QStr
 #ifdef QT_DEBUG
         qDebug() << "Editing text inline via PoDoFo on page" << pageIndex << "font:" << extractedFontName.c_str() << "size:" << extractedFontSize;
 #endif
+        d->noteResidentDiverged();   // WP-R02: resident-only edit — disk fallback no longer exact
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "PoDoFo error editing text:" << e.what();
@@ -794,11 +1418,12 @@ bool PoDoFoBackend::editTextInline(int pageIndex, const QRectF &rect, const QStr
 
 bool PoDoFoBackend::deleteObjectAt(int pageIndex, const QPointF &pos) {
     QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     QRectF redactionRect(pos.x() - 5, pos.y() - 5, 10, 10);
     if (!applyRedactions(pageIndex, {redactionRect})) return false;
     if (d->currentFile.isEmpty()) return false;
     try {
-        if (!writeUpdate(d->currentFile)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(d->currentFile)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "deleteObjectAt save error:" << e.what();
@@ -809,18 +1434,42 @@ bool PoDoFoBackend::deleteObjectAt(int pageIndex, const QPointF &pos) {
 namespace {
 
 double getEncodedStringWidth(const PoDoFo::PdfFont* font, const PoDoFo::PdfString& str, const PoDoFo::PdfTextState& state) {
+    // E-1 (evidence ledger 2026-09-05): PdfString::GetString() forces PoDoFo's
+    // lazy string evaluation IN PLACE — the raw byte buffer is consumed
+    // (PoDoFo: "The raw data buffer has been evaluated to a string") and
+    // replaced with a PdfDocEncoding/UTF-8 transcoding that is NOT
+    // byte-preserving for glyph-encoded payloads (subset-font Tj strings:
+    // observed glyph byte 0x16 'T' -> 0x17 'X', i.e. 'PUBLIC_KEEP_TEXT' ->
+    // 'PUBLIC_KEEP_XEXX'). This helper runs for EVERY text-showing operator in
+    // the canvas (to advance the pen and test the redaction rect), so
+    // evaluating the CALLER'S operand mutated every neighboring Tj that shares
+    // the content stream: the operand re-emission at the bottom of
+    // redactCanvasRecursively serializes via ToString(), which for an evaluated
+    // string writes the transcoded form instead of the original bytes — the
+    // excision corrupted lines that intersect NO redaction rect.
+    // Fix: evaluate a DEEP copy. NOTE: PdfString's copy constructor is NOT
+    // sufficient — PdfString stores its buffer in a std::shared_ptr<StringData>
+    // (copy-on-write), so a plain copy shares the state and evaluating it still
+    // consumes the caller's raw bytes (proven by probe: shallow-copy evaluation
+    // flips the original to evaluated and its ToString() emits the transcoded
+    // form). FromRaw(GetRawData()) allocates an independent buffer: the width
+    // numbers are identical (same bytes through the same font calls), but the
+    // variant in the PdfVariantStack stays raw, so un-redacted operators
+    // re-emit byte-exact.
     if (str.IsStringEvaluated()) {
+        // Already evaluated (raw buffer consumed) — nothing left to protect.
         return font->GetStringLength(str.GetString(), state);
     }
+    PoDoFo::PdfString safe = PoDoFo::PdfString::FromRaw(str.GetRawData(), str.IsHex());
     try {
         double len = 0.0;
-        if (font->TryGetEncodedStringLength(str, state, len)) {
+        if (font->TryGetEncodedStringLength(safe, state, len)) {
             return len;
         }
     } catch (...) {
         // Fallback
     }
-    return font->GetStringLength(str.GetString(), state);
+    return font->GetStringLength(safe.GetString(), state);
 }
 
 void cleanStructElement(PoDoFo::PdfObject* elem,
@@ -942,8 +1591,146 @@ void cleanStructElement(PoDoFo::PdfObject* elem,
 
 } // anonymous namespace
 
+// G07 (QUALITY-GATE-2026-09-09): a PDF page-box array holds CORNERS
+// [x0 y0 x1 y1]; convert to the Qt position/size form. Integral entries may
+// be real or integer objects depending on the writer — normalize both.
+namespace {
+QRectF pdfBoxArrayToQt(const PoDoFo::PdfArray &arr) {
+    const auto num = [](const PoDoFo::PdfObject &v) -> double {
+        return v.IsNumberOrReal() ? v.GetReal() : 0.0;
+    };
+    const double x0 = num(arr[0]), y0 = num(arr[1]);
+    const double x1 = num(arr[2]), y1 = num(arr[3]);
+    // Defensive normalization (spec rects are already normalized).
+    const double left = qMin(x0, x1), right = qMax(x0, x1);
+    const double bottom = qMin(y0, y1), top = qMax(y0, y1);
+    return QRectF(left, bottom, right - left, top - bottom);
+}
+
+// G07: resolve the box an INHERITED /CropBox denotes by walking the raw
+// /Parent chain (PoDoFo's findInheritableAttribute is private; the raw page
+// dictionaries keep their /Parent keys). Returns the declaring array, or
+// nullptr when no ancestor carries /CropBox.
+const PoDoFo::PdfObject *findInheritedCropBox(const PoDoFo::PdfMemDocument &doc,
+                                              const PoDoFo::PdfPage &page) {
+    const PoDoFo::PdfObject *node = page.GetDictionary().FindKey("Parent");
+    for (int depth = 0; node && depth < 64; ++depth) {
+        const PoDoFo::PdfObject *target = node;
+        if (target->IsReference())
+            target = doc.GetObjects().GetObject(target->GetReference());
+        if (!target || !target->IsDictionary())
+            break;
+        if (const PoDoFo::PdfObject *crop = target->GetDictionary().FindKey("CropBox"))
+            return crop;
+        node = target->GetDictionary().FindKey("Parent");
+    }
+    return nullptr;
+}
+} // anonymous namespace
+
+QRectF PoDoFoBackend::pageCropBox(const QString &path, int pageIndex, bool *ok) {
+    QRectF box;
+    const bool read = pageCropBoxInfo(path, pageIndex, &box, nullptr);
+    if (ok) *ok = read;
+    return box;
+}
+
+bool PoDoFoBackend::pageCropBoxInfo(const QString &path, int pageIndex,
+                                    QRectF *outBox, int *outOrigin) {
+    QMutexLocker locker(&d->mutex);
+    if (outBox) *outBox = QRectF();
+    if (outOrigin) *outOrigin = IPdfEditorEngine::kCropBoxAbsent;
+    try {
+        auto& doc = d->resolveDocument(path);
+        auto& pages = doc.GetPages();
+        if (pageIndex < 0 || static_cast<size_t>(pageIndex) >= pages.GetCount()) return false;
+
+        auto& page = pages.GetPageAt(pageIndex);
+        // EC05: the EFFECTIVE box — the explicit /CropBox when the page
+        // carries one, else the box inherited from an ancestor /Pages node,
+        // else the MediaBox. G07: the PDF array is CORNERS [x0 y0 x1 y1]; the
+        // snapshot must convert to position/size (the pre-fix reader reused
+        // the corner values as width/height, so undoing a crop of a box at
+        // offset (10,20) wrote (10,20 510x720)), and an inherited box must
+        // resolve to the inherited effective box (the pre-fix reader fell
+        // back to the whole MediaBox instead).
+        if (const PoDoFo::PdfObject *crop = page.GetDictionary().FindKey("CropBox");
+                crop && crop->IsArray() && crop->GetArray().GetSize() == 4) {
+            if (outBox) *outBox = pdfBoxArrayToQt(crop->GetArray());
+            if (outOrigin) *outOrigin = IPdfEditorEngine::kCropBoxExplicit;
+        } else if (const PoDoFo::PdfObject *inherited = findInheritedCropBox(doc, page);
+                inherited && inherited->IsArray() && inherited->GetArray().GetSize() == 4) {
+            if (outBox) *outBox = pdfBoxArrayToQt(inherited->GetArray());
+            if (outOrigin) *outOrigin = IPdfEditorEngine::kCropBoxInherited;
+        } else {
+            // Truly absent: the effective box is the MediaBox (itself an
+            // inheritable attribute — GetMediaBox resolves the chain).
+            const PoDoFo::Rect media = page.GetMediaBox();
+            if (outBox) *outBox = QRectF(media.X, media.Y, media.Width, media.Height);
+            if (outOrigin) *outOrigin = IPdfEditorEngine::kCropBoxAbsent;
+        }
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool PoDoFoBackend::removePageCropBox(const QString &path, int pageIndex) {
+    QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
+    try {
+        auto& doc = d->resolveDocument(path);
+        auto& pages = doc.GetPages();
+        if (pageIndex < 0 || static_cast<size_t>(pageIndex) >= pages.GetCount()) return false;
+
+        auto& page = pages.GetPageAt(pageIndex);
+        // G07: restore ABSENT/INHERITED semantics — drop the page's explicit
+        // /CropBox so the inherited box (or true absence, effective MediaBox)
+        // shows through again. Idempotent when no explicit key is present.
+        if (!page.GetDictionary().RemoveKey("CropBox"))
+            return true;
+        if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+void PoDoFoBackend::releaseResidentFile(const QString &path) {
+    QMutexLocker locker(&d->mutex);
+    if (!d->document) return;
+    const QString cur = d->currentFile;
+    bool sameFile = !cur.isEmpty() && QString::compare(cur, path, Qt::CaseInsensitive) == 0;
+    if (!sameFile && !cur.isEmpty()) {
+        // Alias-tolerant identity check (same rule as saveDocument: differing
+        // casing, 8.3 names, symlinks must never leave a device pinned).
+        const QFileInfo curInfo(cur);
+        const QFileInfo dstInfo(path);
+        const QString curCanon = curInfo.canonicalFilePath();
+        const QString dstCanon = dstInfo.canonicalFilePath();
+        sameFile = !curCanon.isEmpty() && curCanon == dstCanon;
+    }
+    if (!sameFile) return;
+    // GUI-held-handle residual (2026-09-08 persistence lane): the resident
+    // parser holds an OS device on its source file for lazy object resolution
+    // — the very device the saveDocument transaction re-seats away before its
+    // own same-file commit. A shell-side writer that replaces this file
+    // through SafeSave (form import) cannot re-seat from inside the engine, so
+    // it asks here: dropping the document closes the device, and the next
+    // resolveDocument(path) lazily re-loads from disk — the committed result,
+    // or the preserved original on a failed replacement; truthful either way.
+    d->document.reset();
+    d->currentFile.clear();
+    d->reseatBuffer.clear();   // the buffer backed the dropped document's lineage
+    // M1 (SEP13): credentials belong to the released lineage, same rule as the
+    // G01 clears on lineage changes — leaving the password resident keeps a
+    // secret in memory for a document this backend no longer holds.
+    d->encryptionPassword.clear();
+}
+
 bool PoDoFoBackend::cropPage(const QString &path, int pageIndex, const QRectF &cropRect) {
     QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& doc = d->resolveDocument(path);
         auto& pages = doc.GetPages();
@@ -953,7 +1740,7 @@ bool PoDoFoBackend::cropPage(const QString &path, int pageIndex, const QRectF &c
         PoDoFo::Rect podofoRect(cropRect.x(), cropRect.y(), cropRect.width(), cropRect.height());
         page.GetDictionary().AddKey("CropBox", podofoRect.ToArray());
         
-        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (...) {
         return false;
@@ -962,6 +1749,7 @@ bool PoDoFoBackend::cropPage(const QString &path, int pageIndex, const QRectF &c
 
 bool PoDoFoBackend::resizePage(const QString &path, int pageIndex, const QSizeF &size) {
     QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& doc = d->resolveDocument(path);
         auto& pages = doc.GetPages();
@@ -972,7 +1760,7 @@ bool PoDoFoBackend::resizePage(const QString &path, int pageIndex, const QSizeF 
         PoDoFo::Rect newMedia(oldMedia.X, oldMedia.Y, size.width(), size.height());
         page.GetDictionary().AddKey("MediaBox", newMedia.ToArray());
         
-        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (...) {
         return false;
@@ -981,6 +1769,7 @@ bool PoDoFoBackend::resizePage(const QString &path, int pageIndex, const QSizeF 
 
 bool PoDoFoBackend::reorderPages(const QString &path, int fromIndex, int toIndex) {
     QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& doc = d->resolveDocument(path);
         auto& pages = doc.GetPages();
@@ -1001,7 +1790,7 @@ bool PoDoFoBackend::reorderPages(const QString &path, int fromIndex, int toIndex
         
         pages.InsertDocumentPageAt(toIndex, tempDoc, 0);
         
-        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (...) {
         return false;
@@ -1010,6 +1799,7 @@ bool PoDoFoBackend::reorderPages(const QString &path, int fromIndex, int toIndex
 
 bool PoDoFoBackend::reorderAllPages(const QString &path, const QList<int> &permutation) {
     QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& doc = d->resolveDocument(path);
         auto& pages = doc.GetPages();
@@ -1042,7 +1832,7 @@ bool PoDoFoBackend::reorderAllPages(const QString &path, const QList<int> &permu
             pages.InsertDocumentPageAt(i, tempDoc, i);
         }
 
-        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (...) {
         return false;
@@ -1051,6 +1841,7 @@ bool PoDoFoBackend::reorderAllPages(const QString &path, const QList<int> &permu
 
 bool PoDoFoBackend::addHeaderFooter(const QString &path, const HeaderFooterOptions &options) {
     QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& doc = d->resolveDocument(path);
         auto& pages = doc.GetPages();
@@ -1071,7 +1862,7 @@ bool PoDoFoBackend::addHeaderFooter(const QString &path, const HeaderFooterOptio
             appendEscapedText(doc, page, text, options.position, options.fontSize, fontName);
         }
         
-        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (...) {
         return false;
@@ -1079,19 +1870,26 @@ bool PoDoFoBackend::addHeaderFooter(const QString &path, const HeaderFooterOptio
 }
 
 bool PoDoFoBackend::applyBatesNumbering(const QString &path, const BatesNumberingOptions &options) {
+    // §9.9 P1: the legacy two-argument entry point keeps its exact stamping
+    // contract; it simply ignores the counter report of the continuity overload.
+    return applyBatesNumbering(path, options, nullptr);
+}
+
+bool PoDoFoBackend::applyBatesNumbering(const QString &path, const BatesNumberingOptions &options, int *lastNumberOut) {
     QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& doc = d->resolveDocument(path);
         auto& pages = doc.GetPages();
         int totalPages = static_cast<int>(pages.GetCount());
-        
+
         std::string fontName = options.fontFamily.isEmpty() ? "Helvetica" : options.fontFamily.toStdString();
         const PoDoFo::PdfFont* font = doc.GetFonts().SearchFont(fontName);
         if (!font) {
             fontName = "Helvetica";
             font = &doc.GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::Helvetica);
         }
-        
+
         // Resolve the 1-based inclusive page range (<=0 means open-ended).
         int firstIdx = (options.firstPage > 0) ? options.firstPage - 1 : 0;
         int lastIdx  = (options.lastPage  > 0) ? options.lastPage  - 1 : totalPages - 1;
@@ -1108,8 +1906,14 @@ bool PoDoFoBackend::applyBatesNumbering(const QString &path, const BatesNumberin
 
             currentNumber++;
         }
-        
-        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+
+        // §9.9 P1: report the last number actually consumed. When no page was
+        // stamped (empty/out-of-range range) this is startNumber - 1, so a
+        // cross-document batch continuing at `last + 1` neither skips nor
+        // repeats a number.
+        if (lastNumberOut) *lastNumberOut = currentNumber - 1;
+
+        if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (...) {
         return false;
@@ -1208,8 +2012,7 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
     PdfContentStreamReader reader(device);
     PdfContent content;
     std::ostringstream newStream;
-    
-    double textX = 0.0, textY = 0.0;
+
     bool inTextBlock = false;
     double leading = 0.0;
 
@@ -1318,7 +2121,6 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
             
             if (kw == "BT") {
                 inTextBlock = true;
-                textX = 0.0; textY = 0.0;
                 // F-02: BT resets Tm and Tlm to identity (PDF 9.4.1).
                 tm = RedactCtm{}; tlm = RedactCtm{}; penX = 0.0;
                 newStream << "BT\n";
@@ -1351,7 +2153,6 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                 if (stack[0].IsNumberOrReal()) leading = stack[0].GetReal();
             }
             if (kw == "T*" && inTextBlock) {
-                textY -= leading;
                 // F-02: T* is equivalent to "0 -leading Td": Tlm = translate(0,-leading) x Tlm, Tm = Tlm.
                 RedactCtm tr; tr.e = 0.0; tr.f = -leading;
                 tlm = concat(tr, tlm); tm = tlm; penX = 0.0;
@@ -1359,8 +2160,6 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
             if (kw == "Tm" && stack.size() >= 6) {
                 // PdfVariantStack index 0 = top of stack = last pushed operand.
                 // "a b c d e f Tm" pushes in order a..f, so stack[0]=f, stack[1]=e, ... stack[5]=a.
-                if (stack[1].IsNumberOrReal()) textX = stack[1].GetReal();
-                if (stack[0].IsNumberOrReal()) textY = stack[0].GetReal();
                 // F-02: capture the FULL text matrix (a,b,c,d,e,f). Tm sets both Tm and Tlm.
                 RedactCtm m;
                 if (stack[5].IsNumberOrReal()) m.a = stack[5].GetReal();
@@ -1373,10 +2172,9 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
             } else if ((kw == "Td" || kw == "TD") && stack.size() >= 2) {
                 // "tx ty Td" pushes tx first, ty second, so stack[0]=ty, stack[1]=tx.
                 double tx = 0.0, ty = 0.0;
-                if (stack[1].IsNumberOrReal()) { tx = stack[1].GetReal(); textX += tx; }
+                if (stack[1].IsNumberOrReal()) { tx = stack[1].GetReal(); }
                 if (stack[0].IsNumberOrReal()) {
                     ty = stack[0].GetReal();
-                    textY += ty;
                     if (kw == "TD") leading = -ty;
                 }
                 // F-02: Td/TD: Tlm = translate(tx,ty) x Tlm, Tm = Tlm (PDF 9.4.2).
@@ -1386,11 +2184,16 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
             
             // Track Text State Parameters
             if (kw == "Tf" && stack.size() >= 2) {
-                if (stack[0].IsName()) {
-                    currentFontName = stack[0].GetName().GetString();
+                // "font size Tf": the font NAME is pushed first (stack[1]), the
+                // size is pushed last (stack[0]). The previous slot order read the
+                // size as the font name and skipped both (guards failed), silently
+                // keeping the Helvetica/12 defaults for every font and size — the
+                // basis of the excision-gap advance computation.
+                if (stack[1].IsName()) {
+                    currentFontName = stack[1].GetName().GetString();
                 }
-                if (stack[1].IsNumberOrReal()) {
-                    currentFontSize = stack[1].GetReal();
+                if (stack[0].IsNumberOrReal()) {
+                    currentFontSize = stack[0].GetReal();
                 }
             } else if (kw == "Tc" && stack.size() >= 1) {
                 if (stack[0].IsNumberOrReal()) currentCharSpacing = stack[0].GetReal();
@@ -1503,7 +2306,6 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                 }
                 
                 if (kw == "'" || kw == "\"") {
-                    textY -= leading;
                     // F-02: ' and " perform a T* (new line) before showing text.
                     RedactCtm tr; tr.e = 0.0; tr.f = -leading;
                     tlm = concat(tr, tlm); tm = tlm; penX = 0.0;
@@ -1532,10 +2334,9 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                             newStream << stack[1].GetReal() << " Tc\n";
                             newStream << "T*\n";
                         }
-                        textX += totalAdvance; penX += totalAdvance;
+                        penX += totalAdvance;
                         continue;
                     }
-
                     // Edact-Ray defense (PETS 2023, Bland et al.): emit numeric-only TJ gap.
                     // [N] TJ moves cursor by -(N/1000)*fontSize*fontScale text-space units.
                     // N = -totalAdvance * 1000 / scale gives exact sum-of-advances, no glyph emitted.
@@ -1556,11 +2357,11 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                         newStream << "[ " << N << " ] TJ\n";
                     }
                     // totalAdvance ≈ 0 or scale ≈ 0: emit nothing (safe — no glyph, no cursor shift).
-                    textX += totalAdvance; penX += totalAdvance;
+                    penX += totalAdvance;
                     continue;
                 }
 
-                textX += totalAdvance; penX += totalAdvance;
+                penX += totalAdvance;
             }
             
             if (kw == "Do" && stack.size() > 0 && stack[0].IsName()) {
@@ -1639,9 +2440,18 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
                 }
             }
             
-            for (const auto& op : stack) {
+            // Re-emit operands in ORIGINAL source order. PdfVariantStack's
+            // begin()/end() iterate from the TOP of the operand stack (index 0 ==
+            // last-pushed operand), so the previous forward range-for REVERSED the
+            // operands of every multi-operand operator ("50 700 Td" was re-emitted
+            // as "700 50 Td", "/F1 12 Tf" as "12 /F1 Tf"). That corrupted every
+            // redacted content stream — text jumped to the wrong position and
+            // Pdfium text extraction failed outright on the saved output. rbegin()
+            // walks the stack bottom-up, i.e. the order the operands appeared in
+            // the source stream.
+            for (auto it = stack.rbegin(); it != stack.rend(); ++it) {
                 std::string out;
-                op.ToString(out);
+                it->ToString(out);
                 newStream << out << " ";
             }
             newStream << kw << "\n";
@@ -1666,6 +2476,71 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
     }
 }
 
+// ── T2-2: shared content-stream excision core ───────────────────────────────
+// Extracted from applyRedactions so the Find & Replace pipeline can run the
+// SAME proven glyph-excision surgery (inline-image/binary guard +
+// redactCanvasRecursively + tagged-PDF structure cleanup) WITHOUT the
+// redaction-specific tail (black cover fill + removal of annotations that
+// intersect the region — a replace must never delete annotations).
+// Returns false when the page's content stream is unparseable or binary
+// (the caller must abort the whole operation — no visual-only half edit).
+static bool exciseContentRegions(PoDoFo::PdfMemDocument* document,
+                                 PoDoFo::PdfPage& page,
+                                 const std::vector<PoDoFo::Rect>& pdfRects,
+                                 int pageIndexForLog,
+                                 std::set<int64_t>& redactedMcids) {
+    auto* contentsObj = page.GetContents();
+    if (!contentsObj) return false;
+
+    PoDoFo::charbuff streamBuf;
+    contentsObj->CopyTo(streamBuf);
+    std::string streamStr(streamBuf.data(), streamBuf.size());
+
+    bool hasInlineImage = (streamStr.find("\nID ") != std::string::npos
+                        || streamStr.find("\nID\n") != std::string::npos
+                        || streamStr.find(" ID ") != std::string::npos);
+    bool hasBinaryContent = false;
+    for (size_t i = 0; i < std::min(streamStr.size(), size_t(512)); ++i) {
+        unsigned char c = static_cast<unsigned char>(streamStr[i]);
+        if (c == 0 || (c < 9 && c != 0)) { hasBinaryContent = true; break; }
+    }
+
+    if (hasInlineImage || hasBinaryContent) {
+        qWarning() << "exciseContentRegions: stream contains inline images or binary data on page"
+                   << pageIndexForLog << "— aborting (no visual-only half edit).";
+        return false;
+    }
+
+    redactCanvasRecursively(page.GetObject(), pdfRects, page, document, redactedMcids);
+
+    // Tagged PDF structure tree sanitization (D3): drop structure content
+    // backed by excised marked-content ids.
+    if (!redactedMcids.empty()) {
+        auto& catalog = document->GetCatalog();
+        auto* structTreeRootObj = catalog.GetDictionary().FindKey("StructTreeRoot");
+        if (structTreeRootObj) {
+            if (structTreeRootObj->IsReference()) {
+                structTreeRootObj = &document->GetObjects().MustGetObject(structTreeRootObj->GetReference());
+            }
+            if (structTreeRootObj->IsDictionary()) {
+                auto& rootDict = structTreeRootObj->GetDictionary();
+                auto* kKey = rootDict.FindKey("K");
+                if (kKey) {
+                    PoDoFo::PdfReference pageRef = page.GetObject().GetReference();
+                    if (kKey->IsArray()) {
+                        for (auto& kid : kKey->GetArray()) {
+                            cleanStructElement(&kid, pageRef, redactedMcids, document);
+                        }
+                    } else {
+                        cleanStructElement(kKey, pageRef, redactedMcids, document);
+                    }
+                }
+            }
+        }
+    }
+    return true;
+}
+
 bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
     QMutexLocker locker(&d->mutex);
     if (!d->document || pageIndex < 0 || (unsigned)pageIndex >= d->document->GetPages().GetCount()) return false;
@@ -1685,67 +2560,31 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
         }();
 
         PoDoFo::PdfPage& page = d->document->GetPages().GetPageAt(pageIndex);
-        double pageHeight = page.GetMediaBox().Height;
+        // SEP13 L8: the excision rects MUST land in raw user space via the
+        // shared viewer→user transform — the old Height-only flip dropped the
+        // MediaBox lower-left origin (the excision MISSED the secret on
+        // offset-origin pages while still reporting Completed) and ignored
+        // /Rotate entirely.
+        const gp::PageSpace::PageGeometry pageGeo = gp::PageSpace::pageGeometry(page);
 
         std::vector<PoDoFo::Rect> pdfRects;
         for (const auto& r : rects) {
-            pdfRects.push_back(PoDoFo::Rect(r.x(), pageHeight - r.y() - r.height(), r.width(), r.height()));
+            const QRectF user = gp::PageSpace::viewerToUser(r, pageGeo); // y-up: y() = lower edge
+            pdfRects.push_back(PoDoFo::Rect(user.x(), user.y(), user.width(), user.height()));
         }
 
         std::set<int64_t> redactedMcids;
+        // Original semantics preserved: a page with NO /Contents object never
+        // ran content surgery here (black fill + annotation removal still
+        // apply); a page WITH contents must survive the surgery or the whole
+        // redaction aborts (no insecure visual-only overlay).
         auto* contentsObj = page.GetContents();
-        bool streamFilterApplied = false;
-        if (contentsObj) {
-            PoDoFo::charbuff streamBuf;
-            contentsObj->CopyTo(streamBuf);
-            std::string streamStr(streamBuf.data(), streamBuf.size());
-
-            bool hasInlineImage = (streamStr.find("\nID ") != std::string::npos
-                                || streamStr.find("\nID\n") != std::string::npos
-                                || streamStr.find(" ID ") != std::string::npos);
-            bool hasBinaryContent = false;
-            for (size_t i = 0; i < std::min(streamStr.size(), size_t(512)); ++i) {
-                unsigned char c = static_cast<unsigned char>(streamStr[i]);
-                if (c == 0 || (c < 9 && c != 0)) { hasBinaryContent = true; break; }
-            }
-
-            if (hasInlineImage || hasBinaryContent) {
-                qWarning() << "Redaction: stream contains inline images or binary data on page"
-                           << pageIndex << "— skipping content surgery, applying visual overlay only.";
-            } else {
-                redactCanvasRecursively(page.GetObject(), pdfRects, page, d->document.get(), redactedMcids);
-                streamFilterApplied = true;
-            }
-        }
-
-        if (!streamFilterApplied && contentsObj) {
+        if (contentsObj && !exciseContentRegions(d->document.get(), page, pdfRects,
+                                                 pageIndex, redactedMcids)) {
             qCritical() << "SECURITY: Redaction on page" << pageIndex
                         << "failed to apply content stream surgery due to unparseable or binary content."
                            " Aborting operation to prevent insecure visual-only overlay.";
             return false;
-        }
-
-        // D3: Tagged PDF structure tree sanitization
-        auto& catalog = d->document->GetCatalog();
-        auto* structTreeRootObj = catalog.GetDictionary().FindKey("StructTreeRoot");
-        if (structTreeRootObj && !redactedMcids.empty()) {
-            if (structTreeRootObj->IsReference()) {
-                structTreeRootObj = &d->document->GetObjects().MustGetObject(structTreeRootObj->GetReference());
-            }
-            if (structTreeRootObj->IsDictionary()) {
-                auto& rootDict = structTreeRootObj->GetDictionary();
-                auto* kKey = rootDict.FindKey("K");
-                if (kKey) {
-                    PoDoFo::PdfReference pageRef = page.GetObject().GetReference();
-                    if (kKey->IsArray()) {
-                        for (auto& kid : kKey->GetArray()) {
-                            cleanStructElement(&kid, pageRef, redactedMcids, d->document.get());
-                        }
-                    } else {
-                        cleanStructElement(kKey, pageRef, redactedMcids, d->document.get());
-                    }
-                }
-            }
         }
 
         PoDoFo::PdfPainter painter;
@@ -1764,7 +2603,15 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
         std::vector<unsigned> toRemove;
         for (unsigned i = 0; i < annos.GetCount(); ++i) {
             auto& anno = annos.GetAnnotAt(i);
-            auto r = anno.GetRect();
+            // F1 (independent review 2026-09-14): intersect against the RAW
+            // /Rect. GetRect() folds the page's /Rotate into the rect at read
+            // time, but pdfRects above are RAW USER space (the shared
+            // PageSpace viewer→user law, SEP13 L8) — on /Rotate pages the
+            // mismatched spaces made annotations carrying redacted content
+            // survive the excision entirely (annotation-borne data loss).
+            // ISO 32000-1 §12.5.2: /Rect lives in default user space, the
+            // same space the excision rects were mapped into.
+            const PoDoFo::Rect r = anno.GetRectRaw().GetNormalized();
             bool intersects = false;
             for (const auto& redRect : pdfRects) {
                 if (r.X < (redRect.X + redRect.Width) && (r.X + r.Width) > redRect.X &&
@@ -1864,6 +2711,7 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
             }
         }
 
+        d->noteResidentDiverged();   // WP-R02: resident-only edit — disk fallback no longer exact
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qCritical() << "SECURITY: Redaction failed on page" << pageIndex << "-" << e.what()
@@ -1878,15 +2726,391 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
     }
 }
 
+// ── T2-2: Find & Replace — excise + white-cover + redraw ────────────────────
+// The honest in-place replace: matched glyph operators are excised from the
+// content stream (exciseContentRegions — the same surgery the redaction path
+// uses, WITHOUT its annotation-removal tail: a replace must never delete
+// annotations), the region is covered WHITE (redaction covers black), and the
+// replacement text is drawn at the match origin in the match's font size with
+// a standard-14 Helvetica substitute. The MEASURED drawn width of every
+// replacement is reported back so the UI can surface "this replacement
+// changed the text width" (moat M8 — never silently reflow).
+bool PoDoFoBackend::replaceTextRegions(const QList<TextReplacementSpec>& specs,
+                                       QList<double>* drawnWidthsOut) {
+    QMutexLocker locker(&d->mutex);
+    if (!d->document) return false;
+    if (specs.isEmpty()) {
+        if (drawnWidthsOut) drawnWidthsOut->clear();
+        return true;
+    }
+
+    try {
+        const size_t pageCount = d->document->GetPages().GetCount();
+        for (const auto& spec : specs) {
+            if (spec.pageIndex < 0 || static_cast<size_t>(spec.pageIndex) >= pageCount) return false;
+        }
+
+        // Group by page (specs arrive page-grouped from the planner anyway),
+        // preserving the caller's order inside each page.
+        QMap<int, QList<const TextReplacementSpec*>> perPage;
+        for (const auto& spec : specs)
+            perPage[spec.pageIndex].append(&spec);
+
+        if (drawnWidthsOut) drawnWidthsOut->clear();
+
+        const PoDoFo::PdfFont& font = d->document->GetFonts().GetStandard14Font(
+            PoDoFo::PdfStandard14FontType::Helvetica);
+
+        for (auto it = perPage.constBegin(); it != perPage.constEnd(); ++it) {
+            PoDoFo::PdfPage& page = d->document->GetPages().GetPageAt(it.key());
+            const double pageHeight = page.GetMediaBox().Height;
+
+            std::vector<PoDoFo::Rect> pdfRects;
+            pdfRects.reserve(it.value().size());
+            for (const auto* spec : it.value()) {
+                const QRectF& r = spec->rect;
+                pdfRects.push_back(PoDoFo::Rect(r.x(), pageHeight - r.y() - r.height(),
+                                                r.width(), r.height()));
+            }
+
+            std::set<int64_t> mcids;
+            if (!exciseContentRegions(d->document.get(), page, pdfRects, it.key(), mcids)) {
+                qCritical() << "SECURITY: Replace on page" << it.key()
+                            << "could not excise matched content — aborting (nothing saved).";
+                return false;
+            }
+
+            PoDoFo::PdfPainter painter;
+            painter.SetCanvas(page);
+
+            // White cover over the excised regions, then the replacement text.
+            painter.GraphicsState.SetNonStrokingColor(PoDoFo::PdfColor(1.0, 1.0, 1.0));
+            for (const auto& r : pdfRects) {
+                painter.DrawRectangle(r.X, r.Y, r.Width, r.Height, PoDoFo::PdfPathDrawMode::Fill);
+            }
+
+            for (const auto* spec : it.value()) {
+                const double fontSize = spec->fontSize > 0.0 ? spec->fontSize : 12.0;
+                const QRectF& r = spec->rect;
+                // Baseline: the match rect's top edge minus an ascent
+                // approximation, so the drawn line sits where the excised
+                // glyphs sat (PDFium boxes span ascender..descender ink).
+                const double pdfTop = pageHeight - r.y();
+                double baseline = pdfTop - fontSize * 0.8;
+                painter.GraphicsState.SetNonStrokingColor(PoDoFo::PdfColor(0.0, 0.0, 0.0));
+                painter.TextState.SetFont(font, fontSize);
+                const QStringList lines = spec->text.split(QLatin1Char('\n'));
+                for (const QString& line : lines) {
+                    painter.DrawText(line.toUtf8().constData(), r.x(), baseline);
+                    baseline -= fontSize * 1.2;
+                }
+                if (drawnWidthsOut) {
+                    PoDoFo::PdfTextState ts;
+                    ts.Font = &font;
+                    ts.FontSize = fontSize;
+                    // Measured width of the FIRST drawn line — the metric the
+                    // UI compares against the match width.
+                    drawnWidthsOut->append(
+                        font.GetStringLength(lines.first().toUtf8().constData(), ts));
+                }
+            }
+            painter.FinishDrawing();
+        }
+        return true;
+    } catch (const PoDoFo::PdfError& e) {
+        qCritical() << "SECURITY: Replace failed -" << e.what()
+                    << "— document state may be inconsistent, do NOT save.";
+        return false;
+    } catch (const std::exception& e) {
+        qCritical() << "SECURITY: General exception during replace -" << e.what();
+        return false;
+    } catch (...) {
+        qCritical() << "SECURITY: Unknown exception during replace";
+        return false;
+    }
+}
+
+// ── E-1 repair (ledger row E-1-residual, commit fee597b) ─────────────────────
+// Two writer gaps kept every exported PDF/A artifact from full conformance:
+//   * 6.2.4.3-4 / 6.2.3.3-3 — exportPdfA wrote /OutputIntents with
+//     /S GTS_PDFA1 but NO /DestOutputProfile, so veraPDF failed every
+//     artifact's device-colour-space rule ("colour space is used without
+//     output intent profile"; the fixtures' text uses the implicit default
+//     DeviceGray fill): 6.2.4.3-4 under ISO 19005-2/3 (2B/2U/3B/3U),
+//     6.2.3.3-3 under ISO 19005-1 (1B). Fix: embed an sRGB ICC profile
+//     stream as /DestOutputProfile at EVERY level. ISO 19005-1 does not
+//     mandate the profile for PDF/A-1B, but veraPDF's 6.2.3.3-3 fails the
+//     implicit-DeviceGray fill when the output intent carries none
+//     (observed pre-repair), and 19005-1 permits DestOutputProfile — so
+//     the profile is attached for 1B too (probe-verified: 0 failed rules
+//     at 1b and 2b once attached).
+//   * 6.3.5-3 — PoDoFo 0.10.4 embeds standard-14 fonts as Type0/
+//     CIDFontType0 subsets (FontFile3, CIDFontType0C) but never writes the
+//     FontDescriptor /CIDSet that ISO 19005-1 6.3.5 requires; veraPDF
+//     flagged "A CIDSet entry in the Font descriptor is missing or does
+//     not correctly identify all glyphs present in the embedded font
+//     subset and used for rendering" on every 1b export. Fix: derive the
+//     exact CID population from the CIDFont's own /W array (PoDoFo emits
+//     one width entry per CID in the subset — verified on a real export:
+//     CIDs 0..10, W covers all 11) and write a complete CIDSet bit stream
+//     (bit for CID n at byte n/8, bit 7-(n%8)).
+
+// Deterministic minimal sRGB IEC61966-2.1 ICC profile, version 2.1
+// (ICC.1:2001-10), matrix/TRC display profile ('mntr' / 'RGB ' / 'XYZ ').
+// 500 bytes: 128-byte header + tag table of 9 tags (desc, cprt, wtpt,
+// rXYZ, gXYZ, bXYZ, rTRC, gTRC, bTRC). Tone reproduction is the classic
+// single-entry 'curv' form (g = 2.2, u8Fixed8) of the well-known minimal
+// sRGB profiles; colorants are the IEC 61966-2-1 sRGB primaries
+// Bradford-adapted to the D50 PCS:
+//   wtpt 0.9642 1.0 0.8249 | rXYZ 0.4360 0.2225 0.0139
+//   gXYZ 0.3851 0.7169 0.0971 | bXYZ 0.1431 0.0606 0.7141
+// Validated before wiring: lcms2 (PIL ImageCms) opens it as
+// "sRGB IEC61966-2.1" / RGB, and veraPDF 1.30.2 accepts it as the
+// DestOutputProfile of real exported artifacts with 0 failed rules
+// (probed at flavours 1b and 2b before this change was written).
+static std::vector<unsigned char> buildSrgbIec6196621ProfileV2() {
+    auto s15f16 = [](double v) -> uint32_t {
+        return static_cast<uint32_t>(std::lround(v * 65536.0));
+    };
+    auto put32 = [](std::vector<unsigned char>& out, uint32_t v) {
+        out.push_back(static_cast<unsigned char>(v >> 24));
+        out.push_back(static_cast<unsigned char>(v >> 16));
+        out.push_back(static_cast<unsigned char>(v >> 8));
+        out.push_back(static_cast<unsigned char>(v));
+    };
+    auto putTagSig = [](std::vector<unsigned char>& out, const char* s) {
+        out.insert(out.end(), s, s + 4);
+    };
+
+    // Tag payloads (each starts with its 4cc type signature + 4 reserved 0s).
+    std::vector<unsigned char> desc; // textDescriptionType (ICC v2 form)
+    {
+        const char* name = "sRGB IEC61966-2.1";
+        const uint32_t asciiLen = sizeof("sRGB IEC61966-2.1"); // text + NUL
+        putTagSig(desc, "desc");
+        put32(desc, 0);
+        put32(desc, asciiLen);
+        desc.insert(desc.end(), name, name + asciiLen);
+        put32(desc, 0);                 // unicode language code
+        put32(desc, 0);                 // unicode count
+        desc.push_back(0);              // scriptcode code
+        desc.push_back(0);              // scriptcode count
+        desc.insert(desc.end(), 67, 0); // scriptcode description
+    }
+    std::vector<unsigned char> cprt; // textType
+    {
+        const char txt[] = "Public Domain"; // + trailing NUL per spec
+        putTagSig(cprt, "text");
+        put32(cprt, 0);
+        cprt.insert(cprt.end(), txt, txt + sizeof(txt));
+    }
+    auto xyzTag = [&](double x, double y, double z) {
+        std::vector<unsigned char> t;
+        putTagSig(t, "XYZ ");
+        put32(t, 0);
+        put32(t, s15f16(x)); put32(t, s15f16(y)); put32(t, s15f16(z));
+        return t;
+    };
+    auto curvTag = [&](double gamma) { // curveType, count=1 → u8Fixed8 gamma
+        std::vector<unsigned char> t;
+        putTagSig(t, "curv");
+        put32(t, 0);
+        put32(t, 1);
+        const uint16_t g = static_cast<uint16_t>(std::lround(gamma * 256.0));
+        t.push_back(static_cast<unsigned char>(g >> 8));
+        t.push_back(static_cast<unsigned char>(g));
+        return t;
+    };
+
+    std::vector<std::pair<const char*, std::vector<unsigned char>>> tags = {
+        { "desc", std::move(desc) },
+        { "cprt", std::move(cprt) },
+        { "wtpt", xyzTag(0.9642, 1.0, 0.8249) },
+        { "rXYZ", xyzTag(0.4360, 0.2225, 0.0139) },
+        { "gXYZ", xyzTag(0.3851, 0.7169, 0.0971) },
+        { "bXYZ", xyzTag(0.1431, 0.0606, 0.7141) },
+        { "rTRC", curvTag(2.2) },
+        { "gTRC", curvTag(2.2) },
+        { "bTRC", curvTag(2.2) },
+    };
+
+    // Layout: 128-byte header, tag table (count + 12 bytes per tag),
+    // payloads 4-byte aligned.
+    const uint32_t headerSize = 128;
+    uint32_t off = headerSize + 4u + static_cast<uint32_t>(12u * tags.size());
+    std::vector<uint32_t> offsets;
+    offsets.reserve(tags.size());
+    for (const auto& t : tags) {
+        off = (off + 3u) & ~3u;
+        offsets.push_back(off);
+        off += static_cast<uint32_t>(t.second.size());
+    }
+    const uint32_t total = (off + 3u) & ~3u;
+
+    std::vector<unsigned char> out;
+    out.reserve(total);
+    put32(out, total);
+    putTagSig(out, "none");        // preferred CMM: none
+    put32(out, 0x02100000u);       // version 2.1.0
+    putTagSig(out, "mntr");        // device class: colour display
+    putTagSig(out, "RGB ");        // data colour space
+    putTagSig(out, "XYZ ");        // PCS
+    put32(out, 0); put32(out, 0); put32(out, 0); // creation date (unset)
+    putTagSig(out, "acsp");        // profile signature
+    put32(out, 0);                 // platform: none
+    put32(out, 0);                 // flags: not embedded, usable standalone
+    put32(out, 0);                 // device manufacturer: none
+    put32(out, 0);                 // device model: none
+    put32(out, 0); put32(out, 0);  // device attributes
+    put32(out, 0);                 // rendering intent: perceptual
+    put32(out, s15f16(0.9642));    // PCS illuminant: D50
+    put32(out, s15f16(1.0));
+    put32(out, s15f16(0.8249));
+    put32(out, 0);                 // profile creator: none
+    out.insert(out.end(), 44, 0);  // reserved — header totals 128 bytes
+    Q_ASSERT(out.size() == headerSize);
+
+    put32(out, static_cast<uint32_t>(tags.size()));
+    for (size_t i = 0; i < tags.size(); ++i) {
+        putTagSig(out, tags[i].first);
+        put32(out, offsets[i]);
+        put32(out, static_cast<uint32_t>(tags[i].second.size()));
+    }
+    for (size_t i = 0; i < tags.size(); ++i) {
+        while (out.size() < offsets[i]) out.push_back(0);
+        out.insert(out.end(), tags[i].second.begin(), tags[i].second.end());
+    }
+    while (out.size() < total) out.push_back(0);
+    return out;
+}
+
+// E-1 (6.3.5-3): give every embedded composite-font subset a COMPLETE
+// /CIDSet, derived from its own /W array. Pure gap-filler — a
+// FontDescriptor that already carries a CIDSet is left untouched.
+static void ensureCompleteCidSets(PoDoFo::PdfMemDocument& doc) {
+    using namespace PoDoFo;
+    auto& objects = doc.GetObjects();
+    for (auto* objPtr : objects) {
+        if (!objPtr || !objPtr->IsDictionary()) continue;
+        const auto& obj = *objPtr;
+        const auto* subtype = obj.GetDictionary().FindKey(PdfName("Subtype"));
+        if (!subtype || !subtype->IsName() || subtype->GetName() != PdfName("Type0"))
+            continue;
+        const auto* descendants =
+            obj.GetDictionary().FindKey(PdfName("DescendantFonts"));
+        if (!descendants || !descendants->IsArray()) continue;
+        for (const auto& dref : descendants->GetArray()) {
+            PdfObject* desc = nullptr;
+            if (dref.IsReference())
+                desc = &objects.MustGetObject(dref.GetReference());
+            else if (dref.IsDictionary())
+                desc = const_cast<PdfObject*>(&dref);
+            if (!desc || !desc->IsDictionary()) continue;
+            const auto* wArr = desc->GetDictionary().FindKey(PdfName("W"));
+            PdfObject* fd = desc->GetDictionary().FindKey(PdfName("FontDescriptor"));
+            if (!wArr || !wArr->IsArray() || !fd || !fd->IsDictionary()) continue;
+            if (fd->GetDictionary().HasKey(PdfName("CIDSet"))) continue;
+
+            // /W is either "c [w1 w2 ...]" (start CID + one width per CID)
+            // or "c1 c2 w" (inclusive range). Collect the CID population it
+            // identifies.
+            //
+            // SEP13:1: /W numbers come straight from the (possibly hostile)
+            // document — GetNumber() yields an unvalidated int64_t. The
+            // original code fed those values into the bitmap below unchecked:
+            // a NEGATIVE CID indexed bits[static_cast<size_t>(cid)/8] — a wild
+            // OOB heap write (bits[negative/8] lands ~2^61 bytes past the
+            // buffer; the 0x80u >> (cid % 8) shift was additionally UB) — and
+            // a huge range span (e.g. "0 4000000000 500") inserted billions
+            // of set entries and allocated a giant bitmap — OOM/hang. Both
+            // reachable via Export → PDF/A on any opened crafted PDF.
+            // ISO 32000-1 9.7.4.3: CIDs are 0..65535. Clamp collection AND
+            // indexing to that domain: out-of-domain entries are dropped
+            // (disclosed with a warning, never written into the bitmap) and
+            // the range-form iteration bounds are clamped, which IS the span
+            // cap — a hostile span can neither loop nor allocate beyond the
+            // 65536-bit domain no matter what the array declares.
+            constexpr int64_t kMaxCid = 65535;
+            std::set<int64_t> cids;
+            bool dropped = false;   // SEP13:1 honest-disclosure flag
+            const PdfArray& w = wArr->GetArray();
+            for (size_t i = 0; i < w.GetSize(); ++i) {
+                const auto& a = w[i];
+                if (!a.IsNumber()) continue;
+                const int64_t c = a.GetNumber();
+                if (i + 1 < w.GetSize() && w[i + 1].IsArray()) {
+                    if (c > kMaxCid) { dropped = true; ++i; continue; }
+                    const auto& widths = w[i + 1].GetArray();
+                    // First in-domain index: c + j0 >= 0. A negative start is
+                    // skipped WITHOUT iterating it — a hostile c = INT64_MIN
+                    // must not spin a 2^63-iteration loop to reach cid 0.
+                    // (-c below is guarded: c <= -size means every c+j for
+                    // j < size stays negative, so the whole entry is dropped.)
+                    int64_t j0 = 0;
+                    const int64_t size =
+                        static_cast<int64_t>(widths.GetSize());
+                    if (c < 0) {
+                        dropped = true;
+                        if (c <= -size) { ++i; continue; }
+                        j0 = -c;
+                    }
+                    for (int64_t j = j0; j < size; ++j) {
+                        const int64_t cid = c + j;   // c <= 65535, j < size: no overflow
+                        if (cid > kMaxCid) break;    // ascending — none further in-domain
+                        cids.insert(cid);
+                    }
+                    ++i;
+                } else if (i + 2 < w.GetSize() && w[i + 1].IsNumber()
+                           && w[i + 2].IsNumber() && w[i + 1].GetNumber() >= c) {
+                    if (c < 0 || w[i + 1].GetNumber() > kMaxCid) dropped = true;
+                    const int64_t first = std::max<int64_t>(c, 0);
+                    const int64_t last =
+                        std::min<int64_t>(w[i + 1].GetNumber(), kMaxCid);
+                    for (int64_t cid = first; cid <= last; ++cid)
+                        cids.insert(cid);
+                    i += 2;
+                }
+            }
+            if (dropped) {
+                qWarning() << "PoDoFoBackend: /W array carried CID entries "
+                              "outside the 0..65535 domain; the CIDSet is "
+                              "derived from the in-domain subset only";
+            }
+            if (cids.empty()) continue;
+
+            const int64_t maxCid = *cids.rbegin();
+            std::vector<unsigned char> bits(
+                static_cast<size_t>(maxCid / 8) + 1, 0);
+            for (int64_t cid : cids)
+                bits[static_cast<size_t>(cid) / 8] |=
+                    static_cast<unsigned char>(0x80u >> (cid % 8));
+
+            PdfObject& cidSetObj = objects.CreateDictionaryObject();
+            cidSetObj.GetOrCreateStream().SetData(
+                bufferview(reinterpret_cast<const char*>(bits.data()),
+                           bits.size()));
+            fd->GetDictionary().AddKeyIndirect(PdfName("CIDSet"), cidSetObj);
+        }
+    }
+}
+
 bool PoDoFoBackend::exportPdfA(const QString &outputPath, int conformanceLevel) {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
 
     try {
         using namespace PoDoFo;
 
         PdfALevel pdfaLevel;
         PdfVersion pdfVersion;
+        // The complete level → (PdfALevel, base PDF version) mapping, in one
+        // switch. The base version is fixed by each ISO 19005 part's base
+        // standard and is NOT free: PDF/A-1 ← PDF 1.4 (ISO 19005-1), PDF/A-2
+        // ← PDF 1.7 (ISO 19005-2 ← ISO 32000-1), PDF/A-3 ← PDF 1.7 (ISO
+        // 19005-3 ← ISO 32000-1). PDF 2.0 is the PDF/A-4 family (ISO
+        // 19005-4) — writing it under a PDF/A-3 identity produced artifacts
+        // declaring a base standard the conformance level cannot have (N03).
         switch (conformanceLevel) {
             case 2:
                 pdfaLevel = PdfALevel::L2B;
@@ -1894,7 +3118,18 @@ bool PoDoFoBackend::exportPdfA(const QString &outputPath, int conformanceLevel) 
                 break;
             case 3:
                 pdfaLevel = PdfALevel::L3B;
-                pdfVersion = PdfVersion::V2_0;
+                pdfVersion = PdfVersion::V1_7;
+                break;
+            // §9.12 finding (TestBatchOpsCoverage): the batch combo offers
+            // PDF/A-2U/3U; silently downgrading them to L1B was an
+            // availability lie — map them for real.
+            case 4:
+                pdfaLevel = PdfALevel::L2U;
+                pdfVersion = PdfVersion::V1_7;
+                break;
+            case 5:
+                pdfaLevel = PdfALevel::L3U;
+                pdfVersion = PdfVersion::V1_7;
                 break;
             default:
                 pdfaLevel = PdfALevel::L1B;
@@ -1921,7 +3156,36 @@ bool PoDoFoBackend::exportPdfA(const QString &outputPath, int conformanceLevel) 
         auto& intentArrayObj = catalog.GetDictionary().AddKey(PdfName("OutputIntents"), PdfArray());
         intentArrayObj.GetArray().AddIndirect(intentObj);
 
-        if (!writeUpdate(outputPath)) throw std::runtime_error("writeUpdate failed");
+        // E-1 (6.2.4.3-4 / 6.2.3.3-3): embed the output-intent ICC stream at
+        // EVERY level. ISO 19005-1 does not REQUIRE a DestOutputProfile for
+        // PDF/A-1B — but the fixtures' text draws with the implicit default
+        // DeviceGray fill, and veraPDF's 6.2.3.3-3 fails any artifact using
+        // DeviceGray whose output intent carries no DestOutputProfile
+        // (observed pre-repair: "DeviceGray colour space is used without
+        // output intent profile" on every flavour; verified post-probe:
+        // attaching the sRGB ICC stream yields 0 failed rules at 1b AND 2b).
+        // ISO 19005-1 permits (does not forbid) DestOutputProfile, so the
+        // identifier-only 1B form was the gap, not the specified shape.
+        // 2B/2U/3B/3U additionally fail 6.2.4.3-4 without it.
+        {
+            // Deterministic profile — built once per process.
+            static const std::vector<unsigned char> srgbProfile =
+                buildSrgbIec6196621ProfileV2();
+            auto& iccObj = objects.CreateDictionaryObject();
+            iccObj.GetDictionary().AddKey(PdfName("N"),
+                                          PdfObject(static_cast<int64_t>(3)));
+            iccObj.GetOrCreateStream().SetData(
+                bufferview(reinterpret_cast<const char*>(srgbProfile.data()),
+                           srgbProfile.size()));
+            intentObj.GetDictionary().AddKeyIndirect(
+                PdfName("DestOutputProfile"), iccObj);
+        }
+
+        // E-1 (6.3.5-3): complete /CIDSet on every embedded composite-font
+        // subset (required under ISO 19005-1; harmless under 19005-2/3).
+        ensureCompleteCidSets(*d->document);
+
+        if (!commitMutation(outputPath)) throw std::runtime_error("writeUpdate failed");
 #ifdef QT_DEBUG
         qDebug() << "Successfully exported PDF/A-" << conformanceLevel << "b to:" << outputPath;
 #endif
@@ -1954,14 +3218,18 @@ bool PoDoFoBackend::encryptDocument(const QString &userPassword, const QString &
         if (permsStruct.assemble) perms = perms | PoDoFo::PdfPermissions::DocAssembly;
 
         d->document->SetEncrypted(
-            userPassword.toUtf8().constData(), 
+            userPassword.toUtf8().constData(),
             ownerPassword.toUtf8().constData(),
             perms,
             PoDoFo::PdfEncryptionAlgorithm::AESV3R6
         );
+        // G01: remember the credentials the safe-save candidate must be
+        // reopened with (candidate validation and same-file re-seat).
+        d->encryptionPassword = userPassword;
 #ifdef QT_DEBUG
         qDebug() << "Applied AES-256 encryption to document.";
 #endif
+        d->noteResidentDiverged();   // WP-R02: resident-only edit — disk fallback no longer exact
         return true;
     } catch (const PoDoFo::PdfError& e) {
         // E-05/E-12: encryption is security-critical — a failed SetEncrypted in
@@ -1982,6 +3250,8 @@ bool PoDoFoBackend::removeEncryption(const QString &ownerPassword) {
         
         // Remove encryption
         d->document->SetEncrypt(nullptr);
+        d->encryptionPassword.clear();   // G01: credentials no longer apply
+        d->noteResidentDiverged();   // WP-R02: resident-only edit — disk fallback no longer exact
 #ifdef QT_DEBUG
         qDebug() << "Removed encryption from document.";
 #endif
@@ -2000,8 +3270,26 @@ static void sanitizeDocumentContents(PoDoFo::PdfMemDocument& doc)
     using namespace PoDoFo;
 
     auto& trailer = doc.GetTrailer();
-    if (trailer.GetDictionary().HasKey("Info")) {
-        trailer.GetDictionary().RemoveKey("Info");
+    // E-2 (soak 2026-09-20, AssertMutable AV): the document caches a PdfInfo
+    // wrapper over the Info object for the whole lifetime of the load
+    // (PdfDocument::SetTrailer -> m_Info). Removing the /Info key orphans the
+    // object, and Save() below runs CollectGarbage(), which deletes it out
+    // from under the cached wrapper. The NEXT Save()/metadata access on this
+    // same loaded document then writes through the dangling PdfInfo — the
+    // intermittent PoDoFo PdfDataContainer::AssertMutable 0xc0000005 the 48h
+    // soak caught in TestSanitization::testSanitizeGeneratesUniqueTrailerID
+    // (that slot sanitizes one loaded document twice; the second save stamps
+    // /Info/ModDate through the freed object). Fix at the shared boundary:
+    // never destroy the object the wrapper points at — scrub the dictionary
+    // in place. The output still carries zero user metadata (Save re-stamps
+    // only /ModDate into the emptied dict; same legal-empty contract as the
+    // /Names container below).
+    if (auto* infoObj = trailer.GetDictionary().FindKey("Info");
+        infoObj != nullptr && infoObj->IsDictionary()
+        // aliasing guard: a crafted file may point /Info at the /Root (or
+        // another structural) object — never scrub the catalog itself
+        && infoObj != &doc.GetCatalog().GetObject()) {
+        infoObj->GetDictionary().Clear();
     }
 
     auto& catalog = doc.GetCatalog();
@@ -2082,8 +3370,16 @@ static void sanitizeDocumentContents(PoDoFo::PdfMemDocument& doc)
     }
 
     // 18. Remove Outlines (bookmarks)
-    if (catalog.GetDictionary().HasKey(PdfName("Outlines"))) {
-        catalog.GetDictionary().RemoveKey(PdfName("Outlines"));
+    // E-2: same shared-object discipline as /Info above — PdfDocument caches
+    // m_Outlines over the outlines root once GetOutlines() ran on this
+    // document (e.g. a replaceOutline pass), so removing the /Outlines key
+    // would let Save()'s CollectGarbage() free the cached root out from under
+    // the wrapper (same AssertMutable AV class). Clear the tree in place:
+    // First/Last/Count go away, so no bookmark data survives; the file keeps
+    // an empty /Outlines dict.
+    if (auto* outlinesObj = catalog.GetDictionary().FindKey("Outlines");
+        outlinesObj != nullptr && outlinesObj->IsDictionary()) {
+        outlinesObj->GetDictionary().Clear();
     }
 
     // 20. Remove Collection portfolio
@@ -2424,25 +3720,24 @@ QList<PdfImageInfo> PoDoFoBackend::listImages(int pageIndex) {
         };
 
         while (reader.TryReadNext(content)) {
-            if (content.GetType() == PoDoFo::PdfContentType::Operator) {
+            // Step-3 EC03 prerequisite (discovered by the round-trip test):
+            // PoDoFo 1.x HANDLES a non-form XObject Do itself and reports it as
+            // PdfContentType::DoXObject (name in content->Name) — it never
+            // surfaces as a plain "Do" Operator on a page-based reader. The
+            // Operator branch below alone therefore registered no image
+            // placements at all, which left the whole §9.2 image-edit family
+            // (list → move/resize/rotate/replace/delete) unable to see images.
+            const bool imageDo = content.GetType() == PoDoFo::PdfContentType::DoXObject;
+            if (imageDo || content.GetType() == PoDoFo::PdfContentType::Operator) {
                 auto kw = content.GetKeyword();
                 const auto& stack = content.GetStack();
 
-                if (kw == "q") {
-                    matrixStack.append(ctm);
-                } else if (kw == "Q" && !matrixStack.isEmpty()) {
-                    ctm = matrixStack.takeLast();
-                } else if (kw == "cm" && stack.size() >= 6) {
-                    Matrix cm;
-                    cm.a = stack[0].IsNumberOrReal() ? stack[0].GetReal() : 0;
-                    cm.b = stack[1].IsNumberOrReal() ? stack[1].GetReal() : 0;
-                    cm.c = stack[2].IsNumberOrReal() ? stack[2].GetReal() : 0;
-                    cm.d = stack[3].IsNumberOrReal() ? stack[3].GetReal() : 0;
-                    cm.e = stack[4].IsNumberOrReal() ? stack[4].GetReal() : 0;
-                    cm.f = stack[5].IsNumberOrReal() ? stack[5].GetReal() : 0;
-                    ctm = multiply(cm, ctm);
-                } else if (kw == "Do" && stack.size() >= 1) {
-                    QString name = QString::fromStdString(std::string(stack[0].GetName().GetString()));
+                if (imageDo) {
+                    QString name;
+                    if (content->Name != nullptr)
+                        name = QString::fromStdString(std::string(content->Name->GetString()));
+                    else if (stack.size() >= 1)
+                        name = QString::fromStdString(std::string(stack[0].GetName().GetString()));
                     if (imageXObjects.contains(name)) {
                         auto& entry = imageXObjects[name];
                         PdfImageInfo info;
@@ -2457,6 +3752,19 @@ QList<PdfImageInfo> PoDoFoBackend::listImages(int pageIndex) {
                         info.heightPx = entry.h;
                         result.append(info);
                     }
+                } else if (kw == "q") {
+                    matrixStack.append(ctm);
+                } else if (kw == "Q" && !matrixStack.isEmpty()) {
+                    ctm = matrixStack.takeLast();
+                } else if (kw == "cm" && stack.size() >= 6) {
+                    Matrix cm;
+                    cm.a = stack[0].IsNumberOrReal() ? stack[0].GetReal() : 0;
+                    cm.b = stack[1].IsNumberOrReal() ? stack[1].GetReal() : 0;
+                    cm.c = stack[2].IsNumberOrReal() ? stack[2].GetReal() : 0;
+                    cm.d = stack[3].IsNumberOrReal() ? stack[3].GetReal() : 0;
+                    cm.e = stack[4].IsNumberOrReal() ? stack[4].GetReal() : 0;
+                    cm.f = stack[5].IsNumberOrReal() ? stack[5].GetReal() : 0;
+                    ctm = multiply(cm, ctm);
                 }
             }
         }
@@ -2469,6 +3777,7 @@ QList<PdfImageInfo> PoDoFoBackend::listImages(int pageIndex) {
 bool PoDoFoBackend::moveImage(int pageIndex, const QString &xobjectName, double dx, double dy) {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& page = d->document->GetPages().GetPageAt(pageIndex);
         
@@ -2488,7 +3797,7 @@ bool PoDoFoBackend::moveImage(int pageIndex, const QString &xobjectName, double 
             -h * sinR, h * cosR,
             newE, newF);
         
-        if (ok) if (!writeUpdate(d->currentFile)) throw std::runtime_error("writeUpdate failed");
+        if (ok) if (!commitMutation(d->currentFile)) throw std::runtime_error("writeUpdate failed");
         return ok;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "moveImage error:" << e.what();
@@ -2499,6 +3808,7 @@ bool PoDoFoBackend::moveImage(int pageIndex, const QString &xobjectName, double 
 bool PoDoFoBackend::resizeImage(int pageIndex, const QString &xobjectName, double newWidth, double newHeight) {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& page = d->document->GetPages().GetPageAt(pageIndex);
         
@@ -2514,7 +3824,7 @@ bool PoDoFoBackend::resizeImage(int pageIndex, const QString &xobjectName, doubl
             -newHeight * sinR, newHeight * cosR,
             target->placement.x(), target->placement.y());
         
-        if (ok) if (!writeUpdate(d->currentFile)) throw std::runtime_error("writeUpdate failed");
+        if (ok) if (!commitMutation(d->currentFile)) throw std::runtime_error("writeUpdate failed");
         return ok;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "resizeImage error:" << e.what();
@@ -2525,6 +3835,7 @@ bool PoDoFoBackend::resizeImage(int pageIndex, const QString &xobjectName, doubl
 bool PoDoFoBackend::rotateImage(int pageIndex, const QString &xobjectName, double degrees) {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& page = d->document->GetPages().GetPageAt(pageIndex);
         
@@ -2547,7 +3858,7 @@ bool PoDoFoBackend::rotateImage(int pageIndex, const QString &xobjectName, doubl
             -h * sinR, h * cosR,
             newE, newF);
         
-        if (ok) if (!writeUpdate(d->currentFile)) throw std::runtime_error("writeUpdate failed");
+        if (ok) if (!commitMutation(d->currentFile)) throw std::runtime_error("writeUpdate failed");
         return ok;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "rotateImage error:" << e.what();
@@ -2558,6 +3869,7 @@ bool PoDoFoBackend::rotateImage(int pageIndex, const QString &xobjectName, doubl
 bool PoDoFoBackend::replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath) {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& page = d->document->GetPages().GetPageAt(pageIndex);
         auto resources = page.GetResources();
@@ -2604,7 +3916,7 @@ bool PoDoFoBackend::replaceImage(int pageIndex, const QString &xobjectName, cons
         dict.RemoveKey("Filter");
         dict.RemoveKey("DecodeParms");
         
-        if (!writeUpdate(d->currentFile)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(d->currentFile)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "replaceImage error:" << e.what();
@@ -2615,6 +3927,7 @@ bool PoDoFoBackend::replaceImage(int pageIndex, const QString &xobjectName, cons
 bool PoDoFoBackend::deleteImage(int pageIndex, const QString &xobjectName) {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& page = d->document->GetPages().GetPageAt(pageIndex);
         
@@ -2624,13 +3937,28 @@ bool PoDoFoBackend::deleteImage(int pageIndex, const QString &xobjectName) {
             PoDoFo::PdfContent pdfContent;
             bool found = false;
             while (reader.TryReadNext(pdfContent)) {
-                if (pdfContent.GetType() == PoDoFo::PdfContentType::Operator) {
-                    if (pdfContent.GetKeyword() == "Do" && pdfContent.GetStack().size() >= 1) {
-                        std::string name(pdfContent.GetStack()[0].GetName().GetString());
-                        if (name == xobjectName.toStdString()) {
-                            found = true;
-                            break;
-                        }
+                // EC03 (step-3 round-trip test): PoDoFo 1.x HANDLES a non-form
+                // XObject Do itself and reports it as PdfContentType::DoXObject
+                // (name in content->Name) — it never surfaces as a plain "Do"
+                // Operator on a page-based reader. The Operator-only scan used
+                // here left deleteImage unable to see any image placement, so
+                // every deletion was refused. Same asymmetry, same fix as the
+                // listImages scan; the plain-Operator branch stays as the
+                // fallback (form-XObject draws still report as "Do").
+                const bool imageDo = pdfContent.GetType() == PoDoFo::PdfContentType::DoXObject;
+                if (imageDo || pdfContent.GetType() == PoDoFo::PdfContentType::Operator) {
+                    QString name;
+                    if (imageDo) {
+                        if (pdfContent->Name != nullptr)
+                            name = QString::fromStdString(std::string(pdfContent->Name->GetString()));
+                        else if (pdfContent.GetStack().size() >= 1)
+                            name = QString::fromStdString(std::string(pdfContent.GetStack()[0].GetName().GetString()));
+                    } else if (pdfContent.GetKeyword() == "Do" && pdfContent.GetStack().size() >= 1) {
+                        name = QString::fromStdString(std::string(pdfContent.GetStack()[0].GetName().GetString()));
+                    }
+                    if (name == xobjectName) {
+                        found = true;
+                        break;
                     }
                 }
             }
@@ -2662,11 +3990,23 @@ bool PoDoFoBackend::deleteImage(int pageIndex, const QString &xobjectName) {
                 content.erase(lineStart, lineEnd - lineStart);
         }
         
+        // EC03 round-trip fix: PdfContents::Reset() installs a fresh (initially
+        // empty) ARRAY container, so GetObject() is an array and a direct
+        // GetOrCreateStream() threw "Tried to get stream of non-dictionary
+        // object" — the deletion was never persisted while the RESIDENT
+        // content was already mutated (a half-mutation the viewer could show
+        // but the file never carried). Write through both container shapes,
+        // the same rule the redaction/annotation writers use.
         contentsObj->Reset();
-        auto& stream = contentsObj->GetObject().GetOrCreateStream();
-        stream.SetData(content);
+        if (contentsObj->GetObject().IsArray()) {
+            auto& stream = contentsObj->CreateStreamForAppending();
+            stream.SetData(content);
+        } else {
+            auto& stream = contentsObj->GetObject().GetOrCreateStream();
+            stream.SetData(content);
+        }
         
-        if (!writeUpdate(d->currentFile)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(d->currentFile)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "deleteImage error:" << e.what();
@@ -2801,17 +4141,41 @@ static void applyAnnotationsToDoc(PoDoFo::PdfMemDocument& doc,
         if (pageIdx < 0 || static_cast<unsigned>(pageIdx) >= doc.GetPages().GetCount()) continue;
 
         auto& page = doc.GetPages().GetPageAt(pageIdx);
-        double pageHeight = page.GetMediaBox().Height;
+        // sweep-legacy (origin class): item rects are DISPLAY-space values --
+        // map them through the ONE page-space law (MediaBox origin + /Rotate),
+        // exactly like the redaction path (SEP13 L5/L8). The legacy flip with
+        // the MediaBox height alone dropped the MediaBox lower-left origin and
+        // ignored /Rotate, displacing every saved annotation on rotated or
+        // offset-origin pages while our own overlay kept showing the mark in
+        // the right place (the inverse-wrong read-back).
+        const gp::PageSpace::PageGeometry pageGeo = gp::PageSpace::pageGeometry(page);
 
         for (const auto& anno : it.value()) {
             QRectF bounds = anno.rect;
-            if (anno.mode == ToolMode::DrawFreehand || anno.mode == ToolMode::AddSignature) {
+            if (anno.mode == ToolMode::DrawFreehand || anno.mode == ToolMode::AddSignature
+                || gp::measure::isMeasureToolMode(anno.mode)) {
                 if (!anno.points.isEmpty()) {
-                    bounds = QRectF(anno.points.first(), anno.points.first());
-                    for (const auto& p : anno.points) bounds = bounds.united(QRectF(p, p));
+                    // G21: a QRectF union of point-sized rects NEVER grows — a
+                    // zero-size rect is isNull(), and Qt's operator|/united
+                    // short-circuits null rects, so the old loop returned the
+                    // LAST point as a 0×0 /Rect (a 72×72 perimeter wrote
+                    // "/Rect [10 710 10 710]"). Compute explicit min/max
+                    // extents instead, then expand by half the stroke width
+                    // on each side so /Rect encloses the rendered appearance
+                    // (ISO 32000-1 Table 164: Rect shall be large enough to
+                    // encompass the annotation, including its border).
+                    double minX = anno.points.first().x(), maxX = minX;
+                    double minY = anno.points.first().y(), maxY = minY;
+                    for (const auto& p : anno.points) {
+                        minX = qMin(minX, p.x()); maxX = qMax(maxX, p.x());
+                        minY = qMin(minY, p.y()); maxY = qMax(maxY, p.y());
+                    }
+                    const double pad = qMax(0.0, double(anno.thickness)) / 2.0;
+                    bounds = QRectF(minX - pad, minY - pad,
+                                    (maxX - minX) + 2.0 * pad,
+                                    (maxY - minY) + 2.0 * pad);
                 }
             }
-            PoDoFo::Rect pdfRect(bounds.x(), pageHeight - bounds.y() - bounds.height(), bounds.width(), bounds.height());
 
             PoDoFo::PdfAnnotationType annotType = PoDoFo::PdfAnnotationType::Text;
             if (anno.mode == ToolMode::Strikeout)  annotType = PoDoFo::PdfAnnotationType::StrikeOut;
@@ -2825,8 +4189,17 @@ static void applyAnnotationsToDoc(PoDoFo::PdfMemDocument& doc,
             // invisible Text notes, silently discarding visible work on save.
             else if (anno.mode == ToolMode::DrawRectangle) annotType = PoDoFo::PdfAnnotationType::Square;
             else if (anno.mode == ToolMode::DrawEllipse)   annotType = PoDoFo::PdfAnnotationType::Circle;
-            else if (anno.mode == ToolMode::DrawLine || anno.mode == ToolMode::DrawArrow)
+            else if (anno.mode == ToolMode::DrawLine || anno.mode == ToolMode::DrawArrow
+                     || anno.mode == ToolMode::MeasureDistance)
                 annotType = PoDoFo::PdfAnnotationType::Line;
+            // T1 measurement: perimeter → /PolyLine, area → /Polygon. These are
+            // the ISO 32000-1 subtypes whose dictionaries define /Measure and
+            // /Vertices (Tables 175/178); /Square does NOT carry /Measure there,
+            // so area rides /Polygon exactly like Acrobat's measure tools.
+            else if (anno.mode == ToolMode::MeasurePerimeter)
+                annotType = PoDoFo::PdfAnnotationType::PolyLine;
+            else if (anno.mode == ToolMode::MeasureArea)
+                annotType = PoDoFo::PdfAnnotationType::Polygon;
             else if (anno.mode == ToolMode::DrawFreehand || anno.mode == ToolMode::AddSignature)
                 annotType = PoDoFo::PdfAnnotationType::Ink;
             // §9.7 P0: signature-picker Type/Upload modes persist as /Stamp
@@ -2835,7 +4208,20 @@ static void applyAnnotationsToDoc(PoDoFo::PdfMemDocument& doc,
             else if (anno.mode == ToolMode::AddSignatureTyped || anno.mode == ToolMode::AddSignatureUpload)
                 annotType = PoDoFo::PdfAnnotationType::Stamp;
 
-            auto& annot = page.GetAnnotations().CreateAnnot(annotType, pdfRect);
+            // The /Rect is RAW USER space (ISO 32000-1 12.5.2): map the
+            // display-space bounds through the law, then store verbatim via
+            // SetRectRaw -- PoDoFo's CreateAnnot rect parameter expects a
+            // /Rotate-View-space rect and would transform it AGAIN (verified
+            // by probe: CreateAnnot with a placeholder followed by SetRectRaw
+            // is the way to store an explicit raw rect on a /Rotate page; on
+            // /Rotate 0 pages SetRectRaw stores exactly the legacy numbers).
+            const QRectF userBounds = gp::PageSpace::viewerToUser(bounds, pageGeo);
+            auto& annot = page.GetAnnotations().CreateAnnot(
+                annotType, PoDoFo::Rect(userBounds.x(), userBounds.y(),
+                                        userBounds.width(), userBounds.height()));
+            annot.SetRectRaw(PoDoFo::Corners(userBounds.x(), userBounds.y(),
+                                             userBounds.x() + userBounds.width(),
+                                             userBounds.y() + userBounds.height()));
             PoDoFo::PdfDictionary& dict = annot.GetDictionary();
 
             // /Contents + /RC + /PieceInfo (Djot dual-write, M6-P4 D3)
@@ -2871,8 +4257,9 @@ static void applyAnnotationsToDoc(PoDoFo::PdfMemDocument& doc,
                 PoDoFo::PdfArray inkList;
                 PoDoFo::PdfArray stroke;
                 for (const auto& p : anno.points) {
-                    stroke.Add(p.x());
-                    stroke.Add(pageHeight - p.y());
+                    const QPointF u = gp::ItemSpace::viewerPointToUser(p, pageGeo);
+                    stroke.Add(u.x());
+                    stroke.Add(u.y());
                 }
                 inkList.Add(PoDoFo::PdfObject(stroke));
                 dict.AddKey("InkList", inkList);
@@ -2884,12 +4271,92 @@ static void applyAnnotationsToDoc(PoDoFo::PdfMemDocument& doc,
                     p1 = anno.points.first();
                     p2  = anno.points.last();
                 }
+                const QPointF u1 = gp::ItemSpace::viewerPointToUser(p1, pageGeo);
+                const QPointF u2 = gp::ItemSpace::viewerPointToUser(p2, pageGeo);
                 PoDoFo::PdfArray lineArr;
-                lineArr.Add(p1.x());
-                lineArr.Add(pageHeight - p1.y());
-                lineArr.Add(p2.x());
-                lineArr.Add(pageHeight - p2.y());
+                lineArr.Add(u1.x());
+                lineArr.Add(u1.y());
+                lineArr.Add(u2.x());
+                lineArr.Add(u2.y());
                 dict.AddKey("L", lineArr);
+            } else if (annotType == PoDoFo::PdfAnnotationType::PolyLine
+                       || annotType == PoDoFo::PdfAnnotationType::Polygon) {
+                // T1 measurement: /Vertices is the flat [x0 y0 x1 y1 …] array in
+                // PDF user space (PolyLine = open path, Polygon = closed shape).
+                // G22: the perimeter tool measures the CLOSED boundary, but a
+                // /PolyLine carries an OPEN path — serializing a 4-vertex square
+                // without its closing edge makes every reader that walks the
+                // stored path measure 3 sides (108 mm) while our label says
+                // 144 mm. Serialize the closing segment explicitly (first vertex
+                // repeated last) so the stored path's length IS the displayed
+                // perimeter; /Polygon is implicitly closed by the spec (the area
+                // label is unaffected) and needs no repeat. The reader strips
+                // the duplicate to recover the logical vertices.
+                PoDoFo::PdfArray verts;
+                for (const auto& p : anno.points) {
+                    const QPointF u = gp::ItemSpace::viewerPointToUser(p, pageGeo);
+                    verts.Add(u.x());
+                    verts.Add(u.y());
+                }
+                if (anno.mode == ToolMode::MeasurePerimeter && !anno.points.isEmpty()) {
+                    const QPointF uFirst = gp::ItemSpace::viewerPointToUser(anno.points.first(), pageGeo);
+                    verts.Add(uFirst.x());
+                    verts.Add(uFirst.y());
+                }
+                dict.AddKey("Vertices", verts);
+            }
+
+            // ── T1: ISO 32000-1 §12.9 measurement dictionary ────────────────
+            // Verified against the ISO 32000-1:2008 text (Tables 261–263):
+            //   /Subtype /RL (rectilinear), /R = REQUIRED human scale-ratio
+            //   string, /X /D /A = number-format ARRAYS whose elements are
+            //   << /U (unit) /C factor /D precision >> dictionaries. The first
+            //   /X element's /C is real-units per default user space unit —
+            //   exactly MeasureCore's unitsPerPt (spec example "/R (1in = 0.1
+            //   mi)" ⇒ /C 0.00139 = 0.1/72). /A's factor converts from
+            //   (largest X unit)²; we keep areas in the same unit family, so
+            //   the factor is 1 and consumers square the X factor.
+            // Every measurement carries its TRUE unit system: an uncalibrated
+            // measurement is written with /C 1 and (pt) — never omitted, never
+            // dressed up as a real-world claim (negative control contract).
+            if (gp::measure::isMeasureToolMode(anno.mode)) {
+                const char* intent = (anno.mode == ToolMode::MeasureDistance) ? "LineDimension"
+                                   : (anno.mode == ToolMode::MeasurePerimeter) ? "PolyLineDimension"
+                                                                               : "PolygonDimension";
+                dict.AddKey("IT", PoDoFo::PdfName(intent));
+
+                QString unit = anno.measureUnit.isEmpty() ? QStringLiteral("pt") : anno.measureUnit;
+                QString areaUnit = anno.measureAreaUnit.isEmpty()
+                    ? QStringLiteral("pt\u00B2") : anno.measureAreaUnit;
+                double upp = anno.measureUnitsPerPt;
+                const bool calibrated = anno.measureCalibrated
+                    && std::isfinite(upp) && upp > 0.0 && !(unit == QStringLiteral("pt"));
+                if (!calibrated) { upp = 1.0; unit = QStringLiteral("pt"); areaUnit = QStringLiteral("pt\u00B2"); }
+                const QString ratio = anno.measureRatio.isEmpty()
+                    ? (calibrated ? QStringLiteral("1 pt = %1 %2").arg(QString::number(upp, 'g', 6), unit)
+                                  : QStringLiteral("1 pt = 1 pt"))
+                    : anno.measureRatio;
+
+                // One-element number-format array: << /U (unit) /C factor /D 100 >>
+                // (/D 100 = hundredths precision per Table 263's default).
+                auto numberFormat = [](const QString& label, double factor) {
+                    PoDoFo::PdfArray arr;
+                    PoDoFo::PdfDictionary fmt;
+                    fmt.AddKey("U", PoDoFo::PdfString(label.toStdString()));
+                    fmt.AddKey("C", PoDoFo::PdfObject(factor));
+                    fmt.AddKey("D", PoDoFo::PdfObject(static_cast<int64_t>(100)));
+                    arr.Add(PoDoFo::PdfObject(fmt));
+                    return arr;
+                };
+
+                PoDoFo::PdfDictionary m;
+                m.AddKey("Type", PoDoFo::PdfName("Measure"));
+                m.AddKey("Subtype", PoDoFo::PdfName("RL"));
+                m.AddKey("R", PoDoFo::PdfString(ratio.toStdString()));
+                m.AddKey("X", numberFormat(unit, upp));       // real units per user-space unit
+                m.AddKey("D", numberFormat(unit, 1.0));       // distances in the same unit
+                m.AddKey("A", numberFormat(areaUnit, 1.0));   // areas: consumers square X's factor
+                dict.AddKey("Measure", m);
             }
 
             // ── §9.7 P0: signature-picker Type/Upload image appearance ─────
@@ -3039,61 +4506,27 @@ static void applyAnnotationsToDoc(PoDoFo::PdfMemDocument& doc,
 bool PoDoFoBackend::embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations)
 {
     QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
-        // AR-7 D1: In-place save (inputPath == outputPath) requires a separate local
-        // PdfMemDocument so that the file handle is released before we overwrite the
-        // file. PoDoFo keeps the source file open for lazy object resolution; if we
-        // call Save() to the same path the backend's persistent doc was loaded from,
-        // Save() tries to re-read deferred objects from the file it is simultaneously
-        // overwriting — producing a corrupt "InvalidNumber" parse error. Using a fresh
-        // local doc (scoped block) guarantees the handle is closed before the rename.
-        const bool inPlace = !inputPath.isEmpty() && !outputPath.isEmpty() &&
-            QString::compare(inputPath, outputPath, Qt::CaseInsensitive) == 0;
-
-        if (inPlace) {
-            QString tmpPath;
-            {
-                const QFileInfo fi(outputPath);
-                QTemporaryFile tmp(fi.absolutePath() + QStringLiteral("/XXXXXX.pdf.tmp"));
-                tmp.setAutoRemove(false);
-                if (!tmp.open()) {
-                    qWarning() << "embedAnnotations: cannot create temp file alongside" << outputPath;
-                    return false;
-                }
-                tmpPath = tmp.fileName();
-                tmp.close(); // close QFile handle; PoDoFo will open tmpPath itself
-
-                PoDoFo::PdfMemDocument localDoc;
-                localDoc.Load(inputPath.toUtf8().constData());
-                applyAnnotationsToDoc(localDoc, annotations);
-                localDoc.Save(tmpPath.toUtf8().constData());
-                // localDoc destructor runs here → releases inputPath file handle
-            }
-            // Now it is safe to replace the original file.
-            if (QFile::exists(outputPath) && !QFile::remove(outputPath)) {
-                qCritical() << "embedAnnotations: cannot remove original for in-place replace:" << outputPath;
-                QFile::remove(tmpPath);
-                return false;
-            }
-            if (!QFile::rename(tmpPath, outputPath)) {
-                qCritical() << "embedAnnotations: rename temp->output failed:" << tmpPath << "->" << outputPath;
-                QFile::remove(tmpPath);
-                return false;
-            }
-            return true;
-        }
-
-        // Normal path (outputPath != inputPath): operate on the backend's member document
-        // so signature-aware writeUpdate() persists this doc (AR-4 D2 fix).
-        // AR-4 D2 fix: operate on the resolved member document (lazy-loaded if nothing is
-        // resident) so the signature-aware writeUpdate() below persists THIS doc. Previously
-        // a fresh *local* copy was built while writeUpdate() saved the unrelated member doc
-        // (yielding 0 annotations), or threw "writeUpdate failed" when no document was loaded
-        // (uncaught std::runtime_error → terminate). Reusing the live member doc also honours
-        // the anti-divergence guarantee — in-memory edits are not discarded.
+        // AR-7 D1: In-place save (inputPath == outputPath). The previous
+        // dedicated branch loaded a separate local PdfMemDocument and swapped
+        // the result in with a raw QFile::remove + QFile::rename — a boundary
+        // OUTSIDE the SafeSave coordination, so any handle held on the
+        // destination (the viewer's QPdfDocument, or this backend's own
+        // resident parser device) turned the remove into "cannot remove
+        // original for in-place replace" and the save failed even though the
+        // document was perfectly writable (ARC03 close-with-save repro).
+        // The embed now routes through the SAME choke point as every other
+        // same-path write: resolveDocument + writeUpdate — unsigned documents
+        // take the saveDocument transaction (unique candidate → validation →
+        // same-file re-seat closes the parser device → SafeSave commit, whose
+        // coordinator parks/restores the viewer handle), and signed documents
+        // keep the coordination-scoped SaveUpdate append that preserves every
+        // /ByteRange. A failed replacement leaves the original byte-identical;
+        // there is deliberately no remove-then-rename fallback.
         auto& doc = d->resolveDocument(inputPath);
         applyAnnotationsToDoc(doc, annotations);
-        if (!writeUpdate(outputPath)) throw std::runtime_error("writeUpdate failed");
+        if (!commitMutation(outputPath)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "Error embedding annotations:" << e.what();
@@ -3107,6 +4540,127 @@ bool PoDoFoBackend::embedAnnotations(const QString &inputPath, const QString &ou
 }
 
 // ── M6-PROMPT-4 D4: load annotations back from a PDF ────────────────────────
+// ── T2-9: outline (bookmark) read/write ─────────────────────────────────────
+
+namespace {
+
+// Depth-first walk of the outline tree into OutlineEntry values. Titles are
+// read from a THROWAWAY document (getOutline loads its own copy), so the
+// E-1 COW rule is respected — this document is never re-serialized.
+void collectOutlineItems(PoDoFo::PdfOutlineItem* first, QList<OutlineEntry>& out,
+                         PoDoFo::PdfMemDocument& doc) {
+    for (PoDoFo::PdfOutlineItem* it = first; it; it = it->Next()) {
+        OutlineEntry e;
+        e.title = QString::fromUtf8(it->GetTitle().GetString());
+        e.targetPage = -1;
+        try {
+            auto dest = it->GetDestination();
+            if (dest.has_value()) {   // nullable: explicit has_value (no bool conv.)
+                if (PoDoFo::PdfPage* page = dest->GetPage()) {
+                    auto& pages = doc.GetPages();
+                    for (unsigned i = 0; i < pages.GetCount(); ++i) {
+                        if (&pages.GetPageAt(i) == page) {
+                            e.targetPage = static_cast<int>(i);
+                            break;
+                        }
+                    }
+                }
+            }
+        } catch (...) {
+            e.targetPage = -1;   // unresolvable destination: keep the entry, drop the target
+        }
+        if (it->First())
+            collectOutlineItems(it->First(), e.children, doc);
+        out.append(e);
+    }
+}
+
+} // namespace
+
+QList<OutlineEntry> PoDoFoBackend::getOutline(const QString& path) {
+    QMutexLocker locker(&d->mutex);
+    QList<OutlineEntry> out;
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(path.toUtf8().constData());
+        if (PoDoFo::PdfOutlines* outlines = doc.GetOutlines()) {
+            if (outlines->First())
+                collectOutlineItems(outlines->First(), out, doc);
+        }
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "PoDoFoBackend::getOutline failed:" << e.what() << "path:" << path;
+        return {};
+    } catch (...) {
+        return {};
+    }
+    return out;
+}
+
+bool PoDoFoBackend::replaceOutline(const QString& path, const QList<OutlineEntry>& entries) {
+    QMutexLocker locker(&d->mutex);
+    try {
+        auto& doc = d->resolveDocument(path);
+        const int pageCount = static_cast<int>(doc.GetPages().GetCount());
+
+        // Validate BEFORE touching the tree (fail = nothing changed).
+        std::function<bool(const QList<OutlineEntry>&, int)> valid =
+            [&](const QList<OutlineEntry>& es, int depth) -> bool {
+            if (depth > 5) return false;   // sane nesting bound
+            for (const auto& e : es) {
+                if (e.title.trimmed().isEmpty()) return false;
+                if (e.targetPage < 0 || e.targetPage >= pageCount) return false;
+                if (!valid(e.children, depth + 1)) return false;
+            }
+            return true;
+        };
+        if (!valid(entries, 0)) return false;
+
+        // Erase the existing tree (if any) — replace means replace.
+        if (PoDoFo::PdfOutlines* existing = doc.GetOutlines()) {
+            while (PoDoFo::PdfOutlineItem* f = existing->First())
+                f->Erase();
+        }
+
+        std::function<void(const QList<OutlineEntry>&, PoDoFo::PdfOutlineItem*)> build =
+            [&](const QList<OutlineEntry>& es, PoDoFo::PdfOutlineItem* parentItem) {
+            PoDoFo::PdfOutlineItem* cur = nullptr;
+            for (const auto& e : es) {
+                PoDoFo::PdfOutlineItem* item = nullptr;
+                const PoDoFo::PdfString title(e.title.toUtf8().constData());
+                if (!cur)
+                    item = parentItem ? &parentItem->CreateChild(title)
+                                      : &doc.GetOrCreateOutlines().CreateRoot(title);
+                else
+                    item = &cur->CreateNext(title);
+
+                auto dest = doc.CreateDestination();
+                dest->SetDestination(doc.GetPages().GetPageAt(
+                    static_cast<unsigned>(e.targetPage)), PoDoFo::PdfDestinationFit::Fit);
+                item->SetDestination(*dest);
+
+                cur = item;
+                if (!e.children.isEmpty())
+                    build(e.children, item);
+            }
+        };
+        if (!entries.isEmpty())
+            build(entries, nullptr);
+
+        // Path-based mutator contract: ONE committed write after mutation.
+        if (!writeUpdate(path)) throw std::runtime_error("writeUpdate failed");
+        return true;
+    } catch (const PoDoFo::PdfError& e) {
+        qCritical() << "PoDoFoBackend::replaceOutline failed:" << e.what()
+                    << "— document state may be inconsistent, do NOT save.";
+        return false;
+    } catch (const std::exception& e) {
+        qCritical() << "PoDoFoBackend::replaceOutline failed:" << e.what();
+        return false;
+    } catch (...) {
+        return false;
+    }
+}
+
 QList<AnnotationItem> PoDoFoBackend::extractAnnotations(const QString &inputPath)
 {
     QList<AnnotationItem> result;
@@ -3122,7 +4676,12 @@ QList<AnnotationItem> PoDoFoBackend::extractAnnotations(const QString &inputPath
         const unsigned pageCount = doc.GetPages().GetCount();
         for (unsigned p = 0; p < pageCount; ++p) {
             auto& page = doc.GetPages().GetPageAt(p);
-            const double pageHeight = page.GetMediaBox().Height;
+            // sweep-legacy (origin class): /Rect and geometry live in RAW USER
+            // space -- map them into the overlay's display space through the
+            // inverse of the shared page-space law (MediaBox origin + /Rotate).
+            // The legacy flip with the MediaBox height alone displaced foreign
+            // annotations on rotated or offset-origin pages.
+            const gp::PageSpace::PageGeometry pageGeo = gp::PageSpace::pageGeometry(page);
             auto& annos = page.GetAnnotations();
             const unsigned annoCount = annos.GetCount();
 
@@ -3135,6 +4694,17 @@ QList<AnnotationItem> PoDoFoBackend::extractAnnotations(const QString &inputPath
 
                 // ── Subtype → ToolMode (inverse of embedAnnotations) ──────────
                 item.mode = ToolMode::AddComment;
+                // T1: /Measure (or a dimension /IT intent) marks a measurement
+                // annotation. Without it, plain shape annots keep their legacy
+                // mapping — a DrawLine from §9.3 must never become a measure.
+                bool hasMeasure = dict.FindKey("Measure") != nullptr;
+                QString intentName;
+                if (const auto* it = dict.FindKey("IT"); it && it->IsName())
+                    intentName = QString::fromLatin1(it->GetName().GetString().data(),
+                                                     static_cast<int>(it->GetName().GetString().size()));
+                const bool dimensionIntent = intentName == QLatin1String("LineDimension")
+                    || intentName == QLatin1String("PolyLineDimension")
+                    || intentName == QLatin1String("PolygonDimension");
                 if (const auto* sub = dict.FindKey("Subtype")) {
                     if (sub->IsName()) {
                         const std::string s{sub->GetName().GetString()};
@@ -3163,10 +4733,18 @@ QList<AnnotationItem> PoDoFoBackend::extractAnnotations(const QString &inputPath
                         else if (s == "Circle")    item.mode = ToolMode::DrawEllipse;
                         else if (s == "Line")      item.mode = ToolMode::DrawLine;
                         else if (s == "Ink")       item.mode = ToolMode::DrawFreehand;
+
+                        // ── T1: measurement identity (verified ISO 32000-1
+                        // carriers: /Line, /PolyLine, /Polygon with /Measure).
+                        if (hasMeasure || dimensionIntent) {
+                            if (s == "Line")     item.mode = ToolMode::MeasureDistance;
+                            if (s == "PolyLine") item.mode = ToolMode::MeasurePerimeter;
+                            if (s == "Polygon")  item.mode = ToolMode::MeasureArea;
+                        }
                     }
                 }
 
-                // ── Rect (PDF bottom-left origin → top-left QRectF) ───────────
+                // -- Rect: RAW USER space -> display space via the page-space law
                 if (const auto* rectObj = dict.FindKey("Rect")) {
                     if (rectObj->IsArray()) {
                         const auto& arr = rectObj->GetArray();
@@ -3174,13 +4752,13 @@ QList<AnnotationItem> PoDoFoBackend::extractAnnotations(const QString &inputPath
                             if (!arr[0].IsNumberOrReal() || !arr[1].IsNumberOrReal() ||
                                 !arr[2].IsNumberOrReal() || !arr[3].IsNumberOrReal())
                                 continue;
-                            const double x0 = arr[0].GetReal();
-                            const double y0 = arr[1].GetReal();
-                            const double x1 = arr[2].GetReal();
-                            const double y1 = arr[3].GetReal();
-                            const double w = x1 - x0;
-                            const double h = y1 - y0;
-                            item.rect = QRectF(x0, pageHeight - y1, w, h);
+                            const double ux0 = arr[0].GetReal();
+                            const double uy0 = arr[1].GetReal();
+                            const double ux1 = arr[2].GetReal();
+                            const double uy1 = arr[3].GetReal();
+                            const QRectF user(QPointF(qMin(ux0, ux1), qMin(uy0, uy1)),
+                                              QPointF(qMax(ux0, ux1), qMax(uy0, uy1)));
+                            item.rect = gp::ItemSpace::userToViewer(user, pageGeo);
                         }
                     }
                 }
@@ -3194,23 +4772,94 @@ QList<AnnotationItem> PoDoFoBackend::extractAnnotations(const QString &inputPath
                                 const auto& pts = strokeObj.GetArray();
                                 for (size_t k = 0; k + 1 < pts.size(); k += 2) {
                                     if (pts[k].IsNumberOrReal() && pts[k+1].IsNumberOrReal())
-                                        item.points.append(QPointF(pts[k].GetReal(),
-                                                                   pageHeight - pts[k+1].GetReal()));
+                                        item.points.append(gp::ItemSpace::userPointToViewer(
+                                            QPointF(pts[k].GetReal(), pts[k+1].GetReal()), pageGeo));
                                 }
                             }
                         }
                     }
-                } else if (item.mode == ToolMode::DrawLine) {
+                } else if (item.mode == ToolMode::DrawLine || item.mode == ToolMode::MeasureDistance) {
                     if (const auto* l = dict.FindKey("L")) {
                         if (l->IsArray() && l->GetArray().size() == 4) {
                             const auto& ln = l->GetArray();
                             if (ln[0].IsNumberOrReal() && ln[1].IsNumberOrReal() &&
                                 ln[2].IsNumberOrReal() && ln[3].IsNumberOrReal()) {
-                                item.points.append(QPointF(ln[0].GetReal(), pageHeight - ln[1].GetReal()));
-                                item.points.append(QPointF(ln[2].GetReal(), pageHeight - ln[3].GetReal()));
+                                item.points.append(gp::ItemSpace::userPointToViewer(
+                                    QPointF(ln[0].GetReal(), ln[1].GetReal()), pageGeo));
+                                item.points.append(gp::ItemSpace::userPointToViewer(
+                                    QPointF(ln[2].GetReal(), ln[3].GetReal()), pageGeo));
                             }
                         }
                     }
+                } else if (item.mode == ToolMode::MeasurePerimeter
+                           || item.mode == ToolMode::MeasureArea) {
+                    // T1: /Vertices is the flat [x0 y0 x1 y1 …] array (Table 178).
+                    if (const auto* v = dict.FindKey("Vertices")) {
+                        if (v->IsArray()) {
+                            const auto& pts = v->GetArray();
+                            for (size_t k = 0; k + 1 < pts.size(); k += 2) {
+                                if (pts[k].IsNumberOrReal() && pts[k+1].IsNumberOrReal())
+                                    item.points.append(gp::ItemSpace::userPointToViewer(
+                                        QPointF(pts[k].GetReal(), pts[k+1].GetReal()), pageGeo));
+                            }
+                            // G22: our writer serializes the perimeter's closing
+                            // segment as a repeated first vertex so open-path
+                            // readers measure the closed boundary. Strip that
+                            // duplicate to recover the logical vertex set (the
+                            // closed-perimeter value is unchanged by the strip:
+                            // the removed closing distance is zero).
+                            if (item.mode == ToolMode::MeasurePerimeter
+                                && item.points.size() >= 3) {
+                                const QPointF& firstPt = item.points.first();
+                                const QPointF& lastPt = item.points.last();
+                                if (std::fabs(firstPt.x() - lastPt.x()) < 1e-6
+                                    && std::fabs(firstPt.y() - lastPt.y()) < 1e-6)
+                                    item.points.removeLast();
+                            }
+                        }
+                    }
+                }
+
+                // ── T1: restore the ISO 32000-1 /Measure calibration ─────────
+                // /X[0]/C is the real-units-per-user-space-unit factor; /A[0]/U
+                // the area unit label; /R the human scale text. Malformed input
+                // degrades to the truthful uncalibrated-pt defaults.
+                if (const auto* mo = dict.FindKey("Measure"); mo && mo->IsDictionary()) {
+                    const PoDoFo::PdfDictionary& md = mo->GetDictionary();
+                    const PoDoFo::PdfObject* xArr = md.FindKey("X");
+                    if (xArr && xArr->IsArray() && !xArr->GetArray().IsEmpty()) {
+                        const PoDoFo::PdfObject& x0 = xArr->GetArray()[0];
+                        if (x0.IsDictionary()) {
+                            if (const PoDoFo::PdfObject* c = x0.GetDictionary().FindKey("C");
+                                c && c->IsNumberOrReal())
+                                item.measureUnitsPerPt = c->GetReal();
+                            if (const PoDoFo::PdfObject* u = x0.GetDictionary().FindKey("U");
+                                u && u->IsString())
+                                item.measureUnit = svToQString(u->GetString().GetString());
+                        }
+                    }
+                    if (const PoDoFo::PdfObject* aArr = md.FindKey("A");
+                        aArr && aArr->IsArray() && !aArr->GetArray().IsEmpty()) {
+                        const PoDoFo::PdfObject& a0 = aArr->GetArray()[0];
+                        if (a0.IsDictionary()) {
+                            if (const PoDoFo::PdfObject* u = a0.GetDictionary().FindKey("U");
+                                u && u->IsString())
+                                item.measureAreaUnit = svToQString(u->GetString().GetString());
+                        }
+                    }
+                    if (const PoDoFo::PdfObject* r = md.FindKey("R"); r && r->IsString())
+                        item.measureRatio = svToQString(r->GetString().GetString());
+
+                    if (!(item.measureUnitsPerPt > 0.0) || !std::isfinite(item.measureUnitsPerPt))
+                        item.measureUnitsPerPt = 1.0;
+                    // The negative control, inverted: C==1 with the pt label IS
+                    // the uncalibrated scale — report it as such, nothing more.
+                    item.measureCalibrated = !(item.measureUnitsPerPt == 1.0
+                                               && item.measureUnit == QLatin1String("pt"));
+                    if (item.measureUnit.isEmpty())
+                        item.measureUnit = QStringLiteral("pt");
+                    if (item.measureAreaUnit.isEmpty())
+                        item.measureAreaUnit = QStringLiteral("pt\u00B2");
                 }
 
                 // ── §9.7 P0: restore the signature raster from the appearance ─
@@ -3501,11 +5150,22 @@ bool PoDoFoBackend::addTextWatermark(const TextWatermarkOptions &options)
         int to = (options.pageTo < 0) ? static_cast<int>(pageCount) - 1 : options.pageTo;
         to = qMin(to, static_cast<int>(pageCount) - 1);
 
+        // S1-2 (SWEEP-BACKEND-2026-09-21): the options struct documents opacity
+        // as 0.0–1.0, but nothing enforced it — an out-of-range value (batch
+        // preset string param, future scripting seam) reached the ExtGState
+        // /ca /CA operands verbatim, i.e. a spec-invalid ExtGState. Clamp at
+        // the seam that consumes the struct; a clamped value is disclosed,
+        // never silently accepted.
+        const double opacity = qBound(0.0, options.opacity, 1.0);
+        if (opacity != options.opacity)
+            qWarning() << "addTextWatermark: opacity" << options.opacity
+                       << "outside 0.0–1.0 — clamped to" << opacity;
+
         // Create a shared ExtGState for transparency
         auto& gsObj = doc.GetObjects().CreateDictionaryObject();
         gsObj.GetDictionary().AddKey("Type", PoDoFo::PdfName("ExtGState"));
-        gsObj.GetDictionary().AddKey("ca", static_cast<double>(options.opacity));
-        gsObj.GetDictionary().AddKey("CA", static_cast<double>(options.opacity));
+        gsObj.GetDictionary().AddKey("ca", opacity);
+        gsObj.GetDictionary().AddKey("CA", opacity);
 
         // §9.11 P0: honor the user-selected font family instead of hard-coding
         // Helvetica. Resolve order: installed/system font matching the family,
@@ -3595,6 +5255,7 @@ bool PoDoFoBackend::addTextWatermark(const TextWatermarkOptions &options)
             appendPageContent(doc, page, wm.str());
         }
 
+        d->noteResidentDiverged();   // WP-R02: resident-only edit — disk fallback no longer exact
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "Error adding text watermark:" << e.what();
@@ -3613,6 +5274,13 @@ bool PoDoFoBackend::addImageWatermark(const ImageWatermarkOptions &options)
         int from = (options.pageFrom < 0) ? 0 : options.pageFrom;
         int to = (options.pageTo < 0) ? static_cast<int>(pageCount) - 1 : options.pageTo;
         to = qMin(to, static_cast<int>(pageCount) - 1);
+
+        // S1-2 (SWEEP-BACKEND-2026-09-21): same boundary clamp as the text
+        // watermark — out-of-range opacity must not reach ExtGState /ca /CA.
+        const double opacity = qBound(0.0, options.opacity, 1.0);
+        if (opacity != options.opacity)
+            qWarning() << "addImageWatermark: opacity" << options.opacity
+                       << "outside 0.0–1.0 — clamped to" << opacity;
 
         // Load the image as a QImage for raw pixel data
         QImage img(options.imagePath);
@@ -3645,11 +5313,11 @@ bool PoDoFoBackend::addImageWatermark(const ImageWatermarkOptions &options)
         PoDoFo::charbuff imgBuf(std::string_view(rawData.constData(), rawData.size()));
         imgObj.GetOrCreateStream().SetData(imgBuf);
 
-        // Create ExtGState for opacity
+        // Create ExtGState for opacity (S1-2: clamped at the seam, above)
         auto& gsObj = doc.GetObjects().CreateDictionaryObject();
         gsObj.GetDictionary().AddKey("Type", PoDoFo::PdfName("ExtGState"));
-        gsObj.GetDictionary().AddKey("ca", static_cast<double>(options.opacity));
-        gsObj.GetDictionary().AddKey("CA", static_cast<double>(options.opacity));
+        gsObj.GetDictionary().AddKey("ca", opacity);
+        gsObj.GetDictionary().AddKey("CA", opacity);
 
         for (int i = from; i <= to; ++i) {
             auto& page = doc.GetPages().GetPageAt(i);
@@ -3728,39 +5396,17 @@ bool PoDoFoBackend::addImageWatermark(const ImageWatermarkOptions &options)
             }
             ops << "Q\n";
 
-            // Append to existing content stream
-            auto* contentsObj = page.GetContents();
-            if (!contentsObj) {
-                auto& newContents = doc.GetObjects().CreateDictionaryObject();
-                page.GetDictionary().AddKeyIndirect("Contents", newContents);
-                contentsObj = page.GetContents();
-            }
-
-            std::string existingStream;
-            if (contentsObj->GetObject().IsArray()) {
-                auto& arr = contentsObj->GetObject().GetArray();
-                for (size_t idx = 0; idx < arr.GetSize(); ++idx) {
-                    auto& ref = arr[idx];
-                    if (ref.IsReference()) {
-                        auto& partObj = doc.GetObjects().MustGetObject(ref.GetReference());
-                        if (partObj.IsDictionary() && partObj.HasStream()) {
-                            PoDoFo::charbuff buf;
-                            partObj.GetOrCreateStream().CopyTo(buf);
-                            existingStream.append(buf.data(), buf.size());
-                            existingStream.append("\n");
-                        }
-                    }
-                }
-            } else if (contentsObj->GetObject().IsDictionary() && contentsObj->GetObject().HasStream()) {
-                PoDoFo::charbuff buf;
-                contentsObj->GetObject().GetOrCreateStream().CopyTo(buf);
-                existingStream.assign(buf.data(), buf.size());
-            }
-            std::string newStream = existingStream + "\n" + ops.str();
-            PoDoFo::charbuff newBuf(newStream);
-            contentsObj->GetObject().GetOrCreateStream().SetData(newBuf);
+            // S1-2 (SWEEP-BACKEND-2026-09-21): append through the shared
+            // helper, exactly like the text watermark. The hand-rolled merge
+            // here called GetOrCreateStream() on whatever object /Contents
+            // holds — a reference- or array-shaped Contents threw
+            // PdfError::InvalidDataType ("stream of non-dictionary object"),
+            // so addImageWatermark failed on ordinary files before the
+            // clamped ExtGState could ever be exercised end-to-end.
+            appendPageContent(doc, page, ops.str());
         }
 
+        d->noteResidentDiverged();   // WP-R02: resident-only edit — disk fallback no longer exact
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "Error adding image watermark:" << e.what();
@@ -3769,6 +5415,57 @@ bool PoDoFoBackend::addImageWatermark(const ImageWatermarkOptions &options)
 }
 
 // ── Optimization (Session 13) ──────────────────────────────────────────────
+
+// §9.13 P1: read-only reachability walk mirroring the mark phase of PoDoFo's
+// PdfIndirectObjectList::CollectGarbage — collect everything transitively
+// referenced from the trailer (/Root → page tree, /Contents, /Resources incl.
+// XObjects, /Annots, AcroForm, /StructTreeRoot, /Outlines, /Names — anything
+// reachable arrives here through the object graph). Returns the sum of RAW
+// (encoded) stream byte sizes over all UNREACHABLE objects: exactly the bytes
+// a garbage-collecting save drops from the output. Raw bytes match the image
+// accounting above — CopyTo(raw) cannot expand media filters and would throw
+// on JPEG payloads. An estimate must never mutate the document, so this does
+// NOT sweep; it only measures.
+static qint64 unreachableStreamBytes(PoDoFo::PdfMemDocument &doc)
+{
+    auto& objects = doc.GetObjects();
+    std::set<PoDoFo::PdfReference> reachable;
+    std::vector<PoDoFo::PdfObject*> stack;
+    stack.push_back(&doc.GetTrailer().GetObject());
+    while (!stack.empty()) {
+        PoDoFo::PdfObject* o = stack.back();
+        stack.pop_back();
+        if (o == nullptr) continue;
+        if (o->IsReference()) {
+            // Mark indirect targets once; cycles and shared objects terminate.
+            if (!reachable.insert(o->GetReference()).second) continue;
+            PoDoFo::PdfObject* target = objects.GetObject(o->GetReference());
+            if (target) stack.push_back(target);
+            continue;
+        }
+        if (o->IsDictionary()) {
+            for (auto& kv : o->GetDictionary())
+                stack.push_back(&kv.second);
+        } else if (o->IsArray()) {
+            for (auto& v : o->GetArray())
+                stack.push_back(&v);
+        }
+    }
+
+    qint64 garbage = 0;
+    for (auto obj : objects) {
+        if (reachable.find(obj->GetIndirectReference()) != reachable.end()) continue;
+        if (!obj->HasStream()) continue;
+        try {
+            PoDoFo::charbuff buf;
+            obj->GetOrCreateStream().CopyTo(buf, /*raw=*/true);
+            garbage += static_cast<qint64>(buf.size());
+        } catch (const PoDoFo::PdfError&) {
+            // Unreadable stream: claim nothing for it (conservative).
+        }
+    }
+    return garbage;
+}
 
 OptimizeEstimate PoDoFoBackend::estimateOptimization(const OptimizeOptions &options)
 {
@@ -3852,13 +5549,30 @@ OptimizeEstimate PoDoFoBackend::estimateOptimization(const OptimizeOptions &opti
             // savings += est.fontCount * 15000;
         }
 
-        if (options.removeUnusedObjects) {
-            // §9.13 P0: unused-object removal does NOT run in the write path
-            // (optimizeDocument) yet — PoDoFo's save-time GC may drop
-            // unreferenced objects, but the estimate must not claim a fixed 5%
-            // that the write path does not guarantee. Zeroed out until the pass
-            // actually runs. (0 = no contribution)
-            // savings += est.originalBytes / 20; // ~5% from dead objects
+        if (options.removeUnusedObjects && est.originalBytes > 0) {
+            // §9.13 P1: the sweep is REAL now — optimizeDocument Phase 4 runs
+            // PoDoFo's trailer-rooted mark-and-sweep when this option is set —
+            // so the estimate reports measured garbage instead of the former
+            // fixed ~5% claim (which was zeroed out precisely because the
+            // write path did not implement the pass). Signed documents claim
+            // nothing: writeUpdate() appends an incremental revision there and
+            // the original bytes — garbage included — always remain on disk.
+            bool signedDoc = false;
+            try {
+                for (auto field : doc.GetFieldsIterator()) {
+                    if (field != nullptr &&
+                        field->GetType() == PoDoFo::PdfFieldType::Signature) {
+                        signedDoc = true;
+                        break;
+                    }
+                }
+            } catch (const PoDoFo::PdfError&) {
+                // Cannot determine — claim nothing (conservative).
+                signedDoc = true;
+            }
+            if (!signedDoc) {
+                savings += unreachableStreamBytes(doc);
+            }
         }
 
         est.estimatedBytes = qMax(est.originalBytes - savings, est.originalBytes / 10);
@@ -3917,10 +5631,27 @@ static QByteArray imageDictFingerprint(PoDoFo::PdfObject& obj, PoDoFo::PdfIndire
     return fp;
 }
 
+// §9.13 P1: the same signature-field inspection writeUpdate() performs. A
+// signed document must never get the unused-object sweep (ER-2 precedent).
+static bool documentHasSignatureFields(PoDoFo::PdfMemDocument &doc)
+{
+    try {
+        for (auto field : doc.GetFieldsIterator()) {
+            if (field != nullptr && field->GetType() == PoDoFo::PdfFieldType::Signature)
+                return true;
+        }
+    } catch (const PoDoFo::PdfError&) {
+        // Cannot determine — treat conservatively as signed (skip the sweep).
+        return true;
+    }
+    return false;
+}
+
 bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOptions &options)
 {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
 
     try {
         auto& doc = *d->document;
@@ -3990,6 +5721,7 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
                 // whole optimization via the outer catch.
                 PoDoFo::charbuff buf;
                 QImage src;
+                bool isGrayImage = false;
                     try {
                     auto* filterObj = dict.FindKey("Filter");
                     bool isDct = isName(filterObj, "DCTDecode")
@@ -4008,11 +5740,40 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
                         src.loadFromData(reinterpret_cast<const uchar*>(buf.data()),
                                          static_cast<int>(buf.size()), "JPG");
                     } else {
+                        // §9.13 P1: FlateDecode (or raw) coverage — decode via
+                        // PoDoFo's own stream expansion and re-encode as real
+                        // JPEG, same contract as the DCT path above.
+                        // /DeviceRGB 8bpc (pre-existing) and /DeviceGray 8bpc
+                        // (new) qualify.
                         auto* csObj = dict.FindKey("ColorSpace");
                         bool isRgb = isName(csObj, "DeviceRGB");
+                        bool isGray = isName(csObj, "DeviceGray");
                         auto* bpcObj = dict.FindKey("BitsPerComponent");
                         int bpc = static_cast<int>(asInt(bpcObj) == 0 ? 8 : asInt(bpcObj));
-                        if (!isRgb || bpc != 8) continue;
+                        if ((!isRgb && !isGray) || bpc != 8) continue;
+                        // §9.13 P1: PNG/TIFF predictors transform the decoded
+                        // bytes ABOVE the filter — PoDoFo's expansion does not
+                        // undo them, so predictor-coded streams must never be
+                        // treated as pixels. Skip byte-identical (pinned by
+                        // TestCompressJpegReencode::predictorImageIsSkippedSafely).
+                        auto* parmsObj = dict.FindKey("DecodeParms");
+                        if (parmsObj) {
+                            bool hasPredictor = false;
+                            auto checkParms = [&hasPredictor](const PoDoFo::PdfObject* p) {
+                                if (!p || !p->IsDictionary()) return;
+                                auto* pred = p->GetDictionary().FindKey("Predictor");
+                                hasPredictor = hasPredictor
+                                    || (pred && pred->IsNumberOrReal() && pred->GetReal() > 1);
+                            };
+                            checkParms(parmsObj);
+                            if (parmsObj->IsArray())
+                                for (const auto& p : parmsObj->GetArray())
+                                    checkParms(&p);
+                            if (hasPredictor) {
+                                qDebug() << "optimizeDocument: predictor-coded image, left untouched";
+                                continue;
+                            }
+                        }
                         // §9.13 F5: any media filter in the chain (e.g. a wrapped
                         // JPEG [/FlateDecode /DCTDecode]) makes the expanding
                         // CopyTo() throw UnsupportedFilter — skip, don't fail.
@@ -4021,10 +5782,14 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
                             continue;
                         }
                         obj->GetOrCreateStream().CopyTo(buf);
-                        if (static_cast<qint64>(buf.size()) < w * h * 3) continue;
+                        const int64_t cpp = isGray ? 1 : 3; // channels per pixel
+                        if (static_cast<qint64>(buf.size()) < w * h * cpp) continue;
                         src = QImage(reinterpret_cast<const uchar*>(buf.data()),
                                      static_cast<int>(w), static_cast<int>(h),
-                                     static_cast<int>(w * 3), QImage::Format_RGB888);
+                                     static_cast<int>(w * cpp),
+                                     isGray ? QImage::Format_Grayscale8
+                                            : QImage::Format_RGB888);
+                        isGrayImage = isGray;
                     }
                     if (src.isNull()) {
                         qDebug() << "optimizeDocument: undecodable image, left untouched";
@@ -4036,8 +5801,12 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
                     int64_t newH = qMax<int64_t>(1, static_cast<int64_t>(h * ratio));
 
                     QImage scaled = src.scaled(static_cast<int>(newW), static_cast<int>(newH),
-                                               Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
-                                          .convertToFormat(QImage::Format_RGB888);
+                                               Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+                    // §9.13 P1: grayscale stays grayscale — Qt writes a real
+                    // luminance-only JPEG for Format_Grayscale8; RGB is
+                    // normalized to RGB888 as before.
+                    if (!isGrayImage)
+                        scaled = scaled.convertToFormat(QImage::Format_RGB888);
 
                     // Encode at the user-selected quality and write the bytes
                     // verbatim. The filters overload with raw=true is required:
@@ -4060,7 +5829,8 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
                     dict.AddKey("Width", static_cast<int64_t>(scaled.width()));
                     dict.AddKey("Height", static_cast<int64_t>(scaled.height()));
                     dict.AddKey("BitsPerComponent", static_cast<int64_t>(8));
-                    dict.AddKey("ColorSpace", PoDoFo::PdfName("DeviceRGB"));
+                    dict.AddKey("ColorSpace",
+                                PoDoFo::PdfName(isGrayImage ? "DeviceGray" : "DeviceRGB"));
                     dict.RemoveKey("DecodeParms");
                 } catch (const PoDoFo::PdfError& e) {
                     qDebug() << "optimizeDocument: image skipped on stream error:" << e.what();
@@ -4151,7 +5921,52 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
             sanitizeDocumentContents(doc);
         }
 
-        if (!writeUpdate(outputPath)) throw std::runtime_error("writeUpdate failed");
+        // Phase 4 (§9.13 P1): unused-object removal — a REAL trailer-rooted
+        // mark-and-sweep. PoDoFo 1.1's PdfIndirectObjectList::CollectGarbage()
+        // computes the transitive closure of references from the trailer (page
+        // tree, /Contents, /Resources incl. XObjects, /Annots, AcroForm,
+        // /StructTreeRoot, /Outlines, /Names — everything reachable), then
+        // deletes the rest, garbage clusters included. Reused (rung 2) instead
+        // of hand-rolling the same walk. Gated behind options.removeUnusedObjects:
+        // the "Remove unused objects" checkbox now does real work.
+        // Guard ordering: signed documents skip the sweep ENTIRELY — writeUpdate()
+        // below appends an incremental revision whose /ByteRange windows cover
+        // the original bytes; deleting objects from a signed document's working
+        // set must not happen (the unsigned path's full save is unaffected).
+        if (options.removeUnusedObjects) {
+            if (documentHasSignatureFields(doc)) {
+                qDebug() << "optimizeDocument: signed document — unused-object sweep skipped";
+            } else {
+                // §9.13 P1 (crash safety): PdfMemDocument caches a PdfInfo
+                // wrapper over the trailer /Info object. When an earlier phase
+                // (strip metadata) removed the trailer /Info KEY, that object
+                // becomes unreachable and the sweep would delete it — leaving
+                // the cached wrapper dangling; Save() then updates /Info/ModDate
+                // through the stale wrapper and dereferences freed memory
+                // (observed SIGSEGV: PdfInfo::GetTitle → PdfDictionary::FindKey,
+                // caught by TestCompressStripSanitize). Re-anchor the object for
+                // the duration of the sweep; the anchor key is removed right
+                // after, so the written artifact is unchanged — PoDoFo's own
+                // save-time sweep drops the object AFTER its metadata update,
+                // the ordering it is written to tolerate.
+                bool infoReanchored = false;
+                auto& trailerDict = doc.GetTrailer().GetObject().GetDictionary();
+                const PoDoFo::PdfInfo* cachedInfo = doc.GetInfo();
+                if (cachedInfo != nullptr && !trailerDict.HasKey("Info")
+                    && cachedInfo->GetObject().IsIndirect()) {
+                    trailerDict.AddKey("Info", cachedInfo->GetObject().GetIndirectReference());
+                    infoReanchored = true;
+                }
+                const unsigned beforeSweep = objects.GetSize();
+                doc.CollectGarbage();
+                if (infoReanchored)
+                    trailerDict.RemoveKey("Info");
+                qDebug() << "optimizeDocument: unused-object sweep removed"
+                         << (beforeSweep - objects.GetSize()) << "object(s)";
+            }
+        }
+
+        if (!commitMutation(outputPath)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "Error optimizing document:" << e.what();

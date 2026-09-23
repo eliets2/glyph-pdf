@@ -56,6 +56,13 @@ private:
     }
 
 private slots:
+    // §9.7 hardening: EVERY persisted ToolMode ordinal must round-trip the
+    // sidecar. This is the test that would have caught the original
+    // mode-gate bug (gate stopped at EditImage, silently dropping Stamp,
+    // Callout, Crop and the signature modes on reload) for any current or
+    // future mode — a newly appended ToolMode fails here until the
+    // serializer is verified against it.
+    void allToolModesRoundTripThroughSidecar();
     void initTestCase() {
         QVERIFY2(m_tmpDir.isValid(), "Temp directory creation failed");
     }
@@ -421,5 +428,24 @@ private slots:
     }
 };
 
+void TestAnnotationDjot::allToolModesRoundTripThroughSidecar() {
+    for (int m = static_cast<int>(ToolMode::HandTool);
+         m <= kPersistedToolModeMax; ++m) {
+        AnnotationItem a;
+        a.mode = static_cast<ToolMode>(m);
+        a.pageIndex = 0;
+        a.rect = QRectF(10, 10, 40, 20);
+        a.text = QStringLiteral("m%1").arg(m);
+
+        const QJsonDocument doc = AnnotationSerializer::toJson({ a });
+        const QList<AnnotationItem> back = AnnotationSerializer::fromJson(doc);
+        QVERIFY2(!back.isEmpty(),
+                 qPrintable(QStringLiteral("ToolMode ordinal %1 must survive the "
+                                          "sidecar round-trip — the serializer gate "
+                                          "dropped it (extend the gate when adding "
+                                          "modes)").arg(m)));
+        QCOMPARE(static_cast<int>(back[0].mode), m);
+    }
+}
 QTEST_MAIN(TestAnnotationDjot)
 #include "TestAnnotationDjot.moc"

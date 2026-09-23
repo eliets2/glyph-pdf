@@ -238,9 +238,20 @@ private slots:
 
         auto& outCatalog = outDoc.GetCatalog();
 
-        // Vector 1: /Outlines removed.
-        QVERIFY2(!outCatalog.GetDictionary().HasKey("Outlines"),
-                 "G-04: /Outlines must be removed by sanitize");
+        // Vector 1: bookmark tree scrubbed. E-2 (soak 2026-09-20): the
+        // sanitize keeps an EMPTY /Outlines container (same legal-empty
+        // contract as /Names in vector 3) because PdfDocument caches a
+        // m_Outlines wrapper over the outlines root — orphaning the object
+        // would let Save()'s CollectGarbage() free it under the wrapper (the
+        // AssertMutable AV class). All bookmark data must still be gone.
+        {
+            auto* outOutlines = outCatalog.GetDictionary().FindKey("Outlines");
+            QVERIFY2(outOutlines == nullptr || !outOutlines->IsDictionary() ||
+                     (!outOutlines->GetDictionary().HasKey("First") &&
+                      !outOutlines->GetDictionary().HasKey("Last") &&
+                      !outOutlines->GetDictionary().HasKey("Count")),
+                     "G-04: bookmark tree must be scrubbed by sanitize");
+        }
 
         // Vector 2: /Collection removed.
         QVERIFY2(!outCatalog.GetDictionary().HasKey("Collection"),

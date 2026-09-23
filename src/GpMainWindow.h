@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 #include <QMainWindow>
+#include <functional>
 #include "core/AppContext.h"
+// T2-4 accessibility P1: fix request/outcome types for runA11yFix's signature.
+#include "engines/AccessibilityChecker.h"
+#include "engines/AccessibilityFixes.h"
 
 class PdfViewerWidget;
 class FindBar;
+class FindReplaceDialog;
 class QFrame;
 class WelcomeWidget;
 class QStackedWidget;
@@ -17,11 +22,14 @@ class Ribbon;
 class ModeStrip;
 class ScreenNav;
 class StatusBar;
+
 class Sidebar;
 class ModeController;
 class AIChatPanel;
 class SignaturesPanel;
 class PdfAValidationPanel;
+class MeasureMode;
+class AccessibilityPanel;
 
 class HomeController;
 class ViewController;
@@ -30,7 +38,11 @@ class PagesController;
 class ConvertController;
 class FormsController;
 class SecurityController;
+class CertEncryptController;
+class SendForSigningController;
+class TaskNavController;
 class ToolRegistry;
+class TaskStateSync;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -45,10 +57,59 @@ public:
 
     PdfViewerWidget* pdfViewer() const;
     StatusBar* statusBar() const { return _status; }
+    // R15: the canonical command registry (ribbon/menu binding + test seams).
+    ToolRegistry* toolRegistry() const { return _toolRegistry; }
 
     void openDocument(const QString& filePath);
     void recoverDocument(const QString& originalPath);
     const AppContext* appContext() const { return _ctx; }
+
+    // === §9.16 P1: unified open/drag-drop routing ==========================
+    // The audit: "Office/image import hidden behind separate menus instead of
+    // unified File>Open with drag-and-drop." File>Open, the Welcome Open card,
+    // recent files and drag-and-drop all funnel through openDocument()/the
+    // drop handlers; non-PDF targets are classified here and routed to the
+    // SAME conversion paths the explicit Welcome cards run (LibreOffice
+    // office import, images-to-PDF). The cards REMAIN as explicit entry
+    // points with their own pick/save dialogs — nothing is hidden or removed.
+    //
+    // Pure (extension-based) so the policy is headlessly testable — pinned by
+    // tests/TestOpenRouting.cpp; dragEnterEvent/dropEvent/openDocument are
+    // thin wrappers over these statics.
+    enum class OpenRoute {
+        PdfDirect,       // load in the viewer as-is
+        OfficeConvert,   // LibreOffice conversion → open resulting PDF
+        ImagesConvert,   // images-to-PDF conversion → open resulting PDF
+        Unsupported      // not routable — pre-existing PDF-load-error path
+    };
+    static OpenRoute routeForFile(const QString& path);
+
+    // Pure drop policy: what a drop of these local paths should do.
+    //   1. the FIRST PDF wins and opens directly (pre-existing behavior),
+    //   2. otherwise ALL images in the drop combine into ONE PDF (mirrors
+    //      multi-select in the Images-to-PDF card),
+    //   3. otherwise the FIRST Office file is converted,
+    //   4. otherwise nothing is planned (drop not accepted, as before).
+    struct DropPlan {
+        QString     pdfToOpen;
+        QStringList imagesToConvert;   // 1+ images → one combined PDF
+        QString     officeToConvert;
+        bool isEmpty() const {
+            return pdfToOpen.isEmpty() && imagesToConvert.isEmpty()
+                && officeToConvert.isEmpty();
+        }
+    };
+    static DropPlan planDrop(const QStringList& localPaths);
+
+    // ── R24 wiring closure: startup update decisions ──────────────────────
+    // The machine policy (PolicyController) overrides the stored user prefs
+    // AT these decision points — initUpdateChecker consults exactly these
+    // functions, so the observable startup behavior honors the policy even
+    // when the user preference says otherwise. Factored out as statics so
+    // the decision is testable without instantiating a full MainWindow.
+    static bool startupUpdateCheckEnabled();
+    static QString startupUpdateChannel();
+
     // Navigate to a named screen (delegates to onScreenSelected).
     // Usable by controllers that hold a MainWindow* but not ModeController*.
     void activateScreen(const QString& id);
@@ -62,10 +123,29 @@ public:
     void showWelcome();
     void showWorkspace();
 
+    // ── R16 (PP07/UI03): task-oriented welcome ──
+    // The welcome cards hand over their task id here. Open-dependent tasks arm
+    // the pending intent and run the standard Open flow; the intent is applied
+    // after a successful load (openDocument) and cleared when nothing loaded,
+    // so cancel/failure never leaves a half-state or mis-fires later.
+    // Standalone tasks (batch/compare) navigate directly.
+    Q_SLOT void startWelcomeTask(const QString& task);
+    QString pendingWelcomeTask() const { return _pendingWelcomeTask; }
+
+    // R15: route a View-panes entry to its sidebar pane ("pages", "bookmarks",
+    // "comments" on the left; "layers" on the right). Unknown names are ignored.
+    void showSidebarPane(const QString& pane);
+
 public slots:
     void onScreenSelected(const QString& id);
     void toggleTheme();
     void onToolActivated(const QString& id);
+    // T2-2: the full Find & Replace surface (Edit > Find & Replace, Ctrl+H).
+    // Modeless; lazily created, reused while the window lives. A slot so the
+    // regression suites can invoke the production entry by name (the
+    // revert-verification suites stay compile-compatible with pre-T2-2
+    // baselines, where the slot does not exist and the invoke fails).
+    void showFindReplaceDialog();
 
 private slots:
     void onTabChanged(const QString& tab);
@@ -89,22 +169,30 @@ private:
     ConvertController*  _convert = nullptr;
     FormsController*    _forms = nullptr;
     SecurityController* _security = nullptr;
+    CertEncryptController* _certEncrypt = nullptr;   // N17: certificate-encryption picker
+    SendForSigningController* _sendForSigning = nullptr; // R26: send-for-signing workflow
+    TaskNavController*  _taskNavCtrl = nullptr;   // R15: promoted task-surface routes
     ToolRegistry*       _toolRegistry = nullptr;
 
     MenuBar*        _menu        = nullptr;
     Ribbon*         _ribbon      = nullptr;
     ModeStrip*      _modeStrip   = nullptr;
     FindBar*        _findBar     = nullptr;
+    FindReplaceDialog* _findReplaceDialog = nullptr;   // T2-2 (lazy)
     ScreenNav*      _screenNav   = nullptr;
     StatusBar*      _status      = nullptr;
+    TaskStateSync*  _taskSync    = nullptr;   // U02: the single visible-state writer
     Sidebar*        _left        = nullptr;
     Sidebar*        _right       = nullptr;
     ModeController* _modes       = nullptr;
     QStackedWidget* _rootStack   = nullptr;   // [0]=welcome, [1]=workspace
     WelcomeWidget*  _welcome     = nullptr;
+    QString         _pendingWelcomeTask;      // R16: welcome task intent (consumed on load)
     AIChatPanel*    _ai          = nullptr;
     SignaturesPanel* _sigPanel   = nullptr;
     PdfAValidationPanel* _pdfaPanel = nullptr;
+    MeasureMode* _measurePanel = nullptr;
+    AccessibilityPanel* _a11yPanel = nullptr;   // T2-4 accessibility P1
     UpdateChecker*  _updater     = nullptr;
     QFrame*         _updateBar   = nullptr;
     bool            _aiVisible   = false;
@@ -112,7 +200,32 @@ private:
 
     void applyTheme();
     void replaceRight(QWidget* w);
+    // R16: route the consumed welcome-task intent to its surface after a
+    // successful load (tab/screen/tool state — never a second Open).
+    void applyWelcomeTask(const QString& task);
+    // ARC06: give the PDF/A panel the ACTIVE document (viewer identity) and
+    // refresh it on successful document changes while the panel is the
+    // active right panel. Empty path = the honest "No document loaded." state.
+    void refreshPdfAPanel();
+    // T2-4 accessibility P1: same ARC06 re-binding contract as the PDF/A
+    // panel — the checker describes the ACTIVE document or nothing.
+    void refreshA11yPanel();
+    // T2-4 P1: run one accessibility fix (the panel's injected runner).
+    // Owns resident-document coordination and routes /TU through the
+    // FormManager seam; everything else via applyAccessibilityFix.
+    gp::A11yFixOutcome runA11yFix(const gp::A11yFixRequest& request);
     void initUpdateChecker();
+    // §9.16 P1: unified-flow conversions (same engines/progress/failure
+    // handling as the Welcome cards in HomeController, minus their pick/save
+    // dialogs — the unified flow's output goes to a tracked temp dir so a
+    // File>Open never silently overwrites a user file).
+    void convertAndOpenOffice(const QString& officePath);
+    void convertAndOpenImages(const QStringList& imagePaths);
+    void runConversion(const QString& progressLabel,
+                       const std::function<bool()>& work,
+                       const QString& outputPath,
+                       const QString& successMessage,
+                       const QString& failureMessage);
 };
 
 } // namespace gp

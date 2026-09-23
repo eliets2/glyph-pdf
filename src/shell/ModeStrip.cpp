@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "ModeStrip.h"
+#include "TaskNav.h"
 #include "util/GpTheme.h"
 #include "util/Icons.h"
 #include "core/AppContext.h"
@@ -8,6 +9,7 @@
 
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMenu>
 #include <QStyle>
 #include <QToolButton>
 #include <QTimer>
@@ -69,6 +71,28 @@ ModeStrip::ModeStrip(QWidget* parent) : QFrame(parent) {
     row->addWidget(aiBtn);
 
     row->addStretch(1);
+
+    // ── U02: compact "Tools" chooser for the specialized workflows ──
+    // One instance, built from the TaskNav table (Standard excluded — the
+    // reading canvas is always one click away and needs no chooser entry).
+    auto* taskBtn = new QToolButton;
+    taskBtn->setObjectName("modeStripTaskMenu");
+    taskBtn->setText(tr("Tools"));
+    taskBtn->setProperty("variant", "ghost");
+    taskBtn->setPopupMode(QToolButton::InstantPopup);
+    taskBtn->setFocusPolicy(Qt::TabFocus);
+    taskBtn->setToolTip(tr("Specialized tasks: OCR, Redaction, Signatures, and more"));
+    taskBtn->setAccessibleName(tr("Task chooser"));
+    auto* taskMenu = new QMenu(taskBtn);
+    for (const auto& spec : TaskNav::tasks()) {
+        if (spec.kind == TaskKind::Standard) continue;
+        const QString sid = QString::fromLatin1(spec.id);
+        taskMenu->addAction(QString::fromLatin1(spec.title), this, [this, sid]() {
+            emit taskSelected(sid);
+        });
+    }
+    taskBtn->setMenu(taskMenu);
+    row->addWidget(taskBtn);
 
     _autosaveLabel = new QLabel(tr("● UNSAVED"));
     _autosaveLabel->setProperty("mono", true);
