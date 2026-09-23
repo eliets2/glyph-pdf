@@ -1207,6 +1207,113 @@ private slots:
     }
 
     // -----------------------------------------------------------------------
+    // PGR-21 (CRITICAL): an IN-PLACE sign (input == output) whose post-condition
+    // re-validation fails must never delete the user's only copy. Pre-fix, both
+    // failure branches of the D6 post-condition ran
+    //   if (!replaceOutput) QFile::remove(outputPath);
+    // and in in-place mode outputPath IS the input document — a signature that
+    // does not re-validate (the forceEmptyPostConditionForTesting seam makes
+    // that observation deterministic, SEP13:4) deleted the whole document
+    // instead of only the failed signing result. Post-fix the in-place sign
+    // stages onto a unique candidate like every other path: the failure drops
+    // only the candidate and the original survives byte-identical.
+    // -----------------------------------------------------------------------
+    void pgr21_failedInPlaceSignPreservesOriginalByteIdentical()
+    {
+        REQUIRE_FIXTURES();
+        QVERIFY(m_tmpDir.isValid());
+
+        // Attempt 1: a REAL in-place signature — the file signs itself.
+        QString doc = m_tmpDir.filePath("pgr21_inplace.pdf");
+        QVERIFY(QFile::copy(kInputPdf, doc));
+        const QByteArray original = fileSha(doc);
+        QVERIFY(!original.isEmpty());
+        {
+            SignatureManager mgr;
+            mgr.setSignatureLevel(PAdESLevel::B_T);
+            QCOMPARE(mgr.signDocument(doc, doc, kP12Path, kP12Pass,
+                                      "PGR21", ""), SignOutcome::Success);
+        }
+        const QByteArray signedSha = fileSha(doc);
+        QVERIFY2(signedSha != original,
+                 "attempt 1 must actually sign the document in place");
+        QVERIFY2(QFileInfo::exists(doc),
+                 "a successful in-place sign must leave the document in place");
+        {
+            X509_STORE *store = buildTestStore();
+            SignatureManager v;
+            v.setTrustStoreForTest(store);
+            const auto sigs = v.validateSignatures(doc);
+            QVERIFY2(!sigs.isEmpty() && sigs.first().integrityIntact,
+                     "attempt 1 signature must be intact");
+            X509_STORE_free(store);
+            v.setTrustStoreForTest(nullptr);
+        }
+
+        // Attempt 2: in-place again, and the re-validation observes NOTHING
+        // (seam). The operation must FAIL — and the user's only copy must
+        // survive byte-identical. Pre-fix this deleted the document.
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_T);
+        mgr.forceEmptyPostConditionForTesting(true);
+        const auto o2 = mgr.signDocument(doc, doc, kP12Path, kP12Pass,
+                                         "PGR21-empty", "");
+        mgr.forceEmptyPostConditionForTesting(false);
+        QCOMPARE(o2, SignOutcome::Failed);
+
+        QVERIFY2(QFileInfo::exists(doc),
+                 "PGR-21: a failed in-place re-sign DELETED the document — the "
+                 "user's only copy must survive a failed post-validation");
+        QCOMPARE(fileSha(doc), signedSha);
+
+        // The preserved document still carries its ORIGINAL intact signature.
+        {
+            X509_STORE *store = buildTestStore();
+            mgr.setTrustStoreForTest(store);
+            const auto sigs = mgr.validateSignatures(doc);
+            QVERIFY2(!sigs.isEmpty() && sigs.first().integrityIntact,
+                     "the preserved document's original signature must still validate");
+            X509_STORE_free(store);
+            mgr.setTrustStoreForTest(nullptr);
+        }
+    }
+
+    // PGR-21 companion guard (green before AND after the fix): the in-place
+    // SUCCESS path must keep the incremental-append contract — a second
+    // in-place signature appends a revision, and both signatures (including
+    // the first one's byte ranges) re-validate intact.
+    void pgr21_inPlaceSecondSignatureStaysIncrementalAndValid()
+    {
+        REQUIRE_FIXTURES();
+        QVERIFY(m_tmpDir.isValid());
+
+        QString doc = m_tmpDir.filePath("pgr21_incremental.pdf");
+        QVERIFY(QFile::copy(kInputPdf, doc));
+
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_B);
+        QCOMPARE(mgr.signDocument(doc, doc, kP12Path, kP12Pass,
+                                  "PGR21-first", ""), SignOutcome::Success);
+        QCOMPARE(mgr.signDocument(doc, doc, kP12Path, kP12Pass,
+                                  "PGR21-second", ""), SignOutcome::Success);
+
+        X509_STORE *store = buildTestStore();
+        mgr.setTrustStoreForTest(store);
+        const auto sigs = mgr.validateSignatures(doc);
+        QVERIFY2(sigs.size() >= 2,
+                 qPrintable(QStringLiteral("in-place double sign must yield >= 2 "
+                                          "signatures, got %1").arg(sigs.size())));
+        for (const auto &sig : sigs) {
+            QVERIFY2(sig.integrityIntact,
+                     qPrintable(QStringLiteral("in-place incremental append broke "
+                                              "the earlier signature %1")
+                                    .arg(sig.fieldName)));
+        }
+        X509_STORE_free(store);
+        mgr.setTrustStoreForTest(nullptr);
+    }
+
+    // -----------------------------------------------------------------------
     // R19(a+b): the signing SETTINGS really drive the engine — the documented
     // keys (signing/tsaUrl, signing/padesLevel) are read through the
     // controller's settings seam (gp::SecurityController::readSigningConfig) and
