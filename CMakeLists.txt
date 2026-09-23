@@ -5072,6 +5072,38 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestImageAppearance.cpp")
     )
 endif()
 
+# PDF → Word/Excel export (Wave 1A §9.5, ported from feature/editing-parity):
+# the output must be what its extension promises — a real OOXML ZIP, or the
+# documented HTML/CSV fallback — and a missing input must fail, not "succeed".
+# The test sniffs the output bytes because HAS_DUCKX/HAS_OPENXLSX are PRIVATE
+# definitions of pdfws_engines.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOfficeExport.cpp")
+    add_executable(TestOfficeExport tests/TestOfficeExport.cpp)
+    target_include_directories(TestOfficeExport PRIVATE src tests)
+    target_compile_definitions(TestOfficeExport PRIVATE
+        $<TARGET_PROPERTY:pdfws_engines,INTERFACE_COMPILE_DEFINITIONS>)
+    target_link_libraries(TestOfficeExport PRIVATE
+        pdfws_engines pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+    )
+    if(WIN32)
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestOfficeExport POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestOfficeExport>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestOfficeExport"
+            )
+        endif()
+    endif()
+    add_test(NAME TestOfficeExport COMMAND TestOfficeExport)
+    set_tests_properties(TestOfficeExport PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;convert;office;export;ooxml;qt;headless"
+    )
+endif()
+
 # Inline text edit style (Wave 2B/2C port): letter spacing, line spacing and
 # opacity, judged on the rendered page — including that a translucent edit
 # never lets the replaced text show through its white cover.
