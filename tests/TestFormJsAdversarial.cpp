@@ -97,6 +97,7 @@ private:
                         const QMap<QString, QString>& keystrokeScripts = {},
                         const QMap<QString, QString>& formatScripts = {},
                         const QMap<QString, QString>& initialValues = {})
+                        const QMap<QString, QString>& formatScripts = {})
     {
         const QString base = m_dir.path() + "/" + name + "-base.pdf";
         {
@@ -758,7 +759,6 @@ private slots:
                 exceptionFailure = true;
         QVERIFY2(exceptionFailure, "the inherited-op refusal must be disclosed");
     }
-
     // PGR-37 (the fix): a script that sets event.value to NaN or ±Infinity
     // produced hasValue=true with a JSON-null payload — the cascade then
     // wrote "" and silently WIPED the committed /V. Non-finite numbers are
@@ -785,7 +785,6 @@ private slots:
         const CascadeReport rep = FormJsRunner::runCalculateCascade(doc, 250, 1000);
         QCOMPARE(docFieldValue(doc, QStringLiteral("v")), QStringLiteral("5"));
     }
-
     // PGR-38 (the fix): a field literally named "__proto__" vanished from
     // every script's view — the snapshot was embedded as a JS object LITERAL,
     // where the key "__proto__" invokes the inherited setter (a string value
@@ -820,7 +819,6 @@ private slots:
             &protoUnchanged, nullptr));
         QCOMPARE(protoUnchanged, QStringLiteral("clean"));
     }
-
     // PGR-38 cascade integration: a hostile document with a field literally
     // named "__proto__" computes on its real value.
     void protoFieldComputesInTheCascade()
@@ -838,7 +836,6 @@ private slots:
         const CascadeReport rep = FormJsRunner::runCalculateCascade(doc, 250, 1000);
         QCOMPARE(docFieldValue(doc, QStringLiteral("reader")), QStringLiteral("got!"));
     }
-
     // The kill-switch is the pre-fix disclosure state: ALL FOUR engine entries
     // (cascade, validate, keystroke, format) refuse to run scripts.
     void killSwitchDisablesAllFourEntries()
