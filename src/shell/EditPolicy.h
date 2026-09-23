@@ -35,6 +35,9 @@ namespace EditPolicy {
 //     list Apply route was ungated until the audit caught it; S2-2 caught
 //     the same class in FormBuilderMode::onTabOrderApplyClicked — the
 //     comment now names every direct route because the code gates them.)
+//     PagesMode reorder/labels, HomeController::saveNow, Form Builder's field
+//     properties panel — Apply entry and keystroke entry,
+//     emergence E-1) call mutationBlocked() at their top.
 
 // The mutation tool set, in one place. Viewing/selection (Hand, Select,
 // SelectObject/EditObject arming, Search), navigation, and copy/export-shaped

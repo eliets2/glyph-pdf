@@ -73,6 +73,11 @@ bool SignatureFieldCreator::createSignatureFields(const QString &srcPath,
         if (err) *err = QStringLiteral("source or destination path is empty");
         return false;
     }
+    // emergence E-6: record what the destination holds when the operation
+    // starts — the shared commit boundary refuses when those bytes are no
+    // longer on disk at commit time.
+    const SafeSave::DestinationIdentity destIdentity =
+        SafeSave::captureDestinationIdentity(destPath);
     if (specs.isEmpty()) {
         if (err) *err = QStringLiteral("no signature fields requested");
         return false;
@@ -276,7 +281,9 @@ bool SignatureFieldCreator::createSignatureFields(const QString &srcPath,
         return false;
     }
 
-    const bool ok = SafeSave::commitFileToDestination(candidate, destPath, err);
+    const bool ok = SafeSave::commitFileToDestination(candidate, destPath, err,
+                                                      SafeSave::CommitFaultForTesting::None,
+                                                      destIdentity);
     if (!ok) dropCandidate();   // commit failed: the candidate is ours, drop it
     else QFile::remove(candidate);   // 5c8fd08 discipline: commit COPIES — never leak
     return ok;

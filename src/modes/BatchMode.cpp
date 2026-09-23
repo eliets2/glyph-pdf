@@ -3,6 +3,7 @@
 #include "util/GpTheme.h"
 
 #include "core/Capability.h"
+#include "core/PolicyController.h"     // emergence E-2: name the download policy in the whyNot
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "core/interfaces/IConversionEngine.h"
 #include "core/interfaces/IOcrEngine.h"
@@ -56,6 +57,7 @@ using TargetFormat = IConversionEngine::TargetFormat;
 #include <QRegularExpression>
 #include <QSettings>
 #include <QSet>
+#include <QStandardPaths>
 #include <QTimer>
 #include <algorithm>
 #include <QUrl>
@@ -1008,6 +1010,52 @@ bool BatchMode::confirmOverwrite(const QString& path) {
 
 namespace {
 
+// ── emergence E-2 (SWEEP-W3-EMERGENCE §1b) ──────────────────────────────────
+// OcrEngine::initialize fails console-only when the language data is missing
+// and the EFFECTIVE ocr/allowNetworkDownload value refuses the download. The
+// batch worker must honor that failure — and the whyNot it reports must name
+// the policy instead of a bare engine error. The local-availability
+// discriminator mirrors the engine's own gate: the AppLocalData pack, the
+// seeded bundled pack, then the effective download decision.
+bool ocrLanguageDataAvailableLocally(const QString& lang)
+{
+    const QString filename = lang.trimmed().toLower() + QStringLiteral(".traineddata");
+    if (filename == QLatin1String(".traineddata")) return false;
+    const QString appData = QStandardPaths::writableLocation(
+        QStandardPaths::AppLocalDataLocation) + QStringLiteral("/tessdata/");
+    if (QFileInfo::exists(appData + filename)) return true;
+    const QString bundled = QApplication::applicationDirPath()
+        + QStringLiteral("/tessdata/") + filename;
+    return QFileInfo::exists(bundled);
+}
+
+// The honest per-file failure reason for a failed OcrEngine::initialize in
+// the batch worker: under a refused download it names the deciding half
+// (machine policy when the key is managed, the user setting otherwise) and
+// states plainly that NO output was written — never a silent success.
+QString ocrInitFailureDetail(const QString& lang)
+{
+    auto& policy = PolicyController::instance();
+    policy.ensureLoaded();
+    const QString key = QStringLiteral("ocr/allowNetworkDownload");
+    const bool downloadAllowed = policy.effectiveValue(
+        key, QSettings().value(key, false)).toBool();
+    if (!downloadAllowed && !ocrLanguageDataAvailableLocally(lang)) {
+        const QString decidedBy = policy.isManaged(key)
+            ? QStringLiteral("machine policy")
+            : QStringLiteral("the OCR download setting");
+        return QStringLiteral(
+            "OCR language data for '%1' is not available and the required "
+            "download was refused by %2 (ocr/allowNetworkDownload) — the file "
+            "was NOT OCRed and no output was written. Install the '%1' "
+            "language pack or allow the OCR download, then retry.")
+            .arg(lang, decidedBy);
+    }
+    return QStringLiteral(
+        "OCR engine initialization failed for language '%1' — the file was "
+        "not OCRed and no output was written.").arg(lang);
+}
+
 // Schema level strings → the engine's conformance codes — the SAME codes the
 // Export PDF/A combo feeds exportPdfA (1=1B, 2=2B, 4=2U, 3=3B, 5=3U;
 // PoDoFoBackend::exportPdfA's switch).
@@ -1539,7 +1587,21 @@ void BatchMode::onRunClicked() {
                         return result;
                     }
 
-                    capturedCtx->ocr->initialize(capturedOcrLang);
+                    // emergence E-2 (SWEEP-W3-EMERGENCE §1b): honor
+                    // initialize()'s result. The discarded return let the
+                    // pipeline run on an uninitialized engine — processImage
+                    // then re-initialized with the DEFAULT "eng" (wrong-
+                    // language text layer) or produced zero-word output —
+                    // and the file was accounted SUCCESSFUL either way while
+                    // the policy whyNot stayed console-only. The file now
+                    // fails honestly, naming the deciding half of the
+                    // ocr/allowNetworkDownload value; nothing is exported.
+                    if (!capturedCtx->ocr->initialize(capturedOcrLang)) {
+                        locker.unlock();
+                        result.success = false;
+                        result.errorMessage = ocrInitFailureDetail(capturedOcrLang);
+                        return result;
+                    }
                     OcrPipeline pipeline(capturedCtx->ocr);
                     pipeline.setStrategy(OcrStrategy::PrimaryOnly);
                     // §9.4 P0 / U08: the SAME preprocessing options the

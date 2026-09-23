@@ -158,6 +158,13 @@ bool runFormSaveTransaction(const QString& srcPath,
                             const ChangeValidator& validate,
                             QString* err)
 {
+    // emergence E-6: record what the destination holds BEFORE the transaction
+    // reads it — the shared commit boundary refuses when those bytes are no
+    // longer on disk at commit time (a second instance's save must never be
+    // silently replaced by a serialization of this operation's snapshot).
+    const gp::SafeSave::DestinationIdentity destIdentity =
+        gp::SafeSave::captureDestinationIdentity(destPath);
+
     if (g_saveFaultForTesting == FormManager::SaveFault::CandidateSave) {
         if (err) *err = QStringLiteral("injected candidate-save failure (test seam)");
         return false;
@@ -213,7 +220,8 @@ bool runFormSaveTransaction(const QString& srcPath,
             candidate, destPath, err,
             g_saveFaultForTesting == FormManager::SaveFault::Commit
                 ? gp::SafeSave::CommitFaultForTesting::FailBeforeCommit
-                : gp::SafeSave::CommitFaultForTesting::None);
+                : gp::SafeSave::CommitFaultForTesting::None,
+            destIdentity);
     } catch (const PoDoFo::PdfError& e) {
         if (err) *err = pdfErrorText(e);
         return false;

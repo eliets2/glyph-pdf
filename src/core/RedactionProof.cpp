@@ -866,18 +866,44 @@ void collectAnnotStrings(PoDoFo::PdfAnnotation& annot, QList<AnnotString>* out)
 // mark arrives ALREADY transformed into user space (PageSpace::viewerToUser —
 // the shared transform that honors the MediaBox lower-left origin and /Rotate;
 // SEP13 L5: the old Height-only flip certified regions on offset/rotated pages
-// that still contained the secret). Deliberately GENEROUS on the vertical
-// axis: attribution only decides WHAT to sweep for, and over-attribution is
-// the safe direction — sweeping for a string that must already be gone can
-// only tighten the proof, never loosen it.
+// that still contained the secret).
+//
+// W2c residual (SWEEP-W2C 2026-09-20, probe-w2c-loose.txt): the vertical test
+// used to add a blanket 3*font-size ascender headroom ("over-attribution can
+// only tighten the proof"). That argument holds only for MISSED redactions:
+// a neighbor line whose baseline sits within the multiplier's reach was
+// attributed to the mark, swept for in the output, found alive, and FAILED a
+// geometrically correct redaction — the excision itself (PoDoFoBackend
+// isIntersectingSpan) fires on the run's BASELINE segment only, so the
+// over-attributed string was provably never removed.
+//
+// The honest vertical margin is the run's REAL glyph extent — the font's
+// ascender..descender band, carried from the PDFium char boxes (the N08
+// metric-derived pattern; no guessed multiplier). Band-OVERLAP semantics keep
+// the safe direction: the band always contains the baseline, so every run the
+// excision can remove (baseline inside the mark band) is also attributed —
+// a mark that clips any part of a run's ink (an edge-straddling secret, an
+// under-excising sloppy mark) still attributes and still fails loudly, while
+// a mark resting between lines no longer grabs a neighbor's text.
 bool runIntersects(const PdfiumBackend::TextRun& run, const QRectF& userMark)
 {
     const double x0 = run.rect.x();
     const double x1 = run.rect.x() + run.rect.width();
     const double baselineY = run.rect.y();            // PDF space (Y up)
     const double fs = run.fontSize > 0 ? run.fontSize : 12.0;
-    const double runTop = baselineY + 3.0 * fs;       // ascender headroom
-    const double runBottom = baselineY - 1.5 * fs;    // descender
+    double runTop;
+    double runBottom;
+    if (run.hasInkBox) {
+        runTop = run.inkTop;                          // font ascender extent
+        runBottom = run.inkBottom;                    // font descender extent
+    } else {
+        // No char box survived extraction (degenerate run): fall back to the
+        // PDF spec's default font-bbox scale (±1em is the declared outer
+        // bound of a font's glyph space) — still baseline-covering, never
+        // the old blanket 3*fs reach.
+        runTop = baselineY + fs;
+        runBottom = baselineY - fs;
+    }
     const double markLo = userMark.y();               // lower edge (y-up)
     const double markHi = userMark.y() + userMark.height();
     const bool horiz = (x1 >= userMark.x()) && (x0 <= userMark.x() + userMark.width());

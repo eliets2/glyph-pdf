@@ -29,6 +29,10 @@
 
 #include <podofo/podofo.h>
 #include <podofo/auxiliary/StreamDevice.h>
+// emergence E-3: the pinned user→viewer inverse of the page-space law
+// (after the Windows header block — this header pulls podofo/Qt in, and the
+// wincrypt macro-undef dance above must run first).
+#include "core/ItemSpaceTransform.h"
 #include <openssl/pkcs12.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
@@ -1285,6 +1289,12 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
                                         const QString &location,
                                         const QImage &appearanceImage)
 {
+    // emergence E-6: record what the destination holds when the operation
+    // STARTS — the shared commit boundary refuses at the end if a second
+    // writer replaced those bytes in the meantime (a stale candidate must
+    // never erase another instance's freshly added signature).
+    const gp::SafeSave::DestinationIdentity destIdentity =
+        gp::SafeSave::captureDestinationIdentity(outputPath);
     // E-02: assume failure until we know the core signature bytes were written.
     d->lastOutcome = SignOutcome::Failed;
     // §9.7 P1: a fresh attempt starts with a clean degradation slate.
@@ -1820,7 +1830,9 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
             // failure the destination is byte-identical and the outcome is
             // Failed. No direct-write fallback.
             QString commitErr;
-            if (!gp::SafeSave::commitFileToDestination(signingCandidate, outputPath, &commitErr)) {
+            if (!gp::SafeSave::commitFileToDestination(signingCandidate, outputPath, &commitErr,
+                                                       gp::SafeSave::CommitFaultForTesting::None,
+                                                       destIdentity)) {
                 qWarning() << "SignatureManager: checked replacement of" << outputPath
                            << "failed — previous output preserved:" << commitErr;
                 d->lastOutcome = SignOutcome::Failed;
@@ -1927,6 +1939,10 @@ bool SignatureManager::addDocTimeStamp(const QString &inputPath, const QString &
             qWarning() << "SignatureManager: cannot reserve a timestamp candidate:" << err;
             return false;
         }
+        // emergence E-6: what the destination holds when the operation starts;
+        // the commit below refuses if a second writer replaced those bytes.
+        const gp::SafeSave::DestinationIdentity destIdentity =
+            gp::SafeSave::captureDestinationIdentity(outputPath);
         // makeUniqueCandidate reserved (created) the name; QFile::copy
         // refuses an existing destination, so drop our own empty reservation
         // first — it is owned by this call.
@@ -1940,7 +1956,9 @@ bool SignatureManager::addDocTimeStamp(const QString &inputPath, const QString &
             QFile::remove(candidate);
             return false;
         }
-        if (!gp::SafeSave::commitFileToDestination(candidate, outputPath, &err)) {
+        if (!gp::SafeSave::commitFileToDestination(candidate, outputPath, &err,
+                                                   gp::SafeSave::CommitFaultForTesting::None,
+                                                   destIdentity)) {
             qWarning() << "SignatureManager: checked replacement of" << outputPath
                        << "failed — previous output preserved:" << err;
             QFile::remove(candidate);
@@ -2115,13 +2133,25 @@ QList<ISignatureManager::SignatureFieldAnchor> SignatureManager::signatureFieldA
             if (!widget) continue;
             const PoDoFo::PdfPage *page = widget->GetPage(); // const overload returns the page pointer directly
             if (!page) continue;
-            const Rect r = widget->GetRect();
-            const double pageHeight = page->GetMediaBox().Height;
+            // emergence E-3 (SWEEP-W3-EMERGENCE §2d, the W2B-1 re-audit close):
+            // the read-back must run through the ONE page-space law, not the
+            // legacy flip with the rotation-NORMALIZED GetMediaBox().Height
+            // (W/H swapped on /Rotate 90/270 — the wrong flip dimension on
+            // every rotated, non-square page, and the MediaBox lower-left
+            // origin dropped). GetRectRaw is the raw /Rect (no hidden
+            // rotation adjustment); ItemSpace::userToViewer is the pinned
+            // inverse of PageSpace::viewerToUser (round-trip identity in
+            // TestLegacyOriginSpace) — the same transform
+            // PoDoFoBackend::extractAnnotations reads foreign marks with.
+            const gp::PageSpace::PageGeometry geo =
+                gp::PageSpace::pageGeometry(const_cast<PoDoFo::PdfPage&>(*page));
+            const PoDoFo::Rect r = widget->GetRectRaw().GetNormalized();
             SignatureFieldAnchor a;
             a.fieldName = QString::fromStdString(field->GetFullName());
             a.pageIndex = static_cast<int>(page->GetIndex());
-            // Viewer top-left convention (same flip as applyRedactions).
-            a.rect = QRectF(r.X, pageHeight - r.Y - r.Height, r.Width, r.Height);
+            // Viewer top-left convention — the exact inverse of viewerToUser.
+            a.rect = gp::ItemSpace::userToViewer(
+                QRectF(r.X, r.Y, r.Width, r.Height), geo);
             out.append(a);
         }
     } catch (const PoDoFo::PdfError &e) {

@@ -4,6 +4,8 @@
 #include "core/AppContext.h"
 #include "core/FormStaleFieldTracker.h"
 #include "core/interfaces/IFormManager.h"
+#include "engines/DocumentSession.h"
+#include "shell/EditPolicy.h"
 
 #include <QCheckBox>
 #include <QFormLayout>
@@ -149,10 +151,26 @@ FormFieldPropertiesPanel::FormFieldPropertiesPanel(const AppContext* ctx, QWidge
 
     m_applyBtn = new QToolButton;
     m_applyBtn->setText(tr("Apply"));
+    m_applyBtn->setObjectName(QStringLiteral("applyFieldPropsButton"));
     m_applyBtn->setProperty("variant", "primary");
     m_applyBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     connect(m_applyBtn, &QToolButton::clicked, this, &FormFieldPropertiesPanel::onApplyClicked);
     col->addWidget(m_applyBtn);
+
+    // emergence E-1 (SWEEP-W3-EMERGENCE §6): the Apply path persists through
+    // EditFormFieldCommand → applyFieldSnapshot → runFormSaveTransaction — a
+    // direct mutation entry that must follow the ONE read-only policy (ARC07).
+    // An expired document's form properties are not writable: the button is
+    // disabled for the session's read-only lifetime (and re-enabled if the
+    // session ever becomes writable again). The slot keeps its own gate as
+    // defense in depth — a disabled button alone is affordance, not policy.
+    if (m_ctx && m_ctx->document) {
+        connect(m_ctx->document.get(), &DocumentSession::readOnlyChanged,
+                this, [this](bool readOnly) {
+                    if (m_applyBtn) m_applyBtn->setEnabled(!readOnly);
+                });
+        m_applyBtn->setEnabled(!m_ctx->document->isReadOnly());
+    }
 }
 
 void FormFieldPropertiesPanel::setFieldName(const QString& name)
@@ -204,6 +222,18 @@ void FormFieldPropertiesPanel::onDefaultTextChanged(const QString& text)
     if (m_syncingValueText) { m_keystrokeBase = text; return; } // belt and braces
     m_keystrokeStatus->setVisible(false);
     if (text == m_keystrokeBase) return;
+
+    // emergence E-1 (SWEEP-W3-EMERGENCE §6): on a read-only (expired)
+    // document the panel runs no /AA /K script at all — the keystroke event
+    // is an engine execution the session's ONE read-only policy refuses.
+    // Typing stands as plain text and the refusal is disclosed.
+    if (EditPolicy::mutationBlocked(m_ctx && m_ctx->document ? m_ctx->document.get() : nullptr)) {
+        m_keystrokeBase = text;
+        m_keystrokeStatus->setStyleSheet("QLabel { color: #b00; font-size: 10px; }");
+        m_keystrokeStatus->setText(EditPolicy::readOnlyMessage());
+        m_keystrokeStatus->setVisible(true);
+        return;
+    }
 
     const QString before = m_keystrokeBase;
     const QString path = (m_ctx && m_ctx->document) ? m_ctx->document->path() : QString();
@@ -320,6 +350,20 @@ void FormFieldPropertiesPanel::refreshScriptState()
 
 void FormFieldPropertiesPanel::onApplyClicked()
 {
+    // emergence E-1 (SWEEP-W3-EMERGENCE §6): the Apply entry is a DIRECT
+    // mutation entry (EditFormFieldCommand → applyFieldSnapshot →
+    // runFormSaveTransaction → atomic commit) that bypassed the ONE
+    // read-only policy — on an expired document it persisted edits and ran
+    // the calculate cascade. ARC07 gate first, honest refusal, zero mutation.
+    if (EditPolicy::mutationBlocked(m_ctx ? m_ctx->document.get() : nullptr)) {
+        if (m_keystrokeStatus) {
+            m_keystrokeStatus->setStyleSheet("QLabel { color: #b00; font-size: 10px; }");
+            m_keystrokeStatus->setText(EditPolicy::readOnlyMessage());
+            m_keystrokeStatus->setVisible(true);
+        }
+        return;
+    }
+
     // Validate before pushing command
     validateName();
     validateRegex();

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "engines/SafeSave.h"
 
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -21,7 +22,30 @@ CommitFaultForTesting g_commitFaultForTesting = CommitFaultForTesting::None;
 // startup; reading the pair is otherwise immutable, so no locking is needed.
 FileHandleGuard g_releaseFileHandles;
 FileHandleGuard g_restoreFileHandles;
+
+// Full content hash of the destination's current bytes; empty when the file
+// cannot be read (absent or unreadable — both are "no expectation").
+QByteArray destinationSha256(const QString& destPath)
+{
+    QFile f(destPath);
+    if (!f.open(QIODevice::ReadOnly)) return {};
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    hash.addData(&f);
+    return hash.result();
+}
 } // namespace
+
+// ── emergence E-6: what the destination holds when the operation STARTS. ─────
+DestinationIdentity captureDestinationIdentity(const QString& destPath)
+{
+    DestinationIdentity id;
+    if (destPath.isEmpty() || !QFileInfo::exists(destPath)) return id;
+    const QByteArray sha = destinationSha256(destPath);
+    if (sha.isEmpty()) return id;
+    id.valid = true;
+    id.sha256 = sha;
+    return id;
+}
 
 void setFileHandleCoordinator(FileHandleGuard releaseFileHandles,
                               FileHandleGuard restoreFileHandles)
@@ -205,14 +229,14 @@ CommitFaultForTesting commitFaultForTesting()
 // Note PoDoFo is never handed QSaveFile::fileName(). (Verbatim semantics from
 // FormManager.cpp:96-141.)
 bool commitFileToDestination(const QString& candidate, const QString& destPath, QString* err,
-                             CommitFaultForTesting fault)
+                             CommitFaultForTesting fault, const DestinationIdentity& expected)
 {
     QFile src(candidate);
     if (!src.open(QIODevice::ReadOnly)) {
         if (err) *err = QStringLiteral("validated candidate became unreadable: %1").arg(src.errorString());
         return false;
     }
-    const qint64 expected = src.size();
+    const qint64 expectedSize = src.size();
 
     // GUI-held-handle coordination: the release runs before the destination is
     // opened for the atomic replacement; the restore runs on EVERY outcome, so
@@ -227,8 +251,8 @@ bool commitFileToDestination(const QString& candidate, const QString& destPath, 
 
     qint64 copied = 0;
     char buf[65536];
-    while (copied < expected) {
-        const qint64 want = qMin<qint64>(static_cast<qint64>(sizeof(buf)), expected - copied);
+    while (copied < expectedSize) {
+        const qint64 want = qMin<qint64>(static_cast<qint64>(sizeof(buf)), expectedSize - copied);
         const qint64 got = src.read(buf, want);
         if (got <= 0) {
             out.cancelWriting();
@@ -241,6 +265,33 @@ bool commitFileToDestination(const QString& candidate, const QString& destPath, 
             return false;
         }
         copied += got;
+    }
+
+    // ── emergence E-6: the destination-identity precondition, checked at the
+    // LAST possible moment before the atomic rename (the copy window above can
+    // span seconds for large documents — exactly the window a second writer's
+    // commit lands in). A divergence here means the bytes this operation
+    // started from no longer exist on disk; committing would silently replace
+    // them with a serialization of stale state. Nothing is overwritten: the
+    // refusal leaves the OTHER writer's bytes in place and says so.
+    if (expected.valid) {
+        const QByteArray current = destinationSha256(destPath);
+        if (current.isEmpty()) {
+            out.cancelWriting();
+            if (err) *err = QStringLiteral("the document changed on disk while this operation "
+                                           "was running (it is no longer readable where it "
+                                           "was) — nothing was overwritten; reload before "
+                                           "saving.");
+            return false;
+        }
+        if (current != expected.sha256) {
+            out.cancelWriting();
+            if (err) *err = QStringLiteral("the document changed on disk while this operation "
+                                           "was running (another window or process saved it) — "
+                                           "nothing was overwritten; review the current file, "
+                                           "then reload or use Save As.");
+            return false;
+        }
     }
 
     if (fault == CommitFaultForTesting::FailBeforeCommit

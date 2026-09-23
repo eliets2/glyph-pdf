@@ -44,6 +44,7 @@
 #include "engines/SignatureManager.h"
 #include "ui/SigningProgressPanel.h"
 #include "ui/SigningRequestDialog.h"
+#include <podofo/podofo.h> // emergence E-4: the pre-fix CreateField simulation
 
 #ifdef SOURCE_DIR
 static const QString kFixtureDir = QStringLiteral(SOURCE_DIR "/tests/fixtures/signing");
@@ -620,6 +621,93 @@ private slots:
         QVERIFY(r.fieldMatch);
         QVERIFY(r.fieldCreated);   // the step placed its own anchored field
         QVERIFY(SigningRequestRunner::applyStepToModel(req.model, 0, r));
+    }
+
+    // -------------------------------------------------------------------
+    // emergence E-4 (SWEEP-W3-EMERGENCE §2c): the cross-version replay trap.
+    // A field PHYSICALLY created by a PRE-fix build carries the corrupted
+    // /Rect (CreateField double-transformed view-space rects on rotated
+    // pages) while the sidecar entry still expects the anchored display
+    // rect. The prepared hash covers the corrupted bytes (the corruption
+    // happened during the earlier, failed fill attempt — the runner
+    // publishes the post-create hash), so the mutation gate is clean: only
+    // the rect-vs-anchor check can see it. The step must refuse with ZERO
+    // mutation, never silently sign a misplaced visible signature.
+    // -------------------------------------------------------------------
+    void crossVersionCorruptedRectReplayIsRefused()
+    {
+        REQUIRE_FIXTURES();
+
+        // The prepared document carries a /Rotate 270 page — the only pages
+        // the pre-fix defect corrupts.
+        const QString src = m_tmpDir->filePath(QStringLiteral("e4_rot270.pdf"));
+        QVERIFY(QFile::copy(kInputPdf, src));
+        try {
+            PoDoFo::PdfMemDocument doc;
+            doc.Load(src.toUtf8().constData());
+            doc.GetPages().GetPageAt(0).SetRotation(270);
+            doc.Save(src.toUtf8().constData());
+        } catch (const std::exception &e) {
+            QFAIL(qPrintable(QStringLiteral("fixture rotate failed: %1").arg(e.what())));
+        }
+
+        const QRectF anchor(72.0, 72.0, 150.0, 60.0); // VIEW rect (792x612 display)
+
+        // The PRE-fix fill attempt's creation half: the OLD code passed the
+        // view rect straight into PoDoFo's CreateField, which applied its own
+        // rotation adjustment AGAIN. Simulated exactly that way here —
+        // whatever PoDoFo stores, it is by construction not the raw rect the
+        // current law would store for this view rect.
+        try {
+            PoDoFo::PdfMemDocument doc;
+            doc.Load(src.toUtf8().constData());
+            doc.GetPages().GetPageAt(0).CreateField<PoDoFo::PdfSignature>(
+                "sig_A", PoDoFo::Rect(anchor.x(), anchor.y(),
+                                      anchor.width(), anchor.height()));
+            doc.Save(src.toUtf8().constData());
+        } catch (const std::exception &e) {
+            QFAIL(qPrintable(QStringLiteral("pre-fix field simulation failed: %1")
+                                 .arg(QString::fromUtf8(e.what()))));
+        }
+
+        PreparedRequest req;
+        req.docPath = src;
+        req.ok = true;
+        req.model.createdUtc = req.model.preparedUtc =
+            QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+        req.model.preparedSha256 = sha256OfFile(src); // covers the corrupted bytes
+        req.model.sourcePdfName = QFileInfo(src).fileName();
+        SigningRequestModel::Signer s =
+            makeSigner(QStringLiteral("Signer 1"), QStringLiteral("sig_A"));
+        s.anchorPage = 0;
+        s.anchorRect = anchor;
+        s.createdField = true;
+        req.model.signers.append(s);
+
+        // Sanity: the stored /Rect really diverges from the anchor under the
+        // current law — this fixture IS the corrupted shape (pre-fix builds
+        // passed this exact call on rotated pages).
+        SignatureManager mgr;
+        const auto anchorsNow = mgr.signatureFieldAnchors(src);
+        QCOMPARE(anchorsNow.size(), 1);
+        const QRectF &stored = anchorsNow.first().rect;
+        QVERIFY2(stored != anchor,
+                 qPrintable(QStringLiteral("fixture must carry the corrupted shape; got %1x%2 at %3,%4")
+                                .arg(stored.width()).arg(stored.height())
+                                .arg(stored.x()).arg(stored.y())));
+
+        // The post-fix retry: hash-clean, field exists unsigned — the OLD
+        // gate (existence + signedness only) signed straight into the
+        // corrupted rect. The anchor check must refuse before any mutation.
+        const QString shaBefore = sha256OfFile(src);
+        const auto refused = SigningRequestRunner::runFillStep(mgr, fillInput(req, 0, req.model));
+        QVERIFY2(!refused.attempted,
+                 "the replayed fill must refuse before any engine call");
+        QVERIFY2(refused.error.contains(QStringLiteral("position or size")),
+                 qPrintable(refused.error));
+        QCOMPARE(SigningRequestRunner::precheck(mgr, fillInput(req, 0, req.model)).code,
+                 SigningRequestRunner::StepRefusal::AnchorMismatch);
+        QCOMPARE(sha256OfFile(src), shaBefore);   // zero mutation, honest state
     }
 
     // -------------------------------------------------------------------

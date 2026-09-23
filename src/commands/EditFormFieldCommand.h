@@ -6,6 +6,7 @@
 #include "core/FormStaleFieldTracker.h"
 #include "engines/DocumentSession.h"
 #include "commands/CheckedHistory.h"
+#include "shell/EditPolicy.h"
 
 /// Properties bundle passed to EditFormFieldCommand.
 ///
@@ -205,6 +206,15 @@ private:
         m_lastCascadeFailures.clear();
         if (!m_engine || !m_doc || m_doc->path().isEmpty()) {
             if (err) *err = QObject::tr("no engine/document for edit form field");
+            return false;
+        }
+        // emergence E-1 (SWEEP-W3-EMERGENCE §6, defense in depth): the ONE
+        // read-only policy is consulted at the persistence boundary too — no
+        // caller state can push a form-field edit onto an expired document
+        // behind the panel's gate. applyFieldSnapshot ends in an atomic
+        // commit to the document path, exactly the write ARC07 refuses here.
+        if (m_doc->isReadOnly()) {
+            if (err) *err = gp::EditPolicy::readOnlyMessage();
             return false;
         }
         if (!m_old.found) {

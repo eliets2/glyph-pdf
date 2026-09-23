@@ -5541,3 +5541,59 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRotate270PageSpace.cpp")
     add_test(NAME TestRotate270PageSpace COMMAND TestRotate270PageSpace)
     set_tests_properties(TestRotate270PageSpace PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120 LABELS "unit;annotations;forms;persistence;qt;headless")
 endif()
+
+# ── SWEEP-W2-GSD (gsd-verifier W2 pass, 2026-09-21): the verifier's OWN
+# independent probes for the 10 implemented-awaiting-review rows (EM-1..EM-6,
+# the sanitize UAF fix, the ri-fix, F2b-D1, the timestampAttempted three-state).
+# One slot per row, each with its own fixture values / harness shape / entry
+# path — docs/audit/SWEEP-W2-GSD-2026-09-21.md §Method.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestGsdW2Probe.cpp")
+    add_executable(TestGsdW2Probe tests/TestGsdW2Probe.cpp)
+    target_include_directories(TestGsdW2Probe PRIVATE src tests)
+    target_link_libraries(TestGsdW2Probe PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+    )
+    if(WIN32)
+        add_custom_command(TARGET TestGsdW2Probe POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestGsdW2Probe>/libpodofo.dll"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestGsdW2Probe"
+        )
+    endif()
+    add_test(NAME TestGsdW2Probe COMMAND TestGsdW2Probe)
+    set_tests_properties(TestGsdW2Probe PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 300 LABELS "unit;gsd;probe;qt;headless")
+endif()
+
+# ── SWEEP-W2C (guarantee-verification-engine, 2026-09-20): independent probe
+# for the W2B-1 re-submission — move/resize through the production edit path,
+# form-field in-place move, F5 containment honesty on the offset 270 shape,
+# SEP13 L5/L8 on an offset-270 fixture (incl. the wrong-region honesty leg),
+# and the signature-field verbatim /Rect store. Registered at the tail like
+# the W2B probes; run manually, not a ctest member.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/W2CProbeRotate270.cpp")
+    add_executable(W2CProbeRotate270 tests/W2CProbeRotate270.cpp)
+    target_include_directories(W2CProbeRotate270 PRIVATE src tests)
+    target_link_libraries(W2CProbeRotate270 PRIVATE
+        pdfws_engines pdfws_core podofo::podofo Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    if(WIN32)
+        add_custom_command(TARGET W2CProbeRotate270 POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:W2CProbeRotate270>/libpodofo.dll"
+            COMMENT "Deploying podofo 1.1.0 DLL for W2CProbeRotate270"
+        )
+        if(QT6_PLUGINS_DIR AND GLYPH_QPA_PLUGIN)
+            add_custom_command(TARGET W2CProbeRotate270 POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory
+                    "$<TARGET_FILE_DIR:W2CProbeRotate270>/platforms"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+                    "$<TARGET_FILE_DIR:W2CProbeRotate270>/platforms/${GLYPH_QPA_PLUGIN}"
+                COMMENT "Deploying qoffscreen platform plugin for W2CProbeRotate270"
+            )
+        endif()
+    endif()
+endif()

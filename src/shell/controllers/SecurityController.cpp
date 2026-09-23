@@ -132,6 +132,27 @@ QString SecurityController::signingPreflightRefusal(PAdESLevel level, const QStr
     const bool needsTsa = forTimestamp || level > PAdESLevel::B_B;
     if (!needsTsa || !tsaUrl.isEmpty())
         return {};
+    // emergence E-5 (SWEEP-W3-EMERGENCE §5): when machine policy manages
+    // signing/tsaUrl (and empties it), the "Set it under Preferences" advice
+    // is a dead end — the Preferences widget is disabled for exactly that
+    // key. The refusal names the policy (the R24 disclosure pattern: managed
+    // + where the effective value is visible) instead of the control.
+    const bool policyManaged =
+        gp::PolicyController::instance().isManaged(QStringLiteral("signing/tsaUrl"));
+    if (policyManaged && forTimestamp)
+        return QObject::tr("Adding a document timestamp requires a timestamp authority (TSA) "
+                           "URL, which is not configured. This setting is managed by machine "
+                           "policy (signing/tsaUrl — see Preferences → Security → Signing "
+                           "for the effective value). No timestamp was attempted and no "
+                           "document was modified.");
+    if (policyManaged)
+        return QObject::tr("Signing at PAdES %1 requires a timestamp authority (TSA) URL, "
+                           "which is not configured. Without it the signature would silently "
+                           "downgrade to B-B. This setting is managed by machine policy "
+                           "(signing/tsaUrl — see Preferences → Security → Signing for the "
+                           "effective value), or choose level B-B. No signature was "
+                           "attempted.")
+            .arg(attainedLevelLabel(level, {}));
     if (forTimestamp)
         return QObject::tr("Adding a document timestamp requires a timestamp authority (TSA) "
                            "URL, which is not configured. Set it under Preferences → Security "

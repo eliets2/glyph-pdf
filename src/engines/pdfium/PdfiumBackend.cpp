@@ -296,8 +296,11 @@ QString PdfiumBackend::extractText(int pageIndex) {
 // Geometry is normalized exactly once, here: each char contributes its box
 // (FPDFText_GetCharBox) and its baseline origin (FPDFText_GetCharOrigin); a
 // run is anchored at its first char's baseline origin, with width = real
-// glyph extent. Consumers (conversion rows, HTML/PPTX overlays) receive one
-// consistent user-space rect per run instead of re-deriving positions.
+// glyph extent, and carries the union of its chars' box tops/bottoms as the
+// vertical ink extent (W2c: the ascender..descender band the redaction proof
+// intersects against the mark). Consumers (conversion rows, HTML/PPTX
+// overlays) receive one consistent user-space rect per run instead of
+// re-deriving positions.
 //
 // Order: chars are consumed strictly in PDFium char-index order — the same
 // order FPDFText_GetText presents. Runs are only ever SPLIT (line change or
@@ -428,9 +431,19 @@ QList<PdfiumBackend::TextRun> PdfiumBackend::extractPageTextRuns(int pageIndex) 
             run.fontSize = qMax(0.0, size);
             runRight = hasBox ? right : run.rect.x();
             run.fontName = fontName;
+            // W2c: carry the run's real vertical ink extent (the PDFium char
+            // boxes span the font's ascender..descender) so downstream
+            // geometry consumers can intersect the glyph band instead of
+            // guessing a size multiplier.
+            run.hasInkBox = hasBox;
+            if (hasBox) { run.inkTop = top; run.inkBottom = bottom; }
         } else {
             run.fontSize = qMax(run.fontSize, qMax(0.0, size));
             if (hasBox && right > runRight) runRight = right;
+            if (hasBox) {
+                if (!run.hasInkBox) { run.hasInkBox = true; run.inkTop = top; run.inkBottom = bottom; }
+                else { run.inkTop = qMax(run.inkTop, top); run.inkBottom = qMin(run.inkBottom, bottom); }
+            }
         }
 
         if (u > 0xFFFF && u <= 0x10FFFF) {

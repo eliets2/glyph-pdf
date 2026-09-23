@@ -41,6 +41,7 @@
 #include "core/UpdateChecker.h"
 #include "engines/OcrEngine.h"
 #include "engines/ai/OllamaProvider.h"
+#include "shell/controllers/SecurityController.h" // emergence E-5: TSA refusal wording
 #include "GpMainWindow.h"
 
 using gp::MainWindow;
@@ -316,6 +317,51 @@ private slots:
             if (tp.id == QLatin1String("ocr-traineddata"))
                 QCOMPARE(tp.enabled, false);
         }
+    }
+
+    // ── emergence E-5 (SWEEP-W3-EMERGENCE §5): the TSA refusal names the ────
+    // policy. Under a policy-managed EMPTY signing/tsaUrl the old wording
+    // sent the user to "Preferences → Security → Signing" — a control the
+    // policy DISABLES for exactly that key (the R24 disclosure lives there,
+    // not the setter). The refusal must name machine policy; the unmanaged
+    // refusal keeps the Preferences advice.
+    void tsaRefusalNamesPolicyUnderManagedEmptyTsaUrl()
+    {
+        // User has a URL configured; the machine policy EMPTIES it (the exact
+        // composition the audit flagged: refusal fires while the Preferences
+        // control is dead).
+        setUserPref(QStringLiteral("signing/tsaUrl"), QStringLiteral("http://tsa.example.org"));
+        QVERIFY(loadPolicy(QJsonObject{
+            {QStringLiteral("signing/tsaUrl"), QString("")}}));
+
+        const QString refusal = gp::SecurityController::signingPreflightRefusal(
+            PAdESLevel::B_T, QString(), /*forTimestamp*/ false);
+        QVERIFY2(!refusal.isEmpty(), "a B-T request without a TSA URL must refuse");
+        QVERIFY2(refusal.contains(QLatin1String("managed by machine policy")),
+                 qPrintable(QStringLiteral("the refusal must name the machine policy, got: %1")
+                                .arg(refusal)));
+        QVERIFY2(refusal.contains(QLatin1String("signing/tsaUrl")),
+                 qPrintable(refusal));
+        QVERIFY2(!refusal.contains(QLatin1String("Set the TSA URL under Preferences")),
+                 qPrintable(QStringLiteral("the managed refusal must not direct to a dead "
+                                          "setter, got: %1").arg(refusal)));
+
+        // Same for the timestamp-only entry point.
+        const QString ts = gp::SecurityController::signingPreflightRefusal(
+            PAdESLevel::B_B, QString(), /*forTimestamp*/ true);
+        QVERIFY2(!ts.isEmpty(), "a timestamp request without a TSA URL must refuse");
+        QVERIFY2(ts.contains(QLatin1String("managed by machine policy")),
+                 qPrintable(ts));
+
+        // Unmanaged (no policy): the advice stays actionable Preferences.
+        PolicyController::instance().resetForTesting();
+        const QString plain = gp::SecurityController::signingPreflightRefusal(
+            PAdESLevel::B_T, QString(), false);
+        QVERIFY2(!plain.isEmpty(), "the unmanaged refusal must still fire");
+        QVERIFY2(plain.contains(QLatin1String("Set the TSA URL under Preferences")),
+                 qPrintable(plain));
+        QVERIFY2(!plain.contains(QLatin1String("machine policy")),
+                 qPrintable(plain));
     }
 };
 

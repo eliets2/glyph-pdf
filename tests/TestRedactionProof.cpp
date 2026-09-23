@@ -671,6 +671,113 @@ private slots:
         QVERIFY(backend.extractText(1).contains(QStringLiteral("KeepPageTwo")));
     }
 
+    // ── W2c residual: attribution must follow the glyph band, not a guess ───
+    //
+    // SWEEP-W2C 2026-09-20 (probe-w2c-loose.txt): runIntersects added a
+    // blanket 3*font-size ascender headroom above every run's baseline. On
+    // this very fixture the neighbor line (y=650, Helvetica 12) then reached
+    // y=686 — into a mark whose user-space lower edge sits at 682 — so the
+    // proof attributed LIVE public text the excision provably never touched
+    // (the excision's pen-span test fires on the BASELINE only) and FAILED a
+    // geometrically correct redaction. The vertical attribution margin is now
+    // the run's real glyph extent (font ascender/descender, from the PDFium
+    // char boxes — the N08 metric-derived pattern), so a mark between lines
+    // attributes exactly the line(s) it covers.
+    void proofPassesWhenNeighborLineSitsInOldHeadroomZone()
+    {
+        // makeSourcePdf already carries the W2c geometry: secret at y=700,
+        // "KeepThisVisible public info" at y=650 (Helvetica 12). The mark's
+        // user band [682,727] covers the secret line and dips 4pt into the OLD
+        // headroom's reach (650 + 3*12 = 686 >= 682) while staying >23pt clear
+        // of the neighbor's real glyph band (top ~650 + 0.72*12 ~= 658.6).
+        const QString src = makeSourcePdf(m_tmpDir.filePath("loose_src.pdf"));
+        QVERIFY(!src.isEmpty());
+        const QString dest = m_tmpDir.filePath("loose_redacted.pdf");
+
+        // viewer y = 842-727 .. 842-682 = 115..160 (height 45).
+        QMap<int, QList<QRectF>> rects;
+        rects[0].append(QRectF(90.0, kA4Height - 727.0, 280.0, 45.0));
+        RedactRequest req;
+        req.sourcePath = src;
+        req.destinationPath = dest;
+        req.redactionsByPage = rects;
+        req.produceProof = true;
+        RedactOperation op(req);
+        const RedactResult r = runOp(&op);
+        QCOMPARE(r.outcome, RedactOutcome::Completed);
+        QVERIFY(r.proofRan);
+        QVERIFY2(r.proofPassed, qPrintable(QStringLiteral(
+            "W2c: a correct redaction whose mark band sits between lines must "
+            "PASS — the neighbor line within the old 3*fs headroom must not be "
+            "over-attributed and swept as a survivor: %1")
+            .arg(joinedProofFailures(r))));
+
+        // Attribution honesty: the manifest names the secret, never the
+        // live neighbor line.
+        const QJsonObject root = jsonRoot(r.proofJsonPath);
+        const QJsonArray removed = root["excisions"].toArray()
+                                       .at(0).toObject()["removed_strings"].toArray();
+        bool sawSecret = false, sawNeighbor = false;
+        for (const auto& v : removed) {
+            const QString s = v.toString();
+            if (s.contains(QStringLiteral("TopSecretAlpha"))) sawSecret = true;
+            if (s.contains(QStringLiteral("KeepThisVisible"))) sawNeighbor = true;
+        }
+        QVERIFY2(sawSecret, "the marked line must stay attributed");
+        QVERIFY2(!sawNeighbor, "the y=650 neighbor line within the old 3*fs "
+                               "headroom must NOT be attributed");
+
+        // Independent extractor double-check on the committed bytes.
+        PdfiumBackend backend;
+        QVERIFY(backend.loadDocument(dest));
+        const QString page1 = backend.extractText(0);
+        QVERIFY(!page1.contains(QStringLiteral("TopSecretAlpha")));
+        QVERIFY(page1.contains(QStringLiteral("KeepThisVisible")));
+    }
+
+    // Negative guard for the tightened band: a secret STRADDLING the mark's
+    // edge must stay attributed. The mark's lower edge (user y=699) cuts
+    // through the y=700 secret line's own glyph extent (~[697.5, 708.6] for
+    // Helvetica 12) — a containment-style band (extent fully inside the mark)
+    // would drop the attribution while the excision (baseline-in-band) still
+    // removes the glyphs, opening a false-pass window. Band-OVERLAP semantics
+    // keep the edge case caught.
+    void metricBandStillCatchesSecretStraddlingTheMarkEdge()
+    {
+        const QString src = makeSourcePdf(m_tmpDir.filePath("straddle_src.pdf"));
+        QVERIFY(!src.isEmpty());
+        const QString dest = m_tmpDir.filePath("straddle_redacted.pdf");
+
+        // user band [699,718] -> viewer y = 842-718 .. 842-699 = 124..143.
+        QMap<int, QList<QRectF>> rects;
+        rects[0].append(QRectF(90.0, kA4Height - 718.0, 280.0, 19.0));
+        RedactRequest req;
+        req.sourcePath = src;
+        req.destinationPath = dest;
+        req.redactionsByPage = rects;
+        req.produceProof = true;
+        RedactOperation op(req);
+        const RedactResult r = runOp(&op);
+        QCOMPARE(r.outcome, RedactOutcome::Completed);
+        QVERIFY(r.proofRan);
+        QVERIFY2(r.proofPassed, qPrintable(QStringLiteral(
+            "edge-straddling secret must stay excised+attributed: %1")
+            .arg(joinedProofFailures(r))));
+
+        const QJsonObject root = jsonRoot(r.proofJsonPath);
+        const QJsonArray removed = root["excisions"].toArray()
+                                       .at(0).toObject()["removed_strings"].toArray();
+        bool sawSecret = false;
+        for (const auto& v : removed)
+            if (v.toString().contains(QStringLiteral("TopSecretAlpha"))) sawSecret = true;
+        QVERIFY2(sawSecret, "the secret straddling the mark's lower edge must "
+                            "remain attributed (no false-pass window)");
+
+        PdfiumBackend backend;
+        QVERIFY(backend.loadDocument(dest));
+        QVERIFY(!backend.extractText(0).contains(QStringLiteral("TopSecretAlpha")));
+    }
+
     void manifestRecordsRegionMethodAndCounts()
     {
         const QString src = makeSourcePdf(m_tmpDir.filePath("manifest_src.pdf"));

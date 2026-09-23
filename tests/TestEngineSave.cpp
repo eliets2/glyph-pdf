@@ -304,6 +304,9 @@ private slots:
     // No false positives: saves without an external change keep working, and
     // a mutation commit is conflict-guarded the same way.
     void noFalsePositiveAndMutationCommitsAreGuarded();
+    // emergence E-6: the shared SafeSave commit boundary refuses a stale
+    // destination overwrite (two instances, one document).
+    void commitIdentityPreconditionRefusesStaleOverwrite();
 };
 
 void TestEngineSave::sameFileSaveKeepsPageCountAndContent() {
@@ -1149,6 +1152,57 @@ void TestEngineSave::noFalsePositiveAndMutationCommitsAreGuarded() {
              "a mutation commit must refuse to clobber an externally replaced file");
     QCOMPARE(pdfRotation(pdf2), 0);            // nothing was written
     QCOMPARE(sha256(pdf2), colleagueHash);     // colleague bytes intact
+}
+
+// ── emergence E-6 (SWEEP-W3-EMERGENCE §7): the destination-identity ──────────
+// precondition at the shared SafeSave commit boundary. Two instances, one
+// document: instance B captures the destination's identity when its operation
+// STARTS, instance A commits new bytes while B works — B's commit must REFUSE
+// (honest "changed on disk" failure) instead of silently replacing A's bytes
+// with B's stale serialization. The default no-identity call keeps its exact
+// overwrite semantics; a matching identity commits as before.
+void TestEngineSave::commitIdentityPreconditionRefusesStaleOverwrite() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString dest = makeTwoPageTextPdf(tmp.path(), QStringLiteral("e6-dest.pdf"));
+    QVERIFY(!dest.isEmpty());
+
+    // Instance B's stale candidate: bytes serialized from the EARLIER
+    // revision (what B still holds in memory).
+    const QString stale = tmp.filePath(QStringLiteral("e6-stale-candidate.pdf"));
+    QVERIFY(QFile::copy(dest, stale));
+
+    // Instance B starts its operation: capture the destination identity.
+    const auto identity = gp::SafeSave::captureDestinationIdentity(dest);
+    QVERIFY2(identity.valid, "an existing destination must yield a valid identity");
+
+    // Instance A commits NEW bytes to the same destination while B works.
+    const QString colleague = makeColleaguePdf(tmp.path(), QStringLiteral("e6-colleague.pdf"));
+    const QByteArray colleagueHash = sha256(colleague);
+    QVERIFY(QFile::remove(dest));
+    QVERIFY(QFile::copy(colleague, dest));
+
+    QString err;
+    QVERIFY2(!gp::SafeSave::commitFileToDestination(
+                 stale, dest, &err,
+                 gp::SafeSave::CommitFaultForTesting::None, identity),
+             qPrintable(QStringLiteral("the stale commit must refuse: %1").arg(err)));
+    QVERIFY2(err.contains(QStringLiteral("changed on disk")),
+             qPrintable(QStringLiteral("the refusal must be the honest identity "
+                                      "failure, got: %1").arg(err)));
+    QCOMPARE(sha256(dest), colleagueHash);   // instance A's bytes intact — never B's stale bytes
+
+    // A matching identity (captured against the CURRENT bytes) commits as
+    // before — the designed path is untouched.
+    const auto fresh = gp::SafeSave::captureDestinationIdentity(dest);
+    QVERIFY(fresh.valid);
+    QVERIFY2(gp::SafeSave::commitFileToDestination(stale, dest, &err,
+                                                   gp::SafeSave::CommitFaultForTesting::None,
+                                                   fresh),
+             qPrintable(err));
+
+    // The default no-identity call keeps its exact overwrite semantics.
+    QVERIFY(gp::SafeSave::commitFileToDestination(stale, dest, &err));
 }
 
 QTEST_MAIN(TestEngineSave)

@@ -33,6 +33,7 @@
 #include "engines/pdfium/PdfiumBackend.h"
 #include "modes/FormBuilderMode.h"
 #include "commands/AddFormFieldCommand.h"
+#include "commands/EditFormFieldCommand.h"
 #include "commands/AutoDetectPlacement.h"
 
 // wingdi.h defines GetObject as an object-like macro (UNICODE builds); it
@@ -162,6 +163,9 @@ private slots:
     void injectedFaultsLeaveOriginalIntact();
     void failedAddCommandLeavesNoSuccessUndoEntry();
     void otherMutatorsPersistThroughBoundary();
+    // emergence E-1: EditFormFieldCommand refuses a read-only document at the
+    // shared persistence boundary (defense in depth behind the panel gate).
+    void editFieldCommandRefusesReadOnlyDocument();
     // V06: auto-detected placements go through the application undo stack.
     void autoDetectPlacesFieldsAsOneUndoableCompound();
     void autoDetectPartialFailureCountsAccuratelyAndStaysRecoverable();
@@ -728,6 +732,64 @@ void TestFormSafety::autoDetectPartialFailureCountsAccuratelyAndStaysRecoverable
                  && !allPlaced.contains(QStringLiteral("unchanged")),
              "full success must promise the one-step Undo");
     Q_UNUSED(shaBefore);
+}
+
+// ── emergence E-1 (SWEEP-W3-EMERGENCE §6): command-level defense in depth ───
+// The panel's Apply entry is gated by EditPolicy (FormFieldPropertiesPanel),
+// but the persistence boundary itself must also refuse: a read-only (expired)
+// session's EditFormFieldCommand redo fails with the honest message, leaves
+// the file byte-identical, no reload signal and NO success-looking undo entry.
+void TestFormSafety::editFieldCommandRefusesReadOnlyDocument() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = makeTextPdf(tmp.path(), "ro_cmd.pdf", {"RO probe"});
+
+    FormManager fm;
+    QVERIFY(fm.addTextField(pdf, 0, QRectF(72, 150, 140, 30),
+                            QStringLiteral("ro_field"), pdf));
+    const QByteArray shaBefore = sha256(pdf);
+
+    DocumentSession doc;
+    doc.setPath(pdf);
+    doc.setReadOnly(true);
+    QUndoStack stack;
+    QSignalSpy reloadSpy(&doc, &DocumentSession::reloadRequested);
+
+    EditFormFieldProperties props;
+    props.tooltip    = QStringLiteral("must never persist");
+    props.defaultVal = QStringLiteral("must never persist");
+    auto* pushed = new EditFormFieldCommand(&fm, &doc, QStringLiteral("ro_field"), props);
+    stack.push(pushed); // redo fails read-only -> obsolete -> deleted by the stack
+
+    QCOMPARE(stack.count(), 0);
+    QCOMPARE(stack.index(), 0);
+    QCOMPARE(reloadSpy.count(), 0);    // no success-looking reload signal
+    QCOMPARE(sha256(pdf), shaBefore);  // document byte-identical
+    QVERIFY(pdfLoads(pdf));
+    QVERIFY(pdfHasField(pdf, QStringLiteral("ro_field"))); // field intact, /TU never written
+    {
+        PoDoFo::PdfMemDocument doc2;
+        doc2.Load(pdf.toUtf8().constData());
+        auto* acroForm = doc2.GetAcroForm();
+        QVERIFY(acroForm);
+        bool tipAbsentOrOriginal = true;
+        for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
+            auto& field = acroForm->GetFieldAt(i);
+            if (QString::fromStdString(field.GetFullName()) != QLatin1String("ro_field")) continue;
+            const PoDoFo::PdfObject* tu = field.GetDictionary().FindKey("TU");
+            tipAbsentOrOriginal = !tu;
+        }
+        QVERIFY2(tipAbsentOrOriginal, "the refused edit must not persist /TU");
+    }
+
+    // A direct redo() (no stack ownership) reports the honest read-only error.
+    EditFormFieldCommand probe(&fm, &doc, QStringLiteral("ro_field"), props);
+    probe.redo();
+    QVERIFY2(!probe.succeeded(), "the read-only apply must report failure");
+    QVERIFY2(probe.lastError().contains(QStringLiteral("read-only")),
+             qPrintable(QStringLiteral("the refusal must be the honest read-only "
+                                      "message, got: %1").arg(probe.lastError())));
+    QCOMPARE(sha256(pdf), shaBefore);
 }
 
 QTEST_MAIN(TestFormSafety)

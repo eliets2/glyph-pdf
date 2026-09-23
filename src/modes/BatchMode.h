@@ -73,6 +73,11 @@ public:
     // reported in their own bucket, never as completed OCR work.
     int  skipCount()     const { return m_skipCount; }
     int  errorLogCount() const { return m_errorLog.count(); }
+    // emergence E-2: pins read back the detail the worker recorded for a
+    // failed file (e.g. the policy whyNot for a refused OCR download) —
+    // the ErrorInfo technicalDetails of the index-th log entry.
+    QString errorDetailForTest(int index) const
+        { return m_errorLog.entries.value(index).technicalDetails; }
     // U08: success + failed + remaining summaries — files still being
     // processed (or dropped by cancel) without miscounting them as done.
     int  remainingCount() const { return qMax(0, fileCount() - successCount() - failCount() - skipCount()); }
