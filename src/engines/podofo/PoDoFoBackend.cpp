@@ -1202,6 +1202,12 @@ bool PoDoFoBackend::insertPageFromBytes(const QString &path, int atIndex, const 
             return false;
         }
 
+        // S1-1 (SWEEP-BACKEND-2026-09-21): explicit insert-at bounds — the
+        // index contract is enforced here, not by PoDoFo throwing. atIndex
+        // may equal the page count (append at the end).
+        const int count = static_cast<int>(doc.GetPages().GetCount());
+        if (atIndex < 0 || atIndex > count) return false;
+
         doc.GetPages().InsertDocumentPageAt(atIndex, sourceDoc, 0);
         if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
         return true;
@@ -1231,6 +1237,14 @@ bool PoDoFoBackend::insertBlankPage(const QString &path, int atIndex) {
     if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& doc = d->resolveDocument(path);
+        auto& pages = doc.GetPages();
+
+        // S1-1 (SWEEP-BACKEND-2026-09-21): explicit insert-at bounds like the
+        // other page mutators — the index contract is enforced HERE, never by
+        // relying on PoDoFo to throw inside the catch below. Insert-at allows
+        // atIndex == count (append at the end).
+        const int count = static_cast<int>(pages.GetCount());
+        if (atIndex < 0 || atIndex > count) return false;
 
         doc.GetPages().CreatePageAt(atIndex, PoDoFo::PdfPageSize::A4);
         if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");

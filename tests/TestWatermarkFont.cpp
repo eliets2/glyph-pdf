@@ -99,6 +99,14 @@ private:
         return {read("ca"), read("CA")};
     }
 
+    // S1-1 probe: page count from the SAVED file via an independent reader.
+    static int pageCountOnDisk(const QString& path)
+    {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(path.toUtf8().constData());
+        return static_cast<int>(doc.GetPages().GetCount());
+    }
+
     // BaseFont name of the /Resources /Font <key> entry on page 0.
     static QString resourceFontBaseName(const QString& path, const QByteArray& key)
     {
@@ -292,6 +300,55 @@ private slots:
                      qPrintable(QStringLiteral("S1-2: in-range opacity must pass through; "
                                                "got ca=%1 CA=%2").arg(op.first).arg(op.second)));
         }
+    }
+
+    // ── S1-1 (SWEEP-BACKEND-2026-09-21): the page-index contract is enforced
+    // AT the seam. Every index argument is validated against the document's
+    // real page count BEFORE any library call — out-of-range fails closed
+    // (false, document untouched), never UB via an unchecked (implicitly
+    // negative→unsigned) index into PoDoFo. Two shapes, per the IPageEditor
+    // contract comment: positional access/replace/delete is [0, count);
+    // insert-at (insertBlankPage, insertPageFromBytes) is [0, count] —
+    // atIndex == count appends at the end.
+    void pageIndexContractEnforcedAtSeam()
+    {
+        const QString base = createBasePdf("idx_base.pdf");
+        QVERIFY(!base.isEmpty());
+
+        PoDoFoBackend backend;
+        QVERIFY(backend.loadDocument(base));
+
+        // The legal insert-at boundary FIRST: atIndex == count appends.
+        QVERIFY2(backend.insertBlankPage(base, 1),
+                 "insertBlankPage at count must append (the [0, count] shape)");
+        QCOMPARE(pageCountOnDisk(base), 2);
+
+        // Positional shape: extraction refuses out of range.
+        QVERIFY(backend.extractPageAsBytes(base, -1).isEmpty());
+        QVERIFY(backend.extractPageAsBytes(base, 2).isEmpty());
+        const QByteArray page0 = backend.extractPageAsBytes(base, 0);
+        QVERIFY(!page0.isEmpty());
+
+        // Insert-at shape: -1 and count+1 refuse; the document is untouched.
+        QVERIFY2(!backend.insertBlankPage(base, -1),
+                 "insertBlankPage(-1) must fail closed at the seam");
+        QVERIFY2(!backend.insertBlankPage(base, 3),
+                 "insertBlankPage(count+1) must fail closed at the seam");
+        QVERIFY2(!backend.insertPageFromBytes(base, -1, page0),
+                 "insertPageFromBytes(-1) must fail closed at the seam");
+        QVERIFY2(!backend.insertPageFromBytes(base, 3, page0),
+                 "insertPageFromBytes(count+1) must fail closed at the seam");
+        QCOMPARE(pageCountOnDisk(base), 2);
+
+        // The other legal boundary: atIndex == count appends real page bytes.
+        QVERIFY(backend.insertPageFromBytes(base, 2, page0));
+        QCOMPARE(pageCountOnDisk(base), 3);
+
+        // Delete/rotate positional shape refuses out of range, document intact.
+        QVERIFY(!backend.deletePage(base, -1));
+        QVERIFY(!backend.deletePage(base, 3));
+        QVERIFY(!backend.rotatePage(base, 3, 90));
+        QCOMPARE(pageCountOnDisk(base), 3);
     }
 };
 
