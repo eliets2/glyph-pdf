@@ -1760,9 +1760,12 @@ bool PdfEditorEngine::applyPatternRedactions(const QRegularExpression& pattern,
         const auto it = matchesByPage.constFind(pg);
         if (it == matchesByPage.constEnd() || it->isEmpty()) continue;
 
-        // Delegate to the existing applyRedactions path which carries the
-        // Edact-Ray glyph-advance defense (wired in M2-P1).
-        const bool ok = d->backend->applyRedactions(pg, *it);
+        // Delegate to the excision path which carries the Edact-Ray
+        // glyph-advance defense (wired in M2-P1). PGR-37: through the
+        // USER-SPACE entry — PatternRedactor emits FPDFText_GetCharBox rects
+        // verbatim; the viewer-transform entry transposed/shifted them on
+        // rotated or offset-origin pages (silent redaction false success).
+        const bool ok = d->backend->applyRedactionsUserSpace(pg, *it);
         if (ok) {
             anySuccess = true;
         } else {
@@ -1871,7 +1874,9 @@ bool PdfEditorEngine::applyPatternRedactionsMulti(const QStringList& patterns,
     for (int pg : validPages) {
         const auto it = matchesByPage.constFind(pg);
         if (it == matchesByPage.constEnd() || it->isEmpty()) continue;
-        const bool ok = d->backend->applyRedactions(pg, *it);
+        // PGR-37: the USER-SPACE excision entry — PatternRedactor rects are
+        // FPDFText_GetCharBox rects verbatim (raw user space, y-up).
+        const bool ok = d->backend->applyRedactionsUserSpace(pg, *it);
         if (ok) anySuccess = true;
         else {
             anyFailure = true;

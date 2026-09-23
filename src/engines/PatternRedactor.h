@@ -29,7 +29,13 @@ public:
     static QStringList availablePatterns();
 
     /// Find all regex matches on a single PDF page.
-    /// Coordinates are in Qt PDF user-space (origin top-left, same as PdfViewerWidget).
+    /// PGR-37 (D2 delta review 2026-09-23): coordinates are in RAW PDF USER
+    /// space — FPDFText_GetCharBox boxes taken verbatim, stored y-up
+    /// (QRectF::y() = the LOWER edge). This is the space the excision surgery
+    /// (PoDoFoBackend::applyRedactionsUserSpace) operates in, so marks flow to
+    /// the engine without a viewer transform. Viewers drawing these rects over
+    /// the DISPLAYED page must convert at their boundary (top-origin display
+    /// y = displayHeight − (userY + height) for /Rotate 0).
     /// Returns an empty list if PDFium is not available, the file cannot be opened,
     /// or the pattern is invalid.
     static QList<QRectF> findMatches(const QString& pdfPath,
@@ -41,7 +47,7 @@ public:
     /// single-page findMatches() for every entry in `pages`, but avoids the
     /// FPDF_LoadDocument()-per-page cost. Returns a map from page index to the
     /// rectangles found on that page (pages with no matches are omitted).
-    /// Coordinates are in Qt PDF user-space (origin top-left).
+    /// Coordinates are in RAW PDF USER space (y-up) — see findMatches above.
     static QHash<int, QList<QRectF>> findMatches(const QString& pdfPath,
                                                  const QList<int>& pages,
                                                  const QRegularExpression& pattern);
@@ -49,7 +55,7 @@ public:
 private:
     struct CharInfo {
         QString ch;
-        QRectF bbox;   // Qt user-space coordinates (origin top-left)
+        QRectF bbox;   // RAW PDF USER space (y-up: y() = the lower edge)
     };
 
     /// Extract all characters with their per-character bounding boxes from a page.
