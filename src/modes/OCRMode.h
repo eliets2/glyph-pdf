@@ -173,6 +173,12 @@ private:
     /// completion path restores the correct buttons (UI thread only).
     void transitionTo(ReviewState state, const QString& message);
 
+    /// F5-F1 (SWEEP-W3 UX): record the lifecycle message AND surface it live
+    /// on this screen (m_lblLifecycle). transitionTo lands here; the djot
+    /// delivery path — which bypasses transitionTo to reach ReviewReady —
+    /// calls it directly so the on-screen surface can never go stale.
+    void setLifecycleMessageLive(const QString& message);
+
     /// R08: refresh the zoom pane for the currently selected word.
     void updateWordInspector();
 
@@ -201,6 +207,10 @@ private:
     // R07: explicit lifecycle state + last user-visible lifecycle message.
     ReviewState m_reviewState = ReviewState::Idle;
     QString m_lastLifecycleMessage;
+    // F5-F1: the on-screen surface for m_lastLifecycleMessage — cold engine
+    // init, failures and save outcomes are visible on the OCR screen itself
+    // instead of resting in a recorded-only string.
+    QLabel* m_lblLifecycle = nullptr;
 
     // R08: reviewed word records (stable ids + per-word reviewed text + the
     // immutable source boxes). Authoritative for the export; m_currentWords is

@@ -32,13 +32,20 @@ private slots:
         auto* binarize = mode.findChild<QCheckBox*>(QStringLiteral("ocrChkBinarize"));
         auto* denoise = mode.findChild<QCheckBox*>(QStringLiteral("ocrChkDenoise"));
         QVERIFY(deskew && binarize && denoise);
-        // OcrPreprocessOptions has long defaulted deskew/binarize/denoise to
-        // true — the panel must tell the truth about that.
-        QVERIFY(deskew->isChecked());
-        QVERIFY(binarize->isChecked());
-        QVERIFY2(denoise->isChecked(),
-                 "the Denoise checkbox must match the pipeline's actual default "
-                 "(it used to show off while the pipeline denoised anyway)");
+        // F5-F2 (SWEEP-W3-UX): the shipped defaults are HONEST and SAFE — the
+        // destructive chain (deskew/binarize/denoise) is OFF out of the box so
+        // recognition works on a clean scan without the user asking for it
+        // (the audit observed the old on-by-default chain zero recognition).
+        // The panel must tell the truth about that.
+        QVERIFY2(!deskew->isChecked(), "shipped Deskew default must be off "
+                                       "(destructive chain is opt-in)");
+        QVERIFY2(!binarize->isChecked(), "shipped Binarize default must be off "
+                                         "(destructive chain is opt-in)");
+        QVERIFY2(!denoise->isChecked(),
+                 "the shipped Denoise default must be off — and the checkbox "
+                 "must match the pipeline's actual default (it used to show "
+                 "off while the pipeline denoised anyway; now BOTH are off "
+                 "until the user opts in)");
     }
 
     void togglingPersistsToQSettings() {

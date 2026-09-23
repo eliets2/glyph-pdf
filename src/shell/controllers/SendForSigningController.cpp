@@ -5,6 +5,7 @@
 #include "core/AppContext.h"
 #include "core/SigningRequestModel.h"
 #include "core/SigningRequestRunner.h"
+#include "core/interfaces/IPdfEditorEngine.h" // releaseResidentFile (F4d-D1, runA11yFix/FormsController precedent)
 #include "engines/DocumentSession.h"
 #include "engines/SignatureManager.h"
 #include "shell/EditPolicy.h"
@@ -210,6 +211,20 @@ void SendForSigningController::runSignStep(int signerIndex)
     progress->setWindowModality(Qt::WindowModal);
     progress->setMinimumDuration(0);
     progress->show();
+
+    // F4d-D1 (SWEEP-W3 UX): the fill step commits IN PLACE onto docPath from
+    // the signing worker thread (lazy field placement + the signed-candidate
+    // commit, both through SafeSave). Two OS devices pin that file while it is
+    // open: the viewer's QPdfDocument (released by the shell's SafeSave
+    // handle coordinator, which marshals park/restore to the GUI thread) and
+    // the editing engine's file-backed resident, whose lazy-parse input device
+    // stays open until dropped — the engine's own same-file save re-seats it
+    // away, but this foreign writer cannot, so the shell does it here, exactly
+    // like runA11yFix and the FormsController form import (V01). The next
+    // resolveDocument lazily re-loads from disk: the committed result on
+    // success, the preserved original on a failed step — truthful either way.
+    if (_ctx->pdfEditor)
+        _ctx->pdfEditor->releaseResidentFile(docPath);
 
     // Worker thread (runSigning idiom): the engine call runs off the GUI
     // thread; the result is read only after the worker finished.

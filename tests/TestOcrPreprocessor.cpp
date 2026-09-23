@@ -460,18 +460,21 @@ private slots:
             QCOMPARE(out.pixel(400, 200 + 200 * i), QRgb(0xff000000));
     }
 
-    // The full pipeline with production defaults (dpiNormalize + deskew +
-    // denoise + binarize) must preserve the same polarity.
+    // The full pipeline with production DEFAULTS — non-destructive since
+    // F5-F2 (SWEEP-W3-UX): dpiNormalize only; deskew/denoise/binarize are
+    // opt-in. Polarity is preserved, format and dimensions untouched.
     void processDefaultsKeepDarkInkOnLightPaper()
     {
         const QImage page = makeDocumentPage();
         const PreprocessedImage pp = OcrPreprocessor().process(page, {});
 
-        QCOMPARE(pp.image.format(), QImage::Format_Grayscale8);
-        QCOMPARE(pp.image.pixel(60, 60), QRgb(0xffffffff));
-        QCOMPARE(pp.image.pixel(800, 60), QRgb(0xffffffff));
+        QCOMPARE(pp.image.format(), page.format());
+        QCOMPARE(pp.image.size(), page.size());
+        QVERIFY(qGray(pp.image.pixel(60, 60)) > 200);
+        QVERIFY(qGray(pp.image.pixel(800, 60)) > 200);
         for (int i = 0; i < 5; ++i)
-            QCOMPARE(pp.image.pixel(400, 200 + 200 * i), QRgb(0xff000000));
+            QVERIFY2(qGray(pp.image.pixel(400, 200 + 200 * i)) < 100,
+                     "default processing must keep dark ink dark (polarity in)");
     }
 
     // Grayscale and colored inputs keep their polarity too (dark strokes on

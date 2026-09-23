@@ -1318,28 +1318,14 @@ private slots:
         step(QStringLiteral("F4d completion surface: '%1'; engine signatures on doc: %2; "
                            "steps signed: %3")
                  .arg(titleText.left(250)).arg(engineSigs).arg(f4dStepsSigned));
-        // F4d-D1 (recorded, SWEEP-W3 UX resume 2026-09-21): the first fill step
-        // fails with "The signature field sig1 could not be placed: commit to
-        // destination failed: Access is denied." The lazy field placement
-        // commits IN PLACE from the signing worker thread, where the GUI
-        // handle coordinator deliberately no-ops (SafeSave coordinator refuses
-        // off-GUI-thread release), so the viewer's open QPdfDocument keeps the
-        // file locked and the replacement is denied. The workflow is reachable
-        // only with the document open — so the 2-signer flow cannot complete.
-        // The failure disclosure itself is honest (names the field + reason,
-        // document unchanged). Gated as an expected fail: when a fix lane
-        // restores background-safe in-place commits, this becomes an XPASS and
-        // the marker must be removed together with the finding.
-        if (engineSigs < 2) {
-            QEXPECT_FAIL("", "F4d-D1: fill-step in-place commit denied while the "
-                            "viewer holds the document (off-GUI-thread commit skips "
-                            "the SafeSave handle coordinator) — "
-                            "docs/audit/SWEEP-W3-UX-2026-09-20.md",
-                         Continue);
-        }
-        // The prepare dialog pre-seeds one signer row, so Add×2 yields THREE
-        // signer steps; this audit drives the first two. Completable = at
-        // least the driven steps carry engine-attested signatures.
+        // F4d-D1 was FIXED in the ux-defects fix lane: the background fill-step
+        // commits are background-safe again. Two pins had to go for the in-place
+        // replacement to succeed — the viewer's QPdfDocument (the shell's SafeSave
+        // handle coordinator now marshals park/restore to the GUI thread for
+        // worker commits) and the editing engine's file-backed resident
+        // (SendForSigningController releases it per step, the runA11yFix/
+        // FormsController precedent). This slot is gated as a PERMANENT PASS:
+        // the driven signer steps must produce engine-attested signatures.
         QVERIFY2(engineSigs >= 2,
                  "F4d completability: the driven signer steps must produce "
                  "engine-attested signatures");
@@ -1380,14 +1366,16 @@ private slots:
             pw.end();
         }
         QVERIFY(QFileInfo::exists(imgPdf));
-        // The preprocessing checkboxes on this very screen are persisted prefs;
-        // run the audit with the raw page (a clean white page exercises the
-        // binarize/deskew chain for no informational gain).
-        QSettings().setValue(QStringLiteral("ocr/preprocessDeskew"), false);
-        QSettings().setValue(QStringLiteral("ocr/preprocessBinarize"), false);
-        QSettings().setValue(QStringLiteral("ocr/preprocessDenoise"), false);
-        QSettings().setValue(QStringLiteral("ocr/preprocessOrientDetect"), false);
-        step("F5 start: image-only fixture OCRME 42 (preprocess prefs off)");
+        // F5-F2 pin (the audit's 3-blocks-clean-scan probe): run with the
+        // SHIPPED DEFAULTS — clear the persisted preprocessing prefs so this
+        // run sees exactly what a FIRST-TIME user sees. The defaults must be
+        // honest: recognition on a clean scan must work out of the box (the
+        // shipped deskew+binarize+denoise chain used to ZERO it).
+        QSettings().remove(QStringLiteral("ocr/preprocessDeskew"));
+        QSettings().remove(QStringLiteral("ocr/preprocessBinarize"));
+        QSettings().remove(QStringLiteral("ocr/preprocessDenoise"));
+        QSettings().remove(QStringLiteral("ocr/orientDetect"));
+        step("F5 start: image-only fixture OCRME 42 (FIRST-RUN default prefs — F5-F2 pin)");
 
         auto *caps = m_win->appContext()->capabilities.get();
         const bool ocrPossible = caps
@@ -1412,6 +1400,21 @@ private slots:
         QAbstractButton *runPushButton = runBtn;
         QAbstractButton *acceptPushButton = acceptBtn;
         QAbstractButton *rejectPushButton = rejectBtn;
+
+        // F5-F2: the recognition probe below only pins the DEFAULTS if the
+        // screen's own checkboxes MATCH the pipeline. Record what the shipped
+        // defaults show; asserted permanently after the probe passes (so a
+        // pre-fix failure demonstrates the recognition defect itself).
+        auto defaultChkOn = [ocr](const char *name) {
+            QAbstractButton *b = ocr->findChild<QAbstractButton *>(QString::fromLatin1(name));
+            return b && b->isChecked();
+        };
+        const bool deskewShownOn   = defaultChkOn("ocrChkDeskew");
+        const bool binarizeShownOn = defaultChkOn("ocrChkBinarize");
+        const bool denoiseShownOn  = defaultChkOn("ocrChkDenoise");
+        step(QStringLiteral("F5-F2 shipped defaults as shown on screen: "
+                            "deskew=%1 binarize=%2 denoise=%3")
+                 .arg(deskewShownOn).arg(binarizeShownOn).arg(denoiseShownOn));
 
         // Narrated OCR wait: engine init (Tesseract language seed + up to 3
         // ONNX sessions) is one-time and disk/CPU-bound and can take minutes
@@ -1446,6 +1449,19 @@ private slots:
 
         // Run on the IMAGE page.
         runPushButton->click();
+        // F5-F1 pin: while the run is in flight — cold engine init on first
+        // use takes minutes — the OCR screen ITSELF must carry the lifecycle
+        // message, not just a status-bar transient.
+        QLabel *lifecycleLbl = ocr->findChild<QLabel *>(QStringLiteral("ocrLifecycleLabel"));
+        QVERIFY2(lifecycleLbl, "F5-F1: ocrLifecycleLabel missing from the OCR screen");
+        QVERIFY2(lifecycleLbl->isVisible() && !lifecycleLbl->text().isEmpty(),
+                 qPrintable(QStringLiteral("F5-F1: the OCR screen must surface the "
+                              "lifecycle message while a run is in flight "
+                              "(visible=%1 text='%2')")
+                                .arg(lifecycleLbl->isVisible())
+                                .arg(lifecycleLbl->text().left(120))));
+        step(QStringLiteral("F5-F1 live lifecycle surface during run1: '%1'")
+                 .arg(lifecycleLbl->text().left(160)));
         QVERIFY2(narratedOcrWait(250000, QStringLiteral("run1(image page)")),
                  "F5: OCR produced no recognized text within the narrated 250s "
                  "budget (Run re-enabled with text pane empty = the panel showed "
@@ -1455,6 +1471,18 @@ private slots:
                  .arg(recognized.left(120)));
         QVERIFY2(recognized.contains(QStringLiteral("42")) || recognized.contains(QStringLiteral("OCR")),
                  "F5: the recognized text should carry the fixture's content");
+        // F5-F2 pin (permanent): with the SHIPPED defaults the clean scan must
+        // be RECOGNIZED — the audit observed "OCR Complete. 0 text blocks
+        // detected." on exactly this fixture when the default destructive
+        // chain ran. Honesty guard: the checkboxes must show what the pipeline
+        // will do — deskew/binarize/denoise OFF out of the box.
+        QVERIFY2(!deskewShownOn && !binarizeShownOn && !denoiseShownOn,
+                 qPrintable(QStringLiteral("F5-F2: the shipped preprocessing defaults "
+                              "must be honest — destructive deskew/binarize/denoise "
+                              "OFF out of the box (screen showed deskew=%1 binarize=%2 "
+                              "denoise=%3)")
+                                .arg(deskewShownOn).arg(binarizeShownOn)
+                                .arg(denoiseShownOn)));
 
         // Reject → the user must be told; state must be retryable.
         // Accept first (so reject has review state afterwards): Accept exports
@@ -1611,6 +1639,21 @@ private slots:
                            "viewer page count now %3")
                  .arg(openTitle, openMsg.left(250))
                  .arg(m_win->pdfViewer()->pageCount()));
+        // F6-F1 (FIXED, permanent pin): the artifact is VALID — this viewer
+        // just cannot decrypt it — so the open-failure disclosure must name
+        // the certificate-encrypted state. The regression this guards against
+        // is the generic "Could not open the PDF document" — the same wording
+        // a corrupt file gets, which dead-ends a user who JUST encrypted the
+        // file with zero mention of certificates.
+        QVERIFY2(openMsg.contains(QStringLiteral("certificate-encrypted"),
+                                  Qt::CaseInsensitive),
+                 qPrintable(QStringLiteral("F6-F1: the open-failure disclosure for "
+                              "the app's own PubSec-encrypted output must name the "
+                              "certificate-encrypted state (modal said: '%1')")
+                                .arg(openMsg.left(200))));
+        QVERIFY2(m_win->pdfViewer()->pageCount() == 0,
+                 "F6-F1: the PubSec-encrypted document must not render in the "
+                 "viewer (it cannot be decrypted here)");
     }
 
     // ── F7: accessibility scan → fix /Lang + /Alt → rescan; honesty box ──────

@@ -602,9 +602,19 @@ private slots:
                  SigningRequestRunner::StepRefusal::DocumentChanged);
 
         // Re-confirm: accept the current bytes, save, and the step runs.
+        // SWEEP-W1 F3: the sidecar's reconfirmedSha256 is a record value only
+        // — the gate's ONLY re-confirm input is FillStepInput
+        // ::userReconfirmedSha256 (what the controller sets after its Yes/No
+        // dialog). The slot drives that same channel directly; going through
+        // the sidecar field alone leaves the gate refusing forever, which
+        // surfaced as a standing "real sign unavailable" QSKIP.
         req.model.reconfirmedSha256 = SigningRequestRunner::documentSha256(req.docPath);
         QVERIFY(req.model.save(SigningRequestModel::sidecarPathFor(req.docPath), nullptr));
-        const auto r = SigningRequestRunner::runFillStep(mgr, fillInput(req, 0, req.model));
+        SigningRequestRunner::FillStepInput reconfirmedIn =
+            fillInput(req, 0, req.model);
+        reconfirmedIn.userReconfirmedSha256 =
+            SigningRequestRunner::documentSha256(req.docPath);
+        const auto r = SigningRequestRunner::runFillStep(mgr, reconfirmedIn);
         if (!r.committed)
             QSKIP(qPrintable(QStringLiteral("real sign unavailable in this environment: %1")
                                  .arg(r.error)));
