@@ -1457,6 +1457,26 @@ void BatchMode::onRunClicked() {
             capturedOutputs.insert(f, resolveOutputPath(f));
     }
 
+    // PGR-35 (D2 delta review 2026-09-23): cross-file output-path collision
+    // staging. Two inputs resolving to the SAME output path (two same-stem
+    // files into one shared output folder; a shareable preset whose naming
+    // template omits {basename}/{n} — e.g. "{date}.pdf" — collapses EVERY
+    // file onto one name) used to run "successfully": each commit overwrote
+    // the previous output, the ledger claimed N successes, and exactly one
+    // artifact existed. Nothing existed on disk at staging, so the AR-8
+    // overwrite pre-check never fired. The collisions are staged as
+    // pre-flight failures below — the first file in list order keeps the
+    // path (the same "list order wins" semantics the merge uses), the rest
+    // fail honestly with the reason. Pure seam: outputCollisionBlockers.
+    QMap<QString, QString> outputBlockers;
+    if (capturedOp != OpMerge) {
+        QStringList outs;
+        outs.reserve(capturedFiles.size());
+        for (const QString& f : capturedFiles)
+            outs << resolveOutputPath(f);   // GUI thread: the SAME resolution the overwrite pre-check used
+        outputBlockers = outputCollisionBlockers(capturedFiles, outs);
+    }
+
     // Worker lambda — runs on QtConcurrent thread pool.
     // All captured values are by-value copies of GUI state taken above on the GUI thread.
     // 'this' is not captured to avoid dangling if BatchMode is destroyed mid-batch.
@@ -1893,6 +1913,8 @@ void BatchMode::onRunClicked() {
         // whyNot + alternative so the summary stays truthful. Never a silent
         // skip, never a fake success.
         if (blocker.isEmpty())
+            blocker = outputBlockers.value(f);
+        if (blocker.isEmpty())
             blocker = capturedPresetBlocker;
         if (blocker.isEmpty()) {
             runnableFiles << f;
@@ -2212,6 +2234,44 @@ QString BatchMode::lowConfidenceNote(const QList<PageOcrResult>& pages,
 // function so the boundary is testable without driving a batch run.
 int BatchMode::resolveCompressTargetDpi(int requestedDpi) {
     return qBound(kMinTargetDpi, requestedDpi, kMaxTargetDpi);
+}
+
+// PGR-35 (D2 delta review 2026-09-23): the cross-file output-collision rule.
+// Pure function: input[i]'s output is outputs[i]; the FIRST input (list
+// order — the same "order wins" semantics the merge uses) claiming an output
+// path keeps it, every LATER input resolving to the same path is staged as a
+// pre-flight failure with an actionable reason. Path identity is
+// case-insensitive on Windows (a.pdf and A.pdf are one NTFS/FAT file),
+// case-sensitive elsewhere. Empty outputs (unresolvable) never collide here
+// — they fail later with their own honest "no output path was resolved".
+QMap<QString, QString> BatchMode::outputCollisionBlockers(const QStringList& inputs,
+                                                          const QStringList& outputs) {
+    QMap<QString, QString> blockers;
+    QHash<QString, QString> owner;   // normalized output path -> first input claiming it
+    const int n = qMin(inputs.size(), outputs.size());
+    for (int i = 0; i < n; ++i) {
+        const QString& out = outputs.at(i);
+        if (out.isEmpty()) continue;
+        const QString key =
+#if defined(Q_OS_WIN)
+            out.toLower();
+#else
+            out;
+#endif
+        const auto it = owner.constFind(key);
+        if (it == owner.constEnd()) {
+            owner.insert(key, inputs.at(i));
+            continue;
+        }
+        blockers.insert(inputs.at(i),
+            BatchMode::tr("Output file name collision: this file's output %1 is the same "
+                          "file as the output of %2 — running would silently overwrite "
+                          "that output. Rename one of the inputs, choose a different "
+                          "output folder, or fix the preset's naming template (it needs "
+                          "{basename} or {n} to keep every output distinct).")
+                .arg(QFileInfo(out).fileName(), QFileInfo(it.value()).fileName()));
+    }
+    return blockers;
 }
 
 // The effective redaction pattern list: named-preset regex bodies first
