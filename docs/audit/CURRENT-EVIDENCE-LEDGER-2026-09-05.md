@@ -1218,6 +1218,9 @@ TestUpdateChecker 8/0, TestCommandBinding 11/0, TestControllers 13/0,
 TestWatermarkFont 7/0 — 157 passed, 0 failed.
 
 ## 2026-09-20 — EMERGENCE-FIX lane: the six confirmed emergence-engine defects (feat/emergence-fixes, from feat/sweep-w3-emergence @ 48c2ae51)
+
+## 2026-09-20 — EMERGENCE-FIX lane: the six confirmed emergence-engine defects (feat/emergence-fixes, from feat/sweep-w3-emergence @ 48c2ae51)
+
 Remediation of docs/audit/SWEEP-W3-EMERGENCE-2026-09-20.md defects E-1..E-6
 (ledger IDs EM-1..EM-6). Method per defect: the audit's probe (or equivalent
 pin) fails on the base, minimal root-cause fix, probe + neighbors green,
@@ -1242,6 +1245,9 @@ environment skips (present at 48c2ae51); the known-flake suites
 (TestOllamaProvider/TestBatchMode/TestLaneScheduler/TestReadOnlyGate/
 TestCommandBinding) were not part of this lane's battery.
 ## 2026-09-20 — SWEEP-W2C verification pass: W2B-1 re-submission VERIFIED, SL1 flipped (feat/sweep-w2c @ ec9f16f)
+
+## 2026-09-20 — SWEEP-W2C verification pass: W2B-1 re-submission VERIFIED, SL1 flipped (feat/sweep-w2c @ ec9f16f)
+
 Verification review of the W2B-1 fix re-submission (this lane = guarantee-verification-engine, W2c).
 Fresh build-w2c (Debug/Ninja/UCRT64, -j 2, vendored podofo 1.1.0 confirmed at configure). Method:
 committed suites -> NEW independent probe W2CProbeRotate270 (own hand-computed literals on own rect
@@ -1249,6 +1255,7 @@ values, own raw-dict walks of /Annots + /AcroForm, PDFium cross-reads, raw file-
 edit paths only) -> scoped NC -> verdict. Deliverable: docs/audit/SWEEP-W2C-2026-09-20.md; evidence
 .context/w2c-evidence/; handoff .context/sweep-w2c-wip.md.
 | Row | Verdict | Committed suites (tip) | Independent evidence (W2CProbeRotate270, 7 passed / 0 failed) | NC (git checkout 84a19f9 -- src/core/PageSpaceTransform.h; consumer cleanups kept) |
+|---|---|---|---|---|
 | SL1 / W2B-1 root fix (PageSpaceTransform.h GetMediaBoxRaw) + move/resize through the production edit path | **verified — SL1 flipped from partial** | 14 targets: 240 passed, 0 failed, 3 documented skips (incl. TestRotate270PageSpace 7/7, TestLegacyOriginSpace 9/9, TestRedactionProof 21/21) | own rects A=(137,221,130x47) -> moved B=(315,97,74x158) on all 6 shapes (rot 0/90/180/270 + 90/270 offset [0 200 612 1042]): the moved /NM dict carries the law literal (270 Letter B [357 403 515 477]; 270+offset B [357 653 515 727]); PDFium + read-back + raw bytes agree; form in-place move via updateFieldRect: p5 (380,402,55x121) -> [89 607 210 662], p3 (500,55,40x333) -> [224 252 557 292] | W2CProbeRotate270 2P/5F: moved rect TRANSPOSED ([524 345 571 475] on 270 Letter; [319 377 440 432] on 270+offset form; [586 205 669 326] signature) — restored + rebuilt + re-verified 7/7, 7/7, 9/9, 8/8 |
 | F5 containment honesty + signature verbatim /Rect (W2B-1 blast radius) | **verified — the /Rotate 90/270 caveat LIFTED** | TestSignatureBadges 25/25, TestSweepW1SigningAdversary 5P/1 skip, W2BProbeSigning 15/15 | on-page offset-270 anchor accepted at [356 435 439 556]; edge-crossing (790,100,80x40) and just-off (843,0,50x50) anchors REFUSED "outside page" with no destination written and source SHA-256 unchanged; verbatim /Rect confirmed on FIELD dict AND widget dict AND PDFium AND raw bytes (rot90 [147 211 208 342], rot270+offset [356 435 439 556]) | same NC run: sig dict [586 205 669 326] != law; F5 slot fails |
 | SEP13 L5/L8 on /Rotate 270 + offset (own raw-bytes fixture, /MediaBox [0 200 612 1042]) | **verified** | TestRedactionProof 21/21, TestRedactTransaction 38/38, TestSep13LeadRedactionProof 11/11 | tight mark (329,320,17x215) -> user [77 292 696 713]: secret excised (PDFium + raw bytes clean, publics survive); proof PASSES with attribution naming ONLY the secret; missed-spot honesty leg: second occurrence on the unmarked (100,650) line -> proof FAILS naming "Offset270Secret hidden note" | **the secret SURVIVED the offset-270 excision on the reverted base** (loud L8 failure) — the false-success class made visible; the committed rot270-Letter fixture could not see it (excision + attribution transposed consistently) |
@@ -1256,16 +1263,21 @@ edit paths only) -> scoped NC -> verdict. Deliverable: docs/audit/SWEEP-W2C-2026
 | ri-fix (2026-09-20, feat/runintersects-precision): runIntersects margin re-derived — the vertical attribution band is now the run's REAL glyph extent (font ascender..descender, carried from the PDFium char boxes as TextRun inkTop/inkBottom/hasInkBox — the N08 metric-derived pattern, no guessed multiplier; degenerate runs fall back to the ±1em PDF default font-bbox scale). Root cause: the EXCISION (PoDoFoBackend isIntersectingSpan) fires on the run's BASELINE segment only, so attribution must be ⊇ excision on the vertical axis — any baseline-containing band satisfies that — while the 3*fs blanket attributed ink the excision provably never touched (neighbor baseline 650 + 3*12 = 686 >= markLo 682 -> sweep finds the live neighbor -> false alarm). Band-OVERLAP semantics keep the safe direction: edge-straddling secrets and under-excising marks still attribute (the band always contains the baseline), missed-spot honesty unchanged | **verified (SWEEP-W2-GSD 2026-09-23, gsd-verifier: independent probe + scoped NC — docs/audit/SWEEP-W2-GSD-2026-09-21.md)** | TestRedactionProof 23/23 (NEW pins: proofPassesWhenNeighborLineSitsInOldHeadroomZone — the W2c loose-mark geometry on the committed fixture, mark user band [682,727]; metricBandStillCatchesSecretStraddlingTheMarkEdge — mark lower edge 699 cuts the y=700 line's own glyph band, guards against containment-style over-tightening), TestSep13LeadRedactionProof 11/11, TestRedactTransaction 38/38, TestExcisionCorruption 4/4, TestRotate270PageSpace 7/7, W2CProbeRotate270 7/7, W2BProbeLegacySpace 8/8, TestConversionExtraction 17/17 (TextRun consumer regression), R14ProbeSep13Fixes-r2 7/7 — 128 passed / 0 new failures | fail-before failbefore-TestRedactionProof.txt (22P/1F, the exact W2c SURVIVOR signature); NC (metric band disabled in runIntersects only, TextRun fields kept) -> loose-mark pin FAILS again nc-rifix-TestRedactionProof.txt (22P/1F) -> restored + rebuilt + re-verified restored-rifix-TestRedactionProof.txt 23/23; family captures rifix-*.txt. NEW pre-existing failure DISCLOSED: R14ProbeRedactSpace::proofMustFailHonestlyOnSurvivingSecrets (annotation-only attribution on offset+rotate) fails IDENTICALLY on the untouched base 4525f0e1 (rifix-base-R14ProbeRedactSpace.txt) — not this lane's defect; owner triage requested (annot hit-test vs userMark Y-convention on /Rotate pages) | commit 87c4acbc on feat/runintersects-precision |
 | Residual (carried): SignatureManager::signatureFieldAnchors pre-existing rotation-imperfect read on 90/270 (owner-owned, unchanged); chained annotation re-embed appends without /NM dedup (geometry unaffected; hygiene question for the annotation owner). | **open — carried** | — | — | — |
 ## 2026-09-23 — SWEEP-W2-GSD verification pass (gsd-verifier, feat/sweep-w2-gsd @ 26f767f0 + probe commits 242ee8f4/8233392f; no product-code changes by this lane)
+
+## 2026-09-23 — SWEEP-W2-GSD verification pass (gsd-verifier, feat/sweep-w2-gsd @ 26f767f0 + probe commits 242ee8f4/8233392f; no product-code changes by this lane)
+
 Second-doctrine (goal-backward) verification of the 10 implemented-awaiting-review rows still
 lacking an independent verdict. Full deliverable: docs/audit/SWEEP-W2-GSD-2026-09-21.md; evidence
 .context/gsd-evidence/ (committed-*-r1.txt x21 = 327P/0F/2 env skips; probe-w3-continuation.txt
 12/0; nc-*.txt x10). Method per row: falsifiable contract → committed suites → own probe slot →
 scoped NC (revert to named base → anchor MUST fail → restore → green). The EM-1..6, sanitize E-2
 and ri-fix rows above were flipped in place this pass. The two queue rows that had no ledger row:
+
 | Row | Verdict | Fix SHA (verified content) | Contract (what must be TRUE for a user) | Committed suites (this tip) | Independent probe | NC (revert → fail → restore → green) |
 |---|---|---|---|---|---|---|
 | F2b-D1 batch-preset store root | **verified (SWEEP-W2-GSD 2026-09-23)** | 72069bd8 (merged at 0b48c04c) | the FIRST preset save on a clean profile succeeds (store root auto-created); rename on a vanished root survives; refusal honest if creation is impossible | TestBatchPresets 15/0 | f2bd1_storeRootSurvivesDeepMissingAndBlockedPaths (deep a/b/c/presets root + blocked-parent honesty) | BatchPreset.cpp @ 72069bd8^ → probe FAIL + firstSaveOnCleanProfileCreatesStoreRoot FAIL ("cannot find the path specified") → restore → green (nc-F2bD1.txt) |
 | 2d29a16 three-state timestampAttempted | **verified (SWEEP-W2-GSD 2026-09-23)** | 2d29a16 (ancestor) | the B-B label floor applies ONLY to a KNOWN-failed TSA attempt; absence of an attempt never floors (empty-detail B_T preview reads B-T); garbage-token attempt still floors B-B | TestSignatureBadges 25/0, TestSweepW1SecProbe 6/0 | timestampAttemptedLabelTruthTable (three-row truth table) | attainedLevelLabel condition reverted to two-state → probe truth-table FAIL + EM-5-slot cross-effect FAIL (empty-detail B-LT refusal interpolates "B-B") + 3 TestSignatureBadges pins FAIL → restore → green (nc-timestamp.txt) |
+
 Findings: (1) the probe's EM-3 slot was non-discriminating on origin-0 MediaBoxes (passed under
 the NC revert while the committed pin failed) — strengthened with offset-origin [100 50 712 842]
 shapes in 8233392f; it now fails under the revert exactly where the defect predicts. (2) The

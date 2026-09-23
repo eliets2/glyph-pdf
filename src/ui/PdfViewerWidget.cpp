@@ -46,6 +46,7 @@
 #include "engines/podofo/PdfPageOps.h"
 #include <QMap>
 #include <QGraphicsColorizeEffect>
+#include "ui/NightModeEffect.h"
 #include <QScrollArea>
 #include <QLabel>
 #include <QDesktopServices>
@@ -260,6 +261,7 @@ PdfViewerWidget::PdfViewerWidget(QWidget *parent)
 
     // Setup TwoPage view
     m_twoPageScrollArea = new QScrollArea(container);
+    m_twoPageScrollArea->setObjectName("twoPageScrollArea");
     m_twoPageScrollArea->setAlignment(Qt::AlignCenter);
     QWidget *twoPageWidget = new QWidget();
     QHBoxLayout *twoPageLayout = new QHBoxLayout(twoPageWidget);
@@ -1086,19 +1088,38 @@ void PdfViewerWidget::paintTwoPageOverlays(QImage *pageImg, int pageIndex, qreal
 void PdfViewerWidget::toggleEyeCareMode()
 {
     m_eyeCareMode = !m_eyeCareMode;
-    if (m_eyeCareMode) {
-        if (!m_eyeCareEffect) {
-            m_eyeCareEffect = new QGraphicsColorizeEffect(this);
-            m_eyeCareEffect->setColor(QColor(245, 222, 179)); // Warm Sepia
-            m_eyeCareEffect->setStrength(0.5);
+    if (m_eyeCareMode) m_nightMode = false;   // one reading filter at a time
+    applyReadingFilter();
+}
+
+void PdfViewerWidget::toggleNightMode()
+{
+    m_nightMode = !m_nightMode;
+    if (m_nightMode) m_eyeCareMode = false;
+    applyReadingFilter();
+}
+
+// Installs the active reading filter on both page surfaces (the single-page
+// QPdfView and the two-page spread). Every call creates FRESH effects: a
+// QWidget owns exactly one effect and deletes it when it is replaced, so one
+// effect can neither be shared by the two surfaces nor kept across a toggle.
+// Eye Care used to cache its colorize effect — the first toggle-off deleted
+// it and the next toggle-on re-installed the dangling pointer.
+void PdfViewerWidget::applyReadingFilter()
+{
+    const QList<QWidget *> surfaces = { m_pdfView, m_twoPageScrollArea };
+    for (QWidget *surface : surfaces) {
+        if (!surface) continue;
+        if (m_nightMode) {
+            surface->setGraphicsEffect(new gp::NightModeEffect(this));
+        } else if (m_eyeCareMode) {
+            auto *sepia = new QGraphicsColorizeEffect(this);
+            sepia->setColor(QColor(245, 222, 179)); // Warm Sepia
+            sepia->setStrength(0.5);
+            surface->setGraphicsEffect(sepia);
+        } else {
+            surface->setGraphicsEffect(nullptr);
         }
-        m_pdfView->setGraphicsEffect(m_eyeCareEffect);
-        m_twoPageScrollArea->setGraphicsEffect(new QGraphicsColorizeEffect(this));
-        static_cast<QGraphicsColorizeEffect*>(m_twoPageScrollArea->graphicsEffect())->setColor(QColor(245, 222, 179));
-        static_cast<QGraphicsColorizeEffect*>(m_twoPageScrollArea->graphicsEffect())->setStrength(0.5);
-    } else {
-        m_pdfView->setGraphicsEffect(nullptr);
-        m_twoPageScrollArea->setGraphicsEffect(nullptr);
     }
 }
 

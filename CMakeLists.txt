@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(PdfWorkstation VERSION 1.3.2.3 LANGUAGES CXX)
+project(PdfWorkstation VERSION 1.4.0 LANGUAGES CXX)
 
 # MSYS2 ucrt64 — single coherent toolchain + Qt6 + all deps via pacman.
 # Explicit prefix paths so CMake resolves packages regardless of calling shell.
@@ -424,6 +424,7 @@ add_library(pdfws_engines STATIC
     src/engines/podofo/PdfStringEscape.h src/engines/podofo/PdfStringEscape.cpp
     src/engines/podofo/GlyphAdvanceCalculator.h src/engines/podofo/GlyphAdvanceCalculator.cpp
     src/engines/podofo/PoDoFoBackend.h src/engines/podofo/PoDoFoBackend.cpp
+    src/engines/podofo/ContentSpans.h src/engines/podofo/ContentSpans.cpp
     src/engines/podofo/PdfEncryptPubSec.h src/engines/podofo/PdfEncryptPubSec.cpp
     src/engines/podofo/PdfPageOps.h       src/engines/podofo/PdfPageOps.cpp
     src/engines/pdfium/PdfiumEnvironment.h src/engines/pdfium/PdfiumEnvironment.cpp
@@ -4501,6 +4502,33 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestTwoPageOverlay.cpp")
     )
 endif()
 
+# Reading filters: Night Mode (page-pixel inversion, Wave 2B viewing-parity
+# port) and Eye Care (sepia) — repeated toggling, mutual exclusion, and both
+# page surfaces (single-page view and two-page spread).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestViewingModes.cpp")
+    add_executable(TestViewingModes tests/TestViewingModes.cpp)
+    target_include_directories(TestViewingModes PRIVATE src tests)
+    target_link_libraries(TestViewingModes PRIVATE
+        pdfws_ui pdfws_engines pdfws_core podofo::podofo Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets
+    )
+    if(WIN32)
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestViewingModes POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestViewingModes>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestViewingModes"
+            )
+        endif()
+    endif()
+    add_test(NAME TestViewingModes COMMAND TestViewingModes)
+    set_tests_properties(TestViewingModes PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;viewing;nightmode;eyecare;regression;qt;headless"
+    )
+endif()
+
 # §9.7 P0 regression test: the signature tool must grow Draw/Type/Upload modes
 # that feed the SAME annotation persistence as Draw (typed/uploaded signatures
 # persist as real PDF annotations and survive a save/reload round-trip).
@@ -5005,6 +5033,102 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestHistoryIntegrity.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
         LABELS "unit;history;commands;undo;persistence;qt;headless"
+    )
+endif()
+
+# Image stacking order + opacity (Wave 2B/2C port): gp::content byte-exact
+# edits, then the real engine judged by rendered pixels at the images' overlap.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestImageAppearance.cpp")
+    add_executable(TestImageAppearance
+        tests/TestImageAppearance.cpp
+        src/engines/DocumentSession.cpp
+    )
+    target_include_directories(TestImageAppearance PRIVATE src tests)
+    target_link_libraries(TestImageAppearance PRIVATE
+        pdfws_engines pdfws_core pdfws_commands podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf
+    )
+    add_custom_command(TARGET TestImageAppearance POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestImageAppearance>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestImageAppearance>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestImageAppearance"
+    )
+    if(WIN32)
+        add_custom_command(TARGET TestImageAppearance POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestImageAppearance>/libpodofo.dll"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestImageAppearance"
+        )
+    endif()
+    add_test(NAME TestImageAppearance COMMAND TestImageAppearance)
+    set_tests_properties(TestImageAppearance PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;editing;image;zorder;opacity;commands;undo;qt;headless"
+    )
+endif()
+
+# PDF → Word/Excel export (Wave 1A §9.5, ported from feature/editing-parity):
+# the output must be what its extension promises — a real OOXML ZIP, or the
+# documented HTML/CSV fallback — and a missing input must fail, not "succeed".
+# The test sniffs the output bytes because HAS_DUCKX/HAS_OPENXLSX are PRIVATE
+# definitions of pdfws_engines.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOfficeExport.cpp")
+    add_executable(TestOfficeExport tests/TestOfficeExport.cpp)
+    target_include_directories(TestOfficeExport PRIVATE src tests)
+    target_compile_definitions(TestOfficeExport PRIVATE
+        $<TARGET_PROPERTY:pdfws_engines,INTERFACE_COMPILE_DEFINITIONS>)
+    target_link_libraries(TestOfficeExport PRIVATE
+        pdfws_engines pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+    )
+    if(WIN32)
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestOfficeExport POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestOfficeExport>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestOfficeExport"
+            )
+        endif()
+    endif()
+    add_test(NAME TestOfficeExport COMMAND TestOfficeExport)
+    set_tests_properties(TestOfficeExport PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;convert;office;export;ooxml;qt;headless"
+    )
+endif()
+
+# Inline text edit style (Wave 2B/2C port): letter spacing, line spacing and
+# opacity, judged on the rendered page — including that a translucent edit
+# never lets the replaced text show through its white cover.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestTextEditStyle.cpp")
+    add_executable(TestTextEditStyle tests/TestTextEditStyle.cpp)
+    target_include_directories(TestTextEditStyle PRIVATE src tests)
+    target_link_libraries(TestTextEditStyle PRIVATE
+        pdfws_engines pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf
+    )
+    if(WIN32)
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestTextEditStyle POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestTextEditStyle>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestTextEditStyle"
+            )
+        endif()
+    endif()
+    add_test(NAME TestTextEditStyle COMMAND TestTextEditStyle)
+    set_tests_properties(TestTextEditStyle PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;editing;text;opacity;spacing;qt;headless"
     )
 endif()
 
@@ -5608,3 +5732,20 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/W2CProbeRotate270.cpp")
         endif()
     endif()
 endif()
+
+# ── Per-test temp roots ─────────────────────────────────────────────────────
+# SafeSave stages every write under <QDir::tempPath()>/glyphpdf-candidates, and
+# several suites prove "no candidate left behind" by listing that directory
+# (after sweeping debris at start). With one shared temp root, a parallel ctest
+# run let those suites delete each other's in-flight candidates and count each
+# other's transient files: TestFormSafety, TestEngineSave,
+# TestEncryptedPackageSafeWrite and TestWelcomeRoutes failed under -j6 while
+# passing alone. Every test gets its own temp root (TMP/TEMP on Windows,
+# TMPDIR elsewhere), so the candidate directory is per test process.
+get_property(_gp_all_tests DIRECTORY PROPERTY TESTS)
+foreach(_gp_test IN LISTS _gp_all_tests)
+    set(_gp_test_tmp "${CMAKE_BINARY_DIR}/test-tmp/${_gp_test}")
+    file(MAKE_DIRECTORY "${_gp_test_tmp}")
+    set_property(TEST ${_gp_test} APPEND PROPERTY ENVIRONMENT
+        "TMP=${_gp_test_tmp}" "TEMP=${_gp_test_tmp}" "TMPDIR=${_gp_test_tmp}")
+endforeach()

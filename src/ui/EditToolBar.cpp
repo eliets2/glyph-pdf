@@ -100,6 +100,24 @@ void EditToolBar::createActions()
     btnColor->setDefaultAction(colorAct);
     fmtLayout->addWidget(btnColor);
 
+    // Text style for the next inline edit: opacity, letter and line spacing.
+    opacityCombo = new QComboBox(formatWidget);
+    opacityCombo->setToolTip(tr("Text opacity"));
+    for (int pct : {100, 90, 75, 50, 25})
+        opacityCombo->addItem(tr("%1%").arg(pct), pct / 100.0);
+    fmtLayout->addWidget(opacityCombo);
+    letterSpacingCombo = new QComboBox(formatWidget);
+    letterSpacingCombo->setToolTip(tr("Letter spacing"));
+    letterSpacingCombo->addItem(tr("Letters: normal"), 0.0);
+    for (double pt : {1.0, 2.0, 4.0})
+        letterSpacingCombo->addItem(tr("Letters: +%1 pt").arg(pt), pt);
+    fmtLayout->addWidget(letterSpacingCombo);
+    lineSpacingCombo = new QComboBox(formatWidget);
+    lineSpacingCombo->setToolTip(tr("Line spacing"));
+    for (double f : {1.0, 1.15, 1.5, 2.0})
+        lineSpacingCombo->addItem(tr("Lines: %1x").arg(f), f);
+    fmtLayout->addWidget(lineSpacingCombo);
+
     addWidget(formatWidget);
     formatWidget->hide(); // hidden by default
 
@@ -113,6 +131,8 @@ void EditToolBar::createActions()
     connect(alignLeftAct, &QAction::toggled, this, &EditToolBar::emitFormatChanged);
     connect(alignCenterAct, &QAction::toggled, this, &EditToolBar::emitFormatChanged);
     connect(alignRightAct, &QAction::toggled, this, &EditToolBar::emitFormatChanged);
+    for (QComboBox *combo : {opacityCombo, letterSpacingCombo, lineSpacingCombo})
+        connect(combo, &QComboBox::currentIndexChanged, this, &EditToolBar::emitStyleChanged);
     connect(colorAct, &QAction::triggered, this, [this]() {
         QColor c = QColorDialog::getColor(currentColor, this, tr("Select Text Color"));
         if (c.isValid()) {
@@ -129,6 +149,13 @@ void EditToolBar::updateFormatVisibility(ToolMode mode)
     } else {
         formatWidget->hide();
     }
+}
+
+void EditToolBar::emitStyleChanged()
+{
+    emit textStyleChanged(opacityCombo->currentData().toDouble(),
+                          letterSpacingCombo->currentData().toDouble(),
+                          lineSpacingCombo->currentData().toDouble());
 }
 
 void EditToolBar::emitFormatChanged()

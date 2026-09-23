@@ -130,6 +130,14 @@ public:
     void setPageMode(QPdfView::PageMode mode);
     void setTwoPageMode(bool enabled);
     void toggleEyeCareMode();
+    bool isEyeCareMode() const { return m_eyeCareMode; }
+    // Night Mode: full RGB inversion of the rendered page pixels (dark page,
+    // light text) — distinct from Dark Mode (application chrome only) and Eye
+    // Care (a sepia tint that leaves the page background bright). The two
+    // reading filters share the page surfaces, so enabling one turns the
+    // other off.
+    void toggleNightMode();
+    bool isNightMode() const { return m_nightMode; }
     void setOverlayImage(const QImage &img);
 
     // Export
@@ -279,7 +287,11 @@ private:
     // View Modes
     bool m_twoPageMode = false;
     bool m_eyeCareMode = false;
-    class QGraphicsColorizeEffect *m_eyeCareEffect = nullptr;
+    bool m_nightMode = false;
+    // Reading-filter effects are NOT cached: QWidget::setGraphicsEffect()
+    // deletes the installed effect when another one (or nullptr) replaces it,
+    // so a cached pointer dangles after the first toggle-off.
+    void applyReadingFilter();
     class QScrollArea *m_twoPageScrollArea = nullptr;
     class QLabel *m_leftPageLabel = nullptr;
     class QLabel *m_rightPageLabel = nullptr;

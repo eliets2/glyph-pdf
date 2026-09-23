@@ -16,6 +16,10 @@ CropPageCommand::CropPageCommand(IPdfEditorEngine* engine, DocumentSession* doc,
 // same ownership rule EditFormFieldCommand documents).
 void CropPageCommand::redo()
 {
+    if (consumeArmedApply()) {
+        m_succeeded = true;   // checked traversal already applied; index-move only
+        return;
+    }
     m_succeeded = false;
     m_error.clear();
     if (!performMutation(&m_error)) {

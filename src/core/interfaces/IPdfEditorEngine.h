@@ -235,10 +235,15 @@ public:
     //     …): index must be in [0, count);
     //   - insert-at (insertPageFromBytes, insertBlankPage): atIndex may be
     //     count, i.e. [0, count] inclusive (append at the end).
+    // opacity (0..1) applies to the new text only; letterSpacing is PDF Tc
+    // (points after every glyph); lineSpacing multiplies the 1.2 x size line
+    // pitch. The defaults reproduce the previous output exactly.
     virtual bool editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
                                 const QString &fontFamily = "", int fontSize = 0,
                                 const QColor &color = Qt::black, bool bold = false,
-                                bool italic = false, int alignment = 0) = 0;
+                                bool italic = false, int alignment = 0,
+                                double opacity = 1.0, double letterSpacing = 0.0,
+                                double lineSpacing = 1.0) = 0;
     virtual bool deleteObjectAt(int pageIndex, const QPointF &pos) = 0;
     virtual bool rotatePage(const QString &path, int pageIndex, int degrees) = 0;
     virtual QByteArray extractPageAsBytes(const QString &path, int pageIndex) = 0;
@@ -320,6 +325,16 @@ public:
     virtual bool rotateImage(int pageIndex, const QString &xobjectName, double degrees) = 0;
     virtual bool replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath) = 0;
     virtual bool deleteImage(int pageIndex, const QString &xobjectName) = 0;
+    /// Stacking order: moves the image's own q..Q block to the end (front) or
+    /// start (back) of its parent block — later operators paint on top.
+    /// Refuses (false, document untouched) when the image is not isolated in
+    /// its own graphics state or the move would cross a cm/gs/clip. Already
+    /// front-/backmost is success with nothing changed.
+    virtual bool setImageZOrder(int pageIndex, const QString &xobjectName, bool bringToFront) = 0;
+    /// Constant opacity (0..1) for the image's first placement: its Do is
+    /// wrapped in "q /GS gs … Q" with an ExtGState (/ca /CA); setting it again
+    /// updates that ExtGState instead of nesting another wrap.
+    virtual bool setImageOpacity(int pageIndex, const QString &xobjectName, double opacity) = 0;
     virtual bool addTextWatermark(const TextWatermarkOptions &options) = 0;
     virtual bool addImageWatermark(const ImageWatermarkOptions &options) = 0;
 };

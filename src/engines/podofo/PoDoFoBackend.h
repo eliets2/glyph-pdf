@@ -71,7 +71,9 @@ public:
     bool editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
                         const QString &fontFamily = "", int fontSize = 0,
                         const QColor &color = Qt::black, bool bold = false,
-                        bool italic = false, int alignment = 0);
+                        bool italic = false, int alignment = 0,
+                        double opacity = 1.0, double letterSpacing = 0.0,
+                        double lineSpacing = 1.0);
     bool deleteObjectAt(int pageIndex, const QPointF &pos);
     bool applyRedactions(int pageIndex, const QList<QRectF> &rects);
 
@@ -141,6 +143,10 @@ public:
     bool rotateImage(int pageIndex, const QString &xobjectName, double degrees);
     bool replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath);
     bool deleteImage(int pageIndex, const QString &xobjectName);
+    // Byte-exact content edits via gp::content (ContentSpans.h); both refuse,
+    // leaving the document untouched, when the edit could restyle the image.
+    bool setImageZOrder(int pageIndex, const QString &xobjectName, bool bringToFront);
+    bool setImageOpacity(int pageIndex, const QString &xobjectName, double opacity);
 
     // Watermarking (Session 13)
     bool addTextWatermark(const TextWatermarkOptions &options);

@@ -41,7 +41,9 @@ public:
     bool editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
                         const QString &fontFamily = "", int fontSize = 0,
                         const QColor &color = Qt::black, bool bold = false,
-                        bool italic = false, int alignment = 0) override;
+                        bool italic = false, int alignment = 0,
+                        double opacity = 1.0, double letterSpacing = 0.0,
+                        double lineSpacing = 1.0) override;
     bool deleteObjectAt(int pageIndex, const QPointF &pos) override;
     
     // QPDF/Structural tasks
@@ -104,6 +106,8 @@ public:
     bool rotateImage(int pageIndex, const QString &xobjectName, double degrees) override;
     bool replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath) override;
     bool deleteImage(int pageIndex, const QString &xobjectName) override;
+    bool setImageZOrder(int pageIndex, const QString &xobjectName, bool bringToFront) override;
+    bool setImageOpacity(int pageIndex, const QString &xobjectName, double opacity) override;
     bool applyRedactions(int pageIndex, const QList<QRectF> &rects) override;
     bool applyMarkRedactions(const QList<AnnotationItem>& marks) override;
     // T2-2 (ITextReplacer): Find & Replace engine seam — see ITextReplacer.

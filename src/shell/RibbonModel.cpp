@@ -138,7 +138,7 @@ static RibbonTabDef makeView() {
         { "Zoom", {{ "zoomIn","Zoom In","zoomIn",true },{ "zoomOut","Zoom Out","zoomOut",false },{ "actual","Actual Size","zoomIn",false },{ "fitWidth","Fit Width","zoomIn",false },{ "fitPage","Fit Page","zoomIn",false }}},
         { "Layout", {{ "single","Single Page","form",true },{ "continuous","Continuous","form",false },{ "two","Two Up","form",false },{ "presentation","Presentation","form",false }}},
         { "Panes", {{ "thumbs","Thumbnails","reorder",true },{ "bookmarks","Bookmarks","note",false },{ "comments","Comments","comment",false },{ "layers","Layers","reorder",false }}},
-        { "Reading", {{ "darkMode","Dark Mode","rotate",true },{ "eyeCare","Eye Care","rotate",false },{ "rtl","RTL","rotate",false }}},
+        { "Reading", {{ "darkMode","Dark Mode","rotate",true },{ "eyeCare","Eye Care","rotate",false },{ "nightMode","Night Mode","rotate",false },{ "rtl","RTL","rotate",false }}},
         { "Window", {{ "splitWin","Split","compare",true },{ "compare","Compare","compare",true },{ "newWin","New","form",false }}},
     }};
 }
