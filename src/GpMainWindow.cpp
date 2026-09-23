@@ -1249,6 +1249,10 @@ void MainWindow::onScreenSelected(const QString& id) {
             // the FormManager seam for /TU live here, the panel stays a view.
             _a11yPanel->setFixRunner(
                 [this](const gp::A11yFixRequest& req) { return runA11yFix(req); });
+            // T2-4 P2: tagging runs through the shell too — the resident
+            // document must be parked for the same-file transaction.
+            _a11yPanel->setTagRunner(
+                [this](const QString& path) { return runA11yTag(path); });
             connect(_a11yPanel, &AccessibilityPanel::documentMutated, this,
                     [this](const QString& m) { _status->setOperation(m); });
         }
@@ -1330,6 +1334,14 @@ gp::A11yFixOutcome MainWindow::runA11yFix(const gp::A11yFixRequest& request) {
     }
 
     return gp::applyAccessibilityFix(path, request);
+}
+
+gp::TaggerReport MainWindow::runA11yTag(const QString& path) {
+    auto* viewer = pdfViewer();
+    const QString openPath = viewer ? viewer->filePath() : QString();
+    if (openPath == path)
+        _ctx->pdfEditor->releaseResidentFile(path);
+    return gp::tagDocumentAccessibility(path);
 }
 
 void MainWindow::replaceRight(QWidget* w) {

@@ -402,6 +402,10 @@ add_library(pdfws_engines STATIC
     src/engines/PoFoDictRead.h
     src/engines/AccessibilityChecker.h src/engines/AccessibilityChecker.cpp
     src/engines/AccessibilityFixes.h   src/engines/AccessibilityFixes.cpp
+    # T2-4 accessibility P2: the auto-tagging engine — raw-dict structure-tree
+    # construction + BDC/EMC content-stream rewrite behind a text-preservation
+    # invariant (paragraphs + headings only; /Alt never auto-generated).
+    src/engines/AccessibilityTagger.h  src/engines/AccessibilityTagger.cpp
     src/engines/formjs/AFormShim.h   src/engines/formjs/AFormShim.cpp
     src/engines/formjs/FormJsSandbox.h src/engines/formjs/FormJsSandbox.cpp
     src/engines/formjs/FormJsRunner.h src/engines/formjs/FormJsRunner.cpp
@@ -2385,6 +2389,26 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAccessibilityFixes.cpp")
         # fault + shared SafeSave candidate temp dir — run alone.
         RUN_SERIAL TRUE
         LABELS "unit;accessibility;a11y-fixes;qt;headless"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAccessibilityTagger.cpp")
+    add_executable(TestAccessibilityTagger tests/TestAccessibilityTagger.cpp)
+    target_include_directories(TestAccessibilityTagger PRIVATE src tests)
+    target_link_libraries(TestAccessibilityTagger PRIVATE
+        pdfws_engines pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_test(NAME TestAccessibilityTagger COMMAND TestAccessibilityTagger)
+    set_tests_properties(TestAccessibilityTagger PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 240
+        # Same seam class as TestAccessibilityFixes: the commit-fault seam is
+        # process-global and SafeSave candidates share one temp dir — run
+        # alone. The tagging transaction itself is multi-second for larger
+        # fixtures (rewrite + independent reopen per page).
+        RUN_SERIAL TRUE
+        LABELS "unit;accessibility;a11y-tagger;qt;headless"
     )
 endif()
 
