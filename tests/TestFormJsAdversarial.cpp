@@ -759,6 +759,7 @@ private slots:
                 exceptionFailure = true;
         QVERIFY2(exceptionFailure, "the inherited-op refusal must be disclosed");
     }
+
     // PGR-37 (the fix): a script that sets event.value to NaN or ±Infinity
     // produced hasValue=true with a JSON-null payload — the cascade then
     // wrote "" and silently WIPED the committed /V. Non-finite numbers are
