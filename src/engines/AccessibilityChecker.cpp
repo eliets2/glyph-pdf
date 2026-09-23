@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "AccessibilityChecker.h"
 
+#include "PoFoDictRead.h"
+
 #include <podofo/podofo.h>
 
 #include <QFile>
@@ -30,26 +32,9 @@ using PoDoFo::PdfString;
 namespace gp {
 namespace {
 
-// Resolve an indirect (or direct) object.
-const PdfObject* resolve(const PdfObject* obj, PoDoFo::PdfMemDocument& doc) {
-    if (obj == nullptr) return nullptr;
-    if (obj->IsReference()) {
-        try {
-            return &doc.GetObjects().MustGetObject(obj->GetReference());
-        } catch (const PoDoFo::PdfError&) {
-            return nullptr;
-        }
-    }
-    return obj;
-}
-
-// First non-empty string from a dictionary text key.
-QString stringAt(const PdfDictionary& dict, const char* key) {
-    const PdfObject* o = dict.FindKey(PdfName(key));
-    if (o == nullptr || !o->IsString()) return {};
-    return QString::fromUtf8(o->GetString().GetString().data(),
-                             static_cast<qsizetype>(o->GetString().GetString().size()));
-}
+// Shared read-only dictionary helpers (resolve / stringAt) — PoFoDictRead.h.
+using PoFoRead::resolve;
+using PoFoRead::stringAt;
 
 bool isImageSubtype(const PdfDictionary& dict) {
     const PdfObject* sub = dict.FindKey(PdfName("Subtype"));

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "AccessibilityFixes.h"
 
+#include "PoFoDictRead.h"
 #include "SafeSave.h"
 
 #include <QFile>
@@ -26,24 +27,9 @@ using PoDoFo::PdfString;
 namespace gp {
 namespace {
 
-const PdfObject* resolve(const PdfObject* obj, PoDoFo::PdfMemDocument& doc) {
-    if (obj == nullptr) return nullptr;
-    if (obj->IsReference()) {
-        try {
-            return &doc.GetObjects().MustGetObject(obj->GetReference());
-        } catch (const PoDoFo::PdfError&) {
-            return nullptr;
-        }
-    }
-    return obj;
-}
-
-QString stringAt(const PdfDictionary& dict, const char* key) {
-    const PdfObject* o = dict.FindKey(PdfName(key));
-    if (o == nullptr || !o->IsString()) return {};
-    return QString::fromUtf8(o->GetString().GetString().data(),
-                             static_cast<qsizetype>(o->GetString().GetString().size()));
-}
+// Shared read-only dictionary helpers (resolve / stringAt) — PoFoDictRead.h.
+using PoFoRead::resolve;
+using PoFoRead::stringAt;
 
 // Independent candidate validation: reopen the candidate from disk and
 // verify the expected key/value. Returns empty when valid, else a reason.

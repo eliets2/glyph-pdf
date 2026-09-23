@@ -2,6 +2,7 @@
 #include "core/BatchPreset.h"
 
 #include "core/Capability.h"
+#include "core/VersionedJson.h"
 #include "engines/PatternRedactor.h" // namedPattern(): the built-in redaction preset keys
 
 #include <QDate>
@@ -13,7 +14,6 @@
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QRegularExpression>
-#include <QSaveFile>
 #include <QSet>
 #include <QStandardPaths>
 
@@ -888,16 +888,9 @@ bool BatchPresetStore::save(BatchPreset* preset, QString* err) {
 
     const QString path =
         QDir(m_rootDir).filePath(preset->id + QStringLiteral(".glyphpreset.json"));
-    QSaveFile f(path);
-    if (!f.open(QIODevice::WriteOnly))
-        return fail(err, QStringLiteral("%1: cannot open for writing — %2")
-                                   .arg(path, f.errorString()));
-    if (f.write(BatchPresetCodec::serialize(*preset)) < 0)
-        return fail(err, QStringLiteral("%1: write failed — %2").arg(path, f.errorString()));
-    if (!f.commit())
-        return fail(err, QStringLiteral("%1: commit failed — %2")
-                                   .arg(path, f.errorString()));
-    return true;
+    // Canonical versioned-artifact commit (shared mechanic; the store never
+    // creates directories — a missing root is an honest write refusal).
+    return VersionedJson::atomicWrite(path, BatchPresetCodec::serialize(*preset), err);
 }
 
 bool BatchPresetStore::rename(const QString& id, const QString& newName, QString* err) {
@@ -916,16 +909,7 @@ bool BatchPresetStore::rename(const QString& id, const QString& newName, QString
                                    .arg(m_rootDir));
     const QString path =
         QDir(m_rootDir).filePath(id + QStringLiteral(".glyphpreset.json"));
-    QSaveFile f(path);
-    if (!f.open(QIODevice::WriteOnly))
-        return fail(err, QStringLiteral("%1: cannot open for writing — %2")
-                                   .arg(path, f.errorString()));
-    if (f.write(BatchPresetCodec::serialize(p)) < 0)
-        return fail(err, QStringLiteral("%1: write failed — %2").arg(path, f.errorString()));
-    if (!f.commit())
-        return fail(err, QStringLiteral("%1: commit failed — %2")
-                                   .arg(path, f.errorString()));
-    return true;
+    return VersionedJson::atomicWrite(path, BatchPresetCodec::serialize(p), err);
 }
 
 bool BatchPresetStore::remove(const QString& id, QString* err) {
