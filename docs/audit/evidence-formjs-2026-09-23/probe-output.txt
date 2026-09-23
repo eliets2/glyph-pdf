@@ -1,0 +1,6 @@
+baseline loop 1e8                      dl= 150ms  wall=   151.0ms  exceptionInternalError
+ReDoS fail-match 24a+b                 dl= 150ms  wall=   151.0ms  exceptionInternalError
+ReDoS replace 24a+b                    dl= 150ms  wall=   151.0ms  exceptionInternalError
+ReDoS test 28a+b                       dl= 150ms  wall=   151.0ms  exceptionInternalError
+nested quantifier 40 chars             dl= 150ms  wall=   151.0ms  exceptionInternalError
+Array(2^31).join('a')                  dl= 150ms  wall= 27406.0ms  exceptionInternalError

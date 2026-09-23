@@ -382,7 +382,7 @@ private slots:
     // (indexOf/includes/lastIndexOf/flat/sort/join) never poll the interrupt
     // handler and never allocate per hole, so neither the deadline nor the
     // memory cap can stop them. Measured on the pinned quickjs-ng 0.15.0 with
-    // this exact sandbox contract (see .context/qjs-probe.c):
+    // this exact sandbox contract (see docs/audit/evidence-formjs-2026-09-23/qjs-probe.c):
     //   Array(2^31).indexOf  → 44.8 s   includes → 53.2 s   flat → 61.8 s
     // One expression in a Format/Calculate script freezes the UI thread
     // unkillably. Upstream quickjs-ng added interrupt checks to the array
@@ -403,7 +403,7 @@ private slots:
                   "sparse-array scans (upstream added array-method interrupt checks "
                   "after 0.15.0; MSYS2 still packages 0.15.0-1). This pin asserts the "
                   "deadline bound automatically once the dependency is bumped. See "
-                  "docs/audit/FORMJS-THREAT-MODEL-2026-09-24.md and .context/qjs-probe.c.");
+                  "docs/audit/FORMJS-THREAT-MODEL-2026-09-24.md and docs/audit/evidence-formjs-2026-09-23/ (probe + captured output).");
         QVERIFY2(ms < 2500, qPrintable(QStringLiteral("native scan ran %1 ms").arg(ms)));
         QCOMPARE(r.kind, gp::formjs::JsErrorKind::Timeout);
     }
