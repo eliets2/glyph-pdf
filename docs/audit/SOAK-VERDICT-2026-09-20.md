@@ -322,3 +322,30 @@ real soak. 0 app cycles recorded.
   `791749b562c1cd2bc2056e09fe8e6a6d0c93e55fe94026dc1551c880df31244c`.
 - Windows event-log queries and file hashes in this document were taken
   2026-09-20 on the soak host (PCELIE).
+
+---
+
+## 12. Addendum — re-soak started 2026-09-20 (written by the R25b lane)
+
+The §10.1 re-soak started the same day this verdict was written, with two
+deltas mandated by the re-soak brief:
+
+- **The candidate advanced.** The re-soak runs `b17106a3982fb79c5ddb67000151d4d407a5e9bf`
+  (current `feat/parity-glm` tip, six major waves after this verdict's pinned
+  `2f755244`), branch `feat/soak-48h-resume` in worktree pdf-keyC. Rebuilt
+  Release (cmake/ninja/stage all exit 0): **new exe SHA-256
+  `509da2c8fc602411c6c1cfe45f7603ca1ede42f4d77af97058330b985f867853`**
+  (16,666,639 bytes), recorded here per the re-soak brief. This verdict's
+  binary analysis (SHA `791749b5…1244c`) remains valid for `2f755244` only;
+  endurance evidence is re-established for `b17106a` by the re-soak.
+- **The loop is reboot-resilient** (the §1/§8 kill class can no longer end the
+  soak): per-pass heartbeat + `GlyphPDFResoak` logon Scheduled Task + relaunch
+  guard (heartbeat stale >30 min) + `RESTART DETECTED resuming at pass N`
+  markers + continuing pass numbers + 48 h window pinned to first start. The
+  resume path was proven live on day one via a controlled kill drill.
+
+Details, pre-soak gate (three 170/171 runs, different one-off flake each —
+no deterministic red), the new pre-declared `TestLaneScheduler` timing flake,
+the TestSanitization ×3 clean pre-check at the new tip, and the verdict
+protocol: **[RESOAK-2026-09-20.md](RESOAK-2026-09-20.md)**.
+Re-soak window: 2026-09-20T20:49:07+03 → 2026-09-22T20:49:07+03.
