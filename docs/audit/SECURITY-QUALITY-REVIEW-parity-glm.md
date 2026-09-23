@@ -318,7 +318,7 @@ The review snapshot was `9ba3cea`. The consolidated PR carries the line **up to 
 
 | Area | New / changed code | Why it matters |
 |------|-------------------|----------------|
-| `src/engines/formjs/` — **JavaScript runtime for PDF forms** | `AFormShim.cpp` (845 lines), `FormJsRunner.cpp` (680), `FormJsSandbox.cpp` (605) | Runs document-supplied script. Sandbox escape, resource limits, re-entrancy and host-API exposure are all untested by any review. **Highest priority.** |
+| `src/engines/formjs/` — **JavaScript runtime for PDF forms** | `AFormShim.cpp` (845 lines), `FormJsRunner.cpp` (680), `FormJsSandbox.cpp` (605) | Runs document-supplied script. Sandbox escape, resource limits, re-entrancy and host-API exposure are all untested by any review. **Highest priority.** ~~untested~~ → **Reviewed 2026-09-23/24 — see §10** |
 | Batch presets | `BatchPreset.cpp` (926) | Persisted, user-shareable batch definitions: parsing, path handling, destructive-operation defaults |
 | Signing requests | `SigningRequestRunner.cpp` (496) | Creates signature fields in place (R26) |
 | Batch | `BatchMode.cpp` (+1,081) | Destructive multi-file operations |
@@ -346,7 +346,7 @@ Recommended: run the review workflow (or `/code-review ultra`, which is user-tri
 | capability / measure | ✅ | workflow | ✅ findings |
 | shell / architecture | ✅ | workflow | ✅ findings |
 | UI | ✅ | workflow | ✅ findings |
-| **forms JavaScript (formjs)** | ❌ (new after `9ba3cea`) | — | — |
+| **forms JavaScript (formjs)** | ❌ (new after `9ba3cea`) | adversarial review lane · attack stories · 24-test adversarial suite | ✅ §10 — PGR-35..39 fixed, PGR-40/41 deferred with reasons |
 
 "Re-verified" means the listed findings were re-read at the PR head. It does not mean the lane's later code was reviewed; see §7.
 
@@ -364,3 +364,42 @@ Static red-flag sweep across the reviewed 37K-line diff: **clean** (no weakened 
 ---
 
 *Companion document (raw per-finding detail, all 49 candidates with reproduction scenarios): [`PARITY-GLM-REVIEW-2026-09-13-FINDINGS.md`](PARITY-GLM-REVIEW-2026-09-13-FINDINGS.md).*
+
+---
+
+## 10. Delta review — the formjs lane (2026-09-23/24)
+
+The §7 highest-priority area — the never-reviewed JavaScript runtime for PDF
+forms (`src/engines/formjs/`, quickjs-ng 0.15.0) — was reviewed as its own
+adversarial lane on branch `feat/formjs-review` (base `8a0a8b3d`, the PR
+head). Method: every checklist item attacked as an adversary would
+(prototype-pollution chains, host-object reaches, budget-interaction
+exploits), findings ranked by exploitability, results written as attack
+stories. Full detail, attack narratives and evidence:
+**[`FORMJS-THREAT-MODEL-2026-09-24.md`](FORMJS-THREAT-MODEL-2026-09-24.md)**.
+
+New adversarial suite: `tests/TestFormJsAdversarial.cpp` — 24 tests, 0
+failed, 1 disclosed skip. All prior formjs suites stay green:
+`TestFormJsCalc` 49/49, `TestFormKeystroke` 9/9.
+
+| ID | Sev | Where | Defect (attack story) | Status |
+|----|-----|-------|------------------------|--------|
+| PGR-35 | HIGH | `FormFieldPropertiesPanel.cpp` (6 labels + apply dialog), `FormsController.cpp` (2 import dialogs) | Document-derived text — script failure reasons and a FORMAT script's **output** — rendered as rich text in disclosure labels/dialogs: UI spoofing inside the trusted chrome, `<img>` local-file/UNC beacons. | **Fixed** (`fix(forms-security)…`, `155f3bb7`): `Qt::PlainText` on every disclosure surface; test drives the real panel offscreen through a hostile `/AA /K` rejection and `/AA /F` preview |
+| PGR-36 | MED | `AFormShim.cpp` `AFSimple_Calculate` | `op in actions` walked the prototype chain — `AFSimple_Calculate('toString', …)` accepted inherited names as operations and silently wrote garbage to `/V`. | **Fixed** (`dc3240e9`): own-property membership; honest TypeError; field keeps its committed value |
+| PGR-37 | MED | `AFormShim.cpp` `__gpEndEvent` | `event.value = 0/0` → JSON null with `hasValue=true` → the cascade silently **wiped the committed `/V`** at every save. | **Fixed** (`77b57a7e`): non-finite number = no usable value; committed value stands |
+| PGR-38 | LOW | `FormJsSandbox.cpp` `installFieldSnapshot` | JSON embedded as a JS object literal: a field literally named `__proto__` vanished from every script's view (the literal invokes the setter; JSON.parse defines an own property). | **Fixed** (`f6e1953c`): embed via `JSON.parse` of an escaped string literal |
+| PGR-39 | LOW | `AFormShim.cpp` | The shim leaked 9 internal helpers (`__printf`, `__scand`, …) as writable globals beyond the documented surface — rewireable by scripts for later cascade events. | **Fixed** (`f6e1953c`): shim body wrapped in an IIFE; surface pin tightened to exactly the documented set |
+| PGR-40 | HIGH | quickjs-ng **0.15.0** (pinned dependency) | **CPU-deadline bypass:** native sparse-array scans never poll the interrupt handler and never allocate per hole — `Array(2^31).indexOf` 44.8 s, `includes` 53.2 s, `lastIndexOf` 56.6 s, `flat` 61.8 s, `sort(2^28)` 12.8 s, `join` 37 s, measured with the exact sandbox contract. One expression in any `/AA` script = unkillable UI freeze, repeatable per save/keystroke. | **Deferred — dependency bump.** Upstream added array-method interrupt checks after 0.15.0 (verified in master); MSYS2 still packages 0.15.0-1 (verified 2026-09-23). Probe harness in `.context/qjs-probe.c`; the suite's `nativeSparseArrayScansAbideTheDeadline` pin auto-arms when the package is bumped |
+| PGR-41 | LOW | `FormJsRunner.cpp` cascade | Cross-event tamper window: a script ending without a committed write leaves its rewiring of the shared sandbox in place for the next event's inputs. Platform-inherent (Acrobat/pdf.js share it); proposed fix is a fresh runtime per event — design decision. | **Deferred**, characterized by a pinned test that flips deliberately |
+
+Refuted by attack (worth recording): catastrophic regex backtracking IS
+interrupt-polled in quickjs-ng 0.15.0 (all ReDoS probes abort exactly at the
+deadline); no host capability is reachable through the `Function`
+constructor, indirect eval, or the async-function machinery; the host never
+pumps promise jobs, so async continuations never run at all; the engine
+global surface is exactly the documented shim set.
+
+Lane commits, in order: `697e7dcf` (adversarial suite) → `155f3bb7` (PGR-35)
+→ `dc3240e9` (PGR-36) → `77b57a7e` (PGR-37) → `f6e1953c` (PGR-38+39) → the
+threat model + this section. Every fix commit is test-backed; no test was
+weakened (one characterization pin was tightened in its fix commit).
