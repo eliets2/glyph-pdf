@@ -1,0 +1,27 @@
+********* Start testing of TestSweepW3UxFlows *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSweepW3UxFlows::initTestCase()
+QWARN  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F1 start: fixture C:/Users/User/AppData/Local/Temp/TestSweepW3UxFlows-zJgSPP/report.pdf
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F-route: clicking welcome card 'open'
+QWARN  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F1 step1: open landed — page count 1
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F1 step2: highlight tool armed via production dispatch
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F1 step3: DRAG DID NOT PLACE (offscreen harness limitation) — staged via the viewer annotation model
+QDEBUG : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/TestSweepW3UxFlows-zJgSPP/report.pdf"
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F4 step4: save-in-place dispatched
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F1 step4 verified: reopen shows 1 annotation(s)
+QWARN  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() This plugin does not support propagateSizeHints()
+QWARN  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: clicked prompt button 'Yes' on 'Save Document As' (question: 'existing.pdf already exists.
+Do you want to replace it?')
+QDEBUG : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/TestSweepW3UxFlows-zJgSPP/existing.pdf"
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F1 step5 verified: guard prompt answered Yes; target rewritten (size 14338 ? 11009)
+QWARN  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: decline path: the save dialog stayed open for another choice - dismissing
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F1 step6: decline prompt never appeared (noSeen=false); target size now 13496 (was 13496)
+QWARN  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() QTemporaryDir: Unable to remove "C:\\Users\\User\\AppData\\Local\\Temp\\TestSweepW3UxFlows-zJgSPP" most likely due to the presence of read-only files.
+PASS   : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard()
+PASS   : TestSweepW3UxFlows::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 11257ms
+********* Finished testing of TestSweepW3UxFlows *********

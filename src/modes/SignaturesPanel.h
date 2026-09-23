@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 #include <QFrame>
+#include <QList>
 #include <QString>
+
+// §9.7 P0: SignatureBadgeSpec / SignatureBadgeState (badge seam payload) —
+// the signal parameter type must be COMPLETE where moc expands the
+// staticMetaObject, so this header includes the definition directly.
+#include "ui/PdfViewerWidget.h"
 
 class ISignatureManager;
 class QLabel;
@@ -27,6 +33,13 @@ signals:
     /// Emitted when the user clicks "Place Signature". MainWindow routes this
     /// to the same ribbon Sign flow (SecurityController::signDocument).
     void placeSignatureRequested();
+
+    /// §9.7 P0: per-signature on-page validity badges, derived from the SAME
+    /// validateSignatures() output that fills the DIGITAL ID card (integrity /
+    /// validity / trust). Emitted after every setDocument() validation run;
+    /// an EMPTY list means "no signatures" and clears stale badges. Consumers
+    /// connect this to PdfViewerWidget::setSignatureBadges.
+    void signatureBadgesChanged(const QList<SignatureBadgeSpec>& badges);
 
 private:
     void showNoSignatures(const QString& reason);

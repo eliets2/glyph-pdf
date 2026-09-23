@@ -14,11 +14,23 @@ public:
     FormManager();
     ~FormManager() override;
 
+    // ── R01 test seam: deterministic save-boundary failure injection ────────
+    // Every form mutator persists through ONE shared transactional boundary:
+    // serialize to a unique temp candidate, close the writer, reopen and
+    // validate the candidate, then commit to the destination (QSaveFile).
+    // Tests can force the boundary to fail at a given stage without relying
+    // on filesystem permissions. The setting is sticky for the process;
+    // tests must reset it to None. Failure at any stage leaves the
+    // destination file byte-identical and the operation returns false.
+    enum class SaveFault { None = 0, CandidateSave, Validation, Commit };
+    static void setSaveFaultForTesting(SaveFault fault);
+    static SaveFault saveFaultForTesting();
+
     // Map AcroForm dictionaries to UI Widgets using PoDoFo/qpdf
     bool extractFormFields(const QString &pdfFilePath) override;
     
     // Fill out and flatten AcroForms
-    bool fillForm(const QString &pdfFilePath, const QVariantMap &fieldData, const QString &outputPath, bool lockFields = true, QStringList *unsupportedFields = nullptr) override;
+    bool fillForm(const QString &pdfFilePath, const QVariantMap &fieldData, const QString &outputPath, bool lockFields = true, QStringList *unsupportedFields = nullptr, QList<FormJsFailure> *jsFailures = nullptr) override;
     
     // Check if the document has XFA forms
     bool hasXfaForms(const QString &pdfFilePath) override;
@@ -40,6 +52,23 @@ public:
     bool setFieldMetadata(const QString &pdfFilePath, const QString &fieldName,
                           const QString &tooltip, bool required,
                           const QString &outputPath) override;
+
+    /// R02 (F09): full property snapshot + one transactional apply.
+    // ── R02 (F09): complete field snapshots ──────────────────────────────────
+    FormFieldSnapshot captureFieldSnapshot(const QString &pdfFilePath, const QString &fieldName) override;
+    bool applyFieldSnapshot(const QString &pdfFilePath, const FormFieldSnapshot &target, const QString &outputPath, QList<FormJsFailure> *jsFailures = nullptr) override;
+
+    // ── Phase-1 form-JS (run-side Calculate/Format) ──────────────────────────
+    // The /AA /C cascade executes inside the shared R01 save boundary below —
+    // one atomic commit covers the user's value and every recalculated /V.
+    bool fieldHasCalculateScript(const QString &pdfFilePath, const QString &fieldName) override;
+    bool fieldHasFormatScript(const QString &pdfFilePath, const QString &fieldName) override;
+    QString formatFieldValue(const QString &pdfFilePath, const QString &fieldName, FormJsFailure *failure = nullptr) override;
+    // R18(f): the /AA /K Keystroke event for the Qt line-edit layer.
+    FormKeystrokeResult runKeystrokeEvent(const QString &pdfFilePath, const QString &fieldName,
+                                          const QString &valueBefore, const QString &change,
+                                          int selStart, int selEnd, FormJsFailure *failure = nullptr) override;
+
     QList<FieldSuggestion> autoDetectFields(const QString &pdfFilePath, int pageIndex) override;
 
     bool removeFieldByName(const QString &pdfFilePath, const QString &fieldName, const QString &outputPath) override;
@@ -49,7 +78,7 @@ public:
     bool setTabOrder(const QString &pdfFilePath, const QStringList &orderedNames, const QString &outputPath) override;
 
     bool exportFormData(const QString &pdfFilePath, const QString &outputPath, const QString &format) override;
-    bool importFormData(const QString &pdfFilePath, const QString &dataFilePath, const QString &outputPath, QStringList *unsupportedFields = nullptr) override;
+    bool importFormData(const QString &pdfFilePath, const QString &dataFilePath, const QString &outputPath, QStringList *unsupportedFields = nullptr, QList<FormJsFailure> *jsFailures = nullptr) override;
     bool flattenForm(const QString &pdfFilePath, const QString &outputPath) override;
 
 private:

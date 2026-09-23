@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "HomeController.h"
+#include "shell/EditPolicy.h"
 #include "core/AppContext.h"
 #include "GpMainWindow.h"
 #include "ui/PdfViewerWidget.h"
 #include "ui/PageSetupDialog.h"
 #include "ui/ExportPresetsPanel.h"
 #include "engines/ConversionManager.h"
+#include "engines/DocumentSession.h"   // ARC04: session clean baseline after a checked save
+#include "engines/SafeSave.h"          // WP-R04: external-writer transaction (candidate → validate → commit)
+#include "commands/CheckedHistory.h"   // G08: checked undo traversal (no index move on failed restore)
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -32,6 +36,8 @@
 #include <QProgressDialog>
 #include <QtConcurrent/QtConcurrent>
 #include <QFutureWatcher>
+#include <atomic>
+#include <memory>
 #include <algorithm>
 #include "shell/StatusBar.h"
 #include "core/interfaces/IPdfEditorEngine.h"
@@ -45,6 +51,12 @@ namespace gp {
 
 HomeController::HomeController(const AppContext* ctx, MainWindow* mainWindow, QObject* parent)
     : QObject(parent), _ctx(ctx), _mainWindow(mainWindow) {}
+
+// ARC07: dispatch and enablement share ONE predicate (shell/EditPolicy.h).
+bool HomeController::isEnabled(ToolId id) const {
+    return !EditPolicy::toolRefusedByReadOnly(
+        _ctx && _ctx->document ? _ctx->document.get() : nullptr, id);
+}
 
 QList<ToolId> HomeController::handledTools() const {
     return {
@@ -99,10 +111,17 @@ void HomeController::activate(ToolId id) {
         onImagesToPdf();
         break;
     case ToolId::Undo:
-        if (_ctx && _ctx->undoStack) _ctx->undoStack->undo();
+        // G08: checked traversal — the history position moves only after a
+        // successful restoration; a failed undo stays retryable at the same
+        // index with the clean state untouched.
+        if (_ctx && _ctx->undoStack) CheckedHistory::undo(_ctx->undoStack.get());
         break;
     case ToolId::Redo:
-        if (_ctx && _ctx->undoStack) _ctx->undoStack->redo();
+        // WP-R03 (WHOLE-ARCHITECTURE-REVIEW A02): checked traversal — the
+        // mutation is applied while the history position is untouched; a
+        // failed redo leaves the index, the clean state and the retryability
+        // truthful (the redo mirror of the G08 undo seam).
+        if (_ctx && _ctx->undoStack) CheckedHistory::redo(_ctx->undoStack.get());
         break;
     case ToolId::Watermark:
         _mainWindow->onScreenSelected(QStringLiteral("watermark"));
@@ -116,19 +135,55 @@ void HomeController::activate(ToolId id) {
 }
 
 void HomeController::onSave() {
+    saveNow();
+}
+
+// ARC03: the save operation with an explicit, checked result. Every guard
+// refusal and every write failure is reported to the caller instead of being
+// swallowed by status text — the close path decides on THIS outcome whether
+// the window may go away ("save initiated" is not proof of persistence).
+HomeController::SaveOutcome HomeController::saveNow() {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer) {
         _mainWindow->statusBar()->showMessage(tr("No document is open."), 3000);
-        return;
+        return SaveOutcome::Canceled;   // nothing was attempted
     }
     if (!_ctx->pdfEditor) {
         _mainWindow->statusBar()->showMessage(tr("Save unavailable: PDF engine is not ready."), 5000);
-        return;
+        return SaveOutcome::Failed;     // guard failure — work stays open
     }
-    const QString filePath = viewer->filePath();
-    if (filePath.isEmpty()) {
+    const QString loadedPath = viewer->filePath();
+    if (loadedPath.isEmpty()) {
         _mainWindow->statusBar()->showMessage(tr("Save unavailable: current tab has no file path."), 5000);
-        return;
+        return SaveOutcome::Failed;     // guard failure — work stays open
+    }
+
+    // G05 (P1, QUALITY-GATE-2026-09-09): one recovered-document identity with
+    // a distinct recovery INPUT and intended save DESTINATION. Recovery loads
+    // the editing inputs from `<original>.autosave.pdf` while the session path
+    // stays the original. Save must therefore commit the recovered content to
+    // the DESTINATION — the old code used the viewer's file path, "saved" the
+    // recovery copy onto itself, reported Saved and left the original
+    // byte-identical with the session still dirty.
+    QString filePath = loadedPath;
+    QString recoveryInput;
+    if (_ctx->document) {
+        const QString source = _ctx->document->recoverySource();
+        if (!source.isEmpty() && source == loadedPath
+            && !_ctx->document->path().isEmpty()
+            && _ctx->document->path() != loadedPath) {
+            recoveryInput = source;
+            filePath = _ctx->document->path();
+        }
+    }
+
+    // ARC07: a read-only document refuses SAVE-IN-PLACE (the same policy the
+    // mutation boundary enforces everywhere else); Save As remains available
+    // by design. A checked refusal — the close path treats Failed as
+    // "work stays open".
+    if (EditPolicy::mutationBlocked(_ctx->document.get())) {
+        _mainWindow->statusBar()->showMessage(EditPolicy::readOnlyMessage(), 5000);
+        return SaveOutcome::Failed;
     }
 
     // R2-1 D1+D2: ProvenanceGuard check + signed-document routing.
@@ -169,7 +224,7 @@ void HomeController::onSave() {
                 tr("This document cannot be saved in-place: %1\n\n"
                    "Use 'Save As' to create a copy.")
                     .arg(QString::fromStdString(pv.what())));
-            return;
+            return SaveOutcome::Failed;   // guard refusal — work stays open
         }
     }
 
@@ -183,12 +238,100 @@ void HomeController::onSave() {
     // AND annotations) as an incremental update.  This replaces the separate
     // saveDocument / writeUpdate call below.  Signed documents benefit from the
     // same incremental-append path (writeUpdate preserves the /ByteRange).
-    const bool ok = _ctx->pdfEditor->embedAnnotations(filePath, filePath, viewer->annotations());
+    // G05: for a recovery the INPUT is the loaded recovery copy and the OUTPUT
+    // is the destination (the original) — the recovered content is committed
+    // there, never written back onto the recovery file.
+    const bool ok = _ctx->pdfEditor->embedAnnotations(
+        recoveryInput.isEmpty() ? filePath : recoveryInput,
+        filePath, viewer->annotations());
+
+    if (ok && !recoveryInput.isEmpty()) {
+        // G05: the recovered content is committed to the destination —
+        // re-anchor the editing inputs (engine + viewer) on the committed
+        // original so viewer/engine/session describe ONE identity again.
+        const bool engineOk = _ctx->pdfEditor->loadDocumentForEditing(filePath);
+        const bool viewerOk = viewer->loadDocument(filePath);
+        if (!engineOk || !viewerOk) {
+            // The bytes are on disk, but the committed revision could not be
+            // anchored in the UI — keep the work dirty (the recovery binding
+            // stays intact) and report honestly instead of claiming Saved.
+            _mainWindow->statusBar()->showMessage(
+                tr("Saved to %1, but the document could not be reloaded; "
+                   "the window stays open.").arg(filePath), 8000);
+            return SaveOutcome::Failed;
+        }
+        // The recovery copy is consumed: its content now lives in the original.
+        _ctx->document->clearRecoverySource();
+        QFile::remove(recoveryInput);
+        QFile::remove(recoveryInput + QStringLiteral(".ann"));
+    }
 
     if (ok) {
+        // G14 (QUALITY-GATE-2026-09-09): the annotations just committed INTO
+        // the PDF — record the committed state in the sidecar envelope so a
+        // later reopen of this document restores CLEAN instead of resurrect
+        // -ing embedded annotations as pending unsaved work.
+        viewer->markAnnotationsCommittedIntoPdf();
         if (_ctx->undoStack) _ctx->undoStack->setClean();
+        // ARC04: ONE session dirty policy — the clean baseline is established
+        // only after a CHECKED successful save, and only for the session that
+        // actually describes the persisted file (a diverged session keeps its
+        // dirty state instead of silently losing unsaved work).
+        if (_ctx->document && _ctx->document->path() == filePath)
+            _ctx->document->setClean();
         _mainWindow->statusBar()->showMessage(tr("Document saved: %1").arg(filePath), 5000);
+        return SaveOutcome::Saved;
     } else {
+        // WP-R09b (WHOLE-ARCHITECTURE-REVIEW A05): an external source-version
+        // conflict gets its own resolution flow — the file on disk was
+        // changed by someone else while it was open here. The refusal
+        // guaranteed the disk file is untouched AND the resident work is
+        // intact, so the user reviews and chooses: Save-As (keep the work in
+        // a new file), reload from disk (discard the resident work), or
+        // cancel and keep editing. A silent overwrite is impossible.
+        if (_ctx->pdfEditor && _ctx->pdfEditor->lastSaveRefusedForExternalConflict()) {
+            QMessageBox conflict(_mainWindow);
+            conflict.setIcon(QMessageBox::Warning);
+            conflict.setWindowTitle(tr("The document changed on disk"));
+            conflict.setText(
+                tr("'%1' was modified by another program while it was open.\n\n"
+                   "Your changes were not saved and are still open here. "
+                   "Choose how to continue.").arg(filePath));
+            const auto* saveAsBtn =
+                conflict.addButton(tr("Save As…"), QMessageBox::ActionRole);
+            const auto* reloadBtn = conflict.addButton(
+                tr("Reload from disk (discard changes)"), QMessageBox::DestructiveRole);
+            conflict.addButton(QMessageBox::Cancel);
+            conflict.exec();
+
+            if (conflict.clickedButton() == saveAsBtn) {
+                onSaveAs();   // keeps the local work; writes to a user-chosen path
+                _mainWindow->statusBar()->showMessage(
+                    tr("External change detected: choose \"Save As\" to keep your work."), 8000);
+                return SaveOutcome::Failed;
+            }
+            if (conflict.clickedButton() == reloadBtn) {
+                // Discard the resident state and re-open the external bytes.
+                // Same re-anchor shape as the G05 recovery commit path.
+                const bool engineOk = _ctx->pdfEditor->loadDocumentForEditing(filePath);
+                const bool viewerOk = engineOk && viewer->loadDocument(filePath);
+                if (engineOk && viewerOk) {
+                    if (_ctx->undoStack) _ctx->undoStack->clear();
+                    if (_ctx->document) _ctx->document->setClean();
+                    _mainWindow->statusBar()->showMessage(
+                        tr("Reloaded the version from disk; local changes were discarded."), 8000);
+                } else {
+                    _mainWindow->statusBar()->showMessage(
+                        tr("The disk version could not be reopened; your local changes are kept."), 8000);
+                }
+                return SaveOutcome::Failed;
+            }
+            // Cancel / closed: keep editing, work stays open and dirty.
+            _mainWindow->statusBar()->showMessage(
+                tr("Save canceled: the file on disk changed. Use Save As to keep your work."), 8000);
+            return SaveOutcome::Failed;
+        }
+
         // UX-14: a save failure means the user's work was NOT persisted.
         // A 5-second status bar transient is easily missed for a data-loss event.
         // Show a modal QMessageBox::critical to match the onSaveAs failure path.
@@ -198,6 +341,7 @@ void HomeController::onSave() {
             tr("Could not save '%1'. Check that the disk is not full and the "
                "file is not write-protected.").arg(filePath));
         _mainWindow->statusBar()->showMessage(tr("Save failed: %1").arg(filePath), 5000);
+        return SaveOutcome::Failed;
     }
 }
 
@@ -326,6 +470,16 @@ void HomeController::shareViaEmail(const QString& filePath) {
 
 // Secure sharing (§9.11): bundle the PDF into an AES-256 encrypted ZIP using a
 // 7-Zip executable (PATH, common install dirs, or bundled next to the app).
+//
+// WP-R04 (WHOLE-ARCHITECTURE-REVIEW-2026-09-10 A03): the previous flow deleted
+// the destination before launching 7-Zip and let the tool write the FINAL path
+// under an unbounded waitForFinished(-1) — a failed launch, a failed tool run
+// or a mid-write exit destroyed the previous package. The flow now runs the
+// SafeSave external-writer transaction (engines/SafeSave.h): 7-Zip writes a
+// unique owned CANDIDATE, the candidate is validated (readable + `7z t`
+// read-back with the chosen password), and only a validated candidate is
+// committed atomically over the destination. The existing file is never
+// touched before commit; Cancel kills the 7-Zip process we own.
 void HomeController::createEncryptedPackage(const QString& filePath) {
     QString sevenZip = QStandardPaths::findExecutable(QStringLiteral("7z"));
     if (sevenZip.isEmpty()) {
@@ -357,27 +511,54 @@ void HomeController::createEncryptedPackage(const QString& filePath) {
     if (outPath.isEmpty()) return;
     if (!outPath.endsWith(QLatin1String(".zip"), Qt::CaseInsensitive))
         outPath += QStringLiteral(".zip");
-    QFile::remove(outPath);  // 7z appends to an existing archive — start fresh
+    // WP-R04: the previous destination is NOT removed here anymore. Overwrite
+    // consent authorizes replacing a completed result — it does not authorize
+    // destroying it before a result exists (7-Zip now writes a candidate; the
+    // checked atomic commit replaces the destination only after validation).
 
-    // 7z a -tzip -mem=AES256 -p<pwd> <out.zip> <pdf>
-    QStringList args;
-    args << QStringLiteral("a") << QStringLiteral("-tzip")
-         << QStringLiteral("-mem=AES256")
-         << (QStringLiteral("-p") + password)
-         << QDir::toNativeSeparators(outPath)
-         << QDir::toNativeSeparators(filePath);
+    // 7z a -tzip -mem=AES256 -p<pwd> <candidate.zip> <pdf> — the tool writes
+    // the candidate it owns; the destination is never an argument.
+    auto buildArgs = [password, filePath](const QString& candidate) {
+        return QStringList{ QStringLiteral("a"), QStringLiteral("-tzip"),
+                            QStringLiteral("-mem=AES256"),
+                            QStringLiteral("-p") + password,
+                            QDir::toNativeSeparators(candidate),
+                            QDir::toNativeSeparators(filePath) };
+    };
+    // Candidate validation: `7z t -p<pwd> <candidate>` must read the archive
+    // with the chosen password before the candidate may replace the
+    // destination.
+    auto validateCandidate = [sevenZip, password](const QString& candidate) -> QString {
+        bool canceled = false;
+        int exitCode = -1;
+        QString err;
+        const bool finished = gp::SafeSave::runBoundedProcess(
+            sevenZip,
+            QStringList{ QStringLiteral("t"),
+                         QStringLiteral("-p") + password,
+                         QDir::toNativeSeparators(candidate) },
+            60000, {}, &canceled, &exitCode, &err);
+        if (!finished || exitCode != 0) {
+            return QObject::tr("the candidate archive failed the encrypted "
+                               "read-back check (%1)").arg(
+                err.isEmpty() ? QObject::tr("exit code %1").arg(exitCode) : err);
+        }
+        return {};
+    };
 
-    // P8: run 7-Zip off the GUI thread. The previous proc.waitForFinished(-1)
-    // blocked the event loop for the entire (unbounded) packaging time, freezing
-    // the UI. Mirror the QFutureWatcher + QProgressDialog pattern used by the
-    // Office/Images converters below. The QProcess lives entirely inside the
-    // worker; only a small result struct crosses back to the GUI thread.
-    struct PackResult { bool launched = false; bool ok = false; int exitCode = 0; };
+    // P8: run 7-Zip off the GUI thread (QFutureWatcher + QProgressDialog
+    // pattern). WP-R04 adds owned cancellation: the dialog's Cancel sets an
+    // atomic the transaction polls, which KILLS the 7-Zip process we own; the
+    // wait is bounded (no waitForFinished(-1)).
+    auto cancelFlag = std::make_shared<std::atomic<bool>>(false);
+    struct PackResult { bool ok = false; bool canceled = false; QString error; };
 
     auto* progress = new QProgressDialog(
-        tr("Creating encrypted package…"), QString(), 0, 0, _mainWindow);
+        tr("Creating encrypted package…"), tr("Cancel"), 0, 0, _mainWindow);
     progress->setWindowModality(Qt::WindowModal);
     progress->setMinimumDuration(500);
+    QObject::connect(progress, &QProgressDialog::canceled, progress,
+                     [cancelFlag]() { cancelFlag->store(true); });
 
     auto* watcher = new QFutureWatcher<PackResult>(_mainWindow);
     QObject::connect(watcher, &QFutureWatcher<PackResult>::finished, _mainWindow, [=]() {
@@ -386,33 +567,32 @@ void HomeController::createEncryptedPackage(const QString& filePath) {
         const PackResult r = watcher->result();
         watcher->deleteLater();
 
-        if (!r.launched) {
-            QMessageBox::warning(_mainWindow, tr("Encrypted Package"),
-                tr("Could not launch 7-Zip."));
-            return;
-        }
-        if (r.ok && QFileInfo::exists(outPath)) {
+        if (r.ok) {
             _mainWindow->statusBar()->showMessage(
                 tr("Encrypted package created: %1").arg(QFileInfo(outPath).fileName()), 5000);
             QMessageBox::information(_mainWindow, tr("Encrypted Package"),
                 tr("AES-256 encrypted package created:\n%1").arg(outPath));
+        } else if (r.canceled) {
+            // The previous package was never touched — say so.
+            _mainWindow->statusBar()->showMessage(tr("Encrypted package canceled."), 5000);
+            QMessageBox::information(_mainWindow, tr("Encrypted Package"),
+                tr("Package creation canceled. The existing file was not modified."));
         } else {
             QMessageBox::warning(_mainWindow, tr("Encrypted Package"),
-                tr("7-Zip failed to create the package (exit code %1).").arg(r.exitCode));
+                tr("7-Zip failed to create the package. %1\nYour existing file "
+                   "'%2' was not modified.").arg(r.error, QFileInfo(outPath).fileName()));
         }
     });
 
-    watcher->setFuture(QtConcurrent::run([sevenZip, args]() -> PackResult {
+    watcher->setFuture(QtConcurrent::run([sevenZip, buildArgs, validateCandidate,
+                                          outPath, cancelFlag]() -> PackResult {
         PackResult r;
-        QProcess proc;
-        proc.start(sevenZip, args);
-        if (!proc.waitForStarted(5000)) {
-            return r;  // launched == false
-        }
-        r.launched = true;
-        proc.waitForFinished(-1);
-        r.exitCode = proc.exitCode();
-        r.ok = (proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0);
+        const gp::SafeSave::ExternalWriteResult w = gp::SafeSave::runExternalWriterCommit(
+            sevenZip, buildArgs, outPath, QStringLiteral(".zip"), 120000,
+            [cancelFlag]() { return cancelFlag->load(); }, validateCandidate);
+        r.ok = w.ok;
+        r.canceled = w.canceled;
+        r.error = w.error;
         return r;
     }));
     progress->show();

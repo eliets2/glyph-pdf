@@ -1,0 +1,24 @@
+********* Start testing of TestSweepW3UxFlows *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSweepW3UxFlows::initTestCase()
+QWARN  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 start: fixture without /Lang, without /Title, with an image w/o /Alt
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F-route: clicking welcome card 'open'
+QWARN  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() This plugin does not support propagateSizeHints()
+QDEBUG : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() [HomeController] Pruned 1 missing recent file(s).
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 disclosure box: 'Detection only. This report shows what a tagged document needs — it never certifies PDF/UA. Content tagging (building a structure tree) is not yet available in this version.'
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 scan verdict: '? 5 gap(s) found'
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 round 0: opening editor for finding #1 (status before: '? 5 gap(s) found')
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 editor: language chosen and Apply clicked
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 round 0: post-fix status: '? 4 gap(s) found'
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 round 1: opening editor for finding #3 (status before: '? 4 gap(s) found')
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 editor: alt text set and Apply clicked
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 round 1: post-fix status: '? 3 gap(s) found'
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 round 2: no enabled FIX buttons remain
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 honesty-refusal recorded: a FIX button is disabled with tooltip: 'No /Title in this document — set one under Document Properties first'
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 final status: '? 3 gap(s) found'; unexpected modals during fix loop: OK=0 Yes=0 No=0
+QWARN  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() QTemporaryDir: Unable to remove "C:\\Users\\User\\AppData\\Local\\Temp\\TestSweepW3UxFlows-nAMHmS" most likely due to the presence of read-only files.
+PASS   : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan()
+PASS   : TestSweepW3UxFlows::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 1799ms
+********* Finished testing of TestSweepW3UxFlows *********

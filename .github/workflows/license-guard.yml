@@ -11,7 +11,12 @@ name: License Guard
 
 on:
   push:
-    branches: [ main, audit-remediation ]
+    # INF04: stable branch PATTERNS instead of a literal allowlist that
+    # excluded the active remediation branch (feat/parity-glm got no CI).
+    branches:
+      - main
+      - 'feat/**'
+      - 'audit-remediation'
   pull_request:
     branches: [ main ]
   workflow_dispatch:

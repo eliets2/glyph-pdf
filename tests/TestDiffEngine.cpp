@@ -1,11 +1,133 @@
 #include <QtTest>
+#include <QFile>
+#include <QTemporaryDir>
+#include <algorithm>
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <psapi.h>
+#endif
 #include "engines/MyersDiff.h"
 #include "engines/DiffEngine.h"
+
+// ── R11 fixture: hand-built N-page text PDF ────────────────────────────────────
+// Same idiom as TestExportPathBadge::createTextPdf, extended to N pages: one
+// "BT /F1 12 Tf 72 720 Td (<text>) Tj ET" content stream per page, byte-exact
+// xref. PDFium extracts the raw string literal, so DiffEngine's word diff and
+// page fingerprints see real text. An empty string yields a page with an empty
+// content stream (a genuinely blank page — still extractable as "").
+static QString createPagePdf(const QString& dir, const QString& name,
+                             const QStringList& pageTexts) {
+    const int n = pageTexts.size();
+    QByteArray pdf = "%PDF-1.4\n";
+    QList<qint64> offsets;
+    // Object layout: 1 catalog, 2 pages tree, page k at 3+2k, its content at
+    // 4+2k, font at 3+2n. Object numbers stay dense (blank pages get an empty
+    // stream object) so the xref stays byte-exact.
+    offsets.append(pdf.size());
+    pdf += "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n";
+    offsets.append(pdf.size());
+    QByteArray kids;
+    for (int k = 0; k < n; ++k)
+        kids += QByteArray::number(3 + 2 * k) + " 0 R ";
+    pdf += "2 0 obj<</Type/Pages/Kids[" + kids + "]/Count "
+           + QByteArray::number(n) + ">>endobj\n";
+    for (int k = 0; k < n; ++k) {
+        const int pageNo = 3 + 2 * k;
+        const int contNo = 4 + 2 * k;
+        const QString line = pageTexts.at(k);
+        QByteArray content;
+        if (!line.isEmpty()) {
+            QByteArray lit = line.toLatin1();
+            lit.replace('\\', "\\\\").replace('(', "\\(").replace(')', "\\)");
+            content = "BT /F1 12 Tf 72 720 Td (" + lit + ") Tj ET\n";
+        }
+        offsets.append(pdf.size());
+        pdf += QByteArray::number(pageNo)
+             + " 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents "
+             + QByteArray::number(contNo)
+             + " 0 R/Resources<</Font<</F1 " + QByteArray::number(3 + 2 * n)
+             + " 0 R>>>>>>endobj\n";
+        offsets.append(pdf.size());
+        pdf += QByteArray::number(contNo) + " 0 obj<</Length "
+             + QByteArray::number(content.size()) + ">>stream\n"
+             + content + "endstream endobj\n";
+    }
+    offsets.append(pdf.size());
+    pdf += QByteArray::number(3 + 2 * n)
+         + " 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n";
+    const qint64 xrefOffset = pdf.size();
+    const int objCount = 4 + 2 * n;  // objects 0 .. (3+2n)
+    pdf += "xref\n0 " + QByteArray::number(objCount) + "\n0000000000 65535 f \n";
+    for (qint64 off : offsets)
+        pdf += QByteArray::number(static_cast<qulonglong>(off)).rightJustified(10, '0')
+               + " 00000 n \n";
+    pdf += "trailer<</Size " + QByteArray::number(objCount) + "/Root 1 0 R>>\nstartxref\n"
+         + QByteArray::number(xrefOffset) + "\n%%EOF\n";
+
+    const QString path = dir + "/" + name;
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly)) return {};
+    f.write(pdf);
+    return path;
+}
 
 class TestDiffEngine : public QObject {
     Q_OBJECT
 
+    QTemporaryDir m_dir;
+
 private slots:
+
+    void initTestCase() {
+        QVERIFY2(m_dir.isValid(), "temporary fixture directory must be usable");
+    }
+
+#ifdef Q_OS_WIN
+    void myersDivergentInputStaysWithinBudget() {
+        // R11 (PERF-03) bound assertion, run FIRST so the process peak
+        // working set baseline is this binary's startup. 2,000
+        // entirely-divergent tokens per side must stay inside the
+        // retained-trace budget plus working slack. Pre-fix the unbounded
+        // O((N+M)D) trace measured ~132 MiB of peak working set for exactly
+        // this workload; bounded, the whole growth stays under the budget.
+        QStringList a, b;
+        a.reserve(2000);
+        b.reserve(2000);
+        for (int i = 0; i < 2000; ++i) {
+            a.append(QStringLiteral("A%1").arg(i));
+            b.append(QStringLiteral("B%1").arg(i));
+        }
+
+        PROCESS_MEMORY_COUNTERS before{};
+        before.cb = sizeof(before);
+        QVERIFY(GetProcessMemoryInfo(GetCurrentProcess(), &before, sizeof(before)));
+        const auto ops = MyersDiff::compute(a, b);
+        PROCESS_MEMORY_COUNTERS after{};
+        after.cb = sizeof(after);
+        QVERIFY(GetProcessMemoryInfo(GetCurrentProcess(), &after, sizeof(after)));
+
+        // The fallback stays a truthful edit script covering both sides.
+        int keeps = 0, inserts = 0, deletes = 0;
+        for (const auto& op : ops) {
+            if (op.type == EditOp::Type::Keep) ++keeps;
+            else if (op.type == EditOp::Type::Insert) ++inserts;
+            else ++deletes;
+        }
+        QCOMPARE(keeps, 0);
+        QCOMPARE(inserts, 2000);
+        QCOMPARE(deletes, 2000);
+
+        const qint64 deltaBytes =
+            qint64(after.PeakWorkingSetSize) - qint64(before.PeakWorkingSetSize);
+        QVERIFY2(deltaBytes < qint64(64) * 1024 * 1024,
+                 qPrintable(QStringLiteral(
+                                "divergent 2000+2000 token diff grew peak "
+                                "working set by %1 MiB (budget: 64 MiB incl. "
+                                "slack)")
+                                .arg(double(deltaBytes) / 1048576.0, 0, 'f', 1)));
+    }
+#endif
+
 
     // ── Myers LCS correctness ─────────────────────────────────────────────
 
@@ -106,6 +228,98 @@ private slots:
         QCOMPARE(reconstructed, b);
     }
 
+    // ── R11 (PERF-03): bounded diff with honest truncation disclosure ─────
+
+    void myersTinyBudgetDisclosesTruncation() {
+        // 100 entirely-divergent tokens per side with a trace budget far too
+        // small for the exact script: the result must be TRUTHFUL (still a
+        // valid edit script covering both sides) and flagged truncated.
+        QStringList a, b;
+        for (int i = 0; i < 100; ++i) {
+            a.append(QStringLiteral("A%1").arg(i));
+            b.append(QStringLiteral("B%1").arg(i));
+        }
+        MyersDiff::Options opt;
+        opt.traceBudgetBytes = 4096;
+        bool truncated = false;
+        const auto ops = MyersDiff::compute(a, b, opt, &truncated);
+
+        QVERIFY2(truncated, "a budget-starved divergent diff must be flagged "
+                            "truncated, not silently degraded");
+        int keeps = 0, inserts = 0, deletes = 0;
+        QStringList reconstructed;
+        for (const auto& op : ops) {
+            if (op.type == EditOp::Type::Keep) { ++keeps; reconstructed.append(op.token); }
+            else if (op.type == EditOp::Type::Insert) { ++inserts; reconstructed.append(op.token); }
+            else ++deletes;
+        }
+        QCOMPARE(keeps, 0);
+        QCOMPARE(inserts, 100);
+        QCOMPARE(deletes, 100);
+        // Even the coarse fallback must reconstruct b exactly.
+        QCOMPARE(reconstructed, b);
+    }
+
+    void myersTinyBudgetIdenticalInputIsExact() {
+        // Identical inputs never enter the edit graph at all (prefix/suffix
+        // trim), so even a tiny budget yields the exact script, untruncated.
+        QStringList seq;
+        for (int i = 0; i < 500; ++i) seq.append(QStringLiteral("w%1").arg(i));
+        MyersDiff::Options opt;
+        opt.traceBudgetBytes = 4096;
+        bool truncated = true;
+        const auto ops = MyersDiff::compute(seq, seq, opt, &truncated);
+        QVERIFY2(!truncated, "identical inputs are exact regardless of budget");
+        QCOMPARE(ops.size(), 500);
+        for (const auto& op : ops)
+            QCOMPARE(op.type, EditOp::Type::Keep);
+    }
+
+    void myersDefaultBudgetTypicalEditsNotTruncated() {
+        // The common case must not regress: a one-word edit inside a
+        // 1,000-token page under DEFAULT options stays exact and minimal.
+        QStringList a, b;
+        for (int i = 0; i < 1000; ++i) a.append(QStringLiteral("w%1").arg(i));
+        b = a;
+        b[500] = QStringLiteral("EDITED");
+        bool truncated = false;
+        const auto ops = MyersDiff::compute(a, b, MyersDiff::Options(), &truncated);
+        QVERIFY2(!truncated, "typical small edits must stay exact (not truncated)");
+        int keeps = 0, inserts = 0, deletes = 0;
+        for (const auto& op : ops) {
+            if (op.type == EditOp::Type::Keep) ++keeps;
+            else if (op.type == EditOp::Type::Insert) ++inserts;
+            else ++deletes;
+        }
+        QCOMPARE(keeps, 999);
+        QCOMPARE(inserts, 1);
+        QCOMPARE(deletes, 1);
+        // Same behaviour through the legacy 2-arg overload.
+        const auto ops2 = MyersDiff::compute(a, b);
+        QCOMPARE(ops2.size(), ops.size());
+    }
+
+    void myersHonoursCancellation() {
+        QStringList a, b;
+        for (int i = 0; i < 2000; ++i) {
+            a.append(QStringLiteral("A%1").arg(i));
+            b.append(QStringLiteral("B%1").arg(i));
+        }
+        MyersDiff::Options opt;
+        opt.cancelled = []() { return true; };
+        bool truncated = false;
+        const auto ops = MyersDiff::compute(a, b, opt, &truncated);
+        QVERIFY2(truncated, "a cancelled diff must not claim an exact result");
+        // Still a truthful script covering both sides.
+        int inserts = 0, deletes = 0;
+        for (const auto& op : ops) {
+            if (op.type == EditOp::Type::Insert) ++inserts;
+            else if (op.type == EditOp::Type::Delete) ++deletes;
+        }
+        QCOMPARE(inserts, 2000);
+        QCOMPARE(deletes, 2000);
+    }
+
     // ── Move detection ────────────────────────────────────────────────────
 
     void testMoveDetectNoMoves() {
@@ -169,6 +383,783 @@ private slots:
         r.pages.append(pd);
         QCOMPARE(r.pages.first().moves.size(), 1);
         QCOMPARE(r.pages.first().moves.first().token, QString("tok"));
+    }
+
+    // ── R11: explicit structural page changes (F06) ─────────────────────────
+    // F06: one page versus the same page plus an appended appendix produced NO
+    // entry for the added page, because compare() walked only
+    // min(pageCount1, pageCount2) pages. The model must carry explicit
+    // PageAdded / PageRemoved / PageMoved changes with old/new page positions,
+    // and a missing side must be "no page" (-1), never a valid page-zero
+    // sentinel.
+
+    void pageChangeModelHasExplicitMissingSides() {
+        // Default-constructed change must not read as a valid position on
+        // either side.
+        DiffResult::PageChange ch;
+        QCOMPARE(ch.oldPage, -1);
+        QCOMPARE(ch.newPage, -1);
+        QVERIFY2(!ch.hasOldSide(), "default old side must be explicitly missing");
+        QVERIFY2(!ch.hasNewSide(), "default new side must be explicitly missing");
+    }
+
+    void appendedUniquePageIsReportedAsAdded() {
+        const QString base =
+            createPagePdf(m_dir.path(), "f06_base.pdf", {"First page"});
+        const QString extended = createPagePdf(m_dir.path(), "f06_extended.pdf",
+                                               {"First page", "Appendix page"});
+        QVERIFY(!base.isEmpty() && !extended.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(base, extended);
+
+        QCOMPARE(r.pageCount1, 1);
+        QCOMPARE(r.pageCount2, 2);
+        QVERIFY2(!r.isIdentical, "an appended page must clear isIdentical");
+        QCOMPARE(r.pageChanges.size(), 1);
+        const DiffResult::PageChange& ch = r.pageChanges.first();
+        QCOMPARE(ch.type, DiffResult::PageChangeType::PageAdded);
+        QVERIFY2(!ch.hasOldSide(), "an added page has no old-side position");
+        QVERIFY(ch.hasNewSide());
+        QCOMPARE(ch.newPage, 1);  // 0-based position of the appended page
+        QVERIFY2(ch.excerpt.contains("appendix"),
+                 qPrintable(QStringLiteral("excerpt should name the added page, got: %1")
+                                .arg(ch.excerpt)));
+        // The shared page must not be re-reported (pages carries one entry per
+        // compared page — the shared page's entry must hold no changes), and
+        // the surplus page must not be misclassified as a move.
+        for (const auto& pd : r.pages) {
+            QVERIFY(pd.textAdded.isEmpty() && pd.textRemoved.isEmpty()
+                    && pd.moves.isEmpty() && pd.pixelDiffCount == 0);
+        }
+        QVERIFY(r.pageMoves.isEmpty());
+    }
+
+    void appendedBlankPageIsStillAChange() {
+        const QString base =
+            createPagePdf(m_dir.path(), "blank_base.pdf", {"First page"});
+        const QString extended =
+            createPagePdf(m_dir.path(), "blank_extended.pdf", {"First page", ""});
+        QVERIFY(!base.isEmpty() && !extended.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(base, extended);
+
+        QVERIFY(!r.isIdentical);
+        QCOMPARE(r.pageCount2, 2);
+        QCOMPARE(r.pageChanges.size(), 1);
+        const DiffResult::PageChange& ch = r.pageChanges.first();
+        QCOMPARE(ch.type, DiffResult::PageChangeType::PageAdded);
+        QVERIFY(!ch.hasOldSide());
+        QCOMPARE(ch.newPage, 1);
+        QVERIFY2(ch.excerpt.isEmpty(),
+                 "a blank page must not inherit another page's excerpt");
+    }
+
+    void trailingPageRemovalIsReportedAsRemoved() {
+        const QString full = createPagePdf(m_dir.path(), "full.pdf",
+                                           {"First page", "Doomed page"});
+        const QString trimmed =
+            createPagePdf(m_dir.path(), "trimmed.pdf", {"First page"});
+        QVERIFY(!full.isEmpty() && !trimmed.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(full, trimmed);
+
+        QCOMPARE(r.pageCount1, 2);
+        QCOMPARE(r.pageCount2, 1);
+        QVERIFY(!r.isIdentical);
+        QCOMPARE(r.pageChanges.size(), 1);
+        const DiffResult::PageChange& ch = r.pageChanges.first();
+        QCOMPARE(ch.type, DiffResult::PageChangeType::PageRemoved);
+        QVERIFY(ch.hasOldSide());
+        QVERIFY2(!ch.hasNewSide(), "a removed page has no new-side position");
+        QCOMPARE(ch.oldPage, 1);  // the trailing page's old 0-based position
+        // The surviving page's entry must hold no changes (pages carries one
+        // entry per compared page, changed or not).
+        for (const auto& pd : r.pages) {
+            QVERIFY(pd.textAdded.isEmpty() && pd.textRemoved.isEmpty()
+                    && pd.moves.isEmpty() && pd.pixelDiffCount == 0);
+        }
+    }
+
+    void reversedOrderTurnsAdditionsIntoRemovals() {
+        // Same fixtures as the F06 case, old/new swapped: the added page must
+        // become a removed page, and the missing side flips with it.
+        const QString base =
+            createPagePdf(m_dir.path(), "rev_base.pdf", {"First page"});
+        const QString extended = createPagePdf(m_dir.path(), "rev_extended.pdf",
+                                               {"First page", "Appendix page"});
+        QVERIFY(!base.isEmpty() && !extended.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(extended, base);
+
+        QCOMPARE(r.pageChanges.size(), 1);
+        const DiffResult::PageChange& ch = r.pageChanges.first();
+        QCOMPARE(ch.type, DiffResult::PageChangeType::PageRemoved);
+        QVERIFY(ch.hasOldSide());
+        QVERIFY(!ch.hasNewSide());
+        QCOMPARE(ch.oldPage, 1);
+    }
+
+    void reorderedPagesAreMovesNotAddRemove() {
+        // Two pages swapped: the existing whole-page move detection must keep
+        // working, and the moved page must NOT be double-counted as an
+        // add+remove pair in the structural sequence.
+        const QString a =
+            createPagePdf(m_dir.path(), "order_a.pdf", {"Alpha page", "Beta page"});
+        const QString b =
+            createPagePdf(m_dir.path(), "order_b.pdf", {"Beta page", "Alpha page"});
+        QVERIFY(!a.isEmpty() && !b.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(a, b);
+
+        QCOMPARE(r.pageCount1, 2);
+        QCOMPARE(r.pageCount2, 2);
+
+        // Existing move detection intact (legacy API).
+        QCOMPARE(r.pageMoves.size(), 1);
+        QCOMPARE(r.pageMoves.first().fromPage, 1);
+        QCOMPARE(r.pageMoves.first().toPage, 0);
+
+        // Single structural entry, carrying both sides.
+        QCOMPARE(r.pageChanges.size(), 1);
+        const DiffResult::PageChange& ch = r.pageChanges.first();
+        QCOMPARE(ch.type, DiffResult::PageChangeType::PageMoved);
+        QVERIFY(ch.hasOldSide());
+        QVERIFY(ch.hasNewSide());
+        QCOMPARE(ch.oldPage, 1);
+        QCOMPARE(ch.newPage, 0);
+        for (const auto& any : r.pageChanges) {
+            QVERIFY2(any.type == DiffResult::PageChangeType::PageMoved,
+                     "a reordered page must not be double-counted as added/removed");
+        }
+
+        // R06 (PERF-01): the content rows consume the SAME mapping — each
+        // row compares a page with ITSELF at its new position, so a pure
+        // reorder produces NO text/pixel changes (pre-fix the index-wise walk
+        // compared Alpha-vs-Beta and Beta-vs-Alpha and reported both pages as
+        // rewritten).
+        QCOMPARE(r.pages.size(), 2);
+        for (const auto& pd : r.pages) {
+            QVERIFY2(pd.textAdded.isEmpty() && pd.textRemoved.isEmpty()
+                         && pd.moves.isEmpty(),
+                     "a pure reorder must not produce false text changes");
+            QCOMPARE(pd.pixelDiffCount, 0);
+        }
+        // Mapping rows: doc1 page 0 (Alpha) matched to new position 1, doc1
+        // page 1 (Beta) matched to new position 0.
+        QCOMPARE(r.pages.at(0).oldPage, 0);
+        QCOMPARE(r.pages.at(0).newPage, 1);
+        QCOMPARE(r.pages.at(1).oldPage, 1);
+        QCOMPARE(r.pages.at(1).newPage, 0);
+    }
+
+    void repeatedIdenticalPagesYieldSingleChange() {
+        // Repeated identical pages are ambiguous for alignment; the engine must
+        // fall back to exactly ONE structural change (an added page), never an
+        // add+remove pair for the same content.
+        const QString single =
+            createPagePdf(m_dir.path(), "rep_one.pdf", {"Repeated page"});
+        const QString doubled = createPagePdf(m_dir.path(), "rep_two.pdf",
+                                              {"Repeated page", "Repeated page"});
+        QVERIFY(!single.isEmpty() && !doubled.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(single, doubled);
+
+        QVERIFY(!r.isIdentical);
+        QCOMPARE(r.pageChanges.size(), 1);
+        const DiffResult::PageChange& ch = r.pageChanges.first();
+        QCOMPARE(ch.type, DiffResult::PageChangeType::PageAdded);
+        QVERIFY(!ch.hasOldSide());
+        QVERIFY(ch.hasNewSide());
+        // Which of the two identical doc2 positions is reported depends on the
+        // alignment tie-break (documented ambiguity fallback); either is honest.
+        QVERIFY2(ch.newPage == 0 || ch.newPage == 1,
+                 qPrintable(QStringLiteral("newPage=%1").arg(ch.newPage)));
+    }
+
+    void identicalPdfsProduceNoStructuralChanges() {
+        const QStringList pages = {"First page", "Second page"};
+        const QString a = createPagePdf(m_dir.path(), "ident_a.pdf", pages);
+        const QString b = createPagePdf(m_dir.path(), "ident_b.pdf", pages);
+        QVERIFY(!a.isEmpty() && !b.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(a, b);
+
+        QVERIFY(r.isIdentical);
+        QVERIFY(r.pageChanges.isEmpty());
+    }
+
+    // U04 contract: pageChanges is THE canonical sequence the filtered change
+    // navigation walks, so a mixed diff (reorder + appended page) must appear
+    // there once per structural change, each entry carrying its exact
+    // old/new sides, in the deterministic doc2 reading order (moved pages
+    // anchor on their new position, added pages follow).
+    void mixedMoveAndAddYieldOrderedCanonicalSequence() {
+        const QString a =
+            createPagePdf(m_dir.path(), "mix_a.pdf", {"Alpha page", "Beta page"});
+        const QString b = createPagePdf(m_dir.path(), "mix_b.pdf",
+                                        {"Beta page", "Alpha page", "Epsilon page"});
+        QVERIFY(!a.isEmpty() && !b.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(a, b);
+
+        QVERIFY2(!r.isIdentical, "reorder + appended page must clear isIdentical");
+        // Legacy move list stays populated exactly once for the reorder.
+        QCOMPARE(r.pageMoves.size(), 1);
+        QCOMPARE(r.pageMoves.first().fromPage, 1);
+        QCOMPARE(r.pageMoves.first().toPage, 0);
+
+        // One entry per structural change in the unified sequence: the
+        // swapped page as PageMoved (both sides), the appended page as
+        // PageAdded (no old side).
+        QCOMPARE(r.pageChanges.size(), 2);
+        int moved = -1, added = -1;
+        for (int i = 0; i < r.pageChanges.size(); ++i) {
+            const DiffResult::PageChange& ch = r.pageChanges.at(i);
+            if (ch.type == DiffResult::PageChangeType::PageMoved) {
+                QVERIFY2(moved == -1, "the reorder must appear exactly once");
+                moved = i;
+                QVERIFY(ch.hasOldSide() && ch.hasNewSide());
+                QCOMPARE(ch.oldPage, 1);
+                QCOMPARE(ch.newPage, 0);
+            } else {
+                QVERIFY2(ch.type == DiffResult::PageChangeType::PageAdded,
+                         "no spurious structural entry for aligned pages");
+                QVERIFY2(added == -1, "the appended page must appear exactly once");
+                added = i;
+                QVERIFY2(!ch.hasOldSide(), "an added page has no old-side position");
+                QVERIFY(ch.hasNewSide());
+                QCOMPARE(ch.newPage, 2);
+            }
+        }
+        QVERIFY2(moved >= 0 && added >= 0, "both structural changes must be present");
+        // Deterministic reading order (sorted by the page's doc2 position:
+        // the moved page anchors at new position 0, the added page at 2).
+        QVERIFY2(moved < added,
+                 qPrintable(QStringLiteral("canonical order: moved@%1 added@%2")
+                                .arg(moved).arg(added)));
+    }
+
+    // ── U04/R11 follow-up: middle-insertion alignment ────────────────────────
+    // A page inserted BETWEEN existing pages must surface as exactly one
+    // PageAdded at its true position — the surrounding pages stay matched,
+    // never re-reported as removed+added chains. Reversed sides must flip the
+    // change into a single PageRemoved. Repeated identical fingerprints are
+    // resolved deterministically (tie-break pinned below).
+
+    void middleInsertionAtPositionOneIsSingleTrueAddition() {
+        // 3 pages, insertion at index 1 (not trailing): [A B C] → [A X B C].
+        const QString three =
+            createPagePdf(m_dir.path(), "mid_three.pdf",
+                          {"Alpha page", "Beta page", "Gamma page"});
+        const QString four =
+            createPagePdf(m_dir.path(), "mid_four.pdf",
+                          {"Alpha page", "Inserted page", "Beta page", "Gamma page"});
+        QVERIFY(!three.isEmpty() && !four.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(three, four);
+
+        QCOMPARE(r.pageCount1, 3);
+        QCOMPARE(r.pageCount2, 4);
+        QVERIFY2(!r.isIdentical, "a middle insertion must clear isIdentical");
+        // Exactly ONE structural change: the inserted page itself.
+        QCOMPARE(r.pageChanges.size(), 1);
+        const DiffResult::PageChange& ch = r.pageChanges.first();
+        QCOMPARE(ch.type, DiffResult::PageChangeType::PageAdded);
+        QVERIFY2(!ch.hasOldSide(), "an inserted page has no old-side position");
+        QVERIFY(ch.hasNewSide());
+        QCOMPARE(ch.newPage, 1);  // its true 0-based position in the revised doc
+        QVERIFY2(ch.excerpt.contains("inserted"),
+                 qPrintable(QStringLiteral("excerpt should name the inserted page, got: %1")
+                                .arg(ch.excerpt)));
+        // The surrounding pages must stay matched — no remove/add chain for
+        // them, and no move records either.
+        QVERIFY2(r.pageMoves.isEmpty(),
+                 "a pure insertion must not be misclassified as a page move");
+
+        // ── R06 (PERF-01): the content rows consume the SAME mapping ────────
+        // The insertion surfaces exactly once (above) and the unchanged
+        // matched pages produce NO text/pixel changes. Pre-fix, content
+        // comparison walked index-wise while the alignment used its own
+        // mapping, so this fixture reported "Beta → Inserted" and
+        // "Gamma → Beta" — the reviewer's false-change symptom.
+        QCOMPARE(r.pages.size(), 3);
+        for (const auto& pd : r.pages) {
+            QVERIFY2(pd.textAdded.isEmpty() && pd.textRemoved.isEmpty()
+                         && pd.moves.isEmpty(),
+                     qPrintable(QStringLiteral(
+                                    "unchanged matched page (old %1 -> new %2) must "
+                                    "not produce content changes (added=%3 removed=%4)")
+                                    .arg(pd.oldPage).arg(pd.newPage)
+                                    .arg(pd.textAdded.join(QLatin1Char(' ')),
+                                         pd.textRemoved.join(QLatin1Char(' ')))));
+            QCOMPARE(pd.pixelDiffCount, 0);
+        }
+        // The mapping is the alignment's: (0,0), (1,2), (2,3) — Beta compares
+        // with Beta at its shifted position, Gamma with Gamma.
+        QCOMPARE(r.pages.at(0).oldPage, 0);
+        QCOMPARE(r.pages.at(0).newPage, 0);
+        QCOMPARE(r.pages.at(1).oldPage, 1);
+        QCOMPARE(r.pages.at(1).newPage, 2);
+        QCOMPARE(r.pages.at(2).oldPage, 2);
+        QCOMPARE(r.pages.at(2).newPage, 3);
+    }
+
+    void duplicateOfExistingPageInsertionPinsDeterministicTieBreak() {
+        // [A B C] → [A B B C]: a duplicate of page 1 inserted at index 2.
+        // Identical copies are ambiguous for alignment; the engine must fall
+        // back to exactly ONE structural change and pick the reported
+        // position deterministically: alignment consumes the LATEST doc2
+        // occurrence of a repeated fingerprint, so the EARLIEST unmatched
+        // occurrence surfaces as the insertion (newPage == 1 here).
+        const QString three =
+            createPagePdf(m_dir.path(), "dup_three.pdf",
+                          {"Alpha page", "Beta page", "Gamma page"});
+        const QString four =
+            createPagePdf(m_dir.path(), "dup_four.pdf",
+                          {"Alpha page", "Beta page", "Beta page", "Gamma page"});
+        QVERIFY(!three.isEmpty() && !four.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(three, four);
+
+        QVERIFY2(!r.isIdentical, "a duplicated page must clear isIdentical");
+        QCOMPARE(r.pageChanges.size(), 1);
+        const DiffResult::PageChange& ch = r.pageChanges.first();
+        QCOMPARE(ch.type, DiffResult::PageChangeType::PageAdded);
+        QVERIFY2(!ch.hasOldSide(), "the inserted copy has no old-side position");
+        QVERIFY(ch.hasNewSide());
+        // Tie-break pinned: with identical copies either position would be an
+        // honest answer; the engine deterministically reports the first one.
+        QCOMPARE(ch.newPage, 1);
+        QVERIFY2(r.pageMoves.isEmpty(),
+                 "a duplicate insertion is not a move");
+
+        // R06: the matched pages produce no false content rows either — the
+        // duplicate insertion is the ONLY change (pre-fix the index-wise walk
+        // compared doc1's Gamma against doc2's first Beta copy).
+        QCOMPARE(r.pages.size(), 3);
+        for (const auto& pd : r.pages) {
+            QVERIFY(pd.textAdded.isEmpty() && pd.textRemoved.isEmpty()
+                    && pd.moves.isEmpty() && pd.pixelDiffCount == 0);
+        }
+    }
+
+    void insertionWithTextEditOnOtherPageAlignsInsertionAtTruePosition() {
+        // Regression for the ledgered defect: the inserted page X shares ≥80%
+        // of its word set with page 0 (boilerplate twin — differs only in a
+        // non-final word), and page 1 is reworded. The fuzzy pre-fingerprint
+        // alignment paired old page 0 with X and reported the TRUE page 0 as
+        // an extra addition — a remove+add mess instead of one true insertion.
+        // old: [P, Q, R]  new: [P, X ≈ P, Q reworded, R]
+        const QString three =
+            createPagePdf(m_dir.path(), "mix3.pdf",
+                          {"alpha beta gamma delta zeta", "omega psi", "final page here"});
+        const QString four =
+            createPagePdf(m_dir.path(), "mix4.pdf",
+                          {"alpha beta gamma delta zeta",
+                           "alpha beta eta gamma delta zeta",
+                           "omega psi reworded",
+                           "final page here"});
+        QVERIFY(!three.isEmpty() && !four.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(three, four);
+
+        QCOMPARE(r.pageCount1, 3);
+        QCOMPARE(r.pageCount2, 4);
+        QVERIFY2(!r.isIdentical, "insertion + edit must clear isIdentical");
+
+        // (1) Page 0 is untouched — it must not appear on ANY change.
+        for (int i = 0; i < r.pageChanges.size(); ++i) {
+            const DiffResult::PageChange& ch = r.pageChanges.at(i);
+            QVERIFY2(!(ch.hasOldSide() && ch.oldPage == 0),
+                     qPrintable(QStringLiteral(
+                                    "change %1 mispairs untouched page 0 (oldPage=%2)")
+                                    .arg(i).arg(ch.oldPage)));
+            QVERIFY2(!(ch.hasNewSide() && ch.newPage == 0),
+                     qPrintable(QStringLiteral(
+                                    "change %1 mispairs untouched page 0 (newPage=%2)")
+                                    .arg(i).arg(ch.newPage)));
+        }
+
+        // (2) V04 re-pin: with the explicit substitution policy, the doc1
+        // leftover Q pairs with the first doc2 leftover X (order-preserving,
+        // in-order) as an ALIGNED MODIFIED pair — structurally silent. The
+        // only structural change left is the rewritten page surfacing as ONE
+        // PageAdded at its own position (newPage == 2). The former pin ("the
+        // insertion surfaces once at its true position" and "a rewrite below
+        // the similarity floor is a removal + an addition") encoded exactly
+        // the remove+add classification that V04 overturns: a below-floor
+        // rewrite is a content change, not a structural one.
+        int added = 0, removed = 0;
+        int addedQ = -1;
+        for (int i = 0; i < r.pageChanges.size(); ++i) {
+            const DiffResult::PageChange& ch = r.pageChanges.at(i);
+            if (ch.type == DiffResult::PageChangeType::PageAdded) {
+                ++added;
+                addedQ = ch.newPage;
+            } else if (ch.type == DiffResult::PageChangeType::PageRemoved) {
+                ++removed;
+            }
+        }
+        QCOMPARE(added, 1);
+        QCOMPARE(removed, 0);
+        QCOMPARE(addedQ, 2);
+
+        // (3) No move may paper over the structural changes here.
+        QVERIFY2(r.pageChanges.isEmpty()
+                     || std::none_of(r.pageChanges.cbegin(), r.pageChanges.cend(),
+                                     [](const DiffResult::PageChange& ch) {
+                                         return ch.type ==
+                                             DiffResult::PageChangeType::PageMoved;
+                                     }),
+                 "insertion + text edit must not be classified as page moves");
+
+        // (4) V04 + R06: the content rows consume the SAME alignment mapping.
+        // The aligned modified pair (old page 1 paired with new page 1 by the
+        // substitution stage) carries its real word changes, while the matched
+        // R pair (old 2 -> new 3) produces NO content rows — pre-fix the
+        // index-wise walk compared old R against the reworded Q' and reported
+        // "here → reworded", exactly the false-change class PERF-01 documents.
+        // (R13 removed the trailing NUL extraction used to carry; the token
+        // checks below work either way via the joined-list form.)
+        QCOMPARE(r.pages.size(), 3);
+        // Mapping rows (sorted by doc1 position): (0,0), substitution (1,1),
+        // matched (2,3).
+        QCOMPARE(r.pages.at(0).oldPage, 0);
+        QCOMPARE(r.pages.at(0).newPage, 0);
+        QCOMPARE(r.pages.at(1).oldPage, 1);
+        QCOMPARE(r.pages.at(1).newPage, 1);
+        QCOMPARE(r.pages.at(2).oldPage, 2);
+        QCOMPARE(r.pages.at(2).newPage, 3);
+        QVERIFY(r.pages.at(0).textRemoved.isEmpty()
+                && r.pages.at(0).textAdded.isEmpty());
+        QVERIFY2(r.pages.at(1).textRemoved.join(QLatin1Char(' '))
+                     .contains(QStringLiteral("omega"))
+                     && r.pages.at(1).textAdded.join(QLatin1Char(' '))
+                            .contains(QStringLiteral("alpha")),
+                 "the aligned modified pair must report its content changes");
+        QVERIFY(r.pages.at(2).textRemoved.isEmpty()
+                && r.pages.at(2).textAdded.isEmpty()
+                && r.pages.at(2).pixelDiffCount == 0);
+    }
+
+    // R06 (PERF-01) prepend case: an insertion BEFORE all matched pages must
+    // shift every correspondence — old [Beta, Gamma] vs new [Alpha, Beta,
+    // Gamma] — with no false content rows on the matched pages.
+    void prependInsertionProducesNoFalseContentChanges() {
+        const QString two =
+            createPagePdf(m_dir.path(), "pre_two.pdf", {"Beta page", "Gamma page"});
+        const QString three = createPagePdf(m_dir.path(), "pre_three.pdf",
+                                            {"Alpha page", "Beta page", "Gamma page"});
+        QVERIFY(!two.isEmpty() && !three.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(two, three);
+
+        QCOMPARE(r.pageCount1, 2);
+        QCOMPARE(r.pageCount2, 3);
+        QVERIFY(!r.isIdentical);
+        // Exactly one structural change: the prepended page at position 0.
+        QCOMPARE(r.pageChanges.size(), 1);
+        QCOMPARE(r.pageChanges.first().type, DiffResult::PageChangeType::PageAdded);
+        QCOMPARE(r.pageChanges.first().newPage, 0);
+        // The matched pages (1,0) and (2,1) produce no content changes.
+        QCOMPARE(r.pages.size(), 2);
+        for (const auto& pd : r.pages) {
+            QVERIFY(pd.textAdded.isEmpty() && pd.textRemoved.isEmpty()
+                    && pd.moves.isEmpty() && pd.pixelDiffCount == 0);
+        }
+        QCOMPARE(r.pages.at(0).oldPage, 0);
+        QCOMPARE(r.pages.at(0).newPage, 1);
+        QCOMPARE(r.pages.at(1).oldPage, 1);
+        QCOMPARE(r.pages.at(1).newPage, 2);
+    }
+
+    void reversedSidesTurnMiddleInsertionIntoSingleRemoval() {
+        // Old/new swapped relative to the middle-insertion case: the inserted
+        // page must become exactly ONE PageRemoved at its old position — no
+        // added entries, no moves.
+        const QString three =
+            createPagePdf(m_dir.path(), "revmid_three.pdf",
+                          {"Alpha page", "Beta page", "Gamma page"});
+        const QString four =
+            createPagePdf(m_dir.path(), "revmid_four.pdf",
+                          {"Alpha page", "Inserted page", "Beta page", "Gamma page"});
+        QVERIFY(!three.isEmpty() && !four.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(four, three);
+
+        QCOMPARE(r.pageCount1, 4);
+        QCOMPARE(r.pageCount2, 3);
+        QVERIFY2(!r.isIdentical, "a middle removal must clear isIdentical");
+        QCOMPARE(r.pageChanges.size(), 1);
+        const DiffResult::PageChange& ch = r.pageChanges.first();
+        QCOMPARE(ch.type, DiffResult::PageChangeType::PageRemoved);
+        QVERIFY(ch.hasOldSide());
+        QVERIFY2(!ch.hasNewSide(), "a removed page has no new-side position");
+        QCOMPARE(ch.oldPage, 1);
+        QVERIFY2(r.pageMoves.isEmpty(),
+                 "a pure middle removal must not be misclassified as a move");
+
+        // R06: the surviving matched pages compare with their own counterparts
+        // across the removal shift — (0,0), (2,1), (3,2) — and produce NO
+        // false content rows (pre-fix the index-wise walk compared doc1's
+        // inserted page against doc2's Beta, and Beta against Gamma).
+        QCOMPARE(r.pages.size(), 3);
+        for (const auto& pd : r.pages) {
+            QVERIFY(pd.textAdded.isEmpty() && pd.textRemoved.isEmpty()
+                    && pd.moves.isEmpty() && pd.pixelDiffCount == 0);
+        }
+        QCOMPARE(r.pages.at(0).oldPage, 0);
+        QCOMPARE(r.pages.at(0).newPage, 0);
+        QCOMPARE(r.pages.at(1).oldPage, 2);
+        QCOMPARE(r.pages.at(1).newPage, 1);
+        QCOMPARE(r.pages.at(2).oldPage, 3);
+        QCOMPARE(r.pages.at(2).newPage, 2);
+    }
+
+    // ── R13 (PERF-05): comparison tokens carry no API terminator ─────────────
+    // extractText used to include FPDFText_GetText's trailing NUL, so the LAST
+    // word token of every page leaked U+0000 into the diff tokens. On a
+    // one-word page that is the ONLY token — exact token equality was
+    // impossible ("Beta\u0000" vs "Gamma\u0000").
+
+    void oneWordPagesDiffWithExactTokens() {
+        const QString before = createPagePdf(m_dir.path(), "nul_before.pdf", {"Beta"});
+        const QString after  = createPagePdf(m_dir.path(), "nul_after.pdf", {"Gamma"});
+        QVERIFY(!before.isEmpty() && !after.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(before, after);
+
+        QVERIFY(!r.isIdentical);
+        QCOMPARE(r.pages.size(), 1);
+        // EXACT token equality — no U+0000 appended to the page-final words.
+        QCOMPARE(r.pages.first().textRemoved, QStringList{QStringLiteral("Beta")});
+        QCOMPARE(r.pages.first().textAdded, QStringList{QStringLiteral("Gamma")});
+    }
+
+    void pageFinalTokensAreExactOnMultiwordPages() {
+        // The terminator used to contaminate exactly the page-final token:
+        // "omega psi" extracted as {"omega", "psi\u0000"}. Pin the exact
+        // token list on a rewrite whose removed side is the full page text.
+        const QString before = createPagePdf(m_dir.path(), "nul_mv_before.pdf",
+                                             {"omega psi"});
+        const QString after  = createPagePdf(m_dir.path(), "nul_mv_after.pdf",
+                                             {"omega sigma"});
+        QVERIFY(!before.isEmpty() && !after.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(before, after);
+
+        QCOMPARE(r.pages.size(), 1);
+        QCOMPARE(r.pages.first().textRemoved, QStringList{QStringLiteral("psi")});
+        QCOMPARE(r.pages.first().textAdded, QStringList{QStringLiteral("sigma")});
+    }
+
+    // ── V04: an in-place page edit is a CONTENT change, not a structural one ─
+    // The alignment leftovers used to fall through to PageRemoved + PageAdded
+    // whenever their word-set similarity missed the 0.80 fuzzy floor — so a
+    // one-page document whose text was rewritten ("Apple" → "Orange") was
+    // reported as the page being destroyed and a new page being added, on top
+    // of its ordinary text difference. Low text similarity is not proof that
+    // the page structure changed: an aligned modified pair must be represented
+    // as content changes only (result.pages), never as add/remove.
+
+    void onePageTextEditReportsContentChangesWithoutStructuralChanges() {
+        // THE V04 acceptance fixture: same one-page layout, "Apple" → "Orange".
+        // Word sets {apple} vs {orange} have Jaccard 0.0 — far below any
+        // similarity floor — so only the explicit substitution policy can keep
+        // this out of the structural sequence.
+        const QString apple =
+            createPagePdf(m_dir.path(), "v04_apple.pdf", {"Apple page"});
+        const QString orange =
+            createPagePdf(m_dir.path(), "v04_orange.pdf", {"Orange page"});
+        QVERIFY(!apple.isEmpty() && !orange.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(apple, orange);
+
+        QCOMPARE(r.pageCount1, 1);
+        QCOMPARE(r.pageCount2, 1);
+        QVERIFY2(!r.isIdentical, "a text edit must clear isIdentical");
+        QVERIFY2(r.pageChanges.isEmpty(),
+                 qPrintable(QStringLiteral(
+                                "a one-page content edit must report NO structural "
+                                "changes (got %1) — page modifications are content "
+                                "changes, not add/remove").arg(r.pageChanges.size())));
+        QVERIFY(r.pageMoves.isEmpty());
+        // The content change itself must be present as an ordinary page diff.
+        // (R13 removed the trailing NUL extraction used to carry; the token
+        // checks below work either way via the joined-list form.)
+        QCOMPARE(r.pages.size(), 1);
+        QVERIFY2(r.pages.first().textRemoved.join(QLatin1Char(' '))
+                     .contains(QStringLiteral("Apple")),
+                 "the removed word must be reported on the page diff");
+        QVERIFY2(r.pages.first().textAdded.join(QLatin1Char(' '))
+                     .contains(QStringLiteral("Orange")),
+                 "the added word must be reported on the page diff");
+    }
+
+    void middlePageRewriteBelowSimilarityFloorIsContentOnly() {
+        // Same page count, middle page rewritten below the fuzzy floor:
+        // {"Beta page"} vs {"Beta rewritten"} share only "beta" → Jaccard
+        // 1/3 < 0.80. The rewrite must stay a content change on page 2, with
+        // the surrounding pages staying matched and structurally silent.
+        const QString before =
+            createPagePdf(m_dir.path(), "v04_mid_before.pdf",
+                          {"Alpha page", "Beta page", "Gamma page"});
+        const QString after =
+            createPagePdf(m_dir.path(), "v04_mid_after.pdf",
+                          {"Alpha page", "Beta rewritten", "Gamma page"});
+        QVERIFY(!before.isEmpty() && !after.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(before, after);
+
+        QCOMPARE(r.pageCount1, 3);
+        QCOMPARE(r.pageCount2, 3);
+        QVERIFY2(!r.isIdentical, "a middle-page rewrite must clear isIdentical");
+        QVERIFY2(r.pageChanges.isEmpty(),
+                 qPrintable(QStringLiteral(
+                                "a below-floor rewrite of the middle page must not "
+                                "produce structural changes (got %1)")
+                                .arg(r.pageChanges.size())));
+        QVERIFY(r.pageMoves.isEmpty());
+        QCOMPARE(r.pages.size(), 3);
+        QVERIFY(r.pages.at(0).textRemoved.isEmpty()
+                && r.pages.at(0).textAdded.isEmpty());
+        // (R13 removed the trailing NUL extraction used to carry; the token
+        // checks below work either way via the joined-list form.)
+        QVERIFY2(r.pages.at(1).textRemoved.join(QLatin1Char(' '))
+                     .contains(QStringLiteral("page")),
+                 "the old middle-page wording must be reported as content removed");
+        QVERIFY2(r.pages.at(1).textAdded.join(QLatin1Char(' '))
+                     .contains(QStringLiteral("rewritten")),
+                 "the new middle-page wording must be reported as content added");
+        QVERIFY(r.pages.at(2).textRemoved.isEmpty()
+                && r.pages.at(2).textAdded.isEmpty());
+    }
+
+    // ── R11 (PERF-02): changed-pairs-only overlay retention ────────────────
+    // Pre-fix every PageDiff retained a full ARGB overlay even when no pixel
+    // differed: the reviewer's control fixture (three identical Letter pages,
+    // byte-different containers) held 25,245,000 retained overlay bytes at
+    // 150 DPI, and 24 unchanged pages held 201,960,000. The bound assertions
+    // below COMPILE against pre-fix sources and FAIL there (revert-verify).
+
+    void unchangedPagesRetainNoOverlays() {
+        const QStringList pages = {"Alpha", "Beta", "Gamma"};
+        const QString a = createPagePdf(m_dir.path(), "r11_same_a.pdf", pages);
+        const QString b = createPagePdf(m_dir.path(), "r11_same_b.pdf", pages);
+        QVERIFY(!a.isEmpty() && !b.isEmpty());
+        QByteArray diffBytes = "\n% metadata-only container difference\n";
+        {
+            QFile f(b);
+            QVERIFY(f.open(QIODevice::Append));
+            f.write(diffBytes);
+        }
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(a, b, 150);
+
+        QVERIFY2(!r.isIdentical,
+                 "byte-different containers must not shortcut to identical");
+        QCOMPARE(r.pages.size(), 3);
+        qint64 overlayBytes = 0;
+        for (const auto& pd : r.pages) {
+            QVERIFY2(pd.diffImage.isNull(),
+                     qPrintable(QStringLiteral(
+                                    "unchanged pair (old %1 -> new %2) must not "
+                                    "retain a diff overlay")
+                                    .arg(pd.oldPage).arg(pd.newPage)));
+            QCOMPARE(pd.pixelDiffCount, 0);
+            overlayBytes += pd.diffImage.sizeInBytes();
+        }
+        QCOMPARE(overlayBytes, qint64(0));
+    }
+
+    void onlyChangedPairsRetainOverlays() {
+        const QString before =
+            createPagePdf(m_dir.path(), "r11_mix_before.pdf",
+                          {"Alpha page", "Beta page", "Gamma page"});
+        const QString after =
+            createPagePdf(m_dir.path(), "r11_mix_after.pdf",
+                          {"Alpha page", "Beta rewritten", "Gamma page"});
+        QVERIFY(!before.isEmpty() && !after.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(before, after, 150);
+
+        QCOMPARE(r.pages.size(), 3);
+        for (const auto& pd : r.pages) {
+            const bool changed = pd.pixelDiffCount > 0;
+            QCOMPARE(pd.diffImage.isNull(), !changed);
+        }
+        // The rewritten middle page must be the only changed pair.
+        QVERIFY(r.pages.at(1).pixelDiffCount > 0);
+        QVERIFY(!r.pages.at(1).diffImage.isNull());
+        QCOMPARE(r.pages.at(0).pixelDiffCount, 0);
+        QVERIFY(r.pages.at(0).diffImage.isNull());
+        QCOMPARE(r.pages.at(2).pixelDiffCount, 0);
+        QVERIFY(r.pages.at(2).diffImage.isNull());
+    }
+
+    void changedPageStillCarriesOverlay() {
+        // Control against over-dropping: a genuinely changed page keeps a
+        // usable overlay.
+        const QString a = createPagePdf(m_dir.path(), "r11_chg_a.pdf", {"Apple page"});
+        const QString b = createPagePdf(m_dir.path(), "r11_chg_b.pdf", {"Orange page"});
+        QVERIFY(!a.isEmpty() && !b.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(a, b, 150);
+
+        QCOMPARE(r.pages.size(), 1);
+        QVERIFY2(r.pages.first().pixelDiffCount > 0,
+                 "a rewritten page must report changed pixels at 150 DPI");
+        QVERIFY(!r.pages.first().diffImage.isNull());
+    }
+
+    void compareHonoursCancellation() {
+        // R11: the operation-level cancellation probe abandons the compare
+        // (checked while hashing) and the result is marked partial.
+        const QString a = createPagePdf(m_dir.path(), "r11_cancel_a.pdf",
+                                        {"First page"});
+        const QString b = createPagePdf(m_dir.path(), "r11_cancel_b.pdf",
+                                        {"Second page"});
+        QVERIFY(!a.isEmpty() && !b.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(a, b, 150, []() { return true; });
+        QVERIFY2(r.cancelled, "a cancelled compare must set DiffResult::cancelled");
+        QVERIFY(r.pages.isEmpty());
+    }
+
+    void compareWithoutCancellationRunsToCompletion() {
+        // Control: the default (no probe) overload behaves exactly as before.
+        const QString a = createPagePdf(m_dir.path(), "r11_nocancel_a.pdf",
+                                        {"First page"});
+        const QString b = createPagePdf(m_dir.path(), "r11_nocancel_b.pdf",
+                                        {"Second page"});
+        QVERIFY(!a.isEmpty() && !b.isEmpty());
+
+        DiffEngine engine;
+        const DiffResult r = engine.compare(a, b, 150);
+        QVERIFY(!r.cancelled);
+        QVERIFY(!r.isIdentical);
+        QVERIFY(!r.pages.isEmpty());
     }
 };
 

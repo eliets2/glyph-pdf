@@ -1,16 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "Ribbon.h"
 #include "RibbonModel.h"
+#include "ToolRegistry.h"
 #include "util/GpTheme.h"
 #include "util/Icons.h"
 #include <QSet>
 
 #include <algorithm>
 
+#include <QAction>
+#include <QEvent>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QScrollArea>
+#include <QShortcut>
 #include <QStackedWidget>
 #include <QStyle>
 #include <QTabBar>
@@ -49,7 +53,57 @@ Ribbon::Ribbon(QWidget* parent) : QWidget(parent) {
         }
     }
 
+    // ── U02: tab row = tabs + active-task label + collapse chevron ──
+    auto* tabRow = new QWidget(this);
+    tabRow->setObjectName("ribbonTabRow");
+    auto* tabRowLay = new QHBoxLayout(tabRow);
+    tabRowLay->setContentsMargins(0, 0, 2, 0);
+    tabRowLay->setSpacing(4);
+    tabRowLay->addWidget(_tabs, 1);
+
+    // Active task stays visible while collapsed (plan U02 requirement).
+    // Vertical Ignored policies keep the extra row content from growing the
+    // tab row: collapse must shrink the ribbon by exactly the body height.
+    _activeTaskLabel = new QLabel(tabRow);
+    _activeTaskLabel->setObjectName("ribbonActiveTaskLabel");
+    _activeTaskLabel->setProperty("mono", true);
+    _activeTaskLabel->setAlignment(Qt::AlignVCenter | Qt::AlignRight);
+    _activeTaskLabel->setAccessibleName(tr("Active task"));
+    _activeTaskLabel->setVisible(false);
+    _activeTaskLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Ignored);
+    tabRowLay->addWidget(_activeTaskLabel);
+
+    _collapseBtn = new QToolButton(tabRow);
+    _collapseBtn->setObjectName("ribbonCollapseBtn");
+    _collapseBtn->setText(QChar(0x25B4));   // ▴ — click collapses (▾ when collapsed)
+    _collapseBtn->setCheckable(true);
+    _collapseBtn->setAutoRaise(true);
+    _collapseBtn->setFocusPolicy(Qt::TabFocus);
+    _collapseBtn->setToolTip(tr("Collapse the ribbon (Ctrl+F1)"));
+    _collapseBtn->setAccessibleName(tr("Collapse ribbon"));
+    _collapseBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Ignored);
+    tabRowLay->addWidget(_collapseBtn);
+
+    connect(_collapseBtn, &QToolButton::toggled, this, [this](bool checked) {
+        setCollapsed(checked);   // no-op when states already agree
+    });
+
+    // Microsoft's documented Ctrl+F1 collapse toggle.
+    auto* collapseShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_F1), this);
+    connect(collapseShortcut, &QShortcut::activated, this, [this]() {
+        setCollapsed(!_collapsed);
+    });
+
+    // Double-click on the tab bar toggles the ribbon.
+    _tabs->installEventFilter(this);
+
     connect(_tabs, &QTabBar::currentChanged, this, [this](int idx) {
+        // Fluent v1 simplification: selecting a tab with the mouse expands
+        // the ribbon and stays expanded. The TaskStateSync raiseTab() channel
+        // (guarded) must not change the expansion state.
+        if (_collapsed && !_raiseInProgress)
+            setCollapsed(false);
+
         QWidget* current = _bodyStack->widget(idx);
         if (current && !current->layout()) {
             QWidget* realBody = buildBody(idx);
@@ -61,8 +115,65 @@ Ribbon::Ribbon(QWidget* parent) : QWidget(parent) {
         emit tabChanged(RibbonModel::tabs().at(idx).name);
     });
 
-    outer->addWidget(_tabs);
+    outer->addWidget(tabRow);
     outer->addWidget(_bodyStack);
+}
+
+bool Ribbon::eventFilter(QObject* watched, QEvent* event) {
+    if (watched == _tabs && event->type() == QEvent::MouseButtonDblClick) {
+        setCollapsed(!_collapsed);
+        return true;
+    }
+    return QWidget::eventFilter(watched, event);
+}
+
+// ── U02 collapse ─────────────────────────────────────────────────────────────
+
+void Ribbon::setCollapsed(bool collapsed) {
+    if (_collapsed == collapsed) return;
+    _collapsed = collapsed;
+
+    _bodyStack->setVisible(!collapsed);
+    _activeTaskLabel->setVisible(collapsed);
+    if (collapsed) {
+        _activeTaskLabel->setText(collapsedLabel());
+    }
+    _collapseBtn->setText(collapsed ? QChar(0x25BE)   // ▾
+                                    : QChar(0x25B4)); // ▴
+    _collapseBtn->setChecked(collapsed);
+    updateGeometry();
+    emit collapsedChanged(collapsed);
+}
+
+void Ribbon::raiseTab(const QString& tabName) {
+    const int idx = tabIndexFor(tabName);
+    if (idx < 0) return;
+    _raiseInProgress = true;
+    _tabs->setCurrentIndex(idx);   // lazy-build + tabChanged handled by the ctor lambda
+    _raiseInProgress = false;
+}
+
+int Ribbon::tabIndexFor(const QString& tabName) const {
+    const auto& defs = RibbonModel::tabs();
+    for (int i = 0; i < defs.size(); ++i)
+        if (defs.at(i).name == tabName)
+            return i;
+    return -1;
+}
+
+QString Ribbon::activeTabName() const {
+    return _tabs->tabText(_tabs->currentIndex());
+}
+
+int Ribbon::bodyHeight() const {
+    return _bodyStack->isVisible() ? _bodyStack->height() : 0;
+}
+
+QString Ribbon::collapsedLabel() const {
+    QString tool = _activeTool;
+    if (auto* b = _buttons.value(_activeTool))
+        tool = b->text();
+    return tr("%1 \xC2\xB7 %2").arg(activeTabName(), tool);   // "Tab · Tool"
 }
 
 QToolButton* Ribbon::makeTool(const QString& id, const QString& label,
@@ -82,6 +193,50 @@ QToolButton* Ribbon::makeTool(const QString& id, const QString& label,
     btn->setAccessibleDescription(tr("Activate %1 tool").arg(label));
 
     return btn;
+}
+
+// ── R15: one enablement predicate for the ribbon (UI02) ──────────────────────
+// Non-planned buttons mirror the canonical registry QAction (which re-queries
+// the owning controller's EditPolicy predicate on every session change), so a
+// button can never claim an enabled state the dispatch boundary would refuse.
+// Planned entries are visibly disabled with their truthful reason +
+// alternative — the AR-8 D3 "hide instead of disable" shortcut is reversed.
+void Ribbon::bindButtonToRegistry(QToolButton* btn, const QString& id)
+{
+    if (!_registry) return;
+    const auto optId = toolIdFromString(id);
+    if (!optId.has_value())
+        return;   // unknown ids are caught by TestRibbonIntegrity
+    QAction* canon = _registry->actionFor(optId.value());
+    if (!canon) return;
+    btn->setEnabled(canon->isEnabled());
+    connect(canon, &QAction::enabledChanged, btn, &QToolButton::setEnabled);
+}
+
+void Ribbon::setToolRegistry(ToolRegistry* registry)
+{
+    _registry = registry;
+    if (!_registry) return;
+    // Re-bind every button already built (tab 0 is built in the constructor,
+    // before the controllers/registry exist); later lazy builds bind directly.
+    for (auto it = _buttons.begin(); it != _buttons.end(); ++it)
+        bindButtonToRegistry(it.value(), it.key());
+}
+
+bool Ribbon::applyPlannedState(QToolButton* btn, const QString& id)
+{
+    const auto* spec = RibbonModel::plannedSpecFor(id);
+    if (!spec) return false;
+    btn->setEnabled(false);
+    // The disclosure rides every channel a keyboard or screen-reader user can
+    // reach: status tip (hover, read by screen readers), accessible
+    // description (AT name/description APIs — not tooltip-only) and tooltip.
+    const QString disclosure = spec->reason + QLatin1Char(' ') + spec->alternative;
+    btn->setStatusTip(spec->reason);
+    btn->setToolTip(disclosure);
+    btn->setAccessibleName(btn->text());
+    btn->setAccessibleDescription(disclosure);
+    return true;
 }
 
 QWidget* Ribbon::buildBody(int tabIdx) {
@@ -104,20 +259,17 @@ QWidget* Ribbon::buildBody(int tabIdx) {
         bodyRow->setContentsMargins(8, 4, 8, 2);
         bodyRow->setSpacing(2);
 
-        // AR-8 D3: planned tools are NOT rendered (hidden, not disabled).
-        // Their ToolId enum entries, RibbonModel definitions, and plannedTools()
-        // registry are all preserved — re-enable with one line by removing
-        // the id from plannedTools() when the feature ships.
-        const QSet<QString>& planned = RibbonModel::plannedTools();
-
+        // R15 (PP06 / UI01): planned tools are VISIBLE but disabled, each with
+        // its truthful reason + supported alternative (the U08 Capability
+        // disclosure pattern). The AR-8 D3 "hide, not disable" behavior hid
+        // 51 of 144 declared entries (six whole groups) — the user-visible
+        // model was a secret. Planned buttons stay inert (no dispatch path).
         QVector<Tool> bigs, smalls;
         for (const auto& t : grp.tools) {
-            if (planned.contains(t.id)) continue;  // hide, not disable
             (t.big ? bigs : smalls).append(t);
         }
 
-        // A1: if every tool in this group is planned/hidden, skip the entire
-        // group frame so an empty titled box is never shown.
+        // A1: an entirely empty group is still skipped (no titled empty box).
         if (bigs.isEmpty() && smalls.isEmpty()) {
             delete group;
             continue;
@@ -125,13 +277,18 @@ QWidget* Ribbon::buildBody(int tabIdx) {
 
         for (const auto& t : bigs) {
             auto* b = makeTool(t.id, t.label, t.icon, true);
-            if (t.id == _activeTool) b->setProperty("active", true);
+            if (applyPlannedState(b, t.id)) {
+                // planned: visible + disabled + disclosed
+            } else if (t.id == _activeTool) {
+                b->setProperty("active", true);
+            }
             const QString id = t.id;
             connect(b, &QToolButton::clicked, this, [this, id]() {
                 setActiveTool(id);
                 emit toolActivated(id);
             });
             _buttons.insert(t.id, b);
+            bindButtonToRegistry(b, t.id);
             bodyRow->addWidget(b);
         }
 
@@ -143,13 +300,18 @@ QWidget* Ribbon::buildBody(int tabIdx) {
             for (int k = s; k < std::min(s + 3, static_cast<int>(smalls.size())); ++k) {
                 const auto& t = smalls.at(k);
                 auto* b = makeTool(t.id, t.label, t.icon, false);
-                if (t.id == _activeTool) b->setProperty("active", true);
+                if (applyPlannedState(b, t.id)) {
+                    // planned: visible + disabled + disclosed
+                } else if (t.id == _activeTool) {
+                    b->setProperty("active", true);
+                }
                 const QString id = t.id;
                 connect(b, &QToolButton::clicked, this, [this, id]() {
                     setActiveTool(id);
                     emit toolActivated(id);
                 });
                 _buttons.insert(t.id, b);
+                bindButtonToRegistry(b, t.id);
                 colLay->addWidget(b);
             }
             colLay->addStretch();
@@ -190,6 +352,9 @@ void Ribbon::setActiveTool(const QString& toolId) {
         next->style()->unpolish(next);
         next->style()->polish(next);
     }
+    // Keep the collapsed active-task line current.
+    if (_collapsed)
+        _activeTaskLabel->setText(collapsedLabel());
 }
 
 } // namespace gp

@@ -36,6 +36,39 @@ else()
                     "Configure from the repo root with add_subdirectory(fuzz).")
 endif()
 
+# --- W1 ponytail sweep drivers (feat/sweep-w1-fuzz, 2026-09-20) -------------
+# Five deterministic parsers/renderers, same link discipline as
+# redaction_driver (the real engine, no sanitizer flags — g++/ucrt64).
+#   fuzz_signreq        S1 SigningRequestModel::fromJson
+#   fuzz_batchpreset    S2 BatchPresetCodec::parse + resolveNaming render path
+#   fuzz_policy         S5 PolicyController::load + defaultPolicyPath (pdfws_ui)
+#   fuzz_a11y           S3 scanAccessibility + applyAccessibilityFix
+#   fuzz_reviewsummary  S4 extractAnnotations → renderEntries → writePrintable
+if(TARGET pdfws_engines)
+    foreach(t IN ITEMS fuzz_signreq fuzz_batchpreset fuzz_a11y fuzz_reviewsummary)
+        string(REGEX REPLACE "^fuzz_" "" src "${t}")
+        add_executable(${t} harnesses/harness_${src}.cpp)
+        target_link_libraries(${t} PRIVATE pdfws_engines Qt6::Core)
+        target_include_directories(${t} PRIVATE
+            ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/core
+            ${CMAKE_SOURCE_DIR}/src/core/interfaces)
+        set_target_properties(${t} PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+    endforeach()
+
+    if(TARGET pdfws_ui)
+        add_executable(fuzz_policy harnesses/harness_policy.cpp)
+        target_link_libraries(fuzz_policy PRIVATE pdfws_ui pdfws_engines Qt6::Core)
+        target_include_directories(fuzz_policy PRIVATE
+            ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/core
+            ${CMAKE_SOURCE_DIR}/src/core/interfaces)
+        set_target_properties(fuzz_policy PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+    else()
+        message(WARNING "[fuzz] pdfws_ui target not found; fuzz_policy skipped")
+    endif()
+endif()
+
 # --- P3 djot libFuzzer harness (REQUIRES clang + compiler-rt) ---------------
 # Guarded behind GLYPHPDF_FUZZ_LIBFUZZER because GCC has no -fsanitize=fuzzer.
 # When building with clang, also rebuild liblua/pdfws_djot/docmodel with clang

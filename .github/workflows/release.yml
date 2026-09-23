@@ -128,29 +128,35 @@ jobs:
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DGLYPHPDF_RELEASE_BUILD=ON \
             -DGLYPHPDF_ENABLE_LTO=ON \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             2>&1 | tee /tmp/cmake_release_out.txt
           # cmake FATAL_ERROR exits non-zero when features are missing; tee above
           # would still print the error. The step fails automatically on non-zero exit.
           # -DGLYPHPDF_ENABLE_LTO=ON: P5 fix — ship the binary with LTO enabled.
           # The default is OFF (fast dev builds); the release CI is the right place
           # to pay the link-time cost so the published MSI is actually LTO-optimised.
+          # -DCMAKE_EXPORT_COMPILE_COMMANDS=ON: INF05 — the GLYPH_TESTING define
+          # gate below inspects the real compiler invocations, and demands this
+          # evidence file (missing evidence fails the gate).
           echo "Configure passed — all shipped features confirmed present"
 
       - name: Build
         run: cmake --build build --parallel
 
-      # AR-12 D3: Verify GLYPH_TESTING is absent from the release build flags.
-      # If the build system accidentally defined it, the OCSP test-hook path would
-      # ship in a production binary — a security regression.
+      # AR-12 D3 / SECFIX-1: Verify GLYPH_TESTING is absent from every PRODUCTION
+      # compilation in the release build. If the build system accidentally defined
+      # it, the OCSP test-hook path would ship in a production binary — a security
+      # regression.
+      #
+      # INF05: the old step grepped build/CMakeFiles/CMakeOutput.log — not a record
+      # of target compile definitions, and read with missing-file errors suppressed,
+      # so it could print PASS while inspecting nothing. This gate now parses
+      # compile_commands.json (produced by the Configure step above), requires the
+      # shipped app/engine targets to be present in the evidence, and FAILS on a
+      # missing evidence file or on any GLYPH_TESTING outside CMakeFiles/Test*.dir
+      # (test executables may keep intentional test-only defines).
       - name: Assert GLYPH_TESTING not defined in release build
-        shell: pwsh
-        run: |
-          $buildLog = Get-Content build/CMakeFiles/CMakeOutput.log -ErrorAction SilentlyContinue
-          if ($buildLog -match "GLYPH_TESTING") {
-            Write-Error "FAIL: GLYPH_TESTING appears in CMakeOutput.log — OCSP test hook must not ship in release"
-            exit 1
-          }
-          Write-Host "PASS: GLYPH_TESTING correctly absent from release build"
+        run: pwsh -File packaging/check-release-defines.ps1 -BuildDir build
 
       - name: Test
         # ONNX model files (models/) are gitignored — tests that need them QSKIP gracefully

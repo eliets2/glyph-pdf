@@ -43,5 +43,18 @@ enum class ToolMode {
     // existing ToolMode ordinals (persisted by AnnotationSerializer sidecars)
     // stay stable — never insert values here.
     AddSignatureTyped,
-    AddSignatureUpload
+    AddSignatureUpload,
+    // T1 measurement toolset — appended AFTER AddSignatureUpload so persisted
+    // sidecar ordinals stay stable (same rule as above; kPersistedToolModeMax
+    // below is the single bound the serializer contract checks).
+    MeasureDistance,
+    MeasurePerimeter,
+    MeasureArea
 };
+
+// §9.7 hardening: AnnotationSerializer bounds persisted sidecar ordinals with
+// this constant instead of hardcoding the last enumerator's name — appending
+// a new ToolMode requires updating exactly ONE place, and the all-modes
+// round-trip test (TestAnnotationDjot::allToolModesRoundTripThroughSidecar)
+// fails if a mode is added without extending the serializer contract.
+inline constexpr int kPersistedToolModeMax = static_cast<int>(ToolMode::MeasureArea);

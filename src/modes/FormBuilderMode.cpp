@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "FormBuilderMode.h"
 #include "FormFieldPropertiesPanel.h"
+#include "shell/FlowToolbarLayout.h"
 #include "ui/PdfViewerWidget.h"
 #include "core/AppContext.h"
 #include "core/PdfEnums.h"
+#include "engines/DocumentSession.h"
+#include "shell/EditPolicy.h"
 #include "commands/AddFormFieldCommand.h"
 #include "commands/DeleteFormFieldCommand.h"
 #include "commands/MoveFormFieldCommand.h"
@@ -47,6 +50,21 @@ FormBuilderMode::FormBuilderMode(const AppContext* ctx,
     buildContent(col);
     updateNoDocumentState();
 
+    // ARC07/S2-2 (SWEEP-BACKEND-2026-09-21): the session is the ONE read-only
+    // authority. The tab-order Apply affordance mirrors it (honest
+    // enablement, same wiring shape as GpMainWindow's registry re-sync);
+    // enforcement lives in onTabOrderApplyClicked — the ribbon route for the
+    // same operation (ToolId::Tabs) is gated by the registry, so the panel
+    // button must not be a privilege escalation relative to it.
+    if (m_ctx && m_ctx->document && m_tabOrderApply) {
+        connect(m_ctx->document.get(), &DocumentSession::readOnlyChanged, this,
+                [this](bool readOnly) {
+                    if (m_tabOrderApply)
+                        m_tabOrderApply->setEnabled(!readOnly);
+                });
+        m_tabOrderApply->setEnabled(!m_ctx->document->isReadOnly());
+    }
+
     // ESC cancels active field placement
     auto* esc = new QShortcut(Qt::Key_Escape, this);
     connect(esc, &QShortcut::activated, this, &FormBuilderMode::onEscapePressed);
@@ -58,8 +76,11 @@ void FormBuilderMode::buildToolbar(QVBoxLayout* col)
 {
     auto* tb = new QFrame;
     tb->setProperty("role", "modeToolbar");
-    tb->setFixedHeight(Theme::ToolbarH);
-    auto* trow = new QHBoxLayout(tb);
+    // F1 (SWEEP-W3-UI): wrapping flow toolbar — identical single-line at
+    // 1920; wraps below the single-line requirement instead of forcing the
+    // window minimum past the 1366 viewport.
+    auto* trow = new FlowToolbarLayout(tb);
+    trow->setLineHeightFloor(Theme::ToolbarH);
     trow->setContentsMargins(10, 0, 10, 0);
     trow->setSpacing(4);
 
@@ -473,6 +494,16 @@ void FormBuilderMode::onTabOrderApplyClicked()
         return;
     }
 
+    // ARC07/S2-2 (SWEEP-BACKEND-2026-09-21): setTabOrder(path, …, path) is an
+    // in-place write that bypasses ToolRegistry — apply the shared read-only
+    // gate at the route entry. The disabled Apply Order button is the
+    // affordance; this gate is the enforcement.
+    if (EditPolicy::mutationBlocked(m_ctx->document.get())) {
+        QMessageBox::warning(this, tr("Read-only"),
+            EditPolicy::readOnlyMessage());
+        return;
+    }
+
     QStringList orderedNames;
     if (m_tabOrderList) {
         for (int i = 0; i < m_tabOrderList->count(); ++i)
@@ -489,7 +520,8 @@ void FormBuilderMode::onTabOrderApplyClicked()
     if (ok) {
         m_ctx->document->markDirty();
         QMessageBox::information(this, tr("Tab Order"),
-            tr("Tab order saved to PDF (/CO array updated)."));
+            tr("Tab order saved to the page's widget annotations (/Annots, declared as widget order). "
+               "The calculation order (/CO) was left unchanged."));
     } else {
         QMessageBox::warning(this, tr("Tab Order"),
             tr("Failed to persist tab order to PDF. Check the document is writable."));

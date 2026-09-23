@@ -20,6 +20,9 @@ public:
     // IToolController
     QList<ToolId> handledTools() const override;
     void activate(ToolId id) override;
+    // ARC07: the shared read-only gate — mutating tools report disabled while
+    // the session is read-only (dispatch refusal + action enablement in one).
+    bool isEnabled(ToolId id) const override;
 
     // §9.9 P0: pure helper — convert a single move (from→to) into the full
     // page permutation consumed by ReorderPermutationCommand. Exposed static

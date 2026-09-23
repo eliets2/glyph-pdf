@@ -1,0 +1,127 @@
+********* Start testing of TestSendForSigning *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSendForSigning::initTestCase()
+PASS   : TestSendForSigning::sidecarRoundTripAndHandshakeRefusal()
+PASS   : TestSendForSigning::tamperedSidecarRefusal()
+PASS   : TestSendForSigning::creatorCreatesRealSignatureFieldsAndRefuses()
+PASS   : TestSendForSigning::dialogSaveRequestCreationAndRefusals()
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() validateSignatures: ByteRange missing or not an array
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() validateSignatures: field "sig_A" ByteRange: 0 483 66021 1842
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() validateSignatures: field "sig_A" ByteRange: 0 483 66021 1842
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() validateSignatures: field "sig_A" ByteRange: 0 483 66021 1842
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() validateSignatures: field "sig_A" ByteRange: 0 483 66021 1842
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() validateSignatures: field "sig_A" ByteRange: 0 483 66021 1842
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() validateSignatures: field "sig_A" ByteRange: 0 483 66021 1842
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() validateSignatures: field "sig_A" ByteRange: 0 483 66021 1842
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() DSS not found or not dictionary
+QWARN  : TestSendForSigning::fillFlowRealSignTwoSigners() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 3 0 R"
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() validateSignatures: ByteRange missing or not an array
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() validateSignatures: field "sig_A" ByteRange: 0 483 66021 1842
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() DSS not found or not dictionary
+QWARN  : TestSendForSigning::fillFlowRealSignTwoSigners() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 3 0 R"
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() validateSignatures: field "sig_B" ByteRange: 0 68852 134390 1674
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() validateSignatures: field "sig_A" ByteRange: 0 483 66021 1842
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() DSS not found or not dictionary
+QWARN  : TestSendForSigning::fillFlowRealSignTwoSigners() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 3 0 R"
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() validateSignatures: field "sig_B" ByteRange: 0 68852 134390 1674
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() validateSignatures: field "sig_A" ByteRange: 0 483 66021 1842
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() DSS not found or not dictionary
+QWARN  : TestSendForSigning::fillFlowRealSignTwoSigners() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 3 0 R"
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() validateSignatures: field "sig_B" ByteRange: 0 68852 134390 1674
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() validateSignatures: field "sig_A" ByteRange: 0 483 66021 1842
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() DSS not found or not dictionary
+QWARN  : TestSendForSigning::fillFlowRealSignTwoSigners() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 3 0 R"
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() validateSignatures: field "sig_B" ByteRange: 0 68852 134390 1674
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSendForSigning::fillFlowRealSignTwoSigners() extractOcspFromDss: DSS not found or not dictionary
+PASS   : TestSendForSigning::fillFlowRealSignTwoSigners()
+QDEBUG : TestSendForSigning::mutationRefusalAndReconfirmPin() Removed field "sig_Late" and saved to "D:/pdf/msys64/tmp/glyphpdf-s4s-eAlNVJ/mutate.pdf"
+QDEBUG : TestSendForSigning::mutationRefusalAndReconfirmPin() validateSignatures: ByteRange missing or not an array
+QDEBUG : TestSendForSigning::mutationRefusalAndReconfirmPin() validateSignatures: field "sig_A" ByteRange: 0 483 66021 1842
+QDEBUG : TestSendForSigning::mutationRefusalAndReconfirmPin() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSendForSigning::mutationRefusalAndReconfirmPin() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSendForSigning::mutationRefusalAndReconfirmPin() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSendForSigning::mutationRefusalAndReconfirmPin() validateSignatures: field "sig_A" ByteRange: 0 483 66021 1842
+QDEBUG : TestSendForSigning::mutationRefusalAndReconfirmPin() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSendForSigning::mutationRefusalAndReconfirmPin() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSendForSigning::mutationRefusalAndReconfirmPin() extractOcspFromDss: DSS not found or not dictionary
+PASS   : TestSendForSigning::mutationRefusalAndReconfirmPin()
+QDEBUG : TestSendForSigning::orderAdvisoryAndEngineFirstFieldHonestyPin() validateSignatures: ByteRange missing or not an array
+QDEBUG : TestSendForSigning::orderAdvisoryAndEngineFirstFieldHonestyPin() validateSignatures: ByteRange missing or not an array
+QDEBUG : TestSendForSigning::orderAdvisoryAndEngineFirstFieldHonestyPin() validateSignatures: ByteRange missing or not an array
+QDEBUG : TestSendForSigning::orderAdvisoryAndEngineFirstFieldHonestyPin() validateSignatures: ByteRange missing or not an array
+QDEBUG : TestSendForSigning::orderAdvisoryAndEngineFirstFieldHonestyPin() validateSignatures: ByteRange missing or not an array
+QDEBUG : TestSendForSigning::orderAdvisoryAndEngineFirstFieldHonestyPin() validateSignatures: ByteRange missing or not an array
+QDEBUG : TestSendForSigning::orderAdvisoryAndEngineFirstFieldHonestyPin() validateSignatures: ByteRange missing or not an array
+QDEBUG : TestSendForSigning::orderAdvisoryAndEngineFirstFieldHonestyPin() validateSignatures: ByteRange missing or not an array
+QDEBUG : TestSendForSigning::orderAdvisoryAndEngineFirstFieldHonestyPin() validateSignatures: field "sig_A" ByteRange: 0 497 66035 1958
+QDEBUG : TestSendForSigning::orderAdvisoryAndEngineFirstFieldHonestyPin() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSendForSigning::orderAdvisoryAndEngineFirstFieldHonestyPin() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSendForSigning::orderAdvisoryAndEngineFirstFieldHonestyPin() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSendForSigning::orderAdvisoryAndEngineFirstFieldHonestyPin() validateSignatures: ByteRange missing or not an array
+QWARN  : TestSendForSigning::orderAdvisoryAndEngineFirstFieldHonestyPin() SECURITY: Post-condition validation failed! A signature's integrity was broken by this update.
+QDEBUG : TestSendForSigning::orderAdvisoryAndEngineFirstFieldHonestyPin() validateSignatures: ByteRange missing or not an array
+QDEBUG : TestSendForSigning::orderAdvisoryAndEngineFirstFieldHonestyPin() validateSignatures: ByteRange missing or not an array
+PASS   : TestSendForSigning::orderAdvisoryAndEngineFirstFieldHonestyPin()
+QDEBUG : TestSendForSigning::verificationMismatchHonesty() validateSignatures: ByteRange missing or not an array
+QDEBUG : TestSendForSigning::verificationMismatchHonesty() validateSignatures: field "sig_A" ByteRange: 0 483 66021 1843
+QDEBUG : TestSendForSigning::verificationMismatchHonesty() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSendForSigning::verificationMismatchHonesty() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSendForSigning::verificationMismatchHonesty() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSendForSigning::verificationMismatchHonesty() validateSignatures: field "sig_A" ByteRange: 0 483 66021 1843
+QDEBUG : TestSendForSigning::verificationMismatchHonesty() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSendForSigning::verificationMismatchHonesty() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSendForSigning::verificationMismatchHonesty() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSendForSigning::verificationMismatchHonesty() validateSignatures: field "sig_A" ByteRange: 0 483 66021 1843
+QDEBUG : TestSendForSigning::verificationMismatchHonesty() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSendForSigning::verificationMismatchHonesty() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSendForSigning::verificationMismatchHonesty() extractOcspFromDss: DSS not found or not dictionary
+PASS   : TestSendForSigning::verificationMismatchHonesty()
+PASS   : TestSendForSigning::progressStatusTextPins()
+PASS   : TestSendForSigning::candidatesDirClean()
+PASS   : TestSendForSigning::cleanupTestCase()
+Totals: 12 passed, 0 failed, 0 skipped, 0 blacklisted, 42775ms
+********* Finished testing of TestSendForSigning *********

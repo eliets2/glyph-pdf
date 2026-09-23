@@ -1,0 +1,111 @@
+# F2b-D1 fix pin â€” evidence chain (ux-resume lane, 2026-09-21)
+
+=== (1) FAIL-BEFORE: pin run against UNFIXED BatchPresetStore::save ===
+********* Start testing of TestBatchPresets *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestBatchPresets::initTestCase()
+FAIL!  : TestBatchPresets::firstSaveOnCleanProfileCreatesStoreRoot() 'store.save(&p, &err)' returned FALSE. (first-ever save on a clean profile must succeed: C:/Users/User/AppData/Local/Temp/TestBatchPresets-FDysRI/clean-profile/presets/first-save.glyphpreset.json: cannot open for writing — The system cannot find the path specified.)
+D:/pdf/pdf-r18/tests/TestBatchPresets.cpp(548) : failure location
+PASS   : TestBatchPresets::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 3ms
+********* Finished testing of TestBatchPresets *********
+
+=== (2) AFTER FIX: full TestBatchPresets suite (14 original + 1 pin) ===
+********* Start testing of TestBatchPresets *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestBatchPresets::initTestCase()
+PASS   : TestBatchPresets::goldenRoundTripByteStable()
+PASS   : TestBatchPresets::versionHandshakeRefusesNewerSchema()
+PASS   : TestBatchPresets::negativeValidationMatrix()
+PASS   : TestBatchPresets::namingTokensResolveAndSanitize()
+PASS   : TestBatchPresets::storeCrudRenameDeleteAndBrokenDisclosure()
+PASS   : TestBatchPresets::saveAsPresetFromConfiguredRunAndRefusals()
+QDEBUG : TestBatchPresets::presetRunMatchesManualConfiguration() optimizeDocument: unused-object sweep removed 0 object(s)
+QDEBUG : TestBatchPresets::presetRunMatchesManualConfiguration() optimizeDocument: unused-object sweep removed 0 object(s)
+QDEBUG : TestBatchPresets::presetRunMatchesManualConfiguration() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/TestBatchPresets-hfWVPz/fixtures/one_compressed.pdf"
+QDEBUG : TestBatchPresets::presetRunMatchesManualConfiguration() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/TestBatchPresets-hfWVPz/fixtures/two_compressed.pdf"
+QDEBUG : TestBatchPresets::presetRunMatchesManualConfiguration() optimizeDocument: unused-object sweep removed 0 object(s)
+QDEBUG : TestBatchPresets::presetRunMatchesManualConfiguration() optimizeDocument: unused-object sweep removed 0 object(s)
+QDEBUG : TestBatchPresets::presetRunMatchesManualConfiguration() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-MylfHR.pdf"
+QDEBUG : TestBatchPresets::presetRunMatchesManualConfiguration() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-kFFCoA.pdf"
+PASS   : TestBatchPresets::presetRunMatchesManualConfiguration()
+QWARN  : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() CapabilityRegistry: no probe registered for CapId(13)
+QWARN  : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() CapabilityRegistry: no probe registered for CapId(13)
+QWARN  : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() CapabilityRegistry: no probe registered for CapId(13)
+QWARN  : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() CapabilityRegistry: no probe registered for CapId(13)
+QWARN  : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() CapabilityRegistry: no probe registered for CapId(13)
+QWARN  : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() CapabilityRegistry: no probe registered for CapId(13)
+QWARN  : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() CapabilityRegistry: no probe registered for CapId(13)
+QWARN  : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() CapabilityRegistry: no probe registered for CapId(13)
+QWARN  : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() CapabilityRegistry: no probe registered for CapId(13)
+QWARN  : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() CapabilityRegistry: no probe registered for CapId(13)
+QWARN  : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() CapabilityRegistry: no probe registered for CapId(13)
+QWARN  : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() CapabilityRegistry: no probe registered for CapId(13)
+QDEBUG : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() optimizeDocument: unused-object sweep removed 0 object(s)
+QDEBUG : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-ZPuOIl.pdf"
+PASS   : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses()
+PASS   : TestBatchPresets::zeroOpPresetRefusesToLoadAndRun()
+PASS   : TestBatchPresets::minAppVersionBlocksOlderApp()
+PASS   : TestBatchPresets::deleteAndRenameHonestyThroughUiSeams()
+QWARN  : TestBatchPresets::transactionalFailureLeavesOriginalUntouched() QIODevice::read (QFile, "C:\Users\User\AppData\Local\Temp\TestBatchPresets-CQHHMr\bad.pdf"): device not open
+QWARN  : TestBatchPresets::transactionalFailureLeavesOriginalUntouched() QIODevice::read (QFile, "C:\Users\User\AppData\Local\Temp\TestBatchPresets-CQHHMr\bad.pdf"): device not open
+PASS   : TestBatchPresets::transactionalFailureLeavesOriginalUntouched()
+PASS   : TestBatchPresets::firstSaveOnCleanProfileCreatesStoreRoot()
+PASS   : TestBatchPresets::cleanupTestCase()
+Totals: 15 passed, 0 failed, 0 skipped, 0 blacklisted, 559ms
+********* Finished testing of TestBatchPresets *********
+
+=== (3) NEGATIVE CONTROL: fix reverted (file restored to HEAD), rebuilt, pin re-run ===
+********* Start testing of TestBatchPresets *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestBatchPresets::initTestCase()
+FAIL!  : TestBatchPresets::firstSaveOnCleanProfileCreatesStoreRoot() 'store.save(&p, &err)' returned FALSE. (first-ever save on a clean profile must succeed: D:/pdf/msys64/tmp/TestBatchPresets-kEzbvV/clean-profile/presets/first-save.glyphpreset.json: cannot open for writing — The system cannot find the path specified.)
+D:/pdf/pdf-r18/tests/TestBatchPresets.cpp(548) : failure location
+PASS   : TestBatchPresets::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 2ms
+********* Finished testing of TestBatchPresets *********
+
+=== (4) RESTORED: fix re-applied, full suite re-run ===
+********* Start testing of TestBatchPresets *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestBatchPresets::initTestCase()
+PASS   : TestBatchPresets::goldenRoundTripByteStable()
+PASS   : TestBatchPresets::versionHandshakeRefusesNewerSchema()
+PASS   : TestBatchPresets::negativeValidationMatrix()
+PASS   : TestBatchPresets::namingTokensResolveAndSanitize()
+PASS   : TestBatchPresets::storeCrudRenameDeleteAndBrokenDisclosure()
+PASS   : TestBatchPresets::saveAsPresetFromConfiguredRunAndRefusals()
+QDEBUG : TestBatchPresets::presetRunMatchesManualConfiguration() optimizeDocument: unused-object sweep removed 0 object(s)
+QDEBUG : TestBatchPresets::presetRunMatchesManualConfiguration() optimizeDocument: unused-object sweep removed 0 object(s)
+QDEBUG : TestBatchPresets::presetRunMatchesManualConfiguration() PoDoFo Engine structurally saved document to: "D:/pdf/msys64/tmp/TestBatchPresets-NDsDhb/fixtures/one_compressed.pdf"
+QDEBUG : TestBatchPresets::presetRunMatchesManualConfiguration() PoDoFo Engine structurally saved document to: "D:/pdf/msys64/tmp/TestBatchPresets-NDsDhb/fixtures/two_compressed.pdf"
+QDEBUG : TestBatchPresets::presetRunMatchesManualConfiguration() optimizeDocument: unused-object sweep removed 0 object(s)
+QDEBUG : TestBatchPresets::presetRunMatchesManualConfiguration() optimizeDocument: unused-object sweep removed 0 object(s)
+QDEBUG : TestBatchPresets::presetRunMatchesManualConfiguration() PoDoFo Engine structurally saved document to: "D:/pdf/msys64/tmp/glyphpdf-candidates/glyphpdf-OOaLib.pdf"
+QDEBUG : TestBatchPresets::presetRunMatchesManualConfiguration() PoDoFo Engine structurally saved document to: "D:/pdf/msys64/tmp/glyphpdf-candidates/glyphpdf-JBusIw.pdf"
+PASS   : TestBatchPresets::presetRunMatchesManualConfiguration()
+QWARN  : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() CapabilityRegistry: no probe registered for CapId(13)
+QWARN  : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() CapabilityRegistry: no probe registered for CapId(13)
+QWARN  : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() CapabilityRegistry: no probe registered for CapId(13)
+QWARN  : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() CapabilityRegistry: no probe registered for CapId(13)
+QWARN  : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() CapabilityRegistry: no probe registered for CapId(13)
+QWARN  : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() CapabilityRegistry: no probe registered for CapId(13)
+QWARN  : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() CapabilityRegistry: no probe registered for CapId(13)
+QWARN  : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() CapabilityRegistry: no probe registered for CapId(13)
+QWARN  : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() CapabilityRegistry: no probe registered for CapId(13)
+QWARN  : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() CapabilityRegistry: no probe registered for CapId(13)
+QWARN  : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() CapabilityRegistry: no probe registered for CapId(13)
+QWARN  : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() CapabilityRegistry: no probe registered for CapId(13)
+QDEBUG : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() optimizeDocument: unused-object sweep removed 0 object(s)
+QDEBUG : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses() PoDoFo Engine structurally saved document to: "D:/pdf/msys64/tmp/glyphpdf-candidates/glyphpdf-RcCPOf.pdf"
+PASS   : TestBatchPresets::unavailableCapabilityStepDisclosesAndRefuses()
+PASS   : TestBatchPresets::zeroOpPresetRefusesToLoadAndRun()
+PASS   : TestBatchPresets::minAppVersionBlocksOlderApp()
+PASS   : TestBatchPresets::deleteAndRenameHonestyThroughUiSeams()
+QWARN  : TestBatchPresets::transactionalFailureLeavesOriginalUntouched() QIODevice::read (QFile, "D:\pdf\msys64\tmp\TestBatchPresets-ACGLOl\bad.pdf"): device not open
+QWARN  : TestBatchPresets::transactionalFailureLeavesOriginalUntouched() QIODevice::read (QFile, "D:\pdf\msys64\tmp\TestBatchPresets-ACGLOl\bad.pdf"): device not open
+PASS   : TestBatchPresets::transactionalFailureLeavesOriginalUntouched()
+PASS   : TestBatchPresets::firstSaveOnCleanProfileCreatesStoreRoot()
+PASS   : TestBatchPresets::cleanupTestCase()
+Totals: 15 passed, 0 failed, 0 skipped, 0 blacklisted, 424ms
+********* Finished testing of TestBatchPresets *********

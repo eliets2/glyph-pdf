@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "engines/OcrEngine.h"
+#include "core/PolicyController.h"  // R24 wiring: ocr/allowNetworkDownload gate
 #include <memory>
 #include <QDebug>
 #include <QNetworkAccessManager>
@@ -214,7 +215,19 @@ bool OcrEngine::initialize(const QString &language, const QString &dataPath)
 #ifdef QT_DEBUG
         qDebug() << "OCR language pack not found locally. Downloading:" << safeLanguage;
 #endif
-        if (!QSettings().value("ocr/allowNetworkDownload", false).toBool()) {
+        // R24 wiring closure: the machine policy (ocr/allowNetworkDownload)
+        // overrides the user's download consent AT the decision point — the
+        // download is attempted only when the EFFECTIVE value allows it.
+        // (PolicyController is compiled into pdfws_engines, so the engine
+        // layer can honor the policy directly; the model-load CALLERS are
+        // OCRMode/BatchMode/EditController — this is the single shared gate
+        // all of them pass through.)
+        auto& policy = gp::PolicyController::instance();
+        policy.ensureLoaded();
+        if (!policy
+                 .effectiveValue(QStringLiteral("ocr/allowNetworkDownload"),
+                                 QSettings().value("ocr/allowNetworkDownload", false))
+                 .toBool()) {
             qWarning() << "OCR download disabled";
             return false;
         }

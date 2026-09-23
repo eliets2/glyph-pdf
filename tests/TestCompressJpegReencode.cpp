@@ -14,6 +14,21 @@
 //  3. adversarial/malformed image dicts (garbage JPEG bytes, missing /Width,
 //     /DeviceCMYK, /ImageMask) are skipped safely and optimizeDocument still
 //     succeeds.
+//
+// §9.13 P1 additions:
+//  4. unused-object removal: a fixture carrying an orphaned (unreferenced)
+//     /Page dictionary with a large stream — written with NoCollectGarbage so
+//     it survives into the fixture file — must be (a) reflected in a REAL
+//     estimateOptimization saving when options.removeUnusedObjects is set
+//     (zeroed before the sweep landed) and (b) physically gone after
+//     optimizeDocument, while referenced objects survive.
+//  5. FlateDecode coverage: /DeviceGray and /DeviceRGB 8bpc images carried by
+//     /FlateDecode (PoDoFo's own stream decode provides the pixels) are
+//     re-encoded to real /DCTDecode JPEG honoring the same contract as the
+//     JPEG path — while images with a /DecodeParms /Predictor are SKIPPED
+//     byte-identical, because PoDoFo's filter expansion does not undo PNG/TIFF
+//     predictors and treating predictor-filtered bytes as pixels corrupts the
+//     image.
 #include <QtTest/QtTest>
 #include <QTemporaryDir>
 #include <QBuffer>
@@ -505,6 +520,308 @@ private slots:
         QCOMPARE(imgs.size(), 1);
         QVERIFY2(rawStream(*imgs[0].obj) == jpeg,
                  "targetDpi=0 must not re-encode or destroy the image (no 1x1 clamp)");
+    }
+
+    // ── §9.13 P1: unused-object removal ─────────────────────────────────────
+    // A fixture carrying an orphaned /Page dictionary (in the xref, referenced
+    // by nothing) plus a ~256 KiB stream, written with NoCollectGarbage so the
+    // orphan genuinely survives into the fixture bytes. The sweep must (a) make
+    // estimateOptimization report REAL savings for removeUnusedObjects — the
+    // R12-era estimate zeroed this pass — and (b) physically remove the orphan
+    // on optimizeDocument while every referenced object survives.
+    void unusedObjectSweepRemovesOrphans() {
+        constexpr int SMALL_W = 200, SMALL_H = 280;
+        QByteArray smallJpeg = encodeJpeg(makeNoiseImage(SMALL_W, SMALL_H, 13), 85);
+        QVERIFY2(!smallJpeg.isEmpty(), "test JPEG encode failed");
+
+        QString pdf = tmpPath("orphan.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            auto& page = doc.GetPages().CreatePage(
+                PoDoFo::PdfPageSize::A4);
+            embedJpeg(doc, page, smallJpeg, SMALL_W, SMALL_H); // referenced, must survive
+
+            // The orphan: a well-formed /Page dictionary with a marker key and
+            // a large pseudo-random (JPEG-hostile, ~incompressible) stream,
+            // never referenced by the page tree, annotations, or anywhere else.
+            PoDoFo::PdfObject& orphan = doc.GetObjects().CreateDictionaryObject("Page");
+            orphan.GetDictionary().AddKey("OrphanSweepMarker", PoDoFo::PdfVariant(true));
+            std::string junk(256 * 1024, '\0');
+            quint32 s = 99;
+            for (size_t i = 0; i < junk.size(); ++i) {
+                s = s * 1664525u + 1013904223u;
+                junk[i] = static_cast<char>((s >> 16) & 0xFF);
+            }
+            orphan.GetOrCreateStream().SetData(PoDoFo::charbuff(std::string_view(junk)));
+
+            // NoCollectGarbage: the orphan must reach the file for this test —
+            // a default Save() would sweep it before the fixture exists.
+            doc.Save(pdf.toUtf8().constData(), PoDoFo::PdfSaveOptions::NoCollectGarbage);
+        }
+        QVERIFY2(QFileInfo::exists(pdf), "source PDF must be written");
+
+        // Fixture sanity: the orphan really is in the loaded document.
+        qint64 orphanCount = 0;
+        {
+            PoDoFo::PdfMemDocument doc;
+            doc.Load(pdf.toUtf8().constData());
+            for (auto it = doc.GetObjects().begin(); it != doc.GetObjects().end(); ++it) {
+                PoDoFo::PdfObject* o = *it;
+                if (o->IsDictionary() && o->GetDictionary().FindKey("OrphanSweepMarker"))
+                    ++orphanCount;
+            }
+        }
+        QCOMPARE(orphanCount, qint64(1));
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+
+        // (a) The estimate must report real sweep savings when the option is on…
+        OptimizeEstimate estOn;
+        {
+            OptimizeOptions opts;
+            opts.downsampleImages = false;
+            opts.targetDpi = 150;
+            opts.jpegQuality = 75;
+            opts.deduplicateImages = false;
+            opts.subsetFonts = false;
+            opts.removeUnusedObjects = true;
+            opts.stripMetadata = false;
+            estOn = engine.estimateOptimization(opts);
+        }
+        QVERIFY2(estOn.originalBytes > 200 * 1024,
+                 qPrintable(QString("fixture too small for the orphan premise: %1 bytes")
+                     .arg(estOn.originalBytes)));
+        QVERIFY2(estOn.estimatedBytes <= estOn.originalBytes - 100 * 1024,
+                 qPrintable(QString("estimate must reflect the ~256 KiB orphaned stream for "
+                                    "removeUnusedObjects=true: original=%1 estimated=%2")
+                     .arg(estOn.originalBytes).arg(estOn.estimatedBytes)));
+
+        // …and must NOT claim sweep savings when the option is off.
+        OptimizeEstimate estOff;
+        {
+            OptimizeOptions opts;
+            opts.downsampleImages = false;
+            opts.targetDpi = 150;
+            opts.jpegQuality = 75;
+            opts.deduplicateImages = false;
+            opts.subsetFonts = false;
+            opts.removeUnusedObjects = false;
+            opts.stripMetadata = false;
+            estOff = engine.estimateOptimization(opts);
+        }
+        QVERIFY2(estOff.estimatedBytes == estOff.originalBytes,
+                 qPrintable(QString("estimate must not claim sweep savings for "
+                                    "removeUnusedObjects=false: original=%1 estimated=%2")
+                     .arg(estOff.originalBytes).arg(estOff.estimatedBytes)));
+
+        // (b) The write path must physically remove the orphan.
+        OptimizeOptions opts;
+        opts.downsampleImages = false;
+        opts.targetDpi = 150;
+        opts.jpegQuality = 75;
+        opts.deduplicateImages = false;
+        opts.subsetFonts = false;
+        opts.removeUnusedObjects = true;
+        opts.stripMetadata = false;
+        QString out = tmpPath("orphan_out.pdf");
+        QVERIFY2(engine.optimizeDocument(out, opts), "optimizeDocument must succeed");
+
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(out.toUtf8().constData());
+        QCOMPARE(doc.GetPages().GetCount(), 1u); // real page tree untouched
+        orphanCount = 0;
+        for (auto it = doc.GetObjects().begin(); it != doc.GetObjects().end(); ++it) {
+            PoDoFo::PdfObject* o = *it;
+            if (o->IsDictionary() && o->GetDictionary().FindKey("OrphanSweepMarker"))
+                ++orphanCount;
+        }
+        QCOMPARE(orphanCount, qint64(0));
+        auto imgs = findImages(doc, SMALL_W, SMALL_H);
+        QCOMPARE(imgs.size(), 1); // the referenced image survives the sweep
+        QVERIFY2(rawStream(*imgs[0].obj) == smallJpeg,
+                 "referenced image must survive the sweep byte-identical");
+        QVERIFY2(QFileInfo(out).size() < QFileInfo(pdf).size() - 100 * 1024,
+                 qPrintable(QString("output (%1) must be materially smaller than input (%2)")
+                     .arg(QFileInfo(out).size()).arg(QFileInfo(pdf).size())));
+    }
+
+    // ── §9.13 P1: FlateDecode RGB/Gray downsampling coverage ────────────────
+    // /DeviceGray and /DeviceRGB 8bpc images carried by /FlateDecode must be
+    // decoded (PoDoFo's own stream expansion) and re-encoded as real
+    // /DCTDecode JPEG, exactly like the pre-existing JPEG path.
+    void flateGrayAndRgbImagesAreReencodedToJpeg() {
+        const int W = 1240, H = 1754; // estDpi ≈ 150 > 72 * 1.2 threshold
+        QString pdf = tmpPath("flate.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            auto& page = doc.GetPages().CreatePage(
+                PoDoFo::PdfPageSize::A4);
+
+            // Smooth gradients — decode-friendly content.
+            QImage gray(W, H, QImage::Format_Grayscale8);
+            for (int y = 0; y < H; ++y) {
+                uchar* line = gray.scanLine(y);
+                for (int x = 0; x < W; ++x)
+                    line[x] = static_cast<uchar>((x + y) & 0xFF);
+            }
+            auto gimg = doc.CreateImage();
+            gimg->SetData(PoDoFo::bufferview(reinterpret_cast<const char*>(gray.constBits()),
+                                            static_cast<size_t>(W) * H),
+                          W, H, PoDoFo::PdfPixelFormat::Grayscale);
+
+            QImage rgb(W, H, QImage::Format_RGB888);
+            for (int y = 0; y < H; ++y) {
+                uchar* line = rgb.scanLine(y);
+                for (int x = 0; x < W; ++x) {
+                    line[x * 3 + 0] = static_cast<uchar>(x & 0xFF);
+                    line[x * 3 + 1] = static_cast<uchar>(y & 0xFF);
+                    line[x * 3 + 2] = static_cast<uchar>((x ^ y) & 0xFF);
+                }
+            }
+            auto rimg = doc.CreateImage();
+            rimg->SetData(PoDoFo::bufferview(reinterpret_cast<const char*>(rgb.constBits()),
+                                            static_cast<size_t>(W) * H * 3),
+                          W, H, PoDoFo::PdfPixelFormat::RGB24);
+
+            PoDoFo::PdfPainter painter;
+            painter.SetCanvas(page);
+            painter.DrawImage(*gimg, 40, 420, 200.0, 280.0);
+            painter.DrawImage(*rimg, 40, 40, 200.0, 280.0);
+            painter.FinishDrawing();
+            doc.Save(pdf.toUtf8().constData());
+        }
+        QVERIFY2(QFileInfo::exists(pdf), "source PDF must be written");
+
+        // Fixture sanity: both images must genuinely be FlateDecode streams.
+        {
+            PoDoFo::PdfMemDocument doc;
+            doc.Load(pdf.toUtf8().constData());
+            QCOMPARE(findImages(doc, W, H).size(), 2);
+            for (const auto& im : findImages(doc, W, H))
+                QVERIFY2(filterIs(*im.obj, "FlateDecode"),
+                         "fixture images must be /FlateDecode streams");
+        }
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+        OptimizeOptions opts;
+        opts.downsampleImages = true;
+        opts.targetDpi = 72;
+        opts.jpegQuality = 50;
+        opts.deduplicateImages = false;
+        opts.subsetFonts = false;
+        opts.removeUnusedObjects = false;
+        opts.stripMetadata = false;
+        QString out = tmpPath("flate_out.pdf");
+        QVERIFY2(engine.optimizeDocument(out, opts), "optimizeDocument must succeed");
+
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(out.toUtf8().constData());
+        QCOMPARE(doc.GetPages().GetCount(), 1u);
+
+        auto outImages = findImages(doc); // dims changed by the downsample
+        QCOMPARE(outImages.size(), 2);
+        int dctCount = 0;
+        for (const auto& im : outImages) {
+            QVERIFY2(filterIs(*im.obj, "DCTDecode"),
+                     qPrintable(QString("FlateDecode image %1x%2 must be re-encoded to "
+                                        "/DCTDecode").arg(im.w).arg(im.h)));
+            QVERIFY2(!im.obj->GetDictionary().FindKey("DecodeParms"),
+                     "stale /DecodeParms must be removed when re-encoding to DCTDecode");
+            QByteArray raw = rawStream(*im.obj);
+            QImage check;
+            QVERIFY2(check.loadFromData(raw, "JPEG"),
+                     "re-encoded stream must be a decodable JPEG");
+            QCOMPARE(check.width(), static_cast<int>(im.w));
+            QVERIFY2(im.w >= 580 && im.w <= 610,
+                     qPrintable(QString("image must be downsampled toward 72dpi, got %1x%2")
+                         .arg(im.w).arg(im.h)));
+            // Colorspace must stay device-operational: the gray fixture ends
+            // DeviceGray, the RGB fixture DeviceRGB.
+            auto* cs = im.obj->GetDictionary().FindKey("ColorSpace");
+            QVERIFY2(cs && cs->IsName(), "re-encoded image must carry a /ColorSpace name");
+            const std::string_view csName = cs->GetName().GetString();
+            QVERIFY2(csName == "DeviceGray" || csName == "DeviceRGB",
+                     qPrintable(QString("unexpected colorspace /%1")
+                         .arg(QString::fromLatin1(csName.data(), int(csName.size())))));
+            ++dctCount;
+        }
+        QCOMPARE(dctCount, 2);
+        bool sawGray = false, sawRgb = false;
+        for (const auto& im : outImages) {
+            auto* cs = im.obj->GetDictionary().FindKey("ColorSpace");
+            const std::string_view csName = cs->GetName().GetString();
+            if (csName == "DeviceGray") sawGray = true;
+            if (csName == "DeviceRGB") sawRgb = true;
+        }
+        QVERIFY2(sawGray, "the DeviceGray fixture image must be re-encoded (was skipped entirely before)");
+        QVERIFY2(sawRgb, "the DeviceRGB fixture image must be re-encoded");
+    }
+
+    // A /FlateDecode image whose /DecodeParms carry a /Predictor must be
+    // SKIPPED byte-identical: PoDoFo's filter expansion does not undo PNG/TIFF
+    // predictors, so the expanded bytes are not pixel data and re-encoding
+    // them as JPEG would silently corrupt the image.
+    void predictorImageIsSkippedSafely() {
+        const int W = 1240, H = 1754;
+        QString pdf = tmpPath("predictor.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            auto& page = doc.GetPages().CreatePage(
+                PoDoFo::PdfPageSize::A4);
+            auto img = doc.CreateImage();
+            QByteArray px(W * H * 3, '\x50');
+            img->SetData(PoDoFo::bufferview(px.constData(), px.size()),
+                         W, H, PoDoFo::PdfPixelFormat::RGB24);
+            PoDoFo::PdfPainter painter;
+            painter.SetCanvas(page);
+            painter.DrawImage(*img, 40, 40, 200.0, 280.0);
+            painter.FinishDrawing();
+
+            // Craft the crafted-file shape AFTER the image is valid and drawn:
+            // claim PNG predictor 15 over the (unpredictor-ed) data. The pass
+            // must not interpret these bytes as pixels.
+            img->GetDictionary().AddKey("DecodeParms", PoDoFo::PdfDictionary());
+            auto parms = img->GetDictionary().FindKey("DecodeParms");
+            parms->GetDictionary().AddKey("Predictor", static_cast<int64_t>(15));
+            parms->GetDictionary().AddKey("Colors", static_cast<int64_t>(3));
+            parms->GetDictionary().AddKey("BitsPerComponent", static_cast<int64_t>(8));
+            parms->GetDictionary().AddKey("Columns", static_cast<int64_t>(W));
+            doc.Save(pdf.toUtf8().constData());
+        }
+        QVERIFY2(QFileInfo::exists(pdf), "source PDF must be written");
+
+        QByteArray before;
+        {
+            PoDoFo::PdfMemDocument doc;
+            doc.Load(pdf.toUtf8().constData());
+            auto imgs = findImages(doc, W, H);
+            QCOMPARE(imgs.size(), 1);
+            before = rawStream(*imgs[0].obj);
+        }
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+        OptimizeOptions opts;
+        opts.downsampleImages = true;
+        opts.targetDpi = 72;
+        opts.jpegQuality = 50;
+        opts.deduplicateImages = false;
+        opts.subsetFonts = false;
+        opts.removeUnusedObjects = false;
+        opts.stripMetadata = false;
+        QString out = tmpPath("predictor_out.pdf");
+        QVERIFY2(engine.optimizeDocument(out, opts), "optimizeDocument must succeed");
+
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(out.toUtf8().constData());
+        auto imgs = findImages(doc, W, H);
+        QCOMPARE(imgs.size(), 1);
+        QVERIFY2(filterIs(*imgs[0].obj, "FlateDecode"),
+                 "predictor image must be left /FlateDecode (not re-encoded)");
+        QVERIFY2(rawStream(*imgs[0].obj) == before,
+                 "predictor image stream must stay byte-identical (expansion is not pixel data)");
     }
 };
 

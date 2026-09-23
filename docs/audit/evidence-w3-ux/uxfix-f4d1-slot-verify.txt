@@ -1,0 +1,167 @@
+********* Start testing of TestSweepW3UxFlows *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSweepW3UxFlows::initTestCase()
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F-route: clicking welcome card 'open'
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4a: dispatching production Sign
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: driving dialog matched by 'signatureCertPathEdit' (title='Digital Signature')
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4a sign dialog: title='Digital Signature'; credentials filled
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12909 78447 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: clicked prompt button 'No' on 'Open Signed PDF' (question: 'Signing complete. Would you like to open the signed file?')
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12909 78447 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12909 78447 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12909 78447 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12909 78447 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12909 78447 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4a verified: 1 signature(s) on the saved artifact; completion prompt seen=1 (dismissed with No)
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12909 78447 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12909 78447 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: modal seen: title='Validate All Signatures' text='0 of 1 signature(s) are valid:
+
+• (unknown signer) — INVALID (UntrustedChain) '
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12909 78447 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4a verify surface: title='Validate All Signatures' text='0 of 1 signature(s) are valid:
+
+• (unknown signer) — INVALID (UntrustedChain)
+'
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12909 78447 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: driving dialog matched by 'Certify Document' (title='Certify Document')
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4b certify-on-signed: purpose combo enabled=1 items=2
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4b disclosed reason: 'Certify is unavailable: this document already has 1 signature(s). A certification (author) signature must be the FIRST signature in a document, so it cannot be added on top of existing ones. Use Appro'
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4b done: certify-on-signed state recorded (see transcript)
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: driving dialog matched by 'Certify Document' (title='Certify Document')
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4c: Certify purpose + level 2 + credentials set; accepting
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 13742 79280 1071
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: clicked prompt button 'No' on 'Open Certified PDF' (question: 'Certification complete. Would you like to open the certified file?')
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4c verified: certified artifact carries /DocMDP /P=2; certify dialog seen=1; completion prompt seen=1
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: driving dialog matched by 'Prepare Signing Request' (title='Prepare Signing Request')
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4d: two signers added through the real Add Signer control
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4d: Save Request accepted
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support raise()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4d verified: sidecar written next to the document
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: driving dialog matched by 'signatureCertPathEdit' (title='Digital Signature')
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4d step 1: signature dialog filled
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: ByteRange missing or not an array
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12656 78194 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12656 78194 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12656 78194 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4d step 1 panel state after 3s: '1. Signer 1 — SIGNED at 2026-09-22T23:38:47Z (field sig1, PAdES B-B) — integrity intact (trust: UntrustedChain)'
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: driving dialog matched by 'signatureCertPathEdit' (title='Digital Signature')
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4d step 2: signature dialog filled
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12656 78194 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12656 78194 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12656 78194 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 1 0 R"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: ByteRange missing or not an array
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12656 78194 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 1 0 R"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig2" ByteRange: 0 84012 149550 440
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12656 78194 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 1 0 R"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig2" ByteRange: 0 84012 149550 440
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12656 78194 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 1 0 R"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig2" ByteRange: 0 84012 149550 440
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4d step 2 panel state after 3s: '2. Signer 2 — SIGNED at 2026-09-22T23:38:51Z (field sig2, PAdES B-B) — integrity intact (trust: UntrustedChain)'
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12656 78194 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 1 0 R"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig2" ByteRange: 0 84012 149550 440
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4d completion surface: 'Signer 3 of 3: Signer 3 — field sig3 (page 1)'; engine signatures on doc: 2; steps signed: 2
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() QTemporaryDir: Unable to remove "D:\\pdf\\msys64\\tmp\\TestSweepW3UxFlows-UjlldI" most likely due to the presence of read-only files.
+PASS   : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest()
+PASS   : TestSweepW3UxFlows::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 12133ms
+********* Finished testing of TestSweepW3UxFlows *********

@@ -272,7 +272,8 @@ private slots:
         QVERIFY(fields.contains(QStringLiteral("move_test")));
     }
 
-    // ── T7: setTabOrder persists /CO array ────────────────────────────────
+    // ── T7: setTabOrder persists the widget tab order (/Annots + /Tabs /W);
+    // the AcroForm /CO calculation order is never touched (R18(b)) ──────────
     void testTabOrderPersists() {
         QTemporaryDir tmp;
         QVERIFY(tmp.isValid());

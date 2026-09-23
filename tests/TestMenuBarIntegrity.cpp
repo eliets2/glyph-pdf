@@ -26,6 +26,7 @@
 #include "shell/controllers/ConvertController.h"
 #include "shell/controllers/FormsController.h"
 #include "shell/controllers/SecurityController.h"
+#include "shell/controllers/TaskNavController.h"   // R15: task-surface routes
 
 class TestMenuBarIntegrity : public QObject {
     Q_OBJECT
@@ -41,9 +42,10 @@ private:
         gp::ConvertController  convert(&m_ctx, nullptr);
         gp::FormsController    forms(&m_ctx, nullptr);
         gp::SecurityController security(&m_ctx, nullptr);
+        gp::TaskNavController  taskNav(&m_ctx, nullptr);   // R15: task-surface routes
 
         QVector<IToolController*> controllers = {
-            &home, &view, &edit, &pages, &convert, &forms, &security
+            &home, &view, &edit, &pages, &convert, &forms, &security, &taskNav
         };
 
         QSet<ToolId> handled;

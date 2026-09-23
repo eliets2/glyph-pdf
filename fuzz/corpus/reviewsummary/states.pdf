@@ -1,0 +1,34 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [4 0 R 5 0 R 6 0 R] >>
+endobj
+4 0 obj
+<< /Subtype /Text /Rect [0 0 10 10] /Contents (a) /State /Accepted /StateModel /Review >>
+endobj
+5 0 obj
+<< /Subtype /Text /Rect [0 0 10 10] /Contents (b) /State /Bogus /StateModel /Review >>
+endobj
+6 0 obj
+<< /Subtype /Text /Rect [0 0 10 10] /Contents (c) /State (string-not-name) >>
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000220 00000 n 
+0000000325 00000 n 
+0000000427 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R  >>
+startxref
+520
+%%EOF

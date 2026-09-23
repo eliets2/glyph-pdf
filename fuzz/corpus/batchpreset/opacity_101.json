@@ -1,0 +1,1 @@
+{"glyphpreset": {"schemaVersion": 1, "kind": "batch-preset"}, "id": "my-preset", "name": "My Preset", "created": "2026-09-19T10:00:00Z", "modified": "2026-09-19T10:00:00Z", "steps": [{"op": "watermark", "params": {"opacity": 101}}]}

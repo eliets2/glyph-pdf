@@ -20,6 +20,23 @@ class CompressDialog : public QDialog {
 public:
     explicit CompressDialog(const AppContext* ctx, QWidget* parent = nullptr);
 
+    // R12 honesty seam: single source of truth for the availability text
+    // explaining that the "Subset fonts" / "Remove unused objects" passes are
+    // not implemented by the compression engine in this build (no font
+    // subsetter, no object garbage collector), so their checkboxes are
+    // disabled and unchecked instead of promising work that never runs.
+    static QString unsupportedPassExplanation();
+
+    // §9.13 measured-completion seam: builds the post-completion message from
+    // the two MEASURED on-disk sizes (untouched original vs committed output,
+    // both read after the write) — never the pre-execution estimate. Reports
+    // the delta, and says so explicitly when the result is not smaller than
+    // the original (R12 honesty precedent at the completion site). Static and
+    // pure so TestCompressDialogHonesty can pin the exact wording without
+    // driving the modal save dialog.
+    static QString formatCompletionReport(qint64 originalBytes, qint64 newBytes,
+                                          const QString& outputFileName);
+
 private slots:
     void onPresetChanged(int id);
     void refreshEstimate();

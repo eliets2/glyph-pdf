@@ -2,6 +2,7 @@
 #include "engines/PdfEditorEngine.h"
 #include "engines/BackendRouter.h"
 #include "engines/PatternRedactor.h"
+#include "engines/SafeSave.h"
 #include "engines/podofo/PoDoFoBackend.h"
 #include "engines/qpdf/QpdfBackend.h"
 #include "engines/SignatureManager.h"
@@ -13,6 +14,7 @@
 #include <podofo/podofo.h>
 #include "engines/podofo/PdfStringEscape.h"
 #include <QDate>
+#include <QMap>
 #include <QMutexLocker>
 #include <QRecursiveMutex>
 #include <QSettings>
@@ -44,6 +46,30 @@ public:
     std::unique_ptr<PoDoFoBackend> backend;
     mutable QRecursiveMutex mutex;
     mutable ErrorInfo lastErr;
+    // G04 (QUALITY-GATE-2026-09-09): engine-owned identity of the resident
+    // LOAD. Bumped on every successful loadDocumentForEditing — including a
+    // same-path reopen (A→A) — so a deferred writer that captured the
+    // identity of an earlier incarnation can never serialize a REPLACED
+    // document just because the path string still matches.
+    qint64 loadId = 0;
+
+    // WP-R09 (WHOLE-ARCHITECTURE-REVIEW A04): the ONE resident-publication
+    // path. BOTH successful load flavors — a normal load and the qpdf
+    // repaired replacement — mint a new load identity here, so a repaired
+    // load can never be mistaken for the earlier resident (an autosave
+    // worker holding the old id must report stale, not promote its recovery
+    // file over the repaired document).
+    void publishResidentBackend(std::unique_ptr<PoDoFoBackend> resident) {
+        backend = std::move(resident);
+        ++loadId;
+    }
+
+    // WP-R09b (WHOLE-ARCHITECTURE-REVIEW A05): set when the backend refused
+    // an in-place commit because the file on disk changed since it was
+    // loaded. The shell consults lastSaveRefusedForExternalConflict() after
+    // a failed save to offer review/reload/Save-As instead of a generic
+    // write-failure message. Cleared by every successful load and save.
+    bool externalConflict = false;
 
     void clearErr() const { lastErr = ErrorInfo{}; }
 
@@ -109,7 +135,12 @@ bool PdfEditorEngine::loadDocumentForEditing(const QString &filePath)
 
 
     if (podofoBackend->loadDocument(filePath)) {
-        d->backend = std::move(podofoBackend);
+        // G04/WP-R09 (A04): BOTH successful load flavors mint the identity in
+        // the ONE publication path — the qpdf repaired replacement below used
+        // to skip the increment, letting an earlier resident's autosave worker
+        // accept the repaired replacement under the stale id.
+        d->publishResidentBackend(std::move(podofoBackend));
+        d->externalConflict = false;   // WP-R09b: a successful load re-baselines
         return true;
     }
 
@@ -124,7 +155,11 @@ bool PdfEditorEngine::loadDocumentForEditing(const QString &filePath)
 
             if (podofoBackend->loadDocument(tempPath)) {
                 podofoBackend->setCurrentFile(filePath);
-                d->backend = std::move(podofoBackend);
+                // WP-R09 (A04): the repaired replacement is a NEW resident —
+                // mint the load identity through the common publication path
+                // (the old code kept the previous incarnation's id).
+                d->publishResidentBackend(std::move(podofoBackend));
+                d->externalConflict = false;
                 TempFileManager::instance().untrack(tempPath);
                 QFile::remove(tempPath);
 
@@ -171,6 +206,7 @@ bool PdfEditorEngine::saveDocument(const QString &outputPath)
         if (!d->backend->saveDocument(tempPath)) {
             TempFileManager::instance().untrack(tempPath);
             QFile::remove(tempPath);
+            d->externalConflict = false;   // temp write: not an in-place commit
             d->setErr(ErrorInfo::Error,
                       QObject::tr("Failed to save the document. The file may be read-only or the disk may be full."),
                       QStringLiteral("PoDoFoBackend::saveDocument failed for temp path"),
@@ -183,20 +219,26 @@ bool PdfEditorEngine::saveDocument(const QString &outputPath)
         bool hasSignatures = !sigs.isEmpty();
 
         bool success = false;
+        QString commitErr;
         if (!hasSignatures) {
             success = QpdfBackend::linearize(tempPath, outputPath);
             if (!success) {
                 d->setErr(ErrorInfo::Warning,
                           QObject::tr("The document was saved but linearization failed. "
                                       "The PDF will work but may load more slowly in web viewers."),
-                          QStringLiteral("QpdfBackend::linearize failed; fallback to direct copy."));
-                // Fallback: copy unlinearized
-                if (QFile::exists(outputPath)) QFile::remove(outputPath);
-                success = QFile::copy(tempPath, outputPath);
+                          QStringLiteral("QpdfBackend::linearize failed; fallback to SafeSave commit."));
+                // EC01: no remove-before-copy — the unlinearized temp is
+                // committed through the checked SafeSave boundary so a failed
+                // replacement never destroys an existing destination.
+                success = gp::SafeSave::commitFileToDestination(
+                    tempPath, outputPath, &commitErr);
             }
         } else {
-            if (QFile::exists(outputPath)) QFile::remove(outputPath);
-            success = QFile::copy(tempPath, outputPath);
+            // EC01: signed documents must not be linearized (byte offsets);
+            // commit the temp through the checked SafeSave boundary instead of
+            // delete-then-copy so the previous output survives any failure.
+            success = gp::SafeSave::commitFileToDestination(
+                tempPath, outputPath, &commitErr);
         }
 
         TempFileManager::instance().untrack(tempPath);
@@ -204,7 +246,9 @@ bool PdfEditorEngine::saveDocument(const QString &outputPath)
         if (!success) {
             d->setErr(ErrorInfo::Error,
                       QObject::tr("Failed to write the output file. Check that the destination is writable."),
-                      QStringLiteral("Output path: %1").arg(outputPath),
+                      QStringLiteral("Output path: %1%2")
+                          .arg(outputPath,
+                               commitErr.isEmpty() ? QString() : QStringLiteral(" — %1").arg(commitErr)),
                       ErrorInfo::Retry);
         }
         return success;
@@ -212,12 +256,83 @@ bool PdfEditorEngine::saveDocument(const QString &outputPath)
 
     bool ok = d->backend->saveDocument(outputPath);
     if (!ok) {
+        // WP-R09b: distinguish an external source-version conflict from an
+        // ordinary I/O failure for the shell's resolution offer.
+        d->externalConflict = d->backend->lastCommitRefusedForExternalConflict();
         d->setErr(ErrorInfo::Error,
                   QObject::tr("Failed to save the document. The file may be read-only or the disk may be full."),
                   QStringLiteral("PoDoFoBackend::saveDocument failed for: %1").arg(outputPath),
                   ErrorInfo::Retry);
+    } else {
+        d->externalConflict = false;
     }
     return ok;
+}
+
+bool PdfEditorEngine::saveDocumentIfCurrent(const QString &expectedCurrentFile,
+                                            const QString &outputPath)
+{
+    // EC02: the identity check and the save happen under the SAME lock, so no
+    // document switch can slip between "identity still matches" and "bytes
+    // written". QRecursiveMutex makes the saveDocument() re-entry safe.
+    QMutexLocker locker(&d->mutex);
+    if (!d->backend) return d->noBackend("saveDocumentIfCurrent");
+    if (d->backend->currentFile() != expectedCurrentFile) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("The document changed while this operation was starting; "
+                              "nothing was written."),
+                  QStringLiteral("saveDocumentIfCurrent: resident document is '%1', "
+                                 "expected '%2'")
+                      .arg(d->backend->currentFile(), expectedCurrentFile));
+        return false;
+    }
+    return saveDocument(outputPath);
+}
+
+qint64 PdfEditorEngine::documentLoadId() const
+{
+    QMutexLocker locker(&d->mutex);
+    return d->loadId;
+}
+
+// WP-R09b (WHOLE-ARCHITECTURE-REVIEW A05): true when the last failed
+// in-place save was refused as an external source-version conflict.
+bool PdfEditorEngine::lastSaveRefusedForExternalConflict() const
+{
+    QMutexLocker locker(&d->mutex);
+    return d->externalConflict;
+}
+
+// WP-R09b: prime the external source-version baseline of `path` without
+// loading it (recovery-destination priming in the shell).
+void PdfEditorEngine::primeSourceBaseline(const QString &path)
+{
+    QMutexLocker locker(&d->mutex);
+    if (!d->backend) return;
+    d->backend->primeExternalBaseline(path);
+}
+
+bool PdfEditorEngine::saveDocumentIfCurrent(const QString &expectedCurrentFile,
+                                            qint64 expectedLoadId,
+                                            const QString &outputPath)
+{
+    // G04: the PATH and the resident-LOAD identity are both checked under the
+    // same serialization lock — a re-opened document at the SAME path (A→B→A
+    // or A→A) is a different incarnation and refuses the save before any
+    // recovery output is touched.
+    QMutexLocker locker(&d->mutex);
+    if (!d->backend) return d->noBackend("saveDocumentIfCurrent");
+    if (d->backend->currentFile() != expectedCurrentFile || d->loadId != expectedLoadId) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("The document changed while this operation was starting; "
+                              "nothing was written."),
+                  QStringLiteral("saveDocumentIfCurrent: resident document is '%1' "
+                                 "(load id %2), expected '%3' (load id %4)")
+                      .arg(d->backend->currentFile()).arg(d->loadId)
+                      .arg(expectedCurrentFile).arg(expectedLoadId));
+        return false;
+    }
+    return saveDocument(outputPath);
 }
 
 bool PdfEditorEngine::editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
@@ -408,6 +523,39 @@ bool PdfEditorEngine::exportMrcPdfA(
         return false;
     }
 
+    // ── R08: reviewed OCR words are Unicode; the text layer must be too ────
+    // The Helvetica/WinAnsi literal-string path can only encode ASCII
+    // correctly (raw UTF-8 bytes under WinAnsi garble everything else), so
+    // words containing non-ASCII characters are written as UTF-16BE hex
+    // strings against a Type0 /Identity-H font with a ToUnicode CMap. The
+    // text layer is invisible (3 Tr), so no font program needs to be embedded
+    // for rendering; extraction (PDFium et al.) reads the ToUnicode CMap.
+    // Pages with ASCII-only words keep the exact previous object layout.
+    auto wordNeedsUnicode = [](const QString& text) {
+        for (const QChar ch : text)
+            if (ch.unicode() < 0x20 || ch.unicode() > 0x7E) return true;
+        return false;
+    };
+    bool needUnicode = false;
+    QMap<uint, uint> unicodeCids;   // Unicode codepoint → CID (Identity-H)
+    for (const auto& layers : allLayers) {
+        for (const auto& w : layers.mrc.sandwichText) {
+            if (!wordNeedsUnicode(w.text)) continue;
+            needUnicode = true;
+            for (int i = 0; i < w.text.size(); ++i) {
+                uint cp = w.text.at(i).unicode();
+                if (QChar::isHighSurrogate(w.text.at(i).unicode())
+                    && i + 1 < w.text.size()
+                    && QChar::isLowSurrogate(w.text.at(i + 1).unicode())) {
+                    cp = QChar::surrogateToUcs4(w.text.at(i), w.text.at(i + 1));
+                    ++i;
+                }
+                if (!unicodeCids.contains(cp))
+                    unicodeCids.insert(cp, unicodeCids.size() + 1);
+            }
+        }
+    }
+
     // Object numbering plan:
     //   1: Catalog
     //   2: Pages (array of page refs)
@@ -420,12 +568,17 @@ bool PdfEditorEngine::exportMrcPdfA(
     //     base+2: Foreground JBIG2 mask XObject (or empty stream if no JBIG2)
     //     base+3: Content stream
     //   After all pages:
-    //     last+1: Helvetica font (for sandwich text)
+    //     fontObj: Helvetica font (for sandwich text)
+    //     [needUnicode] +4 objects: Type0 font, CIDFont, descriptor, ToUnicode
 
     int numPages = allLayers.size();
     int objBase  = 5;          // first page block starts here
     int fontObj  = objBase + numPages * 4;  // after all page blocks
-    int totalObj = fontObj + 1;             // +1 for font dict itself
+    int uniFontObj    = fontObj + 1;
+    int uniCidFontObj = fontObj + 2;
+    int uniDescObj    = fontObj + 3;
+    int uniCmapObj    = fontObj + 4;
+    int totalObj = (needUnicode ? uniCmapObj : fontObj) + 1;
 
     QList<qint64> offsets;  // offset[objNum-1] = byte offset of "objNum 0 obj"
     offsets.resize(totalObj);
@@ -440,9 +593,13 @@ bool PdfEditorEngine::exportMrcPdfA(
     auto streamObj = [&](int objNum, const QByteArray& dict, const QByteArray& data) {
         offsets[objNum - 1] = out.pos();
         out.write(QByteArray::number(objNum) + " 0 obj\n");
-        // Insert /Length into the dict
         QByteArray fullDict = dict;
-        int ins = fullDict.lastIndexOf('>');
+        // Insert /Length into the dict. R08 fix: insert before the closing
+        // ">>" — the previous lastIndexOf('>') landed BETWEEN the two angle
+        // brackets, producing malformed dicts like "<<> /Length N>" that
+        // PDFium cannot parse (the sandwich text layer was invisible to text
+        // extraction even though the raw operators were present).
+        int ins = fullDict.lastIndexOf(">>");
         if (ins >= 0) {
             fullDict.insert(ins, " /Length " + QByteArray::number(data.size()));
         }
@@ -587,12 +744,36 @@ bool PdfEditorEngine::exportMrcPdfA(
                 // Scale font to fit the word box height
                 double fs = qMax(1.0, bh);
 
-                // Escape PDF string special characters
-                cs += pdfReal(fs) + " Tf\n";
-                cs += pdfReal(bw / (w.text.length() > 0 ? w.text.length() : 1)) + " Tz\n";
-                cs += pdfReal(x) + " " + pdfReal(y) + " Td\n";
-                cs += "(" + QByteArray::fromStdString(pdfEscapeLiteralString(w.text)) + ") Tj\n";
-                cs += "0 0 Td\n";
+                const bool uni = wordNeedsUnicode(w.text);
+                // Select the per-word font (visible only through extraction —
+                // the whole run is invisible via 3 Tr).
+                cs += (uni ? "/F2 " : "/F1 ") + pdfReal(fs) + " Tf\n";
+
+                if (uni) {
+                    // R08: UTF-16BE hex string over Identity-H CIDs; ToUnicode
+                    // maps them back to the reviewed Unicode text.
+                    QByteArray hex;
+                    for (int i = 0; i < w.text.size(); ++i) {
+                        uint cp = w.text.at(i).unicode();
+                        if (QChar::isHighSurrogate(w.text.at(i).unicode())
+                            && i + 1 < w.text.size()
+                            && QChar::isLowSurrogate(w.text.at(i + 1).unicode())) {
+                            cp = QChar::surrogateToUcs4(w.text.at(i), w.text.at(i + 1));
+                            ++i;
+                        }
+                        hex += QByteArray::number(unicodeCids.value(cp), 16)
+                                   .rightJustified(4, '0');
+                    }
+                    cs += pdfReal(x) + " " + pdfReal(y) + " Td\n";
+                    cs += "<" + hex + "> Tj\n";
+                    cs += "0 0 Td\n";
+                } else {
+                    // Escape PDF string special characters
+                    cs += pdfReal(bw / (w.text.length() > 0 ? w.text.length() : 1)) + " Tz\n";
+                    cs += pdfReal(x) + " " + pdfReal(y) + " Td\n";
+                    cs += "(" + QByteArray::fromStdString(pdfEscapeLiteralString(w.text)) + ") Tj\n";
+                    cs += "0 0 Td\n";
+                }
             }
             cs += "ET\n";
         }
@@ -600,13 +781,18 @@ bool PdfEditorEngine::exportMrcPdfA(
         streamObj(csObj, "<<>>", cs);  // Raw (uncompressed) content stream
 
         // ── base+0: Page dict ─────────────────────────────────────────────
+        QByteArray fontRefs =
+            " /Font << /F1 " + pdfInt(fontObj) + " 0 R";
+        if (needUnicode)
+            fontRefs += " /F2 " + pdfInt(uniFontObj) + " 0 R";
+        fontRefs += " >> >>";
         QByteArray pageDict =
             "<< /Type /Page"
             " /Parent 2 0 R"
             " /MediaBox [0 0 " + pdfReal(pageW) + " " + pdfReal(pageH) + "]"
             " /Resources << /XObject << /Img1 " + pdfInt(bgObj) + " 0 R"
-            "                             /Img2 " + pdfInt(fgObj) + " 0 R >>"
-            "               /Font << /F1 " + pdfInt(fontObj) + " 0 R >> >>"
+            "                             /Img2 " + pdfInt(fgObj) + " 0 R >>" +
+            fontRefs +
             " /Contents " + pdfInt(csObj) + " 0 R"
             " >>";
         writeObj(base, pageDict);
@@ -617,6 +803,55 @@ bool PdfEditorEngine::exportMrcPdfA(
     writeObj(fontObj,
         "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica"
         " /Encoding /WinAnsiEncoding >>");
+
+    // ── R08: Unicode font family (Type0 / Identity-H + ToUnicode CMap) ─────
+    // Emitted only when at least one word needs it, so ASCII-only exports
+    // keep the exact previous object layout. The font program is intentionally
+    // not embedded: the text layer is invisible (3 Tr) and extraction reads
+    // the ToUnicode CMap.
+    if (needUnicode) {
+        writeObj(uniDescObj,
+            "<< /Type /FontDescriptor /FontName /GlyphOcrSans"
+            " /Flags 4 /FontBBox [0 -200 1000 900] /ItalicAngle 0"
+            " /Ascent 900 /Descent -200 /CapHeight 700 /StemV 80 >>");
+        writeObj(uniCidFontObj,
+            "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /GlyphOcrSans"
+            " /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>"
+            " /FontDescriptor " + pdfInt(uniDescObj) + " 0 R"
+            " /DW 1000 /CIDToGIDMap /Identity >>");
+        writeObj(uniFontObj,
+            "<< /Type /Font /Subtype /Type0 /BaseFont /GlyphOcrSans"
+            " /Encoding /Identity-H"
+            " /DescendantFonts [" + pdfInt(uniCidFontObj) + " 0 R]"
+            " /ToUnicode " + pdfInt(uniCmapObj) + " 0 R >>");
+
+        QByteArray cmap =
+            "/CIDInit /ProcSet findresource begin\n"
+            "12 dict begin\n"
+            "begincmap\n"
+            "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n"
+            "/CMapName /Adobe-Identity-UCS def\n"
+            "/CMapType 2 def\n"
+            "1 begincodespacerange\n"
+            "<0000> <FFFF>\n"
+            "endcodespacerange\n";
+        cmap += QByteArray::number(unicodeCids.size()) + " beginbfchar\n";
+        for (auto it = unicodeCids.constBegin(); it != unicodeCids.constEnd(); ++it) {
+            // ToUnicode target: UTF-16BE of the mapped codepoint.
+            QString utf16 = QString::fromUcs4(reinterpret_cast<const char32_t*>(&it.key()), 1);
+            QByteArray hexTarget;
+            for (const QChar ch : utf16)
+                hexTarget += QByteArray::number(ch.unicode(), 16).rightJustified(4, '0');
+            cmap += "<" + QByteArray::number(it.value(), 16).rightJustified(4, '0') + ">"
+                  + " <" + hexTarget + ">\n";
+        }
+        cmap += "endbfchar\n"
+                "endcmap\n"
+                "CMapName currentdict /CMap defineresource pop\n"
+                "end\n"
+                "end\n";
+        streamObj(uniCmapObj, "<<>>", cmap);
+    }
 
     // ── Object 2: Pages ─────────────────────────────────────────────────────
     writeObj(2,
@@ -1058,6 +1293,20 @@ bool PdfEditorEngine::insertPageFromBytes(const QString &path, int atIndex, cons
     return ok;
 }
 
+// G08 (QUALITY-GATE-2026-09-09): single-transaction page restoration.
+bool PdfEditorEngine::restorePageFromBytes(const QString &path, int pageIndex, const QByteArray &pageData)
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("restorePageFromBytes");
+    bool ok = d->backend->restorePageFromBytes(path, pageIndex, pageData);
+    if (!ok)
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to restore the page at position %1.").arg(pageIndex + 1),
+                  QStringLiteral("restorePageFromBytes at=%1").arg(pageIndex));
+    return ok;
+}
+
 bool PdfEditorEngine::deletePage(const QString &path, int pageIndex)
 {
     QMutexLocker locker(&d->mutex);
@@ -1099,6 +1348,40 @@ bool PdfEditorEngine::cropPage(const QString &path, int pageIndex, const QRectF 
         d->lastErr.sourcePage = pageIndex;
     }
     return ok;
+}
+
+QRectF PdfEditorEngine::pageCropBox(const QString &path, int pageIndex, bool *ok)
+{
+    QMutexLocker locker(&d->mutex);
+    if (ok) *ok = false;
+    if (!d->backend) { d->noBackend("pageCropBox"); return QRectF(); }
+    return d->backend->pageCropBox(path, pageIndex, ok);
+}
+
+// G07 (QUALITY-GATE-2026-09-09): origin-aware CropBox snapshot passthrough.
+bool PdfEditorEngine::pageCropBoxInfo(const QString &path, int pageIndex,
+                                      QRectF *outBox, int *outOrigin)
+{
+    QMutexLocker locker(&d->mutex);
+    if (outBox) *outBox = QRectF();
+    if (outOrigin) *outOrigin = IPdfEditorEngine::kCropBoxAbsent;
+    if (!d->backend) { d->noBackend("pageCropBoxInfo"); return false; }
+    return d->backend->pageCropBoxInfo(path, pageIndex, outBox, outOrigin);
+}
+
+// G07: restore absent/inherited CropBox semantics passthrough.
+bool PdfEditorEngine::removePageCropBox(const QString &path, int pageIndex)
+{
+    QMutexLocker locker(&d->mutex);
+    if (!d->backend) { d->noBackend("removePageCropBox"); return false; }
+    return d->backend->removePageCropBox(path, pageIndex);
+}
+
+void PdfEditorEngine::releaseResidentFile(const QString &path)
+{
+    QMutexLocker locker(&d->mutex);
+    if (!d->backend) return;
+    d->backend->releaseResidentFile(path);
 }
 
 bool PdfEditorEngine::resizePage(const QString &path, int pageIndex, const QSizeF &size)
@@ -1157,10 +1440,17 @@ bool PdfEditorEngine::addHeaderFooter(const QString &path, const HeaderFooterOpt
 
 bool PdfEditorEngine::applyBatesNumbering(const QString &path, const BatesNumberingOptions &options)
 {
+    // §9.9 P1: legacy entry point — delegates to the continuity overload and
+    // ignores the counter report.
+    return applyBatesNumbering(path, options, nullptr);
+}
+
+bool PdfEditorEngine::applyBatesNumbering(const QString &path, const BatesNumberingOptions &options, int *lastNumberOut)
+{
     QMutexLocker locker(&d->mutex);
     d->clearErr();
     if (!d->backend) return d->noBackend("applyBatesNumbering");
-    bool ok = d->backend->applyBatesNumbering(path, options);
+    bool ok = d->backend->applyBatesNumbering(path, options, lastNumberOut);
     if (!ok)
         d->setErr(ErrorInfo::Error,
                   QObject::tr("Failed to apply Bates numbering."),
@@ -1321,6 +1611,57 @@ bool PdfEditorEngine::applyMarkRedactions(const QList<AnnotationItem>& marks)
         }
     }
     return true;
+}
+
+// T2-2 (ITextReplacer): Find & Replace — see ITextReplacer for the contract.
+// Like the other in-place text mutations (editTextInline) this mutates the
+// RESIDENT document only; the caller saves (saveDocument, or writeUpdate for
+// signed documents) and reloads the viewer afterwards.
+bool PdfEditorEngine::replaceTextRegions(const QList<TextReplacementSpec>& specs,
+                                         QList<double>* drawnWidthsOut)
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("replaceTextRegions");
+    bool ok = d->backend->replaceTextRegions(specs, drawnWidthsOut);
+    if (!ok) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Replace failed: a page's content could not be edited. "
+                              "Nothing was saved — the document is unchanged on disk."),
+                  QStringLiteral("replaceTextRegions specs=%1").arg(specs.size()));
+    }
+    return ok;
+}
+
+// T2-9 (IOutlineEditor): outline read — reads the on-disk file in a throwaway
+// document; never touches the resident document or the error state of the
+// editing pipeline.
+QList<OutlineEntry> PdfEditorEngine::getOutline(const QString& path)
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+    if (!d->backend) {
+        d->noBackend("getOutline");
+        return {};
+    }
+    return d->backend->getOutline(path);
+}
+
+// T2-9 (IOutlineEditor): outline replace — ONE committed write over the
+// resident document (see IOutlineEditor).
+bool PdfEditorEngine::replaceOutline(const QString& path, const QList<OutlineEntry>& entries)
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("replaceOutline");
+    bool ok = d->backend->replaceOutline(path, entries);
+    if (!ok) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Could not write the bookmarks: an entry is out of range "
+                              "or the document could not be saved. The file is unchanged."),
+                  QStringLiteral("replaceOutline entries=%1").arg(entries.size()));
+    }
+    return ok;
 }
 
 bool PdfEditorEngine::applyPatternRedactions(const QRegularExpression& pattern,
@@ -1529,6 +1870,10 @@ bool PdfEditorEngine::embedAnnotations(const QString &inputPath, const QString &
     d->clearErr();
     if (!d->backend) return d->noBackend("embedAnnotations");
     bool ok = d->backend->embedAnnotations(inputPath, outputPath, annotations);
+    // WP-R09b: the user-Save route — a same-file refusal must be
+    // distinguishable as an external conflict (review/reload/Save-As).
+    d->externalConflict = ok ? false
+                             : d->backend->lastCommitRefusedForExternalConflict();
     if (!ok)
         d->setErr(ErrorInfo::Error,
                   QObject::tr("Failed to embed annotations into the document."),
@@ -1625,7 +1970,11 @@ bool PdfEditorEngine::writeUpdate(const QString &outputPath)
     QMutexLocker locker(&d->mutex);
     d->clearErr();
     if (!d->backend) return d->noBackend("writeUpdate");
-    return d->backend->writeUpdate(outputPath);
+    const bool ok = d->backend->writeUpdate(outputPath);
+    // WP-R09b: same-file in-place commit — surface an external conflict.
+    d->externalConflict = ok ? false
+                             : d->backend->lastCommitRefusedForExternalConflict();
+    return ok;
 }
 
 bool PdfEditorEngine::hasPdfSignatures() const

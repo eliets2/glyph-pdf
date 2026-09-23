@@ -6,14 +6,56 @@
 #include <QCryptographicHash>
 #include <QColor>
 #include <QDebug>
+#include <QHash>
 #include <QRegularExpression>
 #include <QSet>
 #include <QVector>
+#include <algorithm>
 
 DiffEngine::DiffEngine() {}
 DiffEngine::~DiffEngine() {}
 
-DiffResult DiffEngine::compare(const QString &file1, const QString &file2, int dpi) {
+namespace {
+
+// ── R11 (PERF-02) resource bounds for the comparison operation ─────────────
+
+/// Chunk size for the streaming file hash: peak hash memory is one chunk,
+/// never the whole file (the old readAll() held both documents in RAM).
+constexpr qint64 kHashChunkBytes = 1 << 20;  // 1 MiB
+
+/// R11: hard pixel ceiling for a RETAINED diff overlay. The overlay is only
+/// built when a pair actually has changed pixels, and only within this many
+/// pixels (~256 MiB of ARGB32); beyond it the pixel count is still recorded
+/// but no overlay image is kept. The backend render itself is already clamped
+/// (NF-4: ≤ 20,000 px per side, ≤ 120 Mpx per buffer).
+constexpr qint64 kMaxOverlayPixels = 64 * 1000 * 1000;
+
+/// R11: page-alignment DP budget. The exact-fingerprint LCS matrix is
+/// (n1+1)×(n2+1) ints; documents beyond ~2,000 pages per side fall back to
+/// the bounded order-preserving match instead of allocating an unbounded
+/// matrix (the old code allocated it unconditionally).
+constexpr qint64 kMaxAlignDpCells = 4 * 1000 * 1000;  // ≈16 MiB of int cells
+
+/// Stream a file through SHA-256 in bounded chunks, honouring the
+/// cancellation probe between chunks. Returns false when cancelled.
+bool hashFileStreaming(QFile &f, QByteArray &out,
+                       const std::function<bool()> &cancelled)
+{
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    while (!f.atEnd()) {
+        if (cancelled && cancelled()) return false;
+        const QByteArray chunk = f.read(kHashChunkBytes);
+        if (chunk.isEmpty()) break;   // EOF (or read error; treat as end)
+        hash.addData(chunk);
+    }
+    out = hash.result();
+    return true;
+}
+
+} // anonymous namespace
+
+DiffResult DiffEngine::compare(const QString &file1, const QString &file2, int dpi,
+                               const std::function<bool()> &cancelled) {
     DiffResult result;
     result.isIdentical = false;
 
@@ -23,9 +65,16 @@ DiffResult DiffEngine::compare(const QString &file1, const QString &file2, int d
         return result;
     }
 
-    QByteArray hash1 = QCryptographicHash::hash(f1.readAll(), QCryptographicHash::Sha256);
-    QByteArray hash2 = QCryptographicHash::hash(f2.readAll(), QCryptographicHash::Sha256);
-    
+    // R11 (PERF-02): stream both hashes — peak hash memory is one chunk, and
+    // the cancellation probe is honoured between chunks.
+    QByteArray hash1;
+    QByteArray hash2;
+    if (!hashFileStreaming(f1, hash1, cancelled) ||
+        !hashFileStreaming(f2, hash2, cancelled)) {
+        result.cancelled = true;
+        return result;
+    }
+
     if (hash1 == hash2) {
         result.isIdentical = true;
         return result;
@@ -41,20 +90,336 @@ DiffResult DiffEngine::compare(const QString &file1, const QString &file2, int d
     result.pageCount1 = backend1.pageCount();
     result.pageCount2 = backend2.pageCount();
 
-    int minPages = qMin(result.pageCount1, result.pageCount2);
+    const int n1 = result.pageCount1;
+    const int n2 = result.pageCount2;
 
-    for (int i = 0; i < minPages; ++i) {
+    // ── R06 (PERF-01): extract every page's text exactly ONCE, up front ─────
+    // The same text feeds the alignment fingerprints AND the per-pair word
+    // diff, so alignment and content comparison can never operate on
+    // different data — and never on different page correspondences.
+    QStringList text1;
+    QStringList text2;
+    text1.reserve(n1);
+    text2.reserve(n2);
+    for (int i = 0; i < n1; ++i) {
+        if (cancelled && cancelled()) { result.cancelled = true; return result; }
+        text1.append(backend1.extractText(i));
+    }
+    for (int j = 0; j < n2; ++j) {
+        if (cancelled && cancelled()) { result.cancelled = true; return result; }
+        text2.append(backend2.extractText(j));
+    }
+
+    // ── THE one old/new page-pair mapping ───────────────────────────────────
+    // R06 (PERF-01): the alignment is computed FIRST, as an explicit sequence
+    // of two-sided correspondences. Content comparison, navigation and the
+    // exported reports all consume this one mapping — an inserted page
+    // appears exactly once, and unchanged matched pages produce no
+    // text/pixel changes. Three-stage alignment policy (unchanged):
+    //
+    // 1. Exact fingerprints (primary). Every page's extracted text is
+    //    normalized (lowercased, whitespace collapsed, first 200 chars — the
+    //    same normalization the excerpts use) and hashed with SHA-256. The
+    //    classic order-preserving LCS DP then aligns pages whose fingerprints
+    //    match byte-for-byte; every page is consumed at most once.
+    //    Deterministic tie-break: the backtrack prefers doc1-side skips
+    //    (dp[i-1][j] >= dp[i][j-1]), which aligns the LATEST doc2 occurrence
+    //    of a repeated fingerprint — so the EARLIEST unmatched doc2
+    //    occurrence is the one that surfaces as PageAdded (pinned by
+    //    duplicateOfExistingPageInsertionPinsDeterministicTieBreak).
+    //    A page whose extraction yields no text (image-only page or a
+    //    genuinely blank page) has NO fingerprint: it can never take part in
+    //    this pass and falls through to stage 2 unchanged.
+    //
+    // 2. Fuzzy fallback (pre-fingerprint behavior, unchanged). Pages the
+    //    exact alignment left over may still match on word-set similarity
+    //    (Jaccard ≥ 80%): a leftover pair at a DIFFERENT index becomes one
+    //    PageMoved (never re-reported as add+remove), a same-index pair
+    //    realigns without a move record, and fingerprint-less pages keep the
+    //    index-wise/blank-page semantics they had before fingerprints.
+    // 3. Substitution (V04). Leftover pairs the first two stages could not
+    //    anchor pair up in order as ALIGNED MODIFIED pages — structurally
+    //    silent. Only the one-sided remainder is PageRemoved (doc1) /
+    //    PageAdded (doc2).
+    struct PagePair { int oldPage; int newPage; };
+    QList<PagePair> pairs;
+
+    {
+        auto fingerprint = [](const QString& text) -> QString {
+            QString t = text.left(200).toLower();
+            t.replace(QRegularExpression("\\s+"), QStringLiteral(" "));
+            return t.trimmed();
+        };
+        auto wordSet = [](const QString& fp) -> QSet<QString> {
+            QSet<QString> s;
+            const auto parts = fp.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+            for (const QString& w : parts) s.insert(w);
+            return s;
+        };
+        auto similarity = [](const QSet<QString>& a, const QSet<QString>& b) -> double {
+            if (a.isEmpty() && b.isEmpty()) return 1.0;
+            if (a.isEmpty() || b.isEmpty()) return 0.0;
+            int inter = 0;
+            for (const QString& w : a) if (b.contains(w)) ++inter;
+            const int uni = a.size() + b.size() - inter;
+            return uni > 0 ? double(inter) / double(uni) : 0.0;
+        };
+        constexpr double kSame = 0.80;
+
+        QStringList fp1, fp2;
+        QList<QByteArray> fpHash1, fpHash2;   // empty = no fingerprint (no text)
+        QList<QSet<QString>> ws1, ws2;
+        for (int i = 0; i < n1; ++i) {
+            const QString norm = fingerprint(text1.at(i));
+            fp1 << norm;
+            fpHash1 << (norm.isEmpty()
+                          ? QByteArray()
+                          : QCryptographicHash::hash(norm.toUtf8(),
+                                                     QCryptographicHash::Sha256));
+            ws1 << wordSet(norm);
+        }
+        for (int j = 0; j < n2; ++j) {
+            const QString norm = fingerprint(text2.at(j));
+            fp2 << norm;
+            fpHash2 << (norm.isEmpty()
+                          ? QByteArray()
+                          : QCryptographicHash::hash(norm.toUtf8(),
+                                                     QCryptographicHash::Sha256));
+            ws2 << wordSet(norm);
+        }
+
+        // Exact matches only: both sides must carry a fingerprint (an empty
+        // hash means "extraction produced no text") and the hashes must be
+        // byte-equal. This is what keeps a middle insertion — even a
+        // boilerplate near-twin of an adjacent page — from being absorbed
+        // into a shifted alignment.
+        auto exactMatch = [](const QByteArray& a, const QByteArray& b) -> bool {
+            return !a.isEmpty() && !b.isEmpty() && a == b;
+        };
+
+        // LCS over page sequences (equal := exact fingerprint match) — the
+        // classic order-preserving DP when its matrix fits the R11 budget.
+        QSet<int> alignedA, alignedB;
+        const qint64 dpCells = qint64(n1 + 1) * qint64(n2 + 1);
+        if (dpCells <= kMaxAlignDpCells) {
+        QVector<QVector<int>> dp(n1 + 1, QVector<int>(n2 + 1, 0));
+        for (int i = 1; i <= n1; ++i) {
+            if ((i & 63) == 1 && cancelled && cancelled()) {
+                result.cancelled = true;
+                return result;
+            }
+            for (int j = 1; j <= n2; ++j)
+                dp[i][j] = exactMatch(fpHash1[i - 1], fpHash2[j - 1])
+                    ? dp[i - 1][j - 1] + 1
+                    : qMax(dp[i - 1][j], dp[i][j - 1]);
+        }
+
+        // Backtrack: aligned (stable) pages become the first mapping pairs.
+        for (int i = n1, j = n2; i > 0 && j > 0; ) {
+            if (exactMatch(fpHash1[i - 1], fpHash2[j - 1])
+                && dp[i][j] == dp[i - 1][j - 1] + 1) {
+                alignedA.insert(i - 1);
+                alignedB.insert(j - 1);
+                pairs.append({i - 1, j - 1});
+                --i; --j;
+            } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+                --i;
+            } else {
+                --j;
+            }
+        }
+        } else {
+            // ── R11 bounded alignment fallback (PERF-02) ────────────────────
+            // Documents far beyond ~2,000 pages per side would need an
+            // unbounded LCS matrix; match their page fingerprints with an
+            // order-preserving greedy scan instead: common page prefix and
+            // suffix first, then each doc2 middle page takes the earliest
+            // unconsumed doc1 position after the last match. Not a minimal
+            // alignment — an honest, deterministic, O(n) memory substitute
+            // for inputs the exact DP cannot afford. Leftover pages still
+            // flow through the fuzzy and substitution stages below.
+            int lo = 0;
+            while (lo < n1 && lo < n2 && exactMatch(fpHash1[lo], fpHash2[lo])) {
+                alignedA.insert(lo); alignedB.insert(lo);
+                pairs.append({lo, lo});
+                ++lo;
+            }
+            int hiA = n1 - 1, hiB = n2 - 1;
+            while (hiA >= lo && hiB >= lo && exactMatch(fpHash1[hiA], fpHash2[hiB])) {
+                alignedA.insert(hiA); alignedB.insert(hiB);
+                pairs.append({hiA, hiB});
+                --hiA; --hiB;
+            }
+            QHash<QByteArray, QList<int>> positions1;
+            for (int i = lo; i <= hiA; ++i)
+                if (!fpHash1[i].isEmpty()) positions1[fpHash1[i]].append(i);
+            QHash<QByteArray, int> nextIdx;
+            int lastA = lo - 1;
+            for (int j = lo; j <= hiB; ++j) {
+                const QByteArray &fh = fpHash2[j];
+                if (fh.isEmpty()) continue;
+                auto itP = positions1.find(fh);
+                if (itP == positions1.end()) continue;
+                int &k = nextIdx[fh];
+                const QList<int> &list = itP.value();
+                while (k < list.size() && list[k] <= lastA) ++k;
+                if (k < list.size()) {
+                    const int aIdx = list[k];
+                    ++k;
+                    alignedA.insert(aIdx);
+                    alignedB.insert(j);
+                    pairs.append({aIdx, j});
+                    lastA = aIdx;
+                }
+            }
+        }
+
+        // Fuzzy fallback over the exact alignment's leftovers: a doc2 page
+        // outside the alignment that still fuzzy-matches (word-set similarity
+        // ≥ kSame) an (also-unaligned) doc1 page at a different index is a
+        // moved page. A match at the SAME index (repeated-page tie-break, or
+        // a fingerprint-less page pair) is consumed as an aligned pair
+        // without a move record, so a matched pair is never re-reported as an
+        // add+remove below (R11: no double counting).
+        QSet<int> movedB;
+        for (int b = 0; b < n2; ++b) {
+            if (alignedB.contains(b)) continue;
+            int    bestA   = -1;
+            double bestSim = 0.0;
+            for (int a = 0; a < n1; ++a) {
+                if (alignedA.contains(a)) continue;
+                const double s = similarity(ws1[a], ws2[b]);
+                if (s >= kSame && s > bestSim) { bestSim = s; bestA = a; }
+            }
+            if (bestA >= 0) {
+                alignedA.insert(bestA);  // consume so it isn't reused
+                pairs.append({bestA, b});
+                if (bestA != b) {
+                    DiffResult::PageMove mv;
+                    mv.fromPage = bestA;
+                    mv.toPage   = b;
+                    mv.excerpt  = fp2[b].left(60);
+                    result.pageMoves.append(mv);
+                    movedB.insert(b);
+                } else {
+                    alignedB.insert(bestA);  // same-index fallback pair: aligned, not moved
+                }
+            }
+        }
+
+        // ── V04: aligned modified-page pairs are not structural changes ────
+        // A page left unmatched by the exact-fingerprint alignment AND the
+        // fuzzy move pass is not proof that the page structure changed: a
+        // one-page document whose text was rewritten in place ("Apple" →
+        // "Orange") used to surface as PageRemoved + PageAdded on top of its
+        // ordinary text difference, because word-set similarity 0.0 misses
+        // the fuzzy floor. Explicit substitution policy (the sequence-context
+        // / change-hunk semantics of a page-level diff): the k-th leftover of
+        // doc1 pairs with the k-th leftover of doc2, order-preserving, as one
+        // ALIGNED MODIFIED pair. Modified pairs are deliberately NOT entries
+        // in pageChanges — their content changes are reported per pair in
+        // result.pages, which the CHANGES tree, the change-type filters, the
+        // navigation sequence and the exported reports all render as ordinary
+        // page rows, so every consumer agrees on the classification. Surplus
+        // leftovers keep their one-sided PageRemoved / PageAdded. Anchors are
+        // untouched: this pass runs after exact fingerprints and fuzzy moves,
+        // so real insertions (middle insertions, duplicates) and reorders
+        // keep their pinned classifications. Documented ambiguity: when an
+        // insertion and an in-place rewrite coexist with no anchor between
+        // them, the in-order pairing may attach the rewrite to the insertion
+        // — the per-pair word diff stays authoritative in either reading.
+        QList<int> leftoverA, leftoverB;
+        for (int a = 0; a < n1; ++a)
+            if (!alignedA.contains(a)) leftoverA.append(a);
+        for (int b = 0; b < n2; ++b)
+            if (!alignedB.contains(b) && !movedB.contains(b)) leftoverB.append(b);
+        const int nModified = qMin(leftoverA.size(), leftoverB.size());
+        for (int k = 0; k < nModified; ++k) {
+            alignedA.insert(leftoverA.at(k));
+            alignedB.insert(leftoverB.at(k));
+            pairs.append({leftoverA.at(k), leftoverB.at(k)});
+        }
+
+        // ── R11: explicit structural changes for everything the alignment ─────
+        // left unmatched. Pages present on exactly one side are added/removed
+        // (missing side = -1, never a page-zero sentinel); pages consumed by
+        // the move pass appear here once as PageMoved. pageChanges is the
+        // single canonical STRUCTURAL sequence read by the CHANGES tree, the
+        // change-type filters, the next/previous sequence, the status totals
+        // and the exported reports; pageMoves stays populated for backward
+        // compat.
+        for (const auto& mv : result.pageMoves) {
+            DiffResult::PageChange ch;
+            ch.type    = DiffResult::PageChangeType::PageMoved;
+            ch.oldPage = mv.fromPage;
+            ch.newPage = mv.toPage;
+            ch.excerpt = mv.excerpt;
+            result.pageChanges.append(ch);
+        }
+        for (int a = 0; a < n1; ++a) {
+            if (alignedA.contains(a)) continue;
+            DiffResult::PageChange ch;
+            ch.type    = DiffResult::PageChangeType::PageRemoved;  // doc1 only
+            ch.oldPage = a;
+            ch.excerpt = fp1[a].left(60);
+            result.pageChanges.append(ch);
+        }
+        for (int b = 0; b < n2; ++b) {
+            if (alignedB.contains(b) || movedB.contains(b)) continue;
+            DiffResult::PageChange ch;
+            ch.type    = DiffResult::PageChangeType::PageAdded;    // doc2 only
+            ch.newPage = b;
+            ch.excerpt = fp2[b].left(60);
+            result.pageChanges.append(ch);
+        }
+        if (!result.pageChanges.isEmpty()) {
+            result.isIdentical = false;  // surplus pages are changes (defensive)
+            // Deterministic reading order: anchor each change on the side where
+            // the page lives (doc2 position when it exists, doc1 otherwise).
+            std::stable_sort(result.pageChanges.begin(), result.pageChanges.end(),
+                             [](const DiffResult::PageChange& l,
+                                const DiffResult::PageChange& r) {
+                                 const int la = l.hasNewSide() ? l.newPage : l.oldPage;
+                                 const int ra = r.hasNewSide() ? r.newPage : r.oldPage;
+                                 return la < ra;
+                             });
+        }
+    }
+
+    // ── R06 (PERF-01): content comparison consumes THE SAME mapping ─────────
+    // One PageDiff per two-sided pair — old page vs ITS aligned new page, in
+    // deterministic doc1 order. Unchanged matched pairs therefore produce no
+    // text/pixel changes, and a one-sided (inserted/removed) page is never
+    // diffed against an unrelated neighbor: its structural entry above is the
+    // whole truth. This is the exact misalignment the reviewer's insertion
+    // fixture exposed (old [Alpha, Beta, Gamma] vs new [Alpha, Inserted,
+    // Beta, Gamma] used to report "Beta → Inserted" and "Gamma → Beta").
+    std::sort(pairs.begin(), pairs.end(),
+              [](const PagePair& l, const PagePair& r) { return l.oldPage < r.oldPage; });
+
+    for (const PagePair& pr : pairs) {
+        if (cancelled && cancelled()) { result.cancelled = true; return result; }
+
         PageDiff pd;
-        pd.pageIndex = i;
+        pd.oldPage   = pr.oldPage;
+        pd.newPage   = pr.newPage;
+        pd.pageIndex = pr.oldPage;  // legacy doc1-side position
         pd.pixelDiffCount = 0;
 
-        // Text diff via Myers 1986 LCS + move-detection post-pass.
-        const QString text1 = backend1.extractText(i);
-        const QString text2 = backend2.extractText(i);
-        const QStringList words1 = text1.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
-        const QStringList words2 = text2.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+        // Text diff via Myers 1986 LCS + move-detection post-pass. R11
+        // (PERF-03): the diff runs inside a bounded trace budget; when the
+        // budget forces the coarse fallback the pair is flagged so the UI
+        // can disclose "diff truncated" instead of implying an exact result.
+        const QString& t1 = text1[pr.oldPage];
+        const QString& t2 = text2[pr.newPage];
+        const QStringList words1 = t1.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+        const QStringList words2 = t2.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
 
-        const QList<EditOp> edits = MyersDiff::compute(words1, words2);
+        bool truncated = false;
+        const QList<EditOp> edits = MyersDiff::compute(words1, words2,
+                                                       MyersDiff::Options(),
+                                                       &truncated);
+        pd.textDiffTruncated = truncated;
         pd.moves = MyersDiff::detectMoves(edits);
 
         // Populate textRemoved / textAdded from non-move edits for backward compat.
@@ -85,124 +450,79 @@ DiffResult DiffEngine::compare(const QString &file1, const QString &file2, int d
             }
         }
 
-        // Pixel diff
-        QImage img1 = backend1.renderPage(i, dpi);
-        QImage img2 = backend2.renderPage(i, dpi);
+        // Pixel diff — R11 (PERF-02): the scan always counts changed pixels
+        // (pixelDiffCount drives the rows, filters and exports), but the
+        // overlay image is allocated lazily at the FIRST changed pixel and
+        // retained ONLY when the pair actually changed, within the overlay
+        // pixel ceiling. Unchanged pairs no longer hold a full transparent
+        // page image each (25,245,000 retained bytes for three unchanged
+        // Letter pages at 150 DPI before this fix).
+        QImage img1 = backend1.renderPage(pr.oldPage, dpi);
+        QImage img2 = backend2.renderPage(pr.newPage, dpi);
 
         if (!img1.isNull() && !img2.isNull()) {
+            if (img1.format() != QImage::Format_ARGB32)
+                img1 = img1.convertToFormat(QImage::Format_ARGB32);
+            if (img2.format() != QImage::Format_ARGB32)
+                img2 = img2.convertToFormat(QImage::Format_ARGB32);
+
             int w = qMax(img1.width(), img2.width());
             int h = qMax(img1.height(), img2.height());
 
-            QImage diffImg(w, h, QImage::Format_ARGB32);
-            diffImg.fill(Qt::transparent);
+            const bool overlayAllowed =
+                qint64(w) * qint64(h) <= kMaxOverlayPixels;
+            QImage diffImg;   // allocated on the first changed pixel
 
             for (int y = 0; y < h; ++y) {
-                for (int x = 0; x < w; ++x) {
-                    bool in1 = (x < img1.width() && y < img1.height());
-                    bool in2 = (x < img2.width() && y < img2.height());
-                    
-                    if (in1 && in2) {
-                        QRgb p1 = img1.pixel(x, y);
-                        QRgb p2 = img2.pixel(x, y);
+                if ((y & 63) == 0 && cancelled && cancelled()) {
+                    result.cancelled = true;
+                    return result;
+                }
+                const QRgb* l1 =
+                    (y < img1.height() && img1.constBits())
+                        ? reinterpret_cast<const QRgb*>(img1.constScanLine(y))
+                        : nullptr;
+                const QRgb* l2 =
+                    (y < img2.height() && img2.constBits())
+                        ? reinterpret_cast<const QRgb*>(img2.constScanLine(y))
+                        : nullptr;
 
-                        int rDiff = qAbs(qRed(p1) - qRed(p2));
-                        int gDiff = qAbs(qGreen(p1) - qGreen(p2));
-                        int bDiff = qAbs(qBlue(p1) - qBlue(p2));
+                for (int x = 0; x < w; ++x) {
+                    const bool in1 = (l1 && x < img1.width());
+                    const bool in2 = (l2 && x < img2.width());
+
+                    bool changed;
+                    if (in1 && in2) {
+                        const QRgb p1 = l1[x];
+                        const QRgb p2 = l2[x];
+
+                        const int rDiff = qAbs(qRed(p1) - qRed(p2));
+                        const int gDiff = qAbs(qGreen(p1) - qGreen(p2));
+                        const int bDiff = qAbs(qBlue(p1) - qBlue(p2));
 
                         // Antialiasing threshold
-                        if (rDiff > 30 || gDiff > 30 || bDiff > 30) {
-                            diffImg.setPixel(x, y, qRgba(255, 0, 0, 150)); // Red overlay
-                            pd.pixelDiffCount++;
+                        changed = (rDiff > 30 || gDiff > 30 || bDiff > 30);
+                    } else {
+                        changed = (in1 || in2);  // one-sided region is a change
+                    }
+                    if (!changed) continue;
+
+                    ++pd.pixelDiffCount;
+                    if (overlayAllowed) {
+                        if (diffImg.isNull()) {
+                            diffImg = QImage(w, h, QImage::Format_ARGB32);
+                            diffImg.fill(Qt::transparent);
                         }
-                    } else if (in1 || in2) {
-                        diffImg.setPixel(x, y, qRgba(255, 0, 0, 150));
-                        pd.pixelDiffCount++;
+                        diffImg.setPixel(x, y, qRgba(255, 0, 0, 150)); // Red overlay
                     }
                 }
             }
-            pd.diffImage = diffImg;
+            // R11: retain the overlay only when the pair actually changed.
+            if (!diffImg.isNull())
+                pd.diffImage = diffImg;
         }
 
         result.pages.append(pd);
-    }
-
-    // ── Page-level reorder detection ────────────────────────────────────────
-    // Fingerprint each page (first 200 chars), then run an O(n²) LCS over the
-    // two page sequences where two pages are "equal" if their word-set
-    // similarity is ≥ 80%. Pages outside the aligned common subsequence that
-    // still match a page in the other document at a different index are moves.
-    {
-        auto fingerprint = [](const QString& text) -> QString {
-            QString t = text.left(200).toLower();
-            t.replace(QRegularExpression("\\s+"), QStringLiteral(" "));
-            return t.trimmed();
-        };
-        auto wordSet = [](const QString& fp) -> QSet<QString> {
-            QSet<QString> s;
-            const auto parts = fp.split(QLatin1Char(' '), Qt::SkipEmptyParts);
-            for (const QString& w : parts) s.insert(w);
-            return s;
-        };
-        auto similarity = [](const QSet<QString>& a, const QSet<QString>& b) -> double {
-            if (a.isEmpty() && b.isEmpty()) return 1.0;
-            if (a.isEmpty() || b.isEmpty()) return 0.0;
-            int inter = 0;
-            for (const QString& w : a) if (b.contains(w)) ++inter;
-            const int uni = a.size() + b.size() - inter;
-            return uni > 0 ? double(inter) / double(uni) : 0.0;
-        };
-        constexpr double kSame = 0.80;
-
-        const int n1 = result.pageCount1;
-        const int n2 = result.pageCount2;
-
-        QStringList fp1, fp2;
-        QList<QSet<QString>> ws1, ws2;
-        for (int i = 0; i < n1; ++i) { fp1 << fingerprint(backend1.extractText(i)); ws1 << wordSet(fp1.last()); }
-        for (int j = 0; j < n2; ++j) { fp2 << fingerprint(backend2.extractText(j)); ws2 << wordSet(fp2.last()); }
-
-        // LCS over page sequences (equal := similarity ≥ kSame).
-        QVector<QVector<int>> dp(n1 + 1, QVector<int>(n2 + 1, 0));
-        for (int i = 1; i <= n1; ++i)
-            for (int j = 1; j <= n2; ++j)
-                dp[i][j] = (similarity(ws1[i - 1], ws2[j - 1]) >= kSame)
-                    ? dp[i - 1][j - 1] + 1
-                    : qMax(dp[i - 1][j], dp[i][j - 1]);
-
-        // Backtrack to mark the aligned (stable) pages.
-        QSet<int> alignedA, alignedB;
-        for (int i = n1, j = n2; i > 0 && j > 0; ) {
-            if (similarity(ws1[i - 1], ws2[j - 1]) >= kSame && dp[i][j] == dp[i - 1][j - 1] + 1) {
-                alignedA.insert(i - 1);
-                alignedB.insert(j - 1);
-                --i; --j;
-            } else if (dp[i - 1][j] >= dp[i][j - 1]) {
-                --i;
-            } else {
-                --j;
-            }
-        }
-
-        // A doc2 page outside the alignment that still matches an (also-unaligned)
-        // doc1 page at a different index is a moved page.
-        for (int b = 0; b < n2; ++b) {
-            if (alignedB.contains(b)) continue;
-            int    bestA   = -1;
-            double bestSim = 0.0;
-            for (int a = 0; a < n1; ++a) {
-                if (alignedA.contains(a)) continue;
-                const double s = similarity(ws1[a], ws2[b]);
-                if (s >= kSame && s > bestSim) { bestSim = s; bestA = a; }
-            }
-            if (bestA >= 0 && bestA != b) {
-                DiffResult::PageMove mv;
-                mv.fromPage = bestA;
-                mv.toPage   = b;
-                mv.excerpt  = fp2[b].left(60);
-                result.pageMoves.append(mv);
-                alignedA.insert(bestA);  // consume so it isn't reused
-            }
-        }
     }
 
     return result;

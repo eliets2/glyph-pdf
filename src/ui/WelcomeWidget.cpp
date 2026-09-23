@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "ui/WelcomeWidget.h"
 #include "util/Icons.h"
+#include "util/GpTheme.h"
 
+#include <QEvent>
 #include <QFileInfo>
 #include <QFrame>
 #include <QGridLayout>
@@ -10,27 +12,30 @@
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QMessageBox>
-#include <QPushButton>
-#include <QVBoxLayout>
-#include <QScrollArea>
 #include <QPainter>
 #include <QPaintEvent>
+#include <QPushButton>
+#include <QScrollArea>
 #include <QSettings>
+#include <QVBoxLayout>
 
 // =============================================================================
-// Color constants (spec palette)
+// Metrics (U01)
 // =============================================================================
 
-namespace WC {
-static constexpr const char* BG_0   = "#1a1b1e";
-static constexpr const char* BG_1   = "#1e1f22";
-static constexpr const char* BG_2   = "#2b2d30";
-static constexpr const char* LINE   = "#393b40";
-static constexpr const char* FG_0   = "#dfe1e5";
-static constexpr const char* FG_1   = "#a8abb0";
-static constexpr const char* FG_2   = "#71747a";
-static constexpr const char* ACCENT = "#ff8c42";
-}
+namespace {
+// The centered content column keeps its 600px identity cap; on narrower
+// windows it shrinks with the scroll-area viewport (never a display-size
+// assumption) and the card grid reflows 3 -> 2 -> 1 columns inside it.
+constexpr int kContainerMaxWidth   = 600;
+constexpr int kCardSpacing         = 12;   // grid gutter between action cards
+constexpr int kMaxCardColumns      = 3;
+constexpr int kRecentMaxVisibleRows = 5;  // more rows scroll inside the list
+// Matches the recent-list QSS below: 36px item min-height + 2x8px padding.
+constexpr int kRecentRowFallback    = 52;
+
+QString argb(const QColor& c) { return c.name(QColor::HexArgb); }
+} // namespace
 
 // =============================================================================
 // Helpers
@@ -41,8 +46,13 @@ static QPushButton* makeActionCard(QWidget* parent, const QString& iconName,
 {
     auto* card = new QPushButton(parent);
     card->setObjectName("actionCard");
+    // R16: the per-task objectName (set by setupUi, "welcomeCard-<task>")
+    // overwrites this; the layout role stays available as a property for
+    // layout tests and styling.
+    card->setProperty("role", "actionCard");
     card->setCursor(Qt::PointingHandCursor);
-    card->setMinimumSize(140, 100);
+    card->setFocusPolicy(Qt::StrongFocus); // keyboard-reachable actions (Tab + Space)
+    card->setMinimumSize(140, 96);
 
     auto* layout = new QVBoxLayout(card);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -50,7 +60,7 @@ static QPushButton* makeActionCard(QWidget* parent, const QString& iconName,
     layout->setAlignment(Qt::AlignCenter);
 
     auto* iconLbl = new QLabel(card);
-    iconLbl->setPixmap(gp::Icons::get(iconName, QColor(WC::ACCENT)).pixmap(24, 24));
+    iconLbl->setPixmap(gp::Icons::get(iconName, gp::Theme::accent()).pixmap(24, 24));
     iconLbl->setAlignment(Qt::AlignCenter);
     iconLbl->setStyleSheet("background: transparent; border: none;");
     layout->addWidget(iconLbl);
@@ -58,8 +68,8 @@ static QPushButton* makeActionCard(QWidget* parent, const QString& iconName,
     auto* textLbl = new QLabel(label, card);
     textLbl->setAlignment(Qt::AlignCenter);
     textLbl->setStyleSheet(QString(
-        "font-size: 11px; font-weight: 500; color: %1; "
-        "background: transparent; border: none;").arg(WC::FG_0));
+        "font-size: 12px; font-weight: 500; color: %1; "
+        "background: transparent; border: none;").arg(gp::Theme::fg0().name()));
     layout->addWidget(textLbl);
 
     card->setStyleSheet(QString(
@@ -68,7 +78,12 @@ static QPushButton* makeActionCard(QWidget* parent, const QString& iconName,
         "}"
         "QPushButton#actionCard:hover {"
         "  border-color: %3;"
-        "}").arg(WC::BG_2, WC::LINE, WC::ACCENT));
+        "}"
+        "QPushButton#actionCard:focus {"
+        "  border-color: %3;"
+        "}")
+        .arg(gp::Theme::bg2().name(), gp::Theme::line().name(),
+             gp::Theme::accent().name()));
 
     return card;
 }
@@ -83,10 +98,60 @@ WelcomeWidget::WelcomeWidget(QWidget* parent)
     setupUi();
 }
 
+int WelcomeWidget::columnsForWidth(int availableWidth, int cardMinWidth, int spacing)
+{
+    if (availableWidth <= 0 || cardMinWidth <= 0)
+        return 1;
+    const int fit = (availableWidth + spacing) / (cardMinWidth + spacing);
+    return qBound(1, fit, kMaxCardColumns);
+}
+
 void WelcomeWidget::paintEvent(QPaintEvent* /*event*/)
 {
     QPainter p(this);
-    p.fillRect(rect(), QColor(WC::BG_0));
+    p.fillRect(rect(), gp::Theme::bg0());
+}
+
+bool WelcomeWidget::eventFilter(QObject* watched, QEvent* event)
+{
+    // The viewport width is the true available width: it resizes whenever the
+    // window resizes AND when a scrollbar appears or disappears. (The content
+    // widget's width is unusable here — it is clamped to the content's
+    // minimumSizeHint, which the fixed-width container would pin, stalling
+    // the reflow when the window narrows.)
+    if (watched == m_viewport && event->type() == QEvent::Resize)
+        reflowActionCards();
+    return QWidget::eventFilter(watched, event);
+}
+
+void WelcomeWidget::reflowActionCards()
+{
+    if (!m_viewport || !m_container || !m_cardsGrid || m_actionCards.isEmpty())
+        return;
+
+    // Real per-card minimum: the explicit minimum and the widget's own
+    // minimumSizeHint, whichever is larger.
+    int cardMinWidth = 0;
+    for (const auto* card : m_actionCards) {
+        cardMinWidth = qMax(cardMinWidth, qMax(card->minimumWidth(),
+                                               card->minimumSizeHint().width()));
+    }
+
+    const int available = qMin(m_viewport->width(), kContainerMaxWidth);
+    if (available <= 0)
+        return;
+
+    m_container->setFixedWidth(available);
+
+    const int columns = columnsForWidth(available, cardMinWidth, kCardSpacing);
+    if (columns == m_columns)
+        return;
+    m_columns = columns;
+
+    for (int i = 0; i < m_actionCards.size(); ++i) {
+        m_cardsGrid->removeWidget(m_actionCards.at(i));
+        m_cardsGrid->addWidget(m_actionCards.at(i), i / columns, i % columns);
+    }
 }
 
 void WelcomeWidget::setupUi()
@@ -101,25 +166,33 @@ void WelcomeWidget::setupUi()
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    scroll->setStyleSheet(QString("QScrollArea { background: %1; border: none; }").arg(WC::BG_0));
+    scroll->setStyleSheet(QString("QScrollArea { background: %1; border: none; }")
+                              .arg(gp::Theme::bg0().name()));
 
-    auto* content = new QWidget(scroll);
-    content->setObjectName("welcomeContent");
-    content->setStyleSheet(QString("background: %1;").arg(WC::BG_0));
-    scroll->setWidget(content);
-    root->addWidget(scroll);
+    m_content = new QWidget(scroll);
+    m_content->setObjectName("welcomeContent");
+    m_content->setStyleSheet(QString("background: %1;").arg(gp::Theme::bg0().name()));
+    scroll->setWidget(m_content);
 
-    auto* layout = new QVBoxLayout(content);
-    layout->setContentsMargins(0, 0, 0, 40);
+    m_viewport = scroll->viewport();
+    m_viewport->installEventFilter(this);
+
+    // The single intentional vertical stretch lives here, outside the content
+    // block; the content block's own height is driven by its children.
+    root->addWidget(scroll, 1);
+
+    auto* layout = new QVBoxLayout(m_content);
+    layout->setContentsMargins(0, 0, 0, 24);
     layout->setSpacing(0);
     layout->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
 
-    // -- Container (max-width 600px) --
-    auto* container = new QWidget(content);
-    container->setMaximumWidth(600);
-    container->setStyleSheet("background: transparent;");
-    auto* innerLayout = new QVBoxLayout(container);
-    innerLayout->setContentsMargins(0, 60, 0, 0);
+    // -- Container (centered column, capped at kContainerMaxWidth) --
+    m_container = new QWidget(m_content);
+    m_container->setObjectName("welcomeContainer");
+    m_container->setMaximumWidth(kContainerMaxWidth);
+    m_container->setStyleSheet("background: transparent;");
+    auto* innerLayout = new QVBoxLayout(m_container);
+    innerLayout->setContentsMargins(0, 40, 0, 0);
     innerLayout->setSpacing(0);
     innerLayout->setAlignment(Qt::AlignTop | Qt::AlignHCenter);
 
@@ -128,49 +201,97 @@ void WelcomeWidget::setupUi()
     logoRow->setAlignment(Qt::AlignCenter);
     logoRow->setSpacing(12);
 
-    auto* glyphIcon = new QLabel(container);
-    glyphIcon->setText(QString::fromUtf8("\xe2\x97\x87")); // diamond glyph
+    auto* glyphIcon = new QLabel(m_container);
+    glyphIcon->setText(QString::fromUtf8("\xe2\x97\x86")); // diamond glyph
     glyphIcon->setStyleSheet(QString(
-        "font-size: 48px; color: %1; background: transparent; border: none;").arg(WC::ACCENT));
+        "font-size: 48px; color: %1; background: transparent; border: none;").arg(gp::Theme::accent().name()));
     logoRow->addWidget(glyphIcon);
 
-    auto* appTitle = new QLabel("GLYPH\xC2\xB7PDF", container);
+    auto* appTitle = new QLabel("GLYPH\xC2\xB7PDF", m_container);
     appTitle->setStyleSheet(QString(
         "font-size: 24px; font-weight: 700; color: %1; background: transparent; border: none; "
-        "font-family: 'Manrope','Segoe UI',sans-serif; letter-spacing: 2px;").arg(WC::FG_0));
+        "font-family: 'Manrope','Segoe UI',sans-serif; letter-spacing: 2px;").arg(gp::Theme::fg0().name()));
     logoRow->addWidget(appTitle);
 
     innerLayout->addLayout(logoRow);
     innerLayout->addSpacing(8);
 
     // -- Subtitle --
-    auto* subtitle = new QLabel("Professional PDF Workstation", container);
+    auto* subtitle = new QLabel(tr("Professional PDF Workstation"), m_container);
     subtitle->setAlignment(Qt::AlignCenter);
     subtitle->setStyleSheet(QString(
-        "font-size: 14px; color: %1; background: transparent; border: none;").arg(WC::FG_1));
+        "font-size: 14px; color: %1; background: transparent; border: none;").arg(gp::Theme::fg1().name()));
     innerLayout->addWidget(subtitle);
-    innerLayout->addSpacing(36);
+    innerLayout->addSpacing(28);
 
-    // -- Action cards row --
-    auto* cardsRow = new QHBoxLayout();
-    cardsRow->setSpacing(12);
-    cardsRow->setAlignment(Qt::AlignCenter);
+    // -- Action cards: responsive grid (U01), twelve task routes (R16/PP07) --
+    // Positions are (re)assigned by reflowActionCards(): three columns when
+    // space permits, two for a narrower column, one for very narrow. Every
+    // card carries its task id (objectName "welcomeCard-<task>") so the host
+    // and the route tests address the production widgets.
+    m_cardsGrid = new QGridLayout();
+    m_cardsGrid->setContentsMargins(0, 0, 0, 0);
+    m_cardsGrid->setHorizontalSpacing(kCardSpacing);
+    m_cardsGrid->setVerticalSpacing(kCardSpacing);
 
-    auto* openCard    = makeActionCard(container, "folder-open",   "Open File");
-    auto* mergeCard   = makeActionCard(container, "merge",         "Merge Files");
-    auto* convertCard = makeActionCard(container, "file-code",     "Convert");
-    auto* protectCard = makeActionCard(container, "shield-check",  "Protect");
-    auto* importCard  = makeActionCard(container, "file-plus",     "Import Office");
-    auto* imgsCard    = makeActionCard(container, "image",         "Images to PDF");
+    // "Open PDF" first (primary action, first in creation/tab order).
+    auto* openCard    = makeActionCard(m_container, "folder-open",   tr("Open PDF"));
+    // The twelve quick routes (UI04 starting set). open-dependent tasks emit
+    // taskRouteRequested and the host preserves the intent through Open;
+    // standalone creators keep their dedicated conversion flows.
+    auto* editCard      = makeActionCard(m_container, "edit-text",   tr("Edit"));
+    auto* convertCard   = makeActionCard(m_container, "file-code",   tr("Convert"));
+    auto* ocrCard       = makeActionCard(m_container, "ocr",         tr("OCR"));
+    auto* compressCard  = makeActionCard(m_container, "compress",    tr("Compress"));
+    auto* mergeCard     = makeActionCard(m_container, "merge",       tr("Merge"));
+    auto* splitCard     = makeActionCard(m_container, "split",       tr("Split / Extract"));
+    auto* organizeCard  = makeActionCard(m_container, "reorder",     tr("Organize Pages"));
+    auto* annotateCard  = makeActionCard(m_container, "highlight",   tr("Annotate"));
+    auto* fillSignCard  = makeActionCard(m_container, "signature",   tr("Fill & Sign"));
+    auto* protectCard   = makeActionCard(m_container, "shield-check",tr("Protect / Redact"));
+    // U01 icon audit: "file-plus" has no asset in resources.qrc, so
+    // Icons::svg() returned empty and the factory painted a fallback blob.
+    // Map the card onto the existing registered "to-p-d-f" document glyph
+    // instead of inventing a new asset.
+    auto* importCard  = makeActionCard(m_container, "to-p-d-f",      tr("Office to PDF"));
+    auto* imgsCard    = makeActionCard(m_container, "image",         tr("Images to PDF"));
+
+    openCard->setObjectName(QStringLiteral("welcomeCard-open"));
+    editCard->setObjectName(QStringLiteral("welcomeCard-edit"));
+    convertCard->setObjectName(QStringLiteral("welcomeCard-convert"));
+    ocrCard->setObjectName(QStringLiteral("welcomeCard-ocr"));
+    compressCard->setObjectName(QStringLiteral("welcomeCard-compress"));
+    mergeCard->setObjectName(QStringLiteral("welcomeCard-merge"));
+    splitCard->setObjectName(QStringLiteral("welcomeCard-splitExtract"));
+    organizeCard->setObjectName(QStringLiteral("welcomeCard-organize"));
+    annotateCard->setObjectName(QStringLiteral("welcomeCard-annotate"));
+    fillSignCard->setObjectName(QStringLiteral("welcomeCard-fillSign"));
+    protectCard->setObjectName(QStringLiteral("welcomeCard-protect"));
+    importCard->setObjectName(QStringLiteral("welcomeCard-office"));
+    imgsCard->setObjectName(QStringLiteral("welcomeCard-images"));
 
     openCard->setAccessibleName(tr("Open PDF file"));
     openCard->setAccessibleDescription(tr("Browse and open an existing PDF document"));
+    editCard->setAccessibleName(tr("Edit a PDF document"));
+    editCard->setAccessibleDescription(tr("Open a document and land in the Edit tools"));
+    convertCard->setAccessibleName(tr("Convert documents"));
+    convertCard->setAccessibleDescription(tr("Open a document and land on the Convert tab"));
+    ocrCard->setAccessibleName(tr("Recognize text with OCR"));
+    ocrCard->setAccessibleDescription(tr("Open a document and land on the OCR Verify screen"));
+    compressCard->setAccessibleName(tr("Compress a document"));
+    compressCard->setAccessibleDescription(tr("Open a document and start the Compress task"));
     mergeCard->setAccessibleName(tr("Merge PDF files"));
     mergeCard->setAccessibleDescription(tr("Combine multiple PDF files into one document"));
-    convertCard->setAccessibleName(tr("Convert documents"));
-    convertCard->setAccessibleDescription(tr("Convert between PDF and other file formats"));
-    protectCard->setAccessibleName(tr("Protect PDF"));
-    protectCard->setAccessibleDescription(tr("Add passwords, encryption, or digital signatures"));
+    splitCard->setAccessibleName(tr("Split or extract pages"));
+    splitCard->setAccessibleDescription(tr("Open a document and land on the Pages task"));
+    organizeCard->setAccessibleName(tr("Organize pages"));
+    organizeCard->setAccessibleDescription(tr("Open a document and land on the Pages task"));
+    annotateCard->setAccessibleName(tr("Annotate a document"));
+    annotateCard->setAccessibleDescription(tr("Open a document with the highlight tool armed"));
+    fillSignCard->setAccessibleName(tr("Fill forms and sign"));
+    fillSignCard->setAccessibleDescription(tr("Open a document and land on the Signatures panel"));
+    protectCard->setAccessibleName(tr("Protect or redact a document"));
+    protectCard->setAccessibleDescription(tr("Open a document and land on the Protect tab"));
     importCard->setAccessibleName(tr("Import Office document"));
     importCard->setAccessibleDescription(tr("Convert a Word, Excel or PowerPoint file to PDF via LibreOffice"));
     imgsCard->setAccessibleName(tr("Images to PDF"));
@@ -181,51 +302,106 @@ void WelcomeWidget::setupUi()
     importCard->setToolTip(localNotice);
     imgsCard->setToolTip(localNotice);
 
+    // Task-intent tooltips (R16): every card states what actually happens.
+    openCard->setToolTip(tr("Pick a PDF and start reading or working on it."));
+    editCard->setToolTip(tr("Open a PDF, then the Edit tab's text and object tools."));
+    convertCard->setToolTip(tr("Open a PDF, then the Convert tab's export targets."));
+    ocrCard->setToolTip(tr("Open a scanned PDF, then the OCR Verify screen."));
+    compressCard->setToolTip(tr("Open a PDF, then start the Compress task."));
+    mergeCard->setToolTip(tr("Pick two or more PDFs and save them combined into one."));
+    splitCard->setToolTip(tr("Open a PDF, then split it or extract page ranges in the Pages task."));
+    organizeCard->setToolTip(tr("Open a PDF, then rotate, reorder or delete pages in the Pages task."));
+    annotateCard->setToolTip(tr("Open a PDF with the highlight tool armed on the Comment tab."));
+    fillSignCard->setToolTip(tr("Open a PDF, then fill fields or place signatures."));
+    protectCard->setToolTip(tr("Open a PDF, then the Protect tab: passwords, redaction, signing."));
+
     connect(openCard,    &QPushButton::clicked, this, &WelcomeWidget::openFileRequested);
-    connect(mergeCard, &QPushButton::clicked, this, &WelcomeWidget::mergeFilesRequested);
-    connect(convertCard, &QPushButton::clicked, this, &WelcomeWidget::convertRequested);
-    connect(protectCard, &QPushButton::clicked, this, &WelcomeWidget::protectRequested);
+    connect(editCard,    &QPushButton::clicked, this, [this]{ emit taskRouteRequested(QStringLiteral("edit")); });
+    connect(convertCard, &QPushButton::clicked, this, [this]{ emit taskRouteRequested(QStringLiteral("convert")); });
+    connect(ocrCard,     &QPushButton::clicked, this, [this]{ emit taskRouteRequested(QStringLiteral("ocr")); });
+    connect(compressCard,&QPushButton::clicked, this, [this]{ emit taskRouteRequested(QStringLiteral("compress")); });
+    connect(mergeCard,   &QPushButton::clicked, this, &WelcomeWidget::mergeFilesRequested);
+    connect(splitCard,   &QPushButton::clicked, this, [this]{ emit taskRouteRequested(QStringLiteral("splitExtract")); });
+    connect(organizeCard,&QPushButton::clicked, this, [this]{ emit taskRouteRequested(QStringLiteral("organize")); });
+    connect(annotateCard,&QPushButton::clicked, this, [this]{ emit taskRouteRequested(QStringLiteral("annotate")); });
+    connect(fillSignCard,&QPushButton::clicked, this, [this]{ emit taskRouteRequested(QStringLiteral("fillSign")); });
+    connect(protectCard, &QPushButton::clicked, this, [this]{ emit taskRouteRequested(QStringLiteral("protect")); });
     connect(importCard,  &QPushButton::clicked, this, &WelcomeWidget::importOfficeRequested);
     connect(imgsCard,    &QPushButton::clicked, this, &WelcomeWidget::imagesToPdfRequested);
 
-    cardsRow->addWidget(openCard);
-    cardsRow->addWidget(mergeCard);
-    cardsRow->addWidget(convertCard);
-    cardsRow->addWidget(protectCard);
-    cardsRow->addWidget(importCard);
-    cardsRow->addWidget(imgsCard);
+    m_actionCards = {openCard, editCard, convertCard, ocrCard, compressCard,
+                     mergeCard, splitCard, organizeCard, annotateCard,
+                     fillSignCard, protectCard, importCard, imgsCard};
 
-    innerLayout->addLayout(cardsRow);
-    innerLayout->addSpacing(40);
+    innerLayout->addLayout(m_cardsGrid);
+    innerLayout->addSpacing(16);
 
-    // -- Recent files section --
-    auto* recentHeader = new QLabel("RECENT FILES", container);
+    // ── R16: standalone tasks reachable from the welcome (PP07: Batch and
+    // Compare; the ScreenNav strip keeps every other route one click away in
+    // the workspace). Compact links, not another card row.
+    auto* linksRow = new QHBoxLayout();
+    linksRow->setAlignment(Qt::AlignCenter);
+    linksRow->setSpacing(18);
+    auto makeLink = [this](const QString& name, const QString& label, const QString& task) {
+        auto* link = new QPushButton(label, m_container);
+        link->setObjectName(name);
+        link->setFlat(true);
+        link->setCursor(Qt::PointingHandCursor);
+        link->setFocusPolicy(Qt::StrongFocus);
+        link->setAccessibleName(label);
+        link->setStyleSheet(QString(
+            "QPushButton { color: %1; background: transparent; border: none; }"
+            "QPushButton:hover { color: %2; }")
+            .arg(gp::Theme::fg1().name(), gp::Theme::accent().name()));
+        connect(link, &QPushButton::clicked, this, [this, task] {
+            emit taskRouteRequested(task);
+        });
+        return link;
+    };
+    linksRow->addWidget(makeLink(QStringLiteral("welcomeLink-batch"), tr("Batch"), QStringLiteral("batch")));
+    linksRow->addWidget(makeLink(QStringLiteral("welcomeLink-compare"), tr("Compare"), QStringLiteral("compare")));
+    innerLayout->addLayout(linksRow);
+    innerLayout->addSpacing(12);
+
+    // -- Recent files section (directly beneath the actions, U01) --
+    auto* recentHeader = new QLabel(tr("Recent files"), m_container);
+    recentHeader->setObjectName("recentFilesHeader");
     recentHeader->setStyleSheet(QString(
-        "font-size: 10px; font-weight: 700; color: %1; "
-        "font-family: 'Consolas','Courier New',monospace; "
-        "letter-spacing: 1.5px; background: transparent; border: none;").arg(WC::FG_2));
+        "font-size: 12px; font-weight: 600; color: %1; letter-spacing: 0.4px; "
+        "background: transparent; border: none;").arg(gp::Theme::fg2().name()));
     innerLayout->addWidget(recentHeader);
     innerLayout->addSpacing(8);
 
-    auto* recentList = new QListWidget(container);
-    recentList->setObjectName("recentFilesList");
-    recentList->setMinimumHeight(200);
-    recentList->setMaximumHeight(400);
-    recentList->setFrameShape(QFrame::NoFrame);
-    recentList->setCursor(Qt::PointingHandCursor);
-    recentList->setStyleSheet(QString(
+    m_recentEmpty = new QLabel(tr("No recent files"), m_container);
+    m_recentEmpty->setObjectName("recentFilesEmpty");
+    m_recentEmpty->setStyleSheet(QString(
+        "font-size: 13px; color: %1; background: transparent; border: none; "
+        "padding: 8px 12px;").arg(gp::Theme::fg2().name()));
+    m_recentEmpty->hide();
+    innerLayout->addWidget(m_recentEmpty);
+
+    m_recentList = new QListWidget(m_container);
+    m_recentList->setObjectName("recentFilesList");
+    m_recentList->setFrameShape(QFrame::NoFrame);
+    m_recentList->setCursor(Qt::PointingHandCursor);
+    m_recentList->setUniformItemSizes(true);
+    m_recentList->setStyleSheet(QString(
         "QListWidget { background: transparent; border: none; }"
         "QListWidget::item {"
         "  padding: 8px 12px; border-bottom: 1px solid %1; min-height: 36px;"
         "}"
         "QListWidget::item:hover {"
-        "  background: rgba(255,140,66,0.08);"
+        "  background: %2;"
         "}"
         "QListWidget::item:selected {"
-        "  background: rgba(255,140,66,0.15); border-left: 2px solid %2;"
-        "}").arg(WC::LINE, WC::ACCENT));
+        "  background: %3; border-left: 2px solid %4;"
+        "}")
+        .arg(gp::Theme::line().name(),
+             argb(gp::Theme::accentDim()),
+             argb(gp::Theme::accent()),
+             gp::Theme::accent().name()));
 
-    connect(recentList, &QListWidget::itemClicked, this, [this](QListWidgetItem* item) {
+    connect(m_recentList, &QListWidget::itemClicked, this, [this](QListWidgetItem* item) {
         if (!item) return;
         const QString path = item->data(Qt::UserRole).toString();
         if (!path.isEmpty()) {
@@ -234,11 +410,12 @@ void WelcomeWidget::setupUi()
         }
     });
 
-    innerLayout->addWidget(recentList);
+    innerLayout->addWidget(m_recentList);
 
-    layout->addWidget(container, 0, Qt::AlignHCenter);
+    layout->addWidget(m_container, 0, Qt::AlignHCenter);
 
     refreshRecentList();
+    reflowActionCards(); // initial column count; real resize events refine it
 }
 
 // =============================================================================
@@ -251,41 +428,69 @@ void WelcomeWidget::setRecentFiles(const QStringList& files)
     refreshRecentList();
 }
 
+// R16: honest unavailability for optional-dependency tasks. The card stays
+// visible but disabled, and the disclosure (why-not + alternative) rides
+// tooltip, status tip AND the accessible description — the same channels the
+// ribbon's planned entries use, so keyboard and screen-reader users can
+// discover the reason too (never tooltip-only).
+void WelcomeWidget::setTaskAvailable(const QString& task, const QString& disclosure)
+{
+    QPushButton* card = findChild<QPushButton*>(QStringLiteral("welcomeCard-") + task);
+    if (!card) return;
+    card->setEnabled(false);
+    card->setStatusTip(disclosure);
+    card->setToolTip(disclosure);
+    card->setAccessibleDescription(disclosure);
+}
+
 // =============================================================================
 // Private
 // =============================================================================
 
 void WelcomeWidget::refreshRecentList()
 {
-    auto* list = findChild<QListWidget*>("recentFilesList");
-    if (!list) return;
-    list->clear();
+    if (!m_recentList) return;
+    m_recentList->clear();
 
     if (m_recentFiles.isEmpty()) {
-        auto* item = new QListWidgetItem("No recent files", list);
-        item->setForeground(QColor(WC::FG_2));
-        item->setFlags(item->flags() & ~Qt::ItemIsSelectable);
+        // Empty state is a compact label: the page's vertical size stays
+        // driven by its children instead of a fixed-height empty list.
+        if (m_recentEmpty) m_recentEmpty->show();
+        m_recentList->hide();
         return;
     }
+    if (m_recentEmpty) m_recentEmpty->hide();
+    m_recentList->show();
 
-    QIcon fileIcon = gp::Icons::get("file-text", QColor(WC::ACCENT));
+    QIcon fileIcon = gp::Icons::get("file-text", gp::Theme::accent());
     for (const QString& path : m_recentFiles) {
         QFileInfo fi(path);
         const bool exists = fi.exists();
         const QString name   = displayName(path);
-        const QString folder = exists ? fi.absolutePath() : "(file not found)";
+        const QString folder = exists ? fi.absolutePath() : tr("(file not found)");
 
         // Truncate long paths
         QString displayPath = folder;
         if (displayPath.length() > 60)
             displayPath = "..." + displayPath.right(57);
 
-        auto* item = new QListWidgetItem(list);
+        auto* item = new QListWidgetItem(m_recentList);
         item->setData(Qt::UserRole, path);
         item->setIcon(fileIcon);
         item->setText(name + "\n" + displayPath);
-        if (!exists) item->setForeground(QColor(WC::FG_2));
+        if (!exists) item->setForeground(gp::Theme::fg2());
     }
+
+    // U01: the list takes exactly the height of its (capped) visible rows, so
+    // the content block's vertical size stays driven by its children. Extra
+    // rows scroll inside the list.
+    m_recentList->ensurePolished();
+    int rowHeight = m_recentList->sizeHintForRow(0);
+    if (rowHeight <= 0)
+        rowHeight = kRecentRowFallback;
+    rowHeight = qMax(rowHeight, kRecentRowFallback);
+    const int visibleRows = qMin(m_recentFiles.size(), kRecentMaxVisibleRows);
+    m_recentList->setFixedHeight(visibleRows * rowHeight);
 }
 
 QString WelcomeWidget::displayName(const QString& path) const

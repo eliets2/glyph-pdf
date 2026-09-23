@@ -160,6 +160,44 @@ private slots:
         QCOMPARE(available.count(), 0);
     }
 
+    // ── S4-1 (SWEEP-BACKEND-2026-09-21): the manifest body is capped ────────
+    // readAll() was uncapped: the 20 s transfer timeout bounds time, not
+    // bytes, so a fast hostile host (the manifest URL is a user/company
+    // setting) could stream hundreds of MB of JSON into RAM before the parse
+    // rejected it. The pin feeds a >1 MiB body that is OTHERWISE a perfectly
+    // valid, downstream-acceptable manifest (version 9.9.9, https downloadUrl,
+    // non-empty sha256) — only the body cap may refuse it.
+    void testOversizeManifestBodyRejected()
+    {
+        QCoreApplication::setApplicationVersion("1.0.0");
+        gp::UpdateChecker checker;
+
+        QSignalSpy failed(&checker, &gp::UpdateChecker::checkFailed);
+        QSignalSpy available(&checker, &gp::UpdateChecker::updateAvailable);
+        QSignalSpy noUpdate(&checker, &gp::UpdateChecker::noUpdateAvailable);
+
+        QByteArray pad(1 * 1024 * 1024 + 1024, 'A');   // just over the 1 MiB cap
+        const QByteArray json =
+            "{\"version\": \"9.9.9\","
+            "\"releaseDate\": \"2026-01-01\","
+            "\"downloadUrl\": \"https://ok.example.com/glyphpdf.msi\","
+            "\"sha256\": \"abc123xyz\","
+            "\"releaseNotes\": \"" + pad + "\","
+            "\"minVersion\": \"1.0.0\""
+        "}";
+
+        driveChecker(checker, json);
+
+        QVERIFY2(failed.wait(2000),
+                 "S4-1: an over-cap manifest body must be refused (checkFailed), "
+                 "not parsed and advertised");
+        QCOMPARE(available.count(), 0);
+        QCOMPARE(noUpdate.count(), 0);
+        QVERIFY2(failed.first().first().toString().contains(QStringLiteral("too large")),
+                 qPrintable(QStringLiteral("S4-1: the refusal must disclose the size cap; got: ")
+                                + failed.first().first().toString()));
+    }
+
     void testValidManifestUpdateAvailable()
     {
         QCoreApplication::setApplicationVersion("1.0.0");

@@ -1,0 +1,29 @@
+********* Start testing of TestSweepW3UxFlows *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSweepW3UxFlows::initTestCase()
+QWARN  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: F2b step1: batch screen reachable from the welcome (standalone link)
+QWARN  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: driving dialog matched by 'presetNameEdit' (title='Save as Preset')
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: F2b step2: preset save attempted through the real dialog
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: F2b step3: preset picker shows 'uxflowpreset (compress)' (1 saved); steps label: 'Steps (1):
+  1. compress'
+QDEBUG : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() optimizeDocument: unused-object sweep removed 0 object(s)
+QDEBUG : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-LHWllX.pdf"
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: F2b step4: preset run finished — success=1 fail=0 skip=0; log: Starting batch: 1 files — operation: Preset Pipeline
+â?? big_run.pdf
+
+BATCH COMPLETE — 1 of 1 succeeded
+QDEBUG : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() optimizeDocument: unused-object sweep removed 0 object(s)
+QDEBUG : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-PwbzpR.pdf"
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: F2b step5: identical re-run - success=1 fail=0; log: Starting batch: 1 files — operation: Preset Pipeline
+â?? big_rerun.pdf
+
+BATCH COMPLETE — 1 of 1 succeeded
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: F2b step5: identical re-run finished green
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: F2b verified: 2 artifact(s) in the preset out dir; both runs green
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: F2b verified: 2-file batch merge ? 2 page(s), both parts present; output at C:/Users/User/AppData/Local/Temp/TestSweepW3UxFlows-NFgZQf/mpart1_merged.pdf
+PASS   : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline()
+PASS   : TestSweepW3UxFlows::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 642ms
+********* Finished testing of TestSweepW3UxFlows *********

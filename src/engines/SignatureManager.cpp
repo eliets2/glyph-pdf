@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "engines/SignatureManager.h"
+#include "engines/SafeSave.h"
 #include <memory>
+#include <exception>
 
 // Windows CryptoAPI must come BEFORE OpenSSL to prevent wincrypt.h from
 // defining OCSP_REQUEST, OCSP_RESPONSE, X509_NAME etc. as macros that
@@ -27,6 +29,10 @@
 
 #include <podofo/podofo.h>
 #include <podofo/auxiliary/StreamDevice.h>
+// emergence E-3: the pinned user→viewer inverse of the page-space law
+// (after the Windows header block — this header pulls podofo/Qt in, and the
+// wincrypt macro-undef dance above must run first).
+#include "core/ItemSpaceTransform.h"
 #include <openssl/pkcs12.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
@@ -57,6 +63,7 @@ static QByteArray extractCmsFromContents(const QByteArray& fileData, qint64 off1
 #include <QDir>
 #include <QCoreApplication>
 #include <QSemaphore>
+#include <QMutex>
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
 #include <QNetworkReply>
@@ -89,6 +96,15 @@ struct EvpPkeyDeleter {
 };
 using EvpPkeyPtr = std::unique_ptr<EVP_PKEY, EvpPkeyDeleter>;
 
+// SEP13 lead 4: RAII for the signing certs. loadP12 hands out raw X509*
+// ownership (leaf + issuer) with manual frees scattered on only SOME error
+// paths; every early return and every thrown exception between the load and
+// the (single) cleanup leaked both certs per attempt.
+struct X509Deleter {
+    void operator()(X509 *c) const noexcept { if (c) X509_free(c); }
+};
+using X509Ptr = std::unique_ptr<X509, X509Deleter>;
+
 // Additional RAII guards for OpenSSL objects used inside validateSignatures
 // — protects against leaks if CMS_verify or any inner call throws (Fix J).
 struct X509StoreDeleter {
@@ -117,9 +133,26 @@ public:
     QString tsaUrl;
     PAdESLevel level = PAdESLevel::B_T;
     X509_STORE *testTrustStore = nullptr;
+    // SEP13:4 regression seam — see forceEmptyPostConditionForTesting.
+    bool forceEmptyPostCondition = false;
     // E-02: outcome of the most recent signing call so the UI can tell a partial
     // (core-signed but LTV-missing) result apart from a total failure.
     SignOutcome lastOutcome = SignOutcome::NotRun;
+    // §9.7 P1: exactly WHICH long-term-validation piece was missing when
+    // lastOutcome == PartialLtvMissing. Both reset at the start of every
+    // signing attempt.
+    bool dssMissing = false;
+    bool docTimestampMissing = false;
+    // SEP13 lead 1: B-T piece of the same slate — the RFC 3161 token was
+    // requested (level >= B-T with a TSA URL) but could not be embedded, so
+    // the signature on disk attained B-B. Reset at the start of every
+    // signing attempt (see signDocumentImpl).
+    bool timestampMissing = false;
+    // SWEEP-W1 F2: set only when the TSA response parsed as an RFC 3161
+    // TS_RESP (d2i_TS_RESP) AND was embedded. A non-token HTTP-200 body is
+    // never embedded and never clears timestampMissing.
+    bool timestampAttempted = false;   // SWEEP-W1 F2 follow-up: a TSA fetch is part of this attempt
+    bool timestampTokenValid = false;
 
     // -----------------------------------------------------------------------
     // Populate X509_STORE with trust roots
@@ -616,8 +649,39 @@ public:
             };
 
             TimestampSigner tsSigner(this);
-            FileStreamDevice output(filePath.toStdString(), FileMode::Append);
-            SignDocument(doc, output, tsSigner, ts);
+            // E-06 (R19b, refused-loopback finding): the timestamp append must
+            // be ALL-OR-NOTHING. PoDoFo's SignDocument appends the signature
+            // reservation increment BEFORE ComputeSignature runs, so a failed
+            // TSA fetch (unreachable/refused TSA) used to leave a PARTIAL
+            // incremental update whose ghost /DocTimeStamp field survived in
+            // the file while the outcome honestly said docTimestampMissing —
+            // a document claiming a timestamp it does not have. Record the
+            // size and truncate back on failure: a failed timestamp leaves
+            // the file byte-identical to its pre-append state.
+            const qint64 sizeBefore = QFileInfo(filePath).size();
+            bool appended = false;
+            std::exception_ptr appendFailure;
+            try {
+                FileStreamDevice output(filePath.toStdString(), FileMode::Append);
+                SignDocument(doc, output, tsSigner, ts);
+                appended = true;
+            } catch (...) {
+                // the stream is closed (RAII) before anything below runs
+                appendFailure = std::current_exception();
+            }
+            if (!appended) {
+                QFile f(filePath);
+                if (f.open(QIODevice::ReadWrite)) {
+                    f.resize(sizeBefore);
+                    f.close();
+                    qWarning() << "B-LTA: partial timestamp append discarded — file restored to"
+                               << sizeBefore << "bytes";
+                } else {
+                    qWarning() << "B-LTA: could not reopen the file to discard the partial"
+                               << " timestamp append — the document may carry a ghost /DocTimeStamp";
+                }
+                std::rethrow_exception(appendFailure);
+            }
             return true;
         } catch (const PdfError &e) {
             qWarning() << "B-LTA timestamp addition failed:" << e.what();
@@ -907,6 +971,9 @@ SignatureManager::~SignatureManager() = default;
 void SignatureManager::setTsaUrl(const QString &url) { d->tsaUrl = url; }
 void SignatureManager::setSignatureLevel(PAdESLevel level) { d->level = level; }
 void SignatureManager::setTrustStoreForTest(X509_STORE *store) { d->testTrustStore = store; }
+
+// SEP13:4 regression seam — see the header note. Test-only.
+void SignatureManager::forceEmptyPostConditionForTesting(bool on) { d->forceEmptyPostCondition = on; }
 // ---------------------------------------------------------------------------
 SignOutcome SignatureManager::signDocument(const QString &inputPath,
                                     const QString &outputPath,
@@ -916,8 +983,296 @@ SignOutcome SignatureManager::signDocument(const QString &inputPath,
                                     const QString &location)
 {
     // certificationLevel == 0 ⇒ ordinary approval signature (no /DocMDP).
-    return signDocumentImpl(inputPath, outputPath, certPath, password, 0, reason, location);
+    // Legacy slot contract: a pending dialog image is consumed by THIS call.
+    return signDocumentImpl(inputPath, outputPath, certPath, password, 0,
+                            reason, location, takePendingAppearanceImage());
 }
+
+// N06: the restartable request passes its own captured copy explicitly —
+// nothing is consumed, so a retry re-embeds the same image.
+SignOutcome SignatureManager::signDocumentWithAppearance(const QString &inputPath,
+                                                         const QString &outputPath,
+                                                         const QString &certPath,
+                                                         const QString &password,
+                                                         const QImage &appearanceImage,
+                                                         const QString &reason,
+                                                         const QString &location)
+{
+    return signDocumentImpl(inputPath, outputPath, certPath, password, 0,
+                            reason, location, appearanceImage);
+}
+
+// ---------------------------------------------------------------------------
+// §9.7 P0 — visible signature appearance (ETSI EN 319 142-6 §5.2, Acrobat
+// convention). One /AP /N form XObject, optional signature image left, text
+// right, drawn BEFORE SignDocument() so the appearance lands in the same
+// incremental update (or SaveOnSigning full save) as the /Contents digest.
+// Never touched again after signing — a post-signing AP edit would invalidate
+// the signature. No validation status and no TSA time is ever rendered here
+// (ISO 32000-2 §12.7.5.5 forbids it inside a field appearance).
+// ---------------------------------------------------------------------------
+namespace {
+
+constexpr double kAppearancePad = 4.0;            // inner padding, pt
+constexpr double kAppearanceLineLeading = 1.25;   // leading multiplier
+constexpr double kAppearanceTinyRectW = 120.0;    // "name-only below ~120x36pt"
+constexpr double kAppearanceTinyRectH = 36.0;
+constexpr double kAppearanceAbsoluteFloor = 4.0;  // last-resort identity floor
+
+// Shrink ladder: 9..6pt is the main fit range (~6pt floor per the binding
+// design); name-only mode may go below it so the identity line always draws.
+const double kAppearanceSizes[] = { 9.0, 8.0, 7.0, 6.0 };
+const double kAppearanceNameOnlySizes[] = { 9.0, 8.0, 7.0, 6.0, 5.0, 4.0 };
+
+QString formatAppearanceDate(const QDateTime &claimedLocal)
+{
+    const int offSecs = claimedLocal.offsetFromUtc();
+    const int offMin = qAbs(offSecs) / 60;
+    const QString sign = offSecs < 0 ? QStringLiteral("-") : QStringLiteral("+");
+    return QStringLiteral("Date: %1 UTC%2%3:%4")
+        .arg(claimedLocal.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")),
+             sign,
+             QString::number(offMin / 60).rightJustified(2, QLatin1Char('0')),
+             QString::number(offMin % 60).rightJustified(2, QLatin1Char('0')));
+}
+
+// The ETSI/Acrobat line set: identity (from the certificate CN), claimed
+// local time (never the TSA time), Reason/Location ONLY when set. No DN, no
+// logo, no validation status.
+QStringList appearanceLines(const QString &signerName, const QDateTime &claimedLocalTime,
+                            const QString &reason, const QString &location)
+{
+    QStringList lines;
+    if (!signerName.isEmpty())
+        lines << (QStringLiteral("Digitally signed by ") + signerName);
+    lines << formatAppearanceDate(claimedLocalTime);
+    if (!reason.isEmpty())
+        lines << (QStringLiteral("Reason: ") + reason);
+    if (!location.isEmpty())
+        lines << (QStringLiteral("Location: ") + location);
+    return lines;
+}
+
+bool appearanceFits(const QStringList &lines, double fontSize,
+                    double textW, double textH,
+                    const SignatureManager::AppearanceMeasureFn &measure)
+{
+    if (lines.isEmpty())
+        return true;
+    for (const QString &line : lines) {
+        if (measure(line, fontSize) > textW)
+            return false;
+    }
+    return lines.size() * kAppearanceLineLeading * fontSize <= textH;
+}
+
+} // namespace
+
+SignatureManager::SignatureAppearancePlan SignatureManager::planSignatureAppearance(
+    double rectWidthPt, double rectHeightPt,
+    const QString &signerName,
+    const QDateTime &claimedLocalTime,
+    const QString &reason, const QString &location,
+    bool hasSignatureImage,
+    const AppearanceMeasureFn &measureTextWidth)
+{
+    SignatureAppearancePlan plan;
+    plan.imageLeft = hasSignatureImage && rectWidthPt > 0.0 && rectHeightPt > 0.0;
+
+    const double pad = kAppearancePad;
+    // Image panel on the left: ~30% of the rect width, clamped to a usable
+    // strip so a wide image can never squeeze the text out entirely.
+    const double imagePanelW = plan.imageLeft
+        ? qBound(24.0, 0.30 * rectWidthPt, 0.45 * rectWidthPt)
+        : 0.0;
+    const double textW = rectWidthPt - 2.0 * pad - imagePanelW;
+    const double textH = rectHeightPt - 2.0 * pad;
+    if (textW <= 0.0 || textH <= 0.0) {
+        // Degenerate rect: draw the image (if any), no text. ETSI §5.2 makes
+        // zero-area widget rects non-conformant anyway; placement code guards.
+        plan.nameOnly = true;
+        return plan;
+    }
+
+    auto tryFit = [&](const QStringList &lines) -> double {
+        for (double size : kAppearanceSizes) {
+            if (appearanceFits(lines, size, textW, textH, measureTextWidth))
+                return size;
+        }
+        return 0.0;
+    };
+
+    auto finishWith = [&](const QStringList &lines, double size) {
+        plan.lines = lines;
+        plan.fontSize = size;
+    };
+
+    // Rects below ~120x36pt go straight to the name-only fallback.
+    if (rectWidthPt >= kAppearanceTinyRectW && rectHeightPt >= kAppearanceTinyRectH) {
+        // 1) full line set
+        if (double s = tryFit(appearanceLines(signerName, claimedLocalTime, reason, location)); s > 0.0) {
+            finishWith(appearanceLines(signerName, claimedLocalTime, reason, location), s);
+            return plan;
+        }
+        // 2) drop Reason first, 3) then Location
+        if (double s = tryFit(appearanceLines(signerName, claimedLocalTime, QString(), location)); s > 0.0) {
+            finishWith(appearanceLines(signerName, claimedLocalTime, QString(), location), s);
+            return plan;
+        }
+        if (double s = tryFit(appearanceLines(signerName, claimedLocalTime, QString(), QString())); s > 0.0) {
+            finishWith(appearanceLines(signerName, claimedLocalTime, QString(), QString()), s);
+            return plan;
+        }
+    }
+
+    // 4) name-only fallback: identity line only, shrinking to the absolute
+    // floor so the signer identity is never silently lost.
+    plan.nameOnly = true;
+    const QStringList nameLine = signerName.isEmpty()
+        ? QStringList()
+        : QStringList{ QStringLiteral("Digitally signed by ") + signerName };
+    if (nameLine.isEmpty())
+        return plan; // nothing drawable
+    for (double size : kAppearanceNameOnlySizes) {
+        if (appearanceFits(nameLine, size, textW, textH, measureTextWidth)) {
+            finishWith(nameLine, size);
+            return plan;
+        }
+    }
+    finishWith(nameLine, kAppearanceAbsoluteFloor);
+    return plan;
+}
+
+// Dialog -> engine handoff for the optional signature image. Mutex-guarded
+// because signing runs on a worker thread while the dialog runs on the GUI
+// thread. Consume-once: the next signing call drains the slot.
+namespace {
+QMutex g_pendingAppearanceImageMutex;
+QImage g_pendingAppearanceImage;
+} // namespace
+
+void SignatureManager::setPendingAppearanceImage(const QImage &image)
+{
+    QMutexLocker locker(&g_pendingAppearanceImageMutex);
+    g_pendingAppearanceImage = image;
+}
+
+QImage SignatureManager::takePendingAppearanceImage()
+{
+    QMutexLocker locker(&g_pendingAppearanceImageMutex);
+    QImage taken = g_pendingAppearanceImage;
+    g_pendingAppearanceImage = QImage();
+    return taken;
+}
+
+namespace {
+
+// Draws the planned appearance into a single /AP /N form XObject and attaches
+// it to the signature widget. Throws are caught by the caller: the appearance
+// is cosmetic relative to the cryptographic core and must never abort signing.
+void drawSignatureAppearance(PdfMemDocument &doc, PdfSignature &signature,
+                             const QString &signerCN, const QString &reason,
+                             const QString &location, const QImage &image)
+{
+    if (!signature.GetWidget())
+        return;
+    const Rect widgetRect = signature.GetWidget()->GetRect();
+    if (widgetRect.Width <= 0.0 || widgetRect.Height <= 0.0) {
+        qWarning() << "SignatureManager: signature widget rect is degenerate"
+                   << widgetRect.Width << "x" << widgetRect.Height
+                   << "- skipping appearance (ETSI EN 319 142-6 §5.2 requires w,h > 0)";
+        return;
+    }
+
+    // Standard-14 Helvetica with an explicit WinAnsi encoding: the appearance
+    // content stream then carries literal (searchable, verifiable) text.
+    // WinAnsi is Latin-only — non-Latin signer names, reasons and locations
+    // will not render correctly. Embedding an open-licensed TTF via
+    // GetOrCreateFontFromBuffer (PoDoFo embeds imported fonts by default) is
+    // the documented upgrade path; it requires a bundled font asset and is
+    // deferred. Metrics from this font drive the auto-fit, so measurement and
+    // rendering agree exactly (ETSI EN 319 142-6 §5.2 fit = shall).
+    PdfFontCreateParams fontParams;
+    fontParams.Encoding = PdfEncoding(PdfEncodingMapFactory::GetWinAnsiEncodingInstancePtr());
+    fontParams.Flags = PdfFontCreateFlags::DontEmbed;
+    PdfFont &font = doc.GetFonts().GetStandard14Font(PdfStandard14FontType::Helvetica, fontParams);
+
+    auto measure = [&font](const QString &text, double fontSize) -> double {
+        PdfTextState state;
+        state.Font = &font;
+        state.FontSize = fontSize;
+        return font.GetStringLength(text.toUtf8().constData(), state);
+    };
+
+    // Claimed signing time (local clock, with UTC offset). The TSA timestamp
+    // is validation information and must never appear in the appearance.
+    const QDateTime claimedLocal = QDateTime::currentDateTime();
+    const SignatureManager::SignatureAppearancePlan plan = SignatureManager::planSignatureAppearance(
+        widgetRect.Width, widgetRect.Height, signerCN, claimedLocal,
+        reason, location, !image.isNull(), measure);
+
+    auto form = doc.CreateXObjectForm(Rect(0.0, 0.0, widgetRect.Width, widgetRect.Height));
+
+    PdfImage *pdfImage = nullptr;
+    QImage rgbImage;
+    std::unique_ptr<PdfImage> pdfImageOwner;
+    if (!image.isNull()) {
+        rgbImage = image.convertToFormat(QImage::Format_RGB888);
+        if (!rgbImage.isNull()) {
+            pdfImageOwner = doc.CreateImage();
+            pdfImage = pdfImageOwner.get();
+            pdfImage->SetData(bufferview(reinterpret_cast<const char *>(rgbImage.constBits()),
+                                         static_cast<size_t>(rgbImage.sizeInBytes())),
+                              static_cast<unsigned>(rgbImage.width()),
+                              static_cast<unsigned>(rgbImage.height()),
+                              PdfPixelFormat::RGB24,
+                              rgbImage.bytesPerLine());
+        }
+    }
+
+    PdfPainter painter;
+    painter.SetCanvas(*form);
+
+    // Light background + hairline border (Acrobat convention, Lane A).
+    painter.GraphicsState.SetNonStrokingColor(PdfColor(1.0, 1.0, 1.0));
+    painter.DrawRectangle(0.0, 0.0, widgetRect.Width, widgetRect.Height, PdfPathDrawMode::Fill);
+    painter.GraphicsState.SetStrokingColor(PdfColor(0.55, 0.55, 0.55));
+    painter.DrawRectangle(0.0, 0.0, widgetRect.Width, widgetRect.Height, PdfPathDrawMode::Stroke);
+
+    if (pdfImage) {
+        const double boxX = kAppearancePad;
+        const double boxY = kAppearancePad;
+        const double boxW = qBound(24.0, 0.30 * widgetRect.Width, 0.45 * widgetRect.Width);
+        const double boxH = widgetRect.Height - 2.0 * kAppearancePad;
+        const double imgW = static_cast<double>(rgbImage.width());
+        const double imgH = static_cast<double>(rgbImage.height());
+        if (imgW > 0.0 && imgH > 0.0 && boxW > 0.0 && boxH > 0.0) {
+            const double scale = qMin(boxW / imgW, boxH / imgH);
+            const double drawW = imgW * scale;
+            const double drawH = imgH * scale;
+            const double drawY = boxY + (boxH - drawH) / 2.0; // center vertically
+            painter.DrawImage(*pdfImage, boxX, drawY, drawW / imgW, drawH / imgH);
+        }
+    }
+
+    if (!plan.lines.isEmpty() && plan.fontSize > 0.0) {
+        painter.TextState.SetFont(font, plan.fontSize);
+        painter.GraphicsState.SetNonStrokingColor(PdfColor(0.0, 0.0, 0.0));
+        const double textX = kAppearancePad + (plan.imageLeft
+            ? qBound(24.0, 0.30 * widgetRect.Width, 0.45 * widgetRect.Width)
+            : 0.0);
+        double baselineY = widgetRect.Height - kAppearancePad - plan.fontSize;
+        for (const QString &line : plan.lines) {
+            painter.DrawText(line.toUtf8().constData(), textX, baselineY);
+            baselineY -= kAppearanceLineLeading * plan.fontSize;
+        }
+    }
+
+    painter.FinishDrawing();
+    signature.GetWidget()->SetAppearanceStream(*form, PdfAppearanceType::Normal);
+}
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // Shared signing core. certificationLevel: 0 = ordinary approval signature;
@@ -931,23 +1286,75 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
                                         const QString &password,
                                         int certificationLevel,
                                         const QString &reason,
-                                        const QString &location)
+                                        const QString &location,
+                                        const QImage &appearanceImage)
 {
+    // emergence E-6: record what the destination holds when the operation
+    // STARTS — the shared commit boundary refuses at the end if a second
+    // writer replaced those bytes in the meantime (a stale candidate must
+    // never erase another instance's freshly added signature).
+    const gp::SafeSave::DestinationIdentity destIdentity =
+        gp::SafeSave::captureDestinationIdentity(outputPath);
     // E-02: assume failure until we know the core signature bytes were written.
     d->lastOutcome = SignOutcome::Failed;
+    // §9.7 P1: a fresh attempt starts with a clean degradation slate.
+    d->dssMissing = false;
+    d->docTimestampMissing = false;
+    d->timestampMissing = false;   // SEP13 lead 1: B-T piece of the same slate
+    d->timestampAttempted = true;    // SWEEP-W1 F2 follow-up: a TSA fetch is now part of this attempt (label floors only when attempted && !valid)
+    d->timestampTokenValid = false;   // SWEEP-W1 F2: clean slate per attempt
+    // N06 (QUALITY-GATE-2026-09-09): checked replacement at the signing
+    // boundary. When the result goes to a DIFFERENT file than the source
+    // (the SecurityController retry/replacement contract), every write below
+    // lands on a uniquely owned candidate and the destination is replaced
+    // only after signing + DSS/timestamp + post-validation ALL succeeded.
+    // The old code touched the output directly in two unsafe ways:
+    //   - incremental append: QFile::remove(outputPath) BEFORE staging — a
+    //     failed copy (source deleted between retry attempts, permissions)
+    //     destroyed the previous partial output;
+    //   - full save: FileMode::Create truncated the output at open, so any
+    //     mid-SignDocument failure left a truncated artifact.
+    // A PartialLtvMissing RETRY re-runs the SAME request; a failed retry must
+    // never lose the partial output it is retrying. An in-place signature
+    // (input == output) keeps the direct write: the incremental append is a
+    // separately tested contract and the full-save target is the loaded
+    // document itself. cleanupCandidate() runs on every failure exit —
+    // including the catch blocks below.
+    const bool replaceOutput = (inputPath != outputPath);
+    QString signingCandidate;
+    bool candidateCommitted = false;
+    auto cleanupCandidate = [&]() {
+        if (!signingCandidate.isEmpty() && !candidateCommitted)
+            QFile::remove(signingCandidate);
+    };
     try {
         PdfMemDocument doc;
         doc.Load(inputPath.toStdString());
 
+        // N06: the appearance arrives as an explicit input — the interface
+        // methods drain the dialog's consume-once slot before calling in, the
+        // restartable request passes its own captured copy. Nothing is drained
+        // here anymore, so a retry can no longer find an emptied slot.
+
         charbuff certData;
         EVP_PKEY *pkeyRaw = nullptr;
         QList<QByteArray> certChain;
-        X509 *leafCert = nullptr, *issuerCert = nullptr;
+        X509 *leafCertRaw = nullptr, *issuerCertRaw = nullptr;
 
-        if (!d->loadP12(certPath, password, certData, &pkeyRaw, certChain, &leafCert, &issuerCert)) {
+        // loadP12 keeps ownership of everything until it returns true (all its
+        // own failure paths free what they allocated and leave the out-params
+        // untouched), so the raw temporaries are safe to observe here.
+        if (!d->loadP12(certPath, password, certData, &pkeyRaw, certChain,
+                        &leafCertRaw, &issuerCertRaw)) {
             qWarning() << "Failed to load P12 certificate";
             return SignOutcome::Failed;
         }
+        // SEP13 lead 4: RAII on both certs — every early return below (weak
+        // key, i2d failure, candidate reservation, certification refusal,
+        // post-condition/integrity failure, commit failure) and every thrown
+        // exception now frees what previous code freed on only some paths.
+        X509Ptr leafCert(leafCertRaw);
+        X509Ptr issuerCert(issuerCertRaw);
         // RAII guard: ensures EVP_PKEY_free runs on every exit path, including
         // exceptions thrown by PoDoFo while we still own the key.
         EvpPkeyPtr pkey(pkeyRaw);
@@ -956,14 +1363,12 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
         // EVP_PKEY_RSA check: if the public key in the leaf cert is RSA < 2048 bits,
         // refuse to sign. This mirrors the M2-P4 pre-decided design choice #1.
         if (leafCert) {
-            EVP_PKEY *pubKey = X509_get0_pubkey(leafCert);
+            EVP_PKEY *pubKey = X509_get0_pubkey(leafCert.get());
             if (pubKey && EVP_PKEY_id(pubKey) == EVP_PKEY_RSA) {
                 if (EVP_PKEY_bits(pubKey) < 2048) {
                     qWarning() << "SignatureManager: Signing rejected — RSA key size"
                                << EVP_PKEY_bits(pubKey) << "bits < 2048 bits (weak key)";
-                    if (issuerCert) X509_free(issuerCert);
-                    X509_free(leafCert);
-                    return SignOutcome::Failed;
+                    return SignOutcome::Failed;   // certs freed by RAII (lead 4)
                 }
             }
         }
@@ -1004,6 +1409,10 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
                 baseCms.ComputeSignature(contents, dryrun);
 
                 if (m_priv->level >= PAdESLevel::B_T && !m_priv->tsaUrl.isEmpty()) {
+                    // SEP13 lead 1: a requested-but-missing timestamp is a
+                    // degradation that MUST surface in the outcome. Presume
+                    // missing; clear only when the token is actually embedded.
+                    m_priv->timestampMissing = true;
                     const unsigned char *p = reinterpret_cast<const unsigned char*>(contents.data());
                     CMS_ContentInfo *cms = d2i_CMS_ContentInfo(nullptr, &p, contents.size());
                     if (!cms) return;
@@ -1018,9 +1427,26 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
                             QByteArray tsToken = m_priv->fetchTimestampToken(digest);
 
                             if (!tsToken.isEmpty()) {
-                                CMS_unsigned_add1_attr_by_NID(si, NID_id_smime_aa_timeStampToken, 
-                                                              V_ASN1_SEQUENCE, tsToken.constData(), tsToken.size());
-                                qDebug() << "B-T: id-aa-signatureTimeStampToken appended to SignerInfo";
+                                // SWEEP-W1 F2: presence of an HTTP-200 body is
+                                // NOT attainment. Parse the response as an RFC
+                                // 3161 TS_RESP BEFORE embedding it; a garbage /
+                                // error-page body is neither embedded nor
+                                // credited — the honest timestampMissing
+                                // degradation (SEP13 lead 1) stands.
+                                const unsigned char *respP = reinterpret_cast<const unsigned char*>(
+                                    tsToken.constData());
+                                TS_RESP *parsedResp = d2i_TS_RESP(nullptr, &respP, tsToken.size());
+                                if (parsedResp) {
+                                    TS_RESP_free(parsedResp);
+                                    CMS_unsigned_add1_attr_by_NID(si, NID_id_smime_aa_timeStampToken,
+                                                                  V_ASN1_SEQUENCE, tsToken.constData(), tsToken.size());
+                                    m_priv->timestampMissing = false;   // token embedded: B-T attained
+                                    m_priv->timestampTokenValid = true; // F2: token parsed, not just received
+                                    qDebug() << "B-T: id-aa-signatureTimeStampToken appended to SignerInfo";
+                                } else {
+                                    qWarning() << "B-T: TSA response is not a valid RFC 3161 TS_RESP "
+                                                  "(not embedded) — signature downgrades to B-B";
+                                }
                             } else {
                                 qWarning() << "B-T: TSA returned empty token — signature downgrades to B-B";
                             }
@@ -1096,6 +1522,36 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
         if (!reason.isEmpty())   signature->SetSignatureReason(PdfString(reason.toStdString()));
         if (!location.isEmpty()) signature->SetSignatureLocation(PdfString(location.toStdString()));
 
+        // §9.7 P0: draw the visible appearance BEFORE SignDocument so the
+        // /AP /N form XObject is written in the SAME incremental update (or
+        // SaveOnSigning full save) as the /Contents digest — a post-signing
+        // appearance edit would invalidate the signature. Signer identity is
+        // derived from the certificate CN (ETSI EN 319 142-6 §5.1), not from
+        // user-typed data. An appearance failure must not abort the
+        // cryptographic signing; the signature is then written without /AP.
+        {
+            QString signerCN;
+            if (leafCert) {
+                char cnBuf[256] = { 0 };
+                X509_NAME *subjectName = X509_get_subject_name(leafCert.get());
+                if (subjectName &&
+                    X509_NAME_get_text_by_NID(subjectName, NID_commonName, cnBuf, sizeof(cnBuf)) > 0) {
+                    signerCN = QString::fromUtf8(cnBuf).trimmed();
+                }
+            }
+            try {
+                drawSignatureAppearance(doc, *signature, signerCN, reason, location, appearanceImage);
+            } catch (const PdfError &e) {
+                qWarning() << "SignatureManager: appearance drawing failed (signing continues without /AP):"
+                           << e.what();
+            } catch (const std::exception &e) {
+                qWarning() << "SignatureManager: appearance drawing failed (signing continues without /AP):"
+                           << e.what();
+            } catch (...) {
+                qWarning() << "SignatureManager: appearance drawing failed (signing continues without /AP).";
+            }
+        }
+
         // E-01: certification (author) signature — write the /DocMDP transform that
         // restricts subsequent modifications. certificationLevel 1/2/3 maps to
         // PdfCertPermission NoPerms/FormFill/Annotations. If this cannot be written
@@ -1110,9 +1566,7 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
                 default:
                     qWarning() << "certifyDocument: invalid certification level"
                                << certificationLevel << "— refusing to sign";
-                    if (issuerCert) X509_free(issuerCert);
-                    if (leafCert)   X509_free(leafCert);
-                    return SignOutcome::Failed;
+                    return SignOutcome::Failed;   // certs freed by RAII (lead 4)
             }
             try {
                 signature->AddCertificationReference(perm);
@@ -1121,9 +1575,7 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
                             << "reference (level" << certificationLevel << "):" << e.what()
                             << "— ABORTING; document will NOT be silently downgraded to an"
                             << "ordinary signature.";
-                if (issuerCert) X509_free(issuerCert);
-                if (leafCert)   X509_free(leafCert);
-                return SignOutcome::Failed;
+                return SignOutcome::Failed;   // certs freed by RAII (lead 4)
             }
         }
 
@@ -1157,6 +1609,15 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
             }
         } catch (...) {}
 
+        if (replaceOutput) {
+            QString candErr;
+            if (!gp::SafeSave::makeUniqueCandidate(&signingCandidate, &candErr)) {
+                qWarning() << "SignatureManager: cannot reserve a signing candidate:" << candErr;
+                return SignOutcome::Failed;
+            }
+        }
+        const QString signTarget = replaceOutput ? signingCandidate : outputPath;
+
         // PdfSaveOptions::SaveOnSigning: perform a full save (not incremental update)
         // so the output PDF contains the complete document (header, catalog, all objects).
         // Without this flag, PoDoFo with FileMode::Create writes only changed objects,
@@ -1164,10 +1625,21 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
         // any PDF reader including PoDoFo itself (M2-P4 fix).
         // When adding a second signature, we must append (incremental update) so the
         // first signature's byte ranges remain valid.
-        if (inputHasSigs && inputPath != outputPath) {
-            // Copy input to output first, then append
-            if (QFile::exists(outputPath)) QFile::remove(outputPath);
-            QFile::copy(inputPath, outputPath);
+        if (inputHasSigs) {
+            // N06: stage the exact bytes the prior signatures were computed
+            // over onto the candidate — never remove the destination first
+            // (the old code did, and a failed staging destroyed it).
+            if (replaceOutput) {
+                // makeUniqueCandidate reserved (created) the name; QFile::copy
+                // refuses an existing destination, so drop our own empty
+                // reservation first — it is owned by this call.
+                QFile::remove(signingCandidate);
+                if (!QFile::copy(inputPath, signingCandidate)) {
+                    qWarning() << "SignatureManager: cannot stage source bytes for incremental"
+                               << " signing (source:" << inputPath << ") — output untouched.";
+                    return SignOutcome::Failed;
+                }
+            }
         }
 
 
@@ -1175,10 +1647,20 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
         // output file in Read/Write mode (FileMode::Open). FileMode::Append is write-only
         // and SignDocument needs to both read existing content (to compute ByteRange offsets)
         // and write the incremental update to the same file.
-        FileStreamDevice outputStream(outputPath.toStdString(),
-                                      inputHasSigs ? FileMode::Open : FileMode::Create);
-        SignDocument(doc, outputStream, actualSigner, *signature,
-                     inputHasSigs ? PdfSaveOptions::None : PdfSaveOptions::SaveOnSigning);
+        //
+        // Inner scope: this FileStreamDevice is the only OS device held on the
+        // candidate, and it must be CLOSED before any candidate removal runs —
+        // the post-condition failure cleanups below, or the success-path drop
+        // after the destination commit. Windows cannot delete a file with a
+        // live handle, and without this scope the device lives until the end
+        // of the try block, past every QFile::remove (PoDoFo's
+        // FileStreamDevice exposes no public Close()).
+        {
+            FileStreamDevice outputStream(signTarget.toStdString(),
+                                          inputHasSigs ? FileMode::Open : FileMode::Create);
+            SignDocument(doc, outputStream, actualSigner, *signature,
+                         inputHasSigs ? PdfSaveOptions::None : PdfSaveOptions::SaveOnSigning);
+        }
 
         // ----------------------------------------------------------------
         // B-LT / B-LTA outcome tracking — bytes are written, but DSS / TSA
@@ -1191,12 +1673,12 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
         // B-LT: build DSS dictionary with OCSP/certs
         // ----------------------------------------------------------------
         if (d->level >= PAdESLevel::B_LT) {
-            auto [sigContentsRaw, sigContentsHexUnused] = d->extractSignatureContentsRaw(outputPath);
+            auto [sigContentsRaw, sigContentsHexUnused] = d->extractSignatureContentsRaw(signTarget);
 
             // Fetch and verify OCSP for leaf cert before embedding in DSS
             QList<QByteArray> ocsps;
             if (leafCert && issuerCert) {
-                QByteArray ocspRaw = d->fetchOcspResponse(leafCert, issuerCert, certPath);
+                QByteArray ocspRaw = d->fetchOcspResponse(leafCert.get(), issuerCert.get(), certPath);
                 if (!ocspRaw.isEmpty()) {
                     // D3: Verify OCSP response with OCSP_basic_verify before embedding
                     const unsigned char *ocspPtr = reinterpret_cast<const unsigned char*>(ocspRaw.constData());
@@ -1217,7 +1699,7 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
                             QString unusedStr;
                             d->getTrustStore(unusedStr, ocspStoreGuard);
 
-                            X509_STORE_add_cert(ocspStoreGuard.get(), issuerCert);
+                            X509_STORE_add_cert(ocspStoreGuard.get(), issuerCert.get());
 
                             // The signer's chain may contain intermediate certs useful for chain building,
                             // but they MUST NOT be blindly trusted.
@@ -1259,28 +1741,40 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
                 }
             }
 
-            bool dssOk = d->buildDssDictionary(outputPath, certChain, ocsps, {}, sigContentsRaw);
+            bool dssOk = d->buildDssDictionary(signTarget, certChain, ocsps, {}, sigContentsRaw);
             if (!dssOk) {
                 overallOk = false;
+                d->dssMissing = true;   // §9.7 P1: pin WHICH piece degraded
                 qWarning() << "B-LT: DSS dictionary build failed — signature bytes written but long-term-validation"
                            << "data is INCOMPLETE.";
             }
         }
 
-        // Cleanup X509 objects
-        if (leafCert) X509_free(leafCert);
-        if (issuerCert) X509_free(issuerCert);
+        // Cleanup X509 objects: handled by the X509Ptr RAII guards (SEP13
+        // lead 4) — freed on EVERY exit path, not just this one.
 
         // ----------------------------------------------------------------
         // B-LTA: document timestamp over DSS-augmented file
         // ----------------------------------------------------------------
         if (d->level >= PAdESLevel::B_LTA) {
-            if (!d->addDocTimestamp(outputPath)) {
+            if (!d->addDocTimestamp(signTarget)) {
                 overallOk = false;
+                d->docTimestampMissing = true;   // §9.7 P1: pin WHICH piece degraded
                 qWarning() << "B-LTA: document timestamp failed — signature bytes written but archival timestamp"
                            << "is MISSING. The caller MUST inform the user that B-LTA archival assurances are not"
                            << "in effect for this document.";
             }
+        }
+
+        // SEP13 lead 1: same disclosure duty for the B-T piece — when a
+        // timestamp was requested (level >= B-T, TSA configured) but the
+        // token could not be fetched/embedded, the signature attained B-B.
+        // That is a PARTIAL outcome, never a plain Success.
+        if (d->level >= PAdESLevel::B_T && !d->tsaUrl.isEmpty() && d->timestampMissing) {
+            overallOk = false;
+            qWarning() << "B-T: timestamp token missing — signature bytes written but the requested"
+                       << "RFC 3161 timestamp could not be embedded (attained B-B). The caller MUST"
+                       << "inform the user that timestamped-signature assurances are not in effect.";
         }
 
         // E-02: at this point the cryptographic signature bytes ARE on disk
@@ -1293,26 +1787,80 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
         // D6 FIX: Post-condition re-validation
         // Re-run validateSignatures and assert the prior approval signature is still integrity-intact.
         // If the incremental update corrupted the ByteRange of a prior signature, fail and delete the output.
-        QList<SignatureInfo> postValidation = validateSignatures(outputPath);
+        QList<SignatureInfo> postValidation = validateSignatures(signTarget);
+        // SEP13:4 regression seam (see forceEmptyPostConditionForTesting):
+        // makes the EMPTY re-validation observation deterministic.
+        if (d->forceEmptyPostCondition)
+            postValidation.clear();
+        // SEP13:4: an EMPTY re-validation (the signature not detected/parsed
+        // on the signed result) is a FAILURE, not a vacuous pass — the loop
+        // below only inspects returned entries, so the old code fell through
+        // to Success/PartialLtvMissing and committed a document whose
+        // signatures could not be confirmed intact.
+        if (postValidation.isEmpty()) {
+            qWarning() << "SECURITY: Post-condition validation found NO signature on the "
+                          "signed result — integrity cannot be confirmed; failing.";
+            d->lastOutcome = SignOutcome::Failed;
+            cleanupCandidate();   // the candidate is never committed now
+            if (!replaceOutput)
+                QFile::remove(outputPath);   // mirror the broken-integrity branch
+            return SignOutcome::Failed;
+        }
         for (const auto& sigInfo : postValidation) {
             if (!sigInfo.integrityIntact) {
                 qWarning() << "SECURITY: Post-condition validation failed! A signature's integrity was broken by this update.";
                 d->lastOutcome = SignOutcome::Failed;
-                QFile::remove(outputPath);
+                if (replaceOutput) {
+                    // N06: the CANDIDATE is broken — drop it and preserve the
+                    // previous output (the old code deleted the output here,
+                    // destroying a preserved partial result).
+                    // M3 (SEP13): the drop was documented but never performed —
+                    // the reserved candidate file was orphaned per occurrence.
+                    cleanupCandidate();
+                } else {
+                    QFile::remove(outputPath);
+                }
                 return SignOutcome::Failed;
             }
         }
 
+        if (replaceOutput) {
+            // N06: checked replacement — the validated signing result
+            // replaces the destination atomically (QSaveFile commit); on any
+            // failure the destination is byte-identical and the outcome is
+            // Failed. No direct-write fallback.
+            QString commitErr;
+            if (!gp::SafeSave::commitFileToDestination(signingCandidate, outputPath, &commitErr,
+                                                       gp::SafeSave::CommitFaultForTesting::None,
+                                                       destIdentity)) {
+                qWarning() << "SignatureManager: checked replacement of" << outputPath
+                           << "failed — previous output preserved:" << commitErr;
+                d->lastOutcome = SignOutcome::Failed;
+                cleanupCandidate();   // M3 (SEP13): never committed — drop the orphan
+                return SignOutcome::Failed;
+            }
+            candidateCommitted = true;
+            // The commit copied the candidate's bytes into the destination —
+            // drop the candidate from <temp>/glyphpdf-candidates (the same
+            // cleanup every failure path performs). The flag stays set so a
+            // later cleanupCandidate() cannot double-remove. The candidate is
+            // a separate file from the resident input (D02/G-A keeps the INPUT
+            // open, never the candidate), so this remove always succeeds.
+            QFile::remove(signingCandidate);
+        }
         return d->lastOutcome;
     } catch (const PdfError &e) {
+        cleanupCandidate();
         qWarning() << "PoDoFo error during signing:" << e.what();
         d->lastOutcome = SignOutcome::Failed;
         return SignOutcome::Failed;
     } catch (const std::exception &e) {
+        cleanupCandidate();
         qWarning() << "Standard error during signing:" << e.what();
         d->lastOutcome = SignOutcome::Failed;
         return SignOutcome::Failed;
     } catch (...) {
+        cleanupCandidate();
         qWarning() << "Unknown exception during signing.";
         d->lastOutcome = SignOutcome::Failed;
         return SignOutcome::Failed;
@@ -1337,17 +1885,87 @@ SignOutcome SignatureManager::certifyDocument(const QString &inputPath,
                    << "out of range (expected 1..3) — refusing to certify";
         return SignOutcome::Failed;
     }
+    // Legacy slot contract: a pending dialog image is consumed by THIS call.
     return signDocumentImpl(inputPath, outputPath, certPath, password,
-                            certificationLevel, reason, location);
+                            certificationLevel, reason, location,
+                            takePendingAppearanceImage());
+}
+
+// N06: certify twin of signDocumentWithAppearance — explicit per-operation
+// appearance, shared slot untouched.
+SignOutcome SignatureManager::certifyDocumentWithAppearance(const QString &inputPath,
+                                                            const QString &outputPath,
+                                                            const QString &certPath,
+                                                            const QString &password,
+                                                            int certificationLevel,
+                                                            const QImage &appearanceImage,
+                                                            const QString &reason,
+                                                            const QString &location)
+{
+    if (certificationLevel < 1 || certificationLevel > 3) {
+        qWarning() << "certifyDocumentWithAppearance: certification level" << certificationLevel
+                   << "out of range (expected 1..3) — refusing to certify";
+        return SignOutcome::Failed;
+    }
+    return signDocumentImpl(inputPath, outputPath, certPath, password,
+                            certificationLevel, reason, location, appearanceImage);
+}
+
+// §9.7 P1: surface exactly which long-term-validation piece degraded, so the
+// UI can warn "signed but the archive timestamp is missing" instead of a bare
+// partial outcome with no actionable content.
+SignatureOutcomeDetail SignatureManager::lastSignOutcomeDetail()
+{
+    SignatureOutcomeDetail detail;
+    detail.dssMissing = d->dssMissing;
+    detail.docTimestampMissing = d->docTimestampMissing;
+    detail.timestampMissing = d->timestampMissing;   // SEP13 lead 1
+    detail.timestampAttempted = d->timestampAttempted;   // SWEEP-W1 F2 follow-up
+    detail.timestampTokenValid = d->timestampTokenValid;   // SWEEP-W1 F2
+    return detail;
 }
 
 bool SignatureManager::addDocTimeStamp(const QString &inputPath, const QString &outputPath)
 {
     // For M4-PROMPT-5 D4: Timestamp (document-level timestamp without sign)
-    // Copy the file then call d->addDocTimestamp
+    // N06: same checked replacement as signDocumentImpl — stage to a unique
+    // candidate, timestamp it, then atomically replace the destination. The
+    // old remove-before-copy destroyed an existing output when the copy
+    // later failed.
     if (inputPath != outputPath) {
-        if (QFile::exists(outputPath)) QFile::remove(outputPath);
-        if (!QFile::copy(inputPath, outputPath)) return false;
+        QString candidate;
+        QString err;
+        if (!gp::SafeSave::makeUniqueCandidate(&candidate, &err)) {
+            qWarning() << "SignatureManager: cannot reserve a timestamp candidate:" << err;
+            return false;
+        }
+        // emergence E-6: what the destination holds when the operation starts;
+        // the commit below refuses if a second writer replaced those bytes.
+        const gp::SafeSave::DestinationIdentity destIdentity =
+            gp::SafeSave::captureDestinationIdentity(outputPath);
+        // makeUniqueCandidate reserved (created) the name; QFile::copy
+        // refuses an existing destination, so drop our own empty reservation
+        // first — it is owned by this call.
+        QFile::remove(candidate);
+        if (!QFile::copy(inputPath, candidate)) {
+            qWarning() << "SignatureManager: cannot stage source bytes for the document timestamp.";
+            QFile::remove(candidate);
+            return false;
+        }
+        if (!d->addDocTimestamp(candidate)) {
+            QFile::remove(candidate);
+            return false;
+        }
+        if (!gp::SafeSave::commitFileToDestination(candidate, outputPath, &err,
+                                                   gp::SafeSave::CommitFaultForTesting::None,
+                                                   destIdentity)) {
+            qWarning() << "SignatureManager: checked replacement of" << outputPath
+                       << "failed — previous output preserved:" << err;
+            QFile::remove(candidate);
+            return false;
+        }
+        QFile::remove(candidate);   // committed bytes were copied; drop the candidate
+        return true;
     }
     return d->addDocTimestamp(outputPath);
 }
@@ -1500,6 +2118,46 @@ bool SignatureManager::isLegitimateIncrementalAppend(const QByteArray& trailingB
         return false;
     }
     return true;
+}
+
+QList<ISignatureManager::SignatureFieldAnchor> SignatureManager::signatureFieldAnchors(const QString &filePath)
+{
+    QList<SignatureFieldAnchor> out;
+    if (filePath.isEmpty()) return out;
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(filePath.toUtf8().constData());
+        for (const auto *field : doc.GetFieldsIterator()) {
+            if (!field || field->GetType() != PoDoFo::PdfFieldType::Signature) continue;
+            const auto *widget = field->GetWidget();
+            if (!widget) continue;
+            const PoDoFo::PdfPage *page = widget->GetPage(); // const overload returns the page pointer directly
+            if (!page) continue;
+            // emergence E-3 (SWEEP-W3-EMERGENCE §2d, the W2B-1 re-audit close):
+            // the read-back must run through the ONE page-space law, not the
+            // legacy flip with the rotation-NORMALIZED GetMediaBox().Height
+            // (W/H swapped on /Rotate 90/270 — the wrong flip dimension on
+            // every rotated, non-square page, and the MediaBox lower-left
+            // origin dropped). GetRectRaw is the raw /Rect (no hidden
+            // rotation adjustment); ItemSpace::userToViewer is the pinned
+            // inverse of PageSpace::viewerToUser (round-trip identity in
+            // TestLegacyOriginSpace) — the same transform
+            // PoDoFoBackend::extractAnnotations reads foreign marks with.
+            const gp::PageSpace::PageGeometry geo =
+                gp::PageSpace::pageGeometry(const_cast<PoDoFo::PdfPage&>(*page));
+            const PoDoFo::Rect r = widget->GetRectRaw().GetNormalized();
+            SignatureFieldAnchor a;
+            a.fieldName = QString::fromStdString(field->GetFullName());
+            a.pageIndex = static_cast<int>(page->GetIndex());
+            // Viewer top-left convention — the exact inverse of viewerToUser.
+            a.rect = gp::ItemSpace::userToViewer(
+                QRectF(r.X, r.Y, r.Width, r.Height), geo);
+            out.append(a);
+        }
+    } catch (const PoDoFo::PdfError &e) {
+        qWarning() << "signatureFieldAnchors:" << e.what();
+    }
+    return out;
 }
 
 QList<SignatureInfo> SignatureManager::validateSignatures(const QString &filePath)

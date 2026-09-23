@@ -9,14 +9,21 @@
 #include <QtTest/QtTest>
 #include <atomic>
 #include <QApplication>
+#include <QElapsedTimer>
+#include <QPdfDocument>
 #include <QTemporaryDir>
 #include <QFile>
 #include <QSignalSpy>
 #include <QStandardItemModel>
+#include <QThread>
+#include <QCheckBox>
+#include <QComboBox>
+#include <QSpinBox>
 
 #include "core/AppContext.h"
 #include "core/interfaces/IConversionEngine.h"
 #include "modes/BatchMode.h"
+#include "engines/PatternRedactor.h" // §9.12 P1: preset keys cross-check
 #include "mocks/MockPdfEditorEngine.h"
 
 // ── Minimal mock IConversionEngine ─────────────────────────────────────────────
@@ -66,6 +73,49 @@ static QString createMinimalPdf(const QString& dir, const QString& name) {
         "0000000115 00000 n \n"
         "trailer<</Size 4/Root 1 0 R>>\n"
         "startxref\n183\n%%EOF\n");
+    f.close();
+    return path;
+}
+
+// ── Multi-page PDF fixture with a fixed page width ────────────────────────────
+// Same minimal hand-written layout as createMinimalPdf, but with N pages of
+// the given width (height fixed at 200pt). Distinct per-input widths make the
+// merged output's page-size sequence prove the merge contract: page order ==
+// input order. Returns an empty string on I/O failure.
+static QString createMultiPagePdf(const QString& dir, const QString& name,
+                                  int pageCount, int widthPt) {
+    const QString path = dir + "/" + name;
+    QByteArray pdf;
+    pdf += "%PDF-1.4\n";
+    QList<int> offsets;
+    const auto mark = [&offsets, &pdf]() { offsets.append(pdf.size()); };
+
+    mark();  // object 1: catalog
+    pdf += "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n";
+    QByteArray kids;
+    for (int i = 0; i < pageCount; ++i)
+        kids += QByteArray::number(3 + i) + " 0 R ";
+    mark();  // object 2: pages node
+    pdf += "2 0 obj<</Type/Pages/Kids[" + kids + "]/Count "
+           + QByteArray::number(pageCount) + ">>endobj\n";
+    for (int i = 0; i < pageCount; ++i) {
+        mark();  // object 3+i: page
+        pdf += QByteArray::number(3 + i) + " 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 "
+               + QByteArray::number(widthPt) + " 200]>>endobj\n";
+    }
+
+    const int totalObjects = 2 + pageCount;
+    const int xrefStart = pdf.size();
+    pdf += "xref\n0 " + QByteArray::number(totalObjects + 1) + "\n";
+    pdf += "0000000000 65535 f \n";
+    for (int off : offsets)
+        pdf += QByteArray::number(off).rightJustified(10, '0') + " 00000 n \n";
+    pdf += "trailer<</Size " + QByteArray::number(totalObjects + 1) + "/Root 1 0 R>>\n";
+    pdf += "startxref\n" + QByteArray::number(xrefStart) + "\n%%EOF\n";
+
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly)) return {};
+    f.write(pdf);
     f.close();
     return path;
 }
@@ -256,6 +306,355 @@ private slots:
         // The per-file engine wrote a _compressed.pdf next to the source.
         QVERIFY2(QFile::exists(tmp.path() + "/compress_src_compressed.pdf"),
                  "Compress op must produce the output file via the per-file engine");
+    }
+
+    // ── §9.12 P1: Compress/Optimize target DPI must be user-configurable ─────
+    // The batch Compress panel used to carry a hard "150 DPI" note and the
+    // worker literally coded opts.targetDpi = 150 — no way to change it. The
+    // panel must expose a target-DPI spin plus named Low/Medium/High presets.
+    void compressDpiControlsExistWithDefaults() {
+        gp::BatchMode bm;
+        auto* spin = bm.findChild<QSpinBox*>(QStringLiteral("batchCompressDpiSpin"));
+        QVERIFY2(spin, "Compress panel must expose a target-DPI spin box "
+                       "(objectName batchCompressDpiSpin)");
+        auto* preset = bm.findChild<QComboBox*>(QStringLiteral("batchCompressDpiPreset"));
+        QVERIFY2(preset, "Compress panel must expose named DPI presets "
+                         "(objectName batchCompressDpiPreset)");
+        QVERIFY2(preset->count() >= 3,
+                 "at least the Low/Medium/High DPI presets must be offered");
+        // The previous hard-coded 150 stays the default — behavior only widens.
+        QCOMPARE(spin->value(), 150);
+    }
+
+    // ── §9.12 P1: named PII redaction presets (quick picks) ──────────────────
+    // The Redact batch op used to accept only free-form regex. Quick-pick
+    // named PII presets (Email / Phone (US) / SSN) must exist, reusing the
+    // PatternRedactor::namedPattern keys the interactive Redact mode offers.
+    void namedRedactPresetCheckBoxesExist() {
+        gp::BatchMode bm;
+        auto* email = bm.findChild<QCheckBox*>(QStringLiteral("batchRedactPreset_email"));
+        auto* phone = bm.findChild<QCheckBox*>(QStringLiteral("batchRedactPreset_phone-us"));
+        auto* ssn   = bm.findChild<QCheckBox*>(QStringLiteral("batchRedactPreset_ssn"));
+        QVERIFY2(email, "named preset checkbox 'Email' missing (batchRedactPreset_email)");
+        QVERIFY2(phone, "named preset checkbox 'Phone (US)' missing (batchRedactPreset_phone-us)");
+        QVERIFY2(ssn,   "named preset checkbox 'SSN' missing (batchRedactPreset_ssn)");
+        // Presets are opt-in — nothing is redacted the user did not ask for.
+        QVERIFY(!email->isChecked());
+        QVERIFY(!phone->isChecked());
+        QVERIFY(!ssn->isChecked());
+    }
+
+    // ── §9.12 P1: named presets Low/Medium/High → 72/150/300 drive the spin ──
+    void namedDpiPresetsDriveTheSpin() {
+        gp::BatchMode bm;
+        auto* preset = bm.findChild<QComboBox*>(QStringLiteral("batchCompressDpiPreset"));
+        auto* spin   = bm.findChild<QSpinBox*>(QStringLiteral("batchCompressDpiSpin"));
+        QVERIFY2(preset && spin, "DPI preset combo and spin must both exist");
+
+        // The named presets carry the documented mapping Low/Medium/High →
+        // 72/150/300 and selecting one writes it into the spin.
+        const QList<int> expectedDpi = { 72, 150, 300 };
+        QCOMPARE(preset->count(), expectedDpi.size() + 1); // + the Custom escape hatch
+        for (int i = 0; i < expectedDpi.size(); ++i) {
+            QCOMPARE(preset->itemData(i).toInt(), expectedDpi.at(i));
+            preset->setCurrentIndex(i);
+            QCOMPARE(spin->value(), expectedDpi.at(i));
+        }
+
+        // A manual spin edit leaves the named presets (combo flips to Custom,
+        // item data -1) so the combo never lies about the spin's value.
+        spin->setValue(100);
+        QCOMPARE(preset->currentData().toInt(), -1);
+    }
+
+    // ── §9.12 P1: the DPI clamp seam — the worker's only path to targetDpi ───
+    void resolveCompressTargetDpiClampsToSupportedRange() {
+        // In-range values pass through unchanged (incl. all three presets).
+        QCOMPARE(gp::BatchMode::resolveCompressTargetDpi(72),  72);
+        QCOMPARE(gp::BatchMode::resolveCompressTargetDpi(150), 150);
+        QCOMPARE(gp::BatchMode::resolveCompressTargetDpi(300), 300);
+        // Out-of-range values clamp into [kMinTargetDpi, kMaxTargetDpi].
+        QCOMPARE(gp::BatchMode::resolveCompressTargetDpi(0),     gp::BatchMode::kMinTargetDpi);
+        QCOMPARE(gp::BatchMode::resolveCompressTargetDpi(-100),  gp::BatchMode::kMinTargetDpi);
+        QCOMPARE(gp::BatchMode::resolveCompressTargetDpi(10000), gp::BatchMode::kMaxTargetDpi);
+        // The named constants pin the documented boundary.
+        QCOMPARE(gp::BatchMode::kMinTargetDpi,    36);
+        QCOMPARE(gp::BatchMode::kMaxTargetDpi,   600);
+        QCOMPARE(gp::BatchMode::kDefaultTargetDpi, 150);
+    }
+
+    // ── §9.12 P1: preset keys resolve through PatternRedactor's built-ins ────
+    void effectiveRedactPatternsResolvePresetsAndFreeForm() {
+        // A named preset contributes the SAME regex body PatternRedactor
+        // defines for that key (one source of truth, no re-typed patterns).
+        const QRegularExpression ssn = PatternRedactor::namedPattern(QStringLiteral("ssn"));
+        QVERIFY(ssn.isValid());
+        QCOMPARE(gp::BatchMode::effectiveRedactPatterns({ QStringLiteral("ssn") }, {}),
+                 QStringList{ ssn.pattern() });
+
+        // Free-form entries pass through (trimmed).
+        QCOMPARE(gp::BatchMode::effectiveRedactPatterns(
+                     {}, { QStringLiteral(R"(\d{3}-\d{2}-\d{4})") }),
+                 QStringList{ QStringLiteral(R"(\d{3}-\d{2}-\d{4})") });
+
+        // Presets + free-form combined: presets first, unknown keys dropped,
+        // duplicates collapsed.
+        const QRegularExpression email = PatternRedactor::namedPattern(QStringLiteral("email"));
+        QVERIFY(email.isValid());
+        const QStringList combined = gp::BatchMode::effectiveRedactPatterns(
+            { QStringLiteral("email"), QStringLiteral("no-such-preset-key") },
+            { QStringLiteral("a+b"), QStringLiteral(" a+b ") });
+        QCOMPARE(combined, (QStringList{ email.pattern(), QStringLiteral("a+b") }));
+
+        // Nothing checked + nothing typed = nothing to redact.
+        QVERIFY(gp::BatchMode::effectiveRedactPatterns({}, {}).isEmpty());
+    }
+
+    // ── §9.12 P1: the checkboxes feed the seam (widget wiring) ───────────────
+    void redactPresetCheckBoxesFeedCheckedKeys() {
+        gp::BatchMode bm;
+        auto* email = bm.findChild<QCheckBox*>(QStringLiteral("batchRedactPreset_email"));
+        auto* phone = bm.findChild<QCheckBox*>(QStringLiteral("batchRedactPreset_phone-us"));
+        auto* ssn   = bm.findChild<QCheckBox*>(QStringLiteral("batchRedactPreset_ssn"));
+        QVERIFY2(email && phone && ssn, "named PII preset checkboxes must exist");
+
+        // All opt-in initially.
+        QCOMPARE(bm.checkedRedactPresetKeys(), QStringList{});
+
+        email->setChecked(true);
+        ssn->setChecked(true);
+        QCOMPARE(bm.checkedRedactPresetKeys(),
+                 (QStringList{ QStringLiteral("email"), QStringLiteral("ssn") }));
+
+        // And the checked keys resolve to the same regex bodies interactive
+        // Redact mode uses — the wiring cannot drift from PatternRedactor.
+        const QStringList resolved =
+            gp::BatchMode::effectiveRedactPatterns(bm.checkedRedactPresetKeys(), {});
+        QCOMPARE(resolved.size(), 2);
+        QVERIFY(resolved.contains(PatternRedactor::namedPattern(QStringLiteral("email")).pattern()));
+        QVERIFY(resolved.contains(PatternRedactor::namedPattern(QStringLiteral("ssn")).pattern()));
+    }
+
+    // ── §9.12 P1: Merge must run ASYNC on the QtConcurrent pool ──────────────
+    // runMerge() used to call gp::mergeDocuments synchronously on the GUI
+    // thread — a large merge froze the whole app. The merge must go through
+    // the SAME QFutureWatcher pipeline as the per-file ops:
+    //   - onRunBatch() only stages the run (returns immediately);
+    //   - per-item progress is observable on the GUI thread WHILE the merge
+    //     is still running (successCount only advances from the watcher's
+    //     resultReadyAt accounting — impossible if the GUI thread is blocked
+    //     inside the merge);
+    //   - the merged-output contract is unchanged: page order == input order.
+    void mergeRunsAsyncWithProgressAndPreservesPageOrder() {
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+
+        // Multi-page fixtures with distinct per-input page widths so the
+        // merged page-size sequence pins the input order.
+        const QString a = createMultiPagePdf(tmp.path(), "m_a.pdf", 2, 100);
+        const QString b = createMultiPagePdf(tmp.path(), "m_b.pdf", 3, 300);
+        const QString c = createMultiPagePdf(tmp.path(), "m_c.pdf", 1, 500);
+        QVERIFY(QFile::exists(a));
+        QVERIFY(QFile::exists(b));
+        QVERIFY(QFile::exists(c));
+
+        auto* editor = new MockPdfEditorEngine;
+        AppContext ctx;
+        ctx.pdfEditor = std::shared_ptr<IPdfEditorEngine>(editor, [](auto*){});
+
+        gp::BatchMode bm;
+        bm.setAppContext(&ctx);
+        bm.addFilesForTest({a, b, c});
+        bm.setOperationForTest(4); // OpMerge
+        // Widen every file boundary to 150ms so the synchronous pre-fix code
+        // provably blocks (3 files → ≥450ms inside onRunBatch) while the
+        // async code sails through staging.
+        bm.setMergeBoundaryHookForTest([](int) { QThread::msleep(150); });
+
+        QSignalSpy finishedSpy(&bm, &gp::BatchMode::batchFinished);
+
+        QElapsedTimer runCall;
+        runCall.start();
+        bm.onRunBatch();
+        QVERIFY2(runCall.elapsed() < 300,
+            qPrintable(QStringLiteral("onRunBatch() spent %1ms inside the call — the "
+                                     "merge ran synchronously on the GUI thread")
+                           .arg(runCall.elapsed())));
+        // Async: the merge future is in flight immediately after staging.
+        QVERIFY2(bm.isBatchRunning(),
+                 "merge must run through the QFutureWatcher (isBatchRunning() was "
+                 "false immediately after onRunBatch() — no future was started)");
+
+        // The GUI thread stays free: pump the event loop and watch per-item
+        // progress arrive WHILE the merge is still running.
+        // SEP13 leads 9+10: the mid-run instrument is batchProgress(int),
+        // not successCount. Result publication for OpMerge is deferred until
+        // the output's fate is known (streaming per-input successes before
+        // the save WAS the false-success defect this lane fixed), while the
+        // worker's own progress still streams per file boundary — preserving
+        // exactly the async property this probe exists to pin.
+        QSignalSpy progressSpy(&bm, &gp::BatchMode::batchProgress);
+        int observedMidRun = 0;
+        int waited = 0;
+        while (progressSpy.count() < 3 && bm.isBatchRunning() && waited < 10000) {
+            QTest::qWait(10);
+            waited += 10;
+            if (progressSpy.count() > observedMidRun)
+                observedMidRun = progressSpy.count();
+        }
+        QVERIFY2(observedMidRun > 0,
+                 "no per-item progress was observed while the merge ran — "
+                 "the GUI thread was blocked inside the merge");
+        // batchFinished is emitted from onBatchFinished, which is queued AFTER
+        // the per-item resultReadyAt deliveries — once it is observed, every
+        // input's result has been accounted on the GUI thread.
+        if (finishedSpy.count() == 0)
+            QVERIFY2(finishedSpy.wait(10000), "merge did not complete within 10 seconds");
+        QCOMPARE(finishedSpy.count(), 1);
+        QVERIFY2(!bm.isBatchRunning(), "batch still running after batchFinished");
+        QCOMPARE(bm.successCount(), 3);
+        QCOMPARE(bm.failCount(), 0);
+        QCOMPARE(bm.remainingCount(), 0);
+
+        // Output contract: one merged file next to the first input, pages in
+        // input order (widths: a=100, b=300, c=500).
+        const QString out = tmp.path() + "/m_a_merged.pdf";
+        QVERIFY2(QFile::exists(out), "merge must write <first>_merged.pdf next to the first input");
+        QPdfDocument merged;
+        QCOMPARE(merged.load(out), QPdfDocument::Error::None);
+        QCOMPARE(merged.pageCount(), 6); // 2 + 3 + 1 pages — every input present
+        const int expectedWidths[6] = { 100, 100, 300, 300, 300, 500 };
+        for (int p = 0; p < merged.pageCount(); ++p) {
+            const int w = int(merged.pagePointSize(p).width() + 0.5);
+            QVERIFY2(w == expectedWidths[p],
+                qPrintable(QStringLiteral("merged page %1 has width %2pt — expected %3pt "
+                                         "(page order must equal input order)")
+                               .arg(p).arg(w).arg(expectedWidths[p])));
+        }
+    }
+
+    // ── §9.12 P1: Cancel is honored at merge file boundaries ─────────────────
+    // A cancelled merge must stop before the remaining inputs are appended and
+    // must NOT publish a partial output file (the destination is saved exactly
+    // once, only when the whole merge completes).
+    void mergeCancelStopsAtFileBoundaryAndWritesNoPartialOutput() {
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+
+        QStringList inputs;
+        for (int i = 0; i < 8; ++i)
+            inputs << createMultiPagePdf(tmp.path(), QString("c_%1.pdf").arg(i), 2, 100);
+        for (const auto& p : inputs) QVERIFY(QFile::exists(p));
+
+        auto* editor = new MockPdfEditorEngine;
+        AppContext ctx;
+        ctx.pdfEditor = std::shared_ptr<IPdfEditorEngine>(editor, [](auto*){});
+
+        gp::BatchMode bm;
+        bm.setAppContext(&ctx);
+        bm.addFilesForTest(inputs);
+        bm.setOperationForTest(4); // OpMerge
+        // 120ms per boundary: the first item crosses its boundary while the
+        // worker is still grinding through the rest — cancel lands mid-run
+        // deterministically at a file boundary.
+        bm.setMergeBoundaryHookForTest([](int) { QThread::msleep(120); });
+
+        QSignalSpy finishedSpy(&bm, &gp::BatchMode::batchFinished);
+        QSignalSpy progressSpy(&bm, &gp::BatchMode::batchProgress);
+        bm.onRunBatch();
+        QVERIFY2(bm.isBatchRunning(),
+                 "merge must run asynchronously (isBatchRunning() false right after staging)");
+
+        // Wait until at least one file boundary passed, then cancel.
+        // SEP13 leads 9+10: the wait instrument is batchProgress(int), not
+        // successCount — merge results are published only once the output's
+        // fate is known, so mid-run success accounting was the false-success
+        // defect this lane fixed.
+        int waited = 0;
+        while (progressSpy.count() < 1 && bm.isBatchRunning() && waited < 5000) {
+            QTest::qWait(10);
+            waited += 10;
+        }
+        QVERIFY2(progressSpy.count() >= 1,
+                 "no per-item progress observed — the merge blocked the GUI thread");
+        bm.onCancelBatch();
+
+        // Wait for the (cancelled-run) completion signal — by the time
+        // batchFinished is delivered, all queued per-item accounting is done.
+        if (finishedSpy.count() == 0)
+            QVERIFY2(finishedSpy.wait(10000), "cancelled merge did not finish within 10 seconds");
+        QVERIFY2(!bm.isBatchRunning(), "batch still running after batchFinished");
+
+        // SEP13 lead 10 contract: a cancelled merge writes no output, so NO
+        // input may be counted as a success against it (the old pin accepted
+        // partial successes — exactly the confirmed false-success defect).
+        QCOMPARE(bm.successCount(), 0);
+        // …the un-appended tail is reported as not processed…
+        QVERIFY2(bm.remainingCount() > 0,
+                 "files neither appended nor failed must be reported as not processed");
+        // …and NO partial output was published.
+        const QString out = tmp.path() + "/c_0_merged.pdf";
+        QVERIFY2(!QFile::exists(out),
+                 "a cancelled merge must not write a partial merged output");
+    }
+
+    // ── §9.12 P1: per-item failure accounting (continue-on-failure) ──────────
+    // One corrupt input must fail AS AN ITEM (failCount + error log) without
+    // aborting the merge: the remaining inputs are still merged, in input
+    // order. Pre-fix synchronous code was all-or-nothing (one bad input →
+    // "MERGE FAILED", no output, zero per-item accounting).
+    void mergeAccountsPerItemFailureAndKeepsPageOrder() {
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+
+        const QString a   = createMultiPagePdf(tmp.path(), "f_a.pdf", 2, 100);
+        const QString bad = tmp.path() + "/f_bad.pdf";
+        {
+            QFile g(bad);
+            QVERIFY(g.open(QIODevice::WriteOnly));
+            g.write("this is not a PDF");
+        }
+        const QString c   = createMultiPagePdf(tmp.path(), "f_c.pdf", 1, 500);
+        QVERIFY(QFile::exists(a));
+        QVERIFY(QFile::exists(c));
+
+        auto* editor = new MockPdfEditorEngine;
+        AppContext ctx;
+        ctx.pdfEditor = std::shared_ptr<IPdfEditorEngine>(editor, [](auto*){});
+
+        gp::BatchMode bm;
+        bm.setAppContext(&ctx);
+        bm.addFilesForTest({a, bad, c});
+        bm.setOperationForTest(4); // OpMerge
+
+        QSignalSpy finishedSpy(&bm, &gp::BatchMode::batchFinished);
+        bm.onRunBatch();
+        // batchFinished is delivered after every queued per-item result, so
+        // the accounting below is final once it is observed.
+        if (finishedSpy.count() == 0)
+            QVERIFY2(finishedSpy.wait(10000), "merge did not complete within 10 seconds");
+        QVERIFY2(!bm.isBatchRunning(), "batch still running after batchFinished");
+
+        // Per-item accounting: 2 appended, the corrupt one failed and logged.
+        QCOMPARE(bm.successCount(), 2);
+        QCOMPARE(bm.failCount(), 1);
+        QVERIFY2(bm.errorLogCount() > 0,
+                 "the failed input must be captured in the error log");
+
+        // Output contract: the good inputs are merged, in input order.
+        const QString out = tmp.path() + "/f_a_merged.pdf";
+        QVERIFY2(QFile::exists(out),
+                 "a single failed input must not abort the merge of the others");
+        QPdfDocument merged;
+        QCOMPARE(merged.load(out), QPdfDocument::Error::None);
+        QCOMPARE(merged.pageCount(), 3); // a (2 pages) + c (1 page)
+        const int expectedWidths[3] = { 100, 100, 500 };
+        for (int p = 0; p < merged.pageCount(); ++p) {
+            const int w = int(merged.pagePointSize(p).width() + 0.5);
+            QVERIFY2(w == expectedWidths[p],
+                qPrintable(QStringLiteral("merged page %1 has width %2pt — expected %3pt")
+                               .arg(p).arg(w).arg(expectedWidths[p])));
+        }
     }
 
     // ── T5: Cancel — batch stops before all files processed ──────────────────

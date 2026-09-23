@@ -7,19 +7,34 @@
  *     destination folder + filename-preview + progress + confirmation on overwrite.
  * D3: Reorder panel — drag-drop QListWidget + Apply (reorderPages) + Reset.
  *
+ * U06: page organization around the existing thumbnail grid — visible
+ * selected-page count/range ("pagesSelectionLabel"), a clear insertion
+ * indicator during InternalMove drags, theme-token page-number labels,
+ * Ctrl+Shift+Up/Down and context-menu moves through the SAME atomic
+ * permutation command as drag (commitGridOrder), and selection +
+ * current-page restore across undo-triggered reloads.
+ *
  * Split implementation strategy (no splitDocument() on engine):
- *   For each output part (a QList<int> of 0-based page indices):
- *     1. Write a minimal valid PDF stub to the output path.
- *     2. Loop extractPageAsBytes(sourcePath, pageIdx) for each index in the part.
- *     3. Call insertPageFromBytes(outputPath, insertionIndex, pageBytes) to append.
- *     4. After all insertions, delete the stub page 0 via deletePage(outputPath, 0).
- *   This avoids needing a splitDocument() engine method.
+ *   N09: page extraction stays on the user's resident source engine (unsaved
+ *   in-memory state included). Each extracted page is a complete one-page
+ *   PDF written by the library (correct xref); the part is assembled from
+ *   those documents by gp::writeDocumentFromPages (mergeDocuments idiom —
+ *   one fresh destination document, one Save) into a SafeSave candidate,
+ *   validated by reopening it with an operation-owned engine, and committed
+ *   atomically. The user's editor is never pointed at an output path (its
+ *   backend refuses cross-path mutations while a document is resident), and
+ *   an existing destination survives every failure byte-identical.
  *
  * CONSTRAINT: Never name a local QLayout* variable `tr` (shadows QObject::tr()).
  */
 #include "PagesMode.h"
+#include "shell/EditPolicy.h"
 #include "core/AppContext.h"
+#include "core/PageLabels.h"
 #include "engines/DocumentSession.h"
+#include "engines/PdfEditorEngine.h"
+#include "engines/SafeSave.h"
+#include "engines/podofo/PdfPageOps.h"
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "engines/BackendRouter.h"
 #include "commands/ReorderPermutationCommand.h"
@@ -29,9 +44,13 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QFile>
+#include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFormLayout>
 #include <QFrame>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -49,6 +68,18 @@
 #include <QUndoStack>
 #include <QtConcurrent/QtConcurrent>
 
+// U06: selection visibility, insertion indicator, keyboard moves, undo restore.
+#include <QAction>
+#include <QBrush>
+#include <QCursor>
+#include <QItemSelectionModel>
+#include <QKeyEvent>
+#include <QMenu>
+#include <QPainter>
+#include <QSet>
+#include <algorithm>
+#include <functional>
+
 namespace gp {
 
 // Out-of-line destructor: IPdfRenderer (unique_ptr member) is only a complete
@@ -58,13 +89,23 @@ PagesMode::~PagesMode()
     cancelThumbnailRenders();
 }
 
+namespace {
+// N09: default destination-engine factory — a fresh, disposable
+// PdfEditorEngine per part, never the user's live editor instance
+// (RedactOperation::defaultEngineFactory precedent).
+std::shared_ptr<IPdfEditorEngine> defaultSplitDestinationEngine()
+{
+    return std::make_shared<PdfEditorEngine>();
+}
+} // namespace
+
 // ── Static helpers ────────────────────────────────────────────────────────────
 
 /**
- * Write a minimal valid one-page PDF so that insertPageFromBytes can operate on
- * an existing file at the given path.  The page is a 612×792 blank page (letter).
- * After building the real content with insertPageFromBytes, this stub page is
- * removed via deletePage(path, 0).
+ * Write a minimal valid one-page PDF (612×792 blank letter page) at the given
+ * path. N09: no longer used by executeSplit (parts are now seeded from a
+ * library-written extracted page — correct xref by construction); kept as the
+ * test-harness fixture writer (TestPagesMode::writeStubPdf idiom).
  */
 bool PagesMode::writeMinimalPdf(const QString& path)
 {
@@ -140,6 +181,31 @@ QList<int> PagesMode::parsePageRange(const QString& expr, int pageCount)
     return result;
 }
 
+/**
+ * §9.9 P1: Parse a range expression into one group PER comma-separated
+ * segment, so "1-3,4-6,7" produces three output files (part1: pages 1-3,
+ * part2: pages 4-6, part3: page 7). Each segment follows parsePageRange
+ * rules (1-based, clamped to [0,pageCount-1], deduped and sorted within the
+ * segment); segments that yield no valid pages are skipped; segment order is
+ * preserved and overlapping segments are allowed. A single-segment
+ * expression behaves exactly like the old single-output split ("1-5" → one
+ * group → one file).
+ */
+QList<QList<int>> PagesMode::parsePageRangeSegments(const QString& expr, int pageCount)
+{
+    QList<QList<int>> groups;
+    if (expr.trimmed().isEmpty() || pageCount <= 0)
+        return groups;
+
+    const QStringList tokens = expr.split(',', Qt::SkipEmptyParts);
+    for (const QString& token : tokens) {
+        const QList<int> segment = parsePageRange(token, pageCount);
+        if (!segment.isEmpty())
+            groups.append(segment);
+    }
+    return groups;
+}
+
 // ── PagesMode construction ────────────────────────────────────────────────────
 
 QString PagesMode::localFirstClaim()
@@ -149,8 +215,129 @@ QString PagesMode::localFirstClaim()
                          "redaction never leave this machine. No internet, no upload.");
 }
 
+// ── U06 file-local helpers ────────────────────────────────────────────────────
+
+namespace {
+
+// Map a QAbstractItemView::DropIndicatorPosition (as int: 0=OnItem, 1=AboveItem,
+// 2=BelowItem, 3=OnViewport) plus the hovered row to the 0-based insertion index
+// where the dragged page(s) will land; `count` means "append at the end".
+int insertionRowForDrop(int dropPosition, int row, int count)
+{
+    if (count <= 0) return -1;
+    int insertion;
+    switch (dropPosition) {
+    case 1:  insertion = row;      break; // AboveItem — land before the hovered page
+    case 2:  insertion = row + 1;  break; // BelowItem — land after the hovered page
+    case 3:  insertion = count;    break; // OnViewport — append after the last page
+    default: insertion = row + 1;  break; // OnItem — treat as landing after it
+    }
+    return qBound(0, insertion, count);
+}
+
+// Shift the selected rows by delta (-1 = up, +1 = down), keeping the selected
+// pages' relative order and clamping at the edges. Pure helper so keyboard
+// moves are trivially reviewable; the result feeds the same commit path as drag.
+QList<int> movedOrder(const QList<int>& order, const QList<int>& selRowsIn, int delta)
+{
+    QList<int> selRows = selRowsIn;
+    std::sort(selRows.begin(), selRows.end());
+    if (order.size() <= 1 || selRows.isEmpty() || delta == 0) return order;
+    QSet<int> selValues;
+    for (int r : selRows) {
+        if (r < 0 || r >= order.size()) return order; // invalid — refuse to guess
+        selValues.insert(order[r]);
+    }
+    QList<int> result = order;
+    if (delta < 0) {
+        for (int r : selRows) {                        // ascending
+            if (r - 1 < 0) continue;
+            if (selValues.contains(result[r - 1])) continue; // block member already placed
+            result.move(r, r - 1);
+        }
+    } else {
+        for (int i = selRows.size() - 1; i >= 0; --i) { // descending
+            const int r = selRows[i];
+            if (r + 1 >= result.size()) continue;
+            if (selValues.contains(result[r + 1])) continue;
+            result.move(r, r + 1);
+        }
+    }
+    return result;
+}
+
+/**
+ * U06: the thumbnail grid — a QListWidget that draws a clear insertion
+ * indicator while an InternalMove drag is in progress (where the dragged
+ * page(s) will land) and routes Ctrl+Shift+Up/Down to the keyboard-move seam.
+ */
+class PagesGridWidget final : public QListWidget {
+public:
+    explicit PagesGridWidget(QWidget* parent = nullptr) : QListWidget(parent) {}
+
+    std::function<void(int)> keyMoveRequested; // set by PagesMode (moveSelectedPagesBy)
+
+protected:
+    void paintEvent(QPaintEvent* event) override
+    {
+        QListWidget::paintEvent(event);
+        paintInsertionIndicator();
+    }
+
+    void keyPressEvent(QKeyEvent* event) override
+    {
+        const Qt::KeyboardModifiers mods = event->modifiers();
+        if (keyMoveRequested
+                && (mods & Qt::ControlModifier) && (mods & Qt::ShiftModifier)
+                && !(mods & ~(Qt::ControlModifier | Qt::ShiftModifier))) {
+            if (event->key() == Qt::Key_Up)   { keyMoveRequested(-1); event->accept(); return; }
+            if (event->key() == Qt::Key_Down) { keyMoveRequested(1);  event->accept(); return; }
+        }
+        QListWidget::keyPressEvent(event);
+    }
+
+private:
+    void paintInsertionIndicator()
+    {
+        if (!(state() & QAbstractItemView::DraggingState)) return;
+        const int count = model() ? model()->rowCount() : 0;
+        if (count <= 0) return;
+
+        const QPoint pos = viewport()->mapFromGlobal(QCursor::pos());
+        const QModelIndex hovered = indexAt(pos);
+        const int insertion = insertionRowForDrop(
+            int(dropIndicatorPosition()), hovered.isValid() ? hovered.row() : -1, count);
+        if (insertion < 0) return;
+
+        const bool appendAtEnd = (insertion >= count);
+        const QRect target =
+            visualRect(model()->index(appendAtEnd ? count - 1 : insertion, 0));
+        if (!target.isValid()) return;
+
+        QPainter painter(viewport());
+        const QColor accent = gp::Theme::accent(); // theme token, all three themes
+
+        if (!appendAtEnd && insertion > 0) {
+            const QRect prev = visualRect(model()->index(insertion - 1, 0));
+            if (prev.isValid() && prev.top() == target.top()) {
+                // Same visual row: mark the gap between the two thumbnails.
+                const int x = target.left() - spacing() / 2 - 2;
+                painter.fillRect(x, target.top() - 2, 4, target.height() + 4, accent);
+                return;
+            }
+        }
+        // Row boundary (or append at the very end): a full-width accent bar.
+        const int y = appendAtEnd ? target.bottom() - 1 : target.top() - 1;
+        painter.fillRect(0, y, width(), 4, accent);
+    }
+};
+
+} // namespace
+
 PagesMode::PagesMode(QWidget* parent) : QWidget(parent)
 {
+    m_splitEngineFactory = &defaultSplitDestinationEngine;
+
     auto* mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);
     mainLayout->setSpacing(0);
@@ -230,6 +417,11 @@ void PagesMode::buildPageListPanel(QWidget* host)
     hdrLabel->setProperty("mono", true);
     hdrLayout->addWidget(hdrLabel);
     hdrLayout->addStretch(1);
+    // U06: selected-page count and affected range stay visible while working.
+    m_selectionLabel = new QLabel;
+    m_selectionLabel->setObjectName("pagesSelectionLabel");
+    m_selectionLabel->setProperty("mono", true);
+    hdrLayout->addWidget(m_selectionLabel);
     m_pageCountLabel = new QLabel;
     m_pageCountLabel->setProperty("mono", true);
     hdrLayout->addWidget(m_pageCountLabel);
@@ -245,7 +437,8 @@ void PagesMode::buildPageListPanel(QWidget* host)
     vLayout->addWidget(localClaim);
 
     // Page list widget — grid / icon mode so thumbnails display naturally
-    m_pageList = new QListWidget;
+    m_pageList = new PagesGridWidget;
+    m_pageList->setObjectName("pagesGrid");
     m_pageList->setViewMode(QListView::IconMode);
     m_pageList->setResizeMode(QListView::Adjust);
     m_pageList->setSpacing(8);
@@ -254,18 +447,52 @@ void PagesMode::buildPageListPanel(QWidget* host)
     m_pageList->setDragDropMode(QAbstractItemView::InternalMove);
     m_pageList->setDefaultDropAction(Qt::MoveAction);
     m_pageList->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    // §9.9 P0: translate QListWidget internal moves into an atomic page
-    // reorder. Internal move = rows removed then re-inserted; snapshot the
-    // visual order when removal starts, then diff after insertion.
+    static_cast<PagesGridWidget*>(m_pageList)->keyMoveRequested =
+        [this](int delta) { moveSelectedPagesBy(delta); };
+    // U06: translate QListWidget internal moves into an atomic page reorder.
+    // Qt's InternalMove inserts the drop COPY (rowsInserted) before removing
+    // the source rows (rowsAboutToBeRemoved), so the pre-drag order must be
+    // captured at the FIRST model mutation (rowsAboutToBeInserted — before the
+    // copy exists). The previous first-removal capture stored the duplicate
+    // too, so every snapshot/newOrder size pair mismatched and
+    // gridMovePermutation returned empty: drags silently committed nothing.
+    connect(m_pageList->model(), &QAbstractItemModel::rowsAboutToBeInserted,
+            this, [this](const QModelIndex&, int, int) {
+        if (m_gridRebuildGuard) return;
+        if (!m_dragSnapshot.isEmpty()) return;
+        for (int i = 0; i < m_pageList->count(); ++i)
+            m_dragSnapshot.append(m_pageList->item(i)->data(Qt::UserRole).toInt());
+    });
+    // A removal with no captured snapshot means rows left the grid outside an
+    // internal move (e.g. drag-out to another widget): capture and reconcile
+    // so the grid never lies about the document order.
     connect(m_pageList->model(), &QAbstractItemModel::rowsAboutToBeRemoved,
             this, [this](const QModelIndex&, int, int) {
+        if (m_gridRebuildGuard) return;
         if (m_dragSnapshot.isEmpty()) {
             for (int i = 0; i < m_pageList->count(); ++i)
                 m_dragSnapshot.append(m_pageList->item(i)->data(Qt::UserRole).toInt());
         }
+        QMetaObject::invokeMethod(this, &PagesMode::finishGridReorder, Qt::QueuedConnection);
     });
     connect(m_pageList->model(), &QAbstractItemModel::rowsInserted,
-            this, [this]() { QMetaObject::invokeMethod(this, &PagesMode::finishGridReorder, Qt::QueuedConnection); });
+            this, [this]() {
+        if (m_gridRebuildGuard) return;
+        QMetaObject::invokeMethod(this, &PagesMode::finishGridReorder, Qt::QueuedConnection);
+    });
+    // U06: selection drives the visible count/range label and the snapshot
+    // used to restore the selection across undo-triggered reloads.
+    connect(m_pageList, &QListWidget::itemSelectionChanged,
+            this, &PagesMode::onGridSelectionChanged);
+    // U06: context actions reuse the grid's own commands — no destructive
+    // entries near incidental thumbnail clicks (those stay ribbon/controller-owned).
+    m_pageList->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_pageList, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        QMenu menu(this);
+        fillGridContextMenu(&menu);
+        if (!menu.isEmpty())
+            menu.exec(m_pageList->viewport()->mapToGlobal(pos));
+    });
     vLayout->addWidget(m_pageList, 1);
 }
 
@@ -330,9 +557,9 @@ void PagesMode::buildSplitPanel(QWidget* host)
     m_splitRangeEdit->setPlaceholderText(PagesMode::tr("e.g. 1-3,5,7-9"));
     m_splitRangeEdit->setEnabled(false);
     m_splitRangeEdit->setToolTip(PagesMode::tr(
-        "Comma-separated page ranges (1-based).\n"
-        "Example: \"1-3,5,7-9\" extracts pages 1,2,3,5,7,8,9 as one part.\n"
-        "For multiple parts, enter each part on a new line (not yet supported in v1.0)."));
+        "Comma-separated page ranges (1-based) — ONE output file per segment.\n"
+        "Example: \"1-3,4-6,7\" writes <name>_part1.pdf (pages 1-3),\n"
+        "_part2.pdf (pages 4-6) and _part3.pdf (page 7)."));
     modeLayout->addWidget(m_splitRangeEdit);
 
     innerLayout->addWidget(modeGroup);
@@ -442,6 +669,9 @@ void PagesMode::buildReorderPanel(QWidget* host)
     applyBtn->setToolTip(PagesMode::tr(
         "Apply the displayed order to the document.\n"
         "This operation can be undone via Edit > Undo."));
+    // S2-1 (SWEEP-BACKEND-2026-09-21): the Apply affordance mirrors the
+    // session's read-only state (honest enablement); see setAppContext.
+    m_reorderApplyBtn = applyBtn;
     connect(applyBtn, &QPushButton::clicked, this, &PagesMode::onApplyReorder);
     btnRow->addWidget(applyBtn);
 
@@ -477,6 +707,30 @@ void PagesMode::cancelThumbnailRenders()
 void PagesMode::setAppContext(const AppContext* ctx)
 {
     m_ctx = ctx;
+    // U06: reset the undo-mapping state — a previous context's command pointer
+    // must never alias the new stack's commands.
+    m_lastGridCmd = nullptr;
+    m_lastGridSnapshot.clear();
+    m_lastGridNewOrder.clear();
+    // U06: undo/redo anywhere (including other modes' commands) can change the
+    // page order this grid displays. Reload on index changes and restore the
+    // selection + current page across the reload.
+    if (m_ctx && m_ctx->undoStack)
+        connect(m_ctx->undoStack.get(), &QUndoStack::indexChanged,
+                this, &PagesMode::onUndoStackIndexChanged, Qt::UniqueConnection);
+    // ARC07/S2-1 (SWEEP-BACKEND-2026-09-21): the session is the ONE read-only
+    // authority. The reorder-list Apply affordance mirrors it (honest
+    // enablement, same wiring shape as the registry's action enablement in
+    // GpMainWindow); enforcement stays at the onApplyReorder route entry.
+    if (m_ctx && m_ctx->document) {
+        connect(m_ctx->document.get(), &DocumentSession::readOnlyChanged, this,
+                [this](bool readOnly) {
+                    if (m_reorderApplyBtn)
+                        m_reorderApplyBtn->setEnabled(!readOnly);
+                });
+        if (m_reorderApplyBtn)
+            m_reorderApplyBtn->setEnabled(!m_ctx->document->isReadOnly());
+    }
     refreshPageList();
 }
 
@@ -485,8 +739,15 @@ void PagesMode::refreshPageList()
     // Cancel any in-flight thumbnail renders from the previous document.
     cancelThumbnailRenders();
 
+    // Programmatic rebuild: the drag-signal machinery must not fire.
+    m_gridRebuildGuard = true;
     m_pageList->clear();
     m_reorderList->clear();
+    m_gridRebuildGuard = false;
+    // The old load generation's selection no longer exists; undo/commit flows
+    // re-arm m_pendingSelection before triggering a reload.
+    m_selectedPages.clear();
+    m_currentPageData = -1;
     m_originalOrder.clear();
 
     if (!m_ctx || !m_ctx->document) {
@@ -495,6 +756,7 @@ void PagesMode::refreshPageList()
         // Update split spin limits
         if (m_splitAtSpin)    m_splitAtSpin->setRange(1, 1);
         if (m_splitEverySpin) m_splitEverySpin->setRange(1, 1);
+        restorePendingSelection(); // U06: drop stale pending rows — nothing to restore into
         return;
     }
 
@@ -503,6 +765,7 @@ void PagesMode::refreshPageList()
         m_pageCountLabel->setText(PagesMode::tr("No document"));
         if (m_splitAtSpin)    m_splitAtSpin->setRange(1, 1);
         if (m_splitEverySpin) m_splitEverySpin->setRange(1, 1);
+        restorePendingSelection();
         return;
     }
 
@@ -515,6 +778,7 @@ void PagesMode::refreshPageList()
 
     if (!m_ctx->pdfEditor) {
         m_pageCountLabel->setText(PagesMode::tr("0 pages"));
+        restorePendingSelection();
         return;
     }
 
@@ -561,6 +825,7 @@ void PagesMode::onPageCountReady()
         m_pageCountLabel->setText(PagesMode::tr("0 pages"));
         if (m_splitAtSpin)    m_splitAtSpin->setRange(1, 1);
         if (m_splitEverySpin) m_splitEverySpin->setRange(1, 1);
+        restorePendingSelection(); // U06: nothing to restore into an empty grid
         return;
     }
 
@@ -569,25 +834,23 @@ void PagesMode::onPageCountReady()
     if (m_splitEverySpin) m_splitEverySpin->setRange(1, pageCount);
 
     // Populate page list and reorder list
+    m_gridRebuildGuard = true;
     m_pageList->clear();
     m_reorderList->clear();
     m_originalOrder.clear();
 
-    // AR-8 D5: placeholder items filled with gray until real PDFium renders arrive.
+    // AR-8 D5 + U06: placeholder items (gray until real PDFium renders arrive)
+    // built through makePageItem — theme-token label foreground, stable identity.
     for (int i = 0; i < pageCount; ++i) {
-        QPixmap thumb(100, 130);
-        thumb.fill(QColor(220, 220, 220));
-
-        auto* item = new QListWidgetItem;
-        item->setIcon(QIcon(thumb));
-        item->setText(PagesMode::tr("Page %1").arg(i + 1));
-        item->setSizeHint(QSize(120, 160));
-        item->setData(Qt::UserRole, i);
-        m_pageList->addItem(item);
+        m_pageList->addItem(makePageItem(i));
 
         m_reorderList->addItem(PagesMode::tr("Page %1").arg(i + 1));
         m_originalOrder.append(i);
     }
+    m_gridRebuildGuard = false;
+    // U06: reselect the tracked pages (and current page) across undo- or
+    // command-triggered reloads — before the thumbnail-launch early returns.
+    restorePendingSelection();
 
     // AR-8 D5: launch off-thread PDFium thumbnail renders.
     // We build ONE renderer (PdfiumBackend loaded once), then spawn a lightweight
@@ -698,12 +961,32 @@ QList<QList<int>> PagesMode::computeSplitGroups() const
         }
 
     } else if (m_splitRangeRadio->isChecked()) {
-        // Range expression: treat the whole range as a single output part
-        const QList<int> indices = parsePageRange(m_splitRangeEdit->text(), pageCount);
-        if (!indices.isEmpty()) groups.append(indices);
+        // §9.9 P1: each comma-separated segment becomes its own output part —
+        // "1-3,4-6,7" → 3 files (<stem>_part1/_part2/_part3), single-page
+        // segments included; one segment → one file, as before.
+        groups = parsePageRangeSegments(m_splitRangeEdit->text(), pageCount);
     }
 
     return groups;
+}
+
+// NCR-01: filesystem-identity key for the split output preflight. On Windows
+// the filesystem is case-insensitive — "SPLIT-SOURCE.pdf" IS the open source
+// "split-source.pdf" — so the collision set must compare case-folded clean
+// paths (QSet<QString> compared raw absolute paths and let a case-only alias
+// of the OPEN SOURCE through as a split output). Comparison key only: the
+// user-visible output paths keep their original case.
+// WP-R20 (native Linux lane): the fold is UNCONDITIONAL, not Q_OS_WIN-gated.
+// On a case-sensitive filesystem a case-only alias is technically a distinct
+// file, so folding is strictly CONSERVATIVE there: the preflight just derives
+// a distinct name ("SPLIT-SOURCE_part1.pdf") instead of producing an output
+// that differs from the open source only by letter case. Behavior is now
+// identical on every platform and the alias can never be chosen.
+static QString splitPathKey(const QString& path)
+{
+    QString key = QDir::cleanPath(path);
+    key = key.toLower();
+    return key;
 }
 
 QString PagesMode::makeOutputName(const QString& pattern, const QString& stem, int part) const
@@ -713,6 +996,57 @@ QString PagesMode::makeOutputName(const QString& pattern, const QString& stem, i
     name.replace("{n}", QString::number(part));
     if (!name.endsWith(".pdf", Qt::CaseInsensitive)) name += ".pdf";
     return name;
+}
+
+QStringList PagesMode::makeOutputPaths(const QString& pattern, const QString& stem,
+                                       const QString& outputDir, int groupCount,
+                                       const QString& sourcePath) const
+{
+    QStringList paths;
+    QSet<QString> taken;
+    // The open source must never be a split output (pattern "{stem}.pdf" in
+    // the source directory would otherwise clobber the loaded document).
+    // NCR-01: the identity comparison is FILESYSTEM-identity (case-folded on
+    // Windows), not raw string equality — a case-only alias of the source is
+    // the same file and must be derived away like any other collision.
+    if (!sourcePath.isEmpty())
+        taken.insert(splitPathKey(sourcePath));
+
+    for (int i = 0; i < groupCount; ++i) {
+        QString name = makeOutputName(pattern, stem, i + 1);
+        // N09 preflight: `makeOutputName` only replaces {n} if present, so a
+        // pattern without the numbering token generates the SAME name for
+        // every group and the parts would silently overwrite each other.
+        // Derive a unique numbered name before anything is written; the
+        // preview (which consumes this same helper) reflects the final names.
+        if (taken.contains(splitPathKey(outputDir + "/" + name))) {
+            const QFileInfo info(name);
+            const QString base = info.completeBaseName();
+            const QString suffix =
+                info.suffix().isEmpty() ? QStringLiteral("pdf") : info.suffix();
+            QString derived = QStringLiteral("%1_part%2.%3")
+                                  .arg(base, QString::number(i + 1), suffix);
+            QString candidate = outputDir + "/" + derived;
+            for (int disambiguator = 1;
+                 taken.contains(splitPathKey(candidate));) {
+                ++disambiguator;
+                derived = QStringLiteral("%1_part%2_%3.%4")
+                              .arg(base, QString::number(i + 1),
+                                   QString::number(disambiguator), suffix);
+                candidate = outputDir + "/" + derived;
+            }
+            name = derived;
+        }
+        const QString finalPath = outputDir + "/" + name;
+        paths.append(finalPath);
+        taken.insert(splitPathKey(finalPath));
+    }
+    return paths;
+}
+
+void PagesMode::setSplitEngineFactory(SplitEngineFactory factory)
+{
+    m_splitEngineFactory = std::move(factory);
 }
 
 void PagesMode::onPreviewSplit()
@@ -737,11 +1071,15 @@ void PagesMode::onPreviewSplit()
         return;
     }
 
+    // N09: the preview shows the FINAL paths — the same derivation the
+    // execution uses (makeOutputPaths disambiguates patterns without {n} and
+    // source collisions), so the list never promises a name the split will
+    // not write.
+    const QStringList outputPaths =
+        makeOutputPaths(pattern, stem, outDir, groups.size(), sourcePath);
     for (int i = 0; i < groups.size(); ++i) {
-        const QString name = makeOutputName(pattern, stem, i + 1);
-        const QString fullPath = outDir + "/" + name;
         const QString pageInfo = PagesMode::tr("%1 page(s)").arg(groups[i].size());
-        m_previewList->addItem(QString("%1  [%2]").arg(fullPath, pageInfo));
+        m_previewList->addItem(QString("%1  [%2]").arg(outputPaths[i], pageInfo));
     }
 }
 
@@ -774,11 +1112,10 @@ void PagesMode::onSplit()
         : m_outDirEdit->text().trimmed();
     const QString pattern = m_namingEdit->text().trimmed();
 
-    // Build output paths and check for overwrites
-    QStringList outputPaths;
-    for (int i = 0; i < groups.size(); ++i) {
-        outputPaths.append(outDir + "/" + makeOutputName(pattern, stem, i + 1));
-    }
+    // Build output paths (shared with the preview + execution derivation) and
+    // check for overwrites
+    const QStringList outputPaths =
+        makeOutputPaths(pattern, stem, outDir, groups.size(), sourcePath);
 
     // Overwrite confirmation: collect existing files and ask once
     QStringList existingFiles;
@@ -794,18 +1131,31 @@ void PagesMode::onSplit()
         if (btn != QMessageBox::Yes) return;
     }
 
-    // Execute split with progress dialog
-    const QStringList produced = executeSplit(sourcePath, groups, outDir, pattern);
+    // Execute split with progress dialog. NCR-01: the completion dialog must
+    // distinguish COMPLETE, PARTIAL (naming each failed part) and CANCELED —
+    // "some output exists" was reported as an unqualified complete split.
+    const SplitOutcome outcome = executeSplitDetailed(sourcePath, groups, outDir, pattern);
 
-    if (produced.isEmpty()) {
+    if (outcome.canceled) {
+        QMessageBox::information(this, PagesMode::tr("Split canceled"),
+            PagesMode::tr("The split was canceled. %1 file(s) were written before canceling.")
+                .arg(outcome.produced.size()));
+    } else if (!outcome.failures.isEmpty()) {
+        QMessageBox::warning(this, PagesMode::tr("Split partially completed"),
+            PagesMode::tr("%1 of %2 part(s) were written.\n\nThe following part(s) failed:\n\n%3")
+                .arg(outcome.produced.size())
+                .arg(groups.size())
+                .arg(outcome.failures.join(QStringLiteral("\n"))));
+        onPreviewSplit(); // show what WAS produced
+    } else if (outcome.produced.isEmpty()) {
         QMessageBox::critical(this, PagesMode::tr("Split failed"),
             PagesMode::tr("The split operation did not produce any output files.\n"
                           "Check that the document is valid and the output directory is writable."));
     } else {
         QMessageBox::information(this, PagesMode::tr("Split complete"),
             PagesMode::tr("Split complete. %1 file(s) written:\n\n%2")
-                .arg(produced.size())
-                .arg(produced.join("\n")));
+                .arg(outcome.produced.size())
+                .arg(outcome.produced.join("\n")));
         onPreviewSplit(); // refresh preview list to show produced paths
     }
 }
@@ -815,10 +1165,24 @@ QStringList PagesMode::executeSplit(const QString& sourcePath,
                                     const QString& outputDir,
                                     const QString& stemPattern)
 {
-    QStringList produced;
-    if (!m_ctx || !m_ctx->pdfEditor || groups.isEmpty()) return produced;
+    return executeSplitDetailed(sourcePath, groups, outputDir, stemPattern).produced;
+}
+
+PagesMode::SplitOutcome PagesMode::executeSplitDetailed(const QString& sourcePath,
+                                                        const QList<QList<int>>& groups,
+                                                        const QString& outputDir,
+                                                        const QString& stemPattern)
+{
+    SplitOutcome outcome;
+    auto& produced = outcome.produced;
+    if (!m_ctx || !m_ctx->pdfEditor || groups.isEmpty()) return outcome;
 
     const QString stem = QFileInfo(sourcePath).completeBaseName();
+    // N09: same derivation as the preview — patterns without a numbering
+    // token and source collisions are disambiguated before anything is
+    // written.
+    const QStringList outputPaths =
+        makeOutputPaths(stemPattern, stem, outputDir, groups.size(), sourcePath);
 
     auto* progress = new QProgressDialog(
         PagesMode::tr("Splitting document…"), PagesMode::tr("Cancel"),
@@ -826,57 +1190,113 @@ QStringList PagesMode::executeSplit(const QString& sourcePath,
     progress->setWindowModality(Qt::WindowModal);
     progress->setMinimumDuration(500);
 
+    auto failPart = [&outcome, &outputPaths](int gi, const QString& reason) {
+        outcome.failures.append(PagesMode::tr("part %1 (%2): %3")
+                                       .arg(gi + 1).arg(outputPaths.value(gi)).arg(reason));
+    };
+
     for (int gi = 0; gi < groups.size(); ++gi) {
-        if (progress->wasCanceled()) break;
+        if (progress->wasCanceled()) {
+            outcome.canceled = true;
+            break;
+        }
         progress->setValue(gi);
 
         const QList<int>& pages = groups[gi];
-        const QString outName   = makeOutputName(stemPattern, stem, gi + 1);
-        const QString outPath   = outputDir + "/" + outName;
+        const QString outPath   = outputPaths[gi];
 
-        // Step 1: Create a minimal stub PDF as the output file
-        if (!writeMinimalPdf(outPath)) {
-            qWarning("PagesMode::executeSplit: cannot create stub at %s",
-                     qPrintable(outPath));
-            continue;
-        }
-
-        // Step 2: Insert each source page into the output document.
-        // The stub already has 1 blank page at index 0.
-        // We insert source pages starting at index 0 (pushing stub page to the end),
-        // so insertionIndex for page[k] = k.
-        bool partOk = true;
+        // N09: extraction stays on the user's SOURCE engine — the resident
+        // document (including unsaved in-memory state) is authoritative, and
+        // each extracted page is itself a complete one-page PDF written by
+        // the library (correct xref — no hand-built stub, no parser
+        // recovery, no stub page to delete).
+        QList<QByteArray> pageDocuments;
+        pageDocuments.reserve(pages.size());
+        bool extractOk = true;
         for (int k = 0; k < pages.size(); ++k) {
             const QByteArray pageBytes =
                 m_ctx->pdfEditor->extractPageAsBytes(sourcePath, pages[k]);
             if (pageBytes.isEmpty()) {
                 qWarning("PagesMode::executeSplit: extractPageAsBytes failed for page %d",
                          pages[k]);
-                partOk = false;
+                extractOk = false;
                 break;
             }
-            if (!m_ctx->pdfEditor->insertPageFromBytes(outPath, k, pageBytes)) {
-                qWarning("PagesMode::executeSplit: insertPageFromBytes failed at index %d",
-                         k);
-                partOk = false;
-                break;
-            }
+            pageDocuments.append(pageBytes);
         }
-
-        if (!partOk) {
-            QFile::remove(outPath);
+        if (!extractOk) {
+            failPart(gi, PagesMode::tr("page extraction failed"));
             continue;
         }
 
-        // Step 3: Delete the stub page (it is now the last page at index pages.size()).
-        m_ctx->pdfEditor->deletePage(outPath, pages.size());
+        // Build the whole part into a SafeSave candidate via the file-level
+        // page-op seam (mergeDocuments idiom: one fresh destination document,
+        // eager page copies, ONE library Save). The user's source editor is
+        // never pointed at an output path — its backend refuses cross-path
+        // mutations while a document is resident (AR-4 D2 guard) — and an
+        // existing destination is only replaced by the atomic commit below,
+        // so a failure anywhere before it leaves the old file byte-identical.
+        QString candidate;
+        QString candidateErr;
+        if (!gp::SafeSave::makeUniqueCandidate(&candidate, &candidateErr)) {
+            qWarning("PagesMode::executeSplit: %s", qPrintable(candidateErr));
+            failPart(gi, candidateErr);
+            continue;
+        }
+        if (!gp::writeDocumentFromPages(pageDocuments, candidate)) {
+            qWarning("PagesMode::executeSplit: part assembly failed for %s",
+                     qPrintable(outPath));
+            QFile::remove(candidate);
+            failPart(gi, PagesMode::tr("could not assemble the part file"));
+            continue;
+        }
+
+        // A FRESH operation-owned engine per part validates the FINISHED
+        // candidate by reopening it from disk (part N-1's candidate must
+        // never be resident while part N is built). Read-only: the resident
+        // document is never saved back onto the file it was loaded from.
+        std::shared_ptr<IPdfEditorEngine> destination =
+            m_splitEngineFactory ? m_splitEngineFactory() : nullptr;
+        if (!destination || !destination->loadDocumentForEditing(candidate)) {
+            qWarning("PagesMode::executeSplit: destination engine cannot load candidate for %s",
+                     qPrintable(outPath));
+            QFile::remove(candidate);
+            failPart(gi, PagesMode::tr("the assembled part could not be opened for validation"));
+            continue;
+        }
+
+        // Validate the candidate: exactly pages.size() pages
+        // (extractPageAsBytes answers non-empty exactly for valid indices).
+        const bool partOk =
+            !destination->extractPageAsBytes(candidate, pages.size() - 1).isEmpty()
+            &&  destination->extractPageAsBytes(candidate, pages.size()).isEmpty();
+        if (!partOk) {
+            qWarning("PagesMode::executeSplit: candidate validation failed for %s",
+                     qPrintable(outPath));
+            QFile::remove(candidate);
+            failPart(gi, PagesMode::tr("the assembled part failed validation"));
+            continue;
+        }
+
+        // Commit through the existing safe-save boundary: the validated
+        // candidate atomically replaces the destination; a failed commit
+        // leaves an existing output byte-identical.
+        QString commitErr;
+        if (!gp::SafeSave::commitFileToDestination(candidate, outPath, &commitErr)) {
+            qWarning("PagesMode::executeSplit: commit to %s failed: %s",
+                     qPrintable(outPath), qPrintable(commitErr));
+            QFile::remove(candidate);
+            failPart(gi, commitErr);
+            continue;
+        }
+        QFile::remove(candidate); // committed bytes were copied; drop the candidate
 
         produced.append(outPath);
     }
 
     progress->setValue(groups.size());
     progress->deleteLater();
-    return produced;
+    return outcome;
 }
 
 // ── D3: Reorder logic ─────────────────────────────────────────────────────────
@@ -886,6 +1306,17 @@ void PagesMode::onApplyReorder()
     if (!m_ctx || !m_ctx->document || !m_ctx->pdfEditor) {
         QMessageBox::warning(this, PagesMode::tr("Reorder"),
             PagesMode::tr("No document is open."));
+        return;
+    }
+
+    // ARC07/S2-1 (SWEEP-BACKEND-2026-09-21): this panel's Apply is a direct
+    // in-place mutation entry (ReorderPermutationCommand → reorderAllPages)
+    // that bypasses ToolRegistry — apply the shared read-only gate, exactly
+    // like the grid-move and page-label routes. The disabled Apply button is
+    // the affordance; this gate is the enforcement.
+    if (EditPolicy::mutationBlocked(m_ctx->document.get())) {
+        QMessageBox::warning(this, PagesMode::tr("Read-only"),
+            EditPolicy::readOnlyMessage());
         return;
     }
 
@@ -966,21 +1397,48 @@ QList<int> PagesMode::gridMovePermutation(const QList<int>& snapshot,
     return perm;
 }
 
-// §9.9 P0: grid drag-and-drop → atomic page reorder.
+// §9.9 P0 + U06: grid drag-and-drop → atomic page reorder.
+// The pre-drag order is captured at the first model mutation of the drag (see
+// buildPageListPanel), so snapshot and newOrder always have equal sizes.
 void PagesMode::finishGridReorder()
 {
     if (m_dragSnapshot.isEmpty()) return;
+
+    const QList<int> snapshot = m_dragSnapshot;
+    m_dragSnapshot.clear();
 
     QList<int> newOrder;
     newOrder.reserve(m_pageList->count());
     for (int i = 0; i < m_pageList->count(); ++i)
         newOrder.append(m_pageList->item(i)->data(Qt::UserRole).toInt());
 
-    const QList<int> snapshot = m_dragSnapshot;
-    m_dragSnapshot.clear();
+    if (newOrder.size() != snapshot.size()) {
+        // Rows left the grid outside an internal move (e.g. drag-out to
+        // another widget): restore the captured order so the grid never lies.
+        rebuildFromOrder(snapshot);
+        return;
+    }
 
+    // The selected pages keep their identity (UserRole data) across the
+    // post-command reload — map them to their new rows for the restore.
+    QList<int> pendingSel;
+    for (int v : m_selectedPages) {
+        const int pos = newOrder.indexOf(v);
+        if (pos >= 0) pendingSel.append(pos);
+    }
+    const int pendingCur = m_currentPageData >= 0
+        ? newOrder.indexOf(m_currentPageData) : -1;
+
+    commitGridOrder(snapshot, newOrder, pendingSel, pendingCur);
+}
+
+// U06: shared commit tail — the ONE command path for drag, keyboard, and
+// context-menu moves: gridMovePermutation → ReorderPermutationCommand → reload.
+void PagesMode::commitGridOrder(const QList<int>& snapshot, const QList<int>& newOrder,
+                                const QList<int>& pendingSelection, int pendingCurrent)
+{
     // Express the new visual order as a permutation over positions in the
-    // pre-drag order — exactly what ReorderPermutationCommand expects.
+    // pre-move order — exactly what ReorderPermutationCommand expects.
     const QList<int> perm = gridMovePermutation(snapshot, newOrder);
     if (perm.isEmpty()) return; // no net change or inconsistent input
 
@@ -990,40 +1448,416 @@ void PagesMode::finishGridReorder()
         return;
     }
 
+    // ARC07: the grid pushes ReorderPermutationCommand directly (drag and
+    // keyboard moves) — apply the shared read-only gate and revert the visual
+    // move so the grid never lies about a mutation that did not happen.
+    if (EditPolicy::mutationBlocked(m_ctx->document.get())) {
+        rebuildFromOrder(snapshot);
+        QMessageBox::information(this, PagesMode::tr("Read-only"),
+            EditPolicy::readOnlyMessage());
+        return;
+    }
+
+    m_pendingSelection = pendingSelection;
+    m_pendingCurrentPage = pendingCurrent;
+
     auto* cmd = new ReorderPermutationCommand(
         m_ctx->pdfEditor.get(), m_ctx->document.get(), perm);
+    m_lastGridCmd = cmd;
+    m_ownPush = true; // our own indexChanged must not trigger the undo reload
     if (m_ctx->undoStack) {
-        m_ctx->undoStack->push(cmd);
+        m_ctx->undoStack->push(cmd); // push() calls redo() = reorderAllPages()
     } else {
         cmd->redo();
         delete cmd;
+        m_lastGridCmd = nullptr;
     }
+    m_ownPush = false;
 
     if (m_ctx->pdfEditor->lastError().severity >= ErrorInfo::Error) {
         QMessageBox::critical(this, PagesMode::tr("Reorder failed"),
             PagesMode::tr("An error occurred while reordering pages. "
                           "The document has not been modified."));
+        m_lastGridCmd = nullptr;
+        m_pendingSelection.clear();
+        m_pendingCurrentPage = -1;
         rebuildFromOrder(snapshot);
         return;
     }
 
+    m_lastGridSnapshot = snapshot;
+    m_lastGridNewOrder = newOrder;
     m_originalOrder = newOrder;
-    refreshPageList(); // re-render thumbnails in the new order
+    refreshPageList(); // re-render thumbnails in the new order; restores selection
+}
+
+// U06: one grid item — placeholder thumbnail, "Page N" label with a
+// theme-token foreground (readable on every theme background), and the page
+// identity in Qt::UserRole.
+QListWidgetItem* PagesMode::makePageItem(int pageData)
+{
+    QPixmap thumb(100, 130);
+    thumb.fill(QColor(220, 220, 220));
+
+    auto* item = new QListWidgetItem;
+    item->setIcon(QIcon(thumb));
+    item->setText(PagesMode::tr("Page %1").arg(pageData + 1));
+    item->setSizeHint(QSize(120, 160));
+    item->setData(Qt::UserRole, pageData);
+    item->setForeground(QBrush(Theme::fg0()));
+    return item;
+}
+
+// U06: keyboard/context move of the selected page(s) by delta (-1 up, +1 down)
+// through the SAME command path as drag (commitGridOrder). No new mutation
+// implementation — the atomic ReorderPermutationCommand does the work.
+void PagesMode::moveSelectedPagesBy(int delta)
+{
+    if (delta == 0 || !m_pageList || m_gridRebuildGuard) return;
+    if (!m_ctx || !m_ctx->document || !m_ctx->pdfEditor || m_ctx->document->path().isEmpty())
+        return;
+    const int count = m_pageList->count();
+    if (count <= 1) return;
+
+    QList<int> order;
+    order.reserve(count);
+    for (int i = 0; i < count; ++i)
+        order.append(m_pageList->item(i)->data(Qt::UserRole).toInt());
+
+    QList<int> selRows;
+    const QModelIndexList selected = m_pageList->selectionModel()->selectedIndexes();
+    for (const QModelIndex& idx : selected) selRows.append(idx.row());
+    std::sort(selRows.begin(), selRows.end());
+    if (selRows.isEmpty()) return;
+
+    const QList<int> newOrder = movedOrder(order, selRows, delta);
+    if (newOrder == order) return; // clamped at an edge — nothing to move
+
+    // The moved pages stay selected at their new rows after the reload.
+    QList<int> pendingSel;
+    int pendingCur = -1;
+    const int currentRow = m_pageList->currentRow();
+    for (int row : selRows) {
+        const int newPos = newOrder.indexOf(order[row]);
+        if (newPos < 0) continue;
+        pendingSel.append(newPos);
+        if (row == currentRow) pendingCur = newPos;
+    }
+    if (pendingCur < 0 && currentRow >= 0 && currentRow < count)
+        pendingCur = newOrder.indexOf(order[currentRow]);
+
+    commitGridOrder(order, newOrder, pendingSel, pendingCur);
+}
+
+// U06: thumbnail context menu — the same existing commands the grid already
+// exposes (keyboard/drag permutation path and view selection). Deliberately
+// no destructive entries: per-page delete/rotate/extract stay in the
+// ribbon/controller where the existing engine commands live.
+void PagesMode::fillGridContextMenu(QMenu* menu)
+{
+    if (!menu || !m_pageList) return;
+    const bool hasSelection = !m_pageList->selectedItems().isEmpty();
+    QAction* moveUp = menu->addAction(PagesMode::tr("Move Up"),
+                                      this, [this]() { moveSelectedPagesBy(-1); });
+    QAction* moveDown = menu->addAction(PagesMode::tr("Move Down"),
+                                        this, [this]() { moveSelectedPagesBy(1); });
+    moveUp->setEnabled(hasSelection);
+    moveDown->setEnabled(hasSelection);
+    menu->addSeparator();
+    menu->addAction(PagesMode::tr("Select All"), m_pageList, &QListWidget::selectAll);
+    menu->addAction(PagesMode::tr("Clear Selection"), m_pageList, &QListWidget::clearSelection);
+    // §9.9 P1: page-label writer — one uniform (startValue, style) range
+    // written into the catalog's /PageLabels number tree. Enabled only when a
+    // document is actually shown in the grid.
+    menu->addSeparator();
+    QAction* applyLabels = menu->addAction(PagesMode::tr("Apply Page Labels…"),
+                                           this, &PagesMode::onApplyPageLabels);
+    applyLabels->setEnabled(m_pageList->count() > 0);
+}
+
+// §9.9 P1: "Apply Page Labels…" — minimal prompt (start value + style), then
+// gp::PageLabels::writeNumberTree onto a SafeSave candidate of the SAVED
+// document, committed atomically (same boundary as the split path). Labels
+// describe the saved file; a dirty document is refused rather than silently
+// labeled at its last-saved state, and the resident editor engine (if any) is
+// re-pointed at the committed bytes so no later engine op clobbers the tree.
+void PagesMode::onApplyPageLabels()
+{
+    if (!m_ctx || !m_ctx->document || m_ctx->document->path().isEmpty()) {
+        QMessageBox::information(this, PagesMode::tr("Apply Page Labels"),
+                                 PagesMode::tr("No document is open."));
+        return;
+    }
+    // ARC07: page labels are written into the SAVED document in place —
+    // the shared read-only gate applies.
+    if (EditPolicy::mutationBlocked(m_ctx->document.get())) {
+        QMessageBox::warning(this, PagesMode::tr("Read-only"),
+            EditPolicy::readOnlyMessage());
+        return;
+    }
+    const QString path = m_ctx->document->path();
+
+    if (m_ctx->document->isDirty()) {
+        QMessageBox::information(this, PagesMode::tr("Apply Page Labels"),
+                                 PagesMode::tr("Save your changes first — page labels "
+                                               "are applied to the saved document."));
+        return;
+    }
+
+    QDialog dlg(this);
+    dlg.setWindowTitle(PagesMode::tr("Apply Page Labels"));
+    auto* form = new QFormLayout(&dlg);
+
+    auto* start = new QSpinBox(&dlg);
+    start->setRange(1, 1000000);
+    start->setValue(1);
+    start->setToolTip(PagesMode::tr("Number of the document's first page (e.g. 4 labels it “4”, or “iv” in lowercase Roman)."));
+    form->addRow(PagesMode::tr("Start value:"), start);
+
+    auto* style = new QComboBox(&dlg);
+    namespace PL = gp::PageLabels;
+    style->addItem(PagesMode::tr("Decimal (1, 2, 3…)"),
+                   static_cast<int>(PL::Style::Decimal));
+    style->addItem(PagesMode::tr("Lowercase Roman (i, ii, iii…)"),
+                   static_cast<int>(PL::Style::LowercaseRoman));
+    style->addItem(PagesMode::tr("Uppercase Roman (I, II, III…)"),
+                   static_cast<int>(PL::Style::UppercaseRoman));
+    style->addItem(PagesMode::tr("Lowercase Letters (a, b, … z, aa, bb…)"),
+                   static_cast<int>(PL::Style::LowercaseLetters));
+    style->addItem(PagesMode::tr("Uppercase Letters (A, B, … Z, AA, BB…)"),
+                   static_cast<int>(PL::Style::UppercaseLetters));
+    form->addRow(PagesMode::tr("Style:"), style);
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    form->addRow(buttons);
+
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+    const auto chosenStyle = static_cast<gp::PageLabels::Style>(style->currentData().toInt());
+
+    // Same atomic boundary as the split path: candidate → write → commit.
+    QString candidate;
+    QString err;
+    if (!gp::SafeSave::makeUniqueCandidate(&candidate, &err)) {
+        qWarning("PagesMode::onApplyPageLabels: %s", qPrintable(err));
+        QMessageBox::warning(this, PagesMode::tr("Apply Page Labels"),
+                             PagesMode::tr("Could not create a temporary candidate file."));
+        return;
+    }
+
+    // The candidate starts as an empty placeholder — replace it with the
+    // saved source bytes, then write the labels in place (in-memory load;
+    // never touches the user's file until the commit below).
+    QFile::remove(candidate);
+    if (!QFile::copy(path, candidate)) {
+        QFile::remove(candidate);
+        QMessageBox::warning(this, PagesMode::tr("Apply Page Labels"),
+                             PagesMode::tr("Could not stage the document for labeling."));
+        return;
+    }
+    if (!gp::PageLabels::writeNumberTree(candidate, start->value(), chosenStyle)) {
+        QFile::remove(candidate);
+        QMessageBox::warning(this, PagesMode::tr("Apply Page Labels"),
+                             PagesMode::tr("Writing the page labels failed (invalid range or unreadable PDF)."));
+        return;
+    }
+    QString commitErr;
+    if (!gp::SafeSave::commitFileToDestination(candidate, path, &commitErr)) {
+        QFile::remove(candidate);
+        qWarning("PagesMode::onApplyPageLabels: commit to %s failed: %s",
+                 qPrintable(path), qPrintable(commitErr));
+        QMessageBox::warning(this, PagesMode::tr("Apply Page Labels"),
+                             PagesMode::tr("Could not save the labeled document."));
+        return;
+    }
+    QFile::remove(candidate); // committed bytes were copied; drop the candidate
+
+    // Re-sync consumers of the file: the viewer reloads from disk, and a
+    // resident editor engine is re-pointed at the committed bytes so the
+    // next engine operation cannot overwrite the tree with stale state.
+    if (m_ctx->pdfEditor && m_ctx->pdfEditor->currentFile() == path)
+        m_ctx->pdfEditor->loadDocumentForEditing(path);
+    m_ctx->document->markReload();
+
+    QMessageBox::information(this, PagesMode::tr("Apply Page Labels"),
+                             PagesMode::tr("Page labels applied (style %1, starting at %2).")
+                                 .arg(gp::PageLabels::styleName(chosenStyle))
+                                 .arg(start->value()));
+}
+
+// U06: keep the visible selection label and the identity snapshot in step.
+void PagesMode::onGridSelectionChanged()
+{
+    updateSelectionLabel();
+    if (m_gridRebuildGuard) return; // restore helpers re-track explicitly
+    m_selectedPages.clear();
+    m_currentPageData = -1;
+    if (!m_pageList) return;
+    const QModelIndexList selected = m_pageList->selectionModel()->selectedIndexes();
+    for (const QModelIndex& idx : selected)
+        m_selectedPages.append(idx.data(Qt::UserRole).toInt());
+    if (m_pageList->currentItem())
+        m_currentPageData = m_pageList->currentItem()->data(Qt::UserRole).toInt();
+}
+
+// U06: "N pages selected · pages X-Y" (affected 1-based row range) or empty.
+void PagesMode::updateSelectionLabel()
+{
+    if (!m_selectionLabel) return;
+    QList<int> rows;
+    if (m_pageList && m_pageList->selectionModel()) {
+        const QModelIndexList selected = m_pageList->selectionModel()->selectedIndexes();
+        for (const QModelIndex& idx : selected) rows.append(idx.row());
+    }
+    std::sort(rows.begin(), rows.end());
+    rows.erase(std::unique(rows.begin(), rows.end()), rows.end());
+    if (rows.isEmpty()) {
+        m_selectionLabel->clear();
+        return;
+    }
+    if (rows.size() == 1)
+        m_selectionLabel->setText(
+            PagesMode::tr("1 page selected · page %1").arg(rows.first() + 1));
+    else
+        m_selectionLabel->setText(
+            PagesMode::tr("%1 pages selected · pages %2-%3")
+                .arg(rows.size()).arg(rows.first() + 1).arg(rows.last() + 1));
+}
+
+// U06: reselect tracked rows (position-based) after a fresh load generation,
+// where item data == row. Drops the pending state once applied.
+void PagesMode::restorePendingSelection()
+{
+    const QList<int> pending = m_pendingSelection;
+    const int pendingCurrent = m_pendingCurrentPage;
+    m_pendingSelection.clear();
+    m_pendingCurrentPage = -1;
+
+    QList<int> restoredRows;
+    QItemSelection sel;
+    if (m_pageList) {
+        for (int pos : pending) {
+            if (pos < 0 || pos >= m_pageList->count()) continue;
+            const QModelIndex idx = m_pageList->model()->index(pos, 0);
+            sel.select(idx, idx);
+            restoredRows.append(pos);
+        }
+        if (!sel.isEmpty())
+            m_pageList->selectionModel()->select(sel, QItemSelectionModel::ClearAndSelect);
+        if (pendingCurrent >= 0 && pendingCurrent < m_pageList->count())
+            m_pageList->selectionModel()->setCurrentIndex(
+                m_pageList->model()->index(pendingCurrent, 0), QItemSelectionModel::NoUpdate);
+    }
+    // Re-track explicitly (selection signals may be skipped during rebuilds).
+    m_selectedPages = restoredRows;
+    m_currentPageData = pendingCurrent >= 0 && pendingCurrent < m_pageList->count()
+        ? pendingCurrent
+        : (restoredRows.isEmpty() ? -1 : restoredRows.first());
+    updateSelectionLabel();
+}
+
+// U06: reselect tracked pages (identity-based) after a visual revert, where
+// items are rebuilt with their original UserRole data.
+void PagesMode::restoreSelectionByData()
+{
+    const QList<int> wanted = m_selectedPages;
+    const int wantedCurrent = m_currentPageData;
+    QList<int> restoredRows;
+    QItemSelection sel;
+    int currentRow = -1;
+    if (m_pageList) {
+        for (int i = 0; i < m_pageList->count(); ++i) {
+            const int itemData = m_pageList->item(i)->data(Qt::UserRole).toInt();
+            if (wanted.contains(itemData)) {
+                const QModelIndex idx = m_pageList->model()->index(i, 0);
+                sel.select(idx, idx);
+                restoredRows.append(i);
+            }
+            if (itemData == wantedCurrent) currentRow = i;
+        }
+        if (!sel.isEmpty())
+            m_pageList->selectionModel()->select(sel, QItemSelectionModel::ClearAndSelect);
+        if (currentRow >= 0)
+            m_pageList->selectionModel()->setCurrentIndex(
+                m_pageList->model()->index(currentRow, 0), QItemSelectionModel::NoUpdate);
+    }
+    m_selectedPages = restoredRows;
+    m_currentPageData = currentRow >= 0 ? currentRow
+        : (restoredRows.isEmpty() ? -1 : restoredRows.first());
+    updateSelectionLabel();
+}
+
+// U06: coalesce bursts of QUndoStack::indexChanged signals into one reload.
+void PagesMode::scheduleUndoRefresh()
+{
+    if (m_undoRefreshScheduled) return;
+    m_undoRefreshScheduled = true;
+    QMetaObject::invokeMethod(this, [this]() {
+        m_undoRefreshScheduled = false;
+        refreshPageList();
+    }, Qt::QueuedConnection);
+}
+
+// U06: undo/redo can change the page order this grid displays. Reload and
+// restore the selection + current page, mapping page identities through our
+// last grid permutation when the affected command is ours.
+void PagesMode::onUndoStackIndexChanged(int index)
+{
+    if (m_ownPush || m_gridRebuildGuard) return;
+    if (!m_ctx || !m_ctx->undoStack || !m_ctx->document) return;
+    if (m_ctx->document->path().isEmpty() || m_pageList->count() == 0) return;
+
+    const QUndoStack* stack = m_ctx->undoStack.get();
+    const bool undoneOurs = m_lastGridCmd && stack->command(index) == m_lastGridCmd;
+    const bool redoneOurs = m_lastGridCmd && index > 0
+        && stack->command(index - 1) == m_lastGridCmd;
+
+    const bool haveMapping = !m_lastGridSnapshot.isEmpty() && !m_lastGridNewOrder.isEmpty();
+    if (undoneOurs && haveMapping) {
+        // Document went from m_lastGridNewOrder order back to m_lastGridSnapshot
+        // order; the tracked rows are positions in the newOrder generation.
+        QList<int> mapped;
+        for (int v : m_selectedPages) {
+            const int identity = m_lastGridNewOrder.value(v, -1);
+            const int pos = identity >= 0 ? m_lastGridSnapshot.indexOf(identity) : -1;
+            if (pos >= 0) mapped.append(pos);
+        }
+        const int identity = m_currentPageData >= 0
+            ? m_lastGridNewOrder.value(m_currentPageData, -1) : -1;
+        m_pendingSelection = mapped;
+        m_pendingCurrentPage = identity >= 0 ? m_lastGridSnapshot.indexOf(identity) : -1;
+    } else if (redoneOurs && haveMapping) {
+        // Document went from m_lastGridSnapshot order to m_lastGridNewOrder
+        // order; the tracked rows are positions in the snapshot generation.
+        QList<int> mapped;
+        for (int v : m_selectedPages) {
+            const int identity = m_lastGridSnapshot.value(v, -1);
+            const int pos = identity >= 0 ? m_lastGridNewOrder.indexOf(identity) : -1;
+            if (pos >= 0) mapped.append(pos);
+        }
+        const int identity = m_currentPageData >= 0
+            ? m_lastGridSnapshot.value(m_currentPageData, -1) : -1;
+        m_pendingSelection = mapped;
+        m_pendingCurrentPage = identity >= 0 ? m_lastGridNewOrder.indexOf(identity) : -1;
+    } else {
+        // Unrelated command (rotate, delete, …): best effort — keep the same
+        // page positions selected across the reload.
+        m_pendingSelection = m_selectedPages;
+        m_pendingCurrentPage = m_currentPageData;
+    }
+    scheduleUndoRefresh();
 }
 
 void PagesMode::rebuildFromOrder(const QList<int>& order)
 {
+    m_gridRebuildGuard = true;
     m_pageList->clear();
-    for (int pos = 0; pos < order.size(); ++pos) {
-        QPixmap thumb(100, 130);
-        thumb.fill(QColor(220, 220, 220));
-        auto* item = new QListWidgetItem;
-        item->setIcon(QIcon(thumb));
-        item->setText(PagesMode::tr("Page %1").arg(order[pos] + 1));
-        item->setSizeHint(QSize(120, 160));
-        item->setData(Qt::UserRole, order[pos]);
-        m_pageList->addItem(item);
-    }
+    for (int pos = 0; pos < order.size(); ++pos)
+        m_pageList->addItem(makePageItem(order[pos]));
+    m_gridRebuildGuard = false;
+    restoreSelectionByData(); // U06: keep the user's pages selected across reverts
 }
 
 } // namespace gp

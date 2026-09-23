@@ -1,0 +1,9 @@
+********* Start testing of TestOcrReviewLifecycle *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestOcrReviewLifecycle::initTestCase()
+QWARN  : TestOcrReviewLifecycle::lifecycleMessageDisplayedLive() This plugin does not support propagateSizeHints()
+FAIL!  : TestOcrReviewLifecycle::lifecycleMessageDisplayedLive() 'lbl' returned FALSE. (F5-F1: the OCR screen must carry a visible lifecycle message surface (ocrLifecycleLabel))
+D:/pdf/pdf-r18/tests/TestOcrReviewLifecycle.cpp(169) : failure location
+PASS   : TestOcrReviewLifecycle::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 423ms
+********* Finished testing of TestOcrReviewLifecycle *********

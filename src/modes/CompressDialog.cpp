@@ -3,6 +3,7 @@
 #include "util/GpTheme.h"
 #include "util/Badge.h"
 #include "core/AppContext.h"
+#include "core/Capability.h"
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "engines/mrc/MrcPageProcessor.h"
 
@@ -19,10 +20,22 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSpinBox>
+#include <QStandardItemModel>
 #include <QToolButton>
 #include <QVBoxLayout>
 
 namespace gp {
+
+// ── R12 honesty seam ─────────────────────────────────────────────────────────
+
+QString CompressDialog::unsupportedPassExplanation()
+{
+    // U08: the canonical wording lives in the CapabilityRegistry (the
+    // CompressSubsetFonts probe carries it; since §9.13 the RemoveUnused
+    // probe is Available); this static remains the UI anchor
+    // TestCompressDialogHonesty pins.
+    return r12UnsupportedPassExplanation();
+}
 
 // ── Preset card helper ────────────────────────────────────────────────────────
 
@@ -146,11 +159,29 @@ CompressDialog::CompressDialog(const AppContext* ctx, QWidget* parent)
     _chkDedup->setChecked(true);
     af->addWidget(_chkDedup, 1, 0);
 
+    // R12/U08: the backend does not implement font subsetting (no subsetter in
+    // this build). The checkbox stays visible but disabled and unchecked, with
+    // the availability explanation as tooltip/status tip, so the UI never
+    // promises a pass that would not run. The wording now comes from the
+    // CapabilityRegistry probe (the same string the registry hands to any
+    // other consumer); the exact whyNot is pinned by TestCompressDialogHonesty,
+    // so the disable stays local instead of going through applyToWidget's
+    // combined whyNot+alternative tooltip.
+    const gp::CapabilityRegistry* caps = _ctx ? _ctx->capabilities.get() : nullptr;
+    const QString subsetWhyNot = caps
+        ? caps->query(gp::CapId::CompressSubsetFonts).whyNot
+        : unsupportedPassExplanation();
     _chkSubsetFonts = new QCheckBox(tr("Subset fonts"));
-    _chkSubsetFonts->setChecked(true);
+    _chkSubsetFonts->setChecked(false);
+    _chkSubsetFonts->setEnabled(false);
+    _chkSubsetFonts->setToolTip(subsetWhyNot);
+    _chkSubsetFonts->setStatusTip(subsetWhyNot);
     af->addWidget(_chkSubsetFonts, 1, 1);
 
     _chkRemoveUnused = new QCheckBox(tr("Remove unused objects"));
+    // §9.13: the unused-object sweep is now implemented (21a387c) — the
+    // R12-era disabled placeholder pin is retired. Subset fonts remains the
+    // only unimplemented pass and keeps its own R12 pin below.
     _chkRemoveUnused->setChecked(true);
     af->addWidget(_chkRemoveUnused, 2, 0);
 
@@ -187,6 +218,25 @@ CompressDialog::CompressDialog(const AppContext* ctx, QWidget* parent)
     _mrcModeCombo->setToolTip(tr(
         "Balanced: best size/quality trade-off for archival.\n"
         "Aggressive: maximum compression; may introduce artefacts in photo regions."));
+
+    // U08: MRC is a Degraded capability here — it needs OCR-pipeline page
+    // images this dialog does not have. The non-Off entries become a
+    // disabled-with-explanation state (pre-execution disclosure from the
+    // registry) instead of the old mid-run info dialog + silent fallback to
+    // standard compression; the combo itself stays enabled and reachable for
+    // discoverability (Off remains selectable).
+    if (caps) {
+        const gp::Capability mrc = caps->query(gp::CapId::MrcCompression);
+        const QString mrcExplanation = gp::CapabilityRegistry::combineWhyNot(mrc);
+        auto* mrcModel = qobject_cast<QStandardItemModel*>(_mrcModeCombo->model());
+        for (int i = 1; i < _mrcModeCombo->count(); ++i) {
+            QStandardItem* item = mrcModel ? mrcModel->item(i) : nullptr;
+            if (!item) continue;
+            item->setEnabled(false);
+            item->setToolTip(mrcExplanation);
+        }
+        caps->applyToWidget(_mrcModeCombo, gp::CapId::MrcCompression);
+    }
     mf->addWidget(_mrcModeCombo, 1);
 
     _mrcEstLabel = new QLabel(tr("MRC: off"));
@@ -339,8 +389,7 @@ void CompressDialog::onPresetChanged(int id) {
         _qualitySpin->setValue(50);
         _chkDownsample->setChecked(true);
         _chkDedup->setChecked(true);
-        _chkSubsetFonts->setChecked(true);
-        _chkRemoveUnused->setChecked(true);
+        _chkSubsetFonts->setChecked(false);   // R12: pass not implemented
         _chkStripMetadata->setChecked(true);
         break;
     case 1: // Ebook
@@ -348,8 +397,7 @@ void CompressDialog::onPresetChanged(int id) {
         _qualitySpin->setValue(75);
         _chkDownsample->setChecked(true);
         _chkDedup->setChecked(true);
-        _chkSubsetFonts->setChecked(true);
-        _chkRemoveUnused->setChecked(true);
+        _chkSubsetFonts->setChecked(false);   // R12: pass not implemented
         _chkStripMetadata->setChecked(false);
         break;
     case 2: // Printer
@@ -357,8 +405,7 @@ void CompressDialog::onPresetChanged(int id) {
         _qualitySpin->setValue(85);
         _chkDownsample->setChecked(true);
         _chkDedup->setChecked(true);
-        _chkSubsetFonts->setChecked(true);
-        _chkRemoveUnused->setChecked(true);
+        _chkSubsetFonts->setChecked(false);   // R12: pass not implemented
         _chkStripMetadata->setChecked(false);
         break;
     case 3: // Custom — leave controls as-is
@@ -372,6 +419,12 @@ void CompressDialog::onPresetChanged(int id) {
     _chkSubsetFonts->blockSignals(false);
     _chkRemoveUnused->blockSignals(false);
     _chkStripMetadata->blockSignals(false);
+
+    // R12/§9.13: no preset may re-enable or re-check SUBSET FONTS (still
+    // unimplemented). Remove-unused objects is implemented and follows the
+    // user's checkbox choice, so presets never touch it.
+    _chkSubsetFonts->setEnabled(false);
+    _chkSubsetFonts->setChecked(false);
 
     // Enable/disable advanced controls for non-custom presets
     bool custom = (id == 3);
@@ -389,6 +442,36 @@ static QString formatBytes(qint64 bytes) {
     return QString::number(bytes / (1024.0 * 1024.0), 'f', 1) + " MB";
 }
 
+// ── §9.13: measured completion report ────────────────────────────────────────
+
+QString CompressDialog::formatCompletionReport(qint64 originalBytes, qint64 newBytes,
+                                               const QString& outputFileName)
+{
+    // Both sizes are MEASURED (QFileInfo::size() on the committed output and
+    // the untouched original, read after the write) and plainly labeled so
+    // they can never be confused with the pre-execution ESTIMATED row.
+    QString msg = tr("Document optimized successfully.\n\nSaved to: %1\n"
+                     "Original size: %2\nNew size: %3 (measured)")
+        .arg(outputFileName, formatBytes(originalBytes), formatBytes(newBytes));
+
+    const qint64 savedBytes = originalBytes - newBytes;   // > 0 = smaller
+    if (originalBytes > 0 && savedBytes > 0) {
+        msg += tr("\nSize reduction: %1 (%2% smaller, measured)")
+            .arg(formatBytes(savedBytes),
+                 QString::number(100.0 * savedBytes / originalBytes, 'f', 1));
+    } else if (originalBytes > 0) {
+        // Equal-or-larger results happen legitimately (e.g. re-encoded
+        // JPEGs). Say so instead of spinning a reduction that did not happen
+        // — the R12 honesty precedent at this exact completion site. Never
+        // print a reduction line with a non-positive delta.
+        msg += tr("\n\nNote: the result is not smaller than the original — "
+                  "compression did not reduce this document's size.");
+    }
+    // originalBytes == 0: no honest delta exists against a missing/empty
+    // original; the two measured figures above still stand on their own.
+    return msg;
+}
+
 void CompressDialog::refreshEstimate() {
     if (!_ctx || !_ctx->pdfEditor) {
         _origVal->setText("— MB");
@@ -403,8 +486,11 @@ void CompressDialog::refreshEstimate() {
     opts.targetDpi          = _dpiSpin->value();
     opts.jpegQuality        = _qualitySpin->value();
     opts.deduplicateImages  = _chkDedup->isChecked();
-    opts.subsetFonts        = _chkSubsetFonts->isChecked();
-    opts.removeUnusedObjects= _chkRemoveUnused->isChecked();
+    // §9.13: unused-object removal is implemented (21a387c) — the checkbox
+    // state is honored. Subset fonts remains unimplemented and pinned false
+    // so the estimate can never claim savings from a pass the engine will
+    // not run.
+    opts.subsetFonts        = false;
     opts.stripMetadata      = _chkStripMetadata->isChecked();
 
     OptimizeEstimate est = _ctx->pdfEditor->estimateOptimization(opts);
@@ -420,8 +506,10 @@ void CompressDialog::refreshEstimate() {
         _estBar->setValue(0);
     }
 
-    // Reduction badge
-    QString redText = QString::fromUtf8("\xe2\x86\x93 ") // ↓
+    // Reduction badge — a prediction from the estimator, so label it as an
+    // estimate (R12: do not present predicted savings as achieved).
+    QString redText = tr("EST. ")
+        + QString::fromUtf8("\xe2\x86\x93 ") // ↓
         + QString::number(est.reductionPercent, 'f', 0) + "% REDUCTION";
     _reductBadge->setText(redText);
     _reductBadge->setKind(est.reductionPercent > 20 ? Badge::Ok : Badge::Info);
@@ -460,6 +548,33 @@ void CompressDialog::onCompress() {
         return;
     }
 
+    // Check MRC mode BEFORE asking for a destination (U08: disclose before
+    // anything runs). The MRC entries are disabled-with-explanation since this
+    // dialog has no OCR-pipeline page images, so this path is normally
+    // unreachable from the UI; if it is ever reached, say what is unavailable,
+    // offer the supported alternative, and stop — never silently substitute
+    // standard compression for an explicitly chosen MRC mode, and never write
+    // a file the user did not agree to under a substituted pipeline.
+    MrcMode mrcMode = MrcMode::Off;
+    if (_mrcModeCombo)
+        mrcMode = (MrcMode)_mrcModeCombo->currentData().toInt();
+
+    if (mrcMode != MrcMode::Off) {
+        const gp::CapabilityRegistry* caps = _ctx ? _ctx->capabilities.get() : nullptr;
+        const QString explanation = caps
+            ? gp::CapabilityRegistry::combineWhyNot(caps->query(gp::CapId::MrcCompression))
+            : tr("MRC (Mixed Raster Content) export requires the document to have been "
+                 "processed through the OCR pipeline first.\n\n"
+                 "To use MRC compression:\n"
+                 "1. Run OCR on the document (OCR mode)\n"
+                 "2. Use Export \u2192 MRC PDF/A from the File menu.");
+        QMessageBox::information(this, tr("MRC Export"),
+            explanation + QLatin1Char('\n')
+            + tr("\nNothing was written. Choose \u201COff (standard compression)\u201D "
+                 "to compress this document without MRC."));
+        return;
+    }
+
     // Ask user where to save the optimized file
     QString outPath = QFileDialog::getSaveFileName(
         this, tr("Save Optimized PDF"),
@@ -469,42 +584,30 @@ void CompressDialog::onCompress() {
 
     if (outPath.isEmpty()) return;
 
-    // Check MRC mode
-    MrcMode mrcMode = MrcMode::Off;
-    if (_mrcModeCombo)
-        mrcMode = (MrcMode)_mrcModeCombo->currentData().toInt();
-
     bool success = false;
-
-    if (mrcMode != MrcMode::Off) {
-        // MRC path: requires page images from OCR pipeline.
-        // In this dialog, we don't have pre-rendered images — show informational dialog.
-        QMessageBox::information(this, tr("MRC Export"),
-            tr("MRC (Mixed Raster Content) export requires the document to have been "
-               "processed through the OCR pipeline first.\n\n"
-               "To use MRC compression:\n"
-               "1. Run OCR on the document (OCR mode)\n"
-               "2. Use Export → MRC PDF/A from the File menu.\n\n"
-               "Falling back to standard compression for this export."));
-        mrcMode = MrcMode::Off;
-    }
 
     OptimizeOptions opts;
     opts.downsampleImages   = _chkDownsample->isChecked();
     opts.targetDpi          = _dpiSpin->value();
     opts.jpegQuality        = _qualitySpin->value();
     opts.deduplicateImages  = _chkDedup->isChecked();
-    opts.subsetFonts        = _chkSubsetFonts->isChecked();
-    opts.removeUnusedObjects= _chkRemoveUnused->isChecked();
+    // §9.13: mirror refreshEstimate — subset fonts stays pinned (still
+    // unimplemented); unused-object removal follows the checkbox.
+    opts.subsetFonts        = false;
     opts.stripMetadata      = _chkStripMetadata->isChecked();
 
     success = _ctx->pdfEditor->optimizeDocument(outPath, opts);
 
     if (success) {
         QFileInfo fi(outPath);
+        // R12/§9.13: report the MEASURED output size against the original —
+        // both read from disk after the write — with the delta, and say so
+        // explicitly when compression did not shrink the document (the result
+        // can legitimately be larger than the input, e.g. re-encoded JPEGs).
+        const qint64 newSize  = fi.size();
+        const qint64 origSize = QFileInfo(currentFile).size();
         QMessageBox::information(this, tr("Optimization Complete"),
-            tr("Document optimized successfully.\n\nSaved to: %1\nNew size: %2")
-            .arg(fi.fileName(), formatBytes(fi.size())));
+            formatCompletionReport(origSize, newSize, fi.fileName()));
         accept();
     } else {
         QMessageBox::warning(this, tr("Optimization Failed"),

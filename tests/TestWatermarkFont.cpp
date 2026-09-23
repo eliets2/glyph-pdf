@@ -4,6 +4,7 @@
 // font->GetStringLength (was a char-count heuristic).
 #include <QtTest>
 #include <QTemporaryDir>
+#include <QImage>
 #include <podofo/podofo.h>
 #include <sstream>
 #include <string>
@@ -71,6 +72,39 @@ private:
         std::string out;
         appendStreamBytes(doc, &contentsObj->GetObject(), out);
         return out;
+    }
+
+    // S1-2 probe: the /ca /CA operands of the watermark ExtGState that page
+    // 0's resources reference ("GS_WM" text, "GS_WMI" image), read from the
+    // SAVED file. Missing keys read as -999 (assertion-visible sentinel).
+    static QPair<double, double> extGStateOpacity(const QString& path, const char* key)
+    {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(path.toUtf8().constData());
+        auto& page = doc.GetPages().GetPageAt(0);
+        auto* resDict = page.GetDictionary().FindKey("Resources");
+        if (!resDict) return {-999.0, -999.0};
+        auto* gsDict = resDict->GetDictionary().FindKey("ExtGState");
+        if (!gsDict) return {-999.0, -999.0};
+        auto* gsRef = gsDict->GetDictionary().FindKey(key);
+        if (!gsRef) return {-999.0, -999.0};
+        PoDoFo::PdfObject* gsObj = gsRef;
+        if (gsObj->IsReference())
+            gsObj = doc.GetObjects().GetObject(gsObj->GetReference());
+        if (!gsObj || !gsObj->IsDictionary()) return {-999.0, -999.0};
+        const auto read = [gsObj](const char* k) -> double {
+            const PoDoFo::PdfObject* v = gsObj->GetDictionary().FindKey(k);
+            return (v && v->IsNumberOrReal()) ? v->GetReal() : -999.0;
+        };
+        return {read("ca"), read("CA")};
+    }
+
+    // S1-1 probe: page count from the SAVED file via an independent reader.
+    static int pageCountOnDisk(const QString& path)
+    {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(path.toUtf8().constData());
+        return static_cast<int>(doc.GetPages().GetCount());
     }
 
     // BaseFont name of the /Resources /Font <key> entry on page 0.
@@ -184,6 +218,137 @@ private slots:
                  qPrintable(QStringLiteral("centering must use real glyph metrics, not the char-count "
                                            "heuristic: got Td x=%1, the heuristic would emit %2")
                                 .arg(x).arg(heuristicX)));
+    }
+
+    // ── S1-2 (SWEEP-BACKEND-2026-09-21): out-of-range opacity must never
+    // reach the ExtGState. TextWatermarkOptions/ImageWatermarkOptions document
+    // opacity as 0.0–1.0, but PoDoFoBackend wrote the value verbatim into
+    // /ca /CA — a caller passing 7.0 (the batch-preset string-param class)
+    // produced a spec-invalid ExtGState. The pin reads the operands back from
+    // the SAVED file: both seams (text GS_WM, image GS_WMI) must clamp.
+    void testOpacityClampedToUnitRangeAtSeam()
+    {
+        // 7.0 → clamped to 1.0 (text watermark seam).
+        {
+            const QString base = createBasePdf("wm_clamp_hi_base.pdf");
+            QVERIFY(!base.isEmpty());
+            const QString out = m_tmpDir.filePath("wm_clamp_hi_out.pdf");
+            TextWatermarkOptions opts;
+            opts.opacity = 7.0;
+            PoDoFoBackend backend;
+            QVERIFY(backend.loadDocument(base));
+            QVERIFY(backend.addTextWatermark(opts));
+            QVERIFY(backend.saveDocument(out));
+            const auto op = extGStateOpacity(out, "GS_WM");
+            QVERIFY2(op.first == 1.0 && op.second == 1.0,
+                     qPrintable(QStringLiteral("S1-2: opacity 7.0 must clamp /ca /CA to 1.0; "
+                                               "got ca=%1 CA=%2").arg(op.first).arg(op.second)));
+        }
+
+        // -2.5 → clamped to 0.0 (text watermark seam).
+        {
+            const QString base = createBasePdf("wm_clamp_lo_base.pdf");
+            QVERIFY(!base.isEmpty());
+            const QString out = m_tmpDir.filePath("wm_clamp_lo_out.pdf");
+            TextWatermarkOptions opts;
+            opts.opacity = -2.5;
+            PoDoFoBackend backend;
+            QVERIFY(backend.loadDocument(base));
+            QVERIFY(backend.addTextWatermark(opts));
+            QVERIFY(backend.saveDocument(out));
+            const auto op = extGStateOpacity(out, "GS_WM");
+            QVERIFY2(op.first == 0.0 && op.second == 0.0,
+                     qPrintable(QStringLiteral("S1-2: opacity -2.5 must clamp /ca /CA to 0.0; "
+                                               "got ca=%1 CA=%2").arg(op.first).arg(op.second)));
+        }
+
+        // Image watermark seam: 3.0 → clamped to 1.0.
+        {
+            const QString base = createBasePdf("wm_clamp_img_base.pdf");
+            QVERIFY(!base.isEmpty());
+            const QString img = m_tmpDir.filePath("wm_clamp_img.png");
+            QImage pm(16, 16, QImage::Format_ARGB32);
+            pm.fill(QColor(0, 0, 0, 128));
+            QVERIFY(pm.save(img, "PNG"));
+            const QString out = m_tmpDir.filePath("wm_clamp_img_out.pdf");
+            ImageWatermarkOptions opts;
+            opts.imagePath = img;
+            opts.opacity = 3.0;
+            PoDoFoBackend backend;
+            QVERIFY(backend.loadDocument(base));
+            QVERIFY2(backend.addImageWatermark(opts), "addImageWatermark should succeed");
+            QVERIFY(backend.saveDocument(out));
+            const auto op = extGStateOpacity(out, "GS_WMI");
+            QVERIFY2(op.first == 1.0 && op.second == 1.0,
+                     qPrintable(QStringLiteral("S1-2: image opacity 3.0 must clamp /ca /CA to 1.0; "
+                                               "got ca=%1 CA=%2").arg(op.first).arg(op.second)));
+        }
+
+        // In-range values pass through untouched (no clamp-side drift).
+        {
+            const QString base = createBasePdf("wm_clamp_ok_base.pdf");
+            QVERIFY(!base.isEmpty());
+            const QString out = m_tmpDir.filePath("wm_clamp_ok_out.pdf");
+            TextWatermarkOptions opts;
+            opts.opacity = 0.3;
+            PoDoFoBackend backend;
+            QVERIFY(backend.loadDocument(base));
+            QVERIFY(backend.addTextWatermark(opts));
+            QVERIFY(backend.saveDocument(out));
+            const auto op = extGStateOpacity(out, "GS_WM");
+            QVERIFY2(qAbs(op.first - 0.3) < 1e-9 && qAbs(op.second - 0.3) < 1e-9,
+                     qPrintable(QStringLiteral("S1-2: in-range opacity must pass through; "
+                                               "got ca=%1 CA=%2").arg(op.first).arg(op.second)));
+        }
+    }
+
+    // ── S1-1 (SWEEP-BACKEND-2026-09-21): the page-index contract is enforced
+    // AT the seam. Every index argument is validated against the document's
+    // real page count BEFORE any library call — out-of-range fails closed
+    // (false, document untouched), never UB via an unchecked (implicitly
+    // negative→unsigned) index into PoDoFo. Two shapes, per the IPageEditor
+    // contract comment: positional access/replace/delete is [0, count);
+    // insert-at (insertBlankPage, insertPageFromBytes) is [0, count] —
+    // atIndex == count appends at the end.
+    void pageIndexContractEnforcedAtSeam()
+    {
+        const QString base = createBasePdf("idx_base.pdf");
+        QVERIFY(!base.isEmpty());
+
+        PoDoFoBackend backend;
+        QVERIFY(backend.loadDocument(base));
+
+        // The legal insert-at boundary FIRST: atIndex == count appends.
+        QVERIFY2(backend.insertBlankPage(base, 1),
+                 "insertBlankPage at count must append (the [0, count] shape)");
+        QCOMPARE(pageCountOnDisk(base), 2);
+
+        // Positional shape: extraction refuses out of range.
+        QVERIFY(backend.extractPageAsBytes(base, -1).isEmpty());
+        QVERIFY(backend.extractPageAsBytes(base, 2).isEmpty());
+        const QByteArray page0 = backend.extractPageAsBytes(base, 0);
+        QVERIFY(!page0.isEmpty());
+
+        // Insert-at shape: -1 and count+1 refuse; the document is untouched.
+        QVERIFY2(!backend.insertBlankPage(base, -1),
+                 "insertBlankPage(-1) must fail closed at the seam");
+        QVERIFY2(!backend.insertBlankPage(base, 3),
+                 "insertBlankPage(count+1) must fail closed at the seam");
+        QVERIFY2(!backend.insertPageFromBytes(base, -1, page0),
+                 "insertPageFromBytes(-1) must fail closed at the seam");
+        QVERIFY2(!backend.insertPageFromBytes(base, 3, page0),
+                 "insertPageFromBytes(count+1) must fail closed at the seam");
+        QCOMPARE(pageCountOnDisk(base), 2);
+
+        // The other legal boundary: atIndex == count appends real page bytes.
+        QVERIFY(backend.insertPageFromBytes(base, 2, page0));
+        QCOMPARE(pageCountOnDisk(base), 3);
+
+        // Delete/rotate positional shape refuses out of range, document intact.
+        QVERIFY(!backend.deletePage(base, -1));
+        QVERIFY(!backend.deletePage(base, 3));
+        QVERIFY(!backend.rotatePage(base, 3, 90));
+        QCOMPARE(pageCountOnDisk(base), 3);
     }
 };
 

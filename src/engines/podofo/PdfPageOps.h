@@ -35,4 +35,14 @@ bool rotatePages(const QString& inputPath, int from, int to, int angle,
 /// Merge all files in inputs into outputPath.
 bool mergeDocuments(const QStringList& inputs, const QString& outputPath);
 
+/// N09: write ONE new PDF built from the given complete one-page PDF
+/// documents (in order). Each entry is a full single-page PDF — exactly what
+/// IPdfEditorEngine::extractPageAsBytes returns — so a split part can be
+/// assembled from the pages of a LOADED document (whose in-memory state is
+/// the authoritative source) without ever saving onto a file a PoDoFo
+/// document is still resident on. mergeDocuments idiom: fresh destination
+/// document, eager per-page copy, ONE library Save at the end.
+bool writeDocumentFromPages(const QList<QByteArray>& onePageDocuments,
+                            const QString& outputPath);
+
 } // namespace gp

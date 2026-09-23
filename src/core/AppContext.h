@@ -15,6 +15,8 @@ class DocumentSession;
 class AutosaveManager;
 
 namespace gp { class LaneScheduler; }
+namespace gp { class CapabilityRegistry; }   // U08: capability probes (core/Capability.h)
+namespace gp { class FormStaleFieldTracker; } // R18(a): persistent stale-field disclosure
 
 namespace pdfws {
     class IDjotCodec;
@@ -37,4 +39,16 @@ struct AppContext {
     std::shared_ptr<pdfws::IDjotCodec>      djotCodec;
     std::shared_ptr<pdfws::IDjotMapper>     djotMapper;
     std::shared_ptr<pdfws::ProvenanceGuard> provenanceGuard;
+
+    // U08: the ONE capability registry ("available? why not? what
+    // alternative?"). Probes are registered in Bootstrapper::createContext
+    // next to the engines; may be null in tests — consumers fall back to
+    // their pre-existing wording when absent.
+    std::shared_ptr<gp::CapabilityRegistry> capabilities;
+
+    // R18(a): the session-scoped stale-calculated-field store. Every commit
+    // path that runs the form-JS cascade reports its failures here so the
+    // stale-field warning survives until the field recomputes or the user
+    // acknowledges it. May be null in tests — consumers skip the disclosure.
+    std::shared_ptr<gp::FormStaleFieldTracker> formStale;
 };

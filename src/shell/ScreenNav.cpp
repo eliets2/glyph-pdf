@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "ScreenNav.h"
+#include "TaskNav.h"
 #include "util/GpTheme.h"
 
 #include <QHBoxLayout>
@@ -22,26 +23,14 @@ ScreenNav::ScreenNav(QWidget* parent) : QFrame(parent) {
     label->setProperty("role", "screenNavLabel");
     row->addWidget(label);
 
-    const QVector<QPair<QPair<QString,QString>, QString>> items = {
-        {{"",          tr("Standard")},      "00"},
-        {{"ocr",       tr("OCR Verify")},     "01"},
-        {{"redact",    tr("Redaction")},      "02"},
-        {{"signature", tr("Signatures")},     "03"},
-        {{"compare",   tr("Compare")},        "04"},
-        {{"pages",     tr("Pages")},          "05"},
-        {{"batch",     tr("Batch")},          "06"},
-        {{"ai",        tr("AI Chat")},        "07"},
-        {{"form",      tr("Form Builder")},   "08"},
-        {{"compress",  tr("Compress")},       "09"},
-        {{"pdfa",      tr("PDF/A")},          "10"},
-        {{"watermark", tr("Watermark")},      "11"},
-    };
-    for (const auto& itm : items) {
-        const QString id  = itm.first.first;
-        const QString lbl = itm.first.second;
-        const QString num = itm.second;
+    // U02: one table — items, order and titles come from TaskNav. The old
+    // "01 OCR VERIFY" numbering is gone; the title IS the task name.
+    for (const auto& spec : TaskNav::tasks()) {
+        const QString id  = QString::fromLatin1(spec.id);
+        const QString lbl = QString::fromLatin1(spec.title);
         auto* b = new QToolButton;
-        b->setText(QString("%1   %2").arg(num, lbl.toUpper()));
+        b->setObjectName(QStringLiteral("screenNav_") + id);
+        b->setText(lbl);
         b->setProperty("variant", "screenNav");
         b->setCheckable(true);
         b->setAutoExclusive(true);
