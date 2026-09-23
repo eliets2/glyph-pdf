@@ -5608,3 +5608,20 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/W2CProbeRotate270.cpp")
         endif()
     endif()
 endif()
+
+# ── Per-test temp roots ─────────────────────────────────────────────────────
+# SafeSave stages every write under <QDir::tempPath()>/glyphpdf-candidates, and
+# several suites prove "no candidate left behind" by listing that directory
+# (after sweeping debris at start). With one shared temp root, a parallel ctest
+# run let those suites delete each other's in-flight candidates and count each
+# other's transient files: TestFormSafety, TestEngineSave,
+# TestEncryptedPackageSafeWrite and TestWelcomeRoutes failed under -j6 while
+# passing alone. Every test gets its own temp root (TMP/TEMP on Windows,
+# TMPDIR elsewhere), so the candidate directory is per test process.
+get_property(_gp_all_tests DIRECTORY PROPERTY TESTS)
+foreach(_gp_test IN LISTS _gp_all_tests)
+    set(_gp_test_tmp "${CMAKE_BINARY_DIR}/test-tmp/${_gp_test}")
+    file(MAKE_DIRECTORY "${_gp_test_tmp}")
+    set_property(TEST ${_gp_test} APPEND PROPERTY ENVIRONMENT
+        "TMP=${_gp_test_tmp}" "TEMP=${_gp_test_tmp}" "TMPDIR=${_gp_test_tmp}")
+endforeach()
