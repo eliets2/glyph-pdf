@@ -275,6 +275,12 @@ private slots:
     // named error — never a silent black box over live data.
     void patternDrawnSecretFailsRunWithNamedError();
 
+    // ── G3 widget field values (audit §2.1): a marked WIDGET is only the
+    // geometry — the value lives on the field dict (/V, inherited /DV),
+    // reachable from /AcroForm /Fields. The split tree must lose its value
+    // while the field structure survives and unmarked fields are untouched.
+    void widgetFieldValueExcisedWhenWidgetMarked();
+
     // ── Destination semantics ──────────────────────────────────────────────
     void existingDestinationIsReplacedOnSuccess();
 
@@ -1129,6 +1135,182 @@ void TestRedactTransaction::xfaDocumentIsRefusedInPreflight() {
              qPrintable(r.error));
     QVERIFY(!QFileInfo::exists(dest));
     QCOMPARE(sha256(src), srcSha);
+}
+
+// G3 (audit REDACTION-RESEARCH-2026-09-21 §2.1): SPLIT field/widget tree —
+// the field dict (/T, /V, /DV) lives in /AcroForm /Fields; the widget kid
+// (/Subtype /Widget, /Parent, /Rect) sits in the page's /Annots. A merged
+// field+widget would die with the widget at the default-GC save; the split
+// tree is the shape where the value genuinely survives the widget's removal.
+static bool makeSplitWidgetPdf(const QString& path) {
+    try {
+        PoDoFo::PdfMemDocument doc;
+        auto& page = doc.GetPages().CreatePage(
+            PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+        PoDoFo::PdfPainter painter;
+        painter.SetCanvas(page);
+        auto& font = doc.GetFonts().GetStandard14Font(
+            PoDoFo::PdfStandard14FontType::Helvetica);
+        painter.TextState.SetFont(font, 12.0);
+        (painter.DrawText)("PUBLIC_KEEP_TEXT", 50, 650);
+        painter.FinishDrawing();
+
+        auto& acroForm = doc.GetOrCreateAcroForm();
+
+        // Marked field: value + default value on the FIELD dict; widget kid.
+        auto& field = doc.GetObjects().CreateDictionaryObject();
+        field.GetDictionary().AddKey(PoDoFo::PdfName("FT"), PoDoFo::PdfName("Tx"));
+        field.GetDictionary().AddKey(PoDoFo::PdfName("T"),
+                                     PoDoFo::PdfString("MarkedField"));
+        field.GetDictionary().AddKey(PoDoFo::PdfName("V"),
+                                     PoDoFo::PdfString("MarkedFieldSecret"));
+        field.GetDictionary().AddKey(PoDoFo::PdfName("DV"),
+                                     PoDoFo::PdfString("MarkedFieldSecret"));
+        auto& widget = doc.GetObjects().CreateDictionaryObject();
+        widget.GetDictionary().AddKey(PoDoFo::PdfName("Type"), PoDoFo::PdfName("Annot"));
+        widget.GetDictionary().AddKey(PoDoFo::PdfName("Subtype"), PoDoFo::PdfName("Widget"));
+        widget.GetDictionary().AddKey(PoDoFo::PdfName("Parent"),
+                                      field.GetIndirectReference());
+        PoDoFo::PdfArray rect;
+        rect.Add(100.0); rect.Add(500.0); rect.Add(250.0); rect.Add(520.0);
+        widget.GetDictionary().AddKey(PoDoFo::PdfName("Rect"), rect);
+        widget.GetDictionary().AddKey(PoDoFo::PdfName("F"), PoDoFo::PdfObject(int64_t(4)));
+        {
+            PoDoFo::PdfArray kids;
+            kids.Add(widget.GetIndirectReference());
+            field.GetDictionary().AddKey(PoDoFo::PdfName("Kids"), kids);
+        }
+        // Unmarked control field, same split shape.
+        auto& keepField = doc.GetObjects().CreateDictionaryObject();
+        keepField.GetDictionary().AddKey(PoDoFo::PdfName("FT"), PoDoFo::PdfName("Tx"));
+        keepField.GetDictionary().AddKey(PoDoFo::PdfName("T"),
+                                         PoDoFo::PdfString("KeepField"));
+        keepField.GetDictionary().AddKey(PoDoFo::PdfName("V"),
+                                         PoDoFo::PdfString("KeepFieldSecret"));
+        auto& keepWidget = doc.GetObjects().CreateDictionaryObject();
+        keepWidget.GetDictionary().AddKey(PoDoFo::PdfName("Type"), PoDoFo::PdfName("Annot"));
+        keepWidget.GetDictionary().AddKey(PoDoFo::PdfName("Subtype"), PoDoFo::PdfName("Widget"));
+        keepWidget.GetDictionary().AddKey(PoDoFo::PdfName("Parent"),
+                                          keepField.GetIndirectReference());
+        PoDoFo::PdfArray keepRect;
+        keepRect.Add(100.0); keepRect.Add(300.0); keepRect.Add(250.0); keepRect.Add(320.0);
+        keepWidget.GetDictionary().AddKey(PoDoFo::PdfName("Rect"), keepRect);
+        keepWidget.GetDictionary().AddKey(PoDoFo::PdfName("F"), PoDoFo::PdfObject(int64_t(4)));
+        {
+            PoDoFo::PdfArray kids;
+            kids.Add(keepWidget.GetIndirectReference());
+            keepField.GetDictionary().AddKey(PoDoFo::PdfName("Kids"), kids);
+        }
+
+        PoDoFo::PdfArray fields;
+        fields.Add(field.GetIndirectReference());
+        fields.Add(keepField.GetIndirectReference());
+        acroForm.GetDictionary().AddKey(PoDoFo::PdfName("Fields"), fields);
+
+        PoDoFo::PdfArray annots;
+        annots.Add(widget.GetIndirectReference());
+        annots.Add(keepWidget.GetIndirectReference());
+        page.GetObject().GetDictionary().AddKey(PoDoFo::PdfName("Annots"), annots);
+
+        doc.Save(path.toUtf8().constData());
+        return true;
+    } catch (const std::exception& e) {
+        qWarning() << "makeSplitWidgetPdf failed:" << e.what();
+        return false;
+    }
+}
+
+// Resolves field name -> the field dict's /V value string (following /Fields).
+static QString fieldValueByName(const QString& pdfPath, const char* fieldName) {
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(pdfPath.toUtf8().constData());
+        auto* acro = doc.GetCatalog().GetDictionary().FindKey(PoDoFo::PdfName("AcroForm"));
+        if (!acro) return {};
+        if (acro->IsReference())
+            acro = &doc.GetObjects().MustGetObject(acro->GetReference());
+        auto* fields = acro->GetDictionary().FindKey(PoDoFo::PdfName("Fields"));
+        if (!fields || !fields->IsArray()) return {};
+        for (const auto& ref : fields->GetArray()) {
+            const PoDoFo::PdfObject* fieldObj = &ref;
+            if (fieldObj->IsReference())
+                fieldObj = &doc.GetObjects().MustGetObject(fieldObj->GetReference());
+            if (!fieldObj || !fieldObj->IsDictionary()) continue;
+            auto* t = fieldObj->GetDictionary().FindKey(PoDoFo::PdfName("T"));
+            if (!t || !t->IsString()
+                || std::string_view(t->GetString().GetString()) != fieldName)
+                continue;
+            auto* v = fieldObj->GetDictionary().FindKey(PoDoFo::PdfName("V"));
+            if (!v || !v->IsString()) return {};
+            return QString::fromLatin1(v->GetString().GetString());
+        }
+    } catch (const std::exception&) {
+    }
+    return {};
+}
+
+void TestRedactTransaction::widgetFieldValueExcisedWhenWidgetMarked() {
+    const QString src = m_tmpDir.filePath("split_widget.pdf");
+    QVERIFY2(makeSplitWidgetPdf(src), "split-widget fixture creation failed");
+    {   // fixture sanity: both values present pre-redaction
+        QVERIFY2(fieldValueByName(src, "MarkedField") == QLatin1String("MarkedFieldSecret"),
+                 "fixture: the marked field must carry its value");
+        QVERIFY2(fieldValueByName(src, "KeepField") == QLatin1String("KeepFieldSecret"),
+                 "fixture: the control field must carry its value");
+    }
+
+    // Mark over the marked field's WIDGET: viewer rect (100,322,150,20) is the
+    // spec-correct display of user /Rect [100 500 250 520] on the unrotated
+    // A4 page (y = 842 - 520 .. 842 - 500).
+    const QString dest = m_tmpDir.filePath("split_widget_redacted.pdf");
+    RedactRequest rq = makeRequest(src, dest, {0}, false);
+    rq.redactionsByPage.clear();
+    rq.redactionsByPage[0].append(QRectF(100.0, 322.0, 150.0, 20.0));
+    RedactOperation op(rq);
+    RedactResult r = runOp(&op);
+    QVERIFY2(r.outcome == RedactOutcome::Completed, qPrintable(errText(r)));
+
+    // The value is gone from the raw bytes...
+    {
+        QFile f(dest);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        QVERIFY2(!f.readAll().contains("MarkedFieldSecret"),
+                 "G3: the field value must be gone from the raw output bytes");
+    }
+    // ...and from the field dict — /V AND /DV — while the field structure
+    // survives and the control field is untouched.
+    QVERIFY2(fieldValueByName(dest, "MarkedField").isEmpty(),
+             "G3: the marked field's /V must be cleared");
+    {   // /DV gone too; the field structure survives; the control is untouched.
+        PoDoFo::PdfMemDocument d;
+        d.Load(dest.toUtf8().constData());
+        auto* acro = d.GetCatalog().GetDictionary().FindKey(PoDoFo::PdfName("AcroForm"));
+        QVERIFY(acro != nullptr);
+        auto* markedField = [&]() -> const PoDoFo::PdfObject* {
+            if (acro->IsReference())
+                acro = &d.GetObjects().MustGetObject(acro->GetReference());
+            auto* fields = acro->GetDictionary().FindKey(PoDoFo::PdfName("Fields"));
+            if (!fields || !fields->IsArray()) return nullptr;
+            for (const auto& ref : fields->GetArray()) {
+                const PoDoFo::PdfObject* fieldObj = &ref;
+                if (fieldObj->IsReference())
+                    fieldObj = &d.GetObjects().MustGetObject(fieldObj->GetReference());
+                if (!fieldObj || !fieldObj->IsDictionary()) continue;
+                auto* t = fieldObj->GetDictionary().FindKey(PoDoFo::PdfName("T"));
+                if (t && t->IsString()
+                    && std::string_view(t->GetString().GetString()) == "MarkedField")
+                    return fieldObj;
+            }
+            return nullptr;
+        }();
+        QVERIFY2(markedField != nullptr,
+                 "G3: the field dict itself must survive the widget's removal");
+        QVERIFY2(!markedField->GetDictionary().HasKey(PoDoFo::PdfName("DV")),
+                 "G3: the marked field's /DV must be cleared");
+        QVERIFY2(fieldValueByName(dest, "KeepField") == QLatin1String("KeepFieldSecret"),
+                 "G3: the unmarked field's value must be untouched");
+    }
+    QVERIFY(QFile::exists(dest));
 }
 
 // G2 (audit REDACTION-RESEARCH-2026-09-21 §2.4): pattern-secret fixture — the
