@@ -281,6 +281,12 @@ private slots:
     // while the field structure survives and unmarked fields are untouched.
     void widgetFieldValueExcisedWhenWidgetMarked();
 
+    // ── G5 /Rect-underdraw (audit §2.1): appearances can DRAW OUTSIDE /Rect —
+    // a mark over what the user SEES must attribute and remove even when the
+    // bare /Rect does not intersect. Union of raw /Rect and the /AP /N bbox
+    // (mapped through /Matrix) in BOTH intersection tests.
+    void underdrawnAppearanceIsAttributedAndRemoved();
+
     // ── Destination semantics ──────────────────────────────────────────────
     void existingDestinationIsReplacedOnSuccess();
 
@@ -1311,6 +1317,106 @@ void TestRedactTransaction::widgetFieldValueExcisedWhenWidgetMarked() {
                  "G3: the unmarked field's value must be untouched");
     }
     QVERIFY(QFile::exists(dest));
+}
+
+static bool copyFileBytes(const QString& in, const QString& out) {
+    QFile::remove(out);
+    return QFile::copy(in, out);
+}
+
+// G5 (audit REDACTION-RESEARCH-2026-09-21 §2.1): FreeText whose APPEARANCE// spans beyond its declared /Rect — the classic underdraw. /Rect is
+// [200 400 300 420]; the /AP /N form XObject carries /BBox [0 0 200 40] and
+// /Matrix [1 0 0 1 -80 -10], so the appearance covers user space
+// [120 390 320 430]: a 40..80pt spill to the left of /Rect. The displayed
+// string is the annot's /Contents. A mark over the SPILL only must attribute
+// and remove — the bare /Rect misses it entirely.
+static bool makeUnderdrawnFreeTextPdf(const QString& path) {
+    try {
+        PoDoFo::PdfMemDocument doc;
+        auto& page = doc.GetPages().CreatePage(
+            PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+        PoDoFo::PdfPainter painter;
+        painter.SetCanvas(page);
+        auto& font = doc.GetFonts().GetStandard14Font(
+            PoDoFo::PdfStandard14FontType::Helvetica);
+        painter.TextState.SetFont(font, 12.0);
+        (painter.DrawText)("PUBLIC_KEEP_TEXT", 50, 650);
+        painter.FinishDrawing();
+
+        auto& annot = page.GetAnnotations().CreateAnnot(
+            PoDoFo::PdfAnnotationType::FreeText,
+            PoDoFo::Rect(200.0, 400.0, 100.0, 20.0));
+        annot.SetContents(PoDoFo::PdfString("UnderdrawSecretOmega"));
+
+        auto& n = doc.GetObjects().CreateDictionaryObject();
+        PoDoFo::PdfArray bbox;
+        bbox.Add(0.0); bbox.Add(0.0); bbox.Add(200.0); bbox.Add(40.0);
+        n.GetDictionary().AddKey(PoDoFo::PdfName("BBox"), bbox);
+        PoDoFo::PdfArray matrix;
+        matrix.Add(1.0); matrix.Add(0.0); matrix.Add(0.0);
+        matrix.Add(1.0); matrix.Add(-80.0); matrix.Add(-10.0);
+        n.GetDictionary().AddKey(PoDoFo::PdfName("Matrix"), matrix);
+        const char* appearance = "0 0 0 rg 2 2 196 36 re S\n";
+        n.GetOrCreateStream().SetData(PoDoFo::bufferview(
+            appearance, std::strlen(appearance)));
+        auto& ap = doc.GetObjects().CreateDictionaryObject();
+        ap.GetDictionary().AddKey(PoDoFo::PdfName("N"), n.GetIndirectReference());
+        annot.GetObject().GetDictionary().AddKey(PoDoFo::PdfName("AP"),
+                                                 ap.GetIndirectReference());
+
+        doc.Save(path.toUtf8().constData());
+        return true;
+    } catch (const std::exception& e) {
+        qWarning() << "makeUnderdrawnFreeTextPdf failed:" << e.what();
+        return false;
+    }
+}
+
+void TestRedactTransaction::underdrawnAppearanceIsAttributedAndRemoved() {
+    const QString src = m_tmpDir.filePath("underdraw.pdf");
+    QVERIFY2(makeUnderdrawnFreeTextPdf(src), "underdraw fixture creation failed");
+
+    // Mark over the SPILL only (user [130 395 190 420] → viewer y flipped for
+    // the unrotated A4 page: 842-420 .. 842-395 = 422..447).
+    const QRectF spillMark(130.0, 422.0, 60.0, 25.0);
+
+    // (a) Proof direction: with the output an untouched copy, the surviving
+    // secret must be ATTRIBUTED from the spill mark (so the proof fails
+    // loudly) — the bare /Rect would attribute nothing here.
+    {
+        const QString out = m_tmpDir.filePath("underdraw_copy.pdf");
+        QVERIFY(copyFileBytes(src, out));
+        gp::RedactionProof::Request pr;
+        pr.sourcePath = src;
+        pr.outputPath = out;
+        pr.redactionsByPage[0].append(spillMark);
+        const gp::RedactionProof::Result proof = gp::RedactionProof::verify(pr);
+        QVERIFY(proof.proofRan);
+        bool attributed = false;
+        for (const auto& e : proof.entries)
+            for (const auto& s : e.removedStrings)
+                attributed |= s.contains(QLatin1String("UnderdrawSecretOmega"));
+        QVERIFY2(attributed,
+                 "G5: the mark over the appearance spill must attribute the "
+                 "annot string (bare /Rect misses it)");
+        QVERIFY2(!proof.proofPassed,
+                 "G5: the proof must FAIL over the surviving underdrawn secret");
+    }
+
+    // (b) Excision direction: a real redaction with the spill mark removes
+    // the annot.
+    {
+        const QString dest = m_tmpDir.filePath("underdraw_redacted.pdf");
+        RedactRequest rq = makeRequest(src, dest, {0}, false);
+        rq.redactionsByPage.clear();
+        rq.redactionsByPage[0].append(spillMark);
+        RedactOperation op(rq);
+        RedactResult r = runOp(&op);
+        QVERIFY2(r.outcome == RedactOutcome::Completed, qPrintable(errText(r)));
+        PoDoFo::PdfMemDocument d;
+        d.Load(dest.toUtf8().constData());
+        QCOMPARE(d.GetPages().GetPageAt(0).GetAnnotations().GetCount(), 0u);
+    }
 }
 
 // G2 (audit REDACTION-RESEARCH-2026-09-21 §2.4): pattern-secret fixture — the

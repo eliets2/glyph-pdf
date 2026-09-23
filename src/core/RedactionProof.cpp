@@ -735,6 +735,77 @@ QString pdfStringToText(const PoDoFo::PdfString& s)
     return QString::fromUtf8(d, static_cast<int>(n));
 }
 
+// G5 (audit REDACTION-RESEARCH-2026-09-21 §2.1): the annotation's EFFECTIVE
+// coverage — the union of the raw /Rect and the appearance bbox (/AP /N
+// /BBox mapped through /Matrix, offset by the /Rect lower-left as the
+// annotation-space origin). Appearances can DRAW OUTSIDE /Rect (missing or
+// degenerate /Rect is legal; FreeText text overflow; Ink strokes outside the
+// declared box), so a mark over what the user SEES must intersect even when
+// the bare /Rect does not — otherwise nothing is excised, nothing is
+// attributed, and the proof has no target. Over-approximation is the safe
+// direction (the same stated principle as runIntersects' vertical headroom).
+// /N may be a single appearance stream or a sub-dictionary of named states;
+// every state's bbox is unioned. Kept in sync with the copy in
+// PoDoFoBackend.cpp (applyRedactions removal test).
+QRectF effectiveAnnotRectUser(PoDoFo::PdfAnnotation& annot)
+{
+    // May throw when /Rect is absent (honest-conservative: callers keep their
+    // existing GetRectRaw exception handling — UNSWEPT problem / skip).
+    const PoDoFo::Rect r = annot.GetRectRaw().GetNormalized();
+    QRectF rect(qMin(r.GetLeft(), r.GetRight()),
+                qMin(r.GetBottom(), r.GetTop()),
+                qAbs(r.GetRight() - r.GetLeft()),
+                qAbs(r.GetTop() - r.GetBottom()));
+    const double originX = rect.left();
+    const double originY = rect.bottom();
+
+    auto& annoObj = annot.GetObject();
+    if (!annoObj.IsDictionary()) return rect;
+    const PoDoFo::PdfObject* ap = annoObj.GetDictionary().FindKey("AP");
+    if (!ap || !ap->IsDictionary()) return rect;
+    const PoDoFo::PdfObject* n = ap->GetDictionary().FindKey("N");
+    if (!n || !n->IsDictionary()) return rect;
+
+    QList<const PoDoFo::PdfObject*> forms;
+    if (n->HasStream()) {
+        forms.append(n);
+    } else {
+        for (const auto& kv : n->GetDictionary())
+            if (kv.second.HasStream()) forms.append(&kv.second);
+    }
+
+    for (const PoDoFo::PdfObject* form : forms) {
+        const auto& fd = form->GetDictionary();
+        const auto* bboxObj = fd.FindKey("BBox");
+        if (!bboxObj || !bboxObj->IsArray() || bboxObj->GetArray().GetSize() < 4)
+            continue;
+        double m[6] = {1.0, 0.0, 0.0, 1.0, 0.0, 0.0};
+        if (const auto* mObj = fd.FindKey("Matrix");
+            mObj && mObj->IsArray() && mObj->GetArray().GetSize() >= 6) {
+            for (int i = 0; i < 6; ++i)
+                m[i] = mObj->GetArray()[i].GetReal();
+        }
+        const double bx0 = bboxObj->GetArray()[0].GetReal();
+        const double by0 = bboxObj->GetArray()[1].GetReal();
+        const double bx1 = bboxObj->GetArray()[2].GetReal();
+        const double by1 = bboxObj->GetArray()[3].GetReal();
+        const double corners[4][2] = {{bx0, by0}, {bx1, by0}, {bx1, by1}, {bx0, by1}};
+        double minX = 0, minY = 0, maxX = 0, maxY = 0;
+        for (int i = 0; i < 4; ++i) {
+            const double ax = m[0] * corners[i][0] + m[2] * corners[i][1] + m[4];
+            const double ay = m[1] * corners[i][0] + m[3] * corners[i][1] + m[5];
+            if (i == 0) { minX = maxX = ax; minY = maxY = ay; }
+            else {
+                minX = qMin(minX, ax); maxX = qMax(maxX, ax);
+                minY = qMin(minY, ay); maxY = qMax(maxY, ay);
+            }
+        }
+        rect = rect.united(QRectF(originX + minX, originY + minY,
+                                  maxX - minX, maxY - minY));
+    }
+    return rect;
+}
+
 void collectAnnotStrings(PoDoFo::PdfAnnotation& annot, QList<AnnotString>* out)
 {
     // F1 (independent review 2026-09-14): read the RAW /Rect from the
@@ -751,11 +822,10 @@ void collectAnnotStrings(PoDoFo::PdfAnnotation& annot, QList<AnnotString>* out)
     // GetRectRaw() is PoDoFo's own dictionary accessor (raises when /Rect is
     // absent — same failure shape GetRect() had, caught by the caller's
     // honest UNSWEPT handling below).
-    const PoDoFo::Rect r = annot.GetRectRaw().GetNormalized();
-    const QRectF rect(qMin(r.GetLeft(), r.GetRight()),
-                      qMin(r.GetBottom(), r.GetTop()),
-                      qAbs(r.GetRight() - r.GetLeft()),
-                      qAbs(r.GetTop() - r.GetBottom()));
+    // G5: attribution geometry is the EFFECTIVE coverage (raw /Rect ∪ the
+    // /AP /N appearance bbox mapped through /Matrix) — a mark over what the
+    // user sees must attribute even when the appearance draws outside /Rect.
+    const QRectF rect = effectiveAnnotRectUser(annot);
 
     auto add = [&](const QString& text) {
         if (!text.trimmed().isEmpty())
