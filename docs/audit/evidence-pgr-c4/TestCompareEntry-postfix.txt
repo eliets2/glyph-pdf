@@ -1,0 +1,191 @@
+********* Start testing of TestCompareEntry *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestCompareEntry::initTestCase()
+PASS   : TestCompareEntry::distinctExistingFilesAreComparable()
+PASS   : TestCompareEntry::sameFileIsRejected()
+PASS   : TestCompareEntry::missingFileIsRejected()
+PASS   : TestCompareEntry::changeTypeFilterSeamCountsVisibleRows()
+PASS   : TestCompareEntry::filterTogglesExistCheckedByDefaultAndWired()
+PASS   : TestCompareEntry::togglingFiltersHidesRowsImmediatelyWithoutMutatingResult()
+PASS   : TestCompareEntry::structuralFilterSeamCountsAddedRemovedRows()
+PASS   : TestCompareEntry::structuralRowsAppearWithOwnFilterTagAndSideNames()
+PASS   : TestCompareEntry::statusTotalsCountStructuralChanges()
+PASS   : TestCompareEntry::reportsNamePageAndSideForStructuralChanges()
+PASS   : TestCompareEntry::treeSelectionJumpsToStructuralChangeInSharedSequence()
+PASS   : TestCompareEntry::widgetNavigationIncludesStructuralChangesAndSyncsViewers()
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 0 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 0 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 0 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 0 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 0 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 1 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 1 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 1 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 1 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 2
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 1 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 2
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 2 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 2 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 2 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 2 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 2 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 3 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 3 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 3 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 3 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 3
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 3 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 3
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 4 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 4 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 4 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 4 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 2
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 4 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 2
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 5 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 5 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 5 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 5 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 3
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 5 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 3
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 6 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 6 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 6 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 6 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 3
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 6 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 3
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 7 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 7 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 7 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 7 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 4
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 7 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 4
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 8 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 8 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 8 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 8 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 8 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 9 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 9 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 9 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 9 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 3
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 9 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 3
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 10 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 10 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 10 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 10 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 2
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 10 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 2
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 11 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 11 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 11 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 11 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 4
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 11 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 4
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 12 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 12 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 12 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 12 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 3
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 12 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 3
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 13 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 13 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 13 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 13 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 4
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 13 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 4
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 14 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 14 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 14 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 14 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 4
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 14 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 4
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 15 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 15 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 15 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 15 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 5
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 15 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 5
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 16 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 16 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 16 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 16 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 16 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 17 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 17 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 17 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 17 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 2
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 17 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 2
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 18 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 18 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 18 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 18 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 18 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 19 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 19 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 19 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 19 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 3
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 19 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 3
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 20 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 20 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 20 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 20 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 2
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 20 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 2
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 21 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 21 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 21 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 21 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 3
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 21 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 3
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 22 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 22 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 22 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 22 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 3
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 22 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 3
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 23 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 23 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 23 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 23 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 4
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 23 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 4
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 24 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 24 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 24 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 24 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 24 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 25 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 25 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 25 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 25 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 3
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 25 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 3
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 26 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 26 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 26 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 26 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 2
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 26 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 2
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 27 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 0
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 27 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 27 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 27 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 4
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 27 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 4
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 28 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 28 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 28 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 28 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 3
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 28 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 0", 3
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 29 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 29 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 29 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 29 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 4
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 29 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 0", 4
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 30 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 30 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 30 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 30 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 4
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 30 (T%d M%d P%d PM%d AR%d): changeCount 0 != rowsVisibleForFilters 1", 4
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 31 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 31 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 31 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 1
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 31 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 5
+QWARN  : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations() QString::arg: Argument missing: "sample mask 31 (T%d M%d P%d PM%d AR%d): changeCount 1 != rowsVisibleForFilters 1", 5
+PASS   : TestCompareEntry::filteredChangeCountMatchesRowsVisibleForFiltersForAllCombinations()
+PASS   : TestCompareEntry::filteredAnchorOrderIsStructuralFirstThenVisiblePages()
+PASS   : TestCompareEntry::zeroFilterSaysNoMatchNeverIdentical()
+PASS   : TestCompareEntry::overlayFollowsSelectedChangeAndClearsWithToggle()
+PASS   : TestCompareEntry::placeholdersExplainMissingSidesAndClearOnBothSideAnchors()
+PASS   : TestCompareEntry::middleInsertionRendersSingleAddRowFilterGateAndReport()
+PASS   : TestCompareEntry::linkedScrollMapsRatioToFollowerPage()
+QWARN  : TestCompareEntry::linkedScrollGuardPreventsPingPong() This plugin does not support propagateSizeHints()
+PASS   : TestCompareEntry::linkedScrollGuardPreventsPingPong()
+PASS   : TestCompareEntry::statusCounterMatchesFilteredChangeCount()
+PASS   : TestCompareEntry::everyVisibleTreeRowMapsIntoFilteredSharedSequence()
+PASS   : TestCompareEntry::exportReportsHonorCurrentFilter()
+PASS   : TestCompareEntry::toolbarSurfacesLinkToggleSwapAndPageCounts()
+PASS   : TestCompareEntry::cleanupTestCase()
+Totals: 26 passed, 0 failed, 0 skipped, 0 blacklisted, 1555ms
+********* Finished testing of TestCompareEntry *********

@@ -1,0 +1,10 @@
+********* Start testing of TestSep13LeadComparePerf *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSep13LeadComparePerf::initTestCase()
+QINFO  : TestSep13LeadComparePerf::anchorRoleRecomputeStaysNearLinear() anchor-role recompute: rows = 2000 -> 0.102539 ms/pass over 1024 repeats; rows = 8000 -> 0.412109 ms/pass; ratio = 4.01905 (linear expectation ~4x, memo cache effects push the fixed baseline to ~6-8x; the O(rows x anchors) regression measured 15.8-16.5x)
+PASS   : TestSep13LeadComparePerf::anchorRoleRecomputeStaysNearLinear()
+QINFO  : TestSep13LeadComparePerf::structuralAnchorLookupStaysNearLinear() structural anchor lookup: rows = 2000 -> 0.111328 ms/pass over 1024 repeats; rows = 8000 -> 0.411133 ms/pass; ratio = 3.69298 (linear expectation ~4x, memo cache effects push the fixed baseline to ~6-8x; the O(rows x anchors) regression measured 15.8-16.5x on the page half)
+PASS   : TestSep13LeadComparePerf::structuralAnchorLookupStaysNearLinear()
+PASS   : TestSep13LeadComparePerf::cleanupTestCase()
+Totals: 4 passed, 0 failed, 0 skipped, 0 blacklisted, 4636ms
+********* Finished testing of TestSep13LeadComparePerf *********

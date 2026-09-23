@@ -7,6 +7,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
+#include <QSet>
 
 #include <podofo/podofo.h>
 
@@ -1116,6 +1117,14 @@ Result verify(const Request& request)
     }
 
     // ── Entry adjudication ───────────────────────────────────────────────────
+    // PGR-10: pages with at least one mark that DID attribute strings — used
+    // to tell "glyphs were excised but attribution saw none of them" apart
+    // from "the attributed strings explain the excised operators".
+    QSet<int> pagesWithAttributedStrings;
+    for (const EntryWork& w : works) {
+        if (!w.entry.removedStrings.isEmpty())
+            pagesWithAttributedStrings.insert(w.entry.pageIndex);
+    }
     for (EntryWork& w : works) {
         ExcisionEntry& e = w.entry;
         const PageMechanics& before = srcMechanics.value(e.pageIndex);
@@ -1150,9 +1159,34 @@ Result verify(const Request& request)
             e.status = EntryStatus::Failed;
             e.detail = entryFailures.join(QStringLiteral("; "));
         } else if (e.removedStrings.isEmpty()) {
-            e.status = EntryStatus::VerifiedNoTextInRegion;
-            e.detail = QStringLiteral("the mark covered no extractable text (nothing was removed "
-                                      "by this mark); verify this matches your intent");
+            // PGR-10: "no text in region" is only certifiable when nothing on
+            // the page contradicts it. Glyph operators WERE excised on this
+            // page, yet extraction attributed nothing to ANY mark on it: at
+            // least one excision removed glyphs attribution cannot name (the
+            // engine's content-stream pen geometry and PDFium's run rects are
+            // different approximations, and the G-lane attribution margins
+            // cover — not prove — their agreement). A mark whose attribution
+            // came back empty cannot claim verified-no-text-in-region while
+            // unaccounted glyphs were excised beside it; record unverifiable
+            // instead. (PDFium's own fallbacks — byte-identity and
+            // replacement-char runs — make literally-unscannable text rare,
+            // so no page-wide "runs == 0" rule: an empty-string operator
+            // carries no glyphs and must stay an honest empty region.)
+            const bool excisionSawUnattributableGlyphs =
+                e.textOpsBefore > 0 && e.textOpsAfter < e.textOpsBefore
+                && !pagesWithAttributedStrings.contains(e.pageIndex);
+            if (excisionSawUnattributableGlyphs) {
+                e.status = EntryStatus::Unverifiable;
+                e.detail = QStringLiteral(
+                    "glyph operators were excised on this page that extraction "
+                    "could not attribute to any mark — whether this mark "
+                    "covered such text cannot be checked; no claim is made "
+                    "either way");
+            } else {
+                e.status = EntryStatus::VerifiedNoTextInRegion;
+                e.detail = QStringLiteral("the mark covered no extractable text (nothing was removed "
+                                          "by this mark); verify this matches your intent");
+            }
         } else {
             e.status = EntryStatus::Verified;
             e.detail = QStringLiteral("%1 attributed string(s); none survive on any swept surface")
@@ -1192,6 +1226,16 @@ Result verify(const Request& request)
     for (const QString& p : fatalProblems) {
         if (!failures.contains(p)) failures.append(p);
         sweepFullyReachable = false;
+    }
+    // PGR-10: an unverifiable entry is exactly what a PASS must never paper
+    // over — the pack's verdict names it and cannot pass while it stands.
+    for (const ExcisionEntry& e : out.entries) {
+        if (e.status == EntryStatus::Unverifiable)
+            failures.append(QStringLiteral(
+                "UNVERIFIED [page %1] glyph operators were excised on this "
+                "page that extraction could not attribute — the mark's "
+                "\"no text in region\" claim cannot be checked, so the entry "
+                "is recorded unverifiable, not certified").arg(e.pageIndex + 1));
     }
 
     out.surfaces = surfaces;
@@ -1246,6 +1290,7 @@ QString entryStatusName(EntryStatus status)
     switch (status) {
     case EntryStatus::Verified:               return QStringLiteral("verified");
     case EntryStatus::VerifiedNoTextInRegion: return QStringLiteral("verified-no-text-in-region");
+    case EntryStatus::Unverifiable:           return QStringLiteral("unverifiable");
     case EntryStatus::Failed:                 return QStringLiteral("failed");
     }
     return QStringLiteral("unknown");
@@ -1285,7 +1330,10 @@ const char* kDisclaimer =
     "extraction (for example a subset font without a usable /ToUnicode map) is "
     "invisible to attribution and to the extracted-text survivor sweep alike, "
     "and literal byte search cannot decode glyph identifiers — such text is "
-    "NOT covered by a PASS. A PASS is the strongest statement this tool makes: "
+    "NOT covered by a PASS: a redaction whose page shows glyph operators "
+    "excised without attribution is flagged UNVERIFIABLE in the manifest and "
+    "the pack verdict fails rather than certify what it cannot check. A PASS "
+    "is the strongest statement this tool makes: "
     "every check it knows how to run found nothing. Legacy XFA form data is "
     "likewise outside every swept surface: it re-encodes form values in streams "
     "no sweep can attribute, so GlyphPDF refuses to redact XFA-bearing "

@@ -65,6 +65,12 @@ QString methodName(Method method);
 enum class EntryStatus {
     Verified,              // attributed strings swept clean on every surface
     VerifiedNoTextInRegion,// mark covered no extractable text (nothing removed — recorded honestly)
+    Unverifiable,          // PGR-10: the page carries glyph-drawing operators but
+                           // extraction yields nothing to attribute (e.g. a subset
+                           // font without a usable /ToUnicode map) — the "no text
+                           // in region" claim cannot be checked either way. Rolled
+                           // into the pack verdict: the proof cannot PASS while an
+                           // entry is unverifiable.
     Failed                 // a survivor matched this entry's strings, or its mechanical evidence is missing
 };
 QString entryStatusName(EntryStatus status);
