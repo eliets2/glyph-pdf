@@ -51,6 +51,25 @@ DiffResult makeResultWithChanges(int rows) {
     return r;
 }
 
+// PGR-10 triage (lead-12 completion): the STRUCTURAL half of the same
+// finding — N added/removed page changes give N structural rows, and
+// applyChangeTypeFilters maps every visible row per toggle through
+// anchorIndexForStructuralChange, which was still a linear scan over the
+// anchors after the page half was memoized.
+DiffResult makeResultWithStructuralChanges(int rows) {
+    DiffResult r;
+    r.isIdentical = false;
+    r.pageCount1 = rows;
+    r.pageCount2 = rows;
+    for (int i = 0; i < rows; i += 2)
+        r.pageChanges.append({DiffResult::PageChangeType::PageRemoved,
+                              i, -1, QString()});
+    for (int i = 1; i < rows; i += 2)
+        r.pageChanges.append({DiffResult::PageChangeType::PageAdded,
+                              -1, i, QString()});
+    return r;
+}
+
 qint64 measureToggleWorkMs(CompareWidget& widget, int rows, int repeats = 1) {
     // One filter toggle's worth of anchor-role recomputation,
     // exactly what applyChangeTypeFilters does per visible row,
@@ -61,6 +80,18 @@ qint64 measureToggleWorkMs(CompareWidget& widget, int rows, int repeats = 1) {
     for (int r = 0; r < repeats; ++r)
         for (int i = 0; i < rows; ++i)
             sink += widget.anchorIndexForPage(i);
+    return timer.elapsed();
+}
+
+qint64 measureStructuralToggleWorkMs(CompareWidget& widget, int rows, int repeats = 1) {
+    // The structural counterpart: one toggle's worth of
+    // anchorIndexForStructuralChange lookups over the pageChanges sequence.
+    QElapsedTimer timer;
+    timer.start();
+    volatile qint64 sink = 0;
+    for (int r = 0; r < repeats; ++r)
+        for (int i = 0; i < rows; ++i)
+            sink += widget.anchorIndexForStructuralChange(i);
     return timer.elapsed();
 }
 
@@ -103,6 +134,45 @@ private slots:
                  "CompareWidget::m_anchorIndexByPage still consulted by "
                  "anchorIndexForPage, and is it still rebuilt in buildHtml?")
                      .arg(ratio, 0, 'f', 1).toUtf8().constData());
+    }
+
+    void structuralAnchorLookupStaysNearLinear() {
+        // PGR-10 triage completion of the same lead-12 finding: the structural
+        // half of applyChangeTypeFilters' per-row mapping was still a linear
+        // scan (the page half was memoized by the follow-ups lane). Same
+        // two-sizes-4x-apart near-linear guard, same < 10.0x ceiling.
+        CompareWidget widget;
+
+        const int small = 2000;
+        const int large = 8000;
+
+        widget.setDiffResult(makeResultWithStructuralChanges(small));
+        int repeats = 1;
+        qint64 tSmallTotal = measureStructuralToggleWorkMs(widget, small, repeats);
+        while (tSmallTotal < 100 && repeats < (1 << 20)) {
+            repeats *= 4;
+            tSmallTotal = measureStructuralToggleWorkMs(widget, small, repeats);
+        }
+        const double tSmall = double(tSmallTotal) / repeats;
+
+        widget.setDiffResult(makeResultWithStructuralChanges(large));
+        const qint64 tLargeTotal = measureStructuralToggleWorkMs(widget, large, repeats);
+        const double tLarge = double(tLargeTotal) / repeats;
+
+        const double ratio = tLarge / tSmall;
+        qInfo() << "structural anchor lookup: rows =" << small << "->" << tSmall << "ms/pass"
+                << "over" << repeats << "repeats;"
+                << "rows =" << large << "->" << tLarge << "ms/pass; ratio =" << ratio
+                << "(linear expectation ~4x, memo cache effects push the fixed "
+                   "baseline to ~6-8x; the O(rows x anchors) regression measured "
+                   "15.8-16.5x on the page half)";
+        QVERIFY2(ratio < 10.0,
+                 QStringLiteral("lead-12 structural half REGRESSED: "
+                 "anchorIndexForStructuralChange grows superlinearly again (ratio %1 "
+                 "at 4x rows; fixed baseline is ~6-8x) — is "
+                 "CompareWidget::m_anchorIndexByStructuralChange still consulted by "
+                 "anchorIndexForStructuralChange, and is it still rebuilt in "
+                 "buildHtml?").arg(ratio, 0, 'f', 1).toUtf8().constData());
     }
 };
 

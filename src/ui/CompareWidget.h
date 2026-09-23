@@ -168,6 +168,13 @@ private:
     // per-toggle cost from O(rows × anchors) into O(rows).
     QHash<int, int>  m_anchorIndexByPage;
 
+    // PGR-10 triage completion of the same L12 finding: the structural
+    // half of applyChangeTypeFilters' per-row mapping (added/removed/moved
+    // page rows → anchor index) still walked m_anchors linearly per row per
+    // toggle — O(structural rows × anchors) on the GUI thread. Same memo,
+    // same rebuild funnel, same first-match-wins contract.
+    QHash<int, int>  m_anchorIndexByStructuralChange;
+
     // Linked scrolling (U04). m_syncingScroll cuts the valueChanged loop the
     // moment one side drives the other; m_suppressSync keeps anchor-driven
     // page jumps (applyAnchor) exact — free-scroll syncing must never fight
