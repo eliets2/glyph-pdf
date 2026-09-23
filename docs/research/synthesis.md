@@ -19,6 +19,21 @@ GlyphPDF's ledger shows it already owns an unusual concentration of what the mar
 
 ## 2. The Ranked Build-List
 
+> **2026-09-20 GROUND TRUTH (sweep W3).** The four Tier-1 items below are no longer missing —
+> all four have landed at least their core at tip `ec9f16f` (implemented-awaiting-review unless
+> a named independent review says otherwise): T1-2 redaction-proof mode SHIPPED (`15f3f1c`, T2
+> lane), T1-1 measurement toolset SHIPPED (`de77d46`/`e73a446` + G21–G23, plus the CSV export
+> the build note asked for — `d4b45b24`), T1-3 form-JS run-side SHIPPED for Calculate/Format
+> (`baf031e` family + R05 hardening `77bc50b`/`8afccc5`) and Keystroke (`bcd34eb`, verified by
+> R14) with the /AA /V Validate tier wired in the fill-commit path (`FormManager.cpp:598`);
+> **still open:** Phase 3 (OpenAction + document-level scripts + consent UX) and the
+> worker-process sandbox recommendation; T1-4 send-for-signing P1 SHIPPED as the local
+> single-document workflow with an ordered multi-signer sidecar and no network
+> (`57cca6d`/`97c59a1`/`bc0ade4`); P2–P4 (package routing, reminders, audit-trail PDF,
+> LTV/DSS display) open. Per-item status: see the 2026-09-20 reconciliation in
+> `RESEARCH-BACKLOG-2026-09-10.md` and `docs/audit/SWEEP-W3-RESEARCH-2026-09-20.md`. The
+> item texts below are preserved as written 2026-09-08.
+
 ### TIER 1 — Demand in ≥8 tools (or the corpus's top user demand) + missing in GlyphPDF + offline-feasible
 
 **T1-1. Measurement toolset (distance / perimeter / area annots + scale calibration + units + CSV export).**
@@ -170,6 +185,64 @@ Positioning footnote (not a feature row): the licensing dimension is a de-facto 
 ## 6. Confidence
 
 **High** for the tier rankings' demand counts (each count cites the per-tool report rows; absence claims in moat rows M1/M2/M5 are sitemap/source-verified in their reports). **Medium** for exact tool counts where a report graded edition-gating as "inferred" (Foxit datasheet extraction, ~15% of rows) or where partial implementations were counted (form JS: 6 full + 2 partial). **Medium** overall on the moat table's "≥half lack it" arithmetic where a competitor's depth is UNVERIFIABLE rather than absent (PDFgear redaction/signing depth, Smallpdf PDF/A levels). The synthesis inherits, and does not upgrade, the verdicts of its sources.
+
+## 7. Ground-Truth Addendum — 2026-09-20 (sweep W3 reconciliation)
+
+Written 2026-09-08, this document graded GlyphPDF MISSING on all four Tier-1 items. At tip
+`ec9f16f` the moat framing is:
+
+**Tier-1 — all four landed in core (implemented-awaiting-review unless noted):**
+- **T1-2 Redaction Proof Mode: SHIPPED** — `15f3f1c` (RedactionProof + produceProof on both
+  entry paths + 20-test suite, T2 lane; L5/L7/L8 page-space repairs `1e2ab02`/`f2a9d06`/`938401b`
+  and F1 excision repair verified by the R14 independent review; proof pack now carried into
+  the printable review summary). The corpus's #1 demand remains 0/16 competitors — this is now
+  a **shipped** differentiator, not a roadmap item.
+- **T1-1 Measurement toolset: SHIPPED** — `de77d46`/`e73a446`/`83706cf`/`69f8a94` (G21–G23 +
+  MeasureMode panel) and the CSV export the build note called professional-grade: `d4b45b24`
+  (N1, TestMeasureCsvExport). Per-viewport scales and AP-stream captions remain deferred
+  (backlog N54).
+- **T1-3 Form-JS: SHIPPED for run-side P1 + Keystroke P2** — Calculate/Format
+  (`baf031e`/`86f8637`/`ac3698f`) hardened by R05 (`77bc50b`/`8afccc5`, 29-slot suite);
+  Keystroke tier `bcd34eb` **verified (R14)** (TestFormKeystroke real key events); the /AA /V
+  Validate tier is wired inside fillForm's transaction in Acrobat order (validate → commit;
+  `FormManager.cpp:598`, same R18(f) family). **Open:** Phase 3 — OpenAction +
+  document-level named scripts + consent UX (hooks only, `FormJsRunner.h:153`); the R05
+  residual recommends moving execution to a restricted worker process with a parent watchdog.
+- **T1-4 Send-for-signing: SHIPPED at P1** — the local single-document workflow
+  (`57cca6d`/`0591693`/`97c59a1`/`bc0ade4`): versioned sidecar (`<doc>.signrequest.json`),
+  ordered multi-signer steps, lazy field placement through the PageSpace law, real-sign fill
+  runner over the public PAdES seams, mutation/re-confirm gate. **No network, no email, no
+  envelope service** — the guardrail held. Open: P2–P4 (package routing, reminders,
+  audit-trail PDF, DocMDP prepare-time certification, LTV/DSS validation display).
+
+**The "Timestamp document dead command" finding: RESOLVED at tip.** The 2026-09-10 finding
+(`setTsaUrl`/`setSignatureLevel` with zero production call sites; B-T branch skipping on an
+empty TSA URL) was fixed by R19 `abc87de2`: signing/TSA/PAdES are settings-driven
+(`SecurityController.cpp:1114` ← `readSigningConfig`, pinned end-to-end by R19-pin `8a3eee6`,
+verified by R14), `SecurityController::timestampDocument()` is a live command, a failed B-T
+timestamp is PartialLtvMissing and renders as such (L1 `d58896f` + RES-1 `2a334ca`), and the
+TSA touchpoint is policy-effective (R24-W1 `03f4606`; SWEEP-W2B F4 independently verified).
+B-T/B-LT/B-LTA are reachable via Preferences — the honest caveat is now "implemented-awaiting-
+review", not "dead".
+
+**Tier-2 statuses per the backlog reconciliation** (`RESEARCH-BACKLOG-2026-09-10.md`):
+T2-1 presets SHIPPED-P1 (`f17f47f`/`eb42ab1` + W1-01 verified); T2-2 find&replace SHIPPED
+(`7e32093`); T2-3 statuses+summary SHIPPED (`7e32093` + printable surface `2eb4ff6`/`8184a95`);
+T2-4 SHIPPED-P1 checker/panel/fixes (`41300f0`/`c6a56b2`; tagging/auto-tag/PDF-UA open);
+T2-6 stamps SHIPPED (`7e32093`, dead Stamps-menu defect closed); T2-7 DocMDP certify SHIPPED
+(`e6e2276` + FU-1 `15c0d11`); T2-9 auto-bookmarks SHIPPED (`7e32093`). Unchanged-open:
+T2-5 (cross-doc Bates `69cb6e4` only), T2-8, T2-10–T2-13. Tier-3: T3-1 certificate encryption
+SHIPPED (`d423ba3`); T3-9 skip-OCR SHIPPED (`2a82738` + Q-lane); T3-3's "copy the banner
+meanwhile" half SHIPPED (`3cb1b424` — static XFA fill itself stays persona-gated N44);
+T3-4/T3-2/T3-5–T3-14 open as written. N4's OCSP toggle landed as a consent switch with a
+global "never" (`d574530`) — refuse-with-whyNot rather than offline-degraded validation; the
+degraded-validation wording stays open.
+
+**Moat table effect:** M7 (redaction combo) and a new row the table didn't have —
+machine-verifiable redaction proof + local signing-request workflow — are now **shipped**
+capabilities no corpus competitor documents. M1's PAdES row gains the settings-driven TSA/PAdES
+configuration; the honest-at-attained-level disclosure (SignOutcome → UI wording) that M8
+preached is itself shipped on the signing path.
 
 ## Sources
 All 17 input reports in `C:\Users\User\Projects\pdf\.context\research\` (acrobat.md, foxit.md, nitro.md, pdfxchange.md, masterpdf.md, updf.md, pdfexpert.md, pdfgear.md, sejda.md, bluebeam.md, ilovepdf.md, pdf24.md, libreoffice-draw.md, okular.md, abbyy-finereader.md, smallpdf.md, r-pdf-mining.md — each with its own primary-source list); GlyphPDF status: `C:\Users\User\Projects\pdf-parity\docs\audit\CURRENT-EVIDENCE-LEDGER-2026-09-05.md` and `C:\Users\User\Projects\pdf-parity\PRD.md` (v1.3.1 §27/§28). PRD path note: the briefed `docs\PRD.md` does not exist; the PRD lives at the repo root of pdf-parity (mirrored at `C:\Users\User\Projects\pdf\PRD.md`).

@@ -172,3 +172,72 @@ unresolvable ones.
   164 svgs, 164 qrc entries, 5 unresolvable names — machine-checked.
 - Everything else is source tracing at `de77d46` with file:line citations in the matrix;
   per execution-prompt protocol none of it is `verified`, and behaviors were not executed.
+
+## G. Ground-truth addendum — 2026-09-20 (sweep W3 research reconciliation)
+
+The CSV itself was updated by the landing lanes after this notes file was written. This
+addendum records the 2026-09-15→20 wave so the notes stay a faithful companion. Reconciliation
+log: `docs/audit/SWEEP-W3-RESEARCH-2026-09-20.md`. Everything below is a re-count/re-read of
+the CSV and the evidence ledger at tip `ec9f16f` — nothing re-graded evidence status.
+
+### G.1 Count shifts (300 → 311 data rows; +11)
+
+| Disposition class | 09-09 notes | 09-20 recount | Δ |
+|---|---:|---:|---:|
+| implemented+available | 226 | **237** | +11 |
+| implemented+missing-context | 27 | 27 | 0 |
+| implemented+dependency-unavailable | 2 | 2 | 0 |
+| obsolete-alias-duplicate | 8 | 8 | 0 |
+| planned-unimplemented | 37 | 37 | 0 |
+| **Total** | **300** | **311** | **+11** |
+
+Hidden-ribbon composition is UNCHANGED at 52 (16 wire-ups + 8 aliases + 28 planned) — the wave
+added visible commands, it did not wire hidden ones. Ribbon visible rows: 92 → **95**.
+Menu "Disabled Planned" rows: still the same 9 (new-window, paste, select-all, rulers, guides,
+grid, tile, updates + Active-Document label).
+
+### G.2 The 11 new rows (all implemented+available, all implemented-awaiting-review)
+
+| Surface | Row | stable_command_id | Wave item (ledger section) |
+|---|---|---|---|
+| ribbon | Encrypt (Certs) | `certEncrypt` | N17 certificate-encryption UI (`d423ba3`) |
+| ribbon | Certify (level selector) | `certify` ⚠ duplicate id, see G.4 | N18 DocMDP certify UI (`e6e2276`; seam FU-1 `15c0d11`) |
+| ribbon | Prepare signing request | `prepareSigningReq` | send-for-signing P1 (`57cca6d`/`97c59a1`/`bc0ade4`) |
+| screen-nav | Accessibility | `accessibility` | T2-4 P1 checker+panel (`41300f0`/`c6a56b2`) |
+| panel | Export CSV (Measurements) | `measure-export-csv` ⚠ row defect, see G.4 | N1 measurement CSV (`d4b45b24`) |
+| panel | FIX (per-finding a11y) | `a11y-fix` | T2-4 P1 cheap fixes (`c6a56b2`) |
+| disclosure | XFA honesty banner | `xfa-disclosure` | N2 XFA banner (`3cb1b424`) |
+| batch | Skip already-text | `ocr-skip-text` | N3 skip-OCR (`2a82738` + Q-lane) |
+| preferences-dialog | policy status line | — | R24(a) machine policy (`8ea3876`) |
+| preferences-dialog | Export support bundle... | — | R24(b) redacted bundle (`c766623`) |
+| preferences-dialog | read-only network enumeration | — | R24(c) NetworkTouchpoints (`60212ca`) |
+
+### G.3 Rows made stale by the wave (content, not counts — owner lanes may rebaseline)
+
+- Ribbon `measure`/`distance`/`area` (rows 52–54) still describe MeasureMode as "UNTRACKED WIP
+  of the measure lane … no .cpp yet" — that lane LANDED (`e73a446` T1/UI; MeasureMode.{h,cpp}
+  committed, TaskNav/ModeController wired, menu mirrors live). The rows understate three now-
+  available commands; the new `measure-export-csv` panel row carries the post-landing state.
+- The notes' §E "Menu Stamps submenu: UNCONNECTED QActions" defect is FIXED (T2-6 `7e32093`
+  wired the submenu through the registry, `MenuBar.cpp:104–111`); the three ribbon Forms
+  `calc`-adjacent and Comment `summary`/`trackChanges` planned rows are superseded in spirit by
+  T2-3's panel-action summary (deliberately no global ToolId — recorded deviation) while the
+  ribbon rows themselves remain hidden/planned.
+
+### G.4 CSV mechanical defects found during the recount (report; not repaired here)
+
+1. Row `measure-export-csv` (line 302) parses as **28 fields, not 21** — the
+   `output_or_state_change` cell contains unquoted commas ("CSV file (Page,Type,Value,Unit,
+   Calibrated,Scale,Label,Vertices; …)"). Downstream effect: that row's `review_status`
+   reads as garbage ("Label") to any RFC-4180 parser; the intended value
+   (implemented-awaiting-review) is visible in the trailing fields.
+2. Row "Certify (level selector)" (line 306) reuses **stable_command_id `certify`**, which
+   line 141 already carries as a visible ribbon row — two visible rows, one canonical id. Per
+   the notes' §C canonicalization discipline this needs either an alias mapping or an
+   id split (e.g. `certify` vs `certifyLevel`) when the matrix is next rebaselined.
+
+### G.5 Vocabulary note
+
+The 11 new rows are honest: every one is marked implemented-awaiting-review with a
+test_or_repro + evidence_path, matching the ledger's discipline (nothing self-flips to
+"verified"; the R14/SWEEP-W2B-verified subset is recorded in the ledger, not the CSV).
