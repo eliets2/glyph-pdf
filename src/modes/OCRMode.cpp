@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "OCRMode.h"
+#include "shell/FlowToolbarLayout.h"
 #include "engines/ocr/RapidOcrEngine.h"
 #include "core/OcrTypes.h"
 #include "util/GpTheme.h"
@@ -93,8 +94,16 @@ OCRMode::OCRMode(QWidget* parent) : QWidget(parent) {
 
 void OCRMode::buildToolbar(QVBoxLayout* col)
 {
-    auto* tb = makeStrip("modeToolbar", Theme::ToolbarH);
-    auto* row = new QHBoxLayout(tb);
+    // F1 (SWEEP-W3-UI): wrapping flow toolbar — identical single-line at
+    // 1920; wraps to a second line below the single-line requirement instead
+    // of forcing the window minimum past the 1366 viewport. The host keeps a
+    // MINIMUM strip height rather than makeStrip's fixed one, so when a
+    // continuation line appears the strip grows and nothing is clipped.
+    auto* tb = new QFrame;
+    tb->setProperty("role", "modeToolbar");
+    tb->setMinimumHeight(Theme::ToolbarH);
+    auto* row = new FlowToolbarLayout(tb);
+    row->setLineHeightFloor(Theme::ToolbarH);
     row->setContentsMargins(10, 0, 10, 0);
     row->setSpacing(6);
 
@@ -352,7 +361,17 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     // crop is actually drawn: the zoom pane).
     impHeadRow->addWidget(monoLab(tr("SOURCE PAGE")));
     impHeadRow->addStretch(1);
-    impHeadRow->addWidget(monoLab(tr("click a word to inspect it")));
+    // F1: the decorative hint must not harden the pane's (and so the four-
+    // pane splitter's, and so the window's) minimum width. The explicit
+    // minimum-width 1 overrides QLabel's full-text minimumSizeHint for the
+    // layout's minimum (qSmartMinSize ignores a 0 minimum), while the
+    // default Preferred policy still renders the hint whenever the viewport
+    // is wide enough and collapses it only when narrow. (Ignored would hide
+    // it at every width — rejected after the 1920 invariance diff; a 0
+    // minimum is a no-op — the 1366 re-measure caught that.)
+    auto* srcHint = monoLab(tr("click a word to inspect it"));
+    srcHint->setMinimumWidth(1);
+    impHeadRow->addWidget(srcHint);
     impLay->addWidget(impHead);
 
     // ── Confidence overlay (text fallback): scrollable paper with per-word
@@ -418,7 +437,10 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     txtHeadRow->setContentsMargins(12,0,12,0);
     txtHeadRow->addWidget(monoLab(tr("RECOGNIZED · PREVIEW")));
     txtHeadRow->addStretch(1);
-    txtHeadRow->addWidget(monoLab(tr("word corrections are saved, not this text")));
+    // F1: same minimum-width-1 hint discipline as the source-pane header.
+    auto* txtHint = monoLab(tr("word corrections are saved, not this text"));
+    txtHint->setMinimumWidth(1);
+    txtHeadRow->addWidget(txtHint);
     txtLay->addWidget(txtHead);
 
     m_textEdit = new QPlainTextEdit;

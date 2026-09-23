@@ -575,7 +575,25 @@ void BatchMode::buildOperationPanel(QWidget* host) {
     buildPresetPanel(pPreset);
     m_cfgStack->addWidget(pPreset);  // index 7
 
-    vlay->addWidget(m_cfgStack, 1);
+    // F1 (SWEEP-W3-UI): a QStackedWidget's minimumSizeHint is the MAX over
+    // every page — including the currently hidden ones — so the tallest
+    // operation panel hardened this page's (and via the mode stack the
+    // window's) minimum height past a 768-high viewport. Host the stack in a
+    // scroll area: when the viewport is generous every panel still fits and
+    // renders exactly as before (no scrollbars, identical geometry); on a
+    // short viewport the active panel scrolls instead of inflating the
+    // window minimum. The explicit small minimum is what lets the parent
+    // layout shrink the area — a scroll area otherwise propagates its
+    // widget's minimum.
+    auto* cfgScroll = new QScrollArea;
+    cfgScroll->setObjectName(QStringLiteral("batchConfigScroll"));
+    cfgScroll->setWidgetResizable(true);
+    cfgScroll->setFrameShape(QFrame::NoFrame);
+    cfgScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    cfgScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    cfgScroll->setMinimumSize(180, 120);
+    cfgScroll->setWidget(m_cfgStack);
+    vlay->addWidget(cfgScroll, 1);
 
     connect(m_opCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &BatchMode::onOperationChanged);

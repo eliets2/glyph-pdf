@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "CompareMode.h"
+#include "shell/FlowToolbarLayout.h"
 #include "util/GpTheme.h"
 
 #include <QFrame>
@@ -30,10 +31,14 @@ CompareMode::CompareMode(QWidget* parent) : QWidget(parent) {
     col->setContentsMargins(0,0,0,0); col->setSpacing(0);
 
     // toolbar
+    // F1 (SWEEP-W3-UI): the row is a wrapping flow toolbar — at 1920 it lays
+    // out exactly like the old single QHBoxLayout; below the single-line
+    // requirement it wraps onto a second line instead of forcing the window
+    // minimum past the 1366 viewport.
     auto* tb = new QFrame;
     tb->setProperty("role","modeToolbar");
-    tb->setFixedHeight(Theme::ToolbarH);
-    auto* hrow = new QHBoxLayout(tb);
+    auto* hrow = new FlowToolbarLayout(tb);
+    hrow->setLineHeightFloor(Theme::ToolbarH);
     hrow->setContentsMargins(10,0,10,0); hrow->setSpacing(6);
     auto mono = [](const QString& s){ auto* l = new QLabel(s); l->setProperty("mono",true); return l; };
     hrow->addWidget(mono(tr("COMPARE")));
