@@ -5,10 +5,10 @@
 | **Document type** | Security & Quality Review Report |
 | **Subject** | `feat/parity-glm` parity/hardening line, landed on `review/consolidated-parity` (consolidation PR → `main`) |
 | **Reviewed scope** | base `main` `703fa34` → branch tip `9ba3cea` — ~180 changed source/test files, ~37,000 LOC |
-| **Status re-verified at** | PR head `e6872ed2` (2026-09-23) — every finding re-read at its current location |
+| **Status re-verified at** | PR head `1991d9c1` (2026-09-23) — every finding re-read at its current location |
 | **Not yet reviewed** | the 319 commits that landed on the line after `9ba3cea` — see [§7](#7-not-yet-reviewed--delta-after-9ba3cea) |
 | **Date** | 2026-09-17 (review) · 2026-09-23 (status re-verification + specialist pass) |
-| **Status** | 13 of 20 original findings fixed on the line · 7 open · 6 new from the specialist pass (5 open, incl. 1 CRITICAL) |
+| **Status** | 13 of 20 original findings fixed on the line · 7 open · 6 new from the specialist pass (5 open, incl. 1 CRITICAL) · 8 more found while verifying the PR (6 fixed in it — [§6b](#6b-found-while-verifying-the-consolidation-2026-09-23)) |
 | **Detailed findings appendix** | [`PARITY-GLM-REVIEW-2026-09-13-FINDINGS.md`](PARITY-GLM-REVIEW-2026-09-13-FINDINGS.md) |
 
 ---
@@ -25,7 +25,7 @@ It surfaced **defects that must be addressed before the line is landed**, spanni
 
 A **build break on a valid build configuration** (`PGR-02`) was also confirmed.
 
-### Status at the PR head (`e6872ed2`, 2026-09-23)
+### Status at the PR head (`1991d9c1`, 2026-09-23)
 
 The line kept moving during and after the review, and its own sessions fixed most of what the review found. Re-reading every finding at the PR head:
 
@@ -36,6 +36,8 @@ The line kept moving during and after the review, and its own sessions fixed mos
   - **PGR-22 · HIGH** — a use-after-free on the save path.
   - **PGR-23 · HIGH** — the redaction proof certifies nested compressed attachments it cannot see into.
   - PGR-25 · MEDIUM and PGR-26 · LOW are also open; PGR-24 · MEDIUM is already fixed.
+
+Verifying the PR itself found eight more defects ([§6b](#6b-found-while-verifying-the-consolidation-2026-09-23)). Six of them are **fixed in this PR** with regression tests, including image move/resize/rotate never working on a real PDF and Edit ▸ Redo applying four edit types twice.
 
 **Bottom line:** fix **PGR-21 and PGR-22** before this lands on `main`. Fix the rest of the open list (§3) before the next release. Because of [§7](#7-not-yet-reviewed--delta-after-9ba3cea), a green status column does **not** mean the PR is reviewed: about 52K lines landed after the review snapshot, including a JavaScript runtime for PDF forms, and no review pass has covered them.
 
@@ -53,7 +55,7 @@ The branch was reviewed by four independent methods and the results cross-checke
 On 2026-09-22/23 two further passes ran against the consolidated PR code:
 
 5. **Specialist pass** (native-adversary, guarantee-verification-engine and emergence-engine agent definitions), which produced PGR-21 … PGR-26 (§6).
-6. **Status re-verification**: each finding's location was re-read at `e6872ed2`. "Fixed" means the defect, as described, no longer follows from the code at that location. Where the line added a regression test for the fix, the test is named.
+6. **Status re-verification**: each finding's location was re-read at `1991d9c1`. "Fixed" means the defect, as described, no longer follows from the code at that location. Where the line added a regression test for the fix, the test is named.
 
 ### Confidence tiers
 
@@ -70,9 +72,9 @@ Coverage was **complete** for the reviewed scope — all 14 subsystem lanes ran 
 
 ## 3. Remediation tracking
 
-Status values: **Open** · **Open (narrowed)** · **Open (disclosed)** · **Fixed** · Won't fix · Duplicate. Statuses are as of the PR head `e6872ed2`.
+Status values: **Open** · **Open (narrowed)** · **Open (disclosed)** · **Fixed** · Won't fix · Duplicate. Statuses are as of the PR head `1991d9c1`.
 
-| ID | Sev | Confidence | Location (review-time) | Title | Status @ `e6872ed2` | Evidence at PR head |
+| ID | Sev | Confidence | Location (review-time) | Title | Status @ `1991d9c1` | Evidence at PR head |
 |----|-----|-----------|----------|-------|--------|----------|
 | PGR-01 | HIGH | High | `PoDoFoBackend.cpp:~2528` | CID `/W` OOB heap write + DoS | **Fixed** | `PoDoFoBackend.cpp:3027-3065` — `kMaxCid = 65535` cap, negative CIDs rejected (`c < 0`) |
 | PGR-02 | HIGH | High | `Capability.cpp:~382` | `#else` compile break (non-RapidOCR build) | **Fixed** | `Capability.cpp:396` — `Capability c;` hoisted above `#ifdef HAS_RAPIDOCR` |
@@ -116,85 +118,85 @@ A Type0 font's descendant-CIDFont `/W` array is parsed with no bounds validation
 - **Huge range** (`/W [0 4000000000 500]`) → ~4e9-entry `std::set` + ~500 MB allocation = **OOM/hang DoS**.
 - **Reachable** via **Export → PDF/A** on any opened crafted PDF.
 - **Fix:** reject/clamp `cid` to `0 ≤ cid ≤ 65535` before insert and before indexing; cap the range span.
-- **@ `e6872ed2`:** fixed at `:3027-3065` — `constexpr int64_t kMaxCid = 65535`, over-range CIDs are dropped, and both the single-CID form (`:3052`) and the range form (`:3065`) reject `c < 0`.
+- **@ `1991d9c1`:** fixed at `:3027-3065` — `constexpr int64_t kMaxCid = 65535`, over-range CIDs are dropped, and both the single-CID form (`:3052`) and the range form (`:3065`) reject `c < 0`.
 
 ### PGR-02 · HIGH · `#else` branch compile error (config-dependent build break) — **Fixed**
 **`src/core/Capability.cpp:~382` — `probeOcrRapidModels()`**
 `Capability c;` is declared only inside the `#if` (RapidOCR) branch; the `#else` branch does `c.status = …` and `return c;` with `c` undeclared → **compile error on any build without the RapidOCR/ONNX engine.** The current CI config compiles the `#if` branch, so it is latent today.
 - **Fix:** hoist `Capability c;` above the `#if`/`#else`.
-- **@ `e6872ed2`:** fixed — `Capability c;` at `:396`, above `#ifdef HAS_RAPIDOCR` at `:397`.
+- **@ `1991d9c1`:** fixed — `Capability c;` at `:396`, above `#ifdef HAS_RAPIDOCR` at `:397`.
 
 ### PGR-03 · HIGH · Excel export emits duplicate cell references → invalid XLSX — **Fixed**
 **`src/engines/ConversionManager.cpp:~848` — `exportToExcelInHouse()`**
 The per-row loop writes `r="<col><row>"` from `el.column` with no dedup. Two non-empty runs sharing a geometry-derived column emit **duplicate `<c r="B2">` refs** in one `<row>` → invalid OOXML; Excel repairs/rejects the file.
 - **Fix:** merge or skip runs resolving to the same column.
-- **@ `e6872ed2`:** fixed (SEP13:3, `:936-950`). Runs are stable-sorted and emitted through an ordered map with one cell per column. The policy is last-write-wins, which matches the OpenXLSX path, and it also restores strictly increasing `r` order.
+- **@ `1991d9c1`:** fixed (SEP13:3, `:936-950`). Runs are stable-sorted and emitted through an ordered map with one cell per column. The policy is last-write-wins, which matches the OpenXLSX path, and it also restores strictly increasing `r` order.
 
 ### PGR-04 · HIGH · Secret store: AEAD not bound to entry identity — **Fixed**
 **`src/core/EncryptedFileSecretStore.cpp:~250`**
 AES-256-GCM ciphertexts are never bound (no AAD) to the JSON `service` key they are filed under, and `resolveKey()` is service-independent. A local actor with **write access to `secrets.enc.json` — no AES key or DPAPI access needed** — can swap the base64 blobs of two entries; each still decrypts + authenticates under its own nonce/tag, so `readSecret("api_key_prod")` silently returns the swapped secret. The Windows DPAPI path shares the flaw (constant description string, `pOptionalEntropy = nullptr`).
 - **Fix:** feed the `service` name as GCM AAD (and as DPAPI optional-entropy) and verify it on read.
-- **@ `e6872ed2`:** fixed for all new writes (SEP13:5). `0x03` carries the service name as GCM AAD, and `0x04` (the Windows default) carries it as DPAPI entropy; a swapped blob now fails loudly. The legacy formats `0x01` and `0x02` are still *read* without binding, to allow migration. That residue, and what it enables on Windows, is tracked as **PGR-20**.
+- **@ `1991d9c1`:** fixed for all new writes (SEP13:5). `0x03` carries the service name as GCM AAD, and `0x04` (the Windows default) carries it as DPAPI entropy; a swapped blob now fails loudly. The legacy formats `0x01` and `0x02` are still *read* without binding, to allow migration. That residue, and what it enables on Windows, is tracked as **PGR-20**.
 
 ### PGR-05 · HIGH · Unbounded response buffering (DoS) — **Fixed**
 **`src/engines/ai/OllamaProvider.cpp:~290`**
 `reply->readAll()` buffers the entire HTTP response body with no size cap (`setReadBufferSize()` never called) → a malicious/compromised endpoint returns a huge body and exhausts memory.
 - **Fix:** enforce a maximum response size and abort when exceeded.
-- **@ `e6872ed2`:** fixed (SEP13:6). `maxResponseBytes` defaults to 64 MiB and is bounded to 4 KiB … 1 GiB. `setReadBufferSize` is set at `:308`, the body is accumulated incrementally, and the reply is aborted once the cap is exceeded (`:316-323`).
+- **@ `1991d9c1`:** fixed (SEP13:6). `maxResponseBytes` defaults to 64 MiB and is bounded to 4 KiB … 1 GiB. `setReadBufferSize` is set at `:308`, the body is accumulated incrementally, and the reply is aborted once the cap is exceeded (`:316-323`).
 
 ### PGR-06 · HIGH · Encrypted-document rollback drops the password → lock-out — **Open**
 **`src/engines/podofo/PoDoFoBackend.cpp:~236` — `restoreResidentFromSource()`**
 After the document has been encrypted this session, a *failed* mutation-commit triggers `restoreResidentFromSource()`, which **clears `d->encryptionPassword` and then `Load()`s the on-disk (now-encrypted) file with no password** → PoDoFo throws, the resident document is dropped, and every subsequent path-based operation re-throws (same gap at `:208`). One failed commit locks the user out of editing their own intact, on-disk-valid encrypted document for the rest of the session.
 - **Fix:** reload with the retained `encryptionPassword`; do not clear it before a successful reload.
-- **@ `e6872ed2`:** unchanged — `:405` clears the password, then `:410` runs `restored->Load(src.toUtf8().constData())` with no password.
+- **@ `1991d9c1`:** unchanged — `:405` clears the password, then `:410` runs `restored->Load(src.toUtf8().constData())` with no password.
 
 ### PGR-07 · MEDIUM · `RedactOperation` accumulating leak — **Fixed**
 **`src/modes/RedactMode.cpp:539`**
 `runRedactOperation()` allocates `new RedactOperation(request, this)` parented to the long-lived `RedactMode` widget and never `deleteLater()`s it (contrast the sibling `QProgressDialog`, which is explicitly deleted). Every Apply-Redactions in a session accumulates a `RedactOperation` (holding the full per-page mark set) until the widget is destroyed — unbounded growth in an iterative redaction workflow.
 - **Fix:** `op->deleteLater()` (or track+replace) when the operation finishes.
-- **@ `e6872ed2`:** fixed — `:593` `connect(op, &RedactOperation::finished, op, &QObject::deleteLater)`.
+- **@ `1991d9c1`:** fixed — `:593` `connect(op, &RedactOperation::finished, op, &QObject::deleteLater)`.
 
 ### PGR-08 · MEDIUM · Post-sign re-validation is fail-open — **Fixed (see PGR-21)**
 **`src/engines/SignatureManager.cpp:~1677`** *(found by both `/code-review high` and the workflow)*
 The D6 post-condition re-validation only fails when a returned `SignatureInfo` has `integrityIntact == false`. An **empty** `validateSignatures()` result (signature not detected/parsed on the candidate) makes the loop body never run → the document is committed as successfully signed though its signatures could not be confirmed.
 - **Fix:** treat an empty / again-unparseable validation result as failure.
-- **@ `e6872ed2`:** fixed (SEP13:4, `:1800-1807`) — an empty result now fails. **However**, the new branch "mirrors the broken-integrity branch" with `if (!replaceOutput) QFile::remove(outputPath);`. That *adds* a second path to the in-place data loss described in **PGR-21**.
+- **@ `1991d9c1`:** fixed (SEP13:4, `:1800-1807`) — an empty result now fails. **However**, the new branch "mirrors the broken-integrity branch" with `if (!replaceOutput) QFile::remove(outputPath);`. That *adds* a second path to the in-place data loss described in **PGR-21**.
 
 ### PGR-09 · HIGH · Redaction-proof false-PASS on rotated / offset pages — **Fixed**
 **`src/core/RedactionProof.cpp:~693`**
 The proof maps redaction marks with `pageHeight` only, ignoring page `/Rotate` and non-zero MediaBox origin. On rotated/offset pages no source run is attributed, `removedStrings` stays empty, and the entry is certified **`verified-no-text-in-region`** — a **false certification** of a redaction the proof never actually checked.
 - **Fix:** apply page rotation and MediaBox-origin translation in the mark↔run coordinate mapping.
-- **@ `e6872ed2`:** fixed (SEP13 L8). Marks go through the shared viewer→user transform, which honours the MediaBox origin and `/Rotate` (`:742-786`). A regression test covers a `/Rotate 270` page (`tests/TestRedactionProof.cpp:122-148`).
+- **@ `1991d9c1`:** fixed (SEP13 L8). Marks go through the shared viewer→user transform, which honours the MediaBox origin and `/Rotate` (`:742-786`). A regression test covers a `/Rotate 270` page (`tests/TestRedactionProof.cpp:122-148`).
 
 ### PGR-10 · MED-HIGH · Redaction-proof false-PASS on unextractable text — **Open (disclosed)**
 **`src/core/RedactionProof.cpp:~905`**
 Proof recall depends entirely on source-side PDFium extraction; text PDFium cannot extract (subset font with no `/ToUnicode`) yields empty `removedStrings` → a passing verdict, contradicting the pack's claim that non-standard encodings are covered.
 - **Fix:** detect the no-extractable-text case and downgrade the verdict to "unverifiable," not PASS.
-- **@ `e6872ed2`:** half done. The proof-pack text (`:1198-1208`) now states the limitation honestly: text whose encoding defeats extraction "is NOT covered by a PASS". The per-entry status is still `VerifiedNoTextInRegion` (`:1071-1074`), though. A reader who looks only at the entry still sees *verified*. The entry should be downgraded, for example when the marked region has glyph-drawing operators but extraction yields nothing.
+- **@ `1991d9c1`:** half done. The proof-pack text (`:1198-1208`) now states the limitation honestly: text whose encoding defeats extraction "is NOT covered by a PASS". The per-entry status is still `VerifiedNoTextInRegion` (`:1071-1074`), though. A reader who looks only at the entry still sees *verified*. The entry should be downgraded, for example when the marked region has glyph-drawing operators but extraction yields nothing.
 
 ### PGR-11 · LOW · Overlay-label Y ignores MediaBox origin — **Fixed**
 **`src/engines/RedactOperation.cpp:~222`** — burn-in overlay-label Y uses `pageHeight` without the MediaBox lower-left origin → the label is mispositioned on offset pages. The excision itself is unaffected (cosmetic).
-- **@ `e6872ed2`:** fixed (SEP13 L8, `:168-194`) — uses the same shared viewer→user transform.
+- **@ `1991d9c1`:** fixed (SEP13 L8, `:168-194`) — uses the same shared viewer→user transform.
 
 ---
 
 ## 5. Triage findings (single-vote — re-confirm before fixing)
 
-> Surfaced by a finder and refute-tested by **one** adversarial verifier. Each was re-read at `e6872ed2`; the open ones below were re-confirmed by that reading. Full scenarios are in the [appendix](PARITY-GLM-REVIEW-2026-09-13-FINDINGS.md).
+> Surfaced by a finder and refute-tested by **one** adversarial verifier. Each was re-read at `1991d9c1`; the open ones below were re-confirmed by that reading. Full scenarios are in the [appendix](PARITY-GLM-REVIEW-2026-09-13-FINDINGS.md).
 
 ### PGR-12 · CRITICAL · Batch merge reports success though no file was written — **Fixed**
 **`src/modes/BatchMode.cpp:1436`** — the merge worker `promise.addResult(r)` with `r.success = true` and a fabricated `outputPath` inside the per-file loop **before** `dst.Save(outPath)` is ever called. If the final `Save()` throws, every input is still reported as a successful merge to a file that does not exist — a silent data-integrity failure in a destructive operation.
 - **Fix:** report success only after `dst.Save()` succeeds; on save failure mark the batch failed.
-- **@ `e6872ed2`:** fixed (`:2018-2060`). Per-input results are collected and published only after `dst.Save()` returns. A save exception re-marks every appended success as failed and clears its `outputPath`. A cancel before the save publishes nothing, and a merge where nothing was appended publishes each file's own failure.
+- **@ `1991d9c1`:** fixed (`:2018-2060`). Per-input results are collected and published only after `dst.Save()` returns. A save exception re-marks every appended success as failed and clears its `outputPath`. A cancel before the save publishes nothing, and a merge where nothing was appended publishes each file's own failure.
 
 ### PGR-13 · CRITICAL-if-real · Redaction-proof attribution misses annotation text — **Fixed**
 **`src/core/RedactionProof.cpp:819`** — attribution derives `removedStrings` only from PDFium page-content runs; sensitive text living in an annotation (FreeText/Stamp/Highlight-with-Contents) over the marked region may go unattributed → unswept, while the proof still certifies. Companion to PGR-09/PGR-10.
-- **@ `e6872ed2`:** fixed (SEP13 L7, `:707-760`). Annotation `/Contents` and form-field `/V` strings whose `/Rect` meets the mark are now attribution targets. Covered by `tests/TestSep13LeadRedactionProof.cpp`.
+- **@ `1991d9c1`:** fixed (SEP13 L7, `:707-760`). Annotation `/Contents` and form-field `/V` strings whose `/Rect` meets the mark are now attribution targets. Covered by `tests/TestSep13LeadRedactionProof.cpp`.
 
 ### PGR-14 / PGR-15 · HIGH · Read-only / edit-policy enforcement bypass — **Fixed**
 **`src/shell/controllers/PagesController.cpp:338`** (Delete/Rotate/InsertBlank pages) and **`src/shell/controllers/EditController.cpp:371`** (single "Replace" in the Find/Replace bar) perform document mutations with **no `EditPolicy::mutationBlocked()` check** — so a read-only or expiry-guarded document can be mutated through these paths.
 - **Fix:** gate both through the shared `EditPolicy::mutationBlocked()` boundary used elsewhere.
-- **@ `e6872ed2`:** fixed in both places:
+- **@ `1991d9c1`:** fixed in both places:
   - `PagesController` gates at `:329`, `:388` and `:405`.
   - The single Replace (`EditController.cpp:538-571`) now goes through `replaceAllInDocument()`, which checks `mutationBlocked()` at `:434`.
   - The consolidation also carries the dispatch-gates line's S2-1 (reorder-panel Apply) and S2-2 (form tab-order Apply) gates. `EditPolicy.h` lists every direct route that is gated.
@@ -202,12 +204,12 @@ Proof recall depends entirely on source-side PDFium extraction; text PDFium cann
 ### PGR-16 / PGR-17 · HIGH · CSV / formula injection — **Open**
 **`src/engines/ConversionManager.cpp:410` (`exportToCsv`)** and **`src/ui/CommentsWidget.cpp:752` (`csvEscapeField`)** — cells are only double-quote-escaped; a value beginning `=`, `+`, `-`, or `@` (from PDF-controlled text or a comment) becomes a live formula/DDE payload when the CSV is opened in a spreadsheet.
 - **Fix:** prefix a `'` (or escape) any field starting with `= + - @` (also tab and CR, per OWASP).
-- **@ `e6872ed2`:** unchanged in both places. `ConversionManager.cpp:~480` and `CommentsWidget.cpp:820-828` still only double the quotes.
+- **@ `1991d9c1`:** unchanged in both places. `ConversionManager.cpp:~480` and `CommentsWidget.cpp:820-828` still only double the quotes.
 
 ### PGR-18 · HIGH · Unescaped HTML into the OCR overlay — **Open**
 **`src/modes/OCRMode.cpp:1037`** — a word correction is injected unescaped into the confidence-overlay anchor's `title` attribute; a crafted correction can break out of the attribute / inject markup.
 - **Fix:** HTML-escape the correction before templating.
-- **@ `e6872ed2`:** still open.
+- **@ `1991d9c1`:** still open.
   - At `:1101-1121`, only `shown` (the word text) goes through `toHtmlEscaped()`.
   - The correction arrives through `extra = tr(" | corrected to: %1").arg(rec.reviewedText)` and is placed raw inside the single-quoted `title='…'` attribute.
   - A second problem: the template is filled by chained `.arg()` calls. A `%1` … `%6` typed into a correction therefore captures the later `.arg(escaped)` substitution.
@@ -216,11 +218,11 @@ Proof recall depends entirely on source-side PDFium extraction; text PDFium cann
 ### PGR-19 · HIGH · Invalid measurement calibration leaves stale scale — **Open**
 **`src/core/MeasureCore.h:353` — `scaleFrom()`** — clears the `calibrated` flag on an invalid pt-labeled calibration but leaves `unitsPerPt` at its non-1.0 persisted value (contrast the unknown-unit branch which resets to 1.0), so an "uncalibrated" scale still reports wrong measurements.
 - **Fix:** reset `unitsPerPt = 1.0` on the invalid-calibration path.
-- **@ `e6872ed2`:** unchanged (`:344-356`). `s.unitsPerPt = unitsPerPt` is assigned before `s.calibrated = calibrated && *unit != Unit::Pt`, so a `pt` scale keeps a factor other than 1.0.
+- **@ `1991d9c1`:** unchanged (`:344-356`). `s.unitsPerPt = unitsPerPt` is assigned before `s.calibrated = calibrated && *unit != Unit::Pt`, so a `pt` scale keeps a factor other than 1.0.
 
 ### PGR-20 · HIGH · Legacy secret-blob DPAPI-binding gap — **Open (narrowed)**
 **`src/core/EncryptedFileSecretStore.cpp:196`** — `decrypt()` still accepts legacy `0x01` AES-GCM blobs on the default Windows path, but the diff removed the DPAPI-binding step from the legacy seed derivation, weakening the protection previously provided for those blobs.
-- **@ `e6872ed2`:** narrowed. SEP13:5 stopped *writing* every legacy format, and on Windows the default writer produces `0x04` only. `decrypt()` still lets `0x01` **and** `0x03` AES blobs fall through to `resolveKey()` on Windows, though. That key is a deterministic SHA-256 of the home path, `QSysInfo::machineUniqueId()` and a constant, none of which is secret.
+- **@ `1991d9c1`:** narrowed. SEP13:5 stopped *writing* every legacy format, and on Windows the default writer produces `0x04` only. `decrypt()` still lets `0x01` **and** `0x03` AES blobs fall through to `resolveKey()` on Windows, though. That key is a deterministic SHA-256 of the home path, `QSysInfo::machineUniqueId()` and a constant, none of which is secret.
   - The file's own format header says pre-EC04 Windows `0x01` blobs "could never" be reread, so no legitimate Windows default-path blob uses this key.
   - Its only remaining effect: anyone who can write `secrets.enc.json` can **forge an entry the store accepts** (secret injection).
   - Legacy `0x02` DPAPI blobs are also still read with no entry binding, so they can still be swapped between entries during migration.
@@ -240,7 +242,7 @@ The remaining MEDIUM/LOW triage items are itemised with scenarios in the [findin
 
 ## 6. Specialist pass on the PR code (2026-09-22/23)
 
-> The native-adversary, guarantee-verification-engine and emergence-engine definitions were run against the consolidated code. Each finding below was then confirmed by reading the code at `e6872ed2`.
+> The native-adversary, guarantee-verification-engine and emergence-engine definitions were run against the consolidated code. Each finding below was then confirmed by reading the code at `1991d9c1`.
 
 ### PGR-21 · CRITICAL · In-place re-sign deletes the user's only copy — **Open**
 **`src/engines/SignatureManager.cpp:1323, 1619, 1800-1823`**
@@ -279,7 +281,7 @@ After a validated save, the resident document is re-seated from the candidate's 
 - **Test:** a document with an attached PDF that contains the secret in a Flate-compressed content stream. Assert the verdict is not PASS.
 
 ### PGR-24 · MEDIUM · Signing-candidate temp-file leak — **Fixed**
-**`src/engines/SignatureManager.cpp:1326-1329`** — M3 (SEP13) added `cleanupCandidate()`, which runs on every failure exit, including the catch blocks (`:1804`, `:1819`, `:1839`). Confirmed at `e6872ed2`.
+**`src/engines/SignatureManager.cpp:1326-1329`** — M3 (SEP13) added `cleanupCandidate()`, which runs on every failure exit, including the catch blocks (`:1804`, `:1819`, `:1839`). Confirmed at `1991d9c1`.
 
 ### PGR-25 · MEDIUM · Secret-store lost-update race — **Open**
 **`src/core/EncryptedFileSecretStore.cpp` (write path `:319-350`, `:383-396`)** — each write reads `secrets.enc.json`, modifies the JSON and commits it with `QSaveFile`. The commit is atomic per write, but nothing locks the whole read-modify-write. If two GlyphPDF instances store different secrets at the same time, the last commit silently drops the other entry.
@@ -288,6 +290,25 @@ After a validated save, the resident document is re-seated from the candidate's 
 ### PGR-26 · LOW · Credentials persisted with `CRED_PERSIST_ENTERPRISE` — **Open**
 **`src/core/CredentialManager.cpp:46`** — `cred.Persist = CRED_PERSIST_ENTERPRISE` makes Windows roam the credential to every machine the user logs on to in a domain with roaming profiles. That is wider exposure than a desktop app's API keys need.
 - **Fix:** `CRED_PERSIST_LOCAL_MACHINE`.
+
+---
+
+## 6b. Found while verifying the consolidation (2026-09-23)
+
+The PR was built from scratch (Release, MSYS2 UCRT64), run in full under `ctest -j6`, and the ported features were tested against real, rendered PDFs. That surfaced these defects. **Six are fixed in this PR**, each with a regression test. Line numbers refer to the consolidation commit `1991d9c1`.
+
+| ID | Sev | Where | Defect | Status |
+|----|-----|-------|--------|--------|
+| PGR-27 | HIGH | `CropPageCommand`, `DeleteImageCommand`, `ReplaceImageCommand`, `EditFormFieldCommand` | **Checked redo applied the edit twice.** `CheckedHistory::redo()` performs the mutation in `applyChecked()` and arms it; each command's `redo()` must then only consume the arm. These four never consumed it. For a deleted image, the second delete fails, the command turns obsolete, and Qt drops it from the history. | **Fixed** (`fix(history)…`), with `TestCheckedMutationCoverage` counts |
+| PGR-28 | MED | `PdfViewerWidget::toggleEyeCareMode` (also on `main`) | **Eye Care use-after-free.** The colorize effect was cached, but `setGraphicsEffect(nullptr)` deletes it. The second toggle-on re-installed a deleted object. | **Fixed** (`feat(viewing)…`), with `TestViewingModes` |
+| PGR-29 | HIGH | `rewriteImageMatrix` (`PoDoFoBackend.cpp:~3582`) | **Image move / resize / rotate never worked on a real PDF.** The image `Do` was matched as a plain operator, but PoDoFo 1.x reports it as `DoXObject`; EC03 fixed `listImages`/`deleteImage` but not this. The commands ignore the `false` result and pushed no-op history entries. Once it did run, three more problems showed up in the replace: it deleted a same-line `q`, matched `" cm"` inside strings, and threw on an array `/Contents`. | **Fixed**: byte-exact operand replace via `gp::content` |
+| PGR-30 | HIGH | `listImages` (`PoDoFoBackend.cpp:~3786`) | **Every non-symmetric image placement was reported wrong.** The six `cm` operands were read forwards, but `PdfVariantStack` indexes from the top: a 200×200 image at (100,400) came back as 412×200 at (0,200), rotated 14°. Every image edit computes from this. | **Fixed** (the convention the redaction walk already uses) |
+| PGR-31 | MED | `rotateImage` | **Rotation pivoted on the wrong point.** It turned about the midpoint of the image's first edge, not its centre, so each rotation also moved the image and rotate + undo did not return it. | **Fixed**; 30° rotate + undo now returns exactly |
+| PGR-32 | MED | `moveImage`, `resizeImage`, `rotateImage`, `replaceImage`, `deleteImage`, `deleteObjectAt`, `optimizeDocument` | **A refused commit could crash the app.** It threw `std::runtime_error`, which their `catch (PdfError&)` let escape through the undo commands (a failed save, e.g. a locked file). | **Fixed**: `catch (std::exception&)`; `commitMutation` has already rolled back |
+| PGR-33 | LOW | `editTextInline` `Tf` parsing (`PoDoFoBackend.cpp:~1310`) | **Dead code.** The name and size are read from swapped stack slots, so the original font is never picked up. Enabling it would start using possibly-subset embedded fonts for new text, which is a behaviour change with its own risk. | **Open**: needs a design decision |
+| PGR-34 | — | `TestSweepW3UxFlows` (flows 2a, 2b, 3) | The completion, preset and redaction modals are never captured, so 3 of 11 flows fail. This is **not caused by the consolidation**: a build of its source branch tip (`feat/ux-defects-fixes` `f01a4e37`) fails the same three flows identically, and still fails with the test's settings store wiped. The branch's audit doc records these flows as passing, so the harness/environment interaction needs its own look. | **Open**: pre-existing |
+
+Also fixed, test infrastructure only: the parallel suites shared one temp root, so the SafeSave "no candidate left behind" checks deleted and counted each other's files. TestFormSafety, TestEngineSave, TestEncryptedPackageSafeWrite and TestWelcomeRoutes failed at `-j6` and passed alone. Every test now gets its own `TMP`/`TEMP`/`TMPDIR`.
 
 ---
 
@@ -303,13 +324,13 @@ The review snapshot was `9ba3cea`. The consolidated PR carries the line **up to 
 | Batch | `BatchMode.cpp` (+1,081) | Destructive multi-file operations |
 | PoDoFo engine | `PoDoFoBackend.cpp` (+892) | Where PGR-22 lives. The parser-facing surface grew again |
 
-Recommended: run the review workflow (or `/code-review ultra`, which is user-triggered and billed) on `9ba3cea..e6872ed2`, with the formjs sandbox as its own lane.
+Recommended: run the review workflow (or `/code-review ultra`, which is user-triggered and billed) on `9ba3cea..1991d9c1`, with the formjs sandbox as its own lane.
 
 ---
 
 ## 8. Coverage matrix
 
-| Subsystem lane | Reviewed (to `9ba3cea`) | Method(s) | Re-verified @ `e6872ed2` |
+| Subsystem lane | Reviewed (to `9ba3cea`) | Method(s) | Re-verified @ `1991d9c1` |
 |----------------|----------|-----------|----|
 | redaction (proof + excision) | ✅ | workflow · code-review · inline · specialist | ✅ findings |
 | PoDoFo engine | ✅ | workflow · inline · specialist | ✅ findings |
@@ -336,7 +357,7 @@ Static red-flag sweep across the reviewed 37K-line diff: **clean** (no weakened 
 ## 9. Caveats & operating notes
 
 - **Single-vote tier is triage-grade.** To complete a full 14-lane × 3-vote adversarial review within the account usage cap, the verifier count was reduced to one. §5 items were re-read at the PR head; that reading is one more vote, not a second adversarial pass.
-- **The line was a moving target.** Its tip advanced during the multi-day review, and the responsible session fixed findings in parallel (the batch-test flake this review found was fixed on the branch as commit G12). The status column in §3 records the state at `e6872ed2` only.
+- **The line was a moving target.** Its tip advanced during the multi-day review, and the responsible session fixed findings in parallel (the batch-test flake this review found was fixed on the branch as commit G12). The status column in §3 records the state at `1991d9c1` only.
 - **`main` status.** `main` did not carry this line during the review. The consolidation PR (`review/consolidated-parity` → `main`) lands it as a single squashed commit. The pre-purge history of the source branches is intentionally not republished, and the per-branch history is preserved in local archive refs and offline backups. The E-1 redaction-excision fix depends on the line's broader redaction rewrite, and it reaches `main` with that rewrite through this PR.
 - **Review-tooling lesson (recorded for future runs):** a full 14-lane × 3-vote workflow exceeds this account's usage cap; use single-vote verification or split lanes across cap windows.
 
