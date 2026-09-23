@@ -824,11 +824,38 @@ void TestAccessibilityTagger::veraPdfReadsTheTaggedTree() {
         QProcess proc;
         proc.setProcessChannelMode(QProcess::MergedChannels);
         QStringList args;
-        args << QStringLiteral("--flavour") << QString::fromLatin1(flavour)
-             << QStringLiteral("--format") << QStringLiteral("json")
-             << target;
-        proc.start(gp::VeraPdfValidator::locateCli(), args);
-        if (!proc.waitForStarted(10000)) return {};
+        const QString cli = gp::VeraPdfValidator::locateCli();
+        const QFileInfo cliInfo(cli);
+        // Preferred shape: the bundled .bat launcher wraps a private JRE —
+        // invoke the GreenfieldCliWrapper main class DIRECTLY (same jar,
+        // same arguments) so the test does not depend on a shell.
+        const QString javaExe = cliInfo.absolutePath()
+                                + QStringLiteral("/jre/bin/java.exe");
+        if (QFileInfo::exists(javaExe)) {
+            const QString base = cliInfo.absolutePath();
+            args << QStringLiteral("-classpath")
+                 << base + QStringLiteral("/etc;") + base + QStringLiteral("/bin/*")
+                 << QStringLiteral("-Dfile.encoding=UTF8")
+                 << QStringLiteral("org.verapdf.apps.GreenfieldCliWrapper")
+                 << QStringLiteral("--flavour") << QString::fromLatin1(flavour)
+                 << QStringLiteral("--format") << QStringLiteral("json")
+                 << target;
+            proc.start(javaExe, args);
+        } else if (cli.endsWith(QLatin1String(".bat"), Qt::CaseInsensitive)
+                   || cli.endsWith(QLatin1String(".cmd"), Qt::CaseInsensitive)) {
+            // Fallback: shell launcher (same shape as TestVeraPdf).
+            args << QStringLiteral("/c") << QStringLiteral("call") << cli
+                 << QStringLiteral("--flavour") << QString::fromLatin1(flavour)
+                 << QStringLiteral("--format") << QStringLiteral("json")
+                 << target;
+            proc.start(QStringLiteral("cmd.exe"), args);
+        } else {
+            args << QStringLiteral("--flavour") << QString::fromLatin1(flavour)
+                 << QStringLiteral("--format") << QStringLiteral("json")
+                 << target;
+            proc.start(cli, args);
+        }
+        if (!proc.waitForStarted(15000)) return {};
         if (!proc.waitForFinished(120000)) {
             proc.kill();
             return {};
