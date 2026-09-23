@@ -527,6 +527,43 @@ private slots:
         QVERIFY(!panel.markWordDeleted(42));
     }
 
+    // ── PGR-18: the overlay title attribute cannot be broken out of ──────────
+    // A correction is user/PDF-controlled text that lands inside the
+    // single-quoted title='…' attribute of the confidence overlay. Raw text
+    // used to inject markup or break out of the attribute, and the chained
+    // .arg() templating let '%1'…'%7' typed into a correction capture a later
+    // substitution. Both must be inert: attribute-safe escaping, and ONE
+    // multi-argument .arg() pass that never rescans substituted text.
+    void overlayEscapesCorrectionAndPlaceholders()
+    {
+        OCRMode panel;
+        panel.setOcrResults(makeWords());
+        const QString hostile = QStringLiteral("'><b>x%1");
+        QVERIFY(panel.applyWordCorrection(0, hostile));
+
+        auto *overlay = panel.findChild<QLabel *>(QStringLiteral("ocrScanContent"));
+        QVERIFY(overlay);
+        const QString html = overlay->text();
+
+        // No markup injection: '<b>' must not appear raw in the overlay HTML.
+        QVERIFY2(!html.contains(QStringLiteral("<b>")),
+                 "PGR-18: a correction must not inject markup into the overlay");
+        // No attribute breakout: the raw correction must not sit verbatim
+        // inside the title attribute (the single quote must be escaped).
+        QVERIFY2(!html.contains(QStringLiteral("corrected to: ") + hostile),
+                 "PGR-18: the correction must be escaped inside title='…'");
+        // No placeholder capture: '%1' typed into a correction must render
+        // literally (pre-fix, the chained .arg() let it swallow the escaped
+        // word text and left a dangling '%7' in the output).
+        QVERIFY2(html.contains(QStringLiteral("%1")),
+                 "PGR-18: a %1 typed into a correction must render literally");
+        QVERIFY2(!html.contains(QStringLiteral("%7")),
+                 "PGR-18: no template placeholder may remain unsubstituted");
+        // The anchor structure survived: one anchor per word, each with a title.
+        QCOMPARE(html.count(QStringLiteral("<a href='word:")), 2);
+        QCOMPARE(html.count(QStringLiteral("title='")), 2);
+    }
+
     // ── The correction field drives the selected word's record ───────────────
     void correctionFieldEditsSelectedWord()
     {
