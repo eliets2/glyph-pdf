@@ -95,7 +95,8 @@ private:
                         const QMap<QString, QString>& calcScripts,
                         const QStringList& coOrder,
                         const QMap<QString, QString>& keystrokeScripts = {},
-                        const QMap<QString, QString>& formatScripts = {})
+                        const QMap<QString, QString>& formatScripts = {},
+                        const QMap<QString, QString>& initialValues = {})
     {
         const QString base = m_dir.path() + "/" + name + "-base.pdf";
         {
@@ -116,6 +117,10 @@ private:
             for (const QString& n : fieldNames) {
                 const PoDoFo::Rect rect(100, y, 200, 16);
                 auto& field = page.CreateField<PoDoFo::PdfTextBox>(n.toStdString(), rect);
+                const auto itInit = initialValues.find(n);
+                if (itInit != initialValues.end())
+                    dynamic_cast<PoDoFo::PdfTextBox*>(&field)->SetText(
+                        PoDoFo::PdfString(itInit.value().toStdString()));
                 const auto it = calcScripts.find(n);
                 const auto itK = keystrokeScripts.find(n);
                 const auto itF = formatScripts.find(n);
@@ -742,6 +747,33 @@ private slots:
             if (f.fieldName == QStringLiteral("v") && f.kind == QStringLiteral("exception"))
                 exceptionFailure = true;
         QVERIFY2(exceptionFailure, "the inherited-op refusal must be disclosed");
+    }
+
+    // PGR-37 (the fix): a script that sets event.value to NaN or ±Infinity
+    // produced hasValue=true with a JSON-null payload — the cascade then
+    // wrote "" and silently WIPED the committed /V. Non-finite numbers are
+    // now "no usable value": the committed value stands.
+    void nanOrInfinityKeepsTheCommittedValue()
+    {
+        for (const QString expr : { QStringLiteral("0/0"), QStringLiteral("1/0"),
+                                    QStringLiteral("-1/0") }) {
+            const JsEvalResult r = runHostile(
+                QStringLiteral("event.value = %1;").arg(expr));
+            QVERIFY2(r.ok, qPrintable(r.message));
+            QVERIFY2(!r.hasValue,
+                     qPrintable(expr + QStringLiteral(" must not carry a usable value")));
+        }
+        // Cascade integration: the committed /V survives the hostile compute.
+        const QString path = makeFormPdf(
+            QStringLiteral("pgr37.pdf"),
+            { QStringLiteral("v") },
+            { { QStringLiteral("v"), QStringLiteral("event.value = 0/0;") } },
+            { QStringLiteral("v") }, {}, {},
+            { { QStringLiteral("v"), QStringLiteral("5") } });
+        QVERIFY(!path.isEmpty());
+        PoDoFo::PdfMemDocument doc = loadDoc(path);
+        const CascadeReport rep = FormJsRunner::runCalculateCascade(doc, 250, 1000);
+        QCOMPARE(docFieldValue(doc, QStringLiteral("v")), QStringLiteral("5"));
     }
 
     // The kill-switch is the pre-fix disclosure state: ALL FOUR engine entries
