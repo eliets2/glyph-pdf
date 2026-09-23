@@ -5132,6 +5132,35 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestTextEditStyle.cpp")
     )
 endif()
 
+# Eraser on the real engine (Wave 1B port from feature/editing-parity):
+# deleteObjectAt removes the text under the click from the SAVED file (judged
+# by text extraction), an empty page is a harmless success, a missing page
+# fails without touching the file.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEraserEngine.cpp")
+    add_executable(TestEraserEngine tests/TestEraserEngine.cpp)
+    target_include_directories(TestEraserEngine PRIVATE src tests)
+    target_link_libraries(TestEraserEngine PRIVATE
+        pdfws_engines pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf
+    )
+    if(WIN32)
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestEraserEngine POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestEraserEngine>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestEraserEngine"
+            )
+        endif()
+    endif()
+    add_test(NAME TestEraserEngine COMMAND TestEraserEngine)
+    set_tests_properties(TestEraserEngine PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;editing;eraser;redaction;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPersistenceOutcomes.cpp")
     # Step-3 persistence truthfulness (ARC03/ARC04/V01 + the GUI-held-handle
     # residual): real-MainWindow integration tests over the close/save/dirty
