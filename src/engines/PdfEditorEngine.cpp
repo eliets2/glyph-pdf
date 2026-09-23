@@ -1542,6 +1542,41 @@ bool PdfEditorEngine::deleteImage(int pageIndex, const QString &xobjectName)
     return ok;
 }
 
+bool PdfEditorEngine::setImageZOrder(int pageIndex, const QString &xobjectName, bool bringToFront)
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("setImageZOrder");
+    const bool ok = d->backend->setImageZOrder(pageIndex, xobjectName, bringToFront);
+    if (!ok) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Could not change the stacking order of the image on page %1: it "
+                              "shares its drawing state with other content, or the page changes "
+                              "its drawing state around it. Nothing was changed.").arg(pageIndex + 1),
+                  QStringLiteral("setImageZOrder page=%1, obj=%2, front=%3")
+                      .arg(pageIndex).arg(xobjectName).arg(bringToFront));
+        d->lastErr.sourcePage = pageIndex;
+    }
+    return ok;
+}
+
+bool PdfEditorEngine::setImageOpacity(int pageIndex, const QString &xobjectName, double opacity)
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("setImageOpacity");
+    const bool ok = d->backend->setImageOpacity(pageIndex, xobjectName, opacity);
+    if (!ok) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Could not set the opacity of the image on page %1. Nothing was "
+                              "changed.").arg(pageIndex + 1),
+                  QStringLiteral("setImageOpacity page=%1, obj=%2, opacity=%3")
+                      .arg(pageIndex).arg(xobjectName).arg(opacity));
+        d->lastErr.sourcePage = pageIndex;
+    }
+    return ok;
+}
+
 bool PdfEditorEngine::applyRedactions(int pageIndex, const QList<QRectF> &rects)
 {
     QMutexLocker locker(&d->mutex);

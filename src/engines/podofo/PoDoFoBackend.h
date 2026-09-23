@@ -132,6 +132,10 @@ public:
     bool rotateImage(int pageIndex, const QString &xobjectName, double degrees);
     bool replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath);
     bool deleteImage(int pageIndex, const QString &xobjectName);
+    // Byte-exact content edits via gp::content (ContentSpans.h); both refuse,
+    // leaving the document untouched, when the edit could restyle the image.
+    bool setImageZOrder(int pageIndex, const QString &xobjectName, bool bringToFront);
+    bool setImageOpacity(int pageIndex, const QString &xobjectName, double opacity);
 
     // Watermarking (Session 13)
     bool addTextWatermark(const TextWatermarkOptions &options);

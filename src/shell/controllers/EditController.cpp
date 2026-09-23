@@ -17,6 +17,7 @@
 #include "commands/RotateImageCommand.h"
 #include "commands/ReplaceImageCommand.h"
 #include "commands/DeleteImageCommand.h"
+#include "commands/ImageAppearanceCommand.h"
 #include "commands/EditTextInlineCommand.h"
 #include "ui/AnnotationLayer.h"
 #include "ui/FindBar.h"
@@ -1314,6 +1315,12 @@ void EditController::onImageSelected(const QString &name, const QRectF &placemen
     QMenu menu(viewer);
     QAction* rotCw  = menu.addAction(tr("Rotate 90° Clockwise"));
     QAction* rotCcw = menu.addAction(tr("Rotate 90° Counter-Clockwise"));
+    QAction* rot180 = menu.addAction(tr("Rotate 180°"));
+    QAction* rotAngle = menu.addAction(tr("Rotate by Angle…"));
+    menu.addSeparator();
+    QAction* frontAct = menu.addAction(tr("Bring to Front"));
+    QAction* backAct = menu.addAction(tr("Send to Back"));
+    QAction* opacityAct = menu.addAction(tr("Opacity…"));
     menu.addSeparator();
     QAction* replaceAct = menu.addAction(tr("Replace…"));
     QAction* deleteAct  = menu.addAction(tr("Delete"));
@@ -1321,11 +1328,52 @@ void EditController::onImageSelected(const QString &name, const QRectF &placemen
     QAction* chosen = menu.exec(QCursor::pos());
     if (!chosen) return; // selection alone is fine — no-op, honestly
 
-    if (chosen == rotCw || chosen == rotCcw) {
-        const double degrees = (chosen == rotCw) ? 90.0 : -90.0;
+    // ARC07: every entry below mutates the document. The menu is reached
+    // through the (gated) EditImage tool, but the session can turn read-only
+    // while the mode stays armed — e.g. the expiry guard firing.
+    if (EditPolicy::mutationBlocked(_ctx->document.get())) {
+        _mainWindow->statusBar()->showMessage(EditPolicy::readOnlyMessage(), 5000);
+        return;
+    }
+
+    if (chosen == rotCw || chosen == rotCcw || chosen == rot180 || chosen == rotAngle) {
+        double degrees = chosen == rotCw ? 90.0 : chosen == rotCcw ? -90.0 : 180.0;
+        if (chosen == rotAngle) {
+            bool ok = false;
+            degrees = QInputDialog::getDouble(
+                _mainWindow, tr("Rotate Image"), tr("Angle in degrees (positive = clockwise):"),
+                0.0, -360.0, 360.0, 1, &ok);
+            if (!ok || qFuzzyIsNull(degrees)) return;
+        }
         _ctx->document->setPath(viewer->filePath());
         _ctx->undoStack->push(new RotateImageCommand(
             _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, degrees));
+    } else if (chosen == frontAct || chosen == backAct || chosen == opacityAct) {
+        double opacity = 1.0;
+        if (chosen == opacityAct) {
+            bool ok = false;
+            const int percent = QInputDialog::getInt(
+                _mainWindow, tr("Image Opacity"), tr("Opacity (%):"), 100, 0, 100, 5, &ok);
+            if (!ok) return;
+            opacity = percent / 100.0;
+        }
+        const QByteArray backup = _ctx->pdfEditor->extractPageAsBytes(viewer->filePath(), _imageEditPage);
+        // EC03: undo restores the page from `backup` — same restorable-backup
+        // contract as Replace/Delete below.
+        if (backup.isEmpty() || backup.size() > kMaxPageBackupBytes) {
+            _mainWindow->statusBar()->showMessage(
+                backup.isEmpty()
+                    ? tr("Image edit refused: the page could not be backed up; nothing was changed.")
+                    : tr("Image edit refused: the page exceeds the 10 MB restore limit; nothing was changed."),
+                5000);
+            return;
+        }
+        const auto kind = chosen == frontAct ? ImageAppearanceCommand::Kind::BringToFront
+                        : chosen == backAct  ? ImageAppearanceCommand::Kind::SendToBack
+                                             : ImageAppearanceCommand::Kind::Opacity;
+        _ctx->document->setPath(viewer->filePath());
+        _ctx->undoStack->push(new ImageAppearanceCommand(
+            _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, kind, opacity, backup));
     } else if (chosen == replaceAct) {
         const QString newPath = QFileDialog::getOpenFileName(
             _mainWindow, tr("Replacement Image"), QString(),

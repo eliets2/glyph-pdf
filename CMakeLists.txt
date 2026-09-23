@@ -424,6 +424,7 @@ add_library(pdfws_engines STATIC
     src/engines/podofo/PdfStringEscape.h src/engines/podofo/PdfStringEscape.cpp
     src/engines/podofo/GlyphAdvanceCalculator.h src/engines/podofo/GlyphAdvanceCalculator.cpp
     src/engines/podofo/PoDoFoBackend.h src/engines/podofo/PoDoFoBackend.cpp
+    src/engines/podofo/ContentSpans.h src/engines/podofo/ContentSpans.cpp
     src/engines/podofo/PdfEncryptPubSec.h src/engines/podofo/PdfEncryptPubSec.cpp
     src/engines/podofo/PdfPageOps.h       src/engines/podofo/PdfPageOps.cpp
     src/engines/pdfium/PdfiumEnvironment.h src/engines/pdfium/PdfiumEnvironment.cpp
@@ -5032,6 +5033,42 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestHistoryIntegrity.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
         LABELS "unit;history;commands;undo;persistence;qt;headless"
+    )
+endif()
+
+# Image stacking order + opacity (Wave 2B/2C port): gp::content byte-exact
+# edits, then the real engine judged by rendered pixels at the images' overlap.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestImageAppearance.cpp")
+    add_executable(TestImageAppearance
+        tests/TestImageAppearance.cpp
+        src/engines/DocumentSession.cpp
+    )
+    target_include_directories(TestImageAppearance PRIVATE src tests)
+    target_link_libraries(TestImageAppearance PRIVATE
+        pdfws_engines pdfws_core pdfws_commands podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf
+    )
+    add_custom_command(TARGET TestImageAppearance POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestImageAppearance>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestImageAppearance>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestImageAppearance"
+    )
+    if(WIN32)
+        add_custom_command(TARGET TestImageAppearance POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestImageAppearance>/libpodofo.dll"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestImageAppearance"
+        )
+    endif()
+    add_test(NAME TestImageAppearance COMMAND TestImageAppearance)
+    set_tests_properties(TestImageAppearance PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;editing;image;zorder;opacity;commands;undo;qt;headless"
     )
 endif()
 

@@ -107,6 +107,8 @@ public:
     // restorable backup") is observable.
     bool deleteImage(int, const QString &) override { ++m_deleteImageCalls; return true; }
     int m_deleteImageCalls = 0;
+    bool setImageZOrder(int, const QString &, bool) override { return true; }
+    bool setImageOpacity(int, const QString &, double) override { return true; }
     bool applyRedactions(int, const QList<QRectF> &) override { return m_loaded; }
     // T2-2 (ITextReplacer): Find & Replace seam. Deliberately NO `override` —
     // pre-fix baselines (revert verification) have no such virtual; post-fix

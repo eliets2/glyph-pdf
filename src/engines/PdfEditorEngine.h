@@ -104,6 +104,8 @@ public:
     bool rotateImage(int pageIndex, const QString &xobjectName, double degrees) override;
     bool replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath) override;
     bool deleteImage(int pageIndex, const QString &xobjectName) override;
+    bool setImageZOrder(int pageIndex, const QString &xobjectName, bool bringToFront) override;
+    bool setImageOpacity(int pageIndex, const QString &xobjectName, double opacity) override;
     bool applyRedactions(int pageIndex, const QList<QRectF> &rects) override;
     bool applyMarkRedactions(const QList<AnnotationItem>& marks) override;
     // T2-2 (ITextReplacer): Find & Replace engine seam — see ITextReplacer.

@@ -7,6 +7,7 @@
 #include <memory>
 #include "PdfStringEscape.h"
 #include "GlyphAdvanceCalculator.h"
+#include "ContentSpans.h"
 #include "pdfws_djot/DjotToRichTextXhtml.h"
 #include <QDebug>
 #include <QTemporaryFile>
@@ -1425,7 +1426,7 @@ bool PoDoFoBackend::deleteObjectAt(int pageIndex, const QPointF &pos) {
     try {
         if (!commitMutation(d->currentFile)) throw std::runtime_error("writeUpdate failed");
         return true;
-    } catch (const PoDoFo::PdfError& e) {
+    } catch (const std::exception& e) {   // PdfError, or a refused commit (commitMutation already rolled back)
         qWarning() << "deleteObjectAt save error:" << e.what();
         return false;
     }
@@ -3578,86 +3579,87 @@ bool PoDoFoBackend::sanitizeDocument(const QString &outputPath) {
 
 namespace {
 
+QByteArray pageContentBytes(PoDoFo::PdfPage &page)
+{
+    auto *contents = page.GetContents();
+    if (!contents) return {};
+    PoDoFo::charbuff buf;
+    contents->CopyTo(buf);
+    return QByteArray(buf.data(), static_cast<int>(buf.size()));
+}
+
+// Replaces the page content with `content` as one stream, through both
+// /Contents container shapes (EC03: Reset() can leave an array container).
+void setPageContentBytes(PoDoFo::PdfPage &page, const QByteArray &content)
+{
+    auto *contents = page.GetContents();
+    contents->Reset();
+    const std::string data(content.constData(), static_cast<size_t>(content.size()));
+    if (contents->GetObject().IsArray())
+        contents->CreateStreamForAppending().SetData(data);
+    else
+        contents->GetObject().GetOrCreateStream().SetData(data);
+}
+
+// The /Resources a page actually uses — its own, or inherited via /Parent.
+PoDoFo::PdfObject *effectivePageResources(PoDoFo::PdfPage &page)
+{
+    return page.GetDictionary().FindKeyParent("Resources");
+}
+
+// A stencil mask (/ImageMask true) paints with the current fill colour.
+bool isStencilImage(PoDoFo::PdfPage &page, const QString &xobjectName)
+{
+    auto *res = effectivePageResources(page);
+    if (!res || !res->IsDictionary()) return false;
+    auto *xobjects = res->GetDictionary().FindKey("XObject");
+    if (!xobjects || !xobjects->IsDictionary()) return false;
+    auto *xobj = xobjects->GetDictionary().FindKey(xobjectName.toStdString());
+    if (!xobj || !xobj->IsDictionary()) return false;
+    auto *mask = xobj->GetDictionary().FindKey("ImageMask");
+    return mask && mask->IsBool() && mask->GetBool();
+}
+
+const char *describeRefusal(gp::content::EditResult r)
+{
+    using gp::content::EditResult;
+    switch (r) {
+    case EditResult::NotFound:      return "the image is not drawn on this page";
+    case EditResult::Malformed:     return "the page content could not be parsed safely";
+    case EditResult::NotIsolated:   return "the image is not isolated in its own graphics state";
+    case EditResult::SharedBlock:   return "the image shares its graphics state with other content";
+    case EditResult::StateInTheWay: return "the page changes its drawing state around the image";
+    default:                        return "unexpected edit result";
+    }
+}
+
+
+// Rewrites the image's placement matrix — the cm inside its own q..Q block —
+// byte-exactly via gp::content. The previous version matched the image's Do as
+// a plain "Do" operator, but PoDoFo 1.x reports an image Do as DoXObject
+// (EC03), so every move/resize/rotate silently did nothing; it also replaced
+// from the start of the cm's LINE (deleting a "q" on that line), matched " cm"
+// text inside strings, and wrote through GetOrCreateStream() only (EC03: that
+// throws on an array /Contents).
 bool rewriteImageMatrix(PoDoFo::PdfPage& page, const std::string& xobjName,
                         double a, double b, double c, double d, double e, double f)
 {
-    auto* contentsObj = page.GetContents();
-    if (!contentsObj) return false;
-    
-    PoDoFo::charbuff streamBuf;
-    contentsObj->CopyTo(streamBuf);
-    std::string content(streamBuf.data(), streamBuf.size());
-
-    // Use PdfContentStreamReader to identify the cm->Do sequence
-    PoDoFo::PdfContentStreamReader reader(page);
-    PoDoFo::PdfContent pdfContent;
-    
-    // Track the last cm we saw; when we hit the target Do, we know which cm to replace
-    int cmCount = 0;     // sequence number of cm operators
-    int targetCmIdx = -1; // which cm to replace
-    
-    // First pass: identify which cm precedes our Do
-    int lastCmIdx = -1;
-    while (reader.TryReadNext(pdfContent)) {
-        if (pdfContent.GetType() == PoDoFo::PdfContentType::Operator) {
-            auto kw = pdfContent.GetKeyword();
-            const auto& stack = pdfContent.GetStack();
-            if (kw == "cm" && stack.size() >= 6) {
-                lastCmIdx = cmCount;
-                cmCount++;
-            } else if (kw == "Do" && stack.size() >= 1) {
-                std::string name(stack[0].GetName().GetString());
-                if (name == xobjName && lastCmIdx >= 0) {
-                    targetCmIdx = lastCmIdx;
-                    break;
-                }
-            }
-        }
+    QByteArray matrix;
+    for (double v : { a, b, c, d, e, f }) {
+        if (!std::isfinite(v)) return false;
+        if (!matrix.isEmpty()) matrix += ' ';
+        matrix += QByteArray::number(v, 'f', 6);   // locale-independent
     }
-    
-    if (targetCmIdx < 0) return false;
-    
-    // Second pass: find the Nth cm in raw content and replace it
-    int currentCm = 0;
-    size_t pos = 0;
-    while (pos < content.size()) {
-        // Find next " cm" or "\ncm" token
-        size_t cmPos = content.find(" cm", pos);
-        size_t cmPos2 = content.find("\ncm", pos);
-        if (cmPos == std::string::npos && cmPos2 == std::string::npos) break;
-        
-        size_t foundPos;
-        size_t cmEndOffset;
-        if (cmPos != std::string::npos && (cmPos2 == std::string::npos || cmPos < cmPos2)) {
-            foundPos = cmPos;
-            cmEndOffset = 3; // " cm"
-        } else {
-            foundPos = cmPos2;
-            cmEndOffset = 3; // "\ncm"
-        }
-        
-        if (currentCm == targetCmIdx) {
-            // Find the start of this cm line (the 6 numbers before it)
-            size_t lineStart = content.rfind('\n', foundPos);
-            if (lineStart == std::string::npos) lineStart = 0;
-            else lineStart++;
-            
-            char buf[256];
-            std::snprintf(buf, sizeof(buf), "%.6f %.6f %.6f %.6f %.6f %.6f cm",
-                          a, b, c, d, e, f);
-            content.replace(lineStart, foundPos + cmEndOffset - lineStart, buf);
-            
-            contentsObj->Reset();
-            auto& stream = contentsObj->GetObject().GetOrCreateStream();
-            stream.SetData(content);
-            return true;
-        }
-        
-        currentCm++;
-        pos = foundPos + cmEndOffset;
+    QByteArray edited;
+    const auto result = gp::content::replaceImageMatrix(
+        pageContentBytes(page), QByteArray::fromStdString(xobjName), matrix, &edited);
+    if (result != gp::content::EditResult::Changed) {
+        qWarning() << "rewriteImageMatrix refused for" << xobjName.c_str() << "-"
+                   << describeRefusal(result);
+        return false;
     }
-    
-    return false;
+    setPageContentBytes(page, edited);
+    return true;
 }
 
 } // anonymous namespace
@@ -3757,13 +3759,19 @@ QList<PdfImageInfo> PoDoFoBackend::listImages(int pageIndex) {
                 } else if (kw == "Q" && !matrixStack.isEmpty()) {
                     ctm = matrixStack.takeLast();
                 } else if (kw == "cm" && stack.size() >= 6) {
+                    // PdfVariantStack indexes from the TOP: stack[0] is the
+                    // LAST operand (f) and stack[5] the first (a) — the
+                    // convention the redaction canvas walk already uses. The
+                    // forward reading here reported every non-symmetric
+                    // placement wrong (a 200x200 image at (100,400) came back
+                    // as 412x200 at (0,200), rotated 14 degrees).
                     Matrix cm;
-                    cm.a = stack[0].IsNumberOrReal() ? stack[0].GetReal() : 0;
-                    cm.b = stack[1].IsNumberOrReal() ? stack[1].GetReal() : 0;
-                    cm.c = stack[2].IsNumberOrReal() ? stack[2].GetReal() : 0;
-                    cm.d = stack[3].IsNumberOrReal() ? stack[3].GetReal() : 0;
-                    cm.e = stack[4].IsNumberOrReal() ? stack[4].GetReal() : 0;
-                    cm.f = stack[5].IsNumberOrReal() ? stack[5].GetReal() : 0;
+                    cm.a = stack[5].IsNumberOrReal() ? stack[5].GetReal() : 0;
+                    cm.b = stack[4].IsNumberOrReal() ? stack[4].GetReal() : 0;
+                    cm.c = stack[3].IsNumberOrReal() ? stack[3].GetReal() : 0;
+                    cm.d = stack[2].IsNumberOrReal() ? stack[2].GetReal() : 0;
+                    cm.e = stack[1].IsNumberOrReal() ? stack[1].GetReal() : 0;
+                    cm.f = stack[0].IsNumberOrReal() ? stack[0].GetReal() : 0;
                     ctm = multiply(cm, ctm);
                 }
             }
@@ -3799,7 +3807,7 @@ bool PoDoFoBackend::moveImage(int pageIndex, const QString &xobjectName, double 
         
         if (ok) if (!commitMutation(d->currentFile)) throw std::runtime_error("writeUpdate failed");
         return ok;
-    } catch (const PoDoFo::PdfError& e) {
+    } catch (const std::exception& e) {   // PdfError, or a refused commit (commitMutation already rolled back)
         qWarning() << "moveImage error:" << e.what();
         return false;
     }
@@ -3826,7 +3834,7 @@ bool PoDoFoBackend::resizeImage(int pageIndex, const QString &xobjectName, doubl
         
         if (ok) if (!commitMutation(d->currentFile)) throw std::runtime_error("writeUpdate failed");
         return ok;
-    } catch (const PoDoFo::PdfError& e) {
+    } catch (const std::exception& e) {   // PdfError, or a refused commit (commitMutation already rolled back)
         qWarning() << "resizeImage error:" << e.what();
         return false;
     }
@@ -3847,8 +3855,13 @@ bool PoDoFoBackend::rotateImage(int pageIndex, const QString &xobjectName, doubl
         double h = target->placement.height();
         double cosR = std::cos(newRot), sinR = std::sin(newRot);
         
-        double cx = target->placement.x() + w * std::cos(target->rotation * M_PI / 180.0) / 2.0;
-        double cy = target->placement.y() + w * std::sin(target->rotation * M_PI / 180.0) / 2.0;
+        // Rotate about the image's TRUE centre: origin + (a + c, b + d) / 2 of
+        // the current matrix. The height terms were missing (the "centre" was
+        // the midpoint of the image's first edge), so every rotation also
+        // shifted the image and rotate + undo did not return it to place.
+        const double oldRot = target->rotation * M_PI / 180.0;
+        double cx = target->placement.x() + (w * std::cos(oldRot) - h * std::sin(oldRot)) / 2.0;
+        double cy = target->placement.y() + (w * std::sin(oldRot) + h * std::cos(oldRot)) / 2.0;
         double newE = cx - (w * cosR + h * (-sinR)) / 2.0;
         double newF = cy - (w * sinR + h * cosR) / 2.0;
         
@@ -3860,7 +3873,7 @@ bool PoDoFoBackend::rotateImage(int pageIndex, const QString &xobjectName, doubl
         
         if (ok) if (!commitMutation(d->currentFile)) throw std::runtime_error("writeUpdate failed");
         return ok;
-    } catch (const PoDoFo::PdfError& e) {
+    } catch (const std::exception& e) {   // PdfError, or a refused commit (commitMutation already rolled back)
         qWarning() << "rotateImage error:" << e.what();
         return false;
     }
@@ -3918,7 +3931,7 @@ bool PoDoFoBackend::replaceImage(int pageIndex, const QString &xobjectName, cons
         
         if (!commitMutation(d->currentFile)) throw std::runtime_error("writeUpdate failed");
         return true;
-    } catch (const PoDoFo::PdfError& e) {
+    } catch (const std::exception& e) {   // PdfError, or a refused commit (commitMutation already rolled back)
         qWarning() << "replaceImage error:" << e.what();
         return false;
     }
@@ -4008,8 +4021,106 @@ bool PoDoFoBackend::deleteImage(int pageIndex, const QString &xobjectName) {
         
         if (!commitMutation(d->currentFile)) throw std::runtime_error("writeUpdate failed");
         return true;
-    } catch (const PoDoFo::PdfError& e) {
+    } catch (const std::exception& e) {   // PdfError, or a refused commit (commitMutation already rolled back)
         qWarning() << "deleteImage error:" << e.what();
+        return false;
+    }
+}
+
+// ── Image stacking order and opacity (Wave 2B/2C port) ─────────────────────
+// Both edit the page content stream byte-exactly through gp::content
+// (ContentSpans.h) and refuse — leaving the document untouched — whenever the
+// edit could move or restyle the image instead of only restacking or fading
+// it. The Wave 2B original searched for the nearest "q"/"Q" text around the
+// Do, which could carry unrelated drawing along or strip the image's cm.
+
+bool PoDoFoBackend::setImageZOrder(int pageIndex, const QString &xobjectName, bool bringToFront) {
+    QMutexLocker locker(&d->mutex);
+    if (!d->document || pageIndex < 0
+        || static_cast<unsigned>(pageIndex) >= d->document->GetPages().GetCount())
+        return false;
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
+    bool mutated = false;
+    try {
+        auto &page = d->document->GetPages().GetPageAt(pageIndex);
+        QByteArray edited;
+        const auto result = gp::content::restackImage(
+            pageContentBytes(page), xobjectName.toUtf8(), bringToFront, &edited,
+            isStencilImage(page, xobjectName));
+        if (result == gp::content::EditResult::Unchanged)
+            return true;                               // already front-/backmost
+        if (result != gp::content::EditResult::Changed) {
+            qWarning() << "setImageZOrder refused for" << xobjectName << "on page"
+                       << pageIndex + 1 << "-" << describeRefusal(result);
+            return false;
+        }
+        mutated = true;
+        setPageContentBytes(page, edited);
+        return commitMutation(d->currentFile);        // a refused commit rolls back
+    } catch (const std::exception &e) {
+        qWarning() << "setImageZOrder error:" << e.what();
+        if (mutated) d->rollbackResidentMutation();   // never leave a half edit resident
+        return false;
+    }
+}
+
+bool PoDoFoBackend::setImageOpacity(int pageIndex, const QString &xobjectName, double opacity) {
+    QMutexLocker locker(&d->mutex);
+    if (!d->document || pageIndex < 0
+        || static_cast<unsigned>(pageIndex) >= d->document->GetPages().GetCount()
+        || !std::isfinite(opacity))
+        return false;
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
+    bool mutated = false;
+    try {
+        auto &page = d->document->GetPages().GetPageAt(pageIndex);
+        // One ExtGState per (page object, image): pages that share a
+        // /Resources dictionary never overwrite each other's opacity.
+        const QByteArray key = QByteArray::number(
+            page.GetObject().GetIndirectReference().ObjectNumber())
+            + ':' + xobjectName.toUtf8();
+        const QByteArray gsName = "GSop"
+            + QCryptographicHash::hash(key, QCryptographicHash::Sha1).toHex().left(12);
+
+        QByteArray edited;
+        const auto result = gp::content::wrapImageInExtGState(
+            pageContentBytes(page), xobjectName.toUtf8(), gsName, &edited);
+        if (result != gp::content::EditResult::Changed
+            && result != gp::content::EditResult::Unchanged) {
+            qWarning() << "setImageOpacity refused for" << xobjectName << "on page"
+                       << pageIndex + 1 << "-" << describeRefusal(result);
+            return false;
+        }
+
+        // Inherited resources are copied onto the page first: a bare
+        // /Resources here would hide the inherited XObject (the image).
+        mutated = true;
+        if (!page.GetDictionary().HasKey("Resources")) {
+            auto *inherited = effectivePageResources(page);
+            page.GetDictionary().AddKey("Resources",
+                inherited && inherited->IsDictionary()
+                    ? PoDoFo::PdfObject(inherited->GetDictionary())
+                    : PoDoFo::PdfObject(PoDoFo::PdfDictionary()));
+        }
+        auto *resources = page.GetDictionary().FindKey("Resources");
+        auto *gsDict = resources->GetDictionary().FindKey("ExtGState");
+        if (!gsDict) {
+            resources->GetDictionary().AddKey("ExtGState", PoDoFo::PdfDictionary());
+            gsDict = resources->GetDictionary().FindKey("ExtGState");
+        }
+        const double alpha = std::clamp(opacity, 0.0, 1.0);
+        auto &gsObj = d->document->GetObjects().CreateDictionaryObject();
+        gsObj.GetDictionary().AddKey("Type", PoDoFo::PdfName("ExtGState"));
+        gsObj.GetDictionary().AddKey("ca", alpha);
+        gsObj.GetDictionary().AddKey("CA", alpha);
+        gsDict->GetDictionary().AddKeyIndirect(PoDoFo::PdfName(gsName.toStdString()), gsObj);
+
+        if (result == gp::content::EditResult::Changed)
+            setPageContentBytes(page, edited);          // first wrap of this image
+        return commitMutation(d->currentFile);        // a refused commit rolls back
+    } catch (const std::exception &e) {
+        qWarning() << "setImageOpacity error:" << e.what();
+        if (mutated) d->rollbackResidentMutation();   // never leave a half edit resident
         return false;
     }
 }
@@ -5968,7 +6079,7 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
 
         if (!commitMutation(outputPath)) throw std::runtime_error("writeUpdate failed");
         return true;
-    } catch (const PoDoFo::PdfError& e) {
+    } catch (const std::exception& e) {   // PdfError, or a refused commit (commitMutation already rolled back)
         qWarning() << "Error optimizing document:" << e.what();
         return false;
     }

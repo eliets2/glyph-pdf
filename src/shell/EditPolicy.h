@@ -28,9 +28,10 @@ namespace EditPolicy {
 //     in PagesController, FindBar replace/redact-all in EditController,
 //     HomeController::saveNow, ALL THREE PagesMode reorder routes —
 //     grid drag/keyboard moves, the reorder-panel list Apply button, and
-//     page labels — FormBuilderMode's tab-order Apply button, and Form
+//     page labels — FormBuilderMode's tab-order Apply button, Form
 //     Builder's field properties panel — Apply entry and keystroke entry,
-//     emergence E-1) call mutationBlocked() at their top.
+//     emergence E-1 — and EditController's image action menu: rotate,
+//     restack, opacity, replace, delete) call mutationBlocked() at their top.
 //     (S2-1, SWEEP-BACKEND-2026-09-21: this comment previously claimed
 //     "PagesMode reorder/labels" without exception, but the reorder-panel
 //     list Apply route was ungated until the audit caught it; S2-2 caught
