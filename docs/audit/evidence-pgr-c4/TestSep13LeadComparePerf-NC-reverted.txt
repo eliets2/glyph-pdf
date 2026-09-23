@@ -1,0 +1,11 @@
+********* Start testing of TestSep13LeadComparePerf *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSep13LeadComparePerf::initTestCase()
+QINFO  : TestSep13LeadComparePerf::anchorRoleRecomputeStaysNearLinear() anchor-role recompute: rows = 2000 -> 0.114258 ms/pass over 1024 repeats; rows = 8000 -> 0.508789 ms/pass; ratio = 4.45299 (linear expectation ~4x, memo cache effects push the fixed baseline to ~6-8x; the O(rows x anchors) regression measured 15.8-16.5x)
+PASS   : TestSep13LeadComparePerf::anchorRoleRecomputeStaysNearLinear()
+QINFO  : TestSep13LeadComparePerf::structuralAnchorLookupStaysNearLinear() structural anchor lookup: rows = 2000 -> 11.8125 ms/pass over 16 repeats; rows = 8000 -> 221.25 ms/pass; ratio = 18.7302 (linear expectation ~4x, memo cache effects push the fixed baseline to ~6-8x; the O(rows x anchors) regression measured 15.8-16.5x on the page half)
+FAIL!  : TestSep13LeadComparePerf::structuralAnchorLookupStaysNearLinear() 'ratio < 10.0' returned FALSE. (lead-12 structural half REGRESSED: anchorIndexForStructuralChange grows superlinearly again (ratio 18.7 at 4x rows; fixed baseline is ~6-8x) — is CompareWidget::m_anchorIndexByStructuralChange still consulted by anchorIndexForStructuralChange, and is it still rebuilt in buildHtml?)
+C:/Users/User/Projects/pdf-featplans/tests/TestSep13LeadComparePerf.cpp(169) : failure location
+PASS   : TestSep13LeadComparePerf::cleanupTestCase()
+Totals: 3 passed, 1 failed, 0 skipped, 0 blacklisted, 8140ms
+********* Finished testing of TestSep13LeadComparePerf *********

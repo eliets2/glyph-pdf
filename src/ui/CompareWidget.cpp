@@ -151,10 +151,14 @@ CompareWidget::ChangeAnchor CompareWidget::anchorAt(int index) const
 
 int CompareWidget::anchorIndexForStructuralChange(int pageChangeIndex) const
 {
-    for (int i = 0; i < m_anchors.size(); ++i)
-        if (m_anchors.at(i).structuralIndex == pageChangeIndex)
-            return i;
-    return -1;
+    // PGR-10 triage completion of the same L12 finding: memoized exactly like
+    // anchorIndexForPage — the per-row linear scan this replaces made every
+    // filter toggle O(structural rows × anchors) on the GUI thread (a
+    // comparison with many added/removed/moved pages re-walked the whole
+    // anchor list once per structural row, per toggle, per completed diff).
+    return m_anchorIndexByStructuralChange.contains(pageChangeIndex)
+               ? m_anchorIndexByStructuralChange.value(pageChangeIndex)
+               : -1;
 }
 
 int CompareWidget::anchorIndexForPage(int pageDiffIndex) const
@@ -244,6 +248,7 @@ QString CompareWidget::buildHtml()
 {
     m_anchors.clear();
     m_anchorIndexByPage.clear();
+    m_anchorIndexByStructuralChange.clear();
 
     if (m_diffResult.isIdentical)
         return QStringLiteral("<span style='color:#4ec96d'>Files are identical.</span>");
@@ -254,6 +259,13 @@ QString CompareWidget::buildHtml()
     auto appendAnchor = [this](const ChangeAnchor &anchor) {
         if (!m_anchorIndexByPage.contains(anchor.pageDiffIndex))
             m_anchorIndexByPage.insert(anchor.pageDiffIndex, m_anchors.size());
+        // Same contract for the structural side (PGR-10 triage completion):
+        // first anchor carrying the pageChangeIndex wins, like the linear
+        // scan anchorIndexForStructuralChange replaced.
+        if (anchor.structuralIndex >= 0
+            && !m_anchorIndexByStructuralChange.contains(anchor.structuralIndex))
+            m_anchorIndexByStructuralChange.insert(anchor.structuralIndex,
+                                                   m_anchors.size());
         m_anchors.append(anchor);
     };
 
