@@ -499,6 +499,18 @@ void RedactOperation::ExecutionState::execute()
                 PoDoFo::PdfMemDocument doc;
                 doc.Load(request.sourcePath.toUtf8().constData());
                 sourcePageCount = static_cast<int>(doc.GetPages().GetCount());
+                // G4 (audit REDACTION-RESEARCH-2026-09-21 §2.2): disclose
+                // optional content. Hidden OCG layers stay present-but-hidden
+                // through sanitize (all layers forced OFF, never revealed);
+                // redaction itself removes marked regions only — hidden
+                // content the user never saw remains in the file.
+                if (doc.GetCatalog().GetDictionary().FindKey(
+                        PoDoFo::PdfName("OCProperties")) != nullptr) {
+                    qWarning() << "Redaction preflight: the document contains "
+                                  "optional content (OCG layers). Sanitize keeps "
+                                  "hidden layers hidden (all layers OFF); hidden "
+                                  "content remains present in the file.";
+                }
             } catch (const PoDoFo::PdfError& e) {
                 fail(RedactStage::Preflight,
                      QStringLiteral("Could not read the source document: %1")

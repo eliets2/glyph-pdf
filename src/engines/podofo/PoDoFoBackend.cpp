@@ -3565,9 +3565,49 @@ static void sanitizeDocumentContents(PoDoFo::PdfMemDocument& doc)
         sanitizeAllStructElements(structTreeRootObj, 0);
     }
 
-    // 17. Flatten optional content layers by removing OCProperties
-    if (catalog.GetDictionary().HasKey(PdfName("OCProperties"))) {
-        catalog.GetDictionary().RemoveKey(PdfName("OCProperties"));
+    // 17. Optional content (G4, audit REDACTION-RESEARCH-2026-09-21 §2.2):
+    // the former /OCProperties removal REVEALED hidden layers — with the
+    // default config gone, every layer-gated element renders VISIBLE in every
+    // viewer, so the sanitized copy of a redacted document could show content
+    // the user never saw, never marked, and believed hidden. Redaction-safe
+    // "flatten" is the OPPOSITE: keep /OCProperties and write an explicit OFF
+    // policy — /D with an empty /ON list and every OCG in /OFF — so hidden
+    // stays hidden. /AS (usage-application) is dropped so the explicit /D
+    // policy is the whole story. The layer CONTENT itself remains present
+    // (disclosed in the redaction pack; redaction removes marked regions
+    // only). Wrapper-safe: no PdfDocument cache wraps /OCProperties.
+    if (auto* ocpObj = catalog.GetDictionary().FindKey(PdfName("OCProperties"));
+        ocpObj != nullptr) {
+        if (ocpObj->IsReference())
+            ocpObj = &doc.GetObjects().MustGetObject(ocpObj->GetReference());
+        if (ocpObj->IsDictionary()) {
+            PdfArray offRefs;
+            if (auto* ocgs = ocpObj->GetDictionary().FindKey(PdfName("OCGs"))) {
+                if (ocgs->IsReference())
+                    ocgs = &doc.GetObjects().MustGetObject(ocgs->GetReference());
+                if (ocgs && ocgs->IsArray()) {
+                    for (const auto& ocg : ocgs->GetArray())
+                        offRefs.Add(ocg);
+                }
+            }
+            PdfObject* dObj = ocpObj->GetDictionary().FindKey(PdfName("D"));
+            if (dObj != nullptr && dObj->IsReference())
+                dObj = &doc.GetObjects().MustGetObject(dObj->GetReference());
+            if (dObj == nullptr) {
+                auto& created = doc.GetObjects().CreateDictionaryObject();
+                ocpObj->GetDictionary().AddKey(PdfName("D"),
+                                               created.GetIndirectReference());
+                dObj = &created;
+            }
+            if (dObj->IsDictionary()) {
+                auto& dDict = dObj->GetDictionary();
+                dDict.RemoveKey(PdfName("ON"));
+                dDict.RemoveKey(PdfName("OFF"));
+                dDict.RemoveKey(PdfName("AS"));
+                dDict.AddKey(PdfName("ON"), PdfArray());
+                dDict.AddKey(PdfName("OFF"), offRefs);
+            }
+        }
     }
 
     // 18. Remove Outlines (bookmarks)
