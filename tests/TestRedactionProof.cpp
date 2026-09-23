@@ -230,7 +230,27 @@ bool tamperXmp(const QString& inPath, const QString& outPath, const QString& sec
             "<dc:title><rdf:Alt><rdf:li>" + secret.toStdString() +
             "</rdf:li></rdf:Alt></dc:title></rdf:Description></rdf:RDF></x:xmpmeta>";
         doc.GetCatalog().SetMetadataStreamValue(xmp);
-        doc.Save(outPath.toUtf8().constData());
+        // NoMetadataUpdate is REQUIRED here (soak-followup 2026-09-23): a
+        // default-options Save stamps /Info/ModDate with the current time and,
+        // when that stamp actually differs from the stored one (PDF dates have
+        // second granularity — a second-boundary crossing between the redaction
+        // save and this save makes it differ, so the flake is load-sensitive),
+        // PoDoFo 1.1.0 re-synchronizes the /Metadata packet from its metadata
+        // store — silently DISCARDING the plant above. The proof then rightly
+        // passes over a file that carries no secret and the slot failed ~1-in-4
+        // under load / 10x in the 48h soak. NoMetadataUpdate is PoDoFo's
+        // documented option for manual XMP manipulation. The reload below
+        // enforces the plant-survived contract so any future PoDoFo behavior
+        // change fails HERE, not as a confusing proof PASS.
+        doc.Save(outPath.toUtf8().constData(),
+                 PoDoFo::PdfSaveOptions::NoMetadataUpdate);
+        PoDoFo::PdfMemDocument check;
+        check.Load(outPath.toUtf8().constData());
+        if (check.GetCatalog().GetMetadataStreamValue().find(
+                secret.toStdString()) == std::string::npos) {
+            qWarning() << "tamperXmp: planted XMP did not survive the save";
+            return false;
+        }
         return true;
     } catch (const std::exception& e) {
         qWarning() << "tamperXmp failed:" << e.what();
