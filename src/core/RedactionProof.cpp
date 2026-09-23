@@ -1205,7 +1205,11 @@ const char* kDisclaimer =
     "invisible to attribution and to the extracted-text survivor sweep alike, "
     "and literal byte search cannot decode glyph identifiers — such text is "
     "NOT covered by a PASS. A PASS is the strongest statement this tool makes: "
-    "every check it knows how to run found nothing.";
+    "every check it knows how to run found nothing. Legacy XFA form data is "
+    "likewise outside every swept surface: it re-encodes form values in streams "
+    "no sweep can attribute, so GlyphPDF refuses to redact XFA-bearing "
+    "documents outright, and Sanitize removes the XFA form data before a "
+    "redacted copy is made.";
 
 QJsonObject surfaceJson(const SurfaceReport& r)
 {

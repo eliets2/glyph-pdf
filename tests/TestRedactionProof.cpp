@@ -454,6 +454,41 @@ private slots:
         QVERIFY(backend.extractText(1).contains(QStringLiteral("KeepPageTwo")));
     }
 
+    // ── G1(c): the pack must name the XFA limitation ────────────────────────
+    //
+    // Legacy XFA form data re-encodes field values in streams no sweep can
+    // attribute; GlyphPDF's answer is refusal (RedactOperation preflight) plus
+    // sanitize removal. The disclaimer must SAY so, like the raster-image
+    // limitation it already names (audit REDACTION-RESEARCH-2026-09-21 §2.5).
+    void packDisclaimerNamesXfaRefusalPolicy()
+    {
+        const QString src = makeSourcePdf(m_tmpDir.filePath("xfa_note_src.pdf"));
+        QVERIFY(!src.isEmpty());
+        const QString dest = m_tmpDir.filePath("xfa_note_redacted.pdf");
+        QMap<int, QList<QRectF>> rects;
+        rects[0].append(secretMark());
+        RedactRequest req;
+        req.sourcePath = src;
+        req.destinationPath = dest;
+        req.redactionsByPage = rects;
+        req.produceProof = true;
+        RedactOperation op(req);
+        const RedactResult r = runOp(&op);
+        QCOMPARE(r.outcome, RedactOutcome::Completed);
+        QVERIFY(r.proofRan);
+
+        const QJsonObject root = jsonRoot(r.proofJsonPath);
+        const QString disclaimer = root["disclaimer"].toString();
+        QVERIFY2(disclaimer.contains(QStringLiteral("XFA")),
+                 "G-01: the pack disclaimer must name the XFA policy");
+        QVERIFY2(disclaimer.contains(QStringLiteral("refus")),
+                 "G-01: the disclaimer must state the refusal policy for "
+                 "XFA-bearing documents");
+        const QString text = QString::fromUtf8(fileBytes(r.proofTextPath));
+        QVERIFY2(text.contains(QStringLiteral("XFA")),
+                 "G-01: the TXT pack must name the XFA policy too");
+    }
+
     // ── W2B-1: the /Rotate 270 page-shape (the fixture blind spot) ──────────
     //
     // The excision rect for a mark on a /Rotate 270 page must land on the

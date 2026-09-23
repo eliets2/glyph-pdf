@@ -937,6 +937,27 @@ bool PoDoFoBackend::hasPdfSignatures() const {
     return false;
 }
 
+bool PoDoFoBackend::hasXfaDocument() const {
+    QMutexLocker locker(&d->mutex);
+    if (!d->document) return false;
+    try {
+        // G1 (audit REDACTION-RESEARCH-2026-09-21 §2.5): legacy XFA form data
+        // lives at /AcroForm /XFA (static XFA) or catalog /XFA (the dynamic-XFA
+        // whole-form entry). FindKey resolves indirect AcroForm references.
+        auto& catalog = d->document->GetCatalog();
+        if (catalog.GetDictionary().HasKey(PoDoFo::PdfName("XFA")))
+            return true;
+        if (const PoDoFo::PdfObject* acro =
+                catalog.GetDictionary().FindKey(PoDoFo::PdfName("AcroForm"));
+            acro != nullptr && acro->IsDictionary()) {
+            return acro->GetDictionary().HasKey(PoDoFo::PdfName("XFA"));
+        }
+    } catch (const PoDoFo::PdfError&) {
+        // Cannot determine — treat as XFA-free (sanitize still scrubs the keys)
+    }
+    return false;
+}
+
 int PoDoFoBackend::recipientCount() const {
     QMutexLocker locker(&d->mutex);
     if (!d->document || !d->document->IsEncrypted()) return 0;
@@ -3488,6 +3509,25 @@ static void sanitizeDocumentContents(PoDoFo::PdfMemDocument& doc)
         auto& fieldDict = field->GetDictionary();
         if (fieldDict.HasKey("V")) fieldDict.RemoveKey("V");
         if (fieldDict.HasKey("DV")) fieldDict.RemoveKey("DV");
+    }
+
+    // 22.5 Remove legacy XFA form data (G1, audit REDACTION-RESEARCH-2026-09-21
+    // §2.5): /AcroForm /XFA (static XFA) and catalog /XFA (dynamic XFA) carry
+    // a full second copy of the form data model — every field value re-encoded
+    // in streams the /V//DV scrub above never reaches. Sanitize's contract is
+    // zero recoverable user data: drop the entries; the default-GC Save then
+    // drops the orphaned XFA stream objects. Wrapper-safe: no PdfDocument cache
+    // wraps the /XFA VALUE (m_AcroForm wraps the AcroForm dict itself — keys
+    // are removed FROM that dict, the dict object stays).
+    {
+        auto* acroObj = catalog.GetDictionary().FindKey(PdfName("AcroForm"));
+        if (acroObj != nullptr && acroObj->IsDictionary()
+            && acroObj->GetDictionary().HasKey(PdfName("XFA"))) {
+            acroObj->GetDictionary().RemoveKey(PdfName("XFA"));
+        }
+        if (catalog.GetDictionary().HasKey(PdfName("XFA"))) {
+            catalog.GetDictionary().RemoveKey(PdfName("XFA"));
+        }
     }
 
     // 21. Trailer ID second element randomization

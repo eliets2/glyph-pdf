@@ -2021,6 +2021,13 @@ bool PdfEditorEngine::hasPdfSignatures() const
     return d->backend->hasPdfSignatures();
 }
 
+bool PdfEditorEngine::hasXfaDocument() const
+{
+    QMutexLocker locker(&d->mutex);
+    if (!d->backend) return false;
+    return d->backend->hasXfaDocument();
+}
+
 int PdfEditorEngine::recipientCount() const
 {
     QMutexLocker locker(&d->mutex);

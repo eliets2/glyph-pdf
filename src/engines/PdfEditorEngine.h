@@ -140,6 +140,9 @@ public:
     bool writeUpdate(const QString &outputPath) override;
     bool hasPdfSignatures() const override;
 
+    // G1: legacy XFA form data present (redaction preflight refusal).
+    bool hasXfaDocument() const override;
+
     // ER-3
     int recipientCount() const override;
 

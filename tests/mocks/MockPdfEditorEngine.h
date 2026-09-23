@@ -239,6 +239,8 @@ public:
         return m_links;
     }
     bool hasPdfSignatures() const override { return m_hasPdfSignatures; }
+    // G1: XFA preflight-refusal seam (default: no XFA).
+    bool hasXfaDocument() const override { return m_hasXfaDocument; }
     int recipientCount() const override { return 0; }
 
     // Test helpers
@@ -246,6 +248,7 @@ public:
     bool m_loaded = false;
     bool m_sanitizeResult = true;
     bool m_hasPdfSignatures = false;
+    bool m_hasXfaDocument = false;
     // EC02 barrier + identity-bytes hooks
     QSemaphore* m_saveEntered = nullptr;
     QSemaphore* m_saveHold = nullptr;

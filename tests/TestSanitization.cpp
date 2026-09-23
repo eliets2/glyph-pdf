@@ -295,6 +295,136 @@ private slots:
         }
     }
 
+    // G1(b) (audit REDACTION-RESEARCH-2026-09-21 §2.5): sanitize must remove
+    // legacy XFA form data — /AcroForm /XFA and catalog /XFA carry a full
+    // second copy of the form data model (every field value re-encoded) that
+    // the /V//DV scrub never reaches. The XFA payload stream must be gone
+    // from the saved output, and the AcroForm field structure must survive.
+    void testSanitizeRemovesXfaFormData()
+    {
+        // Decode-level stream scan: every object's stream, filters applied.
+        // The payload check must be decode-level because PoDoFo's writer flate-
+        // encodes streams regardless of how SetData stored them — a raw-byte
+        // contains() would pass vacuously while the data survives.
+        const QByteArray kXfaPayload = "<xdp><field name='XfaField'>"
+                                       "XfaDynamicDataSecret</field></xdp>";
+        auto streamObjectsContain = [](const QString& path,
+                                        const QByteArray& needle) -> bool {
+            try {
+                PoDoFo::PdfMemDocument d;
+                d.Load(path.toUtf8().constData());
+                for (PoDoFo::PdfObject* obj : d.GetObjects()) {
+                    if (obj == nullptr || !obj->HasStream()) continue;
+                    try {
+                        const auto copy = obj->GetStream()->GetCopy();
+                        if (std::string_view(copy.data(), copy.size())
+                                .find(needle.constData()) != std::string_view::npos)
+                            return true;
+                    } catch (const PoDoFo::PdfError&) {
+                        // media/undecodable stream — not our payload's shape
+                    }
+                }
+            } catch (const std::exception&) {
+                return false;
+            }
+            return false;
+        };
+
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        QString pdf = tmp.filePath("xfa_src.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            auto& page = doc.GetPages().CreatePage(
+                PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            auto& field = page.CreateField<PoDoFo::PdfTextBox>(
+                "XfaField", PoDoFo::Rect(100, 500, 150, 20));
+            field.SetText(PoDoFo::PdfString("XfaFieldSecretValue"));
+            auto& xfaObj = doc.GetObjects().CreateDictionaryObject();
+            xfaObj.GetOrCreateStream().SetData(PoDoFo::bufferview(
+                kXfaPayload.constData(), size_t(kXfaPayload.size())));
+            auto& catalog = doc.GetCatalog();
+            auto* acro = catalog.GetDictionary().FindKey(PoDoFo::PdfName("AcroForm"));
+            QVERIFY(acro != nullptr && acro->IsDictionary());
+            acro->GetDictionary().AddKey(PoDoFo::PdfName("XFA"),
+                                         xfaObj.GetIndirectReference());
+            catalog.GetDictionary().AddKey(PoDoFo::PdfName("XFA"),
+                                           xfaObj.GetIndirectReference());
+            doc.Save(pdf.toUtf8().constData());
+        }
+        {   // fixture sanity: XFA keys + payload present before sanitize
+            QFile f(pdf);
+            QVERIFY(f.open(QIODevice::ReadOnly));
+            QVERIFY(f.readAll().contains("/XFA"));
+        }
+        QVERIFY2(streamObjectsContain(pdf, kXfaPayload),
+                 "fixture: the XFA payload stream must be present pre-sanitize");
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+        QString outPdf = tmp.filePath("xfa_sanitized.pdf");
+        QVERIFY(engine.sanitizeDocument(outPdf));
+
+        // Raw bytes: no /XFA key, no XFA payload, no field value.
+        {
+            QFile f(outPdf);
+            QVERIFY(f.open(QIODevice::ReadOnly));
+            const QByteArray raw = f.readAll();
+            QVERIFY2(!raw.contains("/XFA"),
+                     "G-01: sanitized output must be XFA-free (raw bytes)");
+            QVERIFY2(!raw.contains("XfaDynamicDataSecret"),
+                     "G-01: the XFA payload must not survive sanitize (raw)");
+            QVERIFY2(!raw.contains("XfaFieldSecretValue"),
+                     "G-04: the field value must not survive sanitize");
+        }
+        // Decode-level: no stream anywhere in the output carries the XFA
+        // payload — the orphaned XFA object must be gone, not just unreferenced
+        // in visible form.
+        QVERIFY2(!streamObjectsContain(outPdf, kXfaPayload),
+                 "G-01: the XFA payload stream must not survive sanitize "
+                 "(decode-level)");
+        // Structure: no catalog /XFA, no /AcroForm /XFA; the field itself
+        // still exists (structure survives, data gone).
+        PoDoFo::PdfMemDocument outDoc;
+        outDoc.Load(outPdf.toUtf8().constData());
+        QVERIFY2(!outDoc.GetCatalog().GetDictionary().HasKey("XFA"),
+                 "G-01: catalog /XFA must be removed by sanitize");
+        auto* outAcro = outDoc.GetCatalog().GetDictionary().FindKey("AcroForm");
+        if (outAcro && outAcro->IsDictionary()) {
+            QVERIFY2(!outAcro->GetDictionary().HasKey("XFA"),
+                     "G-01: /AcroForm /XFA must be removed by sanitize");
+        }
+    }
+
+    // G1 negative control: a NON-XFA document is not damaged by the XFA
+    // removal step — the AcroForm and its field survive sanitize untouched.
+    void testSanitizeLeavesNonXfaFormIntact()
+    {
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        QString pdf = tmp.filePath("plainform_src.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            auto& page = doc.GetPages().CreatePage(
+                PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            auto& field = page.CreateField<PoDoFo::PdfTextBox>(
+                "PlainField", PoDoFo::Rect(100, 500, 150, 20));
+            field.SetText(PoDoFo::PdfString("PlainValue"));
+            doc.Save(pdf.toUtf8().constData());
+        }
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+        QString outPdf = tmp.filePath("plainform_sanitized.pdf");
+        QVERIFY(engine.sanitizeDocument(outPdf));
+
+        PoDoFo::PdfMemDocument outDoc;
+        outDoc.Load(outPdf.toUtf8().constData());
+        QVERIFY2(outDoc.GetCatalog().GetDictionary().HasKey("AcroForm"),
+                 "control: sanitize must not damage a non-XFA AcroForm");
+        QVERIFY2(!outDoc.GetCatalog().GetDictionary().HasKey("XFA"),
+                 "control: no XFA key should appear");
+    }
+
     // T-H1: second integration pass covering the threat vectors the first test
     // does not — catalog /OpenAction, catalog /AA, /PieceInfo, /EmbeddedFiles,
     // RichMedia/Screen/Movie annotations, and dangerous annotation /A actions

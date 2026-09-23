@@ -443,6 +443,13 @@ public:
     // R2-1 D2: true iff the currently-loaded document contains at least one PDF
     // signature field (/Sig widget). Used to select the correct save path.
     virtual bool hasPdfSignatures() const = 0;
+    // G1 (audit REDACTION-RESEARCH-2026-09-21 §2.5): true iff the currently-
+    // loaded document carries legacy XFA form data (/AcroForm /XFA or a
+    // catalog /XFA). XFA re-encodes every field value in streams the redaction
+    // excision never touches, so redaction must refuse honestly before any
+    // write; sanitize removes the entry. Lives beside hasPdfSignatures as the
+    // second member of the preflight-refusal family.
+    virtual bool hasXfaDocument() const = 0;
     virtual bool embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations) = 0;
 };
 
