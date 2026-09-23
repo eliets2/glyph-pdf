@@ -490,7 +490,6 @@ void capturePromptAndClick(const QString &titleNeedle, const QString &buttonText
     capturePromptAndClickStep(titleNeedle, buttonText, text, title, deadline, budgetMs,
                               g_driverEpoch);
 }
-
 // Pattern-text fixture for the F3b refusal pin: the page paints its PUBLIC
 // text as an ordinary content-stream op AND carries a tiling pattern whose
 // stream holds a second, secret text. The excision canvas walk cannot reach
@@ -506,7 +505,6 @@ bool makePatternTextPdf(const QString &path)
             PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
         auto &font = doc.GetFonts().GetStandard14Font(
             PoDoFo::PdfStandard14FontType::Helvetica);
-
         auto &pattern = doc.GetObjects().CreateDictionaryObject();
         pattern.GetDictionary().AddKey(PoDoFo::PdfName("Type"), PoDoFo::PdfName("Pattern"));
         pattern.GetDictionary().AddKey(PoDoFo::PdfName("PatternType"), PoDoFo::PdfObject(int64_t(1)));
@@ -525,7 +523,6 @@ bool makePatternTextPdf(const QString &path)
         const char *patternContent = "BT /F1 14 Tf 10 30 Td (PatternSecretOmega) Tj ET\n";
         pattern.GetOrCreateStream().SetData(PoDoFo::bufferview(
             patternContent, std::strlen(patternContent)));
-
         auto &patternMap = doc.GetObjects().CreateDictionaryObject();
         patternMap.GetDictionary().AddKey(PoDoFo::PdfName("P1"),
                                           pattern.GetIndirectReference());
@@ -544,7 +541,6 @@ bool makePatternTextPdf(const QString &path)
             pageContent, std::strlen(pageContent)));
         page.GetObject().GetDictionary().AddKey(PoDoFo::PdfName("Contents"),
                                                 content.GetIndirectReference());
-
         doc.Save(path.toUtf8().constData());
         return QFileInfo::exists(path);
     } catch (const std::exception &e) {
