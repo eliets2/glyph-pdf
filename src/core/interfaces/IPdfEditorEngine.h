@@ -235,10 +235,15 @@ public:
     //     …): index must be in [0, count);
     //   - insert-at (insertPageFromBytes, insertBlankPage): atIndex may be
     //     count, i.e. [0, count] inclusive (append at the end).
+    // opacity (0..1) applies to the new text only; letterSpacing is PDF Tc
+    // (points after every glyph); lineSpacing multiplies the 1.2 x size line
+    // pitch. The defaults reproduce the previous output exactly.
     virtual bool editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
                                 const QString &fontFamily = "", int fontSize = 0,
                                 const QColor &color = Qt::black, bool bold = false,
-                                bool italic = false, int alignment = 0) = 0;
+                                bool italic = false, int alignment = 0,
+                                double opacity = 1.0, double letterSpacing = 0.0,
+                                double lineSpacing = 1.0) = 0;
     virtual bool deleteObjectAt(int pageIndex, const QPointF &pos) = 0;
     virtual bool rotatePage(const QString &path, int pageIndex, int degrees) = 0;
     virtual QByteArray extractPageAsBytes(const QString &path, int pageIndex) = 0;

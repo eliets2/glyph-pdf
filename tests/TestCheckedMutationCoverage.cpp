@@ -127,7 +127,8 @@ public:
         return m_rotateOk;
     }
     bool editTextInline(int, const QRectF &, const QString &, const QString &,
-                        int, const QColor &, bool, bool, int) override {
+                        int, const QColor &, bool, bool, int,
+                        double, double, double) override {
         ++m_editCalls;
         return m_editOk;
     }

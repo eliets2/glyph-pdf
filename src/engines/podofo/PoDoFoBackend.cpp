@@ -1293,7 +1293,8 @@ bool PoDoFoBackend::restorePageFromBytes(const QString &path, int pageIndex, con
 bool PoDoFoBackend::editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
                                    const QString &fontFamily, int fontSize,
                                    const QColor &color, bool bold,
-                                   bool italic, int alignment) {
+                                   bool italic, int alignment, double opacity,
+                                   double letterSpacing, double lineSpacing) {
     QMutexLocker locker(&d->mutex);
     if (!d->document || pageIndex < 0 || (unsigned)pageIndex >= d->document->GetPages().GetCount()) return false;
     
@@ -1359,7 +1360,21 @@ bool PoDoFoBackend::editTextInline(int pageIndex, const QRectF &rect, const QStr
         PoDoFo::Rect pageRect = page.GetMediaBox();
         double pdfY = pageRect.Height - (rect.y() + rect.height());
         painter.DrawRectangle(rect.x(), pdfY, rect.width(), rect.height(), PoDoFo::PdfPathDrawMode::Fill);
-        
+
+        // Opacity applies to the NEW text only: the ExtGState is installed
+        // after the white cover, so the cover stays opaque and the replaced
+        // text can never show through. (The Wave 2B original installed it
+        // first and made the cover translucent too.) Kept alive until
+        // FinishDrawing().
+        std::unique_ptr<PoDoFo::PdfExtGState> textAlpha;
+        if (std::isfinite(opacity) && opacity < 1.0) {
+            auto alpha = std::make_shared<PoDoFo::PdfExtGStateDefinition>();
+            alpha->NonStrokingAlpha = std::clamp(opacity, 0.0, 1.0);
+            alpha->StrokingAlpha = std::clamp(opacity, 0.0, 1.0);
+            textAlpha = d->document->CreateExtGState(alpha);
+            painter.GraphicsState.SetExtGState(*textAlpha);
+        }
+
         painter.GraphicsState.SetNonStrokingColor(PoDoFo::PdfColor(color.redF(), color.greenF(), color.blueF()));
         
         // Find standard font corresponding to bold/italic if it's a standard one
@@ -1385,7 +1400,15 @@ bool PoDoFoBackend::editTextInline(int pageIndex, const QRectF &rect, const QStr
         if (!font) font = &d->document->GetFonts().GetStandard14Font(PoDoFo::PdfStandard14FontType::Helvetica);
         
         painter.TextState.SetFont(*font, extractedFontSize);
-        
+
+        // Letter spacing: PDF Tc, points added after every glyph. Line
+        // spacing: a multiplier on the 1.2 x size pitch (1.0 = the previous
+        // advance).
+        const double charSpacing = std::isfinite(letterSpacing) ? letterSpacing : 0.0;
+        if (!qFuzzyIsNull(charSpacing)) painter.TextState.SetCharSpacing(charSpacing);
+        const double linePitch = extractedFontSize * 1.2
+            * ((std::isfinite(lineSpacing) && lineSpacing > 0.0) ? lineSpacing : 1.0);
+
         QStringList lines = newText.split('\n');
         double currentY = pdfY + rect.height() - extractedFontSize;
         for (const QString& line : lines) {
@@ -1394,7 +1417,9 @@ bool PoDoFoBackend::editTextInline(int pageIndex, const QRectF &rect, const QStr
                 PoDoFo::PdfTextState textState;
                 textState.Font = font;
                 textState.FontSize = extractedFontSize;
-                double textWidth = font->GetStringLength(line.toUtf8().constData(), textState);
+                // Tc widens the inked line by (glyphs - 1) x spacing.
+                double textWidth = font->GetStringLength(line.toUtf8().constData(), textState)
+                    + charSpacing * qMax(0, int(line.size()) - 1);
                 if (alignment == 1) { // Center
                     x += (rect.width() - textWidth) / 2.0;
                 } else if (alignment == 2) { // Right
@@ -1402,7 +1427,7 @@ bool PoDoFoBackend::editTextInline(int pageIndex, const QRectF &rect, const QStr
                 }
             }
             painter.DrawText(line.toUtf8().constData(), x, currentY);
-            currentY -= (extractedFontSize * 1.2);
+            currentY -= linePitch;
         }
         painter.FinishDrawing();
         

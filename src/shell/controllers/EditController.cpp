@@ -1233,10 +1233,17 @@ void EditController::editPdfText() {
             _textToolBar = new EditToolBar(tr("Text Edit"), _mainWindow);
             _mainWindow->addToolBar(Qt::TopToolBarArea, _textToolBar);
             connect(_textToolBar, &EditToolBar::textFormatChanged, this, &EditController::onTextFormatChanged);
+            connect(_textToolBar, &EditToolBar::textStyleChanged, this, &EditController::onTextStyleChanged);
             connect(viewer, &PdfViewerWidget::textEditRequested, this, &EditController::onTextEditRequested, Qt::UniqueConnection);
         }
         _textToolBar->show();
     }
+}
+
+void EditController::onTextStyleChanged(double opacity, double letterSpacing, double lineSpacing) {
+    _textOpacity = opacity;
+    _letterSpacing = letterSpacing;
+    _lineSpacing = lineSpacing;
 }
 
 void EditController::onTextFormatChanged(const QString &fontFamily, int fontSize, const QColor &color, bool bold, bool italic, int alignment) {
@@ -1259,7 +1266,8 @@ void EditController::onTextEditRequested(int pageIndex, QPointF pos) {
         QRectF rect(pos.x(), pos.y(), 200, 50);
         _ctx->document->setPath(viewer->filePath());
         _ctx->undoStack->push(new EditTextInlineCommand(_ctx->pdfEditor.get(), _ctx->document.get(), pageIndex, rect, newText,
-                                                        _fontFamily, _fontSize, _fontColor, _fontBold, _fontItalic, _fontAlignment));
+                                                        _fontFamily, _fontSize, _fontColor, _fontBold, _fontItalic, _fontAlignment,
+                                                        _textOpacity, _letterSpacing, _lineSpacing));
     }
 }
 

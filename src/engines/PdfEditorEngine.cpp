@@ -338,12 +338,14 @@ bool PdfEditorEngine::saveDocumentIfCurrent(const QString &expectedCurrentFile,
 bool PdfEditorEngine::editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
                                      const QString &fontFamily, int fontSize,
                                      const QColor &color, bool bold,
-                                     bool italic, int alignment)
+                                     bool italic, int alignment, double opacity,
+                                     double letterSpacing, double lineSpacing)
 {
     QMutexLocker locker(&d->mutex);
     d->clearErr();
     if (!d->backend) return d->noBackend("editTextInline");
-    bool ok = d->backend->editTextInline(pageIndex, rect, newText, fontFamily, fontSize, color, bold, italic, alignment);
+    bool ok = d->backend->editTextInline(pageIndex, rect, newText, fontFamily, fontSize, color, bold, italic, alignment,
+                                         opacity, letterSpacing, lineSpacing);
     if (!ok) {
         d->setErr(ErrorInfo::Error,
                   QObject::tr("Failed to edit text on page %1. The text region may be part of an image or scanned content.").arg(pageIndex + 1),

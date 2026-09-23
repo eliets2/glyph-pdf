@@ -5072,6 +5072,34 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestImageAppearance.cpp")
     )
 endif()
 
+# Inline text edit style (Wave 2B/2C port): letter spacing, line spacing and
+# opacity, judged on the rendered page — including that a translucent edit
+# never lets the replaced text show through its white cover.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestTextEditStyle.cpp")
+    add_executable(TestTextEditStyle tests/TestTextEditStyle.cpp)
+    target_include_directories(TestTextEditStyle PRIVATE src tests)
+    target_link_libraries(TestTextEditStyle PRIVATE
+        pdfws_engines pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf
+    )
+    if(WIN32)
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestTextEditStyle POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestTextEditStyle>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestTextEditStyle"
+            )
+        endif()
+    endif()
+    add_test(NAME TestTextEditStyle COMMAND TestTextEditStyle)
+    set_tests_properties(TestTextEditStyle PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;editing;text;opacity;spacing;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPersistenceOutcomes.cpp")
     # Step-3 persistence truthfulness (ARC03/ARC04/V01 + the GUI-held-handle
     # residual): real-MainWindow integration tests over the close/save/dirty

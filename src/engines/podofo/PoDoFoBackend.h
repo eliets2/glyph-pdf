@@ -62,7 +62,9 @@ public:
     bool editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
                         const QString &fontFamily = "", int fontSize = 0,
                         const QColor &color = Qt::black, bool bold = false,
-                        bool italic = false, int alignment = 0);
+                        bool italic = false, int alignment = 0,
+                        double opacity = 1.0, double letterSpacing = 0.0,
+                        double lineSpacing = 1.0);
     bool deleteObjectAt(int pageIndex, const QPointF &pos);
     bool applyRedactions(int pageIndex, const QList<QRectF> &rects);
 

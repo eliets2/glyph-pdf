@@ -28,9 +28,11 @@
 class EditTextInlineCommand : public CheckedUndoCommand {
 public:
     EditTextInlineCommand(IPdfEditorEngine* engine, DocumentSession* doc, int pageIndex, const QRectF& rect, const QString& newText,
-                          const QString& fontFamily, int fontSize, const QColor& color, bool bold, bool italic, int alignment)
+                          const QString& fontFamily, int fontSize, const QColor& color, bool bold, bool italic, int alignment,
+                          double opacity = 1.0, double letterSpacing = 0.0, double lineSpacing = 1.0)
         : m_engine(engine), m_doc(doc), m_page(pageIndex), m_rect(rect), m_newText(newText),
-          m_fontFamily(fontFamily), m_fontSize(fontSize), m_color(color), m_bold(bold), m_italic(italic), m_alignment(alignment) {
+          m_fontFamily(fontFamily), m_fontSize(fontSize), m_color(color), m_bold(bold), m_italic(italic), m_alignment(alignment),
+          m_opacity(opacity), m_letterSpacing(letterSpacing), m_lineSpacing(lineSpacing) {
         setText(QObject::tr("Edit Text Inline"));
     }
 
@@ -112,7 +114,8 @@ private:
                 return false;
             }
         }
-        if (!m_engine->editTextInline(m_page, m_rect, m_newText, m_fontFamily, m_fontSize, m_color, m_bold, m_italic, m_alignment)) {
+        if (!m_engine->editTextInline(m_page, m_rect, m_newText, m_fontFamily, m_fontSize, m_color, m_bold, m_italic, m_alignment,
+                                      m_opacity, m_letterSpacing, m_lineSpacing)) {
             if (err) *err = QObject::tr("The inline text edit on page %1 failed; the document was left unchanged.")
                                  .arg(m_page + 1);
             return false;
@@ -149,6 +152,9 @@ private:
     bool m_bold;
     bool m_italic;
     int m_alignment;
+    double m_opacity;
+    double m_letterSpacing;
+    double m_lineSpacing;
     QByteArray m_originalPageBytes;
     bool m_succeeded = false;
     QString m_error;

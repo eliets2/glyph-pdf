@@ -221,6 +221,7 @@ private slots:
     void onImageResized(const QString &name, double newW, double newH);
     void onTextEditRequested(int pageIndex, QPointF pos);
     void onTextFormatChanged(const QString &fontFamily, int fontSize, const QColor &color, bool bold, bool italic, int alignment);
+    void onTextStyleChanged(double opacity, double letterSpacing, double lineSpacing);
     void onEraseRequested(int pageIndex, QPointF pos);
 
 private:
@@ -265,6 +266,9 @@ private:
     bool _fontBold = false;
     bool _fontItalic = false;
     int _fontAlignment = 0;
+    double _textOpacity = 1.0;
+    double _letterSpacing = 0.0;
+    double _lineSpacing = 1.0;
 
     // Search state for match navigation
     int _currentMatchIndex = -1;

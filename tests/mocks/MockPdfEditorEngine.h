@@ -70,7 +70,8 @@ public:
     }
     bool editTextInline(int, const QRectF &, const QString &,
                         const QString & = {}, int = 0, const QColor & = Qt::black,
-                        bool = false, bool = false, int = 0) override { return m_loaded; }
+                        bool = false, bool = false, int = 0,
+                        double = 1.0, double = 0.0, double = 1.0) override { return m_loaded; }
     bool deleteObjectAt(int, const QPointF &) override { return m_loaded; }
     bool linearizeDocument(const QString &) override { return m_loaded; }
     bool exportPdfA(const QString &, int) override { return m_loaded; }
