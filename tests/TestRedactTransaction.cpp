@@ -36,6 +36,7 @@
 #include <QThread>
 #include <atomic>
 #include <cctype>
+#include <cstring>
 #include <cmath>
 #include <podofo/podofo.h>
 
@@ -51,6 +52,9 @@
 // `#define DrawText DrawTextW`, which would rewrite the PoDoFo painter calls below.
 #ifdef DrawText
 #undef DrawText
+#endif
+#ifdef GetObject
+#undef GetObject
 #endif
 
 #ifdef SOURCE_DIR
@@ -265,6 +269,11 @@ private slots:
     // excision never touches — redaction must refuse honestly, before any
     // write, exactly like the signed-file refusal.
     void xfaDocumentIsRefusedInPreflight();
+
+    // ── G2 pattern-drawn secret (audit §2.4): a page whose secret lives in a
+    // tiling pattern stream must fail the WHOLE run at Redacting with a
+    // named error — never a silent black box over live data.
+    void patternDrawnSecretFailsRunWithNamedError();
 
     // ── Destination semantics ──────────────────────────────────────────────
     void existingDestinationIsReplacedOnSuccess();
@@ -1117,6 +1126,84 @@ void TestRedactTransaction::xfaDocumentIsRefusedInPreflight() {
     QCOMPARE(r.outcome, RedactOutcome::Failed);
     QCOMPARE(r.failedStage, QStringLiteral("Preflight"));
     QVERIFY2(r.error.contains(QLatin1String("XFA")),
+             qPrintable(r.error));
+    QVERIFY(!QFileInfo::exists(dest));
+    QCOMPARE(sha256(src), srcSha);
+}
+
+// G2 (audit REDACTION-RESEARCH-2026-09-21 §2.4): pattern-secret fixture — the
+// page paints a tiling pattern over the whole page; the pattern stream carries
+// the secret. redactCanvasRecursively recurses only Do-referenced Form
+// XObjects and images, so the pattern text is unreachable: the honest answer
+// is a whole-run refusal with a named error, never a black box over live data.
+static bool makePatternSecretPdf(const QString& path) {
+    try {
+        PoDoFo::PdfMemDocument doc;
+        auto& page = doc.GetPages().CreatePage(
+            PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+        auto& font = doc.GetFonts().GetStandard14Font(
+            PoDoFo::PdfStandard14FontType::Helvetica);
+
+        auto& pattern = doc.GetObjects().CreateDictionaryObject();
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("Type"), PoDoFo::PdfName("Pattern"));
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("PatternType"), PoDoFo::PdfObject(int64_t(1)));
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("PaintType"), PoDoFo::PdfObject(int64_t(1)));
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("TilingType"), PoDoFo::PdfObject(int64_t(1)));
+        PoDoFo::PdfArray bbox;
+        bbox.Add(0.0); bbox.Add(0.0); bbox.Add(100.0); bbox.Add(100.0);
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("BBox"), bbox);
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("XStep"), PoDoFo::PdfObject(80.0));
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("YStep"), PoDoFo::PdfObject(80.0));
+        auto& fontMap = doc.GetObjects().CreateDictionaryObject();
+        fontMap.GetDictionary().AddKey(PoDoFo::PdfName("F1"),
+                                       font.GetObject().GetIndirectReference());
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("Resources"),
+                                       fontMap.GetIndirectReference());
+        const char* patternContent = "BT /F1 14 Tf 10 30 Td (PatternSecretOmega) Tj ET\n";
+        pattern.GetOrCreateStream().SetData(PoDoFo::bufferview(
+            patternContent, std::strlen(patternContent)));
+
+        auto& patternMap = doc.GetObjects().CreateDictionaryObject();
+        patternMap.GetDictionary().AddKey(PoDoFo::PdfName("P1"),
+                                          pattern.GetIndirectReference());
+        auto& pageRes = doc.GetObjects().CreateDictionaryObject();
+        pageRes.GetDictionary().AddKey(PoDoFo::PdfName("Font"),
+                                       fontMap.GetIndirectReference());
+        pageRes.GetDictionary().AddKey(PoDoFo::PdfName("Pattern"),
+                                       patternMap.GetIndirectReference());
+        page.GetObject().GetDictionary().AddKey(PoDoFo::PdfName("Resources"),
+                                                pageRes.GetIndirectReference());
+        auto& content = doc.GetObjects().CreateDictionaryObject();
+        const char* pageContent =
+            "BT /F1 12 Tf 50 650 Td (PUBLIC_KEEP_TEXT) Tj ET\n"
+            "/Pattern cs /P1 scn 0 0 595 842 re f\n";
+        content.GetOrCreateStream().SetData(PoDoFo::bufferview(
+            pageContent, std::strlen(pageContent)));
+        page.GetObject().GetDictionary().AddKey(PoDoFo::PdfName("Contents"),
+                                                content.GetIndirectReference());
+
+        doc.Save(path.toUtf8().constData());
+        return true;
+    } catch (const std::exception& e) {
+        qWarning() << "makePatternSecretPdf failed:" << e.what();
+        return false;
+    }
+}
+
+void TestRedactTransaction::patternDrawnSecretFailsRunWithNamedError() {
+    const QString src = m_tmpDir.filePath("pattern_secret.pdf");
+    QVERIFY2(makePatternSecretPdf(src), "pattern-secret fixture creation failed");
+    const QByteArray srcSha = sha256(src);
+
+    const QString dest = m_tmpDir.filePath("pattern_redacted.pdf");
+    RedactOperation op(makeRequest(src, dest, {0}, false));
+    const RedactResult r = runOp(&op);
+
+    // The WHOLE run fails at Redacting with a NAMED reason (no visual-only
+    // half edit, no silent black box over the pattern text).
+    QCOMPARE(r.outcome, RedactOutcome::Failed);
+    QCOMPARE(r.failedStage, QStringLiteral("Redacting"));
+    QVERIFY2(r.error.contains(QLatin1String("pattern"), Qt::CaseInsensitive),
              qPrintable(r.error));
     QVERIFY(!QFileInfo::exists(dest));
     QCOMPARE(sha256(src), srcSha);
