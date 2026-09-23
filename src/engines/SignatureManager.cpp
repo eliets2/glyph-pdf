@@ -1304,22 +1304,28 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
     d->timestampAttempted = true;    // SWEEP-W1 F2 follow-up: a TSA fetch is now part of this attempt (label floors only when attempted && !valid)
     d->timestampTokenValid = false;   // SWEEP-W1 F2: clean slate per attempt
     // N06 (QUALITY-GATE-2026-09-09): checked replacement at the signing
-    // boundary. When the result goes to a DIFFERENT file than the source
-    // (the SecurityController retry/replacement contract), every write below
-    // lands on a uniquely owned candidate and the destination is replaced
-    // only after signing + DSS/timestamp + post-validation ALL succeeded.
-    // The old code touched the output directly in two unsafe ways:
+    // boundary. Every signing result lands on a uniquely owned candidate and
+    // the destination is replaced only after signing + DSS/timestamp +
+    // post-validation ALL succeeded. The old code touched the output directly
+    // in two unsafe ways:
     //   - incremental append: QFile::remove(outputPath) BEFORE staging — a
     //     failed copy (source deleted between retry attempts, permissions)
     //     destroyed the previous partial output;
     //   - full save: FileMode::Create truncated the output at open, so any
     //     mid-SignDocument failure left a truncated artifact.
     // A PartialLtvMissing RETRY re-runs the SAME request; a failed retry must
-    // never lose the partial output it is retrying. An in-place signature
-    // (input == output) keeps the direct write: the incremental append is a
-    // separately tested contract and the full-save target is the loaded
-    // document itself. cleanupCandidate() runs on every failure exit —
-    // including the catch blocks below.
+    // never lose the partial output it is retrying.
+    // PGR-21 (CRITICAL): an IN-PLACE signature (input == output) goes through
+    // the same candidate. The old in-place path wrote the signing result
+    // straight into the user's document, and when the D6 post-condition then
+    // failed, both failure branches ran QFile::remove(outputPath) — deleting
+    // (or, when the still-open parse device blocked the remove, corrupting
+    // with an appended unvalidated revision) the user's ONLY copy. The
+    // incremental-append contract is preserved: the candidate is staged as an
+    // exact byte copy of the input BEFORE the append, so every prior
+    // signature's byte ranges stay valid, and the validated result is
+    // committed over the original atomically. cleanupCandidate() runs on
+    // every failure exit — including the catch blocks below.
     const bool replaceOutput = (inputPath != outputPath);
     QString signingCandidate;
     bool candidateCommitted = false;
@@ -1328,8 +1334,31 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
             QFile::remove(signingCandidate);
     };
     try {
+        // PGR-21: for an in-place sign the candidate is committed over the
+        // ORIGINAL file with an atomic rename. The PdfMemDocument keeps its
+        // loading device open for deferred parsing, and on Windows a live
+        // handle on the destination denies that replace — so the in-place
+        // document is parsed from its own byte copy instead, holding no
+        // handle at all on the user's file. (A distinct-path sign keeps
+        // loading from the source path: the destination it replaces is a
+        // different file.) Declared before `doc` so the document never
+        // outlives the bytes it lazily parses from.
+        QByteArray inPlaceSource;
         PdfMemDocument doc;
-        doc.Load(inputPath.toStdString());
+        if (replaceOutput) {
+            doc.Load(inputPath.toStdString());
+        } else {
+            QFile srcFile(inputPath);
+            if (!srcFile.open(QIODevice::ReadOnly)) {
+                qWarning() << "SignatureManager: cannot read the in-place signing"
+                           << "source:" << srcFile.errorString() << inputPath;
+                return SignOutcome::Failed;
+            }
+            inPlaceSource = srcFile.readAll();
+            srcFile.close();
+            doc.LoadFromBuffer(PoDoFo::bufferview(inPlaceSource.constData(),
+                                                  static_cast<size_t>(inPlaceSource.size())));
+        }
 
         // N06: the appearance arrives as an explicit input — the interface
         // methods drain the dialog's consume-once slot before calling in, the
@@ -1609,14 +1638,17 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
             }
         } catch (...) {}
 
-        if (replaceOutput) {
+        // PGR-21: the reservation is UNCONDITIONAL — the in-place sign stages
+        // onto its own candidate too, so no failure below can ever touch the
+        // user's original file.
+        {
             QString candErr;
             if (!gp::SafeSave::makeUniqueCandidate(&signingCandidate, &candErr)) {
                 qWarning() << "SignatureManager: cannot reserve a signing candidate:" << candErr;
                 return SignOutcome::Failed;
             }
         }
-        const QString signTarget = replaceOutput ? signingCandidate : outputPath;
+        const QString signTarget = signingCandidate;
 
         // PdfSaveOptions::SaveOnSigning: perform a full save (not incremental update)
         // so the output PDF contains the complete document (header, catalog, all objects).
@@ -1626,10 +1658,11 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
         // When adding a second signature, we must append (incremental update) so the
         // first signature's byte ranges remain valid.
         if (inputHasSigs) {
-            // N06: stage the exact bytes the prior signatures were computed
-            // over onto the candidate — never remove the destination first
-            // (the old code did, and a failed staging destroyed it).
-            if (replaceOutput) {
+            // N06 + PGR-21: stage the exact bytes the prior signatures were
+            // computed over onto the candidate — for the in-place sign too.
+            // Never remove the destination first (the old code did, and a
+            // failed staging destroyed it).
+            {
                 // makeUniqueCandidate reserved (created) the name; QFile::copy
                 // refuses an existing destination, so drop our own empty
                 // reservation first — it is owned by this call.
@@ -1801,34 +1834,34 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
             qWarning() << "SECURITY: Post-condition validation found NO signature on the "
                           "signed result — integrity cannot be confirmed; failing.";
             d->lastOutcome = SignOutcome::Failed;
-            cleanupCandidate();   // the candidate is never committed now
-            if (!replaceOutput)
-                QFile::remove(outputPath);   // mirror the broken-integrity branch
+            // PGR-21: drop ONLY the candidate. The old code mirrored the
+            // broken-integrity branch's QFile::remove(outputPath) here — in
+            // in-place mode that removed the user's only copy.
+            cleanupCandidate();
             return SignOutcome::Failed;
         }
         for (const auto& sigInfo : postValidation) {
             if (!sigInfo.integrityIntact) {
                 qWarning() << "SECURITY: Post-condition validation failed! A signature's integrity was broken by this update.";
                 d->lastOutcome = SignOutcome::Failed;
-                if (replaceOutput) {
-                    // N06: the CANDIDATE is broken — drop it and preserve the
-                    // previous output (the old code deleted the output here,
-                    // destroying a preserved partial result).
-                    // M3 (SEP13): the drop was documented but never performed —
-                    // the reserved candidate file was orphaned per occurrence.
-                    cleanupCandidate();
-                } else {
-                    QFile::remove(outputPath);
-                }
+                // PGR-21: the CANDIDATE is broken — drop it and preserve the
+                // destination on every path. The old code deleted
+                // outputPath outright for an in-place sign: the destination
+                // WAS the user's original document.
+                // M3 (SEP13): the drop was documented but never performed —
+                // the reserved candidate file was orphaned per occurrence.
+                cleanupCandidate();
                 return SignOutcome::Failed;
             }
         }
 
-        if (replaceOutput) {
-            // N06: checked replacement — the validated signing result
-            // replaces the destination atomically (QSaveFile commit); on any
-            // failure the destination is byte-identical and the outcome is
-            // Failed. No direct-write fallback.
+        // PGR-21: checked replacement for EVERY signing result — in-place
+        // too. The validated signing result replaces the destination
+        // atomically (QSaveFile commit); on any failure the destination is
+        // byte-identical and the outcome is Failed. No direct-write
+        // fallback. The E-6 destination-identity precondition captured at
+        // entry now guards the in-place destination as well.
+        {
             QString commitErr;
             if (!gp::SafeSave::commitFileToDestination(signingCandidate, outputPath, &commitErr,
                                                        gp::SafeSave::CommitFaultForTesting::None,
@@ -1844,8 +1877,9 @@ SignOutcome SignatureManager::signDocumentImpl(const QString &inputPath,
             // drop the candidate from <temp>/glyphpdf-candidates (the same
             // cleanup every failure path performs). The flag stays set so a
             // later cleanupCandidate() cannot double-remove. The candidate is
-            // a separate file from the resident input (D02/G-A keeps the INPUT
-            // open, never the candidate), so this remove always succeeds.
+            // a separate file from the resident input (the in-place document
+            // is parsed from its own byte copy — no handle on the
+            // destination), so this remove always succeeds.
             QFile::remove(signingCandidate);
         }
         return d->lastOutcome;
