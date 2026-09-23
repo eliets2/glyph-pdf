@@ -834,7 +834,13 @@ globalThis.__gpBeginEvent = function (setup) {
 globalThis.__gpEndEvent = function () {
   const ev = globalThis.event;
   const v = ev ? ev.value : undefined;
-  const has = ev && typeof v !== "undefined" && v !== null;
+  // PGR-37: a number is usable only when FINITE. JSON.stringify serializes
+  // NaN/±Infinity as null while a naive hasValue check still reported true —
+  // the host then read an empty string and silently WIPED the field's
+  // committed /V. A non-finite number is "no usable value": the committed
+  // value stands.
+  const has = !!ev && typeof v !== "undefined" && v !== null
+    && (typeof v !== "number" || isFinite(v));
   return JSON.stringify({
     hasValue: !!has,
     value: has ? (typeof v === "number" ? v : String(v)) : null,
