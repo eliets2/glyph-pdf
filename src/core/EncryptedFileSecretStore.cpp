@@ -32,6 +32,11 @@ constexpr int    kTagLen   = 16;   // GCM tag
 //         for reading pre-EC04 stores and for non-Windows default-path writes —
 //         under SHA-256 of the per-user seed described in resolveKey().
 //         LEGACY (readable, never written) since SEP13:5.
+//         PGR-20: on the WINDOWS DEFAULT PATH (no override) this version is
+//         REJECTED — no legitimate Windows default-path blob ever used the
+//         identifier-derived key (pre-EC04 writes were never rereadable, EC04),
+//         and the seed inputs are public identifiers, so any such blob is a
+//         forgery (secret injection).
 //  0x02 — Windows DPAPI (CryptProtectData) wrapped secret. EC04: the DEFAULT
 //         Windows path stored this format, because DPAPI protection is
 //         intentionally non-deterministic: deriving an AES key by re-protecting
@@ -42,10 +47,19 @@ constexpr int    kTagLen   = 16;   // GCM tag
 //         material exists or is persisted; the description string
 //         "GlyphPDF.SecretStore.Secret.v2" labels the blobs.
 //         LEGACY (readable, never written) since SEP13:5.
+//         PGR-20 migration: this is the LAST format with no entry binding, so
+//         a legacy blob is swappable between entries while it exists. Every
+//         successful read therefore RE-WRAPS the entry as v3 (0x04 default /
+//         0x03 override — entry-bound), closing the unbound window after one
+//         read. Follow-up (documented): hard-reject 0x02 once the migration
+//         window has passed — after one read per store, 0x02 acceptance only
+//         ever serves a forged/planted legacy blob.
 //  0x03 — SEP13:5 v3 generation: AES-256-GCM with the SERVICE NAME as the GCM
 //         AAD. Ciphertext+tag authenticate the entry identity, so a blob moved
 //         to another JSON entry fails authentication instead of decrypting to
-//         the wrong secret.
+//         the wrong secret. PGR-20: REJECTED on the Windows default path (no
+//         override) for the same reason as 0x01 — never legitimately produced
+//         there, so acceptance would be a forgery hole.
 //  0x04 — SEP13:5 v3 generation, Windows default path: DPAPI wrapped with the
 //         SERVICE NAME as the optional entropy (description string
 //         "GlyphPDF.SecretStore.Secret.v3"). The blob is bound to the entry
@@ -53,8 +67,10 @@ constexpr int    kTagLen   = 16;   // GCM tag
 //         unprotection loudly (the v2 format's constant description + missing
 //         entropy let a local actor with store write-access swap blobs
 //         between entries undetected).
-constexpr quint8 kVersionAes   = 0x01;  // legacy — readable, never written
-constexpr quint8 kVersionDpapi = 0x02;  // legacy — readable, never written
+constexpr quint8 kVersionAes   = 0x01;  // legacy — never written; rejected on
+                                        // the Windows default path (PGR-20)
+constexpr quint8 kVersionDpapi = 0x02;  // legacy — never written; re-wrapped
+                                        // to v3 on first read (PGR-20)
 constexpr quint8 kVersionAesAad   = 0x03;
 constexpr quint8 kVersionDpapiV3  = 0x04;
 const wchar_t kDpapiV3Description[] = L"GlyphPDF.SecretStore.Secret.v3";
@@ -95,6 +111,9 @@ QByteArray EncryptedFileSecretStore::resolveKey() const
     // The seed components below are account/machine IDENTIFIERS, not
     // confidential entropy: on non-Windows the derivation is best-effort
     // obfuscation only, documented as such in the header.
+    // PGR-20: precisely BECAUSE the seed is public, decrypt() on the Windows
+    // default path (no override) rejects the AES versions this derivation
+    // would unlock — there, a blob under this key can only be a forgery.
     QByteArray seed;
     seed += QStandardPaths::writableLocation(QStandardPaths::HomeLocation).toUtf8();
     seed += QSysInfo::machineUniqueId();
@@ -256,6 +275,25 @@ QByteArray EncryptedFileSecretStore::decrypt(const QString& service,
     }
 #endif
 
+    // PGR-20: on the default Windows path (no key override) the AES versions
+    // are unreachable by construction — pre-EC04 0x01 writes could never be
+    // reread, and SEP13:5+ writes 0x04 only. Their key inputs (home path,
+    // machine id, a constant) are public identifiers, so a 0x01/0x03 blob
+    // found in a Windows default-path store can only be an INJECTED forgery:
+    // reject it loudly instead of serving the attacker's secret. The
+    // override-key path (hosts/tests) and the non-Windows default path (which
+    // writes 0x03) still read these formats.
+#ifdef _WIN32
+    if (m_keyOverride.isEmpty()
+        && (version == kVersionAes || version == kVersionAesAad)) {
+        qWarning() << "EncryptedFileSecretStore: AES blob found on the Windows "
+                      "default path — this format cannot be produced "
+                      "legitimately there; rejecting a likely forged store "
+                      "entry";
+        return {};
+    }
+#endif
+
     if (version != kVersionAesAad && version != kVersionAes) return {};
 
     const QByteArray key = resolveKey();
@@ -369,6 +407,44 @@ QString EncryptedFileSecretStore::readSecret(const QString& service) const
     const QString b64 = entries.value(service).toString();
     if (b64.isEmpty()) return {};
     const QByteArray blob = QByteArray::fromBase64(b64.toLatin1());
+
+#ifdef _WIN32
+    // PGR-20 migration: 0x02 (DPAPI without entry entropy) is the LAST legacy
+    // format with no entry binding. On the first successful read, re-wrap the
+    // entry as v3 (0x04 default path / 0x03 override key — whichever encrypt()
+    // produces here, both bound to the service name), closing the unbound
+    // migration window. Best-effort: the secret is already recovered, so a
+    // failed re-wrap keeps the legacy blob for a later attempt and never fails
+    // the read.
+    if (!blob.isEmpty() && static_cast<quint8>(blob.at(0)) == kVersionDpapi) {
+        const QByteArray legacyPlain = decrypt(service, blob);
+        if (legacyPlain.isEmpty()) return {};
+        const QString plain = QString::fromUtf8(legacyPlain);
+        const QByteArray wrapped = encrypt(service, legacyPlain);
+        if (!wrapped.isEmpty()
+            && static_cast<quint8>(wrapped.at(0)) != kVersionDpapi) {
+            QJsonObject root = doc.object();
+            QJsonObject mutableEntries =
+                root.value(QStringLiteral("secrets")).toObject();
+            mutableEntries.insert(service, QString::fromLatin1(wrapped.toBase64()));
+            root.insert(QStringLiteral("secrets"), mutableEntries);
+            const QByteArray json = QJsonDocument(root).toJson(QJsonDocument::Compact);
+            QSaveFile out(m_filePath);
+            if (out.open(QIODevice::WriteOnly)
+                && out.write(json) == json.size() && out.commit()) {
+                qDebug() << "EncryptedFileSecretStore: migrated legacy 0x02 "
+                            "entry" << service << "to the v3 (entry-bound) format";
+            } else {
+                qWarning() << "EncryptedFileSecretStore: could not migrate "
+                              "legacy 0x02 entry" << service
+                           << "to the v3 format (store not rewritten); will "
+                              "retry on the next read";
+            }
+        }
+        return plain;
+    }
+#endif
+
     const QByteArray plain = decrypt(service, blob);
     if (plain.isEmpty()) return {};
     return QString::fromUtf8(plain);

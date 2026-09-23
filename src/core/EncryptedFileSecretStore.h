@@ -34,15 +34,24 @@
 //         instead of decrypting to the wrong secret (SEP13:5).
 //   0x02  (legacy, readable for migration) Windows DPAPI WITHOUT entry
 //         entropy — EC04's format. Still readable; no longer written.
+//         PGR-20 migration: the LAST format with no entry binding — every
+//         successful read RE-WRAPS the entry as v3 (0x04/0x03, entry-bound),
+//         closing the swappable-legacy window after one read. Follow-up:
+//         hard-reject 0x02 once that window has passed.
 //   0x01  (legacy, readable for migration) AES-256-GCM WITHOUT AAD — the
 //         pre-SEP13:5 override-key and non-Windows format. Still readable;
-//         no longer written.
+//         no longer written. PGR-20: on the WINDOWS DEFAULT PATH (no key
+//         override) 0x01 and 0x03 are REJECTED — no legitimate blob there
+//         ever used the identifier-derived key (pre-EC04 writes were never
+//         rereadable), so acceptance would only serve forged entries.
 //
 // Migration: Windows default-path 0x01 data is NOT recoverable — it was never
 // readable (every such write failed its own verification and storeSecret
-// returned false), so there was nothing to migrate (EC04). 0x01 stores
-// written WITH an override key, non-Windows 0x01 stores, and Windows 0x02
-// stores remain readable as before; new writes use the v3 generation
+// returned false), so there was nothing to migrate (EC04) — and per PGR-20
+// forged 0x01/0x03 blobs planted there are now rejected outright. 0x01 stores
+// written WITH an override key and non-Windows 0x01 stores remain readable as
+// before; Windows 0x02 stores read once and are transparently upgraded to the
+// entry-bound v3 generation on that read. New writes use the v3 generation
 // (0x03/0x04), which binds every blob to its entry identity. Non-Windows
 // 0x01/0x03 keys derive from home-path/machine identifiers — those are
 // identifiers, not confidential entropy, so the non-Windows default path is
