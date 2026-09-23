@@ -1,0 +1,16 @@
+********* Start testing of TestSep13LeadConversionExport *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSep13LeadConversionExport::initTestCase()
+QINFO  : TestSep13LeadConversionExport::htmlExportEscapesFontName() font-family fragment present: yes
+QINFO  : TestSep13LeadConversionExport::htmlExportEscapesFontName() style around font-family: "font-family: 'EVIL\\;color\\:red\\'x\\&quot;y';\">HELLO</div>\r\n</"
+PASS   : TestSep13LeadConversionExport::htmlExportEscapesFontName()
+QINFO  : TestSep13LeadConversionExport::csvKeepsRaggedRightAlignedColumnInOneColumn() CSV row1: "\"Total\"" | row2: "\"5\""
+PASS   : TestSep13LeadConversionExport::csvKeepsRaggedRightAlignedColumnInOneColumn()
+QINFO  : TestSep13LeadConversionExport::textExportKeepsDistinctLinesSeparate() text lines: QList("BOLDHEAD\r", "tiny detail\r", "\r")
+PASS   : TestSep13LeadConversionExport::textExportKeepsDistinctLinesSeparate()
+QINFO  : TestSep13LeadConversionExport::xmlStreamWriterEmptyElementAttributeProbe() produced bytes: "<?xml version=\"1.0\" encoding=\"UTF-8\"?><a:rPr xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"><a:latin typeface=\"Evil;color:red'&amp;&lt;X\"/></a:rPr>\n"
+QINFO  : TestSep13LeadConversionExport::xmlStreamWriterEmptyElementAttributeProbe() round-trip: latinFound = true typeface = "Evil;color:red'&<X"
+PASS   : TestSep13LeadConversionExport::xmlStreamWriterEmptyElementAttributeProbe()
+PASS   : TestSep13LeadConversionExport::cleanupTestCase()
+Totals: 6 passed, 0 failed, 0 skipped, 0 blacklisted, 69ms
+********* Finished testing of TestSep13LeadConversionExport *********

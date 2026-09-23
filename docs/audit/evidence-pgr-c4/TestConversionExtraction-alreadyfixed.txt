@@ -1,0 +1,21 @@
+********* Start testing of TestConversionExtraction *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestConversionExtraction::initTestCase()
+PASS   : TestConversionExtraction::backendPlainExtractDecodesSubsetEncoding()
+PASS   : TestConversionExtraction::backendPlainExtractDecodesWinAnsiAccents()
+PASS   : TestConversionExtraction::extractTextOneWordIsExactWithoutTerminator()
+PASS   : TestConversionExtraction::extractTextMultilineIsExactWithoutTerminator()
+PASS   : TestConversionExtraction::extractTextEmptyPageAndImageOnlyPageAreEmpty()
+PASS   : TestConversionExtraction::extractTextAccentedPageIsExactWithoutTerminator()
+PASS   : TestConversionExtraction::subsetFontExportsDecodedUnicodeNotGlyphCodes()
+PASS   : TestConversionExtraction::accentedLatinOctalEscapesDecodeInConversion()
+PASS   : TestConversionExtraction::multilineOrderIsTopToBottomAndDeterministic()
+PASS   : TestConversionExtraction::imageOnlyPdfYieldsHonestEmptyResult()
+PASS   : TestConversionExtraction::csvQuotesAndCommasAreEscaped()
+PASS   : TestConversionExtraction::htmlAccentsDecodeAndMarkupEscapes()
+PASS   : TestConversionExtraction::tableColumnsBecomeRealCells()
+PASS   : TestConversionExtraction::columnInferenceCoversWideGapMultiwordAndEmptyInterior()
+PASS   : TestConversionExtraction::fontRunsSplitButProseStaysWhole()
+PASS   : TestConversionExtraction::cleanupTestCase()
+Totals: 17 passed, 0 failed, 0 skipped, 0 blacklisted, 243ms
+********* Finished testing of TestConversionExtraction *********

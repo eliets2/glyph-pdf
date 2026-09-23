@@ -1,0 +1,15 @@
+TestRedactionProof Totals: 28 passed, 0 failed, 0 skipped, 0 blacklisted, 791ms
+TestSep13LeadRedactionProof Totals: 11 passed, 0 failed, 0 skipped, 0 blacklisted, 242ms
+TestRedactTransaction Totals: 42 passed, 0 failed, 0 skipped, 0 blacklisted, 3068ms
+TestOcrReviewLifecycle Totals: 33 passed, 0 failed, 0 skipped, 0 blacklisted, 325ms
+TestSep13LeadOcrGuards Totals: 5 passed, 0 failed, 0 skipped, 0 blacklisted, 37ms
+TestOcrVerifyNavigation Totals: 16 passed, 0 failed, 0 skipped, 0 blacklisted, 68ms
+TestSep13LeadComparePerf Totals: 4 passed, 0 failed, 0 skipped, 0 blacklisted, 5856ms
+TestCompareEntry PASS   : TestCompareEntry::statusTotalsCountStructuralChanges()
+Totals: 26 passed, 0 failed, 0 skipped, 0 blacklisted, 1224ms
+TestCompareIntegration Totals: 8 passed, 0 failed, 0 skipped, 0 blacklisted, 1103ms
+TestSecretStore Totals: 17 passed, 0 failed, 0 skipped, 0 blacklisted, 263ms
+TestOllamaProvider Totals: 63 passed, 0 failed, 0 skipped, 0 blacklisted, 36261ms
+TestSep13LeadConversionExport Totals: 6 passed, 0 failed, 0 skipped, 0 blacklisted, 18ms
+TestConversionExtraction Totals: 17 passed, 0 failed, 0 skipped, 0 blacklisted, 162ms
+FAMILY TOTAL: 276 passed, 0 failed
