@@ -1109,16 +1109,30 @@ void OCRMode::updateConfidenceOverlay()
         // Escape HTML special chars in the word text
         QString escaped = shown.toHtmlEscaped();
 
+        // PGR-18: the correction (extra) is user/PDF-controlled and lands
+        // inside the single-quoted title='…' attribute — raw text used to
+        // break out of the attribute or inject markup. toHtmlEscaped() alone
+        // leaves the single quote (the attribute's delimiter) live, so the
+        // escape is attribute-context: element escaping plus the quote.
+        QString extraHtml = extra.toHtmlEscaped();
+        extraHtml.replace(QLatin1Char('\''), QStringLiteral("&#39;"));
+
+        // PGR-18: fill the anchor with ONE multi-argument .arg(a, b, …). The
+        // old chained calls re-scanned already-substituted text, so a
+        // '%1'…'%7' typed into a correction captured a later substitution
+        // (and left a later placeholder dangling); the multi-arg overload
+        // replaces every placeholder in a single pass and never rescans
+        // substituted arguments.
         html += QStringLiteral(
             "<a href='word:%1' style='%2' "
             "title='%3% | %4 | %5%6'>%7</a> ")
-            .arg(rec.stableId)
-            .arg(style)
-            .arg(rec.confidence)
-            .arg(rec.sourceEngine)
-            .arg(rec.boundingBox.x(), 0, 'f', 0)
-            .arg(extra)
-            .arg(escaped);
+            .arg(QString::number(rec.stableId),
+                 style,
+                 QString::number(rec.confidence),
+                 rec.sourceEngine,
+                 QString::number(rec.boundingBox.x(), 'f', 0),
+                 extraHtml,
+                 escaped);
     }
 
     m_scanContentLabel->setText(html);
