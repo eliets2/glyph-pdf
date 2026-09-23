@@ -40,6 +40,7 @@
 #include <podofo/podofo.h>
 #include "engines/PdfEditorEngine.h"
 #include "engines/SafeSave.h"
+#include "engines/podofo/PoDoFoBackend.h"
 #include "engines/qpdf/QpdfBackend.h"
 #include "engines/DocumentSession.h"
 #include "engines/pdfium/PdfiumBackend.h"
@@ -307,6 +308,9 @@ private slots:
     // emergence E-6: the shared SafeSave commit boundary refuses a stale
     // destination overwrite (two instances, one document).
     void commitIdentityPreconditionRefusesStaleOverwrite();
+    // PGR-22: a failed re-seat must not free the buffer the resident
+    // document still parses from.
+    void reseatFailureKeepsResidentDocumentUsable();
 };
 
 void TestEngineSave::sameFileSaveKeepsPageCountAndContent() {
@@ -1203,6 +1207,157 @@ void TestEngineSave::commitIdentityPreconditionRefusesStaleOverwrite() {
 
     // The default no-identity call keeps its exact overwrite semantics.
     QVERIFY(gp::SafeSave::commitFileToDestination(stale, dest, &err));
+}
+
+// ─────────────────────────── PGR-22 ────────────────────────────────────────
+// THE PGR-22 reproduction: saveDocument's same-file re-seat used to do
+//   d->reseatBuffer = candidateFile.readAll();
+// BEFORE loading the replacement document — readAll() FREES the bytes the
+// still-resident document lazily parses from (PdfMemDocument::LoadFromBuffer
+// keeps a reference, it does not copy), and if the re-seat LoadFromBuffer
+// then threw, the catch returned false with the old d->document resident on
+// freed memory: every later lazy page/object access is a use-after-free.
+//
+// Fail-before: with the re-seat seam (setReseatFaultInjectionForTesting)
+// failing the SECOND re-seat, the heap churn poisons the freed buffer and the
+// resident document's lazy reads return garbage or throw — the pin fails (or
+// crashes). Pass-after: a failed re-seat leaves BOTH members untouched; the
+// resident document still reports the pre-save content and stays saveable.
+// (No ASan runtime exists for this MinGW toolchain — link tested — so the
+// churn substitutes for ASan's poison-on-free; on a quiet heap a freed-but-
+// unread buffer is indistinguishable, which the report itself notes.)
+static const char kPgr22Canary[] = "PGR22-EMBEDDED-CANARY: a failed re-seat must never disturb this stream";
+
+void TestEngineSave::reseatFailureKeepsResidentDocumentUsable() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    // Base fixture: the EC01 two-page text PDF (real subset font,
+    // cross-reference streams). An embedded-file canary is grafted on with
+    // raw PoDoFo: the extra objects widen the lazy-parse surface the
+    // post-failure probes walk.
+    const QString base = makeTwoPageTextPdf(tmp.path(), QStringLiteral("pgr22-base.pdf"));
+    QVERIFY(QFile::exists(base));
+    // EC01 discipline: the graft saves to a DIFFERENT path than the one the
+    // graft's own document loaded from — saving in place would truncate the
+    // still-open source device mid-write and poison the fixture itself.
+    const QString pdf = tmp.filePath(QStringLiteral("pgr22.pdf"));
+    QByteArray expectedCanary(kPgr22Canary);
+    expectedCanary.resize(1024 * 1024, 'C');
+    {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(base.toUtf8().constData());
+        PoDoFo::PdfObject& efStream =
+            doc.GetObjects().CreateObject(PoDoFo::PdfObject(PoDoFo::PdfDictionary()));
+        // ~1 MB payload: pushes the candidate (and therefore the resident's
+        // pinned buffer) into the large-allocation path, where a free is
+        // much likelier to decommit — a post-failure read then faults or
+        // reads poison instead of stale intact bytes.
+        QByteArray canaryBytes = expectedCanary;
+        efStream.GetOrCreateStream().SetData(
+            PoDoFo::bufferview(canaryBytes.constData(),
+                               static_cast<size_t>(canaryBytes.size())));
+        PoDoFo::PdfObject& fileSpec =
+            doc.GetObjects().CreateObject(PoDoFo::PdfObject(PoDoFo::PdfDictionary()));
+        fileSpec.GetDictionary().AddKey(PoDoFo::PdfName("Type"), PoDoFo::PdfObject(PoDoFo::PdfName("Filespec")));
+        fileSpec.GetDictionary().AddKey(PoDoFo::PdfName("F"), PoDoFo::PdfObject(PoDoFo::PdfString("pgr22-canary.txt")));
+        PoDoFo::PdfObject efDict{PoDoFo::PdfDictionary()};
+        efDict.GetDictionary().AddKey(PoDoFo::PdfName("F"), efStream.GetIndirectReference());
+        fileSpec.GetDictionary().AddKey(PoDoFo::PdfName("EF"), efDict);
+        PoDoFo::PdfObject& nameTree =
+            doc.GetObjects().CreateObject(PoDoFo::PdfObject(PoDoFo::PdfDictionary()));
+        PoDoFo::PdfArray nameArray;
+        nameArray.Add(PoDoFo::PdfString("pgr22-canary.txt"));
+        nameArray.Add(fileSpec.GetIndirectReference());
+        nameTree.GetDictionary().AddKey(PoDoFo::PdfName("Names"), PoDoFo::PdfObject(nameArray));
+        PoDoFo::PdfObject& names = doc.GetObjects().CreateObject(PoDoFo::PdfObject(PoDoFo::PdfDictionary()));
+        names.GetDictionary().AddKey(PoDoFo::PdfName("EmbeddedFiles"), nameTree.GetIndirectReference());
+        doc.GetCatalog().GetDictionary().AddKey(PoDoFo::PdfName("Names"), names.GetIndirectReference());
+        doc.Save(pdf.toUtf8().constData());
+    }
+
+    PoDoFoBackend backend;
+    QVERIFY(backend.loadDocument(pdf));
+
+    // Observable, non-default metadata: survives the save pipeline and is
+    // readable from the resident document's (lazy) metadata store.
+    PdfMetadata meta;
+    meta.title = QStringLiteral("PGR-22 resident-identity title");
+    meta.author = QStringLiteral("PGR-22 author");
+    QVERIFY(backend.setMetadata(meta));
+
+    // Save #1 (same file): succeeds and re-seats the resident document onto
+    // the first re-seat buffer. From here the resident parses from that
+    // buffer, not from a file device.
+    QVERIFY2(backend.saveDocument(pdf),
+             "the first same-file save must succeed and re-seat the resident");
+    QCOMPARE(backend.getEmbeddedFiles().size(), 1);
+    // Baseline: the canary stream must be extractable from the HEALTHY
+    // re-seated resident — this is what the post-failure read compares to.
+    QCOMPARE(backend.extractEmbeddedFile(QStringLiteral("pgr22-canary.txt")),
+             expectedCanary);
+
+    // Save #2: the re-seat is seam-failed AFTER the candidate bytes were
+    // consumed. Pre-fix this frees buffer #1 out from under the resident
+    // document and then fails; post-fix it touches neither member.
+    backend.setReseatFaultInjectionForTesting(1);
+    const bool ok2 = backend.saveDocument(pdf);
+    backend.setReseatFaultInjectionForTesting(0);
+    QVERIFY2(!ok2, "the injected re-seat failure must be reported as a failed save");
+
+    // Poison the freed block(s): full-fill allocations across the candidate
+    // size buckets and KEEP THEM ALIVE through the reads below, so any
+    // post-failure access to freed buffer bytes reads poison instead of
+    // stale (still-valid) bytes.
+    std::vector<std::string> poison;
+    poison.reserve(320);
+    for (int i = 0; i < 320; ++i)
+        poison.emplace_back(4096 + (i % 64) * 256, '\xBB');
+    for (auto& s : poison) s[0] = '\xBB';
+    // Large-block poison for the candidate-sized buffer (the QPdfWriter
+    // fixture plus the 1 MB canary puts the candidate well past 1 MB).
+    std::vector<QByteArray> bigPoison;
+    bigPoison.reserve(8);
+    for (int i = 0; i < 8; ++i)
+        bigPoison.emplace_back(1536 * 1024, '\xBB');
+
+    // The resident document must be EXACTLY the pre-save state: identity,
+    // pages, metadata, embedded-file stream. Pre-fix these read (and parse)
+    // through freed memory — garbage, a thrown PdfError, or an AV.
+    QCOMPARE(backend.currentFile(), pdf);
+    QCOMPARE(backend.pageCount(), 2);
+    PdfMetadata after;
+    bool metaOk = false;
+    try {
+        after = backend.metadata();
+        metaOk = true;
+    } catch (...) {
+        metaOk = false;
+    }
+    QVERIFY2(metaOk, "PGR-22: reading the resident document after a failed "
+                     "re-seat threw — the re-seat freed the buffer it parses from");
+    QCOMPARE(after.title, meta.title);
+    QCOMPARE(after.author, meta.author);
+
+    const QStringList embedded = backend.getEmbeddedFiles();
+    QCOMPARE(embedded.size(), 1);
+    QCOMPARE(embedded.first(), QStringLiteral("pgr22-canary.txt"));
+    // The lazy stream read: pre-fix this walks the freed, poisoned buffer —
+    // garbage bytes or a thrown (internally swallowed) PdfError; post-fix
+    // the resident's buffer was never disturbed and the canary reads back
+    // verbatim.
+    QCOMPARE(backend.extractEmbeddedFile(QStringLiteral("pgr22-canary.txt")),
+             expectedCanary);
+
+    // And the document must remain SAVEABLE: a clean save re-walks every
+    // object of the resident document (forcing any lazy object parse) and
+    // commits content that reloads from disk with pages intact. Pre-fix the
+    // lazy parses read the freed, poisoned buffer — the save fails or the
+    // parse throws (fail-before: unhandled PoDoFo::PdfError "Object and
+    // generation number cannot be read" out of PdfParserObject).
+    QVERIFY2(backend.saveDocument(pdf),
+             "PGR-22: the resident document must stay saveable after a failed re-seat");
+    QCOMPARE(pdfPageCount(pdf), 2u);
+    QCOMPARE(leftoverCandidates(), 0);
 }
 
 QTEST_MAIN(TestEngineSave)
