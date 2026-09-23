@@ -16,6 +16,7 @@
 //      writes glyph-encoded hex strings (not ASCII), so the operators are
 //      located by their Td geometry, not by an ASCII needle.
 #include <cmath>
+#include <cstring>
 #include <QtTest/QtTest>
 #include <QRegularExpression>
 #include <QTemporaryDir>
@@ -25,9 +26,13 @@
 #include "engines/pdfium/PdfiumBackend.h"
 
 // Windows headers (transitively included via the pdfium/OpenSSL headers) define
-// `#define DrawText DrawTextW`, which would rewrite the PoDoFo painter calls below.
+// `#define DrawText DrawTextW`, which would rewrite the PoDoFo painter calls below,
+// and `#define GetObject GetObjectW`, which would rewrite the PdfElement accessor.
 #ifdef DrawText
 #undef DrawText
+#endif
+#ifdef GetObject
+#undef GetObject
 #endif
 
 class TestExcisionCorruption : public QObject {
@@ -44,6 +49,14 @@ private slots:
     // must survive byte-exact.
     void multiLineMultiOpStreamKeepsNeighborsByteExact();
 
+    // G2 (audit REDACTION-RESEARCH-2026-09-21 §2.4): a page whose secret is
+    // drawn ONLY inside a tiling pattern (/Pattern resources painted by
+    // scn + fill — no Do) must ABORT redaction honestly — the canvas walk
+    // cannot reach pattern streams, so a black box would paint over live data
+    // (silent w/o proof). A text-free pattern must NOT refuse (the guard is
+    // scoped to pattern streams carrying text operators).
+    void patternDrawnSecretAbortsAndPatternFreeControlProceeds();
+
 private:
     // Page 1: "Secret a@b.com" at (50,700) + "PUBLIC_KEEP_TEXT" at (50,550)
     // (150pt below, same stream). Page 2: "PAGE2_KEEP_TEXT" — the second-page
@@ -51,6 +64,13 @@ private:
     static QString createTwoLinePdf(const QTemporaryDir& tmpDir, const QString& name);
     // One page: secret / keep / secret / keep alternating at 50pt steps.
     static QString createMultiLinePdf(const QTemporaryDir& tmpDir, const QString& name);
+
+    // One page whose content paints a tiling pattern over the whole page
+    // ("/Pattern cs /P1 scn ... re f"). With \p withText the pattern stream
+    // carries the secret as a glyph-carrying text operator; otherwise it is
+    // text-free (positive control).
+    static QString createPatternPdf(const QTemporaryDir& tmpDir, const QString& name,
+                                    bool withText);
 
     static QByteArray decodedPageContent(const QString& pdf, int pageIndex);
 
@@ -122,8 +142,71 @@ QString TestExcisionCorruption::createMultiLinePdf(const QTemporaryDir& tmpDir,
     return path;
 }
 
-QByteArray TestExcisionCorruption::decodedPageContent(const QString& pdf, int pageIndex) {
+QString TestExcisionCorruption::createPatternPdf(const QTemporaryDir& tmpDir,
+                                                 const QString& name, bool withText) {
+    const QString path = tmpDir.filePath(name);
     try {
+        PoDoFo::PdfMemDocument doc;
+        auto& page = doc.GetPages().CreatePage(
+            PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+        auto& font = doc.GetFonts().GetStandard14Font(
+            PoDoFo::PdfStandard14FontType::Helvetica);
+
+        // The tiling pattern: with withText its stream is the ONLY source of
+        // the secret (glyph-carrying "x y Td (text) Tj"); without, text-free.
+        const char* patternContent = withText
+            ? "BT /F1 14 Tf 10 30 Td (PatternSecretOmega) Tj ET\n"
+            : "0.2 0.4 0.8 rg 10 10 60 60 re f\n";
+        auto& pattern = doc.GetObjects().CreateDictionaryObject();
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("Type"), PoDoFo::PdfName("Pattern"));
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("PatternType"), PoDoFo::PdfObject(int64_t(1)));
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("PaintType"), PoDoFo::PdfObject(int64_t(1)));
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("TilingType"), PoDoFo::PdfObject(int64_t(1)));
+        PoDoFo::PdfArray bbox;
+        bbox.Add(0.0); bbox.Add(0.0); bbox.Add(100.0); bbox.Add(100.0);
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("BBox"), bbox);
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("XStep"), PoDoFo::PdfObject(80.0));
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("YStep"), PoDoFo::PdfObject(80.0));
+        auto& fontMap = doc.GetObjects().CreateDictionaryObject();
+        fontMap.GetDictionary().AddKey(PoDoFo::PdfName("F1"),
+                                       font.GetObject().GetIndirectReference());
+        auto& patternRes = doc.GetObjects().CreateDictionaryObject();
+        patternRes.GetDictionary().AddKey(PoDoFo::PdfName("Font"),
+                                          fontMap.GetIndirectReference());
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("Resources"),
+                                       patternRes.GetIndirectReference());
+        pattern.GetOrCreateStream().SetData(PoDoFo::bufferview(
+            patternContent, std::strlen(patternContent)));
+
+        // Page-level content painting the pattern (scn + fill — NO Do) and a
+        // benign direct-text line; the page /Resources map the shared font.
+        auto& patternMap = doc.GetObjects().CreateDictionaryObject();
+        patternMap.GetDictionary().AddKey(PoDoFo::PdfName("P1"),
+                                          pattern.GetIndirectReference());
+        auto& pageRes = doc.GetObjects().CreateDictionaryObject();
+        pageRes.GetDictionary().AddKey(PoDoFo::PdfName("Font"),
+                                       fontMap.GetIndirectReference());
+        pageRes.GetDictionary().AddKey(PoDoFo::PdfName("Pattern"),
+                                       patternMap.GetIndirectReference());
+        page.GetObject().GetDictionary().AddKey(PoDoFo::PdfName("Resources"),
+                                                pageRes.GetIndirectReference());
+        auto& content = doc.GetObjects().CreateDictionaryObject();
+        const char* pageContent =
+            "BT /F1 12 Tf 50 650 Td (PUBLIC_KEEP_TEXT) Tj ET\n"
+            "/Pattern cs /P1 scn 0 0 595 842 re f\n";
+        content.GetOrCreateStream().SetData(PoDoFo::bufferview(
+            pageContent, std::strlen(pageContent)));
+        page.GetObject().GetDictionary().AddKey(PoDoFo::PdfName("Contents"),
+                                                content.GetIndirectReference());
+
+        doc.Save(path.toUtf8().constData());
+    } catch (const std::exception&) {
+        return {};
+    }
+    return path;
+}
+
+QByteArray TestExcisionCorruption::decodedPageContent(const QString& pdf, int pageIndex) {    try {
         PoDoFo::PdfMemDocument doc;
         doc.Load(pdf.toUtf8().constData());
         auto& page = doc.GetPages().GetPageAt(pageIndex);
@@ -281,6 +364,90 @@ void TestExcisionCorruption::multiLineMultiOpStreamKeepsNeighborsByteExact() {
         QVERIFY2(postStream.indexOf(preOp) < 0,
                  qPrintable(QStringLiteral("secret Tj bytes at y=%1 survive in the output stream")
                                 .arg(secretY)));
+    }
+}
+
+void TestExcisionCorruption::patternDrawnSecretAbortsAndPatternFreeControlProceeds() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+
+    // ── the abort direction: pattern-drawn secret must REFUSE, not black-box ──
+    const QString pdf = createPatternPdf(tmp, QStringLiteral("pattern_secret.pdf"), true);
+    QVERIFY2(!pdf.isEmpty(), "pattern-secret fixture failed");
+    {   // Fixture evidence note: this PDFium's FPDFText extraction does not see
+        // pattern streams, and the render probe over the synthetic pattern came
+        // back unpainted — spec-compliant viewers DO paint tiling patterns, so
+        // the black-box-over-live-data premise stands on the PDF spec (scn +
+        // re f paints the pattern across the whole page), not on this PDFium's
+        // synthetic-pattern handling. The pinned contract is structural: a
+        // tiling pattern whose stream carries text operators must refuse.
+        PdfiumBackend pdfium;
+        QVERIFY(pdfium.loadDocument(pdf));
+        const QImage rendered = pdfium.renderPage(0, 72);
+        if (!rendered.isNull()) {
+            const QColor c = rendered.pixelColor(30, 842 - 60);
+            qWarning().noquote() << "G2 note: render probe at first pattern cell rgb"
+                                 << c.red() << c.green() << c.blue();
+        }
+        const QString p0 = pdfium.extractText(0);
+        qWarning().noquote() << "G2 note: FPDFText extraction sees"
+                             << (p0.contains(QStringLiteral("PatternSecretOmega"))
+                                     ? QStringLiteral("the pattern text")
+                                     : QStringLiteral("NO pattern text (extraction "
+                                                      "skips pattern streams)"));
+    }
+    {
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+        QVERIFY2(!engine.applyRedactions(0, { QRectF(40, 100, 500, 600) }),
+                 "G2: the pattern-text page must be REFUSED — a silent black box "
+                 "over live pattern text is the data-loss defect");
+        // Nothing was half-edited: the committed bytes still carry the pattern
+        // fill op and the benign line in the page stream, and the PATTERN
+        // stream (where the secret lives) is untouched.
+        const QString out = tmp.filePath(QStringLiteral("pattern_secret_out.pdf"));
+        QVERIFY2(engine.saveDocument(out), "saveDocument after refusal must succeed");
+        const QByteArray postStream = decodedPageContent(out, 0);
+        QVERIFY2(postStream.contains("/P1 scn") && postStream.contains("PUBLIC_KEEP_TEXT"),
+                 "G2: the refusal must leave the page stream unmodified");
+        {   // the pattern stream still holds the secret (no surgery ran)
+            PoDoFo::PdfMemDocument d;
+            d.Load(out.toUtf8().constData());
+            auto& resDict = d.GetPages().GetPageAt(0).GetResources().GetObject()
+                               .GetDictionary();
+            auto* patternMap = resDict.FindKey(PoDoFo::PdfName("Pattern"));
+            QVERIFY(patternMap != nullptr);
+            if (patternMap->IsReference())
+                patternMap = &d.GetObjects().MustGetObject(patternMap->GetReference());
+            auto* p1 = patternMap->GetDictionary().FindKey(PoDoFo::PdfName("P1"));
+            QVERIFY(p1 != nullptr);
+            if (p1->IsReference())
+                p1 = &d.GetObjects().MustGetObject(p1->GetReference());
+            PoDoFo::charbuff buf;
+            p1->GetStream()->CopyTo(buf);
+            QVERIFY2(QByteArray(buf.data(), int(buf.size())).contains("PatternSecretOmega"),
+                     "G2: the refusal must leave the pattern stream unmodified");
+        }
+    }
+
+    // ── the positive control: a TEXT-FREE pattern must proceed ──────────────
+    const QString controlPdf = createPatternPdf(tmp, QStringLiteral("pattern_free.pdf"), false);
+    QVERIFY2(!controlPdf.isEmpty(), "pattern-free fixture failed");
+    {
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(controlPdf));
+        QVERIFY2(engine.applyRedactions(0, { QRectF(40, 100, 500, 600) }),
+                 "G2 control: a text-free pattern must not refuse redaction");
+        const QString out = tmp.filePath(QStringLiteral("pattern_free_out.pdf"));
+        QVERIFY2(engine.saveDocument(out), "saveDocument must succeed");
+        // The mark covers the direct-text line too, so the benign line is
+        // legitimately excised; what matters is that surgery RAN (the numeric
+        // TJ gap substitution) despite the text-free pattern being present.
+        const QByteArray postStream = decodedPageContent(out, 0);
+        QVERIFY2(!postStream.contains("(PUBLIC_KEEP_TEXT) Tj"),
+                 "G2 control: the covered direct-text line must be excised");
+        QVERIFY2(postStream.contains("/P1 scn"),
+                 "G2 control: the text-free pattern fill must be untouched");
     }
 }
 

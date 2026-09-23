@@ -1559,8 +1559,13 @@ bool PdfEditorEngine::applyRedactions(int pageIndex, const QList<QRectF> &rects)
     }
     bool ok = d->backend->applyRedactions(pageIndex, rects);
     if (!ok) {
+        // G2: surface the backend's named abort reason (pattern-text guard,
+        // inline-image guard) so the refusal says WHY, not just WHERE.
+        const QString reason = d->backend->lastRedactionAbortReason();
         d->setErr(ErrorInfo::Error,
-                  QObject::tr("Failed to apply redactions on page %1.").arg(pageIndex + 1),
+                  QObject::tr("Failed to apply redactions on page %1.%2")
+                      .arg(pageIndex + 1)
+                      .arg(reason.isEmpty() ? QString() : QStringLiteral(" %1").arg(reason)),
                   QStringLiteral("applyRedactions page=%1, rects=%2").arg(pageIndex).arg(rects.size()));
         d->lastErr.sourcePage = pageIndex;
     }
@@ -1603,8 +1608,11 @@ bool PdfEditorEngine::applyMarkRedactions(const QList<AnnotationItem>& marks)
 
     for (auto it = redactionsByPage.begin(); it != redactionsByPage.end(); ++it) {
         if (!d->backend->applyRedactions(it.key(), it.value())) {
+            const QString reason = d->backend->lastRedactionAbortReason();
             d->setErr(ErrorInfo::Error,
-                      QObject::tr("Failed to apply redactions on page %1.").arg(it.key() + 1),
+                      QObject::tr("Failed to apply redactions on page %1.%2")
+                          .arg(it.key() + 1)
+                          .arg(reason.isEmpty() ? QString() : QStringLiteral(" %1").arg(reason)),
                       QStringLiteral("applyMarkRedactions page=%1, rects=%2").arg(it.key()).arg(it.value().size()));
             d->lastErr.sourcePage = it.key();
             return false;
