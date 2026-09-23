@@ -6,6 +6,8 @@
 // T2-4 accessibility P1: fix request/outcome types for runA11yFix's signature.
 #include "engines/AccessibilityChecker.h"
 #include "engines/AccessibilityFixes.h"
+// T2-4 accessibility P2: the tagging report type for runA11yTag's signature.
+#include "engines/AccessibilityTagger.h"
 
 class PdfViewerWidget;
 class FindBar;
@@ -214,6 +216,9 @@ private:
     // Owns resident-document coordination and routes /TU through the
     // FormManager seam; everything else via applyAccessibilityFix.
     gp::A11yFixOutcome runA11yFix(const gp::A11yFixRequest& request);
+    // T2-4 P2: run the auto-tagging transaction (the panel's injected
+    // runner); parks the resident document for the same-file write.
+    gp::TaggerReport runA11yTag(const QString& path);
     void initUpdateChecker();
     // §9.16 P1: unified-flow conversions (same engines/progress/failure
     // handling as the Welcome cards in HomeController, minus their pick/save

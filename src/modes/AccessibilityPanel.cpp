@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "AccessibilityPanel.h"
 
+#include "engines/AccessibilityTagger.h"
 #include "util/GpTheme.h"
 
 #include <QComboBox>
@@ -92,10 +93,16 @@ AccessibilityPanel::AccessibilityPanel(QWidget* parent) : QFrame(parent) {
     col->addWidget(m_statusLabel);
 
     // The honesty box — ALWAYS visible. It bounds what a report means.
+    // P2 wording: the P1 "never certifies" sentence is extended, not
+    // replaced — a tagged document is not a conforming document, and the
+    // conformance words appear in this panel ONLY inside this disclaimer.
     m_disclosureLabel = new QLabel(tr(
-        "Detection only. This report shows what a tagged document needs — "
-        "it never certifies PDF/UA. Content tagging (building a structure "
-        "tree) is not yet available in this version."));
+        "Detection and tagging. This report shows what a tagged document "
+        "needs — it never certifies PDF/UA. Auto-tagging builds a "
+        "best-effort structure tree from layout heuristics: a tagged "
+        "document is not a conforming document. Reading order is not "
+        "verified against intent, tables and lists are not tagged, and no "
+        "conformance verdict of any kind is issued."));
     m_disclosureLabel->setObjectName(QStringLiteral("a11yDisclosureLabel"));
     m_disclosureLabel->setWordWrap(true);
     m_disclosureLabel->setStyleSheet(
@@ -125,7 +132,50 @@ AccessibilityPanel::AccessibilityPanel(QWidget* parent) : QFrame(parent) {
     scroll->setWidget(body);
     outer->addWidget(scroll, 1);
 
+    // P2: the tagging action — pre-flight inline, then the injected runner.
+    m_tagBtn = new QPushButton(tr("Tag Document…"));
+    m_tagBtn->setObjectName(QStringLiteral("a11yTagButton"));
+    m_tagBtn->setEnabled(false);   // honest empty state: no document, no tag
+    m_tagBtn->setToolTip(tr(
+        "Build a best-effort structure tree (paragraphs and headings) — "
+        "review the result afterwards; it is a heuristic, not a claim"));
+    col->addWidget(m_tagBtn);
+
+    // The pre-flight confirmation surface (inline, not a modal dialog — the
+    // disclosure content is identical and stays testable offscreen).
+    m_tagConfirm = new QWidget;
+    m_tagConfirm->setObjectName(QStringLiteral("a11yTagConfirm"));
+    m_tagConfirm->setStyleSheet(
+        "background:#141518; border:1px solid #393b40; padding:6px 8px;");
+    auto* cv = new QVBoxLayout(m_tagConfirm);
+    cv->setContentsMargins(6, 6, 6, 6);
+    cv->setSpacing(6);
+    auto* tagHead = new QLabel(tr("TAGGING PRE-FLIGHT"));
+    tagHead->setStyleSheet("font-weight:600;letter-spacing:1px;");
+    cv->addWidget(tagHead);
+    m_tagSummary = new QLabel;
+    m_tagSummary->setObjectName(QStringLiteral("a11yTagSummary"));
+    m_tagSummary->setWordWrap(true);
+    m_tagSummary->setTextFormat(Qt::PlainText);
+    cv->addWidget(m_tagSummary, 1);
+    auto* btnRow = new QHBoxLayout;
+    m_tagApplyBtn = new QPushButton(tr("Apply Tagging"));
+    m_tagApplyBtn->setObjectName(QStringLiteral("a11yTagApplyButton"));
+    auto* cancelBtn = new QPushButton(tr("Cancel"));
+    cancelBtn->setObjectName(QStringLiteral("a11yTagCancelButton"));
+    btnRow->addStretch(1);
+    btnRow->addWidget(m_tagApplyBtn);
+    btnRow->addWidget(cancelBtn);
+    cv->addLayout(btnRow);
+    m_tagConfirm->hide();
+    col->addWidget(m_tagConfirm);
+
     connect(m_scanBtn, &QPushButton::clicked, this, &AccessibilityPanel::runScan);
+    connect(m_tagBtn, &QPushButton::clicked, this, &AccessibilityPanel::onTagClicked);
+    connect(m_tagApplyBtn, &QPushButton::clicked, this,
+            &AccessibilityPanel::onApplyClicked);
+    connect(cancelBtn, &QPushButton::clicked, this,
+            &AccessibilityPanel::onTagCancelClicked);
 }
 
 AccessibilityPanel::~AccessibilityPanel() {
@@ -134,6 +184,14 @@ AccessibilityPanel::~AccessibilityPanel() {
     if (m_scanWatcher && m_scanWatcher->isRunning()) {
         m_scanWatcher->cancel();
         m_scanWatcher->waitForFinished();
+    }
+    if (m_preflightWatcher && m_preflightWatcher->isRunning()) {
+        m_preflightWatcher->cancel();
+        m_preflightWatcher->waitForFinished();
+    }
+    if (m_tagWatcher && m_tagWatcher->isRunning()) {
+        m_tagWatcher->cancel();
+        m_tagWatcher->waitForFinished();
     }
 }
 
@@ -146,11 +204,13 @@ void AccessibilityPanel::setDocument(const QString& path) {
     // A document change invalidates the previous report — do not let an old
     // report describe the new identity, even before the new scan lands.
     m_lastReport = A11yReport{};
+    hideTagConfirmation();
     if (path.isEmpty()) {
         m_statusLabel->setText(tr("No document loaded."));
         m_findingsHeading->hide();
         m_findingsList->hide();
         m_scanBtn->setEnabled(false);
+        updateTagActionState();
         return;
     }
     m_scanBtn->setEnabled(true);
@@ -199,6 +259,170 @@ void AccessibilityPanel::clearFindings() {
 void AccessibilityPanel::setFixRunner(
     std::function<A11yFixOutcome(const A11yFixRequest&)> runner) {
     m_fixRunner = std::move(runner);
+}
+
+void AccessibilityPanel::setTagRunner(
+    std::function<TaggerReport(const QString& path)> runner) {
+    m_tagRunner = std::move(runner);
+}
+
+void AccessibilityPanel::updateTagActionState() {
+    if (!m_tagBtn) return;
+    // Honest gating: no document → disabled; an already-tagged document is
+    // REFUSED by the engine, so the button says why instead of lying.
+    if (m_currentDocPath.isEmpty() || !m_lastReport.loadOk) {
+        m_tagBtn->setEnabled(false);
+        m_tagBtn->setToolTip(tr("Open a document to tag it"));
+        return;
+    }
+    if (m_lastReport.tagged) {
+        m_tagBtn->setEnabled(false);
+        m_tagBtn->setToolTip(tr(
+            "this document is already tagged; re-tagging would discard the "
+            "existing structure"));
+        return;
+    }
+    // Without a runner the action does not exist (never a dead control).
+    m_tagBtn->setEnabled(m_tagRunner != nullptr);
+    m_tagBtn->setToolTip(tr(
+        "Build a best-effort structure tree (paragraphs and headings) — "
+        "review the result afterwards; it is a heuristic, not a claim"));
+}
+
+void AccessibilityPanel::hideTagConfirmation() { m_tagConfirm->hide(); }
+
+void AccessibilityPanel::onTagClicked() {
+    if (!m_tagRunner || m_currentDocPath.isEmpty()) return;
+    if (m_lastReport.loadOk && m_lastReport.tagged) {
+        // The engine refuses anyway — say why up front (honest gating).
+        m_statusLabel->setText(tr(
+            "Tagging not applied: this document is already tagged; "
+            "re-tagging would discard the existing structure"));
+        return;
+    }
+    hideTagConfirmation();
+    m_statusLabel->setText(tr("Analyzing document for tagging…"));
+
+    if (!m_preflightWatcher) {
+        m_preflightWatcher = new QFutureWatcher<TaggerPreflight>(this);
+        connect(m_preflightWatcher, &QFutureWatcher<TaggerPreflight>::finished,
+                this, &AccessibilityPanel::onPreflightFinished);
+    }
+    if (m_preflightWatcher->isRunning()) {
+        m_preflightWatcher->cancel();
+        m_preflightWatcher->waitForFinished();
+    }
+    const QString path = m_currentDocPath;
+    m_submittedTagPath = path;
+    m_preflightWatcher->setFuture(
+        QtConcurrent::run([path]() { return preflightTagging(path); }));
+}
+
+void AccessibilityPanel::onPreflightFinished() {
+    if (!m_preflightWatcher || m_preflightWatcher->isCanceled()) return;
+    // ARC06 identity tie: a pre-flight for a stale identity is discarded.
+    if (m_submittedTagPath != m_currentDocPath) return;
+
+    const TaggerPreflight p = m_preflightWatcher->result();
+    if (!p.loadOk) {
+        m_statusLabel->setText(tr("Cannot tag: %1").arg(p.loadError));
+        return;
+    }
+    if (p.alreadyTagged) {
+        m_statusLabel->setText(tr(
+            "Tagging not applied: this document is already tagged; "
+            "re-tagging would discard the existing structure"));
+        return;
+    }
+
+    // The pre-flight surface: the cluster table (the classification the
+    // user can SEE and judge), the image prompt list with the disclosed
+    // total, and the disclaimer - verbatim contract, not marketing.
+    const QString nl = QStringLiteral("\n");
+    QString text;
+    text += tr("Detected text-size clusters (heuristic, reviewable):") + nl;
+    if (p.sizeClusters.isEmpty()) {
+        text += tr("  no taggable text found") + nl;
+    } else {
+        for (const TaggerSizeCluster& c : p.sizeClusters) {
+            text += QStringLiteral("  %1pt x %2 line(s) -> %3%4")
+                        .arg(c.size, 0, 'f', 1)
+                        .arg(c.runCount)
+                        .arg(c.level,
+                             c.bold ? QStringLiteral(" (bold hint)")
+                                    : QString())
+                    + nl;
+        }
+    }
+    text += nl;
+    text += tr("Images without /Alt (descriptions are never invented):")
+            + nl;
+    if (p.imagesTotal == 0) {
+        text += tr("  none - every image carries a description") + nl;
+    } else {
+        for (const TaggerImageGap& g : p.imageGaps)
+            text += QStringLiteral("  page %1, image %2 - no /Alt (excluded "
+                                   "from the tree)")
+                        .arg(g.page + 1)
+                        .arg(g.resourceName)
+                    + nl;
+        if (p.imagesTotal > p.imageGaps.size())
+            text += tr("  ... and %1 more (list truncated; total disclosed)")
+                        .arg(p.imagesTotal - p.imageGaps.size())
+                    + nl;
+    }
+    text += nl;
+    text += tr(
+        "Tagging builds a best-effort structure tree from layout "
+        "heuristics: a tagged document is not a conforming document, and "
+        "no conformance verdict of any kind is issued. Review the result.");
+    m_tagSummary->setText(text);
+    m_tagConfirm->show();
+    emit tagPreflightReady();
+}
+
+void AccessibilityPanel::onApplyClicked() {
+    if (!m_tagRunner || m_currentDocPath.isEmpty()) return;
+    hideTagConfirmation();
+    m_statusLabel->setText(tr("Tagging…"));
+
+    if (!m_tagWatcher) {
+        m_tagWatcher = new QFutureWatcher<TaggerReport>(this);
+        connect(m_tagWatcher, &QFutureWatcher<TaggerReport>::finished, this,
+                &AccessibilityPanel::onTagFinished);
+    }
+    if (m_tagWatcher->isRunning()) {
+        m_tagWatcher->cancel();
+        m_tagWatcher->waitForFinished();
+    }
+    const QString path = m_currentDocPath;
+    m_submittedTagPath = path;
+    auto runner = m_tagRunner;
+    m_tagWatcher->setFuture(QtConcurrent::run(
+        [runner, path]() { return runner(path); }));
+}
+
+void AccessibilityPanel::onTagCancelClicked() {
+    hideTagConfirmation();
+    m_statusLabel->setText(tr("Tagging cancelled — nothing was changed."));
+}
+
+void AccessibilityPanel::onTagFinished() {
+    if (!m_tagWatcher || m_tagWatcher->isCanceled()) return;
+    // ARC06 identity tie.
+    if (m_submittedTagPath != m_currentDocPath) return;
+    emit tagRunFinished();
+
+    const TaggerReport r = m_tagWatcher->result();
+    if (!r.ok) {
+        m_statusLabel->setText(tr("Tagging not applied: %1").arg(r.message));
+        return;
+    }
+    // Success ⇒ re-scan the SAME identity: the struct-tree finding resolves
+    // and the tag action now refuses (already tagged).
+    emit documentMutated(r.message);
+    m_statusLabel->setText(tr("Tagged — re-running check…"));
+    setDocument(m_currentDocPath);
 }
 
 void AccessibilityPanel::applyFix(const A11yFixRequest& request) {
@@ -299,8 +523,10 @@ void AccessibilityPanel::updateDisplay(const A11yReport& report) {
 
     if (!report.loadOk) {
         m_statusLabel->setText(tr("Cannot scan: %1").arg(report.loadError));
+        updateTagActionState();
         return;
     }
+    updateTagActionState();
 
     const int n = report.findings.size();
     if (n == 0) {

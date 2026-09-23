@@ -11,8 +11,10 @@
 #include <QLabel>
 #include <QPushButton>
 #include <podofo/podofo.h>
+#include <cstring>
 
 #include "modes/AccessibilityPanel.h"
+#include "engines/AccessibilityTagger.h"
 
 using PoDoFo::PdfObject;
 using PoDoFo::PdfName;
@@ -43,6 +45,33 @@ bool makeDefectivePdf(const QString& path) {
         page.GetResources().GetDictionary().AddKey("XObject",
                                                    xobjs.GetIndirectReference());
 
+        doc.Save(path.toUtf8().constData());
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+// A TAGGABLE fixture: one honestly-decodable text line (standard-14 font),
+// untagged, no /Lang — everything the tag flow needs to really run.
+bool makeTaggablePdf(const QString& path) {
+    try {
+        PoDoFo::PdfMemDocument doc;
+        auto& page = doc.GetPages().CreatePage(
+            PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+        PdfDictionary fonts;
+        auto& f1 = doc.GetObjects().CreateDictionaryObject();
+        f1.GetDictionary().AddKey("Type", PdfObject(PdfName("Font")));
+        f1.GetDictionary().AddKey("Subtype", PdfObject(PdfName("Type1")));
+        f1.GetDictionary().AddKey("BaseFont", PdfObject(PdfName("Helvetica")));
+        fonts.AddKey(PdfName("F1"), PdfObject(f1.GetIndirectReference()));
+        page.GetResources().GetDictionary().AddKey("Font",
+                                                   PdfObject(fonts));
+        auto& contents = page.GetOrCreateContents();
+        auto& stream = contents.CreateStreamForAppending(
+            PoDoFo::PdfStreamAppendFlags::None);
+        const char* c = "BT\n/F1 10 Tf\n60 700 Td\n(A taggable line.) Tj\nET\n";
+        stream.SetData(PoDoFo::bufferview(c, strlen(c)));
         doc.Save(path.toUtf8().constData());
         return true;
     } catch (...) {
@@ -86,6 +115,12 @@ private slots:
     void fixRunnerReceivesRequestAndRescanHappens();
     void fixButtonsAppearOnlyWithRunner();
 
+    // ── T2-4 P2: the tagging action (§6.3) ──────────────────────────────
+    void tagActionGatingAndPreflightSurface();
+    void taggedDocumentDisablesTagAction();
+    void tagRunnerFlowResolvesFinding();
+    void disclaimerIsPinnedVerbatim();
+
 private:
     // Wait for the panel's async scan to deliver (the default-constructed
     // lastReport() is indistinguishable from a finished clean scan, so tests
@@ -105,6 +140,28 @@ private:
     }
     QLabel* disclosureOf(gp::AccessibilityPanel* p) {
         return p->findChild<QLabel*>(QStringLiteral("a11yDisclosureLabel"));
+    }
+    QPushButton* tagButtonOf(gp::AccessibilityPanel* p) {
+        return p->findChild<QPushButton*>(QStringLiteral("a11yTagButton"));
+    }
+    QLabel* tagSummaryOf(gp::AccessibilityPanel* p) {
+        return p->findChild<QLabel*>(QStringLiteral("a11yTagSummary"));
+    }
+
+    bool waitForTagPreflight(gp::AccessibilityPanel* panel) {
+        bool done = false;
+        QObject::connect(panel, &gp::AccessibilityPanel::tagPreflightReady,
+                         panel, [&done]() { done = true; },
+                         Qt::DirectConnection);
+        return QTest::qWaitFor([&done]() { return done; }, 15000);
+    }
+
+    bool waitForTagRun(gp::AccessibilityPanel* panel) {
+        bool done = false;
+        QObject::connect(panel, &gp::AccessibilityPanel::tagRunFinished,
+                         panel, [&done]() { done = true; },
+                         Qt::DirectConnection);
+        return QTest::qWaitFor([&done]() { return done; }, 30000);
     }
 };
 
@@ -250,6 +307,154 @@ void TestAccessibilityPanel::fixRunnerReceivesRequestAndRescanHappens() {
     panel.applyFix(req);
     QVERIFY2(statusOf(&panel)->text().contains(QStringLiteral("disk said no")),
              qPrintable(statusOf(&panel)->text()));
+}
+
+// ── T2-4 P2: the tagging action ──────────────────────────────────────────────
+
+void TestAccessibilityPanel::tagActionGatingAndPreflightSurface() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = tmp.filePath("taggable.pdf");
+    QVERIFY(makeTaggablePdf(pdf));
+
+    gp::AccessibilityPanel panel;
+    // No document → the tag action does not exist (never a dead control).
+    panel.setDocument(QString());
+    QVERIFY(tagButtonOf(&panel) != nullptr);
+    QVERIFY(!tagButtonOf(&panel)->isEnabled());
+
+    panel.setTagRunner([](const QString& path) {
+        return gp::tagDocumentAccessibility(path);
+    });
+    panel.setDocument(pdf);
+    QVERIFY(waitForScan(&panel));
+    QVERIFY(panel.lastReport().loadOk);
+    QVERIFY(tagButtonOf(&panel)->isEnabled());
+
+    // Click Tag → the pre-flight surface renders INLINE with the image
+    // prompt list and the disclaimer (design §1.1/§6.3).
+    tagButtonOf(&panel)->click();
+    QVERIFY(waitForTagPreflight(&panel));
+    const QLabel* summary = tagSummaryOf(&panel);
+    QVERIFY(summary != nullptr);
+    QVERIFY(!summary->parentWidget()->isHidden());
+    QVERIFY2(summary->text().contains(
+                 QStringLiteral("text-size clusters")),
+             qPrintable(summary->text()));
+    QVERIFY2(summary->text().contains(QStringLiteral("A taggable line.")) == false
+                 || summary->text().contains(QStringLiteral("10.0pt")),
+             qPrintable(summary->text()));
+    QVERIFY2(summary->text().contains(
+                 QStringLiteral("not a conforming document")),
+             qPrintable(summary->text()));
+
+    // Cancel changes nothing.
+    auto* cancel = panel.findChild<QPushButton*>(
+        QStringLiteral("a11yTagCancelButton"));
+    QVERIFY(cancel != nullptr);
+    cancel->click();
+    QVERIFY2(statusOf(&panel)->text().contains(QStringLiteral("cancelled")),
+             qPrintable(statusOf(&panel)->text()));
+}
+
+void TestAccessibilityPanel::taggedDocumentDisablesTagAction() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = tmp.filePath("clean.pdf");
+    QVERIFY(makeCleanPdf(pdf));   // carries /StructTreeRoot
+
+    gp::AccessibilityPanel panel;
+    panel.setTagRunner([](const QString& path) {
+        return gp::tagDocumentAccessibility(path);
+    });
+    panel.setDocument(pdf);
+    QVERIFY(waitForScan(&panel));
+    QVERIFY(panel.lastReport().tagged);
+
+    // Already tagged → the action refuses UP FRONT (honest gating, whyNot
+    // shown), never a dead-end click.
+    QVERIFY(!tagButtonOf(&panel)->isEnabled());
+    QVERIFY2(tagButtonOf(&panel)->toolTip().contains(
+                 QStringLiteral("already tagged")),
+             qPrintable(tagButtonOf(&panel)->toolTip()));
+}
+
+void TestAccessibilityPanel::tagRunnerFlowResolvesFinding() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = tmp.filePath("taggable.pdf");
+    QVERIFY(makeTaggablePdf(pdf));
+
+    gp::AccessibilityPanel panel;
+    panel.setTagRunner([](const QString& path) {
+        return gp::tagDocumentAccessibility(path);
+    });
+    panel.setDocument(pdf);
+    QVERIFY(waitForScan(&panel));
+    QVERIFY(!panel.lastReport().tagged);
+
+    // The full flow: Tag → pre-flight → Apply → real tagging transaction →
+    // automatic re-scan of the same identity.
+    tagButtonOf(&panel)->click();
+    QVERIFY(waitForTagPreflight(&panel));
+    auto* apply = panel.findChild<QPushButton*>(
+        QStringLiteral("a11yTagApplyButton"));
+    QVERIFY(apply != nullptr);
+    apply->click();
+    QVERIFY(waitForTagRun(&panel));
+    QVERIFY(waitForScan(&panel));
+
+    // Post-run re-scan: tagged=true, the struct-tree finding RESOLVED.
+    QVERIFY(panel.lastReport().loadOk);
+    QVERIFY(panel.lastReport().tagged);
+    for (const auto& f : panel.lastReport().findings)
+        QVERIFY2(f.checkId != QLatin1String("struct-tree"),
+                 qPrintable(f.checkId));
+    // The tag action now refuses (already tagged).
+    QVERIFY(!tagButtonOf(&panel)->isEnabled());
+    QVERIFY2(statusOf(&panel)->text().contains(QStringLiteral("Tagged"))
+                 || !statusOf(&panel)->text().isEmpty(),
+             qPrintable(statusOf(&panel)->text()));
+}
+
+void TestAccessibilityPanel::disclaimerIsPinnedVerbatim() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = tmp.filePath("taggable.pdf");
+    QVERIFY(makeTaggablePdf(pdf));
+
+    gp::AccessibilityPanel panel;
+    panel.setTagRunner([](const QString& path) {
+        return gp::tagDocumentAccessibility(path);
+    });
+    panel.setDocument(pdf);
+    QVERIFY(waitForScan(&panel));
+
+    // The honesty box carries the extended P2 contract VERBATIM.
+    const QString disclosure = disclosureOf(&panel)->text();
+    QVERIFY2(disclosure.contains(QStringLiteral("it never certifies PDF/UA")),
+             qPrintable(disclosure));
+    QVERIFY2(disclosure.contains(
+                 QStringLiteral(
+                     "a tagged document is not a conforming document")),
+             qPrintable(disclosure));
+    QVERIFY2(disclosure.contains(QStringLiteral(
+                 "no conformance verdict of any kind is issued")),
+             qPrintable(disclosure));
+
+    // The conformance words appear ONLY inside the disclaimer: the scan
+    // status and the tag pre-flight summary must not freelance them —
+    // the summary's sentence is part of the same pinned disclaimer family
+    // ("not a conforming document"), the status line never says conform*.
+    tagButtonOf(&panel)->click();
+    QVERIFY(waitForTagPreflight(&panel));
+    const QString summary = tagSummaryOf(&panel)->text();
+    QVERIFY2(summary.contains(QStringLiteral(
+                 "not a conforming document")),
+             qPrintable(summary));
+    const QString status = statusOf(&panel)->text();
+    QVERIFY2(!status.contains(QStringLiteral("conform"), Qt::CaseInsensitive),
+             qPrintable(status));
 }
 
 #include "TestAccessibilityPanel.moc"
