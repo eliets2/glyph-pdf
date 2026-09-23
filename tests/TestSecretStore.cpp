@@ -357,6 +357,74 @@ private slots:
         QCOMPARE(store.readSecret("OpenAI"), QString("sk-ooo"));  // unaffected
     }
 
+    // ── PGR-25 — concurrent writers must not lose updates ───────────────────
+    // Each write is a read-modify-write of the JSON store. Two processes (or
+    // threads) storing DIFFERENT entries at the same time must both survive:
+    // without a lock around the whole RMW the last commit wins and the other
+    // entry silently vanishes — the money-race pattern from the backend
+    // doctrine, applied to the secret store. Each write verifies itself by
+    // re-reading (never-silent-fail), so a lost update surfaces either as a
+    // failed storeSecret or as a missing final value.
+    void concurrentWritersDifferentEntriesBothSurvive() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.path() + "/race.json";
+
+        static constexpr int kRounds = 40;
+        // Round handshake: the driver releases round r (go >= r) only after
+        // both writers finished round r-1 (done >= 2*(r-1)), so both writers
+        // enter storeSecret within microseconds of each other every round.
+        QAtomicInt go{0};
+        QAtomicInt done{0};
+
+        struct Writer : QThread {
+            Writer(QString p, QByteArray k, const QString s,
+                   const QAtomicInt* goRef, QAtomicInt* doneRef)
+                : path(std::move(p)), key(std::move(k)), svc(std::move(s)),
+                  go(goRef), done(doneRef) {}
+            QString path;
+            QByteArray key;
+            QString svc;
+            const QAtomicInt* go;
+            QAtomicInt* done;
+            bool ok = true;
+            void run() override {
+                EncryptedFileSecretStore store(path, key);
+                for (int r = 1; r <= kRounds; ++r) {
+                    while (go->loadAcquire() < r) {}
+                    if (ok) {
+                        ok = store.storeSecret(
+                            svc, QStringLiteral("sk-ant-race-%1-%2").arg(svc).arg(r));
+                    }
+                    done->fetchAndAddRelaxed(1);  // keep the handshake alive
+                }
+            }
+        };
+
+        Writer a(path, testKey(), QStringLiteral("RaceSvcA"), &go, &done);
+        Writer b(path, testKey(), QStringLiteral("RaceSvcB"), &go, &done);
+        a.start();
+        b.start();
+        for (int r = 1; r <= kRounds; ++r) {
+            while (done.loadAcquire() < 2 * (r - 1)) {}
+            go.fetchAndAddRelaxed(1);
+        }
+        QVERIFY(a.wait(60000));
+        QVERIFY(b.wait(60000));
+
+        QVERIFY2(a.ok && b.ok,
+                 "both concurrent writers must report success on every round "
+                 "— a lost update makes storeSecret fail its own read-back "
+                 "verification");
+
+        // The store must retain BOTH entries, each with its final value.
+        EncryptedFileSecretStore reader(path, testKey());
+        QCOMPARE(reader.readSecret("RaceSvcA"),
+                 QStringLiteral("sk-ant-race-RaceSvcA-%1").arg(kRounds));
+        QCOMPARE(reader.readSecret("RaceSvcB"),
+                 QStringLiteral("sk-ant-race-RaceSvcB-%1").arg(kRounds));
+    }
+
     // ── EC04: the DEFAULT key path (no injected override) on Windows ─────────
     // Pre-fix, resolveKey() called CryptProtectData on EVERY invocation and
     // hashed the fresh (non-deterministic) DPAPI blob as the AES key, so the

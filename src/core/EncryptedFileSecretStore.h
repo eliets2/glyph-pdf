@@ -61,9 +61,12 @@
 //
 // It NEVER silent-fails: storeSecret returns false (and writes nothing) if it
 // cannot durably persist; it never returns true without the ciphertext hitting
-// disk and being re-readable. DPAPI protect/unprotect failures are explicit:
-// a warning is logged and the operation fails — readSecret returns empty, it
-// never decrypts to garbage.
+// disk and being re-readable. Every mutation (store/delete/legacy-format
+// migration) is a read-modify-write of the shared JSON and is serialized by a
+// `<store>.lock` file beside the store (PGR-25) with a bounded wait — a lock
+// timeout is a loud failure, never a raced write. DPAPI protect/unprotect
+// failures are explicit: a warning is logged and the operation fails —
+// readSecret returns empty, it never decrypts to garbage.
 class EncryptedFileSecretStore : public ISecretStore {
 public:
     // `filePath` is the JSON store location. If empty, a per-user default under
