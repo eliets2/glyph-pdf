@@ -459,6 +459,68 @@ void capturePromptAndClick(const QString &titleNeedle, const QString &buttonText
                               g_driverEpoch);
 }
 
+// Pattern-text fixture for the F3b refusal pin: the page paints its PUBLIC
+// text as an ordinary content-stream op AND carries a tiling pattern whose
+// stream holds a second, secret text. The excision canvas walk cannot reach
+// pattern streams, so the merged redaction-gaps lane (G2, audit
+// REDACTION-RESEARCH-2026-09-21 §2.4) made the engine REFUSE the whole run
+// with a named reason instead of painting a black box over live data.
+// (Mirror of TestRedactTransaction::makePatternSecretPdf.)
+bool makePatternTextPdf(const QString &path)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        auto &page = doc.GetPages().CreatePage(
+            PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+        auto &font = doc.GetFonts().GetStandard14Font(
+            PoDoFo::PdfStandard14FontType::Helvetica);
+
+        auto &pattern = doc.GetObjects().CreateDictionaryObject();
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("Type"), PoDoFo::PdfName("Pattern"));
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("PatternType"), PoDoFo::PdfObject(int64_t(1)));
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("PaintType"), PoDoFo::PdfObject(int64_t(1)));
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("TilingType"), PoDoFo::PdfObject(int64_t(1)));
+        PoDoFo::PdfArray bbox;
+        bbox.Add(0.0); bbox.Add(0.0); bbox.Add(100.0); bbox.Add(100.0);
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("BBox"), bbox);
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("XStep"), PoDoFo::PdfObject(80.0));
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("YStep"), PoDoFo::PdfObject(80.0));
+        auto &fontMap = doc.GetObjects().CreateDictionaryObject();
+        fontMap.GetDictionary().AddKey(PoDoFo::PdfName("F1"),
+                                       font.GetObject().GetIndirectReference());
+        pattern.GetDictionary().AddKey(PoDoFo::PdfName("Resources"),
+                                       fontMap.GetIndirectReference());
+        const char *patternContent = "BT /F1 14 Tf 10 30 Td (PatternSecretOmega) Tj ET\n";
+        pattern.GetOrCreateStream().SetData(PoDoFo::bufferview(
+            patternContent, std::strlen(patternContent)));
+
+        auto &patternMap = doc.GetObjects().CreateDictionaryObject();
+        patternMap.GetDictionary().AddKey(PoDoFo::PdfName("P1"),
+                                          pattern.GetIndirectReference());
+        auto &pageRes = doc.GetObjects().CreateDictionaryObject();
+        pageRes.GetDictionary().AddKey(PoDoFo::PdfName("Font"),
+                                       fontMap.GetIndirectReference());
+        pageRes.GetDictionary().AddKey(PoDoFo::PdfName("Pattern"),
+                                       patternMap.GetIndirectReference());
+        page.GetObject().GetDictionary().AddKey(PoDoFo::PdfName("Resources"),
+                                                pageRes.GetIndirectReference());
+        auto &content = doc.GetObjects().CreateDictionaryObject();
+        const char *pageContent =
+            "BT /F1 12 Tf 50 700 Td (PUBLIC_KEEP_TEXT) Tj ET\n"
+            "/Pattern cs /P1 scn 0 0 595 842 re f\n";
+        content.GetOrCreateStream().SetData(PoDoFo::bufferview(
+            pageContent, std::strlen(pageContent)));
+        page.GetObject().GetDictionary().AddKey(PoDoFo::PdfName("Contents"),
+                                                content.GetIndirectReference());
+
+        doc.Save(path.toUtf8().constData());
+        return QFileInfo::exists(path);
+    } catch (const std::exception &e) {
+        qWarning() << "makePatternTextPdf failed:" << e.what();
+        return false;
+    }
+}
+
 QPushButton *buttonByText(QWidget *w, const QString &text)
 {
     const auto bs = w->findChildren<QPushButton *>();
@@ -808,9 +870,29 @@ private slots:
             && mergedReader.extractText(mergedReader.pageCount() - 1)
                    .contains(QStringLiteral("MERGEPARTTWO"));
         QVERIFY2(both, "F2b: both inputs' content must be in the merged artifact");
+        // F2a-F1 pin (SWEEP-W3-UX): the merge completion feedback must NAME
+        // the output. The batch surface has no completion modal — its summary
+        // (status label + log) is the completion feedback, so it must carry
+        // the merged file's name, not a generic "1 of 1 succeeded".
+        QString mergeStatus;
+        for (QLabel *l : bm->findChildren<QLabel *>())
+            if (l->text().contains(QStringLiteral("BATCH COMPLETE")))
+                mergeStatus = l->text();
+        QVERIFY2(mergeStatus.contains(QStringLiteral("mpart1_merged.pdf"), Qt::CaseInsensitive)
+                     || mergeStatus.contains(QStringLiteral("merged into"), Qt::CaseInsensitive),
+                 QStringLiteral("F2a-F1 pin: the merge completion summary must name the "
+                                "output file (status was '%1')").arg(mergeStatus)
+                     .toUtf8().constData());
+        // The merge run cleared and refilled the log — read it live.
+        const QString mergeLog =
+            bm->findChildren<QTextEdit *>().first()->toPlainText();
+        QVERIFY2(mergeLog.contains(QStringLiteral("Merged output"), Qt::CaseInsensitive)
+                     && mergeLog.contains(QStringLiteral("mpart1_merged.pdf"),
+                                          Qt::CaseInsensitive),
+                 "F2a-F1 pin: the batch log must name the merged output file");
         step(QStringLiteral("F2b verified: 2-file batch merge → %1 page(s), both parts present; "
-                           "output at %2")
-                 .arg(mergedReader.pageCount()).arg(mergedOut));
+                           "output at %2; completion named it: status='%3'")
+                 .arg(mergedReader.pageCount()).arg(mergedOut, mergeStatus.left(120)));
     }
 
     // ── F3: redaction mark → apply → proof report → export + partial failure ─
@@ -975,6 +1057,93 @@ private slots:
         } else {
             step("F3 step6: the impossible target unexpectedly succeeded — harness note");
         }
+    }
+
+    // ── F3b: the G2 pattern-text refusal, through the REAL UI route ─────────
+    // A page whose resource tree carries a tiling pattern whose stream holds
+    // glyph-carrying text cannot be excised (the canvas walk reaches only
+    // Do-referenced Form XObjects and images). The merged redaction-gaps lane
+    // (G2, audit REDACTION-RESEARCH-2026-09-21 §2.4) made the engine REFUSE
+    // the whole run with a named reason instead of painting a black box over
+    // live data. This slot pins the USER-VISIBLE half of that contract: the
+    // refusal must surface as a labeled "Redaction Failed" disclosure that
+    // names the pattern reason, with NO output written and the source file
+    // untouched. The refusal is page-level — the mark covers only the public
+    // text, and the engine still refuses because the page's resource tree
+    // carries the text-bearing pattern.
+    void flow3b_redaction_patternText_refusalDisclosure()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString src = dir.filePath("pattern-secret.pdf");
+        QVERIFY2(makePatternTextPdf(src), "F3b: pattern fixture creation failed");
+        QVERIFY2(pdfTextContains(src, "PatternSecretOmega"),
+                 "F3b: the fixture must carry the secret in its pattern stream");
+        step("F3b start: pattern-text fixture (public text + pattern-stream secret)");
+
+        runCardRoute("open", src);
+        QTRY_COMPARE_WITH_TIMEOUT(m_win->pdfViewer()->pageCount(), 1, 20000);
+        m_win->activateScreen(QStringLiteral("redact"));
+        QTest::qWait(300);
+        step("F3b step1: redact screen activated");
+
+        auto *redact = m_win->findChild<gp::RedactMode *>();
+        QVERIFY2(redact, "F3b: RedactMode must be reachable");
+        redact->activateCustomRegex(QStringLiteral("PUBLIC_KEEP_TEXT"));
+        QMetaObject::invokeMethod(redact, "onMarkAllOccurrences", Qt::DirectConnection);
+        QTest::qWait(400);
+        int marks = 0;
+        for (const auto &an : m_win->pdfViewer()->annotations())
+            if (an.mode == ToolMode::Redact) ++marks;
+        QVERIFY2(marks > 0,
+                 "F3b: Mark All Occurrences must place marks on the public text");
+        step(QStringLiteral("F3b step2: %1 redaction mark(s) placed over the public text")
+                 .arg(marks));
+
+        const QString redactedOut = dir.filePath("pattern-secret_redacted.pdf");
+        static QString refusalText, refusalTitle;  // static: the poller may outlive the slot
+        refusalText.clear(); refusalTitle.clear();
+        driveModalDialog(QStringLiteral("redactApplyDialog"),
+                         [redactedOut](QWidget *w) {
+                             if (auto *d = w->findChild<QLineEdit *>(
+                                     QStringLiteral("redactApplyDestinationEdit")))
+                                 d->setText(redactedOut);
+                             step("F3b step3: apply dialog configured and accepted");
+                             if (auto *ok = w->findChild<QPushButton *>(
+                                     QStringLiteral("redactApplyOkButton")))
+                                 ok->click();
+                         });
+        capturePromptAndClick(QStringLiteral("Redaction Failed"), QStringLiteral("OK"),
+                              &refusalText, &refusalTitle);
+        QMetaObject::invokeMethod(redact, "onApplyRedactions", Qt::DirectConnection);
+
+        QTRY_VERIFY_WITH_TIMEOUT(!refusalTitle.isEmpty(), 60000);
+        step(QStringLiteral("F3b refusal disclosure: title='%1' text='%2'")
+                 .arg(refusalTitle, refusalText.left(400)));
+        // The disclosure must be LABELED and NAMED — a generic failure banner
+        // would hide the one thing the user must understand: the pattern text
+        // survives, and that is why the page was refused.
+        QCOMPARE(refusalTitle, QStringLiteral("Redaction Failed"));
+        QVERIFY2(refusalText.contains(QStringLiteral("pattern"), Qt::CaseInsensitive),
+                 "F3b: the refusal must name the pattern reason");
+        QVERIFY2(refusalText.contains(QStringLiteral("refused"), Qt::CaseInsensitive)
+                     || refusalText.contains(QStringLiteral("black box"),
+                                             Qt::CaseInsensitive),
+                 "F3b: the refusal must say the page was refused (no silent black box)");
+        QVERIFY2(refusalText.contains(QStringLiteral("not modified"), Qt::CaseInsensitive),
+                 "F3b: the refusal must state the original was not modified");
+
+        // Landed states: an honest refusal writes NO output and leaves the
+        // source byte-truthful (both the secret AND the public text intact).
+        QTest::qWait(500);
+        QVERIFY2(!QFileInfo::exists(redactedOut),
+                 "F3b: an honest refusal must write NO redacted output");
+        QVERIFY2(pdfTextContains(src, "PatternSecretOmega"),
+                 "F3b: the source must be untouched — the pattern secret survives");
+        QVERIFY2(pdfTextContains(src, "PUBLIC_KEEP_TEXT"),
+                 "F3b: the source must be untouched — the public text intact");
+        step("F3b verified: labeled refusal naming the pattern reason, no output "
+             "written, source untouched");
     }
 
     // ── F8: find & replace regex + replace-all count honesty (WP-R07) ───────
