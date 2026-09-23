@@ -31,6 +31,8 @@ public:
     }
 
     void redo() override {
+        if (consumeArmedApply())
+            return;   // checked traversal already applied; index-move only
         QString err;
         if (!performApply(&err)) {
             // A failed mutation must not become an undoable step (QUndoStack

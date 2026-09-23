@@ -44,6 +44,9 @@
 #include "engines/pdfium/PdfiumBackend.h"
 #include "commands/RotatePageCommand.h"
 #include "commands/EditTextInlineCommand.h"
+#include "commands/DeleteImageCommand.h"
+#include "commands/ReplaceImageCommand.h"
+#include "commands/CropPageCommand.h"
 #include "commands/CheckedHistory.h"
 #include "mocks/MockPdfEditorEngine.h"
 #include "core/AppContext.h"
@@ -143,6 +146,18 @@ public:
     bool deletePage(const QString &, int) override {
         ++m_deleteCalls;
         return m_deleteOk;
+    }
+    int m_replaceImageCalls = 0;
+    bool replaceImage(int, const QString &, const QString &) override {
+        ++m_replaceImageCalls;
+        return true;
+    }
+    // Crops to a rect other than the captured original — undo restores the
+    // original through cropPage() too, so only these count as applications.
+    int m_cropCalls = 0;
+    bool cropPage(const QString &, int, const QRectF &rect) override {
+        if (rect != QRectF(0, 0, 595, 842)) ++m_cropCalls;
+        return m_loaded;
     }
 };
 
@@ -427,6 +442,71 @@ private slots:
                  "the restored page must not contain the replaced text");
         QVERIFY2(extractedText(f, 0).contains(QStringLiteral("R03 page one marker")),
                  "the restored page must carry the original marker");
+    }
+
+    // ── checked REDO applies exactly once (WP-R03, apply side) ────────────
+    // applyChecked() performs the mutation and arms; the QUndoStack::redo()
+    // that CheckedHistory::redo() issues next must only consume the arm.
+    // Delete/Replace image, Crop and the form-field edit armed without ever
+    // consuming, so Edit > Redo applied them twice — for a deleted image the
+    // second deleteImage fails on a real engine, obsoletes the command, and
+    // Qt drops it from the history.
+    void deleteImageCheckedRedoAppliesOnce()
+    {
+        FaultEngine engine;
+        engine.m_loaded = true;
+        engine.m_file = QStringLiteral("redo-once-delete.pdf");
+        DocumentSession doc;
+        doc.beginDocument(engine.m_file);
+        QUndoStack stack;
+        QSignalSpy failed(&doc, SIGNAL(mutationFailed(QString)));
+
+        stack.push(new DeleteImageCommand(&engine, &doc, 0, QStringLiteral("Im0"),
+                                          engine.m_pageBytes));
+        QCOMPARE(engine.m_deleteImageCalls, 1);
+        QVERIFY(CheckedHistory::undo(&stack));
+        QCOMPARE(stack.index(), 0);
+
+        QVERIFY(CheckedHistory::redo(&stack));
+        QCOMPARE(engine.m_deleteImageCalls, 2);   // pre-fix: 3
+        QCOMPARE(stack.index(), 1);
+        QCOMPARE(stack.count(), 1);
+        QCOMPARE(failed.count(), 0);
+    }
+
+    void replaceImageCheckedRedoAppliesOnce()
+    {
+        FaultEngine engine;
+        engine.m_loaded = true;
+        engine.m_file = QStringLiteral("redo-once-replace.pdf");
+        DocumentSession doc;
+        doc.beginDocument(engine.m_file);
+        QUndoStack stack;
+
+        stack.push(new ReplaceImageCommand(&engine, &doc, 0, QStringLiteral("Im0"),
+                                           QStringLiteral("new.png"), engine.m_pageBytes));
+        QCOMPARE(engine.m_replaceImageCalls, 1);
+        QVERIFY(CheckedHistory::undo(&stack));
+        QVERIFY(CheckedHistory::redo(&stack));
+        QCOMPARE(engine.m_replaceImageCalls, 2);  // pre-fix: 3
+        QCOMPARE(stack.index(), 1);
+    }
+
+    void cropCheckedRedoAppliesOnce()
+    {
+        FaultEngine engine;
+        engine.m_loaded = true;
+        engine.m_file = QStringLiteral("redo-once-crop.pdf");
+        DocumentSession doc;
+        doc.beginDocument(engine.m_file);
+        QUndoStack stack;
+
+        stack.push(new CropPageCommand(&engine, &doc, 0, QRectF(10, 10, 300, 400)));
+        QCOMPARE(engine.m_cropCalls, 1);
+        QVERIFY(CheckedHistory::undo(&stack));
+        QVERIFY(CheckedHistory::redo(&stack));
+        QCOMPARE(engine.m_cropCalls, 2);          // pre-fix: 3
+        QCOMPARE(stack.index(), 1);
     }
 
 private:

@@ -111,6 +111,10 @@ public:
     }
 
     void redo() override {
+        if (consumeArmedApply()) {
+            m_succeeded = true;   // checked traversal already applied; index-move only
+            return;
+        }
         m_succeeded = false;
         m_error.clear();
         if (!performApply(&m_error)) {
