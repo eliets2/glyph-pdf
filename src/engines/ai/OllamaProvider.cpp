@@ -245,8 +245,16 @@ QFuture<AiResult> OllamaProvider::chat(const QList<AiMessage>& history,
                           64LL * 1024 * 1024).toLongLong(),
         1024LL * 1024 * 1024);
 
+    // PGR-10 triage: AiOptions::maxTokens / AiOptions::temperature were
+    // accepted by chat() but never placed into the request body, so callers
+    // could neither bound the response nor steer sampling. Ollama takes both
+    // in the top-level "options" object (num_predict / temperature).
+    const int forwardedMaxTokens = qMax(0, opts.maxTokens);
+    const double forwardedTemperature = opts.temperature;
+
     return QtConcurrent::run(
-        [endpoint, model, safeHistory, sysPrompt, timeoutMs, maxResponseBytes](QPromise<AiResult>& promise) {
+        [endpoint, model, safeHistory, sysPrompt, timeoutMs, maxResponseBytes,
+         forwardedMaxTokens, forwardedTemperature](QPromise<AiResult>& promise) {
             if (promise.isCanceled())
                 return; // canceled while queued: no I/O, no result
 
@@ -261,6 +269,18 @@ QFuture<AiResult> OllamaProvider::chat(const QList<AiMessage>& history,
             body["model"]    = model;
             body["messages"] = msgs;
             body["stream"]   = false;  // single-shot response
+            // PGR-10 triage: forward the caller's AiOptions sampling controls.
+            // num_predict only when a positive cap was requested — a zero or
+            // negative cap is nonsense to the model server and would break
+            // the request; temperature is a documented double default (0.7)
+            // and always travels.
+            {
+                QJsonObject options;
+                if (forwardedMaxTokens > 0)
+                    options[QStringLiteral("num_predict")] = forwardedMaxTokens;
+                options[QStringLiteral("temperature")] = forwardedTemperature;
+                body[QStringLiteral("options")] = options;
+            }
 
             // ── R03: bounded request lifetime, fully owned by this worker ──
             // The old implementation queued a GUI-thread callback capturing

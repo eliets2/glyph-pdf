@@ -485,6 +485,39 @@ private slots:
         QCOMPARE(future.resultCount(), 1);
     }
 
+    // PGR-10 triage: AiOptions::maxTokens / temperature must reach the model
+    // server — Ollama carries them in the top-level "options" object
+    // (num_predict / temperature). The old body had only model/messages/stream,
+    // so callers could neither bound the response nor steer sampling.
+    void optionsForwardMaxTokensAndTemperature()
+    {
+        StubOllamaServer server;
+        QVERIFY(server.start());
+        setDeadlineMs(3000);
+
+        gp::OllamaProvider provider(endpointFor(server));
+        gp::AiOptions opts;
+        opts.maxTokens = 200;
+        opts.temperature = 0.15;
+        QFuture<gp::AiResult> future =
+            provider.chat({ { QStringLiteral("user"), QStringLiteral("ping") } }, opts);
+
+        const gp::AiResult r = waitResult(future, 10000);
+        QVERIFY2(r.ok, qPrintable(QStringLiteral("expected success, got: ") + r.errorMsg));
+
+        const QJsonDocument req = QJsonDocument::fromJson(server.lastBody);
+        QVERIFY(req.isObject());
+        const QJsonObject options =
+            req.object().value(QStringLiteral("options")).toObject();
+        QVERIFY2(!options.isEmpty(),
+                 "the request body must carry the caller's AiOptions in the "
+                 "top-level \"options\" object (num_predict/temperature)");
+        QCOMPARE(options.value(QStringLiteral("num_predict")).toInt(), 200);
+        QVERIFY2(qAbs(options.value(QStringLiteral("temperature")).toDouble() - 0.15)
+                     < 1e-9,
+                 "the requested temperature must arrive at the server");
+    }
+
     // The server answers only AFTER the deadline has fired: the request must
     // time out, abort its pending I/O, deliver exactly one timeout result and
     // never a later, stale success.

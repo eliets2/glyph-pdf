@@ -1,0 +1,132 @@
+********* Start testing of TestOllamaProvider *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestOllamaProvider::initTestCase()
+PASS   : TestOllamaProvider::overCapResponseAbortsHonestly()
+PASS   : TestOllamaProvider::underCapResponseStillSucceeds()
+PASS   : TestOllamaProvider::successOverLoopbackDeliversExactlyOneResult()
+FAIL!  : TestOllamaProvider::optionsForwardMaxTokensAndTemperature() '!options.isEmpty()' returned FALSE. (the request body must carry the caller's AiOptions in the top-level "options" object (num_predict/temperature))
+C:/Users/User/Projects/pdf-featplans/tests/TestOllamaProvider.cpp(512) : failure location
+PASS   : TestOllamaProvider::responseAfterDeadlineIsTimeoutWithAbortedIo()
+QWARN  : TestOllamaProvider::connectionRefusedReportsReachabilityError() [R03] this OS drops (never refuses) listener-less loopback SYNs — connection-refused case via accept-then-close transport failure
+PASS   : TestOllamaProvider::connectionRefusedReportsReachabilityError()
+PASS   : TestOllamaProvider::httpErrorStatusIsDistinguishedFromNetworkError()
+PASS   : TestOllamaProvider::malformedJsonIsDistinguishedFromEmptyResponse()
+PASS   : TestOllamaProvider::emptyResponseIsDistinguishedFromMalformedJson()
+PASS   : TestOllamaProvider::requestCancellationAbortsPendingIo()
+PASS   : TestOllamaProvider::providerDestructionMidWorkStillDeliversOneResult()
+PASS   : TestOllamaProvider::providerDestructionBeforeDeadlineTimesOutCleanly()
+PASS   : TestOllamaProvider::panelOwnerDestroyedMidRequestNoCallbackExactlyOneResult()
+PASS   : TestOllamaProvider::panelOwnerDestroyedBeforeQueuedDeliveryNoLateCallback()
+PASS   : TestOllamaProvider::panelRetryAfterFailureOnSameProviderSucceeds()
+QWARN  : TestOllamaProvider::oversizedSystemPromptIsTruncatedTo32k() N-1: Document content truncated from 40000 to 32768 bytes before sending to Ollama
+PASS   : TestOllamaProvider::oversizedSystemPromptIsTruncatedTo32k()
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://localhost:%1)
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(stored:http://localhost:%1)
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://LOCALHOST:%1)
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(stored:http://LOCALHOST:%1)
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://127.0.0.1:%1)
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(stored:http://127.0.0.1:%1)
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://127.42.0.7:%1)
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(stored:http://127.42.0.7:%1)
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://[::1]:%1)
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(stored:http://[::1]:%1)
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://[::ffff:127.0.0.1]:%1)
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(stored:http://[::ffff:127.0.0.1]:%1)
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://127.1:%1)
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(stored:http://127.1:%1)
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://2130706433:%1)
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(stored:http://2130706433:%1)
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://127.audit.invalid:%1) R04: Blocked cleartext HTTP endpoint to non-loopback host: "127.audit.invalid"
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://127.audit.invalid:%1) R04: Request blocked — endpoint failed validation: "http://127.audit.invalid:65447"
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://127.audit.invalid:%1)
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://localhost.audit.invalid:%1) R04: Blocked cleartext HTTP endpoint to non-loopback host: "localhost.audit.invalid"
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://localhost.audit.invalid:%1) R04: Request blocked — endpoint failed validation: "http://localhost.audit.invalid:65448"
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://localhost.audit.invalid:%1)
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://0.0.0.0:%1) R04: Blocked cleartext HTTP endpoint to non-loopback host: "0.0.0.0"
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://0.0.0.0:%1) R04: Request blocked — endpoint failed validation: "http://0.0.0.0:65449"
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://0.0.0.0:%1)
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://192.168.1.10:%1) R04: Blocked cleartext HTTP endpoint to non-loopback host: "192.168.1.10"
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://192.168.1.10:%1) R04: Request blocked — endpoint failed validation: "http://192.168.1.10:65450"
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://192.168.1.10:%1)
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://10.0.0.5:%1) R04: Blocked cleartext HTTP endpoint to non-loopback host: "10.0.0.5"
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://10.0.0.5:%1) R04: Request blocked — endpoint failed validation: "http://10.0.0.5:65451"
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://10.0.0.5:%1)
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://172.16.4.9:%1) R04: Blocked cleartext HTTP endpoint to non-loopback host: "172.16.4.9"
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://172.16.4.9:%1) R04: Request blocked — endpoint failed validation: "http://172.16.4.9:65452"
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://172.16.4.9:%1)
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://example.com:%1) R04: Blocked cleartext HTTP endpoint to non-loopback host: "example.com"
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://example.com:%1) R04: Request blocked — endpoint failed validation: "http://example.com:65453"
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://example.com:%1)
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://[::ffff:192.168.1.10]:%1) R04: Blocked cleartext HTTP endpoint to non-loopback host: "::ffff:192.168.1.10"
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://[::ffff:192.168.1.10]:%1) R04: Request blocked — endpoint failed validation: "http://[::ffff:192.168.1.10]:65454"
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://[::ffff:192.168.1.10]:%1)
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://:%1) R04: Blocked endpoint without a host: "http://:65455"
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://:%1) R04: Request blocked — endpoint failed validation: "http://:65455"
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://:%1)
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http:///api) QString::arg: Argument missing: "http:///api", 65456
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http:///api) R04: Blocked endpoint without a host: "http:///api"
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http:///api) R04: Request blocked — endpoint failed validation: "http:///api"
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http:///api)
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:localhost:%1) R04: Blocked unsupported scheme: "localhost"
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:localhost:%1) R04: Request blocked — endpoint failed validation: "localhost:65457"
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:localhost:%1)
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:ftp://127.0.0.1:%1) R04: Blocked unsupported scheme: "ftp"
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:ftp://127.0.0.1:%1) R04: Request blocked — endpoint failed validation: "ftp://127.0.0.1:65458"
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:ftp://127.0.0.1:%1)
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:file:///tmp/x) QString::arg: Argument missing: "file:///tmp/x", 65459
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:file:///tmp/x) R04: Blocked unsupported scheme: "file"
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:file:///tmp/x) R04: Request blocked — endpoint failed validation: "file:///tmp/x"
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:file:///tmp/x)
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://127.0.0.1.:%1) R04: Blocked cleartext HTTP endpoint to non-loopback host: "127.0.0.1."
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://127.0.0.1.:%1) R04: Request blocked — endpoint failed validation: "http://127.0.0.1.:65460"
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://127.0.0.1.:%1)
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://localhost.:%1) R04: Blocked cleartext HTTP endpoint to non-loopback host: "localhost."
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://localhost.:%1) R04: Request blocked — endpoint failed validation: "http://localhost.:65461"
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://localhost.:%1)
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://127.0.0.256:%1) R04: Blocked cleartext HTTP endpoint to non-loopback host: "127.0.0.256"
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://127.0.0.256:%1) R04: Request blocked — endpoint failed validation: "http://127.0.0.256:65462"
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://127.0.0.256:%1)
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://user@127.0.0.1:%1) R04: Blocked endpoint with user-info (not part of the Ollama endpoint contract): "http://user@127.0.0.1:65463"
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://user@127.0.0.1:%1) R04: Request blocked — endpoint failed validation: "http://user@127.0.0.1:65463"
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://user@127.0.0.1:%1)
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://user:pw@localhost:%1) R04: Blocked endpoint with user-info (not part of the Ollama endpoint contract): "http://user:pw@localhost:65464"
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://user:pw@localhost:%1) R04: Request blocked — endpoint failed validation: "http://user:pw@localhost:65464"
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://user:pw@localhost:%1)
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://127.0.0.1@evil.example:%1) R04: Blocked endpoint with user-info (not part of the Ollama endpoint contract): "http://127.0.0.1@evil.example:65465"
+QWARN  : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://127.0.0.1@evil.example:%1) R04: Request blocked — endpoint failed validation: "http://127.0.0.1@evil.example:65465"
+PASS   : TestOllamaProvider::endpointPolicyMatrixHttp(supplied:http://127.0.0.1@evil.example:%1)
+PASS   : TestOllamaProvider::endpointPolicyHttps(https:default-allowlist:localhost)
+PASS   : TestOllamaProvider::endpointPolicyHttps(https:default-allowlist:loopback-v6)
+QWARN  : TestOllamaProvider::endpointPolicyHttps(https:restricted-allowlist:denies-127.0.0.1) R04/SECFIX-5: Blocked HTTPS endpoint to non-allowlisted host: "127.0.0.1"
+QWARN  : TestOllamaProvider::endpointPolicyHttps(https:restricted-allowlist:denies-127.0.0.1) R04: Request blocked — endpoint failed validation: "https://127.0.0.1:65471"
+PASS   : TestOllamaProvider::endpointPolicyHttps(https:restricted-allowlist:denies-127.0.0.1)
+QWARN  : TestOllamaProvider::endpointPolicyHttps(https:empty-allowlist:denies-everything) R04/SECFIX-5: Blocked HTTPS endpoint to non-allowlisted host: "localhost"
+QWARN  : TestOllamaProvider::endpointPolicyHttps(https:empty-allowlist:denies-everything) R04: Request blocked — endpoint failed validation: "https://localhost:65472"
+PASS   : TestOllamaProvider::endpointPolicyHttps(https:empty-allowlist:denies-everything)
+PASS   : TestOllamaProvider::endpointPolicyHttps(https:restricted-allowlist:override-dispatches)
+QWARN  : TestOllamaProvider::endpointPolicyHttps(https:non-allowlisted-host:denied) R04/SECFIX-5: Blocked HTTPS endpoint to non-allowlisted host: "my-ollama.example"
+QWARN  : TestOllamaProvider::endpointPolicyHttps(https:non-allowlisted-host:denied) R04: Request blocked — endpoint failed validation: "https://my-ollama.example:65475"
+PASS   : TestOllamaProvider::endpointPolicyHttps(https:non-allowlisted-host:denied)
+QWARN  : TestOllamaProvider::endpointPolicyHttps(https:user-info:denied-even-with-override) R04: Blocked endpoint with user-info (not part of the Ollama endpoint contract): "https://user@127.0.0.1:65476"
+QWARN  : TestOllamaProvider::endpointPolicyHttps(https:user-info:denied-even-with-override) R04: Request blocked — endpoint failed validation: "https://user@127.0.0.1:65476"
+PASS   : TestOllamaProvider::endpointPolicyHttps(https:user-info:denied-even-with-override)
+QWARN  : TestOllamaProvider::invalidSuppliedEndpointFailsInsteadOfFallback() R04: Blocked cleartext HTTP endpoint to non-loopback host: "0.0.0.0"
+QWARN  : TestOllamaProvider::invalidSuppliedEndpointFailsInsteadOfFallback() R04: Blocked cleartext HTTP endpoint to non-loopback host: "0.0.0.0"
+QWARN  : TestOllamaProvider::invalidSuppliedEndpointFailsInsteadOfFallback() R04: Request blocked — endpoint failed validation: "http://0.0.0.0:9"
+QWARN  : TestOllamaProvider::invalidSuppliedEndpointFailsInsteadOfFallback() R04: Blocked cleartext HTTP endpoint to non-loopback host: "127.audit.invalid"
+QWARN  : TestOllamaProvider::invalidSuppliedEndpointFailsInsteadOfFallback() R04: Blocked cleartext HTTP endpoint to non-loopback host: "127.audit.invalid"
+QWARN  : TestOllamaProvider::invalidSuppliedEndpointFailsInsteadOfFallback() R04: Request blocked — endpoint failed validation: "http://127.audit.invalid:11434"
+QWARN  : TestOllamaProvider::invalidSuppliedEndpointFailsInsteadOfFallback() R04: Blocked unsupported scheme: "localhost"
+QWARN  : TestOllamaProvider::invalidSuppliedEndpointFailsInsteadOfFallback() R04: Blocked unsupported scheme: "localhost"
+QWARN  : TestOllamaProvider::invalidSuppliedEndpointFailsInsteadOfFallback() R04: Request blocked — endpoint failed validation: "localhost:11434"
+QWARN  : TestOllamaProvider::invalidSuppliedEndpointFailsInsteadOfFallback() R04: Blocked endpoint with user-info (not part of the Ollama endpoint contract): "http://user@127.0.0.1:65477"
+QWARN  : TestOllamaProvider::invalidSuppliedEndpointFailsInsteadOfFallback() R04: Blocked endpoint with user-info (not part of the Ollama endpoint contract): "http://user@127.0.0.1:65477"
+QWARN  : TestOllamaProvider::invalidSuppliedEndpointFailsInsteadOfFallback() R04: Request blocked — endpoint failed validation: "http://user@127.0.0.1:65477"
+PASS   : TestOllamaProvider::invalidSuppliedEndpointFailsInsteadOfFallback()
+QWARN  : TestOllamaProvider::storedInvalidEndpointFallsBackToDefaultEndpoint() R04: Blocked cleartext HTTP endpoint to non-loopback host: "0.0.0.0"
+QWARN  : TestOllamaProvider::storedInvalidEndpointFallsBackToDefaultEndpoint() R04: Stored Ollama endpoint is not allowed: "http://0.0.0.0:9" — falling back to http://localhost:11434
+PASS   : TestOllamaProvider::storedInvalidEndpointFallsBackToDefaultEndpoint()
+PASS   : TestOllamaProvider::redirectsAreDisabledAndReported()
+PASS   : TestOllamaProvider::cleanupTestCase()
+Totals: 62 passed, 1 failed, 0 skipped, 0 blacklisted, 39684ms
+********* Finished testing of TestOllamaProvider *********
