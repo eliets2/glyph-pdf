@@ -22,10 +22,16 @@
 #include <QPainter>
 #include <QUndoStack>
 #include <QSignalSpy>
+#include <QListWidget>
+#include <QMessageBox>
+#include <QTimer>
+#include <QToolButton>
 #include <podofo/podofo.h>
+#include "core/AppContext.h"
 #include "engines/FormManager.h"
 #include "engines/DocumentSession.h"
 #include "engines/pdfium/PdfiumBackend.h"
+#include "modes/FormBuilderMode.h"
 #include "commands/AddFormFieldCommand.h"
 #include "commands/EditFormFieldCommand.h"
 #include "commands/AutoDetectPlacement.h"
@@ -39,6 +45,21 @@
 class TestFormSafety : public QObject {
     Q_OBJECT
 private:
+    // S2-2 modal capture state (one dialog at a time; this suite is linear).
+    QString capturedModalText;
+
+    void scheduleModalCapture(int turnsLeft) {
+        if (turnsLeft <= 0) return;
+        QTimer::singleShot(0, [this, turnsLeft] {
+            if (auto *box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+                capturedModalText = box->text();
+                box->close();
+                return;
+            }
+            scheduleModalCapture(turnsLeft - 1);
+        });
+    }
+
     // QPdfWriter fixture — same shape as the audited F01 probe: A4, 72 dpi,
     // real embedded subset font, extractable text. This is the file class that
     // used to be truncated to zero bytes by a same-file form save.
@@ -137,6 +158,7 @@ private slots:
     void separateDestinationPreservesSource();
     void occupiedDestinationHandleFailsKeepingOriginal();
     void setTabOrderSameFileNoLeftovers();
+    void readOnlyTabOrderApplyRefusesWithZeroMutation();
     void addCommandUndoRedoRoundTrip();
     void injectedFaultsLeaveOriginalIntact();
     void failedAddCommandLeavesNoSuccessUndoEntry();
@@ -302,6 +324,92 @@ void TestFormSafety::setTabOrderSameFileNoLeftovers() {
     } catch (const PoDoFo::PdfError& e) {
         QFAIL(qPrintable(QStringLiteral("reload failed: %1").arg(QString::fromLatin1(e.what()))));
     }
+}
+
+// ── S2-2 (SWEEP-BACKEND-2026-09-21, HIGH): read-only tab-order Apply ────────
+// FormBuilderMode::onTabOrderApplyClicked called setTabOrder(path, …, path) —
+// an in-place write — checking only document presence; the mode never
+// consulted the session's read-only state. The ribbon route for the same
+// operation (ToolId::Tabs) IS registry-gated, so the panel button was a
+// privilege escalation relative to it. The pin drives the REAL widget route:
+// on a read-only session the Apply Order affordance must disable, a forced
+// click must refuse with the shared disclosure (never a success report), and
+// the engine seam must see ZERO setTabOrder calls with the file identical.
+void TestFormSafety::readOnlyTabOrderApplyRefusesWithZeroMutation() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdfPath = makeTextPdf(tmp.path(), "ro-tabs.pdf", {"S2-2"});
+    QVERIFY(QFile::exists(pdfPath));
+
+    // Two real AcroForm fields written through the production engine seam —
+    // the mode's refreshFieldList() must discover them by name.
+    auto fm = std::make_shared<FormManager>();
+    QVERIFY(fm->addTextField(pdfPath, 0, QRectF(72, 72, 120, 20),
+                             QStringLiteral("field_1"), pdfPath));
+    QVERIFY(fm->addTextField(pdfPath, 0, QRectF(72, 100, 120, 20),
+                             QStringLiteral("field_2"), pdfPath));
+
+    auto session = std::make_shared<DocumentSession>();
+    session->setPath(pdfPath);
+    AppContext ctx;
+    ctx.forms = fm;         // shared_ptr<IFormManager> up-cast
+    ctx.document = session;
+
+    // The real mode; a null canvas is the headless posture (the ctor and the
+    // tab-order panel do not require it).
+    gp::FormBuilderMode mode(&ctx, nullptr);
+
+    // Arm the tab-order panel through the REAL toolbar toggle so the list is
+    // populated by the production path (onTabOrderToggled ← m_fieldList ←
+    // refreshFieldList → listFields).
+    QToolButton* tabBtn = nullptr;
+    for (QToolButton* b : mode.findChildren<QToolButton*>()) {
+        if (b->text() == QStringLiteral("Tab Order")) { tabBtn = b; break; }
+    }
+    QVERIFY2(tabBtn, "the Tab Order toolbar toggle must exist");
+    tabBtn->setChecked(true);
+
+    QListWidget* tabList = nullptr;
+    for (QListWidget* lw : mode.findChildren<QListWidget*>()) {
+        if (lw->dragDropMode() == QAbstractItemView::InternalMove) { tabList = lw; break; }
+    }
+    QVERIFY2(tabList, "the tab-order list must exist");
+    QTRY_VERIFY_WITH_TIMEOUT(tabList->count() == 2, 5000);
+
+    // Arm read-only through the session (the ONE read-only authority). The
+    // affordance mirrors the state (honest enablement).
+    QToolButton* applyBtn = nullptr;
+    for (QToolButton* b : mode.findChildren<QToolButton*>()) {
+        if (b->text() == QStringLiteral("Apply Order")) { applyBtn = b; break; }
+    }
+    QVERIFY2(applyBtn, "the tab-order Apply Order button must exist");
+    session->setReadOnly(true);
+    QTRY_VERIFY_WITH_TIMEOUT(!applyBtn->isEnabled(), 5000);
+
+    // Model the user's pending reorder (drag the last row to the top) BEFORE
+    // the refused apply, and snapshot the on-disk truth.
+    QListWidgetItem* dragged = tabList->takeItem(tabList->count() - 1);
+    tabList->insertItem(0, dragged);
+    const QByteArray before = sha256(pdfPath);
+
+    // Enablement is NOT the gate: re-enable programmatically and drive the
+    // REAL wired route (applyBtn → onTabOrderApplyClicked).
+    applyBtn->setEnabled(true);
+    capturedModalText.clear();
+    scheduleModalCapture(200);
+    applyBtn->click();
+
+    // Disclosure: the shared read-only wording — never a success report.
+    QVERIFY2(capturedModalText.contains(QStringLiteral("read-only")),
+             qPrintable(QStringLiteral("S2-2: the refusal must disclose read-only; got: [%1]")
+                            .arg(capturedModalText)));
+    QVERIFY2(!capturedModalText.contains(QStringLiteral("Tab order saved")),
+             "S2-2: a refused tab-order apply must never report success");
+
+    // Zero mutation: no success report (asserted above) and the file bytes are
+    // identical — the in-place setTabOrder write never happened. (FormManager
+    // is final, so the counter sits at the only observable seam: the bytes.)
+    QCOMPARE(sha256(pdfPath), before);
 }
 
 // Successful add must be truly undoable and redoable through the command.

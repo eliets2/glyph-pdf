@@ -3969,12 +3969,16 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormSafety.cpp")
     add_executable(TestFormSafety
         tests/TestFormSafety.cpp
-        src/engines/DocumentSession.cpp
     )
     target_include_directories(TestFormSafety PRIVATE src tests)
+    # S2-2: the pin drives the REAL FormBuilderMode widget route — pdfws_ui
+    # (and its Qt deps, same link set as the other pdfws_ui suites) needed.
+    # DocumentSession.cpp is NOT compiled into the target any more: pdfws_ui
+    # pulls the pdfws_engines archive member, which would duplicate its
+    # staticMetaObject with a locally compiled copy.
     target_link_libraries(TestFormSafety PRIVATE
-        pdfws_engines pdfws_core pdfws_commands podofo::podofo
-        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+        pdfws_engines pdfws_core pdfws_commands pdfws_ui podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets Qt6::Concurrent
     )
     add_custom_command(TARGET TestFormSafety POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory

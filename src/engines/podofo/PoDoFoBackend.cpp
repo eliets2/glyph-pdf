@@ -1202,6 +1202,12 @@ bool PoDoFoBackend::insertPageFromBytes(const QString &path, int atIndex, const 
             return false;
         }
 
+        // S1-1 (SWEEP-BACKEND-2026-09-21): explicit insert-at bounds — the
+        // index contract is enforced here, not by PoDoFo throwing. atIndex
+        // may equal the page count (append at the end).
+        const int count = static_cast<int>(doc.GetPages().GetCount());
+        if (atIndex < 0 || atIndex > count) return false;
+
         doc.GetPages().InsertDocumentPageAt(atIndex, sourceDoc, 0);
         if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
         return true;
@@ -1231,6 +1237,14 @@ bool PoDoFoBackend::insertBlankPage(const QString &path, int atIndex) {
     if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& doc = d->resolveDocument(path);
+        auto& pages = doc.GetPages();
+
+        // S1-1 (SWEEP-BACKEND-2026-09-21): explicit insert-at bounds like the
+        // other page mutators — the index contract is enforced HERE, never by
+        // relying on PoDoFo to throw inside the catch below. Insert-at allows
+        // atIndex == count (append at the end).
+        const int count = static_cast<int>(pages.GetCount());
+        if (atIndex < 0 || atIndex > count) return false;
 
         doc.GetPages().CreatePageAt(atIndex, PoDoFo::PdfPageSize::A4);
         if (!commitMutation(path)) throw std::runtime_error("writeUpdate failed");
@@ -5136,11 +5150,22 @@ bool PoDoFoBackend::addTextWatermark(const TextWatermarkOptions &options)
         int to = (options.pageTo < 0) ? static_cast<int>(pageCount) - 1 : options.pageTo;
         to = qMin(to, static_cast<int>(pageCount) - 1);
 
+        // S1-2 (SWEEP-BACKEND-2026-09-21): the options struct documents opacity
+        // as 0.0–1.0, but nothing enforced it — an out-of-range value (batch
+        // preset string param, future scripting seam) reached the ExtGState
+        // /ca /CA operands verbatim, i.e. a spec-invalid ExtGState. Clamp at
+        // the seam that consumes the struct; a clamped value is disclosed,
+        // never silently accepted.
+        const double opacity = qBound(0.0, options.opacity, 1.0);
+        if (opacity != options.opacity)
+            qWarning() << "addTextWatermark: opacity" << options.opacity
+                       << "outside 0.0–1.0 — clamped to" << opacity;
+
         // Create a shared ExtGState for transparency
         auto& gsObj = doc.GetObjects().CreateDictionaryObject();
         gsObj.GetDictionary().AddKey("Type", PoDoFo::PdfName("ExtGState"));
-        gsObj.GetDictionary().AddKey("ca", static_cast<double>(options.opacity));
-        gsObj.GetDictionary().AddKey("CA", static_cast<double>(options.opacity));
+        gsObj.GetDictionary().AddKey("ca", opacity);
+        gsObj.GetDictionary().AddKey("CA", opacity);
 
         // §9.11 P0: honor the user-selected font family instead of hard-coding
         // Helvetica. Resolve order: installed/system font matching the family,
@@ -5250,6 +5275,13 @@ bool PoDoFoBackend::addImageWatermark(const ImageWatermarkOptions &options)
         int to = (options.pageTo < 0) ? static_cast<int>(pageCount) - 1 : options.pageTo;
         to = qMin(to, static_cast<int>(pageCount) - 1);
 
+        // S1-2 (SWEEP-BACKEND-2026-09-21): same boundary clamp as the text
+        // watermark — out-of-range opacity must not reach ExtGState /ca /CA.
+        const double opacity = qBound(0.0, options.opacity, 1.0);
+        if (opacity != options.opacity)
+            qWarning() << "addImageWatermark: opacity" << options.opacity
+                       << "outside 0.0–1.0 — clamped to" << opacity;
+
         // Load the image as a QImage for raw pixel data
         QImage img(options.imagePath);
         if (img.isNull()) {
@@ -5281,11 +5313,11 @@ bool PoDoFoBackend::addImageWatermark(const ImageWatermarkOptions &options)
         PoDoFo::charbuff imgBuf(std::string_view(rawData.constData(), rawData.size()));
         imgObj.GetOrCreateStream().SetData(imgBuf);
 
-        // Create ExtGState for opacity
+        // Create ExtGState for opacity (S1-2: clamped at the seam, above)
         auto& gsObj = doc.GetObjects().CreateDictionaryObject();
         gsObj.GetDictionary().AddKey("Type", PoDoFo::PdfName("ExtGState"));
-        gsObj.GetDictionary().AddKey("ca", static_cast<double>(options.opacity));
-        gsObj.GetDictionary().AddKey("CA", static_cast<double>(options.opacity));
+        gsObj.GetDictionary().AddKey("ca", opacity);
+        gsObj.GetDictionary().AddKey("CA", opacity);
 
         for (int i = from; i <= to; ++i) {
             auto& page = doc.GetPages().GetPageAt(i);
@@ -5364,37 +5396,14 @@ bool PoDoFoBackend::addImageWatermark(const ImageWatermarkOptions &options)
             }
             ops << "Q\n";
 
-            // Append to existing content stream
-            auto* contentsObj = page.GetContents();
-            if (!contentsObj) {
-                auto& newContents = doc.GetObjects().CreateDictionaryObject();
-                page.GetDictionary().AddKeyIndirect("Contents", newContents);
-                contentsObj = page.GetContents();
-            }
-
-            std::string existingStream;
-            if (contentsObj->GetObject().IsArray()) {
-                auto& arr = contentsObj->GetObject().GetArray();
-                for (size_t idx = 0; idx < arr.GetSize(); ++idx) {
-                    auto& ref = arr[idx];
-                    if (ref.IsReference()) {
-                        auto& partObj = doc.GetObjects().MustGetObject(ref.GetReference());
-                        if (partObj.IsDictionary() && partObj.HasStream()) {
-                            PoDoFo::charbuff buf;
-                            partObj.GetOrCreateStream().CopyTo(buf);
-                            existingStream.append(buf.data(), buf.size());
-                            existingStream.append("\n");
-                        }
-                    }
-                }
-            } else if (contentsObj->GetObject().IsDictionary() && contentsObj->GetObject().HasStream()) {
-                PoDoFo::charbuff buf;
-                contentsObj->GetObject().GetOrCreateStream().CopyTo(buf);
-                existingStream.assign(buf.data(), buf.size());
-            }
-            std::string newStream = existingStream + "\n" + ops.str();
-            PoDoFo::charbuff newBuf(newStream);
-            contentsObj->GetObject().GetOrCreateStream().SetData(newBuf);
+            // S1-2 (SWEEP-BACKEND-2026-09-21): append through the shared
+            // helper, exactly like the text watermark. The hand-rolled merge
+            // here called GetOrCreateStream() on whatever object /Contents
+            // holds — a reference- or array-shaped Contents threw
+            // PdfError::InvalidDataType ("stream of non-dictionary object"),
+            // so addImageWatermark failed on ordinary files before the
+            // clamped ExtGState could ever be exercised end-to-end.
+            appendPageContent(doc, page, ops.str());
         }
 
         d->noteResidentDiverged();   // WP-R02: resident-only edit — disk fallback no longer exact

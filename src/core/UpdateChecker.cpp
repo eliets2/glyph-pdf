@@ -25,6 +25,15 @@
 
 namespace gp {
 
+namespace {
+// S4-1 (SWEEP-BACKEND-2026-09-21): upper bound for the update-manifest body.
+// Manifests are tiny JSON documents, so the cap costs nothing, and the
+// transfer timeout bounds TIME, not bytes — without a byte cap a fast hostile
+// host (the manifest URL is a user/company setting) can stream unbounded
+// data into RAM before the parse rejects it. B-03 lineage.
+constexpr qint64 MaxManifestBytes = 1024 * 1024; // 1 MiB
+}
+
 // ── ctor / dtor ──────────────────────────────────────────────────────────
 
 UpdateChecker::UpdateChecker(QObject* parent)
@@ -128,6 +137,16 @@ void UpdateChecker::checkForUpdates() {
     req.setTransferTimeout(std::chrono::milliseconds{20000});
 
     m_manifestReply = m_nam->get(req);
+    // S4-1: bound the body mid-flight — abort as soon as more than the cap
+    // has buffered; finished then reports the canceled operation through the
+    // normal failure path.
+    connect(m_manifestReply, &QNetworkReply::readyRead, this, [this] {
+        if (m_manifestReply && m_manifestReply->bytesAvailable() > MaxManifestBytes) {
+            qWarning() << "UpdateChecker: manifest body exceeds" << MaxManifestBytes
+                       << "bytes — aborting the transfer.";
+            m_manifestReply->abort();
+        }
+    });
     connect(m_manifestReply, &QNetworkReply::finished,
             this, &UpdateChecker::onManifestReply);
 }
@@ -143,7 +162,31 @@ void UpdateChecker::onManifestReply() {
         return;
     }
 
+    // S4-1: refuse an oversized manifest BEFORE reading it. Content-Length is
+    // only a declaration (a hostile host can omit or lie about it), so the
+    // body is additionally size-checked after the read and bounded mid-flight
+    // in checkForUpdates — three layers closing the same hole.
+    // S4-1: refuse an oversized manifest BEFORE reading it. Content-Length is
+    // only a declaration (a hostile host can omit or lie about it), so the
+    // body is additionally size-checked after the read and bounded mid-flight
+    // in checkForUpdates — three layers closing the same hole.
+    const QVariant declaredLen =
+        reply->header(QNetworkRequest::ContentLengthHeader);
+    if (declaredLen.isValid() && declaredLen.toLongLong() > MaxManifestBytes) {
+        qWarning() << "UpdateChecker: rejecting manifest — Content-Length"
+                   << declaredLen.toLongLong() << "exceeds" << MaxManifestBytes;
+        emit checkFailed(tr("Update manifest rejected: response too large."));
+        return;
+    }
+
     QByteArray data = reply->readAll();
+    if (data.size() > MaxManifestBytes) {
+        qWarning() << "UpdateChecker: rejecting manifest — body is" << data.size()
+                   << "bytes, over the" << MaxManifestBytes << "byte cap.";
+        emit checkFailed(tr("Update manifest rejected: response too large."));
+        return;
+    }
+
     QJsonParseError parseErr;
     QJsonDocument doc = QJsonDocument::fromJson(data, &parseErr);
     if (doc.isNull()) {
