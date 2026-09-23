@@ -65,6 +65,13 @@ public:
     ExportEngine lastWordExportEngine() const { return m_lastWordEngine; }
     ExportEngine lastExcelExportEngine() const { return m_lastExcelEngine; }
 
+    // PGR-16: spreadsheet formula-injection guard for CSV export. A cell whose
+    // FIRST character is '=', '+', '-' or '@' (or TAB/CR) evaluates as a
+    // formula or DDE payload when the exported CSV is opened in a spreadsheet;
+    // prefixing an apostrophe forces text interpretation (OWASP CSV-injection
+    // guidance). Public so the escaping contract is directly testable.
+    static QString csvFormulaSafeCell(const QString &cell);
+
 private:
     bool exportToWord(const QString &outputPath, const QList<QList<TextElement>> &rows);
     bool exportToExcel(const QString &outputPath, const QList<QList<TextElement>> &rows);
