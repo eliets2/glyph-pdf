@@ -43,7 +43,10 @@ bool credStore(const QString& service, const QString& secret) {
     cred.TargetName = const_cast<LPWSTR>(targetW.c_str());
     cred.CredentialBlobSize = static_cast<DWORD>(secretBytes.size());
     cred.CredentialBlob = reinterpret_cast<LPBYTE>(const_cast<char*>(secretBytes.constData()));
-    cred.Persist = CRED_PERSIST_ENTERPRISE;
+    // PGR-26: LOCAL_MACHINE keeps API keys on this machine. ENTERPRISE would
+    // roam them with roaming profiles to every machine the user logs into —
+    // wider exposure than a desktop app's keys need.
+    cred.Persist = CRED_PERSIST_LOCAL_MACHINE;
     if (!CredWriteW(&cred, 0)) {
         qWarning() << "CredentialManager: Credential Manager write failed for" << service
                    << "error" << GetLastError() << "- falling back to encrypted file";
