@@ -184,6 +184,8 @@ public:
     // Owned here — a stack-local QByteArray died at the end of the saving
     // call and left the resident document parsing freed memory.
     QByteArray reseatBuffer;
+    // PGR-22 regression seam counter — see setReseatFaultInjectionForTesting.
+    int reseatFaultInjectionsForTesting = 0;
     // G01: the user password this document was encrypted with by
     // encryptDocument() (empty for a document encrypted on disk with an empty
     // user password — the only encrypted documents that can become resident,
@@ -615,34 +617,57 @@ bool PoDoFoBackend::saveDocument(const QString &path) {
         // re-seated document keeps parsing from that buffer for its whole
         // lifetime, so the buffer must outlive this call. Encrypted
         // candidates are re-seated with the same captured credentials.
+        // PGR-22: the candidate bytes are read into a LOCAL buffer and the
+        // replacement document is parsed from that. Only on a successful load
+        // are BOTH members published together — the move-assign first
+        // DESTROYS the old resident document (which still parses from the
+        // old buffer) and only then is the old buffer released. The old code
+        // assigned candidateFile.readAll() straight into d->reseatBuffer,
+        // freeing the bytes the still-resident document lazily parses from;
+        // if the re-seat load then threw, the catch returned false with the
+        // old d->document resident on freed memory — every later lazy
+        // page/object access was a use-after-free. On failure neither member
+        // is touched: the local buffer dies with this frame.
         QFile candidateFile(candidate);
         if (!candidateFile.open(QIODevice::ReadOnly)) {
             qCritical() << "PoDoFoBackend::saveDocument: validated candidate became unreadable:"
                         << candidateFile.errorString() << "path:" << path;
             return false;
         }
-        d->reseatBuffer = candidateFile.readAll();
+        QByteArray newBuffer = candidateFile.readAll();
         candidateFile.close();
         auto reseeded = std::make_unique<PoDoFo::PdfMemDocument>();
         try {
+            // PGR-22 regression seam (see setReseatFaultInjectionForTesting):
+            // fail AFTER the candidate bytes were consumed, BEFORE a new
+            // resident document exists — exactly the window where the old
+            // code had already freed the buffer the resident document parses
+            // from. The truncation makes LoadFromBuffer throw a genuine
+            // PoDoFo error.
+            if (d->reseatFaultInjectionsForTesting > 0) {
+                --d->reseatFaultInjectionsForTesting;
+                newBuffer.truncate(64);
+            }
             if (encrypted) {
                 reseeded->LoadFromBuffer(
-                    PoDoFo::bufferview(d->reseatBuffer.constData(),
-                                       static_cast<size_t>(d->reseatBuffer.size())),
+                    PoDoFo::bufferview(newBuffer.constData(),
+                                       static_cast<size_t>(newBuffer.size())),
                     PoDoFo::PdfLoadOptions::None,
                     d->encryptionPassword.toStdString());
             } else {
                 reseeded->LoadFromBuffer(
-                    PoDoFo::bufferview(d->reseatBuffer.constData(),
-                                       static_cast<size_t>(d->reseatBuffer.size())));
+                    PoDoFo::bufferview(newBuffer.constData(),
+                                       static_cast<size_t>(newBuffer.size())));
             }
         } catch (const PoDoFo::PdfError& e) {
-            d->reseatBuffer.clear();
             qCritical() << "PoDoFoBackend::saveDocument: cannot re-seat resident document "
                            "from validated candidate:" << e.what() << "path:" << path;
             return false;
         }
+        // Publish BOTH together — document first (destroying the old
+        // resident that still references the old buffer), buffer second.
         d->document = std::move(reseeded);
+        d->reseatBuffer = std::move(newBuffer);
     }
 
     if (!gp::SafeSave::commitFileToDestination(candidate, path, &err)) {
@@ -1000,6 +1025,11 @@ bool PoDoFoBackend::lastCommitRefusedForExternalConflict() const {
 void PoDoFoBackend::primeExternalBaseline(const QString &path) {
     QMutexLocker locker(&d->mutex);
     d->captureSourceBaseline(path);
+}
+
+void PoDoFoBackend::setReseatFaultInjectionForTesting(int failures) {
+    QMutexLocker locker(&d->mutex);
+    d->reseatFaultInjectionsForTesting = failures;
 }
 
 void PoDoFoBackend::setCurrentFile(const QString &path) {

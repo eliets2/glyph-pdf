@@ -47,6 +47,13 @@ public:
     // `path` (the recovery-destination priming entry for the shell).
     void primeExternalBaseline(const QString &path);
 
+    // PGR-22 regression seam (test-only, same status as SignatureManager's
+    // forceEmptyPostConditionForTesting): makes the NEXT n same-file-save
+    // re-seats throw out of LoadFromBuffer — after the candidate bytes were
+    // read, before the new document exists. Lets a pin observe what a failed
+    // re-seat does to the still-resident document deterministically.
+    void setReseatFaultInjectionForTesting(int failures);
+
     // ER-3: number of CMS recipient envelopes in /Encrypt → /Recipients.
     int recipientCount() const;
 
