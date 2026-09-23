@@ -351,6 +351,12 @@ inline Scale scaleFrom(double unitsPerPt, const QString& unitLabel,
     s.unitsPerPt = unitsPerPt;
     s.unit = *unit;
     s.calibrated = calibrated && *unit != Unit::Pt;
+    // PGR-19: a pt-labelled scale IS the reference unit — its factor is 1.0
+    // by definition. A stale persisted non-1.0 factor under a pt label used
+    // to survive the honesty reset (only `calibrated` was cleared), so an
+    // "uncalibrated" scale kept measuring with the stale factor. Reset it
+    // here, matching the unknown-unit branch above.
+    if (*unit == Unit::Pt) s.unitsPerPt = 1.0;
     s.ratio = ratioText;
     return s;
 }

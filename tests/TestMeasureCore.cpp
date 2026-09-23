@@ -167,6 +167,28 @@ private slots:
         QCOMPARE(ok.unit, Unit::Mm);
     }
 
+    // PGR-19: a pt-labelled scale IS the reference unit — its factor is 1.0 by
+    // definition. A persisted non-1.0 factor under a pt label used to survive
+    // the honesty reset (only `calibrated` was cleared), so an "uncalibrated"
+    // scale kept measuring with the stale factor.
+    void scaleFromPtLabelResetsStaleFactor() {
+        // The asserted-but-invalid pt calibration: flag cleared AND factor reset.
+        const Scale asserted = scaleFrom(0.5, QStringLiteral("pt"), true);
+        QVERIFY(!asserted.calibrated);
+        QCOMPARE(asserted.unit, Unit::Pt);
+        QCOMPARE(asserted.unitsPerPt, 1.0);
+        // Same for a pt label that never claimed calibration: the label alone
+        // makes any other factor self-contradictory.
+        const Scale plain = scaleFrom(2.5, QStringLiteral("pt"), false);
+        QVERIFY(!plain.calibrated);
+        QCOMPARE(plain.unitsPerPt, 1.0);
+        // Control: a real unit keeps its factor — only pt is self-defining.
+        const Scale mm = scaleFrom(0.5, QStringLiteral("mm"), false);
+        QVERIFY(!mm.calibrated);
+        QVERIFY(std::fabs(mm.unitsPerPt - 0.5) < 1e-12);
+        QCOMPARE(mm.unit, Unit::Mm);
+    }
+
     // ── Geometry ─────────────────────────────────────────────────────────────
     void distanceAndPolyline() {
         QCOMPARE(distance({0, 0}, {3, 4}), 5.0);
