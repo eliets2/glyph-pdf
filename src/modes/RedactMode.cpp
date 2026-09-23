@@ -669,11 +669,22 @@ void RedactMode::onMarkAllOccurrences() {
     QList<AnnotationItem> annos = m_viewer->annotations();
     int placed = 0;
     for (auto it = matches.constBegin(); it != matches.constEnd(); ++it) {
+        // PGR-37 (D2 delta review 2026-09-23): PatternRedactor rects are RAW
+        // USER space (y-up); annotation marks are VIEWER space (top-origin).
+        // Convert at this boundary: viewerY = displayHeight − (userY +
+        // height). Exact for /Rotate 0; on /Rotate≠0 pages the placement is
+        // approximate (recorded limitation — the excision itself is exact,
+        // and any mark the user reviews still excises what it covers).
+        const double displayH = m_viewer->document()
+            ? m_viewer->document()->pagePointSize(it.key()).height()
+            : 0.0;
         for (const QRectF& r : it.value()) {
             AnnotationItem a;
             a.mode = ToolMode::Redact;
             a.pageIndex = it.key();
-            a.rect = r;
+            a.rect = QRectF(r.x(),
+                            displayH > 0.0 ? displayH - (r.y() + r.height()) : r.y(),
+                            r.width(), r.height());
             annos.append(a);
             ++placed;
         }

@@ -13,9 +13,14 @@
 // in a PDF's REAL text layer and reports, for every match, the geometry and
 // font metrics the replace pipeline needs:
 //
-//   rect      — Qt top-left user-space union of the matched glyphs' boxes
-//               (the same coordinate contract PatternRedactor and
-//               PoDoFoBackend::applyRedactions already share), and
+//   rect      — RAW PDF USER space union of the matched glyphs' boxes
+//               (FPDFText_GetCharBox verbatim, stored y-up: y() = the LOWER
+//               edge). PGR-37 (D2 delta review 2026-09-23): the former
+//               top-left flip cancelled against the replace pipeline's own
+//               flip only while PoDoFo's rotation-normalized MediaBox height
+//               equaled PDFium's display height — CropBox≠MediaBox documents
+//               shifted the excision. Raw user space is consumed verbatim by
+//               the excision and the redraw, which both live in user space.
 //   fontSize  — the largest per-character font size in the match (points), so
 //               the replacement can be drawn at the matched text's size, and
 //   text      — the matched substring (decoded Unicode through PDFium, never
@@ -26,7 +31,7 @@
 // (ITextReplacer::replaceTextRegions); this class only FINDS.
 struct TextMatch {
     int pageIndex = 0;
-    QRectF rect;          // Qt top-left user space (origin top-left, Y down)
+    QRectF rect;          // RAW PDF USER space (y-up: y() = the lower edge)
     QString text;         // matched substring (decoded)
     double fontSize = 0;  // points; 0 when the page carries no size info
 };
@@ -70,7 +75,8 @@ public:
 
     // Find every match of `pattern` on the given 0-based pages, parsing the
     // PDF exactly once. Pages with no matches are omitted from the result.
-    // Coordinates are Qt top-left user space. ReDoS bounding (see
+    // Coordinates are RAW PDF USER space (y-up — see TextMatch::rect).
+    // ReDoS bounding (see
     // MatchBudget for the exact, honest limits): the input cap bounds each
     // single PCRE2 attempt; the job-scoped deadline and cancellation flag
     // stop the scan between matches/pages — a pathological pattern yields

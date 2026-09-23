@@ -56,8 +56,14 @@ struct CharBox {
 };
 
 // Extract per-character boxes + font sizes for one page of an open document.
-// Same coordinate normalization as PatternRedactor::extractCharsFromOpenDoc
-// (qtY = pageHeight - pdf_top), extended with FPDFText_GetFontSize.
+// PGR-37 (D2 delta review 2026-09-23): the boxes are RAW PDF USER space —
+// FPDFText_GetCharBox values taken verbatim, stored y-up (QRectF::y() = the
+// LOWER edge). The former `pageHeight - pdf_top` flip produced viewer-space
+// coordinates only for /Rotate 0 origin-0 pages; the replace pipeline's
+// downstream flip cancelled it only while PoDoFo's rotation-normalized
+// MediaBox height equals PDFium's display height (CropBox≠MediaBox documents
+// shifted the excision). Raw user space is consumed verbatim by
+// PoDoFoBackend::replaceTextRegions.
 QList<CharBox> extractCharBoxes(FPDF_DOCUMENT doc, int pageIndex) {
     QList<CharBox> result;
     const int pageCount = FPDF_GetPageCount(doc);
@@ -66,7 +72,6 @@ QList<CharBox> extractCharBoxes(FPDF_DOCUMENT doc, int pageIndex) {
     FPDF_PAGE page = FPDF_LoadPage(doc, pageIndex);
     if (!page) return result;
 
-    const double pageHeight = static_cast<double>(FPDF_GetPageHeightF(page));
     FPDF_TEXTPAGE textPage = FPDFText_LoadPage(page);
     if (!textPage) {
         FPDF_ClosePage(page);
@@ -82,8 +87,7 @@ QList<CharBox> extractCharBoxes(FPDF_DOCUMENT doc, int pageIndex) {
         double size = 0;
         QRectF box;
         if (FPDFText_GetCharBox(textPage, ci, &pdf_left, &pdf_right, &pdf_bottom, &pdf_top)) {
-            const double qtY = pageHeight - pdf_top;
-            box = QRectF(pdf_left, qtY, pdf_right - pdf_left, pdf_top - pdf_bottom);
+            box = QRectF(pdf_left, pdf_bottom, pdf_right - pdf_left, pdf_top - pdf_bottom);
         }
         size = FPDFText_GetFontSize(textPage, ci);
         if (size < 0) size = 0;
