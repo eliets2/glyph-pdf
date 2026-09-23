@@ -707,6 +707,43 @@ private slots:
                             + preview->text()));
     }
 
+    // PGR-36 (the fix): AFSimple_Calculate's operation membership must be an
+    // OWN-property test. Pre-fix, `op in actions` walked the prototype chain,
+    // so cFunction "toString"/"constructor"/"hasOwnProperty" invoked the
+    // inherited Object function and silently wrote garbage to /V instead of
+    // the honest TypeError.
+    void afSimpleCalculateInheritedOpsRefused()
+    {
+        for (const QString bad : { QStringLiteral("toString"),
+                                   QStringLiteral("constructor"),
+                                   QStringLiteral("hasOwnProperty"),
+                                   QStringLiteral("valueOf") }) {
+            const JsEvalResult r = runHostile(
+                QStringLiteral("AFSimple_Calculate('%1', new Array('a'));").arg(bad));
+            QVERIFY2(!r.ok, qPrintable(bad + QStringLiteral(" must be refused")));
+            QCOMPARE(r.kind, gp::formjs::JsErrorKind::Exception);
+            QVERIFY2(r.message.contains(QLatin1String("Invalid function in AFSimple_Calculate")),
+                     qPrintable(r.message));
+        }
+        // Cascade integration: the refused op is a field-attributed failure
+        // and the field keeps its committed /V (no garbage write).
+        const QString path = makeFormPdf(
+            QStringLiteral("pgr36.pdf"),
+            { QStringLiteral("a"), QStringLiteral("v") },
+            { { QStringLiteral("v"),
+                QStringLiteral("AFSimple_Calculate('toString', new Array('a'));") } },
+            { QStringLiteral("v") });
+        QVERIFY(!path.isEmpty());
+        PoDoFo::PdfMemDocument doc = loadDoc(path);
+        const CascadeReport rep = FormJsRunner::runCalculateCascade(doc, 250, 1000);
+        QCOMPARE(docFieldValue(doc, QStringLiteral("v")), QString());
+        bool exceptionFailure = false;
+        for (const auto& f : rep.failures)
+            if (f.fieldName == QStringLiteral("v") && f.kind == QStringLiteral("exception"))
+                exceptionFailure = true;
+        QVERIFY2(exceptionFailure, "the inherited-op refusal must be disclosed");
+    }
+
     // The kill-switch is the pre-fix disclosure state: ALL FOUR engine entries
     // (cascade, validate, keystroke, format) refuse to run scripts.
     void killSwitchDisablesAllFourEntries()
