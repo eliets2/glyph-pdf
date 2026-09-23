@@ -23,10 +23,12 @@
 
 #ifdef Q_OS_WIN
 #include <windows.h>
+#include <wincred.h>
 #include <wincrypt.h>
 #endif
 
 #include "core/EncryptedFileSecretStore.h"
+#include "core/CredentialManager.h"
 #include "core/ISecretStore.h"
 
 #if defined(HAS_LIBSECRET)
@@ -701,6 +703,35 @@ private slots:
         QVERIFY(swapServiceBlobs(path, "MigSvcA", "MigSvcB"));
         QCOMPARE(store.readSecret("MigSvcA"), secretA);
         QCOMPARE(store.readSecret("MigSvcB"), secretB);
+    }
+
+    // ── PGR-26 — API-key credentials must not roam beyond this machine ──────
+    // CRED_PERSIST_ENTERPRISE roams the credential with roaming profiles to
+    // every machine the user logs into — wider exposure than a desktop app's
+    // API keys need. Pin the persistence scope through a REAL vault write
+    // (synthetic credential, deleted afterwards): CredReadW reports the
+    // persistence that was actually stored, so this is machine inspection,
+    // not a style check.
+    void credentialPersistIsLocalMachine() {
+        CredentialManager mgr;
+        const QString service = QStringLiteral("PersistProbeSvc");
+        const QString secret  = QStringLiteral("sk-ant-persist-probe-fake-0001");
+        if (!mgr.storeKey(service, secret))
+            QSKIP("Credential Manager write unavailable on this machine");
+
+        const std::wstring target =
+            QStringLiteral("GlyphPDF.AI.PersistProbeSvc").toStdWString();
+        PCREDENTIALW pcred = nullptr;
+        QVERIFY2(CredReadW(target.c_str(), CRED_TYPE_GENERIC, 0, &pcred) && pcred,
+                 "the probed credential must be readable from the vault");
+        const DWORD persist = pcred->Persist;
+        CredFree(pcred);
+
+        QVERIFY(mgr.deleteKey(service));  // clean the real user state
+
+        QVERIFY2(persist == CRED_PERSIST_LOCAL_MACHINE,
+                 "API-key credentials must persist per-machine "
+                 "(CRED_PERSIST_LOCAL_MACHINE), not roam enterprise-wide");
     }
 #endif // Q_OS_WIN
 
