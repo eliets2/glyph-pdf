@@ -1394,6 +1394,10 @@ void BatchMode::onRunClicked() {
     // We capture the config values directly in the lambda instead of calling resolveOutputPath
     // (which touches GUI objects — forbidden from worker threads).
     QStringList capturedFiles = m_filesToProcess;
+    // PGR-38: the run's own total — the worker maps the captured copy, so
+    // every mid-run accounting read must use THIS number, not the live list
+    // (add/remove/hot-folder stay enabled during a run).
+    m_runFileTotal = capturedFiles.size();
     const QString capturedConvertOutDir = m_convertOutDir ? m_convertOutDir->text().trimmed() : QString();
     const QString capturedCompressOutDir = m_compressOutDir ? m_compressOutDir->text().trimmed() : QString();
     const QString capturedWmOutDir = m_wmOutDir ? m_wmOutDir->text().trimmed() : QString();
@@ -2097,7 +2101,10 @@ void BatchMode::accountResultAt(int idx) {
     m_accountedIndices.insert(idx);
     BatchFileResult res = m_watcher.resultAt(idx);
     int completed = m_successCount + m_failCount + m_skipCount + 1;
-    int total = m_filesToProcess.size();
+    // PGR-38: the worker maps the CAPTURED list; computing progress against
+    // the live-mutable file list skewed percent/ETA when files were added or
+    // removed mid-run (the add/remove/hot-folder controls stay enabled).
+    int total = m_runFileTotal > 0 ? m_runFileTotal : m_filesToProcess.size();
 
     // N3: a deliberate skip (skip-already-text) is its own truthful bucket —
     // never success ("not processed" would be wrong too: nothing failed).
@@ -2164,7 +2171,8 @@ void BatchMode::onCancelClicked() {
 void BatchMode::onBatchProgress(int value) {
     // QFutureWatcher::progressValueChanged gives raw future progress (0..fileCount)
     // We also update from resultReadyAt which is more granular — keep this as fallback
-    int total = m_filesToProcess.size();
+    // PGR-38: same captured-total discipline as accountResultAt.
+    int total = m_runFileTotal > 0 ? m_runFileTotal : m_filesToProcess.size();
     int pct = total > 0 ? (value * 100 / total) : 0;
     m_overallProgress->setValue(pct);
     // SEP13 leads 9+10: make the worker's own progress observable (used by
@@ -2200,6 +2208,10 @@ void BatchMode::onBatchFinished() {
 
     showSummary();
     emit batchFinished();
+    // PGR-38: the run-scoped total is only meaningful while the run is the
+    // live one — reset after the completion contract so post-run reads of
+    // remainingCount() keep their historical live-list semantics.
+    m_runFileTotal = 0;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────

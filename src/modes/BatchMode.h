@@ -333,6 +333,12 @@ private:
 
     // State
     QStringList         m_filesToProcess;
+    // PGR-38 (D2 delta review 2026-09-23): the file count captured at run
+    // staging. The worker maps a COPY of the list, so progress/ETA/accounting
+    // must be computed against the run's own total — the file list stays
+    // mutable mid-run (add/remove/hot-folder). Reset after the completion
+    // contract so post-run reads keep the historical live-list semantics.
+    int                 m_runFileTotal    = 0;
     QFutureWatcher<BatchFileResult> m_watcher;
     ErrorLog            m_errorLog;
     int                 m_successCount    = 0;
