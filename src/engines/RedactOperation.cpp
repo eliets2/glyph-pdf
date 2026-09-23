@@ -40,6 +40,15 @@ const char* kSignedRefusal =
     "content recoverable from the PDF revision history. Save an unsigned copy "
     "first (File > Save As), then redact the copy.";
 
+// G1 (audit REDACTION-RESEARCH-2026-09-21 §2.5): honest refusal for legacy XFA
+// form data — the whole form data model (every field value) is re-encoded in
+// XFA streams the excision never walks, and modern viewers often do not render
+// XFA, so the user cannot even see the second copy they are leaving behind.
+const char* kXfaRefusal =
+    "This document contains legacy XFA form data. XFA stores a second copy of "
+    "every form value in streams redaction cannot excise. Run Sanitize first "
+    "(it removes the XFA form data), then redact the sanitized copy.";
+
 // RAII removal of this operation's candidate file on every exit
 // (CandidateFileGuard pattern, FormManager.cpp:67-75).
 class CandidateFileGuard {
@@ -478,6 +487,11 @@ void RedactOperation::ExecutionState::execute()
                  QStringLiteral("Could not open the document: %1").arg(engine->lastError().userMessage));
         } else if (engine->hasPdfSignatures()) {
             fail(RedactStage::Preflight, QString::fromLatin1(kSignedRefusal));
+        } else if (engine->hasXfaDocument()) {
+            // G1: legacy XFA re-encodes field values outside every excised and
+            // swept surface — refuse before any write, like the signed-file
+            // refusal above.
+            fail(RedactStage::Preflight, QString::fromLatin1(kXfaRefusal));
         } else {
             // Source page count via PoDoFo (independent of any live session),
             // and every requested page must exist.
@@ -485,6 +499,18 @@ void RedactOperation::ExecutionState::execute()
                 PoDoFo::PdfMemDocument doc;
                 doc.Load(request.sourcePath.toUtf8().constData());
                 sourcePageCount = static_cast<int>(doc.GetPages().GetCount());
+                // G4 (audit REDACTION-RESEARCH-2026-09-21 §2.2): disclose
+                // optional content. Hidden OCG layers stay present-but-hidden
+                // through sanitize (all layers forced OFF, never revealed);
+                // redaction itself removes marked regions only — hidden
+                // content the user never saw remains in the file.
+                if (doc.GetCatalog().GetDictionary().FindKey(
+                        PoDoFo::PdfName("OCProperties")) != nullptr) {
+                    qWarning() << "Redaction preflight: the document contains "
+                                  "optional content (OCG layers). Sanitize keeps "
+                                  "hidden layers hidden (all layers OFF); hidden "
+                                  "content remains present in the file.";
+                }
             } catch (const PoDoFo::PdfError& e) {
                 fail(RedactStage::Preflight,
                      QStringLiteral("Could not read the source document: %1")

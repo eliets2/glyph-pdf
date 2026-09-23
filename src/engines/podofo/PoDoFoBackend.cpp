@@ -4,6 +4,7 @@
 #include "core/MeasureCore.h"
 #include "core/PageSpaceTransform.h"
 #include "core/ItemSpaceTransform.h"
+#include "core/RedactionProof.h"
 #include <memory>
 #include "PdfStringEscape.h"
 #include "GlyphAdvanceCalculator.h"
@@ -190,6 +191,11 @@ public:
     // resident document from it. Cleared whenever a different document is
     // loaded or the encryption is removed.
     QString encryptionPassword;
+    // G2 (audit REDACTION-RESEARCH-2026-09-21 §2.4): the named reason the last
+    // applyRedactions aborted content surgery (empty when it did not abort).
+    // Surfaced through lastRedactionAbortReason() so the engine-level error —
+    // and from there the RedactOperation failure — names WHY honestly.
+    QString redactionAbortReason;
 
     // ── WP-R02 (WHOLE-ARCHITECTURE-REVIEW A01): pre-mutation resident baseline.
     //
@@ -934,6 +940,32 @@ bool PoDoFoBackend::hasPdfSignatures() const {
         // Cannot determine — treat conservatively as unsigned
     }
     return false;
+}
+
+bool PoDoFoBackend::hasXfaDocument() const {
+    QMutexLocker locker(&d->mutex);
+    if (!d->document) return false;
+    try {
+        // G1 (audit REDACTION-RESEARCH-2026-09-21 §2.5): legacy XFA form data
+        // lives at /AcroForm /XFA (static XFA) or catalog /XFA (the dynamic-XFA
+        // whole-form entry). FindKey resolves indirect AcroForm references.
+        auto& catalog = d->document->GetCatalog();
+        if (catalog.GetDictionary().HasKey(PoDoFo::PdfName("XFA")))
+            return true;
+        if (const PoDoFo::PdfObject* acro =
+                catalog.GetDictionary().FindKey(PoDoFo::PdfName("AcroForm"));
+            acro != nullptr && acro->IsDictionary()) {
+            return acro->GetDictionary().HasKey(PoDoFo::PdfName("XFA"));
+        }
+    } catch (const PoDoFo::PdfError&) {
+        // Cannot determine — treat as XFA-free (sanitize still scrubs the keys)
+    }
+    return false;
+}
+
+QString PoDoFoBackend::lastRedactionAbortReason() const {
+    QMutexLocker locker(&d->mutex);
+    return d->redactionAbortReason;
 }
 
 int PoDoFoBackend::recipientCount() const {
@@ -2465,16 +2497,108 @@ void redactCanvasRecursively(PoDoFo::PdfObject& canvasObj,
 // ── T2-2: shared content-stream excision core ───────────────────────────────
 // Extracted from applyRedactions so the Find & Replace pipeline can run the
 // SAME proven glyph-excision surgery (inline-image/binary guard +
-// redactCanvasRecursively + tagged-PDF structure cleanup) WITHOUT the
-// redaction-specific tail (black cover fill + removal of annotations that
-// intersect the region — a replace must never delete annotations).
-// Returns false when the page's content stream is unparseable or binary
-// (the caller must abort the whole operation — no visual-only half edit).
+// pattern-text guard + redactCanvasRecursively + tagged-PDF structure
+// cleanup) WITHOUT the redaction-specific tail — a replace must never
+// delete annotations.
+
+// G2 (audit REDACTION-RESEARCH-2026-09-21 §2.4): text drawn inside TILING
+// PATTERN streams (page /Pattern resources painted by `scn` + fill — no `Do`)
+// is unreachable by redactCanvasRecursively, which recurses only Do-named
+// Form XObjects and images. A mark over pattern-drawn text would paint a
+// black box over live data (the classic silent w/o proof defect), so a page
+// whose resource tree carries a tiling pattern with GLYPH-CARRYING text
+// operators must be refused before any surgery. countTextOperators is the
+// proof's own lexer — the same glyph-carrying definition the excision
+// contract uses (numeric-only [ N ] TJ does not count).
+static bool patternStreamCarriesText(PoDoFo::PdfMemDocument* document,
+                                     const PoDoFo::PdfObject* patternObj,
+                                     QString* reason) {
+    if (patternObj && patternObj->IsReference())
+        patternObj = &document->GetObjects().MustGetObject(patternObj->GetReference());
+    if (!patternObj || !patternObj->IsDictionary()) return false;
+    const auto* ptype = patternObj->GetDictionary().FindKey("PatternType");
+    if (!ptype || !ptype->IsNumber() || ptype->GetNumber() != 1.0)
+        return false; // only TILING patterns (types 2/3 are shading/mesh)
+    if (!patternObj->HasStream()) return false;
+    try {
+        PoDoFo::charbuff buf;
+        patternObj->GetStream()->CopyTo(buf);
+        if (gp::RedactionProof::countTextOperators(
+                QByteArray(buf.data(), int(buf.size()))) > 0) {
+            if (reason) *reason = QStringLiteral(
+                "The page draws content through tiling patterns whose streams "
+                "carry text. Pattern streams cannot be excised, so the page is "
+                "refused rather than painted over with a black box.");
+            return true;
+        }
+    } catch (const std::exception&) {
+        // An undecodable pattern stream cannot be proven text-free either —
+        // refuse (the safe direction).
+        if (reason) *reason = QStringLiteral(
+            "The page carries a tiling pattern stream that could not be "
+            "decoded, so it cannot be proven text-free. The page is refused "
+            "rather than painted over with a black box.");
+        return true;
+    }
+    return false;
+}
+
+// Walks a canvas resource tree (page or Form XObject): every /Pattern entry
+// is checked for glyph-carrying text, and Form XObjects' own /Resources are
+// followed so a pattern reachable only through a nested Form is still found.
+static bool resourcesCarryPatternText(PoDoFo::PdfMemDocument* document,
+                                      const PoDoFo::PdfObject* resources,
+                                      int depth, QString* reason) {
+    constexpr int kMaxPatternScanDepth = 32;
+    if (depth > kMaxPatternScanDepth || !resources) return false;
+    if (resources->IsReference())
+        resources = &document->GetObjects().MustGetObject(resources->GetReference());
+    if (!resources || !resources->IsDictionary()) return false;
+    const auto& dict = resources->GetDictionary();
+
+    if (const PoDoFo::PdfObject* patterns = dict.FindKey("Pattern")) {
+        if (patterns->IsReference())
+            patterns = &document->GetObjects().MustGetObject(patterns->GetReference());
+        if (patterns && patterns->IsDictionary()) {
+            for (const auto& kv : patterns->GetDictionary()) {
+                if (patternStreamCarriesText(document, &kv.second, reason))
+                    return true;
+            }
+        }
+    }
+    if (const PoDoFo::PdfObject* xobjs = dict.FindKey("XObject")) {
+        if (xobjs->IsReference())
+            xobjs = &document->GetObjects().MustGetObject(xobjs->GetReference());
+        if (xobjs && xobjs->IsDictionary()) {
+            for (const auto& kv : xobjs->GetDictionary()) {
+                const PoDoFo::PdfObject* xobj = &kv.second;
+                if (xobj->IsReference())
+                    xobj = &document->GetObjects().MustGetObject(xobj->GetReference());
+                if (!xobj || !xobj->IsDictionary()) continue;
+                const auto* sub = xobj->GetDictionary().FindKey("Subtype");
+                if (!sub || !sub->IsName()
+                    || sub->GetName() != PoDoFo::PdfName("Form"))
+                    continue;
+                if (resourcesCarryPatternText(
+                        document, xobj->GetDictionary().FindKey("Resources"),
+                        depth + 1, reason))
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+
+// Returns false when the page's content stream is unparseable or binary, or
+// when the G2 pattern-text guard fires (\p abortReason then carries the named
+// user-facing reason) — the caller must abort the whole operation (no
+// visual-only half edit).
 static bool exciseContentRegions(PoDoFo::PdfMemDocument* document,
                                  PoDoFo::PdfPage& page,
                                  const std::vector<PoDoFo::Rect>& pdfRects,
                                  int pageIndexForLog,
-                                 std::set<int64_t>& redactedMcids) {
+                                 std::set<int64_t>& redactedMcids,
+                                 QString* abortReason = nullptr) {
     auto* contentsObj = page.GetContents();
     if (!contentsObj) return false;
 
@@ -2494,7 +2618,27 @@ static bool exciseContentRegions(PoDoFo::PdfMemDocument* document,
     if (hasInlineImage || hasBinaryContent) {
         qWarning() << "exciseContentRegions: stream contains inline images or binary data on page"
                    << pageIndexForLog << "— aborting (no visual-only half edit).";
+        if (abortReason) {
+            *abortReason = QStringLiteral(
+                "The page content stream contains inline images or binary data, "
+                "which cannot be excised safely.");
+        }
         return false;
+    }
+
+    // G2: honest abort when the page's resource tree (page or any reachable
+    // Form XObject) carries a tiling pattern whose stream holds glyph-carrying
+    // text — the canvas walk cannot reach pattern streams, so surgery would
+    // paint a black box over live data.
+    {
+        QString patternReason;
+        if (resourcesCarryPatternText(document, &page.GetResources().GetObject(),
+                                      0, &patternReason)) {
+            qWarning() << "exciseContentRegions:" << patternReason << "page"
+                       << pageIndexForLog << "— aborting (no visual-only half edit).";
+            if (abortReason) *abortReason = patternReason;
+            return false;
+        }
     }
 
     redactCanvasRecursively(page.GetObject(), pdfRects, page, document, redactedMcids);
@@ -2527,9 +2671,78 @@ static bool exciseContentRegions(PoDoFo::PdfMemDocument* document,
     return true;
 }
 
+// G5 (audit REDACTION-RESEARCH-2026-09-21 §2.1): the annotation's EFFECTIVE
+// coverage — the union of the raw /Rect and the appearance bbox (/AP /N
+// /BBox mapped through /Matrix, offset by the /Rect lower-left as the
+// annotation-space origin). Appearances can DRAW OUTSIDE /Rect (missing or
+// degenerate /Rect is legal; FreeText text overflow; Ink strokes outside the
+// declared box), so a mark over what the user SEES must remove the annot
+// even when the bare /Rect does not intersect — over-approximation is the
+// safe direction. Kept in sync with the copy in RedactionProof.cpp
+// (collectAnnotStrings attribution test).
+static QRectF effectiveAnnotRectUser(PoDoFo::PdfAnnotation& annot)
+{
+    // May throw when /Rect is absent — the caller's existing GetRectRaw
+    // exception handling applies unchanged.
+    const PoDoFo::Rect r = annot.GetRectRaw().GetNormalized();
+    QRectF rect(qMin(r.GetLeft(), r.GetRight()),
+                qMin(r.GetBottom(), r.GetTop()),
+                qAbs(r.GetRight() - r.GetLeft()),
+                qAbs(r.GetTop() - r.GetBottom()));
+    const double originX = rect.left();
+    const double originY = rect.bottom();
+
+    auto& annoObj = annot.GetObject();
+    if (!annoObj.IsDictionary()) return rect;
+    const PoDoFo::PdfObject* ap = annoObj.GetDictionary().FindKey("AP");
+    if (!ap || !ap->IsDictionary()) return rect;
+    const PoDoFo::PdfObject* n = ap->GetDictionary().FindKey("N");
+    if (!n || !n->IsDictionary()) return rect;
+
+    QList<const PoDoFo::PdfObject*> forms;
+    if (n->HasStream()) {
+        forms.append(n);
+    } else {
+        for (const auto& kv : n->GetDictionary())
+            if (kv.second.HasStream()) forms.append(&kv.second);
+    }
+
+    for (const PoDoFo::PdfObject* form : forms) {
+        const auto& fd = form->GetDictionary();
+        const auto* bboxObj = fd.FindKey("BBox");
+        if (!bboxObj || !bboxObj->IsArray() || bboxObj->GetArray().GetSize() < 4)
+            continue;
+        double m[6] = {1.0, 0.0, 0.0, 1.0, 0.0, 0.0};
+        if (const auto* mObj = fd.FindKey("Matrix");
+            mObj && mObj->IsArray() && mObj->GetArray().GetSize() >= 6) {
+            for (int i = 0; i < 6; ++i)
+                m[i] = mObj->GetArray()[i].GetReal();
+        }
+        const double bx0 = bboxObj->GetArray()[0].GetReal();
+        const double by0 = bboxObj->GetArray()[1].GetReal();
+        const double bx1 = bboxObj->GetArray()[2].GetReal();
+        const double by1 = bboxObj->GetArray()[3].GetReal();
+        const double corners[4][2] = {{bx0, by0}, {bx1, by0}, {bx1, by1}, {bx0, by1}};
+        double minX = 0, minY = 0, maxX = 0, maxY = 0;
+        for (int i = 0; i < 4; ++i) {
+            const double ax = m[0] * corners[i][0] + m[2] * corners[i][1] + m[4];
+            const double ay = m[1] * corners[i][0] + m[3] * corners[i][1] + m[5];
+            if (i == 0) { minX = maxX = ax; minY = maxY = ay; }
+            else {
+                minX = qMin(minX, ax); maxX = qMax(maxX, ax);
+                minY = qMin(minY, ay); maxY = qMax(maxY, ay);
+            }
+        }
+        rect = rect.united(QRectF(originX + minX, originY + minY,
+                                  maxX - minX, maxY - minY));
+    }
+    return rect;
+}
+
 bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
     QMutexLocker locker(&d->mutex);
     if (!d->document || pageIndex < 0 || (unsigned)pageIndex >= d->document->GetPages().GetCount()) return false;
+    d->redactionAbortReason.clear();
 
     try {
         // F-05: the audit log is OPT-IN and OFF by default. When co-located with
@@ -2563,13 +2776,21 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
         // Original semantics preserved: a page with NO /Contents object never
         // ran content surgery here (black fill + annotation removal still
         // apply); a page WITH contents must survive the surgery or the whole
-        // redaction aborts (no insecure visual-only overlay).
+        // redaction aborts (no insecure visual-only overlay). G2: the abort
+        // carries a NAMED reason (pattern-text guard / inline-image guard) that
+        // surfaces through lastRedactionAbortReason().
         auto* contentsObj = page.GetContents();
+        QString abortReason;
         if (contentsObj && !exciseContentRegions(d->document.get(), page, pdfRects,
-                                                 pageIndex, redactedMcids)) {
+                                                 pageIndex, redactedMcids,
+                                                 &abortReason)) {
+            d->redactionAbortReason = abortReason;
             qCritical() << "SECURITY: Redaction on page" << pageIndex
-                        << "failed to apply content stream surgery due to unparseable or binary content."
-                           " Aborting operation to prevent insecure visual-only overlay.";
+                        << "failed to apply content stream surgery:"
+                        << (abortReason.isEmpty()
+                                ? QStringLiteral("unparseable or binary content")
+                                : abortReason)
+                        << "Aborting operation to prevent insecure visual-only overlay.";
             return false;
         }
 
@@ -2597,16 +2818,45 @@ bool PoDoFoBackend::applyRedactions(int pageIndex, const QList<QRectF> &rects) {
             // survive the excision entirely (annotation-borne data loss).
             // ISO 32000-1 §12.5.2: /Rect lives in default user space, the
             // same space the excision rects were mapped into.
-            const PoDoFo::Rect r = anno.GetRectRaw().GetNormalized();
+            // G5: the removal test uses the EFFECTIVE coverage (raw /Rect ∪
+            // the /AP /N appearance bbox mapped through /Matrix) — appearances
+            // can draw OUTSIDE /Rect, so a mark over what the user sees must
+            // remove the annot even when the bare /Rect misses. Strict-overlap
+            // semantics preserved; the union can only ADD hits.
+            const QRectF effRect = effectiveAnnotRectUser(anno);
             bool intersects = false;
             for (const auto& redRect : pdfRects) {
-                if (r.X < (redRect.X + redRect.Width) && (r.X + r.Width) > redRect.X &&
-                    r.Y < (redRect.Y + redRect.Height) && (r.Y + r.Height) > redRect.Y) {
+                if (effRect.right() > redRect.X &&
+                    effRect.left() < (redRect.X + redRect.Width) &&
+                    effRect.bottom() > redRect.Y &&
+                    effRect.top() < (redRect.Y + redRect.Height)) {
                     intersects = true;
                     break;
                 }
             }
             if (intersects) {
+                // G3 (audit REDACTION-RESEARCH-2026-09-21 §2.1): a WIDGET is
+                // only the geometry — its value lives on the FIELD dict (/V,
+                // inherited /DV) reachable from /AcroForm /Fields, a different
+                // object the excision never touches. For a MERGED field+widget
+                // the default-GC save drops the value with the orphaned widget
+                // object, but in a SPLIT tree the field survives with its
+                // value intact ("I drew the box over the form field, saved,
+                // ran my own string search — the value is still in there").
+                // Walk the /Parent chain (same shape as the proof's
+                // collectAnnotStrings) and clear /V + /DV at every level, the
+                // widget dict included. Keep the field object itself.
+                if (anno.GetType() == PoDoFo::PdfAnnotationType::Widget) {
+                    PoDoFo::PdfObject* fieldObj = &anno.GetObject();
+                    for (int depth = 0; fieldObj != nullptr && depth < 16; ++depth) {
+                        auto& fieldDict = fieldObj->GetDictionary();
+                        if (fieldDict.HasKey("V")) fieldDict.RemoveKey("V");
+                        if (fieldDict.HasKey("DV")) fieldDict.RemoveKey("DV");
+                        fieldObj = fieldDict.FindKey("Parent");
+                    }
+                    qWarning() << "applyRedactions: marked widget — cleared /V//DV "
+                                  "on its field (redaction under the mark)";
+                }
                 // Walk /AP -> /N (normal appearance) Form XObject for image excision.
                 auto& annoObj = anno.GetObject();
                 if (annoObj.IsDictionary()) {
@@ -3350,9 +3600,49 @@ static void sanitizeDocumentContents(PoDoFo::PdfMemDocument& doc)
         sanitizeAllStructElements(structTreeRootObj, 0);
     }
 
-    // 17. Flatten optional content layers by removing OCProperties
-    if (catalog.GetDictionary().HasKey(PdfName("OCProperties"))) {
-        catalog.GetDictionary().RemoveKey(PdfName("OCProperties"));
+    // 17. Optional content (G4, audit REDACTION-RESEARCH-2026-09-21 §2.2):
+    // the former /OCProperties removal REVEALED hidden layers — with the
+    // default config gone, every layer-gated element renders VISIBLE in every
+    // viewer, so the sanitized copy of a redacted document could show content
+    // the user never saw, never marked, and believed hidden. Redaction-safe
+    // "flatten" is the OPPOSITE: keep /OCProperties and write an explicit OFF
+    // policy — /D with an empty /ON list and every OCG in /OFF — so hidden
+    // stays hidden. /AS (usage-application) is dropped so the explicit /D
+    // policy is the whole story. The layer CONTENT itself remains present
+    // (disclosed in the redaction pack; redaction removes marked regions
+    // only). Wrapper-safe: no PdfDocument cache wraps /OCProperties.
+    if (auto* ocpObj = catalog.GetDictionary().FindKey(PdfName("OCProperties"));
+        ocpObj != nullptr) {
+        if (ocpObj->IsReference())
+            ocpObj = &doc.GetObjects().MustGetObject(ocpObj->GetReference());
+        if (ocpObj->IsDictionary()) {
+            PdfArray offRefs;
+            if (auto* ocgs = ocpObj->GetDictionary().FindKey(PdfName("OCGs"))) {
+                if (ocgs->IsReference())
+                    ocgs = &doc.GetObjects().MustGetObject(ocgs->GetReference());
+                if (ocgs && ocgs->IsArray()) {
+                    for (const auto& ocg : ocgs->GetArray())
+                        offRefs.Add(ocg);
+                }
+            }
+            PdfObject* dObj = ocpObj->GetDictionary().FindKey(PdfName("D"));
+            if (dObj != nullptr && dObj->IsReference())
+                dObj = &doc.GetObjects().MustGetObject(dObj->GetReference());
+            if (dObj == nullptr) {
+                auto& created = doc.GetObjects().CreateDictionaryObject();
+                ocpObj->GetDictionary().AddKey(PdfName("D"),
+                                               created.GetIndirectReference());
+                dObj = &created;
+            }
+            if (dObj->IsDictionary()) {
+                auto& dDict = dObj->GetDictionary();
+                dDict.RemoveKey(PdfName("ON"));
+                dDict.RemoveKey(PdfName("OFF"));
+                dDict.RemoveKey(PdfName("AS"));
+                dDict.AddKey(PdfName("ON"), PdfArray());
+                dDict.AddKey(PdfName("OFF"), offRefs);
+            }
+        }
     }
 
     // 18. Remove Outlines (bookmarks)
@@ -3448,6 +3738,25 @@ static void sanitizeDocumentContents(PoDoFo::PdfMemDocument& doc)
         auto& fieldDict = field->GetDictionary();
         if (fieldDict.HasKey("V")) fieldDict.RemoveKey("V");
         if (fieldDict.HasKey("DV")) fieldDict.RemoveKey("DV");
+    }
+
+    // 22.5 Remove legacy XFA form data (G1, audit REDACTION-RESEARCH-2026-09-21
+    // §2.5): /AcroForm /XFA (static XFA) and catalog /XFA (dynamic XFA) carry
+    // a full second copy of the form data model — every field value re-encoded
+    // in streams the /V//DV scrub above never reaches. Sanitize's contract is
+    // zero recoverable user data: drop the entries; the default-GC Save then
+    // drops the orphaned XFA stream objects. Wrapper-safe: no PdfDocument cache
+    // wraps the /XFA VALUE (m_AcroForm wraps the AcroForm dict itself — keys
+    // are removed FROM that dict, the dict object stays).
+    {
+        auto* acroObj = catalog.GetDictionary().FindKey(PdfName("AcroForm"));
+        if (acroObj != nullptr && acroObj->IsDictionary()
+            && acroObj->GetDictionary().HasKey(PdfName("XFA"))) {
+            acroObj->GetDictionary().RemoveKey(PdfName("XFA"));
+        }
+        if (catalog.GetDictionary().HasKey(PdfName("XFA"))) {
+            catalog.GetDictionary().RemoveKey(PdfName("XFA"));
+        }
     }
 
     // 21. Trailer ID second element randomization

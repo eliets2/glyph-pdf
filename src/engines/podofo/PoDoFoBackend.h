@@ -28,6 +28,15 @@ public:
     // R2-1 D2: true iff the loaded document has at least one PDF signature field.
     bool hasPdfSignatures() const;
 
+    // G1 (audit REDACTION-RESEARCH-2026-09-21 §2.5): true iff the loaded
+    // document carries legacy XFA form data (/AcroForm /XFA or catalog /XFA).
+    bool hasXfaDocument() const;
+
+    // G2 (audit §2.4): the named reason the last applyRedactions aborted its
+    // content surgery (empty when it did not abort). Surfaced in the
+    // engine-level failure message so refusals name WHY.
+    QString lastRedactionAbortReason() const;
+
     // WP-R09b (WHOLE-ARCHITECTURE-REVIEW A05): sticky until the next
     // successful load or in-place commit — the last refusal of an in-place
     // commit was an EXTERNAL source-version conflict (the file changed on
