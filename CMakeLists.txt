@@ -410,6 +410,7 @@ add_library(pdfws_engines STATIC
     src/engines/SignatureManager.h   src/engines/SignatureManager.cpp
     src/core/SigningRequestModel.h   src/core/SigningRequestModel.cpp
     src/core/SigningRequestRunner.h  src/core/SigningRequestRunner.cpp
+    src/core/SigningLabels.h         src/core/SigningLabels.cpp
     src/engines/SignatureFieldCreator.h src/engines/SignatureFieldCreator.cpp
     src/engines/ConversionManager.h  src/engines/ConversionManager.cpp
     src/engines/DocumentSession.h    src/engines/DocumentSession.cpp
