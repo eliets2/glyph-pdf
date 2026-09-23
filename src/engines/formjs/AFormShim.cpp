@@ -764,7 +764,12 @@ globalThis.AFSimple_Calculate = function (cFunction, cFields) {
     PROD: "PRD", PRODUCT: "PRD", AVERAGE: "AVG", MINIMUM: "MIN", MAXIMUM: "MAX",
   };
   const op = Object.prototype.hasOwnProperty.call(alias, cFunction) ? alias[cFunction] : cFunction;
-  if (!(op in actions)) throw new TypeError("Invalid function in AFSimple_Calculate");
+  // PGR-36: own-property membership only. An `in` test walks the prototype
+  // chain, so cFunction "toString"/"constructor"/"hasOwnProperty" would pass
+  // and call the inherited Object function — garbage silently written to /V
+  // instead of the honest TypeError.
+  if (!Object.prototype.hasOwnProperty.call(actions, op))
+    throw new TypeError("Invalid function in AFSimple_Calculate");
 
   const event = globalThis.event;
   const values = [];
