@@ -819,10 +819,13 @@ bool parse(const QByteArray& json, BatchPreset* out, QString* err) {
         if (root.value(QStringLiteral("onFileFailure")).type() != QJsonValue::String)
             return fail(err, QStringLiteral("onFileFailure: expected a string (schema v1)"));
         p.onFileFailure = root.value(QStringLiteral("onFileFailure")).toString();
-        if (p.onFileFailure != QLatin1String("continue"))
-            return fail(err, QStringLiteral("onFileFailure: \"%1\" is not implemented by this "
-                                            "build (schema v1 offers continue/stop; this app "
-                                            "supports: continue)").arg(p.onFileFailure));
+        // R26-P2 (plan §4.4): "stop" is implemented as of this build — the
+        // last v1 failure-policy value joins "continue" (kSchemaVersion stays
+        // 1). An UNKNOWN value is still refused: fail-closed did not loosen.
+        if (p.onFileFailure != QLatin1String("continue")
+            && p.onFileFailure != QLatin1String("stop"))
+            return fail(err, QStringLiteral("onFileFailure: \"%1\" is not one of "
+                                            "continue, stop (schema v1)").arg(p.onFileFailure));
     }
 
     if (!validate(p, err))

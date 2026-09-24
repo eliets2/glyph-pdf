@@ -2236,7 +2236,22 @@ void BatchMode::onRunClicked() {
         appendLog(tr("Preset \u201c%1\u201d numbers pages with Bates sequences \u2014 files "
                      "are processed in order (one at a time); large batches are slower.")
                       .arg(capturedPreset.name), "#c8a000");
-        startPresetOrderedWorker(runnableFiles, processFileReal);
+        startPresetOrderedWorker(runnableFiles, processFileReal, false);
+        return;
+    }
+
+    // R26-P2 U3 (plan §4.4): onFileFailure "stop" runs on the ordered lane
+    // TOO — with the mapped pipeline, WHICH files get skipped after a stop
+    // is pool-scheduling luck, and the not-run report (U08 truthfulness)
+    // must be deterministic. This log line is the policy's pre-flight
+    // disclosure; a bates-bearing stop preset already took the branch above.
+    if (opIdx == OpPresetPipeline
+        && capturedPreset.onFileFailure == QLatin1String("stop")) {
+        appendLog(tr("Preset \u201c%1\u201d stops at the first failed file "
+                     "(onFileFailure=stop) \u2014 remaining files are reported as "
+                     "not run. Files are processed in order.")
+                      .arg(capturedPreset.name), "#c8a000");
+        startPresetOrderedWorker(runnableFiles, processFileReal, true);
         return;
     }
 
@@ -2258,20 +2273,44 @@ void BatchMode::onRunClicked() {
 // construction, advanced only by successful stamps.
 void BatchMode::startPresetOrderedWorker(
     const QStringList& files,
-    const std::function<BatchFileResult(const QString&, PresetRunState*)>& runOneFile) {
+    const std::function<BatchFileResult(const QString&, PresetRunState*)>& runOneFile,
+    bool stopOnFileFailure) {
     // Captured by value like every worker input — the member is never read
     // cross-thread (m_mergeBoundaryHook's discipline).
     const std::function<void(int)> boundaryHook = m_presetBoundaryHook;
 
-    auto orderedWorker = [files, runOneFile, boundaryHook](QPromise<BatchFileResult>& promise) {
+    auto orderedWorker = [files, runOneFile, boundaryHook,
+                          stopOnFileFailure](QPromise<BatchFileResult>& promise) {
         promise.setProgressRange(0, files.size());
         PresetRunState runState;
         for (int i = 0; i < files.size(); ++i) {
             if (promise.isCanceled()) return;    // file boundary only
             if (boundaryHook) boundaryHook(i);
             if (promise.isCanceled()) return;    // cancel landed in the boundary window
-            promise.addResult(runOneFile(files.at(i), &runState));
+            const BatchFileResult result = runOneFile(files.at(i), &runState);
+            promise.addResult(result);
             promise.setProgressValue(i + 1);
+            // R26-P2 U3 (plan §4.4, N2): with onFileFailure "stop" a
+            // file-scoped failure halts the queue AT THIS FILE BOUNDARY —
+            // never mid-file, never mid-chain. Every not-yet-run file is
+            // reported as not-run with the policy reason (the U08 skip
+            // bucket): never success, never silently dropped. Cancellation
+            // stays honored during the not-run drain — a cancelled run's
+            // unreported remainder follows the U08 cancel semantics.
+            if (stopOnFileFailure && !result.success && !result.skipped) {
+                const QString stopper = QFileInfo(result.inputPath).fileName();
+                for (int j = i + 1; j < files.size(); ++j) {
+                    if (promise.isCanceled()) return;
+                    BatchFileResult notRun;
+                    notRun.inputPath = files.at(j);
+                    notRun.skipped = true;
+                    notRun.skipReason = BatchMode::tr(
+                        "run stopped by onFileFailure=stop after %1").arg(stopper);
+                    promise.addResult(notRun);
+                    promise.setProgressValue(j + 1);
+                }
+                return;
+            }
         }
     };
     m_watcher.setFuture(QtConcurrent::run(orderedWorker));

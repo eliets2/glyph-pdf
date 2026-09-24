@@ -421,9 +421,22 @@ void TestBatchPresets::negativeValidationMatrix() {
     mustRefuse(doc(QStringLiteral("[ { \"op\": \"compress\", \"params\": {} } ], "
                                    "\"output\": { \"onConflict\": \"overwriteee\" }")),
                QStringLiteral("output.onConflict"), "unknown onConflict value");
+    // R26-P2: onFileFailure "stop" is now IMPLEMENTED (P2 plan §4.4) - it
+    // loads and validates, and an unknown failure-policy value is still
+    // refused (fail-closed did not loosen).
+    {
+        BatchPreset stopped;
+        QString okErr;
+        QVERIFY2(BatchPresetCodec::parse(
+            doc(QStringLiteral("[ { \"op\": \"compress\", \"params\": {} } ], "
+                               "\"onFileFailure\": \"stop\"")).toUtf8(),
+            &stopped, &okErr),
+            qPrintable(QStringLiteral("stop failure policy refused: %1").arg(okErr)));
+        QCOMPARE(stopped.onFileFailure, QStringLiteral("stop"));
+    }
     mustRefuse(doc(QStringLiteral("[ { \"op\": \"compress\", \"params\": {} } ], "
-                                   "\"onFileFailure\": \"stop\"")),
-               QStringLiteral("onFileFailure"), "onFileFailure stop refusal");
+                                   "\"onFileFailure\": \"halt\"")),
+               QStringLiteral("onFileFailure"), "unknown onFileFailure value");
 }
 
 void TestBatchPresets::namingTokensResolveAndSanitize() {

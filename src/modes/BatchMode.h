@@ -442,10 +442,17 @@ private:
     // `files` IN LIST ORDER behind the same QFutureWatcher/G12 accounting;
     // `runOneFile` is the captured per-file worker (the mapped pipeline's
     // body) with the run-state pointer for bates continuity. Cancellation is
-    // polled at file boundaries only — never mid-chain.
+    // polled at file boundaries only — never mid-chain. U3 (plan §4.4):
+    // `stopOnFileFailure` implements onFileFailure "stop" — after the first
+    // failed (not skipped) file the queue halts at that file boundary and
+    // every remaining file is reported as not-run with the policy reason
+    // (the U08 skip bucket). Stop-policy presets run HERE because with the
+    // mapped pipeline WHICH files would be skipped is pool-scheduling luck —
+    // the not-run report must be deterministic, not scheduling luck.
     void startPresetOrderedWorker(
         const QStringList& files,
-        const std::function<BatchFileResult(const QString&, PresetRunState*)>& runOneFile);
+        const std::function<BatchFileResult(const QString&, PresetRunState*)>& runOneFile,
+        bool stopOnFileFailure = false);
 
     // §9.12 P1: async merge worker — appends each input on the QtConcurrent
     // pool behind m_watcher (see startMergeWorker definition for the contract).
