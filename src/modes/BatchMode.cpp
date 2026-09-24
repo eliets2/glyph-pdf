@@ -826,6 +826,7 @@ void BatchMode::buildHotFolderSection(QVBoxLayout* btnLay) {
 
     auto* hotRow = new QHBoxLayout;
     m_hotFolderEdit = new QLineEdit;
+    m_hotFolderEdit->setObjectName(QStringLiteral("batchHotFolderPath"));
     m_hotFolderEdit->setReadOnly(true);
     m_hotFolderEdit->setPlaceholderText(tr("No folder watched"));
     auto* hotBrowse = new QPushButton(tr("…"));
@@ -900,6 +901,21 @@ void BatchMode::onToggleHotFolder() {
     }
 }
 
+// R26-P2 U2: arms the hot folder WITHOUT the native directory picker (the
+// checkbox path stays interactive). Same seeding as onToggleHotFolder's ON
+// branch; the auto-run option is switched on so the ingest runs.
+void BatchMode::armHotFolderForTest(const QString& dir) {
+    m_hotFolderPath = dir;
+    m_hotProcessed.clear();
+    const auto seed = QDir(dir).entryInfoList(QStringList() << QStringLiteral("*.pdf")
+                                                            << QStringLiteral("*.PDF"),
+                                              QDir::Files);
+    for (const QFileInfo& fi : seed)
+        m_hotProcessed.insert(hotFileKey(fi));
+    if (m_hotAutoRunCheck)
+        m_hotAutoRunCheck->setChecked(true);
+}
+
 void BatchMode::onHotFolderChanged(const QString& path) {
     if (path.isEmpty()) return;
 
@@ -921,13 +937,24 @@ void BatchMode::onHotFolderChanged(const QString& path) {
                   .arg(newFiles.size() == 1 ? QString() : tr("s")),
               "#5b9bd5");
 
-    if (m_hotAutoRunCheck && m_hotAutoRunCheck->isChecked() && !m_watcher.isRunning())
+    if (m_hotAutoRunCheck && m_hotAutoRunCheck->isChecked() && !m_watcher.isRunning()) {
+        // R26-P2 U2 (§4.5): this auto-run is UNATTENDED — mark it so the run
+        // stages its conflict policy without any modal ("ask" degrades to
+        // "rename", logged by onRunClicked).
+        m_unattendedAutoRunPending = true;
         onRunClicked();
+    }
 }
 
 // ── Output path resolution ────────────────────────────────────────────────────
 
-QString BatchMode::resolveOutputPath(const QString& inputPath) const {
+namespace {
+// R26-P2 U2 (plan §4.3): rename de-confliction — defined with the preset
+// chain below; first use is the preset arm of resolveOutputPath above it.
+QString deConflictRename(const QString& firstChoice, QString* err);
+}
+
+QString BatchMode::resolveOutputPath(const QString& inputPath, QString* deConflictErr) const {
     int opIdx = m_opCombo ? m_opCombo->currentIndex() : 0;
 
     // Determine output directory
@@ -972,6 +999,10 @@ QString BatchMode::resolveOutputPath(const QString& inputPath) const {
         // R26: the naming template is resolved exactly as the worker resolves
         // it (same pure function, same file index from the list order), so
         // the overwrite pre-check and the actual commit always agree.
+        // R26-P2 U2 (§4.3): with onConflict "rename" the resolved path is
+        // de-conflicted AT STAGING to the first free stem-N (bounded,
+        // re-checked through the containment guard) — the AR-8 pre-check
+        // then sees no conflict and never prompts.
         if (!m_presetSelected) return {};
         outDir = pickOutDir(m_presetOutDir);
         if (outDir.isEmpty()) outDir = QFileInfo(inputPath).absolutePath();
@@ -982,7 +1013,25 @@ QString BatchMode::resolveOutputPath(const QString& inputPath) const {
                                               m_selectedPreset.id, n,
                                               QDate::currentDate(), &name, &namingErr))
             return {};
-        return QDir(outDir).filePath(name);
+        QString path = QDir(outDir).filePath(name);
+        const QString policy = m_presetConflictOverride.isEmpty()
+                                   ? m_selectedPreset.onConflict
+                                   : m_presetConflictOverride;
+        if (policy == QLatin1String("rename")) {
+            QString dErr;
+            const QString freed = deConflictRename(path, &dErr);
+            if (freed.isEmpty()) {
+                // R26-P2 U2: the exhaustion reason survives staging — the
+                // worker reports it as the file's techDetail instead of the
+                // generic "no output path" line (an honest file-scoped
+                // failure, never a silent overwrite).
+                if (deConflictErr && !dErr.isEmpty())
+                    *deConflictErr = dErr;
+                return {};
+            }
+            path = freed;
+        }
+        return path;
     }
     default:
         return {};
@@ -1170,6 +1219,54 @@ bool runPresetMutatingStep(PdfEditorEngine& editor, const BatchPresetStep& step,
     return ok;
 }
 
+// ── R26-P2 U2 (plan §4.3): rename de-confliction ─────────────────────────────
+// First free `stem-N.pdf` for the already-resolved (containment-checked)
+// `firstChoice`, bounded at 998 attempts. Every candidate is re-validated
+// through resolveNaming — the W1-01 choke point — so a renamed output obeys
+// exactly the same rules (bare component, no device names, bounded length)
+// as the template render. Exhaustion is an honest failure: there is NO
+// fallback that overwrites, and "ask"/"overwrite" never enter here.
+QString deConflictRename(const QString& firstChoice, QString* err) {
+    const QFileInfo fi(firstChoice);
+    // The policy de-conflicts an ACTUAL conflict (plan §4.3 — "output path
+    // exists → rename …"): a free first choice is used verbatim, stem-2 is
+    // for the second file with the same rendered name, not for the first.
+    if (!QFileInfo::exists(firstChoice))
+        return firstChoice;
+    const QString dir = fi.absolutePath();
+    for (int attempt = 2; attempt <= 999; ++attempt) {
+        const QString name = BatchPresetSchema::renameCandidate(fi.fileName(), attempt);
+        if (name.isEmpty()) {
+            if (err)
+                *err = QStringLiteral("%1 cannot be de-conflicted — the name does not "
+                                      "end \".pdf\" or its stem is empty").arg(firstChoice);
+            return {};
+        }
+        // W1-01: re-check the candidate through the shared choke point
+        // (containment + reserved device names + length), rendering it
+        // verbatim (a rendered name never contains '{' tokens).
+        QString checkName;
+        QString checkErr;
+        if (!BatchPresetSchema::resolveNaming(name, {}, {}, 1, QDate::currentDate(),
+                                              &checkName, &checkErr)
+            || checkName != name) {
+            if (err)
+                *err = checkErr.isEmpty()
+                           ? QStringLiteral("rename candidate %1 failed the containment "
+                                            "check").arg(name)
+                           : checkErr;
+            return {};
+        }
+        const QString candidate = QDir(dir).filePath(name);
+        if (!QFileInfo::exists(candidate))
+            return candidate;
+    }
+    if (err)
+        *err = QStringLiteral("%1: every rename candidate stem-2…stem-999 already "
+                              "exists — nothing was overwritten").arg(firstChoice);
+    return {};
+}
+
 // pdfa-check: a NON-mutating step — validates the candidate in flight and
 // never touches the destination (plan §3.1 step 4). A failed check fails the
 // file honestly: a "web-optimize" that cannot pass its declared PDF/A level
@@ -1207,7 +1304,8 @@ bool runPresetCheckStep(const QString& current, const BatchPresetStep& step,
 bool runPresetChain(const QString& inputPath, const QString& outputPath,
                     const BatchPreset& preset, QMutex* engineMutex,
                     PresetRunState* runState, QList<BatchStepResult>* stepRecords,
-                    QString* techDetail) {
+                    const std::function<void(const QString&)>& raceHook,
+                    QString* resolvedOutput, QString* techDetail) {
     // PDFium (QPdfDocument) is not thread-safe: the read-side probes of the
     // chain are serialized behind the SAME engine mutex the batch OCR path
     // uses for its PDFium probes (PoDoFo writer steps stay parallel).
@@ -1332,10 +1430,32 @@ bool runPresetChain(const QString& inputPath, const QString& outputPath,
     }
 
     if (ok) {
-        QString commitErr;
-        ok = SafeSave::commitFileToDestination(current, outputPath, &commitErr);
-        if (!ok && techDetail->isEmpty())
-            *techDetail = commitErr;
+        // R26-P2 U2 (plan §4.3): with onConflict "rename" the pinned name is
+        // RE-CHECKED at commit — a file may have appeared between the staging
+        // pin and now. That is a rename-resolution retry (bounded, contained),
+        // then an honest file-scoped failure. There is no silent overwrite.
+        QString dest = outputPath;
+        if (ok && raceHook)
+            raceHook(dest);   // seam models the rival writer striking pre-commit
+        if (ok && preset.onConflict == QLatin1String("rename") && QFileInfo::exists(dest)) {
+            QString dErr;
+            const QString freed = deConflictRename(dest, &dErr);
+            if (freed.isEmpty()) {
+                if (techDetail->isEmpty())
+                    *techDetail = dErr;
+                ok = false;
+            } else {
+                dest = freed;
+            }
+        }
+        if (ok) {
+            QString commitErr;
+            ok = SafeSave::commitFileToDestination(current, dest, &commitErr);
+            if (!ok && techDetail->isEmpty())
+                *techDetail = commitErr;
+        }
+        if (ok && resolvedOutput)
+            *resolvedOutput = dest;   // report the FINAL (possibly renamed) path
     } else if (stepRecords && failedAt >= 0) {
         // Steps after the failure were never attempted — honest skipped rows
         // (plan §3 status set), never a silently truncated record list.
@@ -1418,6 +1538,12 @@ void BatchMode::onRunClicked() {
     // changes WHAT runs, not HOW results are accounted — the run below flows
     // through the same per-file mapped pipeline, SafeSave commit and G12
     // exactly-once accounting as every other op.
+    // R26-P2 U2 (§4.5): consume the unattended flag ONCE. An auto-run ingest
+    // with onConflict "ask" degrades to "rename" — a modal overwrite prompt
+    // from the watcher path would block the GUI on a dropped file (and W1-01
+    // already forbids silent overwrite). The degrade is logged, never silent.
+    m_presetConflictOverride.clear();
+    bool unattendedConflictDegraded = false;
     QString presetBlocker;
     if (opIdx == OpPresetPipeline) {
         if (!m_presetSelected) {
@@ -1425,6 +1551,13 @@ void BatchMode::onRunClicked() {
                 tr("Select a preset to run, or configure an operation and "
                    "choose \u201cSave as preset\u2026\u201d to create one."));
             return;
+        }
+        if (m_unattendedAutoRunPending) {
+            m_unattendedAutoRunPending = false;
+            if (m_selectedPreset.onConflict == QLatin1String("ask")) {
+                m_presetConflictOverride = QLatin1String("rename");
+                unattendedConflictDegraded = true;
+            }
         }
         // Run gate: steps present, minAppVersion satisfied, and every step's
         // capability re-queried NOW (GUI thread, cached probes). An
@@ -1488,6 +1621,9 @@ void BatchMode::onRunClicked() {
     appendLog(tr("Starting batch: %1 files — operation: %2")
         .arg(m_filesToProcess.size())
         .arg(m_opCombo->currentText()));
+    if (unattendedConflictDegraded)
+        appendLog(tr("Unattended run: conflicting outputs were renamed instead of "
+                     "asking (hot folder)."), "#c8a000");
     m_batchTimer.restart();
 
     // Capture config values for the worker lambda (all GUI data captured before worker starts)
@@ -1576,13 +1712,26 @@ void BatchMode::onRunClicked() {
                                                                      Qt::SkipEmptyParts)
                                     : QStringList());
 
-    const BatchPreset capturedPreset = m_selectedPreset;
+    // R26-P2 U2: the worker sees the EFFECTIVE conflict policy (the
+    // unattended degrade included), not just the preset's stored value.
+    BatchPreset capturedPreset = m_selectedPreset;
+    if (!m_presetConflictOverride.isEmpty())
+        capturedPreset.onConflict = m_presetConflictOverride;
     const QString capturedPresetBlocker = presetBlocker;
     QMap<QString, QString> capturedOutputs;
+    // R26-P2 U2: per-file staged resolve failures carry their de-conflict
+    // reason (rename exhaustion) so the worker can report it verbatim.
+    QMap<QString, QString> capturedResolveErrors;
     if (opIdx == OpPresetPipeline) {
-        for (const QString& f : capturedFiles)
-            capturedOutputs.insert(f, resolveOutputPath(f));
+        for (const QString& f : capturedFiles) {
+            QString resolveErr;
+            const QString out = resolveOutputPath(f, &resolveErr);
+            if (out.isEmpty() && !resolveErr.isEmpty())
+                capturedResolveErrors.insert(f, resolveErr);
+            capturedOutputs.insert(f, out);
+        }
     }
+    m_presetConflictOverride.clear();   // staging done — never leak the override
 
     // Worker lambda — runs on QtConcurrent thread pool.
     // All captured values are by-value copies of GUI state taken above on the GUI thread.
@@ -1592,6 +1741,8 @@ void BatchMode::onRunClicked() {
     // on the mapped pipeline — lane selection guarantees bates never maps
     // there, and the chain fails the file honestly if it ever does).
     QMutex* engineMutexPtr = &m_engineMutex;
+    // R26-P2 U2: captured by value — the member itself is never read cross-thread.
+    const std::function<void(const QString&)> raceHook = m_presetRaceHook;
 
     auto processFileReal = [=](const QString& inputPath, PresetRunState* runState) -> BatchFileResult {
         BatchFileResult result;
@@ -1654,11 +1805,19 @@ void BatchMode::onRunClicked() {
             // file-scoped and honest — the original is untouched, every
             // intermediate removed.
             if (result.outputPath.isEmpty()) {
-                techDetail = QStringLiteral("no output path was resolved for this file");
+                // R26-P2 U2: a staged rename exhaustion reports its own
+                // bounded-exhaustion reason (plan §4.3 — honest file-scoped
+                // failure, nothing overwritten); anything else stays generic.
+                techDetail = capturedResolveErrors.value(
+                    inputPath, QStringLiteral("no output path was resolved for this file"));
                 ok = false;
             } else {
+                QString resolvedOut = result.outputPath;
                 ok = runPresetChain(inputPath, result.outputPath, capturedPreset,
-                                    engineMutexPtr, runState, &result.steps, &techDetail);
+                                    engineMutexPtr, runState, &result.steps,
+                                    raceHook, &resolvedOut, &techDetail);
+                if (ok)
+                    result.outputPath = resolvedOut;   // report the final (renamed) path
             }
         } else if (capturedOp == OpConvert) {
             // convertTo is specified as stateless (takes full pdfPath arg) — no mutex needed

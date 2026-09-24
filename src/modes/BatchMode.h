@@ -237,6 +237,27 @@ public:
         m_presetBoundaryHook = std::move(hook);
     }
 
+    // R26-P2 U2 (plan §4.3): pre-check/commit race seam — invoked on the
+    // worker immediately BEFORE commitFileToDestination with the final
+    // destination path. Production never sets it; the run captures it by
+    // value. MUST be set before onRunBatch().
+    void setPresetRaceHookForTest(std::function<void(const QString& dest)> hook) {
+        m_presetRaceHook = std::move(hook);
+    }
+
+    // R26-P2 U2: drives the watcher's ingest path synchronously (the debounce
+    // timer's work — list the hot folder, ingest new files, auto-run when the
+    // option is on). Tests never wait on QFileSystemWatcher timing.
+    void runHotFolderIngestForTest() {
+        if (!m_hotFolderPath.isEmpty())
+            onHotFolderChanged(m_hotFolderPath);
+    }
+
+    // R26-P2 U2: arms the hot folder WITHOUT the native directory picker (the
+    // checkbox path stays interactive). Same seeding as onToggleHotFolder's
+    // ON branch; the auto-run option is switched on so the ingest runs.
+    void armHotFolderForTest(const QString& dir);
+
 signals:
     // Emitted from onBatchFinished so tests can spy on completion.
     void batchFinished();
@@ -276,7 +297,12 @@ private:
     void buildProgressPanel(QWidget* host);
     void addFilePaths(const QStringList& paths);
     void syncFileList();
-    QString resolveOutputPath(const QString& inputPath) const;
+    // R26-P2 U2: `deConflictErr` optionally receives the rename
+    // de-confliction exhaustion reason (plan §4.3) when the returned path is
+    // empty because every stem-N candidate was occupied — the caller reports
+    // it instead of a generic resolution failure. Never overwrites.
+    QString resolveOutputPath(const QString& inputPath,
+                              QString* deConflictErr = nullptr) const;
     bool confirmOverwrite(const QString& path);
 
     // R26 (batch-presets P1): the preset config panel (picker + step/capability
@@ -444,6 +470,13 @@ private:
     // start) and the last run's per-file results (G12 accounting order).
     std::function<void(int)> m_presetBoundaryHook;
     QList<BatchFileResult>   m_lastRunResults;
+    // R26-P2 U2 (§4.3/§4.5): the pre-check/commit race seam and the
+    // unattended-ingest state — the pending flag is consumed once per run;
+    // while set, the staged preset's effective onConflict is "rename"
+    // (ask degrades, logged) so the watcher path never opens a modal.
+    std::function<void(const QString&)> m_presetRaceHook;
+    bool     m_unattendedAutoRunPending = false;
+    QString  m_presetConflictOverride;
 };
 
 } // namespace gp

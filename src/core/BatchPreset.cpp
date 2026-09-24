@@ -195,6 +195,28 @@ bool resolveNaming(const QString& naming, const QString& basename,
     return true;
 }
 
+// R26-P2 (plan §4.3): the pure rename de-conflict naming rule — see the
+// header contract. Callers re-check every candidate through resolveNaming.
+QString renameCandidate(const QString& resolvedName, int attempt) {
+    if (attempt < 2) return {};
+    // W1-01: the input must already be a BARE component (a rendered
+    // resolveNaming result) — anything carrying separators or drive syntax
+    // is refused, never re-rendered into an escape.
+    if (resolvedName.contains(QLatin1Char('/')) || resolvedName.contains(QLatin1Char('\\'))
+        || resolvedName.contains(QLatin1Char(':')))
+        return {};
+    if (!resolvedName.endsWith(QLatin1String(".pdf"), Qt::CaseInsensitive))
+        return {};
+    QString stem = resolvedName.left(resolvedName.size() - 4);
+    // Continue the chain from an already-renamed name ("x-2.pdf" occupied
+    // next -> "x-3.pdf", never "x-2-3.pdf").
+    static const QRegularExpression trailingNum(QStringLiteral("-[0-9]+$"));
+    stem.remove(trailingNum);
+    if (stem.isEmpty())
+        return {};
+    return stem + QStringLiteral("-%1.pdf").arg(attempt);
+}
+
 int compareVersions(const QString& a, const QString& b) {
     const auto split = [](const QString& v) {
         QList<qint64> parts;
@@ -781,10 +803,15 @@ bool parse(const QByteArray& json, BatchPreset* out, QString* err) {
             if (output.value(QStringLiteral("onConflict")).type() != QJsonValue::String)
                 return fail(err, QStringLiteral("output.onConflict: expected a string (schema v1)"));
             p.onConflict = output.value(QStringLiteral("onConflict")).toString();
-            if (p.onConflict != QLatin1String("ask") && p.onConflict != QLatin1String("overwrite"))
-                return fail(err, QStringLiteral("output.onConflict: \"%1\" is not implemented by "
-                                                "this build (schema v1 offers ask/overwrite/rename; "
-                                                "this app supports: ask, overwrite)").arg(p.onConflict));
+            // R26-P2 (plan §4.3): "rename" is implemented as of this build —
+            // the last v1 enum value joins ask/overwrite (kSchemaVersion
+            // stays 1). An UNKNOWN value is still refused: fail-closed did
+            // not loosen.
+            if (p.onConflict != QLatin1String("ask")
+                && p.onConflict != QLatin1String("overwrite")
+                && p.onConflict != QLatin1String("rename"))
+                return fail(err, QStringLiteral("output.onConflict: \"%1\" is not one of ask, "
+                                                "overwrite, rename (schema v1)").arg(p.onConflict));
         }
     }
 
