@@ -2007,11 +2007,16 @@ private slots:
         QVERIFY(status && disclosure);
 
         // Honesty box: must bound what the report means (never overclaim).
+        // Contract update (PR-review §3.5): bf85bfbd (T2-4 P2 accessibility
+        // panel) legitimately EXTENDED the P1 disclosure — "Detection only"
+        // became "Detection and tagging", the "never certifies" sentence is
+        // retained verbatim. Assert the new wording, keep the never-certifies
+        // check (the honest bound is what F7 pins, not the old phrase).
         const QString disc = disclosure->text();
         step(QStringLiteral("F7 disclosure box: '%1'").arg(disc));
-        QVERIFY2(disc.contains(QStringLiteral("Detection only"), Qt::CaseInsensitive)
+        QVERIFY2(disc.contains(QStringLiteral("Detection and tagging"), Qt::CaseInsensitive)
                      && disc.contains(QStringLiteral("never certifies"), Qt::CaseInsensitive),
-                 "F7 honesty: the disclosure must say detection-only, never a certification");
+                 "F7 honesty: the disclosure must say detection-and-tagging, never a certification");
 
         // Explicit scan.
         auto *runBtn = panel->findChild<QPushButton *>(QStringLiteral("a11yRunButton"));
