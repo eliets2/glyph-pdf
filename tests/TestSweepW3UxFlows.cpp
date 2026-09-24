@@ -43,6 +43,8 @@
 #include <QDialogButtonBox>
 #include <QProgressDialog>
 
+#include "engines/DocumentSession.h"
+
 #include <memory>
 #include <functional>
 
