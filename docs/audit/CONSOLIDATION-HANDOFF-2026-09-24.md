@@ -8,7 +8,8 @@ here: nothing is merged, no branch deleted, `main` untouched.**
 ## 1. Final state
 
 - **Final PR head: the handoff commit itself** — see `git log --oneline -1`
-  (parent `6f0ab646` docs row-append; before that `77db5be5`, the C.6 pick).
+  (parent `77db5be5`, the C.6 pick; the handoff's own tip was pushed as
+  `06f655e2` plus any later docs-only touch-ups).
 - 24 commits added this run on top of Phase B's `7d4d8d08`: 22 cherry-picks
   (all with `-x` source trailers) + docs commits (`83289757` Phase C/D tables,
   the ledger row-append, this handoff). History **linear**:
