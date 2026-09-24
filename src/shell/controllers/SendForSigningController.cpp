@@ -253,8 +253,20 @@ void SendForSigningController::runSignStep(int signerIndex)
     // like runA11yFix and the FormsController form import (V01). The next
     // resolveDocument lazily re-loads from disk: the committed result on
     // success, the preserved original on a failed step — truthful either way.
-    if (_ctx->pdfEditor)
+    // M2 (PR-review §4): the fill step commits IN PLACE onto the open
+    // document — unsaved session changes would be silently dropped by the
+    // rewrite. Checked save-first prompt (Save / Discard / Cancel) before
+    // the resident document is parked.
+    if (_ctx->pdfEditor) {
+        if (!_mainWindow->confirmSaveBeforeInPlaceWrite(
+                tr("filling the signing request"))) {
+            _mainWindow->statusBar()->showMessage(
+                tr("Signing step canceled — the document has unsaved changes."),
+                5000);
+            return;
+        }
         _ctx->pdfEditor->releaseResidentFile(docPath);
+    }
 
     // Worker thread (runSigning idiom): the engine call runs off the GUI
     // thread; the result is read only after the worker finished.

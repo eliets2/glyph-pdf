@@ -1551,6 +1551,13 @@ private slots:
             bool f4dOkSeen = false, f4dNoSeen = false;
             clickPromptButton(QStringLiteral("OK"), &f4dOkSeen, 60000);
             clickPromptButton(QStringLiteral("No"), &f4dNoSeen, 60000);
+            // M2 (PR-review §4): the fill step commits IN PLACE onto the
+            // open document, so with the session dirty the shell asks the
+            // Save / Discard / Cancel question first. The audit answers
+            // Discard — the explicit proceed-without-saving escape — and
+            // records it.
+            bool f4dDiscardSeen = false;
+            clickPromptButton(QStringLiteral("Discard"), &f4dDiscardSeen, 60000);
             bool sigDialogSeen = false;
             driveModalDialog(QStringLiteral("signatureCertPathEdit"), [&](QWidget *w) {
                 if (auto *cert = w->findChild<QLineEdit *>(
@@ -2097,6 +2104,164 @@ private slots:
                  .arg(status->text()).arg(f7OkSeen).arg(f7YesSeen).arg(f7NoSeen));
     }
 
+    // ── F7b (PR-review §3.1): the tag route is a MUTATION — a read-only
+    // session must refuse it with the one honest wording, before any
+    // pre-flight surface, with the file byte-identical and the shell
+    // runner's hard stop never crossed.
+    void flow7b_tag_refused_on_read_only_session()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString doc = dir.filePath("taggable-ro.pdf");
+        {
+            PoDoFo::PdfMemDocument pdf;
+            auto &page = pdf.GetPages().CreatePage(
+                PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            PoDoFo::PdfPainter painter;
+            painter.SetCanvas(page);
+            auto &font = pdf.GetFonts().GetStandard14Font(
+                PoDoFo::PdfStandard14FontType::Helvetica);
+            painter.TextState.SetFont(font, 12.0);
+            painter.DrawText("Tag me if you can", 50, 750);
+            painter.FinishDrawing();
+            pdf.Save(doc.toUtf8().constData());
+        }
+        QVERIFY(QFileInfo::exists(doc));
+        step("F7b start: untagged fixture, open through the real route");
+        runCardRoute("open", doc);
+        QTRY_COMPARE_WITH_TIMEOUT(m_win->pdfViewer()->pageCount(), 1, 20000);
+        m_win->activateScreen(QStringLiteral("accessibility"));
+        auto *panel = m_win->findChild<gp::AccessibilityPanel *>();
+        QVERIFY2(panel, "F7b: the accessibility panel must be hosted");
+        auto *tagBtn = panel->findChild<QPushButton *>(QStringLiteral("a11yTagButton"));
+        auto *status = panel->findChild<QLabel *>(QStringLiteral("a11yStatusLabel"));
+        QVERIFY(tagBtn && status);
+        // Scan settled: the taggable document enables the Tag action.
+        QTRY_VERIFY_WITH_TIMEOUT(tagBtn->isEnabled(), 20000);
+        // Flip the REAL session read-only — the production authority the
+        // shell's injected gate asks (EditPolicy::mutationBlocked).
+        QVERIFY(m_win->appContext() && m_win->appContext()->document);
+        m_win->appContext()->document->setReadOnly(true);
+        QFile before(doc);
+        QVERIFY(before.open(QIODevice::ReadOnly));
+        const QByteArray originalBytes = before.readAll();
+        before.close();
+        tagBtn->click();
+        // Honest refusal in the panel's status line — no pre-flight surface.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            status->text().contains(QStringLiteral("read-only"),
+                                    Qt::CaseInsensitive),
+            10000);
+        step(QStringLiteral("F7b refusal status: '%1'").arg(status->text()));
+        auto *confirm = panel->findChild<QWidget *>(QStringLiteral("a11yTagConfirm"));
+        QVERIFY2(!confirm || !confirm->isVisible(),
+                 "F7b: a read-only refusal must not render the pre-flight");
+        QTest::qWait(300);   // a (wrong) async tagging run would surface here
+        QFile after(doc);
+        QVERIFY(after.open(QIODevice::ReadOnly));
+        const QByteArray currentBytes = after.readAll();
+        after.close();
+        QVERIFY2(currentBytes == originalBytes,
+                 "F7b: a read-only session must leave the file byte-identical");
+        QVERIFY2(QFileInfo::exists(doc), "F7b: the document must survive");
+        // Restore the session so a re-run of the slot starts clean.
+        m_win->appContext()->document->setReadOnly(false);
+        step("F7b verified: read-only session refuses tagging; file untouched");
+    }
+    // ── F7c: in-place write boundaries ask Save / Discard / Cancel when the
+    // session is dirty (PR-review §4 M2) ────────────────────────────────
+    // runA11yTag rewrites the open file in place; with the REAL session marked
+    // dirty the shell asks the closeEvent policy question (marshaled to the
+    // GUI thread from the runner worker). Cancel aborts — byte-identical;
+    // Discard is the explicit escape — the tagging proceeds.
+    void flow7c_dirty_session_save_first_prompt()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString doc = dir.filePath("taggable-dirty.pdf");
+        {
+            PoDoFo::PdfMemDocument pdf;
+            auto &page = pdf.GetPages().CreatePage(
+                PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            PoDoFo::PdfPainter painter;
+            painter.SetCanvas(page);
+            auto &font = pdf.GetFonts().GetStandard14Font(
+                PoDoFo::PdfStandard14FontType::Helvetica);
+            painter.TextState.SetFont(font, 12.0);
+            painter.DrawText("Tag me dirty", 50, 750);
+            painter.FinishDrawing();
+            pdf.Save(doc.toUtf8().constData());
+        }
+        runCardRoute("open", doc);
+        QTRY_COMPARE_WITH_TIMEOUT(m_win->pdfViewer()->pageCount(), 1, 20000);
+        m_win->activateScreen(QStringLiteral("accessibility"));
+        auto *panel = m_win->findChild<gp::AccessibilityPanel *>();
+        QVERIFY2(panel, "F7c: the accessibility panel must be hosted");
+        auto *tagBtn = panel->findChild<QPushButton *>(QStringLiteral("a11yTagButton"));
+        auto *applyBtn =
+            panel->findChild<QPushButton *>(QStringLiteral("a11yTagApplyButton"));
+        auto *status = panel->findChild<QLabel *>(QStringLiteral("a11yStatusLabel"));
+        QVERIFY(tagBtn && applyBtn && status);
+        QTRY_VERIFY_WITH_TIMEOUT(tagBtn->isEnabled(), 20000);
+        // Mark the REAL session dirty — the production flag the shell's
+        // save-first prompt asks (DocumentSession::isDirty).
+        QVERIFY(m_win->appContext() && m_win->appContext()->document);
+        m_win->appContext()->document->markDirty();
+        QFile before(doc);
+        QVERIFY(before.open(QIODevice::ReadOnly));
+        const QByteArray originalBytes = before.readAll();
+        before.close();
+        // Pre-flight renders the confirm surface; Apply reaches the runner,
+        // which asks the save-first question on the GUI thread. The
+        // tagRunFinished spy fences each run: the slot must not return (and
+        // teardown must not destroy the window) while the tagging worker is
+        // still inside its transaction.
+        QSignalSpy tagDone(panel, &gp::AccessibilityPanel::tagRunFinished);
+        tagBtn->click();
+        auto *confirm = panel->findChild<QWidget *>(QStringLiteral("a11yTagConfirm"));
+        QTRY_VERIFY_WITH_TIMEOUT(confirm && confirm->isVisible(), 20000);
+        // Cancel: the operation must not run, the file must not change.
+        bool cancelSeen = false;
+        clickPromptButton(QStringLiteral("Cancel"), &cancelSeen);
+        applyBtn->click();
+        QTRY_VERIFY_WITH_TIMEOUT(cancelSeen, 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(tagDone.size(), 20000);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            status->text().contains(QStringLiteral("unsaved changes"),
+                                    Qt::CaseInsensitive),
+            10000);
+        step(QStringLiteral("F7c cancel status: '%1'").arg(status->text()));
+        QTest::qWait(300);   // a (wrong) async tagging run would surface here
+        QFile afterCancel(doc);
+        QVERIFY(afterCancel.open(QIODevice::ReadOnly));
+        QVERIFY2(afterCancel.readAll() == originalBytes,
+                 "F7c: a canceled save-first prompt must leave the file "
+                 "byte-identical");
+        afterCancel.close();
+        // Discard: the explicit escape — the tagging proceeds and the file
+        // changes on disk.
+        tagBtn->click();
+        QTRY_VERIFY_WITH_TIMEOUT(confirm && confirm->isVisible(), 20000);
+        bool discardSeen = false;
+        clickPromptButton(QStringLiteral("Discard"), &discardSeen);
+        applyBtn->click();
+        QTRY_VERIFY_WITH_TIMEOUT(discardSeen, 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(tagDone.size() >= 2, 30000);
+        // Tagging proceeded: the file on disk is no longer the original bytes.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            [&]() {
+                QFile f(doc);
+                if (!f.open(QIODevice::ReadOnly)) return false;
+                const QByteArray current = f.readAll();
+                return !current.isEmpty() && current != originalBytes;
+            }(),
+            30000);
+        step("F7c discard: tagging proceeded past the explicit Discard");
+        // Restore the session so a re-run of the slot starts clean.
+        m_win->appContext()->document->setClean();
+        step("F7c verified: dirty session asks Save/Discard/Cancel at the "
+             "in-place write boundary");
+    }
     // The a11y fix editor is an INLINE frame (not modal): fill the language
     // combo or alt-text edit and click Apply inside the panel.
     void driveModallessEditor(gp::AccessibilityPanel *panel)
