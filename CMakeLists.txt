@@ -5793,7 +5793,37 @@ endif()
 # One slot per row, each with its own fixture values / harness shape / entry
 # path — docs/audit/SWEEP-W2-GSD-2026-09-21.md §Method.
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestGsdW2Probe.cpp")
-    add_executable(TestGsdW2Probe tests/TestGsdW2Probe.cpp)
+    # ── R14 reviewer probe (Plan 11 item 3, residexec 2026-09-23): the
+# independent-reviewer BatchSkip probe was a dead unregistered file at the
+# consolidated tip (archaeologist §8). Registered as a DELIBERATE run: it
+# carries its own fixtures + counting OCR and is labeled `R14-probe`, but
+# DISABLED by default so ordinary ctest sweeps neither pay its runtime nor
+# false-fail on it; run it explicitly with
+#   ctest -R R14ProbeBatchSkip -C Debug   (ctest runs disabled tests when
+#   named explicitly... use `ctest --show-only` to inspect).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/R14ProbeBatchSkip.cpp")
+    add_executable(R14ProbeBatchSkip tests/R14ProbeBatchSkip.cpp)
+    target_include_directories(R14ProbeBatchSkip PRIVATE src tests)
+    target_link_libraries(R14ProbeBatchSkip PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+    )
+    if(WIN32)
+        add_custom_command(TARGET R14ProbeBatchSkip POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:R14ProbeBatchSkip>/libpodofo.dll"
+            COMMENT "Deploying podofo 1.1.0 DLL for R14ProbeBatchSkip"
+        )
+    endif()
+    add_test(NAME R14ProbeBatchSkip COMMAND R14ProbeBatchSkip)
+    set_tests_properties(R14ProbeBatchSkip PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 600
+        LABELS "R14-probe;probe;qt;headless"
+        DISABLED TRUE)
+endif()
+
+add_executable(TestGsdW2Probe tests/TestGsdW2Probe.cpp)
     target_include_directories(TestGsdW2Probe PRIVATE src tests)
     target_link_libraries(TestGsdW2Probe PRIVATE
         pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
