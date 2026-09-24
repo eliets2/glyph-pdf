@@ -1379,6 +1379,74 @@ private slots:
                  "the PGR-10 downgrade must not swallow honest empty regions");
     }
 
+    void blankMarkWhereExcisedOpsExceedAttributionIsUnverifiable()
+    {
+        // PGR-10 (M1): per-mark accounting. The page-level rule kept a blank
+        // mark's "verified-no-text-in-region" whenever ANY other mark on the
+        // page had attributed strings — even when the page excised MORE
+        // glyph-carrying operators than attribution could account for, so the
+        // unaccountable operators may sit inside the blank mark's region.
+        // Deterministic construction at the proof seam (same technique as the
+        // page-level PGR-10 pin): the source draws TWO glyph ops; the
+        // committed output excises BOTH (two numeric TJ gap substitutes —
+        // glyph ops 2 -> 0); exactly ONE run is attributed (mark A covers the
+        // user-y=700 run; mark B is a blank corner). Excised (2) exceeds
+        // attributed (1): mark B must be unverifiable and the verdict must
+        // fail — under the old page-level rule this exact shape PASSED with
+        // B certified verified-no-text-in-region.
+        // The FIRST op sits at user y=700 so mark A reuses the proven
+        // secretMark() geometry; the second op is a relative 600pt below it
+        // (user y=100), deliberately covered by NO mark.
+        const QString src = makeMechanicsPdf(
+            m_tmpDir.filePath("m1_src.pdf"),
+            "BT /F1 24 Tf 72 700 Td (SESAMESECRET) Tj 0 -600 Td (SECONDSECRET) Tj ET\n");
+        const QString out = makeMechanicsPdf(
+            m_tmpDir.filePath("m1_out.pdf"),
+            "BT /F1 24 Tf 72 700 Td [ 42 ] TJ 0 -600 Td [ 43 ] TJ ET\n");
+        QVERIFY2(!src.isEmpty(), "M1 source fixture must build");
+        QVERIFY2(!out.isEmpty(), "M1 output fixture must build");
+
+        Request req;
+        req.sourcePath = src;
+        req.outputPath = out;
+        // The fixture page is 612x792 (makeMechanicsPdf), NOT A4: mark A's
+        // viewer rect is computed against 792. Viewer y = 792 - 100 - 24 = 668
+        // puts the mark's user-space band at [100..124] over the y=100 run.
+        req.redactionsByPage[0].append(QRectF(60.0, 668.0, 240.0, 24.0));
+        req.redactionsByPage[0].append(QRectF(300.0, 400.0, 100.0, 50.0)); // blank corner
+        const Result proof = verify(req);
+        QVERIFY(proof.proofRan);
+        QVERIFY2(!proof.proofPassed,
+                 qPrintable(QStringLiteral("excised ops (2) beyond attributed runs (1) "
+                                          "must fail the pack: %1")
+                                .arg(joinedFailures(proof))));
+        QVERIFY2(proof.entries.size() == 2, "two marks, two entries");
+        QString statuses;
+        for (const ExcisionEntry& e : proof.entries)
+            statuses += entryStatusName(e.status) + QLatin1Char(' ');
+        bool sawVerified = false;
+        bool sawBlankUnverifiable = false;
+        for (const ExcisionEntry& e : proof.entries) {
+            if (e.region == QRectF(300.0, 400.0, 100.0, 50.0)) {
+                sawBlankUnverifiable =
+                    entryStatusName(e.status) == QStringLiteral("unverifiable");
+                QVERIFY2(e.detail.contains(QStringLiteral("cannot be checked")),
+                         "the blank mark's detail must say no claim is made either way");
+            } else if (entryStatusName(e.status) == QStringLiteral("verified")) {
+                sawVerified = true;
+            }
+        }
+        QVERIFY2(sawVerified,
+                 qPrintable(QStringLiteral("the attributed mark must stay verified; "
+                                          "statuses: %1").arg(statuses)));
+        QVERIFY2(sawBlankUnverifiable,
+                 qPrintable(QStringLiteral("the blank mark must be unverifiable when the "
+                                          "page excised more glyph ops than attribution "
+                                          "accounts for; statuses: %1").arg(statuses)));
+        QVERIFY2(joinedFailures(proof).contains(QStringLiteral("UNVERIFIED")),
+                 "the verdict must name the unverifiable entry");
+    }
+
     void extraSurvivorStringsAreSwept()
     {
         // Pattern-redaction hook: caller-supplied strings are swept even when
