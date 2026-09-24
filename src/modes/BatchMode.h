@@ -51,6 +51,15 @@ struct BatchStepResult {
     // bates steps only: the first/last number actually stamped (-1 = n/a).
     int     firstBates = -1;
     int     lastBates  = -1;
+    // R26-P2 U5 (plan §3/§4.8): measured on-disk sizes of the chain links —
+    // bytesIn = the link entering the step (the input file for step 0), bytesOut
+    // = the candidate AS PRODUCED (measured after validation promoted it) — and
+    // the step's wall-clock duration. Measured facts, never estimates (the M8
+    // readout discipline). -1 = not measured: a failed step produced no link;
+    // a pdfa-check row is non-mutating (bytesIn == bytesOut, no byte delta).
+    qint64  bytesIn    = -1;
+    qint64  bytesOut   = -1;
+    qint64  durationMs = -1;
     QString detail;
 };
 
@@ -241,6 +250,21 @@ public:
     // per-step records (bates ranges, and measured bytes from U5). Test seam;
     // empty until the first run.
     QList<BatchFileResult> runResultsForTest() const { return m_lastRunResults; }
+
+    // ── R26-P2 U5 (plan §3/§4.8): the per-step measured-bytes report ──────────
+    // Pure formatters over a run's per-file results (per-step records
+    // included): JSON follows the M5 export precedent (QJsonDocument
+    // Indented); CSV is RFC-4180 — CRLF record separators, every field
+    // quoted, '"' doubled inside fields. exportRunReport picks the format
+    // by extension (.csv → CSV, anything else → JSON) and verifies the
+    // write before claiming success. Raw byte counts — measured on disk,
+    // no estimates, no humanized rounding in the artifact.
+    static QByteArray runReportJson(const QList<BatchFileResult>& results);
+    static QByteArray runReportCsv(const QList<BatchFileResult>& results);
+    bool exportRunReport(const QString& path) const;
+    // Seam: the export path without the native save dialog.
+    bool exportRunReportForTest(const QString& path) const
+        { return exportRunReport(path); }
 
     // Lane rule of record (plan §4.2): bates-bearing presets need cross-file
     // continuity, which is only honest BY CONSTRUCTION — they run on the
@@ -516,6 +540,10 @@ private:
     // the abort line can disclose that the hot folder stays armed.
     QString  m_batchAbortCause;
     bool     m_runWasUnattended = false;
+    // R26-P2 U5: true when the last dispatched run was a PRESET run — the
+    // Export Log button then exports the per-step run report (classic runs
+    // keep exporting the error log).
+    bool     m_lastRunWasPreset = false;
 };
 
 } // namespace gp

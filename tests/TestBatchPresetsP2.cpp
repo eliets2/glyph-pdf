@@ -19,6 +19,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLineEdit>
@@ -147,6 +148,11 @@ private slots:
     void batchAbortBeforeStartTouchesNothing();
     void batchScopedMidRunAbortsOrderedLaneAndDrainsRemainder();
     void batchAbortUnattendedNotesHotFolderStaysArmed();
+
+    // ── U5: per-step measured-bytes report (JSON + CSV) ───────────────────────
+    void measuredBytesTwoStepChainHandComputed();
+    void runReportJsonShapePinned();
+    void runReportCsvShapePinned();
 
 private:
     std::unique_ptr<QTemporaryDir> m_storeDir;
@@ -1283,6 +1289,196 @@ void TestBatchPresetsP2::batchAbortUnattendedNotesHotFolderStaysArmed() {
     QVERIFY2(log.contains(QStringLiteral("Run aborted before start")), qPrintable(log.left(1500)));
     QVERIFY2(log.contains(QStringLiteral("hot folder stays armed")),
              qPrintable(log.right(1200)));
+}
+
+// ── U5 pins ────────────────────────────────────────────────────────────────────
+
+// §3/§4.8: the chain instruments every step with MEASURED on-disk byte counts
+// (no estimates): step 0 enters from the input file, each later step enters
+// from the previous candidate, and the last candidate's size is the committed
+// output's size (the commit copies it byte for byte). Two-step golden run:
+// compress → watermark, sizes hand-checked against the files on disk.
+void TestBatchPresetsP2::measuredBytesTwoStepChainHandComputed() {
+    const QString fx = m_runDir->filePath(QStringLiteral("fixtures"));
+    QDir().mkpath(fx);
+    const QString src = createTextPdf(fx, QStringLiteral("doc.pdf"),
+                                      { QStringLiteral("alpha") });
+    QVERIFY(!src.isEmpty());
+    const qint64 inputBytes = QFileInfo(src).size();
+    QVERIFY(inputBytes > 0);
+
+    QVERIFY(writeStoreFile(m_storeDir->path(), QStringLiteral("two-step"),
+                           QStringLiteral(
+        "{\n"
+        "    \"glyphpreset\": { \"schemaVersion\": 1, \"kind\": \"batch-preset\" },\n"
+        "    \"id\": \"two-step\",\n"
+        "    \"name\": \"Two Step\",\n"
+        "    \"created\": \"2026-09-24T00:00:00.000Z\",\n"
+        "    \"modified\": \"2026-09-24T00:00:00.000Z\",\n"
+        "    \"steps\": [\n"
+        "        { \"op\": \"compress\", \"params\": { \"quality\": 60 } },\n"
+        "        { \"op\": \"watermark\", \"params\": { \"text\": \"DRAFT\", \"opacity\": 30 } }\n"
+        "    ]\n"
+        "}\n").toUtf8()));
+
+    AppContext ctx = makeCtx();
+    BatchMode bm;
+    bm.setAppContext(&ctx);
+    bm.setOperationForTest(7);
+    bm.refreshPresetsForTest();
+    QVERIFY(bm.selectPresetForTest(QStringLiteral("two-step")));
+    QDir().mkpath(m_runDir->filePath(QStringLiteral("out")));
+    const QString out = m_runDir->filePath(QStringLiteral("out/doc_two-step.pdf"));
+    presetOutEdit(bm)->setText(m_runDir->filePath(QStringLiteral("out")));
+    bm.addFilesForTest({ src });
+
+    runAndWait(bm);
+    QCOMPARE(bm.successCount(), 1);
+    QVERIFY(QFileInfo::exists(out));
+
+    const auto results = bm.runResultsForTest();
+    QCOMPARE(results.size(), 1);
+    const auto& steps = results.first().steps;
+    QCOMPARE(steps.size(), 2);
+    QCOMPARE(steps.at(0).op, QStringLiteral("compress"));
+    QCOMPARE(steps.at(1).op, QStringLiteral("watermark"));
+    QCOMPARE(int(steps.at(0).status), int(BatchStepResult::Status::Ok));
+    QCOMPARE(int(steps.at(1).status), int(BatchStepResult::Status::Ok));
+
+    // The hand-computed byte table: every count is a file on disk.
+    QCOMPARE(steps.at(0).bytesIn, inputBytes);                  // step 0 enters from the input
+    QVERIFY(steps.at(0).bytesOut > 0);                          // candidate 0 was produced
+    QCOMPARE(steps.at(1).bytesIn, steps.at(0).bytesOut);        // chain-link continuity
+    QCOMPARE(steps.at(1).bytesOut, QFileInfo(out).size());      // last link == committed output
+    QVERIFY(steps.at(0).durationMs >= 0);
+    QVERIFY(steps.at(1).durationMs >= 0);
+}
+
+// The JSON export shape (M5 precedent) is pinned: one object per file, one
+// step record per chain step with the measured numbers; the exported file's
+// bytes are exactly the pure formatter's bytes, and the .csv extension routes
+// to the CSV formatter.
+void TestBatchPresetsP2::runReportJsonShapePinned() {
+    const QString fx = m_runDir->filePath(QStringLiteral("fixtures"));
+    QDir().mkpath(fx);
+    const QString src = createTextPdf(fx, QStringLiteral("doc.pdf"),
+                                      { QStringLiteral("alpha") });
+    QVERIFY(!src.isEmpty());
+
+    QVERIFY(writeStoreFile(m_storeDir->path(), QStringLiteral("two-step"),
+                           QStringLiteral(
+        "{\n"
+        "    \"glyphpreset\": { \"schemaVersion\": 1, \"kind\": \"batch-preset\" },\n"
+        "    \"id\": \"two-step\",\n"
+        "    \"name\": \"Two Step\",\n"
+        "    \"created\": \"2026-09-24T00:00:00.000Z\",\n"
+        "    \"modified\": \"2026-09-24T00:00:00.000Z\",\n"
+        "    \"steps\": [ { \"op\": \"compress\", \"params\": { \"quality\": 60 } } ]\n"
+        "}\n").toUtf8()));
+
+    AppContext ctx = makeCtx();
+    BatchMode bm;
+    bm.setAppContext(&ctx);
+    bm.setOperationForTest(7);
+    bm.refreshPresetsForTest();
+    QVERIFY(bm.selectPresetForTest(QStringLiteral("two-step")));
+    QDir().mkpath(m_runDir->filePath(QStringLiteral("out")));
+    const QString out = m_runDir->filePath(QStringLiteral("out/doc_two-step.pdf"));
+    presetOutEdit(bm)->setText(m_runDir->filePath(QStringLiteral("out")));
+    bm.addFilesForTest({ src });
+    runAndWait(bm);
+    QCOMPARE(bm.successCount(), 1);
+
+    // Extension routing: the exported file's bytes are exactly the pure
+    // formatters' output.
+    const QString jsonPath = m_runDir->filePath(QStringLiteral("report.json"));
+    QVERIFY(bm.exportRunReportForTest(jsonPath));
+    QFile jf(jsonPath);
+    QVERIFY(jf.open(QIODevice::ReadOnly));
+    const QByteArray jsonBytes = jf.readAll();
+    jf.close();
+    QCOMPARE(jsonBytes, BatchMode::runReportJson(bm.runResultsForTest()));
+    const QString csvPath = m_runDir->filePath(QStringLiteral("report.csv"));
+    QVERIFY(bm.exportRunReportForTest(csvPath));
+    QFile cf(csvPath);
+    QVERIFY(cf.open(QIODevice::ReadOnly));
+    QCOMPARE(cf.readAll(), BatchMode::runReportCsv(bm.runResultsForTest()));
+    cf.close();
+
+    // JSON shape: one file object, step array with the measured facts.
+    QJsonParseError parseErr;
+    const QJsonDocument doc = QJsonDocument::fromJson(jsonBytes, &parseErr);
+    QCOMPARE(parseErr.error, QJsonParseError::NoError);
+    QVERIFY(doc.isArray());
+    const QJsonArray arr = doc.array();
+    QCOMPARE(arr.size(), 1);
+    const QJsonObject f = arr.at(0).toObject();
+    QCOMPARE(f.value(QStringLiteral("status")).toString(), QStringLiteral("ok"));
+    QCOMPARE(f.value(QStringLiteral("input")).toString(), src);
+    QCOMPARE(f.value(QStringLiteral("output")).toString(), out);
+    QCOMPARE(f.value(QStringLiteral("batchScoped")).toBool(), false);
+    const QJsonArray steps = f.value(QStringLiteral("steps")).toArray();
+    QCOMPARE(steps.size(), 1);
+    const QJsonObject s0 = steps.at(0).toObject();
+    QCOMPARE(s0.value(QStringLiteral("index")).toInt(), 1);
+    QCOMPARE(s0.value(QStringLiteral("op")).toString(), QStringLiteral("compress"));
+    QCOMPARE(s0.value(QStringLiteral("status")).toString(), QStringLiteral("ok"));
+    QCOMPARE(static_cast<qint64>(s0.value(QStringLiteral("bytesIn")).toDouble()),
+             QFileInfo(src).size());
+    QCOMPARE(static_cast<qint64>(s0.value(QStringLiteral("bytesOut")).toDouble()),
+             QFileInfo(out).size());
+    QVERIFY(s0.value(QStringLiteral("durationMs")).toDouble() >= 0);
+    QCOMPARE(s0.value(QStringLiteral("firstBates")).toInt(), -1);
+    QCOMPARE(s0.value(QStringLiteral("lastBates")).toInt(), -1);
+}
+
+// The CSV is RFC-4180: CRLF record separators, every field quoted, embedded
+// quotes doubled (a hostile detail survives round-trip), one row per chain
+// step, and a not-run file rides as its own row.
+void TestBatchPresetsP2::runReportCsvShapePinned() {
+    QList<BatchFileResult> results;
+
+    BatchFileResult okRun;
+    okRun.inputPath  = QStringLiteral("C:/in/a.pdf");
+    okRun.outputPath = QStringLiteral("C:/out/a.pdf");
+    okRun.success = true;
+    BatchStepResult s0;
+    s0.stepIndex = 0;
+    s0.op = QStringLiteral("compress");
+    s0.status = BatchStepResult::Status::Ok;
+    s0.bytesIn = 8421;
+    s0.bytesOut = 7912;
+    s0.durationMs = 34;
+    okRun.steps << s0;
+    results << okRun;
+
+    BatchFileResult notRun;
+    notRun.inputPath = QStringLiteral("C:/in/b.pdf");
+    notRun.skipped = true;
+    notRun.skipReason = QStringLiteral("run aborted before start: comma, \"quote\"");
+    results << notRun;
+
+    const QString text = QString::fromUtf8(BatchMode::runReportCsv(results));
+
+    // Header + one row per step + one row for the not-run file; CRLF records.
+    QVERIFY2(text.startsWith(QStringLiteral(
+                 "\"File\",\"Output\",\"Status\",\"Step\",\"Op\",\"StepStatus\","
+                 "\"BytesIn\",\"BytesOut\",\"DurationMs\",\"FirstBates\","
+                 "\"LastBates\",\"Detail\"\r\n")),
+             qPrintable(text.left(200)));
+    QCOMPARE(text.count(QStringLiteral("\r\n")), 3);
+    QVERIFY2(text.endsWith(QStringLiteral("\r\n")), qPrintable(text.right(120)));
+    // The measured row, numbers as-is (quoted, unrounded).
+    QVERIFY2(text.contains(QStringLiteral(
+                 "\"C:/in/a.pdf\",\"C:/out/a.pdf\",\"ok\",\"1\",\"compress\","
+                 "\"ok\",\"8421\",\"7912\",\"34\",\"\",\"\",\"\"\r\n")),
+             qPrintable(text));
+    // The not-run row carries the reason; the embedded comma and quote are
+    // RFC-4180 escaped (doubled), the field stays intact.
+    QVERIFY2(text.contains(QStringLiteral(
+                 "\"C:/in/b.pdf\",\"\",\"skipped\",\"\",\"\",\"\",\"\",\"\",\"\","
+                 "\"\",\"\",\"run aborted before start: comma, \"\"quote\"\"\"\r\n")),
+             qPrintable(text));
 }
 
 QTEST_MAIN(TestBatchPresetsP2)
