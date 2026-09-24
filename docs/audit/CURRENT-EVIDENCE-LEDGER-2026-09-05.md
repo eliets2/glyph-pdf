@@ -1450,3 +1450,59 @@ exec lane, `9b2b2727` message): **PGR-46** — PatternRedactor
 `extractCharsFromOpenDoc` mixed-space flip misplaces RedactMode mark-all
 viewer marks on rotated/offset pages; recorded-not-fixed, redaction lane queue
 (RESIDUAL-PLANS-2026-09-21 Plan 5(b), CONSOLIDATED-REPORT §2.6).
+## 2026-09-24 (PR-review fix lane 3) — Claude PR #2 review: §3 must-fix items 4/5/6, §4 M1–M3, §5 ponytail (implemented-awaiting-review)
+
+Continuation lane on `feat/pr-review-fixes` (items 1/2/3 landed by lane 1 at
+`3c1e60a6`, `efbbf1eb`, `262a7a09` on top of the PR head `b5610414`; base
+repairs `e89f1234`/`a830d999` restore single-lineage text that did not
+compile). This lane commits, in order:
+
+- `781e21d` — §3.5 flow7 wording contract update (current "Detection and
+  tagging" honesty box; "never certifies" kept).
+- `9849c90` — base repair 3: flow2a modal-capture race (fast machine: merge
+  worker finishes before the QTRY spin; the honesty assertion read an empty
+  capture; deterministic FAIL locally, masked on CI by slower IO).
+- `22b3a41` — §3.4 PGR-23: redaction proof recurses into embedded PDFs
+  (strings + decoded streams + PDFium text extraction + their own
+  attachments, depth 3); ZIP/OOXML/archive and unparseable-PDF payloads are
+  Unswept, never Clean. 4 pins incl. clean-nested control.
+- `328a224` — §3.6 CI: default Fontconfig configuration step for the Windows
+  runner (extends `a5c11d5b`; runner not verifiable from this machine).
+- `9c379d5` — §4 M1: PGR-10 per-mark accounting (excised glyph ops vs
+  distinct attributed runs per page; blank marks unverifiable when ops exceed
+  attribution; both pre-existing PGR-10 pins stay green).
+- `31ad94e` — §4 M2: checked Save/Discard/Cancel prompt
+  (`confirmSaveBeforeInPlaceWrite`) at the five in-place write boundaries
+  (runA11yFix, runA11yTag, form import, signing fill step, Bates single-file);
+  GUI-thread marshaling for the QtConcurrent runners; flow7c pin.
+- `c6a72b9` — §4 M3: CSV formula guard exempts plain numbers
+  `^[+-]?\d+([.,]\d+)?$`; PGR-16 fixtures still escape.
+- `7f03f0a` — §5 ponytail (partial): CommentsWidget reuses
+  csvFormulaSafeCell (M3 contract propagated), CompareWidget `value(k,-1)`
+  memo lookups. Residuals documented in the commit message.
+
+Owning suites (this machine, offscreen): TestRedactionProof 33P/0F,
+TestSep13LeadRedactionProof 11P/0F, TestSweepW3UxFlows 14P/0F (13 flows +
+flow7c), TestAccessibilityPanel 13P/0F, TestAccessibilityTagger 17P/0F/1skip,
+TestAccessibilityFixes 9P/0F, TestFormSafety 14P/0F, TestBatesBatchSafety
+9P/0F, TestSendForSigning 13P/0F, TestWelcomeRoutes 20P/0F, TestFormJsCalc
+49P/0F, TestConversionExtraction 18P/0F, TestCommentsReview 10P/0F,
+TestCompareEntry 26P/0F, TestCompareIntegration 8P/0F.
+
+Evidence: evidence-prfix-item5-* (contract update), evidence-prfix-flow2a-*,
+evidence-prfix-item4-* (fail-before / NC / pass-after),
+evidence-prfix-item6-fontconfig.txt, evidence-prfix-m1-*,
+evidence-prfix-m2-* (NC / pass-after-flows), evidence-prfix-m3-*.
+
+Residuals for the reviewer: (1) §5 ponytail not taken — EncryptedFileSecretStore
+mutateSecrets extraction (PGR-25-locked critical path; tri-state helper is the
+right shape), FormJsSandbox jsStringLiteral → QJsonDocument escaping
+(load-bearing sandbox code), SignatureManager "bare-scope unwrap" (target not
+identifiable; the nullable unwrap already goes through extractNullable).
+(2) Item 6: the GitHub runner outcome is unverified from this machine — the
+config was validated locally (fc-cache clean, concrete families resolve) and
+must be confirmed on the next CI run. (3) M2 exposed a pre-existing teardown
+hazard: a SafeSave GUI-thread hop (BlockingQueuedConnection) can deadlock
+against window teardown if an in-flight transaction outlives the MainWindow —
+flow7c now fences on tagRunFinished in the harness, but the product-side
+shutdown-during-transaction path deserves its own hardening pass.
