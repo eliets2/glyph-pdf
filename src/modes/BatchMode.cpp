@@ -1068,6 +1068,18 @@ int pdfaLevelCode(const QString& level) {
     return 2;
 }
 
+// R26-P2 (plan §2.2): the schema's six named bates positions → the engine's
+// HeaderFooterOptions::Position. Validation guarantees one of the six values;
+// the fall-through default is the schema default (bottom-right).
+HeaderFooterOptions::Position batesPositionFromSchema(const QString& position) {
+    if (position == QLatin1String("top-left"))     return HeaderFooterOptions::Position::TopLeft;
+    if (position == QLatin1String("top-center"))   return HeaderFooterOptions::Position::TopCenter;
+    if (position == QLatin1String("top-right"))    return HeaderFooterOptions::Position::TopRight;
+    if (position == QLatin1String("bottom-left"))  return HeaderFooterOptions::Position::BottomLeft;
+    if (position == QLatin1String("bottom-center"))return HeaderFooterOptions::Position::BottomCenter;
+    return HeaderFooterOptions::Position::BottomRight;
+}
+
 PdfAConformance pdfaConformance(const QString& level) {
     if (level == QLatin1String("1b")) return PdfAConformance::PDF_A_1B;
     if (level == QLatin1String("2u")) return PdfAConformance::PDF_A_2U;
@@ -1078,9 +1090,14 @@ PdfAConformance pdfaConformance(const QString& level) {
 
 // One MUTATING preset step against a freshly loaded editor, writing `dest`.
 // The engine seams are exactly the single-op batch worker's set plus the
-// strip-metadata sanitize pass — no new engine surface.
+// strip-metadata sanitize pass and — R26-P2 (plan §4.1) — the bates path
+// mutator. `currentLink` is the chain link the editor was loaded from (bates
+// stages its own candidate from it); `effectiveBatesStart` is the run-state
+// resolved start (N1); `lastBatesOut` receives the last number stamped.
 bool runPresetMutatingStep(PdfEditorEngine& editor, const BatchPresetStep& step,
-                           const QString& dest, QString* techDetail) {
+                           const QString& currentLink, const QString& dest,
+                           int effectiveBatesStart, int* lastBatesOut,
+                           QString* techDetail) {
     bool ok = false;
     if (step.op == QLatin1String("compress")) {
         OptimizeOptions opts;
@@ -1112,8 +1129,43 @@ bool runPresetMutatingStep(PdfEditorEngine& editor, const BatchPresetStep& step,
             step.params.value(QStringLiteral("presets")).toStringList(),
             step.params.value(QStringLiteral("patterns")).toStringList());
         ok = editor.applyPatternRedactionsMulti(patterns, QList<int>(), dest);
+    } else if (step.op == QLatin1String("bates")) {
+        // R26-P2 (plan §4.1): bates is a PATH-based engine mutator (contract:
+        // load→mutate→save over ONE path) and cannot write a distinct
+        // destination from a resident document — the backend refuses a
+        // different path while another file is loaded. The chain link is
+        // therefore staged by copying the current link onto the reserved
+        // candidate, and the copy is stamped in place through its OWN engine
+        // instance. The candidate discipline is unchanged: on any failure the
+        // candidate is discarded and the original is untouched.
+        QFile::remove(dest);
+        if (!QFile::copy(currentLink, dest)) {
+            if (techDetail)
+                *techDetail = QStringLiteral("bates step: could not stage the chain "
+                                             "candidate from %1").arg(currentLink);
+            return false;
+        }
+        BatesNumberingOptions opts;
+        opts.prefix      = step.params.value(QStringLiteral("prefix")).toString();
+        opts.suffix      = step.params.value(QStringLiteral("suffix")).toString();
+        opts.startNumber = effectiveBatesStart;
+        opts.digitCount  = step.params.value(QStringLiteral("digitCount"), 6).toInt();
+        opts.position    = batesPositionFromSchema(
+            step.params.value(QStringLiteral("position")).toString());
+        PdfEditorEngine batesEditor;
+        // The backend is created by the load (BackendRouter); loading the
+        // staged candidate itself makes the mutator's residency guard pass —
+        // the engine then stamps ITS OWN file in place.
+        if (!batesEditor.loadDocumentForEditing(dest)) {
+            if (techDetail)
+                *techDetail = batesEditor.lastError().technicalDetails;
+            return false;
+        }
+        ok = batesEditor.applyBatesNumbering(dest, opts, lastBatesOut);
+        if (!ok && techDetail)
+            *techDetail = batesEditor.lastError().technicalDetails;
     }
-    if (!ok)
+    if (!ok && techDetail && techDetail->isEmpty())
         *techDetail = editor.lastError().technicalDetails;
     return ok;
 }
@@ -1153,7 +1205,9 @@ bool runPresetCheckStep(const QString& current, const BatchPresetStep& step,
 }
 
 bool runPresetChain(const QString& inputPath, const QString& outputPath,
-                    const BatchPreset& preset, QMutex* engineMutex, QString* techDetail) {
+                    const BatchPreset& preset, QMutex* engineMutex,
+                    PresetRunState* runState, QList<BatchStepResult>* stepRecords,
+                    QString* techDetail) {
     // PDFium (QPdfDocument) is not thread-safe: the read-side probes of the
     // chain are serialized behind the SAME engine mutex the batch OCR path
     // uses for its PDFium probes (PoDoFo writer steps stay parallel).
@@ -1162,6 +1216,17 @@ bool runPresetChain(const QString& inputPath, const QString& outputPath,
     baseline.load(inputPath);
     if (baseline.status() != QPdfDocument::Status::Ready || baseline.pageCount() <= 0) {
         *techDetail = QStringLiteral("Failed to open PDF: %1").arg(inputPath);
+        if (stepRecords && !preset.steps.isEmpty()) {
+            // The chain never started — every step is a failed record with the
+            // same honest reason (the file failed, not any single step).
+            BatchStepResult record;
+            record.stepIndex = 0;
+            record.op = preset.steps.first().op;
+            record.label = preset.steps.first().label;
+            record.status = BatchStepResult::Status::Failed;
+            record.detail = *techDetail;
+            stepRecords->append(record);
+        }
         return false;
     }
     const int expectedPages = baseline.pageCount();
@@ -1170,52 +1235,100 @@ bool runPresetChain(const QString& inputPath, const QString& outputPath,
     QString current = inputPath;
     QStringList intermediates;
     bool ok = true;
+    int failedAt = -1;
     for (int i = 0; i < preset.steps.size() && ok; ++i) {
         const BatchPresetStep& step = preset.steps.at(i);
+        BatchStepResult record;
+        record.stepIndex = i;
+        record.op = step.op;
+        record.label = step.label;
+
+        // R26-P2 (N1): bates only ever runs on the ordered lane. A bates step
+        // reaching the parallel chain is an internal scheduling error — fail
+        // the file honestly instead of stamping numbers out of order.
+        if (step.op == QLatin1String("bates") && !runState) {
+            *techDetail = QStringLiteral(
+                "bates step on the parallel lane — a bates-bearing preset must "
+                "run on the ordered lane (internal scheduling error)");
+            ok = false;
+        }
 
         // A check step validates the candidate in flight — no candidate of
         // its own.
-        if (step.op == QLatin1String("pdfa-check")) {
+        if (ok && step.op == QLatin1String("pdfa-check")) {
             ok = runPresetCheckStep(current, step, techDetail);
-            continue;
+        } else if (ok) {
+            // R26-P2 (N1): the effective start continues the run's sequence —
+            // the last SUCCESSFUL stamp + 1 — and the first file (or the run
+            // after a restart) uses the step's explicit startNumber (default
+            // 1). A failed file's candidate is discarded and never burns a
+            // number.
+            int effectiveBatesStart = 1;
+            int lastBatesOut = -1;
+            if (step.op == QLatin1String("bates")) {
+                effectiveBatesStart = runState->batesStarted
+                    ? runState->lastBatesOut + 1
+                    : step.params.value(QStringLiteral("startNumber"), 1).toInt();
+            }
+
+            QString candidate;
+            QString candidateErr;
+            if (!SafeSave::makeUniqueCandidate(&candidate, &candidateErr)) {
+                *techDetail = candidateErr;
+                ok = false;
+            }
+            if (ok) {
+                intermediates.append(candidate);
+                {
+                    // Fresh per-file engine per step — the same TRUE-parallel
+                    // pattern the single-op editor workers use (self-contained
+                    // load/save).
+                    PdfEditorEngine editor;
+                    if (!editor.loadDocumentForEditing(current)) {
+                        *techDetail = editor.lastError().technicalDetails;
+                        ok = false;
+                    } else {
+                        ok = runPresetMutatingStep(editor, step, current, candidate,
+                                                   effectiveBatesStart, &lastBatesOut,
+                                                   techDetail);
+                    }
+                }
+                if (ok) {
+                    // Validate the candidate: it must open as a PDF and
+                    // preserve the page count (bates is an overlay — the
+                    // invariant holds for it too). A step that breaks the
+                    // document never becomes the new chain link.
+                    QMutexLocker lock(engineMutex);
+                    QPdfDocument probe;
+                    probe.load(candidate);
+                    if (probe.status() != QPdfDocument::Status::Ready
+                        || probe.pageCount() != expectedPages) {
+                        *techDetail = QStringLiteral("step %1 (%2) produced an invalid candidate — "
+                                                     "the file is left unchanged")
+                                          .arg(i + 1).arg(step.op);
+                        ok = false;
+                    }
+                }
+                if (ok)
+                    current = candidate;
+                if (ok && step.op == QLatin1String("bates") && runState) {
+                    runState->batesStarted = true;
+                    runState->lastBatesOut = lastBatesOut;
+                }
+                if (step.op == QLatin1String("bates")) {
+                    record.firstBates = effectiveBatesStart;
+                    record.lastBates  = ok ? lastBatesOut : -1;
+                }
+            }
         }
 
-        QString candidate;
-        QString candidateErr;
-        if (!SafeSave::makeUniqueCandidate(&candidate, &candidateErr)) {
-            *techDetail = candidateErr;
-            ok = false;
-            break;
+        record.status = ok ? BatchStepResult::Status::Ok : BatchStepResult::Status::Failed;
+        if (!ok) {
+            record.detail = *techDetail;
+            failedAt = i;
         }
-        intermediates.append(candidate);
-        {
-            // Fresh per-file engine per step — the same TRUE-parallel pattern
-            // the single-op editor workers use (self-contained load/save).
-            PdfEditorEngine editor;
-            if (!editor.loadDocumentForEditing(current)) {
-                *techDetail = editor.lastError().technicalDetails;
-                ok = false;
-            } else {
-                ok = runPresetMutatingStep(editor, step, candidate, techDetail);
-            }
-        }
-        if (ok) {
-            // Validate the candidate: it must open as a PDF and preserve the
-            // page count. A step that breaks the document never becomes the
-            // new chain link.
-            QMutexLocker lock(engineMutex);
-            QPdfDocument probe;
-            probe.load(candidate);
-            if (probe.status() != QPdfDocument::Status::Ready
-                || probe.pageCount() != expectedPages) {
-                *techDetail = QStringLiteral("step %1 (%2) produced an invalid candidate — "
-                                             "the file is left unchanged")
-                                  .arg(i + 1).arg(step.op);
-                ok = false;
-            }
-        }
-        if (ok)
-            current = candidate;
+        if (stepRecords)
+            stepRecords->append(record);
     }
 
     if (ok) {
@@ -1223,6 +1336,19 @@ bool runPresetChain(const QString& inputPath, const QString& outputPath,
         ok = SafeSave::commitFileToDestination(current, outputPath, &commitErr);
         if (!ok && techDetail->isEmpty())
             *techDetail = commitErr;
+    } else if (stepRecords && failedAt >= 0) {
+        // Steps after the failure were never attempted — honest skipped rows
+        // (plan §3 status set), never a silently truncated record list.
+        for (int j = failedAt + 1; j < preset.steps.size(); ++j) {
+            BatchStepResult skipped;
+            skipped.stepIndex = j;
+            skipped.op = preset.steps.at(j).op;
+            skipped.label = preset.steps.at(j).label;
+            skipped.status = BatchStepResult::Status::Skipped;
+            skipped.detail = QStringLiteral("not attempted — the chain aborted at step %1")
+                                 .arg(failedAt + 1);
+            stepRecords->append(skipped);
+        }
     }
 
     // Intermediates are removed on EVERY outcome (the committed candidate
@@ -1353,6 +1479,7 @@ void BatchMode::onRunClicked() {
     m_skipCount    = 0;
     m_mergeOutputPath.clear();   // F2a-F1: named only by a merge that commits
     m_accountedIndices.clear();   // G12: per-run exactly-once accounting ledger
+    m_lastRunResults.clear();     // R26-P2: fresh per-run result records
     m_exportLogBtn->setVisible(false);
     m_runBtn->setEnabled(false);
     m_cancelBtn->setEnabled(true);
@@ -1461,9 +1588,12 @@ void BatchMode::onRunClicked() {
     // All captured values are by-value copies of GUI state taken above on the GUI thread.
     // 'this' is not captured to avoid dangling if BatchMode is destroyed mid-batch.
     // Engine mutex is captured as a raw pointer (stable lifetime: member of BatchMode).
+    // R26-P2: `runState` carries the ordered lane's bates continuity (nullptr
+    // on the mapped pipeline — lane selection guarantees bates never maps
+    // there, and the chain fails the file honestly if it ever does).
     QMutex* engineMutexPtr = &m_engineMutex;
 
-    auto processFileReal = [=](const QString& inputPath) -> BatchFileResult {
+    auto processFileReal = [=](const QString& inputPath, PresetRunState* runState) -> BatchFileResult {
         BatchFileResult result;
         result.inputPath = inputPath;
 
@@ -1528,7 +1658,7 @@ void BatchMode::onRunClicked() {
                 ok = false;
             } else {
                 ok = runPresetChain(inputPath, result.outputPath, capturedPreset,
-                                    engineMutexPtr, &techDetail);
+                                    engineMutexPtr, runState, &result.steps, &techDetail);
             }
         } else if (capturedOp == OpConvert) {
             // convertTo is specified as stateless (takes full pdfPath arg) — no mutex needed
@@ -1938,8 +2068,54 @@ void BatchMode::onRunClicked() {
         return;
     }
 
-    QFuture<BatchFileResult> future = QtConcurrent::mapped(runnableFiles, processFileReal);
+    // R26-P2 (plan §4.2): bates-bearing presets run on the ORDERED lane — one
+    // worker iterating the file list IN ORDER, so cross-file Bates continuity
+    // (N1) is a loop invariant rather than scheduling luck. The parallelism
+    // cost is disclosed, never silent. Everything else keeps the mapped
+    // pipeline unchanged.
+    if (opIdx == OpPresetPipeline && BatchMode::presetNeedsOrderedLane(capturedPreset)) {
+        appendLog(tr("Preset \u201c%1\u201d numbers pages with Bates sequences \u2014 files "
+                     "are processed in order (one at a time); large batches are slower.")
+                      .arg(capturedPreset.name), "#c8a000");
+        startPresetOrderedWorker(runnableFiles, processFileReal);
+        return;
+    }
+
+    QFuture<BatchFileResult> future = QtConcurrent::mapped(
+        runnableFiles,
+        [processFileReal](const QString& inputPath) {
+            return processFileReal(inputPath, static_cast<PresetRunState*>(nullptr));
+        });
     m_watcher.setFuture(future);
+}
+
+// ── R26-P2 (plan §4.2): the ordered lane ──────────────────────────────────────
+// One sequential worker over the file list, behind the SAME QFutureWatcher,
+// result plumbing and G12 exactly-once accounting as the mapped pipeline —
+// the file-loop is the only difference. Cancellation is polled at file
+// boundaries only (never mid-chain); the boundary hook (test seam) runs in
+// the same window, before the file's chain starts. Cross-file bates
+// continuity lives in the worker-local PresetRunState: single thread by
+// construction, advanced only by successful stamps.
+void BatchMode::startPresetOrderedWorker(
+    const QStringList& files,
+    const std::function<BatchFileResult(const QString&, PresetRunState*)>& runOneFile) {
+    // Captured by value like every worker input — the member is never read
+    // cross-thread (m_mergeBoundaryHook's discipline).
+    const std::function<void(int)> boundaryHook = m_presetBoundaryHook;
+
+    auto orderedWorker = [files, runOneFile, boundaryHook](QPromise<BatchFileResult>& promise) {
+        promise.setProgressRange(0, files.size());
+        PresetRunState runState;
+        for (int i = 0; i < files.size(); ++i) {
+            if (promise.isCanceled()) return;    // file boundary only
+            if (boundaryHook) boundaryHook(i);
+            if (promise.isCanceled()) return;    // cancel landed in the boundary window
+            promise.addResult(runOneFile(files.at(i), &runState));
+            promise.setProgressValue(i + 1);
+        }
+    };
+    m_watcher.setFuture(QtConcurrent::run(orderedWorker));
 }
 
 // ── Merge (single combined output) ──────────────────────────────────────────────
@@ -2074,6 +2250,7 @@ void BatchMode::accountResultAt(int idx) {
         return;                 // G12: a late queued callback cannot double count
     m_accountedIndices.insert(idx);
     BatchFileResult res = m_watcher.resultAt(idx);
+    m_lastRunResults.append(res);   // R26-P2: per-file results incl. step records
     int completed = m_successCount + m_failCount + m_skipCount + 1;
     int total = m_filesToProcess.size();
 
@@ -2654,6 +2831,18 @@ bool BatchMode::deletePresetForTest(const QString& id, QString* err) {
     }
     refreshPresetPicker();
     return true;
+}
+
+// ── R26-P2 (batch-presets P2) ─────────────────────────────────────────────────
+
+// Lane rule of record (plan §4.2): bates-bearing presets run on the ordered
+// lane — cross-file continuity is a loop invariant there, never an accident
+// of scheduling. Pure function.
+bool BatchMode::presetNeedsOrderedLane(const BatchPreset& preset) {
+    for (const BatchPresetStep& step : preset.steps)
+        if (step.op == QLatin1String("bates"))
+            return true;
+    return false;
 }
 
 // ── U08 pre-flight seams ──────────────────────────────────────────────────────

@@ -37,6 +37,22 @@ class QVBoxLayout;
 namespace gp {
 
 // Per-file result from batch worker
+// R26-P2 (plan §3): one per-step record of a preset chain run, in chain order.
+// status: Ok (promoted), Failed (aborted the chain; detail = techDetail),
+// Blocked (refused pre-flight; detail = whyNot), Skipped (never attempted —
+// the chain had already aborted at an earlier step; detail says why).
+struct BatchStepResult {
+    enum class Status { Ok, Failed, Blocked, Skipped };
+    int     stepIndex = 0;
+    QString op;
+    QString label;
+    Status  status = Status::Ok;
+    // bates steps only: the first/last number actually stamped (-1 = n/a).
+    int     firstBates = -1;
+    int     lastBates  = -1;
+    QString detail;
+};
+
 struct BatchFileResult {
     QString inputPath;
     QString outputPath;
@@ -54,6 +70,19 @@ struct BatchFileResult {
     // bucket with the reason.
     bool    skipped = false;
     QString skipReason;
+    // R26-P2 (plan §3): ordered per-step records of a preset chain run —
+    // measured facts per step (bates ranges now; measured bytes with U5), so
+    // the run is verifiable instead of summarized by a single techDetail.
+    QList<BatchStepResult> steps;
+};
+
+// R26-P2 (plan §4.2): cross-file bates continuity state — owned by the
+// ordered lane's single worker (no locking by construction) and advanced only
+// by SUCCESSFUL stamps: a failed file's candidate is discarded and never
+// burns a number (N1).
+struct PresetRunState {
+    bool batesStarted = false;
+    int  lastBatesOut = 0;
 };
 
 class BatchMode : public QWidget {
@@ -187,6 +216,26 @@ public:
     // The GUI-thread run gate for the currently selected preset (empty =
     // runnable) — the same answer onRunClicked stages per file.
     QString presetRunBlockerForTest() const { return presetRunBlocker(); }
+
+    // ── R26-P2 (batch-presets P2) ─────────────────────────────────────────────
+    // Per-file results of the LAST run in G12 accounting order, including the
+    // per-step records (bates ranges, and measured bytes from U5). Test seam;
+    // empty until the first run.
+    QList<BatchFileResult> runResultsForTest() const { return m_lastRunResults; }
+
+    // Lane rule of record (plan §4.2): bates-bearing presets need cross-file
+    // continuity, which is only honest BY CONSTRUCTION — they run on the
+    // ordered lane (one sequential worker in list order). Pure function.
+    static bool presetNeedsOrderedLane(const BatchPreset& preset);
+
+    // Ordered-lane boundary hook (test seam; the merge hook's analogue):
+    // invoked on the worker thread at each file boundary BEFORE the file's
+    // chain starts (`fileIndex` = 0-based runnable-list order). Production
+    // never sets it; the run captures it by value, so the member itself is
+    // never touched cross-thread. MUST be set before onRunBatch().
+    void setPresetBoundaryHookForTest(std::function<void(int)> hook) {
+        m_presetBoundaryHook = std::move(hook);
+    }
 
 signals:
     // Emitted from onBatchFinished so tests can spy on completion.
@@ -363,6 +412,15 @@ private:
     // Special-case handler for Merge (single combined output, not per-file mapped).
     void runMerge();
 
+    // R26-P2 (plan §4.2): the ordered lane — one sequential worker iterating
+    // `files` IN LIST ORDER behind the same QFutureWatcher/G12 accounting;
+    // `runOneFile` is the captured per-file worker (the mapped pipeline's
+    // body) with the run-state pointer for bates continuity. Cancellation is
+    // polled at file boundaries only — never mid-chain.
+    void startPresetOrderedWorker(
+        const QStringList& files,
+        const std::function<BatchFileResult(const QString&, PresetRunState*)>& runOneFile);
+
     // §9.12 P1: async merge worker — appends each input on the QtConcurrent
     // pool behind m_watcher (see startMergeWorker definition for the contract).
     void startMergeWorker(const QStringList& files, const QString& outPath);
@@ -381,6 +439,11 @@ private:
 
     // §9.12 P1: merge file-boundary hook (test seam; see the setter above).
     std::function<void(int)> m_mergeBoundaryHook;
+
+    // R26-P2: ordered-lane boundary hook (test seam; captured by value at run
+    // start) and the last run's per-file results (G12 accounting order).
+    std::function<void(int)> m_presetBoundaryHook;
+    QList<BatchFileResult>   m_lastRunResults;
 };
 
 } // namespace gp

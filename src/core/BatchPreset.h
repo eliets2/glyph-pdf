@@ -82,9 +82,10 @@ inline constexpr int kMaxSteps = 16;
 inline constexpr qint64 kMaxFileBytes = 256 * 1024;         // V9 resource cap
 inline constexpr qint64 kMaxStringParamBytes = 1024 * 1024; // V9 resource cap
 
-// The op ids this build implements (plan §1.3 P1 set, minus `bates`: run-
-// ordered Bates continuity needs a cross-file serialization the parallel
-// mapped worker cannot provide honestly — recorded as a P1 residual).
+// The op ids this build implements (plan §1.3 op table). `bates` joined in
+// P2: a bates-bearing preset runs on the ORDERED lane (BatchMode's sequential
+// worker), so run-ordered cross-file continuity is a loop invariant rather
+// than scheduling luck (P2 plan §4.2) — kSchemaVersion stays 1.
 QStringList knownOps();
 bool isKnownOp(const QString& op);
 

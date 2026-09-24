@@ -2688,6 +2688,42 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchPresets.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchPresetsP2.cpp")
+    add_executable(TestBatchPresetsP2
+        tests/TestBatchPresetsP2.cpp
+    )
+    target_include_directories(TestBatchPresetsP2 PRIVATE src tests)
+    target_link_libraries(TestBatchPresetsP2 PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestBatchPresetsP2 POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestBatchPresetsP2>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestBatchPresetsP2>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestBatchPresetsP2"
+    )
+    # R26-P2: the run fixtures are written with PoDoFo directly (the P1 suite
+    # idiom), so the vendored DLL is staged on Windows.
+    if(WIN32)
+        add_custom_command(TARGET TestBatchPresetsP2 POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestBatchPresetsP2>"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestBatchPresetsP2"
+        )
+    endif()
+    add_test(NAME TestBatchPresetsP2 COMMAND TestBatchPresetsP2)
+    set_tests_properties(TestBatchPresetsP2 PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 600
+        LABELS "unit;modes;batch;presets;ui;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchOcrLanguage.cpp")
     add_executable(TestBatchOcrLanguage
         tests/TestBatchOcrLanguage.cpp
