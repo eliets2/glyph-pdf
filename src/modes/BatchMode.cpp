@@ -14,6 +14,7 @@
 #include "engines/podofo/PdfPageOps.h"
 #include "engines/pdfium/PdfiumBackend.h" // N3: per-page has-text probe (PDFium text extraction)
 #include "engines/PatternRedactor.h" // §9.12 P1: named PII preset keys
+#include "ui/PresetManagerDialog.h"  // R26-P2 U7: the manager + editor surface
 
 // §9.12 P1: the async merge worker appends input-by-input so it can report
 // progress, honor cancellation and account per item — boundaries PdfPageOps'
@@ -2934,9 +2935,23 @@ void BatchMode::buildPresetPanel(QWidget* host) {
     renameBtn->setObjectName(QStringLiteral("batchPresetRenameBtn"));
     auto* deleteBtn = new QPushButton(tr("Delete"));
     deleteBtn->setObjectName(QStringLiteral("batchPresetDeleteBtn"));
+    // R26-P2 U7 (plan §4.9): the manager dialog — duplicate, multi-step
+    // editing, import/export and the broken-file disclosure; on accept the
+    // picker refreshes and re-selects what the manager left selected (Run…
+    // from the manager selects that preset here).
+    auto* manageBtn = new QPushButton(tr("Manage presets…"));
+    manageBtn->setObjectName(QStringLiteral("batchPresetManageBtn"));
+    connect(manageBtn, &QPushButton::clicked, this, [this] {
+        PresetManagerDialog dlg(m_ctx ? m_ctx->capabilities.get() : nullptr, this);
+        if (dlg.exec() == QDialog::Accepted) {
+            const QString id = dlg.selectedIdForTest();
+            refreshPresetPicker(id);
+        }
+    });
     btnRow->addWidget(saveBtn);
     btnRow->addWidget(renameBtn);
     btnRow->addWidget(deleteBtn);
+    btnRow->addWidget(manageBtn);
     btnRow->addStretch(1);
 
     lay->addWidget(m_presetBrokenLabel);

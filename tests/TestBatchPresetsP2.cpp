@@ -22,9 +22,13 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QPdfDocument>
 #include <QSemaphore>
+#include <QSlider>
+#include <QSpinBox>
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QTextEdit>
@@ -33,9 +37,12 @@
 
 #include "core/AppContext.h"
 #include "core/BatchPreset.h"
+#include "core/Capability.h"
 #include "engines/pdfium/PdfiumBackend.h"
 #include "mocks/MockPdfEditorEngine.h"
 #include "modes/BatchMode.h"
+#include "ui/PresetEditorDialog.h"
+#include "ui/PresetManagerDialog.h"
 
 // PdfiumBackend's Windows headers #define DrawText -> DrawTextW, mangling
 // PoDoFo's PdfPainter::DrawText below (the TestAutoBookmarks idiom).
@@ -158,6 +165,13 @@ private slots:
     void importExportRoundTripByteIdentical();
     void importRefusesIdStemMismatchKeepsStore();
     void importRefusesExistingIdUnlessReplaced();
+
+    // ── U7: manager + multi-step editor dialogs ───────────────────────────────
+    void managerDisclosesPresetsAndBrokenFiles();
+    void managerDuplicateRenameDeleteFlows();
+    void managerImportExportReplaceFlows();
+    void editorClampsWidgetsAndSavesValidPreset();
+    void editorUnavailableRuntimeStepDisclosed();
 
 private:
     std::unique_ptr<QTemporaryDir> m_storeDir;
@@ -1643,6 +1657,227 @@ void TestBatchPresetsP2::importRefusesExistingIdUnlessReplaced() {
     QVERIFY2(storeA.get(id, &after, &err), qPrintable(err));
     QCOMPARE(after.name, QStringLiteral("Clash Modified"));
     QCOMPARE(storeA.list().size(), 1);
+}
+
+// ── U7 pins ────────────────────────────────────────────────────────────────────
+
+// The manager discloses everything honestly: presets with step-count badges,
+// per-step capability lines in the detail pane, and broken store files with
+// their diagnostics — never silently hidden.
+void TestBatchPresetsP2::managerDisclosesPresetsAndBrokenFiles() {
+    QVERIFY(writeStoreFile(m_storeDir->path(), QStringLiteral("good"),
+                           QStringLiteral(
+        "{\n"
+        "    \"glyphpreset\": { \"schemaVersion\": 1, \"kind\": \"batch-preset\" },\n"
+        "    \"id\": \"good\",\n"
+        "    \"name\": \"Good Preset\",\n"
+        "    \"created\": \"2026-09-24T00:00:00.000Z\",\n"
+        "    \"modified\": \"2026-09-24T00:00:00.000Z\",\n"
+        "    \"steps\": [ { \"op\": \"compress\", \"params\": { \"quality\": 60 } } ]\n"
+        "}\n").toUtf8()));
+    {
+        QFile f(m_storeDir->path()
+                + QStringLiteral("/broken.glyphpreset.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("{ this is not valid json ");
+    }
+
+    PresetManagerDialog::setStoreRootForTest(m_storeDir->path());
+    PresetManagerDialog dlg(nullptr);   // null registry: gated ops unavailable
+    auto* list = dlg.findChild<QListWidget*>(QStringLiteral("presetManagerList"));
+    QVERIFY(list);
+    QCOMPARE(list->count(), 1);
+    QVERIFY2(list->item(0)->text().contains(QStringLiteral("Good Preset")),
+             qPrintable(list->item(0)->text()));
+    QVERIFY2(list->item(0)->text().contains(QStringLiteral("1 step")),
+             qPrintable(list->item(0)->text()));
+
+    // The broken file is disclosed with its diagnostic (never hidden).
+    auto* broken = dlg.findChild<QLabel*>(QStringLiteral("presetManagerBrokenLabel"));
+    QVERIFY(broken);
+    QVERIFY2(!broken->isHidden(), "the broken-file disclosure must be visible");
+    QVERIFY2(broken->text().contains(QStringLiteral("broken.glyphpreset.json")),
+             qPrintable(broken->text()));
+
+    // The detail pane renders the selected preset's per-step capability line.
+    list->setCurrentRow(0);
+    auto* detail = dlg.findChild<QLabel*>(QStringLiteral("presetManagerDetail"));
+    QVERIFY(detail);
+    QVERIFY2(detail->text().contains(QStringLiteral("compress")),
+             qPrintable(detail->text()));
+}
+
+// The toolbar flows through the post-confirm seams: duplicate assigns a fresh
+// id and "(copy)" name, rename edits the display name only, delete removes.
+void TestBatchPresetsP2::managerDuplicateRenameDeleteFlows() {
+    const QString dirA = m_storeDir->path();
+    BatchPresetStore store(dirA);
+    BatchPreset p;
+    p.name = QStringLiteral("Original");
+    p.steps.append({ QStringLiteral("compress"), {}, { { "quality", 60 } } });
+    QString err;
+    QVERIFY2(store.save(&p, &err), qPrintable(err));
+
+    PresetManagerDialog::setStoreRootForTest(dirA);
+    PresetManagerDialog dlg(nullptr);
+    auto* list = dlg.findChild<QListWidget*>(QStringLiteral("presetManagerList"));
+    QVERIFY(list);
+    QCOMPARE(list->count(), 1);
+
+    // Duplicate: a fresh id, "(copy)" name, same steps.
+    QVERIFY(dlg.duplicatePresetForTest(p.id));
+    QCOMPARE(list->count(), 2);
+    QString copyId;
+    for (const BatchPreset& q : store.list())
+        if (q.id != p.id) copyId = q.id;
+    QVERIFY(!copyId.isEmpty());
+    BatchPreset got;
+    QVERIFY2(store.get(copyId, &got, &err), qPrintable(err));
+    QCOMPARE(got.name, QStringLiteral("Original (copy)"));
+    QCOMPARE(got.steps.size(), 1);
+
+    // Rename edits the display name only — the id stays stable.
+    QVERIFY(dlg.renamePresetForTest(copyId, QStringLiteral("Renamed Copy")));
+    QVERIFY2(store.get(copyId, &got, &err), qPrintable(err));
+    QCOMPARE(got.name, QStringLiteral("Renamed Copy"));
+    QCOMPARE(got.id, copyId);
+
+    // Delete removes exactly the selected preset.
+    QVERIFY(dlg.deletePresetForTest(copyId));
+    QCOMPARE(list->count(), 1);
+    QVERIFY(store.contains(p.id));
+    QVERIFY(!store.contains(copyId));
+}
+
+// Import/export through the manager ride the U6 store mechanics; a rejected
+// import leaves the list unchanged; the replace path applies after confirm.
+void TestBatchPresetsP2::managerImportExportReplaceFlows() {
+    const QString dirA = m_storeDir->path() + QStringLiteral("/a");
+    BatchPresetStore storeA(dirA);
+    BatchPreset p;
+    p.name = QStringLiteral("Shareable");
+    p.steps.append({ QStringLiteral("compress"), {}, { { "quality", 60 } } });
+    QString err;
+    QVERIFY2(storeA.save(&p, &err), qPrintable(err));
+
+    PresetManagerDialog::setStoreRootForTest(dirA);
+    PresetManagerDialog dlgA(nullptr);
+    const QString exported = m_runDir->filePath(p.id + QStringLiteral(".glyphpreset.json"));
+    QVERIFY(dlgA.exportPresetForTest(p.id, exported, false));
+    QVERIFY(QFileInfo::exists(exported));
+
+    const QString dirB = m_storeDir->path() + QStringLiteral("/b");
+    PresetManagerDialog::setStoreRootForTest(dirB);
+    PresetManagerDialog dlgB(nullptr);
+    QVERIFY(dlgB.importPresetForTest(exported, false));
+    QCOMPARE(dlgB.findChild<QListWidget*>(QStringLiteral("presetManagerList"))
+                 ->count(), 1);
+
+    // The existing-id refusal: the list is unchanged (nothing replaced).
+    QVERIFY(!dlgB.importPresetForTest(exported, false));
+    QCOMPARE(dlgB.findChild<QListWidget*>(QStringLiteral("presetManagerList"))
+                 ->count(), 1);
+
+    // The post-confirm replace applies.
+    QVERIFY(dlgB.importPresetForTest(exported, true));
+    QCOMPARE(dlgB.findChild<QListWidget*>(QStringLiteral("presetManagerList"))
+                 ->count(), 1);
+    BatchPresetStore storeB(dirB);
+    QVERIFY(storeB.contains(p.id));
+}
+
+// The editor cannot save an invalid preset: the parameter widgets are
+// CLAMPED to the schema ranges (the same families the batch panels use), and
+// a save that would be invalid refuses honestly with the diagnostic.
+void TestBatchPresetsP2::editorClampsWidgetsAndSavesValidPreset() {
+    PresetEditorDialog editor(nullptr);
+    auto* name = editor.findChild<QLineEdit*>(QStringLiteral("presetEditorName"));
+    QVERIFY(name);
+    name->setText(QStringLiteral("Clamped"));
+
+    editor.addStepForTest(QStringLiteral("compress"));
+    auto* dpi = editor.findChild<QSpinBox*>(QStringLiteral("param_targetDpi"));
+    QVERIFY(dpi);
+    dpi->setValue(9999);
+    QCOMPARE(dpi->value(), 600);       // the engine's maximum
+    dpi->setValue(1);
+    QCOMPARE(dpi->value(), 36);        // the engine's minimum
+    auto* quality = editor.findChild<QSlider*>(QStringLiteral("param_quality"));
+    QVERIFY(quality);
+    quality->setValue(999);
+    QCOMPARE(quality->value(), 100);
+
+    // A second step: the bates fields are clamped too.
+    editor.addStepForTest(QStringLiteral("bates"));
+    auto* digits = editor.findChild<QSpinBox*>(QStringLiteral("param_digitCount"));
+    QVERIFY(digits);
+    digits->setValue(99);
+    QCOMPARE(digits->value(), 12);
+    auto* start = editor.findChild<QSpinBox*>(QStringLiteral("param_startNumber"));
+    QVERIFY(start);
+    start->setValue(0);
+    QCOMPARE(start->value(), 1);
+
+    // Reorder: bates moves above compress (up from row 1).
+    QVERIFY(editor.moveCurrentStepForTest(-1));
+    auto* steps = editor.findChild<QListWidget*>(QStringLiteral("presetEditorSteps"));
+    QCOMPARE(steps->item(0)->text().contains(QStringLiteral("bates")), true);
+    QVERIFY(editor.moveCurrentStepForTest(1));
+    QCOMPARE(steps->item(0)->text().contains(QStringLiteral("compress")), true);
+
+    QVERIFY(editor.savePreset());
+    const BatchPreset saved = editor.preset();
+    QCOMPARE(saved.name, QStringLiteral("Clamped"));
+    QCOMPARE(saved.steps.size(), 2);
+    QCOMPARE(saved.steps.at(0).op, QStringLiteral("compress"));
+    QCOMPARE(saved.steps.at(0).params.value(QStringLiteral("targetDpi")).toInt(), 36);
+
+    // The full authoring path: the editor hands back an EMPTY id — the store
+    // assigns (and de-conflicts) it on save; the stored preset validates.
+    QString verr;
+    PresetManagerDialog::setStoreRootForTest(m_storeDir->path()
+                                             + QStringLiteral("/editor"));
+    PresetManagerDialog mgr(nullptr);
+    QVERIFY(mgr.applyEditedPresetForTest(saved));
+    const BatchPresetStore stored(m_storeDir->path() + QStringLiteral("/editor"));
+    QCOMPARE(stored.list().size(), 1);
+    QCOMPARE(stored.list().first().id, QStringLiteral("clamped"));
+    QVERIFY2(BatchPresetCodec::validate(stored.list().first(), &verr),
+             qPrintable(verr));
+
+    // An empty name would be invalid — the save refuses with the diagnostic
+    // and the dialog stays open.
+    PresetEditorDialog invalid(nullptr);
+    invalid.addStepForTest(QStringLiteral("compress"));
+    QVERIFY(!invalid.savePreset());
+    QVERIFY2(!invalid.saveErrorForTest().isEmpty(),
+             qPrintable(invalid.saveErrorForTest()));
+}
+
+// An UnavailableRuntime step is disclosed IN the editor — visible row badge
+// plus the whyNot tooltip — and stays in the preset: disclosed at design
+// time, blocked at pre-flight (the landed capability rule). The palette
+// never offers UnavailableBuild ops.
+void TestBatchPresetsP2::editorUnavailableRuntimeStepDisclosed() {
+    gp::CapabilityRegistry registry;   // no probes → gated ops unavailable
+    PresetEditorDialog editor(&registry);
+    auto* name = editor.findChild<QLineEdit*>(QStringLiteral("presetEditorName"));
+    QVERIFY(name);
+    name->setText(QStringLiteral("With Check"));
+
+    editor.addStepForTest(QStringLiteral("pdfa-check"));
+    auto* steps = editor.findChild<QListWidget*>(QStringLiteral("presetEditorSteps"));
+    QVERIFY(steps);
+    QCOMPARE(steps->count(), 1);
+    QVERIFY2(steps->item(0)->text().contains(QStringLiteral("[unavailable]")),
+             qPrintable(steps->item(0)->text()));
+    QVERIFY2(!steps->item(0)->toolTip().isEmpty(),
+             "the whyNot + alternative must be the row tooltip");
+
+    // The step is KEPT — the disclosure is honest, not a silent drop.
+    QVERIFY(editor.savePreset());
+    QCOMPARE(editor.preset().steps.size(), 1);
+    QCOMPARE(editor.preset().steps.first().op, QStringLiteral("pdfa-check"));
 }
 
 QTEST_MAIN(TestBatchPresetsP2)
