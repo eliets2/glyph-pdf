@@ -22,7 +22,12 @@ on:
 jobs:
   redaction-oracles:
     # Runs on a Windows runner with MSYS2/ucrt64 to match the dev toolchain.
-    runs-on: windows-latest
+    # C1 (SWEEP-W3-DEVOPS §7.1): windows-2022, not windows-latest — the
+    # image flip must be a pinned, reviewable decision; and the msys2
+    # install list now carries cmake + ninja, which the Configure step
+    # below invokes (a missing tool here failed the job at setup, not at
+    # a named step).
+    runs-on: windows-2022
     timeout-minutes: 30
     defaults:
       run:
@@ -34,6 +39,8 @@ jobs:
           msystem: UCRT64
           install: >-
             mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
             mingw-w64-ucrt-x86_64-qt6-base
             mingw-w64-ucrt-x86_64-qpdf
             mingw-w64-ucrt-x86_64-python
