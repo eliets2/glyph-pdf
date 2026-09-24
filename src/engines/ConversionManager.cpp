@@ -446,7 +446,16 @@ bool ConversionManager::exportToImage(const QString &pdfPath, const QString &out
     int page = options.value("page", 0).toInt(); // 0 means all, but output path needs formatting
     QString format = options.value("format", "PNG").toString(); // PNG, JPEG, TIFF
 
-    if (options.contains("page") && page >= 0 && page < backend.pageCount()) {
+    if (options.contains("page")) {
+        if (page < 0 || page >= backend.pageCount()) {
+            // sweep-legacy 5(e): an EXPLICIT but out-of-range "page" option
+            // must refuse — the old fall-through rendered ALL pages and
+            // reported success, a misleading contract for API/batch callers.
+            qWarning() << "exportToImage: page option" << page
+                       << "is out of range (0.." << backend.pageCount() - 1
+                       << ") — refusing (no output written).";
+            return false;
+        }
         QImage img = backend.renderPage(page, dpi);
         bool saved = img.save(outputPath, format.toUtf8().constData());
         return saved && QFileInfo(outputPath).size() > 0;
