@@ -60,6 +60,9 @@ using TargetFormat = IConversionEngine::TargetFormat;
 #include <QStandardPaths>
 #include <QTemporaryFile> // R26-P2 U4: the staging probe's create+delete writability check
 #include <QTimer>
+#include <QJsonArray>    // R26-P2 U5: run-report JSON export (M5 precedent)
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <algorithm>
 #include <QUrl>
 #include <QtConcurrent/QtConcurrent>
@@ -1310,6 +1313,18 @@ bool runPresetCheckStep(const QString& current, const BatchPresetStep& step,
 // file boundary instead, keeps everything already committed, and names the
 // cause once.
 
+// R26-P2 U5: the step status spelling shared by the log lines and the
+// run-report artifacts (JSON + CSV).
+QString runReportStatusString(BatchStepResult::Status status) {
+    switch (status) {
+    case BatchStepResult::Status::Ok:      return QStringLiteral("ok");
+    case BatchStepResult::Status::Failed:  return QStringLiteral("failed");
+    case BatchStepResult::Status::Blocked: return QStringLiteral("blocked");
+    case BatchStepResult::Status::Skipped: return QStringLiteral("skipped");
+    }
+    return QStringLiteral("failed");
+}
+
 // Staging probe — the "output directory unwritable/absent" class, detected
 // BEFORE any worker starts (deterministic on both lanes, which the mid-run
 // mapped pipeline cannot offer). Each distinct resolved output directory is
@@ -1357,6 +1372,8 @@ bool runPresetChain(const QString& inputPath, const QString& outputPath,
             record.op = preset.steps.first().op;
             record.label = preset.steps.first().label;
             record.status = BatchStepResult::Status::Failed;
+            // U5: the entering link is the input itself (measured on disk).
+            record.bytesIn = QFileInfo(inputPath).size();
             record.detail = *techDetail;
             stepRecords->append(record);
         }
@@ -1375,6 +1392,10 @@ bool runPresetChain(const QString& inputPath, const QString& outputPath,
         record.stepIndex = i;
         record.op = step.op;
         record.label = step.label;
+        // R26-P2 U5 (plan §3/§4.8): every step is timed; byte counts are
+        // MEASURED on disk (chain links), never estimated.
+        QElapsedTimer stepTimer;
+        stepTimer.start();
 
         // R26-P2 (N1): bates only ever runs on the ordered lane. A bates step
         // reaching the parallel chain is an internal scheduling error — fail
@@ -1390,6 +1411,11 @@ bool runPresetChain(const QString& inputPath, const QString& outputPath,
         // its own.
         if (ok && step.op == QLatin1String("pdfa-check")) {
             ok = runPresetCheckStep(current, step, techDetail);
+            // U5: a non-mutating row — the validator READS the current link,
+            // so bytesIn == bytesOut (no byte delta) and the duration covers
+            // the validation only.
+            record.bytesIn  = QFileInfo(current).size();
+            record.bytesOut = record.bytesIn;
         } else if (ok) {
             // R26-P2 (N1): the effective start continues the run's sequence —
             // the last SUCCESSFUL stamp + 1 — and the first file (or the run
@@ -1406,6 +1432,9 @@ bool runPresetChain(const QString& inputPath, const QString& outputPath,
 
             QString candidate;
             QString candidateErr;
+            // U5: the entering link (the input for step 0, otherwise the
+            // previous candidate) measured before the step touches anything.
+            record.bytesIn = QFileInfo(current).size();
             if (!SafeSave::makeUniqueCandidate(&candidate, &candidateErr)) {
                 *techDetail = candidateErr;
                 ok = false;
@@ -1448,6 +1477,12 @@ bool runPresetChain(const QString& inputPath, const QString& outputPath,
                 }
                 if (ok)
                     current = candidate;
+                if (ok) {
+                    // U5: the produced link, measured on disk after validation
+                    // promoted it (a rejected candidate is not a chain link —
+                    // its record keeps bytesOut = -1).
+                    record.bytesOut = QFileInfo(candidate).size();
+                }
                 if (ok && step.op == QLatin1String("bates") && runState) {
                     runState->batesStarted = true;
                     runState->lastBatesOut = lastBatesOut;
@@ -1464,6 +1499,7 @@ bool runPresetChain(const QString& inputPath, const QString& outputPath,
             record.detail = *techDetail;
             failedAt = i;
         }
+        record.durationMs = stepTimer.elapsed();   // U5: wall duration of the step
         if (stepRecords)
             stepRecords->append(record);
     }
@@ -1684,6 +1720,7 @@ void BatchMode::onRunClicked() {
 
     // Capture config values for the worker lambda (all GUI data captured before worker starts)
     const int capturedOp = opIdx;
+    m_lastRunWasPreset = (opIdx == OpPresetPipeline);   // U5: export surface switch
     const auto capturedCtx = m_ctx;
 
     // Convert config
@@ -2612,6 +2649,26 @@ void BatchMode::accountResultAt(int idx) {
                                          res.errorMessage);
     }
 
+    // R26-P2 U5 (plan §3/§4.8): per-step lines under the file's result line —
+    // the measured chain (raw on-disk byte counts, never estimates). Failed
+    // steps carry the engine's techDetail as their detail.
+    for (const auto& step : res.steps) {
+        QString line = QStringLiteral("  \xE2\x86\xB3 step %1 %2 [%3]")
+                           .arg(step.stepIndex + 1)
+                           .arg(step.op, runReportStatusString(step.status));
+        if (step.bytesIn >= 0 && step.bytesOut >= 0)
+            line += QStringLiteral(" %1 B \xE2\x86\x92 %2 B")
+                        .arg(step.bytesIn).arg(step.bytesOut);
+        if (step.durationMs >= 0)
+            line += QStringLiteral(" \xC2\xB7 %1 ms").arg(step.durationMs);
+        if (!step.detail.isEmpty()
+            && step.status != BatchStepResult::Status::Ok
+            && step.status != BatchStepResult::Status::Skipped)
+            line += QStringLiteral(": %1").arg(step.detail);
+        appendLog(line, step.status == BatchStepResult::Status::Failed
+                            ? "#c8442b" : QString());
+    }
+
     // Overall progress
     int pct = total > 0 ? (completed * 100 / total) : 0;
     m_overallProgress->setValue(pct);
@@ -3287,6 +3344,21 @@ void BatchMode::showSummary() {
 // ── Export log (D4) ────────────────────────────────────────────────────────────
 
 void BatchMode::onExportLog() {
+    // R26-P2 U5 (plan §3/§4.8): a PRESET run's Export Log exports the per-step
+    // measured-bytes run report (JSON/CSV by extension). Classic runs keep
+    // exporting the error log — nothing about their surface changes.
+    if (m_lastRunWasPreset && !m_lastRunResults.isEmpty()) {
+        QString path = QFileDialog::getSaveFileName(
+            this, tr("Export Run Report"), {},
+            tr("JSON (*.json);;CSV (*.csv);;All Files (*)"));
+        if (path.isEmpty()) return;
+        if (exportRunReport(path))
+            appendLog(tr("Run report exported to %1").arg(path), "#5b9bd5");
+        else
+            appendLog(tr("Failed to export run report to %1").arg(path), "#c8442b");
+        return;
+    }
+
     if (m_errorLog.count() == 0) return;
 
     QString path = QFileDialog::getSaveFileName(
@@ -3302,6 +3374,108 @@ void BatchMode::onExportLog() {
         appendLog(tr("Log exported to %1").arg(path), "#5b9bd5");
     else
         appendLog(tr("Failed to export log to %1").arg(path), "#c8442b");
+}
+
+// ── R26-P2 U5 (plan §3/§4.8): the per-step measured-bytes report ──────────────
+// Pure formatters over the run's per-file results. The artifact carries raw,
+// measured byte counts (M8 readout honesty: verifiable numbers, no estimates,
+// no humanized rounding) and one record per step in chain order.
+
+QByteArray BatchMode::runReportJson(const QList<BatchFileResult>& results) {
+    QJsonArray arr;
+    for (const auto& r : results) {
+        QJsonObject f;
+        f["input"]  = r.inputPath;
+        f["output"] = r.outputPath;
+        f["status"] = r.skipped ? QStringLiteral("skipped")
+                                : (r.success ? QStringLiteral("ok")
+                                             : QStringLiteral("failed"));
+        if (!r.errorMessage.isEmpty())
+            f["error"] = r.errorMessage;
+        if (!r.skipReason.isEmpty())
+            f["skipReason"] = r.skipReason;
+        f["batchScoped"] = r.batchScoped;
+        QJsonArray steps;
+        for (const auto& s : r.steps) {
+            QJsonObject o;
+            o["index"]      = s.stepIndex + 1;   // 1-based, chain order
+            o["op"]         = s.op;
+            o["label"]      = s.label;
+            o["status"]     = runReportStatusString(s.status);
+            // QJsonValue stores numbers as double — exact for file sizes
+            // (well below 2^53).
+            o["bytesIn"]    = static_cast<double>(s.bytesIn);
+            o["bytesOut"]   = static_cast<double>(s.bytesOut);
+            o["durationMs"] = static_cast<double>(s.durationMs);
+            o["firstBates"] = s.firstBates;
+            o["lastBates"]  = s.lastBates;
+            o["detail"]     = s.detail;
+            steps.append(o);
+        }
+        f["steps"] = steps;
+        arr.append(f);
+    }
+    return QJsonDocument(arr).toJson(QJsonDocument::Indented);
+}
+
+QByteArray BatchMode::runReportCsv(const QList<BatchFileResult>& results) {
+    // RFC-4180: CRLF record separators, every field quoted, embedded quotes
+    // doubled. One row per step (chain order); a file without step records
+    // (skipped / not-run) is one row with empty step fields — the
+    // files-not-attempted list rides the artifact.
+    auto esc = [](const QString& s) {
+        QString t = s;
+        t.replace(QLatin1Char('"'), QStringLiteral("\"\""));
+        return QStringLiteral("\"%1\"").arg(t);
+    };
+    const auto num = [](qint64 v) {
+        return v < 0 ? QString() : QString::number(v);
+    };
+    QByteArray out;
+    const auto row = [&](const QStringList& fields) {
+        for (const QString& field : fields)
+            out += esc(field).toUtf8() + ',';
+        out[out.size() - 1] = '\r';
+        out += '\n';
+    };
+    row({ QStringLiteral("File"), QStringLiteral("Output"), QStringLiteral("Status"),
+          QStringLiteral("Step"), QStringLiteral("Op"), QStringLiteral("StepStatus"),
+          QStringLiteral("BytesIn"), QStringLiteral("BytesOut"),
+          QStringLiteral("DurationMs"), QStringLiteral("FirstBates"),
+          QStringLiteral("LastBates"), QStringLiteral("Detail") });
+    for (const auto& r : results) {
+        const QString status = r.skipped ? QStringLiteral("skipped")
+                                         : (r.success ? QStringLiteral("ok")
+                                                      : QStringLiteral("failed"));
+        const QString detail = r.skipped ? r.skipReason : r.errorMessage;
+        if (r.steps.isEmpty()) {
+            row({ r.inputPath, r.outputPath, status, {}, {}, {},
+                  {}, {}, {}, {}, {}, detail });
+            continue;
+        }
+        for (const auto& s : r.steps) {
+            row({ r.inputPath, r.outputPath, status,
+                  QString::number(s.stepIndex + 1), s.op,
+                  runReportStatusString(s.status),
+                  num(s.bytesIn), num(s.bytesOut), num(s.durationMs),
+                  num(s.firstBates), num(s.lastBates),
+                  s.status == BatchStepResult::Status::Skipped ? QString() : s.detail });
+        }
+    }
+    return out;
+}
+
+bool BatchMode::exportRunReport(const QString& path) const {
+    const QByteArray payload = path.endsWith(QLatin1String(".csv"), Qt::CaseInsensitive)
+        ? runReportCsv(m_lastRunResults)
+        : runReportJson(m_lastRunResults);
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return false;
+    const qint64 written = f.write(payload);
+    // Verify the full payload was written without an IO error before claiming
+    // success (the ErrorLog::export* discipline).
+    return written == payload.size() && f.error() == QFileDevice::NoError;
 }
 
 } // namespace gp
