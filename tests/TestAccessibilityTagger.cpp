@@ -368,6 +368,20 @@ private slots:
     // QSKIP when no CLI is available (same discipline as TestVeraPdf).
     void veraPdfReadsTheTaggedTree();
 
+    // PR-review §3.3 — matrix operand order: a relative Td AFTER a scaled
+    // Tm must move by the SCALED offset (12 0 0 12 60 700 Tm then 0 -1.2 Td
+    // moves 14.4pt, not 1.2pt). PDF composes the NEW operand first
+    // (Tlm′ = T × Tlm; CTM′ = M × CTM); the line-merge clustering sees the
+    // two runs as separate lines only when the displacement is honest.
+    void scaledTextMatrixRelativeTdMovesScaled();
+
+    // PR-review §3.3 — matrix operand order: a NESTED scaled cm must apply
+    // the new operand first (CTM′ = M × CTM). Two runs of the same effective
+    // size: one absolute, one under nested scaled cm — the x-left family
+    // check (2pt tolerance) splits them into separate paragraphs only when
+    // the composed translation is honest.
+    void nestedScaledCmComposesNewOperandFirst();
+
 private:
     static FixtureOpts headingParagraphFixture() {
         // Exact ladder from the design's §6.1 pin: H1, P, P, H2, P.
@@ -906,6 +920,117 @@ void TestAccessibilityTagger::veraPdfReadsTheTaggedTree() {
         }
     }
     QVERIFY2(failed, "the corrupted tree must FAIL veraPDF validation");
+}
+
+// ── PR-review §3.3: matrix operand order ─────────────────────────────────────
+//
+// Mat::operator* is the column-vector convention: (m * n) applied to p ==
+// m applied to (n applied to p). PDF composes the NEW operand FIRST
+// (CTM′ = M × CTM; Tlm′ = T × Tlm), so the accumulated matrix must sit on
+// the LEFT and the new operand on the RIGHT at every composition site.
+// The text-preservation invariant cannot catch a wrong order (the rewrite
+// replays the same walk both sides), so these fixtures ARE the guard.
+//
+// Observable: run positions feed the line-merge tolerance
+// (max(1.0, 0.5 × modalSize × 1.2)) and the paragraph x-left family (2pt).
+// A wrong composition puts runs where the honest math would not.
+
+void TestAccessibilityTagger::scaledTextMatrixRelativeTdMovesScaled() {
+    // 12 0 0 12 60 700 Tm scales every subsequent text-space unit by 12:
+    // the relative 0 -1.2 Td must move the second run 14.4pt down (y 685.6),
+    // not 1.2pt (y 698.8). Tf 1 keeps the effective size at 12pt so the
+    // line-merge tolerance is max(1.0, 0.5×12×1.2) = 7.2 — the honest
+    // 14.4pt displacement splits the runs into TWO lines (cluster lineCount
+    // 2); the un-scaled 1.2pt displacement merges them into one.
+    FixtureOpts o;
+    o.pages = {QList<TextLine>{}};
+    o.extra = {
+        "BT\n"
+        "/F1 1 Tf\n"
+        "12 0 0 12 60 700 Tm\n"
+        "(AAAA) Tj\n"
+        "0 -1.2 Td\n"
+        "(BBBB) Tj\n"
+        "ET\n",
+    };
+    const QString pdf = make("tm-td-scaled.pdf", o);
+    QVERIFY(!pdf.isEmpty());
+
+    const gp::TaggerPreflight p = gp::preflightTagging(pdf);
+    QVERIFY(p.loadOk);
+    QVERIFY(p.anyText);
+    QVERIFY2(p.sizeClusters.size() == 1,
+             qPrintable(QStringLiteral("expected one size cluster, got %1")
+                            .arg(p.sizeClusters.size())));
+    const gp::TaggerSizeCluster& c = p.sizeClusters.first();
+    QVERIFY2(std::abs(c.size - 12.0) < 0.5,
+             qPrintable(QStringLiteral("effective size must be 12 (Tf 1 × Tm 12), got %1")
+                            .arg(c.size)));
+    QVERIFY2(c.runCount == 2,
+             qPrintable(QStringLiteral("the Td displacement must be SCALED by the "
+                                      "text matrix (14.4pt = 2 lines), but the "
+                                      "cluster saw %1 line(s)")
+                            .arg(c.runCount)));
+
+    // The full transaction stays consistent with the same walk: tagging
+    // succeeds and the structural verifier accepts the tree.
+    const gp::TaggerReport r = gp::tagDocumentAccessibility(pdf);
+    QVERIFY2(r.ok, qPrintable(r.message));
+    QVERIFY2(gp::validateTaggedStructureTree(pdf).isEmpty(),
+             "the tagged tree must validate under the same matrix math");
+}
+
+void TestAccessibilityTagger::nestedScaledCmComposesNewOperandFirst() {
+    // q 2 0 0 2 100 0 cm … q 1 0 0 1 1.5 6 cm … (NEST) — the nested cm is
+    // applied to the point FIRST, so NEST lands at C1·C2·(0,0) = (103, 12):
+    // its x-left is 3pt from REF's (100) and the 2pt x-left-family
+    // tolerance puts it in its own paragraph. The reversed (old-first)
+    // composition lands NEST at C2·C1·(0,0) = (101.5, 6) — 1.5pt from REF —
+    // and both runs collapse into ONE paragraph.
+    // Both runs carry the same effective size 12 (Tf 6 × ctm 2) so the only
+    // element break is the x-left family; the single baseline gap is also
+    // the modal gap, so the gap limit never splits.
+    FixtureOpts o;
+    o.pages = {QList<TextLine>{}};
+    o.extra = {
+        "q\n"
+        "2 0 0 2 100 0 cm\n"
+        "BT\n"
+        "/F1 6 Tf\n"
+        "0 50 Td\n"
+        "(REF) Tj\n"
+        "ET\n"
+        "q\n"
+        "1 0 0 1 1.5 6 cm\n"
+        "BT\n"
+        "/F1 6 Tf\n"
+        "(NEST) Tj\n"
+        "ET\n"
+        "Q\n"
+        "Q\n",
+    };
+    const QString pdf = make("cm-nested-scaled.pdf", o);
+    QVERIFY(!pdf.isEmpty());
+
+    const gp::TaggerPreflight p = gp::preflightTagging(pdf);
+    QVERIFY(p.loadOk);
+    QVERIFY(p.anyText);
+    // Same effective size 12 either way — the composition order shows in the
+    // translation, not the scale.
+    QVERIFY2(p.sizeClusters.size() == 1,
+             qPrintable(QStringLiteral("expected one size cluster, got %1")
+                            .arg(p.sizeClusters.size())));
+
+    const gp::TaggerReport r = gp::tagDocumentAccessibility(pdf);
+    QVERIFY2(r.ok, qPrintable(r.message));
+    QVERIFY2(r.paragraphsTagged == 2,
+             qPrintable(QStringLiteral("the nested cm must be applied to the "
+                                      "point FIRST (NEST x = 103, 3pt from REF "
+                                      "→ 2 paragraphs), but %1 paragraph(s) "
+                                      "were tagged")
+                            .arg(r.paragraphsTagged)));
+    QVERIFY2(gp::validateTaggedStructureTree(pdf).isEmpty(),
+             "the tagged tree must validate under the same matrix math");
 }
 
 #include "TestAccessibilityTagger.moc"
