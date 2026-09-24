@@ -37,6 +37,12 @@ namespace EditPolicy {
 //     list Apply route was ungated until the audit caught it; S2-2 caught
 //     the same class in FormBuilderMode::onTabOrderApplyClicked — the
 //     comment now names every direct route because the code gates them.)
+//   - PR-review §3.1: the accessibility TAG route — the panel's injected
+//     read-only gate predicate (AccessibilityPanel::setReadOnlyGate, wired
+//     by MainWindow to mutationBlocked(session)) refuses the click up front,
+//     and MainWindow::runA11yTag (the injected runner) re-asks the same
+//     predicate as the hard stop at the write boundary: tagging rewrites
+//     every content stream and full-saves in place.
 
 // The mutation tool set, in one place. Viewing/selection (Hand, Select,
 // SelectObject/EditObject arming, Search), navigation, and copy/export-shaped

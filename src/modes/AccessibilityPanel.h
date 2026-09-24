@@ -58,6 +58,14 @@ public:
     // a runner the Tag action does not exist (never a dead control).
     void setTagRunner(std::function<TaggerReport(const QString& path)> runner);
 
+    // PR-review §3.1: the read-only gate is INJECTED too — the panel stays a
+    // view and never holds the DocumentSession; the shell's predicate asks
+    // EditPolicy::mutationBlocked(session). A read-only session refuses the
+    // Tag action up front (honest message) AND the shell's runner refuses
+    // again at the write boundary (defense in depth). Without a gate the
+    // click-time check is skipped (tests / hosts that guarantee mutability).
+    void setReadOnlyGate(std::function<bool()> gate);
+
 public slots:
     void setDocument(const QString& path);
     // One fix, end to end: run it, report the outcome honestly in the status
@@ -99,6 +107,7 @@ private:
     A11yReport m_lastReport;
     std::function<A11yFixOutcome(const A11yFixRequest&)> m_fixRunner;
     std::function<TaggerReport(const QString& path)> m_tagRunner;
+    std::function<bool()> m_readOnlyGate;   // PR-review §3.1 (injected)
 
     QFutureWatcher<A11yReport>* m_scanWatcher = nullptr;
     QFutureWatcher<TaggerPreflight>* m_preflightWatcher = nullptr;

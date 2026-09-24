@@ -1253,6 +1253,13 @@ void MainWindow::onScreenSelected(const QString& id) {
             // document must be parked for the same-file transaction.
             _a11yPanel->setTagRunner(
                 [this](const QString& path) { return runA11yTag(path); });
+            // PR-review §3.1: the read-only gate rides with the runner — the
+            // panel asks the SESSION predicate (one EditPolicy wording) and
+            // this runner stays the hard stop at the write boundary.
+            _a11yPanel->setReadOnlyGate([this]() {
+                return EditPolicy::mutationBlocked(
+                    _ctx ? _ctx->document.get() : nullptr);
+            });
             connect(_a11yPanel, &AccessibilityPanel::documentMutated, this,
                     [this](const QString& m) { _status->setOperation(m); });
         }
@@ -1344,6 +1351,15 @@ gp::A11yFixOutcome MainWindow::runA11yFix(const gp::A11yFixRequest& request) {
 }
 
 gp::TaggerReport MainWindow::runA11yTag(const QString& path) {
+    // PR-review §3.1: hard stop at the write boundary — tagging rewrites
+    // every content stream and full-saves in place, so a read-only session
+    // must never reach the transaction. (The panel refuses up front too;
+    // this runner gate covers every other caller of the injected runner.)
+    if (EditPolicy::mutationBlocked(_ctx ? _ctx->document.get() : nullptr)) {
+        gp::TaggerReport refused;
+        refused.message = EditPolicy::readOnlyMessage();
+        return refused;
+    }
     auto* viewer = pdfViewer();
     const QString openPath = viewer ? viewer->filePath() : QString();
     if (openPath == path) {

@@ -2,6 +2,7 @@
 #include "AccessibilityPanel.h"
 
 #include "engines/AccessibilityTagger.h"
+#include "shell/EditPolicy.h"    // PR-review §3.1: one read-only wording
 #include "util/GpTheme.h"
 
 #include <QComboBox>
@@ -266,6 +267,10 @@ void AccessibilityPanel::setTagRunner(
     m_tagRunner = std::move(runner);
 }
 
+void AccessibilityPanel::setReadOnlyGate(std::function<bool()> gate) {
+    m_readOnlyGate = std::move(gate);
+}
+
 void AccessibilityPanel::updateTagActionState() {
     if (!m_tagBtn) return;
     // Honest gating: no document → disabled; an already-tagged document is
@@ -293,6 +298,15 @@ void AccessibilityPanel::hideTagConfirmation() { m_tagConfirm->hide(); }
 
 void AccessibilityPanel::onTagClicked() {
     if (!m_tagRunner || m_currentDocPath.isEmpty()) return;
+    // PR-review §3.1: a read-only session refuses the tag transaction up
+    // front — the write itself is a full rewrite + in-place save. The gate
+    // is the injected session predicate (EditPolicy::mutationBlocked); the
+    // shell's runner carries the same refusal as the hard stop. Honest
+    // message, no pre-flight surface, nothing written.
+    if (m_readOnlyGate && m_readOnlyGate()) {
+        m_statusLabel->setText(EditPolicy::readOnlyMessage());
+        return;
+    }
     if (m_lastReport.loadOk && m_lastReport.tagged) {
         // The engine refuses anyway — say why up front (honest gating).
         m_statusLabel->setText(tr(

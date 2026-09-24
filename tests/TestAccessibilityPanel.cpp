@@ -121,6 +121,9 @@ private slots:
     void tagRunnerFlowResolvesFinding();
     void disclaimerIsPinnedVerbatim();
 
+    // ── PR-review §3.1: the read-only gate on the tag route ─────────────
+    void tagRefusedWhenReadOnlyGateFires();
+
 private:
     // Wait for the panel's async scan to deliver (the default-constructed
     // lastReport() is indistinguishable from a finished clean scan, so tests
@@ -455,6 +458,53 @@ void TestAccessibilityPanel::disclaimerIsPinnedVerbatim() {
     const QString status = statusOf(&panel)->text();
     QVERIFY2(!status.contains(QStringLiteral("conform"), Qt::CaseInsensitive),
              qPrintable(status));
+}
+
+// PR-review §3.1: a read-only session refuses the tag route UP FRONT — the
+// click never reaches the runner, no pre-flight surface renders, and the
+// file on disk stays byte-identical. The gate is the shell's injected
+// predicate (EditPolicy::mutationBlocked over the session); this pin holds
+// it at true and requires the one honest wording.
+void TestAccessibilityPanel::tagRefusedWhenReadOnlyGateFires() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = tmp.filePath("taggable.pdf");
+    QVERIFY(makeTaggablePdf(pdf));
+    QFile before(pdf);
+    QVERIFY(before.open(QIODevice::ReadOnly));
+    const QByteArray originalBytes = before.readAll();
+    before.close();
+
+    gp::AccessibilityPanel panel;
+    bool runnerInvoked = false;
+    panel.setTagRunner([&runnerInvoked](const QString& path) {
+        Q_UNUSED(path);
+        runnerInvoked = true;
+        return gp::tagDocumentAccessibility(path);
+    });
+    panel.setReadOnlyGate([]() { return true; });   // read-only session
+    panel.setDocument(pdf);
+    QVERIFY(waitForScan(&panel));
+    QVERIFY(!panel.lastReport().tagged);   // taggable — only the gate blocks
+
+    tagButtonOf(&panel)->click();
+
+    // The one shared read-only wording, synchronously (no async surface).
+    QVERIFY2(statusOf(&panel)->text()
+                 .contains(QStringLiteral("read-only"), Qt::CaseInsensitive),
+             qPrintable(statusOf(&panel)->text()));
+    QVERIFY(!panel.findChild<QWidget*>(QStringLiteral("a11yTagConfirm"))
+                        ->isVisible());
+    QTest::qWait(150);   // give a (wrong) async run a chance to surface
+    QVERIFY2(!runnerInvoked,
+             "the injected runner must never be reached in a read-only session");
+
+    QFile after(pdf);
+    QVERIFY(after.open(QIODevice::ReadOnly));
+    const QByteArray currentBytes = after.readAll();
+    after.close();
+    QVERIFY2(currentBytes == originalBytes,
+             "a refused tag must leave the file byte-identical");
 }
 
 #include "TestAccessibilityPanel.moc"

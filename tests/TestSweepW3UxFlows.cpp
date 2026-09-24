@@ -53,6 +53,7 @@
 #include "app/Bootstrapper.h"
 #include "core/AppContext.h"
 #include "core/AnnotationTypes.h"
+#include "engines/DocumentSession.h"   // F7b: setReadOnly on the real session
 #include "shell/Ribbon.h"
 #include "shell/StatusBar.h"
 #include "ui/WelcomeWidget.h"
