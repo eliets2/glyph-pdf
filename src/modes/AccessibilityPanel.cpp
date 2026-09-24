@@ -342,6 +342,16 @@ void AccessibilityPanel::onPreflightFinished() {
         m_statusLabel->setText(tr("Cannot tag: %1").arg(p.loadError));
         return;
     }
+    if (p.signedDocument) {
+        // PR-review §3.2: a signed document is refused up front — the
+        // transaction's full in-place save would invalidate the signature.
+        m_statusLabel->setText(tr(
+            "Tagging not applied: this document is digitally signed. Tagging "
+            "rewrites all content streams and saves the document in place, "
+            "which would invalidate every existing signature. Save an "
+            "unsigned copy first (File > Save As), then tag the copy."));
+        return;
+    }
     if (p.alreadyTagged) {
         m_statusLabel->setText(tr(
             "Tagging not applied: this document is already tagged; "

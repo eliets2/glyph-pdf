@@ -106,6 +106,63 @@ bool makeCleanPdf(const QString& path) {
 
 } // namespace
 
+// PR-review §3.2 fixture: a taggable PDF carrying a SIGNED signature field
+// (/FT Sig with /V → /ByteRange). The panel's pre-flight reports it and the
+// tag route refuses before any confirmation surface renders.
+bool makeSignedTaggablePdf(const QString& path) {
+    try {
+        PoDoFo::PdfMemDocument doc;
+        auto& page = doc.GetPages().CreatePage(
+            PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+        PdfDictionary fonts;
+        auto& f1 = doc.GetObjects().CreateDictionaryObject();
+        f1.GetDictionary().AddKey("Type", PdfObject(PdfName("Font")));
+        f1.GetDictionary().AddKey("Subtype", PdfObject(PdfName("Type1")));
+        f1.GetDictionary().AddKey("BaseFont", PdfObject(PdfName("Helvetica")));
+        fonts.AddKey(PdfName("F1"), PdfObject(f1.GetIndirectReference()));
+        page.GetResources().GetDictionary().AddKey("Font", PdfObject(fonts));
+        auto& contents = page.GetOrCreateContents();
+        auto& stream = contents.CreateStreamForAppending(
+            PoDoFo::PdfStreamAppendFlags::None);
+        const char* c =
+            "BT\n/F1 10 Tf\n60 700 Td\n(Signed taggable line.) Tj\nET\n";
+        stream.SetData(PoDoFo::bufferview(c, strlen(c)));
+
+        PoDoFo::PdfArray byteRange;
+        byteRange.Add(static_cast<int64_t>(0));
+        byteRange.Add(static_cast<int64_t>(120));
+        byteRange.Add(static_cast<int64_t>(220));
+        byteRange.Add(static_cast<int64_t>(80));
+        auto& sigVal = doc.GetObjects().CreateDictionaryObject();
+        sigVal.GetDictionary().AddKey("Type", PdfObject(PdfName("Sig")));
+        sigVal.GetDictionary().AddKey(
+            "Contents", PdfObject(PdfString("sig-placeholder-bytes")));
+        sigVal.GetDictionary().AddKey("ByteRange", PdfObject(byteRange));
+        PoDoFo::PdfArray rect;
+        rect.Add(60.0); rect.Add(600.0); rect.Add(300.0); rect.Add(650.0);
+        auto& widget = doc.GetObjects().CreateDictionaryObject();
+        widget.GetDictionary().AddKey("Type", PdfObject(PdfName("Annot")));
+        widget.GetDictionary().AddKey("Subtype", PdfObject(PdfName("Widget")));
+        widget.GetDictionary().AddKey("FT", PdfObject(PdfName("Sig")));
+        widget.GetDictionary().AddKey("T", PdfObject(PdfString("Sig1")));
+        widget.GetDictionary().AddKey("Rect", PdfObject(rect));
+        widget.GetDictionary().AddKey("V", sigVal.GetIndirectReference());
+        PoDoFo::PdfArray annots;
+        annots.Add(widget.GetIndirectReference());
+        page.GetDictionary().AddKey("Annots", PdfObject(annots));
+        auto& acro = doc.GetObjects().CreateDictionaryObject();
+        PoDoFo::PdfArray fields;
+        fields.Add(widget.GetIndirectReference());
+        acro.GetDictionary().AddKey("Fields", PdfObject(fields));
+        doc.GetCatalog().GetDictionary().AddKey("AcroForm",
+                                                acro.GetIndirectReference());
+        doc.Save(path.toUtf8().constData());
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
 class TestAccessibilityPanel : public QObject {
     Q_OBJECT
 private slots:
@@ -123,6 +180,9 @@ private slots:
 
     // ── PR-review §3.1: the read-only gate on the tag route ─────────────
     void tagRefusedWhenReadOnlyGateFires();
+
+    // ── PR-review §3.2: signed documents refuse at the pre-flight ───────
+    void signedDocumentRefusedAtPreflight();
 
 private:
     // Wait for the panel's async scan to deliver (the default-constructed
@@ -505,6 +565,43 @@ void TestAccessibilityPanel::tagRefusedWhenReadOnlyGateFires() {
     after.close();
     QVERIFY2(currentBytes == originalBytes,
              "a refused tag must leave the file byte-identical");
+}
+
+// PR-review §3.2: a signed document refuses at the pre-flight — the
+// confirmation surface never renders and the injected runner is never
+// reached. (The engine-level refusal + byte-identity are pinned in
+// TestAccessibilityTagger::signedDocumentTaggingRefusedByteIdentical.)
+void TestAccessibilityPanel::signedDocumentRefusedAtPreflight() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = tmp.filePath("signed.pdf");
+    QVERIFY(makeSignedTaggablePdf(pdf));
+
+    gp::AccessibilityPanel panel;
+    bool runnerInvoked = false;
+    panel.setTagRunner([&runnerInvoked](const QString& path) {
+        Q_UNUSED(path);
+        runnerInvoked = true;
+        return gp::tagDocumentAccessibility(path);
+    });
+    panel.setDocument(pdf);
+    QVERIFY(waitForScan(&panel));
+    QVERIFY(!panel.lastReport().tagged);   // taggable — only the signature blocks
+
+    tagButtonOf(&panel)->click();
+
+    // The async pre-flight delivers the refusal with the honest wording.
+    QTRY_VERIFY_WITH_TIMEOUT(
+        statusOf(&panel)->text().contains(QStringLiteral("digitally signed")),
+        15000);
+    QVERIFY2(statusOf(&panel)->text().contains(
+                 QStringLiteral("Save As")),
+             qPrintable(statusOf(&panel)->text()));
+    QVERIFY(!panel.findChild<QWidget*>(QStringLiteral("a11yTagConfirm"))
+                        ->isVisible());
+    QTest::qWait(150);
+    QVERIFY2(!runnerInvoked,
+             "the injected runner must never be reached for a signed document");
 }
 
 #include "TestAccessibilityPanel.moc"
