@@ -224,17 +224,28 @@ grid, tile, updates + Active-Document label).
   T2-3's panel-action summary (deliberately no global ToolId — recorded deviation) while the
   ribbon rows themselves remain hidden/planned.
 
-### G.4 CSV mechanical defects found during the recount (report; not repaired here)
+### G.4 CSV mechanical defects found during the recount (REPAIRED 2026-09-23, residexec lane)
 
 1. Row `measure-export-csv` (line 302) parses as **28 fields, not 21** — the
    `output_or_state_change` cell contains unquoted commas ("CSV file (Page,Type,Value,Unit,
    Calibrated,Scale,Label,Vertices; …)"). Downstream effect: that row's `review_status`
    reads as garbage ("Label") to any RFC-4180 parser; the intended value
    (implemented-awaiting-review) is visible in the trailing fields.
+   → REPAIRED: cell quoted; every row now parses to 21 fields (pinned by
+   `scripts/check-feature-matrix-csv.py`, run in-repo — fails loudly on any
+   unquoted-comma regression).
 2. Row "Certify (level selector)" (line 306) reuses **stable_command_id `certify`**, which
    line 141 already carries as a visible ribbon row — two visible rows, one canonical id. Per
    the notes' §C canonicalization discipline this needs either an alias mapping or an
    id split (e.g. `certify` vs `certifyLevel`) when the matrix is next rebaselined.
+   → REPAIRED by id split: line 141 keeps canonical `certify`; line 306 is now
+   `certify-level` (same command family, distinct surface row — alias mapping
+   recorded here per §C). NOTE: stable_command_id is NOT globally unique in this
+   matrix (variant rows legitimately share ids across surfaces), so the checker
+   pins the mechanical invariant (field count) only, not id uniqueness.
+   Also rebaselined 2026-09-23: matrix rows 52-54 (measure/distance/area) moved
+   from implemented+missing-context to implemented-awaiting-review — MeasureMode
+   landed e73a446 with live Tools-menu routes; the "UNTRACKED WIP" wording was stale.
 
 ### G.5 Vocabulary note
 
