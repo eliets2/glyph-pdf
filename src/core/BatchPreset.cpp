@@ -33,6 +33,10 @@ QStringList knownOps() {
         QStringLiteral("pdfa-check"),
         QStringLiteral("watermark"),
         QStringLiteral("redact"),
+        // R26-P2 (plan §4.1): the formerly-refused op joins the v1 set — the
+        // param table below IS the P1 plan's §2.2 grammar, so kSchemaVersion
+        // stays 1. Run-order continuity is the runner's ordered lane's job.
+        QStringLiteral("bates"),
     };
 }
 
@@ -395,6 +399,70 @@ bool validateStepParams(const QString& op, const QVariantMap& params, QString* e
             return fail(err, QStringLiteral("%1.params: at least one effective pattern is "
                                             "required — a redact step with no pattern would "
                                             "redact nothing (schema v1)").arg(pathPrefix));
+        return true;
+    }
+
+    if (op == QLatin1String("bates")) {
+        // R26-P2 (plan §2.2 table, verbatim ranges): prefix/suffix strings
+        // <= 32 chars; startNumber 1-2,147,483,000; digitCount 1-12; position
+        // one of the six named spots. Defaults omitted = the engine defaults
+        // (startNumber 1, digitCount 6, bottom-right).
+        static const QSet<QString> allowed = {
+            QStringLiteral("prefix"), QStringLiteral("suffix"),
+            QStringLiteral("startNumber"), QStringLiteral("digitCount"),
+            QStringLiteral("position") };
+        for (auto it = params.constBegin(); it != params.constEnd(); ++it) {
+            if (!allowed.contains(it.key()))
+                return fail(err, QStringLiteral("%1.params.%2: unknown parameter for op "
+                                                "\"bates\" (schema v1; supported: prefix, "
+                                                "suffix, startNumber, digitCount, position)")
+                                           .arg(pathPrefix, it.key()));
+        }
+        for (const QString& strKey : { QStringLiteral("prefix"), QStringLiteral("suffix") }) {
+            if (!params.contains(strKey))
+                continue;
+            const QVariant v = params.value(strKey);
+            if (v.typeId() != QMetaType::QString)
+                return fail(err, QStringLiteral("%1.params.%2: expected a string (schema v1)")
+                                           .arg(pathPrefix, strKey));
+            if (v.toString().size() > 32)
+                return fail(err, QStringLiteral("%1.params.%2: exceeds 32 characters "
+                                                "(schema v1)").arg(pathPrefix, strKey));
+        }
+        if (params.contains(QStringLiteral("startNumber"))) {
+            if (!isInt(params.value(QStringLiteral("startNumber"))))
+                return fail(err, QStringLiteral("%1.params.startNumber: expected an integer "
+                                                "(schema v1)").arg(pathPrefix));
+            const int sn = params.value(QStringLiteral("startNumber")).toInt();
+            if (sn < 1 || sn > 2147483000)
+                return fail(err, QStringLiteral("%1.params.startNumber: %2 is out of range "
+                                                "1-2147483000 (schema v1)").arg(pathPrefix).arg(sn));
+        }
+        if (params.contains(QStringLiteral("digitCount"))) {
+            if (!isInt(params.value(QStringLiteral("digitCount"))))
+                return fail(err, QStringLiteral("%1.params.digitCount: expected an integer "
+                                                "(schema v1)").arg(pathPrefix));
+            const int dc = params.value(QStringLiteral("digitCount")).toInt();
+            if (dc < 1 || dc > 12)
+                return fail(err, QStringLiteral("%1.params.digitCount: %2 is out of range "
+                                                "1-12 (schema v1)").arg(pathPrefix).arg(dc));
+        }
+        if (params.contains(QStringLiteral("position"))) {
+            const QVariant v = params.value(QStringLiteral("position"));
+            if (v.typeId() != QMetaType::QString)
+                return fail(err, QStringLiteral("%1.params.position: expected a string "
+                                                "(schema v1)").arg(pathPrefix));
+            static const QSet<QString> positions = {
+                QStringLiteral("bottom-right"), QStringLiteral("bottom-center"),
+                QStringLiteral("bottom-left"),  QStringLiteral("top-right"),
+                QStringLiteral("top-center"),   QStringLiteral("top-left") };
+            const QString pos = v.toString();
+            if (!positions.contains(pos))
+                return fail(err, QStringLiteral("%1.params.position: \"%2\" is not one of "
+                                                "bottom-right, bottom-center, bottom-left, "
+                                                "top-right, top-center, top-left (schema v1)")
+                                           .arg(pathPrefix, pos));
+        }
         return true;
     }
 
