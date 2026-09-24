@@ -62,6 +62,14 @@ public:
     // R15: the canonical command registry (ribbon/menu binding + test seams).
     ToolRegistry* toolRegistry() const { return _toolRegistry; }
 
+    // PR-review §4 (M2): the checked save-first prompt for the IN-PLACE
+    // write boundaries (a11y fix/tag, form import, signing fill step,
+    // single-file Bates). When DocumentSession::isDirty(), offers the
+    // established Save / Discard / Cancel policy (the closeEvent
+    // precedent): Save is a CHECKED saveNow (a failed save aborts the
+    // operation), Discard proceeds without saving, Cancel aborts.
+    // Returns whether the operation may proceed.
+    bool confirmSaveBeforeInPlaceWrite(const QString& why);
     void openDocument(const QString& filePath);
     void recoverDocument(const QString& originalPath);
     const AppContext* appContext() const { return _ctx; }

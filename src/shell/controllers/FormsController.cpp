@@ -155,6 +155,15 @@ void FormsController::onImportDataRequested() {
     // The repaired flow swaps the REAL path on disk and keeps the viewer on it.
     const QString originalPath = viewer->filePath();
     if (originalPath.isEmpty()) return;
+    // M2 (PR-review §4): the import rewrites the OPEN document in place
+    // (candidate → checked commit → viewer reload) — unsaved session
+    // changes would be silently dropped by the rewrite. Checked save-first
+    // prompt (Save / Discard / Cancel) before any work is staged.
+    if (!_mainWindow->confirmSaveBeforeInPlaceWrite(tr("importing form data"))) {
+        _mainWindow->statusBar()->showMessage(
+            tr("Form import canceled — the document has unsaved changes."), 5000);
+        return;
+    }
     const QString outputPath = originalPath + ".tmp";
     QStringList unsupported;
     QList<FormJsFailure> jsFailures;

@@ -1317,6 +1317,13 @@ gp::A11yFixOutcome MainWindow::runA11yFix(const gp::A11yFixRequest& request) {
         out.message = tr("no document open");
         return out;
     }
+    // M2 (PR-review §4): the fix transaction rewrites the open file in
+    // place — unsaved session changes would be silently dropped by the
+    // rewrite. Checked save-first prompt (Save / Discard / Cancel).
+    if (!confirmSaveBeforeInPlaceWrite(tr("applying accessibility fixes"))) {
+        out.message = tr("canceled — the document has unsaved changes");
+        return out;
+    }
     // Same-file write: park the resident document (the next resolveDocument
     // lazily re-loads from disk).
     _ctx->pdfEditor->releaseResidentFile(path);
@@ -1355,8 +1362,16 @@ gp::TaggerReport MainWindow::runA11yTag(const QString& path) {
     }
     auto* viewer = pdfViewer();
     const QString openPath = viewer ? viewer->filePath() : QString();
-    if (openPath == path)
+    if (openPath == path) {
+        // M2 (PR-review §4): tagging rewrites the open file in place —
+        // checked save-first prompt (Save / Discard / Cancel) first.
+        if (!confirmSaveBeforeInPlaceWrite(tr("tagging the document"))) {
+            gp::TaggerReport refused;
+            refused.message = tr("canceled — the document has unsaved changes");
+            return refused;
+        }
         _ctx->pdfEditor->releaseResidentFile(path);
+    }
     return gp::tagDocumentAccessibility(path);
 }
 
@@ -1654,6 +1669,60 @@ void MainWindow::closeEvent(QCloseEvent* event) {
         }
     }
     QMainWindow::closeEvent(event);
+}
+
+// PR-review §4 (M2): the in-place write boundaries (runA11yFix, runA11yTag,
+// the FormsController form import, the SendForSigning fill step, the
+// single-file Bates apply) release the resident document and rewrite the
+// file under the open session — the viewer's unsaved session changes would
+// be silently dropped when the file is rewritten and lazily reloaded from
+// disk. The established Save / Discard / Cancel policy (closeEvent, the
+// annotation-switch precedent) applies here too: Save is a CHECKED saveNow
+// (a failed or refused save aborts the operation — the work is not on
+// disk, so the file must not be rewritten under it), Discard proceeds
+// without saving, Cancel aborts. Returns whether the operation may proceed.
+bool MainWindow::confirmSaveBeforeInPlaceWrite(const QString& why) {
+    if (!_ctx || !_ctx->document || !_ctx->document->isDirty())
+        return true;
+    if (QThread::currentThread() != thread()) {
+        // The accessibility panel's injected runners execute on QtConcurrent
+        // workers; the question must be asked (and answered) on the GUI
+        // thread. Block the worker until the user answers — the GUI thread
+        // is back in its event loop by then (the runner was submitted with
+        // QtConcurrent::run), so nothing deadlocks.
+        bool proceed = false;
+        QMetaObject::invokeMethod(this, [this, &why, &proceed]() {
+            proceed = confirmSaveBeforeInPlaceWrite(why);
+        }, Qt::BlockingQueuedConnection);
+        return proceed;
+    }
+    QMessageBox msgBox(this);
+    msgBox.setWindowTitle(tr("Unsaved Changes"));
+    msgBox.setText(tr("The document has unsaved changes."));
+    msgBox.setInformativeText(tr("Save them before %1? The operation rewrites the file "
+                                 "on disk, and unsaved changes would be lost.")
+                                  .arg(why));
+    msgBox.setIcon(QMessageBox::Warning);
+    auto* saveBtn    = msgBox.addButton(tr("Save"),    QMessageBox::AcceptRole);
+    auto* discardBtn = msgBox.addButton(tr("Discard"), QMessageBox::DestructiveRole);
+    msgBox.addButton(tr("Cancel"), QMessageBox::RejectRole);
+    msgBox.setDefaultButton(saveBtn);
+    msgBox.exec();
+
+    if (msgBox.clickedButton() == saveBtn) {
+        const auto outcome = _home
+            ? _home->saveNow()
+            : HomeController::SaveOutcome::Failed;
+        if (outcome != HomeController::SaveOutcome::Saved) {
+            statusBar()->showMessage(
+                tr("Canceled — the changes could not be saved."), 8000);
+            return false;
+        }
+        return true;
+    }
+    if (msgBox.clickedButton() == discardBtn)
+        return true;   // explicit Discard — the only non-Saved way past
+    return false;      // Cancel: the operation does not run
 }
 
 bool MainWindow::startupUpdateCheckEnabled() {

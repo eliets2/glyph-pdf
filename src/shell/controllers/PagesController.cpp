@@ -292,6 +292,19 @@ void PagesController::activate(ToolId id) {
                         }
                     }
                 } else {
+                    // M2 (PR-review §4): the single-file path rewrites the
+                    // OPEN document in place and reloads the viewer from disk
+                    // — unsaved session changes would be silently dropped.
+                    // Checked save-first prompt (Save / Discard / Cancel).
+                    // (The batch path writes fresh _bated.pdf outputs and
+                    // never rewrites the open file, so it does not prompt.)
+                    if (!_mainWindow->confirmSaveBeforeInPlaceWrite(
+                            tr("applying Bates numbering"))) {
+                        _mainWindow->statusBar()->showMessage(
+                            tr("Bates numbering canceled — the document has unsaved "
+                               "changes."), 5000);
+                        return;
+                    }
                     _ctx->pdfEditor->applyBatesNumbering(viewer->filePath(), opt);
                     viewer->reload();
                     _mainWindow->statusBar()->showMessage(tr("Bates Numbering applied."), 3000);
