@@ -19,10 +19,10 @@ Worktree: D:/pdf/pdf-review. Branch: review/consolidated-parity.
 
 | # | Source | Branch | Disposition | Pick SHA | Build+tests | Notes |
 |---|---|---|---|---|---|---|
-| 1 | 262a7a09 | feat/pr-review-fixes | pending | | | tagger matrix §3.6 |
-| 2 | 3c1e60a6 | feat/pr-review-fixes | pending | | | RO gate §3.1; expect conflict in GpMainWindow.cpp::runA11yTag vs 673d19a0 save-first; keep ALL in order: RO gate, save-first prompt, releaseResidentFile, tag |
-| 3 | efbbf1eb | feat/pr-review-fixes | pending | | | signed refusal §3.2 |
-| 4 | a25c37b7 | feat/pr-review-fixes | pending | | | ledger rows |
+| 1 | 262a7a09 | feat/pr-review-fixes | FOLDED | 1fcaa500 | build 378/378; Tagger 17P/0F/1skip | tagger matrix §3.6 |
+| 2 | 3c1e60a6 | feat/pr-review-fixes | FOLDED | 75e7507e | Panel 13P/0F; flows 14P/0F | RO gate §3.1; conflict in TestSweepW3UxFlows.cpp (blank-line churn + flow7c block) resolved to HEAD side; GpMainWindow.cpp::runA11yTag auto-merged with required order: RO gate, save-first prompt, releaseResidentFile, tag; EditPolicy.h route comment in |
+| 3 | efbbf1eb | feat/pr-review-fixes | FOLDED | 1919d0e6 | (cluster suites above) | signed refusal §3.2 |
+| 4 | a25c37b7 | feat/pr-review-fixes | FOLDED | 8d3f6d0f | docs-only | ledger rows (CURRENT-EVIDENCE-LEDGER +56) |
 | 5 | 9ff2b136 | feat/residual-exec | pending | | | W1-05 admin-owned machine policy |
 | 6 | 551759c7 | feat/residual-exec | pending | | | extractLinks page-space law |
 | 7 | 6552544c | feat/residual-exec | pending | | | exportToImage range refusal |
@@ -46,7 +46,9 @@ Worktree: D:/pdf/pdf-review. Branch: review/consolidated-parity.
 
 ## Checkpoint pushes
 
-- (none yet)
+- CP1 (Phase 1 pr-review-fixes cluster): 1fcaa500, 75e7507e, 1919d0e6, 8d3f6d0f —
+  build 378/378 green; TestAccessibilityTagger 17P/0F/1skip, TestAccessibilityPanel
+  13P/0F, TestSweepW3UxFlows 14P/0F (flow7b + flow7c incl.). Pushed.
 
 ## Notes / deviations
 
