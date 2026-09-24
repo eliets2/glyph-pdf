@@ -3039,14 +3039,19 @@ bool PoDoFoBackend::replaceTextRegions(const QList<TextReplacementSpec>& specs,
 
         for (auto it = perPage.constBegin(); it != perPage.constEnd(); ++it) {
             PoDoFo::PdfPage& page = d->document->GetPages().GetPageAt(it.key());
-            const double pageHeight = page.GetMediaBox().Height;
+            // sweep-legacy 5(b): the spec rect is DISPLAY space (the T2
+            // contract); excision, cover and draw all operate in RAW USER
+            // space. Map through the ONE page-space law — the old height-only
+            // flip used the rotation-normalized GetMediaBox().Height, dropping
+            // the MediaBox lower-left origin and the /Rotate swap.
+            const gp::PageSpace::PageGeometry pageGeo = gp::PageSpace::pageGeometry(page);
 
             std::vector<PoDoFo::Rect> pdfRects;
             pdfRects.reserve(it.value().size());
             for (const auto* spec : it.value()) {
-                const QRectF& r = spec->rect;
-                pdfRects.push_back(PoDoFo::Rect(r.x(), pageHeight - r.y() - r.height(),
-                                                r.width(), r.height()));
+                const QRectF user = gp::PageSpace::viewerToUser(spec->rect, pageGeo);
+                pdfRects.push_back(PoDoFo::Rect(user.x(), user.y(),
+                                                user.width(), user.height()));
             }
 
             std::set<int64_t> mcids;
@@ -3067,17 +3072,18 @@ bool PoDoFoBackend::replaceTextRegions(const QList<TextReplacementSpec>& specs,
 
             for (const auto* spec : it.value()) {
                 const double fontSize = spec->fontSize > 0.0 ? spec->fontSize : 12.0;
-                const QRectF& r = spec->rect;
-                // Baseline: the match rect's top edge minus an ascent
-                // approximation, so the drawn line sits where the excised
-                // glyphs sat (PDFium boxes span ascender..descender ink).
-                const double pdfTop = pageHeight - r.y();
+                const QRectF user = gp::PageSpace::viewerToUser(spec->rect, pageGeo);
+                // Baseline: the match rect's top edge (user space is y-up:
+                // y()+height()) minus an ascent approximation, so the drawn
+                // line sits where the excised glyphs sat (PDFium boxes span
+                // ascender..descender ink).
+                const double pdfTop = user.y() + user.height();
                 double baseline = pdfTop - fontSize * 0.8;
                 painter.GraphicsState.SetNonStrokingColor(PoDoFo::PdfColor(0.0, 0.0, 0.0));
                 painter.TextState.SetFont(font, fontSize);
                 const QStringList lines = spec->text.split(QLatin1Char('\n'));
                 for (const QString& line : lines) {
-                    painter.DrawText(line.toUtf8().constData(), r.x(), baseline);
+                    painter.DrawText(line.toUtf8().constData(), user.x(), baseline);
                     baseline -= fontSize * 1.2;
                 }
                 if (drawnWidthsOut) {

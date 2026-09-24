@@ -4,11 +4,18 @@
 #include <QDebug>
 #include <QElapsedTimer>
 
+#include <QDebug>
+#include <QElapsedTimer>
+#include <QRectF>
+
 #ifdef HAS_PDFIUM
 #include <fpdfview.h>
 #include <fpdf_text.h>
+#include <fpdf_edit.h>
 #include "engines/pdfium/PdfiumEnvironment.h"
 #endif
+
+#include "core/ItemSpaceTransform.h"
 
 QRegularExpression TextMatchFinder::buildPattern(const QString& search, bool matchCase,
                                                  bool wholeWords, bool useRegex) {
@@ -66,7 +73,27 @@ QList<CharBox> extractCharBoxes(FPDF_DOCUMENT doc, int pageIndex) {
     FPDF_PAGE page = FPDF_LoadPage(doc, pageIndex);
     if (!page) return result;
 
-    const double pageHeight = static_cast<double>(FPDF_GetPageHeightF(page));
+    // sweep-legacy 5(b) sibling: FPDFText_GetCharBox reports RAW USER-space
+    // boxes (measured: a 12pt char drawn at user (100,700) on a
+    // /Rotate 270 + offset-origin page reports x 100..139, top 708.6 while
+    // FPDF_GetPageHeightF reports the ROTATED display height 612). The old
+    // flip mixed that rotated display height with the raw user top — garbage
+    // match rects on every rotated or offset-origin page (the on-screen Find
+    // highlight and the replacement spec both consumed them). Map the raw box
+    // through the ONE page-space law instead.
+    FS_RECTF pageBox;
+    double bx = 0, by = 0, bw = 0, bh = 0;
+    if (FPDF_GetPageBoundingBox(page, &pageBox)) {
+        bx = pageBox.left; by = pageBox.bottom;
+        bw = pageBox.right - pageBox.left;
+        bh = pageBox.top - pageBox.bottom;
+    }
+    if (bw <= 0 || bh <= 0) {
+        bw = static_cast<double>(FPDF_GetPageWidthF(page));
+        bh = static_cast<double>(FPDF_GetPageHeightF(page));
+    }
+    const gp::PageSpace::PageGeometry charGeo = gp::PageSpace::pageGeometryFromMediaBox(
+        bx, by, bw, bh, static_cast<int>(FPDFPage_GetRotation(page)) * 90);
     FPDF_TEXTPAGE textPage = FPDFText_LoadPage(page);
     if (!textPage) {
         FPDF_ClosePage(page);
@@ -82,8 +109,9 @@ QList<CharBox> extractCharBoxes(FPDF_DOCUMENT doc, int pageIndex) {
         double size = 0;
         QRectF box;
         if (FPDFText_GetCharBox(textPage, ci, &pdf_left, &pdf_right, &pdf_bottom, &pdf_top)) {
-            const double qtY = pageHeight - pdf_top;
-            box = QRectF(pdf_left, qtY, pdf_right - pdf_left, pdf_top - pdf_bottom);
+            const QRectF rawBox(QPointF(pdf_left, pdf_bottom),
+                                QPointF(pdf_right, pdf_top));
+            box = gp::ItemSpace::userToViewer(rawBox, charGeo);
         }
         size = FPDFText_GetFontSize(textPage, ci);
         if (size < 0) size = 0;
