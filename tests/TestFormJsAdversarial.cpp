@@ -381,16 +381,28 @@ private slots:
     // PGR-40: native builtins that scan SPARSE arrays element-by-element
     // (indexOf/includes/lastIndexOf/flat/sort/join) never poll the interrupt
     // handler and never allocate per hole, so neither the deadline nor the
-    // memory cap can stop them. Measured on the pinned quickjs-ng 0.15.0 with
-    // this exact sandbox contract (see docs/audit/evidence-formjs-2026-09-23/qjs-probe.c):
-    //   Array(2^31).indexOf  → 44.8 s   includes → 53.2 s   flat → 61.8 s
+    // memory cap can stop them. Measured with this exact sandbox contract
+    // (probe: docs/audit/evidence-formjs-2026-09-23/qjs-probe.c):
+    //   0.15.0 (2026-09-23): Array(2^31) indexOf 44.8 s, includes 53.2 s,
+    //                        join 27.4 s — unkillable, outcome ok/InternalError
+    //   0.15.1 (2026-09-24, MSYS2 0.15.1-1): STILL UNFIXED — same-machine
+    //                        version-stamped A/B probe (JS_GetVersion in the
+    //                        output): includes 26.6 s on 0.15.0 vs 39.4 s on
+    //                        0.15.1, unkillable on both; Array(16.7M).includes
+    //                        (this pin's probe) 188 ms vs 303 ms, ok, past the
+    //                        150 ms deadline. Wall times swing with machine
+    //                        load; only the deadline behavior is comparable,
+    //                        and it is IDENTICAL on both versions; the skip
+    //                        below fired in-suite on 0.15.1.
     // One expression in a Format/Calculate script freezes the UI thread
-    // unkillably. Upstream quickjs-ng added interrupt checks to the array
-    // builtins after 0.15.0; the MSYS2 package is still 0.15.0-1, so the
-    // remediation is the dependency bump (threat model, PGR-40).
-    // This pin AUTO-ARMS once the package carries the fix: on a fixed engine
-    // the 150 ms deadline fires (Timeout, fast); on 0.15.0 the probe returns
-    // ok past the deadline and the pin skips with the finding reference.
+    // unkillably; the remediation remains the dependency bump (threat model,
+    // PGR-40). This pin AUTO-ARMS once the package carries the fix: on a
+    // fixed engine the 150 ms deadline fires (Timeout, fast); on an unfixed
+    // engine the probe returns ok past the deadline and the pin skips with
+    // the finding reference. NOTE: if a future unfixed engine gets fast
+    // enough to finish the probe under ~140 ms the pin will FAIL (not skip)
+    // — that failure is the signal to re-triage PGR-40 with a bigger probe,
+    // never to weaken the deadline-bound assertion.
     void nativeSparseArrayScansAbideTheDeadline()
     {
         QElapsedTimer t;
@@ -399,10 +411,12 @@ private slots:
             QStringLiteral("Array(16777216).includes('x'); event.value = 'done';"), {}, 150);
         const qint64 ms = t.elapsed();
         if (r.ok && ms > 140)
-            QSKIP("PGR-40: the pinned quickjs-ng 0.15.0 cannot interrupt native "
-                  "sparse-array scans (upstream added array-method interrupt checks "
-                  "after 0.15.0; MSYS2 still packages 0.15.0-1). This pin asserts the "
-                  "deadline bound automatically once the dependency is bumped. See "
+            QSKIP("PGR-40: the linked quickjs-ng cannot interrupt native "
+                  "sparse-array scans (measured unkillable through 0.15.1: "
+                  "MSYS2 0.15.1-1, 2026-09-23 — upstream added array-method "
+                  "interrupt checks only after 0.15.0 and they are NOT in the "
+                  "0.15.1 package). This pin asserts the deadline bound "
+                  "automatically once a fixed dependency lands. See "
                   "docs/audit/FORMJS-THREAT-MODEL-2026-09-24.md and docs/audit/evidence-formjs-2026-09-23/ (probe + captured output).");
         QVERIFY2(ms < 2500, qPrintable(QStringLiteral("native scan ran %1 ms").arg(ms)));
         QCOMPARE(r.kind, gp::formjs::JsErrorKind::Timeout);

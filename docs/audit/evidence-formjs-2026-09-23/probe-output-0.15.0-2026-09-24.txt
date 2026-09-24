@@ -1,0 +1,10 @@
+quickjs runtime: 0.15.0
+baseline loop 1e8                      dl= 150ms  wall=   151.0ms  exceptionInternalError
+ReDoS fail-match 24a+b                 dl= 150ms  wall=   151.0ms  exceptionInternalError
+ReDoS replace 24a+b                    dl= 150ms  wall=   151.0ms  exceptionInternalError
+ReDoS test 28a+b                       dl= 150ms  wall=   151.0ms  exceptionInternalError
+nested quantifier 40 chars             dl= 150ms  wall=   151.0ms  exceptionInternalError
+Array(2^31).join('a')                  dl= 150ms  wall= 30857.0ms  exceptionInternalError
+Array(2^31).includes(x)                dl= 150ms  wall= 26590.0ms  ok
+Array(2^31).indexOf(x)                 dl= 150ms  wall= 25519.0ms  ok
+Array(16.7M).includes (pin)            dl= 150ms  wall=   188.0ms  ok
