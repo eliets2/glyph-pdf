@@ -421,6 +421,13 @@ void TestCommentsReview::csvFormulaInjectionIsNeutralized()
              QStringLiteral("'+SUM(A1)"));
     QCOMPARE(CommentsWidget::csvEscapeField(QStringLiteral("-2+3+cmd")),
              QStringLiteral("'-2+3+cmd"));
+    // M3 contract alignment: the guard is the shared
+    // ConversionManager::csvFormulaSafeCell, so plain numbers are not
+    // formulas — a numeric comment field must NOT become spreadsheet text.
+    QCOMPARE(CommentsWidget::csvEscapeField(QStringLiteral("-42")),
+             QStringLiteral("-42"));
+    QCOMPARE(CommentsWidget::csvEscapeField(QStringLiteral("+3.14")),
+             QStringLiteral("+3.14"));
     QCOMPARE(CommentsWidget::csvEscapeField(QStringLiteral("@SUM(1)")),
              QStringLiteral("'@SUM(1)"));
     QCOMPARE(CommentsWidget::csvEscapeField(QStringLiteral("\tSUM(1)")),

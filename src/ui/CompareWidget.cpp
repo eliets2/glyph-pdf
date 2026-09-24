@@ -156,9 +156,7 @@ int CompareWidget::anchorIndexForStructuralChange(int pageChangeIndex) const
     // filter toggle O(structural rows × anchors) on the GUI thread (a
     // comparison with many added/removed/moved pages re-walked the whole
     // anchor list once per structural row, per toggle, per completed diff).
-    return m_anchorIndexByStructuralChange.contains(pageChangeIndex)
-               ? m_anchorIndexByStructuralChange.value(pageChangeIndex)
-               : -1;
+    return m_anchorIndexByStructuralChange.value(pageChangeIndex, -1);
 }
 
 int CompareWidget::anchorIndexForPage(int pageDiffIndex) const
@@ -166,9 +164,7 @@ int CompareWidget::anchorIndexForPage(int pageDiffIndex) const
     // L12: memoized (see m_anchorIndexByPage). applyChangeTypeFilters calls
     // this once per visible row per filter toggle; the linear scan it
     // replaced made each toggle O(rows × anchors) on the GUI thread.
-    return m_anchorIndexByPage.contains(pageDiffIndex)
-               ? m_anchorIndexByPage.value(pageDiffIndex)
-               : -1;
+    return m_anchorIndexByPage.value(pageDiffIndex, -1);
 }
 
 int CompareWidget::leftPageCount() const
