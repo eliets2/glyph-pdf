@@ -105,6 +105,15 @@ Status values: **Open** · **Open (narrowed)** · **Open (disclosed)** · **Fixe
 
 About 30 more MEDIUM/LOW triage items are catalogued with scenarios in the [findings appendix](PARITY-GLM-REVIEW-2026-09-13-FINDINGS.md#round-2-complete--all-14-lanes-sonnet-single-vote-adversarial-verify). They include OCR review-state guards, compare-tree ordering, conversion column/row clustering and key/plaintext zeroization. They were **not** re-verified at the PR head.
 
+> **UPDATE 2026-09-24 (Phase C integration):** the §3 statuses above are the
+> `1991d9c1` snapshot. The Phase C patch lanes fixed the open list on this PR:
+> PGR-06, PGR-10 (unverifiable verdict), PGR-16…20, PGR-21, PGR-22, PGR-25,
+> PGR-26 plus the formjs findings PGR-35…39, with four round-2 triage items
+> (OCR re-entrancy, compare anchor memo, AiOptions forwarding, secret-store
+> zeroization). **PGR-23 remains open**; PGR-33 stays as-is (owner decision);
+> PGR-40/41 (§10) are deferred. The authoritative per-ID table with fix SHAs
+> and pinning tests is **[`PGR-STATUS-2026-09-24.md`](PGR-STATUS-2026-09-24.md)**.
+
 ---
 
 ## 4. High-confidence findings
@@ -403,3 +412,32 @@ Lane commits, in order: `697e7dcf` (adversarial suite) → `155f3bb7` (PGR-35)
 → `dc3240e9` (PGR-36) → `77b57a7e` (PGR-37) → `f6e1953c` (PGR-38+39) → the
 threat model + this section. Every fix commit is test-backed; no test was
 weakened (one characterization pin was tightened in its fix commit).
+
+### 10b. Delta review — the D2 lane (batch / signing / redaction, 2026-09-23)
+
+A second Phase D lane (`feat/pgr-d2`, base `8a0a8b3d`) reviewed the
+batch / signing-progress / redaction excision surfaces. **It numbered its four
+findings PGR-35…38 in parallel with the formjs lane** — the formjs numbering
+(§10 above, PGR-35…41) was already committed to this report, so the D2 findings
+are renumbered **PGR-42…45** (editorial only; the fix commits on
+`feat/pgr-d2` keep their original IDs/wording). Full per-ID rows with tests:
+[`PGR-STATUS-2026-09-24.md`](PGR-STATUS-2026-09-24.md).
+
+| ID | Sev | Where | Defect | Status |
+|----|-----|-------|--------|--------|
+| PGR-42 *(D2 "35")* | HIGH | `BatchMode.cpp` staging | A batch run whose inputs resolve to the same output path ran "successfully": each commit overwrote the previous output, the G12 ledger claimed N successes, one artifact existed; the fail-before repro crashed (exit 127) racing two commits onto one destination. Schema-valid shareable presets whose template omits `{basename}/{n}` (e.g. `{date}.pdf`) collapse every file onto one name. | **Fixed on `feat/pgr-d2` `39058fa9` — not on the PR.** Collisions staged at one choke point (`outputCollisionBlockers`) as U08-style pre-flight failures naming the colliding path and the fix; merge excluded (one output by design). Test `TestPgr35BatchCollision` 4P (lane-run). |
+| PGR-43 *(D2 "36")* | HIGH | `SigningProgressPanel` + `SendForSigningController` | The modeless panel binds its document path at construction but `runSignStep` executes against the CURRENT document's sidecar: a panel left open across a document switch displayed request A's signers while executing signer N of document B — wrong-signer / cross-document replay in the signing trust model. | **Fixed on `feat/pgr-d2` `3fd91495` — not on the PR.** Stale panel replaced on mismatch; cross-document click refused with an actionable message; `documentPath()` binding pinned. Test `TestPgr36StaleSigningPanel` 3P (lane-run). |
+| PGR-44 *(D2 "37")* | **CRITICAL** | `PatternRedactor` / `TextMatchFinder` / `PoDoFoBackend` excision boundary | The SEP13 L8 viewer-space law was applied at the excision boundary while its PDFium-side producers still emitted pre-L8 rects: on `/Rotate 90/270` the transform swapped axes (matched content SURVIVED while the run reported success); offset-origin MediaBoxes double-added the origin; `replaceTextRegions`' local flip cancelled only while CropBox==MediaBox (a shift of 200pt otherwise). Verified failing repros left the secret in the sanitized output. | **Fixed on `feat/pgr-d2` `abe093aa` — not on the PR.** Producers emit RAW PDF USER space at the shared boundary (`applyRedactionsMappedLocked`); L8 viewer-mark contract unchanged. Test `TestPgr37PageSpaceLaw` 9P; TestPatternRedact 8, TestFindReplace 9, TestRotate270PageSpace 8, TestLegacyOriginSpace 9 (lane-run). |
+| PGR-45 *(D2 "38")* | MEDIUM | `BatchMode.cpp` accounting | Progress/percent/ETA and remaining-counts were computed against the LIVE `m_filesToProcess` while the worker iterated a captured copy; the list stays mutable mid-run (add/remove/clear, hot-folder ingestion), skewing the run's accounting. | **Fixed on `feat/pgr-d2` `958bd7c0` — not on the PR.** `m_runFileTotal` captured at staging, reset post-completion. TestBatchMode 17P (lane-run). |
+
+D2 integration state: the four fixes are **not** cherry-picked onto this PR —
+the Phase C brief covered five preparer branches and Phase D records the D2
+findings here. Integration of `feat/pgr-d2` (especially CRITICAL PGR-44) is a
+follow-up decision for the owner; the lane's fix commits are test-backed with
+fail-before evidence.
+
+D2 residual note recorded in the lane's messages: `TestBatchOcrSkipText` fails
+identically on the UNCHANGED `8a0a8b3d` baseline (pre-existing machine flake,
+not caused by any D2 fix — same class as the three baseline flake rows in the
+line-reconciliation verification). Any further deferred residuals the D2 lane
+held were not committed to its branch; this is flagged as an evidence gap.
