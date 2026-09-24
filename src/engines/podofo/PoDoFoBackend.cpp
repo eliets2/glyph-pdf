@@ -5616,7 +5616,7 @@ QList<PdfLinkInfo> PoDoFoBackend::extractLinks(const QString &inputPath, int pag
             return links;
 
         auto& page = doc.GetPages().GetPageAt(pageIndex);
-        const double pageHeight = page.GetMediaBox().Height;
+        const gp::PageSpace::PageGeometry pageGeo = gp::PageSpace::pageGeometry(page);
         auto& annos = page.GetAnnotations();
 
         auto resolveDestPage = [&](const PoDoFo::PdfObject* dest) -> int {
@@ -5651,7 +5651,15 @@ QList<PdfLinkInfo> PoDoFoBackend::extractLinks(const QString &inputPath, int pag
                     && r[2].IsNumberOrReal() && r[3].IsNumberOrReal()) {
                     const double x0 = r[0].GetReal(), y0 = r[1].GetReal();
                     const double x1 = r[2].GetReal(), y1 = r[3].GetReal();
-                    info.rect = QRectF(x0, pageHeight - y1, x1 - x0, y1 - y0);
+                    // sweep-legacy 5(a): the raw /Rect maps through the ONE
+                    // page-space law (userToViewer). The old height-only flip
+                    // used the rotation-normalized box height — it dropped the
+                    // MediaBox lower-left origin and ignored /Rotate entirely
+                    // (the SL1 defect class), so link hit-rects landed away
+                    // from the visible link on rotated/offset pages.
+                    const QRectF user(QPointF(qMin(x0, x1), qMin(y0, y1)),
+                                      QPointF(qMax(x0, x1), qMax(y0, y1)));
+                    info.rect = gp::ItemSpace::userToViewer(user, pageGeo);
                 }
             }
             if (!info.rect.isValid()) continue;

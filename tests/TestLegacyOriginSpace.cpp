@@ -119,6 +119,37 @@ bool addForeignSquare(const QString& path, int pageIndex, const PoDoFo::Rect& us
     }
 }
 
+// Add a URI /Link annotation at an explicit USER-space rect (what a
+// spec-compliant external writer produces) — the raw user rect is stored
+// verbatim via SetRectRaw, the same discipline as addForeignSquare.
+bool addUriLinkRaw(const QString& path, int pageIndex,
+                   const PoDoFo::Rect& userRect, const char* uri)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(path.toUtf8().constData());
+        PoDoFo::PdfPage& page = doc.GetPages().GetPageAt(pageIndex);
+        auto& annot = page.GetAnnotations().CreateAnnot(
+            PoDoFo::PdfAnnotationType::Link,
+            PoDoFo::Rect(userRect.X, userRect.Y, userRect.Width,
+                         userRect.Height));
+        annot.SetRectRaw(PoDoFo::Corners(userRect.X, userRect.Y,
+                                         userRect.X + userRect.Width,
+                                         userRect.Y + userRect.Height));
+        PoDoFo::PdfDictionary uriAction;
+        uriAction.AddKey("S", PoDoFo::PdfName("URI"));
+        uriAction.AddKey("URI", PoDoFo::PdfString(uri));
+        // (GetDictionary, not GetObject: windows.h via PdfiumEnvironment.h
+        // #defines GetObject -> GetObjectW in this TU.)
+        annot.GetDictionary().AddKey("A", PoDoFo::PdfObject(uriAction));
+        doc.Save(path.toUtf8().constData());
+        return true;
+    } catch (const std::exception& e) {
+        qWarning() << "addUriLinkRaw failed:" << e.what();
+        return false;
+    }
+}
+
 // Read every annotation /Rect on `pageIndex` from the RAW dictionary array —
 // PoDoFo's GetRect() folds /Rotate at read time (the F1 lesson), so the pin
 // walks the array itself. Form widgets created via page.CreateField appear in
@@ -495,6 +526,87 @@ private slots:
         QVERIFY2(rectClose(rects4.first(), expect4),
                  qPrintable(QString("W2B-1: updated /Rect %1 on rot 270+offset != [456 842 492 982]")
                                 .arg(rectStr(rects4.first()))));
+    }
+
+    // ── sweep-legacy 5(a): extractLinks link rects follow the page-space law ─
+    //
+    // A URI link planted (raw, spec-compliant) at the user rect that the law
+    // says displays at (100,150,200x60) must be READ BACK at exactly that
+    // display rect on every page shape. Pre-fix the reader flipped Y with the
+    // rotation-normalized GetMediaBox().Height alone — on rotated/offset pages
+    // the link's hit rect landed away from the visible link (the GpMainWindow
+    // click hit-test misses; the rect is also transposed on odd rotations).
+    void extractLinkRectsFollowTheLawOnEveryPageShape()
+    {
+        const char* uri = "https://example.com/law-link";
+        const QList<PageSpec> specs = pageSpecs();
+        for (int p = 0; p < specs.size(); ++p) {
+            const PageSpec& spec = specs[p];
+            const gp::PageSpace::PageGeometry geo =
+                gp::PageSpace::pageGeometryFromMediaBox(
+                    spec.media.X, spec.media.Y, spec.media.Width,
+                    spec.media.Height, spec.rotation);
+            const QRectF displayed(100, 150, 200, 60);
+            const QRectF user =
+                gp::PageSpace::viewerToUser(displayed, geo);
+            const QString pdf = outPath(
+                QString("link-p%1.pdf").arg(p).toUtf8().constData());
+            QVERIFY(QFile::copy(fixturePath(), pdf));
+            // In-place edit: PoDoFo keeps the input device for a document
+            // loaded from disk, so the plant saves back to the SAME path
+            // (the addForeignSquare idiom).
+            QVERIFY2(addUriLinkRaw(pdf, p,
+                                   PoDoFo::Rect(user.x(), user.y(),
+                                                user.width(), user.height()),
+                                   uri),
+                     qPrintable(QString("page %1: link plant failed").arg(p)));
+
+            const QList<PdfLinkInfo> links = PoDoFoBackend::extractLinks(pdf, p);
+            QVERIFY2(links.size() == 1,
+                     qPrintable(QString("page %1: %2 links").arg(p).arg(links.size())));
+            QVERIFY(links.first().isUri);
+            QCOMPARE(links.first().uri, QString::fromUtf8(uri));
+            QVERIFY2(rectClose(links.first().rect, displayed),
+                     qPrintable(QString("page %1 (rot %2): link rect %3 != "
+                                        "displayed %4")
+                                    .arg(p).arg(spec.rotation)
+                                    .arg(rectStr(links.first().rect),
+                                         rectStr(displayed))));
+        }
+
+        // Hardcoded literals for the decisive shapes (independent arithmetic,
+        // not computed through the law): the raw /Rects planted above for
+        // drawn display (100,150,200x60).
+        {
+            // Page 1: offset origin (0,200,612,842), rot 0:
+            // ux = 100..300; uy = 200+842-210..200+842-150 = 832..892.
+            const QList<QRectF> raw1 = rawAnnotRects(outPath("link-p1.pdf"), 1);
+            QVERIFY(raw1.size() == 1);
+            const QRectF expect1(QPointF(100, 832), QPointF(300, 892));
+            QVERIFY2(rectClose(raw1.first(), expect1),
+                     qPrintable(QString("page1 raw %1 != [100 832 300 892]")
+                                    .arg(rectStr(raw1.first()))));
+        }
+        {
+            // Page 3: rot 90 + offset: ux = 150..210; uy = 300..500.
+            const QList<QRectF> raw3 = rawAnnotRects(outPath("link-p3.pdf"), 3);
+            QVERIFY(raw3.size() == 1);
+            const QRectF expect3(QPointF(150, 300), QPointF(210, 500));
+            QVERIFY2(rectClose(raw3.first(), expect3),
+                     qPrintable(QString("page3 raw %1 != [150 300 210 500]")
+                                    .arg(rectStr(raw3.first()))));
+        }
+        {
+            // Page 4 (W2B-1 blind spot): rot 270 + offset:
+            // ux = 612-210..612-150 = 402..462; uy = 200+842-300..200+842-100
+            // = 742..942 (60x200 — swapped).
+            const QList<QRectF> raw4 = rawAnnotRects(outPath("link-p4.pdf"), 4);
+            QVERIFY(raw4.size() == 1);
+            const QRectF expect4(QPointF(402, 742), QPointF(462, 942));
+            QVERIFY2(rectClose(raw4.first(), expect4),
+                     qPrintable(QString("page4 raw %1 != [402 742 462 942]")
+                                    .arg(rectStr(raw4.first()))));
+        }
     }
 };
 
