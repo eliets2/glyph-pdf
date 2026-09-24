@@ -995,6 +995,9 @@ add_library(pdfws_ui STATIC
     src/modes/CompareMode.h                 src/modes/CompareMode.cpp
     src/modes/PagesMode.h                   src/modes/PagesMode.cpp
     src/modes/BatchMode.h                   src/modes/BatchMode.cpp
+    # R26-P2 U7 (plan §4.9): the preset manager + multi-step editor dialogs.
+    src/ui/PresetManagerDialog.h            src/ui/PresetManagerDialog.cpp
+    src/ui/PresetEditorDialog.h             src/ui/PresetEditorDialog.cpp
     src/modes/FormBuilderMode.h             src/modes/FormBuilderMode.cpp
     src/modes/FormFieldPropertiesPanel.h    src/modes/FormFieldPropertiesPanel.cpp
     src/modes/AIChatPanel.h                 src/modes/AIChatPanel.cpp
