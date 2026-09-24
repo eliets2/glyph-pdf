@@ -97,7 +97,6 @@ private:
                         const QMap<QString, QString>& keystrokeScripts = {},
                         const QMap<QString, QString>& formatScripts = {},
                         const QMap<QString, QString>& initialValues = {})
-                        const QMap<QString, QString>& formatScripts = {})
     {
         const QString base = m_dir.path() + "/" + name + "-base.pdf";
         {

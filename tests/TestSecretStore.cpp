@@ -726,7 +726,9 @@ private slots:
                  "the probed credential must be readable from the vault");
         const DWORD persist = pcred->Persist;
         CredFree(pcred);
+
         QVERIFY(mgr.deleteKey(service));  // clean the real user state
+
         QVERIFY2(persist == CRED_PERSIST_LOCAL_MACHINE,
                  "API-key credentials must persist per-machine "
                  "(CRED_PERSIST_LOCAL_MACHINE), not roam enterprise-wide");

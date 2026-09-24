@@ -17,6 +17,7 @@
 //       sees on a partial failure (sanitization failure)
 //   F8  find & replace: regex + replace-all count honesty (WP-R07 contract)
 #include <QtTest/QtTest>
+#include "engines/DocumentSession.h"
 #include <QApplication>
 #include <QTemporaryDir>
 #include <QFileInfo>
@@ -489,64 +490,6 @@ void capturePromptAndClick(const QString &titleNeedle, const QString &buttonText
     deadline.start();
     capturePromptAndClickStep(titleNeedle, buttonText, text, title, deadline, budgetMs,
                               g_driverEpoch);
-}
-// Pattern-text fixture for the F3b refusal pin: the page paints its PUBLIC
-// text as an ordinary content-stream op AND carries a tiling pattern whose
-// stream holds a second, secret text. The excision canvas walk cannot reach
-// pattern streams, so the merged redaction-gaps lane (G2, audit
-// REDACTION-RESEARCH-2026-09-21 §2.4) made the engine REFUSE the whole run
-// with a named reason instead of painting a black box over live data.
-// (Mirror of TestRedactTransaction::makePatternSecretPdf.)
-bool makePatternTextPdf(const QString &path)
-{
-    try {
-        PoDoFo::PdfMemDocument doc;
-        auto &page = doc.GetPages().CreatePage(
-            PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
-        auto &font = doc.GetFonts().GetStandard14Font(
-            PoDoFo::PdfStandard14FontType::Helvetica);
-        auto &pattern = doc.GetObjects().CreateDictionaryObject();
-        pattern.GetDictionary().AddKey(PoDoFo::PdfName("Type"), PoDoFo::PdfName("Pattern"));
-        pattern.GetDictionary().AddKey(PoDoFo::PdfName("PatternType"), PoDoFo::PdfObject(int64_t(1)));
-        pattern.GetDictionary().AddKey(PoDoFo::PdfName("PaintType"), PoDoFo::PdfObject(int64_t(1)));
-        pattern.GetDictionary().AddKey(PoDoFo::PdfName("TilingType"), PoDoFo::PdfObject(int64_t(1)));
-        PoDoFo::PdfArray bbox;
-        bbox.Add(0.0); bbox.Add(0.0); bbox.Add(100.0); bbox.Add(100.0);
-        pattern.GetDictionary().AddKey(PoDoFo::PdfName("BBox"), bbox);
-        pattern.GetDictionary().AddKey(PoDoFo::PdfName("XStep"), PoDoFo::PdfObject(80.0));
-        pattern.GetDictionary().AddKey(PoDoFo::PdfName("YStep"), PoDoFo::PdfObject(80.0));
-        auto &fontMap = doc.GetObjects().CreateDictionaryObject();
-        fontMap.GetDictionary().AddKey(PoDoFo::PdfName("F1"),
-                                       font.GetObject().GetIndirectReference());
-        pattern.GetDictionary().AddKey(PoDoFo::PdfName("Resources"),
-                                       fontMap.GetIndirectReference());
-        const char *patternContent = "BT /F1 14 Tf 10 30 Td (PatternSecretOmega) Tj ET\n";
-        pattern.GetOrCreateStream().SetData(PoDoFo::bufferview(
-            patternContent, std::strlen(patternContent)));
-        auto &patternMap = doc.GetObjects().CreateDictionaryObject();
-        patternMap.GetDictionary().AddKey(PoDoFo::PdfName("P1"),
-                                          pattern.GetIndirectReference());
-        auto &pageRes = doc.GetObjects().CreateDictionaryObject();
-        pageRes.GetDictionary().AddKey(PoDoFo::PdfName("Font"),
-                                       fontMap.GetIndirectReference());
-        pageRes.GetDictionary().AddKey(PoDoFo::PdfName("Pattern"),
-                                       patternMap.GetIndirectReference());
-        page.GetObject().GetDictionary().AddKey(PoDoFo::PdfName("Resources"),
-                                                pageRes.GetIndirectReference());
-        auto &content = doc.GetObjects().CreateDictionaryObject();
-        const char *pageContent =
-            "BT /F1 12 Tf 50 700 Td (PUBLIC_KEEP_TEXT) Tj ET\n"
-            "/Pattern cs /P1 scn 0 0 595 842 re f\n";
-        content.GetOrCreateStream().SetData(PoDoFo::bufferview(
-            pageContent, std::strlen(pageContent)));
-        page.GetObject().GetDictionary().AddKey(PoDoFo::PdfName("Contents"),
-                                                content.GetIndirectReference());
-        doc.Save(path.toUtf8().constData());
-        return QFileInfo::exists(path);
-    } catch (const std::exception &e) {
-        qWarning() << "makePatternTextPdf failed:" << e.what();
-        return false;
-    }
 }
 
 // Pattern-text fixture for the F3b refusal pin: the page paints its PUBLIC
@@ -1174,7 +1117,6 @@ private slots:
         const QString src = dir.filePath("pattern-secret.pdf");
         QVERIFY2(makePatternTextPdf(src), "F3b: pattern fixture creation failed");
         QVERIFY2(patternStreamContains(src, "PatternSecretOmega"),
-        QVERIFY2(pdfTextContains(src, "PatternSecretOmega"),
                  "F3b: the fixture must carry the secret in its pattern stream");
         step("F3b start: pattern-text fixture (public text + pattern-stream secret)");
 
@@ -1236,7 +1178,6 @@ private slots:
         QVERIFY2(!QFileInfo::exists(redactedOut),
                  "F3b: an honest refusal must write NO redacted output");
         QVERIFY2(patternStreamContains(src, "PatternSecretOmega"),
-        QVERIFY2(pdfTextContains(src, "PatternSecretOmega"),
                  "F3b: the source must be untouched — the pattern secret survives");
         QVERIFY2(pdfTextContains(src, "PUBLIC_KEEP_TEXT"),
                  "F3b: the source must be untouched — the public text intact");

@@ -1406,8 +1406,10 @@ void TestEngineSave::failedCommitOnEncryptedDocKeepsDocumentEditable() {
     QVERIFY(tmp.isValid());
     const QString pdf = makeTwoPageTextPdf(tmp.path(), QStringLiteral("pgr06.pdf"));
     QVERIFY(QFile::exists(pdf));
+
     PoDoFoBackend backend;
     QVERIFY(backend.loadDocument(pdf));
+
     const QString userPwd = QStringLiteral("pgr06-user-password");
     QVERIFY2(backend.encryptDocument(userPwd, QStringLiteral("pgr06-owner-password"),
                                      DocumentPermissions{}),
