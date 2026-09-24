@@ -1021,4 +1021,62 @@ bool BatchPresetStore::remove(const QString& id, QString* err) {
     return true;
 }
 
+// ── R26-P2 U6 (plan §4.7): import/export as validated atomic copies ──────────
+
+bool BatchPresetStore::importFrom(const QString& path, bool replaceExisting,
+                                  QString* err, QString* importedId) {
+    // Validation BEFORE anything appears in the store: loadFile enforces the
+    // V1–V9 rules plus the V8 import rule (id == file stem — a renamed copy
+    // is refused, not silently re-keyed) and the V9 file-size cap.
+    BatchPreset p;
+    if (!BatchPresetCodec::loadFile(path, &p, err))
+        return false;
+
+    // Conflict policy: an existing id is never silently replaced — the caller
+    // asks ("Replace existing preset 'X'?") and re-imports with
+    // `replaceExisting` (the post-confirm action).
+    if (contains(p.id) && !replaceExisting)
+        return fail(err, QStringLiteral(
+                             "a preset with id \"%1\" already exists in the store — "
+                             "import refused (replace it deliberately after confirming)")
+                             .arg(p.id));
+
+    // Same root boundary as save() (F2b-D1): the store owns its root.
+    if (!QDir().mkpath(m_rootDir))
+        return fail(err, QStringLiteral("%1: cannot create store directory")
+                                   .arg(m_rootDir));
+
+    // Atomic write through the canonical codec — the store path cannot
+    // produce an invalid file, and a failed write leaves the store unchanged.
+    const QString dest =
+        QDir(m_rootDir).filePath(p.id + QStringLiteral(".glyphpreset.json"));
+    if (!VersionedJson::atomicWrite(dest, BatchPresetCodec::serialize(p), err))
+        return false;
+    if (importedId)
+        *importedId = p.id;
+    return true;
+}
+
+bool BatchPresetStore::exportTo(const QString& id, const QString& targetPath,
+                                bool overwriteConfirmed, QString* err) {
+    const QString src =
+        QDir(m_rootDir).filePath(id + QStringLiteral(".glyphpreset.json"));
+    if (!QFileInfo::exists(src))
+        return fail(err, QStringLiteral("no preset \"%1\" in the store").arg(id));
+    if (QFileInfo::exists(targetPath) && !overwriteConfirmed)
+        return fail(err, QStringLiteral(
+                             "%1 already exists — export refused (never a silent "
+                             "overwrite; confirm first)").arg(targetPath));
+    if (QFileInfo::exists(targetPath) && !QFile::remove(targetPath))
+        return fail(err, QStringLiteral("%1: confirmed overwrite could not remove "
+                                        "the existing file — %2")
+                              .arg(targetPath, QFile(targetPath).errorString()));
+    // Byte-identical copy — no re-serialization: the file on disk IS the
+    // shareable artifact and its bytes are already canonical per the codec.
+    if (!QFile::copy(src, targetPath))
+        return fail(err, QStringLiteral("%1: could not export to %2 — %3")
+                              .arg(id, targetPath, QFile(src).errorString()));
+    return true;
+}
+
 } // namespace gp

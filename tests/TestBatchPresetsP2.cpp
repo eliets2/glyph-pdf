@@ -154,6 +154,11 @@ private slots:
     void runReportJsonShapePinned();
     void runReportCsvShapePinned();
 
+    // ── U6: import/export as validated atomic copies ──────────────────────────
+    void importExportRoundTripByteIdentical();
+    void importRefusesIdStemMismatchKeepsStore();
+    void importRefusesExistingIdUnlessReplaced();
+
 private:
     std::unique_ptr<QTemporaryDir> m_storeDir;
     std::unique_ptr<QTemporaryDir> m_runDir;
@@ -1479,6 +1484,165 @@ void TestBatchPresetsP2::runReportCsvShapePinned() {
                  "\"C:/in/b.pdf\",\"\",\"skipped\",\"\",\"\",\"\",\"\",\"\",\"\","
                  "\"\",\"\",\"run aborted before start: comma, \"\"quote\"\"\"\r\n")),
              qPrintable(text));
+}
+
+// ── U6 pins ────────────────────────────────────────────────────────────────────
+
+static QByteArray readFileBytes(const QString& path) {
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly))
+        return {};
+    return f.readAll();
+}
+
+// The full share discipline: export is a byte-identical copy of the store
+// file; import validates before anything appears; export→delete→import
+// round-trips the SAME id and byte-identical file; an existing export target
+// is refused without the confirm and replaced with it.
+void TestBatchPresetsP2::importExportRoundTripByteIdentical() {
+    const QString dirA = m_storeDir->path() + QStringLiteral("/a");
+    const QString dirB = m_storeDir->path() + QStringLiteral("/b");
+    BatchPresetStore storeA(dirA);
+    BatchPreset p;
+    p.name = QStringLiteral("Round Trip");
+    p.steps.append({ QStringLiteral("compress"), {}, { { "quality", 60 } } });
+    QString err;
+    QVERIFY2(storeA.save(&p, &err), qPrintable(err));
+    const QString id = p.id;
+    QVERIFY(!id.isEmpty());
+    const QString storePathA =
+        dirA + QStringLiteral("/") + id + QStringLiteral(".glyphpreset.json");
+    const QByteArray storeBytes = readFileBytes(storePathA);
+    QVERIFY(!storeBytes.isEmpty());
+
+    // Export: byte-identical copy (no re-serialization). The share artifact
+    // carries the id as its stem — the V8 import rule the receiver enforces.
+    const QString exported = m_runDir->filePath(id + QStringLiteral(".glyphpreset.json"));
+    QVERIFY2(storeA.exportTo(id, exported, false, &err), qPrintable(err));
+    QCOMPARE(readFileBytes(exported), storeBytes);
+
+    // An existing export target is refused without the confirm — never a
+    // silent overwrite — and replaced with it.
+    {
+        QFile f(exported);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("{\"junk\": true}");
+    }
+    err.clear();
+    QVERIFY(!storeA.exportTo(id, exported, false, &err));
+    QVERIFY2(err.contains(QStringLiteral("already exists")), qPrintable(err));
+    QVERIFY2(storeA.exportTo(id, exported, true, &err), qPrintable(err));
+    QCOMPARE(readFileBytes(exported), storeBytes);
+
+    // Import into a fresh store: validated, atomic, same id, byte-identical.
+    BatchPresetStore storeB(dirB);
+    QString importedId;
+    QVERIFY2(storeB.importFrom(exported, false, &err, &importedId), qPrintable(err));
+    QCOMPARE(importedId, id);
+    QCOMPARE(storeB.list().size(), 1);
+    QCOMPARE(storeB.list().first().id, id);
+    QCOMPARE(storeB.list().first().name, QStringLiteral("Round Trip"));
+    QCOMPARE(readFileBytes(dirB + QStringLiteral("/") + id
+                                       + QStringLiteral(".glyphpreset.json")),
+             storeBytes);
+
+    // Delete from A, re-import from the shared copy: the preset comes back
+    // byte-identical.
+    QVERIFY(storeA.remove(id, &err));
+    QVERIFY(!QFileInfo::exists(storePathA));
+    QVERIFY2(storeA.importFrom(exported, false, &err), qPrintable(err));
+    QCOMPARE(readFileBytes(storePathA), storeBytes);
+}
+
+// The V8 import rule holds at import time: a valid preset file whose stem
+// does not match its id is refused with the diagnostic and the store stays
+// unchanged; a missing or corrupt source is refused too.
+void TestBatchPresetsP2::importRefusesIdStemMismatchKeepsStore() {
+    const QString dirA = m_storeDir->path() + QStringLiteral("/a");
+    BatchPresetStore storeA(dirA);
+    BatchPreset p;
+    p.name = QStringLiteral("Mismatch");
+    p.steps.append({ QStringLiteral("compress"), {}, { { "quality", 60 } } });
+    QString err;
+    QVERIFY2(storeA.save(&p, &err), qPrintable(err));
+    const QString id = p.id;   // slug of "Mismatch" — != "other"
+
+    const QString exported = m_runDir->filePath(QStringLiteral("mismatch.glyphpreset.json"));
+    QVERIFY2(storeA.exportTo(id, exported, false, &err), qPrintable(err));
+    const QString renamedCopy =
+        m_runDir->filePath(QStringLiteral("other.glyphpreset.json"));
+    QVERIFY(QFile::copy(exported, renamedCopy));
+
+    BatchPresetStore storeB(m_storeDir->path() + QStringLiteral("/b"));
+    err.clear();
+    QVERIFY(!storeB.importFrom(renamedCopy, false, &err));
+    QVERIFY2(!err.isEmpty(), "the V8 id!=stem refusal must carry its diagnostic");
+    // Nothing appeared in the store — a rejected import changes nothing.
+    QVERIFY(storeB.list().isEmpty());
+    QVERIFY(!storeB.contains(id));
+    QVERIFY(storeB.brokenFiles().isEmpty());
+
+    // A missing source and a corrupt source are refused with diagnostics.
+    err.clear();
+    QVERIFY(!storeB.importFrom(m_runDir->filePath(QStringLiteral("missing.glyphpreset.json")),
+                               false, &err));
+    QVERIFY(!err.isEmpty());
+    const QString corrupt = m_runDir->filePath(QStringLiteral("corrupt.glyphpreset.json"));
+    {
+        QFile f(corrupt);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("{ this is not json ");
+    }
+    err.clear();
+    QVERIFY(!storeB.importFrom(corrupt, false, &err));
+    QVERIFY2(!err.isEmpty(), "a corrupt source must be refused with its diagnostic");
+    QVERIFY(storeB.list().isEmpty());
+}
+
+// An id already in the store is NEVER silently replaced: the import refuses
+// with the existing-id diagnostic; the replace path (the post-confirm action)
+// performs the replacement atomically.
+void TestBatchPresetsP2::importRefusesExistingIdUnlessReplaced() {
+    const QString dirA = m_storeDir->path() + QStringLiteral("/a");
+    const QString dirB = m_storeDir->path() + QStringLiteral("/b");
+    BatchPresetStore storeA(dirA);
+    BatchPreset p1;
+    p1.name = QStringLiteral("Clash");
+    p1.steps.append({ QStringLiteral("compress"), {}, { { "quality", 60 } } });
+    QString err;
+    QVERIFY2(storeA.save(&p1, &err), qPrintable(err));
+    const QString id = p1.id;
+    const QString storePathA =
+        dirA + QStringLiteral("/") + id + QStringLiteral(".glyphpreset.json");
+    const QByteArray originalBytes = readFileBytes(storePathA);
+
+    // A second store holds a preset with the SAME id and different content
+    // (renamed display name → modified stamp + name differ, bytes differ).
+    BatchPresetStore storeB(dirB);
+    BatchPreset p2;
+    p2.name = QStringLiteral("Clash");
+    p2.steps.append({ QStringLiteral("compress"), {}, { { "quality", 60 } } });
+    QVERIFY2(storeB.save(&p2, &err), qPrintable(err));
+    QCOMPARE(p2.id, id);
+    QVERIFY2(storeB.rename(id, QStringLiteral("Clash Modified"), &err), qPrintable(err));
+    const QString exported = m_runDir->filePath(QStringLiteral("clash.glyphpreset.json"));
+    QVERIFY2(storeB.exportTo(id, exported, false, &err), qPrintable(err));
+    const QByteArray replacementBytes = readFileBytes(exported);
+    QVERIFY(replacementBytes != originalBytes);
+
+    // The refusal: nothing changes.
+    err.clear();
+    QVERIFY(!storeA.importFrom(exported, false, &err));
+    QVERIFY2(err.contains(QStringLiteral("already exists")), qPrintable(err));
+    QCOMPARE(readFileBytes(storePathA), originalBytes);
+
+    // The post-confirm replace: atomic, complete.
+    QVERIFY2(storeA.importFrom(exported, true, &err), qPrintable(err));
+    QCOMPARE(readFileBytes(storePathA), replacementBytes);
+    BatchPreset after;
+    QVERIFY2(storeA.get(id, &after, &err), qPrintable(err));
+    QCOMPARE(after.name, QStringLiteral("Clash Modified"));
+    QCOMPARE(storeA.list().size(), 1);
 }
 
 QTEST_MAIN(TestBatchPresetsP2)

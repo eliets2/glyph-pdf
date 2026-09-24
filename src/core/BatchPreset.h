@@ -206,6 +206,27 @@ public:
     // Delete by id. Returns false (store unchanged) when the file is absent.
     bool   remove(const QString& id, QString* err);
 
+    // ── R26-P2 U6 (plan §4.7): import/export as validated atomic copies ──────
+    // Import: loadFile() (V1–V9 + the V8 id==stem rule) validates the file
+    // BEFORE anything appears in the store; the store file is then written
+    // atomically through the canonical codec (validate→serialize — the store
+    // path cannot produce an invalid file). An id already in the store is
+    // NEVER silently replaced: the import refuses with the existing-id
+    // diagnostic unless `replaceExisting` is true (the manager's post-confirm
+    // action; the confirm itself is GUI, the store stays GUI-free). A failed
+    // import leaves the store unchanged. `importedId` receives the id on
+    // success.
+    bool   importFrom(const QString& path, bool replaceExisting,
+                      QString* err, QString* importedId = nullptr);
+
+    // Export: a BYTE-IDENTICAL copy of the store file (no re-serialization —
+    // the file on disk IS the shareable artifact; its bytes are already
+    // canonical per the codec). An existing target is refused unless
+    // `overwriteConfirmed` is true (the caller's interactive ask — never a
+    // silent overwrite). An unknown id fails with the diagnostic.
+    bool   exportTo(const QString& id, const QString& targetPath,
+                    bool overwriteConfirmed, QString* err);
+
     QString rootDir() const { return m_rootDir; }
 
 private:
