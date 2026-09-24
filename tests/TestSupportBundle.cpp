@@ -120,6 +120,10 @@ private slots:
     void init()
     {
         PolicyController::instance().resetForTesting();
+        // W1-05 structural close: the bundle pins load a policy fixture this
+        // standard-user process wrote — run under the disclosed
+        // assume-trusted seam (the gate itself is pinned in TestPolicyWiring).
+        qputenv("GLYPHPDF_POLICY_ASSUME_TRUSTED", "1");
     }
 
     void cleanup()

@@ -16,16 +16,17 @@ namespace gp {
 // a disabled widget, plus a status line naming the policy file — the
 // visible-in-UI requirement IS the feature.
 //
-// SWEEP-W1 F1 (trust-model honesty, replacing the earlier "admin-controlled"
-// claim the security audit refuted): the file's authority rests on the
-// machine's own account hygiene, NOT on any verification this code performs.
-// load() checks no ownership, ACL, signature or hash — and on default Windows
-// ACLs any standard user can pre-create the %PROGRAMDATA% location before an
-// admin ever deploys one. The policy is therefore machine-TRUSTED, and the
-// trust model is disclosed wherever overrides render (statusLine() appends
-// trustModelNote()) and in the support bundle's policy section. The
-// structural close (ACL/ownership verification or a signed policy) is a
-// design item owned outside the app-scope honesty fix.
+// SWEEP-W1 F1 (trust-model honesty) + W1-05 structural close: on Windows,
+// load() now VERIFIES the file's owner is an administrator-tier account
+// (Administrators/SYSTEM) before a single key is enforced — a file written
+// by anyone else (the squatter who pre-created the %PROGRAMDATA% location
+// on a default install) lands in State::UntrustedOwner: ignored, with the
+// refusal disclosed wherever overrides render (statusLine() appends
+// trustModelNote()) and in the support bundle's policy section. Non-Windows
+// platforms keep the machine-trusted behavior (no ownership check), and the
+// platform difference is disclosed in trustModelNote(). A disclosed
+// GLYPHPDF_POLICY_ASSUME_TRUSTED env seam (test-only wiring fixtures) skips
+// the gate — it is no wider than the GLYPHPDF_POLICY_PATH seam.
 //
 // File location (production): %PROGRAMDATA%\GlyphPDF\policy.json — resolved as
 // QStandardPaths::GenericDataLocation + "/GlyphPDF/policy.json". The
@@ -73,7 +74,18 @@ namespace gp {
 class PolicyController : public QObject {
     Q_OBJECT
 public:
-    enum class State { NoPolicy, Loaded, Invalid };
+    enum class State {
+        NoPolicy,
+        Loaded,
+        Invalid,
+        // W1-05 structural close: the file parsed, but its Windows owner is
+        // NOT an administrator-tier account (Administrators/SYSTEM) — the
+        // planted-squatter posture. The policy is IGNORED (zero managed
+        // keys) and the refusal is disclosed via statusLine()/support
+        // bundle. Non-Windows platforms keep the machine-trusted behavior
+        // (no ownership check) — disclosed in trustModelNote().
+        UntrustedOwner
+    };
 
     // Process-wide instance (QSettings-affine reads stay on the GUI thread —
     // same threading rule as CapabilityRegistry).

@@ -249,14 +249,18 @@ private slots:
                      "adversarial set paginated to %1 sheets.").arg(pages)));
     }
 
-    // P2: an attacker-planted policy file is loaded and ENFORCED. The probe
-    // documents the squat: on a default Windows install a standard user can
-    // create %PROGRAMDATA%\GlyphPDF\policy.json (auto-creatable dir, creator
-    // owns the file) and GlyphPDF applies it machine-wide with no ownership
-    // or integrity check at load. Payload: downgrade signing/padesLevel to
-    // B_B and/or redirect signing/tsaUrl — the two keys isEnforcedKey() wires
-    // into EVERY sign/certify dispatch (SecurityController::readSigningConfig).
-    void attackerPlantedPolicyFileIsLoadedAndEnforced()
+    // W1-05 structural close (was: "attackerPlantedPolicyFileIsLoadedAndEnforced",
+    // which documented the squat WORKING under the disclosure-only fix). On a
+    // default Windows install a standard user can still create
+    // %PROGRAMDATA%\GlyphPDF\policy.json (auto-creatable dir, creator owns the
+    // file) and plant the downgrade payload (signing/padesLevel → B-B,
+    // signing/tsaUrl → attacker host) — but load() now verifies the file's
+    // Windows owner is an administrator-tier account (Administrators/SYSTEM)
+    // before a single key is enforced. The planted file lands in
+    // State::UntrustedOwner: zero managed keys, user prefs stay in force, the
+    // refusal is disclosed on the status line. (Unchanged floor: keys outside
+    // the allowlist stay ignored-and-disclosed on any legitimate policy.)
+    void attackerPlantedPolicyFileIsIgnoredAndDisclosed()
     {
         const QString path = m_tmpDir->filePath(QStringLiteral("policy.json"));
         QJsonObject root;
@@ -275,29 +279,45 @@ private slots:
         f.close();
 
         PolicyController::instance().resetForTesting();
-        PolicyController::instance().load(path);
-
+        const bool loaded = PolicyController::instance().load(path);
+#ifdef Q_OS_WIN
+        Q_UNUSED(loaded);
+        // The gate refuses the non-admin-owned plant.
         QCOMPARE(PolicyController::instance().state(),
-                 PolicyController::State::Loaded);
-        QVERIFY(PolicyController::instance().isManaged(QStringLiteral("signing/tsaUrl")));
-        QVERIFY(PolicyController::instance().isManaged(QStringLiteral("signing/padesLevel")));
-        // The two enforced keys carry the attacker values into every
-        // sign/certify dispatch via effectiveValue (the squat payload works).
+                 PolicyController::State::UntrustedOwner);
+        QVERIFY2(!PolicyController::instance().isManaged(QStringLiteral("signing/tsaUrl")),
+                 "W1-05 REGRESSION: the attacker URL reached enforcement");
+        QVERIFY2(!PolicyController::instance().isManaged(QStringLiteral("signing/padesLevel")),
+                 "W1-05 REGRESSION: the padesLevel downgrade reached enforcement");
+        // The user's own values stay in force — the squat payload is dead.
         QCOMPARE(PolicyController::instance()
                      .effectiveValue(QStringLiteral("signing/tsaUrl"),
                                      QStringLiteral("https://corp.tsa"))
                      .toString(),
-                 QStringLiteral("https://attacker.example/tsa"));
+                 QStringLiteral("https://corp.tsa"));
         QCOMPARE(PolicyController::instance()
                      .effectiveValue(QStringLiteral("signing/padesLevel"),
                                      QStringLiteral("B-T"))
                      .toString(),
-                 QStringLiteral("B-B"));
-        // The disclosure floor that DOES exist: the unknown key is disclosed
-        // and the status line names the attacker-controlled path.
+                 QStringLiteral("B-T"));
+        // The refusal is disclosed and names the attacker-controlled path.
+        QVERIFY(PolicyController::instance().statusLine().contains(path));
+        QVERIFY(PolicyController::instance().statusLine()
+                    .contains(QStringLiteral("IGNORED")));
+        PolicyController::instance().resetForTesting();
+#else
+        // Non-Windows keeps the machine-trusted behavior (disclosed in
+        // trustModelNote()): the load succeeds and the payload applies —
+        // keep the old posture pins so the platform difference stays honest.
+        QVERIFY(loaded);
+        QCOMPARE(PolicyController::instance().state(),
+                 PolicyController::State::Loaded);
+        QVERIFY(PolicyController::instance().isManaged(QStringLiteral("signing/tsaUrl")));
+        QVERIFY(PolicyController::instance().isManaged(QStringLiteral("signing/padesLevel")));
         QCOMPARE(PolicyController::instance().unrecognizedKeys().size(), 1);
         QVERIFY(PolicyController::instance().statusLine().contains(path));
         PolicyController::instance().resetForTesting();
+#endif
     }
 
     // Diagnostic triage: which single-content member kills the writer?

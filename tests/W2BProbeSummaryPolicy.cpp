@@ -201,18 +201,27 @@ private slots:
         auto& policy = gp::PolicyController::instance();
         policy.resetForTesting();
         policy.ensureLoaded();
-        QCOMPARE(policy.state(), gp::PolicyController::State::Loaded);
+        // W1-05 structural close: the squatter's file is NOT admin-owned, so
+        // the gate refuses it — the honest disposition this probe now pins.
+        QCOMPARE(policy.state(), gp::PolicyController::State::UntrustedOwner);
+        QVERIFY2(!policy.isManaged(QStringLiteral("signing/tsaUrl")),
+                 "the attacker URL must not reach enforcement");
 
         const QString note = gp::PolicyController::trustModelNote();
+        QVERIFY2(note.contains(QStringLiteral("administrator-tier")),
+                 "the canonical note must state the admin-ownership rule");
         QVERIFY2(note.contains(QStringLiteral("machine-trusted")),
-                 "the canonical note must state the machine-trusted model");
-        QVERIFY2(note.contains(QStringLiteral("%PROGRAMDATA%")),
-                 "the canonical note must name the Windows location");
+                 "the canonical note must still name the residual "
+                 "machine-trusted model where no ownership check applies");
         const QString line = policy.statusLine();
+        QVERIFY2(line.contains(QStringLiteral("IGNORED")),
+                 qPrintable(QStringLiteral(
+                     "the untrusted-owner refusal must be disclosed: %1")
+                     .arg(line)));
         QVERIFY2(line.contains(note.left(40)),
                  qPrintable(QStringLiteral(
                      "W1-05 REGRESSION: the status line where the policy "
-                     "override renders no longer carries the trust-model "
+                     "status renders no longer carries the trust-model "
                      "disclosure: %1").arg(line)));
 
         qputenv("GLYPHPDF_POLICY_PATH", QByteArray());
@@ -238,9 +247,12 @@ private slots:
 
         const QJsonObject policySection = bundle.value(QStringLiteral("policy")).toObject();
         const QString trustModel = policySection.value(QStringLiteral("trustModel")).toString();
-        QVERIFY2(trustModel.contains(QStringLiteral("machine-trusted")),
+        QVERIFY2(trustModel.contains(QStringLiteral("administrator-tier")),
                  "W1-05 REGRESSION: the support bundle's policy section lost "
-                 "the trustModel field");
+                 "the trustModel field (admin-ownership rule)");
+        // The squatter file is refused: the bundle records the honest state.
+        QCOMPARE(policySection.value(QStringLiteral("state")).toString(),
+                 QStringLiteral("untrusted-owner-ignored"));
     }
 
     // ── F4: the TSA row reports the policy-EFFECTIVE state ─────────────────
@@ -251,6 +263,11 @@ private slots:
         qputenv("GLYPHPDF_POLICY_PATH",
                 writePolicy(*tmp, squatterPolicy(QStringLiteral("https://tsa.corp.example/rfc3161")))
                     .toUtf8());
+        // W1-05 structural close: this is an F4 pin (enumeration reflects the
+        // POLICY-EFFECTIVE state), so the policy must be legitimately
+        // enforcible — run under the disclosed assume-trusted seam. The
+        // squatter path itself is pinned untrusted in statusLineCarries….
+        qputenv("GLYPHPDF_POLICY_ASSUME_TRUSTED", "1");
         auto& policy = gp::PolicyController::instance();
         policy.resetForTesting();
         policy.ensureLoaded();
@@ -260,6 +277,7 @@ private slots:
         QVERIFY(!user.contains(QStringLiteral("signing/tsaUrl")));  // user: none
         const auto tps = gp::NetworkTouchpoints::enumerate(user);
         qputenv("GLYPHPDF_POLICY_PATH", QByteArray());
+        qunsetenv("GLYPHPDF_POLICY_ASSUME_TRUSTED");
         policy.resetForTesting();
 
         const gp::NetworkTouchpoint* tsa = nullptr;

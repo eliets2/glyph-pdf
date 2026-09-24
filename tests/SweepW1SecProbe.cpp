@@ -268,6 +268,11 @@ private slots:
         f.close();
 
         qputenv("GLYPHPDF_POLICY_PATH", squatterPolicy.toUtf8());
+        // W1-05 structural close: this is an F4-class pin (enumeration
+        // reflects the POLICY-EFFECTIVE state), so the policy must be
+        // legitimately enforcible — run under the disclosed assume-trusted
+        // seam; the untrusted-owner gate itself is pinned in TestPolicyWiring.
+        qputenv("GLYPHPDF_POLICY_ASSUME_TRUSTED", "1");
         auto &policy = gp::PolicyController::instance();
         policy.resetForTesting();
         policy.ensureLoaded();
@@ -279,6 +284,7 @@ private slots:
 
         const auto tps = gp::NetworkTouchpoints::enumerate(user);
         qputenv("GLYPHPDF_POLICY_PATH", QByteArray());
+        qunsetenv("GLYPHPDF_POLICY_ASSUME_TRUSTED");
         policy.resetForTesting();
 
         const gp::NetworkTouchpoint *tsa = nullptr;

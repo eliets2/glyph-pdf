@@ -210,10 +210,15 @@ private slots:
         QCoreApplication::setApplicationName(QStringLiteral("TestGsdW2Probe"));
         QVERIFY(m_dir.isValid());
         PolicyController::instance().resetForTesting();
+        // W1-05 structural close: disclosed assume-trusted seam — this
+        // probe's policy fixtures are standard-user-written (the untrusted-
+        // owner gate itself is pinned in TestPolicyWiring).
+        qputenv("GLYPHPDF_POLICY_ASSUME_TRUSTED", "1");
     }
     void cleanupTestCase()
     {
         PolicyController::instance().resetForTesting();
+        qunsetenv("GLYPHPDF_POLICY_ASSUME_TRUSTED");
         QSettings().remove(QStringLiteral("ocr/allowNetworkDownload"));
         QSettings().remove(QStringLiteral("ocr/language"));
     }
