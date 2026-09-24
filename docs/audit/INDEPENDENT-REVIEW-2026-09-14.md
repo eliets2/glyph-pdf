@@ -14,6 +14,11 @@ TestSep13Lead* registrations to rebuild them):
 - `tests/R14ProbeRedactSpace.cpp` — Queue 1 (L5/L7/L8 composed)
 - `tests/R14ProbeSep13Fixes.cpp` — Queue 2 (L1/L2/L13/M7/L9)
 - `tests/R14ProbeBatchSkip.cpp` — Queue 3 (Q1/Q3/Q4)
+  [2026-09-23, residexec lane: REGISTERED as a deliberate-run ctest target
+  (label `R14-probe`, DISABLED by default so ordinary sweeps skip it;
+  `ctest -R R14ProbeBatchSkip` runs it — 5/5 offscreen at the consolidated
+  tip). Dead-file disposition resolved per the archaeologist's register
+  recommendation.]
 - standalone: `C:\Users\User\scratch-r14\r14-keystroke-probe.cpp` (+ `-POST.txt`) — Queue 4 (R18(f))
 
 Raw evidence: `C:\Users\User\scratch-r14\results\` (q1-*, q2-*, q3-*, q4-*, q5-*, NC-* files
