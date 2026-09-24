@@ -1310,6 +1310,12 @@ Result verify(const Request& request)
 
     struct EntryWork { ExcisionEntry entry; };
     QList<EntryWork> works;
+    // PGR-10 (M1): per-mark accounting currency — the DISTINCT runs extraction
+    // attributed on each page. Glyph-carrying operators excised beyond this
+    // count are operators no attribution can account for (a run is the output
+    // of at least one glyph op; merging can only undercount, which is the
+    // conservative side — the "explained" budget must be earned).
+    QMap<int, QSet<int>> attributedRunIndicesPerPage;
     for (auto it = request.redactionsByPage.constBegin();
          it != request.redactionsByPage.constEnd(); ++it) {
         const int page = it.key();
@@ -1319,15 +1325,19 @@ Result verify(const Request& request)
         // still contained the secret.
         const PageSpace::PageGeometry pageGeo =
             PageSpace::pageGeometry(srcDoc.GetPages().GetPageAt(page));
+        const QList<PdfiumBackend::TextRun> pageRuns = srcRuns.runs.value(page);
         for (const QRectF& mark : it.value()) {
             const QRectF userMark = PageSpace::viewerToUser(mark, pageGeo);
             EntryWork w;
             w.entry.pageIndex = page;
             w.entry.region = mark;
             w.entry.method = Method::Excision;
-            for (const auto& run : srcRuns.runs.value(page)) {
-                if (runIntersects(run, userMark) && !run.text.trimmed().isEmpty())
+            for (int ri = 0; ri < pageRuns.size(); ++ri) {
+                const auto& run = pageRuns.at(ri);
+                if (runIntersects(run, userMark) && !run.text.trimmed().isEmpty()) {
                     w.entry.removedStrings.append(run.text.trimmed());
+                    attributedRunIndicesPerPage[page].insert(ri);
+                }
             }
             for (const AnnotString& as : annotStrings.value(page)) {
                 const bool hit = as.rect.right() >= userMark.left()
@@ -1386,14 +1396,13 @@ Result verify(const Request& request)
     }
 
     // ── Entry adjudication ───────────────────────────────────────────────────
-    // PGR-10: pages with at least one mark that DID attribute strings — used
-    // to tell "glyphs were excised but attribution saw none of them" apart
-    // from "the attributed strings explain the excised operators".
-    QSet<int> pagesWithAttributedStrings;
-    for (const EntryWork& w : works) {
-        if (!w.entry.removedStrings.isEmpty())
-            pagesWithAttributedStrings.insert(w.entry.pageIndex);
-    }
+    // PGR-10 (M1): the excised glyph operators are accounted PER MARK REGION
+    // against the runs attribution named on that page. The old page-level
+    // rule let an empty-attribution mark keep "verified-no-text-in-region"
+    // whenever ANY other mark on the page had attributed strings — even when
+    // the page excised MORE glyph operators than attribution could account
+    // for: the unaccounted operators may sit inside THIS mark's region, and
+    // no claim can be made about it either way.
     for (EntryWork& w : works) {
         ExcisionEntry& e = w.entry;
         const PageMechanics& before = srcMechanics.value(e.pageIndex);
@@ -1441,16 +1450,19 @@ Result verify(const Request& request)
             // replacement-char runs — make literally-unscannable text rare,
             // so no page-wide "runs == 0" rule: an empty-string operator
             // carries no glyphs and must stay an honest empty region.)
+            const int glyphOpsExcised = qMax(0, e.textOpsBefore - e.textOpsAfter);
+            const int accountedByAttribution =
+                attributedRunIndicesPerPage.value(e.pageIndex).size();
             const bool excisionSawUnattributableGlyphs =
-                e.textOpsBefore > 0 && e.textOpsAfter < e.textOpsBefore
-                && !pagesWithAttributedStrings.contains(e.pageIndex);
+                glyphOpsExcised > accountedByAttribution;
             if (excisionSawUnattributableGlyphs) {
                 e.status = EntryStatus::Unverifiable;
                 e.detail = QStringLiteral(
-                    "glyph operators were excised on this page that extraction "
-                    "could not attribute to any mark — whether this mark "
-                    "covered such text cannot be checked; no claim is made "
-                    "either way");
+                    "%1 glyph-carrying operator(s) were excised on this page "
+                    "but extraction attributed only %2 — the unaccountable "
+                    "ones may sit inside this mark's region; whether this "
+                    "mark covered such text cannot be checked; no claim is "
+                    "made either way").arg(glyphOpsExcised).arg(accountedByAttribution);
             } else {
                 e.status = EntryStatus::VerifiedNoTextInRegion;
                 e.detail = QStringLiteral("the mark covered no extractable text (nothing was removed "
