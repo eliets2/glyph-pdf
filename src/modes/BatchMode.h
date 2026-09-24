@@ -70,6 +70,13 @@ struct BatchFileResult {
     // bucket with the reason.
     bool    skipped = false;
     QString skipReason;
+    // R26-P2 U4 (plan §4.6, N3): the failure is BATCH-SCOPED — the error class
+    // is independent of file content (the same failure would hit any file, e.g.
+    // the output directory vanished or the shared candidate store refused).
+    // The run aborts at the current file boundary; this flag rides the result
+    // so the report can name the batch-scoped cause ONCE (both lanes — the
+    // ordered lane additionally drains the remainder as not-run).
+    bool    batchScoped = false;
     // R26-P2 (plan §3): ordered per-step records of a preset chain run —
     // measured facts per step (bates ranges now; measured bytes with U5), so
     // the run is verifiable instead of summarized by a single techDetail.
@@ -484,6 +491,13 @@ private:
     std::function<void(const QString&)> m_presetRaceHook;
     bool     m_unattendedAutoRunPending = false;
     QString  m_presetConflictOverride;
+    // R26-P2 U4 (plan §4.6, N3): the batch-scoped abort cause of the CURRENT
+    // run — recorded from the first batch-scoped failure during accounting
+    // (GUI thread), reported ONCE at completion, cleared per run. The
+    // unattended flag mirrors m_unattendedAutoRunPending's consumed value so
+    // the abort line can disclose that the hot folder stays armed.
+    QString  m_batchAbortCause;
+    bool     m_runWasUnattended = false;
 };
 
 } // namespace gp
