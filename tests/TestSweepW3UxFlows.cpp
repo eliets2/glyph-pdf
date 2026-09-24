@@ -52,6 +52,7 @@
 #include "app/Bootstrapper.h"
 #include "core/AppContext.h"
 #include "core/AnnotationTypes.h"
+#include "engines/DocumentSession.h"   // F7b: setReadOnly on the real session
 #include "shell/Ribbon.h"
 #include "shell/StatusBar.h"
 #include "ui/WelcomeWidget.h"
@@ -2020,6 +2021,79 @@ private slots:
         step(QStringLiteral("F7 final status: '%1'; unexpected modals during fix "
                            "loop: OK=%2 Yes=%3 No=%4")
                  .arg(status->text()).arg(f7OkSeen).arg(f7YesSeen).arg(f7NoSeen));
+    }
+
+    // ── F7b (PR-review §3.1): the tag route is a MUTATION — a read-only
+    // session must refuse it with the one honest wording, before any
+    // pre-flight surface, with the file byte-identical and the shell
+    // runner's hard stop never crossed.
+    void flow7b_tag_refused_on_read_only_session()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString doc = dir.filePath("taggable-ro.pdf");
+        {
+            PoDoFo::PdfMemDocument pdf;
+            auto &page = pdf.GetPages().CreatePage(
+                PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            PoDoFo::PdfPainter painter;
+            painter.SetCanvas(page);
+            auto &font = pdf.GetFonts().GetStandard14Font(
+                PoDoFo::PdfStandard14FontType::Helvetica);
+            painter.TextState.SetFont(font, 12.0);
+            painter.DrawText("Tag me if you can", 50, 750);
+            painter.FinishDrawing();
+            pdf.Save(doc.toUtf8().constData());
+        }
+        QVERIFY(QFileInfo::exists(doc));
+        step("F7b start: untagged fixture, open through the real route");
+
+        runCardRoute("open", doc);
+        QTRY_COMPARE_WITH_TIMEOUT(m_win->pdfViewer()->pageCount(), 1, 20000);
+
+        m_win->activateScreen(QStringLiteral("accessibility"));
+        auto *panel = m_win->findChild<gp::AccessibilityPanel *>();
+        QVERIFY2(panel, "F7b: the accessibility panel must be hosted");
+        auto *tagBtn = panel->findChild<QPushButton *>(QStringLiteral("a11yTagButton"));
+        auto *status = panel->findChild<QLabel *>(QStringLiteral("a11yStatusLabel"));
+        QVERIFY(tagBtn && status);
+        // Scan settled: the taggable document enables the Tag action.
+        QTRY_VERIFY_WITH_TIMEOUT(tagBtn->isEnabled(), 20000);
+
+        // Flip the REAL session read-only — the production authority the
+        // shell's injected gate asks (EditPolicy::mutationBlocked).
+        QVERIFY(m_win->appContext() && m_win->appContext()->document);
+        m_win->appContext()->document->setReadOnly(true);
+
+        QFile before(doc);
+        QVERIFY(before.open(QIODevice::ReadOnly));
+        const QByteArray originalBytes = before.readAll();
+        before.close();
+
+        tagBtn->click();
+
+        // Honest refusal in the panel's status line — no pre-flight surface.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            status->text().contains(QStringLiteral("read-only"),
+                                    Qt::CaseInsensitive),
+            10000);
+        step(QStringLiteral("F7b refusal status: '%1'").arg(status->text()));
+        auto *confirm = panel->findChild<QWidget *>(QStringLiteral("a11yTagConfirm"));
+        QVERIFY2(!confirm || !confirm->isVisible(),
+                 "F7b: a read-only refusal must not render the pre-flight");
+
+        QTest::qWait(300);   // a (wrong) async tagging run would surface here
+        QFile after(doc);
+        QVERIFY(after.open(QIODevice::ReadOnly));
+        const QByteArray currentBytes = after.readAll();
+        after.close();
+        QVERIFY2(currentBytes == originalBytes,
+                 "F7b: a read-only session must leave the file byte-identical");
+        QVERIFY2(QFileInfo::exists(doc), "F7b: the document must survive");
+
+        // Restore the session so a re-run of the slot starts clean.
+        m_win->appContext()->document->setReadOnly(false);
+        step("F7b verified: read-only session refuses tagging; file untouched");
     }
 
     // The a11y fix editor is an INLINE frame (not modal): fill the language
