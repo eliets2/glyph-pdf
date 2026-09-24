@@ -266,3 +266,12 @@ git log --format=%B 7d4d8d08..HEAD | grep -c "cherry picked from commit"
   `.github/workflows/ci.yml` (the guard itself is never weakened; if MSYS2
   moves past the pin, configure fails loudly by design and the pin is
   re-triaged).
+
+- **CI outcome at the fix commit (`a5c11d5b`):** the Configure step now passes
+  (pin sync works; 182 tests ran). The Test step remains red on the runner with
+  **TestWelcomeRoutes + TestSweepW3UxFlows** — the runner's missing default
+  Fontconfig configuration breaks the modal/route UI suites. This is the
+  **pre-existing runner limitation**: CI at `7d4d8d08` failed at the same Test
+  step with the same suites and the same Fontconfig error (175/181 there).
+  Explained per E6; a fontconfig default-config step in the workflow is the
+  future fix and is left to the owner (infra surface).
