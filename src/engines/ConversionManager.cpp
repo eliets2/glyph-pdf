@@ -6,6 +6,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <algorithm>
+#include <QRegularExpression>
 #include <cmath>
 #include <QDebug>
 #include <QFile>
@@ -474,6 +475,15 @@ bool ConversionManager::exportToImage(const QString &pdfPath, const QString &out
 QString ConversionManager::csvFormulaSafeCell(const QString &cell) {
     static const QString kFormulaLead = QStringLiteral("=+-@\t\r");
     if (cell.isEmpty() || !kFormulaLead.contains(cell.at(0))) return cell;
+    // M3 (PR-review §4): a PLAIN number is not a formula. "-2", "+3.14" and
+    // "-2,5" (European decimal) are legitimate extracted values — the
+    // apostrophe turned every signed or decimal number column into
+    // spreadsheet TEXT. The exemption stays narrow: one optional sign,
+    // digits, one optional decimal group — the PGR-16 fixture "-2+3+cmd"
+    // still escapes, and a bare sign or a second operator is not a number.
+    static const QRegularExpression kPlainNumber(
+        QStringLiteral("^[+-]?\\d+([.,]\\d+)?$"));
+    if (kPlainNumber.match(cell).hasMatch()) return cell;
     return QLatin1Char('\'') + cell;
 }
 

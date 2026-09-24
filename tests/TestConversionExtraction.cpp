@@ -556,6 +556,28 @@ void TestConversionExtraction::csvFormulaInjectionIsNeutralized() {
              QStringLiteral("plain text"));
     QCOMPARE(ConversionManager::csvFormulaSafeCell(QString()), QString());
 
+    // M3 (PR-review §4): PLAIN numbers are not formulas — one optional sign,
+    // digits, one optional decimal group — and must NOT be turned into
+    // spreadsheet text by the apostrophe. The moment a second operator or a
+    // non-numeric tail appears, the cell escapes again.
+    QCOMPARE(ConversionManager::csvFormulaSafeCell(QStringLiteral("-42")),
+             QStringLiteral("-42"));
+    QCOMPARE(ConversionManager::csvFormulaSafeCell(QStringLiteral("+3.14")),
+             QStringLiteral("+3.14"));
+    QCOMPARE(ConversionManager::csvFormulaSafeCell(QStringLiteral("-2,5")),
+             QStringLiteral("-2,5"));
+    QCOMPARE(ConversionManager::csvFormulaSafeCell(QStringLiteral("128")),
+             QStringLiteral("128"));
+    // Not plain numbers: still escaped.
+    QCOMPARE(ConversionManager::csvFormulaSafeCell(QStringLiteral("-")),
+             QStringLiteral("'-"));
+    QCOMPARE(ConversionManager::csvFormulaSafeCell(QStringLiteral("-2+3")),
+             QStringLiteral("'-2+3"));
+    QCOMPARE(ConversionManager::csvFormulaSafeCell(QStringLiteral("+2.5.7")),
+             QStringLiteral("'+2.5.7"));
+    QCOMPARE(ConversionManager::csvFormulaSafeCell(QStringLiteral("-2kg")),
+             QStringLiteral("'-2kg"));
+
     // End to end: hostile cells exported through a real PDF must carry the
     // apostrophe in the CSV bytes.
     QTemporaryDir tmp;
