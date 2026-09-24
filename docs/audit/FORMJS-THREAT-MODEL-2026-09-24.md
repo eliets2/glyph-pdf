@@ -116,6 +116,29 @@ Measured with the exact sandbox contract (probe harness
 | `Array(268435456).sort()` | **12.8 s** | completes |
 | `Array(2147483648).join('a')` | **37.0 s** | eventually OOM at the string-buffer cap |
 
+Re-measured 2026-09-24, same-machine version-stamped A/B (probe now prints
+`JS_GetVersion()`; captures in `evidence-formjs-2026-09-23/`:
+`probe-output-0.15.0-2026-09-24.txt` / `probe-output-0.15.1-2026-09-24.txt`,
+source `qjs-probe-2026-09-24.c`; 0.15.1 = MSYS2
+`mingw-w64-ucrt-x86_64-quickjs-ng 0.15.1-1`, runtime `libqjs-0.dll` sha256
+`cc92ba7e…583ce`) — **still unfixed**:
+
+| one expression | 0.15.0 (this machine) | 0.15.1 (this machine) | outcome |
+|---|---|---|---|
+| `Array(2147483648).includes('x')` | 26.6 s | 39.4 s | ok — deadline never fires |
+| `Array(2147483648).indexOf('x')` | 25.5 s | 41.5 s | ok — deadline never fires |
+| `Array(2147483648).join('a')` | 30.9 s | 45.6 s | InternalError, late |
+| `Array(16777216).includes('x')` (the pin's probe) | 188 ms | 303 ms | ok, past the 150 ms deadline |
+
+(Wall times swing ±50% with machine load across runs — e.g. the pin probe
+measured 156/188/303 ms in three runs — so only the deadline behavior is
+comparable, and it is IDENTICAL on both versions. The interrupt handler is
+still never polled inside the native scan; the auto-arming pin correctly
+skipped in-suite on 0.15.1 (19 pass / 0 fail / 1 skip). The baseline loop
+and all four ReDoS probes abort at exactly ~151 ms on both versions — the
+deadline itself is healthy. Note the original 0.15.0 table above was taken
+on a different machine/load; this A/B is the controlled comparison.)
+
 One line in any `/AA` script freezes the UI thread unkillably for about a
 minute, repeatable on every save/keystroke — a 250× budget overrun per event,
 with no honest classification possible because the host thread is stuck
@@ -124,15 +147,18 @@ inside the native call.
 **Verdict:** HIGH — trivially exploitable, fully reproducible, but the fix is
 a dependency bump, not a product patch: upstream quickjs-ng added
 interrupt checks to the array builtins **after 0.15.0** (verified in master
-source: `js_poll_interrupts` now inside `js_array_indexOf` and friends), and
-MSYS2 still packages only `0.15.0-1` (`pacman -Si`, verified 2026-09-23).
-**Remediation:** bump the pinned `mingw-w64-ucrt-x86_64-quickjs-ng` package
-to a release carrying the array-method interrupt checks (or vendor+patch — a
+source: `js_poll_interrupts` now inside `js_array_indexOf` and friends), but
+**not in the 0.15.1 release**: MSYS2 packages `0.15.1-1` as of 2026-09-23
+(`pacman -S` taken, hashes in the R18c pin comment in CMakeLists.txt) and
+re-measurement shows the scans still unpollled — the checks are on master,
+not yet in any tagged release MSYS2 carries. **Remediation:** bump the
+pinned `mingw-w64-ucrt-x86_64-quickjs-ng` package to a release carrying the
+array-method interrupt checks (or vendor+patch — a
 supply-chain decision above this lane's authority, per the Option-A
 pacman decision in the Phase-1 design). **Regression pin:** the suite's
-`nativeSparseArrayScansAbideTheDeadline` auto-arms once the package is
-bumped (on 0.15.0 it skips with the finding reference; on a fixed engine it
-asserts the 150 ms deadline fires).
+`nativeSparseArrayScansAbideTheDeadline` auto-arms once a fixed package
+lands (on 0.15.0 and 0.15.1 it skips with the finding reference; on a fixed
+engine it asserts the 150 ms deadline fires).
 
 ### S-3 · "Rewire the machine the next script runs on" — PARTIALLY WORKED (PGR-41, LOW, deferred: platform-inherent; PGR-39, LOW, fixed)
 
@@ -266,7 +292,7 @@ adversary nothing. Accepted with a note; the transfer cap bounds the flood
 | PGR-37 | MED | `AFormShim.cpp` `__gpEndEvent` | NaN/±Infinity value → JSON null with hasValue=true → committed /V silently wiped (S-5) | **Fixed** `77b57a7e` — non-finite = no usable value; test-backed |
 | PGR-38 | LOW | `FormJsSandbox.cpp` `installFieldSnapshot` | JSON-as-JS-literal embed: a field named `__proto__` vanishes from every script (S-6) | **Fixed** `f6e1953c` — JSON.parse embed; test-backed |
 | PGR-39 | LOW | `AFormShim.cpp` | Shim leaks 9 internal helpers as writable globals — documented surface exceeded; rewireable for later cascade events (S-3) | **Fixed** `f6e1953c` — IIFE wrap; surface pin tightened |
-| PGR-40 | HIGH | quickjs-ng 0.15.0 (dependency of `FormJsSandbox`) | Native sparse-array scans never poll the interrupt handler: `indexOf` 44.8 s / `includes` 53.2 s / `lastIndexOf` 56.6 s / `flat` 61.8 s / `sort` 12.8 s / `join` 37 s, unkillable, per event (S-2) | **Deferred — dependency bump** (upstream fixed after 0.15.0; MSYS2 has only 0.15.0-1). Auto-arming regression pin landed; probe harness `evidence-formjs-2026-09-23/qjs-probe.c` |
+| PGR-40 | HIGH | quickjs-ng 0.15.0 (dependency of `FormJsSandbox`) | Native sparse-array scans never poll the interrupt handler: `indexOf` 44.8 s / `includes` 53.2 s / `lastIndexOf` 56.6 s / `flat` 61.8 s / `sort` 12.8 s / `join` 37 s, unkillable, per event (S-2) | **Deferred — dependency bump** (upstream fixed after 0.15.0). **Checked 2026-09-24: MSYS2 0.15.1-1 does NOT carry the fix** — same-machine A/B re-measurement unkillable on both (pin probe 188 ms / 303 ms ok past 150 ms); 0.15.1 taken as a clean patch bump (zero golden drift), pin still auto-arming. Probe `evidence-formjs-2026-09-23/qjs-probe-2026-09-24.c` |
 | PGR-41 | LOW | `FormJsRunner.cpp` cascade | Cross-event tamper window: a script ending without a committed write leaves its rewiring in place for the next event's inputs (S-3) | **Deferred — platform-inherent** (Acrobat/pdf.js share it); characterized by a pinned test; proposed fix: fresh runtime per event |
 | — | LOW | `FormJsRunner.cpp` log sink | Scripts can fabricate audit `logs`/`blocked` entries; reach `qWarning` only, never the UI; flood bounded by the transfer cap (S-10) | Accepted, documented |
 
@@ -294,10 +320,11 @@ today); LLM-facing surfaces (none in formjs).
 ## 5. Residuals / handoff to the integrator (R12)
 
 1. **PGR-40 remediation is a dependency bump.** Track
-   `mingw-w64-ucrt-x86_64-quickjs-ng` upstream packaging; when a release
-   with array-method interrupt checks lands in MSYS2, bump
-   `scripts/bootstrap-vendor-deps.sh` + CI; the regression pin
-   (`nativeSparseArrayScansAbideTheDeadline`) flips from skip to assert with
+   `mingw-w64-ucrt-x86_64-quickjs-ng` upstream packaging; **checked 2026-09-23:
+   MSYS2 0.15.1-1 does NOT carry the array-method interrupt checks** (re-measured
+   unkillable; see S-2). Next check when MSYS2 ships a later release; when one
+   carries the fix, bump `scripts/bootstrap-vendor-deps.sh` + CI; the regression
+   pin (`nativeSparseArrayScansAbideTheDeadline`) flips from skip to assert with
    no code change. Alternatively vendor+patch quickjs — supply-chain
    decision, owner call.
 2. **PGR-41** (cross-event tamper window) — if the platform ever adopts

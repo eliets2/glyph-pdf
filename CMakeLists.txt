@@ -214,7 +214,8 @@ find_package(duckx CONFIG QUIET)
 find_package(CURL QUIET)
 find_package(qpdf QUIET)
 # quickjs-ng — the form-JavaScript execution engine (MIT; MSYS2 ucrt64 package
-# `mingw-w64-ucrt-x86_64-quickjs-ng`, pinned 0.15.0-1). Optional: when absent
+# `mingw-w64-ucrt-x86_64-quickjs-ng`, pinned 0.15.1 — PGR-40 bump 2026-09-23,
+# was 0.15.0-1). Optional: when absent
 # the build stays green and form-JS capabilities disclose honestly via
 # CapabilityRegistry (design doc §5 fallback).
 find_package(qjs CONFIG QUIET)
@@ -619,16 +620,31 @@ if(TARGET qjs)
     # (PERFORMANCE-AND-SCRIPT-REVIEW-2026-09-10: "Comments and an unversioned
     # find_package(qjs) are not an enforced dependency pin"). The sandbox and
     # AF-shim goldens (tests/TestFormJsCalc.cpp) pin the scripting semantics of
-    # the authorized package (ledger rows 2026-09-10 form-JS Phase 1 and
-    # 2026-09-13 R18: user-authorized Option A, MSYS2
-    # mingw-w64-ucrt-x86_64-quickjs-ng 0.15.0-1, MIT, runtime DLL
-    # libqjs-0.dll sha256 dd3100904db03feaadf63a231c868286ab9c69053820ab4e3037022dd9573a4c);
-    # an unreviewed runtime bump silently changes those semantics. The check
+    # the authorized package. Authorized history:
+    #  · 0.15.0-1 (ledger rows 2026-09-10 form-JS Phase 1 and 2026-09-13 R18:
+    #    user-authorized Option A, MSYS2 mingw-w64-ucrt-x86_64-quickjs-ng,
+    #    MIT, runtime DLL libqjs-0.dll sha256
+    #    dd3100904db03feaadf63a231c868286ab9c69053820ab4e3037022dd9573a4c);
+    #  · 0.15.1 (PGR-40 check lane, 2026-09-24: MSYS2 package
+    #    mingw-w64-ucrt-x86_64-quickjs-ng 0.15.1-1, package sha256
+    #    cb287b367da04ec4deee6dfb265e89ab9df11e004a0615a237cf1313dc616228,
+    #    runtime DLL libqjs-0.dll sha256
+    #    cc92ba7e7ae642c8eee24434e125184fbafe9f975fda5bb3972dc5bc6d4583ce.
+    #    NOTE: 0.15.1 does NOT carry the upstream array-method interrupt
+    #    checks (same-machine version-stamped A/B probe, 2026-09-24:
+    #    Array(2^31).includes unkillable on both — 26.6 s on 0.15.0 vs
+    #    39.4 s on 0.15.1, past a 150 ms deadline; the pin's Array(16.7M)
+    #    probe 188 ms / 303 ms ok). The bump is authorized as a clean
+    #    patch-level refresh: zero golden drift (TestFormJsCalc 49/49,
+    #    TestFormKeystroke 9/9, TestFormJsAdversarial 19 pass/0 fail/1
+    #    auto-arm skip). PGR-40 stays deferred; the auto-arming pin still
+    #    gates the eventual fixed engine).
+    # An unreviewed runtime bump silently changes those semantics. The check
     # parses the version the LINKED headers advertise (quickjs.h QJS_VERSION_*)
     # and hard-fails on mismatch. The deliberate-upgrade path: bump
     # GLYPHPDF_QUICKJS_PIN, re-run the goldens, record the new package/runtime
     # hash + re-authorization in the ledger.
-    set(GLYPHPDF_QUICKJS_PIN "0.15.0" CACHE STRING
+    set(GLYPHPDF_QUICKJS_PIN "0.15.1" CACHE STRING
         "Enforced quickjs-ng version pin (R18c); upgrade deliberately, see ledger")
     get_target_property(_qjs_inc_dirs qjs INTERFACE_INCLUDE_DIRECTORIES)
     set(_qjs_version_header "")
@@ -663,7 +679,7 @@ if(TARGET qjs)
     if(NOT _qjs_found STREQUAL GLYPHPDF_QUICKJS_PIN)
         message(FATAL_ERROR
             "quickjs-ng version pin violated: the linked headers advertise ${_qjs_found}, the enforced pin is ${GLYPHPDF_QUICKJS_PIN}. "
-            "Authorized package: mingw-w64-ucrt-x86_64-quickjs-ng 0.15.0-1 (ledger 2026-09-10/2026-09-13). "
+            "Authorized package: mingw-w64-ucrt-x86_64-quickjs-ng 0.15.1-1 (PGR-40 check lane 2026-09-23; prior 0.15.0-1, ledger 2026-09-10/2026-09-13). "
             "A runtime bump changes the scripting semantics the AF-shim goldens pin — upgrade deliberately: "
             "bump GLYPHPDF_QUICKJS_PIN, re-run the golden tests, record the new package/runtime hash in the ledger.")
     endif()
