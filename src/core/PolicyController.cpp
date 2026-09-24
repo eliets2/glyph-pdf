@@ -12,6 +12,15 @@
 #include <QJsonParseError>
 #include <QStandardPaths>
 
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <aclapi.h>
+#include <sddl.h>
+#endif
+
 namespace gp {
 namespace {
 
@@ -37,6 +46,49 @@ bool acceptedValueType(const QJsonValue& v)
 {
     return v.isString() || v.isBool() || v.isDouble();
 }
+
+#ifdef Q_OS_WIN
+// W1-05 structural close — disclosed test seam: when set (tests exercise
+// the ENFORCEMENT WIRING under fixtures this standard-user process wrote),
+// the ownership gate below is skipped. Production installs never set it,
+// and it is no wider than the existing GLYPHPDF_POLICY_PATH seam: whoever
+// controls the process environment already controls the policy path.
+bool assumeTrustedSeamActive()
+{
+    return !qEnvironmentVariable("GLYPHPDF_POLICY_ASSUME_TRUSTED").isEmpty();
+}
+
+// The gate: a policy file may drive machine-wide overrides only when its
+// Windows owner is an administrator-tier account (BUILTIN\Administrators or
+// LOCAL SYSTEM — what an elevated installer/script produces). A file owned
+// by any other account is the planted-squatter posture (any standard user
+// can pre-create the %PROGRAMDATA% location on a default install) and is
+// refused. Fail-closed: an owner we cannot determine is NOT admin-tier.
+bool fileOwnerIsAdminTier(const QString& path)
+{
+    PSID ownerSid = nullptr;
+    PSECURITY_DESCRIPTOR sd = nullptr;
+    const DWORD rc = ::GetNamedSecurityInfoW(
+        reinterpret_cast<const wchar_t*>(path.utf16()), SE_FILE_OBJECT,
+        OWNER_SECURITY_INFORMATION, &ownerSid, nullptr, nullptr, nullptr,
+        &sd);
+    if (rc != ERROR_SUCCESS) {
+        if (sd)
+            ::LocalFree(sd);
+        return false;
+    }
+    bool trusted = false;
+    LPWSTR sidString = nullptr;
+    if (::ConvertSidToStringSidW(ownerSid, &sidString) && sidString) {
+        // S-1-5-32-544 = BUILTIN\Administrators, S-1-5-18 = LOCAL SYSTEM.
+        trusted = ::lstrcmpiW(sidString, L"S-1-5-32-544") == 0
+                  || ::lstrcmpiW(sidString, L"S-1-5-18") == 0;
+        ::LocalFree(sidString);
+    }
+    ::LocalFree(sd);
+    return trusted;
+}
+#endif // Q_OS_WIN
 
 } // namespace
 
@@ -96,6 +148,17 @@ bool PolicyController::load(const QString& path)
         m_state = State::Invalid;
         return false;
     }
+#ifdef Q_OS_WIN
+    // W1-05 structural close: the file parses — now verify it may SPEAK for
+    // the machine. A non-admin-owned file is the squatter's plant; ignore it
+    // and disclose (State::UntrustedOwner, statusLine()). The disclosure-only
+    // W1-05 fix made the trust model honest; this gate makes the trust
+    // DECISION safe at the ONE load boundary every consumer shares.
+    if (!assumeTrustedSeamActive() && !fileOwnerIsAdminTier(path)) {
+        m_state = State::UntrustedOwner;
+        return false;
+    }
+#endif
     const QJsonObject settings =
         root.value(QStringLiteral("settings")).toObject();
     const QStringList known = knownKeysImpl();
@@ -131,6 +194,18 @@ QString PolicyController::statusLine() const
             return tr("Machine policy at %1 is invalid and was IGNORED — "
                       "your own preferences remain in force.")
                 .arg(m_path);
+        case State::UntrustedOwner: {
+            // W1-05 structural close: present but not admin-owned — ignored
+            // AND disclosed (the gate lives in load()). The trust-model note
+            // travels with the refusal: every policy-status render explains
+            // the admin-ownership rule and the platform difference.
+            QString line = tr("Machine policy at %1 was not written by an "
+                              "administrator-tier account and was IGNORED — "
+                              "your own preferences remain in force.")
+                               .arg(m_path);
+            line += QLatin1Char(' ') + trustModelNote();
+            return line;
+        }
         case State::Loaded: {
             QStringList parts;
             for (auto it = m_managed.cbegin(); it != m_managed.cend(); ++it)
@@ -165,18 +240,19 @@ QStringList PolicyController::knownKeys() { return knownKeysImpl(); }
 
 QString PolicyController::trustModelNote()
 {
-    // W1-05/F1: the one honest sentence about the machine-policy trust
-    // model. The file is loaded and ENFORCED with no ownership, ACL or
-    // integrity check by design (P1 posture); on a default Windows install
-    // the policy directory under %PROGRAMDATA% is creatable by any standard
-    // user, so the overrides are only as trustworthy as the machine's user
-    // accounts. Disclosed wherever policy overrides render and in the
-    // support bundle — honesty, not ACLs.
-    return tr("The policy file is machine-trusted: GlyphPDF does not verify "
-              "who wrote it, and anyone who can write its location "
-              "(on Windows: %PROGRAMDATA%, writable by any standard user on "
-              "a default install) can set or change these overrides. Keep "
-              "this machine's user accounts trustworthy.");
+    // W1-05 structural close: the one honest sentence about the machine-policy
+    // trust model. On Windows load() VERIFIES the file's owner is an
+    // administrator-tier account (Administrators/SYSTEM) — anything else is
+    // ignored and disclosed (State::UntrustedOwner). On platforms without an
+    // ownership check the file remains machine-trusted, and that residual is
+    // said plainly. Disclosed wherever policy overrides render and in the
+    // support bundle.
+    return tr("Machine policy is enforced only when the policy file is "
+              "owned by an administrator-tier account (Windows: "
+              "Administrators or SYSTEM); files written by anyone else are "
+              "ignored. Where no ownership check applies, the policy file "
+              "is machine-trusted: keep this machine's user accounts "
+              "trustworthy.");
 }
 
 bool PolicyController::isEnforcedKey(const QString& settingsKey)

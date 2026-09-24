@@ -709,6 +709,11 @@ private slots:
         QSettings().setValue(QStringLiteral("ocr/language"), QStringLiteral("DE"));
         QSettings().setValue(QStringLiteral("ocr/allowNetworkDownload"), true);
         PolicyController::instance().resetForTesting();
+        // W1-05 structural close: a wiring pin (policy key -> OCR download
+        // gate) with a standard-user-written fixture — run under the
+        // disclosed assume-trusted seam; the gate itself is pinned in
+        // TestPolicyWiring::plantedPolicyFromUserWritablePathIsNotEnforced.
+        qputenv("GLYPHPDF_POLICY_ASSUME_TRUSTED", "1");
 
         auto h = makeRefusedHarness();
         QVERIFY(h->tmp.isValid());
@@ -757,6 +762,7 @@ private slots:
                  qPrintable(detail));
 
         PolicyController::instance().resetForTesting();
+        qunsetenv("GLYPHPDF_POLICY_ASSUME_TRUSTED");
         QSettings().remove(QStringLiteral("ocr/allowNetworkDownload"));
         QSettings().remove(QStringLiteral("ocr/language"));
     }

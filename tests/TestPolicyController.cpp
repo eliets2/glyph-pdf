@@ -89,11 +89,18 @@ private slots:
     void init()
     {
         PolicyController::instance().resetForTesting();
+        // W1-05 structural close: these pins exercise load+precedence under
+        // fixtures this standard-user process wrote, so they run under the
+        // disclosed GLYPHPDF_POLICY_ASSUME_TRUSTED seam (same trust boundary
+        // as GLYPHPDF_POLICY_PATH). The gate itself is pinned in
+        // TestPolicyWiring::plantedPolicyFromUserWritablePathIsNotEnforced.
+        qputenv("GLYPHPDF_POLICY_ASSUME_TRUSTED", "1");
     }
 
     void cleanup()
     {
         PolicyController::instance().resetForTesting();
+        qunsetenv("GLYPHPDF_POLICY_ASSUME_TRUSTED");
     }
 
     // ── Pin 1: precedence ────────────────────────────────────────────────

@@ -202,6 +202,11 @@ QJsonObject SupportBundle::buildFromSettings(QSettings& user,
             policySection.insert(QStringLiteral("state"),
                                  QStringLiteral("loaded"));
             break;
+        case PolicyController::State::UntrustedOwner:
+            // W1-05 structural close: present but not admin-owned — ignored.
+            policySection.insert(QStringLiteral("state"),
+                                 QStringLiteral("untrusted-owner-ignored"));
+            break;
     }
     policySection.insert(QStringLiteral("disclosure"), policy.statusLine());
     // W1-05/F1: the bundle carries the trust model as its own field too (the

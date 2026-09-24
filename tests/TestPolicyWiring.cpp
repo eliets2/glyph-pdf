@@ -32,6 +32,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QScopeGuard>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -114,12 +115,22 @@ private slots:
     void init()
     {
         PolicyController::instance().resetForTesting();
+        // W1-05 structural close: these pins exercise the ENFORCEMENT WIRING
+        // (policy key → observable enforcement point), not the ownership
+        // gate, and their fixtures are necessarily written by this test
+        // process (a standard-user-owned file). The disclosed
+        // GLYPHPDF_POLICY_ASSUME_TRUSTED seam keeps the policy loadable for
+        // the wiring pins; the GATE itself is pinned separately in
+        // plantedPolicyFromUserWritablePathIsNotEnforced, which runs WITHOUT
+        // the seam.
+        qputenv("GLYPHPDF_POLICY_ASSUME_TRUSTED", "1");
         g_warnings.clear();
     }
 
     void cleanup()
     {
         PolicyController::instance().resetForTesting();
+        qunsetenv("GLYPHPDF_POLICY_ASSUME_TRUSTED");
         qInstallMessageHandler(nullptr);
         g_warnings.clear();
     }
@@ -362,6 +373,59 @@ private slots:
                  qPrintable(plain));
         QVERIFY2(!plain.contains(QLatin1String("machine policy")),
                  qPrintable(plain));
+    }
+
+    // ── W1-05 structural close: a user-writable (non-admin-owned) policy
+    // file is NOT enforced ─────────────────────────────────────────────────
+    // The natural squatter fixture: a schema-valid policy the test process
+    // (a standard user) wrote — its default Windows owner IS the creating
+    // user, exactly the planted-policy posture the W1-05 structural close
+    // denies. The gate must ignore it AND disclose why. Runs WITHOUT the
+    // GLYPHPDF_POLICY_ASSUME_TRUSTED seam (restored on exit); the wiring
+    // pins above use the seam and are unaffected by the gate.
+    void plantedPolicyFromUserWritablePathIsNotEnforced()
+    {
+#ifdef Q_OS_WIN
+        const QString savedSeam =
+            qEnvironmentVariable("GLYPHPDF_POLICY_ASSUME_TRUSTED");
+        qunsetenv("GLYPHPDF_POLICY_ASSUME_TRUSTED");
+        const auto restoreSeam = qScopeGuard([&] {
+            if (!savedSeam.isEmpty())
+                qputenv("GLYPHPDF_POLICY_ASSUME_TRUSTED",
+                        savedSeam.toUtf8());
+        });
+
+        // A schema-valid policy disabling a managed setting, planted at a
+        // path whose ACL is the creating user's (default for a test file).
+        const QString path =
+            m_dir.filePath(QStringLiteral("planted-policy.json"));
+        QJsonObject settings;
+        settings.insert(QStringLiteral("update/checkOnStartup"), false);
+        QVERIFY(writePolicyFile(
+            path, QJsonDocument(makePolicyRoot(settings)).toJson()));
+
+        auto& policy = PolicyController::instance();
+        policy.resetForTesting();
+        // Not "loaded": a non-admin-owned file never becomes machine policy.
+        QVERIFY2(!policy.load(path),
+                 "W1-05 REGRESSION: a user-writable planted policy loaded as "
+                 "machine policy");
+        QCOMPARE(policy.state(), PolicyController::State::UntrustedOwner);
+        // Nothing from the planted file reaches any enforcement point...
+        QVERIFY2(!policy.isManaged(QStringLiteral("update/checkOnStartup")),
+                 "planted key is managed — the squat payload would enforce");
+        // ...the user's own preference stays in force...
+        QCOMPARE(policy.effectiveValue(QStringLiteral("update/checkOnStartup"),
+                                       QVariant(true)),
+                 QVariant(true));
+        // ...and the refusal is DISCLOSED where policy status renders.
+        QVERIFY2(policy.statusLine().contains(QStringLiteral("IGNORED")),
+                 qPrintable(QStringLiteral(
+                     "the untrusted-owner refusal must be disclosed in the "
+                     "status line, got: %1").arg(policy.statusLine())));
+#else
+        QSKIP("the ownership gate is a Windows surface (Q_OS_WIN)");
+#endif
     }
 };
 
