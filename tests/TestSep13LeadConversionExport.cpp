@@ -240,6 +240,42 @@ private slots:
         QVERIFY2(latinFound && typeface == QLatin1String("Evil;color:red'&<X"),
                  "writeAttribute after writeEmptyElement must land ON a:latin");
     }
+
+    // sweep-legacy 5(e): exportToImage with an explicit but OUT-OF-RANGE
+    // "page" option must honestly REFUSE, not silently fall through to the
+    // all-pages loop. Pre-fix the guard only checked key presence + range for
+    // the SINGLE-page branch and treated everything else as "all pages" — an
+    // API/batch caller passing page=999 got every page rendered as if it had
+    // asked for all of them (a misleading-success contract).
+    void exportToImageOutOfRangePageRefusesInsteadOfRenderingAll() {
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        const QByteArray pdf = onePagePdf(
+            "BT /F1 24 Tf 72 700 Td (HELLO) Tj ET", "Helvetica");
+        const QString src = tmp.filePath("onepager.pdf");
+        QVERIFY(writeFile(src, pdf));
+
+        const QString out = tmp.filePath("page.png");
+        QVariantMap options;
+        options.insert(QStringLiteral("page"), 999);   // far out of range
+        options.insert(QStringLiteral("dpi"), 36);     // keep the render tiny
+
+        ConversionManager conv;
+        QVERIFY2(!conv.convertTo(src, out, TargetFormat::Image, options),
+                 "an out-of-range page option must refuse, not fall through");
+        QVERIFY2(!QFileInfo(out).exists(),
+                 "a refused out-of-range render must not write the output file");
+        QCOMPARE(QDir(tmp.path()).entryList(QStringList() << "*.png").size(), 0);
+
+        // Control (the honest all-pages contract survives): NO page option
+        // still renders every page into the formatted path.
+        const QString allOut = tmp.filePath("all_%1.png");
+        QVariantMap noPage;
+        noPage.insert(QStringLiteral("dpi"), 36);
+        QVERIFY2(conv.convertTo(src, allOut, TargetFormat::Image, noPage),
+                 "no page option must keep the render-all contract");
+        QCOMPARE(QDir(tmp.path()).entryList(QStringList() << "all_*.png").size(), 1);
+    }
 };
 
 #include "TestSep13LeadConversionExport.moc"
