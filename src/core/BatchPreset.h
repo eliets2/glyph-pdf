@@ -64,7 +64,11 @@ struct BatchPreset {
                             // all: the output de-conflicts to stem-2/3…,
                             // every candidate re-checked through the
                             // resolveNaming containment guard.
-    QString   onFileFailure;// "continue" (default) ("stop" refused by this build)
+    QString   onFileFailure;// "continue" (default) | "stop" (P2 plan §4.4: halt at
+                            // the next FILE BOUNDARY after a file-scoped failure —
+                            // never mid-file, never mid-chain; every not-yet-run
+                            // file is reported as not-run with the policy reason,
+                            // never success, never silently dropped).
 
     bool operator==(const BatchPreset& other) const {
         return schemaVersion == other.schemaVersion && id == other.id

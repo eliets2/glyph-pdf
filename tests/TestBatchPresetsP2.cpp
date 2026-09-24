@@ -137,6 +137,11 @@ private slots:
     void renameCandidatesStayContained();
     void hotFolderAutoRunDegradesAskToRename();
 
+    // ── U3: onFileFailure "stop" (truthful not-run reporting) ─────────────────
+    void stopPolicySchemaAdmittedAndRoundTrip();
+    void stopAtFileTwoStopsAndReportsRemaining();
+    void continueDefaultRunsAllFiles();
+
 private:
     std::unique_ptr<QTemporaryDir> m_storeDir;
     std::unique_ptr<QTemporaryDir> m_runDir;
@@ -852,6 +857,179 @@ void TestBatchPresetsP2::hotFolderAutoRunDegradesAskToRename() {
     // The degrade is disclosed in the log.
     const QString log = bm.findChildren<QTextEdit*>().first()->toPlainText();
     QVERIFY2(log.contains(QStringLiteral("renamed instead of asking")), qPrintable(log));
+}
+
+// ── U3 pins ────────────────────────────────────────────────────────────────────
+
+// The second v1 failure-policy value joins the implemented set: it parses,
+// round-trips, and an UNKNOWN value is still refused (fail-closed intact).
+// The default "continue" stays omitted from serialization (goldens stable).
+void TestBatchPresetsP2::stopPolicySchemaAdmittedAndRoundTrip() {
+    BatchPreset p;
+    QString err;
+
+    const QByteArray json = QStringLiteral(
+        "{\n"
+        "    \"glyphpreset\": { \"schemaVersion\": 1, \"kind\": \"batch-preset\" },\n"
+        "    \"id\": \"stopper\",\n"
+        "    \"name\": \"Stopper\",\n"
+        "    \"created\": \"2026-09-24T00:00:00.000Z\",\n"
+        "    \"modified\": \"2026-09-24T00:00:00.000Z\",\n"
+        "    \"steps\": [ { \"op\": \"compress\", \"params\": {} } ],\n"
+        "    \"onFileFailure\": \"stop\"\n"
+        "}\n").toUtf8();
+    QVERIFY2(BatchPresetCodec::parse(json, &p, &err),
+             qPrintable(QStringLiteral("stop policy refused: %1").arg(err)));
+    QCOMPARE(p.onFileFailure, QStringLiteral("stop"));
+
+    // Round-trip keeps the policy (serialize emits the non-default value).
+    const QByteArray once = BatchPresetCodec::serialize(p);
+    QVERIFY2(QString::fromUtf8(once).contains(QStringLiteral("\"onFileFailure\"")),
+             qPrintable(QStringLiteral("serialize dropped the stop policy: %1")
+                            .arg(QString::fromUtf8(once.left(400)))));
+    BatchPreset p2;
+    QVERIFY2(BatchPresetCodec::parse(once, &p2, &err), qPrintable(err));
+    QCOMPARE(p2.onFileFailure, QStringLiteral("stop"));
+
+    // The DEFAULT preset serializes without the key (byte-stable goldens).
+    err.clear();
+    QVERIFY2(BatchPresetCodec::parse(
+        QByteArray(once).replace("\"stop\"", "\"continue\""), &p, &err), qPrintable(err));
+    QVERIFY(!QString::fromUtf8(BatchPresetCodec::serialize(p))
+                 .contains(QStringLiteral("onFileFailure")));
+
+    // Unknown value — the v1 vocabulary, named verbatim in the diagnostic.
+    err.clear();
+    QVERIFY(!BatchPresetCodec::parse(
+        QByteArray(json).replace("\"stop\"", "\"halt\""), &p, &err));
+    QVERIFY2(err.contains(QStringLiteral("continue, stop")), qPrintable(err));
+}
+
+// N2: with onFileFailure "stop" a file-scoped failure at file 2 halts the
+// queue AT THAT FILE BOUNDARY — files 3-4 are reported as not-run with the
+// policy reason (skipped bucket, U08 truthfulness), never silently dropped.
+// The preset here is NON-bates: stop-policy runs take the ordered lane too —
+// with the mapped pipeline, WHICH files get skipped would be pool-scheduling
+// luck, not a stated invariant.
+void TestBatchPresetsP2::stopAtFileTwoStopsAndReportsRemaining() {
+    const QString fx = m_runDir->filePath(QStringLiteral("fixtures"));
+    QDir().mkpath(fx);
+    const QString f1 = createTextPdf(fx, QStringLiteral("a.pdf"), { QStringLiteral("alpha") });
+    const QString f3 = createTextPdf(fx, QStringLiteral("c.pdf"), { QStringLiteral("gamma") });
+    const QString f4 = createTextPdf(fx, QStringLiteral("d.pdf"), { QStringLiteral("delta") });
+    QVERIFY(!f1.isEmpty() && !f3.isEmpty() && !f4.isEmpty());
+    const QString bad = fx + QStringLiteral("/bad.pdf");
+    {
+        QFile f(bad);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("this is not a pdf at all");
+    }
+
+    QVERIFY(writeStoreFile(m_storeDir->path(), QStringLiteral("stop-run"),
+                           QStringLiteral(
+        "{\n"
+        "    \"glyphpreset\": { \"schemaVersion\": 1, \"kind\": \"batch-preset\" },\n"
+        "    \"id\": \"stop-run\",\n"
+        "    \"name\": \"Stop Run\",\n"
+        "    \"created\": \"2026-09-24T00:00:00.000Z\",\n"
+        "    \"modified\": \"2026-09-24T00:00:00.000Z\",\n"
+        "    \"steps\": [ { \"op\": \"compress\", \"params\": { \"quality\": 60 } } ],\n"
+        "    \"onFileFailure\": \"stop\"\n"
+        "}\n").toUtf8()));
+
+    AppContext ctx = makeCtx();
+    BatchMode bm;
+    bm.setAppContext(&ctx);
+    bm.setOperationForTest(7);
+    bm.refreshPresetsForTest();
+    QVERIFY(bm.selectPresetForTest(QStringLiteral("stop-run")));
+    QDir().mkpath(m_runDir->filePath(QStringLiteral("out")));
+    presetOutEdit(bm)->setText(m_runDir->filePath(QStringLiteral("out")));
+    bm.addFilesForTest({ f1, bad, f3, f4 });
+
+    runAndWait(bm);
+    // File 1 succeeded, file 2 failed, files 3-4 not run (skipped bucket).
+    QCOMPARE(bm.successCount(), 1);
+    QCOMPARE(bm.failCount(), 1);
+    QCOMPARE(bm.skipCount(), 2);
+    QCOMPARE(bm.remainingCount(), 0);
+
+    // Only file 1's output exists — the not-run files produced nothing.
+    const QString outDir = m_runDir->filePath(QStringLiteral("out"));
+    const QStringList outs = QDir(outDir).entryList(QStringList() << QStringLiteral("*.pdf"),
+                                                    QDir::Files);
+    QCOMPARE(outs.size(), 1);
+    QCOMPARE(outs.first(), QStringLiteral("a_stop-run.pdf"));
+
+    // Truthful per-file records, in list order: ok, failed, skipped, skipped;
+    // the skip reason names the policy AND the file that stopped the run.
+    const auto results = bm.runResultsForTest();
+    QCOMPARE(results.size(), 4);
+    QCOMPARE(results.at(0).success, true);
+    QCOMPARE(results.at(1).success, false);
+    QVERIFY2(results.at(1).errorMessage.contains(QStringLiteral("Failed to open PDF")),
+             qPrintable(results.at(1).errorMessage));
+    QVERIFY(results.at(2).skipped);
+    QVERIFY2(results.at(2).skipReason.contains(
+                 QStringLiteral("run stopped by onFileFailure=stop after bad.pdf")),
+             qPrintable(results.at(2).skipReason));
+    QVERIFY(results.at(3).skipped);
+    QVERIFY2(results.at(3).skipReason.contains(
+                 QStringLiteral("run stopped by onFileFailure=stop after bad.pdf")),
+             qPrintable(results.at(3).skipReason));
+
+    // The skip bucket reached the error log too (never a silent drop), and
+    // the pre-flight/run log disclosed the policy.
+    QCOMPARE(bm.errorLogCount(), 3);
+    const QString log = bm.findChildren<QTextEdit*>().first()->toPlainText();
+    QVERIFY2(log.contains(QStringLiteral("onFileFailure=stop")), qPrintable(log.left(1500)));
+}
+
+// The "continue" default is unchanged: the same run shape with the default
+// policy processes every file (failures are file-scoped, no stops).
+void TestBatchPresetsP2::continueDefaultRunsAllFiles() {
+    const QString fx = m_runDir->filePath(QStringLiteral("fixtures"));
+    QDir().mkpath(fx);
+    const QString f1 = createTextPdf(fx, QStringLiteral("a.pdf"), { QStringLiteral("alpha") });
+    const QString f3 = createTextPdf(fx, QStringLiteral("c.pdf"), { QStringLiteral("gamma") });
+    const QString f4 = createTextPdf(fx, QStringLiteral("d.pdf"), { QStringLiteral("delta") });
+    QVERIFY(!f1.isEmpty() && !f3.isEmpty() && !f4.isEmpty());
+    const QString bad = fx + QStringLiteral("/bad.pdf");
+    {
+        QFile f(bad);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("this is not a pdf at all");
+    }
+
+    QVERIFY(writeStoreFile(m_storeDir->path(), QStringLiteral("cont-run"),
+                           QStringLiteral(
+        "{\n"
+        "    \"glyphpreset\": { \"schemaVersion\": 1, \"kind\": \"batch-preset\" },\n"
+        "    \"id\": \"cont-run\",\n"
+        "    \"name\": \"Continue Run\",\n"
+        "    \"created\": \"2026-09-24T00:00:00.000Z\",\n"
+        "    \"modified\": \"2026-09-24T00:00:00.000Z\",\n"
+        "    \"steps\": [ { \"op\": \"compress\", \"params\": { \"quality\": 60 } } ]\n"
+        "}\n").toUtf8()));
+
+    AppContext ctx = makeCtx();
+    BatchMode bm;
+    bm.setAppContext(&ctx);
+    bm.setOperationForTest(7);
+    bm.refreshPresetsForTest();
+    QVERIFY(bm.selectPresetForTest(QStringLiteral("cont-run")));
+    QDir().mkpath(m_runDir->filePath(QStringLiteral("out")));
+    presetOutEdit(bm)->setText(m_runDir->filePath(QStringLiteral("out")));
+    bm.addFilesForTest({ f1, bad, f3, f4 });
+
+    runAndWait(bm);
+    QCOMPARE(bm.successCount(), 3);
+    QCOMPARE(bm.failCount(), 1);
+    QCOMPARE(bm.skipCount(), 0);
+    // c and d ran: their outputs exist (the stop run above produced none).
+    const QString outDir = m_runDir->filePath(QStringLiteral("out"));
+    QVERIFY(QFileInfo::exists(outDir + QStringLiteral("/c_cont-run.pdf")));
+    QVERIFY(QFileInfo::exists(outDir + QStringLiteral("/d_cont-run.pdf")));
 }
 
 QTEST_MAIN(TestBatchPresetsP2)
