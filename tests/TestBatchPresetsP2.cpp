@@ -142,6 +142,12 @@ private slots:
     void stopAtFileTwoStopsAndReportsRemaining();
     void continueDefaultRunsAllFiles();
 
+    // ── U4: batch-scoped failure abort (keeps committed files) ────────────────
+    void batchAbortBeforeStartWhenOutputDirMissing();
+    void batchAbortBeforeStartTouchesNothing();
+    void batchScopedMidRunAbortsOrderedLaneAndDrainsRemainder();
+    void batchAbortUnattendedNotesHotFolderStaysArmed();
+
 private:
     std::unique_ptr<QTemporaryDir> m_storeDir;
     std::unique_ptr<QTemporaryDir> m_runDir;
@@ -1030,6 +1036,253 @@ void TestBatchPresetsP2::continueDefaultRunsAllFiles() {
     const QString outDir = m_runDir->filePath(QStringLiteral("out"));
     QVERIFY(QFileInfo::exists(outDir + QStringLiteral("/c_cont-run.pdf")));
     QVERIFY(QFileInfo::exists(outDir + QStringLiteral("/d_cont-run.pdf")));
+}
+
+// ── U4 pins ────────────────────────────────────────────────────────────────────
+
+// N3, staging class: the resolved output directory is ABSENT — the run aborts
+// BEFORE any worker starts (deterministic on BOTH lanes; this preset is
+// non-bates, i.e. the mapped lane), the cause is reported once, and every
+// runnable file is listed as not-run with the reason. Nothing is attempted,
+// nothing is faked.
+void TestBatchPresetsP2::batchAbortBeforeStartWhenOutputDirMissing() {
+    const QString fx = m_runDir->filePath(QStringLiteral("fixtures"));
+    QDir().mkpath(fx);
+    const QString f1 = createTextPdf(fx, QStringLiteral("a.pdf"), { QStringLiteral("alpha") });
+    const QString f2 = createTextPdf(fx, QStringLiteral("b.pdf"), { QStringLiteral("beta") });
+    QVERIFY(!f1.isEmpty() && !f2.isEmpty());
+
+    QVERIFY(writeStoreFile(m_storeDir->path(), QStringLiteral("probe-run"),
+                           QStringLiteral(
+        "{\n"
+        "    \"glyphpreset\": { \"schemaVersion\": 1, \"kind\": \"batch-preset\" },\n"
+        "    \"id\": \"probe-run\",\n"
+        "    \"name\": \"Probe Run\",\n"
+        "    \"created\": \"2026-09-24T00:00:00.000Z\",\n"
+        "    \"modified\": \"2026-09-24T00:00:00.000Z\",\n"
+        "    \"steps\": [ { \"op\": \"compress\", \"params\": { \"quality\": 60 } } ]\n"
+        "}\n").toUtf8()));
+
+    AppContext ctx = makeCtx();
+    BatchMode bm;
+    bm.setAppContext(&ctx);
+    bm.setOperationForTest(7);
+    bm.refreshPresetsForTest();
+    QVERIFY(bm.selectPresetForTest(QStringLiteral("probe-run")));
+    // The out dir is deliberately NEVER created (the precondition below pins it).
+    const QString outDir = m_runDir->filePath(QStringLiteral("out"));
+    presetOutEdit(bm)->setText(outDir);
+    bm.addFilesForTest({ f1, f2 });
+    QVERIFY2(!QFileInfo::exists(outDir), "precondition: the output dir must not exist");
+
+    runAndWait(bm);
+    // Nothing ran: no success, no failure — every runnable file is not-run.
+    QCOMPARE(bm.successCount(), 0);
+    QCOMPARE(bm.failCount(), 0);
+    QCOMPARE(bm.skipCount(), 2);
+    QCOMPARE(bm.remainingCount(), 0);
+
+    // Truthful per-file records: skipped with the before-start reason.
+    const auto results = bm.runResultsForTest();
+    QCOMPARE(results.size(), 2);
+    for (const auto& r : results) {
+        QVERIFY2(r.skipped, qPrintable(r.inputPath));
+        QVERIFY2(r.skipReason.contains(QStringLiteral("run aborted before start")),
+                 qPrintable(r.skipReason));
+    }
+
+    // The batch-scoped cause is reported ONCE (never per-file noise).
+    const QString log = bm.findChildren<QTextEdit*>().first()->toPlainText();
+    QVERIFY2(log.contains(QStringLiteral("Run aborted before start")),
+             qPrintable(log.left(1500)));
+    QCOMPARE(log.count(QStringLiteral("Run aborted before start")), 1);
+    // The skip entries reached the error log too (never a silent drop).
+    QCOMPARE(bm.errorLogCount(), 2);
+    // No output was produced and the missing dir was never conjured.
+    QVERIFY(!QFileInfo::exists(outDir));
+}
+
+// The before-start abort touches NOTHING: the out path is occupied by a
+// regular FILE (the "committed data" stand-in — also the not-a-directory
+// probe arm); after the abort it is byte-identical.
+void TestBatchPresetsP2::batchAbortBeforeStartTouchesNothing() {
+    const QString fx = m_runDir->filePath(QStringLiteral("fixtures"));
+    QDir().mkpath(fx);
+    const QString f1 = createTextPdf(fx, QStringLiteral("a.pdf"), { QStringLiteral("alpha") });
+    QVERIFY(!f1.isEmpty());
+
+    QVERIFY(writeStoreFile(m_storeDir->path(), QStringLiteral("probe-run"),
+                           QStringLiteral(
+        "{\n"
+        "    \"glyphpreset\": { \"schemaVersion\": 1, \"kind\": \"batch-preset\" },\n"
+        "    \"id\": \"probe-run\",\n"
+        "    \"name\": \"Probe Run\",\n"
+        "    \"created\": \"2026-09-24T00:00:00.000Z\",\n"
+        "    \"modified\": \"2026-09-24T00:00:00.000Z\",\n"
+        "    \"steps\": [ { \"op\": \"compress\", \"params\": { \"quality\": 60 } } ]\n"
+        "}\n").toUtf8()));
+
+    AppContext ctx = makeCtx();
+    BatchMode bm;
+    bm.setAppContext(&ctx);
+    bm.setOperationForTest(7);
+    bm.refreshPresetsForTest();
+    QVERIFY(bm.selectPresetForTest(QStringLiteral("probe-run")));
+    // A FILE sits at the configured out-dir path — the directory is not a
+    // directory (the unwritable/absent class, deterministically).
+    const QString outPath = m_runDir->filePath(QStringLiteral("out"));
+    const QByteArray committed = QByteArray("PRECIOUS COMMITTED DATA - not a real pdf");
+    {
+        QFile f(outPath);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(committed);
+    }
+    presetOutEdit(bm)->setText(outPath);
+    bm.addFilesForTest({ f1 });
+
+    runAndWait(bm);
+    QCOMPARE(bm.successCount(), 0);
+    QCOMPARE(bm.failCount(), 0);
+    QCOMPARE(bm.skipCount(), 1);
+
+    // The abort removed, replaced or wrote nothing: the file is identical
+    // and still a FILE (the run never conjured a directory over it).
+    QVERIFY(!QFileInfo(outPath).isDir());
+    QFile after(outPath);
+    QVERIFY(after.open(QIODevice::ReadOnly));
+    QCOMPARE(after.readAll(), committed);
+    // No outputs or probe residue at the run root (the fixture lives in
+    // fixtures/, so any *.pdf here would be run debris).
+    QCOMPARE(QDir(m_runDir->path())
+                 .entryList(QStringList() << QStringLiteral("*.pdf")
+                                          << QStringLiteral(".glyph-write-probe-*"),
+                            QDir::Files)
+                 .size(), 0);
+}
+
+// N3, mid-run class (ordered lane): a bates run loses its output directory
+// right before file 2's commit (the U2 race seam models the environment
+// strike). File 2's failure is classified batch-scoped (its destination
+// directory is gone — content-independent), the run aborts at that file
+// boundary, the remainder is drained as not-run with the cause, and the
+// already-committed file is NEVER rolled back or re-marked.
+void TestBatchPresetsP2::batchScopedMidRunAbortsOrderedLaneAndDrainsRemainder() {
+    const QString fx = m_runDir->filePath(QStringLiteral("fixtures"));
+    QDir().mkpath(fx);
+    const QString f1 = createTextPdf(fx, QStringLiteral("a.pdf"), { QStringLiteral("alpha") });
+    const QString f2 = createTextPdf(fx, QStringLiteral("b.pdf"), { QStringLiteral("beta") });
+    const QString f3 = createTextPdf(fx, QStringLiteral("c.pdf"), { QStringLiteral("gamma") });
+    QVERIFY(!f1.isEmpty() && !f2.isEmpty() && !f3.isEmpty());
+
+    QVERIFY(writeStoreFile(m_storeDir->path(), QStringLiteral("bates-run"),
+                           batesPresetJson(QStringLiteral("bates-run"),
+                                           QStringLiteral("{ \"digitCount\": 3 }"))));
+
+    AppContext ctx = makeCtx();
+    BatchMode bm;
+    bm.setAppContext(&ctx);
+    bm.setOperationForTest(7);
+    bm.refreshPresetsForTest();
+    QVERIFY(bm.selectPresetForTest(QStringLiteral("bates-run")));
+    QDir().mkpath(m_runDir->filePath(QStringLiteral("out")));
+    const QString outDir = m_runDir->filePath(QStringLiteral("out"));
+    presetOutEdit(bm)->setText(outDir);
+    bm.addFilesForTest({ f1, f2, f3 });
+
+    // The environment strike: the output directory vanishes right before
+    // file 2's commit (file 1 has already committed — the strike destroys
+    // its output, not the runner).
+    bm.setPresetRaceHookForTest([&outDir](const QString& dest) {
+        if (dest == outDir + QStringLiteral("/b_bates-run.pdf"))
+            QDir(outDir).removeRecursively();
+    });
+
+    runAndWait(bm);
+    // File 1 committed (as reported), file 2 failed, file 3 not-run.
+    QCOMPARE(bm.successCount(), 1);
+    QCOMPARE(bm.failCount(), 1);
+    QCOMPARE(bm.skipCount(), 1);
+    QCOMPARE(bm.remainingCount(), 0);
+    QCOMPARE(bm.successCount() + bm.failCount() + bm.skipCount() + bm.remainingCount(), 3);
+
+    const auto results = bm.runResultsForTest();
+    QCOMPARE(results.size(), 3);
+    // Committed work is never rolled back: file 1 stays a success with its
+    // recorded output path, even though the strike later destroyed the file.
+    QCOMPARE(results.at(0).success, true);
+    QCOMPARE(results.at(0).outputPath, outDir + QStringLiteral("/a_bates-run.pdf"));
+    // File 2: failed AND classified batch-scoped (no error-text matching —
+    // the classification is the new flag, fed by the directory-existence
+    // content-independence test).
+    QCOMPARE(results.at(1).success, false);
+    QVERIFY2(results.at(1).batchScoped, qPrintable(results.at(1).errorMessage));
+    QVERIFY(!results.at(1).errorMessage.isEmpty());
+    // File 3: not-run, with the abort reason naming the stopper file.
+    QVERIFY(results.at(2).skipped);
+    QVERIFY2(results.at(2).skipReason.contains(QStringLiteral("run aborted after b.pdf")),
+             qPrintable(results.at(2).skipReason));
+
+    // ONE batch-scoped cause line at completion (never per-file spam), and it
+    // names the file whose failure aborted the run.
+    const QString log = bm.findChildren<QTextEdit*>().first()->toPlainText();
+    QCOMPARE(log.count(QStringLiteral("Run aborted:")), 1);
+    QVERIFY2(log.contains(QStringLiteral("after b.pdf")), qPrintable(log.right(800)));
+
+    // The aborted run left no residue: the strike destroyed the dir and the
+    // runner did not silently re-create it or write outputs elsewhere.
+    QVERIFY(!QFileInfo::exists(outDir));
+    // File 2's failure + file 3's skip reached the error log (never silent).
+    QCOMPARE(bm.errorLogCount(), 2);
+}
+
+// The unattended (hot-folder) abort discloses that the watcher STAYS ARMED —
+// a before-start abort in the ingest auto-run must never look like the hot
+// folder stopped watching.
+void TestBatchPresetsP2::batchAbortUnattendedNotesHotFolderStaysArmed() {
+    QVERIFY(writeStoreFile(m_storeDir->path(), QStringLiteral("probe-run"),
+                           QStringLiteral(
+        "{\n"
+        "    \"glyphpreset\": { \"schemaVersion\": 1, \"kind\": \"batch-preset\" },\n"
+        "    \"id\": \"probe-run\",\n"
+        "    \"name\": \"Probe Run\",\n"
+        "    \"created\": \"2026-09-24T00:00:00.000Z\",\n"
+        "    \"modified\": \"2026-09-24T00:00:00.000Z\",\n"
+        "    \"steps\": [ { \"op\": \"compress\", \"params\": { \"quality\": 60 } } ]\n"
+        "}\n").toUtf8()));
+
+    AppContext ctx = makeCtx();
+    BatchMode bm;
+    bm.setAppContext(&ctx);
+    bm.setOperationForTest(7);
+    bm.refreshPresetsForTest();
+    QVERIFY(bm.selectPresetForTest(QStringLiteral("probe-run")));
+    // The out dir does not exist — the ingest auto-run will abort before start.
+    presetOutEdit(bm)->setText(m_runDir->filePath(QStringLiteral("out")));
+
+    const QString hotDir = m_runDir->filePath(QStringLiteral("hot"));
+    QDir().mkpath(hotDir);
+    bm.armHotFolderForTest(hotDir);
+    const QString dropped = createTextPdf(hotDir, QStringLiteral("dropped.pdf"),
+                                          { QStringLiteral("fresh drop") });
+    QVERIFY(!dropped.isEmpty());
+
+    bool finished = false;
+    QObject::connect(&bm, &BatchMode::batchFinished, &bm,
+                     [&finished] { finished = true; }, Qt::DirectConnection);
+    bm.runHotFolderIngestForTest();
+    int waited = 0;
+    while (!finished && waited < 60000) {
+        QTest::qWait(50);
+        waited += 50;
+    }
+    QVERIFY2(finished, "ingest auto-run did not reach batchFinished within 60 seconds");
+    QCOMPARE(bm.successCount(), 0);
+    QCOMPARE(bm.skipCount(), 1);
+
+    const QString log = bm.findChildren<QTextEdit*>().first()->toPlainText();
+    QVERIFY2(log.contains(QStringLiteral("Run aborted before start")), qPrintable(log.left(1500)));
+    QVERIFY2(log.contains(QStringLiteral("hot folder stays armed")),
+             qPrintable(log.right(1200)));
 }
 
 QTEST_MAIN(TestBatchPresetsP2)

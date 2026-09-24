@@ -58,6 +58,7 @@ using TargetFormat = IConversionEngine::TargetFormat;
 #include <QSettings>
 #include <QSet>
 #include <QStandardPaths>
+#include <QTemporaryFile> // R26-P2 U4: the staging probe's create+delete writability check
 #include <QTimer>
 #include <algorithm>
 #include <QUrl>
@@ -1301,11 +1302,45 @@ bool runPresetCheckStep(const QString& current, const BatchPresetStep& step,
     return true;
 }
 
+// ── R26-P2 U4 (plan §4.6): batch-scoped failure classification ────────────────
+// Detection rule of record: batch-scoped = the error class is independent of
+// file CONTENT (the same failure would hit any file). Continuing a batch-
+// scoped failure would multiply identical errors onto every remaining file
+// and bury the cause in per-file noise; N3 aborts the run at the current
+// file boundary instead, keeps everything already committed, and names the
+// cause once.
+
+// Staging probe — the "output directory unwritable/absent" class, detected
+// BEFORE any worker starts (deterministic on both lanes, which the mid-run
+// mapped pipeline cannot offer). Each distinct resolved output directory is
+// probed with a temp-file create+delete on the GUI thread (staging phase —
+// one tiny file per directory, auto-removed). Returns the abort cause, or
+// empty when every directory accepts output files.
+QString stagingProbeFailure(const QStringList& dirs) {
+    QStringList seen;
+    for (const QString& dir : dirs) {
+        if (dir.isEmpty() || seen.contains(dir))
+            continue;
+        seen << dir;
+        if (!QFileInfo(dir).isDir())
+            return BatchMode::tr("output directory is missing or not a directory: %1")
+                       .arg(QDir::toNativeSeparators(dir));
+        QTemporaryFile probe(dir + QStringLiteral("/.glyph-write-probe-XXXXXX"));
+        if (!probe.open())
+            return BatchMode::tr("output directory is not writable: %1 (%2)")
+                       .arg(QDir::toNativeSeparators(dir), probe.errorString());
+        probe.write("probe", 5);
+        probe.close();   // QTemporaryFile auto-removes on destruction
+    }
+    return {};
+}
+
 bool runPresetChain(const QString& inputPath, const QString& outputPath,
                     const BatchPreset& preset, QMutex* engineMutex,
                     PresetRunState* runState, QList<BatchStepResult>* stepRecords,
                     const std::function<void(const QString&)>& raceHook,
-                    QString* resolvedOutput, QString* techDetail) {
+                    QString* resolvedOutput, QString* techDetail,
+                    bool* batchScoped = nullptr) {
     // PDFium (QPdfDocument) is not thread-safe: the read-side probes of the
     // chain are serialized behind the SAME engine mutex the batch OCR path
     // uses for its PDFium probes (PoDoFo writer steps stay parallel).
@@ -1374,6 +1409,10 @@ bool runPresetChain(const QString& inputPath, const QString& outputPath,
             if (!SafeSave::makeUniqueCandidate(&candidate, &candidateErr)) {
                 *techDetail = candidateErr;
                 ok = false;
+                // U4: candidate creation is content-independent (every file
+                // shares the candidate store) — batch-scoped.
+                if (batchScoped)
+                    *batchScoped = true;
             }
             if (ok) {
                 intermediates.append(candidate);
@@ -1451,8 +1490,17 @@ bool runPresetChain(const QString& inputPath, const QString& outputPath,
         if (ok) {
             QString commitErr;
             ok = SafeSave::commitFileToDestination(current, dest, &commitErr);
-            if (!ok && techDetail->isEmpty())
-                *techDetail = commitErr;
+            if (!ok) {
+                if (techDetail->isEmpty())
+                    *techDetail = commitErr;
+                // U4: a commit whose DESTINATION DIRECTORY is gone is
+                // batch-scoped — every remaining file would fail identically.
+                // Classified by a directory-existence test, never by matching
+                // error text.
+                if (batchScoped
+                    && !QFileInfo(QFileInfo(dest).absolutePath()).isDir())
+                    *batchScoped = true;
+            }
         }
         if (ok && resolvedOutput)
             *resolvedOutput = dest;   // report the FINAL (possibly renamed) path
@@ -1542,6 +1590,11 @@ void BatchMode::onRunClicked() {
     // with onConflict "ask" degrades to "rename" — a modal overwrite prompt
     // from the watcher path would block the GUI on a dropped file (and W1-01
     // already forbids silent overwrite). The degrade is logged, never silent.
+    // R26-P2 U4: per-run reset BEFORE the staging below — the unattended flag
+    // is consumed HERE, and the abort cause is recorded during accounting and
+    // consumed at completion.
+    m_batchAbortCause.clear();
+    m_runWasUnattended = false;
     m_presetConflictOverride.clear();
     bool unattendedConflictDegraded = false;
     QString presetBlocker;
@@ -1554,6 +1607,9 @@ void BatchMode::onRunClicked() {
         }
         if (m_unattendedAutoRunPending) {
             m_unattendedAutoRunPending = false;
+            // U4: remembered for the run so a batch-scoped abort can disclose
+            // that the hot folder stays armed (the watcher keeps watching).
+            m_runWasUnattended = true;
             if (m_selectedPreset.onConflict == QLatin1String("ask")) {
                 m_presetConflictOverride = QLatin1String("rename");
                 unattendedConflictDegraded = true;
@@ -1726,6 +1782,9 @@ void BatchMode::onRunClicked() {
     // R26-P2 U2: per-file staged resolve failures carry their de-conflict
     // reason (rename exhaustion) so the worker can report it verbatim.
     QMap<QString, QString> capturedResolveErrors;
+    // R26-P2 U4 (plan §4.6): the staging probe's abort cause — empty when
+    // every resolved output directory accepts files.
+    QString capturedBatchAbortCause;
     if (opIdx == OpPresetPipeline) {
         for (const QString& f : capturedFiles) {
             QString resolveErr;
@@ -1734,6 +1793,13 @@ void BatchMode::onRunClicked() {
                 capturedResolveErrors.insert(f, resolveErr);
             capturedOutputs.insert(f, out);
         }
+        // U4: probe every distinct output directory NOW (GUI thread, staging
+        // phase) — the "output directory unwritable/absent" class is detected
+        // BEFORE the worker starts, deterministically on both lanes.
+        QStringList outDirs;
+        for (const QString& out : capturedOutputs.values())
+            outDirs << QFileInfo(out).absolutePath();
+        capturedBatchAbortCause = stagingProbeFailure(outDirs);
     }
     m_presetConflictOverride.clear();   // staging done — never leak the override
 
@@ -1837,9 +1903,14 @@ void BatchMode::onRunClicked() {
                 ok = false;
             } else {
                 QString resolvedOut = result.outputPath;
+                // U4: the chain classifies batch-scoped failure causes (the
+                // content-independence rule of record) onto the result.
+                bool fileBatchScoped = false;
                 ok = runPresetChain(inputPath, result.outputPath, capturedPreset,
                                     engineMutexPtr, runState, &result.steps,
-                                    raceHook, &resolvedOut, &techDetail);
+                                    raceHook, &resolvedOut, &techDetail,
+                                    &fileBatchScoped);
+                result.batchScoped = fileBatchScoped;
                 if (ok)
                     result.outputPath = resolvedOut;   // report the final (renamed) path
             }
@@ -2240,6 +2311,42 @@ void BatchMode::onRunClicked() {
         return;
     }
 
+    // R26-P2 U4 (plan §4.6, N3): a batch-scoped cause detected at STAGING
+    // aborts the run BEFORE any worker starts — deterministic on both lanes.
+    // Every runnable file is reported as not-run with the cause (the U08 skip
+    // bucket, mirrored here because no worker/future exists yet); nothing was
+    // attempted, nothing is rolled back, nothing silent.
+    if (opIdx == OpPresetPipeline && !capturedBatchAbortCause.isEmpty()) {
+        appendLog(tr("Run aborted before start: %1").arg(capturedBatchAbortCause),
+                  "#c8442b");
+        if (m_runWasUnattended)
+            appendLog(tr("The hot folder stays armed — after the output directory "
+                         "is fixed, new drops will run again."), "#c8a000");
+        for (const QString& f : runnableFiles) {
+            BatchFileResult r;
+            r.inputPath = f;
+            r.skipped = true;
+            r.skipReason = tr("run aborted before start: %1").arg(capturedBatchAbortCause);
+            ++m_skipCount;
+            m_lastRunResults.append(r);
+            appendLog(QStringLiteral("  \xE2\x8F\xAD %1 \xe2\x80\x94 skipped: %2")
+                          .arg(QFileInfo(f).fileName(), r.skipReason), "#7a9c6f");
+            ErrorInfo info = ErrorInfo::error(
+                tr("Skipped: %1").arg(QFileInfo(f).fileName()),
+                r.skipReason, ErrorInfo::Skip);
+            info.sourceFile = f;
+            m_errorLog.append(std::move(info));
+        }
+        m_overallProgress->setValue(100);
+        m_fileProgress->setValue(100);
+        m_runBtn->setEnabled(true);
+        m_cancelBtn->setEnabled(false);
+        m_etaLabel->clear();
+        showSummary();
+        emit batchFinished();
+        return;
+    }
+
     // §9.12 P1: Merge — N inputs → 1 combined output. The append loop runs on
     // the QtConcurrent thread pool behind the SAME m_watcher the per-file ops
     // use: per-input BatchFileResults flow through resultReadyAt (shared
@@ -2323,15 +2430,26 @@ void BatchMode::startPresetOrderedWorker(
             // bucket): never success, never silently dropped. Cancellation
             // stays honored during the not-run drain — a cancelled run's
             // unreported remainder follows the U08 cancel semantics.
-            if (stopOnFileFailure && !result.success && !result.skipped) {
+            // R26-P2 U4 (plan §4.6, N3): a BATCH-SCOPED failure aborts the
+            // run at this file boundary REGARDLESS of onFileFailure — the
+            // error class is independent of file content, so continuing would
+            // only multiply it. Files already committed stay committed (no
+            // rollback pass exists); the remainder drains as not-run with the
+            // abort cause, and the completion handler reports the cause once.
+            const bool batchAbort =
+                !result.success && !result.skipped && result.batchScoped;
+            if (batchAbort || (stopOnFileFailure && !result.success && !result.skipped)) {
                 const QString stopper = QFileInfo(result.inputPath).fileName();
                 for (int j = i + 1; j < files.size(); ++j) {
                     if (promise.isCanceled()) return;
                     BatchFileResult notRun;
                     notRun.inputPath = files.at(j);
                     notRun.skipped = true;
-                    notRun.skipReason = BatchMode::tr(
-                        "run stopped by onFileFailure=stop after %1").arg(stopper);
+                    notRun.skipReason = batchAbort
+                        ? BatchMode::tr("run aborted after %1: %2")
+                              .arg(stopper, result.errorMessage)
+                        : BatchMode::tr("run stopped by onFileFailure=stop after %1")
+                              .arg(stopper);
                     promise.addResult(notRun);
                     promise.setProgressValue(j + 1);
                 }
@@ -2513,6 +2631,14 @@ void BatchMode::accountResultAt(int idx) {
             ErrorInfo::Skip);
         err.sourceFile = res.inputPath;
         m_errorLog.append(std::move(err));
+        // R26-P2 U4 (plan §4.6): the FIRST batch-scoped failure's cause is the
+        // run's abort cause — reported once at completion. Both lanes feed
+        // this (the mapped lane reports the flag; only the ordered lane also
+        // drains the remainder as not-run — a recorded residual).
+        if (res.batchScoped && m_batchAbortCause.isEmpty())
+            m_batchAbortCause = tr("after %1: %2")
+                                    .arg(QFileInfo(res.inputPath).fileName(),
+                                         res.errorMessage);
     }
 
     // Overall progress
@@ -2570,6 +2696,16 @@ void BatchMode::onBatchFinished() {
     for (int i = 0; i < reported; ++i) {
         if (!m_accountedIndices.contains(i))
             accountResultAt(i);
+    }
+    // R26-P2 U4 (plan §4.6, N3): ONE batch-scoped cause line at completion —
+    // the run-level reason the remainder is not-run, never per-file noise.
+    // Files committed before the abort stay committed (no rollback pass
+    // exists); the unattended surface adds the watcher-stays-armed note.
+    if (!m_batchAbortCause.isEmpty()) {
+        appendLog(tr("Run aborted: %1").arg(m_batchAbortCause), "#c8442b");
+        if (m_runWasUnattended)
+            appendLog(tr("The hot folder stays armed — after the output directory "
+                         "is fixed, new drops will run again."), "#c8a000");
     }
     m_overallProgress->setValue(100);
     m_fileProgress->setValue(100);
