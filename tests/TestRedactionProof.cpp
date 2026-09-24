@@ -259,6 +259,60 @@ bool attachFileWithPayload(PoDoFo::PdfMemDocument& doc,
 // Tamper helpers — each produces a NEW file, leaving the committed output
 // untouched (tests compare verdicts across untampered and tampered copies).
 
+// PGR-23: a single-page PDF whose text line is carried by a Flate-compressed
+// content stream (PoDoFo's default save compresses plain streams). A secret
+// inside this file is invisible to any literal byte scan of the payload —
+// exactly the nested-container shape the review pins.
+QString makeNestedPdf(const QString& path, const char* line1, const char* line2 = nullptr)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        auto& font = doc.GetFonts().GetStandard14Font(
+            PoDoFo::PdfStandard14FontType::Helvetica);
+        auto& page = doc.GetPages().CreatePage(
+            PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+        PoDoFo::PdfPainter painter;
+        painter.SetCanvas(page);
+        painter.TextState.SetFont(font, 12.0);
+        (painter.DrawText)(line1, 100.0, 700.0);
+        if (line2)
+            (painter.DrawText)(line2, 100.0, 650.0);
+        painter.FinishDrawing();
+        doc.Save(path.toUtf8().constData());
+        return path;
+    } catch (const std::exception& e) {
+        qWarning() << "makeNestedPdf failed:" << e.what();
+        return QString();
+    }
+}
+
+// Source document (same text layout as makeSourcePdf) carrying an embedded
+// file whose payload is `payload` — the surface the sweep must see into.
+QString makeAttachedSourcePdf(const QString& path, const char* attachName,
+                              const QByteArray& payload)
+{
+    try {
+        PoDoFo::PdfMemDocument doc;
+        auto& font = doc.GetFonts().GetStandard14Font(
+            PoDoFo::PdfStandard14FontType::Helvetica);
+        auto& page1 = doc.GetPages().CreatePage(
+            PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+        PoDoFo::PdfPainter painter;
+        painter.SetCanvas(page1);
+        painter.TextState.SetFont(font, 12.0);
+        (painter.DrawText)("TopSecretAlpha bare secrets", 100.0, 700.0);
+        (painter.DrawText)("KeepThisVisible public info", 100.0, 650.0);
+        painter.FinishDrawing();
+        if (!attachFileWithPayload(doc, attachName, payload))
+            return QString();
+        doc.Save(path.toUtf8().constData());
+        return path;
+    } catch (const std::exception& e) {
+        qWarning() << "makeAttachedSourcePdf failed:" << e.what();
+        return QString();
+    }
+}
+
 bool tamperInfoTitle(const QString& inPath, const QString& outPath, const QString& title)
 {
     try {
@@ -1017,6 +1071,142 @@ private slots:
                                 .arg(joinedProofFailures(r))));
     }
 
+    void proofFailsOnNestedFlatePdfAttachmentSurvivor()
+    {
+        // PGR-23: the attachment is itself a PDF whose content stream is
+        // Flate-compressed (PoDoFo's default save). One decode layer plus a
+        // literal scan of the payload cannot see the secret; only parsing the
+        // attached PDF and sweeping its decoded streams can. Before the
+        // recursion this attachment certified Clean — the false PASS this
+        // pin exists to kill.
+        const QString nested = makeNestedPdf(m_tmpDir.filePath("nested_secret.pdf"),
+                                             "TopSecretAlpha bare secrets",
+                                             "KeepThisVisible public info");
+        QVERIFY(!nested.isEmpty());
+        const QString src = makeAttachedSourcePdf(
+            m_tmpDir.filePath("nested_attach_src.pdf"),
+            "nested.pdf", fileBytes(nested));
+        QVERIFY(!src.isEmpty());
+
+        const QString dest = m_tmpDir.filePath("nested_attach_redacted.pdf");
+        QMap<int, QList<QRectF>> rects;
+        rects[0].append(secretMark());
+        RedactRequest req;
+        req.sourcePath = src;
+        req.destinationPath = dest;
+        req.redactionsByPage = rects;
+        req.produceProof = true;
+        RedactOperation op(req);
+        const RedactResult r = runOp(&op);
+        QCOMPARE(r.outcome, RedactOutcome::Completed);
+        QVERIFY(r.proofRan);
+        QVERIFY2(!r.proofPassed,
+                 "a survivor inside a nested Flate PDF attachment must FAIL the proof");
+        const QString failures = joinedProofFailures(r);
+        QVERIFY2(failures.contains(QStringLiteral("embedded-files")),
+                 qPrintable(QStringLiteral("failure must name the embedded-file surface: %1")
+                                .arg(failures)));
+        QVERIFY2(failures.contains(QStringLiteral("nested.pdf")),
+                 qPrintable(QStringLiteral("failure must name the attachment: %1")
+                                .arg(failures)));
+    }
+
+    void proofFailsOnCompressedArchiveAttachment()
+    {
+        // PGR-23, the honest-failure half: a ZIP/OOXML/archive attachment is a
+        // compressed container the sweep cannot decode. It must be reported
+        // Unswept — never Clean. The filler deliberately contains no survivor
+        // encoding, so a literal scan alone would (wrongly) certify it Clean.
+        QByteArray zipish("PK\x03\x04");
+        for (int i = 0; i < 128; ++i)
+            zipish.append(char((i * 37 + 11) & 0xFF));
+        const QString src = makeAttachedSourcePdf(
+            m_tmpDir.filePath("zip_attach_src.pdf"), "bundle.zip", zipish);
+        QVERIFY(!src.isEmpty());
+
+        const QString dest = m_tmpDir.filePath("zip_attach_redacted.pdf");
+        QMap<int, QList<QRectF>> rects;
+        rects[0].append(secretMark());
+        RedactRequest req;
+        req.sourcePath = src;
+        req.destinationPath = dest;
+        req.redactionsByPage = rects;
+        req.produceProof = true;
+        RedactOperation op(req);
+        const RedactResult r = runOp(&op);
+        QCOMPARE(r.outcome, RedactOutcome::Completed);
+        QVERIFY(r.proofRan);
+        QVERIFY2(!r.proofPassed,
+                 "an archive attachment the sweep cannot decode must FAIL the proof (Unswept)");
+        const QString failures = joinedProofFailures(r);
+        QVERIFY2(failures.contains(QStringLiteral("UNSWEPT [embedded-files]")),
+                 qPrintable(QStringLiteral("failure must be an Unswept embedded-file problem: %1")
+                                .arg(failures)));
+        QVERIFY2(failures.contains(QStringLiteral("bundle.zip")),
+                 qPrintable(QStringLiteral("failure must name the archive attachment: %1")
+                                .arg(failures)));
+    }
+
+    void proofFailsOnUnparseablePdfAttachment()
+    {
+        // PGR-23: a payload that claims to be a PDF but cannot be parsed
+        // (encrypted, corrupt) is dark to the sweep — Unswept, never Clean.
+        const QByteArray broken("%PDF-1.7\n\x01\x02broken-not-a-parseable-pdf");
+        const QString src = makeAttachedSourcePdf(
+            m_tmpDir.filePath("broken_attach_src.pdf"), "broken.pdf", broken);
+        QVERIFY(!src.isEmpty());
+
+        const QString dest = m_tmpDir.filePath("broken_attach_redacted.pdf");
+        QMap<int, QList<QRectF>> rects;
+        rects[0].append(secretMark());
+        RedactRequest req;
+        req.sourcePath = src;
+        req.destinationPath = dest;
+        req.redactionsByPage = rects;
+        req.produceProof = true;
+        RedactOperation op(req);
+        const RedactResult r = runOp(&op);
+        QCOMPARE(r.outcome, RedactOutcome::Completed);
+        QVERIFY(r.proofRan);
+        QVERIFY2(!r.proofPassed,
+                 "a PDF attachment that cannot be parsed must FAIL the proof (Unswept)");
+        QVERIFY2(joinedProofFailures(r).contains(QStringLiteral("UNSWEPT [embedded-files]")),
+                 qPrintable(QStringLiteral("failure must be an Unswept embedded-file problem: %1")
+                                .arg(joinedProofFailures(r))));
+    }
+
+    void proofPassesWithCleanNestedPdfAttachment()
+    {
+        // PGR-23 control: a clean nested PDF attachment is swept (parsed,
+        // streams decoded, its own objects searched), finds nothing, and the
+        // proof still PASSES — recursion must widen detection, not turn every
+        // attachment into an honest failure.
+        const QString nested = makeNestedPdf(m_tmpDir.filePath("nested_clean.pdf"),
+                                             "KeepThisVisible public info",
+                                             "NothingSensitiveHere either");
+        QVERIFY(!nested.isEmpty());
+        const QString src = makeAttachedSourcePdf(
+            m_tmpDir.filePath("nested_clean_src.pdf"),
+            "clean.pdf", fileBytes(nested));
+        QVERIFY(!src.isEmpty());
+
+        const QString dest = m_tmpDir.filePath("nested_clean_redacted.pdf");
+        QMap<int, QList<QRectF>> rects;
+        rects[0].append(secretMark());
+        RedactRequest req;
+        req.sourcePath = src;
+        req.destinationPath = dest;
+        req.redactionsByPage = rects;
+        req.produceProof = true;
+        RedactOperation op(req);
+        const RedactResult r = runOp(&op);
+        QCOMPARE(r.outcome, RedactOutcome::Completed);
+        QVERIFY(r.proofRan);
+        QVERIFY2(r.proofPassed,
+                 qPrintable(QStringLiteral("a clean nested PDF attachment must keep the proof "
+                                          "green: %1").arg(joinedProofFailures(r))));
+    }
+
     void proofFailsOnIncrementalUpdateRemnant()
     {
         const QString src = makeSourcePdf(m_tmpDir.filePath("rev_src.pdf"));
@@ -1297,6 +1487,7 @@ private slots:
         QVERIFY(failDetail.contains(QStringLiteral("SURVIVOR [raw-bytes] X — y")));
     }
 
+
 private:
     QTemporaryDir m_tmpDir;
 
@@ -1341,6 +1532,7 @@ private:
         req.redactionsByPage = rects;
         return verify(req);
     }
+
 };
 
 #include "TestRedactionProof.moc"

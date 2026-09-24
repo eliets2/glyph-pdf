@@ -85,7 +85,10 @@ enum class Surface {
     ExtractedText,      // PDFium decode-level extraction over every page
     InfoDictionary,     // document info (title/author/subject/keywords/...)
     XmpMetadata,        // catalog /Metadata XMP stream
-    EmbeddedFiles,      // embedded file payloads (decoded)
+    EmbeddedFiles,      // embedded file payloads (decoded; PDF payloads are
+                        // swept recursively — strings, decoded streams, text
+                        // extraction, their own attachments; archives and
+                        // unparseable PDFs report Unswept, PGR-23)
     RevisionStructure   // single-revision check (incremental-update remnants)
 };
 QString surfaceName(Surface surface);
