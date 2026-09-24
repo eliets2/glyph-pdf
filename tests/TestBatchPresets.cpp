@@ -405,9 +405,22 @@ void TestBatchPresets::negativeValidationMatrix() {
 
     // Not-implemented-but-schema-legal values are refused with an explicit
     // build-capability diagnostic - never silently reinterpreted.
+    // R26-P2: onConflict "rename" is now IMPLEMENTED (P2 plan §4.3) - it
+    // loads and validates, and an unknown conflict value is still refused
+    // (fail-closed did not loosen).
+    {
+        BatchPreset renamed;
+        QString okErr;
+        QVERIFY2(BatchPresetCodec::parse(
+            doc(QStringLiteral("[ { \"op\": \"compress\", \"params\": {} } ], "
+                               "\"output\": { \"onConflict\": \"rename\" }")).toUtf8(),
+            &renamed, &okErr),
+            qPrintable(QStringLiteral("rename conflict policy refused: %1").arg(okErr)));
+        QCOMPARE(renamed.onConflict, QStringLiteral("rename"));
+    }
     mustRefuse(doc(QStringLiteral("[ { \"op\": \"compress\", \"params\": {} } ], "
-                                   "\"output\": { \"onConflict\": \"rename\" }")),
-               QStringLiteral("output.onConflict"), "onConflict rename refusal");
+                                   "\"output\": { \"onConflict\": \"overwriteee\" }")),
+               QStringLiteral("output.onConflict"), "unknown onConflict value");
     mustRefuse(doc(QStringLiteral("[ { \"op\": \"compress\", \"params\": {} } ], "
                                    "\"onFileFailure\": \"stop\"")),
                QStringLiteral("onFileFailure"), "onFileFailure stop refusal");

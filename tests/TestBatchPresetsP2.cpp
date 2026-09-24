@@ -128,6 +128,15 @@ private slots:
     void batesLaneCancelAtBoundaryIsTruthful();
     void batesLaneDisclosesOrderedRun();
 
+    // ── U2: onConflict "rename" + unattended ingest degrade ──────────────────
+    void renamePolicySchemaAndRoundTrip();
+    void renameConflictCreatesStem2KeepsOriginal();
+    void renameSkipsOccupiedChainToFirstFree();
+    void renameRaceBetweenStagingAndCommitRetries();
+    void renameBoundedExhaustionFailsHonestly();
+    void renameCandidatesStayContained();
+    void hotFolderAutoRunDegradesAskToRename();
+
 private:
     std::unique_ptr<QTemporaryDir> m_storeDir;
     std::unique_ptr<QTemporaryDir> m_runDir;
@@ -466,6 +475,383 @@ void TestBatchPresetsP2::batesLaneDisclosesOrderedRun() {
     QVERIFY2(log.contains(QStringLiteral("in order")),
              qPrintable(QStringLiteral("ordered-lane disclosure missing from log: %1")
                             .arg(log.left(600))));
+}
+
+// ── U2 pins ────────────────────────────────────────────────────────────────────
+
+// The last v1 conflict enum value joins the implemented set: it parses,
+// round-trips, and an UNKNOWN value is still refused (fail-closed intact).
+void TestBatchPresetsP2::renamePolicySchemaAndRoundTrip() {
+    BatchPreset p;
+    QString err;
+
+    const QByteArray json = QStringLiteral(
+        "{\n"
+        "    \"glyphpreset\": { \"schemaVersion\": 1, \"kind\": \"batch-preset\" },\n"
+        "    \"id\": \"renamer\",\n"
+        "    \"name\": \"Renamer\",\n"
+        "    \"created\": \"2026-09-23T00:00:00.000Z\",\n"
+        "    \"modified\": \"2026-09-23T00:00:00.000Z\",\n"
+        "    \"steps\": [ { \"op\": \"compress\", \"params\": {} } ],\n"
+        "    \"output\": { \"onConflict\": \"rename\" }\n"
+        "}\n").toUtf8();
+    QVERIFY2(BatchPresetCodec::parse(json, &p, &err),
+             qPrintable(QStringLiteral("rename policy refused: %1").arg(err)));
+    QCOMPARE(p.onConflict, QStringLiteral("rename"));
+
+    // Round-trip keeps the policy (serialize emits the non-default value).
+    const QByteArray once = BatchPresetCodec::serialize(p);
+    BatchPreset p2;
+    QVERIFY2(BatchPresetCodec::parse(once, &p2, &err), qPrintable(err));
+    QCOMPARE(p2.onConflict, QStringLiteral("rename"));
+
+    // Unknown value — the v1 vocabulary, named verbatim in the diagnostic.
+    err.clear();
+    QVERIFY(!BatchPresetCodec::parse(
+        QByteArray(once).replace("\"rename\"", "\"clobber\""), &p, &err));
+    QVERIFY2(err.contains(QStringLiteral("ask, overwrite, rename")), qPrintable(err));
+
+    // The pure naming rule: stem-2.pdf, stem-3.pdf …; an already-renamed
+    // name continues the chain; malformed inputs give an empty result.
+    QCOMPARE(BatchPresetSchema::renameCandidate(QStringLiteral("report.pdf"), 2),
+             QStringLiteral("report-2.pdf"));
+    QCOMPARE(BatchPresetSchema::renameCandidate(QStringLiteral("report-2.pdf"), 3),
+             QStringLiteral("report-3.pdf"));
+    QVERIFY(BatchPresetSchema::renameCandidate(QStringLiteral("report.pdf"), 1).isEmpty());
+    QVERIFY(BatchPresetSchema::renameCandidate(QStringLiteral("report.txt"), 2).isEmpty());
+    QVERIFY(BatchPresetSchema::renameCandidate(QStringLiteral(".pdf"), 2).isEmpty());
+}
+
+// Pre-existing output + rename policy → stem-2 is created, the original is
+// byte-identical, and the result REPORTS the renamed path.
+void TestBatchPresetsP2::renameConflictCreatesStem2KeepsOriginal() {
+    const QString fx = m_runDir->filePath(QStringLiteral("fixtures"));
+    QDir().mkpath(fx);
+    const QString f1 = createTextPdf(fx, QStringLiteral("doc.pdf"), { QStringLiteral("alpha") });
+    QVERIFY(!f1.isEmpty());
+
+    QVERIFY(writeStoreFile(m_storeDir->path(), QStringLiteral("renamer"),
+                           QStringLiteral(
+        "{\n"
+        "    \"glyphpreset\": { \"schemaVersion\": 1, \"kind\": \"batch-preset\" },\n"
+        "    \"id\": \"renamer\",\n"
+        "    \"name\": \"Renamer\",\n"
+        "    \"created\": \"2026-09-23T00:00:00.000Z\",\n"
+        "    \"modified\": \"2026-09-23T00:00:00.000Z\",\n"
+        "    \"steps\": [ { \"op\": \"compress\", \"params\": { \"quality\": 60 } } ],\n"
+        "    \"output\": { \"onConflict\": \"rename\" }\n"
+        "}\n").toUtf8()));
+
+    QDir().mkpath(m_runDir->filePath(QStringLiteral("out")));
+    const QString outDir = m_runDir->filePath(QStringLiteral("out"));
+    // The FIRST-choice output already exists, with content that must survive.
+    const QString existing = outDir + QStringLiteral("/doc_renamer.pdf");
+    const QByteArray original = QByteArray("PRECIOUS EXISTING OUTPUT - not a real pdf");
+    {
+        QFile f(existing);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(original);
+    }
+
+    AppContext ctx = makeCtx();
+    BatchMode bm;
+    bm.setAppContext(&ctx);
+    bm.setOperationForTest(7);
+    bm.refreshPresetsForTest();
+    QVERIFY(bm.selectPresetForTest(QStringLiteral("renamer")));
+    presetOutEdit(bm)->setText(outDir);
+    bm.addFilesForTest({ f1 });
+
+    runAndWait(bm);
+    QCOMPARE(bm.successCount(), 1);
+    // The renamed output exists; the original is byte-identical.
+    QVERIFY(QFileInfo::exists(outDir + QStringLiteral("/doc_renamer-2.pdf")));
+    QFile originalAfter(existing);
+    QVERIFY(originalAfter.open(QIODevice::ReadOnly));
+    QCOMPARE(originalAfter.readAll(), original);
+    // The result reports the FINAL (renamed) path.
+    const auto results = bm.runResultsForTest();
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().outputPath,
+             outDir + QStringLiteral("/doc_renamer-2.pdf"));
+    // Exactly two pdfs in the out dir (the original + the renamed output).
+    QCOMPARE(QDir(outDir).entryList(QStringList() << QStringLiteral("*.pdf"),
+                                    QDir::Files).size(), 2);
+}
+
+// An occupied stem-2 advances to the first free name.
+void TestBatchPresetsP2::renameSkipsOccupiedChainToFirstFree() {
+    const QString fx = m_runDir->filePath(QStringLiteral("fixtures"));
+    QDir().mkpath(fx);
+    const QString f1 = createTextPdf(fx, QStringLiteral("doc.pdf"), { QStringLiteral("alpha") });
+    QVERIFY(!f1.isEmpty());
+
+    QVERIFY(writeStoreFile(m_storeDir->path(), QStringLiteral("renamer"),
+                           QStringLiteral(
+        "{\n"
+        "    \"glyphpreset\": { \"schemaVersion\": 1, \"kind\": \"batch-preset\" },\n"
+        "    \"id\": \"renamer\",\n"
+        "    \"name\": \"Renamer\",\n"
+        "    \"created\": \"2026-09-23T00:00:00.000Z\",\n"
+        "    \"modified\": \"2026-09-23T00:00:00.000Z\",\n"
+        "    \"steps\": [ { \"op\": \"compress\", \"params\": { \"quality\": 60 } } ],\n"
+        "    \"output\": { \"onConflict\": \"rename\" }\n"
+        "}\n").toUtf8()));
+
+    QDir().mkpath(m_runDir->filePath(QStringLiteral("out")));
+    const QString outDir = m_runDir->filePath(QStringLiteral("out"));
+    for (const QString& n : { QStringLiteral("/doc_renamer.pdf"),
+                              QStringLiteral("/doc_renamer-2.pdf") }) {
+        QFile f(outDir + n);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("occupied");
+    }
+
+    AppContext ctx = makeCtx();
+    BatchMode bm;
+    bm.setAppContext(&ctx);
+    bm.setOperationForTest(7);
+    bm.refreshPresetsForTest();
+    QVERIFY(bm.selectPresetForTest(QStringLiteral("renamer")));
+    presetOutEdit(bm)->setText(outDir);
+    bm.addFilesForTest({ f1 });
+
+    runAndWait(bm);
+    QCOMPARE(bm.successCount(), 1);
+    QVERIFY(QFileInfo::exists(outDir + QStringLiteral("/doc_renamer-3.pdf")));
+    QCOMPARE(bm.runResultsForTest().first().outputPath,
+             outDir + QStringLiteral("/doc_renamer-3.pdf"));
+    // The two occupied files keep their placeholder content (never touched).
+    QFile a(outDir + QStringLiteral("/doc_renamer.pdf"));
+    QVERIFY(a.open(QIODevice::ReadOnly));
+    QCOMPARE(a.readAll(), QByteArray("occupied"));
+}
+
+// The pre-check/commit race: a file appears at the pinned path between the
+// staging resolution and the commit — the commit re-checks, retries the
+// rename chain (bounded), and reports the FINAL name.
+void TestBatchPresetsP2::renameRaceBetweenStagingAndCommitRetries() {
+    const QString fx = m_runDir->filePath(QStringLiteral("fixtures"));
+    QDir().mkpath(fx);
+    const QString f1 = createTextPdf(fx, QStringLiteral("doc.pdf"), { QStringLiteral("alpha") });
+    QVERIFY(!f1.isEmpty());
+
+    QVERIFY(writeStoreFile(m_storeDir->path(), QStringLiteral("renamer"),
+                           QStringLiteral(
+        "{\n"
+        "    \"glyphpreset\": { \"schemaVersion\": 1, \"kind\": \"batch-preset\" },\n"
+        "    \"id\": \"renamer\",\n"
+        "    \"name\": \"Renamer\",\n"
+        "    \"created\": \"2026-09-23T00:00:00.000Z\",\n"
+        "    \"modified\": \"2026-09-23T00:00:00.000Z\",\n"
+        "    \"steps\": [ { \"op\": \"compress\", \"params\": { \"quality\": 60 } } ],\n"
+        "    \"output\": { \"onConflict\": \"rename\" }\n"
+        "}\n").toUtf8()));
+
+    QDir().mkpath(m_runDir->filePath(QStringLiteral("out")));
+    const QString outDir = m_runDir->filePath(QStringLiteral("out"));
+
+    AppContext ctx = makeCtx();
+    BatchMode bm;
+    bm.setAppContext(&ctx);
+    bm.setOperationForTest(7);
+    bm.refreshPresetsForTest();
+    QVERIFY(bm.selectPresetForTest(QStringLiteral("renamer")));
+    presetOutEdit(bm)->setText(outDir);
+    bm.addFilesForTest({ f1 });
+
+    // The race: at commit time the pinned destination is BUSY — occupied by
+    // another writer between staging and commit (deterministic seam).
+    bm.setPresetRaceHookForTest([&outDir](const QString& dest) {
+        if (dest == outDir + QStringLiteral("/doc_renamer.pdf")) {
+            QFile f(outDir + QStringLiteral("/doc_renamer.pdf"));
+            if (f.open(QIODevice::WriteOnly))
+                f.write("RIVAL WRITER");
+        }
+    });
+
+    runAndWait(bm);
+    QCOMPARE(bm.successCount(), 1);
+    // The commit retried to stem-2 and reported it; the rival bytes stand.
+    QCOMPARE(bm.runResultsForTest().first().outputPath,
+             outDir + QStringLiteral("/doc_renamer-2.pdf"));
+    QFile rival(outDir + QStringLiteral("/doc_renamer.pdf"));
+    QVERIFY(rival.open(QIODevice::ReadOnly));
+    QCOMPARE(rival.readAll(), QByteArray("RIVAL WRITER"));
+    QVERIFY(QFileInfo::exists(outDir + QStringLiteral("/doc_renamer-2.pdf")));
+}
+
+// Exhaustion of the bounded rename chain is an honest file-scoped failure —
+// no candidate is overwritten, nothing is silent.
+void TestBatchPresetsP2::renameBoundedExhaustionFailsHonestly() {
+    const QString fx = m_runDir->filePath(QStringLiteral("fixtures"));
+    QDir().mkpath(fx);
+    const QString f1 = createTextPdf(fx, QStringLiteral("doc.pdf"), { QStringLiteral("alpha") });
+    QVERIFY(!f1.isEmpty());
+
+    QVERIFY(writeStoreFile(m_storeDir->path(), QStringLiteral("renamer"),
+                           QStringLiteral(
+        "{\n"
+        "    \"glyphpreset\": { \"schemaVersion\": 1, \"kind\": \"batch-preset\" },\n"
+        "    \"id\": \"renamer\",\n"
+        "    \"name\": \"Renamer\",\n"
+        "    \"created\": \"2026-09-23T00:00:00.000Z\",\n"
+        "    \"modified\": \"2026-09-23T00:00:00.000Z\",\n"
+        "    \"steps\": [ { \"op\": \"compress\", \"params\": { \"quality\": 60 } } ],\n"
+        "    \"output\": { \"onConflict\": \"rename\" }\n"
+        "}\n").toUtf8()));
+
+    QDir().mkpath(m_runDir->filePath(QStringLiteral("out")));
+    const QString outDir = m_runDir->filePath(QStringLiteral("out"));
+    // Occupy the whole chain: the pinned name + every candidate stem-2…999.
+    const auto occupied = QDir(outDir).entryInfoList(QStringList() << QStringLiteral("*"),
+                                                     QDir::Files);
+    for (const QFileInfo& fi : occupied)
+        QFile::remove(fi.absoluteFilePath());
+    {
+        QFile f(outDir + QStringLiteral("/doc_renamer.pdf"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("occupied");
+    }
+    for (int i = 2; i <= 999; ++i) {
+        QFile f(outDir + QStringLiteral("/doc_renamer-%1.pdf").arg(i));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("occupied");
+    }
+
+    AppContext ctx = makeCtx();
+    BatchMode bm;
+    bm.setAppContext(&ctx);
+    bm.setOperationForTest(7);
+    bm.refreshPresetsForTest();
+    QVERIFY(bm.selectPresetForTest(QStringLiteral("renamer")));
+    presetOutEdit(bm)->setText(outDir);
+    bm.addFilesForTest({ f1 });
+
+    runAndWait(bm);
+    QCOMPARE(bm.successCount(), 0);
+    QCOMPARE(bm.failCount(), 1);
+    // The failure names the exhaustion — never a silent overwrite of any of
+    // the 999 occupied files (spot-check the boundaries).
+    QCOMPARE(bm.errorLogCount(), 1);
+    QVERIFY2(bm.errorDetailForTest(0).contains(QStringLiteral("999")),
+             qPrintable(bm.errorDetailForTest(0)));
+    QFile first(outDir + QStringLiteral("/doc_renamer.pdf"));
+    QVERIFY(first.open(QIODevice::ReadOnly));
+    QCOMPARE(first.readAll(), QByteArray("occupied"));
+    QFile last(outDir + QStringLiteral("/doc_renamer-999.pdf"));
+    QVERIFY(last.open(QIODevice::ReadOnly));
+    QCOMPARE(last.readAll(), QByteArray("occupied"));
+}
+
+// Adversary pin: the rename chain cannot escape the W1-01 containment — a
+// hostile naming template is refused BEFORE rename is ever consulted, and
+// every rename candidate re-checks through resolveNaming.
+void TestBatchPresetsP2::renameCandidatesStayContained() {
+    // Hostile template + rename policy: refused at parse (the containment
+    // gate runs for the naming template regardless of the conflict policy).
+    BatchPreset p;
+    QString err;
+    QVERIFY(!BatchPresetCodec::parse(QStringLiteral(
+        "{\n"
+        "    \"glyphpreset\": { \"schemaVersion\": 1, \"kind\": \"batch-preset\" },\n"
+        "    \"id\": \"evil\",\n"
+        "    \"name\": \"Evil\",\n"
+        "    \"created\": \"2026-09-23T00:00:00.000Z\",\n"
+        "    \"modified\": \"2026-09-23T00:00:00.000Z\",\n"
+        "    \"steps\": [ { \"op\": \"compress\", \"params\": {} } ],\n"
+        "    \"output\": { \"naming\": \"../evil_{n}.pdf\", \"onConflict\": \"rename\" }\n"
+        "}\n").toUtf8(), &p, &err));
+    QVERIFY2(err.contains(QStringLiteral("output.naming")), qPrintable(err));
+
+    // The naming rule never introduces separators, dot segments or
+    // non-.pdf tails, for ANY attempt, from a benign stem — and every
+    // candidate passes the shared containment gate verbatim.
+    const QDate d(2026, 9, 23);
+    for (int attempt = 2; attempt <= 999; ++attempt) {
+        const QString candidate =
+            BatchPresetSchema::renameCandidate(QStringLiteral("report_web-optimize.pdf"),
+                                               attempt);
+        QCOMPARE(candidate, QStringLiteral("report_web-optimize-%1.pdf").arg(attempt));
+        QVERIFY(!candidate.contains(QLatin1Char('/')));
+        QVERIFY(!candidate.contains(QLatin1Char('\\')));
+        QVERIFY(!candidate.contains(QLatin1Char(':')));
+        QVERIFY(!candidate.contains(QStringLiteral("..")));
+        QString checkName;
+        QString checkErr;
+        QVERIFY2(BatchPresetSchema::resolveNaming(candidate, {}, {}, 1, d,
+                                                  &checkName, &checkErr),
+                 qPrintable(checkErr));
+        QCOMPARE(checkName, candidate);
+    }
+    // ... and a hostile (already separator-carrying) input is rejected.
+    QVERIFY(BatchPresetSchema::renameCandidate(QStringLiteral("sub/dir/evil.pdf"), 2)
+                .isEmpty());
+}
+
+// The hot-folder auto-run is unattended: an "ask" preset degrades to
+// "rename" (logged), and the conflicting output is renamed — never a modal
+// overwrite prompt on the watcher path, never a silent overwrite.
+void TestBatchPresetsP2::hotFolderAutoRunDegradesAskToRename() {
+    QVERIFY(writeStoreFile(m_storeDir->path(), QStringLiteral("degrade"),
+                           QStringLiteral(
+        "{\n"
+        "    \"glyphpreset\": { \"schemaVersion\": 1, \"kind\": \"batch-preset\" },\n"
+        "    \"id\": \"degrade\",\n"
+        "    \"name\": \"Degrade\",\n"
+        "    \"created\": \"2026-09-23T00:00:00.000Z\",\n"
+        "    \"modified\": \"2026-09-23T00:00:00.000Z\",\n"
+        "    \"steps\": [ { \"op\": \"compress\", \"params\": { \"quality\": 60 } } ]\n"
+        "}\n").toUtf8()));
+
+    AppContext ctx = makeCtx();
+    BatchMode bm;
+    bm.setAppContext(&ctx);
+    bm.setOperationForTest(7);
+    bm.refreshPresetsForTest();
+    QVERIFY(bm.selectPresetForTest(QStringLiteral("degrade")));
+
+    QDir().mkpath(m_runDir->filePath(QStringLiteral("out")));
+    const QString outDir = m_runDir->filePath(QStringLiteral("out"));
+    presetOutEdit(bm)->setText(outDir);
+    // The conflicting output already exists (the drop will be renamed).
+    const QString existing = outDir + QStringLiteral("/dropped_degrade.pdf");
+    {
+        QFile f(existing);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("EXISTING OUTPUT");
+    }
+
+    // Arm the hot folder (seeds the empty dir) with auto-run ON, then DROP a
+    // new pdf into it — the ingest seam drives the watcher's work.
+    const QString hotDir = m_runDir->filePath(QStringLiteral("hot"));
+    QDir().mkpath(hotDir);
+    bm.armHotFolderForTest(hotDir);
+    const QString dropped = createTextPdf(hotDir, QStringLiteral("dropped.pdf"),
+                                          { QStringLiteral("fresh drop") });
+    QVERIFY(!dropped.isEmpty());
+
+    // The ingest seam ingests + auto-runs (onRunBatch is invoked BY the
+    // ingest path, not by the test) — wait for the batch to finish.
+    bool finished = false;
+    QObject::connect(&bm, &BatchMode::batchFinished, &bm,
+                     [&finished] { finished = true; }, Qt::DirectConnection);
+    bm.runHotFolderIngestForTest();
+    int waited = 0;
+    while (!finished && waited < 60000) {
+        QTest::qWait(50);
+        waited += 50;
+    }
+    QVERIFY2(finished, "ingest auto-run did not reach batchFinished within 60 seconds");
+    QCOMPARE(bm.successCount(), 1);
+    // The conflicting output was RENAMED, not overwritten, not skipped.
+    QVERIFY(QFileInfo::exists(outDir + QStringLiteral("/dropped_degrade-2.pdf")));
+    QFile existingFile(existing);
+    QVERIFY(existingFile.open(QIODevice::ReadOnly));
+    QCOMPARE(existingFile.readAll(), QByteArray("EXISTING OUTPUT"));
+    // The degrade is disclosed in the log.
+    const QString log = bm.findChildren<QTextEdit*>().first()->toPlainText();
+    QVERIFY2(log.contains(QStringLiteral("renamed instead of asking")), qPrintable(log));
 }
 
 QTEST_MAIN(TestBatchPresetsP2)

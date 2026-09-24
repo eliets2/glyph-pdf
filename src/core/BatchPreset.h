@@ -55,11 +55,15 @@ struct BatchPreset {
     QString   minAppVersion;// optional semver; older running app may load but not run
     QList<BatchPresetStep> steps;
     QString   outputNaming; // "" = default "{basename}_{preset}.pdf"; tokens {basename},{preset},{n},{date}
-    QString   onConflict;   // "ask" (default) | "overwrite" ("rename" refused by this build).
+    QString   onConflict;   // "ask" (default) | "overwrite" | "rename".
                             // W1-01: "overwrite" never bypasses the run-time
                             // AR-8 overwrite confirmation — it maps to the
                             // same interactive "ask" path (decline cancels);
                             // there is no silent overwrite.
+                            // "rename" (P2 plan §4.3) never overwrites at
+                            // all: the output de-conflicts to stem-2/3…,
+                            // every candidate re-checked through the
+                            // resolveNaming containment guard.
     QString   onFileFailure;// "continue" (default) ("stop" refused by this build)
 
     bool operator==(const BatchPreset& other) const {
@@ -110,6 +114,18 @@ QString defaultNamingTemplate();
 bool resolveNaming(const QString& naming, const QString& basename,
                    const QString& presetId, int fileIndex, const QDate& runDate,
                    QString* outName, QString* err);
+
+// R26-P2 (plan §4.3): the rename de-conflict NAMING rule — `stem-2.pdf`,
+// `stem-3.pdf`, … (Windows Explorer semantics; the same idiom
+// BatchPresetStore::save uses for ids). `resolvedName` must be a rendered
+// resolveNaming result; returns an empty string when it carries separators
+// or drive syntax, does not end ".pdf", or the de-conflicted stem would be
+// empty. An already-renamed name continues the chain ("x-2.pdf" occupied
+// next -> "x-3.pdf"). The caller re-checks EVERY candidate through
+// resolveNaming — the W1-01 containment choke point — before using it, so a
+// renamed output obeys exactly the same rules (bare component, no device
+// names, bounded length) as the template render.
+QString renameCandidate(const QString& resolvedName, int attempt);
 
 // Pure semver-ish compare of "MAJOR[.MINOR[.PATCH]]" strings: -1 / 0 / 1.
 // Missing components compare as 0; non-numeric tails compare as 0.
