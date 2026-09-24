@@ -87,7 +87,16 @@ struct Mat {
     double a = 1, b = 0, c = 0, d = 1, e = 0, f = 0;
 };
 
-// (m * n) applied to p == m applied to (n applied to p).
+// (m * n) applied to p == m applied to (n applied to p) — the column-vector
+// convention. PDF composes the NEW operand FIRST (CTM′ = M × CTM for cm,
+// Tlm′ = T × Tlm for Td/TD/T*: the operand maps the point into the space the
+// accumulated matrix expects), so with this operator every composition site
+// must keep the ACCUMULATED matrix on the LEFT and the NEW operand on the
+// RIGHT: (acc * new)(p) == acc(new(p)). (PR-review §3.3; the fixtures
+// scaledTextMatrixRelativeTdMovesScaled / nestedScaledCmComposesNewOperandFirst
+// in TestAccessibilityTagger pin the direction.) The rendering matrix at the
+// show operators is ctm * tm for the same reason: tm maps glyph space to
+// user space, then ctm maps user space to device space.
 Mat operator*(const Mat& m, const Mat& n) {
     return Mat{m.a * n.a + m.b * n.c,
                m.a * n.b + m.b * n.d,
@@ -628,7 +637,11 @@ void walkOneStream(TagEnv env, PdfCanvas& canvas, StreamRec& stream) {
                     }
                     break;
                 case PdfOperator::cm:
-                    if (stk.GetSize() >= 6) ctm = matFromStack(stk) * ctm;
+                    // PR-review §3.3: accumulated matrix LEFT, new operand
+                    // RIGHT — the cm operand applies to the point first
+                    // (CTM′ = M × CTM), scaling/rotating/translating
+                    // everything the CTM already carried.
+                    if (stk.GetSize() >= 6) ctm = ctm * matFromStack(stk);
                     break;
                 case PdfOperator::BT:
                     tm = Mat{};
@@ -639,16 +652,19 @@ void walkOneStream(TagEnv env, PdfCanvas& canvas, StreamRec& stream) {
                     break;
                 case PdfOperator::Td:
                     if (stk.GetSize() >= 2) {
-                        tlm = Mat{1, 0, 0, 1, numAt(stk[1]),
-                                  numAt(stk[0])} * tlm;
+                        // §3.3: Tlm′ = T × Tlm — the translation is in text
+                        // space, so the OLD matrix scales it (a 0 -1.2 Td
+                        // under 12 0 0 12 Tm moves 14.4pt, not 1.2pt).
+                        tlm = tlm * Mat{1, 0, 0, 1, numAt(stk[1]),
+                                        numAt(stk[0])};
                         tm = tlm;
                     }
                     break;
                 case PdfOperator::TD:
                     if (stk.GetSize() >= 2) {
                         leading = -numAt(stk[0]);
-                        tlm = Mat{1, 0, 0, 1, numAt(stk[1]),
-                                  numAt(stk[0])} * tlm;
+                        tlm = tlm * Mat{1, 0, 0, 1, numAt(stk[1]),
+                                        numAt(stk[0])};
                         tm = tlm;
                     }
                     break;
@@ -659,7 +675,7 @@ void walkOneStream(TagEnv env, PdfCanvas& canvas, StreamRec& stream) {
                     }
                     break;
                 case PdfOperator::T_Star:
-                    tlm = Mat{1, 0, 0, 1, 0, -leading} * tlm;
+                    tlm = tlm * Mat{1, 0, 0, 1, 0, -leading};
                     tm = tlm;
                     break;
                 case PdfOperator::Tf:
@@ -688,7 +704,7 @@ void walkOneStream(TagEnv env, PdfCanvas& canvas, StreamRec& stream) {
                 case PdfOperator::DoubleQuote: {
                     if (op != PdfOperator::Tj) {
                         // ' and " imply a line break first.
-                        tlm = Mat{1, 0, 0, 1, 0, -leading} * tlm;
+                        tlm = tlm * Mat{1, 0, 0, 1, 0, -leading};
                         tm = tlm;
                     }
                     // The show string is the operand pushed LAST - for
