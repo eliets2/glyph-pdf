@@ -153,6 +153,45 @@ jobs:
           fi
           echo "PASS: HAS_PDFIUM, HAS_TESSERACT, HAS_RAPIDOCR all confirmed ON"
 
+      # Fontconfig has NO default configuration on Windows — the package
+      # installs the library but no usable fonts.conf, and font matching then
+      # fails for every UI surface. That is what reds the Test step on
+      # TestWelcomeRoutes + TestSweepW3UxFlows (the modal/route UI suites;
+      # recorded in docs/audit/CONSOLIDATION-HANDOFF-2026-09-24.md §10). Write
+      # a minimal honest config — the runner's real font directory, a writable
+      # cache, the standard generic-family aliases — and export it for the
+      # Test step via FONTCONFIG_FILE/FONTCONFIG_PATH.
+      - name: Provide a default Fontconfig configuration
+        run: |
+          mkdir -p /tmp/fontconfig /tmp/fontconfig-cache
+          cat > /tmp/fontconfig/fonts.conf <<'EOF'
+          <?xml version="1.0"?>
+          <!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+          <fontconfig>
+            <!-- Windows runners ship no default Fontconfig configuration:
+                 point the library at the real font directory and a writable
+                 cache so font matching works for the UI test suites. -->
+            <dir>C:/Windows/Fonts</dir>
+            <cachedir>/tmp/fontconfig-cache</cachedir>
+            <alias binding="same">
+              <family>sans-serif</family>
+              <prefer><family>Arial</family><family>Segoe UI</family></prefer>
+            </alias>
+            <alias binding="same">
+              <family>serif</family>
+              <prefer><family>Times New Roman</family></prefer>
+            </alias>
+            <alias binding="same">
+              <family>monospace</family>
+              <prefer><family>Courier New</family></prefer>
+            </alias>
+          </fontconfig>
+          EOF
+          fc-cache -f >/dev/null
+          fc-match sans-serif
+          echo "FONTCONFIG_FILE=/tmp/fontconfig/fonts.conf" >> "$GITHUB_ENV"
+          echo "FONTCONFIG_PATH=/tmp/fontconfig" >> "$GITHUB_ENV"
+
       - name: Test
         # ONNX model files (models/) are gitignored — tests that need them QSKIP gracefully.
         # PDFium is present (downloaded above) so HAS_PDFIUM tests run with real character positions.
