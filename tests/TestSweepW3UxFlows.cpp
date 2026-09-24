@@ -739,6 +739,12 @@ private slots:
         QVERIFY(reader.loadDocument(out));
         const bool hasA = reader.extractText(0).contains(QStringLiteral("MERGEPARTONE"));
         QVERIFY2(hasA, "F2a: merged artifact must carry part one");
+        // The merge worker can finish before the QTRY existence checks above
+        // ever spin the event loop (fast machine, tiny fixture): the completion
+        // modal lambda is then still queued when the honesty assertion runs and
+        // the capture reads empty. Wait for the capture itself — the modal the
+        // route owes the user is part of what F2a verifies.
+        QTRY_VERIFY_WITH_TIMEOUT(!modalText.isEmpty(), 10000);
         step(QStringLiteral("F2a verified: artifact has %1 page(s) and carries the input "
                            "content; completion modal title='%2' text='%3'")
                  .arg(reader.pageCount()).arg(modalTitle, modalText.left(220)));
