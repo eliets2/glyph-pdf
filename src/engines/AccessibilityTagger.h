@@ -80,6 +80,10 @@ struct TaggerPreflight {
     bool loadOk = false;
     QString loadError;
     bool alreadyTagged = false;  // /StructTreeRoot present → tagging refuses
+    // PR-review §3.2: a signed signature field (/V with /ByteRange) is
+    // present → tagging refuses. The transaction rewrites every content
+    // stream and full-saves in place, which would invalidate the signature.
+    bool signedDocument = false;
     bool anyText = false;        // any honestly-decodable text runs exist
     QList<TaggerSizeCluster> sizeClusters;
     QList<TaggerImageGap> imageGaps;

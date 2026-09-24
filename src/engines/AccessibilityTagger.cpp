@@ -1317,6 +1317,53 @@ QList<QList<QPair<QString, long long>>> extractionSequences(
     return seq;
 }
 
+// ── PR-review §3.2: signed-document detection ────────────────────────────────
+// The tag transaction rewrites every content stream and full-saves in place,
+// which would invalidate every existing signature — so a document with a
+// SIGNED signature field is refused, never rewritten. Detection mirrors
+// SignatureManager's own "already signed" walk: a signature field whose /V
+// resolves to a dictionary carrying /ByteRange is signed; an unsigned widget
+// field carries /V absent, null, or an empty string. An unwalkable field tree
+// is treated conservatively as unsigned (same convention as the redaction
+// engine's hasPdfSignatures — the load itself has already succeeded).
+bool hasSignedSignatureFields(const PoDoFo::PdfMemDocument& doc) {
+    try {
+        for (const auto* f : doc.GetFieldsIterator()) {
+            if (f == nullptr
+                || f->GetType() != PoDoFo::PdfFieldType::Signature)
+                continue;
+            const auto* sig = static_cast<const PoDoFo::PdfSignature*>(f);
+            const PdfObject* vObj = sig->GetDictionary().FindKey(PdfName("V"));
+            if (vObj == nullptr) continue;
+            const PdfObject* valObj = nullptr;
+            if (vObj->IsDictionary()) {
+                valObj = vObj;
+            } else if (vObj->IsReference()) {
+                try {
+                    valObj = &doc.GetObjects().MustGetObject(
+                        vObj->GetReference());
+                } catch (const PoDoFo::PdfError&) {
+                    valObj = nullptr;
+                }
+            }
+            if (valObj != nullptr && valObj->IsDictionary()
+                && valObj->GetDictionary().HasKey(PdfName("ByteRange")))
+                return true;
+        }
+    } catch (const PoDoFo::PdfError&) {
+        // Cannot determine — treat conservatively as unsigned.
+    }
+    return false;
+}
+
+// The engine-level signed refusal (review §3.2: the redaction-grade message,
+// adapted to what tagging actually does to a signed file).
+const char* kSignedTagRefusal =
+    "This document is digitally signed. Tagging rewrites all content streams "
+    "and saves the document in place, which would invalidate every existing "
+    "signature. Save an unsigned copy first (File > Save As), then tag the "
+    "copy.";
+
 } // namespace
 
 // ── the public pre-flight ────────────────────────────────────────────────────
@@ -1339,6 +1386,10 @@ TaggerPreflight preflightTagging(const QString& path) {
     }
 
     p.loadOk = true;
+
+    // PR-review §3.2: the pre-flight reports a signed document so the panel
+    // can refuse up front (the transaction itself refuses below regardless).
+    p.signedDocument = hasSignedSignatureFields(doc);
 
     const PdfObject* root = resolveObj(
         doc, doc.GetCatalog().GetDictionary().FindKey(
@@ -1770,6 +1821,15 @@ TaggerReport tagDocumentAccessibility(const QString& path,
             report.message = QStringLiteral(
                 "this document is already tagged; re-tagging would discard "
                 "the existing structure");
+            return report;
+        }
+
+        // PR-review §3.2: a signed document is refused, never rewritten —
+        // the full in-place save would invalidate every existing signature.
+        // The refusal happens before any candidate exists: the file stays
+        // byte-identical and the signature still validates.
+        if (hasSignedSignatureFields(doc)) {
+            report.message = QString::fromLatin1(kSignedTagRefusal);
             return report;
         }
 

@@ -198,6 +198,65 @@ QTemporaryDir& fixtureDir() {
     return dir;
 }
 
+// PR-review §3.2 fixture: a taggable PDF that also carries a signature
+// field. With signedField the widget's /V resolves to a dictionary with
+// /ByteRange (the marker every consumer — SignatureManager included — uses
+// for "already signed"); without it the field stays unsigned so the pin
+// proves the refusal is about SIGNED fields, not signature fields at all.
+bool makeSignedTaggablePdf(const QString& path, bool signedField) {
+    try {
+        PoDoFo::PdfMemDocument doc;
+        auto& page = doc.GetPages().CreatePage(
+            PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+        PdfDictionary fonts;
+        addStandardFont(doc, fonts, "F1", "Helvetica");
+        page.GetResources().GetDictionary().AddKey("Font", PdfObject(fonts));
+        auto& contents = page.GetOrCreateContents();
+        auto& stream = contents.CreateStreamForAppending(
+            PoDoFo::PdfStreamAppendFlags::None);
+        const char* c =
+            "BT\n/F1 10 Tf\n60 700 Td\n(Signed taggable line.) Tj\nET\n";
+        stream.SetData(PoDoFo::bufferview(c, std::strlen(c)));
+
+        PoDoFo::PdfArray rect;
+        rect.Add(60.0); rect.Add(600.0); rect.Add(300.0); rect.Add(650.0);
+        auto& widget = doc.GetObjects().CreateDictionaryObject();
+        widget.GetDictionary().AddKey("Type", PdfObject(PdfName("Annot")));
+        widget.GetDictionary().AddKey("Subtype", PdfObject(PdfName("Widget")));
+        widget.GetDictionary().AddKey("FT", PdfObject(PdfName("Sig")));
+        widget.GetDictionary().AddKey("T", PdfObject(PdfString("Sig1")));
+        widget.GetDictionary().AddKey("Rect", PdfObject(rect));
+        if (signedField) {
+            PoDoFo::PdfArray byteRange;
+            byteRange.Add(static_cast<int64_t>(0));
+            byteRange.Add(static_cast<int64_t>(120));
+            byteRange.Add(static_cast<int64_t>(220));
+            byteRange.Add(static_cast<int64_t>(80));
+            auto& sigVal = doc.GetObjects().CreateDictionaryObject();
+            sigVal.GetDictionary().AddKey("Type", PdfObject(PdfName("Sig")));
+            sigVal.GetDictionary().AddKey(
+                "Filter", PdfObject(PdfName("Adobe.PPKLite")));
+            sigVal.GetDictionary().AddKey(
+                "Contents", PdfObject(PdfString("sig-placeholder-bytes")));
+            sigVal.GetDictionary().AddKey("ByteRange", PdfObject(byteRange));
+            widget.GetDictionary().AddKey("V", sigVal.GetIndirectReference());
+        }
+        PoDoFo::PdfArray annots;
+        annots.Add(widget.GetIndirectReference());
+        page.GetDictionary().AddKey("Annots", PdfObject(annots));
+        auto& acro = doc.GetObjects().CreateDictionaryObject();
+        PoDoFo::PdfArray fields;
+        fields.Add(widget.GetIndirectReference());
+        acro.GetDictionary().AddKey("Fields", PdfObject(fields));
+        doc.GetCatalog().GetDictionary().AddKey("AcroForm",
+                                                acro.GetIndirectReference());
+        doc.Save(path.toUtf8().constData());
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
 QString make(const QString& name, const FixtureOpts& o) {
     const QString path = fixtureDir().filePath(name);
     if (!buildPdf(path, o)) return {};
@@ -381,6 +440,12 @@ private slots:
     // check (2pt tolerance) splits them into separate paragraphs only when
     // the composed translation is honest.
     void nestedScaledCmComposesNewOperandFirst();
+
+    // PR-review §3.2 — signed-doc refusal: the transaction rewrites all
+    // content streams and full-saves in place, which would invalidate every
+    // existing signature. A signed fixture is refused at pre-flight AND
+    // transaction, byte-identical; the unsigned-field control still tags.
+    void signedDocumentTaggingRefusedByteIdentical();
 
 private:
     static FixtureOpts headingParagraphFixture() {
@@ -1031,6 +1096,61 @@ void TestAccessibilityTagger::nestedScaledCmComposesNewOperandFirst() {
                             .arg(r.paragraphsTagged)));
     QVERIFY2(gp::validateTaggedStructureTree(pdf).isEmpty(),
              "the tagged tree must validate under the same matrix math");
+}
+
+void TestAccessibilityTagger::signedDocumentTaggingRefusedByteIdentical() {
+    const QString pdf = fixtureDir().filePath("signed-taggable.pdf");
+    QVERIFY(makeSignedTaggablePdf(pdf, true));
+    const QByteArray before = sha256(pdf);
+
+    // The pre-flight reports the signed field (the panel refuses on this).
+    const gp::TaggerPreflight p = gp::preflightTagging(pdf);
+    QVERIFY(p.loadOk);
+    QVERIFY2(p.signedDocument,
+             "the pre-flight must report the signed signature field");
+
+    // The transaction refuses BEFORE any candidate exists.
+    const gp::TaggerReport r = gp::tagDocumentAccessibility(pdf);
+    QVERIFY2(!r.ok, "a signed document must be refused, never rewritten");
+    QVERIFY2(r.message.contains(QStringLiteral("signed"), Qt::CaseInsensitive),
+             qPrintable(r.message));
+    QVERIFY2(r.message.contains(QStringLiteral("Save As"), Qt::CaseInsensitive),
+             "the refusal must name the escape hatch (redaction-grade wording)");
+
+    // Byte-identity is the strongest validation guarantee: nothing changed,
+    // so any real verifier over the original /ByteRange still validates.
+    QCOMPARE(sha256(pdf), before);
+
+    // The signature marker survives untouched in the refused file.
+    {
+        PoDoFo::PdfMemDocument reopen;
+        reopen.Load(pdf.toUtf8().constData());
+        const PdfObject* acro = resolve(
+            reopen.GetCatalog().GetDictionary().FindKey(PdfName("AcroForm")),
+            reopen);
+        QVERIFY(acro != nullptr && acro->IsDictionary());
+        const PdfObject* fields = resolve(
+            acro->GetDictionary().FindKey(PdfName("Fields")), reopen);
+        QVERIFY(fields != nullptr && fields->IsArray()
+                && fields->GetArray().GetSize() == 1);
+        const PdfObject* widget = resolve(&fields->GetArray()[0], reopen);
+        QVERIFY(widget != nullptr && widget->IsDictionary());
+        const PdfObject* v = resolve(
+            widget->GetDictionary().FindKey(PdfName("V")), reopen);
+        QVERIFY2(v != nullptr && v->IsDictionary()
+                     && v->GetDictionary().HasKey(PdfName("ByteRange")),
+                 "the signed field's /ByteRange must survive the refusal");
+    }
+
+    // Control: the same document with an UNSIGNED signature field tags fine —
+    // the refusal is about signed fields, not signature fields at all.
+    const QString unsignedPdf = fixtureDir().filePath("unsigned-taggable.pdf");
+    QVERIFY(makeSignedTaggablePdf(unsignedPdf, false));
+    const gp::TaggerReport okRun = gp::tagDocumentAccessibility(unsignedPdf);
+    QVERIFY2(okRun.ok,
+             qPrintable(QStringLiteral("an unsigned sig field must not block "
+                                      "tagging (message: %1)").arg(okRun.message)));
+    QVERIFY(gp::validateTaggedStructureTree(unsignedPdf).isEmpty());
 }
 
 #include "TestAccessibilityTagger.moc"
