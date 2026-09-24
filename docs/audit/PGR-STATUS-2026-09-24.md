@@ -58,12 +58,13 @@ statuses in [`SECURITY-QUALITY-REVIEW-parity-glm.md`](SECURITY-QUALITY-REVIEW-pa
 | PGR-37 | MED | NaN/Infinity `event.value` wiped committed `/V` | **Fixed** (Phase C.5 formjs) | `b5c63cbc` | TestFormJsCalc 49P/0F |
 | PGR-38 | LOW | `__proto__` field names vanish from snapshot | **Fixed** (Phase C.5 formjs) | `82f309ab` | TestFormJsAdversarial snapshot pin |
 | PGR-39 | LOW | Shim leaked 9 internal helpers as globals | **Fixed** (Phase C.5 formjs) | `82f309ab` | TestFormJsAdversarial surface pin |
-| PGR-40 | HIGH | quickjs-ng 0.15.0 CPU-deadline bypass (sparse-array natives) | **Deferred** — dependency bump (owner-deliberate; MSYS2 still ships 0.15.0-authorized package at integration time) | — | TestFormJsAdversarial `nativeSparseArrayScansAbideTheDeadline` (disclosed skip, auto-arms on bump) |
+| PGR-40 | HIGH | quickjs-ng CPU-deadline bypass (sparse-array natives) | **Deferred — check-lane verified the fix is NOT in 0.15.1 either.** Pin coordinated: enforced `GLYPHPDF_QUICKJS_PIN` bumped 0.15.0 → 0.15.1 (Phase C.6, `77db5be5` ← `020c0734`); same-machine A/B probe (`Array(2^31)` includes/indexOf/join) shows the interrupt handler is still never polled inside native sparse-array scans on 0.15.1; the pin's probe auto-arms when a carrying release lands. Staged runtime `libqjs-0.dll` sha256 `cc92ba7e…` = 0.15.1-1, hash-verified at integration. | `77db5be5` (pin coordination only) | TestFormJsAdversarial `nativeSparseArrayScansAbideTheDeadline` (disclosed skip, auto-arms) |
 | PGR-41 | LOW | Cascade cross-event tamper window (`FormJsRunner`) | **Deferred** — fresh-runtime-per-event is a design decision (platform-inherent) | — | pinned test flips deliberately |
 | PGR-42 | HIGH | *(D2 lane "PGR-35")* Batch cross-file output-path collisions overwrite silently | **Fixed on `feat/pgr-d2` — NOT on PR** | `39058fa9` (off-PR) | TestPgr35BatchCollision 4P *(lane)* |
 | PGR-43 | HIGH | *(D2 lane "PGR-36")* Stale signing-progress panel replays cross-document steps | **Fixed on `feat/pgr-d2` — NOT on PR** | `3fd91495` (off-PR) | TestPgr36StaleSigningPanel 3P *(lane)* |
 | PGR-44 | **CRITICAL** | *(D2 lane "PGR-37")* Pattern/replace excision space-law regression (rot90/270 + offset-origin survive) | **Fixed on `feat/pgr-d2` — NOT on PR** | `abe093aa` (off-PR) | TestPgr37PageSpaceLaw 9P *(lane)*; TestPatternRedact 8, TestFindReplace 9, TestRotate270PageSpace 8, TestLegacyOriginSpace 9 *(lane)* |
 | PGR-45 | MEDIUM | *(D2 lane "PGR-38")* Batch progress/ETA skewed by mid-run list edits | **Fixed on `feat/pgr-d2` — NOT on PR** | `958bd7c0` (off-PR) | TestBatchMode 17P *(lane)* |
+| PGR-46 | MED-HIGH | PatternRedactor `extractCharsFromOpenDoc` mixed-space flip — RedactMode **mark-all** places viewer marks from those rects, so pattern-redaction marks on rotated/offset pages land away from the matched text (same class the T2-2 fix corrected for Find&Replace) | **Open — recorded, not fixed** (residual-exec lane discovery; owner/redaction-lane surface) | — | — (evidence: `9b2b2727` commit message; RESIDUAL-PLANS-2026-09-21 Plan 5(b), CONSOLIDATED-REPORT §2.6) |
 
 ### ID collision note (PGR-42…45)
 
@@ -85,7 +86,7 @@ only — no code or branch was changed.
 
 ## Tally
 
-- **Fixed (all lines):** 38 of 45 IDs (PGR-01…22, 24, 25, 26, 27…32, 34, 35…39, 42…45 — of which 42…45 sit on `feat/pgr-d2`, off this PR).
-- **Open on this PR:** PGR-23 (HIGH), PGR-33 (LOW, owner as-is).
-- **Deferred:** PGR-40 (HIGH, dependency bump), PGR-41 (LOW, design decision).
+- **Fixed (all lines):** 38 of 46 IDs (PGR-01…22, 24, 25, 26, 27…32, 34, 35…39, 42…45 — of which 42…45 sit on `feat/pgr-d2`, off this PR).
+- **Open on this PR:** PGR-23 (HIGH), PGR-33 (LOW, owner as-is), PGR-46 (MED-HIGH, recorded-not-fixed, redaction lane queue).
+- **Deferred:** PGR-40 (HIGH — fix not in any MSYS2-carried release; pin coordinated to 0.15.1, probe auto-arms), PGR-41 (LOW, design decision).
 - **On-PR fix coverage:** every CRITICAL finding (PGR-12, PGR-21, D2's PGR-44-pending) is fixed or pending-integration; PGR-23 is the only HIGH open on the PR besides deferred PGR-40.

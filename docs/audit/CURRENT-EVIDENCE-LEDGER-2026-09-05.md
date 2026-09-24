@@ -1459,3 +1459,21 @@ authorized package 0.15.0-1 per ledger 2026-09-10/13); downgraded back to
 two docs-only commits (`a2a8ff4f` ledger rows, `16145af2` evidence re-capture)
 were not in the brief's pick list; their content is folded into this section
 and PGR-STATUS-2026-09-24.md.
+
+## 2026-09-24 (C.6, coordinator-directed) — quickjs-ng pin coordination 0.15.0 → 0.15.1 (PGR-40 check lane)
+
+Picked `020c0734` (feat/pgr40-quickjs-bump) as `77db5be5` after the
+coordinator's operational note; MSYS2 package upgraded 0.15.0-1 → 0.15.1-1
+from the local pacman cache; staged `libqjs-0.dll` sha256 `cc92ba7e…`
+hash-verified against the lane's record. The lane's same-machine A/B probe
+(`docs/audit/evidence-formjs-2026-09-23/qjs-probe-2026-09-24.c`, outputs for
+both versions in-tree) proves the PGR-40 CPU-deadline bypass is **not fixed in
+0.15.1** — PGR-40 stays deferred; the adversarial pin stays skip-arming. Zero
+golden drift on the integrated tree: TestFormJsCalc 49P/0F, TestFormJsAdversarial
+24P/0F/1skip, TestFormKeystroke 9P/0F. Operational note recorded in the
+handoff: `GLYPHPDF_QUICKJS_PIN` is a cached CMake variable — stale build dirs
+need `-DGLYPHPDF_QUICKJS_PIN=0.15.1` after the bump. Also recorded (residual
+exec lane, `9b2b2727` message): **PGR-46** — PatternRedactor
+`extractCharsFromOpenDoc` mixed-space flip misplaces RedactMode mark-all
+viewer marks on rotated/offset pages; recorded-not-fixed, redaction lane queue
+(RESIDUAL-PLANS-2026-09-21 Plan 5(b), CONSOLIDATED-REPORT §2.6).
