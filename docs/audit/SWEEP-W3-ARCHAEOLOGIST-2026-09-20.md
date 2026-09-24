@@ -166,3 +166,20 @@ Fixtures/mocks (checked; NO orphans — do not let "zero direct refs" re-surface
    verified by CMake condition reading, not by a Linux build.
 
 — code-archaeologist, SWEEP-W3. Handoff: `.context/sweep-w3-archaeo-wip.md` (gitignored, tree-local).
+
+---
+
+## DISPOSITION UPDATE — 2026-09-23 (residexec lane: RESIDUAL-PLANS-2026-09-21 Plan 12 executed)
+
+The open revival question is CLOSED-KEEP, with an owner-named, dated keep-note in
+`src/ui/AnnotationToolBar.h` (this lane carries the keep decision until the parity
+pass; re-decide there). No code change: the class stays uncompiled, the ribbon pin
+(tests/TestAnnotationToolBar.cpp) stays the authoritative markup-surface test.
+
+Watch-list rows recorded so no future deletion pass re-litigates them:
+
+| Item | Disposition | Basis |
+|---|---|---|
+| `src/ui/AnnotationToolBar.{cpp,h}` | **CLOSED-KEEP** (revival question closed) | e5a5f01 framed the class as the revival base for the floating-toolbar parity gap; dated keep-note now in the header. Deletion re-opens ONLY with the parity lane's sign-off at the P2 parity pass. |
+| `src/core/LibSecretStore.{cpp,h}` | **PLATFORM-GATED LOAD-BEARING — never propose deletion on Windows-build evidence** | CMakeLists.txt gates its sources; it is the live secret-store backend on Linux. Windows-tree reachability greps prove nothing about it. |
+| `tests/TestImageDedup.cpp` | **ALIVE — 2026-09-09 ledger row superseded by later work** | The CLEANUP-LEDGER's registration-failure analysis describes a then-current tree; the file is a registered test target at the consolidated tip. Deletion pass must not act on the stale row. |
