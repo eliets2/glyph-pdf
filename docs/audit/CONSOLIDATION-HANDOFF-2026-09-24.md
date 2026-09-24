@@ -252,3 +252,17 @@ git log --format=%B 7d4d8d08..HEAD | grep -c "cherry picked from commit"
   pdfium/onnxruntime DLL staging copied in (see §8).
 - Local-only out-of-scope (unchanged): consolidate/all @ 95dccb23,
   feat/erase-ox-auto @ faa6cf10.
+
+## 10. CI record (added post-push)
+
+- `build-and-test` was already red at the pre-run heads (`8a0a8b3d`,
+  `7d4d8d08`): the job fails at the **Test** step on `TestSweepW3UxFlows`
+  (runner Fontconfig errors; the same flow/modal flake class dispositioned
+  above) — 175/181 there. Guards green throughout.
+- The C.6 pin coordination initially moved the failure earlier: the runner's
+  MSYS2 snapshot serves quickjs-ng 0.15.0 while the repo now enforces 0.15.1,
+  failing the guarded **Configure** step. Fixed in-repo with a targeted
+  `pacman -Sy --needed mingw-w64-ucrt-x86_64-quickjs-ng` step in
+  `.github/workflows/ci.yml` (the guard itself is never weakened; if MSYS2
+  moves past the pin, configure fails loudly by design and the pin is
+  re-triaged).

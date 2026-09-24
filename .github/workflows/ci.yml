@@ -64,6 +64,15 @@ jobs:
             mingw-w64-ucrt-x86_64-openjpeg2
             mingw-w64-ucrt-x86_64-fontconfig
 
+      # The CMake quickjs pin guard (GLYPHPDF_QUICKJS_PIN) enforces the version
+      # the PGR-40 check lane authorized (0.15.1, hash-recorded). The
+      # setup-msys2 snapshot can lag the repo; refresh quickjs-ng alone so the
+      # guarded configure matches. If MSYS2 moves past the pin, the guard fails
+      # loudly by design — bump deliberately, never weaken the guard.
+      - name: Sync quickjs-ng to the pinned release
+        shell: msys2 {0}
+        run: pacman -Sy --needed --noconfirm mingw-w64-ucrt-x86_64-quickjs-ng
+
       # The codebase requires podofo 1.1.0 (accessor API on PdfContent etc.).
       # MSYS2 ships an older podofo, so build 1.1.0 from source into the
       # vendored prefix that CMakeLists.txt auto-detects. Cached across runs.
