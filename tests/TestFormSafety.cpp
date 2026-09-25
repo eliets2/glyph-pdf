@@ -169,6 +169,10 @@ private slots:
     // V06: auto-detected placements go through the application undo stack.
     void autoDetectPlacesFieldsAsOneUndoableCompound();
     void autoDetectPartialFailureCountsAccuratelyAndStaysRecoverable();
+    // CX-05: app-authored numeric/date fields must gate fillForm/UI-Apply
+    // commits through the commit-phase /AA /K check.
+    void numericDateCommitGateBlocksInvalidFillFormValues();
+    void numericDateCommitGateGuardsUiApplyValue();
 };
 
 // ── THE F01 reproduction ────────────────────────────────────────────────────
@@ -790,6 +794,145 @@ void TestFormSafety::editFieldCommandRefusesReadOnlyDocument() {
              qPrintable(QStringLiteral("the refusal must be the honest read-only "
                                       "message, got: %1").arg(probe.lastError())));
     QCOMPARE(sha256(pdf), shaBefore);
+}
+
+// CX-05: addNumericField/addDateField author /AA /K (AFNumber_Keystroke /
+// AFDate_KeystrokeEx) whose final-value check runs ONLY in the commit phase
+// (event.willCommit=true). fillForm must run that commit-phase keystroke
+// check on the full proposed value BEFORE committing /V: an invalid value is
+// refused (field-attributed failure, prior /V kept, the user's OTHER fields
+// still commit) and a valid one commits through the same gate.
+void TestFormSafety::numericDateCommitGateBlocksInvalidFillFormValues() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = makeTextPdf(tmp.path(), "cx05-fill.pdf", {"CX-05 fill probe"});
+
+    FormManager fm;
+    QVERIFY(fm.addNumericField(pdf, 0, QRectF(72, 150, 140, 30), QStringLiteral("cx05_num"), pdf));
+    QVERIFY(fm.addDateField(pdf, 0, QRectF(72, 190, 140, 30), QStringLiteral("cx05_date"), pdf));
+
+    const auto readV = [](const QString& path, const QString& name) -> QString {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(path.toUtf8().constData());
+        auto* acroForm = doc.GetAcroForm();
+        Q_ASSERT(acroForm);
+        for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
+            auto& field = acroForm->GetFieldAt(i);
+            if (QString::fromStdString(field.GetFullName()) != name) continue;
+            if (auto* t = dynamic_cast<PoDoFo::PdfTextBox*>(&field)) {
+                auto v = t->GetText();
+                return v.has_value()
+                    ? QString::fromUtf8(v.value().GetString().data(), v.value().GetString().size())
+                    : QString();
+            }
+        }
+        return QString();
+    };
+    QCOMPARE(readV(pdf, QStringLiteral("cx05_num")), QString()); // authored empty
+
+    // Invalid values: the commit-phase /AA /K check must refuse them —
+    // field-attributed failures, prior (empty) /V kept.
+    QVariantMap bad;
+    bad[QStringLiteral("cx05_num")] = QStringLiteral("abc");
+    bad[QStringLiteral("cx05_date")] = QStringLiteral("not-a-date");
+    QList<FormJsFailure> jsFailures;
+    QStringList unsupported;
+    QVERIFY(fm.fillForm(pdf, bad, pdf, /*lockFields=*/false, &unsupported, &jsFailures));
+    QVERIFY(unsupported.isEmpty());
+    bool numNamed = false, dateNamed = false;
+    for (const FormJsFailure& f : jsFailures) {
+        numNamed |= (f.fieldName == QLatin1String("cx05_num"));
+        dateNamed |= (f.fieldName == QLatin1String("cx05_date"));
+    }
+    QVERIFY2(numNamed, "the numeric refusal must be disclosed field-attributed");
+    QVERIFY2(dateNamed, "the date refusal must be disclosed field-attributed");
+    QCOMPARE(readV(pdf, QStringLiteral("cx05_num")), QString());
+    QCOMPARE(readV(pdf, QStringLiteral("cx05_date")), QString());
+
+    // Valid values commit through the same gate.
+    QVariantMap good;
+    good[QStringLiteral("cx05_num")] = QStringLiteral("42.5");
+    good[QStringLiteral("cx05_date")] = QStringLiteral("2026-09-24");
+    QList<FormJsFailure> okFailures;
+    QVERIFY(fm.fillForm(pdf, good, pdf, /*lockFields=*/false, &unsupported, &okFailures));
+    QVERIFY(okFailures.isEmpty());
+    QCOMPARE(readV(pdf, QStringLiteral("cx05_num")), QStringLiteral("42.5"));
+    QCOMPARE(readV(pdf, QStringLiteral("cx05_date")), QStringLiteral("2026-09-24"));
+}
+
+// CX-05 (UI Apply): applyFieldSnapshot — the engine call behind the field
+// panel's Apply button — runs the same commit-phase /AA /K gate on the
+// value: a rejected value keeps the prior /V while the ungated snapshot
+// parts (tooltip, required) still commit (the fill-transaction policy), and
+// the transaction validator compares against what ACTUALLY committed.
+void TestFormSafety::numericDateCommitGateGuardsUiApplyValue() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = makeTextPdf(tmp.path(), "cx05-apply.pdf", {"CX-05 apply probe"});
+
+    FormManager fm;
+    QVERIFY(fm.addNumericField(pdf, 0, QRectF(72, 150, 140, 30), QStringLiteral("cx05_num"), pdf));
+
+    // Invalid value: refused — /V keeps the prior (empty) value, the
+    // ungated metadata still commits, the failure is field-attributed.
+    FormFieldSnapshot bad;
+    bad.found = true;
+    bad.name = QStringLiteral("cx05_num");
+    bad.valuePresent = true;
+    bad.value = QStringLiteral("abc");
+    bad.tooltipPresent = true;
+    bad.tooltip = QStringLiteral("apply probe tip");
+    bad.required = true;
+    QList<FormJsFailure> jsFailures;
+    QVERIFY(fm.applyFieldSnapshot(pdf, bad, pdf, &jsFailures));
+    bool named = false;
+    for (const FormJsFailure& f : jsFailures)
+        named |= (f.fieldName == QLatin1String("cx05_num"));
+    QVERIFY2(named, "the refusal must be disclosed field-attributed");
+    {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(pdf.toUtf8().constData());
+        auto* acroForm = doc.GetAcroForm();
+        QVERIFY(acroForm);
+        bool valueKept = false, tipCommitted = false;
+        for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
+            auto& field = acroForm->GetFieldAt(i);
+            if (QString::fromStdString(field.GetFullName()) != QLatin1String("cx05_num")) continue;
+            if (auto* t = dynamic_cast<PoDoFo::PdfTextBox*>(&field)) {
+                auto v = t->GetText();
+                valueKept = !v.has_value() || v.value().GetString().empty();
+            }
+            const PoDoFo::PdfObject* tu = field.GetDictionary().FindKey("TU");
+            tipCommitted = tu && tu->IsString();
+        }
+        QVERIFY2(valueKept, "the rejected value must not commit; the prior /V stands");
+        QVERIFY2(tipCommitted, "the ungated snapshot parts still commit");
+    }
+
+    // A valid value commits through the same gate.
+    FormFieldSnapshot good = bad;
+    good.value = QStringLiteral("42.5");
+    QList<FormJsFailure> okFailures;
+    QVERIFY(fm.applyFieldSnapshot(pdf, good, pdf, &okFailures));
+    QVERIFY(okFailures.isEmpty());
+    {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(pdf.toUtf8().constData());
+        auto* acroForm = doc.GetAcroForm();
+        QVERIFY(acroForm);
+        bool committed = false;
+        for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
+            auto& field = acroForm->GetFieldAt(i);
+            if (QString::fromStdString(field.GetFullName()) != QLatin1String("cx05_num")) continue;
+            if (auto* t = dynamic_cast<PoDoFo::PdfTextBox*>(&field)) {
+                auto v = t->GetText();
+                committed = v.has_value()
+                    && QString::fromUtf8(v.value().GetString().data(), v.value().GetString().size())
+                           == QLatin1String("42.5");
+            }
+        }
+        QVERIFY2(committed, "the valid value must commit");
+    }
 }
 
 QTEST_MAIN(TestFormSafety)

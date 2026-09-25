@@ -513,22 +513,42 @@ QString EncryptedFileSecretStore::readSecret(const QString& service) const
                 }
                 QJsonObject freshEntries =
                     freshRoot.value(QStringLiteral("secrets")).toObject();
-                freshEntries.insert(service,
-                                    QString::fromLatin1(wrapped.toBase64()));
-                freshRoot.insert(QStringLiteral("secrets"), freshEntries);
-                const QByteArray json =
-                    QJsonDocument(freshRoot).toJson(QJsonDocument::Compact);
-                QSaveFile out(m_filePath);
-                if (out.open(QIODevice::WriteOnly)
-                    && out.write(json) == json.size() && out.commit()) {
-                    qDebug() << "EncryptedFileSecretStore: migrated legacy "
-                                "0x02 entry" << service
-                             << "to the v3 (entry-bound) format";
+                // CX-06: the legacy blob was read + decrypted BEFORE this
+                // lock. Between that read and this lock another writer may
+                // have replaced or deleted the SAME service's entry. The
+                // migration owns only the entry it actually read: re-wrap
+                // ONLY when the fresh entry is byte-for-byte the one that
+                // was decrypted, and NEVER re-insert an absent entry — a
+                // stale insert would overwrite a concurrent replacement or
+                // resurrect a concurrently deleted credential. Any other
+                // state defers to the concurrent writer (the entry stays
+                // legacy only if it was never replaced).
+                const QString freshB64 =
+                    freshEntries.value(service).toString();
+                if (freshB64 != b64) {
+                    qDebug() << "EncryptedFileSecretStore: deferring the "
+                                "legacy 0x02 migration of" << service
+                             << "- the entry changed or vanished under a "
+                                "concurrent writer; not re-wrapping a value "
+                                "this read no longer owns";
                 } else {
-                    qWarning() << "EncryptedFileSecretStore: could not "
-                                  "migrate legacy 0x02 entry" << service
-                               << "to the v3 format (store not rewritten); "
-                                  "will retry on the next read";
+                    freshEntries.insert(service,
+                                        QString::fromLatin1(wrapped.toBase64()));
+                    freshRoot.insert(QStringLiteral("secrets"), freshEntries);
+                    const QByteArray json =
+                        QJsonDocument(freshRoot).toJson(QJsonDocument::Compact);
+                    QSaveFile out(m_filePath);
+                    if (out.open(QIODevice::WriteOnly)
+                        && out.write(json) == json.size() && out.commit()) {
+                        qDebug() << "EncryptedFileSecretStore: migrated legacy "
+                                    "0x02 entry" << service
+                                 << "to the v3 (entry-bound) format";
+                    } else {
+                        qWarning() << "EncryptedFileSecretStore: could not "
+                                      "migrate legacy 0x02 entry" << service
+                                   << "to the v3 format (store not rewritten); "
+                                      "will retry on the next read";
+                    }
                 }
             } else {
                 qWarning() << "EncryptedFileSecretStore: store is locked by "

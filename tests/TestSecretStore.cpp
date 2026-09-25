@@ -13,9 +13,11 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLockFile>
 #include <QProcess>
 #include <QStandardPaths>
 #include <QSysInfo>
+#include <QThread>
 
 #include <openssl/evp.h>
 #include <openssl/rand.h>
@@ -176,6 +178,21 @@ QByteArray craftLegacyV2Blob(const QByteArray& plaintext)
     LocalFree(out.pbData);
     return blob;
 }
+
+// CX-06 interleaving reader: performs ONE default-path readSecret on a store
+// whose lock the test holds — the legacy 0x02 migration does its pre-lock
+// read+decrypt, then parks on the store lock until the test releases it, so
+// the concurrent state can be published exactly between the two halves.
+struct MigrationReader : QThread {
+    MigrationReader(QString p, QString s) : path(std::move(p)), svc(std::move(s)) {}
+    QString path;
+    QString svc;
+    QString got;  // what readSecret returned (oldSecret ⇒ the pre-lock read happened)
+    void run() override {
+        EncryptedFileSecretStore store(path);  // default (DPAPI) path
+        got = store.readSecret(svc);
+    }
+};
 #endif
 
 // PGR-20: replicate the store's no-override seed derivation (resolveKey())
@@ -703,6 +720,117 @@ private slots:
         QVERIFY(swapServiceBlobs(path, "MigSvcA", "MigSvcB"));
         QCOMPARE(store.readSecret("MigSvcA"), secretA);
         QCOMPARE(store.readSecret("MigSvcB"), secretB);
+    }
+
+    // ── CX-06 — the legacy migration must not undo a concurrent change ──────
+    // The 0x02 migration reads + decrypts the legacy blob BEFORE it takes the
+    // store lock; between that read and the lock another process may replace
+    // or delete the SAME service's entry. Re-inserting the stale re-wrap
+    // under the lock would overwrite a concurrent replacement (UPDATE) or
+    // resurrect a deleted credential (DELETE) — undoing another writer's
+    // committed change (PGR-25's lock never covered this same-service read
+    // half). The migration owns only the entry it actually read: under the
+    // lock it must re-wrap ONLY when the fresh entry is byte-for-byte the
+    // one it decrypted, and never re-insert an absent entry.
+    //
+    // Controlled interleaving (synthetic credentials only): the test holds
+    // the store lock BEFORE starting the reader, so the migration's pre-lock
+    // half completes while the lock is held and the tryLock parks; the
+    // concurrent state is published while the reader waits, then the lock is
+    // released. A round only counts as exercised when the reader's returned
+    // value proves it read the legacy blob pre-lock; otherwise the round
+    // retries (bounded), so a slow thread start can never fake a pass.
+
+    void legacyMigrationDoesNotUndoConcurrentUpdate() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.path() + "/cx06-update.json";
+        const QString svc = QStringLiteral("Cx06UpdateSvc");
+        const QString oldSecret = QStringLiteral("sk-ant-cx06-old-fake-0001");
+        const QString newSecret = QStringLiteral("sk-ant-cx06-new-fake-0002");
+
+        bool exercised = false;
+        for (int attempt = 0; attempt < 5 && !exercised; ++attempt) {
+            QVERIFY2(writeServiceBlob(path, svc,
+                                      craftLegacyV2Blob(oldSecret.toUtf8())),
+                     "fixture seeding: the legacy 0x02 entry must be writable");
+            QLockFile lock(path + QStringLiteral(".lock"));  // storeLockPath
+            QVERIFY2(lock.tryLock(1000),
+                     "fixture: the test must hold the store lock");
+            MigrationReader reader(path, svc);
+            reader.start();
+            // The reader reads + decrypts the legacy blob, then parks on the
+            // lock. The publish below must land AFTER that pre-lock read.
+            QThread::msleep(500);
+            // Concurrent writer REPLACES the entry: a fresh 0x02 blob with a
+            // different synthetic value (DPAPI randomizes, so the bytes —
+            // and the base64 the migration compares — differ from the seeded
+            // blob).
+            const QByteArray newBlob = craftLegacyV2Blob(newSecret.toUtf8());
+            QVERIFY2(!newBlob.isEmpty(),
+                     "fixture crafting: CryptProtectData must succeed");
+            QVERIFY2(writeServiceBlob(path, svc, newBlob),
+                     "the concurrent update must be publishable");
+            lock.unlock();  // QLockFile::unlock() is void; release is implied by scope and asserted via the interleaving below
+            QVERIFY2(reader.wait(60000), "the reader thread must finish");
+            exercised = (reader.got == oldSecret);
+        }
+        QVERIFY2(exercised,
+                 "the controlled interleaving must occur within the retry "
+                 "budget (the reader must have read the legacy blob pre-lock)");
+
+        // The concurrent replacement must SURVIVE the reader's migration.
+        EncryptedFileSecretStore after(path);
+        QCOMPARE(after.readSecret(svc), newSecret);
+    }
+
+    void legacyMigrationDoesNotResurrectDeletedEntry() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.path() + "/cx06-delete.json";
+        const QString svc = QStringLiteral("Cx06DeleteSvc");
+        const QString oldSecret = QStringLiteral("sk-ant-cx06-del-fake-0001");
+
+        bool exercised = false;
+        for (int attempt = 0; attempt < 5 && !exercised; ++attempt) {
+            QVERIFY2(writeServiceBlob(path, svc,
+                                      craftLegacyV2Blob(oldSecret.toUtf8())),
+                     "fixture seeding: the legacy 0x02 entry must be writable");
+            QLockFile lock(path + QStringLiteral(".lock"));  // storeLockPath
+            QVERIFY2(lock.tryLock(1000),
+                     "fixture: the test must hold the store lock");
+            MigrationReader reader(path, svc);
+            reader.start();
+            QThread::msleep(500);
+            // Concurrent writer DELETES the entry (deleteSecret's shape: a
+            // fresh root without the service key, everything else intact).
+            QJsonObject root = readStoreRoot(path);
+            QVERIFY2(!root.isEmpty(), "the seeded store must be readable");
+            QJsonObject entries =
+                root.value(QStringLiteral("secrets")).toObject();
+            entries.remove(svc);
+            root.insert(QStringLiteral("secrets"), entries);
+            QFile f(path);
+            QVERIFY2(f.open(QIODevice::WriteOnly | QIODevice::Truncate),
+                     "the concurrent delete must be publishable");
+            QVERIFY2(f.write(QJsonDocument(root).toJson(QJsonDocument::Compact)) > 0,
+                     "the concurrent delete must be written");
+            f.close();
+            lock.unlock();  // QLockFile::unlock() is void; release is implied by scope and asserted via the interleaving below
+            QVERIFY2(reader.wait(60000), "the reader thread must finish");
+            exercised = (reader.got == oldSecret);
+        }
+        QVERIFY2(exercised,
+                 "the controlled interleaving must occur within the retry "
+                 "budget (the reader must have read the legacy blob pre-lock)");
+
+        // The deletion must SURVIVE: the migration never re-inserts an
+        // absent entry.
+        EncryptedFileSecretStore after(path);
+        QVERIFY2(after.readSecret(svc).isEmpty(),
+                 "a concurrently deleted entry must not be resurrected by "
+                 "the stale re-wrap");
+        QVERIFY(!after.hasSecret(svc));
     }
 
     // ── PGR-26 — API-key credentials must not roam beyond this machine ──────
