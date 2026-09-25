@@ -1328,6 +1328,20 @@ QImage PdfViewerWidget::renderPage(int page, qreal scaleFactor) const
     // double-rotate every snapshot.
     QPdfDocumentRenderOptions opts;
     QImage result = m_document->render(page, imageSize, opts);
+    // PDF pages carry no background of their own: QPdfDocument::render leaves
+    // unpainted areas TRANSPARENT, and QPdfView paints white paper beneath its
+    // own pages. Every consumer of this render — the thumbnail rail, the
+    // two-page spread, interactive OCR input, clipboard snapshots — needs the
+    // same paper, or the page shows the theme through it.
+    if (!result.isNull() && result.hasAlphaChannel()) {
+        QImage paper(result.size(), QImage::Format_ARGB32_Premultiplied);
+        paper.setDevicePixelRatio(result.devicePixelRatio());
+        paper.fill(Qt::white);
+        QPainter painter(&paper);
+        painter.drawImage(0, 0, result);
+        painter.end();
+        result = paper;
+    }
 
     // Store in cache. P9: keep a running byte total instead of re-summing the
     // whole cache on every insert. If this page already had an entry (e.g. cached
