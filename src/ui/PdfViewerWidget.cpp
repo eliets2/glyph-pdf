@@ -384,6 +384,12 @@ bool PdfViewerWidget::loadDocument(const QString &fileName)
     m_document->load(fileName);
     if (isLoaded()) loadAnnotations();
     refreshPageLinks(); // §9.1 P0: prime link cache for the opening page
+    // A new document is a page change for every pageChanged listener (the
+    // thumbnail rail, comments and files panes, status bar, Measure panel).
+    // QPdfPageNavigator only signals a CHANGE, and page 0 → page 0 across two
+    // documents is none — the rail stayed at "PAGES · 0" and the side panes
+    // kept the previous document.
+    if (isLoaded()) onPageChanged();
     m_suppressAnnotationDirty = false;
     // G14 (QUALITY-GATE-2026-09-09): report the freshly loaded document's
     // pending-embed state. A sidecar that recorded UNEMBEDDED annotation work
