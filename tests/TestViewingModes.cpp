@@ -37,6 +37,7 @@ private slots:
     void nightModeChangesTheRenderedViewer();
     void loadedPageIsVisibleUnderTheShippedStylesheet();
     void loadingADocumentAnnouncesItsFirstPage();
+    void renderedPagesArePaperWhite();
 
 private:
     static QString writeOnePagePdf(const QTemporaryDir &dir, const QString &name);
@@ -235,6 +236,23 @@ void TestViewingModes::loadingADocumentAnnouncesItsFirstPage()
     QVERIFY(viewer.loadDocument(writeOnePagePdf(dir, QStringLiteral("b.pdf"))));
     QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 2000);
     QCOMPARE(viewer.filePath(), dir.filePath(QStringLiteral("b.pdf")));
+}
+
+// renderPage feeds the thumbnail rail, the two-page spread, interactive OCR
+// and clipboard snapshots. QPdfDocument::render leaves a page's unpainted
+// areas TRANSPARENT (QPdfView paints white paper beneath its own pages), so
+// every one of those consumers showed the dark theme through the page.
+void TestViewingModes::renderedPagesArePaperWhite()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    PdfViewerWidget viewer;
+    QVERIFY(viewer.loadDocument(writeOnePagePdf(dir, QStringLiteral("paper.pdf"))));
+
+    const QImage page = viewer.renderPage(0, 1.0);
+    QVERIFY(!page.isNull());
+    QCOMPARE(page.pixelColor(2, 2), QColor(Qt::white));   // blank margin = paper
+    QCOMPARE(page.pixelColor(page.width() - 3, page.height() - 3), QColor(Qt::white));
 }
 
 QTEST_MAIN(TestViewingModes)
